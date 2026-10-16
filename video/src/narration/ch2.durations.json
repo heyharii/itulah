@@ -1,0 +1,22 @@
+{
+  "receiving": {
+    "seconds": 5.51175,
+    "say": "Di Gudang, daftar Receiving hanya menunjukkan berapa artikel yang ditunggu, tanpa jumlahnya."
+  },
+  "blind": {
+    "seconds": 4.51925,
+    "say": "Ini blind count: Gudang menghitung tanpa melihat jumlah pesanan."
+  },
+  "mixed": {
+    "seconds": 7.1315,
+    "say": "Satuannya boleh dicampur: 29 kodi ditambah 20 pieces, jadi 600."
+  },
+  "wrong": {
+    "seconds": 8.80325,
+    "say": "Barang yang tidak cocok dengan pesanan dicatat terpisah di Not as Ordered. Cukup jumlahnya, tanpa perlu tahu barang apa."
+  },
+  "submit": {
+    "seconds": 3.78775,
+    "say": "Setelah Submit count, hasilnya langsung sampai ke buyer."
+  }
+}

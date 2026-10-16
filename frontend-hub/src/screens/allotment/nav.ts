@@ -41,6 +41,10 @@ export const allotmentNav: AppModule = {
   moved: ["/distribution"],
   sections: [
     {
+      // Under Merchandise its rows follow the article rows: a grey chip says
+      // whose they are, as in Sales.
+      label: "Distribution",
+      chip: true,
       items: [
         {
           path: "/allotment",
@@ -54,7 +58,7 @@ export const allotmentNav: AppModule = {
           // Procurement's "Return to supplier" — pre-filtering the same list
           // to `RETURN_TO_DC`. See `screens/allotment/returns.tsx`.
           path: "/allotment/returns",
-          label: "Return to HO",
+          label: "Return HO",
           icon: Undo2,
         },
         {

@@ -36,7 +36,7 @@ export function NumberCard({
     >
       <div
         className={cn(
-          "text-[0.875rem]",
+          "text-[0.9375rem]",
           tone === "bad"
             ? "text-bad-fg"
             : tone === "ok"
@@ -63,7 +63,7 @@ export function NumberCard({
       {note !== undefined && (
         <div
           className={cn(
-            "mt-0.5 text-[0.875rem]",
+            "mt-0.5 text-[0.9375rem]",
             tone === "bad" ? "text-bad-fg" : "text-mute"
           )}
         >
@@ -91,10 +91,10 @@ export { Grid, Td, Th } from "@/screens/finance-final/parts"
 /// stop hiding them.
 export function Reasons({ reasons }: { reasons: readonly string[] }) {
   if (reasons.length === 0) {
-    return <span className="text-[0.875rem] text-mute">no stated reason</span>
+    return <span className="text-[0.9375rem] text-mute">no stated reason</span>
   }
   return (
-    <span className="flex flex-wrap gap-x-1 text-[0.875rem]">
+    <span className="flex flex-wrap gap-x-1 text-[0.9375rem]">
       {reasons.map((reason, index) => (
         <span
           key={reason}
@@ -117,7 +117,7 @@ export function Reasons({ reasons }: { reasons: readonly string[] }) {
 /// endpoint of its own. Better than a convincing screen drawn over nothing.
 export function LabNote({ children }: { children: React.ReactNode }) {
   return (
-    <p className="rounded-inner border border-hairline bg-soft px-3 py-2 text-[0.875rem] leading-relaxed text-body">
+    <p className="rounded-inner border border-hairline bg-soft px-3 py-2 text-[0.9375rem] leading-relaxed text-body">
       {children}
     </p>
   )

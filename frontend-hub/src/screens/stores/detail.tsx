@@ -1,49 +1,31 @@
 import { useQuery } from "@tanstack/react-query"
 import { useParams } from "@tanstack/react-router"
-import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
-import { EmptyState } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { storeDetail, storesKeys } from "@/lib/queries/stores"
 import { queryState } from "@/lib/query-state"
-import { ActivityTab } from "@/screens/stores/actions"
-import { DevicesTab } from "@/screens/stores/devices-tab"
-import {
-  PaymentsTab,
-  StockTab,
-  TeamTab,
-  FacilitiesTab,
-} from "@/screens/stores/misc-tabs"
-import { OverviewTab } from "@/screens/stores/overview-tab"
+import { useSheet } from "@/lib/sheets"
+import { OverviewTab, type StoreTab } from "@/screens/stores/overview-tab"
 import { ServerTab } from "@/screens/stores/server-tab"
 import { storeStatusLabel, storeStatusTone } from "@/screens/stores/shared"
+import { StatusTab } from "@/screens/stores/status-tab"
 
-const TABS = [
-  { value: "overview", label: "Overview" },
-  { value: "server", label: "Server" },
-  { value: "devices", label: "Devices" },
-  { value: "activity", label: "Activity" },
-  { value: "team", label: "Team" },
-  { value: "payments", label: "Payments" },
-  { value: "stock", label: "Stock" },
-  { value: "facilities", label: "Facilities" },
-] as const
-
-type Tab = (typeof TABS)[number]["value"]
-
-/// One store, one page, in tabs — the mock's §4 brought together: Overview's
-/// checklist and the Open store button, the server's install/approve dance,
-/// the devices at this site, the team, the payments this shop takes, what is
-/// moving in or out of its stock, and its facilities record.
+/// One store, one page, in three tabs: Overview's facts, checklist and the
+/// Open store button; the Server's install code, first data and machine; and
+/// the Status page — every component of the store with ninety days of bars.
+/// The devices, team, payments, stock and facilities each have a screen of
+/// their own elsewhere in the hub, and the checklist links to them.
 ///
 /// `unit` is a real path parameter, `/stores/$unit` — the one route in this
 /// app that is not addressed as a sheet over a list. Every OTHER record here
 /// opens as a sheet on the screen that lists it (see `lib/sheets.ts`), but a
-/// store has seven tabs' worth of its own screens rather than one record
-/// panel, and a sheet that wide would not be a sheet any more.
+/// store has three tabs' worth of its own screens rather than one record
+/// panel, and a sheet that wide would not be a sheet any more. The tab lives
+/// in the URL (`?store-tab=server`), so the "Add store" sheet can land
+/// somebody straight on it.
 export function StoreDetail() {
   // `strict: false`: this route is built generically in `routes.tsx` from
   // `lib/navigation.ts` rather than declared as a named, typed route the way
@@ -52,8 +34,8 @@ export function StoreDetail() {
   // same reason `AppLink` casts its own `to` (see that file's doc comment).
   const params = useParams({ strict: false }) as unknown as { unit: string }
   const unit = params.unit
-  const [tab, setTab] = useState<Tab>("overview")
-
+  const tabParam = useSheet("store-tab")
+  const tab: StoreTab = tabParam.value ?? "overview"
   const detail = useQuery({
     queryKey: storesKeys.detail(unit),
     queryFn: ({ signal }) => storeDetail(unit, signal),
@@ -87,53 +69,44 @@ export function StoreDetail() {
       {queryState(detail, {
         loading: "Reading the store…",
         render: (data) => {
-          const siteId = data.store.site_id
+          const pending = data.checks.filter((check) => !check.ok).length
+          const tabs = [
+            {
+              value: "overview",
+              short: "Overview",
+              label: (
+                <>
+                  Overview
+                  {pending > 0 && data.store.status === "GETTING_READY" && (
+                    <span className="ml-1.5 text-warn-fg">{pending}</span>
+                  )}
+                </>
+              ),
+            },
+            { value: "server", label: "Server" },
+            { value: "status", label: "Status" },
+          ]
           return (
             <>
               <SubTabs
-                tabs={TABS}
+                tabs={tabs}
                 value={tab}
-                onChange={(next) => setTab(next as Tab)}
+                onChange={(next) => tabParam.replace(next)}
               />
-              {tab === "overview" && <OverviewTab detail={data} />}
+              {tab === "overview" && (
+                <OverviewTab
+                  detail={data}
+                  onOpenTab={(next) => tabParam.replace(next)}
+                />
+              )}
               {tab === "server" && (
                 <ServerTab store={data.store} canManage={data.can_manage} />
               )}
-              {tab === "devices" &&
-                (siteId ? (
-                  <DevicesTab
-                    unit={unit}
-                    siteId={siteId}
-                    tills={data.store.tills}
-                    canManage={data.can_manage}
-                  />
-                ) : (
-                  <NoSiteYet />
-                ))}
-              {tab === "activity" && <ActivityTab unit={unit} />}
-              {tab === "team" && <TeamTab store={data.store} />}
-              {tab === "payments" &&
-                (siteId ? <PaymentsTab siteId={siteId} /> : <NoSiteYet />)}
-              {tab === "stock" &&
-                (siteId ? <StockTab siteId={siteId} /> : <NoSiteYet />)}
-              {tab === "facilities" &&
-                (siteId ? <FacilitiesTab siteId={siteId} /> : <NoSiteYet />)}
+              {tab === "status" && <StatusTab store={data.store} />}
             </>
           )
         },
       })}
     </PageContent>
-  )
-}
-
-/// The rare store that has no shop site yet — `StoreSummary.site_id` is
-/// `null` only for a unit the wizard has not finished opening. Devices,
-/// Payments, Stock and Facilities all read a site, so each says this rather
-/// than passing a site id that does not exist.
-function NoSiteYet() {
-  return (
-    <EmptyState>
-      This store has no shop site yet, so there is nothing to read here.
-    </EmptyState>
   )
 }

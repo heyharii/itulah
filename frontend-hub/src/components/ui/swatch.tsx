@@ -73,7 +73,7 @@ export function Swatches({
   onShow?: (at: number | null) => void
 }) {
   if (colours.length === 0)
-    return <span className="text-[0.875rem] text-mute">—</span>
+    return <span className="text-[0.9375rem] text-mute">—</span>
 
   const shown = colours.slice(0, cap)
   const rest = colours.length - shown.length
@@ -102,7 +102,7 @@ export function Swatches({
         )
       )}
       {rest > 0 && (
-        <span className="text-[0.875rem] text-mute tabular-nums">
+        <span className="text-[0.9375rem] text-mute tabular-nums">
           +{count(rest)}
         </span>
       )}

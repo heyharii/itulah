@@ -129,7 +129,7 @@ export function AssistantChat() {
             <div className="shrink-0 px-5 pb-5">
               <div className="mx-auto w-full max-w-[46rem]">
                 <Composer autoFocus />
-                <p className="mt-2 px-1 text-[0.875rem] text-mute">
+                <p className="mt-2 px-1 text-[0.9375rem] text-mute">
                   {spent ? (
                     <BudgetSpent />
                   ) : busy ? (
@@ -197,7 +197,7 @@ function Opening({ spent }: { spent: boolean }) {
           </ul>
         )}
 
-        <p className="mt-5 px-2 text-[0.875rem] leading-relaxed text-mute">
+        <p className="mt-5 px-2 text-[0.9375rem] leading-relaxed text-mute">
           {spent ? (
             <BudgetSpent />
           ) : (
@@ -210,7 +210,7 @@ function Opening({ spent }: { spent: boolean }) {
         </p>
         <AppLink
           to="/assistant/glossary"
-          className="mt-1 inline-block px-2 text-[0.875rem] text-mute underline-offset-2 hover:text-ink hover:underline"
+          className="mt-1 inline-block px-2 text-[0.9375rem] text-mute underline-offset-2 hover:text-ink hover:underline"
         >
           The words it reads your questions with
         </AppLink>
@@ -248,7 +248,7 @@ function NarrowBar({ title }: { title: string | null }) {
           type="button"
           onClick={() => setOpen(true)}
           aria-haspopup="dialog"
-          className="inline-flex h-9 max-w-full items-center gap-1.5 rounded-full bg-soft-2 pr-3.5 pl-3 text-[0.875rem] font-medium text-ink transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.97]"
+          className="inline-flex h-9 max-w-full items-center gap-1.5 rounded-full bg-soft-2 pr-3.5 pl-3 text-[0.9375rem] font-medium text-ink transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.97]"
         >
           <PanelLeft className="size-4 shrink-0 text-line-ico" />
           Past chats

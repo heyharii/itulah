@@ -1,29 +1,28 @@
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
+import { useQuery, useSuspenseInfiniteQuery } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { useMemo, useState } from "react"
+import { Suspense, useDeferredValue, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { DockTools } from "@/components/shell/dock-tools"
 import { AppLink } from "@/components/ui/app-link"
 import { Card } from "@/components/ui/card"
 import { DataTable, dockSortOf } from "@/components/ui/data-table"
-import { Input } from "@/components/ui/field"
-import { FilterPanel } from "@/components/ui/filter-panel"
+import { DeskFilterButton, DeskFilterChips } from "@/components/ui/desk-filter"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
+import { ExpandingSearch } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { MiniTable, TotalsLadder } from "@/components/ui/rows"
-import { Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import { EmptyState } from "@/components/ui/states"
+import { EmptyState, LoadingState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { useFilterState, type Filter, type FilterField } from "@/lib/filters"
 import { count, money, moment } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import {
-  listReturns,
   returnDetail,
+  returnsPageQuery,
   storeopsKeys,
   type ReturnRow,
   type ReturnScope,
@@ -32,6 +31,7 @@ import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { useDebounced } from "@/lib/use-debounced"
+import { PAGE } from "@/screens/sales/returns-data"
 import {
   CardFigure,
   CardFoot,
@@ -273,10 +273,20 @@ function scopeFromFilters(filters: readonly Filter[]): ReturnScope {
   return scope
 }
 
-/// A page the size the server defaults to. The table virtualises past 150.
-const PAGE = 100
-
 export function Returns() {
+  // The title stands at once; the list waits for its first page and streams in
+  // with it (the server starts the read too).
+  return (
+    <PageContent>
+      <PageHeader crumb="Sales" title="Returns" />
+      <Suspense fallback={<LoadingState>Loading the returns…</LoadingState>}>
+        <ReturnsList />
+      </Suspense>
+    </PageContent>
+  )
+}
+
+function ReturnsList() {
   // A phone draws the rows as cards and keeps the search and the filters in the
   // drawer over the bottom bar (`DockTools`).
   const phone = useLayout() === "phone"
@@ -306,24 +316,19 @@ export function Returns() {
     }
   }, [filters.filters, needle, sorting])
 
-  const returns = useInfiniteQuery({
-    queryKey: storeopsKeys.returnsPage(scope),
-    queryFn: ({ pageParam, signal }) =>
-      listReturns({ ...scope, cursor: pageParam }, signal),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) => last.next_cursor ?? undefined,
-    // The previous answer stays while the next is fetched, so a keystroke
-    // does not empty the table to a loading line.
-    placeholderData: (previous) => previous,
-  })
+  // The previous answer stays while the next is fetched — the deferred scope
+  // keeps the table on screen until the new question's first page is in — so a
+  // keystroke does not empty the table to a loading line.
+  const asked = useDeferredValue(scope)
+  const returns = useSuspenseInfiniteQuery(returnsPageQuery(asked))
 
   const rows = useMemo(
-    () => returns.data?.pages.flatMap((page) => page.rows) ?? [],
+    () => returns.data.pages.flatMap((page) => page.rows),
     [returns.data]
   )
   /// Every page carries the whole matched set's total and facets; the first
   /// is read so they do not flicker while the next page lands.
-  const head = returns.data?.pages[0]
+  const head = returns.data.pages[0]
 
   /// The same fields, carrying the server's tally over everything the search
   /// matches — never a count of the rows that happen to be loaded.
@@ -367,28 +372,7 @@ export function Returns() {
   )
 
   return (
-    <PageContent>
-      <PageHeader
-        crumb="Sales"
-        title="Returns"
-        sub="What came back over the counter, what it was refunded with, and whether it went back on the floor."
-        actions={
-          phone ? undefined : (
-            <Input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              className="h-8 w-56"
-            />
-          )
-        }
-      />
-
-      {!phone && (
-        <Toolbar>
-          <FilterPanel model={{ ...filters, fields: counted }} />
-        </Toolbar>
-      )}
-
+    <>
       {/* The server's figures over everything the search and the chips match,
           whatever has been scrolled into view. */}
       {head !== undefined &&
@@ -405,30 +389,50 @@ export function Returns() {
           </KpiStrip>
         ))}
 
+      {/* The search and one filter button over the table, the clauses in force
+          under them — Purchase Orders' bar. On a phone both are the drawer's. */}
+      {!phone && (
+        <>
+          <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2">
+            <ExpandingSearch
+              value={query}
+              onChange={setQuery}
+              label="Search returns"
+            />
+            <DeskFilterButton
+              model={filters}
+              filterModel={{ ...filters, fields: counted }}
+              table={table}
+            />
+          </div>
+          <DeskFilterChips
+            model={filters}
+            filterModel={{ ...filters, fields: counted }}
+            table={table}
+          />
+        </>
+      )}
+
       <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-        {queryState(returns, {
-          loading: "Loading the returns…",
-          render: () =>
-            rows.length === 0 ? (
-              <EmptyState>
-                {narrowed
-                  ? "No return matches this search and the filters in force."
-                  : "Nothing has been taken back yet. A return is raised against a completed sale, from that sale's own record."}
-              </EmptyState>
-            ) : (
-              <DataTable<ReturnRow>
-                refresh={[returns]}
-                table={table}
-                onRowClick={(row) => refund.open(row.id)}
-                isSelected={(row) => row.id === refund.value}
-                more={returns}
-                cardSort={false}
-                cardsApart
-                cardLead
-                className="max-h-[calc(100dvh-20rem)]"
-              />
-            ),
-        })}
+        {rows.length === 0 ? (
+          <EmptyState>
+            {narrowed
+              ? "No return matches this search and the filters in force."
+              : "Nothing has been taken back yet. A return is raised against a completed sale, from that sale's own record."}
+          </EmptyState>
+        ) : (
+          <DataTable<ReturnRow>
+            refresh={[returns]}
+            table={table}
+            onRowClick={(row) => refund.open(row.id)}
+            isSelected={(row) => row.id === refund.value}
+            more={returns}
+            cardSort={false}
+            cardsApart
+            cardLead
+            className="max-h-[calc(100dvh-20rem)]"
+          />
+        )}
       </Card>
 
       {/* On a phone the search, the filters and the sort live in the drawer
@@ -447,7 +451,7 @@ export function Returns() {
       />
 
       <ReturnSheet id={refund.value ?? null} onClose={refund.close} />
-    </PageContent>
+    </>
   )
 }
 
@@ -511,10 +515,10 @@ function ReturnSheet({
                 {record.lines.map((line) => (
                   <tr key={line.id} className="border-t border-hairline">
                     <td className="py-2 pr-2">
-                      <span className="block text-[0.875rem] text-ink">
+                      <span className="block text-[0.9375rem] text-ink">
                         {line.article_name}
                       </span>
-                      <span className="font-mono text-[0.875rem] text-mute">
+                      <span className="font-mono text-[0.9375rem] text-mute">
                         {line.sku_code}
                       </span>
                     </td>
@@ -551,7 +555,7 @@ function ReturnSheet({
                       <td className="py-2 pr-2">
                         <Tag>{entry.method}</Tag>
                       </td>
-                      <td className="py-2 text-right text-[0.875rem] text-mute">
+                      <td className="py-2 text-right text-[0.9375rem] text-mute">
                         {entry.reference ?? "—"}
                       </td>
                       <td className="py-2 text-right tabular-nums">

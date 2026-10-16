@@ -1,6 +1,6 @@
 import { jsPDF } from "jspdf"
 
-import { count, day, money } from "@/lib/format"
+import { count, day, money as moneyText } from "@/lib/format"
 import { COMPANY } from "@/screens/finance-lab/print"
 import {
   paperDate,
@@ -16,6 +16,8 @@ import {
   lineValue,
   receivedTone,
 } from "@/screens/procurement/shared"
+import { cancellationOf, stampDayOf } from "@/screens/procurement/po-print"
+import { qrModules } from "@/screens/procurement/qr"
 import { supplierDisplayName } from "@/screens/procurement/supplier-format"
 
 /// Purchase orders as a PDF FILE, straight to the browser's download —
@@ -31,6 +33,10 @@ import { supplierDisplayName } from "@/screens/procurement/supplier-format"
 const INK = [29, 31, 26] as const
 const MUTE = [91, 97, 88] as const
 const STAMP_OK = [120, 184, 150] as const
+/// Money for the PDF: the standard fonts have no U+2212 minus, which drew as
+/// `"` with the figures spread apart (owner, 2026-10-16) — a plain hyphen.
+const money = (minor: number | null | undefined) =>
+  moneyText(minor).replace(/\u2212/g, "-")
 const STAMP_BAD = [224, 138, 128] as const
 /// The colour of a received figure, as the printed sheet writes it
 /// (`.ok` / `.bad` in `po-print`): green once the line is whole, red while it
@@ -97,29 +103,54 @@ export function downloadOrdersPdf({
       .setFont("helvetica", "bold")
       .setFontSize(11)
     doc.text(COMPANY.name, MARGIN, y + 3)
+    // The address in bold ink, as the owner asked (2026-10-16).
     doc
-      .setTextColor(...MUTE)
-      .setFont("helvetica", "normal")
+      .setTextColor(...INK)
+      .setFont("helvetica", "bold")
       .setFontSize(SMALL)
     const headLines = [
       COMPANY.address,
       ...(COMPANY.phone ? [COMPANY.phone] : []),
     ]
     headLines.forEach((line, at) => doc.text(line, MARGIN, y + 6.5 + at * 3.4))
+    // A QR at the right while the order is still open (owner, 2026-10-16),
+    // the title beside it: a scan opens the order in the hub, which says
+    // whether it is still active. A finished order wears its stamp instead.
+    const qrUrl =
+      order.lifecycle !== "CANCELLED" &&
+      order.lifecycle !== "FULLY_RECEIVED" &&
+      order.lifecycle !== "SHORT_RECEIVED"
+        ? one.qrUrl
+        : undefined
+    const open = qrUrl !== undefined
+    const QR = 16
+    const titleX = open ? pageW - MARGIN - QR - 3 : pageW - MARGIN
+    if (open) {
+      const modules = qrModules(qrUrl!)
+      const cell = QR / (modules.length + 4)
+      const qx = pageW - MARGIN - QR
+      doc.setFillColor(...INK)
+      modules.forEach((cells, r) =>
+        cells.forEach((dark, c) => {
+          if (dark)
+            doc.rect(qx + (c + 2) * cell, y - 1 + (r + 2) * cell, cell, cell, "F")
+        })
+      )
+    }
     doc
       .setTextColor(...INK)
       .setFont("helvetica", "bold")
       .setFontSize(HEAD)
-    doc.text("PURCHASE ORDER", pageW - MARGIN, y + 3.5, { align: "right" })
+    doc.text("PURCHASE ORDER", titleX, y + 3.5, { align: "right" })
     doc.setTextColor(...INK).setFontSize(10)
-    doc.text(order.po_number, pageW - MARGIN, y + 8.6, { align: "right" })
+    doc.text(order.po_number, titleX, y + 8.6, { align: "right" })
     doc
-      .setTextColor(...MUTE)
-      .setFont("helvetica", "normal")
+      .setTextColor(...INK)
+      .setFont("helvetica", "bold")
       .setFontSize(SMALL)
     doc.text(
       `Date ${day(order.issued_at ?? order.created_at)}`,
-      pageW - MARGIN,
+      titleX,
       y + 12.4,
       {
         align: "right",
@@ -149,7 +180,31 @@ export function downloadOrdersPdf({
         narrow ? pageW / 2 - 6 : pageW / 2 + 4,
         MARGIN + 11,
         { align: "center", angle: 6 }
-      )
+      )      // A cancelled order says when, and why in red when a reason was given.
+      const stampDay = stampDayOf(order)
+      if (stampDay !== null)
+        doc
+          .setFontSize(narrow ? 9 : 11)
+          .text(
+            day(stampDay),
+            narrow ? pageW / 2 - 6 : pageW / 2 + 4,
+            MARGIN + 16,
+            { align: "center", angle: 6 }
+          )
+      const cancelled = cancellationOf(order)
+      if (cancelled !== null) {
+        // The reason is part of the stamp: same ink, same tilt.
+        if (cancelled.reason !== null) {
+          doc
+            .setFontSize(narrow ? 8 : 9)
+            .text(
+              doc.splitTextToSize(cancelled.reason, W * 0.45),
+              narrow ? pageW / 2 - 6 : pageW / 2 + 4,
+              MARGIN + 20.5,
+              { align: "center", angle: 6 }
+            )
+        }
+      }
     }
     y += Math.max(7 + headLines.length * 3.4, 16)
     doc
@@ -278,7 +333,11 @@ export function downloadOrdersPdf({
           ? line.order_unit_code!.toLowerCase()
           : null
       // Under the name: the split by colour and size, then what arrived.
+      const said = line.supplier_item_id
+        ? one.descriptions?.get(line.supplier_item_id)
+        : undefined
       const receipts = [
+        ...(said ? doc.splitTextToSize(said, quantityX - itemX - 4) : []),
         ...variantLines(line, variantName),
         ...(line.receipts ?? []).map(
           (one, at, all) =>

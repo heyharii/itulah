@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query"
+import { queryOptions, useQuery } from "@tanstack/react-query"
 
 import { node } from "@/lib/api"
 import { ApiError } from "@itulah/contract/client"
@@ -679,11 +679,19 @@ export function expiringContracts(
 /// an authorising officer behind every change, so a unit stamped into the
 /// session would be wrong from the transfer until the next sign-in.
 export function useReach() {
-  return useQuery({
+  return useQuery(reachQueryOptions())
+}
+
+/// The options form, for the root's SSR pass (`routes/__root.tsx`): the
+/// sidebar decides which People items to show from this answer, so it is
+/// asked before the first render and the server draws the same menu the
+/// browser will.
+export function reachQueryOptions() {
+  return {
     queryKey: peopleKeys.reach(),
-    queryFn: ({ signal }) => readReach(signal),
+    queryFn: ({ signal }: { signal?: AbortSignal }) => readReach(signal),
     staleTime: 5 * 60_000,
-  })
+  }
 }
 
 /// One unit head office may act in.
@@ -4261,3 +4269,172 @@ export function setEssModules(body: {
 }): Promise<EssModulesView> {
   return node.post<EssModulesView>("/api/v1/ess-modules", body)
 }
+
+// ── query options ──────────────────────────────────────────────────────────
+
+/// The reads a People screen starts on the server, as options: the screen
+/// reads them by suspending (`awaiting`, `screens/people/suspended.tsx`) and
+/// the department's prefetcher (`screens/people/prefetch.ts`) warms the SAME
+/// options, so the first HTML carries the answer and the browser finds it warm.
+
+export const companyQuery = () =>
+  queryOptions({
+    queryKey: orgKeys.company(),
+    queryFn: ({ signal }) => orgCompany(signal),
+  })
+
+export const departmentsQuery = () =>
+  queryOptions({
+    queryKey: orgKeys.departments(),
+    queryFn: ({ signal }) => departments(signal),
+  })
+
+export const groupQuery = () =>
+  queryOptions({
+    queryKey: orgKeys.group(),
+    queryFn: ({ signal }) => groupEntities(signal),
+  })
+
+export const businessUnitsQuery = () =>
+  queryOptions({
+    queryKey: orgKeys.businessUnits(),
+    queryFn: ({ signal }) => businessUnits(signal),
+  })
+
+export const checklistTemplatesQuery = () =>
+  queryOptions({
+    queryKey: orgKeys.checklistTemplates(),
+    queryFn: ({ signal }) => checklistTemplates(signal),
+  })
+
+export const payslipTemplateQuery = () =>
+  queryOptions({
+    queryKey: payKeys.payslipTemplate(),
+    queryFn: ({ signal }) => payslipTemplate(signal),
+  })
+
+export const jobLevelsQuery = () =>
+  queryOptions({
+    queryKey: orgKeys.levels(),
+    queryFn: ({ signal }) => jobLevels(signal),
+  })
+
+export const jobGradesQuery = () =>
+  queryOptions({
+    queryKey: orgKeys.grades(),
+    queryFn: ({ signal }) => jobGrades(signal),
+  })
+
+export const orgChartQuery = () =>
+  queryOptions({
+    queryKey: orgKeys.chart(),
+    queryFn: ({ signal }) => orgChart(signal),
+  })
+
+export const essModulesQuery = () =>
+  queryOptions({
+    queryKey: delegationKeys.ess(),
+    queryFn: ({ signal }) => essModules(signal),
+  })
+
+export const delegationsQuery = () =>
+  queryOptions({
+    queryKey: delegationKeys.all(),
+    queryFn: ({ signal }) => delegations(signal),
+  })
+
+export const salaryStructuresQuery = () =>
+  queryOptions({
+    queryKey: payKeys.structures(),
+    queryFn: ({ signal }) => salaryStructures(signal),
+  })
+
+export const payComponentsQuery = () =>
+  queryOptions({
+    queryKey: payKeys.components(),
+    queryFn: ({ signal }) => payComponents(signal),
+  })
+
+export const absenceRulesQuery = () =>
+  queryOptions({
+    queryKey: attendanceSettingKeys.absenceRules(),
+    queryFn: ({ signal }) => absenceRules(signal),
+  })
+
+export const payrollSchedulesQuery = () =>
+  queryOptions({
+    queryKey: payKeys.schedules(),
+    queryFn: ({ signal }) => payrollSchedules(signal),
+  })
+
+export const shiftsQuery = () =>
+  queryOptions({
+    queryKey: rosterKeys.shifts(),
+    queryFn: ({ signal }) => listShifts(signal),
+  })
+
+export const claimTypesQuery = () =>
+  queryOptions({
+    queryKey: claimsKeys.types(),
+    queryFn: ({ signal }) => listClaimTypes(signal),
+  })
+
+export const statutoryRatesQuery = () =>
+  queryOptions({
+    queryKey: payKeys.statutoryRates(),
+    queryFn: ({ signal }) => statutoryRates(signal),
+  })
+
+export const leaveTypesQuery = () =>
+  queryOptions({
+    queryKey: leaveKeys.types(),
+    queryFn: ({ signal }) => listLeaveTypes(signal),
+  })
+
+export const overtimePolicyQuery = () =>
+  queryOptions({
+    queryKey: overtimeKeys.policy(),
+    queryFn: ({ signal }) => readOvertimePolicy(signal),
+  })
+
+export const overtimeTierQuery = () =>
+  queryOptions({
+    queryKey: attendanceSettingKeys.overtimeTier(),
+    queryFn: ({ signal }) => overtimeTier(signal),
+  })
+
+export const mobileSettingQuery = () =>
+  queryOptions({
+    queryKey: attendanceSettingKeys.mobile(),
+    queryFn: ({ signal }) => mobileSetting(signal),
+  })
+
+export const geofencesQuery = () =>
+  queryOptions({
+    queryKey: attendanceSettingKeys.geofences(),
+    queryFn: ({ signal }) => geofences(signal),
+  })
+
+export const claimBenefitRulesQuery = () =>
+  queryOptions({
+    queryKey: claimBenefitKeys.rules(),
+    queryFn: ({ signal }) => claimBenefits(signal),
+  })
+
+export const allLoansQuery = () =>
+  queryOptions({
+    queryKey: payKeys.allLoans(),
+    queryFn: ({ signal }) => allLoans(signal),
+  })
+
+export const claimQueueQuery = () =>
+  queryOptions({
+    queryKey: claimsKeys.queue(),
+    queryFn: ({ signal }) => listClaims({ state: "SUBMITTED" }, signal),
+  })
+
+export const claimListQuery = () =>
+  queryOptions({
+    queryKey: claimsKeys.list(),
+    queryFn: ({ signal }) => listClaims({}, signal),
+  })

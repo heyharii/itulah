@@ -1,16 +1,19 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
+import type { ColumnDef } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
+import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { useLayout } from "@/lib/layout"
 import { DockChoice } from "@/components/shell/dock-tools"
 import { Fab } from "@/components/ui/fab"
 import { Button } from "@/components/ui/button"
+import { Card, CardHeader, CardTitle } from "@/components/ui/card"
+import { DataTable } from "@/components/ui/data-table"
 import { Day } from "@/components/ui/day"
 import { Field, Input, Select, Textarea } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
-import { MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState, Problem } from "@/components/ui/states"
@@ -25,9 +28,11 @@ import {
 } from "@/lib/queries/people"
 import { queryState } from "@/lib/query-state"
 import { useCanWrite } from "@/lib/session"
-import { ListCard, RowOpen, SheetFooter } from "@/screens/people/settings-kit"
+import { CardDate, CardFoot, CardName } from "@/components/ui/phone-cards"
+import { tableSetup, type TableSetup } from "@/lib/table"
+import { SheetFooter } from "@/screens/people/settings-kit"
 import { useOpener } from "@/screens/people/settings-lib"
-import type { HolidayView } from "@itulah/contract"
+import type { CalendarAmendmentView, HolidayView } from "@itulah/contract"
 
 /// Settings › Holidays — which days are red, for a year.
 ///
@@ -51,6 +56,176 @@ const KIND_SHORT: Record<string, string> = {
   CUTI_BERSAMA: "Collective leave",
   REGIONAL: "Regional",
 }
+
+const NO_HOLIDAYS: HolidayView[] = []
+const NO_AMENDMENTS: CalendarAmendmentView[] = []
+
+const kindOf = (holiday: HolidayView) =>
+  KIND_SHORT[holiday.kind] ?? holiday.kind
+
+const observedAt = (holiday: HolidayView) =>
+  holiday.units === null ? "Everywhere" : holiday.units.join(", ")
+
+const holidayColumns: ColumnDef<TableSetup, HolidayView>[] = [
+  {
+    id: "date",
+    accessorFn: (row) => row.date,
+    header: "Date",
+    size: 180,
+    meta: { card: "hide" },
+    cell: ({ row }) => day(row.original.date),
+  },
+  {
+    accessorKey: "name",
+    header: "Name",
+    size: 280,
+    meta: { card: "hide" },
+  },
+  {
+    accessorKey: "kind",
+    header: "Kind",
+    size: 360,
+    meta: { card: "hide" },
+    cell: ({ row }) => (
+      <>
+        {kindOf(row.original)}
+        {row.original.consumes_annual_leave && (
+          <Pill tone="warn" className="ml-2">
+            Comes out of annual leave
+          </Pill>
+        )}
+      </>
+    ),
+  },
+  {
+    id: "observed",
+    accessorFn: (row) => observedAt(row),
+    header: "Observed at",
+    size: 200,
+    meta: { card: "hide" },
+  },
+  // Three columns that exist only on a card (`cardLead`; a phone): the name
+  // over where it is observed, the day as the figure, and what kind it is.
+  {
+    id: "head",
+    accessorFn: (row) => row.name,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "title" },
+    cell: ({ row }) => (
+      <CardName
+        name={row.original.name}
+        line={`Observed at ${observedAt(row.original)}`}
+      />
+    ),
+  },
+  {
+    id: "lead",
+    accessorFn: (row) => row.date,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "lead" },
+    cell: ({ row }) => <CardDate iso={row.original.date} />,
+  },
+  {
+    id: "foot",
+    accessorFn: (row) => row.kind,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "foot" },
+    cell: ({ row }) => (
+      <CardFoot
+        status={
+          row.original.consumes_annual_leave ? (
+            <Pill tone="warn">Comes out of annual leave</Pill>
+          ) : undefined
+        }
+      >
+        {kindOf(row.original)}
+      </CardFoot>
+    ),
+  },
+]
+
+const changeOf = (row: CalendarAmendmentView) =>
+  `${row.change === "ADDED" ? "Added" : "Withdrew"} ${row.holiday.name}`
+
+const amendmentColumns: ColumnDef<TableSetup, CalendarAmendmentView>[] = [
+  {
+    id: "change",
+    accessorFn: (row) => changeOf(row),
+    header: "Change",
+    size: 280,
+    meta: { card: "hide" },
+  },
+  {
+    id: "day",
+    accessorFn: (row) => row.holiday.date,
+    header: "Day",
+    size: 160,
+    meta: { card: "hide" },
+    cell: ({ row }) => day(row.original.holiday.date),
+  },
+  {
+    accessorKey: "actor",
+    header: "By",
+    size: 160,
+    meta: { card: "hide" },
+  },
+  {
+    accessorKey: "reason",
+    header: "Why",
+    size: 280,
+    meta: { card: "hide" },
+    cell: ({ row }) => (
+      <span className="block whitespace-normal">{row.original.reason}</span>
+    ),
+  },
+  {
+    accessorKey: "at",
+    header: "When",
+    size: 200,
+    meta: { card: "hide" },
+    cell: ({ row }) => moment(row.original.at),
+  },
+  // Three columns that exist only on a card (`cardLead`; a phone): what
+  // changed over who did it and why, the day as the figure, and when.
+  {
+    id: "head",
+    accessorFn: (row) => changeOf(row),
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "title" },
+    cell: ({ row }) => (
+      <CardName
+        name={changeOf(row.original)}
+        line={`${row.original.actor} · ${row.original.reason}`}
+      />
+    ),
+  },
+  {
+    id: "lead",
+    accessorFn: (row) => row.holiday.date,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "lead" },
+    cell: ({ row }) => <CardDate iso={row.original.holiday.date} />,
+  },
+  {
+    id: "foot",
+    accessorFn: (row) => row.at,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "foot" },
+    cell: ({ row }) => moment(row.original.at),
+  },
+]
 
 export function HolidaySettings() {
   const canWrite = useCanWrite()
@@ -76,6 +251,36 @@ export function HolidaySettings() {
   const publish = useOpener()
   const add = useOpener()
   const one = useOpener<HolidayView>()
+
+  const holidays = calendar.data?.holidays ?? NO_HOLIDAYS
+  const amendments = calendar.data?.amendments ?? NO_AMENDMENTS
+  const holidayTable = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: holidays,
+        columns: holidayColumns,
+        getRowId: (row: HolidayView) => row.date,
+        // The card's own columns are drawn on a phone and never on a desk.
+        state: { columnVisibility: { head: phone, lead: phone, foot: phone } },
+      }),
+      [holidays, phone]
+    )
+  )
+  const amendmentTable = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: amendments,
+        columns: amendmentColumns,
+        getRowId: (row: CalendarAmendmentView) =>
+          `${row.change}-${row.holiday.date}-${row.at}`,
+        // The card's own columns are drawn on a phone and never on a desk.
+        state: { columnVisibility: { head: phone, lead: phone, foot: phone } },
+      }),
+      [amendments, phone]
+    )
+  )
 
   return (
     <PageContent>
@@ -140,7 +345,10 @@ export function HolidaySettings() {
         </Banner>
       )}
 
-      <ListCard title={String(chosen)}>
+      <Card className="mb-4 overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+        <CardHeader>
+          <CardTitle>{String(chosen)}</CardTitle>
+        </CardHeader>
         {!isPublished ? (
           <EmptyState>
             Nothing to list yet. Publish {chosen} sets the year&rsquo;s red days
@@ -156,55 +364,34 @@ export function HolidaySettings() {
                   is a decision, not a gap. Add holiday adds one.
                 </EmptyState>
               ) : (
-                <MiniTable head={["Date", "Name", "Kind", "Observed at"]}>
-                  {data.holidays.map((holiday) => (
-                    <MiniRow key={holiday.date}>
-                      <MiniCell>
-                        <RowOpen onClick={() => one.show(holiday)}>
-                          {day(holiday.date)}
-                        </RowOpen>
-                      </MiniCell>
-                      <MiniCell>{holiday.name}</MiniCell>
-                      <MiniCell>
-                        {KIND_SHORT[holiday.kind] ?? holiday.kind}
-                        {holiday.consumes_annual_leave && (
-                          <Pill tone="warn" className="ml-2">
-                            Comes out of annual leave
-                          </Pill>
-                        )}
-                      </MiniCell>
-                      <MiniCell>
-                        {holiday.units === null
-                          ? "Everywhere"
-                          : holiday.units.join(", ")}
-                      </MiniCell>
-                    </MiniRow>
-                  ))}
-                </MiniTable>
+                <DataTable<HolidayView>
+                  refresh={[calendar]}
+                  table={holidayTable}
+                  onRowClick={(holiday) => one.show(holiday)}
+                  isSelected={(holiday) =>
+                    one.isOpen && holiday.date === one.item?.date
+                  }
+                  cardsApart
+                  cardLead
+                  cardSort={false}
+                />
               ),
           })
         )}
-      </ListCard>
+      </Card>
 
-      {(calendar.data?.amendments.length ?? 0) > 0 && (
-        <ListCard title="Amended since publication">
-          <MiniTable head={["Change", "Day", "By", "Why", "When"]}>
-            {(calendar.data?.amendments ?? []).map((amendment) => (
-              <MiniRow
-                key={`${amendment.change}-${amendment.holiday.date}-${amendment.at}`}
-              >
-                <MiniCell>
-                  {amendment.change === "ADDED" ? "Added" : "Withdrew"}{" "}
-                  {amendment.holiday.name}
-                </MiniCell>
-                <MiniCell>{day(amendment.holiday.date)}</MiniCell>
-                <MiniCell>{amendment.actor}</MiniCell>
-                <MiniCell>{amendment.reason}</MiniCell>
-                <MiniCell>{moment(amendment.at)}</MiniCell>
-              </MiniRow>
-            ))}
-          </MiniTable>
-        </ListCard>
+      {amendments.length > 0 && (
+        <Card className="mb-4 overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+          <CardHeader>
+            <CardTitle>Amended since publication</CardTitle>
+          </CardHeader>
+          <DataTable<CalendarAmendmentView>
+            table={amendmentTable}
+            cardsApart
+            cardLead
+            cardSort={false}
+          />
+        </Card>
       )}
 
       <PublishSheet
@@ -483,7 +670,7 @@ function LoadCalendar({
         <span className="text-meta font-medium text-ink">
           Load a year at once
         </span>
-        <span className="text-[0.875rem] text-mute">
+        <span className="text-[0.9375rem] text-mute">
           date, name, kind, places — one day per line
         </span>
         <label className="ml-auto">
@@ -505,7 +692,7 @@ function LoadCalendar({
               event.target.value = ""
             }}
           />
-          <span className="inline-flex h-8 cursor-pointer items-center rounded-inner border border-hairline-strong px-3 text-[0.875rem] font-medium text-text hover:bg-soft-2">
+          <span className="inline-flex h-8 cursor-pointer items-center rounded-inner border border-hairline-strong px-3 text-[0.9375rem] font-medium text-text hover:bg-soft-2">
             Choose a file
           </span>
         </label>
@@ -526,7 +713,7 @@ function LoadCalendar({
           Read the lines
         </Button>
         {loaded !== null && (
-          <span className="text-[0.875rem] text-body">
+          <span className="text-[0.9375rem] text-body">
             {loaded} day{loaded === 1 ? "" : "s"} added
             {rejected !== null && rejected.length > 0
               ? `, ${rejected.length} refused`
@@ -540,7 +727,7 @@ function LoadCalendar({
           <div className="flex flex-col gap-1">
             <span>These lines were not added:</span>
             {rejected.slice(0, 6).map((bad) => (
-              <span key={bad.line} className="text-[0.875rem]">
+              <span key={bad.line} className="text-[0.9375rem]">
                 <b>Line {bad.line}</b> — {bad.why}:{" "}
                 <span className="font-mono text-id">
                   {bad.text.slice(0, 60)}
@@ -548,7 +735,7 @@ function LoadCalendar({
               </span>
             ))}
             {rejected.length > 6 && (
-              <span className="text-[0.875rem]">
+              <span className="text-[0.9375rem]">
                 …and {rejected.length - 6} more.
               </span>
             )}

@@ -1,0 +1,629 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Account corner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --ink: #1d1d1f; --mute: #6e6e73; --faint: #a1a1a6;
+  --canvas: #fff; --soft: #f5f5f7; --soft-2: #f2f2f5;
+  --hair: #ececf0; --hair-2: #dcdce1;
+  --accent: #2862dc; --accent-bg: #eef3fc; --cta-hover: #2055c7;
+  --bad: #d70015; --ok: #248a3d;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  /* a spring (bounce ~0.15) as a linear() curve: follow-through for a released drag */
+  --spring: linear(0, 0.009, 0.035 2.1%, 0.141, 0.281 6.7%, 0.723 12.9%, 0.938 16.7%, 1.017 19.4%, 1.051 22.3%, 1.057 24.4%, 1.045 28%, 1.011 34.8%, 0.995 41.2%, 0.997 52.1%, 1);
+  --ring: 0 0 0 1px rgb(0 0 0 / 6%), 0 8px 28px rgb(0 0 0 / 10%);
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--canvas); font: 15px/1.4 Inter, -apple-system, system-ui, sans-serif; color: var(--ink); -webkit-font-smoothing: antialiased; overflow: hidden; }
+button { font: inherit; color: inherit; }
+svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+/* option switch */
+.switch { position: relative; z-index: 50; height: 48px; display: flex; justify-content: center; align-items: center; gap: 2px; padding: 0 16px; background: #e9e9ee; overflow-x: auto; }
+.switch button { flex: none; border: 0; background: transparent; font-weight: 500; color: var(--mute); padding: 7px 12px; border-radius: 8px; cursor: pointer; white-space: nowrap; transition: background .15s, color .15s, transform .12s var(--ease-out); }
+.switch button[aria-pressed="true"] { background: #fff; color: var(--ink); box-shadow: 0 1px 2px rgb(0 0 0 / 8%); }
+.switch button:active { transform: scale(.97); }
+
+/* shell, copied from the white hub: rail + department column + page */
+.app { display: grid; grid-template-columns: 64px 232px 1fr; height: calc(100% - 48px); }
+.rail { background: var(--soft); border-right: 1px solid var(--hair); display: flex; flex-direction: column; align-items: center; padding: 14px 0 12px; gap: 6px; }
+.rail .logo { width: 30px; height: 30px; border-radius: 8px; background: var(--ink); margin-bottom: 10px; }
+.rail .dep { width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; color: var(--mute); cursor: pointer; transition: background .15s, color .15s; }
+.rail .dep:hover { background: #ebebef; color: var(--ink); }
+.rail .dep.on { background: var(--accent-bg); color: var(--accent); }
+.rail .grow { flex: 1; }
+.col { border-right: 1px solid var(--hair); padding: 18px 10px; display: flex; flex-direction: column; gap: 1px; min-height: 0; }
+.col h2 { margin: 0 0 12px 10px; font-size: 22px; font-weight: 700; letter-spacing: -.02em; }
+.row { display: flex; align-items: center; height: 36px; padding: 0 10px; border-radius: 8px; cursor: pointer; transition: background .15s; }
+.row:hover { background: var(--soft); }
+.row.on { background: var(--accent-bg); color: var(--accent); font-weight: 600; }
+.row .n { margin-left: auto; color: #a66c1f; font-weight: 600; }
+.chip { align-self: flex-start; margin: 20px 0 4px 6px; height: 22px; line-height: 22px; padding: 0 8px; border-radius: 6px; background: var(--soft-2); color: var(--mute); font-size: 12px; font-weight: 600; }
+.col .grow { flex: 1; }
+
+.main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.page { flex: 1; overflow: auto; padding: 28px 32px 120px; }
+.head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 18px; }
+.head h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -.02em; }
+.btn { border: 0; height: 36px; padding: 0 14px; border-radius: 8px; background: var(--accent); color: #fff; font-weight: 600; cursor: pointer; transition: background .15s, transform .12s var(--ease-out); }
+.btn:hover { background: var(--cta-hover); }
+.btn:active { transform: scale(.97); }
+.link { border: 0; background: none; color: var(--accent); font-weight: 500; cursor: pointer; padding: 0; }
+.kpis { display: flex; margin: 4px 0 22px; }
+.kpis div { flex: 1; padding: 0 20px; border-left: 1px solid var(--hair); }
+.kpis div:first-child { padding-left: 0; border: 0; }
+.kpis b { display: block; font-size: 22px; font-weight: 700; letter-spacing: -.01em; }
+.kpis span { color: var(--mute); }
+table { width: 100%; border-collapse: collapse; }
+th { text-align: left; font-weight: 500; color: var(--mute); padding: 10px 12px; border-bottom: 1px solid var(--hair); }
+td { padding: 13px 12px; border-bottom: 1px solid #f0f0f3; }
+td small { display: block; color: var(--mute); font-size: 15px; }
+.r { text-align: right; }
+.st { display: inline-flex; align-items: center; gap: 6px; }
+.st::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+/* the four things, as small round tools */
+.tool { position: relative; width: 36px; height: 36px; border-radius: 10px; border: 0; background: transparent; color: var(--mute); display: grid; place-items: center; cursor: pointer; transition: background .15s, color .15s, transform .12s var(--ease-out); }
+.tool:hover { background: #ebebef; color: var(--ink); }
+.tool:active { transform: scale(.94); }
+.tool[aria-expanded="true"] { background: var(--accent-bg); color: var(--accent); }
+.badge { position: absolute; top: -3px; right: -3px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--bad); color: #fff; font-size: 12px; font-weight: 700; line-height: 18px; text-align: center; box-shadow: 0 0 0 2px var(--ring-bg, #fff); }
+.avatar { width: 30px; height: 30px; border-radius: 50%; background: #dfe7f7; color: #1f4fb8; font-weight: 700; display: grid; place-items: center; font-size: 15px; flex: none; }
+.me-btn { border: 0; background: transparent; cursor: pointer; border-radius: 10px; padding: 3px; display: flex; align-items: center; gap: 10px; transition: background .15s, transform .12s var(--ease-out); }
+.me-btn:hover { background: #ebebef; }
+.me-btn:active { transform: scale(.97); }
+.me-btn[aria-expanded="true"] { background: var(--accent-bg); }
+
+/* NOW · in the rail foot (what the hub does today) */
+.now-tools, .now-me { display: none; }
+[data-o="now"] .now-tools { display: flex; flex-direction: column; gap: 4px; --ring-bg: var(--soft); }
+[data-o="now"] .now-me { display: flex; flex-direction: column; gap: 2px; border-top: 1px solid var(--hair); padding-top: 8px; }
+.now-me .me-btn { width: 100%; padding: 5px 8px; text-align: left; }
+.now-me .who b { display: block; font-weight: 500; }
+.now-me .who span { color: var(--mute); }
+.now-me .out { height: 36px; padding: 0 10px; display: flex; align-items: center; gap: 10px; border: 0; background: none; border-radius: 8px; cursor: pointer; color: var(--mute); }
+.now-me .out:hover { background: var(--soft); color: var(--ink); }
+
+/* A · capsule, floating bottom right */
+.capsule { position: fixed; right: 20px; bottom: 20px; z-index: 20; display: none; align-items: center; gap: 2px; padding: 5px; border-radius: 16px; background: rgb(255 255 255 / 86%); backdrop-filter: blur(16px) saturate(1.6); box-shadow: var(--ring); transition: transform .25s var(--ease-out), opacity .2s; }
+[data-o="a"] .capsule { display: flex; }
+.capsule .sep { width: 1px; height: 22px; background: var(--hair-2); margin: 0 4px; }
+body.sheet-open .capsule, body.sheet-open .orb-wrap { transform: translateY(calc(100% + 28px)); opacity: 0; pointer-events: none; }
+
+/* B · one orb, opens into a stack */
+.orb-wrap { position: fixed; right: 20px; bottom: 20px; z-index: 20; display: none; flex-direction: column; align-items: flex-end; gap: 8px; transition: transform .25s var(--ease-out), opacity .2s; }
+[data-o="b"] .orb-wrap { display: flex; }
+.orb { position: relative; width: 52px; height: 52px; border-radius: 50%; border: 0; background: #fff; box-shadow: var(--ring); cursor: pointer; display: grid; place-items: center; transition: transform .16s var(--ease-out); }
+.orb:active { transform: scale(.95); }
+.orb .avatar { width: 40px; height: 40px; font-size: 16px; }
+.orb .badge { top: 0; right: 0; }
+.stack { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.stack button { display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 14px 0 12px; border-radius: 20px; border: 0; background: #fff; box-shadow: var(--ring); cursor: pointer; font-weight: 500; opacity: 0; transform: translateY(8px) scale(.96); pointer-events: none; transition: opacity .16s, transform .2s var(--ease-out), background .15s; }
+.stack button:hover { background: var(--soft); }
+.stack button .n { min-width: 20px; height: 20px; border-radius: 10px; background: var(--bad); color: #fff; font-size: 12px; font-weight: 700; line-height: 20px; text-align: center; padding: 0 6px; }
+.stack button.danger { color: var(--bad); }
+.orb-wrap.open .stack button { opacity: 1; transform: none; pointer-events: auto; }
+.orb-wrap.open .stack button:nth-last-child(1) { transition-delay: 0ms; }
+.orb-wrap.open .stack button:nth-last-child(2) { transition-delay: 30ms; }
+.orb-wrap.open .stack button:nth-last-child(3) { transition-delay: 60ms; }
+.orb-wrap.open .stack button:nth-last-child(4) { transition-delay: 90ms; }
+.orb-wrap.open .stack button:nth-last-child(5) { transition-delay: 120ms; }
+
+
+/* E · floating orb: dragged anywhere and left where it is let go — no pull to
+   a wall (owner, 2026-10-16); opens a panel that grows toward the middle */
+.fo { position: fixed; left: 0; top: 0; z-index: 22; width: 56px; height: 56px; border-radius: 50%; border: 0; padding: 0; background: rgb(255 255 255 / 92%); backdrop-filter: blur(14px) saturate(1.6); box-shadow: var(--ring); display: none; place-items: center; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; transition: transform .5s var(--spring), opacity .3s ease, scale .16s var(--ease-out); }
+[data-o="e"] .fo { display: grid; }
+.fo .avatar { width: 42px; height: 42px; font-size: 17px; pointer-events: none; }
+.fo .badge { top: 1px; right: 1px; pointer-events: none; }
+.fo.dragging { transition: opacity .2s ease, scale .16s var(--ease-out); cursor: grabbing; scale: 1.06; }
+.fo.resting { opacity: .55; scale: .9; }
+.fo:active { scale: .97; }
+.fo.dragging:active { scale: 1.06; }
+body.sheet-open .fo { opacity: 0; pointer-events: none; }
+.fo-menu { position: fixed; z-index: 23; width: 252px; padding: 10px; border-radius: 20px; background: rgb(255 255 255 / 94%); backdrop-filter: blur(18px) saturate(1.6); box-shadow: var(--ring); display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; opacity: 0; transform: scale(.95); pointer-events: none; transition: opacity .12s ease, transform .12s var(--ease-out); }
+.fo-menu.open { opacity: 1; transform: none; pointer-events: auto; transition: opacity .18s ease, transform .2s var(--ease-out); }
+/* the tiles follow the panel in, 30ms apart; never held back from a tap */
+.fo-menu button { opacity: 0; transform: translateY(4px); }
+.fo-menu.open button { opacity: 1; transform: none; transition: opacity .18s ease, transform .2s var(--ease-out), background .15s; }
+.fo-menu.open button:nth-child(2) { transition-delay: 30ms; }
+.fo-menu.open button:nth-child(3) { transition-delay: 60ms; }
+.fo-menu.open button:nth-child(4) { transition-delay: 90ms; }
+.fo-menu.open button:nth-child(5) { transition-delay: 120ms; }
+.fo-menu.open button:nth-child(6) { transition-delay: 150ms; }
+.fo-menu button { position: relative; height: 72px; border: 0; background: none; border-radius: 14px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; cursor: pointer; font-size: 13px; font-weight: 500; color: var(--ink); transition: background .15s, transform .12s var(--ease-out); }
+@media (hover: hover) and (pointer: fine) { .fo-menu button:hover { background: var(--soft); } }
+.fo-menu.open button:active { transform: scale(.97); }
+.fo-menu button svg { width: 22px; height: 22px; color: var(--mute); }
+.fo-menu button.danger, .fo-menu button.danger svg { color: var(--bad); }
+.fo-menu .badge { top: 8px; right: 18px; }
+
+/* C, D · navbar across the page */
+.navbar { display: none; height: 56px; flex: none; align-items: center; gap: 6px; padding: 0 20px 0 32px; border-bottom: 1px solid var(--hair); }
+[data-o="c"] .navbar, [data-o="d"] .navbar { display: flex; }
+[data-o="c"] .page, [data-o="d"] .page { padding-top: 24px; }
+.crumb { color: var(--mute); }
+.crumb b { color: var(--ink); font-weight: 500; }
+.search { margin-left: auto; margin-right: 8px; height: 36px; width: 260px; border-radius: 10px; background: var(--soft); display: flex; align-items: center; gap: 8px; padding: 0 12px; color: var(--faint); }
+.search kbd { margin-left: auto; font: inherit; font-size: 13px; color: var(--faint); }
+.navbar .me-btn { margin-left: 6px; padding: 3px 10px 3px 3px; }
+.navbar .me-btn span { font-weight: 500; }
+.only-d { display: none; }
+[data-o="d"] .only-d { display: grid; }
+[data-o="d"] .only-c { display: none; }
+
+/* popover: grows from its trigger */
+.pop { position: fixed; z-index: 40; width: 380px; max-height: min(560px, calc(100vh - 100px)); display: flex; flex-direction: column; background: #fff; border-radius: 14px; box-shadow: var(--ring); opacity: 0; transform: scale(.96); pointer-events: none; transition: opacity .15s, transform .2s var(--ease-out); }
+.pop.open { opacity: 1; transform: none; pointer-events: auto; }
+.pop-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px 10px; }
+.pop-head h3 { margin: 0; font-size: 18px; font-weight: 700; letter-spacing: -.01em; }
+.pop-body { overflow: auto; padding: 0 8px 8px; }
+.item { display: flex; gap: 12px; padding: 10px; border-radius: 10px; cursor: pointer; transition: background .15s; }
+.item:hover { background: var(--soft); }
+.item .t { flex: 1; min-width: 0; }
+.item .t b { font-weight: 500; }
+.item .t p { margin: 1px 0 0; color: var(--mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.item time { color: var(--faint); white-space: nowrap; }
+.item.unread .t b { font-weight: 600; }
+.item.unread .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-top: 7px; flex: none; }
+.item .dot { width: 8px; flex: none; }
+.ico { width: 34px; height: 34px; border-radius: 10px; background: var(--soft); display: grid; place-items: center; color: var(--mute); flex: none; }
+.ico.ok { background: #e9f6ec; color: var(--ok); }
+.ico.warn { background: #fdf3e3; color: #a66c1f; }
+.ico.blue { background: var(--accent-bg); color: var(--accent); }
+.pop-foot { border-top: 1px solid var(--hair); padding: 12px 18px; display: flex; justify-content: center; }
+.thread { display: flex; flex-direction: column; gap: 6px; padding: 4px 10px 10px; }
+.bub { max-width: 80%; padding: 8px 12px; border-radius: 16px; background: var(--soft-2); align-self: flex-start; }
+.bub.me { align-self: flex-end; background: var(--accent); color: #fff; }
+.compose { display: flex; gap: 8px; padding: 10px 12px 12px; border-top: 1px solid var(--hair); }
+.compose input { flex: 1; height: 38px; border: 1px solid var(--hair-2); border-radius: 10px; padding: 0 12px; font: inherit; outline: none; }
+.compose input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg); }
+.back { border: 0; background: none; cursor: pointer; color: var(--accent); display: flex; align-items: center; gap: 4px; padding: 0; font-weight: 500; }
+.me-card { display: flex; align-items: center; gap: 12px; padding: 18px 18px 14px; border-bottom: 1px solid var(--hair); }
+.me-card .avatar { width: 44px; height: 44px; font-size: 18px; }
+.me-card b { display: block; font-size: 18px; font-weight: 700; letter-spacing: -.01em; }
+.me-card span { color: var(--mute); }
+.menu { padding: 6px; }
+.menu button { width: 100%; display: flex; align-items: center; gap: 12px; height: 40px; padding: 0 12px; border: 0; background: none; border-radius: 8px; cursor: pointer; text-align: left; transition: background .15s; }
+.menu button:hover { background: var(--soft); }
+.menu button svg { color: var(--mute); }
+.menu hr { border: 0; border-top: 1px solid var(--hair); margin: 6px 6px; }
+.menu .danger, .menu .danger svg { color: var(--bad); }
+
+/* D · inbox drawer at the right */
+.drawer { position: fixed; z-index: 40; top: 112px; right: 12px; bottom: 12px; width: 420px; max-width: calc(100vw - 24px); background: #fff; border-radius: 14px; box-shadow: var(--ring); display: flex; flex-direction: column; transform: translateX(calc(100% + 24px)); transition: transform .32s var(--ease-drawer); }
+.drawer.open { transform: none; }
+.tabs { display: flex; gap: 22px; padding: 0 18px; border-bottom: 1px solid var(--hair); }
+.tabs button { border: 0; background: none; padding: 10px 0 11px; cursor: pointer; color: var(--mute); font-weight: 500; position: relative; display: flex; gap: 6px; align-items: center; }
+.tabs button.on { color: var(--ink); }
+.tabs button.on::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--ink); border-radius: 2px; }
+.tabs .n { min-width: 18px; height: 18px; border-radius: 9px; background: var(--bad); color: #fff; font-size: 12px; font-weight: 700; line-height: 18px; text-align: center; padding: 0 5px; }
+.drawer .pop-body { flex: 1; padding-top: 8px; }
+.x { width: 32px; height: 32px; border: 0; background: none; border-radius: 8px; cursor: pointer; color: var(--mute); display: grid; place-items: center; }
+.x:hover { background: var(--soft); color: var(--ink); }
+
+/* a record sheet, to see what the floating ones do over it */
+.sheet { position: fixed; z-index: 30; top: 60px; right: 12px; bottom: 12px; width: 620px; max-width: calc(100vw - 24px); background: #fff; border-radius: 14px; box-shadow: var(--ring); display: flex; flex-direction: column; transform: translateX(calc(100% + 24px)); transition: transform .32s var(--ease-drawer); }
+.sheet.open { transform: none; }
+.sheet .sh { padding: 22px 28px; border-bottom: 1px solid var(--hair); display: flex; justify-content: space-between; align-items: center; }
+.sheet .sh h3 { margin: 0; font-size: 18px; font-weight: 700; }
+.sheet .sb { flex: 1; padding: 22px 28px; display: grid; grid-template-columns: 140px 1fr; gap: 12px 16px; align-content: start; }
+.sheet .sb span { color: var(--mute); }
+.sheet .sf { padding: 14px 28px; border-top: 1px solid var(--hair); display: flex; justify-content: flex-end; gap: 16px; align-items: center; }
+.scrim { position: fixed; inset: 0; z-index: 25; background: rgb(255 255 255 / 55%); opacity: 0; pointer-events: none; transition: opacity .2s; }
+body.sheet-open .scrim { opacity: 1; pointer-events: auto; }
+
+.toast { position: fixed; left: 50%; bottom: 24px; z-index: 60; transform: translate(-50%, calc(100% + 48px)); background: var(--ink); color: #fff; padding: 10px 16px; border-radius: 10px; transition: transform .25s var(--ease-out); }
+.toast.show { transform: translate(-50%, 0); }
+
+/* phone (414): no rail, no column, same tools */
+@media (max-width: 760px) {
+  .app { grid-template-columns: 1fr; }
+  .switch { justify-content: flex-start; }
+  .rail, .col { display: none; }
+  .page { padding: 20px 16px 120px; }
+  .kpis { flex-wrap: wrap; gap: 12px 0; }
+  .kpis div { flex: 1 0 50%; }
+  .kpis div:nth-child(3) { padding-left: 0; border: 0; }
+  .hide-sm, .search, .navbar .me-btn span, .crumb span { display: none; }
+  .navbar { padding: 0 10px 0 16px; }
+  .navbar .crumb { margin-right: auto; }
+  .pop { left: 8px !important; right: 8px !important; width: auto; }
+  [data-o="now"] .phone-now { display: flex; }
+}
+.phone-now { display: none; position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; height: calc(60px + env(safe-area-inset-bottom)); padding-bottom: env(safe-area-inset-bottom); background: rgb(255 255 255 / 92%); backdrop-filter: blur(14px); border-top: 1px solid var(--hair); justify-content: space-around; align-items: center; }
+.phone-now .tool { width: 56px; }
+@media (prefers-reduced-motion: reduce) {
+  .pop, .stack button, .capsule, .orb-wrap, .fo-menu { transform: none !important; }
+  .fo { transition: opacity .2s ease; }
+  .fo-menu button { transform: none !important; transition-delay: 0ms !important; }
+  .drawer, .sheet { transition: opacity .2s; }
+}
+</style>
+</head>
+<body data-o="a">
+
+<svg style="display:none" xmlns="http://www.w3.org/2000/svg">
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22z"/></symbol>
+  <symbol id="i-disc" viewBox="0 0 24 24"><path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"/><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"/></symbol>
+  <symbol id="i-inbox" viewBox="0 0 24 24"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></symbol>
+  <symbol id="i-out" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+  <symbol id="i-cal" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></symbol>
+  <symbol id="i-cash" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2"/></symbol>
+  <symbol id="i-swap" viewBox="0 0 24 24"><path d="m16 3 4 4-4 4"/><path d="M20 7H4"/><path d="m8 21-4-4 4-4"/><path d="M4 17h16"/></symbol>
+  <symbol id="i-box" viewBox="0 0 24 24"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/></symbol>
+  <symbol id="i-cart" viewBox="0 0 24 24"><circle cx="9" cy="20" r="1"/><circle cx="18" cy="20" r="1"/><path d="M2 3h3l2.7 12.4a2 2 0 0 0 2 1.6h7.7a2 2 0 0 0 2-1.6L21 7H6"/></symbol>
+  <symbol id="i-tag" viewBox="0 0 24 24"><path d="M12.6 2.6A2 2 0 0 0 11.2 2H4a2 2 0 0 0-2 2v7.2a2 2 0 0 0 .6 1.4l8.7 8.7a2.4 2.4 0 0 0 3.4 0l6.6-6.6a2.4 2.4 0 0 0 0-3.4z"/><circle cx="7.5" cy="7.5" r="1"/></symbol>
+  <symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M18 17V9M13 17V5M8 17v-3"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-truck" viewBox="0 0 24 24"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.62L18.3 8.38A1 1 0 0 0 17.52 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/></symbol>
+  <symbol id="i-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></symbol>
+</svg>
+
+<div class="switch" role="group">
+  <button data-pick="now">Now · Rail foot</button>
+  <button data-pick="a">A · Capsule</button>
+  <button data-pick="b">B · Orb</button>
+  <button data-pick="c">C · Navbar</button>
+  <button data-pick="d">D · Navbar + Inbox</button>
+  <button data-pick="e">E · Floating orb</button>
+</div>
+
+<div class="app">
+  <nav class="rail">
+    <div class="logo"></div>
+    <div class="dep"><svg><use href="#i-chart"/></svg></div>
+    <div class="dep on"><svg><use href="#i-cart"/></svg></div>
+    <div class="dep"><svg><use href="#i-tag"/></svg></div>
+    <div class="dep"><svg><use href="#i-box"/></svg></div>
+    <div class="dep"><svg><use href="#i-truck"/></svg></div>
+    <div class="dep"><svg><use href="#i-cash"/></svg></div>
+    <div class="grow"></div>
+    <div class="now-tools">
+      <button class="tool" data-open="chat" aria-label="Chat"><svg><use href="#i-chat"/></svg><span class="badge" data-c="chat"></span></button>
+      <button class="tool" data-open="disc" aria-label="Discussions"><svg><use href="#i-disc"/></svg><span class="badge" data-c="disc"></span></button>
+      <button class="tool" data-open="notif" aria-label="Notifications"><svg><use href="#i-bell"/></svg><span class="badge" data-c="notif"></span></button>
+    </div>
+  </nav>
+
+  <nav class="col">
+    <h2>Procurement</h2>
+    <a class="row on">Purchase Orders</a>
+    <a class="row">Receiving <span class="n">3</span></a>
+    <a class="row">Review Count</a>
+    <span class="chip">Suppliers</span>
+    <a class="row">Suppliers</a>
+    <a class="row">Return PO</a>
+    <div class="grow"></div>
+    <div class="now-me">
+      <button class="me-btn" data-open="me" aria-label="Profile"><span class="avatar">D</span><span class="who"><b>Dewi Lestari</b><span>Profile</span></span></button>
+      <button class="out" data-signout><svg><use href="#i-out"/></svg>Sign out</button>
+    </div>
+  </nav>
+
+  <div class="main">
+    <header class="navbar">
+      <div class="crumb"><span>Procurement / </span><b>Purchase Orders</b></div>
+      <div class="search"><svg><use href="#i-search"/></svg>Search<kbd>⌘K</kbd></div>
+      <button class="tool only-c" data-open="chat" aria-label="Chat"><svg><use href="#i-chat"/></svg><span class="badge" data-c="chat"></span></button>
+      <button class="tool only-c" data-open="disc" aria-label="Discussions"><svg><use href="#i-disc"/></svg><span class="badge" data-c="disc"></span></button>
+      <button class="tool only-c" data-open="notif" aria-label="Notifications"><svg><use href="#i-bell"/></svg><span class="badge" data-c="notif"></span></button>
+      <button class="tool only-d" data-drawer aria-label="Inbox"><svg><use href="#i-inbox"/></svg><span class="badge" data-c="all"></span></button>
+      <button class="me-btn" data-open="me" aria-label="Profile"><span class="avatar">D</span><span>Dewi</span></button>
+    </header>
+
+    <main class="page">
+      <div class="head">
+        <h1>Purchase Orders</h1>
+        <button class="btn">New PO</button>
+      </div>
+      <div class="kpis">
+        <div><b>42</b><span>Active</span></div>
+        <div><b>3</b><span>Arriving today</span></div>
+        <div><b>Rp 1,28 M</b><span>Ordered this month</span></div>
+        <div><b>6</b><span>To review</span></div>
+      </div>
+      <table>
+        <thead><tr><th>PO</th><th class="hide-sm">Supplier</th><th class="r">Quantity</th><th>Status</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </main>
+  </div>
+</div>
+
+<!-- A -->
+<div class="capsule">
+  <button class="tool" data-open="chat" aria-label="Chat"><svg><use href="#i-chat"/></svg><span class="badge" data-c="chat"></span></button>
+  <button class="tool" data-open="disc" aria-label="Discussions"><svg><use href="#i-disc"/></svg><span class="badge" data-c="disc"></span></button>
+  <button class="tool" data-open="notif" aria-label="Notifications"><svg><use href="#i-bell"/></svg><span class="badge" data-c="notif"></span></button>
+  <span class="sep"></span>
+  <button class="me-btn" data-open="me" aria-label="Profile"><span class="avatar">D</span></button>
+</div>
+
+<!-- B -->
+<div class="orb-wrap">
+  <div class="stack">
+    <button data-open="chat"><svg><use href="#i-chat"/></svg>Chat<span class="n" data-c="chat"></span></button>
+    <button data-open="disc"><svg><use href="#i-disc"/></svg>Discussions<span class="n" data-c="disc"></span></button>
+    <button data-open="notif"><svg><use href="#i-bell"/></svg>Notifications<span class="n" data-c="notif"></span></button>
+    <button data-open="me"><svg><use href="#i-user"/></svg>Profile</button>
+    <button class="danger" data-signout><svg><use href="#i-out"/></svg>Sign out</button>
+  </div>
+  <button class="orb" aria-label="You"><span class="avatar">D</span><span class="badge" data-c="all"></span></button>
+</div>
+
+<!-- E -->
+<button class="fo" aria-label="You" aria-haspopup="menu" aria-expanded="false"><span class="avatar">D</span><span class="badge" data-c="all"></span></button>
+<div class="fo-menu" role="menu">
+  <button data-open="chat"><svg><use href="#i-chat"/></svg>Chat<span class="badge" data-c="chat"></span></button>
+  <button data-open="disc"><svg><use href="#i-disc"/></svg>Discussions<span class="badge" data-c="disc"></span></button>
+  <button data-open="notif"><svg><use href="#i-bell"/></svg>Notifications<span class="badge" data-c="notif"></span></button>
+  <button data-open="me"><svg><use href="#i-user"/></svg>Profile</button>
+  <button data-goto="Search"><svg><use href="#i-search"/></svg>Search</button>
+  <button class="danger" data-signout><svg><use href="#i-out"/></svg>Sign out</button>
+</div>
+
+<!-- phone, Now: the bottom bar it has today -->
+<div class="phone-now">
+  <button class="tool" data-open="chat" aria-label="Chat"><svg><use href="#i-chat"/></svg><span class="badge" data-c="chat"></span></button>
+  <button class="tool" data-open="notif" aria-label="Notifications"><svg><use href="#i-bell"/></svg><span class="badge" data-c="notif"></span></button>
+  <button class="tool" data-open="me" aria-label="Profile"><svg><use href="#i-user"/></svg></button>
+</div>
+
+<div class="pop" id="pop" role="dialog"></div>
+
+<aside class="drawer" id="drawer" role="dialog" aria-label="Inbox">
+  <div class="pop-head"><h3>Inbox</h3><button class="x" data-close aria-label="Close"><svg><use href="#i-x"/></svg></button></div>
+  <div class="tabs" id="dtabs"></div>
+  <div class="pop-body" id="dbody"></div>
+</aside>
+
+<div class="scrim"></div>
+<aside class="sheet" id="sheet">
+  <div class="sh"><h3 id="sheet-t">PO-2410</h3><button class="x" data-close-sheet aria-label="Close"><svg><use href="#i-x"/></svg></button></div>
+  <div class="sb"><span>Supplier</span><b>CV Sinar Garmen</b><span>Ordered</span><b>1.240 pcs</b><span>Arrives</span><b>17 Oct 2026</b><span>Created by</span><b>Dewi Lestari</b></div>
+  <div class="sf"><button class="link">Cancel PO</button><button class="btn">Receive</button></div>
+</aside>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const notif = [
+  { ico: "ok", i: "check", t: "PO-2410 received at DC", p: "1.240 of 1.240 pcs counted", at: "2 min", u: 1 },
+  { ico: "warn", i: "truck", t: "Allotment ALT-118 cannot continue", p: "Kemang · 12 pcs short on Kemeja Linen", at: "18 min", u: 1 },
+  { ico: "blue", i: "cal", t: "Rizky Pratama asked for leave", p: "20–22 Oct · Annual leave", at: "1 h", u: 1 },
+  { ico: "", i: "box", t: "Quantity check done", p: "Grand Indonesia · 0 differences", at: "Yesterday", u: 0 },
+  { ico: "", i: "cash", t: "Pricelist Oct published", p: "312 articles · 5 stores", at: "Yesterday", u: 0 },
+];
+const chats = [
+  { n: "Rizky Pratama", p: "PO-2410 udah sampai DC ya bu", at: "09:41", u: 2 },
+  { n: "Ops DC", p: "Andi: koli 4 sudah naik truk", at: "09:12", u: 1 },
+  { n: "Sari Wulandari", p: "Oke, nanti aku cek pricelist", at: "Yesterday", u: 0 },
+  { n: "Merchandise", p: "Bima: allotment minggu depan…", at: "Mon", u: 0 },
+];
+const discs = [
+  { ico: "blue", i: "cart", t: "PO-2410 · CV Sinar Garmen", p: "Rizky: harga per lusin sudah sesuai?", at: "3 replies", u: 1 },
+  { ico: "", i: "tag", t: "Kemeja Linen Oversize", p: "Sari: foto colourway sage belum ada", at: "1 reply", u: 0 },
+  { ico: "", i: "truck", t: "ALT-118 · Kemang", p: "Andi: short 12 pcs, ambil dari GI?", at: "5 replies", u: 0 },
+];
+const counts = () => ({
+  notif: notif.filter(x => x.u).length,
+  chat: chats.reduce((s, x) => s + x.u, 0),
+  disc: discs.filter(x => x.u).length,
+});
+function paintCounts() {
+  const c = counts(); c.all = c.notif + c.chat + c.disc;
+  document.querySelectorAll("[data-c]").forEach(el => {
+    const v = c[el.dataset.c];
+    el.textContent = v > 99 ? "99+" : v;
+    el.style.display = v > 0 ? "" : "none";
+  });
+}
+
+const use = i => `<svg><use href="#i-${i}"/></svg>`;
+const listItem = (x, k, idx) => `<div class="item ${x.u ? "unread" : ""}" data-k="${k}" data-idx="${idx}"><span class="ico ${x.ico}">${use(x.i)}</span><div class="t"><b>${x.t}</b><p>${x.p}</p></div><time>${x.at}</time><span class="dot"></span></div>`;
+const chatItem = (x, idx) => `<div class="item ${x.u ? "unread" : ""}" data-k="chat" data-idx="${idx}"><span class="avatar" style="width:34px;height:34px">${x.n[0]}</span><div class="t"><b>${x.n}</b><p>${x.p}</p></div><time>${x.at}</time><span class="dot"></span></div>`;
+
+const views = {
+  notif: () => `<div class="pop-head"><h3>Notifications</h3><button class="link" data-readall>Mark all read</button></div><div class="pop-body">${notif.map((x, i) => listItem(x, "notif", i)).join("")}</div>`,
+  chat: () => `<div class="pop-head"><h3>Chat</h3><button class="link">New chat</button></div><div class="pop-body">${chats.map(chatItem).join("")}</div><div class="pop-foot"><button class="link" data-goto="Chat">Open Chat</button></div>`,
+  disc: () => `<div class="pop-head"><h3>Discussions</h3></div><div class="pop-body">${discs.map((x, i) => listItem(x, "disc", i)).join("")}</div><div class="pop-foot"><button class="link" data-goto="Discussions">Open Discussions</button></div>`,
+  me: () => `<div class="me-card"><span class="avatar">D</span><div><b>Dewi Lestari</b><span>Buyer · Head office</span></div></div><div class="menu"><button data-goto="Profile">${use("user")}Profile</button><button data-goto="Leave">${use("cal")}Leave</button><button data-goto="Pay">${use("cash")}Pay</button><button data-goto="Switch business">${use("swap")}Switch business</button><hr><button class="danger" data-signout>${use("out")}Sign out</button></div>`,
+  thread: (idx) => { const c = chats[idx]; return `<div class="pop-head"><button class="back" data-back>${use("left")}Chat</button><b>${c.n}</b><span style="width:48px"></span></div><div class="pop-body"><div class="thread"><div class="bub">Bu, PO-2410 udah sampai DC</div><div class="bub">${c.p}</div><div class="bub me">Siap, makasih. Nanti aku review count</div></div></div><div class="compose"><input placeholder="Message ${c.n.split(" ")[0]}"><button class="btn">Send</button></div>`; },
+};
+
+const pop = document.getElementById("pop");
+let trigger = null, kind = null;
+function openPop(k, btn, arg) {
+  if (kind === k && trigger === btn && pop.classList.contains("open") && arg === undefined) return closePop();
+  closeOrb();
+  if (trigger) trigger.setAttribute("aria-expanded", "false");
+  trigger = btn; kind = k;
+  pop.innerHTML = k === "thread" ? views.thread(arg) : views[k]();
+  btn.setAttribute("aria-expanded", "true");
+  place(btn);
+  requestAnimationFrame(() => pop.classList.add("open"));
+}
+function place(btn) {
+  const r = btn.getBoundingClientRect(), vw = innerWidth, vh = innerHeight, w = Math.min(380, vw - 16), gap = 10;
+  pop.style.left = pop.style.right = pop.style.top = pop.style.bottom = "";
+  const o = document.body.dataset.o;
+  let ox, oy;
+  if (o === "now" && vw > 760) { // beside the rail / column, growing up from the button
+    pop.style.left = (r.right + gap) + "px";
+    pop.style.bottom = Math.max(8, vh - r.bottom) + "px";
+    ox = "left"; oy = "bottom";
+  } else if (o === "c" || o === "d") { // under the navbar, right aligned
+    pop.style.top = (r.bottom + gap) + "px";
+    pop.style.left = Math.max(8, Math.min(r.right - w, vw - w - 8)) + "px";
+    ox = "right"; oy = "top";
+  } else if (o === "e") { // beside the orb, toward the middle of the screen
+    const f = fo.getBoundingClientRect(), right = f.left + f.width / 2 > vw / 2;
+    pop.style.left = (right ? Math.max(8, f.left - w - gap) : Math.min(vw - w - 8, f.right + gap)) + "px";
+    if (f.top + f.height / 2 > vh / 2) { pop.style.bottom = Math.max(8, vh - f.bottom) + "px"; oy = "bottom"; }
+    else { pop.style.top = Math.max(56, f.top) + "px"; oy = "top"; }
+    ox = right ? "right" : "left";
+    if (vw <= 760) { pop.style.left = "8px"; }
+  } else { // floating, or phone: above the trigger
+    pop.style.bottom = (vh - r.top + gap) + "px";
+    pop.style.left = Math.max(8, Math.min(r.right - w, vw - w - 8)) + "px";
+    ox = "right"; oy = "bottom";
+    if (o === "b") { pop.style.bottom = "20px"; pop.style.left = (vw - w - 84) + "px"; ox = "right"; }
+  }
+  pop.style.transformOrigin = `${oy} ${ox}`;
+}
+function closePop() {
+  pop.classList.remove("open");
+  if (trigger) trigger.setAttribute("aria-expanded", "false");
+  trigger = null; kind = null;
+}
+
+const orbWrap = document.querySelector(".orb-wrap");
+function closeOrb() { orbWrap.classList.remove("open"); closeFo(); }
+document.querySelector(".orb").onclick = (e) => { e.stopPropagation(); closePop(); orbWrap.classList.toggle("open"); };
+
+// E · floating orb
+const fo = document.querySelector(".fo"), foMenu = document.querySelector(".fo-menu");
+const FO = 56, EDGE = 16, TOP = 64;
+let foX = 0, foY = 0, rest;
+function foClamp(x, y) {
+  return [Math.min(Math.max(EDGE, x), innerWidth - FO - EDGE), Math.min(Math.max(TOP, y), innerHeight - FO - EDGE)];
+}
+function foMove(x, y) { foX = x; foY = y; fo.style.transform = `translate(${x}px, ${y}px)`; }
+function foWake() {
+  fo.classList.remove("resting"); clearTimeout(rest);
+  rest = setTimeout(() => { if (!foMenu.classList.contains("open")) fo.classList.add("resting"); }, 2500);
+}
+function foSettle() {
+  // Stays where it was let go; only a drop past the edge springs back inside.
+  const [x, y] = foClamp(foX, foY);
+  foMove(x, y);
+  try { localStorage.setItem("fo", JSON.stringify({ x: x / innerWidth, y: y / innerHeight })); } catch {}
+}
+function foPlaceMenu() {
+  const mw = 252, mh = foMenu.offsetHeight || 170, right = foX + FO / 2 > innerWidth / 2, low = foY + FO / 2 > innerHeight / 2;
+  const left = Math.min(Math.max(8, right ? foX - mw - 10 : foX + FO + 10), innerWidth - mw - 8);
+  const top = Math.min(Math.max(TOP, low ? foY + FO - mh : foY), innerHeight - mh - 8);
+  foMenu.style.left = left + "px"; foMenu.style.top = top + "px";
+  foMenu.style.transformOrigin = `${low ? "bottom" : "top"} ${right ? "right" : "left"}`;
+}
+function closeFo() { foMenu.classList.remove("open"); fo.setAttribute("aria-expanded", "false"); foWake(); }
+let drag = null;
+fo.addEventListener("pointerdown", (e) => {
+  if (drag) return; // one finger at a time
+  try { fo.setPointerCapture(e.pointerId); } catch {}
+  drag = { id: e.pointerId, sx: e.clientX, sy: e.clientY, ox: foX, oy: foY, moved: false };
+  foWake();
+});
+fo.addEventListener("pointermove", (e) => {
+  if (!drag || e.pointerId !== drag.id) return;
+  const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
+  if (!drag.moved && Math.hypot(dx, dy) < 6) return;
+  if (!drag.moved) { drag.moved = true; fo.classList.add("dragging"); closeFo(); closePop(); }
+  // Past an edge the orb follows less and less (damping), never a hard stop.
+  const want = [drag.ox + dx, drag.oy + dy], [cx, cy] = foClamp(want[0], want[1]);
+  const band = (v, c) => c + Math.sign(v - c) * Math.sqrt(Math.abs(v - c)) * 3;
+  foMove(band(want[0], cx), band(want[1], cy));
+});
+function foEnd(e) {
+  if (!drag || e.pointerId !== drag.id) return;
+  const was = drag; drag = null; fo.classList.remove("dragging");
+  if (was.moved) { foSettle(); foWake(); return; }
+  // A tap: the panel, toward the middle of the screen.
+  closePop();
+  if (foMenu.classList.contains("open")) return closeFo();
+  foPlaceMenu(); foMenu.classList.add("open"); fo.setAttribute("aria-expanded", "true");
+  fo.classList.remove("resting"); clearTimeout(rest);
+}
+fo.addEventListener("pointerup", foEnd);
+fo.addEventListener("pointercancel", foEnd);
+fo.addEventListener("click", (e) => e.stopPropagation());
+foMenu.addEventListener("click", (e) => { if (e.target.closest("button")) foMenu.classList.remove("open"); });
+function foHome() {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem("fo") || "null"); } catch {}
+  const x0 = saved?.x != null ? saved.x * innerWidth : innerWidth - FO - EDGE;
+  const y0 = saved?.y != null ? saved.y * innerHeight : innerHeight - FO - 96;
+  const keep = fo.style.transition; fo.style.transition = "none";
+  const [x, yy] = foClamp(x0, y0);
+  foMove(x, yy); fo.offsetHeight; fo.style.transition = keep;
+  foWake();
+}
+addEventListener("resize", () => { const [x, y] = foClamp(foX, foY); foMove(x, y); if (foMenu.classList.contains("open")) foPlaceMenu(); });
+foHome();
+
+// D · Inbox
+const drawer = document.getElementById("drawer");
+let dtab = "notif";
+function paintDrawer() {
+  const c = counts();
+  const tab = (k, l) => `<button class="${dtab === k ? "on" : ""}" data-dtab="${k}">${l}${c[k] ? `<span class="n">${c[k]}</span>` : ""}</button>`;
+  document.getElementById("dtabs").innerHTML = tab("notif", "Notifications") + tab("chat", "Chat") + tab("disc", "Discussions");
+  document.getElementById("dbody").innerHTML =
+    dtab === "notif" ? notif.map((x, i) => listItem(x, "notif", i)).join("") :
+    dtab === "chat" ? chats.map(chatItem).join("") :
+    discs.map((x, i) => listItem(x, "disc", i)).join("");
+}
+
+const toastEl = document.getElementById("toast"); let tt;
+function toast(m) { toastEl.textContent = m; toastEl.classList.add("show"); clearTimeout(tt); tt = setTimeout(() => toastEl.classList.remove("show"), 1800); }
+
+document.addEventListener("click", (e) => {
+  const t = e.target;
+  const open = t.closest("[data-open]");
+  if (open) { e.stopPropagation(); return openPop(open.dataset.open, open); }
+  if (t.closest("[data-signout]")) { closePop(); closeOrb(); return toast("Signed out · back to the sign-in door"); }
+  if (t.closest("[data-drawer]")) { closePop(); paintDrawer(); drawer.classList.toggle("open"); return; }
+  if (t.closest("[data-close]")) return drawer.classList.remove("open");
+  const dt = t.closest("[data-dtab]"); if (dt) { dtab = dt.dataset.dtab; return paintDrawer(); }
+  if (t.closest("[data-readall]")) { notif.forEach(x => x.u = 0); paintCounts(); pop.innerHTML = views.notif(); return; }
+  if (t.closest("[data-back]")) { pop.innerHTML = views.chat(); kind = "chat"; return; }
+  const go = t.closest("[data-goto]"); if (go) { closePop(); return toast(`Opens ${go.dataset.goto}`); }
+  const it = t.closest(".item");
+  if (it) {
+    const k = it.dataset.k, i = +it.dataset.idx;
+    if (k === "chat") { chats[i].u = 0; paintCounts(); if (drawer.contains(it)) { paintDrawer(); return toast(`Opens chat with ${chats[i].n}`); } pop.innerHTML = views.thread(i); kind = "thread"; return; }
+    (k === "notif" ? notif : discs)[i].u = 0; paintCounts(); if (drawer.contains(it)) paintDrawer();
+    closePop();
+    return openSheet(k === "notif" ? notif[i].t : discs[i].t);
+  }
+  if (t.closest("#rows tr")) return openSheet(t.closest("tr").dataset.po);
+  if (t.closest("[data-close-sheet]") || t.closest(".scrim")) return closeSheet();
+  if (!pop.contains(t)) closePop();
+  if (!orbWrap.contains(t) && !foMenu.contains(t)) closeOrb();
+});
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closePop(); closeOrb(); drawer.classList.remove("open"); closeSheet(); } });
+addEventListener("resize", () => { if (trigger) place(trigger); });
+
+const sheet = document.getElementById("sheet");
+function openSheet(title) { document.getElementById("sheet-t").textContent = title; sheet.classList.add("open"); document.body.classList.add("sheet-open"); drawer.classList.remove("open"); }
+function closeSheet() { sheet.classList.remove("open"); document.body.classList.remove("sheet-open"); }
+
+const pos = [["PO-2410", "CV Sinar Garmen", "1.240 pcs", "Received", "var(--ok)"], ["PO-2411", "PT Kain Nusantara", "860 pcs", "Arriving today", "var(--accent)"], ["PO-2412", "CV Batik Laras", "412 pcs", "Counting", "#a66c1f"], ["PO-2413", "PT Denim Jaya", "2.100 pcs", "Ordered", "var(--mute)"], ["PO-2414", "CV Rajut Indah", "640 pcs", "Ordered", "var(--mute)"], ["PO-2415", "PT Sutra Mas", "300 pcs", "To review", "#a66c1f"], ["PO-2416", "CV Sinar Garmen", "980 pcs", "Ordered", "var(--mute)"], ["PO-2417", "PT Kain Nusantara", "1.520 pcs", "Ordered", "var(--mute)"]];
+document.getElementById("rows").innerHTML = pos.map(p => `<tr data-po="${p[0]}" style="cursor:pointer"><td>${p[0]}<small>16 Oct 2026</small></td><td class="hide-sm">${p[1]}</td><td class="r">${p[2]}</td><td><span class="st" style="color:${p[4]}">${p[3]}</span></td></tr>`).join("");
+
+function pick(o) {
+  document.body.dataset.o = o; closePop(); closeOrb(); drawer.classList.remove("open");
+  document.querySelectorAll("[data-pick]").forEach(b => b.setAttribute("aria-pressed", b.dataset.pick === o));
+  try { history.replaceState(null, "", "?o=" + o); } catch {}
+}
+document.querySelectorAll("[data-pick]").forEach(b => b.onclick = (e) => { e.stopPropagation(); pick(b.dataset.pick); });
+const keys = { "0": "now", "1": "a", "2": "b", "3": "c", "4": "d", "5": "e" };
+document.addEventListener("keydown", (e) => { if (keys[e.key] && !e.target.closest("input")) pick(keys[e.key]); });
+const q = new URLSearchParams(location.search).get("o");
+paintCounts();
+pick(["now", "a", "b", "c", "d", "e"].includes(q) ? q : "a");
+</script>
+</body>
+</html>

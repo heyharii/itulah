@@ -12,10 +12,15 @@ import { cn } from "@/lib/utils"
 export function PhotoViewer({
   url,
   name,
+  placeholder,
   onClose,
 }: {
   url: string
   name?: string
+  /// What is shown, large, when there is no photograph: the painted silhouette,
+  /// with the plain words under it — a tap on a picture answers something
+  /// rather than nothing.
+  placeholder?: React.ReactNode
   onClose: () => void
 }) {
   useEffect(() => {
@@ -38,11 +43,18 @@ export function PhotoViewer({
       onClick={onClose}
       className="fixed inset-0 z-[300] flex items-center justify-center bg-black/90 p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]"
     >
-      <img
-        src={url}
-        alt={name ?? ""}
-        className="max-h-full max-w-full rounded-card object-contain"
-      />
+      {url === "" && placeholder !== undefined ? (
+        <div className="flex flex-col items-center gap-3">
+          {placeholder}
+          <p className="text-[0.9375rem] text-white/80">No photo yet</p>
+        </div>
+      ) : (
+        <img
+          src={url}
+          alt={name ?? ""}
+          className="max-h-full max-w-full rounded-card object-contain"
+        />
+      )}
       <button
         type="button"
         aria-label="Close photo"
@@ -61,22 +73,35 @@ export function PhotoViewer({
 export function ZoomPhoto({
   url,
   name,
+  placeholder,
   className,
   children,
 }: {
   url: string | null | undefined
   name?: string
+  /// Shown large when there is no photograph, so the tap is never dead. Left
+  /// out, a thumbnail with no photograph is the thumbnail and nothing else.
+  placeholder?: React.ReactNode
   className?: string
   children: React.ReactNode
 }) {
   const [open, setOpen] = useState(false)
-  if (url === null || url === undefined || url === "")
+  const none = url === null || url === undefined || url === ""
+  if (none && placeholder === undefined)
     return <span className={className}>{children}</span>
   return (
     <>
       <button
         type="button"
-        aria-label={name ? `View the photo of ${name}` : "View the photo"}
+        aria-label={
+          none
+            ? name
+              ? `View ${name}`
+              : "View"
+            : name
+              ? `View the photo of ${name}`
+              : "View the photo"
+        }
         onClick={(event) => {
           // A card or a row around it opens its own record on a tap.
           event.stopPropagation()
@@ -90,7 +115,12 @@ export function ZoomPhoto({
         {children}
       </button>
       {open && (
-        <PhotoViewer url={url} name={name} onClose={() => setOpen(false)} />
+        <PhotoViewer
+          url={none ? "" : url}
+          name={name}
+          placeholder={placeholder}
+          onClose={() => setOpen(false)}
+        />
       )}
     </>
   )

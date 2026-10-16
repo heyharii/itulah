@@ -195,14 +195,14 @@ export const MessageRow = memo(function MessageRow({
           )}
 
           {deleted ? (
-            <div className="rounded-inner border border-dashed border-hairline-2 px-3 py-1.5 text-[0.875rem] text-mute italic">
+            <div className="rounded-inner border border-dashed border-hairline-2 px-3 py-1.5 text-[0.9375rem] text-mute italic">
               {mine ? "You deleted this message" : "This message was deleted"}
             </div>
           ) : (
             message.body.trim() !== "" && (
               <div
                 className={cn(
-                  "rounded-inner px-3 py-2 text-[0.875rem] leading-relaxed break-words whitespace-pre-wrap",
+                  "rounded-inner px-3 py-2 text-[0.9375rem] leading-relaxed break-words whitespace-pre-wrap",
                   // Indigo is "mine" the way it is "selected" everywhere else.
                   // Nothing darkens: the other person's bubble is the soft
                   // grey, never a filled dark one.
@@ -274,7 +274,7 @@ export const MessageRow = memo(function MessageRow({
                   title={namesOf(reaction.users, members, me)}
                   aria-pressed={reacted}
                   className={cn(
-                    "inline-flex h-7 items-center gap-1 rounded-full border px-2 text-[0.875rem] tabular-nums transition-colors",
+                    "inline-flex h-7 items-center gap-1 rounded-full border px-2 text-[0.9375rem] tabular-nums transition-colors",
                     reacted
                       ? "border-accent/40 bg-accent-bg text-accent"
                       : "border-hairline-2 bg-canvas text-body hover:bg-soft-2"
@@ -338,7 +338,7 @@ function Quote({
       </span>
       <span
         className={cn(
-          "line-clamp-2 text-[0.875rem] text-body",
+          "line-clamp-2 text-[0.9375rem] text-body",
           reply.deleted && "text-mute italic"
         )}
       >
@@ -572,7 +572,7 @@ export function OutboxRow({
             <span className="block truncate text-pill font-medium text-accent">
               {item.replyTo.author_name}
             </span>
-            <span className="line-clamp-2 text-[0.875rem] text-body">
+            <span className="line-clamp-2 text-[0.9375rem] text-body">
               {plainText(item.replyTo.body)}
             </span>
           </div>
@@ -580,7 +580,7 @@ export function OutboxRow({
         {item.body !== "" && (
           <div
             className={cn(
-              "rounded-inner bg-accent-bg px-3 py-2 text-[0.875rem] leading-relaxed break-words whitespace-pre-wrap text-ink",
+              "rounded-inner bg-accent-bg px-3 py-2 text-[0.9375rem] leading-relaxed break-words whitespace-pre-wrap text-ink",
               !failed && "opacity-70",
               failed && "ring-1 ring-bad-fg/40"
             )}

@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query"
-import { useMemo, useState } from "react"
+import { useSuspenseQueries } from "@tanstack/react-query"
+import { Suspense, useDeferredValue, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { ExportButton } from "@/components/ui/export-button"
@@ -8,7 +8,7 @@ import { Banner, EmptyState } from "@/components/ui/states"
 import { fileSafe, type ExportSheet } from "@/lib/export-xlsx"
 import { day, money } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
-import { financeKeys, statement } from "@/lib/queries/finance"
+import { balanceStatementQuery } from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
 import { Code, Grid, Td, Th, TotalRow } from "@/screens/finance-final/parts"
 import {
@@ -30,6 +30,7 @@ import {
   type StatementLine,
 } from "@/screens/finance/phone-parts"
 import { ReportFilters, ReportSummary } from "@/screens/finance/report"
+import { ScreenPending } from "@/screens/finance/pending"
 import type { Statement } from "@itulah/contract"
 
 /// 7Soft's "Laporan Neraca Central 2 Tahunan": the balance sheet at the end
@@ -49,6 +50,23 @@ import type { Statement } from "@itulah/contract"
 /// sheet prints them (liabilities and equity flipped to read positive), so a
 /// growing liability shows a positive change like a growing asset does.
 export function BalanceSheetTwoYears() {
+  return (
+    <Suspense
+      fallback={
+        <ScreenPending
+          crumb="Finance · Financial Reports"
+          title="Balance Sheet 2 Years"
+        >
+          Reading this year-end…
+        </ScreenPending>
+      }
+    >
+      <BalanceSheetTwoYearsScreen />
+    </Suspense>
+  )
+}
+
+function BalanceSheetTwoYearsScreen() {
   const phone = useLayout() === "phone"
   const [unit, setUnit] = useState("")
   const [year, setYear] = useState(() => new Date().getFullYear())
@@ -56,50 +74,34 @@ export function BalanceSheetTwoYears() {
   const unitName = useUnitName()
   const month = monthDraft ?? defaultMonth(year)
 
+  // The boxes answer at once; the two sheets trail them, and the figures in
+  // hand stay on screen (dimmed) until the next are read.
+  const askedUnit = useDeferredValue(unit)
+  const askedYear = useDeferredValue(year)
+  const askedMonth = useDeferredValue(month)
+  const stale = askedUnit !== unit || askedYear !== year || askedMonth !== month
+
   const dates = {
-    now: lastDayOf(year, month),
-    before: lastDayOf(year - 1, month),
+    now: lastDayOf(askedYear, askedMonth),
+    before: lastDayOf(askedYear - 1, askedMonth),
   }
 
-  const now = useQuery({
-    queryKey: financeKeys.statement(
-      "BALANCE_SHEET",
-      null,
-      dates.now,
-      unit || null
-    ),
-    queryFn: ({ signal }) =>
-      statement(
-        "BALANCE_SHEET",
-        { to: dates.now, unit: unit || undefined },
-        signal
-      ),
-  })
-  const before = useQuery({
-    queryKey: financeKeys.statement(
-      "BALANCE_SHEET",
-      null,
-      dates.before,
-      unit || null
-    ),
-    queryFn: ({ signal }) =>
-      statement(
-        "BALANCE_SHEET",
-        { to: dates.before, unit: unit || undefined },
-        signal
-      ),
+  const [now, before] = useSuspenseQueries({
+    queries: [
+      balanceStatementQuery(dates.now, askedUnit || null),
+      balanceStatementQuery(dates.before, askedUnit || null),
+    ],
   })
 
   const rows = useMemo(
-    () => (now.data && before.data ? linesOf(now.data, before.data) : null),
+    () => linesOf(now.data, before.data),
     [now.data, before.data]
   )
 
-  const scope = unit === "" ? "All units" : unitName(unit)
+  const scope = askedUnit === "" ? "All units" : unitName(askedUnit)
   const note = `As at ${day(dates.now)} against ${day(dates.before)} · ${scope}`
 
   const build = (): ExportSheet | null => {
-    if (rows === null) return null
     const body = rows.filter((row) => row.kind !== "total")
     const total = rows.find((row) => row.kind === "total")
     const exportRow = (row: Line) => [
@@ -110,7 +112,7 @@ export function BalanceSheetTwoYears() {
       change(row),
     ]
     return {
-      filename: `Balance-Sheet-2-Years-${unit === "" ? "All-Units" : fileSafe(unitName(unit))}-${year}-${String(month).padStart(2, "0")}`,
+      filename: `Balance-Sheet-2-Years-${askedUnit === "" ? "All-Units" : fileSafe(unitName(askedUnit))}-${askedYear}-${String(askedMonth).padStart(2, "0")}`,
       sheet: "Balance Sheet 2 Years",
       title: "Balance Sheet 2 Years",
       subtitle: note,
@@ -137,11 +139,7 @@ export function BalanceSheetTwoYears() {
         title="Balance Sheet 2 Years"
         // On a phone Export is a row of the Filters sheet, not a button at the
         // top of the page.
-        actions={
-          phone ? undefined : (
-            <ExportButton build={build} disabled={rows === null} />
-          )
-        }
+        actions={phone ? undefined : <ExportButton build={build} />}
       />
 
       <ReportFilters note={note}>
@@ -160,25 +158,25 @@ export function BalanceSheetTwoYears() {
           }}
           onMonth={setMonthDraft}
         />
-        {phone && <ExportButton build={build} disabled={rows === null} />}
+        {phone && <ExportButton build={build} />}
       </ReportFilters>
 
-      {queryState(now, {
-        loading: "Reading this year-end…",
-        render: (sheet) =>
-          queryState(before, {
-            loading: "Reading last year-end…",
-            render: (prior) => (
-              <Body
-                sheet={sheet}
-                prior={prior}
-                rows={rows ?? []}
-                thisEnd={dates.now}
-                lastEnd={dates.before}
-              />
-            ),
-          }),
-      })}
+      <div className="list-swap" aria-busy={stale || undefined}>
+        {queryState(now, {
+          render: (sheet) =>
+            queryState(before, {
+              render: (prior) => (
+                <Body
+                  sheet={sheet}
+                  prior={prior}
+                  rows={rows}
+                  thisEnd={dates.now}
+                  lastEnd={dates.before}
+                />
+              ),
+            }),
+        })}
+      </div>
     </PageContent>
   )
 }

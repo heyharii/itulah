@@ -72,6 +72,15 @@ pub struct CashMovementRequest {
     /// A payout needs a second pair of eyes; a safe drop does not.
     #[serde(default)]
     pub supervisor: Option<Supervisor>,
+    /// Who took the cash, for a drop that leaves the drawer for somebody's
+    /// hands. Optional: the till has always posted a drop by amount alone.
+    #[serde(default)]
+    pub received_by: Option<String>,
+    /// The handful the movement was counted from, one row per note or coin.
+    /// Optional, and only for a `DROP` or a `PICKUP`; when it is sent it must
+    /// add up to the amount exactly, the way the close's sheet does.
+    #[serde(default)]
+    pub counted: Vec<CashCount>,
     pub idempotency_key: String,
     /// Set by the router, never by the caller: the person signed in is a
     /// supervisor or an admin, who may act on a drawer that is not theirs.
@@ -173,7 +182,45 @@ pub struct CashMovementView {
     pub reason: String,
     pub actor_id: String,
     pub approved_by: Option<String>,
+    /// Who took the cash, when the drop said.
+    #[serde(default)]
+    pub received_by: Option<String>,
+    /// The sheet the movement was counted from; empty when it was written by
+    /// amount alone.
+    #[serde(default)]
+    pub counted: Vec<CashCount>,
     pub occurred_at: String,
+}
+
+/// One sale on a drawer, as a session sheet lists it: the number a customer
+/// reads back, when it was rung, what it came to and how it was paid.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ShiftSale {
+    pub sale_id: String,
+    pub receipt_no: String,
+    pub completed_at: String,
+    pub cashier: String,
+    /// `COMPLETED` or `VOIDED`.
+    pub status: String,
+    pub total_minor: i64,
+    pub change_minor: i64,
+    /// Refunded against this sale since.
+    pub returned_minor: i64,
+    pub tenders: Vec<ShiftSaleTender>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct ShiftSaleTender {
+    pub method: String,
+    pub amount_minor: i64,
+    /// `DEBIT` or `CREDIT` on a card; null on every other tender, and on a
+    /// card rung before the till sent it.
+    pub card_kind: Option<String>,
+    /// The EDC's bank, as the till named it.
+    pub acquirer: Option<String>,
+    pub reference: Option<String>,
 }
 
 /// The Z report — one shift, closed or still running.
@@ -721,6 +768,131 @@ pub fn my_shifts(connection: &Connection, actor: &str) -> Result<MyShifts, EdgeE
     Ok(MyShifts { open, uncounted })
 }
 
+/// The count sheets of a shift's movements, by movement id.
+fn movement_counts(
+    connection: &Connection,
+    shift_id: &str,
+) -> Result<std::collections::HashMap<String, Vec<CashCount>>, EdgeError> {
+    let mut statement = connection
+        .prepare_cached(
+            "SELECT c.movement_id,c.value_minor,c.pieces
+               FROM cash_movement_count c
+               JOIN cash_movement m ON m.id = c.movement_id
+              WHERE m.shift_id=?1
+              ORDER BY c.value_minor DESC",
+        )
+        .map_err(db)?;
+    let rows = statement
+        .query_map([shift_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                CashCount {
+                    value_minor: row.get(1)?,
+                    pieces: row.get(2)?,
+                },
+            ))
+        })
+        .map_err(db)?;
+    let mut sheets: std::collections::HashMap<String, Vec<CashCount>> =
+        std::collections::HashMap::new();
+    for row in rows {
+        let (movement, line) = row.map_err(db)?;
+        sheets.entry(movement).or_default().push(line);
+    }
+    Ok(sheets)
+}
+
+/// Every drawer that traded on one business day, oldest first, open and closed
+/// alike — the sessions of a day. `business_date` is the store's own date, the
+/// one a shift carries from the moment it opens.
+pub fn shifts_on(
+    connection: &Connection,
+    business_date: &str,
+) -> Result<Vec<ShiftReport>, EdgeError> {
+    let ids: Vec<String> = {
+        let mut statement = connection
+            .prepare_cached(
+                "SELECT id FROM cash_shift WHERE business_date=?1 ORDER BY opened_at, id",
+            )
+            .map_err(db)?;
+        let rows = statement
+            .query_map([business_date.trim()], |row| row.get(0))
+            .map_err(db)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(db)?
+    };
+    ids.iter().map(|shift| report(connection, shift)).collect()
+}
+
+/// The sales rung on one drawer, oldest first, with how each was paid.
+pub fn shift_sales(
+    connection: &Connection,
+    site_id: &str,
+    shift_id: &str,
+) -> Result<Vec<ShiftSale>, EdgeError> {
+    let mut sales = {
+        let mut statement = connection
+            .prepare_cached(
+                "SELECT s.id,s.completed_at,s.actor_id,s.status,s.total_minor,s.change_minor,
+                        COALESCE((SELECT SUM(r.refund_minor) FROM sale_return r WHERE r.sale_id = s.id),0)
+                   FROM sale s
+                  WHERE s.shift_id=?1
+                  ORDER BY s.completed_at, s.id",
+            )
+            .map_err(db)?;
+        let rows = statement
+            .query_map([shift_id], |row| {
+                let sale_id: String = row.get(0)?;
+                let completed_at: String = row.get(1)?;
+                Ok(ShiftSale {
+                    receipt_no: receipt_number(site_id, &sale_id, &completed_at),
+                    sale_id,
+                    completed_at,
+                    cashier: row.get(2)?,
+                    status: row.get(3)?,
+                    total_minor: row.get(4)?,
+                    change_minor: row.get(5)?,
+                    returned_minor: row.get(6)?,
+                    tenders: Vec::new(),
+                })
+            })
+            .map_err(db)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(db)?
+    };
+    let mut statement = connection
+        .prepare_cached(
+            "SELECT t.sale_id,t.method,t.amount_minor,t.card_kind,t.acquirer,t.reference
+               FROM sale_tender t
+               JOIN sale s ON s.id = t.sale_id
+              WHERE s.shift_id=?1
+              ORDER BY t.sale_id, t.tender_seq",
+        )
+        .map_err(db)?;
+    let rows = statement
+        .query_map([shift_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                ShiftSaleTender {
+                    method: row.get(1)?,
+                    amount_minor: row.get(2)?,
+                    card_kind: row.get(3)?,
+                    acquirer: row.get(4)?,
+                    reference: row.get(5)?,
+                },
+            ))
+        })
+        .map_err(db)?;
+    let mut by_sale: std::collections::HashMap<String, Vec<ShiftSaleTender>> =
+        std::collections::HashMap::new();
+    for row in rows {
+        let (sale, tender) = row.map_err(db)?;
+        by_sale.entry(sale).or_default().push(tender);
+    }
+    for sale in &mut sales {
+        sale.tenders = by_sale.remove(&sale.sale_id).unwrap_or_default();
+    }
+    Ok(sales)
+}
+
 /// Every drawer open in the store now, oldest first.
 pub fn open_shifts(connection: &Connection) -> Result<Vec<ShiftReport>, EdgeError> {
     let ids: Vec<String> = {
@@ -786,6 +958,7 @@ pub fn record_cash_movement(
             "a cash movement needs a reason".into(),
         ));
     }
+    check_movement_count(&kind, request)?;
     require_open(tx, shift_id)?;
     require_holder(
         &holder_of(tx, shift_id)?,
@@ -808,11 +981,17 @@ pub fn record_cash_movement(
         None
     };
 
-    tx.prepare_cached("INSERT INTO cash_movement(id,idempotency_key,shift_id,kind,amount_minor,reason,actor_id,approved_by,occurred_at)
-         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)"
+    let movement_id = Uuid::new_v4().to_string();
+    let received_by = request
+        .received_by
+        .as_deref()
+        .map(str::trim)
+        .filter(|name| !name.is_empty());
+    tx.prepare_cached("INSERT INTO cash_movement(id,idempotency_key,shift_id,kind,amount_minor,reason,actor_id,approved_by,received_by,occurred_at)
+         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)"
     ).map_err(db)?.execute(
         params![
-            Uuid::new_v4().to_string(),
+            movement_id,
             request.idempotency_key,
             shift_id,
             kind,
@@ -820,11 +999,66 @@ pub fn record_cash_movement(
             request.reason.trim(),
             request.actor_id.trim(),
             approved_by,
+            received_by,
             stamp(now)
         ],
     )
     .map_err(db)?;
+    for line in request.counted.iter().filter(|line| line.pieces > 0) {
+        tx.prepare_cached(
+            "INSERT INTO cash_movement_count(movement_id,value_minor,pieces) VALUES(?1,?2,?3)",
+        )
+        .map_err(db)?
+        .execute(params![movement_id, line.value_minor, line.pieces])
+        .map_err(db)?;
+    }
     report(tx, shift_id)
+}
+
+/// The sheet a movement was counted from has to be a sheet: denominations that
+/// are real, none twice, and adding up to the amount that left or entered the
+/// drawer. Only cash handled by hand — a drop or a pickup — has one; a payout
+/// or a correction is an amount and a reason.
+fn check_movement_count(kind: &str, request: &CashMovementRequest) -> Result<(), EdgeError> {
+    if request.counted.is_empty() {
+        return Ok(());
+    }
+    if !matches!(kind, "DROP" | "PICKUP") {
+        return Err(EdgeError::Validation(format!(
+            "a {kind} is not counted note by note"
+        )));
+    }
+    let mut seen = std::collections::HashSet::new();
+    let mut sum: i64 = 0;
+    for line in &request.counted {
+        if line.value_minor <= 0 || line.pieces < 0 {
+            return Err(EdgeError::Validation(
+                "a counted line needs a positive denomination and a non-negative number of pieces"
+                    .into(),
+            ));
+        }
+        if !seen.insert(line.value_minor) {
+            return Err(EdgeError::Validation(format!(
+                "denomination {} is counted twice",
+                line.value_minor
+            )));
+        }
+        sum = line
+            .value_minor
+            .checked_mul(line.pieces)
+            .and_then(|value| sum.checked_add(value))
+            .ok_or_else(|| EdgeError::Validation("the count is too large".into()))?;
+    }
+    let amount = request
+        .amount_minor
+        .checked_abs()
+        .ok_or_else(|| EdgeError::Validation("the amount is too large".into()))?;
+    if sum != amount {
+        return Err(EdgeError::Validation(format!(
+            "the counted lines add up to {sum}, not the {amount} moved"
+        )));
+    }
+    Ok(())
 }
 
 /// Close the drawer against what the cashier counted.
@@ -1065,7 +1299,7 @@ pub fn report(connection: &Connection, shift_id: &str) -> Result<ShiftReport, Ed
     {
         let mut statement = connection
             .prepare(
-                "SELECT id,kind,amount_minor,reason,actor_id,approved_by,occurred_at
+                "SELECT id,kind,amount_minor,reason,actor_id,approved_by,occurred_at,received_by
                    FROM cash_movement WHERE shift_id=?1 ORDER BY occurred_at, id",
             )
             .map_err(db)?;
@@ -1078,12 +1312,16 @@ pub fn report(connection: &Connection, shift_id: &str) -> Result<ShiftReport, Ed
                     reason: row.get(3)?,
                     actor_id: row.get(4)?,
                     approved_by: row.get(5)?,
+                    received_by: row.get(7)?,
+                    counted: Vec::new(),
                     occurred_at: row.get(6)?,
                 })
             })
             .map_err(db)?;
+        let mut sheets = movement_counts(connection, shift_id)?;
         for row in rows {
-            let movement = row.map_err(db)?;
+            let mut movement = row.map_err(db)?;
+            movement.counted = sheets.remove(&movement.id).unwrap_or_default();
             // The opening float is already the first movement, so it is NOT
             // added again from the shift row below.
             cash_movements_minor += movement.amount_minor;

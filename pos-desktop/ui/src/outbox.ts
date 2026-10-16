@@ -417,7 +417,7 @@ async function send(entry: OutboxEntry): Promise<EdgeReply<SaleReply>> {
       ok: false,
       status: 0,
       body: {},
-      problem: `Node toko tidak menjawab: ${
+      problem: `The store node did not answer: ${
         cause instanceof Error ? cause.message : String(cause)
       }`,
     }
@@ -456,7 +456,7 @@ async function run(): Promise<void> {
         refused: true,
         problem:
           reply.problem ??
-          `Node menolak penjualan ini (HTTP ${reply.status}) tanpa keterangan.`,
+          `The node refused this sale (HTTP ${reply.status}) without saying why.`,
       })
       continue
     }
@@ -464,7 +464,7 @@ async function run(): Promise<void> {
     // Nobody knows whether this one landed, so it stays exactly where it was:
     // owed, same key, first in line. Reporting it as sent is the one lie this
     // file must never tell, and dropping it is the other.
-    patch(next, { problem: reply.problem ?? "Node toko tidak menjawab." })
+    patch(next, { problem: reply.problem ?? "The store node did not answer." })
     return
   }
 }
@@ -516,7 +516,7 @@ function reason(stuck: readonly Mutable[]): string {
   for (const entry of stuck) {
     if (entry.problem !== null) return entry.problem
   }
-  return "Penjualan tersimpan di terminal ini, tetapi node belum menerimanya."
+  return "The sale is saved on this terminal, but the node has not accepted it yet."
 }
 
 /// Let acknowledged sales age out, and nothing else.

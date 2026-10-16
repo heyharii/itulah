@@ -1,12 +1,13 @@
 import {
-  useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
+  useSuspenseInfiniteQuery,
+  useSuspenseQuery,
 } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { useMemo, useState } from "react"
+import { Suspense, useDeferredValue, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { DockChoice, DockTools } from "@/components/shell/dock-tools"
@@ -14,25 +15,25 @@ import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { Fab } from "@/components/ui/fab"
-import { Input } from "@/components/ui/field"
+import { BarSpacer, ExpandingSearch } from "@/components/ui/list-chrome"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { MiniTable } from "@/components/ui/rows"
-import { Segmented, Toolbar } from "@/components/ui/segmented"
+import { Segmented } from "@/components/ui/segmented"
 import { Sheet } from "@/components/ui/sheet"
 import { SubTabs } from "@/components/ui/sub-tabs"
-import { EmptyState } from "@/components/ui/states"
+import { EmptyState, LoadingState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { useFilters } from "@/lib/filters"
 import { count, money, realItemCode } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import {
-  catalogueVocabulary,
+  catalogueVocabularyQuery,
   procurementKeys,
-  searchSupplierItems,
   setSupplierItemStatus,
   supplierItemDetail,
+  supplierItemPagesQuery,
   type SourcingScope,
 } from "@/lib/queries/procurement"
 import { queryState } from "@/lib/query-state"
@@ -86,7 +87,7 @@ const columns: ColumnDef<TableSetup, CatalogueRow>[] = [
       <span className="flex flex-col">
         <span className="font-medium text-ink">{row.original.item.name}</span>
         {realItemCode(row.original.item.supplier_item_code) && (
-          <span className="font-mono text-[0.875rem] text-mute">
+          <span className="font-mono text-[0.9375rem] text-mute">
             {row.original.item.supplier_item_code}
           </span>
         )}
@@ -197,7 +198,7 @@ const columns: ColumnDef<TableSetup, CatalogueRow>[] = [
           {row.original.item.name}
         </span>
         {realItemCode(row.original.item.supplier_item_code) && (
-          <span className="font-mono text-[0.875rem] font-normal text-mute">
+          <span className="font-mono text-[0.9375rem] font-normal text-mute">
             {row.original.item.supplier_item_code}
           </span>
         )}
@@ -216,7 +217,7 @@ const columns: ColumnDef<TableSetup, CatalogueRow>[] = [
         <span className="text-[1.5rem] leading-tight font-semibold tracking-tight text-ink">
           {money(row.original.item.unit_price_minor)}
         </span>
-        <span className="text-[0.875rem] text-mute">per unit</span>
+        <span className="text-[0.9375rem] text-mute">per unit</span>
       </span>
     ),
   },
@@ -267,6 +268,24 @@ const PHONE_VIEWS = [
 ] as const
 
 export function Catalogue() {
+  // The title stands at once; the items wait for the first page and the words
+  // and stream in with them (the server starts the reads too). The head's
+  // button follows the tab, so it comes with them.
+  return (
+    <Suspense
+      fallback={
+        <PageContent>
+          <PageHeader crumb="Procurement" title="Catalogue" />
+          <LoadingState>Reading the catalogue…</LoadingState>
+        </PageContent>
+      }
+    >
+      <CatalogueBook />
+    </Suspense>
+  )
+}
+
+function CatalogueBook() {
   const item = useSheet("item")
   const adding = useSheet("new-item")
   const [tab, setTab] = useState("items")
@@ -276,11 +295,7 @@ export function Catalogue() {
     { id: "readiness", desc: false },
   ])
 
-  const vocabulary = useQuery({
-    queryKey: procurementKeys.vocabulary(),
-    queryFn: ({ signal }) => catalogueVocabulary(signal),
-    staleTime: 30 * 60 * 1000,
-  })
+  const vocabulary = useSuspenseQuery(catalogueVocabularyQuery())
 
   const scope = useMemo<SourcingScope>(
     () => ({
@@ -290,17 +305,14 @@ export function Catalogue() {
     [needle, status]
   )
 
-  const page = useInfiniteQuery({
-    queryKey: procurementKeys.sourcing(scope),
-    queryFn: ({ pageParam, signal }) =>
-      searchSupplierItems({ ...scope, cursor: pageParam }, signal),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) => last.next_cursor ?? undefined,
-  })
+  // Another tab or search: the rows in hand stay, dimmed (`list-swap`), until
+  // the next are read — the deferred scope keeps them on screen.
+  const asked = useDeferredValue(scope)
+  const page = useSuspenseInfiniteQuery(supplierItemPagesQuery(asked))
 
   const rows = useMemo<CatalogueRow[]>(
     () =>
-      (page.data?.pages ?? []).flatMap((each) =>
+      page.data.pages.flatMap((each) =>
         each.items.map((sourced) => ({
           item: sourced.item,
           supplierName: supplierDisplayName(sourced.supplier),
@@ -317,7 +329,7 @@ export function Catalogue() {
     [page.data, vocabulary.data]
   )
 
-  const total = page.data?.pages[0]?.total ?? 0
+  const total = page.data.pages[0]?.total ?? 0
 
   /// The phone's one button over the list: a status, or the other tab.
   const pickView = (next: string) => {
@@ -368,25 +380,18 @@ export function Catalogue() {
         crumb="Procurement"
         title="Catalogue"
         sub="Every supplier item we know of, and whether it is finished enough to become one of ours."
-        // A desk's search and button: on a phone the field is the dock's and the
-        // button its round "+".
+        // The screen's one action stands in its head; on a phone the field is
+        // the dock's and the button its round "+".
         actions={
           tab === "items" &&
           !phone && (
-            <>
-              <Input
-                value={needle}
-                onChange={(event) => setNeedle(event.target.value)}
-                className="h-8 w-56"
-              />
-              {/* This screen is the only one that CREATES a supplier item —
-                  Sourcing browses what it makes. Until now it could only edit
-                  them, so the one way to put something in the catalogue was a
-                  three-field form buried in a supplier's record. */}
-              <Button variant="primary" onClick={() => adding.open(true)}>
-                New item
-              </Button>
-            </>
+            // This screen is the only one that CREATES a supplier item —
+            // Sourcing browses what it makes. Until now it could only edit
+            // them, so the one way to put something in the catalogue was a
+            // three-field form buried in a supplier's record.
+            <Button variant="primary" onClick={() => adding.open(true)}>
+              New item
+            </Button>
           )
         }
       />
@@ -433,7 +438,13 @@ export function Catalogue() {
 
       {tab === "items" ? (
         <>
-          <div className="mb-3.5 flex flex-wrap items-center gap-[0.4375rem] max-md:hidden">
+          <div className="group/bar mb-3.5 flex min-h-[2.25rem] flex-wrap items-center gap-2 max-md:hidden">
+            <ExpandingSearch
+              value={needle}
+              onChange={setNeedle}
+              label="Search catalogue"
+            />
+            <FilterPanel model={filters} table={table} />
             <Segmented
               options={[
                 { value: "ALL", label: "Everything" },
@@ -443,46 +454,42 @@ export function Catalogue() {
               value={status}
               onChange={setStatus}
             />
-            <FilterPanel model={filters} table={table} />
-            <Toolbar.Spacer />
-            <span className="text-[0.875rem] text-mute tabular-nums">
+            <BarSpacer />
+            <span className="text-[0.9375rem] text-mute tabular-nums">
               {count(unfinished)} of {count(matching)} shown still need
               finishing · {count(total)} in the catalogue
             </span>
           </div>
           {/* The figures, as one sentence, where a phone has no toolbar. */}
-          <p className="mb-3 text-[0.875rem] text-mute tabular-nums md:hidden">
+          <p className="mb-3 text-[0.9375rem] text-mute tabular-nums md:hidden">
             <b className="font-medium text-ink">{count(unfinished)}</b> of{" "}
             {count(matching)} shown still need finishing · {count(total)} in the
             catalogue
           </p>
 
-          <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-            {queryState(page, {
-              loading: "Reading the catalogue…",
-              render: () =>
-                rows.length === 0 ? (
-                  <EmptyState>
-                    {needle === "" && status === "ALL"
-                      ? "No supplier has offered anything yet."
-                      : "No item matches that search."}
-                  </EmptyState>
-                ) : (
-                  <DataTable<CatalogueRow>
-                    refresh={[page]}
-                    table={table}
-                    onRowClick={(row) => item.open(row.item.supplier_item_id)}
-                    isSelected={(row) =>
-                      row.item.supplier_item_id === item.value
-                    }
-                    more={page}
-                    className="max-h-[calc(100dvh-20rem)]"
-                    cardSort={false}
-                    cardsApart
-                    cardLead
-                  />
-                ),
-            })}
+          <Card
+            aria-busy={asked !== scope || undefined}
+            className="list-swap overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none"
+          >
+            {rows.length === 0 ? (
+              <EmptyState>
+                {needle === "" && status === "ALL"
+                  ? "No supplier has offered anything yet."
+                  : "No item matches that search."}
+              </EmptyState>
+            ) : (
+              <DataTable<CatalogueRow>
+                refresh={[page]}
+                table={table}
+                onRowClick={(row) => item.open(row.item.supplier_item_id)}
+                isSelected={(row) => row.item.supplier_item_id === item.value}
+                more={page}
+                className="max-h-[calc(100dvh-20rem)]"
+                cardSort={false}
+                cardsApart
+                cardLead
+              />
+            )}
           </Card>
         </>
       ) : (
@@ -506,88 +513,88 @@ export function Catalogue() {
 /// is what a person sees. Both are shown, because a filter cannot address a
 /// label and a buyer should not have to read `KAUS_KAKI`.
 function Vocabulary() {
-  const vocabulary = useQuery({
-    queryKey: procurementKeys.vocabulary(),
-    queryFn: ({ signal }) => catalogueVocabulary(signal),
-    staleTime: 30 * 60 * 1000,
-  })
+  // Already in hand: the items read the same words for their labels.
+  const words = useSuspenseQuery(catalogueVocabularyQuery()).data
 
-  return queryState(vocabulary, {
-    loading: "Reading the vocabulary…",
-    render: (words) => (
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Divisions</CardTitle>
-            <span className="text-[0.875rem] text-mute tabular-nums">
-              {count(words.divisions.length)}
-            </span>
-          </CardHeader>
-          <div className="px-4 pb-3.5">
-            {words.divisions.length === 0 ? (
-              <p className="text-meta text-mute">
-                The vocabulary has no divisions in it.
-              </p>
-            ) : (
-              <MiniTable head={["Reads as", { label: "Code", align: "right" }]}>
-                {words.divisions.map((term) => (
-                  <tr key={term.code} className="border-t border-hairline">
-                    <td className="py-2 text-[0.875rem] text-ink">
-                      {term.label}
-                    </td>
-                    <td className="py-2 text-right">
-                      <Tag>{term.code}</Tag>
-                    </td>
-                  </tr>
-                ))}
-              </MiniTable>
-            )}
-          </div>
-        </Card>
+  return (
+    <div className="grid gap-4 md:grid-cols-2">
+      <Card>
+        <CardHeader>
+          <CardTitle>Divisions</CardTitle>
+          <span className="text-[0.9375rem] text-mute tabular-nums">
+            {count(words.divisions.length)}
+          </span>
+        </CardHeader>
+        <div className="px-4 pb-3.5">
+          {words.divisions.length === 0 ? (
+            <p className="text-meta text-mute">
+              The vocabulary has no divisions in it.
+            </p>
+          ) : (
+            <MiniTable head={["Reads as", { label: "Code", align: "right" }]}>
+              {words.divisions.map((term) => (
+                <tr key={term.code} className="border-t border-hairline">
+                  <td className="py-2 text-[0.9375rem] text-ink">
+                    {term.label}
+                  </td>
+                  <td className="py-2 text-right">
+                    <Tag>{term.code}</Tag>
+                  </td>
+                </tr>
+              ))}
+            </MiniTable>
+          )}
+        </div>
+      </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Tags</CardTitle>
-            <span className="text-[0.875rem] text-mute tabular-nums">
-              {count(words.tags.length)}
-            </span>
-          </CardHeader>
-          <div className="px-4 pb-3.5">
-            {words.tags.length === 0 ? (
-              <p className="text-meta text-mute">
-                The vocabulary has no tags in it.
-              </p>
-            ) : (
-              <MiniTable head={["Reads as", { label: "Code", align: "right" }]}>
-                {words.tags.map((term) => (
-                  <tr key={term.code} className="border-t border-hairline">
-                    <td className="py-2 text-[0.875rem] text-ink">
-                      {term.label}
-                    </td>
-                    <td className="py-2 text-right">
-                      <Tag>{term.code}</Tag>
-                    </td>
-                  </tr>
-                ))}
-              </MiniTable>
-            )}
-          </div>
-        </Card>
-      </div>
-    ),
-  })
+      <Card>
+        <CardHeader>
+          <CardTitle>Tags</CardTitle>
+          <span className="text-[0.9375rem] text-mute tabular-nums">
+            {count(words.tags.length)}
+          </span>
+        </CardHeader>
+        <div className="px-4 pb-3.5">
+          {words.tags.length === 0 ? (
+            <p className="text-meta text-mute">
+              The vocabulary has no tags in it.
+            </p>
+          ) : (
+            <MiniTable head={["Reads as", { label: "Code", align: "right" }]}>
+              {words.tags.map((term) => (
+                <tr key={term.code} className="border-t border-hairline">
+                  <td className="py-2 text-[0.9375rem] text-ink">
+                    {term.label}
+                  </td>
+                  <td className="py-2 text-right">
+                    <Tag>{term.code}</Tag>
+                  </td>
+                </tr>
+              ))}
+            </MiniTable>
+          )}
+        </div>
+      </Card>
+    </div>
+  )
 }
 
 // ---------------------------------------------------------------------------
 
 /// The item as a record to be corrected.
-function ItemSheet({
+/// A supplier item's record. Exported so wherever an item is shown — an
+/// order's line, a count — it opens the same record (owner, 14 Oct: "semua
+/// bisa di klik").
+export function ItemSheet({
   id,
   vocabulary,
+  context,
   onClose,
 }: {
   id: string | null
   vocabulary?: CatalogueVocabulary
+  /// Where it was opened from, in grey over its name ("PO-0002-OPE6").
+  context?: string
   onClose: () => void
 }) {
   const [editing, setEditing] = useState(false)
@@ -602,6 +609,7 @@ function ItemSheet({
     <Sheet
       open={id !== null}
       subject={id === null ? undefined : { kind: "supplier_item", id }}
+      context={context}
       onOpenChange={(open) => !open && onClose()}
       id={realItemCode(detail.data?.supplier_item_code)}
       title={detail.data?.name ?? "Item"}
@@ -690,7 +698,7 @@ function ItemStatusSwitch({ item }: { item: SupplierItem }) {
         {item.status === "ACTIVE" ? "Stop offering" : "Offer again"}
       </Button>
       {change.isError && (
-        <span className="text-[0.875rem] text-bad">
+        <span className="text-[0.9375rem] text-bad">
           {(change.error as Error).message}
         </span>
       )}

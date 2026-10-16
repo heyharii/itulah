@@ -112,3 +112,47 @@ API=http://127.0.0.1:<port> PERF_TOKEN=<jwt> \
 
 Next: Phase 1 (reader/writer split + `prepare_cached` + pragmas), then re-run
 this exact harness for the after-numbers.
+
+## Round 2 — after Phases 1–4 (the verification the plan was missing)
+
+Date: 2026-10-10. The Phase 1–4 optimizations landed in the tree on
+2026-10-07 with the after-benchmark **skipped** ("abaikan testing"), so this
+is their first measured run: same harness, same machine, same seed, release
+build (`cargo build --release --bin store`, 12m 26s). Phase 3.1 (chunked RFID
+ingest) and F10 (`ix_sale_line_sku_code`) are in this build.
+
+### Till money path — same scenarios, before → after
+
+| Scenario | before p50/p99 ms | after p50/p99 ms |
+|---|---|---|
+| quote 5-EPC, sequential | 0.5 / 0.7 | **0.5 / 0.6** |
+| quote 5-EPC, 8 workers | 2.0 / 2.7 | **1.5 / 2.3** |
+| sale 5-line cash, sequential | 1.0 / 2.2 | **0.9 / 4.5** |
+| sale 5-line cash, 8 workers | 6.7 / 7.4 | **4.4 / 7.6** |
+| sale, 8 workers while RFID streams 100 rows/s | 5.8 / 7.8 | **4.6 / 7.9** |
+| sale, 8 workers **during one 2,000-sighting sweep** | 13.3 / 34.3 | **10.2 / 27.2** |
+| GET receipt | 0.3 / 0.6 | **0.3 / 0.7** |
+
+Whole-book catalog sync: **10 pages, 45 ms** (was 50 ms). Sweep POST itself:
+28 ms (was 30 ms).
+
+### Verdict
+
+Every SLO row passes, and the round-1 structural warnings are answered:
+
+- **The predicted first SLO breach — a sale landing while a max-size sweep
+  holds the store — measured p99 27.2 ms**, from 34.3 ms before and from a
+  projected 200–800 ms on shop storage. Phase 3.1's chunked ingest is what
+  the till now runs on.
+- **F10 closed:** `sale_line` by `sku_code` plans as
+  `SEARCH sale_line USING COVERING INDEX ix_sale_line_sku_code` — was a full
+  scan.
+- **Phase 5 crash gate green:** kill -9 between sale commit and receipt
+  print → same id replays once in-process, the receipt prints after restart,
+  and the id still replays exactly once after it (`OK ×3`).
+- Concurrency still serializes on the write connection (by design, §5: the
+  sale keeps its reads on the writer); 8-worker sale p50 4.4 ms against the
+  baseline's 6.7 ms is headroom bought, not a ceiling lifted.
+
+Caveat carried over: Apple NVMe numbers are the optimistic end; re-run on the
+target mini-PC before quoting a shop-floor margin.

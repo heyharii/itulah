@@ -1,4 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  queryOptions,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
 
 import { node } from "@/lib/api"
 import { SHOW_MISSING } from "@/lib/features"
@@ -132,13 +137,19 @@ function withoutMissingKind(list: ExceptionList): ExceptionList {
   }
 }
 
-export function useExceptions(query: ExceptionQuery) {
-  return useQuery({
+/// The list as a query: what the Stores › Exceptions screen reads (under a
+/// `<Suspense>`) and what its prefetcher asks for
+/// (`screens/stores/prefetch.ts`).
+export const exceptionsQuery = (query: ExceptionQuery) =>
+  queryOptions({
     queryKey: exceptionsKeys.list(query),
     queryFn: ({ signal }) => listExceptions(query, signal),
     select: withoutMissingKind,
     refetchInterval: EXCEPTIONS_POLL_MS,
   })
+
+export function useExceptions(query: ExceptionQuery) {
+  return useQuery(exceptionsQuery(query))
 }
 
 export function useExceptionsForStore(

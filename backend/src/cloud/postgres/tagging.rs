@@ -85,6 +85,12 @@ pub struct NewSetupSession {
     pub tags: Vec<String>,
     #[serde(default)]
     pub image_url: Option<String>,
+    /// What the article is described as (0968). Absent or `null` takes the
+    /// description of the supplier item the line was ordered as; a blank one
+    /// says the article has none. Left out of the serialized form when absent
+    /// so a retried request from before this field digests as it did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     pub currency: String,
     pub colours: Vec<NewSetupColour>,
     pub variants: Vec<NewSetupVariant>,
@@ -115,6 +121,10 @@ pub struct NewSplitSetup {
     pub tags: Vec<String>,
     #[serde(default)]
     pub image_url: Option<String>,
+    /// One description for every article of the split, read as on a single
+    /// session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     pub currency: String,
     pub articles: Vec<NewSetupPart>,
     pub created_by: String,
@@ -412,6 +422,7 @@ async fn create_split_setup_inner(
             division_code: request.division_code.clone(),
             tags: request.tags.clone(),
             image_url: request.image_url.clone(),
+            description: request.description.clone(),
             currency: request.currency.clone(),
             colours: part.colours.clone(),
             variants: part.variants.clone(),
@@ -581,6 +592,8 @@ struct WaitingLine {
     matched_quantity: i64,
     supplier_article_code: String,
     destination_site_id: String,
+    /// The supplier item's description, for a session that was given none.
+    supplier_description: Option<String>,
 }
 
 /// Read the delivery line a setup is for, locked, and refuse one that already
@@ -597,10 +610,11 @@ async fn lock_waiting_line(
     // caller means a session can only ever be opened against real goods.
     let receipt = sqlx::query(
         "SELECT r.quantity, r.matched_quantity, r.excess_quantity,
-                l.article_code, o.destination_site_id
+                l.article_code, o.destination_site_id, si.description AS supplier_description
          FROM goods_receipt_line r
          JOIN purchase_order_line l ON l.po_line_id = r.po_line_id
          JOIN purchase_order o ON o.purchase_order_id = l.purchase_order_id
+         LEFT JOIN supplier_item si ON si.supplier_item_id = l.supplier_item_id
          WHERE r.receipt_line_id = $1
          FOR UPDATE OF r",
     )
@@ -638,6 +652,7 @@ async fn lock_waiting_line(
     // thing, not what it is.
     let supplier_article_code: String = receipt.get("article_code");
     let destination_site_id: String = receipt.get("destination_site_id");
+    let supplier_description: Option<String> = receipt.get("supplier_description");
 
     let already: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM article_setup_session WHERE receipt_line_id = $1)",
@@ -655,6 +670,7 @@ async fn lock_waiting_line(
         matched_quantity: receipt_quantity,
         supplier_article_code,
         destination_site_id,
+        supplier_description,
     })
 }
 
@@ -689,13 +705,20 @@ async fn insert_setup_session(
         }
     };
 
+    // What head office wrote, or — when the form sent nothing — what the
+    // supplier item says. A blank one is a decision too: no description.
+    let description = match request.description.as_deref() {
+        Some(written) => clean_description(Some(written)),
+        None => clean_description(line.supplier_description.as_deref()),
+    };
+
     let session_id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO article_setup_session
              (session_id, receipt_line_id, article_code, supplier_article_code, receipt_quantity,
               destination_site_id, article_name, division_code, image_url, currency,
-              created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
+              created_by, description)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
     )
     .bind(session_id)
     .bind(request.receipt_line_id)
@@ -708,6 +731,7 @@ async fn insert_setup_session(
     .bind(&request.image_url)
     .bind(request.currency.trim().to_uppercase())
     .bind(request.created_by.trim())
+    .bind(&description)
     .execute(&mut **tx)
     .await?;
     // A line set up twice is refused before this, in `lock_waiting_line`: the
@@ -859,6 +883,33 @@ async fn insert_setup_session(
     }
 
     Ok(session_id)
+}
+
+/// A description as it is kept: trimmed, and blank is none.
+fn clean_description(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(str::to_owned)
+}
+
+/// Change what an open session will describe its article as, before it is
+/// issued. A session already issued keeps what it minted: the article's own
+/// description is edited on the article from then on.
+pub async fn set_setup_description(
+    pool: &PgPool,
+    session_id: Uuid,
+    description: &str,
+) -> Result<(), AppError> {
+    sqlx::query(
+        "UPDATE article_setup_session SET description = $2
+         WHERE session_id = $1 AND status = 'OPEN'",
+    )
+    .bind(session_id)
+    .bind(clean_description(Some(description)))
+    .execute(pool)
+    .await?;
+    Ok(())
 }
 
 fn is_unique_violation(error: &sqlx::Error) -> bool {
@@ -1079,7 +1130,7 @@ pub async fn issue_setup_session(
 
     let session = sqlx::query(
         "SELECT receipt_line_id, article_code, article_name, division_code, image_url, currency,
-                receipt_quantity, destination_site_id, status
+                receipt_quantity, destination_site_id, status, description
          FROM article_setup_session WHERE session_id = $1 FOR UPDATE",
     )
     .bind(session_id)
@@ -1099,6 +1150,7 @@ pub async fn issue_setup_session(
     let article_name: String = session.get("article_name");
     let division_code: String = session.get("division_code");
     let image_url: Option<String> = session.get("image_url");
+    let description: Option<String> = session.get("description");
     let currency: String = session.get("currency");
     let receipt_quantity: i64 = session.get("receipt_quantity");
     let destination_site_id: String = session.get("destination_site_id");
@@ -1130,11 +1182,15 @@ pub async fn issue_setup_session(
     };
 
     // --- Mint the article, if this is its first delivery -------------------
+    // A later delivery of an article we already sell fills its description
+    // only when it has none: what somebody wrote on the article is not
+    // overwritten by what a supplier item says.
     let article_id: Uuid = sqlx::query_scalar(
         "INSERT INTO article (id, article_code, name, division_code, image_url,
-                              created_by_session_id)
-         VALUES (gen_random_uuid(), $1, $2, $3, $4, $5)
-         ON CONFLICT (article_code) DO UPDATE SET name = article.name
+                              created_by_session_id, description)
+         VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6)
+         ON CONFLICT (article_code) DO UPDATE SET name = article.name,
+             description = COALESCE(article.description, EXCLUDED.description)
          RETURNING id",
     )
     .bind(&article_code)
@@ -1142,6 +1198,7 @@ pub async fn issue_setup_session(
     .bind(&division_code)
     .bind(&image_url)
     .bind(session_id)
+    .bind(clean_description(description.as_deref()))
     .fetch_one(&mut *tx)
     .await?;
 
@@ -1530,6 +1587,8 @@ pub async fn unidentified_receipts_page(
                     - ROUND(r.allocated_discount_minor::numeric
                             / NULLIF(r.matched_quantity, 0))::bigint) AS purchase_price_minor,
                 l.base_price_minor, l.markup_bps,
+                (SELECT si.description FROM supplier_item si
+                  WHERE si.supplier_item_id = l.supplier_item_id) AS description,
                 COALESCE((SELECT jsonb_agg(jsonb_build_object(
                                      'colour_code', v.colour_code,
                                      'size_code', v.size_code,
@@ -1600,6 +1659,11 @@ pub async fn unidentified_receipts_page(
                 "division_code": row.get::<Option<String>, _>("division_code"),
                 "tags": row.get::<Vec<String>, _>("tags"),
                 "image_url": row.get::<Option<String>, _>("image_url"),
+                // The supplier item's description (0968), the form's preset
+                // for what the article is described as. Null when it has none.
+                "description": clean_description(
+                    row.get::<Option<String>, _>("description").as_deref()
+                ),
                 "site_id": row.get::<String, _>("destination_site_id"),
                 "po_number": row.get::<String, _>("po_number"),
                 // The pricing the buyer decided on the order (0398), for the
@@ -1674,6 +1738,11 @@ pub async fn setup_sessions_status(
                 "supplier_code": session.get::<Option<String>, _>("supplier_id"),
                 "article_name": session.get::<String, _>("article_name"),
                 "division_code": session.get::<String, _>("division_code"),
+                // What the article is (or will be) described as (0968).
+                "description": session
+                    .try_get::<Option<String>, _>("description")
+                    .ok()
+                    .flatten(),
                 "tags": session.get::<Value, _>("tags"),
                 "currency": session.get::<String, _>("currency").trim(),
                 "receipt_quantity": session.get::<i64, _>("receipt_quantity"),

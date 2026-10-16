@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { AppLink } from "@/components/ui/app-link"
 import { button } from "@/components/ui/button-style"
 import { Input } from "@/components/ui/field"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { LeadCard } from "@/components/ui/lead-card"
 import { Pill, Status } from "@/components/ui/pill"
 import { Segmented } from "@/components/ui/segmented"
@@ -70,25 +71,22 @@ export function Toolbar({ children }: { children: React.ReactNode }) {
   )
 }
 
-/// The one line of figures a list opens with: "3 active · 2 scheduled".
-/// A part with nothing in it is left out, so a shop running nothing is not told
-/// "0 active" every time it looks.
+/// The figures a list opens with: "Active 3 · Scheduled 2".
 export function Summary({
   parts,
 }: {
   parts: readonly (readonly [number, string])[]
 }) {
-  const shown = parts.filter(([n]) => n > 0)
-  if (shown.length === 0) return null
   return (
-    <p className="mb-3 text-meta text-body">
-      {shown.map(([n, word], index) => (
-        <span key={word}>
-          {index > 0 && " · "}
-          <b className="font-medium text-ink tabular-nums">{count(n)}</b> {word}
-        </span>
+    <KpiStrip>
+      {parts.map(([n, word]) => (
+        <Kpi
+          key={word}
+          label={word.charAt(0).toUpperCase() + word.slice(1)}
+          value={count(n)}
+        />
       ))}
-    </p>
+    </KpiStrip>
   )
 }
 

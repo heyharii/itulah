@@ -84,15 +84,19 @@ export function setupStatus(signal?: AbortSignal): Promise<SetupStatus> {
 }
 
 export function useSetupStatus(enabled = true) {
-  return useQuery({
+  return useQuery(setupStatusOptions(enabled))
+}
+
+/// Options form of the same query, for the SSR pass's `ensureQueryData`
+/// (`routes/__root.tsx`) — a signed-in first paint renders the shell, not a
+/// skeleton that waits for the wizard check.
+export function setupStatusOptions(enabled = true) {
+  return {
     queryKey: setupKeys.status(),
-    queryFn: ({ signal }) => setupStatus(signal),
+    queryFn: ({ signal }: { signal?: AbortSignal }) => setupStatus(signal),
     enabled,
-    // A server without the endpoint answers 404, and that is an answer: the
-    // app goes on without the wizard rather than retrying into a blank
-    // screen.
     retry: false,
-  })
+  }
 }
 
 /// Creates the head-office unit with its office site and, when asked, the

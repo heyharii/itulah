@@ -1,4 +1,5 @@
-import { useState } from "react"
+import { Suspense, useDeferredValue, useState } from "react"
+import { useSuspenseQuery } from "@tanstack/react-query"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { DockTools } from "@/components/shell/dock-tools"
@@ -11,18 +12,17 @@ import { Pill } from "@/components/ui/pill"
 import { BottomSheet } from "@/components/ui/picker-sheet"
 import { Segmented } from "@/components/ui/segmented"
 import { Sheet } from "@/components/ui/sheet"
-import { EmptyState, Problem } from "@/components/ui/states"
+import { EmptyState, LoadingState, Problem } from "@/components/ui/states"
 import {
   exceptionKindLabel,
+  exceptionsQuery,
   useExceptionSettings,
-  useExceptions,
   useUpdateExceptionSettings,
   type ExceptionSettings,
   type ExceptionState,
 } from "@/lib/queries/exceptions"
 import { SHOW_MISSING } from "@/lib/features"
 import { useLayout } from "@/lib/layout"
-import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { useSections } from "@/lib/session"
 import { ExceptionRow } from "@/screens/stores/exceptions-shared"
@@ -40,27 +40,73 @@ const STATE_OPTIONS: readonly { value: ExceptionState; label: string }[] = [
 ]
 
 export function StoreExceptions() {
+  // A phone keeps the Thresholds at the foot of the list.
+  const phone = useLayout() === "phone"
+  const settings = useSheet("exceptions-settings")
+  const { bypass } = useSections()
+
+  // The head and the thresholds stand at once; the list waits for the
+  // exceptions and streams in with them (the server starts the read too).
+  return (
+    <PageContent>
+      <PageHeader
+        crumb="Stores"
+        title="Exceptions"
+        sub="What goes wrong in a store's own money and goods, read from the data rather than filed by hand."
+        actions={
+          bypass &&
+          !phone && (
+            <Button variant="ghost" onClick={() => settings.open(true)}>
+              Thresholds
+            </Button>
+          )
+        }
+      />
+
+      <Suspense fallback={<LoadingState>Reading exceptions…</LoadingState>}>
+        <ExceptionList />
+      </Suspense>
+
+      {phone && bypass && (
+        <div className="mt-5 flex justify-center">
+          <Button variant="soft" onClick={() => settings.open(true)}>
+            Thresholds
+          </Button>
+        </div>
+      )}
+
+      <ExceptionSettingsSheet open={settings.isOpen} onClose={settings.close} />
+    </PageContent>
+  )
+}
+
+function ExceptionList() {
   // A phone keeps the state in the drawer over the bottom bar, the store and
   // the kind in its Filters sheet, and reads each exception as a card.
   const phone = useLayout() === "phone"
   const unit = useSheet("exceptions-unit")
   const kind = useSheet("exceptions-kind")
   const state = useSheet("exceptions-state")
-  const settings = useSheet("exceptions-settings")
-  const { bypass } = useSections()
   // What a phone's search narrows the list by, and its Filters sheet.
   const [query, setQuery] = useState("")
   const [options, setOptions] = useState(false)
 
   const stateValue: ExceptionState = state.value ?? "open"
 
-  const exceptions = useExceptions({
-    unit: unit.value,
-    kind: kind.value,
-    state: stateValue,
-    limit: 200,
-  })
-  const summary = exceptions.data?.summary
+  // Another store, kind or state: the list in hand stays until the next is
+  // read — the deferred question keeps it on screen.
+  const askedUnit = useDeferredValue(unit.value)
+  const askedKind = useDeferredValue(kind.value)
+  const askedState = useDeferredValue(stateValue)
+  const exceptions = useSuspenseQuery(
+    exceptionsQuery({
+      unit: askedUnit,
+      kind: askedKind,
+      state: askedState,
+      limit: 200,
+    })
+  )
+  const summary = exceptions.data.summary
 
   /// What the exceptions are, counted: a tap narrows the list to one kind. A
   /// desk draws them under the toolbar, a phone in its Filters sheet.
@@ -111,21 +157,7 @@ export function StoreExceptions() {
   )
 
   return (
-    <PageContent>
-      <PageHeader
-        crumb="Stores"
-        title="Exceptions"
-        sub="What goes wrong in a store's own money and goods, read from the data rather than filed by hand."
-        actions={
-          bypass &&
-          !phone && (
-            <Button variant="ghost" onClick={() => settings.open(true)}>
-              Thresholds
-            </Button>
-          )
-        }
-      />
-
+    <>
       {!phone && (
         <>
           <div className="mb-4 flex flex-wrap items-center gap-3">
@@ -174,51 +206,39 @@ export function StoreExceptions() {
       {/* The thresholds, which a desk keeps in the header: at the foot of the
           list on a phone, for an admin. */}
       <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-        {queryState(exceptions, {
-          loading: "Reading exceptions…",
-          render: (page) => {
-            const needle = phone ? query.trim().toLowerCase() : ""
-            const items =
-              needle === ""
-                ? page.items
-                : page.items.filter((item) =>
-                    `${exceptionKindLabel(item.kind)} ${item.sentence} ${item.unit_name} ${item.unit_code}`
-                      .toLowerCase()
-                      .includes(needle)
-                  )
-            return page.items.length === 0 ? (
-              <EmptyState>
-                {stateValue === "open" || stateValue === "unacknowledged"
-                  ? "No open exceptions — every store is on time."
-                  : "Nothing matches this filter."}
-              </EmptyState>
-            ) : items.length === 0 ? (
-              <EmptyState>No exception matches that search.</EmptyState>
-            ) : (
-              <ul
-                className={
-                  phone ? "flex flex-col gap-2.5" : "divide-y divide-hairline"
-                }
-              >
-                {items.map((item) => (
-                  <ExceptionRow key={item.id} item={item} />
-                ))}
-              </ul>
-            )
-          },
-        })}
+        {(() => {
+          const page = exceptions.data
+          const needle = phone ? query.trim().toLowerCase() : ""
+          const items =
+            needle === ""
+              ? page.items
+              : page.items.filter((item) =>
+                  `${exceptionKindLabel(item.kind)} ${item.sentence} ${item.unit_name} ${item.unit_code}`
+                    .toLowerCase()
+                    .includes(needle)
+                )
+          return page.items.length === 0 ? (
+            <EmptyState>
+              {stateValue === "open" || stateValue === "unacknowledged"
+                ? "No open exceptions — every store is on time."
+                : "Nothing matches this filter."}
+            </EmptyState>
+          ) : items.length === 0 ? (
+            <EmptyState>No exception matches that search.</EmptyState>
+          ) : (
+            <ul
+              className={
+                phone ? "flex flex-col gap-2.5" : "divide-y divide-hairline"
+              }
+            >
+              {items.map((item) => (
+                <ExceptionRow key={item.id} item={item} />
+              ))}
+            </ul>
+          )
+        })()}
       </Card>
-
-      {phone && bypass && (
-        <div className="mt-5 flex justify-center">
-          <Button variant="soft" onClick={() => settings.open(true)}>
-            Thresholds
-          </Button>
-        </div>
-      )}
-
-      <ExceptionSettingsSheet open={settings.isOpen} onClose={settings.close} />
-    </PageContent>
+    </>
   )
 }
 
@@ -349,7 +369,7 @@ function ExceptionSettingsFields({
 
       <Problem error={update.error} />
       <div className="flex justify-end gap-2">
-        <Button variant="quiet" onClick={onDone}>
+        <Button data-cancel variant="quiet" onClick={onDone}>
           Cancel
         </Button>
         <Button

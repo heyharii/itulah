@@ -7,9 +7,9 @@
 //!
 //! # Device bindings
 //!
-//! The Chainway R3 is bound on Windows through the vendor's C SDK. Every read
-//! first turns the reader buzzer off and verifies that state, then asks for one
-//! tag only. Fingerprint remains an explicit stub until its SDK is bound.
+//! The Chainway R3 is bound on Windows through the vendor's C SDK. The reader
+//! is opened once and kept open with its buzzer off; every read checks that the
+//! buzzer still reads back as off, then asks for one tag only. Fingerprint remains an explicit stub until its SDK is bound.
 //!
 //! # What will replace them
 //!

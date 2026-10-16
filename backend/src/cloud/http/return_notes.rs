@@ -43,7 +43,7 @@ pub struct CreateRequest {
 }
 
 /// `POST /api/v1/return-notes` — the link of a note, made the first time and
-/// found every time after. `{ "token": "…" }`.
+/// found every time after. `{ "token": "…", "number": "2026-1" }`.
 pub async fn create(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
@@ -70,7 +70,8 @@ pub async fn create(
 
     // First snapshot wins: a second print of the same note finds this row and
     // leaves it as it was. Two printers at the same moment end up with the
-    // same token, not two.
+    // same token, not two. The number (0969, "2026-1") is the database's to
+    // give, on the first insert only, so a reprint keeps it.
     sqlx::query(
         "INSERT INTO return_note_link (token, note_key, note, created_by)
          VALUES ($1, $2, $3, $4)
@@ -82,11 +83,12 @@ pub async fn create(
     .bind(&principal.username)
     .execute(&state.db)
     .await?;
-    let token: String = sqlx::query_scalar("SELECT token FROM return_note_link WHERE note_key = $1")
-        .bind(key)
-        .fetch_one(&state.db)
-        .await?;
-    Ok(Json(json!({ "token": token })))
+    let (token, number): (String, String) =
+        sqlx::query_as("SELECT token, number FROM return_note_link WHERE note_key = $1")
+            .bind(key)
+            .fetch_one(&state.db)
+            .await?;
+    Ok(Json(json!({ "token": token, "number": number })))
 }
 
 /// `GET /api/v1/public/return-notes/{token}` — public and read-only. The note
@@ -101,11 +103,16 @@ pub async fn show(
         && token
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    // The number is the row's, not the snapshot's: it rides along inside the
+    // note so the page prints it where the paper does.
     let note: Option<Value> = if shaped {
-        sqlx::query_scalar("SELECT note FROM return_note_link WHERE token = $1")
-            .bind(&token)
-            .fetch_optional(&state.db)
-            .await?
+        sqlx::query_scalar(
+            "SELECT note || jsonb_build_object('number', number)
+               FROM return_note_link WHERE token = $1",
+        )
+        .bind(&token)
+        .fetch_optional(&state.db)
+        .await?
     } else {
         None
     };

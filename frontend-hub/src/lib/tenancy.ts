@@ -4,10 +4,12 @@ import {
   useMutation,
   useQuery,
   useQueryClient,
+  type QueryClient,
   type UseMutationResult,
 } from "@tanstack/react-query"
 
 import { cacheKey, node } from "@/lib/api"
+import { nodeIdentityOptions } from "@/lib/node-identity"
 import { ApiError } from "@itulah/contract/client"
 
 /// A sandbox server's one business: a slug for the URL and a cookie, a name
@@ -46,10 +48,26 @@ const SINGLE: TenancyState = { mode: "single" }
 /// link in the address bar (`App.tsx`).
 export const tenancyQueryKey = ["tenancy"] as const
 
-/// `GET /api/v1/tenancy`, normalised: anything that is not a 2xx answer with
+/// The tenancy answer, normalised: anything that is not a 2xx answer with
 /// `mode: "sandbox"` reads as `{ mode: "single" }` rather than as a fault —
 /// see `TenancyAnswer` above for why.
-export async function getTenancy(signal?: AbortSignal): Promise<TenancyState> {
+///
+/// **The mode comes from the health call, not from a question of its own.**
+/// `GET /api/v1/health` is fetched on every open anyway (the sign-in door's
+/// status dot, `nodeIdentityOptions` in `lib/session.tsx`), and it says at
+/// the top whether this server hosts many businesses. On a single-business
+/// node — every production deployment — that is the whole answer, and
+/// `/api/v1/tenancy` is **never asked** (owner, 2026-10-10: reduce requests,
+/// keep it fastest). Only a sandbox, which alone needs the chosen business
+/// and whether an invite is required, spends the second round trip.
+export async function getTenancy(
+  client: QueryClient,
+  signal?: AbortSignal
+): Promise<TenancyState> {
+  const identity = await client
+    .ensureQueryData(nodeIdentityOptions())
+    .catch(() => null)
+  if (identity?.mode !== "sandbox") return SINGLE
   try {
     const answer = await node.get<TenancyAnswer>("/api/v1/tenancy", { signal })
     if (answer.mode !== "sandbox") return SINGLE
@@ -145,6 +163,19 @@ type TenancyContextValue = TenancyState & {
 
 const TenancyContext = createContext<TenancyContextValue | null>(null)
 
+/// Options for the tenancy answer, so the SSR pass can `ensureQueryData`
+/// before the first paint (`routes/__root.tsx`) the same way it asks about
+/// the session.
+export function tenancyQueryOptions(client: QueryClient) {
+  return {
+    queryKey: tenancyQueryKey,
+    queryFn: ({ signal }: { signal?: AbortSignal }) =>
+      getTenancy(client, signal),
+    staleTime: Infinity,
+    retry: false,
+  }
+}
+
 /// Fetched once, at the root, and shared — asked about the way `useIdentity`
 /// asks about a session, and believed the same way, until something (create,
 /// select, leave) changes the answer.
@@ -154,13 +185,7 @@ export function TenancyProvider({ children }: { children: ReactNode }) {
   // the server is not a sandbox, and one fewer question stands in front of the
   // first screen (owner, 2026-10-10).
   const off = import.meta.env.VITE_TENANCY === "off"
-  const query = useQuery({
-    queryKey: tenancyQueryKey,
-    queryFn: ({ signal }) => getTenancy(signal),
-    staleTime: Infinity,
-    retry: false,
-    enabled: !off,
-  })
+  const query = useQuery({ ...tenancyQueryOptions(client), enabled: !off })
 
   const state = query.data ?? SINGLE
   const value = useMemo<TenancyContextValue>(() => {

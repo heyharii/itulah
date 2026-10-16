@@ -180,7 +180,7 @@ export function CataloguePicker({
       // `md:`, not a bare width — see the same note on the composer. A plain
       // `w-*` loses to the rail's own `md:w-[27.5rem]` at every breakpoint
       // except a phone, which is the one place it must not win.
-      className="md:w-[72rem]"
+      className="md:w-[72rem] xl:w-[72rem] min-[90rem]:w-[72rem]"
       footer={
         <div className="flex items-center justify-between gap-3">
           <span className="text-meta text-mute">
@@ -189,7 +189,7 @@ export function CataloguePicker({
               : `${count(held.length)} picked.`}
           </span>
           <div className="flex items-center gap-2">
-            <Button variant="ghost" onClick={onClose}>
+            <Button data-cancel variant="ghost" onClick={onClose}>
               Cancel
             </Button>
             <Button
@@ -220,6 +220,7 @@ export function CataloguePicker({
               onChange={(event) => setSearch(event.target.value)}
               className="pl-9"
               aria-label="Search this supplier's catalogue"
+              placeholder="Search this supplier's catalogue"
             />
           </div>
 
@@ -320,7 +321,7 @@ function PickCard({
         )}
       </Thumbnail>
       <div className="px-2.5 py-2">
-        <div className="truncate text-[0.875rem] font-medium text-ink">
+        <div className="truncate text-[0.9375rem] font-medium text-ink">
           {item.name}
         </div>
         {item.colours.length > 0 && (
@@ -328,11 +329,11 @@ function PickCard({
             <Swatches colours={item.colours} cap={5} />
           </div>
         )}
-        <div className="mt-1 text-[0.875rem] font-semibold text-ink tabular-nums">
+        <div className="mt-1 text-[0.9375rem] font-semibold text-ink tabular-nums">
           {money(item.unit_price_minor)}
         </div>
         {on && (
-          <div className="mt-1 text-[0.875rem] text-mute">On the order</div>
+          <div className="mt-1 text-[0.9375rem] text-mute">On the order</div>
         )}
       </div>
     </button>

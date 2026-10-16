@@ -49,7 +49,7 @@ function articleCell(row: { article_name: string; sku_code: string }) {
   return (
     <span className="block min-w-0">
       <span className="block truncate text-ink">{row.article_name}</span>
-      <span className="block truncate font-mono text-[0.875rem] font-normal text-mute">
+      <span className="block truncate font-mono text-[0.9375rem] font-normal text-mute">
         {row.sku_code}
       </span>
     </span>
@@ -174,7 +174,7 @@ function openColumns(
     },
     {
       id: "sent",
-      header: "Sent",
+      header: "Dispatched",
       size: 100,
       accessorFn: (row) => row.sent ?? 0,
       meta: { align: "right", card: "hide" },
@@ -195,7 +195,7 @@ function openColumns(
               {count(row.original.unfilled)}
             </span>
             {why !== "" && (
-              <span className="block text-[0.875rem] text-mute">{why}</span>
+              <span className="block text-[0.9375rem] text-mute">{why}</span>
             )}
           </span>
         )
@@ -225,7 +225,7 @@ function openColumns(
           <span className="text-[1.5rem] leading-tight font-semibold tracking-tight text-warn-fg">
             {count(row.original.unfilled)}
           </span>
-          <span className="mt-0.5 text-[0.875rem] text-mute">to pick</span>
+          <span className="mt-0.5 text-[0.9375rem] text-mute">to pick</span>
         </span>
       ),
     },
@@ -244,7 +244,7 @@ function openColumns(
           </span>
           {row.original.sent !== undefined && (
             <>
-              {" · Sent "}
+              {" · Dispatched "}
               <span className="font-semibold text-ink">
                 {count(row.original.sent)}
               </span>
@@ -354,7 +354,9 @@ function closedColumns(): ColumnDef<TableSetup, ClosedShortLine>[] {
           <span className="text-[1.5rem] leading-tight font-semibold tracking-tight text-ink">
             {count(row.original.closed_short)}
           </span>
-          <span className="mt-0.5 text-[0.875rem] text-mute">closed short</span>
+          <span className="mt-0.5 text-[0.9375rem] text-mute">
+            closed short
+          </span>
         </span>
       ),
     },
@@ -491,6 +493,7 @@ export function UnfilledPanel({
                 </EmptyState>
               ) : (
                 <DataTable<StillNeededLine>
+                  refresh={[query]}
                   table={openTable}
                   roomy
                   pageScroll
@@ -508,6 +511,7 @@ export function UnfilledPanel({
               </EmptyState>
             ) : (
               <DataTable<ClosedShortLine>
+                refresh={[query]}
                 table={closedTable}
                 roomy
                 pageScroll

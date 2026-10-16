@@ -39,7 +39,7 @@ export function ExceptionQueue({
       <CardHeader>
         <CardTitle>{title}</CardTitle>
         {exceptions.length > 0 && (
-          <span className="text-[0.875rem] text-mute tabular-nums">
+          <span className="text-[0.9375rem] text-mute tabular-nums">
             {exceptions.length}
           </span>
         )}
@@ -66,23 +66,23 @@ export function ExceptionQueue({
                 {exception.icon}
               </span>
               <span className="min-w-0 flex-1">
-                <b className="block text-[0.875rem] font-medium text-ink">
+                <b className="block text-[0.9375rem] font-medium text-ink">
                   {exception.title}
                 </b>
                 {exception.detail && (
-                  <small className="block text-[0.875rem] text-mute">
+                  <small className="block text-[0.9375rem] text-mute">
                     {exception.detail}
                   </small>
                 )}
               </span>
               {exception.amount && (
-                <span className="shrink-0 text-right text-[0.875rem] font-semibold whitespace-nowrap tabular-nums">
+                <span className="shrink-0 text-right text-[0.9375rem] font-semibold whitespace-nowrap tabular-nums">
                   {exception.amount}
                 </span>
               )}
               <span
                 className={cn(
-                  "inline-flex h-[1.3125rem] shrink-0 items-center rounded-full px-2 text-[0.875rem] font-semibold whitespace-nowrap",
+                  "inline-flex h-[1.3125rem] shrink-0 items-center rounded-full px-2 text-[0.9375rem] font-semibold whitespace-nowrap",
                   exception.severity === "high" && "bg-bad-bg text-bad-fg",
                   exception.severity === "medium" && "bg-warn-bg text-warn-fg",
                   exception.severity === "low" && "bg-soft-2 text-body"

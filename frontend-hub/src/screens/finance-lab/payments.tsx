@@ -1,3 +1,4 @@
+import { ActivityFold } from "@/components/ui/activity-fold"
 import { Plus } from "lucide-react"
 import { useState } from "react"
 
@@ -338,7 +339,9 @@ function NewPayment({ onDone }: { onDone: () => void }) {
         >
           Create draft
         </Button>
-        <Button onClick={onDone}>Cancel</Button>
+        <Button data-cancel onClick={onDone}>
+          Cancel
+        </Button>
       </div>
       <p className="text-meta text-mute">
         Creates a request. Approval, instruction and settlement are separate
@@ -431,8 +434,7 @@ export function PaymentDetail({ payment }: { payment: Payment }) {
         </Table>
       </div>
 
-      <div>
-        <SubHead>History</SubHead>
+      <ActivityFold count={payment.history.length}>
         <Table head={["Date", "Status", "By"]}>
           {payment.history.map((h, i) => (
             <Row key={i}>
@@ -446,7 +448,7 @@ export function PaymentDetail({ payment }: { payment: Payment }) {
             </Row>
           ))}
         </Table>
-      </div>
+      </ActivityFold>
 
       {entry && (
         <div>

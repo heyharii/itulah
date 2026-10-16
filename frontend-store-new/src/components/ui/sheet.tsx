@@ -117,26 +117,30 @@ export function Sheet({
     <>
       <div
         className={cn(
-          "flex shrink-0 flex-wrap items-center gap-x-4 gap-y-3 border-b border-hairline px-4 py-4 md:flex-nowrap md:px-7",
+          "sheet-head flex shrink-0 flex-wrap items-center gap-x-4 gap-y-3 border-b border-hairline px-4 py-4 md:flex-nowrap md:px-7",
           // A sheet with tabs gets a header of its own, with room: the title
           // is not the first tab's lid.
           tabs ? "md:py-5" : "md:py-3",
         )}
       >
-        <div className="min-w-0 flex-1">
+        <div className="sheet-headtext min-w-0 flex-1">
           {id !== undefined && (
-            <div className="mb-0.5 truncate font-mono text-id text-body">
+            <div className="sheet-id mb-0.5 truncate font-mono text-id text-body">
               {id}
             </div>
           )}
-          <div className="flex min-w-0 items-center gap-2.5">
-            <Parts.Title className="truncate text-[1rem] leading-6 font-semibold tracking-[-0.01em] text-ink">
+          <div className="sheet-titlerow flex min-w-0 items-center gap-2.5">
+            <Parts.Title className="sheet-title truncate text-[1rem] leading-6 font-semibold tracking-[-0.01em] text-ink">
               {title}
             </Parts.Title>
-            {badge !== undefined && <span className="shrink-0">{badge}</span>}
+            {badge !== undefined && (
+              <span className="sheet-badge shrink-0">{badge}</span>
+            )}
           </div>
           {caption !== undefined && (
-            <div className="mt-0.5 truncate text-meta text-mute">{caption}</div>
+            <div className="sheet-caption mt-0.5 truncate text-meta text-mute">
+              {caption}
+            </div>
           )}
         </div>
         {actions !== undefined && (
@@ -150,7 +154,7 @@ export function Sheet({
         )}
         <Parts.Close
           aria-label="Close"
-          className="grid size-8 shrink-0 place-items-center rounded-inner text-line-ico transition-colors hover:bg-soft-2 hover:text-ink max-md:order-2 pointer-coarse:size-tap"
+          className="sheet-close grid size-8 shrink-0 place-items-center rounded-inner text-line-ico transition-colors hover:bg-soft-2 hover:text-ink max-md:order-2 pointer-coarse:size-tap"
         >
           <X className="size-4" />
         </Parts.Close>
@@ -159,7 +163,7 @@ export function Sheet({
         <nav
           role="tablist"
           aria-label="Record sections"
-          className="flex shrink-0 [scrollbar-width:none] items-stretch gap-2 overflow-x-auto border-b border-hairline px-4 max-md:flex-wrap max-md:gap-x-3 max-md:overflow-visible md:px-7 [&::-webkit-scrollbar]:hidden"
+          className="sheet-tabs flex shrink-0 [scrollbar-width:none] items-stretch gap-2 overflow-x-auto border-b border-hairline px-4 max-md:flex-wrap max-md:gap-x-3 max-md:overflow-visible md:px-7 [&::-webkit-scrollbar]:hidden"
         >
           {tabs.map((section) => {
             const current = section.value === here.value
@@ -171,7 +175,7 @@ export function Sheet({
                 aria-selected={current}
                 onClick={() => setTab(section.value)}
                 className={cn(
-                  "-mb-px inline-flex h-12 shrink-0 items-center gap-1.5 border-b-2 px-3 text-[0.9375rem] font-medium whitespace-nowrap transition-colors",
+                  "sheet-tab -mb-px inline-flex h-12 shrink-0 items-center gap-1.5 border-b-2 px-3 text-[0.9375rem] font-medium whitespace-nowrap transition-colors",
                   current
                     ? "border-accent font-semibold text-accent"
                     : "border-transparent text-body hover:text-ink",
@@ -188,14 +192,14 @@ export function Sheet({
           than wherever the last one was scrolled to. */}
       <div
         key={here?.value}
-        className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-6 md:px-7 md:py-8"
+        className="sheet-body min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-6 md:px-7 md:py-8"
       >
         {tabs !== undefined && here !== null ? here.content : children}
       </div>
       {footer !== undefined && (
         // Buttons in the foot are one height on every screen — 36px, the
         // desk's — whatever the pointer.
-        <div className="shrink-0 border-t border-hairline px-4 py-3 md:px-7 md:py-3.5 [&_button]:h-9">
+        <div className="sheet-foot shrink-0 border-t border-hairline px-4 py-3 md:px-7 md:py-3.5 [&_button]:h-9">
           {footer}
         </div>
       )}
@@ -212,12 +216,12 @@ export function Sheet({
           <Drawer.Portal>
             <Drawer.Backdrop
               forceRender
-              className="fixed inset-0 z-40 bg-[var(--scrim)] opacity-[calc(1-var(--drawer-swipe-progress,0))] transition-opacity duration-(--t-drawer) ease-(--ease-out) data-[ending-style]:opacity-0 data-[ending-style]:duration-(--t-exit) data-[starting-style]:opacity-0 data-[swiping]:transition-none"
+              className="sheet-veil fixed inset-0 z-40 bg-[var(--scrim)] opacity-[calc(1-var(--drawer-swipe-progress,0))] transition-opacity duration-(--t-drawer) ease-(--ease-out) data-[ending-style]:opacity-0 data-[ending-style]:duration-(--t-exit) data-[starting-style]:opacity-0 data-[swiping]:transition-none"
             />
             <Drawer.Viewport className="fixed inset-0 z-40 flex items-end pb-[var(--drawer-keyboard-inset,0px)]">
               <Drawer.Popup
                 className={cn(
-                  "flex w-full flex-col overflow-hidden rounded-t-sheet border-t border-hairline bg-canvas pb-[env(safe-area-inset-bottom)] shadow-float outline-none",
+                  "sheet-drawer flex w-full flex-col overflow-hidden rounded-t-sheet border-t border-hairline bg-canvas pb-[env(safe-area-inset-bottom)] shadow-float outline-none",
                   // Up to 12px under the notch, less whatever the keyboard
                   // takes, so the foot's buttons ride above it.
                   "h-[calc(100dvh-env(safe-area-inset-top,0px)-0.75rem-var(--drawer-keyboard-inset,0px))]",
@@ -247,10 +251,10 @@ export function Sheet({
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Backdrop className="fixed inset-0 z-40 bg-[var(--scrim)] transition-opacity duration-(--t-sheet) ease-(--ease-out) data-[ending-style]:opacity-0 data-[ending-style]:duration-(--t-exit) data-[starting-style]:opacity-0" />
+        <Dialog.Backdrop className="sheet-veil fixed inset-0 z-40 bg-[var(--scrim)] transition-opacity duration-(--t-sheet) ease-(--ease-out) data-[ending-style]:opacity-0 data-[ending-style]:duration-(--t-exit) data-[starting-style]:opacity-0" />
         <Dialog.Popup
           className={cn(
-            "fixed top-5 right-5 bottom-5 z-40 flex max-w-[calc(100vw-2.5rem)] flex-col overflow-hidden rounded-shell border border-hairline bg-canvas shadow-float outline-none",
+            "sheet-pop fixed top-5 right-5 bottom-5 z-40 flex max-w-[calc(100vw-2.5rem)] flex-col overflow-hidden rounded-shell border border-hairline bg-canvas shadow-float outline-none",
             // From the edge it lives on, and back there on the way out —
             // translate only, faster leaving than arriving. Reduced motion
             // keeps a fade and drops the travel.

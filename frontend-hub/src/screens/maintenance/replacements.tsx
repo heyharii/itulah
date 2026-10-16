@@ -1,16 +1,20 @@
-import { useInfiniteQuery } from "@tanstack/react-query"
-import { useMemo } from "react"
+import { useSuspenseInfiniteQuery } from "@tanstack/react-query"
+import { Suspense, useMemo } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { AppLink } from "@/components/ui/app-link"
 import { Card } from "@/components/ui/card"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
-import { EmptyState, LoadMore, type Pageable } from "@/components/ui/states"
+import {
+  EmptyState,
+  LoadingState,
+  LoadMore,
+  type Pageable,
+} from "@/components/ui/states"
 import { count } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
-import { gaKeys, gaReplacements } from "@/lib/queries/ga"
-import { queryState } from "@/lib/query-state"
+import { gaReplacementBookQuery } from "@/lib/queries/ga"
 import { useSheet } from "@/lib/sheets"
 import { FinanceMark } from "@/screens/contracts/parts"
 import { ReplacementSheet } from "@/screens/maintenance/hub"
@@ -35,27 +39,8 @@ import type { GaMaintenanceFacet, GaReplacementRow } from "@itulah/contract"
 /// What a swap COST is the bills that point at it, and the replacement's row
 /// does not carry that figure back yet. The column carries the Finance mark
 /// and waits rather than showing a zero.
-/// How many replacements one page of the book asks for.
-const PAGE = 100
-
 export function Replacements() {
   const open = useSheet("replacement")
-
-  /// The book, a page at a time as its foot nears view.
-  const book = useInfiniteQuery({
-    queryKey: [...gaKeys.replacements({}), "pages"] as const,
-    queryFn: ({ pageParam, signal }) =>
-      gaReplacements({ limit: PAGE, cursor: pageParam }, signal),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) => last.next_cursor ?? undefined,
-    placeholderData: (previous) => previous,
-  })
-
-  const rows = useMemo(
-    () => book.data?.pages.flatMap((page) => page.rows) ?? [],
-    [book.data]
-  )
-  const head = book.data?.pages[0]
 
   return (
     <PageContent>
@@ -65,28 +50,11 @@ export function Replacements() {
         sub="A replacement proposal links the old asset with the new one and the reason for the swap."
       />
 
-      {head !== undefined && <SummaryStrip statuses={head.facets.statuses} />}
-
-      {queryState(book, {
-        loading: "Loading the replacement list…",
-        render: () =>
-          rows.length === 0 ? (
-            <Card>
-              <EmptyState
-                action={
-                  <AppLink to="/assets" variant="ghost">
-                    Open the asset list
-                  </AppLink>
-                }
-              >
-                No replacements proposed yet. A proposal is created from the
-                asset hub — open the asset, then press Replace.
-              </EmptyState>
-            </Card>
-          ) : (
-            <ReplacementTable rows={rows} onOpen={open.open} more={book} />
-          ),
-      })}
+      <Suspense
+        fallback={<LoadingState>Loading the replacement list…</LoadingState>}
+      >
+        <ReplacementBook onOpen={open.open} />
+      </Suspense>
 
       <ReplacementSheet
         key={open.value ?? "none"}
@@ -95,6 +63,46 @@ export function Replacements() {
         onClose={open.close}
       />
     </PageContent>
+  )
+}
+
+/// The book: its figures and its table, read together. The page's head stands
+/// outside, so it paints before the book arrives.
+function ReplacementBook({
+  onOpen,
+}: {
+  onOpen: (replacementId: string) => void
+}) {
+  /// A page at a time, the next one fetched as the foot of the list nears
+  /// view.
+  const book = useSuspenseInfiniteQuery(gaReplacementBookQuery())
+  const rows = useMemo(
+    () => book.data.pages.flatMap((page) => page.rows),
+    [book.data]
+  )
+  const head = book.data.pages[0]
+
+  return (
+    <>
+      {head !== undefined && <SummaryStrip statuses={head.facets.statuses} />}
+
+      {rows.length === 0 ? (
+        <Card>
+          <EmptyState
+            action={
+              <AppLink to="/assets" variant="ghost">
+                Open the asset list
+              </AppLink>
+            }
+          >
+            No replacements proposed yet. A proposal is created from the asset
+            hub — open the asset, then press Replace.
+          </EmptyState>
+        </Card>
+      ) : (
+        <ReplacementTable rows={rows} onOpen={onOpen} more={book} />
+      )}
+    </>
   )
 }
 

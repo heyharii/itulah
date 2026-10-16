@@ -1,5 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
+import {
+  useMutation,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query"
+import { Suspense, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { useLayout } from "@/lib/layout"
@@ -12,14 +16,14 @@ import { Sheet } from "@/components/ui/sheet"
 import { Problem } from "@/components/ui/states"
 import {
   payKeys,
-  payslipTemplate,
   savePayslipTemplate,
+  payslipTemplateQuery,
 } from "@/lib/queries/people"
-import { queryState } from "@/lib/query-state"
 import { useCanWrite } from "@/lib/session"
 import { PageFoot, SheetFooter } from "@/screens/people/settings-kit"
 import { useOpener } from "@/screens/people/settings-lib"
 import type { PayslipTemplate } from "@itulah/contract"
+import { awaiting } from "@/screens/people/awaiting"
 
 /// Settings › Payslip — what the slip says around its figures, whether the
 /// employee sees what the company pays on top, and whether opening one's own
@@ -27,10 +31,6 @@ import type { PayslipTemplate } from "@itulah/contract"
 export function PayslipSettings() {
   const canWrite = useCanWrite()
   const phone = useLayout() === "phone"
-  const template = useQuery({
-    queryKey: payKeys.payslipTemplate(),
-    queryFn: ({ signal }) => payslipTemplate(signal),
-  })
   const edit = useOpener()
 
   return (
@@ -42,11 +42,7 @@ export function PayslipSettings() {
         actions={
           !phone &&
           canWrite && (
-            <Button
-              variant="primary"
-              disabled={!template.data}
-              onClick={() => edit.show()}
-            >
+            <Button variant="primary" onClick={() => edit.show()}>
               Edit
             </Button>
           )
@@ -58,7 +54,7 @@ export function PayslipSettings() {
           <CardTitle>Template</CardTitle>
         </CardHeader>
         <div className="px-4 pb-3">
-          {queryState(template, {
+          {awaiting(payslipTemplateQuery(), {
             loading: "Reading the template…",
             render: (current) => (
               <>
@@ -81,23 +77,25 @@ export function PayslipSettings() {
         </div>
       </Card>
 
-      {template.data && (
-        <EditSheet
-          key={edit.n}
-          open={edit.isOpen}
-          onClose={edit.hide}
-          current={template.data}
-        />
-      )}
-      {canWrite && (
-        <PageFoot
-          label="Edit"
-          disabled={!template.data}
-          onClick={() => edit.show()}
-        />
-      )}
+      {/* The sheet reads the template itself, so the buttons need no answer
+          to be enabled: one pressed before it lands opens when it does. */}
+      <Suspense fallback={null}>
+        <EditSheetOpen key={edit.n} open={edit.isOpen} onClose={edit.hide} />
+      </Suspense>
+      {canWrite && <PageFoot label="Edit" onClick={() => edit.show()} />}
     </PageContent>
   )
+}
+
+function EditSheetOpen({
+  open,
+  onClose,
+}: {
+  open: boolean
+  onClose: () => void
+}) {
+  const { data } = useSuspenseQuery(payslipTemplateQuery())
+  return <EditSheet open={open} onClose={onClose} current={data} />
 }
 
 function EditSheet({

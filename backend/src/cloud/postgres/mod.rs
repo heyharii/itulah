@@ -222,6 +222,7 @@ mod segments;
 mod setup;
 mod statement_intake;
 mod statements;
+mod stock_card;
 mod stock_ledger;
 /// A store page's Actions menu: head office acting on a store's server and
 /// devices, each action followed until it finishes. See migration 0643.
@@ -413,6 +414,7 @@ pub use segments::*;
 pub use setup::*;
 pub use statement_intake::*;
 pub use statements::*;
+pub use stock_card::*;
 pub use stock_ledger::*;
 pub use store_actions::*;
 pub use store_exceptions::*;

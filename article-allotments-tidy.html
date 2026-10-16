@@ -1,0 +1,612 @@
+<!doctype html>
+<html lang="en" data-view="article" data-article="tidy" data-allot="like">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Article and allotments</title>
+<style>
+@font-face{font-family:Inter;src:url('/frontend-hub/node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2') format('woff2');font-weight:100 900;font-display:swap}
+/* The hub as it runs on 15 Oct (white.localhost:5352): premium grey shell,
+   white page, 15px floor, blue only for the one action and a word that opens. */
+:root{--shell:#e9e9ed;--panel:#f5f5f7;--ink:#1d1d1f;--mute:#6e6e73;--faint:#a1a1a6;--hair:#e8e8ec;--hair-2:#dcdce1;--band:#fafafb;--hover:#f7f7f9;
+ --blue:#2862dc;--blue-h:#2055c7;--blue-bg:#eef3fc;--red:#d70015;--green:#248a3d;--scrim:rgb(208 208 213 / 48%);
+ --ease-ui:cubic-bezier(.23,1,.32,1);--ease-drawer:cubic-bezier(.32,.72,0,1)}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;font:15px/1.45 Inter,-apple-system,BlinkMacSystemFont,sans-serif;letter-spacing:-.006em;color:var(--ink);background:var(--shell);-webkit-font-smoothing:antialiased;overflow:hidden}
+button,input{font:inherit;color:inherit}
+button{border:0;background:none;cursor:pointer;padding:0}
+svg{flex:none}
+.num{font-variant-numeric:tabular-nums}
+.m{color:var(--mute)}
+[hidden]{display:none!important}
+
+.shell{display:flex;height:100vh}
+.rail{width:64px;flex:none;display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px 0}
+.rail i{width:40px;height:40px;border-radius:10px;display:block}
+.rail i.on{background:#fff;box-shadow:0 1px 2px rgb(0 0 0 / 7%)}
+.panel{width:216px;flex:none;margin:12px 12px 12px 0;padding:14px 10px;border-radius:16px;background:var(--panel);box-shadow:0 0 0 1px rgb(0 0 0 / 4%)}
+.panel b{display:block;margin:2px 10px 14px;font-weight:600}
+.nav{display:flex;justify-content:space-between;align-items:center;height:36px;padding:0 10px;border-radius:8px;color:#45454a}
+.nav.on{background:#fff;color:var(--ink);font-weight:500;box-shadow:0 0 0 1px rgb(0 0 0 / 5%),0 1px 3px rgb(0 0 0 / 8%)}
+.badge{min-width:20px;height:20px;padding:0 6px;border-radius:10px;background:var(--red);color:#fff;font-size:15px;font-weight:600;display:grid;place-items:center;line-height:1}
+.page{flex:1;min-width:0;display:flex;flex-direction:column;margin:12px 12px 12px 0;border-radius:16px;background:#fff;box-shadow:0 0 0 1px rgb(0 0 0 / 5%),0 2px 8px rgb(0 0 0 / 4%);overflow:hidden}
+.page-in{flex:1;overflow:auto;padding:0 28px 40px}
+.head{position:sticky;top:0;z-index:2;display:flex;justify-content:space-between;align-items:flex-end;margin:0 -28px 20px;padding:24px 28px 16px;background:#fff;border-bottom:1px solid var(--hair)}
+.crumb{color:var(--mute);margin-bottom:2px}
+h1,h2{margin:0;font-size:17px;line-height:24px;font-weight:600;letter-spacing:-.3px}
+.kpis{display:flex;margin:0 0 20px}
+.kpi{padding:0 24px;border-left:1px solid var(--hair)}
+.kpi:first-child{padding-left:0;border:0}
+.kpi span{display:block;color:var(--mute)}
+.kpi b{display:block;font-size:16px;font-weight:600;white-space:nowrap}
+.tabs{display:flex;gap:20px;box-shadow:inset 0 -1px 0 var(--hair);margin:0 0 16px}
+.tab{padding:6px 0 10px;color:var(--mute);font-weight:500;border-bottom:2px solid transparent;white-space:nowrap}
+.tab.on{color:var(--ink);border-color:var(--ink)}
+.tab i{font-style:normal;font-weight:400;margin-left:6px}
+.bar{display:flex;align-items:center;gap:8px;margin:0 0 16px}
+.search{display:flex;align-items:center;gap:8px;width:280px;height:36px;padding:0 11px;border-radius:8px;box-shadow:inset 0 0 0 1px var(--hair-2);color:var(--mute)}
+.search input{border:0;outline:0;flex:1;min-width:0;background:transparent}
+.btn{height:36px;padding:0 14px;border-radius:8px;display:inline-flex;align-items:center;gap:6px;font-weight:500;white-space:nowrap;transition:transform .16s var(--ease-ui),background-color .15s}
+.btn:active{transform:scale(.97)}
+.primary{background:var(--blue);color:#fff;font-weight:600}
+.ghost{background:#fff;box-shadow:inset 0 0 0 1px var(--hair-2)}
+.sp{flex:1}
+.cb{width:18px;height:18px;border-radius:5px;box-shadow:inset 0 0 0 1.5px var(--hair-2);background:#fff;display:inline-grid;place-items:center;flex:none;cursor:pointer}
+.cb.on{background:var(--blue);box-shadow:none}
+.cb.on::after{content:"";width:9px;height:5px;border:2px solid #fff;border-top:0;border-right:0;transform:translateY(-1px) rotate(-45deg)}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;vertical-align:1px;box-shadow:inset 0 0 0 1px rgb(0 0 0 / 10%)}
+.thumb{display:grid;place-items:center;border-radius:8px;background:#f2f2f5;overflow:hidden}
+
+/* ── the switch (prototype only) ── */
+.pick{position:fixed;left:12px;bottom:12px;z-index:40;padding:6px;border-radius:12px;background:rgb(29 29 31 / 90%);backdrop-filter:blur(12px);color:#d9d9de;box-shadow:0 8px 30px rgb(0 0 0 / 22%);max-width:360px}
+.pick .row{display:flex;flex-wrap:wrap;gap:2px;align-items:center}
+.pick .row+.row{margin-top:6px;padding-top:6px;border-top:1px solid rgb(255 255 255 / 12%)}
+.pick .lbl{flex-basis:100%;padding:0 8px 2px;color:#8e8e93}
+.pick button{height:30px;padding:0 9px;border-radius:7px;color:#d9d9de}
+.pick button[aria-pressed=true]{background:#fff;color:var(--ink)}
+.pick .star{color:#ffd60a}
+
+/* ═════════ A · Article detail ═════════ */
+.sheet{position:fixed;top:12px;right:12px;bottom:12px;z-index:21;width:min(1040px,calc(100vw - 300px));display:flex;flex-direction:column;border-radius:16px;background:#fff;box-shadow:0 0 0 1px rgb(0 0 0 / 5%),0 24px 64px rgb(0 0 0 / 14%);overflow:hidden}
+.veil{position:fixed;inset:0;z-index:20;background:var(--scrim);backdrop-filter:blur(2px)}
+.sh-head{display:flex;justify-content:space-between;gap:16px;padding:24px 28px 16px;border-bottom:1px solid var(--hair)}
+.sh-head .cap{color:var(--mute);margin-top:2px}
+.link{color:var(--blue);cursor:pointer}
+.x{width:36px;height:36px;border-radius:8px;display:grid;place-items:center}
+.sh-body{flex:1;overflow:auto;padding:20px 28px 28px}
+.sh-foot{display:flex;justify-content:flex-end;gap:8px;padding:12px 28px;border-top:1px solid var(--hair)}
+.sect{margin:24px 0 10px;font-weight:600}
+.sect i{font-style:normal;font-weight:400;color:var(--mute);margin-left:6px}
+.frame{border:1px solid var(--hair);border-radius:10px;overflow:hidden}
+table{width:100%;border-collapse:collapse}
+th{height:42px;padding:0 16px;text-align:left;font-weight:500;color:var(--mute);background:var(--band);box-shadow:inset 0 -1px 0 var(--hair);white-space:nowrap}
+td{height:52px;padding:0 16px;border-bottom:1px solid var(--hair);white-space:nowrap}
+tbody tr:last-child td{border-bottom:0}
+tfoot td{background:var(--band);border-top:1px solid var(--hair);border-bottom:0}
+.r{text-align:right}
+/* Today, as the hub draws it */
+.today-info{display:grid;grid-template-columns:160px 1fr 1fr;gap:12px 24px;margin-bottom:18px}
+.today-info .ph{grid-row:span 3;width:160px;height:160px}
+.fact span{display:block;color:var(--mute)} .fact b{display:block;font-weight:500}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.chip{height:36px;padding:0 12px;border-radius:8px;box-shadow:inset 0 0 0 1px var(--hair-2);display:inline-flex;align-items:center}
+.chip.on{background:var(--blue-bg);box-shadow:inset 0 0 0 1px var(--blue)}
+td.sel{box-shadow:inset 0 0 0 1px var(--blue);background:var(--blue-bg)}
+/* Tidy: photo beside the variants, one figure a cell, the SKU said once */
+.side{display:grid;grid-template-columns:240px minmax(0,1fr);gap:24px;align-items:start}
+.side .ph{width:240px;height:240px;border:1px solid var(--hair)}
+.swatches{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+.sw{display:flex;align-items:center;gap:6px;height:32px;padding:0 10px;border-radius:999px;box-shadow:inset 0 0 0 1px var(--hair-2);cursor:pointer}
+.sw.on{box-shadow:inset 0 0 0 1.5px var(--ink);font-weight:500}
+.vt td.cell{cursor:pointer;text-align:right}
+.vt td.cell:hover{background:var(--hover)}
+.vt td.cell.on{background:var(--blue-bg);font-weight:600}
+.vt td.zero{color:var(--faint)}
+.sku{display:flex;justify-content:space-between;gap:12px;margin-top:12px;padding:12px 16px;border-radius:10px;background:var(--band)}
+.sku span{color:var(--mute)}
+
+/* ═════════ B · Allotments ═════════ */
+.group{margin:0 0 22px}
+.g-head{position:sticky;top:var(--hh,78px);z-index:1;display:flex;align-items:center;gap:12px;padding:10px 0;background:#fff}
+.g-head .t b{display:block;font-weight:600}
+.g-head .t span{color:var(--mute)}
+.g-head .act{margin-left:auto}
+/* A · Tiles: a grid of cards, the photo leads */
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:14px}
+.tile{position:relative;border:1px solid var(--hair);border-radius:12px;overflow:hidden;background:#fff;cursor:pointer;transition:box-shadow .15s,border-color .15s,transform .16s var(--ease-ui)}
+.tile:active{transform:scale(.99)}
+@media(hover:hover){.tile:hover{border-color:var(--hair-2);box-shadow:0 2px 10px rgb(0 0 0 / 6%)}}
+.tile.on{border-color:var(--blue);box-shadow:0 0 0 1px var(--blue)}
+.tile .ph{aspect-ratio:4/3;width:100%;border-radius:0}
+.tile .cb{position:absolute;top:10px;left:10px}
+.tile .qty{position:absolute;top:10px;right:10px;padding:2px 9px;border-radius:999px;background:rgb(255 255 255 / 92%);font-weight:600;box-shadow:0 0 0 1px rgb(0 0 0 / 5%)}
+.tile .body{padding:12px 14px 14px}
+.tile .nm{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tile .code{color:var(--mute)}
+.tile .ft{display:flex;justify-content:space-between;gap:8px;margin-top:8px;color:var(--mute)}
+/* B · Lead Figure cards: the hub's phone card, two to a row on a desk */
+.leads{display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:12px}
+.lf{border:1px solid var(--hair);border-radius:12px;overflow:hidden;background:#fff;cursor:pointer}
+.lf.on{border-color:var(--blue);box-shadow:0 0 0 1px var(--blue)}
+.lf-h{display:flex;gap:14px;padding:14px 16px;align-items:flex-start}
+.lf-h .ph{width:64px;height:64px}
+.lf-h .nm{flex:1;min-width:0}
+.lf-h .nm b{display:block;font-weight:600}
+.lf-h .nm>span{display:block;color:var(--mute)}
+.lf-h .fig{text-align:right}
+.lf-h .fig b{font-size:22px;line-height:28px;font-weight:600}
+.lf-h .fig small{font-size:15px;color:var(--mute);margin-left:4px}
+.lf-f{display:flex;justify-content:space-between;align-items:center;gap:12px;min-height:48px;padding:8px 16px;border-top:1px solid var(--hair);color:var(--mute)}
+/* C · Like New articles: the hub's New articles page (setups.tsx SupplierCard +
+   LineCard) — a card per supplier that folds, one card per article inside it;
+   here a card ticks instead of opening the form */
+.na-list{display:flex;flex-direction:column;gap:12px}
+.na-sup{border:1px solid var(--hair);border-radius:10px;background:#fff}
+.na-sup.warn h3{color:#a05a00}
+.na-h{display:flex;align-items:center;gap:12px;padding-right:16px}
+.na-h .cb{margin-left:18px}
+.na-fold{flex:1;min-width:0;display:flex;align-items:center;gap:12px;min-height:56px;padding:12px 0 12px 2px;text-align:left;border-radius:10px}
+.na-fold svg{color:var(--mute);transition:transform .2s var(--ease-ui)}
+.na-sup.shut .na-fold svg{transform:rotate(-90deg)}
+.na-fold h3{flex:1;min-width:0;margin:0;font-size:17px;line-height:24px;font-weight:600;letter-spacing:-.3px}
+.na-fold .m{white-space:nowrap}
+.na-body{display:grid;grid-template-rows:1fr;transition:grid-template-rows .2s var(--ease-ui)}
+.na-sup.shut .na-body{grid-template-rows:0fr}
+.na-body>div{min-height:0;overflow:hidden}
+.na-cards{display:flex;flex-direction:column;gap:8px;padding:0 16px 16px}
+.na-card{display:grid;grid-template-columns:auto auto minmax(0,1fr) auto;align-items:center;gap:16px;padding:12px 16px;border:1px solid var(--hair);border-radius:10px;background:#fff;cursor:pointer;transition:background-color .15s,border-color .15s,transform .15s var(--ease-ui)}
+.na-card:active{transform:scale(.99)}
+@media(hover:hover){.na-card:not(.on):hover{background:var(--hover)}}
+.na-card.on{border-color:var(--blue);background:var(--blue-bg)}
+.na-card .ph{width:48px;height:48px;border:1px solid var(--hair)}
+.na-card .nm{font-weight:500;overflow-wrap:anywhere}
+.na-card .sub{color:var(--mute);display:flex;flex-wrap:wrap;column-gap:10px}
+.na-card .code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:15px}
+.na-card .fig{text-align:right;white-space:nowrap}
+.na-card .fig b{display:block;font-weight:600}
+.na-card .fig span{color:var(--mute)}
+.na-tint{height:36px;padding:0 14px;border-radius:8px;color:var(--blue);font-weight:500;white-space:nowrap}
+@media(hover:hover){.na-tint:hover{background:var(--blue-bg)}}
+@media(max-width:600px){.page-in{padding:0 16px 40px}.head{margin:0 -16px 20px;padding:20px 16px 14px}.kpis{overflow-x:auto}.na-cards{padding:0 10px 10px}.na-card{gap:12px;padding:12px}.na-h .cb{margin-left:14px}.rail{display:none}.page{margin:0;border-radius:0}.bar .search{width:100%}}
+.dock{position:sticky;bottom:12px;margin-top:12px;display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 12px 10px 18px;border-radius:12px;background:var(--ink);color:#fff;box-shadow:0 8px 24px rgb(0 0 0 / 18%)}
+.dock .btn{height:36px}
+
+
+/* ═════════ C · Notion's taste: a page, not a form ═════════
+   A wide quiet column, a cover-like photo band, a big title, then a list of
+   properties — grey label with a small mark, the value beside it, empty ones
+   said as "Empty" — and the variants as an inline table below a rule. */
+.nt-body{flex:1;overflow:auto}
+.nt-cover{height:150px;display:grid;place-items:center;border-bottom:1px solid var(--hair)}
+.nt-col{max-width:760px;margin:0 auto;padding:0 40px 40px}
+.nt-icon{width:72px;height:72px;margin-top:-36px;border-radius:12px;box-shadow:0 0 0 4px #fff,0 0 0 5px var(--hair)}
+.nt-title{margin:14px 0 4px;font-size:30px;line-height:38px;font-weight:700;letter-spacing:-.6px}
+.nt-code{color:var(--faint);margin-bottom:18px}
+.nt-prop{display:grid;grid-template-columns:180px minmax(0,1fr);align-items:center;min-height:36px;border-radius:6px;padding:0 6px;margin:0 -6px}
+@media(hover:hover){.nt-prop:hover{background:var(--hover)}}
+.nt-prop>span{display:flex;align-items:center;gap:8px;color:var(--mute)}
+.nt-prop>span i{width:16px;height:16px;border-radius:4px;background:#e6e6ea;display:inline-block}
+.nt-empty{color:var(--faint)}
+.nt-pill{display:inline-flex;align-items:center;height:24px;padding:0 8px;border-radius:5px;margin-right:4px;background:#efefe9}
+.nt-pill.b{background:#e7eefb}.nt-pill.g{background:#e6f1e8}.nt-pill.o{background:#f6ece1}
+.nt-rule{border:0;border-top:1px solid var(--hair);margin:18px 0}
+.nt-h{font-size:19px;font-weight:600;margin:6px 0 10px}
+.nt-db{width:100%;border-collapse:collapse}
+.nt-db th{height:34px;padding:0 10px;text-align:left;font-weight:500;color:var(--mute);background:#fff;border-top:1px solid var(--hair);border-bottom:1px solid var(--hair);box-shadow:none}
+.nt-db td{height:38px;padding:0 10px;border-bottom:1px solid var(--hair)}
+.nt-db th+th,.nt-db td+td{border-left:1px solid var(--hair)}
+.nt-db tr.on td{background:var(--blue-bg)}
+.nt-db tr{cursor:pointer}
+
+/* ═════════ D · Linear's taste: the record, and its properties beside it ═════════
+   The main column reads the item (photo, variants, activity); a quiet right
+   sidebar holds every property as a compact row, each value its own control. */
+.ln{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 320px}
+.ln-main{overflow:auto;padding:22px 32px 32px}
+.ln-side{overflow:auto;border-left:1px solid var(--hair);background:var(--band);padding:18px 16px}
+.ln-title{font-size:21px;line-height:28px;font-weight:600;letter-spacing:-.3px;margin:2px 0 4px}
+.ln-desc{color:var(--mute);margin-bottom:18px}
+.ln-photo{display:flex;gap:14px;align-items:flex-start}
+.ln-photo .ph{width:132px;height:132px;border:1px solid var(--hair)}
+.ln-h{display:flex;align-items:center;gap:8px;margin:22px 0 8px;font-weight:600}
+.ln-h i{font-style:normal;font-weight:400;color:var(--mute)}
+.ln-list{border:1px solid var(--hair);border-radius:10px;overflow:hidden;background:#fff}
+.ln-row{display:grid;grid-template-columns:minmax(0,1fr) 110px 90px;align-items:center;gap:12px;height:44px;padding:0 14px;border-top:1px solid var(--hair);cursor:pointer}
+.ln-row:first-child{border-top:0}
+@media(hover:hover){.ln-row:hover{background:var(--hover)}}
+.ln-row.on{background:var(--blue-bg)}
+.ln-row .q{text-align:right}
+.ln-act{margin-top:8px}
+.ln-act div{display:flex;gap:10px;align-items:center;padding:7px 0;color:var(--mute)}
+.ln-act b{color:var(--ink);font-weight:500}
+.av{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;background:#e1e7f5;color:var(--blue);font-weight:600;font-size:15px;flex:none}
+.ln-side h4{margin:0 0 6px;padding:0 8px;font-size:15px;font-weight:600}
+.ln-prop{display:grid;grid-template-columns:124px minmax(0,1fr);align-items:center;min-height:34px;padding:0 8px;border-radius:7px}
+@media(hover:hover){.ln-prop:hover{background:#fff;box-shadow:0 0 0 1px var(--hair)}}
+.ln-prop>span{color:var(--mute)}
+.ln-prop .v{display:flex;flex-wrap:wrap;gap:4px;align-items:center;min-width:0}
+.ln-tag{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 8px;border-radius:999px;background:#fff;box-shadow:inset 0 0 0 1px var(--hair-2)}
+.ln-sep{height:1px;background:var(--hair);margin:12px 8px}
+
+/* D′ · Linear with the properties on the left */
+.ln.left{grid-template-columns:320px minmax(0,1fr)}
+.ln.left .ln-side{order:-1;border-left:0;border-right:1px solid var(--hair)}
+
+/* ═════════ E · Bento (bento.me's taste): who it is on the left, what it
+   holds as tiles on the right ═════════ */
+.bt{flex:1;min-height:0;display:grid;grid-template-columns:320px minmax(0,1fr)}
+.bt-id{overflow:auto;padding:20px 22px 24px;border-right:1px solid var(--hair)}
+.bt-id .ph{width:100%;height:auto;aspect-ratio:1;border-radius:16px;border:1px solid var(--hair)}
+.bt-name{margin:16px 0 2px;font-size:21px;line-height:28px;font-weight:600;letter-spacing:-.3px}
+.bt-code{color:var(--mute)}
+.bt-sw{display:flex;gap:8px;margin:14px 0 16px;flex-wrap:wrap}
+.bt-sw span{width:28px;height:28px;border-radius:50%;cursor:pointer;box-shadow:inset 0 0 0 1px rgb(0 0 0 / 12%)}
+.bt-sw span.on{box-shadow:0 0 0 2px #fff,0 0 0 4px var(--ink)}
+.bt-props .ln-prop{padding:0}
+.bt-grid{overflow:auto;padding:20px 22px 24px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:min-content;gap:14px;background:var(--band)}
+.tl{background:#fff;border:1px solid var(--hair);border-radius:16px;padding:16px 18px;min-width:0}
+.tl.w2{grid-column:span 2}
+.tl h5{margin:0 0 8px;font-size:15px;font-weight:500;color:var(--mute)}
+.tl .big{font-size:24px;line-height:30px;font-weight:600;letter-spacing:-.4px}
+.tl .sub{color:var(--mute);margin-top:4px}
+.tl .li{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-top:1px solid var(--hair)}
+.tl .li:first-of-type{border-top:0}
+.tl .li.on{font-weight:600}
+.tl .cw{display:flex;gap:10px}
+.tl .cw .ph{width:84px;height:84px;border:1px solid var(--hair);cursor:pointer}
+@media(max-width:800px){.bt{grid-template-columns:1fr}.bt-id{border-right:0}.bt-grid{grid-template-columns:1fr}.tl.w2{grid-column:auto}}
+
+/* ═════════ F · Photo + variants: who it is on the left, straight into its
+   variants on the right — no tiles (owner, 15 Oct: "jangan grid bento card",
+   "langsung variant saja") ═════════ */
+.pv{flex:1;min-height:0;display:grid;grid-template-columns:300px minmax(0,1fr)}
+.pv-id{overflow:auto;padding:22px 24px 24px;border-right:1px solid var(--hair)}
+.pv-id .ph{width:100%;height:auto;aspect-ratio:1;border-radius:14px;border:1px solid var(--hair)}
+.pv-sw{display:flex;gap:8px;margin:12px 0 18px;flex-wrap:wrap}
+.pv-sw span{width:26px;height:26px;border-radius:50%;cursor:pointer;box-shadow:inset 0 0 0 1px rgb(0 0 0 / 12%)}
+.pv-sw span.on{box-shadow:0 0 0 2px #fff,0 0 0 4px var(--ink)}
+.pv-name{font-size:19px;line-height:26px;font-weight:600;letter-spacing:-.3px}
+.pv-code{color:var(--mute);margin-top:2px}
+.pv-price{margin-top:14px;font-size:21px;line-height:28px;font-weight:600;letter-spacing:-.3px}
+.pv-cost{color:var(--mute)}
+.pv-props{margin-top:16px;padding-top:12px;border-top:1px solid var(--hair)}
+.pv-props .ln-prop{padding:0}
+.pv-main{overflow:auto;padding:22px 28px 28px}
+.pv-h{display:flex;justify-content:space-between;align-items:baseline;margin:0 0 10px}
+.pv-h b{font-weight:600}.pv-h b i{font-style:normal;font-weight:400;color:var(--mute);margin-left:6px}
+.pv-h span{color:var(--mute)}
+.pv tbody tr{cursor:pointer}
+.pv tbody tr.on td{background:var(--blue-bg)}
+@media(hover:hover){.pv tbody tr:not(.on):hover td{background:var(--hover)}}
+.pv .disc{display:flex;align-items:center;gap:6px;margin-top:20px;padding-top:14px;border-top:1px solid var(--hair);color:var(--mute);cursor:pointer}
+@media(max-width:800px){.pv{grid-template-columns:1fr}.pv-id{border-right:0;border-bottom:1px solid var(--hair)}}
+
+.ft-ph{width:64px;height:64px;border:1px solid var(--hair);border-radius:10px}
+.pvt tbody tr{cursor:pointer}
+.pvt tbody tr.on td{background:var(--blue-bg)}
+@media(hover:hover){.pvt tbody tr:not(.on):hover td{background:var(--hover)}}
+.disc-a{display:flex;align-items:center;gap:6px;margin-top:20px;padding-top:14px;border-top:1px solid var(--hair);color:var(--mute);cursor:pointer}
+@media(max-width:1100px){.panel{display:none}.sheet{width:calc(100vw - 80px)}}
+@media(max-width:800px){.ln{grid-template-columns:1fr}.ln-side{border-left:0;border-top:1px solid var(--hair)}}
+@media(max-width:700px){.side{grid-template-columns:1fr}.side .ph{width:100%;height:auto;aspect-ratio:1}.today-info{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="shell">
+ <nav class="rail"><i></i><i></i><i class="on"></i><i></i><i></i><i></i><i></i></nav>
+ <aside class="panel" id="panel"></aside>
+ <main class="page"><div class="page-in" id="page"></div></main>
+</div>
+<div id="layer"></div>
+<div class="pick" id="pick"></div>
+
+<script>
+const $ = (s, el = document) => el.querySelector(s)
+const H = document.documentElement
+const fmt = (n) => new Intl.NumberFormat('id-ID').format(n)
+const rp = (n) => 'Rp ' + fmt(n)
+
+/* silhouettes, painted in the article's colour (the hub's colourway placeholder) */
+const SHAPES = {
+ shirt: 'M30 14 18 20 8 40 18 46 22 36 22 88 78 88 78 36 82 46 92 40 82 20 70 14C66 22 58 26 50 26S34 22 30 14Z',
+ tee: 'M32 16 14 24 8 40 22 44 24 38 24 86 76 86 76 38 78 44 92 40 86 24 68 16C64 24 58 28 50 28S36 24 32 16Z',
+ pants: 'M28 12 72 12 76 88 58 88 50 40 42 88 24 88Z',
+ bag: 'M24 36 76 36 82 88 18 88ZM36 36C36 20 42 14 50 14S64 20 64 36',
+ shoe: 'M10 58C24 58 34 48 40 40L54 46C60 54 74 58 90 60L90 74 10 74Z',
+ sandal: 'M12 62 88 62 88 72 12 72ZM34 62 44 46 58 46 66 62',
+}
+const ph = (shape, colour, cls = '', size = 64) => `<div class="thumb ph ${cls}" style="background:${tint(colour)}"><svg viewBox="0 0 100 100" width="${Math.round(size * .62)}" height="${Math.round(size * .62)}"><path d="${SHAPES[shape]}" fill="${colour}" stroke="rgb(0 0 0 / 18%)" stroke-width="1.5" stroke-linejoin="round" ${shape === 'bag' ? 'fill-rule="evenodd"' : ''}/></svg></div>`
+const tint = (c) => `color-mix(in srgb, ${c} 10%, #f4f4f6)`
+
+/* ── data, as the local rig holds it on 15 Oct ── */
+const ARTICLE = {
+ code: '00000010', name: 'Tas Selempang Kanvas', division: 'Tas', tags: ['Aksesori'], supplier: 'Sepatu Sejahtera, CV', price: 219000, cost: 98000,
+ colours: [['Black', '#151515', [2]], ['Khaki', '#a8915e', [3]], ['Navy', '#1f2a44', [0]]], sizes: ['No Size'], shape: 'bag',
+}
+const SUPPLIERS = [
+ ['Garmen Nusantara, PT', [
+  ['Blus Rayon Motif Bunga', '00000001', 2, [['Pink', '#e8a3b5']], 'S, L', 'shirt'],
+  ['Celana Chino Slim Fit', '00000002', 2, [['Khaki', '#a8915e']], 'M, XL', 'pants'],
+  ['Kaos Anak Karakter', '00000004', 2, [['Yellow', '#e9b931']], 'XS, M', 'tee'],
+  ['Kaos Basic Katun Combed', '00000003', 2, [['Grey', '#7d7d82']], 'S, L', 'tee'],
+  ['Kemeja Oxford Lengan Panjang', '00000005', 2, [['Navy', '#1f2a44']], 'S, L', 'shirt'],
+ ]],
+ ['Sepatu Sejahtera, CV', [
+  ['Flat Shoes Wanita', '00000006', 2, [['Beige', '#d8c3a5']], 'M, XL', 'shoe'],
+  ['Loafers Kulit Sintetis', '00000007', 3, [['Brown', '#6b4a2f']], 'EU 39, EU 40', 'shoe'],
+  ['Sandal Slide Karet', '00000008', 2, [['Black', '#151515']], 'EU 38, EU 41', 'sandal'],
+  ['Sneakers Kanvas Low', '00000009', 2, [['White', '#f2f2f2'], ['Navy', '#1f2a44']], 'EU 37, EU 40', 'shoe'],
+  ['Tas Selempang Kanvas', '00000010', 3, [['Black', '#151515'], ['Khaki', '#a8915e']], 'No Size', 'bag'],
+ ]],
+]
+const state = { colour: 0, cell: [0, 0], picked: new Set(), shut: new Set() }
+
+/* ── shell ── */
+function panel() {
+ $('#panel').innerHTML = '<b>Merchandise</b>' + [['Articles', H.dataset.view === 'article'], ['New Articles', H.dataset.view === 'new', 7], ['Divisions'], ['Tags'], ['Sizes'], ['Colors'], ['Name Suggestions'], ['Allotments', H.dataset.view === 'allot'], ['Return HO']]
+  .map(([n, on, b]) => `<div class="nav${on ? ' on' : ''}"><span>${n}</span>${b ? `<span class="badge">${b}</span>` : ''}</div>`).join('')
+}
+
+/* ═════════ Article detail ═════════ */
+function articlePage() {
+ return `<header class="head"><div><div class="crumb">Master</div><h1>Articles</h1></div><button class="btn primary">+ New article</button></header>
+ <div class="kpis"><div class="kpi"><span>Articles</span><b>10</b></div><div class="kpi"><span>Active</span><b>10</b></div></div>`
+}
+function articleSheet() {
+ const a = ARTICLE
+ const total = a.colours.reduce((s, c) => s + c[2].reduce((x, y) => x + y, 0), 0)
+ const [ci, si] = state.cell
+ const [cName, cHex, q] = a.colours[ci]
+ if (H.dataset.article === 'today') {
+  return `<div class="veil"></div><section class="sheet">
+   <div class="sh-head"><div><div class="crumb">Articles / ${a.code}</div><h2>${a.name}</h2></div><button class="x">✕</button></div>
+   <div class="sh-body">
+    <div class="sect" style="margin-top:0">Article information</div>
+    <div class="today-info">${ph(a.shape, cHex, '', 160)}
+     <div class="fact"><span>Selling price</span><b>${rp(a.price)}</b></div><div class="fact"><span>Stock · selected variant</span><b>${q[si]} pcs</b></div>
+     <div class="fact"><span>Purchase price</span><b>—</b></div><div class="fact"><span>Markup</span><b>—</b></div>
+     <div class="fact"><span>Supplier</span><b>—</b></div><div></div></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px"><div><span class="m">Colour</span><div class="chips">${a.colours.map((c, i) => `<span class="chip${i === ci ? ' on' : ''}" data-c="${i}"><span class="dot" style="background:${c[1]}"></span>${c[0]}</span>`).join('')}</div></div>
+     <div><span class="m">Size</span><div class="chips">${a.sizes.map((s, i) => `<span class="chip${i === si ? ' on' : ''}">${s}</span>`).join('')}</div></div></div>
+    <div style="border-top:1px solid var(--hair);margin:18px 0;padding-top:16px;display:grid;grid-template-columns:1fr 1fr;gap:12px 24px">
+     <div class="fact"><span>Selected SKU</span><b>${a.code}${ci + 1}00</b></div><div class="fact"><span>Division</span><b>${a.division}</b></div>
+     <div class="fact"><span>Tags</span><b>${a.tags.join(', ')}</b></div></div>
+    <div style="border-top:1px solid var(--hair);padding-top:16px;display:flex;justify-content:space-between"><b>Stock by variant</b><span class="m">${total} pcs total</span></div>
+    <p class="m" style="margin:8px 0 12px">Select a variant to see its price and SKU above.</p>
+    <div class="frame"><table><thead><tr><th>Colour</th>${a.sizes.map((s) => `<th class="r">${s}</th>`).join('')}<th class="r">Quantity</th></tr></thead><tbody>
+    ${a.colours.map((c, i) => `<tr><td><span style="display:flex;align-items:center;gap:10px">${ph(a.shape, c[1], '', 32).replace('class="thumb ph ', 'style="width:32px;height:32px" class="thumb ph ')}${c[0]}</span></td>${c[2].map((n, j) => `<td class="r${i === ci && j === si ? ' sel' : ''}" data-cell="${i},${j}">${n}</td>`).join('')}<td class="r">${c[2].reduce((x, y) => x + y, 0)}</td></tr>`).join('')}
+    </tbody><tfoot><tr><td>Quantity</td>${a.sizes.map((_, j) => `<td class="r">${a.colours.reduce((s, c) => s + c[2][j], 0)}</td>`).join('')}<td class="r">${total}</td></tr></tfoot></table></div>
+   </div>
+   <div class="sh-foot"><button class="btn primary">Edit</button></div></section>`
+ }
+
+ if (H.dataset.article === 'notion') {
+  const prop = (label, value) => `<div class="nt-prop"><span><i></i>${label}</span><div>${value}</div></div>`
+  return `<div class="veil"></div><section class="sheet">
+   <div class="sh-head" style="padding-bottom:12px;border:0"><div class="crumb">Articles / ${a.code}</div><button class="x">✕</button></div>
+   <div class="nt-body">
+    <div class="nt-cover" style="background:${tint(cHex)}"></div>
+    <div class="nt-col">
+     ${ph(a.shape, cHex, 'nt-icon', 72)}
+     <div class="nt-title">${a.name}</div><div class="nt-code">${a.code}</div>
+     ${prop('Selling price', `<b class="num" style="font-weight:500">${rp(a.price)}</b>`)}
+     ${prop('Purchase price', `<span class="num">${rp(a.cost)}</span>`)}
+     ${prop('Markup', `${Math.round((a.price - a.cost) / a.cost * 100)}%`)}
+     ${prop('Stock', `${total} pcs`)}
+     ${prop('Division', `<span class="nt-pill b">${a.division}</span>`)}
+     ${prop('Tags', a.tags.map((t) => `<span class="nt-pill o">${t}</span>`).join(''))}
+     ${prop('Supplier', `<span class="link">${a.supplier}</span>`)}
+     ${prop('Unit', '<span class="nt-empty">Empty</span>')}
+     <hr class="nt-rule">
+     <div class="nt-h">Variants</div>
+     <table class="nt-db"><thead><tr><th>Colour</th>${a.sizes.map((x) => `<th>${x}</th>`).join('')}<th>SKU</th></tr></thead><tbody>
+     ${a.colours.map((c, i) => `<tr class="${i === ci ? 'on' : ''}" data-c="${i}"><td><span class="dot" style="background:${c[1]}"></span>${c[0]}</td>${c[2].map((n) => `<td class="num${n === 0 ? ' nt-empty' : ''}">${n} pcs</td>`).join('')}<td class="num m">${a.code}${i + 1}00</td></tr>`).join('')}
+     </tbody></table>
+    </div>
+   </div>
+   <div class="sh-foot"><button class="btn primary">Edit</button></div></section>`
+ }
+ if (H.dataset.article === 'linear' || H.dataset.article === 'linearleft') {
+  const prop = (label, value) => `<div class="ln-prop"><span>${label}</span><div class="v">${value}</div></div>`
+  return `<div class="veil"></div><section class="sheet">
+   <div class="sh-head" style="padding-bottom:14px"><div class="crumb">Articles / ${a.code}</div><button class="x">✕</button></div>
+   <div class="ln${H.dataset.article === 'linearleft' ? ' left' : ''}">
+    <div class="ln-main">
+     <div class="ln-title">${a.name}</div>
+     <div class="ln-desc">Canvas sling bag, one size, in ${a.colours.map((c) => c[0].toLowerCase()).join(', ')}.</div>
+     <div class="ln-photo">${a.colours.map((c, i) => `<div data-c="${i}" style="cursor:pointer;${i === ci ? '' : 'opacity:.55'}">${ph(a.shape, c[1], '', 132)}</div>`).join('')}</div>
+     <div class="ln-h">Variants<i>${a.colours.length * a.sizes.length}</i></div>
+     <div class="ln-list">${a.colours.flatMap((c, i) => a.sizes.map((x, j) => `<div class="ln-row${i === ci && j === si ? ' on' : ''}" data-cell="${i},${j}"><span><span class="dot" style="background:${c[1]}"></span>${c[0]} · ${x}</span><span class="m num">${a.code}${i + 1}00</span><span class="q num${c[2][j] === 0 ? ' m' : ''}">${c[2][j]} pcs</span></div>`)).join('')}</div>
+     <div class="ln-h">Activity</div>
+     <div class="ln-act"><div><span class="av">R</span><span><b>Rina Kusuma</b> set it up from PO-0002-OPE6 · 14 Oct 2026</span></div><div><span class="av">N</span><span><b>Nina Oktaviani</b> received 5 pcs at the DC · 14 Oct 2026</span></div></div>
+    </div>
+    <aside class="ln-side">
+     <h4>Properties</h4>
+     ${prop('Division', `<span class="ln-tag">${a.division}</span>`)}
+     ${prop('Tags', a.tags.map((t) => `<span class="ln-tag">${t}</span>`).join(''))}
+     ${prop('Supplier', `<span class="link">${a.supplier}</span>`)}
+     ${prop('Code', `<span class="num">${a.code}</span>`)}
+     <div class="ln-sep"></div>
+     ${prop('Selling price', `<b class="num" style="font-weight:600">${rp(a.price)}</b>`)}
+     ${prop('Purchase price', `<span class="num">${rp(a.cost)}</span>`)}
+     ${prop('Markup', `${Math.round((a.price - a.cost) / a.cost * 100)}%`)}
+     ${prop('Stock', `${total} pcs`)}
+    </aside>
+   </div>
+   <div class="sh-foot"><button class="btn primary">Edit</button></div></section>`
+ }
+
+ if (H.dataset.article === 'bento') {
+  const prop = (label, value) => `<div class="ln-prop"><span>${label}</span><div class="v">${value}</div></div>`
+  return `<div class="veil"></div><section class="sheet">
+   <div class="sh-head" style="padding-bottom:14px"><div class="crumb">Articles / ${a.code}</div><button class="x">✕</button></div>
+   <div class="bt">
+    <div class="bt-id">
+     ${ph(a.shape, cHex, '', 276)}
+     <div class="bt-name">${a.name}</div><div class="bt-code num">${a.code} · ${cName}</div>
+     <div class="bt-sw">${a.colours.map((c, i) => `<span class="${i === ci ? 'on' : ''}" data-c="${i}" title="${c[0]}" style="background:${c[1]}"></span>`).join('')}</div>
+     <div class="bt-props">
+      ${prop('Division', `<span class="ln-tag">${a.division}</span>`)}
+      ${prop('Tags', a.tags.map((t) => `<span class="ln-tag">${t}</span>`).join(''))}
+      ${prop('Supplier', `<span class="link">${a.supplier}</span>`)}
+      ${prop('Sizes', a.sizes.join(', '))}
+     </div>
+    </div>
+    <div class="bt-grid">
+     <div class="tl"><h5>Selling price</h5><div class="big num">${rp(a.price)}</div><div class="sub num">Bought at ${rp(a.cost)} · markup ${Math.round((a.price - a.cost) / a.cost * 100)}%</div></div>
+     <div class="tl"><h5>Stock</h5><div class="big num">${total} pcs</div><div class="sub">${a.colours.map((c) => `${c[0]} ${c[2].reduce((x, y) => x + y, 0)}`).join(' · ')}</div></div>
+     <div class="tl w2"><h5>Variants</h5>${a.colours.flatMap((c, i) => a.sizes.map((x, j) => `<div class="li${i === ci && j === si ? ' on' : ''}" data-cell="${i},${j}" style="cursor:pointer"><span><span class="dot" style="background:${c[1]}"></span>${c[0]} · ${x}</span><span class="m num">${a.code}${i + 1}00</span><span class="num">${c[2][j]} pcs</span></div>`)).join('')}</div>
+     <div class="tl"><h5>Supplier</h5><div class="link" style="font-weight:500">${a.supplier}</div><div class="sub">Last ordered on PO-0002-OPE6</div><div class="sub">26 Oct 2026 · 36 pcs</div></div>
+     <div class="tl"><h5>Activity</h5><div class="sub" style="margin:0">Set up by <b style="color:var(--ink);font-weight:500">Rina Kusuma</b></div><div class="sub">14 Oct 2026</div><div class="sub">5 pcs received at the DC</div></div>
+    </div>
+   </div>
+   <div class="sh-foot"><button class="btn primary">Edit</button></div></section>`
+ }
+
+
+ if (H.dataset.article === 'variants') {
+  // F · Straight to the table (owner, 15 Oct: "gambarnya kebesaran … kita
+  // cuma punya 1 gambar jadi tabel saja langsung"): the one photo small beside
+  // the name, the facts in the caption, then the variants.
+  const rows = a.colours.flatMap((c, i) => a.sizes.map((x, j) => ({ i, j, c, x, n: c[2][j] })))
+  return `<div class="veil"></div><section class="sheet">
+   <div class="sh-head"><div style="display:flex;gap:14px;align-items:flex-start;min-width:0">
+     ${ph(a.shape, '#151515', 'ft-ph', 64)}
+     <div style="min-width:0"><div class="crumb">Articles / ${a.code}</div><h2>${a.name}</h2>
+      <div class="cap">${a.division} · ${a.tags.join(', ')} · <span class="link">${a.supplier}</span></div></div></div>
+    <button class="x">✕</button></div>
+   <div class="sh-body">
+    <div class="kpis"><div class="kpi"><span>Selling price</span><b class="num">${rp(a.price)}</b></div><div class="kpi"><span>Purchase price</span><b class="num">${rp(a.cost)}</b></div><div class="kpi"><span>Markup</span><b class="num">${Math.round((a.price - a.cost) / a.cost * 100)}%</b></div><div class="kpi"><span>Stock</span><b class="num">${total} pcs</b></div></div>
+    <div class="sect" style="margin-top:4px">Variants<i>${rows.length}</i></div>
+    <div class="frame pvt"><table><thead><tr><th>Colour</th><th>Size</th><th>SKU</th><th class="r">Price</th><th class="r">Stock</th></tr></thead><tbody>
+    ${rows.map((r) => `<tr class="${r.i === ci && r.j === si ? 'on' : ''}" data-cell="${r.i},${r.j}"><td><span class="dot" style="background:${r.c[1]}"></span>${r.c[0]}</td><td>${r.x}</td><td class="m num">${a.code}${r.i + 1}00</td><td class="r num">${rp(a.price)}</td><td class="r num${r.n === 0 ? ' m' : ''}">${r.n} pcs</td></tr>`).join('')}
+    </tbody><tfoot><tr><td>Total</td><td></td><td></td><td></td><td class="r num">${total} pcs</td></tr></tfoot></table></div>
+    <div class="disc-a">›&nbsp; Activity (2)</div>
+   </div>
+   <div class="sh-foot"><button class="btn primary">Edit</button></div></section>`
+ }
+ // Tidy — the one record format: crumb · title · caption → figures → the photo
+ // beside its variants → the foot. Each fact said once; nothing to explain.
+ const markup = Math.round((a.price - a.cost) / a.cost * 100)
+ return `<div class="veil"></div><section class="sheet">
+  <div class="sh-head"><div><div class="crumb">Articles / ${a.code}</div><h2>${a.name}</h2>
+   <div class="cap">${a.division} · ${a.tags.join(', ')} · <span class="link">${a.supplier}</span></div></div><button class="x">✕</button></div>
+  <div class="sh-body">
+   <div class="kpis"><div class="kpi"><span>Selling price</span><b class="num">${rp(a.price)}</b></div><div class="kpi"><span>Purchase price</span><b class="num">${rp(a.cost)}</b></div><div class="kpi"><span>Markup</span><b class="num">${markup}%</b></div><div class="kpi"><span>Stock</span><b class="num">${total} pcs</b></div></div>
+   <div class="side">
+    <div>${ph(a.shape, cHex, '', 240)}
+     <div class="swatches">${a.colours.map((c, i) => `<span class="sw${i === ci ? ' on' : ''}" data-c="${i}"><span class="dot" style="background:${c[1]};margin:0"></span>${c[0]}</span>`).join('')}</div></div>
+    <div>
+     <div class="sect" style="margin-top:0">Variants<i>${a.colours.length * a.sizes.length}</i></div>
+     <div class="frame vt"><table><thead><tr><th>Colour</th>${a.sizes.map((s) => `<th class="r">${s}</th>`).join('')}${a.sizes.length > 1 ? '<th class="r">Total</th>' : ''}</tr></thead><tbody>
+     ${a.colours.map((c, i) => `<tr><td><span class="dot" style="background:${c[1]}"></span>${c[0]}</td>${c[2].map((n, j) => `<td class="cell num${i === ci && j === si ? ' on' : ''}${n === 0 ? ' zero' : ''}" data-cell="${i},${j}">${n} pcs</td>`).join('')}${a.sizes.length > 1 ? `<td class="r num">${c[2].reduce((x, y) => x + y, 0)} pcs</td>` : ''}</tr>`).join('')}
+     </tbody><tfoot><tr><td>Total</td>${a.sizes.map((_, j) => `<td class="r num">${a.colours.reduce((s, c) => s + c[2][j], 0)} pcs</td>`).join('')}${a.sizes.length > 1 ? `<td class="r num">${total} pcs</td>` : ''}</tr></tfoot></table></div>
+     <div class="sku"><span>SKU</span><b class="num">${a.code}${ci + 1}00 · ${cName} · ${a.sizes[si]}</b><span>${q[si]} pcs</span></div>
+    </div>
+   </div>
+  </div>
+  <div class="sh-foot"><button class="btn primary">Edit</button></div></section>`
+}
+
+/* ═════════ New articles, as the hub draws it (for comparing) ═════════ */
+const CHEV = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m4 6 4 4 4-4"/></svg>'
+// it = [name, code, pcs, colours, sizes, shape, (po), (ago)]
+function naCard(it, on, attr, tick) {
+ return `<div class="na-card${on ? ' on' : ''}" ${attr}>${tick ? `<span class="cb${on ? ' on' : ''}"></span>` : ''}
+  ${ph(it[5], it[3][0][1], '', 48)}
+  <span style="min-width:0"><div class="nm">${it[0]}</div><div class="sub"><span class="code">${tick ? it[1] : it[6]}</span>${tick ? `<span>${it[3].map((c) => `<span class="dot" style="background:${c[1]}"></span>${c[0]}`).join(' ')} · ${it[4]}</span>` : ''}</div></span>
+  <span class="fig num"><b>${it[2]} pcs</b><span>${tick ? '1 day ago' : it[7]}</span></span></div>`
+}
+const WAITING = [
+ ['Garmen Nusantara, PT', [
+  ['Gamis Ceruti Polos', '', 24, [['Sage', '#9fb39a']], '', 'shirt', 'PO-0004-OPE6', '2 hours ago'],
+  ['Rok Plisket Panjang', '', 18, [['Mocca', '#a0826d']], '', 'pants', 'PO-0004-OPE6', '2 hours ago'],
+  ['Kaos Oversize Print', '', 36, [['White', '#f2f2f2']], '', 'tee', 'PO-0005-OPE6', '1 day ago'],
+ ]],
+ ['Sepatu Sejahtera, CV', [
+  ['Sneakers Chunky', '', 12, [['White', '#f2f2f2']], '', 'shoe', 'PO-0006-OPE6', '3 hours ago'],
+  ['Sandal Jepit Motif', '', 30, [['Navy', '#1f2a44']], '', 'sandal', 'PO-0006-OPE6', '3 hours ago'],
+  ['Tote Bag Kanvas', '', 15, [['Khaki', '#a8915e']], '', 'bag', 'PO-0007-OPE6', '1 day ago'],
+  ['Slip-on Rajut', '', 10, [['Black', '#151515']], '', 'shoe', 'PO-0007-OPE6', '1 day ago'],
+ ]],
+]
+function newArticlesPage() {
+ const lines = WAITING.flatMap((w) => w[1])
+ return `<header class="head"><div><div class="crumb">Merchandise</div><h1>New Articles</h1></div></header>
+ <div class="kpis"><div class="kpi"><span>New Articles</span><b>${lines.length}</b></div><div class="kpi"><span>Pcs</span><b>${lines.reduce((s, l) => s + l[2], 0)}</b></div><div class="kpi"><span>Suppliers</span><b>${WAITING.length}</b></div></div>
+ <div class="bar"><label class="search">⌕<input placeholder="Search New Articles or Supplier"></label></div>
+ <div class="na-list">${WAITING.map(([sup, items]) => `<section class="na-sup${state.shut.has(sup) ? ' shut' : ''}"><div class="na-h">
+  <button class="na-fold" data-fold="${sup}" style="padding-left:20px">${CHEV}<h3>${sup}</h3><span class="m num">${items.length} items · ${items.reduce((s, l) => s + l[2], 0)} pcs</span></button><button class="na-tint">Set up all</button></div>
+  <div class="na-body"><div><div class="na-cards">${items.map((it) => naCard(it, false, '', false)).join('')}</div></div></div></section>`).join('')}</div>`
+}
+
+/* ═════════ Allotments ═════════ */
+function allotPage() {
+ const mode = H.dataset.allot
+ const picked = state.picked.size
+ const body = SUPPLIERS.map(([sup, items]) => {
+  const free = items.reduce((s, it) => s + it[2], 0)
+  const all = items.every((it) => state.picked.has(it[1]))
+  const head = `<div class="g-head"><span class="cb${all ? ' on' : ''}" data-all="${sup}"></span><div class="t"><b>${sup}</b><span>${items.length} articles · ${free} pcs free</span></div></div>`
+  if (mode === 'today') {
+   return `<div class="group frame" style="padding:0">${head.replace('class="g-head"', 'class="g-head" style="position:static;padding:12px 16px;border-bottom:1px solid var(--hair)"')}
+    <table><thead><tr><th style="width:44px"></th><th>Article</th><th class="r">Quantity</th><th>Colors</th><th>Sizes</th><th>Setup date</th></tr></thead><tbody>
+    ${items.map((it) => `<tr><td><span class="cb${state.picked.has(it[1]) ? ' on' : ''}" data-pick="${it[1]}"></span></td><td><span style="display:flex;align-items:center;gap:12px">${ph(it[5], it[3][0][1], '', 32).replace('class="thumb ph ', 'style="width:32px;height:32px" class="thumb ph ')}<span><b style="font-weight:500">${it[0]}</b><br><span class="m">${it[1]}</span></span></span></td><td class="r num">${it[2]} pcs</td><td>${it[3].map((c) => `<span class="dot" style="background:${c[1]}"></span>${c[0]}`).join(' ')}</td><td>${it[4]}</td><td>14 Oct 2026</td></tr>`).join('')}
+    </tbody></table></div>`
+  }
+  if (mode === 'like') {
+   // C · the New articles page's cards (setups.tsx): the supplier's card folds,
+   // its articles are cards under it — a tick where New articles opens a form.
+   const shut = state.shut.has(sup)
+   return `<section class="na-sup${shut ? ' shut' : ''}"><div class="na-h">
+    <button class="na-fold" data-fold="${sup}" style="padding-left:20px">${CHEV}<h3>${sup}</h3><span class="m num">${items.length} articles · ${free} pcs</span></button><button class="btn primary" data-all="${sup}">${all ? 'Clear' : 'Allot all'}</button></div>
+    <div class="na-body"><div><div class="na-cards">${items.map((it) => naCard(it, state.picked.has(it[1]), `data-pick="${it[1]}"`, true)).join('')}</div></div></div></section>`
+  }
+  if (mode === 'grid') {
+   return `<div class="group">${head}<div class="tiles">${items.map((it) => `<div class="tile${state.picked.has(it[1]) ? ' on' : ''}" data-pick="${it[1]}">
+    ${ph(it[5], it[3][0][1], '', 160)}<span class="cb${state.picked.has(it[1]) ? ' on' : ''}"></span><span class="qty num">${it[2]} pcs</span>
+    <div class="body"><div class="nm">${it[0]}</div><div class="code">${it[1]}</div>
+    <div class="ft"><span>${it[3].map((c) => `<span class="dot" style="background:${c[1]}" title="${c[0]}"></span>`).join('')}${it[3].map((c) => c[0]).join(', ')}</span><span>${it[4]}</span></div></div></div>`).join('')}</div></div>`
+  }
+  return `<div class="group">${head}<div class="leads">${items.map((it) => `<div class="lf${state.picked.has(it[1]) ? ' on' : ''}" data-pick="${it[1]}">
+   <div class="lf-h"><span class="cb${state.picked.has(it[1]) ? ' on' : ''}" style="margin-top:2px"></span>${ph(it[5], it[3][0][1], '', 64)}<div class="nm"><b>${it[0]}</b><span>${it[1]}</span><span>${it[3].map((c) => `<span class="dot" style="background:${c[1]}"></span>${c[0]}`).join(' ')} · ${it[4]}</span></div><div class="fig"><b class="num">${it[2]}<small>pcs</small></b></div></div>
+   <div class="lf-f"><span>Set up 14 Oct 2026</span><span>Unallotted</span></div></div>`).join('')}</div></div>`
+ }).join('')
+ return `<header class="head"><div><div class="crumb">Merchandise</div><h1>Allotments</h1></div></header>
+ <div class="kpis"><div class="kpi"><span>Active</span><b>1</b></div><div class="kpi"><span>Completed</span><b>1</b></div><div class="kpi"><span>Not shipped yet</span><b>6</b></div><div class="kpi"><span>In transit</span><b>0</b></div></div>
+ <nav class="tabs"><span class="tab on">Unallotted<i>10</i></span><span class="tab">In progress<i>1</i></span><span class="tab">Completed<i>1</i></span><span class="tab">Cancelled<i>0</i></span></nav>
+ <div class="bar"><label class="search">⌕<input placeholder="Search articles"></label></div>
+ ${mode === 'like' ? `<div class="na-list">${body}</div>` : body}
+ ${picked ? `<div class="dock"><span>${picked} article${picked > 1 ? 's' : ''} · ${[...state.picked].reduce((s, code) => s + SUPPLIERS.flatMap((x) => x[1]).find((it) => it[1] === code)[2], 0)} pcs</span><span><button class="btn" style="color:#fff" data-clear>Clear</button> <button class="btn primary">Allot to stores</button></span></div>` : ''}`
+}
+
+/* ── render ── */
+function render() {
+ panel()
+ if (H.dataset.view === 'article') { $('#page').innerHTML = articlePage(); $('#layer').innerHTML = articleSheet() }
+ else if (H.dataset.view === 'new') { $('#page').innerHTML = newArticlesPage(); $('#layer').innerHTML = '' }
+ else { $('#page').innerHTML = allotPage(); $('#layer').innerHTML = '' }
+ $('#pick').innerHTML = `<div class="row"><span class="lbl">Screen</span>${[['article', 'Article detail'], ['allot', 'Allotments'], ['new', 'New Articles']].map(([k, l]) => `<button data-v="${k}" aria-pressed="${H.dataset.view === k}">${l}</button>`).join('')}</div>` +
+  (H.dataset.view === 'article'
+   ? `<div class="row"><span class="lbl">Article detail</span>${[['today', 'Today'], ['tidy', 'Tidy'], ['notion', 'C · Notion'], ['linear', 'D · Linear'], ['linearleft', 'D′ · Linear left'], ['bento', 'E · Bento'], ['variants', 'F · Table', 1]].map(([k, l, s]) => `<button data-a="${k}" aria-pressed="${H.dataset.article === k}">${l}${s ? ' <span class="star">★</span>' : ''}</button>`).join('')}</div>`
+   : H.dataset.view === 'new' ? ''
+   : `<div class="row"><span class="lbl">Allotments</span>${[['today', 'Today'], ['grid', 'A · Tiles'], ['lead', 'B · Lead Figure'], ['like', 'C · Like New Articles', 1]].map(([k, l, s]) => `<button data-l="${k}" aria-pressed="${H.dataset.allot === k}">${l}${s ? ' <span class="star">★</span>' : ''}</button>`).join('')}</div>`)
+}
+document.addEventListener('click', (e) => {
+ const t = e.target
+ const b = t.closest('#pick button')
+ if (b) { if (b.dataset.v) H.dataset.view = b.dataset.v; if (b.dataset.a) H.dataset.article = b.dataset.a; if (b.dataset.l) H.dataset.allot = b.dataset.l; render(); return }
+ const f = t.closest('[data-fold]'); if (f) { const k = f.dataset.fold; state.shut.has(k) ? state.shut.delete(k) : state.shut.add(k); render(); return }
+ const c = t.closest('[data-c]'); if (c) { state.colour = +c.dataset.c; state.cell = [+c.dataset.c, 0]; render(); return }
+ const cell = t.closest('[data-cell]'); if (cell) { state.cell = cell.dataset.cell.split(',').map(Number); render(); return }
+ const all = t.closest('[data-all]'); if (all) { const items = SUPPLIERS.find((s) => s[0] === all.dataset.all)[1]; const on = items.every((it) => state.picked.has(it[1])); items.forEach((it) => on ? state.picked.delete(it[1]) : state.picked.add(it[1])); render(); return }
+ const p = t.closest('[data-pick]'); if (p) { const k = p.dataset.pick; state.picked.has(k) ? state.picked.delete(k) : state.picked.add(k); render(); return }
+ if (t.closest('[data-clear]')) { state.picked.clear(); render() }
+})
+const qs = new URLSearchParams(location.search)
+for (const k of ['view', 'article', 'allot']) if (qs.get(k)) H.dataset[k] = qs.get(k)
+render()
+</script>
+</body>
+</html>

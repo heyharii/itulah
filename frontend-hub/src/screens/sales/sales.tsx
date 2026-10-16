@@ -1,6 +1,6 @@
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useSuspenseQuery } from "@tanstack/react-query"
 import { useNavigate, useSearch } from "@tanstack/react-router"
-import { useMemo, useState } from "react"
+import { Suspense, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { DockTools } from "@/components/shell/dock-tools"
@@ -10,16 +10,14 @@ import { PageHeader } from "@/components/ui/page-header"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { ButtonGroup } from "@/components/ui/segmented"
 import { Card } from "@/components/ui/card"
-import { EmptyState } from "@/components/ui/states"
-import { count, money } from "@/lib/format"
+import { EmptyState, LoadingState } from "@/components/ui/states"
 import { useLayout } from "@/lib/layout"
-import { analyticsKeys, salesSeries } from "@/lib/queries/analytics"
-import { queryState } from "@/lib/query-state"
 import { useSheet, type SheetSearch } from "@/lib/sheets"
 import { SalesChart } from "@/screens/sales/chart"
 import { ComparisonPicker } from "@/screens/sales/comparison"
 import { buildMatrix, type SalesKind } from "@/screens/sales/matrix"
 import { PERIOD_CHOICES, usePeriod } from "@/screens/sales/period"
+import { priorSeriesQuery, seriesQuery } from "@/screens/sales/series-data"
 import { SaleSheet } from "@/screens/sales/sale-sheet"
 import { SalesTable } from "@/screens/sales/table"
 import { WindowSheet } from "@/screens/sales/window-sheet"
@@ -60,6 +58,19 @@ const BUCKETS: readonly { value: SalesBucket; label: string }[] =
   SALES_BUCKETS.map((bucket) => ({ value: bucket, label: bucket }))
 
 export function Sales() {
+  // The title stands at once; everything under it waits for the fleet's
+  // figures and streams in with them (the server starts the read too).
+  return (
+    <PageContent>
+      <PageHeader title="Sales" />
+      <Suspense fallback={<LoadingState>Adding up the tills…</LoadingState>}>
+        <SalesBody />
+      </Suspense>
+    </PageContent>
+  )
+}
+
+function SalesBody() {
   // A phone keeps the period in the drawer over the bottom bar and reads the
   // days as cards (`DayCards`).
   const phone = useLayout() === "phone"
@@ -99,12 +110,7 @@ export function Sales() {
       return next
     })
 
-  const series = useQuery({
-    queryKey: analyticsKeys.series(period.range),
-    queryFn: ({ signal }) => salesSeries(period.range, signal),
-    // Today's column is still being written by tills that are still open.
-    refetchInterval: 60_000,
-  })
+  const series = useSuspenseQuery(seriesQuery(period.range))
 
   // A second read rather than a wider response: a comparison is worth nothing
   // if it delays the number it qualifies, so the screen paints on the first and
@@ -117,12 +123,7 @@ export function Sales() {
     }),
     [comparison.from, comparison.to, period.bucket]
   )
-  const prior = useQuery({
-    queryKey: analyticsKeys.series(priorRange),
-    queryFn: ({ signal }) => salesSeries(priorRange, signal),
-    // Nothing is still being written into a span that has already closed.
-    staleTime: 5 * 60_000,
-  })
+  const prior = useQuery(priorSeriesQuery(priorRange))
 
   // Two matrices over one read. The shown one is narrowed to the chosen shop;
   // the fleet one keeps every shop, so the picker still lists the branches the
@@ -174,16 +175,7 @@ export function Sales() {
   ])
 
   return (
-    <PageContent>
-      <PageHeader
-        title="Sales"
-        sub={
-          series.isPending
-            ? "Adding up the tills…"
-            : `${period.range.from} → ${period.range.to} · ${money(matrix.grandTotal("gross_minor"))} over ${count(matrix.grandTotal("sales_count"))} transactions`
-        }
-      />
-
+    <>
       {/* Which shop, then how wide a column, then how many of them, then what
           it is all measured against. Reading order matches the dependency: the
           span's options are decided by the bucket beside it. */}
@@ -201,7 +193,7 @@ export function Sales() {
             }
             // Toolbar height, not form height — `<Segmented>` beside it is `h-8`,
             // and the picker's own default is the `h-9` a `<Field>` wants.
-            className="min-h-8 w-44 px-2.5 text-[0.875rem]"
+            className="min-h-8 w-44 px-2.5 text-[0.9375rem]"
           />
           <Segmented
             options={BUCKETS}
@@ -232,44 +224,39 @@ export function Sales() {
         </Toolbar>
       )}
 
-      {queryState(series, {
-        loading: "Adding up the tills…",
-        render: (fetched) =>
-          fetched.sites.length === 0 ? (
-            <Card>
-              <EmptyState>
-                No shop is registered, so there is nothing to have sold
-                anything.
-              </EmptyState>
-            </Card>
-          ) : (
-            <>
-              <SalesChart
-                matrix={matrix}
-                before={before}
-                comparison={comparison}
-                bucket={period.bucket}
-                kind={kind}
-                onKindChange={setKind}
-              />
-              <Card className="overflow-hidden p-0 max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-                <SalesTable
-                  query={query}
-                  matrix={matrix}
-                  before={before}
-                  comparison={comparison}
-                  bucket={period.bucket}
-                  expanded={expanded}
-                  onToggle={toggle}
-                  onOpen={cell.open}
-                  onFocus={(siteId) =>
-                    siteId === focus.value ? focus.close() : focus.open(siteId)
-                  }
-                />
-              </Card>
-            </>
-          ),
-      })}
+      {series.data.sites.length === 0 ? (
+        <Card>
+          <EmptyState>
+            No shop is registered, so there is nothing to have sold anything.
+          </EmptyState>
+        </Card>
+      ) : (
+        <>
+          <SalesChart
+            matrix={matrix}
+            before={before}
+            comparison={comparison}
+            bucket={period.bucket}
+            kind={kind}
+            onKindChange={setKind}
+          />
+          <Card className="overflow-hidden p-0 max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+            <SalesTable
+              query={query}
+              matrix={matrix}
+              before={before}
+              comparison={comparison}
+              bucket={period.bucket}
+              expanded={expanded}
+              onToggle={toggle}
+              onOpen={cell.open}
+              onFocus={(siteId) =>
+                siteId === focus.value ? focus.close() : focus.open(siteId)
+              }
+            />
+          </Card>
+        </>
+      )}
 
       {/* On a phone the period is the status button of the drawer over the
           bottom bar — how wide a column is and how many of them, in one list —
@@ -322,7 +309,7 @@ export function Sales() {
         spanText={cellTitle}
         onClose={cell.close}
       />
-    </PageContent>
+    </>
   )
 }
 

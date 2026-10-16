@@ -44,7 +44,7 @@ export function Fab({
         className={cn(
           // 44, the least a thumb is asked to hit (D1): beside the status it is
           // a round 44, and alone it is a 44px bar across the row.
-          "inline-flex h-11 shrink-0 items-center justify-center gap-1.5 rounded-full bg-cta text-[0.875rem] font-semibold text-cta-fg shadow-soft transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.96]",
+          "inline-flex h-11 shrink-0 items-center justify-center gap-1.5 rounded-full bg-cta text-[0.9375rem] font-semibold text-cta-fg shadow-soft transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.96]",
           beside ? "size-11" : "dock-wide w-full px-5",
           className
         )}

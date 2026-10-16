@@ -68,7 +68,7 @@ export function Payslip() {
                     : money(slip.net_minor)}
                 </p>
                 {slip.components_incomplete_because !== null && (
-                  <p className="rounded-inner bg-warn-bg px-3.5 py-2.5 text-[0.875rem] leading-relaxed text-warn-fg">
+                  <p className="rounded-inner bg-warn-bg px-3.5 py-2.5 text-[0.9375rem] leading-relaxed text-warn-fg">
                     {slip.components_incomplete_because}. Ask HR to complete
                     your record.
                   </p>
@@ -105,7 +105,7 @@ export function Payslip() {
 
               <Panel title="Deductions">
                 {slip.deductions.length === 0 ? (
-                  <p className="text-[0.875rem] text-mute">
+                  <p className="text-[0.9375rem] text-mute">
                     Nothing taken off.
                   </p>
                 ) : (
@@ -134,7 +134,7 @@ export function Payslip() {
                       {money(line.amount_minor)}
                     </Row>
                   ))}
-                  <p className="text-[0.875rem] text-mute">
+                  <p className="text-[0.9375rem] text-mute">
                     On top of your pay, not taken from it.
                   </p>
                 </Panel>
@@ -176,7 +176,7 @@ export function Payslip() {
               <Panel title="Paid to">
                 <Row label="Account">{slip.bank_account_masked ?? "—"}</Row>
                 {!slip.payable && (
-                  <p className="rounded-inner bg-warn-bg px-3.5 py-2.5 text-[0.875rem] leading-relaxed text-warn-fg">
+                  <p className="rounded-inner bg-warn-bg px-3.5 py-2.5 text-[0.9375rem] leading-relaxed text-warn-fg">
                     No account is on record, so nothing can be paid yet. Tell
                     your manager.
                   </p>

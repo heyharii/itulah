@@ -134,6 +134,23 @@ fn host_label(node_id: &str) -> String {
     }
 }
 
+/// Where the shop's own screens answer on its network, by the name this node
+/// advertises: `http://store-07.local:8082`. What the heartbeat carries to the
+/// hub, which shows it and draws it as a QR once the server is ready.
+///
+/// `None` where that name would lead nowhere: a node listening on loopback
+/// only, or one with `ITULAH_MDNS=off`, is not advertised on the LAN.
+pub fn app_address(node_id: &str, bind: SocketAddr) -> Option<String> {
+    if switched_off() || bind.ip().is_loopback() {
+        return None;
+    }
+    Some(format!(
+        "http://{}.local:{}",
+        host_label(node_id),
+        bind.port()
+    ))
+}
+
 fn switched_off() -> bool {
     std::env::var("ITULAH_MDNS")
         .map(|value| {

@@ -1,19 +1,19 @@
 import { useQuery } from "@tanstack/react-query"
-import { Link, type LinkProps } from "@tanstack/react-router"
+import { Link } from "@tanstack/react-router"
 
 import { Banner } from "@/components/ui/states"
 import { moment } from "@/lib/format"
 import type { CreatedStore } from "@/lib/queries/setup"
 import { listStores, storesKeys } from "@/lib/queries/stores"
+import { useStorePath } from "@/screens/stores/shared"
 import {
   CopyLinkButton,
   WhatsAppLinkButton,
 } from "@/screens/people/invite-sheet"
 
 /// "Send these links to your store managers" — shown right after stores are
-/// opened, wherever that happens: the wizard's last screen and the "Open a
-/// new store" sheet both hand their answer's `created` array straight to
-/// this.
+/// added, wherever that happens: the wizard's last screen and the "Add store"
+/// sheet both hand their answer's `created` array straight to this.
 ///
 /// Every store here has a manager and therefore a link: the server has
 /// refused a store without one since 2026-09-27. This still filters on
@@ -21,6 +21,7 @@ import {
 /// before that date — read back from the register elsewhere — has none, and
 /// this component is written to be safe wherever `CreatedStore` travels.
 export function ManagerLinks({ stores }: { stores: readonly CreatedStore[] }) {
+  const storePath = useStorePath()
   // Read unconditionally — a hook cannot sit after the early return below,
   // and this list is cheap: it is the same `/api/v1/stores` the Stores page
   // already keeps warm, not a call made for this component alone.
@@ -79,15 +80,13 @@ export function ManagerLinks({ stores }: { stores: readonly CreatedStore[] }) {
               <p className="text-meta text-mute">
                 Expires in 72 h — {moment(invitation.expires_at)}.
               </p>
-              {/* Created, not open — the same wording the toast for "Open a
-                  new store" uses (`open-stores-sheet.tsx`). */}
+              {/* Created, not open — opening is the last button on the store's
+                  own page. */}
               <p className="text-meta text-mute">
                 {store.unit_code} created —{" "}
                 {unitId ? (
                   <Link
-                    to={
-                      `/stores/${encodeURIComponent(unitId)}` as LinkProps["to"]
-                    }
+                    to={storePath(unitId)}
                     className="font-medium text-accent underline underline-offset-2"
                   >
                     install its server from its page

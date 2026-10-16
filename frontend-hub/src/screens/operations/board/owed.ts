@@ -88,8 +88,7 @@ function fold(
   if (pieces <= 0) return
   const was = into.get(key)
   into.set(key, {
-    kind:
-      was === undefined || was.kind === item.kind ? item.kind : "EDITED",
+    kind: was === undefined || was.kind === item.kind ? item.kind : "EDITED",
     pieces: (was?.pieces ?? 0) + pieces,
     by: item.by,
     // The newest change is the one the card is waiting on.
@@ -163,7 +162,7 @@ export function markOf(
   if (owed === undefined || owed.pieces <= 0) return null
   const all = owed.kind === "CANCELLED" && owed.pieces >= pieces
   const word = owed.kind === "CANCELLED" ? "Cancelled" : "Edited"
-  const detail = `${pcs(owed.pieces)} to move back`
+  const detail = `${pcs(owed.pieces)} to put back`
   if (all) {
     return {
       stamp: "CANCELLED",
@@ -246,6 +245,10 @@ export function owedBySku(
 export interface ChangeTag {
   readonly tone: "warn" | "bad"
   readonly label: string
+  /// The store's pieces before and after MD's change, drawn "<s>was</s> now"
+  /// (allotment-ops-prototype). Absent on "Cancelled" and "Added +N".
+  readonly was?: number
+  readonly now?: number
 }
 
 /// The tags of the changes a card carries (one allotment × store for a To pick
@@ -262,7 +265,7 @@ export function changeTags(items: readonly DcChange[]): ChangeTag[] {
   const lines = items.flatMap((one) => one.lines)
   if (lines.length > 0 && lines.every((l) => l.kind === "ADD" && l.was === 0))
     return [{ tone: "warn", label: `Added +${count(now - was)}` }]
-  return [{ tone: "warn", label: `${count(was)} → ${count(now)}` }]
+  return [{ tone: "warn", label: `${count(was)} → ${count(now)}`, was, now }]
 }
 
 /// Where each unacknowledged change is drawn on the board. Placed against the

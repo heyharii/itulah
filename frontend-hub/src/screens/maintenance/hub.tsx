@@ -432,7 +432,7 @@ function ApproveBudgetForm({
       >
         {approve.isPending ? "Approving…" : "Approve budget"}
       </Button>
-      <Button variant="ghost" onClick={onCancel}>
+      <Button data-cancel variant="ghost" onClick={onCancel}>
         Cancel
       </Button>
     </div>
@@ -498,7 +498,7 @@ function MoveRepairForm({
         >
           {move.isPending ? "Moving…" : "Move"}
         </Button>
-        <Button variant="ghost" onClick={onCancel}>
+        <Button data-cancel variant="ghost" onClick={onCancel}>
           Cancel
         </Button>
       </div>
@@ -882,7 +882,7 @@ function InstallForm({
           <Check />
           {move.isPending ? "Moving…" : `Next: ${replacementStageWords(to)}`}
         </Button>
-        <Button variant="ghost" onClick={onCancel}>
+        <Button data-cancel variant="ghost" onClick={onCancel}>
           Cancel
         </Button>
       </div>
@@ -1104,7 +1104,7 @@ function RejectDisposalForm({
       <Button variant="primary" pending={reject.isPending} onClick={submit}>
         {reject.isPending ? "Rejecting…" : "Reject"}
       </Button>
-      <Button variant="ghost" onClick={onCancel}>
+      <Button data-cancel variant="ghost" onClick={onCancel}>
         Cancel
       </Button>
     </div>
@@ -1317,7 +1317,7 @@ function AttachForm({
         >
           {save.isPending ? "Submitting…" : "Submit"}
         </Button>
-        <Button variant="ghost" onClick={onCancel}>
+        <Button data-cancel variant="ghost" onClick={onCancel}>
           Cancel
         </Button>
       </div>

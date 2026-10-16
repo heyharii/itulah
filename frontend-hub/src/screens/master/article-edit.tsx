@@ -100,7 +100,6 @@ const dirtyOf = (article: ArticleDetail, draft: Draft) =>
 export function useArticleEditor({
   article,
   vocabulary,
-  pictures,
   editing,
   onSaved,
   onLeave,
@@ -344,7 +343,7 @@ function PicturePicker({
   return (
     <label
       className={cn(
-        "relative inline-flex h-7 cursor-pointer items-center gap-1 rounded-inner text-[0.875rem] font-medium whitespace-nowrap text-accent transition-[opacity,transform] duration-150 ease-out active:scale-[0.97] focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-accent hover:opacity-75 pointer-coarse:h-11 [&_svg]:size-4",
+        "relative inline-flex h-7 cursor-pointer items-center gap-1 rounded-inner text-[0.9375rem] font-medium whitespace-nowrap text-accent transition-[opacity,transform] duration-150 ease-out active:scale-[0.97] focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-accent hover:opacity-75 pointer-coarse:h-11 [&_svg]:size-4",
         disabled && "pointer-events-none opacity-50"
       )}
     >
@@ -367,10 +366,10 @@ function PicturePicker({
 }
 
 const TEXT_BUTTON =
-  "inline-flex h-7 items-center rounded-inner text-[0.875rem] font-medium whitespace-nowrap text-mute transition-[opacity,transform,color] duration-150 ease-out hover:text-ink active:scale-[0.97] pointer-coarse:h-11"
+  "inline-flex h-7 items-center rounded-inner text-[0.9375rem] font-medium whitespace-nowrap text-mute transition-[opacity,transform,color] duration-150 ease-out hover:text-ink active:scale-[0.97] pointer-coarse:h-11"
 
 const NEW_BADGE = (
-  <span className="inline-flex h-5 items-center rounded-full bg-ok-bg px-2 text-[0.875rem] font-medium text-ok-fg">
+  <span className="inline-flex h-5 items-center rounded-full bg-ok-bg px-2 text-[0.9375rem] font-medium text-ok-fg">
     New
   </span>
 )
@@ -457,7 +456,7 @@ export function ArticleEditForm({
       )}
 
       <div className="flex flex-col gap-1.5">
-        <span id="main-picture-label" className="text-[0.875rem] font-medium text-text">
+        <span id="main-picture-label" className="text-[0.9375rem] font-medium text-text">
           Main picture
         </span>
         <div className="flex items-center gap-3">
@@ -528,8 +527,8 @@ export function ArticleEditForm({
             first of them. */}
         <div className="flex min-w-0 flex-col gap-1.5">
           <div className="flex items-baseline justify-between gap-3">
-            <span className="text-[0.875rem] font-medium text-text">Tags</span>
-            <span className="text-[0.875rem] text-mute tabular-nums">
+            <span className="text-[0.9375rem] font-medium text-text">Tags</span>
+            <span className="text-[0.9375rem] text-mute tabular-nums">
               {count(draft.tags.length)} selected
             </span>
           </div>
@@ -552,10 +551,10 @@ export function ArticleEditForm({
         className="flex cursor-pointer items-center justify-between gap-4 rounded-inner border border-hairline-2 px-3.5 py-3"
       >
         <span className="flex min-w-0 flex-col gap-0.5">
-          <span className="text-[0.875rem] font-medium text-ink">
+          <span className="text-[0.9375rem] font-medium text-ink">
             {draft.active ? "Active" : "Non-active"}
           </span>
-          <span className="text-[0.875rem] text-body">
+          <span className="text-[0.9375rem] text-body">
             {draft.active ? "Shown in the catalogue." : "Hidden from the catalogue."}
           </span>
         </span>
@@ -643,7 +642,7 @@ function EditGrid({
                   <span className="w-9 shrink-0 font-medium text-ink">
                     {each.label}
                   </span>
-                  <span className="min-w-0 flex-1 truncate font-mono text-[0.875rem] text-mute">
+                  <span className="min-w-0 flex-1 truncate font-mono text-[0.9375rem] text-mute">
                     {here?.sku_code ?? "—"}
                   </span>
                   <span className="shrink-0 tabular-nums">
@@ -677,7 +676,7 @@ function EditGrid({
             <span className="text-[0.9375rem] font-medium text-ink">
               {count(here.stock_qty)}
             </span>
-            <span className="text-[0.875rem] text-mute">
+            <span className="text-[0.9375rem] text-mute">
               {money(here.base_price_minor)}
             </span>
           </span>
@@ -726,11 +725,11 @@ function ColourPictureRow({
         className={cn("size-12", !hasOwn && "border-dashed")}
       />
       <span className="flex min-w-0 flex-col gap-0.5">
-        <span className="truncate text-[0.875rem] font-medium text-ink">
+        <span className="truncate text-[0.9375rem] font-medium text-ink">
           {colour.label}
         </span>
         {!hasOwn && (
-          <span className="text-[0.875rem] text-mute">
+          <span className="text-[0.9375rem] text-mute">
             {mainNow ? "Main picture" : "No picture"}
           </span>
         )}
@@ -779,7 +778,7 @@ function Consequences({ editor }: { editor: ArticleEditor }) {
               <ConsequenceLine key={one.rule_id} one={one} />
             ))}
           </ul>
-          <p className="mt-1.5 text-[0.875rem] text-warn-fg">
+          <p className="mt-1.5 text-[0.9375rem] text-warn-fg">
             Their articles are worked out when they start, so they will be
             worked out against this article as it is then.
           </p>
@@ -795,7 +794,7 @@ function Consequences({ editor }: { editor: ArticleEditor }) {
             scheduled.length > 0 ? "border-t border-hairline pt-2.5" : ""
           }
         >
-          <p className="text-[0.875rem] text-body">{editor.startedNote}</p>
+          <p className="text-[0.9375rem] text-body">{editor.startedNote}</p>
           <ul className="mt-1.5 flex flex-col gap-1">
             {started.map((one) => (
               <ConsequenceLine key={one.rule_id} one={one} />

@@ -1,0 +1,1363 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PO Optimistic</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* Tokens measured on the running hub (:5480, 11 Oct 2026). */
+:root{
+  --ink:#20242c;--text:#394150;--body:#565f6d;--mute:#666f7d;--faint:#b9c0c9;
+  --canvas:#fff;--soft:#f8f8f9;--soft-2:#f0f0f2;--soft-3:#f6f6f7;
+  --hairline:#e6e6e9;--hairline-2:#dadade;--hairline-strong:#c6c6cc;--backdrop:#e0e0e4;
+  --rail:#242526;--rail-3:#393b3d;--rail-text:#c3c4c7;--rail-mute:#a1a3a8;
+  --scrim:rgba(246,246,247,.72);
+  --accent:#2563eb;--accent-bg:#eff5ff;--cta:#2563eb;--cta-hover:#1d4ed8;
+  --info-bg:#ddebfa;--info-fg:#2c57bf;
+  --new-fg:#d6447e;
+  --ok-fg:#137a37;--ok-bg:#d9f4d2;--warn-fg:#a64a08;--warn-bg:#faeacd;--bad:#d05151;--bad-fg:#be123c;--bad-bg:#fbeaea;
+  --ease-out:cubic-bezier(.23,1,.32,1);--ease-in-out:cubic-bezier(.77,0,.175,1);--ease-drawer:cubic-bezier(.32,.72,0,1);
+  --shadow-soft:0 1px 3px rgb(24 39 60 / 4%);
+  --shadow-pop:0 4px 8px rgb(24 39 60 / 4%),0 12px 32px rgb(24 39 60 / 8%);
+  --shadow-shell:0 10px 34px rgb(24 39 60 / 8%);
+  --shadow-float:0 8px 24px rgb(24 39 60 / 6%),0 24px 64px rgb(24 39 60 / 12%);
+  --rot:-6deg;
+  --pbar-h:52px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font:400 15px/1.45 Inter,system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--ink);background:var(--backdrop);
+  -webkit-font-smoothing:antialiased;letter-spacing:-.006em;display:flex;flex-direction:column;overflow:hidden}
+button,input,select{font:inherit;color:inherit;letter-spacing:inherit}
+button{background:none;border:0;cursor:pointer;-webkit-tap-highlight-color:transparent}
+svg{flex-shrink:0}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:14px;letter-spacing:0}
+.num,.fig,.sub,.kpi .v{font-variant-numeric:tabular-nums}
+.grow{flex:1}
+[hidden]{display:none!important}
+
+/* ---------- prototype bar (not part of the app) ---------- */
+.pbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 20px;padding:10px 16px;background:#191b20;color:var(--rail-text);font-size:14px;flex-shrink:0;z-index:5}
+.pgrp{display:flex;align-items:center;gap:8px}
+.plabel{color:var(--rail-mute)}
+.seg{display:inline-flex;background:#303234;border-radius:8px;padding:2px;gap:2px}
+.seg button{height:30px;padding:0 10px;border-radius:6px;color:var(--rail-text);font-size:14px;font-weight:500;white-space:nowrap;
+  transition:background-color 120ms ease,color 120ms ease,transform 120ms var(--ease-out)}
+.seg button[aria-pressed=true]{background:#fff;color:var(--ink)}
+.seg button:active{transform:scale(.97)}
+@media (hover:hover) and (pointer:fine){.seg button:not([aria-pressed=true]):hover{color:#fff}}
+.wire{margin-left:auto;display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-height:30px}
+.req{height:30px;display:inline-flex;align-items:center;gap:8px;padding:0 10px;border-radius:8px;background:#303234;color:#fff;white-space:nowrap}
+.req b{font-weight:500;font-variant-numeric:tabular-nums;color:#8fb6ff}
+.req.waiting b{color:#f2c27b}.req.held b{color:var(--rail-mute)}
+.req.idle{background:none;color:var(--rail-mute);padding:0}
+
+/* ---------- stage + device ---------- */
+.stage{flex:1;min-height:0;display:flex;justify-content:center;align-items:flex-start;overflow:auto}
+.stage.desk{background:#fff;align-items:stretch}
+.stage.phone{padding:20px;align-items:center}
+.app{position:relative;overflow:hidden;background:#fff;isolation:isolate}
+.app.desk{width:100%;min-width:1280px;height:100%;display:grid;grid-template-columns:68px 232px minmax(0,1fr)}
+.app.phone{--rot:-12deg;width:414px;height:min(896px,calc(100dvh - var(--pbar-h) - 40px));border-radius:32px;border:1px solid var(--hairline-strong);
+  box-shadow:var(--shadow-shell);display:flex;flex-direction:column;background:var(--soft-3)}
+@media (max-width:600px){.stage.phone{padding:0;align-items:stretch}.app.phone{width:100%;height:auto;border-radius:0;border:0;box-shadow:none}}
+
+/* ---------- desk shell ---------- */
+.rail{background:var(--rail);display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:4px}
+.logo{width:36px;height:36px;border-radius:10px;background:#fff;color:#191b20;font-weight:700;font-size:20px;display:grid;place-items:center;margin-bottom:10px;position:relative}
+.logo i{position:absolute;width:6px;height:6px;border-radius:50%;background:var(--accent);right:9px;bottom:10px}
+.rail .ic{width:40px;height:40px;border-radius:10px;display:grid;place-items:center;color:var(--rail-mute)}
+.rail .ic.on{background:var(--rail-3);color:#fff}
+.dept{border-right:1px solid var(--hairline);display:flex;flex-direction:column;min-width:0}
+.dept-head{height:52px;display:flex;align-items:center;padding:0 16px;border-bottom:1px solid var(--hairline);font-weight:600;font-size:15px;letter-spacing:-.01em}
+.dept-nav{padding:8px;display:flex;flex-direction:column;gap:2px}
+.dept-nav a{height:36px;display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-radius:8px;font-size:14px;font-weight:500;color:var(--body)}
+.dept-nav a.on{background:var(--accent-bg);color:var(--accent)}
+.dept-nav .cnt{color:var(--bad-fg);font-variant-numeric:tabular-nums}
+.main{overflow:auto;padding:24px 32px 40px;min-width:0}
+.head{display:flex;justify-content:space-between;align-items:flex-start;gap:24px}
+.title{font-size:15px;font-weight:600;letter-spacing:-.01em;line-height:20px;margin-top:2px}
+.sync{display:flex;align-items:center;gap:6px;font-size:14px;color:var(--mute);margin-top:6px;min-height:20px;white-space:nowrap}
+.sync button{display:inline-flex;align-items:center;gap:6px;color:inherit}
+.sync .sep{color:var(--faint)}
+.kpis{display:flex;border:1px solid var(--hairline);border-radius:10px;box-shadow:var(--shadow-soft);overflow:hidden;background:#fff}
+.kpi{padding:8px 14px;border-left:1px solid var(--hairline);min-width:84px}
+.kpi:first-child{border-left:0}
+.kpi .l{font-size:14px;color:var(--body);line-height:20px;white-space:nowrap}
+.kpi .v{font-size:18px;font-weight:600;line-height:24px;letter-spacing:-.02em;white-space:nowrap}
+.tabs{display:flex;border-bottom:1px solid var(--hairline);margin-top:12px}
+.tab{padding:8px 12px 10px;font-size:14px;font-weight:500;color:var(--body);border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;
+  transition:color 120ms ease,border-color 120ms ease}
+.tab[aria-selected=true]{color:var(--ink);border-color:var(--ink)}
+.tab .c{color:var(--mute);margin-left:4px;font-variant-numeric:tabular-nums}
+.toolbar{display:flex;gap:8px;align-items:center;margin:19px 0 12px}
+.input{height:34px;border:1px solid var(--hairline-2);border-radius:8px;padding:0 10px;font-size:14px;color:var(--mute);display:inline-flex;align-items:center;gap:8px;background:#fff;white-space:nowrap}
+.input.search{width:176px}.input.date{width:136px;justify-content:space-between}
+
+/* ---------- buttons ---------- */
+.btn{height:36px;padding:0 16px;border-radius:8px;font-size:15px;font-weight:500;display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap;
+  transition:transform 120ms var(--ease-out),background-color 120ms ease,opacity 120ms ease}
+.btn:active:not(:disabled){transform:scale(.97)}
+.btn:disabled{cursor:default}
+.btn.primary{background:var(--cta);color:#fff}
+.btn.outline{background:#fff;border:1px solid var(--hairline-2);color:var(--text)}
+.btn.ghost{color:var(--body);font-size:14px;padding:0 9px}
+.btn.danger{background:var(--bad-fg);color:#fff}
+.btn.danger-t{color:var(--bad-fg)}
+.btn.sm{height:28px;padding:0 10px;font-size:14px}
+.btn[aria-busy=true]{opacity:.85}
+.btn:disabled:not([aria-busy=true]):not(.said){opacity:.5}
+@media (hover:hover) and (pointer:fine){
+  .btn.primary:hover:not(:disabled){background:var(--cta-hover)}
+  .btn.outline:hover:not(:disabled),.btn.ghost:hover:not(:disabled){background:var(--soft)}
+}
+.btn.rc{height:28px;padding:0 10px;font-size:14px;background:var(--cta);color:#fff;border-radius:6px}
+.spin{width:14px;height:14px;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;animation:spin 600ms linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ---------- table ---------- */
+.tcard{border:1px solid var(--hairline);border-radius:10px;box-shadow:var(--shadow-soft);overflow:hidden;background:#fff}
+.tgrid{display:grid;grid-template-columns:minmax(0,1fr) 150px 172px 172px 200px}
+.thead{height:40px;background:var(--soft);border-bottom:1px solid var(--hairline-2);font-size:14px;font-weight:500;color:var(--body)}
+.thead>div{padding:0 20px;display:flex;align-items:center}
+.thead .r,.tfoot .r{justify-content:flex-end}
+.r{text-align:right}
+.rowwrap{display:grid;grid-template-rows:1fr;transition:grid-template-rows 260ms var(--ease-out),opacity 200ms ease}
+.rowwrap.in,.rowwrap.out{grid-template-rows:0fr;opacity:0}
+.rowwrap.out{transition-duration:220ms,160ms;pointer-events:none}
+.row{min-height:0;overflow:hidden}
+.trow{border-bottom:1px solid var(--hairline);cursor:pointer;transition:background-color 120ms ease}
+.trow>div{padding:20px;min-width:0;display:flex;flex-direction:column;justify-content:center}
+@media (hover:hover) and (pointer:fine){.trow:hover{background:#fafafb}}
+.trow.alert{background:color-mix(in oklab,var(--bad-bg) 50%,#fff)}
+/* A PO made here, not opened yet: on top, washed sky (info = issued, in
+   motion; accent stays "selected"), and/or the hub's own New pill. */
+.trow.is-new,.card.is-new,.card.is-new .c-foot{background:color-mix(in oklab,var(--info-bg) 45%,#fff)}
+.card.is-new{border-color:color-mix(in oklab,var(--info-fg) 22%,var(--hairline))}
+.trow.is-new.alert,.card.is-new .c-foot.alert{background:color-mix(in oklab,var(--bad-bg) 50%,#fff)}
+.supline{display:flex;align-items:flex-start;gap:8px;min-width:0}
+.supline .sup{min-width:0}
+.supline .newpill{margin-top:-1px}
+.card .supline .newpill{margin-top:0}
+/* Apple's "new" mark: the blue dot an app gets on the home screen after it is
+   installed or updated, gone once it is opened. Sits on the first line. */
+.supline{position:relative}
+/* Hangs in the cell's left padding, as Mail's unread dot does, so names stay in line. */
+.newdot{position:absolute;left:-14px;top:6px;width:8px;height:8px;border-radius:50%;background:var(--accent)}
+.card .newdot{left:-12px;top:7px}
+/* The PO number while the server is giving it: a bar where it will stand. */
+.numsk{display:inline-block;width:108px;height:14px;border-radius:4px;vertical-align:-2px;
+  background:linear-gradient(90deg,rgb(32 36 44 / 7%),rgb(32 36 44 / 14%),rgb(32 36 44 / 7%));background-size:200% 100%;animation:sk 1.2s linear infinite}
+.numsk.lg{width:136px;height:18px;vertical-align:-3px}
+@media (prefers-reduced-motion:reduce){.numsk{animation:none}}
+.newpill{height:22px;padding:0 7px;border:1px solid color-mix(in oklab,var(--new-fg) 30%,transparent);color:var(--new-fg);background:#fff;border-radius:6px;
+  font-size:14px;font-weight:500;line-height:20px;display:inline-flex;align-items:center;flex-shrink:0}
+.sup{font-size:14px;font-weight:500;color:var(--ink);line-height:20px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sub{font-size:14px;color:var(--mute);line-height:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fig{font-weight:500;color:var(--ink);line-height:24px;white-space:nowrap}
+.fig2{line-height:24px;white-space:nowrap}
+.bad{color:var(--bad-fg)}.mute{color:var(--mute)}
+.overdue{color:var(--bad-fg);font-weight:500}
+.tfoot{min-height:57px;background:var(--soft);border-top:1px solid var(--hairline-2)}
+.tfoot>div{padding:8px 20px;display:flex;flex-direction:column;justify-content:center;font-size:14px;color:var(--body)}
+.tfoot .r{align-items:flex-end}
+.tfoot .fig{font-size:15px}
+.word{font-size:15px;line-height:20px}
+.t-ok{color:var(--ok-fg)}.t-info{color:var(--info-fg)}.t-warn{color:var(--warn-fg)}.t-bad{color:var(--bad-fg)}.t-done{color:var(--ink)}.t-neutral{color:var(--mute)}
+.stc{align-items:flex-start}
+.stc [data-c=ss]:empty{display:none}
+.stc [data-c=ss]{margin-top:6px}
+.stamp-on [data-c=ss]{margin-top:12px}
+
+/* sync words: where a change stands on its way to the server */
+.syncword{display:inline-flex;align-items:center;gap:6px;font-size:14px;line-height:20px;white-space:nowrap}
+.syncword .dot{width:6px;height:6px;border-radius:50%;background:currentColor}
+.s-live{color:var(--mute)}
+.s-live .dot{background:var(--accent)}
+.s-off{color:var(--warn-fg)}
+.s-bad{color:var(--bad-fg)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+.word.syncword{font-size:15px}
+
+/* the rubber stamp of a finished order */
+.stamp{display:inline-block;transform:rotate(var(--rot));border:3px double currentColor;border-radius:6px;padding:2px 10px;font-size:14px;line-height:20px;
+  font-weight:700;letter-spacing:.06em;text-transform:uppercase;opacity:.85;mix-blend-mode:multiply;white-space:nowrap;text-align:center}
+.stamp small{display:block;font-size:14px;font-variant-numeric:tabular-nums}
+.stamp.land{animation:stamp-land 220ms var(--ease-out) both}
+@keyframes stamp-land{from{transform:rotate(var(--rot)) scale(1.45);opacity:0}to{transform:rotate(var(--rot)) scale(1);opacity:.85}}
+.st-ok{color:var(--ok-fg)}.st-bad{color:var(--bad-fg)}.st-mute{color:var(--mute)}
+
+@keyframes row-fresh{0%,55%{background-color:var(--accent-bg);box-shadow:inset 0 0 0 1px color-mix(in oklab,var(--accent) 28%,transparent)}100%{background-color:transparent;box-shadow:inset 0 0 0 1px transparent}}
+@keyframes row-undo{0%,40%{background-color:var(--bad-bg);box-shadow:inset 0 0 0 1px color-mix(in oklab,var(--bad) 30%,transparent)}100%{background-color:transparent;box-shadow:inset 0 0 0 1px transparent}}
+@keyframes card-fresh{0%,55%{background-color:var(--accent-bg);box-shadow:0 0 0 1px color-mix(in oklab,var(--accent) 28%,transparent)}100%{background-color:#fff;box-shadow:var(--shadow-soft)}}
+@keyframes card-undo{0%,40%{background-color:var(--bad-bg);box-shadow:0 0 0 1px color-mix(in oklab,var(--bad) 30%,transparent)}100%{background-color:#fff;box-shadow:var(--shadow-soft)}}
+.trow.row-fresh{animation:row-fresh 3.2s var(--ease-out) both}
+.trow.row-undo{animation:row-undo 2.4s var(--ease-out) both}
+.card.row-fresh{animation:card-fresh 3.2s var(--ease-out)}
+.card.row-undo{animation:card-undo 2.4s var(--ease-out)}
+
+/* ---------- phone shell ---------- */
+.ptop{height:52px;background:#fff;border-bottom:1px solid var(--hairline);display:flex;align-items:center;padding:0 16px;gap:6px;font-size:15px;font-weight:600;flex-shrink:0;white-space:nowrap}
+.ptop .crumb{color:var(--mute);font-weight:500}
+.ptop .sep{color:var(--faint)}
+.pscroll{flex:1;overflow:auto;padding:12px 16px 104px;overscroll-behavior:contain}
+.pscroll .sync{margin:0 0 12px}
+.app.phone .kpis{display:grid;grid-template-columns:1fr 1fr}
+.app.phone .kpi{min-width:0}
+.app.phone .kpi:nth-child(odd){border-left:0}
+.app.phone .kpi:nth-child(n+3){border-top:1px solid var(--hairline)}
+.app.phone .tabs{margin:12px 0 12px}
+.app.phone .tab{flex:1;padding:8px 6px 10px}
+.card{background:#fff;border:1px solid var(--hairline);border-radius:10px;box-shadow:var(--shadow-soft);overflow:hidden;cursor:pointer}
+.cards .row{padding-bottom:12px}
+.c-head{display:flex;gap:12px;padding:16px 16px 14px;justify-content:space-between}
+.c-left{min-width:0}
+.card .sup{font-size:16px;line-height:22px;white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.c-lead{text-align:right;flex-shrink:0}
+.c-lead .big{font-size:18px;font-weight:600;line-height:24px;letter-spacing:-.02em;white-space:nowrap;font-variant-numeric:tabular-nums}
+.c-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 16px;border-top:1px solid var(--hairline);min-height:52px;transition:background-color 200ms ease}
+.c-foot.alert{background:color-mix(in oklab,var(--bad-bg) 50%,#fff)}
+.c-right{display:flex;align-items:center;gap:10px;flex-shrink:0}
+.c-right [data-c=ss]:empty{display:none}
+.pill{height:28px;padding:0 10px;border:1px solid color-mix(in oklab,currentColor 30%,transparent);border-radius:8px;display:inline-flex;align-items:center;gap:6px;font-size:15px;font-weight:500;background:#fff;white-space:nowrap}
+.pill.syncword{font-size:15px}
+.dock{position:absolute;left:0;right:0;bottom:0;background:#fff;border-top:1px solid var(--hairline);display:flex;align-items:center;gap:12px;
+  padding:12px 16px calc(12px + env(safe-area-inset-bottom));z-index:20}
+.dsearch{flex:1;height:44px;border:1px solid var(--hairline-2);border-radius:10px;display:flex;align-items:center;gap:8px;padding:0 12px;color:var(--mute);font-size:15px}
+.fab{width:48px;height:48px;border-radius:50%;background:var(--cta);color:#fff;display:grid;place-items:center;box-shadow:0 6px 16px rgb(37 99 235 / 28%);
+  transition:transform 120ms var(--ease-out)}
+.fab:active{transform:scale(.95)}
+
+/* ---------- sheets ---------- */
+.scrim{position:absolute;inset:0;background:var(--scrim);opacity:0;transition:opacity 200ms ease;z-index:30}
+.scrim.on{opacity:1}
+.sheet{position:absolute;top:20px;right:20px;bottom:20px;width:min(928px,calc(100% - 40px));background:#fff;border:1px solid var(--hairline);border-radius:16px;
+  box-shadow:var(--shadow-float);display:flex;flex-direction:column;z-index:31;transform:translateX(calc(100% + 28px));
+  transition:transform 200ms var(--ease-out)}
+.sheet.on{transform:none;transition:transform 280ms var(--ease-drawer)}
+.sheet.form{width:min(1248px,calc(100% - 40px));z-index:32}
+.app.phone .sheet{top:16px;left:0;right:0;bottom:0;width:auto;border-radius:16px 16px 0 0;border-bottom:0;transform:translateY(100%);transition:transform 200ms var(--ease-out)}
+.app.phone .sheet.on{transform:none;transition:transform 450ms var(--ease-drawer)}
+.instant,.instant *{transition:none!important}
+.sh-head{display:flex;align-items:center;gap:16px;padding:12px 28px;border-bottom:1px solid var(--hairline);min-height:77px;flex-shrink:0}
+.sh-tl{display:flex;align-items:center;gap:10px;min-width:0;flex-wrap:wrap}
+.sh-title{font-size:18px;font-weight:600;line-height:24px;letter-spacing:-.01em}
+.sh-sub{font-size:15px;color:var(--mute);margin-top:2px}
+.sh-head .stamp{margin-left:6px}
+.app.phone .sh-head .stamp{margin:6px 0 12px 4px}
+.xbtn{width:32px;height:32px;border-radius:8px;display:grid;place-items:center;color:var(--body);transition:transform 120ms var(--ease-out)}
+.xbtn:active{transform:scale(.95)}
+.sh-body{flex:1;overflow:auto;padding:24px 28px 28px;display:flex;flex-direction:column;gap:20px}
+.sh-foot{border-top:1px solid var(--hairline);padding:17px 28px;display:flex;align-items:center;gap:8px;flex-shrink:0}
+.sh-foot:empty{display:none}
+.app.phone .sh-head{padding:16px;min-height:0;align-items:flex-start}
+.app.phone .sh-tl{flex-direction:column;align-items:flex-start;gap:6px}
+.app.phone .sh-body{padding:16px 16px 24px}
+.app.phone .sh-foot{padding:12px 16px calc(12px + env(safe-area-inset-bottom))}
+.app.phone .sh-foot .btn{height:44px;flex:1;font-size:15px}
+.app.phone .sh-foot .grow{display:none}
+.app.phone .sh-foot .syncword{flex:1;justify-content:center;height:44px}
+.banner{display:flex;gap:10px;border-radius:8px;padding:10px 14px;font-size:14px;line-height:1.6}
+.banner.bad{background:var(--bad-bg);color:var(--bad-fg)}.banner.warn{background:var(--warn-bg);color:var(--warn-fg)}
+.facts{display:grid;grid-template-columns:1fr 1fr;gap:16px 24px}
+.facts dt{font-size:14px;line-height:18px;color:var(--body)}
+.facts dd{font-size:14px;line-height:22px;color:var(--ink);margin-top:4px}
+.seclabel{font-size:14px;color:var(--mute);margin-bottom:10px}
+.itable{border:1px solid var(--hairline);border-radius:10px;overflow:hidden}
+.ig{display:grid;grid-template-columns:minmax(0,1fr) 120px 110px 150px 170px}
+.ig>div{padding:14px 16px;display:flex;flex-direction:column;justify-content:center;min-width:0}
+.ig .r{align-items:flex-end}
+.ihead{background:var(--soft);font-size:14px;font-weight:500;color:var(--body)}
+.ihead>div{padding:10px 16px}
+.irow{border-top:1px solid var(--hairline)}
+.itot{border-top:1px solid var(--hairline);background:var(--soft);font-weight:500}
+.iname{flex-direction:row!important;align-items:center;justify-content:flex-start!important;gap:12px}
+.thumb{width:36px;height:36px;border-radius:8px;background:var(--soft-2);display:grid;place-items:center;color:var(--faint);flex-shrink:0}
+.nm{font-size:15px;color:var(--ink);line-height:20px}
+.icard{padding:14px 16px;border-top:1px solid var(--hairline);display:flex;flex-direction:column;gap:6px}
+.icard:first-child{border-top:0}
+.icard .ln{display:flex;justify-content:space-between;gap:12px;font-size:14px;color:var(--body);font-variant-numeric:tabular-nums}
+.icard .ln b{font-weight:500;color:var(--ink)}
+.sk{height:14px;border-radius:6px;background:linear-gradient(90deg,var(--soft-2),var(--soft-3),var(--soft-2));background-size:200% 100%;animation:sk 1.2s linear infinite}
+@keyframes sk{to{background-position:-200% 0}}
+.skrows{border:1px solid var(--hairline);border-radius:10px}
+.skrows>div{display:flex;gap:24px;align-items:center;padding:18px 16px;border-top:1px solid var(--hairline)}
+.skrows>div:first-child{border-top:0}
+
+/* ---------- form ---------- */
+.fgrid{display:grid;grid-template-columns:1fr 1fr;gap:16px 24px}
+.field{display:flex;flex-direction:column;gap:8px;min-width:0}
+.flabel{font-size:15px;font-weight:500;color:var(--ink)}
+.flabel b{color:var(--bad-fg);font-weight:500;margin-left:2px}
+.control{height:44px;border:1px solid var(--hairline-2);border-radius:8px;padding:0 12px;font-size:15px;background:#fff;width:100%;min-width:0;color:var(--ink);outline:none}
+.control:focus{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in oklab,var(--accent) 16%,transparent)}
+.control:disabled{background:var(--soft);color:var(--body)}
+.sec{display:flex;align-items:center;justify-content:space-between;margin-top:8px}
+.sec h3{font-size:15px;font-weight:600}
+.lg{display:grid;grid-template-columns:minmax(0,1fr) 150px 150px 170px 40px}
+.lg>div{padding:10px 16px;display:flex;flex-direction:column;justify-content:center;min-width:0}
+.lg .r{align-items:flex-end}
+.qty{display:flex;align-items:center;gap:8px}
+.qty .control{height:36px;text-align:right;font-variant-numeric:tabular-nums}
+.qty span{font-size:14px;color:var(--mute)}
+.rm{width:28px;height:28px;border-radius:6px;display:grid;place-items:center;color:var(--mute)}
+.app.phone .fgrid,.app.phone .facts{grid-template-columns:1fr}
+.app.phone .facts{grid-template-columns:1fr 1fr}
+.lcard{padding:14px 16px;border-top:1px solid var(--hairline);display:flex;flex-direction:column;gap:10px}
+.lcard:first-child{border-top:0}
+.lcard .top{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.lcard .qty .control{height:44px;flex:1}
+
+/* ---------- confirm dialog ---------- */
+.dscrim{position:absolute;inset:0;background:rgb(25 27 32 / 18%);opacity:0;transition:opacity 160ms ease;z-index:50}
+.dscrim.on{opacity:1}
+.dlg{position:absolute;left:50%;top:50%;width:min(460px,calc(100% - 32px));transform:translate(-50%,-50%) scale(.96);opacity:0;z-index:51;background:#fff;
+  border-radius:16px;box-shadow:var(--shadow-float);border:1px solid var(--hairline);transition:transform 160ms var(--ease-out),opacity 160ms ease}
+.dlg.on{transform:translate(-50%,-50%);opacity:1;transition:transform 200ms var(--ease-out),opacity 200ms ease}
+.dlg-b{padding:24px 24px 8px;display:flex;flex-direction:column;gap:12px}
+.dlg-t{font-size:18px;font-weight:600;line-height:24px}
+.dlg-d{font-size:15px;color:var(--body);line-height:1.5}
+.dlg-e{font-size:14px;color:var(--bad-fg);min-height:0}
+.dlg-e:empty{display:none}
+.dlg-f{display:flex;justify-content:flex-end;gap:8px;padding:16px 24px 20px}
+.app.phone .dlg-f .btn{flex:1;height:44px}
+.optional{color:var(--mute);font-weight:400;font-size:14px;margin-left:6px}
+
+/* ---------- toasts ---------- */
+.toasts{position:absolute;right:24px;bottom:24px;z-index:60;display:flex;flex-direction:column;gap:8px;width:372px;pointer-events:none}
+.app.phone .toasts{left:12px;right:12px;width:auto;bottom:calc(84px + env(safe-area-inset-bottom, 0px))}
+/* An open sheet keeps its footer: toasts stand above it. */
+.app.layered .toasts{bottom:96px;transition:bottom 200ms var(--ease-out)}
+.app.phone.layered .toasts{bottom:calc(84px + env(safe-area-inset-bottom, 0px))}
+.toast{pointer-events:auto;background:#fff;border:1px solid var(--hairline);border-radius:10px;box-shadow:var(--shadow-pop);padding:14px 14px 14px 16px;display:flex;gap:10px;align-items:flex-start;
+  transition:transform 400ms ease,opacity 400ms ease}
+.toast.pre{transform:translateY(100%);opacity:0}
+.toast.out{transform:translateY(6px);opacity:0;transition-duration:200ms}
+.toast svg{margin-top:2px}
+.toast.t-success svg{color:var(--ok-fg)}.toast.t-error svg{color:var(--bad-fg)}.toast.t-info svg{color:var(--info-fg)}
+.toast .tx{flex:1;min-width:0}
+.toast .tt{font-size:14px;font-weight:500;color:var(--ink);line-height:20px}
+.toast .td{font-size:14px;color:var(--body);line-height:20px;margin-top:2px}
+.toast .tact{height:28px;padding:0 10px;border-radius:6px;background:var(--ink);color:#fff;font-size:14px;font-weight:500;flex-shrink:0;transition:transform 120ms var(--ease-out)}
+.toast .tact:active{transform:scale(.97)}
+.flypill{position:fixed;left:0;top:0;z-index:100;height:28px;padding:0 10px;display:flex;align-items:center;border-radius:999px;background:var(--info-bg);color:var(--info-fg);
+  font:500 14px/1 Inter,system-ui,sans-serif;white-space:nowrap;pointer-events:none;will-change:transform}
+
+@media (prefers-reduced-motion:reduce){
+  .rowwrap,.sheet,.app.phone .sheet,.dlg,.toast{transition-property:opacity!important}
+  .stamp.land{animation:none}
+  .s-live .dot{animation:none}
+}
+</style>
+</head>
+<body>
+
+<div class="pbar" id="pbar">
+  <div class="pgrp"><span class="plabel">Saving</span><span class="seg" data-set="mode"><button data-val="today">Today</button><button data-val="optimistic">Optimistic</button></span></div>
+  <div class="pgrp"><span class="plabel">Network</span><span class="seg" data-set="net"><button data-val="fast">Fast</button><button data-val="slow">Slow 3 s</button><button data-val="flaky">Flaky</button><button data-val="offline">Offline</button></span></div>
+  <div class="pgrp"><span class="plabel">Server</span><span class="seg" data-set="server"><button data-val="ok">Accepts</button><button data-val="refuse">Refuses</button></span></div>
+  <div class="pgrp" id="cueGrp"><span class="plabel">Cue</span><span class="seg" data-set="cue"><button data-val="dot">Dot</button><button data-val="label">Pill</button><button data-val="bg">Background</button><button data-val="both">Both</button></span></div>
+  <div class="pgrp" id="updGrp"><span class="plabel">Updated PO</span><span class="seg" data-set="updPos"><button data-val="place">Stays put</button><button data-val="top">To top</button></span></div>
+  <div class="pgrp" id="cancelGrp"><span class="plabel">Cancel</span><span class="seg" data-set="cancelStyle"><button data-val="confirm">Asks first</button><button data-val="undo">Undo after</button></span></div>
+  <div class="pgrp" id="deviceGrp"><span class="plabel">Device</span><span class="seg" data-set="device"><button data-val="desk">Desktop</button><button data-val="phone">Phone</button></span></div>
+  <div class="wire" id="wire"></div>
+</div>
+
+<div class="stage" id="stage"><div class="app" id="app"></div></div>
+
+<script>
+/* =====================================================================
+   PO with optimistic updates — prototype.
+   "Today": the button waits for the server, then says it, then the sheet
+   closes (as frontend-hub does now). "Optimistic": the screen changes the
+   moment the button is pressed; every write goes through one on-device
+   outbox (the one offline orders already use) and the row says where it
+   stands until the server answers.
+   ===================================================================== */
+const TODAY = '2026-10-11';
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const EASE_OUT = 'cubic-bezier(0.23, 1, 0.32, 1)';
+const EASE_IN_OUT = 'cubic-bezier(0.77, 0, 0.175, 1)';
+const REDUCED = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+const wait = ms => new Promise(r => setTimeout(r, ms));
+const fmtN = n => Math.round(n).toLocaleString('id-ID');
+const rp = n => 'Rp ' + fmtN(n);
+const pcs = n => fmtN(n) + ' pcs';
+const day = iso => { const [y,m,d] = iso.split('-'); return `${d} ${MONTHS[+m-1]} ${y}`; };
+const dayMonth = iso => { const [,m,d] = iso.split('-'); return `${d} ${MONTHS[+m-1]}`; };
+const compactRp = n => n >= 1e9 ? `Rp ${(n/1e9).toFixed(1).replace('.', ',')} B` : n >= 1e6 ? `Rp ${(n/1e6).toFixed(1).replace('.', ',')} M` : rp(n);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const clock = () => { const d = new Date(); return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; };
+const clone = o => JSON.parse(JSON.stringify(o));
+const items = n => `${n} ${n === 1 ? 'item' : 'items'}`;
+
+const I = (p, s = 16) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
+const ICON = {
+  cart: I('<circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/>', 18),
+  shirt: s => I('<path d="M20.38 3.46 16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.47a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.47a2 2 0 0 0-1.34-2.23z"/>', s),
+  box: I('<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>', 18),
+  store: I('<path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7"/><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><path d="M15 22v-4a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4"/><path d="M2 7h20"/>', 18),
+  bank: I('<path d="M3 22h18M6 18v-7M10 18v-7M14 18v-7M18 18v-7"/><path d="M12 2 20 7H4z"/>', 18),
+  users: I('<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>', 18),
+  search: I('<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>'),
+  cal: I('<rect width="18" height="18" x="3" y="4" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>'),
+  cols: I('<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M12 3v18"/>'),
+  plus: I('<path d="M5 12h14M12 5v14"/>', 22),
+  plusS: I('<path d="M5 12h14M12 5v14"/>', 14),
+  x: I('<path d="M18 6 6 18M6 6l12 12"/>', 18),
+  xs: I('<path d="M18 6 6 18M6 6l12 12"/>', 14),
+  refresh: I('<path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/>', 14),
+  ok: I('<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>'),
+  alert: I('<circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/>'),
+  check: I('<path d="M20 6 9 17l-5-5"/>'),
+  print: I('<path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect width="12" height="8" x="6" y="14"/>', 14),
+  chev: I('<path d="m6 9 6 6 6-6"/>', 16),
+  wifiOff: I('<path d="M12 20h.01M8.5 16.43a5 5 0 0 1 7 0M2 8.82a15 15 0 0 1 4.18-2.64M22 8.82a15 15 0 0 0-11.29-3.76M5 12.86a10 10 0 0 1 5.17-2.69M19 12.86a10 10 0 0 0-2-1.52"/><path d="m2 2 20 20"/>', 14),
+};
+
+/* ---------- the book ---------- */
+const ITEMS = {
+  kemeja: ['Kemeja', 'Anak laki · Basic · Blus'],
+  kaos:   ['Kaos Polos', 'Dewasa · Basic · Atasan'],
+  chino:  ['Celana Chino', 'Pria · Casual · Bawahan'],
+  dress:  ['Dress Midi', 'Wanita · Casual · Dress'],
+  jaket:  ['Jaket Denim', 'Pria · Casual · Outer'],
+  rok:    ['Rok Plisket', 'Wanita · Basic · Bawahan'],
+  hoodie: ['Hoodie', 'Remaja · Casual · Outer'],
+};
+let seq = 0;
+const L = (k, qty, price, rec = 0) => ({ key: 'l' + (++seq), item: k, name: ITEMS[k][0], detail: ITEMS[k][1], qty, price, rec });
+const ORDER = o => Object.assign({ id: 'o' + (++seq), local: false, sync: null, by: 'Rina Kusuma', terms: '30 days', method: 'Giro', review: false, excess: 0, finishedAt: null }, o);
+const SUPPLIERS = ['Garmen AA, UD', 'Indorama, PT', 'Sinar Jaya Textile, CV', 'Busana Prima, PT'];
+const TERMS = ['None', '30 days', '45 days', '60 days'];
+const METHODS = ['Giro', 'Transfer', 'Cash'];
+
+let orders = [
+  ORDER({ po: 'PO-041026-012', supplier: 'Indorama, PT', issued: '2026-10-04', delivery: '2026-10-14', lifecycle: 'ACTIVE', review: true, excess: 30, lines: [L('kaos', 200, 39000, 200)] }),
+  ORDER({ po: 'PO-051026-003', supplier: 'Garmen AA, UD', issued: '2026-10-05', delivery: '2026-10-22', lifecycle: 'ACTIVE', lines: [L('chino', 30, 80000)] }),
+  ORDER({ po: 'PO-051026-002', supplier: 'Indorama, PT', issued: '2026-10-05', delivery: '2026-10-20', lifecycle: 'ACTIVE', lines: [L('kaos', 12, 45000)] }),
+  ORDER({ po: 'PO-031026-004', supplier: 'Sinar Jaya Textile, CV', issued: '2026-10-03', delivery: '2026-10-12', lifecycle: 'PARTIALLY_RECEIVED', terms: '45 days', method: 'Transfer', lines: [L('dress', 200, 120000, 200), L('rok', 180, 65000, 100), L('hoodie', 100, 140000)] }),
+  ORDER({ po: 'PO-041026-011', supplier: 'Indorama, PT', issued: '2026-10-04', delivery: '2026-10-14', lifecycle: 'ACTIVE', terms: '60 days', lines: [L('kemeja', 20000, 199999)] }),
+  ORDER({ po: 'PO-041026-010', supplier: 'Garmen AA, UD', issued: '2026-10-04', delivery: '2026-10-15', lifecycle: 'ACTIVE', lines: [L('rok', 200, 16000)] }),
+  ORDER({ po: 'PO-021026-001', supplier: 'Indorama, PT', issued: '2026-10-02', delivery: '2026-10-10', lifecycle: 'ACTIVE', lines: [L('kaos', 400, 11200), L('rok', 200, 11200)] }),
+  ORDER({ po: 'PO-290926-003', supplier: 'Busana Prima, PT', issued: '2026-09-29', delivery: '2026-10-06', lifecycle: 'FULLY_RECEIVED', finishedAt: '2026-10-06', lines: [L('jaket', 120, 185000, 120)] }),
+  ORDER({ po: 'PO-280926-001', supplier: 'Garmen AA, UD', issued: '2026-09-28', delivery: '2026-10-04', lifecycle: 'SHORT_RECEIVED', finishedAt: '2026-10-05', lines: [L('kaos', 300, 36000, 260)] }),
+  ORDER({ po: 'PO-250926-002', supplier: 'Indorama, PT', issued: '2026-09-25', delivery: '2026-10-02', lifecycle: 'FULLY_RECEIVED', finishedAt: '2026-10-02', lines: [L('kemeja', 500, 52000, 500), L('chino', 250, 90000, 250)] }),
+  ORDER({ po: 'PO-300926-002', supplier: 'Sinar Jaya Textile, CV', issued: '2026-09-30', delivery: '2026-10-08', lifecycle: 'CANCELLED', finishedAt: '2026-10-01', lines: [L('dress', 80, 118000)] }),
+];
+
+const PRESETS = [
+  { supplier: 'Garmen AA, UD', delivery: '2026-10-18', terms: '30 days', method: 'Giro', lines: [['kaos', 120, 35000], ['chino', 60, 95000]] },
+  { supplier: 'Busana Prima, PT', delivery: '2026-10-21', terms: '45 days', method: 'Transfer', lines: [['jaket', 80, 185000]] },
+  { supplier: 'Sinar Jaya Textile, CV', delivery: '2026-10-24', terms: '30 days', method: 'Giro', lines: [['dress', 150, 120000], ['rok', 100, 65000], ['hoodie', 60, 140000]] },
+];
+let presetAt = 0;
+
+const STATUS = {
+  ACTIVE: ['Active', 'ok'], PARTIALLY_RECEIVED: ['Partially received', 'info'],
+  SHORT_RECEIVED: ['Closed short', 'done'], FULLY_RECEIVED: ['Fully received', 'done'], CANCELLED: ['Cancelled', 'neutral'],
+};
+const FINISHED = new Set(['SHORT_RECEIVED', 'FULLY_RECEIVED', 'CANCELLED']);
+const STAMP_TONE = { FULLY_RECEIVED: 'st-ok', SHORT_RECEIVED: 'st-bad', CANCELLED: 'st-mute' };
+const REFUSE = {
+  create: o => `${o.supplier} is inactive. Activate the supplier first.`,
+  edit: o => `goods arrived on ${o.po} after it was opened.`,
+  cancel: o => `a count is waiting on ${o.po}. Review it first.`,
+  short: o => `a count is waiting on ${o.po}. Review it first.`,
+};
+const OFFLINE_MSG = 'Could not reach the server. Try again when you are online.';
+const FLAKY_MSG = 'Could not reach the server. Try again.';
+
+const qtyOf = o => o.lines.reduce((s, l) => s + l.qty, 0);
+const valOf = o => o.lines.reduce((s, l) => s + l.qty * l.price, 0);
+const recOf = o => o.lines.reduce((s, l) => s + Math.min(l.rec, l.qty), 0);
+const recValOf = o => o.lines.reduce((s, l) => s + Math.min(l.rec, l.qty) * l.price, 0);
+const isOpen = o => o.local ? o.sync?.state !== 'refused' : (o.lifecycle === 'ACTIVE' || o.lifecycle === 'PARTIALLY_RECEIVED');
+const owedVal = o => o.lines.reduce((s, l) => s + Math.max(0, l.qty - l.rec) * l.price, 0);
+const byId = id => orders.find(o => o.id === id);
+const lifeTab = l => (l === 'ACTIVE' || l === 'PARTIALLY_RECEIVED') ? 'active' : l === 'CANCELLED' ? 'cancelled' : 'completed';
+const tabOf = o => o.stay || (o.local ? 'active' : lifeTab(o.lifecycle));
+let poSeq = 0;
+const nextPo = () => `PO-111026-${String(++poSeq).padStart(3, '0')}`;
+
+/* ---------- state ---------- */
+const S = {
+  mode: 'optimistic', net: 'fast', server: 'ok', cancelStyle: 'undo', device: 'desk', cue: 'dot', updPos: 'place',
+  tab: 'active', sheet: null, form: null, dlg: null, cache: new Set(), updatedAt: clock(), flip: false,
+};
+const forcedPhone = matchMedia('(max-width: 600px)').matches;
+if (forcedPhone) S.device = 'phone';
+const isPhone = () => S.device === 'phone';
+const rot = () => isPhone() ? -12 : -6;
+const app = document.getElementById('app');
+const K = k => app.querySelector(`[data-k="${k}"]`);
+const rows = new Map();
+
+/* ---------- small motion helpers ---------- */
+function fadeIn(el) {
+  if (REDUCED()) { el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 160 }); return; }
+  el.animate([{ opacity: 0, filter: 'blur(2px)' }, { opacity: 1, filter: 'blur(0px)' }], { duration: 220, easing: EASE_OUT });
+}
+/// Put new HTML into a slot; when it differs and `animate`, cross-fade it in.
+/// A stamp that arrives lands; a stamp that goes is lifted off first.
+/// Optimistic saves do not move: the screen is already right.
+const still = () => S.mode === 'optimistic';
+function patch(el, html, animate) {
+  if (!el || el._html === html) return;
+  if (still() && !el.matches('button')) animate = false;
+  const old = el._html; el._html = html;
+  const had = old != null && old.includes('class="stamp'), has = html.includes('class="stamp');
+  const put = () => {
+    if (el._html !== html) return;
+    el.innerHTML = html;
+    if (!animate || old == null) return;
+    if (has && !had) el.querySelector('.stamp')?.classList.add('land');
+    else if (html.trim()) fadeIn(el);
+  };
+  if (animate && had && !has && !REDUCED()) {
+    const st = el.querySelector('.stamp');
+    if (st) {
+      st.animate([{ opacity: .85, transform: `rotate(${rot()}deg) scale(1)` }, { opacity: 0, transform: `rotate(${rot()}deg) scale(1.18)` }],
+        { duration: 180, easing: EASE_OUT, fill: 'forwards' }).finished.then(put, put);
+      return;
+    }
+  }
+  put();
+}
+function flash(id, cls) {
+  const el = app.querySelector(`[data-row-id="${id}"]`); if (!el) return;
+  el.classList.remove('row-fresh', 'row-undo'); void el.offsetWidth; el.classList.add(cls);
+  setTimeout(() => el.classList.remove(cls), 3300);
+}
+function scroller() { return isPhone() ? K('scroll') : app.querySelector('.main'); }
+
+/// The PO screen's pull-in (lib/pull-in.ts): a pill from the pressed button
+/// into the row the save changed, which glows as it lands.
+async function flyPill(from, rowId, words) {
+  if (REDUCED() || !from) { flash(rowId, 'row-fresh'); return; }
+  const fx = from.left, fy = from.top + (from.height - 28) / 2;
+  const pill = document.createElement('div');
+  pill.className = 'flypill'; pill.textContent = words; pill.style.transform = `translate(${fx}px,${fy}px)`;
+  document.body.appendChild(pill);
+  await wait(220);
+  const row = app.querySelector(`[data-row-id="${rowId}"]`);
+  if (!row) { pill.remove(); return; }
+  let box = row.getBoundingClientRect();
+  const sc = scroller().getBoundingClientRect();
+  if (box.top < sc.top || box.bottom > sc.bottom) { row.scrollIntoView({ block: 'center', behavior: 'smooth' }); await wait(380); box = row.getBoundingClientRect(); }
+  const tx = box.left + box.width * 0.72 - 40, ty = box.top + Math.min(box.height, 90) / 2 - 14;
+  const mx = (fx + tx) / 2, my = Math.min(fy, ty) - 120;
+  const flight = pill.animate([
+    { transform: `translate(${fx}px,${fy}px) scale(1)`, opacity: 1 },
+    { transform: `translate(${mx}px,${my}px) scale(1.04)`, opacity: 1, offset: .45 },
+    { transform: `translate(${tx}px,${ty}px) scale(.9)`, opacity: 1, offset: .92 },
+    { transform: `translate(${tx}px,${ty}px) scale(.9)`, opacity: 0 },
+  ], { duration: 620, easing: EASE_IN_OUT, fill: 'forwards' });
+  await Promise.race([flight.finished.catch(() => {}), wait(900)]);
+  pill.remove();
+  flash(rowId, 'row-fresh');
+}
+
+/* ---------- toasts (Sonner-like, bottom right; held while pointed at) ---------- */
+function toast({ type = 'success', title, desc, action, duration = 4000, onExpire, onClose, id }) {
+  const box = K('toasts');
+  // Same id: the toast already on screen is rewritten, not stacked again.
+  const same = id && [...box.children].find(x => x._id === id && !x._gone);
+  if (same) { same._update({ title, desc, action }); return same._handle; }
+  const t = document.createElement('div');
+  t._id = id;
+  t.className = `toast t-${type} pre`; t.setAttribute('role', 'status');
+  t.innerHTML = `${type === 'error' ? ICON.alert : ICON.ok}<div class="tx"><div class="tt"></div>${desc ? '<div class="td"></div>' : ''}</div>${action ? '<button class="tact"></button>' : ''}`;
+  t.querySelector('.tt').textContent = title;
+  if (desc) t.querySelector('.td').textContent = desc;
+  box.appendChild(t);
+  const live = [...box.children].filter(x => !x._gone);
+  if (live.length > 4) live[0]._dismiss(true);
+  void t.offsetHeight; t.classList.remove('pre');
+  let left = duration, start = 0, timer = 0;
+  const dismiss = expired => {
+    clearTimeout(timer); if (t._gone) return; t._gone = true;
+    t.classList.add('out'); setTimeout(() => t.remove(), 220);
+    if (expired && onExpire) onExpire();
+    onClose?.();
+  };
+  t._dismiss = dismiss;
+  const run = () => { start = performance.now(); timer = setTimeout(() => dismiss(true), left); };
+  const pause = () => { clearTimeout(timer); left -= performance.now() - start; };
+  t.addEventListener('pointerenter', pause); t.addEventListener('pointerleave', run);
+  if (action) { const b = t.querySelector('.tact'); b.textContent = action.label; b.onclick = () => { dismiss(false); action.onClick(); }; }
+  t._update = next => {
+    t.querySelector('.tt').textContent = next.title;
+    const d = t.querySelector('.td');
+    if (d) { d.textContent = next.desc || ''; d.hidden = !next.desc; }
+    const b = t.querySelector('.tact');
+    if (b && next.action) { b.textContent = next.action.label; b.onclick = () => { dismiss(false); next.action.onClick(); }; }
+    clearTimeout(timer); left = duration; run();
+  };
+  run();
+  t._handle = { dismiss };
+  return t._handle;
+}
+
+/* ---------- the wire (prototype bar): what is travelling right now ---------- */
+const wire = new Map(); let wseq = 0, wireTimer = 0;
+function wireAdd(label, state = 'flight') { const id = ++wseq; wire.set(id, { label, state, t0: performance.now() }); renderWire(); return id; }
+function wireSet(id, state) { const w = wire.get(id); if (w) { w.state = state; w.t0 = performance.now(); renderWire(); } }
+function wireDone(id) { wire.delete(id); renderWire(); }
+function renderWire() {
+  const el = document.getElementById('wire');
+  if (wire.size === 0) { el.innerHTML = '<span class="req idle">Nothing on the wire</span>'; clearInterval(wireTimer); wireTimer = 0; return; }
+  el.innerHTML = [...wire.values()].slice(-4).map(w => {
+    const s = ((performance.now() - w.t0) / 1000).toFixed(1);
+    const tail = w.state === 'waiting' ? 'waiting' : w.state === 'held' ? `held ${s} s` : `${s} s`;
+    return `<span class="req ${w.state}">${esc(w.label)} <b>${tail}</b></span>`;
+  }).join('');
+  if (!wireTimer) wireTimer = setInterval(renderWire, 100);
+}
+
+/* ---------- network ---------- */
+const latency = () => ({ fast: 450, slow: 3000, flaky: 1400, offline: 0 })[S.net];
+let onlineWaiters = [];
+function whenOnline(fn) { if (S.net !== 'offline') fn(); else onlineWaiters.push(fn); }
+function wentOnline() { const w = onlineWaiters; onlineWaiters = []; w.forEach(fn => fn()); }
+
+/// Today's request: the button waits on this. A cancel/close-short is held by
+/// TanStack while offline (networkMode "online"), so it spins until the
+/// connection is back; an edit fails at once.
+function call(label, refusal, { pausable = false } = {}) {
+  return new Promise((resolve, reject) => {
+    let wid = 0;
+    const run = () => {
+      if (wid) wireSet(wid, 'flight'); else wid = wireAdd(label);
+      setTimeout(() => {
+        if (S.net === 'offline') { if (pausable) { wireSet(wid, 'waiting'); whenOnline(run); return; } wireDone(wid); return reject(new Error(OFFLINE_MSG)); }
+        wireDone(wid);
+        if (S.net === 'flaky' && (S.flip = !S.flip)) return reject(new Error(FLAKY_MSG));
+        if (S.server === 'refuse') return reject(new Error(refusal));
+        S.updatedAt = clock();
+        resolve();
+      }, latency());
+    };
+    if (S.net === 'offline') {
+      if (!pausable) return reject(new Error(OFFLINE_MSG));
+      wid = wireAdd(label, 'waiting'); whenOnline(run);
+    } else run();
+  });
+}
+
+/* ---------- the outbox: every optimistic write, and every offline order ---------- */
+const jobs = [];
+let jseq = 0;
+function enqueue(job) { job.id = ++jseq; job.attempt = 0; job.state = job.state || 'queued'; jobs.push(job); pump(); }
+function dropJobs(orderId) {
+  jobs.filter(j => j.orderId === orderId).forEach(j => { clearTimeout(j.timer); j.state = 'gone'; if (j.wid) wireDone(j.wid); jobs.splice(jobs.indexOf(j), 1); });
+}
+function jobLabel(j) {
+  const o = byId(j.orderId);
+  return { create: 'Create order', edit: `Update ${o?.po}`, cancel: `Cancel ${o?.po}`, short: `Close short ${o?.po}` }[j.kind];
+}
+function setSync(j, state) {
+  const o = byId(j.orderId); if (!o) return;
+  o.sync = { ...(o.sync || {}), kind: j.kind, state };
+  refresh(o);
+}
+function pump() {
+  for (const j of [...jobs]) {
+    if (j.state === 'held') continue;
+    if (S.net === 'offline') {
+      if (j.state !== 'waiting') {
+        clearTimeout(j.timer); j.timer = 0;
+        if (j.wid) wireSet(j.wid, 'waiting'); else j.wid = wireAdd(jobLabel(j), 'waiting');
+        j.state = 'waiting'; setSync(j, 'offline');
+      }
+      continue;
+    }
+    if (j.state === 'queued' || j.state === 'waiting') fly(j);
+  }
+  renderHead(true);
+}
+function fly(j) {
+  j.state = 'flight'; j.attempt++;
+  if (j.wid) wireSet(j.wid, 'flight'); else j.wid = wireAdd(jobLabel(j));
+  setSync(j, j.attempt > 1 ? 'retrying' : 'sending');
+  const flakyFail = S.net === 'flaky' && j.attempt === 1;
+  j.timer = setTimeout(() => land(j, flakyFail), flakyFail ? 2600 : latency());
+}
+function land(j, transportFail) {
+  j.timer = 0;
+  if (transportFail) {
+    // A timeout or a 5xx: nobody is told; it goes again by itself.
+    j.state = 'retry'; wireSet(j.wid, 'waiting'); setSync(j, 'retrying');
+    const backoff = [1000, 3000, 10000, 30000][Math.min(j.attempt - 1, 3)];
+    setTimeout(() => { if (j.state === 'retry') { j.state = 'queued'; pump(); } }, backoff);
+    return;
+  }
+  wireDone(j.wid);
+  const at = jobs.indexOf(j);
+  if (at < 0) return;
+  jobs.splice(at, 1);
+  if (S.server === 'refuse') refuse(j); else accept(j);
+  pump();
+}
+function accept(j) {
+  const o = byId(j.orderId); if (!o) return;
+  S.updatedAt = clock();
+  if (j.kind === 'create') { o.po = nextPo(); o.local = false; o.sync = null; o.draft = null; refresh(o); return; }
+  o.sync = null;
+  if (o.stay) release(o);
+  refresh(o);
+}
+function refuse(j) {
+  const o = byId(j.orderId); if (!o) return;
+  const msg = REFUSE[j.kind](o);
+  if (j.kind === 'create') {
+    o.sync = { kind: 'create', state: 'refused', msg };
+    refresh(o);
+    refusals.create.set(o.id, { title: `Order to ${o.supplier} not sent`, desc: msg, action: { label: 'Open', onClick: () => openOrder(o.id) } });
+    sayRefusals('create');
+    return;
+  }
+  // Put back what the server still has, and keep what was typed.
+  Object.assign(o, clone(j.before));
+  delete o.stay;
+  const note = { edit: 'Not saved', cancel: 'Not cancelled', short: 'Not closed' }[j.kind];
+  o.sync = { kind: j.kind, state: 'refused', note, msg, draft: j.after || null };
+  if (o.cue === 'updated') o.cue = null;
+  refresh(o, true);
+  if (!still()) flash(o.id, 'row-undo');
+  const title = { edit: `${o.po} not updated`, cancel: `${o.po} not cancelled`, short: `${o.po} not closed short` }[j.kind];
+  refusals.change.set(o.id, { title, desc: cap(msg), action: j.kind === 'edit'
+    ? { label: 'Edit Again', onClick: () => openForm({ mode: 'edit', orderId: o.id, draft: j.after }) }
+    : { label: 'Open', onClick: () => openOrder(o.id) } });
+  sayRefusals('change');
+}
+/// Refusals that land together are one toast ("3 orders not sent"), rewritten
+/// as more arrive; one alone names its order.
+const refusals = { create: new Map(), change: new Map() };
+function sayRefusals(group) {
+  const m = refusals[group];
+  if (m.size === 0) { refusalToast[group]?.dismiss(); return; }
+  const one = m.size === 1 ? [...m.values()][0] : null;
+  const first = [...m.keys()][0];
+  refusalToast[group] = toast({
+    id: `refused-${group}`, type: 'error', duration: 8000,
+    title: one ? one.title : `${m.size} ${group === 'create' ? 'orders not sent' : 'changes not saved'}`,
+    desc: one ? one.desc : '',
+    action: one ? one.action : { label: 'Open', onClick: () => openOrder(first) },
+    onClose: () => m.clear(),
+  });
+}
+const refusalToast = {};
+const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
+/// A finished order leaves the Active list once the server has it — not from
+/// under an open sheet, and not before the stamp has been seen.
+function release(o) {
+  if (S.sheet?.id === o.id) { o.release = true; return; }
+  delete o.stay; delete o.release; syncList(false); renderHead(false);
+}
+
+/* ---------- head: sync word, KPIs, tabs ---------- */
+function syncSummary() {
+  const bad = orders.filter(o => o.sync?.state === 'refused');
+  const off = orders.filter(o => o.sync?.state === 'offline').length;
+  const live = orders.filter(o => o.sync && ['sending', 'retrying'].includes(o.sync.state)).length;
+  const parts = [];
+  if (bad.length) {
+    const word = bad.every(o => o.sync.kind === 'create') ? 'not sent' : 'not saved';
+    parts.push(`<button data-act="sync" class="syncword s-bad"><i class="dot"></i>${bad.length} ${word}</button>`);
+  }
+  if (S.net === 'offline') parts.push(`<span class="syncword s-off">${ICON.wifiOff}${off ? `Offline · ${off} waiting` : 'Offline'}</span>`);
+  else if (live) parts.push(`<span class="syncword s-live"><i class="dot"></i>Saving ${live} ${live > 1 ? 'changes' : 'change'}</span>`);
+  if (parts.length) return parts.join('<span class="sep">·</span>');
+  return `<span>Updated ${S.updatedAt}</span>${ICON.refresh}`;
+}
+function renderHead(animate) {
+  patch(K('sync'), syncSummary(), animate);
+  // Today the KPIs count what the server holds; optimistic counts what was pressed.
+  const counted = orders.filter(o => isOpen(o) && (S.mode === 'optimistic' || !o.local));
+  const kpis = [
+    ['Orders', fmtN(counted.length)],
+    ['Still open', fmtN(counted.filter(o => recOf(o) < qtyOf(o)).length)],
+    ['Overdue', fmtN(counted.filter(o => o.delivery < TODAY && recOf(o) < qtyOf(o)).length)],
+    ['On order', compactRp(counted.reduce((s, o) => s + owedVal(o), 0))],
+  ];
+  const box = K('kpis');
+  if (!box.children.length) box.innerHTML = kpis.map(() => '<div class="kpi"><div class="l"></div><div class="v"></div></div>').join('');
+  kpis.forEach(([l, v], i) => { const k = box.children[i]; k.children[0].textContent = l; patch(k.children[1], v, animate); });
+  const count = t => orders.filter(o => (o.local ? 'active' : lifeTab(o.lifecycle)) === t).length;
+  const tabs = K('tabs');
+  if (!tabs.children.length) tabs.innerHTML = [['active', 'Active PO'], ['completed', 'Completed PO'], ['cancelled', 'Cancelled PO']]
+    .map(([t, l]) => `<button class="tab" role="tab" data-act="tab" data-tab="${t}">${l}<span class="c"></span></button>`).join('');
+  [...tabs.children].forEach(b => { b.setAttribute('aria-selected', b.dataset.tab === S.tab); patch(b.querySelector('.c'), fmtN(count(b.dataset.tab)), animate); });
+}
+
+/* ---------- rows ---------- */
+/// Rows speak only when a save is not going normally (Retrying, Offline, Not
+/// sent); a save on its way is said once, in the head. `all` is for the sheet
+/// footer, where the missing buttons need the reason.
+function syncWord(o, asMain, all = false) {
+  const s = o.sync; if (!s || s.state === 'held') return '';
+  if (s.state === 'sending' && !all) return '';
+  const create = s.kind === 'create';
+  const [txt, cls] = {
+    sending: [create ? 'Sending' : 'Saving', 's-live'], retrying: ['Retrying', 's-live'],
+    offline: ['Offline', 's-off'], refused: [create ? 'Not sent' : s.note, 's-bad'],
+  }[s.state];
+  if (asMain && isPhone()) return `<span class="pill syncword ${cls}"><i class="dot"></i>${txt}</span>`;
+  return `<span class="syncword ${cls}${asMain ? ' word' : ''}"><i class="dot"></i>${txt}</span>`;
+}
+function stampHTML(o) {
+  return `<span class="stamp ${STAMP_TONE[o.lifecycle]}">${STATUS[o.lifecycle][0]}${o.finishedAt ? `<small>${dayMonth(o.finishedAt)}</small>` : ''}</span>`;
+}
+function mainStatus(o) {
+  if (o.local && o.sync?.state !== 'sending') return syncWord(o, true);
+  if (FINISHED.has(o.lifecycle)) return stampHTML(o);
+  if (o.review) return `<button class="btn rc" data-act="open">Review Count</button>`;
+  const [label, tone] = STATUS[o.lifecycle];
+  return isPhone() ? `<span class="pill t-${tone}">${label}</span>` : `<span class="word t-${tone}">${label}</span>`;
+}
+const overdue = o => isOpen(o) && o.delivery < TODAY && recOf(o) < qtyOf(o);
+function recHTML(o, phone) {
+  const r = recOf(o), q = qtyOf(o);
+  const plus = o.excess ? ` <span class="bad">(+${fmtN(o.excess)})</span>` : '';
+  if (phone) return r === 0 && !o.excess ? `<span class="sub">Received 0 pcs</span>`
+    : `<span class="sub">Received <span class="${r !== q ? 'bad' : ''}">${pcs(r)}</span>${plus}</span><div class="sub">${rp(recValOf(o))}</div>`;
+  if (r === 0 && !o.excess) return `<span class="mute fig2">0 pcs</span>`;
+  return `<div class="fig2 ${r !== q ? 'bad' : ''}">${pcs(r)}${plus}</div><div class="sub">${rp(recValOf(o))}</div>`;
+}
+/// The PO number, or — while the server is giving it — a loading bar in its
+/// place; offline or refused nothing is coming, so a dash.
+const numberComing = o => !o.po && ['sending', 'retrying'].includes(o.sync?.state);
+function numHTML(o, large) {
+  if (o.po) return `<span class="mono">${esc(o.po)}</span>`;
+  if (numberComing(o)) return `<span class="numsk${large ? ' lg' : ''}" role="status" aria-label="Loading PO number"></span>`;
+  return `<span class="mono">—</span>`;
+}
+function cells(o) {
+  const num = numHTML(o, false);
+  const marked = !!o.cue && still();
+  const dot = marked && S.cue === 'dot' ? `<i class="newdot" role="img" aria-label="${o.cue === 'new' ? 'New' : 'Updated'}"></i>` : '';
+  const pill = marked && (S.cue === 'label' || S.cue === 'both') ? `<span class="newpill">${o.cue === 'new' ? 'New' : 'Updated'}</span>` : '';
+  const sup = `<div class="supline">${dot}<div class="sup">${esc(o.supplier)}</div>${pill}</div>`;
+  if (isPhone()) return {
+    sup,
+    meta: `<div class="sub">${num} · ${items(o.lines.length)}</div><div class="sub${overdue(o) ? ' overdue' : ''}">${day(o.delivery)}</div>`,
+    lead: `<div class="big">${pcs(qtyOf(o))}</div><div class="sub">${rp(valOf(o))}</div>`,
+    rec: recHTML(o, true), st: mainStatus(o), ss: o.local ? '' : syncWord(o, false),
+  };
+  return {
+    po: `${sup}<div class="sub">${num} · ${items(o.lines.length)}</div>`,
+    del: `<span class="${overdue(o) ? 'overdue' : ''}">${day(o.delivery)}</span>`,
+    ord: `<div class="fig">${pcs(qtyOf(o))}</div><div class="sub">${rp(valOf(o))}</div>`,
+    rec: recHTML(o, false), st: mainStatus(o), ss: o.local ? '' : syncWord(o, false),
+  };
+}
+function makeRow(o) {
+  const w = document.createElement('div');
+  w.className = 'rowwrap'; w.dataset.id = o.id;
+  w.innerHTML = isPhone()
+    ? `<div class="row"><article class="card" data-row-id="${o.id}"><div class="c-head"><div class="c-left"><div data-c="sup"></div><div data-c="meta"></div></div><div class="c-lead" data-c="lead"></div></div><div class="c-foot"><div data-c="rec"></div><div class="c-right"><span data-c="ss"></span><span data-c="st"></span></div></div></article></div>`
+    : `<div class="row"><div class="tgrid trow" data-row-id="${o.id}"><div data-c="po"></div><div data-c="del"></div><div class="r" data-c="ord"></div><div class="r" data-c="rec"></div><div class="stc"><div data-c="st"></div><div data-c="ss"></div></div></div></div>`;
+  return w;
+}
+function patchRow(w, o, animate) {
+  const c = cells(o);
+  for (const [k, html] of Object.entries(c)) patch(w.querySelector(`[data-c="${k}"]`), html, animate);
+  const alert = o.sync?.state === 'refused' && o.local;
+  w.querySelector('.trow')?.classList.toggle('alert', alert);
+  w.querySelector('.c-foot')?.classList.toggle('alert', alert);
+  w.querySelector('.stc')?.classList.toggle('stamp-on', FINISHED.has(o.lifecycle) && !o.local);
+  w.querySelector('[data-row-id]').classList.toggle('is-new', !!o.cue && still() && (S.cue === 'bg' || S.cue === 'both'));
+}
+function syncList(animate) {
+  animate = animate && !still();
+  const list = K('list');
+  const want = orders.filter(o => tabOf(o) === S.tab);
+  const ids = new Set(want.map(o => o.id));
+  for (const w of [...list.children]) {
+    if (ids.has(w.dataset.id) || w.classList.contains('out')) continue;
+    rows.delete(w.dataset.id);
+    if (animate) { w.classList.add('out'); setTimeout(() => w.remove(), 260); } else w.remove();
+  }
+  let prev = null;
+  for (const o of want) {
+    let w = rows.get(o.id);
+    if (!w || !w.isConnected || w.classList.contains('out')) {
+      w = makeRow(o); patchRow(w, o, false); rows.set(o.id, w);
+      list.insertBefore(w, prev ? prev.nextSibling : list.firstChild);
+      if (animate) { w.classList.add('in'); void w.offsetHeight; w.classList.remove('in'); }
+    } else {
+      if ((prev ? prev.nextSibling : list.firstChild) !== w) list.insertBefore(w, prev ? prev.nextSibling : list.firstChild);
+      patchRow(w, o, animate);
+    }
+    prev = w;
+  }
+  const foot = K('tfoot');
+  if (foot) {
+    const q = want.reduce((s, o) => s + qtyOf(o), 0), v = want.reduce((s, o) => s + valOf(o), 0);
+    const r = want.reduce((s, o) => s + recOf(o), 0), rv = want.reduce((s, o) => s + recValOf(o), 0);
+    patch(foot, `<div>${fmtN(want.length)} orders</div><div></div><div class="r"><span class="fig">${pcs(q)}</span><span class="sub">${rp(v)}</span></div><div class="r"><span class="fig">${pcs(r)}</span><span class="sub">${rp(rv)}</span></div><div></div>`, false);
+  }
+}
+/// One order changed: its row, its open sheet, the head.
+function refresh(o, animate = true) {
+  const w = rows.get(o.id);
+  if (w && w.isConnected) patchRow(w, o, animate);
+  syncList(animate);
+  if (S.sheet?.id === o.id) renderSheet(animate);
+  renderHead(animate);
+}
+
+/* ---------- layers ---------- */
+function show(el, instant) {
+  el.hidden = false;
+  if (instant) el.classList.add('instant');
+  void el.offsetWidth; el.classList.add('on');
+  if (instant) requestAnimationFrame(() => requestAnimationFrame(() => el.classList.remove('instant')));
+}
+function hide(el, instant) {
+  if (instant) el.classList.add('instant');
+  el.classList.remove('on');
+  setTimeout(() => { if (!el.classList.contains('on')) el.hidden = true; el.classList.remove('instant'); }, instant ? 0 : 260);
+}
+function scrimTo(instant) {
+  const open = !!(S.sheet || S.form);
+  app.classList.toggle('layered', open);
+  const sc = K('scrim');
+  if (open && !sc.classList.contains('on')) show(sc, instant); else if (!open && sc.classList.contains('on')) hide(sc, instant);
+}
+
+/* ---------- order sheet ---------- */
+function openOrder(id, instant) {
+  const o = byId(id); if (!o) return;
+  for (const g of ['create', 'change']) if (refusals[g].delete(id)) sayRefusals(g);
+  if (o.cue) { o.cue = null; refresh(o, false); }
+  // Optimistic reads too: the list's orders are fetched in the background
+  // (procurement/prefetch.ts), so a sheet opens whole; today it waits.
+  S.sheet = { id, loading: !o.local && !S.cache.has(id) && S.mode === 'today' };
+  const el = K('osheet');
+  el.innerHTML = `<div class="sh-head"><div class="grow" style="min-width:0"><div class="sh-tl"><span class="sh-title" data-p="title"></span><span data-p="status"></span></div><div class="sh-sub" data-p="sub"></div></div>
+    <button class="btn outline sm" data-p="print">${ICON.print} Print ${ICON.chev}</button><button class="xbtn" data-act="close" aria-label="Close">${ICON.x}</button></div>
+    <div class="sh-body" data-p="body"></div><div class="sh-foot" data-p="foot"></div>`;
+  renderSheet(false);
+  show(el, instant); scrimTo();
+  if (S.sheet.loading) {
+    const sheet = S.sheet;
+    const read = () => setTimeout(() => {
+      if (S.net === 'offline') return whenOnline(read);
+      S.cache.add(id); if (S.sheet === sheet) { sheet.loading = false; renderSheet(true); }
+    }, ({ fast: 300, slow: 2200, flaky: 900, offline: 0 })[S.net]);
+    whenOnline(read);
+  }
+}
+function sheetActions(o) {
+  const s = o.sync;
+  if (o.local) {
+    if (s.state === 'offline' || s.state === 'refused')
+      return `<button class="btn outline danger-t" data-act="delete">Delete Order</button><span class="grow"></span><button class="btn primary" data-act="edit">Edit</button>`;
+    return `${syncWord(o, false, true)}`;
+  }
+  if (s && s.state !== 'refused') return `${syncWord(o, false, true)}`;
+  if (FINISHED.has(o.lifecycle)) return '';
+  const b = ['<span class="grow"></span>'];
+  if (o.lifecycle === 'PARTIALLY_RECEIVED') b.push(`<button class="btn outline" data-act="short">Close Short</button>`);
+  if (o.lifecycle === 'ACTIVE' && recOf(o) === 0) b.push(`<button class="btn outline" data-act="cancel">Cancel</button>`);
+  b.push(`<button class="btn primary" data-act="edit">Edit</button>`);
+  return b.join('');
+}
+function itemsHTML(o) {
+  const n = o.lines.length;
+  const recCell = l => l.rec === 0 ? '<span class="mute">—</span>' : `<span class="${l.rec !== l.qty ? 'bad' : ''}">${pcs(l.rec)}</span>`;
+  if (isPhone()) return `<div><div class="seclabel">Items (${n})</div><div class="itable">${o.lines.map(l => `<div class="icard">
+      <div class="iname" style="display:flex;gap:12px;align-items:center"><span class="thumb">${ICON.shirt(18)}</span><div><div class="nm">${esc(l.name)}</div><div class="sub">${esc(l.detail)}</div></div></div>
+      <div class="ln"><span>${pcs(l.qty)} · ${rp(l.price)} / pc</span><b>${rp(l.qty * l.price)}</b></div>
+      <div class="ln"><span>Received</span>${recCell(l)}</div></div>`).join('')}
+      <div class="icard" style="background:var(--soft)"><div class="ln"><b>Total · ${pcs(qtyOf(o))}</b><b>${rp(valOf(o))}</b></div></div></div></div>`;
+  return `<div><div class="seclabel">Items (${n})</div><div class="itable">
+    <div class="ig ihead"><div>Item</div><div class="r">Quantity</div><div class="r">Received</div><div class="r">Unit Price</div><div class="r">Amount</div></div>
+    ${o.lines.map(l => `<div class="ig irow"><div class="iname"><span class="thumb">${ICON.shirt(18)}</span><div style="min-width:0"><div class="nm">${esc(l.name)}</div><div class="sub">${esc(l.detail)}</div></div></div>
+      <div class="r num">${pcs(l.qty)}</div><div class="r num">${recCell(l)}</div><div class="r num">${rp(l.price)} / pc</div><div class="r num">${rp(l.qty * l.price)}</div></div>`).join('')}
+    <div class="ig itot"><div>Total</div><div class="r num">${pcs(qtyOf(o))}</div><div class="r num">${recOf(o) ? pcs(recOf(o)) : '—'}</div><div></div><div class="r num">${rp(valOf(o))}</div></div>
+  </div></div>`;
+}
+const skel = n => `<div class="skrows">${Array.from({ length: n }, (_, i) => `<div><div class="sk" style="width:${[46, 38, 52, 30, 44, 36, 50, 40][i % 8]}%"></div><span class="grow"></span><div class="sk" style="width:60px"></div><div class="sk" style="width:80px"></div></div>`).join('')}</div>`;
+function renderSheet(animate) {
+  const sh = S.sheet; if (!sh) return;
+  const o = byId(sh.id); const el = K('osheet');
+  if (!o) return;
+  const P = p => el.querySelector(`[data-p="${p}"]`);
+  // Today the sheet waits for the order's own read; optimistic draws what the
+  // list row already knows and only waits for the lines.
+  if (sh.loading && S.mode === 'today') {
+    patch(P('title'), 'Order', animate); patch(P('status'), '', animate); patch(P('sub'), '', animate);
+    patch(P('body'), skel(8), false); patch(P('foot'), '', false); P('print').hidden = true;
+    return;
+  }
+  P('print').hidden = !o.po;
+  patch(P('title'), o.po || numberComing(o) ? numHTML(o, true).replace('class="mono"', 'class=""') : esc(o.supplier), animate);
+  let status = '';
+  if (o.local && o.sync?.state !== 'sending') status = syncWord(o, true).replace('syncword', 'pill syncword').replace(' word', '');
+  else if (FINISHED.has(o.lifecycle)) status = stampHTML(o);
+  else { const [label, tone] = STATUS[o.lifecycle]; status = `<span class="pill t-${tone}">${label}</span>`; }
+  patch(P('status'), status, animate);
+  patch(P('sub'), o.local ? `Made ${day(o.issued)}, ${o.madeAt}` : `Created by ${o.by} · ${day(o.issued)}`, animate);
+  let banner = '';
+  const s = o.sync;
+  if (s?.state === 'refused') banner = o.local
+    ? `<div class="banner bad">The order was not accepted: ${esc(s.msg)} Edit it and submit again.</div>`
+    : `<div class="banner bad">${s.note}: ${esc(s.msg)}</div>`;
+  else if (s?.state === 'offline') banner = `<div class="banner warn">${o.local ? 'This order is on this device. It will be sent by itself when you are back online.' : 'This change is on this device. It will be sent by itself when you are back online.'}</div>`;
+  const facts = `<dl class="facts"><div><dt>Supplier</dt><dd>${esc(o.supplier)}</dd></div><div><dt>Delivery Date</dt><dd>${day(o.delivery)}</dd></div>
+    <div><dt>Payment Terms</dt><dd>${o.terms}</dd></div><div><dt>Payment Method</dt><dd>${o.method}</dd></div></dl>`;
+  const lines = sh.loading ? `<div><div class="seclabel">Items</div>${skel(Math.max(2, o.lines.length + 1))}</div>` : itemsHTML(o);
+  patch(P('body'), banner + facts + lines, animate && !banner);
+  patch(P('foot'), sheetActions(o), animate);
+}
+function closeSheet(instant) {
+  const sh = S.sheet; if (!sh) return;
+  S.sheet = null;
+  hide(K('osheet'), instant); scrimTo();
+  const o = byId(sh.id);
+  if (o) {
+    // A refused change has been read; the row stops saying it.
+    if (o.sync?.state === 'refused' && !o.local) { o.sync = null; }
+    if (o.release) { delete o.release; delete o.stay; }
+    refresh(o);
+  }
+}
+
+/* ---------- order form (New PO / Edit) ---------- */
+function presetDraft() {
+  const p = PRESETS[presetAt++ % PRESETS.length];
+  return { supplier: p.supplier, delivery: p.delivery, terms: p.terms, method: p.method, lines: p.lines.map(([k, q, pr]) => L(k, q, pr)) };
+}
+const draftOf = o => ({ supplier: o.supplier, delivery: o.delivery, terms: o.terms, method: o.method, lines: clone(o.lines) });
+function openForm({ mode, orderId = null, draft = null, resume = false }, instant) {
+  const o = orderId ? byId(orderId) : null;
+  const base = draft ? clone(draft) : mode === 'new' ? presetDraft() : draftOf(o);
+  S.form = { mode, orderId, resume, ...base, error: '' };
+  if (S.sheet) closeSheet(true);
+  const el = K('fsheet');
+  const opts = (list, v) => list.map(x => `<option${x === v ? ' selected' : ''}>${esc(x)}</option>`).join('');
+  const title = mode === 'new' ? 'New PO' : `Edit ${o.po}`;
+  el.innerHTML = `<div class="sh-head"><span class="sh-title grow">${title}</span><button class="xbtn" data-act="close" aria-label="Close">${ICON.x}</button></div>
+    <div class="sh-body">
+      <div data-p="error"></div>
+      <div class="fgrid">
+        <label class="field"><span class="flabel">Supplier<b>*</b></span><select class="control" data-f="supplier"${mode === 'edit' ? ' disabled' : ''}>${opts(SUPPLIERS, S.form.supplier)}</select></label>
+        <label class="field"><span class="flabel">Delivery Date<b>*</b></span><input class="control" type="date" data-f="delivery" value="${S.form.delivery}"></label>
+        <label class="field"><span class="flabel">Payment Terms</span><select class="control" data-f="terms">${opts(TERMS, S.form.terms)}</select></label>
+        <label class="field"><span class="flabel">Payment Method<b>*</b></span><select class="control" data-f="method">${opts(METHODS, S.form.method)}</select></label>
+      </div>
+      <div class="sec"><h3>Items</h3><button class="btn outline sm" data-act="addline">${ICON.plusS} New item</button></div>
+      <div class="itable" data-p="lines"></div>
+    </div>
+    <div class="sh-foot"><span class="grow"></span><button class="btn outline" data-act="close">Cancel</button><button class="btn primary" data-act="submit">${mode === 'new' ? 'Submit' : 'Update'}</button></div>`;
+  renderLines();
+  show(el, instant); scrimTo();
+}
+function renderLines() {
+  const f = S.form, box = K('fsheet').querySelector('[data-p="lines"]');
+  const qty = l => `<div class="qty"><input class="control" inputmode="numeric" data-q="${l.key}" value="${l.qty}"><span>pcs</span></div>`;
+  const total = `<span data-p="ftotal">${pcs(f.lines.reduce((s, l) => s + (+l.qty || 0), 0))} · ${rp(f.lines.reduce((s, l) => s + (+l.qty || 0) * l.price, 0))}</span>`;
+  box.innerHTML = isPhone()
+    ? f.lines.map(l => `<div class="lcard"><div class="top"><div><div class="nm">${esc(l.name)}</div><div class="sub">${esc(l.detail)} · ${rp(l.price)} / pc</div></div><button class="rm" data-act="rmline" data-key="${l.key}" aria-label="Remove">${ICON.xs}</button></div>${qty(l)}<div class="icard" style="padding:0;border:0"><div class="ln"><span>Amount</span><b data-amt="${l.key}">${rp((+l.qty || 0) * l.price)}</b></div></div></div>`).join('')
+      + `<div class="lcard" style="background:var(--soft)"><div class="icard" style="padding:0;border:0"><div class="ln"><b>Total</b><b>${total}</b></div></div></div>`
+    : `<div class="lg ihead"><div>Item</div><div class="r">Quantity</div><div class="r">Unit Price</div><div class="r">Amount</div><div></div></div>`
+      + f.lines.map(l => `<div class="lg irow"><div class="iname"><span class="thumb">${ICON.shirt(18)}</span><div style="min-width:0"><div class="nm">${esc(l.name)}</div><div class="sub">${esc(l.detail)}</div></div></div>
+        <div>${qty(l)}</div><div class="r num">${rp(l.price)}</div><div class="r num" data-amt="${l.key}">${rp((+l.qty || 0) * l.price)}</div><div><button class="rm" data-act="rmline" data-key="${l.key}" aria-label="Remove">${ICON.xs}</button></div></div>`).join('')
+      + `<div class="lg itot"><div>Total</div><div class="r" style="grid-column:2 / span 3">${total}</div><div></div></div>`;
+}
+function updateTotals() {
+  const f = S.form, el = K('fsheet');
+  f.lines.forEach(l => { const a = el.querySelector(`[data-amt="${l.key}"]`); if (a) a.textContent = rp((+l.qty || 0) * l.price); });
+  const t = el.querySelector('[data-p="ftotal"]');
+  if (t) t.textContent = `${pcs(f.lines.reduce((s, l) => s + (+l.qty || 0), 0))} · ${rp(f.lines.reduce((s, l) => s + (+l.qty || 0) * l.price, 0))}`;
+}
+function closeForm(instant) { if (!S.form) return; S.form = null; hide(K('fsheet'), instant); scrimTo(instant); }
+function formError(msg) { patch(K('fsheet').querySelector('[data-p="error"]'), msg ? `<div class="banner bad">${esc(msg)}</div>` : '', true); }
+function draftFromForm() {
+  const f = S.form;
+  return { supplier: f.supplier, delivery: f.delivery, terms: f.terms, method: f.method, lines: clone(f.lines.filter(l => +l.qty > 0).map(l => ({ ...l, qty: +l.qty }))) };
+}
+function setBtn(btn, state, label) {
+  btn.disabled = state !== 'idle';
+  btn.setAttribute('aria-busy', state === 'pending');
+  btn.classList.toggle('said', state === 'said');
+  patch(btn, state === 'pending' ? `<i class="spin"></i>${label}` : state === 'said' ? `${ICON.check}${label}` : label, true);
+}
+
+async function submit(btn) {
+  const f = S.form;
+  const d = draftFromForm();
+  if (d.lines.length === 0) return formError('Add at least one item with a quantity.');
+  formError('');
+  if (f.mode === 'new') return S.mode === 'optimistic' ? createNow(d, btn) : createToday(d, btn);
+  return S.mode === 'optimistic' ? editNow(f.orderId, d, btn) : editToday(f.orderId, d, btn);
+}
+function newOrder(d) {
+  return ORDER({ po: null, local: true, supplier: d.supplier, issued: TODAY, delivery: d.delivery, terms: d.terms, method: d.method, lifecycle: 'ACTIVE', lines: d.lines, madeAt: clock(), draft: d });
+}
+function insertOrder(o) {
+  const at = orders.findIndex(x => !x.review);
+  orders.splice(at < 0 ? 0 : at, 0, o);
+}
+function toActiveTab() { if (S.tab !== 'active') { S.tab = 'active'; syncList(false); } }
+
+/* -- optimistic: the screen changes now; the outbox tells the server -- */
+function createNow(d, btn) {
+  const resume = S.form.resume ? byId(S.form.orderId) : null;
+  let o;
+  if (resume) { dropJobs(resume.id); Object.assign(resume, newOrder(d), { id: resume.id }); o = resume; orders = orders.filter(x => x !== o); }
+  else o = newOrder(d);
+  // Newest first, above everything, whatever the list was showing.
+  orders.unshift(o);
+  o.cue = 'new';
+  o.sync = { kind: 'create', state: 'sending' };
+  closeForm(true);
+  toActiveTab();
+  syncList(false); renderHead(false);
+  scroller().scrollTop = 0;
+  enqueue({ kind: 'create', orderId: o.id });
+}
+function editNow(id, d, btn) {
+  const o = byId(id);
+  const before = { lines: clone(o.lines), delivery: o.delivery, terms: o.terms, method: o.method };
+  Object.assign(o, { lines: d.lines, delivery: d.delivery, terms: d.terms, method: d.method });
+  o.sync = { kind: 'edit', state: 'sending' };
+  if (o.cue !== 'new') o.cue = 'updated';
+  if (S.updPos === 'top') { orders = orders.filter(x => x !== o); orders.unshift(o); }
+  closeForm(true);
+  refresh(o, false);
+  if (S.updPos === 'top') scroller().scrollTop = 0;
+  enqueue({ kind: 'edit', orderId: o.id, before, after: d });
+}
+function finishNow(kind, id, reason) {
+  const o = byId(id);
+  const before = { lifecycle: o.lifecycle, finishedAt: o.finishedAt, lines: clone(o.lines) };
+  o.lifecycle = kind === 'cancel' ? 'CANCELLED' : 'SHORT_RECEIVED';
+  o.finishedAt = TODAY; o.stay = 'active';
+  return before;
+}
+function cancelNow(kind, id, reason) {
+  const o = byId(id);
+  const before = finishNow(kind, id, reason);
+  if (kind === 'cancel' && S.cancelStyle === 'undo') {
+    // Nothing is sent while the toast can still take it back.
+    o.sync = { kind, state: 'held' };
+    const job = { kind, orderId: id, before, state: 'held' };
+    enqueue(job);
+    job.wid = wireAdd(`Cancel ${o.po}`, 'held');
+    refresh(o);
+    const t = toast({ title: `${o.po} cancelled`, duration: 10000, onClose: () => heldToasts.delete(t), action: { label: 'Undo', onClick: () => {
+      if (job.state !== 'held') return;
+      jobs.splice(jobs.indexOf(job), 1); wireDone(job.wid);
+      Object.assign(o, clone(before)); delete o.stay; o.sync = null; refresh(o);
+    } }, onExpire: () => { if (job.state === 'held') { job.state = 'queued'; pump(); } } });
+    heldToasts.add(t);
+    return;
+  }
+  o.sync = { kind, state: 'sending' };
+  refresh(o);
+  enqueue({ kind, orderId: id, before });
+}
+
+/* -- today: the button waits, says it, then the sheet closes -- */
+async function createToday(d, btn) {
+  const resume = S.form.resume ? byId(S.form.orderId) : null;
+  if (S.net === 'offline') {
+    // Today's offline order: kept on the device, sent by the outbox later.
+    let o;
+    if (resume) { dropJobs(resume.id); Object.assign(resume, newOrder(d), { id: resume.id }); o = resume; }
+    else { o = newOrder(d); insertOrder(o); }
+    o.sync = { kind: 'create', state: 'offline' };
+    closeForm(); toActiveTab(); syncList(true); renderHead(true);
+    toast({ title: 'Saved on this device. It will be sent when you are back online.' });
+    enqueue({ kind: 'create', orderId: o.id });
+    return;
+  }
+  setBtn(btn, 'pending', 'Submitting…');
+  try { await call('Create order', REFUSE.create({ supplier: d.supplier })); }
+  catch (e) { setBtn(btn, 'idle', 'Submit'); return formError(e.message.startsWith('Could') ? e.message : `The order was not accepted: ${e.message}`); }
+  setBtn(btn, 'said', 'Created');
+  await wait(650);
+  const from = btn.getBoundingClientRect();
+  const o = newOrder(d); o.local = false; o.po = nextPo(); o.draft = null;
+  if (resume) { dropJobs(resume.id); orders = orders.filter(x => x !== resume); }
+  closeForm(); insertOrder(o); toActiveTab(); syncList(false); renderHead(true);
+  await flyPill(from, o.id, o.po);
+  toast({ title: `${o.po} created`, desc: `${o.supplier} · ${rp(valOf(o))}`, action: { label: 'View', onClick: () => openOrder(o.id) } });
+}
+async function editToday(id, d, btn) {
+  const o = byId(id);
+  setBtn(btn, 'pending', 'Updating…');
+  try { await call(`Update ${o.po}`, cap(REFUSE.edit(o)), { pausable: false }); }
+  catch (e) { setBtn(btn, 'idle', 'Update'); return formError(e.message); }
+  setBtn(btn, 'said', 'Updated');
+  await wait(650);
+  const from = btn.getBoundingClientRect();
+  Object.assign(o, { lines: d.lines, delivery: d.delivery, terms: d.terms, method: d.method });
+  closeForm(); refresh(o, false);
+  await flyPill(from, o.id, o.po);
+  toast({ title: `${o.po} updated`, desc: `${o.supplier} · ${rp(valOf(o))}`, action: { label: 'View', onClick: () => openOrder(o.id) } });
+}
+
+/* ---------- confirm dialog ---------- */
+function openConfirm(kind) {
+  const o = byId(S.sheet.id);
+  const owed = o.lines.reduce((s, l) => s + Math.max(0, l.qty - l.rec), 0);
+  const cfg = {
+    cancel: { title: `Cancel ${o.po}?`, desc: 'The warehouse will stop receiving against this order. It stays on record as cancelled.', go: 'Cancel Order', reason: 'Reason for Cancelling' },
+    short: { title: 'Close This Short?', desc: `${pcs(owed)} will be removed from the order, and the PO completes as received. This can't be undone.`, go: 'Close Short', reason: 'Reason for Closing' },
+    delete: { title: 'Delete This Order?', desc: 'It has not been sent, so it exists only on this device. Nothing else holds it.', go: 'Delete Order' },
+  }[kind];
+  S.dlg = { kind, id: o.id };
+  const el = K('dlg');
+  el.innerHTML = `<div class="dlg-b"><div class="dlg-t">${esc(cfg.title)}</div><div class="dlg-d">${esc(cfg.desc)}</div>
+    ${cfg.reason ? `<label class="field"><span class="flabel">${cfg.reason}<span class="optional">Optional</span></span><input class="control" data-reason></label>` : ''}
+    <div class="dlg-e" data-p="err"></div></div>
+    <div class="dlg-f"><button class="btn outline" data-act="dlg-keep">Keep Order</button><button class="btn danger" data-act="dlg-go">${cfg.go}</button></div>`;
+  el._go = cfg.go;
+  show(K('dscrim')); show(el);
+}
+function closeDialog(instant) { if (!S.dlg) return; S.dlg = null; hide(K('dlg'), instant); hide(K('dscrim'), instant); }
+async function confirmDialog(btn) {
+  const { kind, id } = S.dlg;
+  const o = byId(id);
+  const reason = K('dlg').querySelector('[data-reason]')?.value ?? '';
+  if (kind === 'delete') {
+    dropJobs(id);
+    orders = orders.filter(x => x.id !== id);
+    closeDialog(); closeSheet(); syncList(true); renderHead(true);
+    return;
+  }
+  if (S.mode === 'optimistic') { closeDialog(true); cancelNow(kind, id, reason); return; }
+  // Today: the dialog holds until the server answers; offline it waits for the connection.
+  const label = kind === 'cancel' ? `Cancel ${o.po}` : `Close short ${o.po}`;
+  setBtn(btn, 'pending', K('dlg')._go);
+  K('dlg').querySelector('[data-act="dlg-keep"]').disabled = true;
+  try { await call(label, cap(REFUSE[kind](o)), { pausable: true }); }
+  catch (e) {
+    setBtn(btn, 'idle', K('dlg')._go); K('dlg').querySelector('[data-act="dlg-keep"]').disabled = false;
+    patch(K('dlg').querySelector('[data-p="err"]'), esc(e.message), true); return;
+  }
+  closeDialog();
+  finishNow(kind, id, reason);
+  if (S.sheet?.id === id) o.release = true; else delete o.stay;
+  refresh(o);
+  toast({ title: kind === 'cancel' ? `${o.po} cancelled` : `${o.po} closed short` });
+}
+
+/// A held cancel is not left to a page that may be put away: when the tab is
+/// hidden (phone locked, app switched) it goes at once, and the outbox picks
+/// up again the moment the page is back.
+const heldToasts = new Set();
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) [...heldToasts].forEach(t => t.dismiss(true));
+  else pump();
+});
+
+/* ---------- actions ---------- */
+function cancelPressed() {
+  if (S.mode === 'optimistic' && S.cancelStyle === 'undo') { cancelNow('cancel', S.sheet.id, ''); return; }
+  openConfirm('cancel');
+}
+function editPressed() {
+  const o = byId(S.sheet.id);
+  if (o.local) return openForm({ mode: 'new', orderId: o.id, draft: o.draft, resume: true });
+  openForm({ mode: 'edit', orderId: o.id, draft: o.sync?.state === 'refused' ? o.sync.draft : null });
+}
+function closeTop(instant) {
+  if (S.dlg) return closeDialog(instant);
+  if (S.form) return closeForm(instant);
+  if (S.sheet) return closeSheet(instant);
+}
+app.addEventListener('click', e => {
+  const a = e.target.closest('[data-act]');
+  if (a) {
+    const act = a.dataset.act;
+    if (act === 'new') openForm({ mode: 'new' });
+    else if (act === 'close' || act === 'scrim') closeTop();
+    else if (act === 'submit') submit(a);
+    else if (act === 'addline') { const k = Object.keys(ITEMS)[Math.floor(Math.random() * 7)]; S.form.lines.push(L(k, 50, [35000, 65000, 95000, 120000][seq % 4])); renderLines(); }
+    else if (act === 'rmline') { S.form.lines = S.form.lines.filter(l => l.key !== a.dataset.key); renderLines(); }
+    else if (act === 'edit') editPressed();
+    else if (act === 'cancel') cancelPressed();
+    else if (act === 'short') openConfirm('short');
+    else if (act === 'delete') openConfirm('delete');
+    else if (act === 'dlg-keep') closeDialog();
+    else if (act === 'dlg-go') confirmDialog(a);
+    else if (act === 'open') openOrder(a.closest('[data-row-id]').dataset.rowId);
+    else if (act === 'tab') { S.tab = a.dataset.tab; renderHead(false); syncList(false); }
+    else if (act === 'sync') { const o = orders.find(x => x.sync?.state === 'refused'); if (o) { if (tabOf(o) !== S.tab) { S.tab = tabOf(o); renderHead(false); syncList(false); } openOrder(o.id); } }
+    return;
+  }
+  const row = e.target.closest('[data-row-id]');
+  if (row) openOrder(row.dataset.rowId);
+});
+app.addEventListener('input', e => {
+  if (!S.form) return;
+  const q = e.target.dataset.q;
+  if (q) { const l = S.form.lines.find(x => x.key === q); l.qty = e.target.value.replace(/\D/g, ''); e.target.value = l.qty; updateTotals(); return; }
+  const f = e.target.dataset.f; if (f) S.form[f] = e.target.value;
+});
+app.addEventListener('change', e => { const f = e.target.dataset?.f; if (f && S.form) S.form[f] = e.target.value; });
+// Keyboard acts at once: no animation on N or Esc.
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { closeTop(true); return; }
+  if (e.target.closest('input,select,textarea')) return;
+  if ((e.key === 'n' || e.key === 'N') && !S.form && !S.dlg && !e.metaKey && !e.ctrlKey) { e.preventDefault(); openForm({ mode: 'new' }, true); }
+});
+
+/* ---------- shell ---------- */
+function build() {
+  rows.clear(); S.sheet = null; S.form = null; S.dlg = null;
+  app.className = 'app ' + S.device;
+  document.getElementById('stage').className = 'stage ' + S.device;
+  const layers = `<div class="scrim" data-k="scrim" data-act="scrim" hidden></div><section class="sheet" data-k="osheet" role="dialog" hidden></section>
+    <section class="sheet form" data-k="fsheet" role="dialog" hidden></section><div class="dscrim" data-k="dscrim" data-act="dlg-keep" hidden></div>
+    <div class="dlg" data-k="dlg" role="alertdialog" hidden></div><div class="toasts" data-k="toasts"></div>`;
+  app.innerHTML = isPhone() ? `
+    <header class="ptop"><span class="crumb">Procurement</span><span class="sep">/</span><span>Purchase Orders</span>${ICON.chev}</header>
+    <div class="pscroll" data-k="scroll"><div class="sync" data-k="sync"></div><div class="kpis" data-k="kpis"></div><div class="tabs" data-k="tabs" role="tablist"></div><div class="cards" data-k="list"></div></div>
+    <div class="dock"><span class="dsearch">${ICON.search}Search orders</span><button class="fab" data-act="new" aria-label="New order">${ICON.plus}</button></div>${layers}` : `
+    <nav class="rail"><div class="logo">C<i></i></div><span class="ic on">${ICON.cart}</span><span class="ic">${ICON.shirt(18)}</span><span class="ic">${ICON.box}</span><span class="ic">${ICON.store}</span><span class="ic">${ICON.bank}</span><span class="ic">${ICON.users}</span></nav>
+    <nav class="dept"><div class="dept-head">Procurement</div><div class="dept-nav"><a class="on">Purchase Orders<span class="cnt">2</span></a><a>Suppliers</a><a>Sourcing</a><a>Return PO<span class="cnt">2</span></a></div></nav>
+    <main class="main">
+      <div class="head"><div><div class="title">Purchase Orders</div><div class="sync" data-k="sync"></div></div><div class="kpis" data-k="kpis"></div></div>
+      <div class="tabs" data-k="tabs" role="tablist"></div>
+      <div class="toolbar"><span class="input search">${ICON.search}Search orders</span><span class="input date">Issued ${ICON.cal}</span><span class="input date">Delivery date ${ICON.cal}</span><span class="grow"></span>
+        <button class="btn ghost">${ICON.cols} Columns</button><button class="btn primary" data-act="new">New order</button></div>
+      <div class="tcard"><div class="tgrid thead"><div>PO</div><div>Delivery Date</div><div class="r">Ordered</div><div class="r">Received</div><div>Status</div></div>
+        <div data-k="list"></div><div class="tgrid tfoot" data-k="tfoot"></div></div>
+    </main>${layers}`;
+  renderHead(false); syncList(false);
+}
+
+/* ---------- prototype bar ---------- */
+function paintBar() {
+  document.querySelectorAll('.seg').forEach(seg => seg.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', S[seg.dataset.set] === b.dataset.val)));
+  document.getElementById('cancelGrp').style.opacity = S.mode === 'optimistic' ? 1 : .45;
+  document.getElementById('cueGrp').style.opacity = S.mode === 'optimistic' ? 1 : .45;
+  document.getElementById('updGrp').style.opacity = S.mode === 'optimistic' ? 1 : .45;
+  document.getElementById('deviceGrp').hidden = forcedPhone;
+  document.documentElement.style.setProperty('--pbar-h', document.getElementById('pbar').offsetHeight + 'px');
+}
+document.getElementById('pbar').addEventListener('click', e => {
+  const b = e.target.closest('.seg button'); if (!b) return;
+  const key = b.closest('.seg').dataset.set, val = b.dataset.val;
+  if (S[key] === val) return;
+  const was = S[key]; S[key] = val; paintBar();
+  if (key === 'device') build();
+  if (key === 'mode') { renderHead(false); syncList(false); if (S.sheet) renderSheet(false); }
+  if (key === 'cue') syncList(false);
+  if (key === 'net') { if (was === 'offline') wentOnline(); pump(); }
+});
+addEventListener('resize', paintBar);
+paintBar(); renderWire(); build();
+</script>
+</body>
+</html>

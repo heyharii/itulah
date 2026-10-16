@@ -1,16 +1,21 @@
 import { Dialog } from "@base-ui/react/dialog"
 import { Drawer } from "@base-ui/react/drawer"
 import { Menu } from "@base-ui/react/menu"
+import { useRouterState } from "@tanstack/react-router"
 import { ChevronLeft, MoreHorizontal, X } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useEffect, useRef } from "react"
 
+import { Button } from "@/components/ui/button"
 import { button } from "@/components/ui/button-style"
 import { useDirtyGuard } from "@/components/ui/dirty-guard"
 import { RecordPanel } from "@/components/ui/record-panel"
 import { ITEM, POPUP, POSITIONER } from "@/lib/filter-chrome"
 import { useLayout, useRecordBeside } from "@/lib/layout"
+import { screenForPath } from "@/lib/navigation"
 import { useSheetSpace } from "@/lib/sheet-space"
+import { useSheetLayer } from "@/lib/sheet-stack"
 import { cn } from "@/lib/utils"
+import { isWhiteLook } from "@/lib/look"
 
 /// # The record sheet — ONE anatomy
 ///
@@ -91,15 +96,13 @@ import { cn } from "@/lib/utils"
 ///    a `MiniTable` (it stacks on a phone) or a list. Order: Items → Totals →
 ///    Timeline → Notes. No `Card` inside a sheet: the sheet is the card.
 ///
-/// ## Tabs — one mechanism: the `tabs` prop
+/// ## Sections, never tabs — the `tabs` prop
 ///
-/// Only when the record answers more than one question; they wrap on a phone,
-/// never scroll sideways. A tab that is a grid says so with its own `size`
-/// (`{ value: "skus", size: "table" }`) and the sheet widens for it. A sheet
-/// with a `subject` gets **Activity** appended
-/// as the last tab — open on the trail, nothing to unfold. (It was "Comments"
-/// over a closed fold: nothing could post a comment.) No `subject` + no tabs:
-/// an "Activity (n)" line at the end of the body.
+/// No tabs in a record or a form (owner, 14 Oct 2026). A record that has more
+/// than one thing to say passes `tabs` and they are drawn as ONE scroll: the
+/// first as the record's body, the rest each under its name, then the
+/// record's Activity. A section that is a grid says so with its own `size`
+/// and the sheet takes the widest. `tab` scrolls to a section.
 ///
 /// ## Foot — the only home of actions; the same on every width
 ///
@@ -162,9 +165,19 @@ export interface SheetMoreItem {
 /// what `width` always meant.
 const SIZE: Readonly<Record<SheetSize, string>> = {
   rail: "md:w-[clamp(27.5rem,40vw,30rem)]",
-  wide: "md:w-[clamp(27.5rem,72vw,56rem)]",
+  // The record sheet of hub-ui-patterns (14 Oct): 960, 1040 from 1440, all
+  // but 80px of a tablet.
+  wide: "md:w-[calc(100vw-5rem)] xl:w-[min(60rem,calc(100vw-18.75rem))] min-[90rem]:w-[min(65rem,calc(100vw-22.5rem))]",
   table: "md:w-[clamp(27.5rem,92vw,64rem)]",
   workspace: "md:w-[clamp(27.5rem,96vw,84rem)]",
+}
+
+/// The sizes, narrowest first.
+const RANK: Readonly<Record<SheetSize, number>> = {
+  rail: 0,
+  wide: 1,
+  table: 2,
+  workspace: 3,
 }
 
 /// What a sheet that declares no size gets: the panel it always was, 760px at
@@ -176,8 +189,11 @@ export function Sheet({
   onOpenChange,
   title,
   id,
+  context,
+  swap = false,
   caption,
   badge,
+  figures,
   back,
   closeAs = "x",
   print,
@@ -185,9 +201,10 @@ export function Sheet({
   actions,
   subject,
   footer,
+  noFoot = false,
+  media,
   tabs,
   tab: shown,
-  onTabChange,
   size,
   width,
   stack = false,
@@ -201,8 +218,16 @@ export function Sheet({
   onOpenChange: (open: boolean, reason?: SheetCloseReason) => void
   /// The record's own name. Two lines on a phone before it truncates.
   title: React.ReactNode
-  /// The business number, mono, above the title.
+  /// The business number, above the title, after where the record sits.
   id?: React.ReactNode
+  /// Where the record sits, before its number — "Purchase Orders / PO-…"
+  /// (hub-ui-patterns). Left out, it is the screen the sheet opened on; a
+  /// press on it goes back there. `false` says nothing.
+  context?: React.ReactNode | false
+  /// A MODE, not a layer: this sheet takes the place of the one under it —
+  /// Edit over a record — so it neither slides in nor dims anything: the
+  /// frame stays and its contents change, fading out and in.
+  swap?: boolean
   /// One quiet line under the title: provenance — who raised it, on what day.
   /// Its own slot rather than another `badge`, because a badge competes with
   /// the title for the width a long name needs.
@@ -211,6 +236,9 @@ export function Sheet({
   /// rather than the body because it is read before anything else and does not
   /// belong to any one section. Right of the title; under it on a phone.
   badge?: React.ReactNode
+  /// The record's headline figures as one box (a `KpiBox`), between the title
+  /// and the printer. A phone puts it on a line of its own under the title.
+  figures?: React.ReactNode
   /// A nested record's way back: "‹ Back to {label}".
   back?: { readonly label: React.ReactNode; readonly onClick: () => void }
   /// What the close control is. `back` puts a ‹ Back at the left of the title
@@ -240,6 +268,13 @@ export function Sheet({
   /// The foot: a `SheetFooter` (or, for a sheet that still draws its own, any
   /// node — the band, the rule and the button heights are the sheet's).
   footer?: React.ReactNode
+  /// The body draws its own action bar (a form whose Submit must stay inside
+  /// the <form>): no automatic "Close" foot under it — two foots read as two
+  /// sheets (owner, 2026-10-15, New Articles).
+  noFoot?: boolean
+  /// The record's picture, 64px, at the left of the crumb and title — an
+  /// article's head reads like a PO's with its photo (owner, 2026-10-15).
+  media?: React.ReactNode
   /// The record's sections, when it has more than one thing to say.
   ///
   /// The strip sits between the head and the body, outside the scroll, so the
@@ -267,53 +302,52 @@ export function Sheet({
   /// Only for what the sheet cannot say with the props — never a width.
   className?: string
 }) {
-  // Which section is showing. Kept here rather than by the caller because the
-  // caller would have to reset it every time a different record opens in the
-  // same sheet — the tab you left on the last order is not a question you are
-  // still asking about this one.
-  const [own, setOwn] = useState<string | null>(null)
-  const tab = shown !== undefined ? shown : own
-  const setTab = (value: string) => {
-    setOwn(value)
-    onTabChange?.(value)
-  }
-  // A different record opens on its first section. The identifier is what says
-  // "different" — the sheet stays mounted while the list swaps records under
-  // it, so nothing else would fire.
-  useEffect(() => setOwn(null), [id, open])
-  const sections: readonly SheetTab[] | null = tabs
-    ? [
-        ...tabs,
-        ...(subject
-          ? [
-              {
-                value: "__activity",
-                // "Activity", and open: the tab is named for what it holds.
-                // It was "Comments" over a closed fold, and nothing in the
-                // app could post a comment.
-                label: "Activity",
-                content: <RecordPanel subject={subject} expanded />,
-              },
-            ]
-          : []),
-      ]
-    : null
-  const here = sections?.find((s) => s.value === tab) ?? sections?.[0] ?? null
-  const sectionSize = here?.size
+  // No tabs in a record or a form (owner, 14 Oct: "ga semuanya tabs ya,
+  // jelek … di detail dan form jangan pake tabs"; hub-ui-patterns, one
+  // format): a sheet given `tabs` draws them as ONE scroll of sections — the
+  // first is the record's body, the rest stand under their names — with the
+  // record's Activity at the end, as a record without tabs has it. Asked for
+  // one (`tab`), the sheet scrolls to it.
+  const sections: readonly SheetTab[] | null = tabs ?? null
+  // The widest any section needs: a record whose SKUs are a grid is as wide
+  // as the grid.
+  const sectionSize = sections?.reduce<SheetSize | undefined>(
+    (widest, section) =>
+      section.size === undefined
+        ? widest
+        : widest === undefined || RANK[section.size] > RANK[widest]
+          ? section.size
+          : widest,
+    undefined
+  )
+  const sectionsBody = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open || shown == null) return
+    sectionsBody.current
+      ?.querySelector(`[data-section="${CSS.escape(shown)}"]`)
+      ?.scrollIntoView({ block: "start" })
+  }, [open, shown])
   const kind: SheetSize = sectionSize ?? size ?? width ?? "rail"
   const unsized =
     sectionSize === undefined &&
     size === undefined &&
     (width === undefined || width === "rail")
-  const beside = useRecordBeside() && kind === "rail"
   const phone = useLayout() === "phone"
+  // A rail stands beside the list on a wide monitor — unless it was opened
+  // from another sheet, when it is a layer over it (`lib/sheet-stack.ts`).
+  const besideable = useRecordBeside() && kind === "rail"
+  const layer = useSheetLayer(open && !phone, swap, besideable)
+  const beside = layer.beside
+  const pathname = useRouterState({ select: (state) => state.location.pathname })
+  const where =
+    context === false ? null : (context ?? screenForPath(pathname)?.label)
   // Claimed by a rail for as long as it is on screen, at every window width:
   // the shell is the one that decides what to do about it, and only the
   // monitor does anything. A wide sheet claims nothing — it never stands
   // beside the page, so a column reserved for it would be a strip of empty
   // canvas next to a veil. See `lib/sheet-space.ts` for why the panel is asked
   // rather than the URL read.
-  useSheetSpace(open && kind === "rail")
+  useSheetSpace(open && kind === "rail" && (layer.beside || !besideable))
 
   // ×, Esc, a swipe down and the veil all arrive here as `open = false`.
   const guard = useDirtyGuard(dirty && open)
@@ -328,7 +362,11 @@ export function Sheet({
 
   // A phone has no room for a row of header buttons under the title, so the
   // deprecated `actions` go to the foot instead.
-  const lifted = phone && Boolean(actions)
+  // In the All white look the desk does the same (owner, 2026-10-12): every
+  // record's verbs live in its foot, one row, so no sheet carries a row of
+  // words beside its title.
+  const deskFoot = !phone && isWhiteLook()
+  const lifted = (phone || deskFoot) && Boolean(actions)
 
   /// What the sheet holds — head, tabs, body, foot — drawn by either shell:
   /// the desk's Dialog or the phone's Drawer, whose Title and Close parts are
@@ -340,10 +378,9 @@ export function Sheet({
     <>
       <div
         className={cn(
-          "flex shrink-0 items-center gap-x-4 border-b border-hairline px-4 py-4 max-md:items-start md:px-7",
-          // A sheet with tabs gets a header of its own, with room: the title
-          // is not the first tab's lid (owner, 2 Oct 2026).
-          sections ? "md:py-5" : "md:py-3"
+          "sheet-head flex shrink-0 items-center gap-x-4 border-b border-hairline px-4 py-4 max-md:items-start md:px-7",
+          "md:py-3",
+          figures && "max-md:flex-wrap"
         )}
       >
         {closeAs === "back" && (
@@ -352,40 +389,62 @@ export function Sheet({
             Back
           </Parts.Close>
         )}
-        <div className="min-w-0 flex-1">
+        {media && (
+          <div className="sheet-media size-16 shrink-0 self-center overflow-hidden rounded-inner border border-hairline bg-soft">
+            {media}
+          </div>
+        )}
+        <div className="sheet-headtext min-w-0 flex-1">
           {back && (
             <button
               type="button"
               onClick={back.onClick}
-              className="mb-1 -ml-1 inline-flex max-w-full items-center gap-0.5 rounded-inner pr-1 text-[0.875rem] text-mute transition-colors hover:text-ink max-md:min-h-tap"
+              className="sheet-back mb-1 -ml-1 inline-flex max-w-full items-center gap-0.5 rounded-inner pr-1 text-[0.9375rem] text-mute transition-colors hover:text-ink max-md:min-h-tap"
             >
               <ChevronLeft className="size-4 shrink-0" aria-hidden />
               <span className="truncate">Back to {back.label}</span>
             </button>
           )}
-          {id && (
-            <div className="mb-0.5 truncate font-mono text-id text-body">
-              {id}
+          {back === undefined && (where || id) && (
+            <div className="sheet-id mb-0.5 truncate font-mono text-id text-body">
+              {where && (
+                <>
+                  <Parts.Close tabIndex={-1} className="sheet-crumb">
+                    {where}
+                  </Parts.Close>
+                  {id && (
+                    <span aria-hidden className="sheet-crumb-sep">
+                      /
+                    </span>
+                  )}
+                </>
+              )}
+              {id && <span>{id}</span>}
             </div>
           )}
-          <div className="flex min-w-0 items-center gap-2.5 max-md:flex-col max-md:items-start max-md:gap-1.5">
-            <Parts.Title className="line-clamp-2 min-w-0 text-[1.125rem] leading-6 font-semibold tracking-[-0.01em] [overflow-wrap:anywhere] text-ink">
+          <div className="sheet-titlerow flex min-w-0 items-center gap-2.5 max-md:flex-col max-md:items-start max-md:gap-1.5">
+            <Parts.Title className="sheet-title line-clamp-2 min-w-0 text-[1.125rem] leading-6 font-semibold tracking-[-0.01em] [overflow-wrap:anywhere] text-ink">
               {title}
             </Parts.Title>
             {badge && (
-              <span className="flex shrink-0 flex-wrap items-center gap-1.5">
+              <span className="sheet-badge flex shrink-0 flex-wrap items-center gap-1.5">
                 {badge}
               </span>
             )}
           </div>
           {caption && (
-            <div className="mt-0.5 line-clamp-2 text-meta [overflow-wrap:anywhere] text-mute">
+            <div className="sheet-caption mt-0.5 line-clamp-2 text-meta [overflow-wrap:anywhere] text-mute">
               {caption}
             </div>
           )}
         </div>
+        {figures && (
+          <div className="min-w-0 max-md:order-last max-md:basis-full md:shrink-0">
+            {figures}
+          </div>
+        )}
         <div className="flex shrink-0 items-center gap-1.5 max-md:gap-0.5">
-          {actions && !phone && (
+          {actions && !lifted && (
             <>
               {actions}
               <span aria-hidden className="mx-0.5 h-5 w-px bg-hairline" />
@@ -394,63 +453,71 @@ export function Sheet({
           {print}
           {more !== undefined && more.length > 0 && <MoreMenu items={more} />}
           {closeAs === "x" && (
-            <Parts.Close className="grid size-8 shrink-0 place-items-center rounded-inner text-line-ico transition-colors hover:bg-soft-2 hover:text-ink max-md:size-tap pointer-coarse:size-tap">
+            <Parts.Close className="sheet-close btn-iconly grid size-8 shrink-0 place-items-center rounded-inner text-line-ico transition-colors hover:bg-soft-2 hover:text-ink max-md:size-tap pointer-coarse:size-tap">
               <X className="size-4" />
+              <span aria-hidden className="btn-word hidden">
+                Close
+              </span>
             </Parts.Close>
           )}
         </div>
       </div>
-      {sections && here && (
-        <nav
-          role="tablist"
-          aria-label="Record sections"
-          className="flex shrink-0 [scrollbar-width:none] items-stretch gap-2 overflow-x-auto border-b border-hairline px-4 max-md:flex-wrap max-md:gap-x-3 max-md:overflow-visible md:px-7 [&::-webkit-scrollbar]:hidden"
-        >
-          {sections.map((section) => {
-            const current = section.value === here.value
-            return (
-              <button
-                key={section.value}
-                role="tab"
-                type="button"
-                aria-selected={current}
-                onClick={() => setTab(section.value)}
-                className={cn(
-                  "-mb-px inline-flex h-12 shrink-0 items-center gap-1.5 border-b-2 px-3 text-[0.9375rem] font-medium whitespace-nowrap transition-colors",
-                  current
-                    ? "border-accent font-semibold text-accent"
-                    : "border-transparent text-body hover:text-ink",
-                  "pointer-coarse:h-tap"
-                )}
-              >
-                {section.label}
-              </button>
-            )
-          })}
-        </nav>
-      )}
       <div
         className={cn(
-          "min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-6 md:px-7 md:py-8",
+          "sheet-body min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-6 md:px-7 md:py-8",
           // A stack of sections, 24px apart. Each child keeps its own height:
           // in a scrolling column a flex item may otherwise be squeezed.
           stack && "flex flex-col gap-6 [&>*]:shrink-0"
         )}
       >
-        {sections && here ? here.content : children}
-        {!sections && subject && (
+        {sections ? (
+          <div ref={sectionsBody} className="flex flex-col gap-8">
+            {sections.map((section, index) => (
+              <section
+                key={section.value}
+                data-section={section.value}
+                className={cn(
+                  "flex scroll-mt-6 flex-col gap-4",
+                  index > 0 && "border-t border-hairline pt-6"
+                )}
+              >
+                {index > 0 && (
+                  <h4 className="section-title font-semibold text-ink">
+                    {section.label}
+                  </h4>
+                )}
+                {section.content}
+              </section>
+            ))}
+          </div>
+        ) : (
+          children
+        )}
+        {subject && (
           <RecordPanel
             subject={subject}
             className={stack ? "mt-0" : undefined}
           />
         )}
       </div>
+      {/* A record nobody acts on still ends in its foot (UI-PATTERNS.md §5:
+          the head and the foot are always there): Close, a plain ghost. */}
+      {!footer && !lifted && !noFoot && (
+        <div className="sheet-foot flex shrink-0 justify-end border-t border-hairline px-4 py-3 md:px-7 md:py-3.5 max-md:[&_button]:h-11 md:[&_button]:h-9">
+          <Parts.Close render={<Button variant="ghost">Close</Button>} />
+        </div>
+      )}
       {(footer || lifted) && (
         // One foot, one height: 36px buttons on a desk, 44px under a thumb —
         // the same layout on every width (D1, 6 Oct 2026). It rides above the
         // keyboard and the home bar because the shell it sits in does.
-        <div className="shrink-0 border-t border-hairline px-4 py-3 md:px-7 md:py-3.5 max-md:[&_button]:h-11 md:[&_button]:h-9">
-          {lifted ? (
+        <div className="sheet-foot shrink-0 border-t border-hairline px-4 py-3 md:px-7 md:py-3.5 max-md:[&_button]:h-11 md:[&_button]:h-9">
+          {lifted && deskFoot ? (
+            <div className="foot-lifted flex flex-wrap items-center gap-2">
+              {footer && <div className="mr-auto">{footer}</div>}
+              {actions}
+            </div>
+          ) : lifted ? (
             <div className="flex flex-col gap-3">
               <div className="flex flex-wrap items-center gap-2 [&>:only-child]:flex-1">
                 {actions}
@@ -478,13 +545,13 @@ export function Sheet({
             <Drawer.Portal>
               <Drawer.Backdrop
                 forceRender
-                className="fixed inset-0 z-40 bg-[var(--scrim)] opacity-[calc(1-var(--drawer-swipe-progress,0))] transition-opacity duration-(--t-drawer) ease-(--ease-out) data-[ending-style]:opacity-0 data-[ending-style]:duration-(--t-exit) data-[starting-style]:opacity-0 data-[swiping]:transition-none"
+                className="sheet-veil fixed inset-0 z-40 bg-[var(--scrim)] opacity-[calc(1-var(--drawer-swipe-progress,0))] transition-opacity duration-(--t-drawer) ease-(--ease-out) data-[ending-style]:opacity-0 data-[ending-style]:duration-(--t-exit) data-[starting-style]:opacity-0 data-[swiping]:transition-none"
               />
               <Drawer.Viewport className="fixed inset-0 z-40 flex items-end pb-[var(--drawer-keyboard-inset,0px)]">
                 <Drawer.Popup
                   data-size={kind}
                   className={cn(
-                    "flex w-full flex-col overflow-hidden rounded-t-sheet border-t border-hairline bg-canvas pb-[env(safe-area-inset-bottom)] shadow-float outline-none",
+                    "sheet-drawer flex w-full flex-col overflow-hidden rounded-t-sheet border-t border-hairline bg-canvas pb-[env(safe-area-inset-bottom)] shadow-float outline-none",
                     // Up to 12px under the notch, less whatever the keyboard
                     // takes, so the foot's buttons ride above it.
                     "h-[calc(100dvh-env(safe-area-inset-top,0px)-0.75rem-var(--drawer-keyboard-inset,0px))]",
@@ -528,8 +595,11 @@ export function Sheet({
             is a lie: it is exactly what somebody is working on. */}
           {!beside && (
             <Dialog.Backdrop
+              // Over another sheet, or in place of one, the page is already
+              // behind a veil: this one is clear, still a tap away from closing.
+              data-quiet={layer.over || layer.replaces ? "" : undefined}
               className={cn(
-                "fixed inset-0 z-40 bg-[var(--scrim)]",
+                "sheet-veil fixed inset-0 z-40 bg-[var(--scrim)]",
                 // One surface with the panel: the veil fades on the panel's own
                 // clock, in and out.
                 "transition-opacity duration-(--t-sheet) ease-(--ease-out) max-md:duration-(--t-drawer)",
@@ -539,8 +609,11 @@ export function Sheet({
           )}
           <Dialog.Popup
             data-size={unsized ? "unsized" : kind}
+            data-under={layer.under ? "" : undefined}
+            data-over={layer.over ? "" : undefined}
+            data-swap={layer.replaces ? "" : undefined}
             className={cn(
-              "fixed z-40 flex flex-col overflow-hidden border border-hairline bg-canvas shadow-float",
+              "sheet-pop fixed z-40 flex flex-col overflow-hidden border border-hairline bg-canvas shadow-float",
               // The phone: the whole screen. A bottom sheet stopping at 90% left
               // a strip of list nobody could use and, with the keyboard up, a
               // form a few lines tall — and a PO is raised on the phone, at the
@@ -560,7 +633,11 @@ export function Sheet({
               "transition-[translate,opacity] ease-(--ease-drawer)",
               "duration-(--t-drawer) data-[ending-style]:duration-(--t-exit) md:duration-(--t-sheet) md:data-[ending-style]:duration-(--t-exit)",
               "data-[ending-style]:translate-y-full data-[starting-style]:translate-y-full",
-              "md:data-[ending-style]:translate-x-[calc(100%+1.25rem)] md:data-[ending-style]:translate-y-0 md:data-[starting-style]:translate-x-[calc(100%+1.25rem)] md:data-[starting-style]:translate-y-0",
+              layer.replaces
+                ? // The mode move: the frame is already there, so nothing
+                  // travels — the contents go (100ms) and come (160ms).
+                  "md:data-[ending-style]:translate-none md:data-[starting-style]:translate-none md:data-[starting-style]:opacity-0 md:data-[ending-style]:opacity-0 md:duration-160 md:ease-(--ease-out) md:data-[ending-style]:duration-100"
+                : "md:data-[ending-style]:translate-x-[calc(100%+1.25rem)] md:data-[ending-style]:translate-y-0 md:data-[starting-style]:translate-x-[calc(100%+1.25rem)] md:data-[starting-style]:translate-y-0",
               "motion-reduce:data-[ending-style]:translate-none motion-reduce:data-[ending-style]:opacity-0 motion-reduce:data-[starting-style]:translate-none motion-reduce:data-[starting-style]:opacity-0",
               unsized ? UNSIZED : SIZE[kind],
               className,
@@ -602,11 +679,15 @@ function MoreMenu({ items }: { items: readonly SheetMoreItem[] }) {
       <Menu.Trigger
         aria-label="More"
         className={cn(
+          "btn-iconly",
           button({ variant: "quiet", size: "icon" }),
           "text-line-ico max-md:size-tap"
         )}
       >
         <MoreHorizontal />
+        <span aria-hidden className="btn-word hidden">
+          More
+        </span>
       </Menu.Trigger>
       <Menu.Portal>
         <Menu.Positioner
@@ -689,8 +770,10 @@ export function Fact({
           the term of a fact is the half that says what the number means, and
           it cannot be the half that disappears. */}
       {/* The text face, sentence case: Inter 14, label over value. */}
-      <dt className="text-[0.875rem] leading-[1.125rem] text-body">{term}</dt>
-      <dd className="mt-1 text-[0.875rem] leading-[1.375rem] [overflow-wrap:anywhere] text-ink tabular-nums">
+      <dt className="text-[0.9375rem] leading-[1.125rem] text-body">{term}</dt>
+      {/* The value is content: 15, the body size (owner, 14 Oct: "kok rasanya
+          kecil pas lihat detail supplier") — the label above it is the 14. */}
+      <dd className="mt-1 text-[0.9375rem] leading-[1.375rem] [overflow-wrap:anywhere] text-ink tabular-nums">
         {children}
       </dd>
     </div>

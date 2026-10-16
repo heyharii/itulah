@@ -1,15 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
+import type { ColumnDef } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
+import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { useLayout } from "@/lib/layout"
 import { Fab } from "@/components/ui/fab"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { DataTable } from "@/components/ui/data-table"
 import { Day } from "@/components/ui/day"
 import { Field, Input, Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
-import { Pill } from "@/components/ui/pill"
+import { Pill, Status } from "@/components/ui/pill"
 import {
   KeyValue,
   MiniCell,
@@ -21,7 +24,7 @@ import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Toolbar } from "@/components/ui/segmented"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Timeline } from "@/components/ui/timeline"
-import { day, money, moment } from "@/lib/format"
+import { day, money, moment, monthYear } from "@/lib/format"
 import { PickOne } from "@/components/ui/pick"
 import {
   handOverRun,
@@ -44,14 +47,10 @@ import {
 import { queryState } from "@/lib/query-state"
 import { useCanWrite } from "@/lib/session"
 import { useSheet } from "@/lib/sheets"
+import { tableSetup, type TableSetup } from "@/lib/table"
 import type { PayrollRunView, RunReconciliation } from "@itulah/contract"
 
-import {
-  CardButton,
-  CardMonth,
-  CardName,
-  PhoneCards,
-} from "@/components/ui/phone-cards"
+import { CardMonth, CardName } from "@/components/ui/phone-cards"
 import { SlipBreakdown } from "@/screens/people/slip-view"
 
 /// Payroll runs. The place asks for its own; head office answers.
@@ -113,6 +112,127 @@ function unitName(
   return units.find((one) => one.id === id)?.name ?? id
 }
 
+type Units = readonly { readonly id: string; readonly name: string }[]
+
+const NO_RUNS: PayrollRunView[] = []
+
+function columnsFor(units: Units): ColumnDef<TableSetup, PayrollRunView>[] {
+  return [
+    {
+      accessorKey: "period",
+      header: "Month",
+      size: 150,
+      meta: { card: "hide" },
+      cell: ({ row }) => monthYear(row.original.period),
+    },
+    {
+      id: "unit",
+      accessorFn: (row) => unitName(units, row.unit_id),
+      header: "Unit",
+      size: 220,
+      meta: { card: "hide" },
+      // Read at render: the table caches a row's values, and the unit names
+      // can arrive after the runs.
+      cell: ({ row }) => unitName(units, row.original.unit_id),
+    },
+    {
+      id: "pay_on",
+      accessorFn: (row) => row.pay_on,
+      header: "Pay day",
+      size: 160,
+      meta: { card: "hide" },
+      cell: ({ row }) => day(row.original.pay_on),
+    },
+    {
+      accessorKey: "state",
+      header: "State",
+      size: 240,
+      meta: { card: "hide" },
+      // One dot and one line: a run that knows it is short says so after its
+      // state, and why on hover.
+      cell: ({ row }) =>
+        row.original.complete ? (
+          <Status tone={stateTone(row.original.state)}>
+            {runStateLabel(row.original.state)}
+          </Status>
+        ) : (
+          <span title={row.original.incomplete_because ?? undefined}>
+            <Status tone="warn">
+              {runStateLabel(row.original.state)}, incomplete
+            </Status>
+          </span>
+        ),
+    },
+    {
+      id: "finance",
+      accessorFn: (row) => row.handover?.state ?? "",
+      header: "Finance",
+      size: 200,
+      meta: { card: "hide" },
+      cell: ({ row }) =>
+        row.original.handover === null ? (
+          <span className="text-mute">Not handed over</span>
+        ) : (
+          <Status tone={row.original.handover.state === "PAID" ? "ok" : "info"}>
+            {handoverLabel(row.original.handover.state)}
+          </Status>
+        ),
+    },
+    // Three columns that exist only on a card (`cardLead`; a phone): the unit
+    // over its pay day, the month as the figure, and where the run stands.
+    {
+      id: "head",
+      accessorFn: (row) => unitName(units, row.unit_id),
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "title" },
+      cell: ({ row }) => (
+        <CardName
+          name={unitName(units, row.original.unit_id)}
+          line={`Pay day ${day(row.original.pay_on)}`}
+        />
+      ),
+    },
+    {
+      id: "lead",
+      accessorFn: (row) => row.period,
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "lead" },
+      cell: ({ row }) => <CardMonth period={row.original.period} />,
+    },
+    {
+      id: "foot",
+      accessorFn: (row) => row.state,
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "foot" },
+      cell: ({ row }) => (
+        <span className="flex flex-wrap items-center gap-x-4 gap-y-1">
+          <Status
+            tone={
+              row.original.complete ? stateTone(row.original.state) : "warn"
+            }
+          >
+            {runStateLabel(row.original.state)}
+            {!row.original.complete && ", incomplete"}
+          </Status>
+          {row.original.handover !== null && (
+            <Status
+              tone={row.original.handover.state === "PAID" ? "ok" : "info"}
+            >
+              {handoverLabel(row.original.handover.state)}
+            </Status>
+          )}
+        </span>
+      ),
+    },
+  ]
+}
+
 export function PayrollRuns() {
   const run = useSheet("payrollRun")
   const canWrite = useCanWrite()
@@ -121,25 +241,41 @@ export function PayrollRuns() {
   const [unitFilter, setUnitFilter] = useState("")
   const [stateFilter, setStateFilter] = useState("")
   const reachable = useReachableUnits()
-  const units = reachable.data ?? []
+  const units = useMemo(() => reachable.data ?? [], [reachable.data])
   const runs = useQuery({
     queryKey: payKeys.runs(),
     queryFn: ({ signal }) => listRuns(signal),
   })
-  const rows = runs.data ?? []
+  const rows = runs.data ?? NO_RUNS
   const open = rows.find((row) => row.id === run.value) ?? null
-  const shown = rows.filter(
-    (row) =>
-      (unitFilter === "" || row.unit_id === unitFilter) &&
-      (stateFilter === "" || row.state === stateFilter)
+  const shown = useMemo(
+    () =>
+      rows.filter(
+        (row) =>
+          (unitFilter === "" || row.unit_id === unitFilter) &&
+          (stateFilter === "" || row.state === stateFilter)
+      ),
+    [rows, unitFilter, stateFilter]
+  )
+  const columns = useMemo(() => columnsFor(units), [units])
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: shown,
+        columns,
+        getRowId: (row: PayrollRunView) => row.id,
+        // The card's own columns are drawn on a phone and never on a desk.
+        state: { columnVisibility: { head: phone, lead: phone, foot: phone } },
+      }),
+      [shown, columns, phone]
+    )
   )
 
   return (
     <PageContent>
       <PageHeader
-        crumb="People"
         title="Payroll"
-        sub="One unit, one month: the place sends the run and head office approves it."
         actions={
           !phone &&
           canWrite && (
@@ -178,116 +314,46 @@ export function PayrollRuns() {
         </Select>
       </Toolbar>
 
-      <Card className="overflow-hidden px-4 py-2 max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:p-0 max-md:shadow-none">
+      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(runs, {
           loading: "Reading the runs…",
           render: () =>
             rows.length === 0 ? (
-              <EmptyState>
-                No run has been opened. Use Open run to build a unit&rsquo;s
-                payroll for a month.
-              </EmptyState>
+              <EmptyState>No run has been opened yet.</EmptyState>
             ) : shown.length === 0 ? (
               <EmptyState>No run matches these filters.</EmptyState>
-            ) : phone ? (
-              <PhoneCards
-                rows={shown}
-                onOpen={(row) => run.open(row.id)}
-                rowId={(row) => row.id}
-                spec={{
-                  title: (row) => (
-                    <CardName
-                      name={unitName(units, row.unit_id)}
-                      line={`Pay day ${day(row.pay_on)}`}
-                    />
-                  ),
-                  lead: (row) => <CardMonth period={row.period} />,
-                  foot: (row) => (
-                    <span className="flex flex-wrap items-center gap-1">
-                      <Pill tone={stateTone(row.state)}>
-                        {runStateLabel(row.state)}
-                      </Pill>
-                      {!row.complete && <Pill tone="warn">Incomplete</Pill>}
-                      {row.handover !== null && (
-                        <Pill
-                          tone={row.handover.state === "PAID" ? "ok" : "info"}
-                        >
-                          {handoverLabel(row.handover.state)}
-                        </Pill>
-                      )}
-                    </span>
-                  ),
-                  action: (row) => (
-                    <CardButton
-                      label="Open"
-                      ariaLabel={`Open the ${row.period} run for ${unitName(units, row.unit_id)}`}
-                      onClick={() => run.open(row.id)}
-                    />
-                  ),
-                }}
-              />
             ) : (
-              <MiniTable
-                head={[
-                  "Month",
-                  "Unit",
-                  "Pay Day",
-                  { label: "State", align: "left" },
-                  { label: "Finance", align: "left" },
-                ]}
-              >
-                {shown.map((row) => (
-                  <MiniRow key={row.id}>
-                    <MiniCell>
-                      <button
-                        type="button"
-                        onClick={() => run.open(row.id)}
-                        className="text-left text-ink hover:underline"
-                      >
-                        {row.period}
-                      </button>
-                    </MiniCell>
-                    <MiniCell>{unitName(units, row.unit_id)}</MiniCell>
-                    <MiniCell>{day(row.pay_on)}</MiniCell>
-                    <MiniCell>
-                      <Pill tone={stateTone(row.state)}>
-                        {runStateLabel(row.state)}
-                      </Pill>{" "}
-                      {!row.complete && (
-                        <span title={row.incomplete_because ?? undefined}>
-                          <Pill tone="warn">Incomplete</Pill>
-                        </span>
-                      )}
-                    </MiniCell>
-                    <MiniCell>
-                      {row.handover === null ? (
-                        <span className="text-mute">Not handed over</span>
-                      ) : (
-                        <Pill
-                          tone={row.handover.state === "PAID" ? "ok" : "info"}
-                        >
-                          {handoverLabel(row.handover.state)}
-                        </Pill>
-                      )}
-                    </MiniCell>
-                  </MiniRow>
-                ))}
-              </MiniTable>
+              <DataTable<PayrollRunView>
+                refresh={[runs]}
+                table={table}
+                onRowClick={(row) => run.open(row.id)}
+                isSelected={(row) => row.id === run.value}
+                cardsApart
+                cardLead
+                cardSort={false}
+              />
             ),
         })}
       </Card>
 
       <OpenRunSheet open={opening} onClose={() => setOpening(false)} />
-      <RunSheet run={open} onClose={run.close} />
+      <RunSheet
+        run={open}
+        unit={open === null ? "" : unitName(units, open.unit_id)}
+        onClose={run.close}
+      />
     </PageContent>
   )
 }
 
 function RunSheet({
   run,
+  unit,
   onClose,
 }: {
   run: PayrollRunView | null
+  /// The unit's name; the run only carries its id.
+  unit: string
   onClose: () => void
 }) {
   const client = useQueryClient()
@@ -347,7 +413,7 @@ function RunSheet({
         if (!next) onClose()
       }}
       id={run.id}
-      title={`${run.unit_id} · ${run.period}`}
+      title={`${unit} · ${monthYear(run.period)}`}
     >
       <Pill tone={stateTone(run.state)}>{runStateLabel(run.state)}</Pill>
 
@@ -360,8 +426,8 @@ function RunSheet({
       )}
 
       <Facts>
-        <Fact term="Unit">{run.unit_id}</Fact>
-        <Fact term="Month">{run.period}</Fact>
+        <Fact term="Unit">{unit}</Fact>
+        <Fact term="Month">{monthYear(run.period)}</Fact>
         <Fact term="Attendance">
           {day(run.attendance_from)} – {day(run.attendance_to)}
         </Fact>
@@ -402,11 +468,11 @@ function RunSheet({
                       onClick={() => setShown(open ? null : slip.employee_id)}
                       className="text-left hover:underline"
                     >
-                      <span className="block text-[0.875rem] text-ink">
+                      <span className="block text-[0.9375rem] text-ink">
                         {slip.full_name ?? slip.employee_code}{" "}
                         {slip.withheld && <Pill tone="warn">Held</Pill>}
                       </span>
-                      <span className="font-mono text-[0.875rem] text-mute">
+                      <span className="font-mono text-[0.9375rem] text-mute">
                         {slip.bank_account_masked ?? "no account"}
                       </span>
                     </button>
@@ -439,8 +505,8 @@ function RunSheet({
                 <span className="text-card-title font-semibold text-ink">
                   {selected.full_name ?? selected.employee_code}
                 </span>
-                <span className="text-[0.875rem] text-mute">
-                  Payslip · {run.period}
+                <span className="text-[0.9375rem] text-mute">
+                  Payslip · {monthYear(run.period)}
                 </span>
               </div>
               <SlipBreakdown slip={selected} />
@@ -476,11 +542,7 @@ function RunSheet({
       )}
 
       <div className="mt-4 flex flex-col gap-3">
-        <Field
-          label="Why"
-          hint="Recorded against the step, and required."
-          required
-        >
+        <Field label="Why" required>
           <Input
             value={reason}
             onChange={(event) => setReason(event.target.value)}
@@ -766,15 +828,10 @@ function Handover({ run }: { run: PayrollRunView }) {
       {crossed === null ? (
         <div className="flex flex-col gap-3">
           <p className="text-meta text-body">
-            Approved and not yet with Finance. Handing it over is the step that
-            cannot be taken back on its own — after it, reopening this run needs
-            Finance to reverse its entry first.
+            Handing over cannot be taken back on its own: reopening this run
+            then needs Finance to reverse its entry first.
           </p>
-          <Field
-            label="Why"
-            hint="Recorded against the handover, and required."
-            required
-          >
+          <Field label="Why" required>
             <Input
               value={reason}
               onChange={(event) => setReason(event.target.value)}
@@ -803,15 +860,8 @@ function Handover({ run }: { run: PayrollRunView }) {
               {crossed.settled_by} · {moment(crossed.settled_at)}
             </KeyValue>
           ) : (
-            <KeyValue term="Paid">
-              not yet — Finance has received it, which is not the same as having
-              paid it
-            </KeyValue>
+            <KeyValue term="Paid">not yet</KeyValue>
           )}
-          <p className="mt-2 text-meta text-mute">
-            Gross. The accrual splits it: PPh 21 to the tax office, BPJS to
-            BPJS, and net pay to the employees.
-          </p>
         </>
       )}
     </div>
@@ -861,7 +911,7 @@ function OpenRunSheet({
       title="Open a run"
       footer={
         <div className="flex justify-end gap-2">
-          <Button variant="quiet" onClick={close}>
+          <Button data-cancel variant="quiet" onClick={close}>
             Cancel
           </Button>
           <Button
@@ -879,11 +929,6 @@ function OpenRunSheet({
     >
       <div className="flex flex-col gap-3.5">
         {failed !== null && <Banner tone="bad">{failed}</Banner>}
-        <Banner tone="info">
-          A run is a draft until the place submits it: recalculate it whenever
-          leave, overtime, pay or a PTKP status changes, and submitting it
-          freezes the figures.
-        </Banner>
         {/* Chosen, never typed. It asked for an `org_place` id in a text box
             and named three of them in the hint, which is a screen asking
             somebody to remember a primary key — and one typo away from a 404
@@ -906,7 +951,7 @@ function OpenRunSheet({
             onChange={(event) => setPeriod(event.target.value)}
           />
         </Field>
-        <Field label="Why" hint="Recorded against the run." required>
+        <Field label="Why" required>
           <Input
             value={reason}
             onChange={(event) => setReason(event.target.value)}

@@ -22,7 +22,7 @@ export function TwoLines({
       </span>
       <span
         className={cn(
-          "mt-1 block truncate text-[0.875rem] leading-[1.4] text-mute",
+          "mt-1 block truncate text-[0.9375rem] leading-[1.4] text-mute",
           mono && "font-mono"
         )}
       >

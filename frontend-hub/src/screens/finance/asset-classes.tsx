@@ -1,28 +1,44 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { useMemo, useState } from "react"
+import {
+  useMutation,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query"
+import type { ColumnDef, SortingState } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
+import { Suspense, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { Checkbox, Field, Input, Select } from "@/components/ui/field"
-import { PageHeader } from "@/components/ui/page-header"
-import { Toolbar } from "@/components/ui/segmented"
-import { EmptyState, Problem } from "@/components/ui/states"
-import { DockTools } from "@/components/shell/dock-tools"
 import { Fab } from "@/components/ui/fab"
+import { FilterSheet } from "@/components/ui/filter-sheet"
+import {
+  BarSpacer,
+  ColumnsMenu,
+  ExpandingSearch,
+} from "@/components/ui/list-chrome"
+import { PageHeader } from "@/components/ui/page-header"
+import { Pill } from "@/components/ui/pill"
+import { EmptyState, Problem } from "@/components/ui/states"
 import { count, label } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
-import { financeKeys, saveAssetClass } from "@/lib/queries/finance"
+import {
+  assetClassesQuery,
+  financeKeys,
+  saveAssetClass,
+} from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
-import { Grid, Td, Th } from "@/screens/finance-final/parts"
-import { useAssetClasses } from "@/screens/finance/hooks"
-import { PhoneCard, PhoneList } from "@/components/ui/phone-cards"
-import { FilterSheet } from "@/components/ui/filter-sheet"
+import { tableSetup, type TableSetup } from "@/lib/table"
+import { useColumnFit } from "@/screens/finance/column-fit"
 import {
   EditorCard,
   LinkAccountsButton,
   MasterLayout,
 } from "@/screens/finance/master-parts"
+import { ScreenPending } from "@/screens/finance/pending"
 import type { AssetClass } from "@itulah/contract"
 
 /// The classes an asset is filed under (ERPNext Asset Category).
@@ -64,19 +80,110 @@ function lifeWords(months: number | null): string {
   return `${months} mo`
 }
 
+/// One class per row. On a phone the same columns are the card: the name over
+/// its kind and form, the depreciation and the asset count under it, and the
+/// Link accounts button at the right.
+const columns: ColumnDef<TableSetup, AssetClass>[] = [
+  {
+    accessorKey: "name",
+    header: "Category",
+    size: 300,
+    meta: { card: "title", grow: 200 },
+    // The code rides as the name's title: it is what the chart links key on,
+    // not what anyone reads.
+    cell: ({ row }) => (
+      <span className="flex items-center gap-2 whitespace-normal">
+        <span className="text-ink" title={row.original.class_code}>
+          {row.original.name}
+        </span>
+        {!row.original.is_active && <Pill tone="neutral">Inactive</Pill>}
+      </span>
+    ),
+  },
+  {
+    id: "kind",
+    // What it is, once: kind and form together, not two columns of the same
+    // two words.
+    accessorFn: (row) => `${label(row.kind)} · ${label(row.build)}`,
+    header: "Kind",
+    size: 200,
+    meta: { card: "meta" },
+    cell: ({ row }) =>
+      `${label(row.original.kind)} · ${label(row.original.build)}`,
+  },
+  {
+    id: "depreciation",
+    accessorFn: (row) =>
+      row.default_method === null
+        ? "Not set"
+        : `${label(row.default_method)} · ${lifeWords(row.default_useful_life_months)}`,
+    header: "Depreciation",
+    size: 240,
+    meta: { card: "metric" },
+    cell: ({ row }) =>
+      row.original.default_method === null ? (
+        <span className="text-mute">Not set</span>
+      ) : (
+        `${label(row.original.default_method)} · ${lifeWords(row.original.default_useful_life_months)}`
+      ),
+  },
+  {
+    accessorKey: "asset_count",
+    header: "Assets",
+    size: 110,
+    meta: { align: "right", card: "metric" },
+    cell: ({ row }) => (
+      <span className={row.original.asset_count === 0 ? "text-faint" : ""}>
+        {count(row.original.asset_count)}
+      </span>
+    ),
+  },
+  {
+    id: "link",
+    header: "",
+    size: 150,
+    enableSorting: false,
+    enableHiding: false,
+    meta: { align: "right", card: "status" },
+    cell: ({ row }) => (
+      <LinkAccountsButton
+        role={costRole(row.original.kind)}
+        sourceType="COMPANY"
+        sourceId={row.original.class_code}
+      />
+    ),
+  },
+]
+
 export function AssetClasses() {
+  return (
+    <Suspense
+      fallback={
+        <ScreenPending crumb="Finance · Assets" title="Asset Category">
+          Reading the asset classes…
+        </ScreenPending>
+      }
+    >
+      <AssetClassesScreen />
+    </Suspense>
+  )
+}
+
+function AssetClassesScreen() {
   const phone = useLayout() === "phone"
   const [filtering, setFiltering] = useState(false)
-  const list = useAssetClasses()
+  const list = useSuspenseQuery(assetClassesQuery())
+  const classes = list.data.classes as readonly AssetClass[]
   const [editing, setEditing] = useState<AssetClass | "new" | null>(null)
   const [needle, setNeedle] = useState("")
   const [kind, setKind] = useState("")
   const [inactive, setInactive] = useState(false)
+  const [sorting, setSorting] = useState<SortingState>([])
 
   const rows = useMemo(() => {
     const text = needle.trim().toLowerCase()
     return (
-      list.rows
+      classes
         .filter(
           (row) =>
             (inactive || row.is_active) &&
@@ -93,184 +200,138 @@ export function AssetClasses() {
             b.asset_count - a.asset_count || a.name.localeCompare(b.name)
         )
     )
-  }, [list.rows, needle, kind, inactive])
+  }, [classes, needle, kind, inactive])
+
+  const [measure, fit] = useColumnFit(columns, phone)
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: rows,
+        columns,
+        getRowId: (row: AssetClass) => row.class_code,
+        state: {
+          sorting,
+          columnVisibility: fit.visibility,
+        },
+        onSortingChange: setSorting,
+        onColumnVisibilityChange: fit.onChange,
+      }),
+      // `fit` is new each render: the room is measured, and the columns the
+      // card has no room for are given up.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      [rows, sorting, phone, fit]
+    )
+  )
 
   return (
     <PageContent>
       <PageHeader
         crumb="Finance · Assets"
         title="Asset Category"
-        // Search, the kind and the new class are in the dock on a phone.
+        // The new class is the dock's + on a phone.
         actions={
           phone ? undefined : (
-            <>
-              <Input
-                value={needle}
-                onChange={(event) => setNeedle(event.target.value)}
-                className="h-control w-48"
-              />
-              <Button variant="primary" onClick={() => setEditing("new")}>
-                New class
-              </Button>
-            </>
+            <Button variant="primary" onClick={() => setEditing("new")}>
+              New class
+            </Button>
           )
         }
       />
 
-      {phone ? (
-        <>
-          <Fab label="New class" onClick={() => setEditing("new")} />
-          <DockTools
-            search={{
-              value: needle,
-              onChange: setNeedle,
-              label: "Search classes",
-            }}
-            filter={{
-              count: inactive ? 1 : 0,
-              onOpen: () => setFiltering(true),
-            }}
-            status={{
-              value: kind,
-              options: [
-                { value: "", label: "All kinds" },
-                ...KINDS.map((one) => ({ value: one, label: one })),
-              ],
-              onChange: setKind,
-            }}
-          />
-          <FilterSheet open={filtering} onOpenChange={setFiltering}>
-            <Checkbox
-              label="Show inactive"
-              checked={inactive}
-              onChange={setInactive}
-            />
-          </FilterSheet>
-        </>
-      ) : (
-        <Toolbar>
-          <Select value={kind} onChange={setKind} className="h-control w-40">
-            <option value="">All kinds</option>
-            {KINDS.map((one) => (
-              <option key={one} value={one}>
-                {one}
-              </option>
-            ))}
-          </Select>
-          <Checkbox
-            label="Show inactive"
-            checked={inactive}
-            onChange={setInactive}
-          />
-          <Toolbar.Spacer />
-          <span className="text-[0.875rem] text-mute">
-            {count(rows.length)} classes
-          </span>
-        </Toolbar>
-      )}
+      <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2 max-md:hidden">
+        <ExpandingSearch
+          value={needle}
+          onChange={setNeedle}
+          label="Search classes"
+        />
+        <Select
+          value={kind}
+          onChange={setKind}
+          className="h-control w-40"
+          aria-label="Kind"
+        >
+          <option value="">All kinds</option>
+          {KINDS.map((one) => (
+            <option key={one} value={one}>
+              {one}
+            </option>
+          ))}
+        </Select>
+        <Checkbox
+          label="Show inactive"
+          checked={inactive}
+          onChange={setInactive}
+        />
+        <BarSpacer />
+        <ColumnsMenu table={table} />
+      </div>
+
+      <Fab label="New class" onClick={() => setEditing("new")} />
+      <DockTools
+        search={{
+          value: needle,
+          onChange: setNeedle,
+          label: "Search classes",
+        }}
+        filter={{
+          count: inactive ? 1 : 0,
+          onOpen: () => setFiltering(true),
+        }}
+        sort={dockSortOf(table)}
+        status={{
+          value: kind,
+          options: [
+            { value: "", label: "All kinds" },
+            ...KINDS.map((one) => ({ value: one, label: one })),
+          ],
+          onChange: setKind,
+        }}
+      />
+      <FilterSheet open={filtering} onOpenChange={setFiltering}>
+        <Checkbox
+          label="Show inactive"
+          checked={inactive}
+          onChange={setInactive}
+        />
+      </FilterSheet>
 
       <MasterLayout
         list={
-          <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-            {queryState(list, {
-              loading: "Reading the asset classes…",
-              render: () =>
-                rows.length === 0 ? (
-                  <EmptyState>No class matches the search.</EmptyState>
-                ) : phone ? (
-                  <PhoneList>
-                    {rows.map((row) => (
-                      <PhoneCard
-                        key={row.class_code}
-                        title={row.name}
-                        muted={!row.is_active}
-                        line={`${label(row.kind)} · ${label(row.build)}${row.is_active ? "" : " · inactive"}`}
-                        lead={count(row.asset_count)}
-                        caption={row.asset_count === 1 ? "asset" : "assets"}
-                        tone={row.asset_count === 0 ? "quiet" : undefined}
-                        foot={
-                          row.default_method === null
-                            ? "Not set"
-                            : `${label(row.default_method)} · ${lifeWords(row.default_useful_life_months)}`
-                        }
-                        action={
-                          <LinkAccountsButton
-                            role={costRole(row.kind)}
-                            sourceType="COMPANY"
-                            sourceId={row.class_code}
-                          />
-                        }
-                        onOpen={() => setEditing(row)}
-                      />
-                    ))}
-                  </PhoneList>
-                ) : (
-                  <Grid>
-                    <thead>
-                      <tr>
-                        <Th>Category</Th>
-                        <Th>Depreciation</Th>
-                        <Th align="right">Assets</Th>
-                        <Th />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.map((row) => (
-                        <tr
-                          key={row.class_code}
-                          onClick={() => setEditing(row)}
-                          className="cursor-pointer"
-                        >
-                          {/* The code rides as the name's title: it is what
-                              the chart links key on, not what anyone reads. */}
-                          <Td>
-                            <span className="text-ink" title={row.class_code}>
-                              {row.name}
+          <div ref={measure}>
+            <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+              {queryState(list, {
+                render: () =>
+                  rows.length === 0 ? (
+                    <EmptyState>No class matches the search.</EmptyState>
+                  ) : (
+                    <DataTable<AssetClass>
+                      table={table}
+                      refresh={[list]}
+                      onRowClick={(row) => setEditing(row)}
+                      isSelected={(row) =>
+                        editing !== null &&
+                        editing !== "new" &&
+                        editing.class_code === row.class_code
+                      }
+                      pageScroll
+                      cardsApart
+                      cardSort={false}
+                      summary={{
+                        name: (
+                          <span>
+                            {count(rows.length)}{" "}
+                            <span className="font-normal text-body">
+                              {rows.length === 1 ? "class" : "classes"}
                             </span>
-                            {!row.is_active && (
-                              <span className="text-mute"> · inactive</span>
-                            )}
-                            {/* What it is, once: kind and form together, not
-                                two columns of the same two words. */}
-                            <span className="block text-[0.875rem] text-mute">
-                              {label(row.kind)} · {label(row.build)}
-                            </span>
-                          </Td>
-                          <Td>
-                            {row.default_method === null ? (
-                              <span className="text-mute">Not set</span>
-                            ) : (
-                              <>
-                                {label(row.default_method)}
-                                <span className="block text-[0.875rem] text-mute">
-                                  {lifeWords(row.default_useful_life_months)}
-                                </span>
-                              </>
-                            )}
-                          </Td>
-                          <Td align="right">
-                            <span
-                              className={
-                                row.asset_count === 0 ? "text-faint" : ""
-                              }
-                            >
-                              {count(row.asset_count)}
-                            </span>
-                          </Td>
-                          <Td align="right">
-                            <LinkAccountsButton
-                              role={costRole(row.kind)}
-                              sourceType="COMPANY"
-                              sourceId={row.class_code}
-                            />
-                          </Td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </Grid>
-                ),
-            })}
-          </Card>
+                          </span>
+                        ),
+                      }}
+                    />
+                  ),
+              })}
+            </Card>
+          </div>
         }
         editor={
           editing !== null && (

@@ -14,9 +14,12 @@
 //! override that lowered the path's rung cannot hand either to anybody else.
 //! Both reads say so in `can_manage`, for the hub to hide those buttons.
 //!
-//! Approving or refusing the machine that claims a code stays where every
-//! enrolment is decided: `POST /api/v1/sync/enrollments/{id}/approve` and
-//! `POST /api/v1/sync/enrollments/{id}/refuse` (`http/enrolment.rs`).
+//! The machine that claims a code is let in at once, as the Admin who issued
+//! it (`http/enrolment.rs`); the page then shows it getting its first data and
+//! being ready, and `POST /api/v1/stores/{unit}/server/disconnect` lets go of
+//! it. Approving or refusing a claim by hand stays where every enrolment is
+//! decided, for one that could not be let in by itself:
+//! `POST /api/v1/sync/enrollments/{id}/approve` and `…/refuse`.
 
 use super::auth::Principal;
 use crate::cloud::{
@@ -141,6 +144,22 @@ pub async fn install_server(
     require_admin(&principal, "issue a code to install a store's server")?;
     let issued =
         infrastructure::install_store_server(&state.db, unit.trim(), &principal.username).await?;
+    Ok((StatusCode::CREATED, Json(issued)))
+}
+
+/// `POST /api/v1/stores/{unit}/server/disconnect`: disconnect the machine that
+/// serves the store — its key stops working, the store's server goes back to
+/// not installed — and answer with a fresh install code for the next one,
+/// exactly what `install` answers.
+pub async fn disconnect_server(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(unit): Path<String>,
+) -> Result<(StatusCode, Json<infrastructure::StoreServerInstall>), AppError> {
+    require_admin(&principal, "disconnect a store's server")?;
+    let issued =
+        infrastructure::disconnect_store_server(&state.db, unit.trim(), &principal.username)
+            .await?;
     Ok((StatusCode::CREATED, Json(issued)))
 }
 

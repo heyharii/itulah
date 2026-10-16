@@ -1,14 +1,15 @@
 import { useForm } from "@tanstack/react-form"
 import {
-  useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
+  useSuspenseInfiniteQuery,
+  useSuspenseQuery,
 } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { Radar } from "lucide-react"
-import { useMemo, useState } from "react"
+import { Suspense, useDeferredValue, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { DockTools } from "@/components/shell/dock-tools"
@@ -19,28 +20,24 @@ import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { Fab } from "@/components/ui/fab"
 import { Field, Input, Textarea } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
+import { BarSpacer, ExpandingSearch } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
-import { Toolbar } from "@/components/ui/segmented"
 import { Sheet } from "@/components/ui/sheet"
-import { Banner, EmptyState } from "@/components/ui/states"
+import { Banner, EmptyState, LoadingState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
-import {
-  useFilterState,
-  type Filter,
-  type FilterField,
-} from "@/lib/filters"
+import { useFilterState, type Filter, type FilterField } from "@/lib/filters"
 import { count, moment } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import {
   fleetPools,
+  fleetPoolsQuery,
   idempotencyKey,
   ingestObservations,
   inventoryKeys,
-  sightingsPage,
+  sightingsPageQuery,
   type Observation,
   type SightingScope,
 } from "@/lib/queries/inventory"
-import { queryState } from "@/lib/query-state"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { useDebounced } from "@/lib/use-debounced"
 import { Choice } from "@/screens/inventory/parts"
@@ -237,17 +234,49 @@ function sightingScopeFromFilters(filters: readonly Filter[]): {
 
 export function Observations() {
   const phone = useLayout() === "phone"
+  const [submitting, setSubmitting] = useState(false)
+
+  // The head, the + and the batch sheet stand at once; the readers' sweeps
+  // wait for the fleet and the first page and stream in with them (the server
+  // starts the reads too).
+  return (
+    <PageContent>
+      {/* The screen's one act stands in its head; a phone has it at the
+          thumb (`Fab`). */}
+      <PageHeader
+        crumb="Inventory"
+        title="Observations"
+        sub="What the readers saw. Evidence, never a movement — the ledger is only ever corrected by a person."
+        actions={
+          phone ? undefined : (
+            <Button variant="primary" onClick={() => setSubmitting(true)}>
+              <Radar />
+              Submit a batch
+            </Button>
+          )
+        }
+      />
+
+      <Fab label="Submit a batch" onClick={() => setSubmitting(true)} />
+
+      <Suspense fallback={<LoadingState>Reading the sweeps…</LoadingState>}>
+        <ObservationBook />
+      </Suspense>
+
+      <BatchSheet open={submitting} onClose={() => setSubmitting(false)} />
+    </PageContent>
+  )
+}
+
+function ObservationBook() {
+  const phone = useLayout() === "phone"
   const [pool, setPool] = useState("")
   const [text, setText] = useState("")
-  const [submitting, setSubmitting] = useState(false)
   const [sighted, setSighted] = useState<SortingState>([
     { id: "last_seen_at", desc: true },
   ])
 
-  const fleet = useQuery({
-    queryKey: inventoryKeys.fleet(),
-    queryFn: ({ signal }) => fleetPools(signal),
-  })
+  const fleet = useSuspenseQuery(fleetPoolsQuery())
 
   const readFilters = useFilterState(SIGHTING_FIELDS)
   const sightingColumns = useMemo(
@@ -271,20 +300,16 @@ export function Observations() {
     }
   }, [readFilters.filters, pool, needle, sighted])
 
-  const reads = useInfiniteQuery({
-    queryKey: inventoryKeys.observations(scope),
-    queryFn: ({ pageParam, signal }) =>
-      sightingsPage({ ...scope, cursor: pageParam }, signal),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) => last.next_cursor ?? undefined,
-    placeholderData: (previous) => previous,
-  })
+  // The deferred scope keeps the rows in hand on screen while the next
+  // question is read, so a keystroke does not empty the table.
+  const asked = useDeferredValue(scope)
+  const reads = useSuspenseInfiniteQuery(sightingsPageQuery(asked))
 
   const readRows = useMemo(
-    () => reads.data?.pages.flatMap((page) => page.rows) ?? [],
+    () => reads.data.pages.flatMap((page) => page.rows),
     [reads.data]
   )
-  const readHead = reads.data?.pages[0]
+  const readHead = reads.data.pages[0]
 
   /// The reader chip, carrying the server's exact tally over everything the
   /// pool and the search match.
@@ -319,7 +344,7 @@ export function Observations() {
 
   const poolOptions = useMemo(
     () =>
-      placements(fleet.data?.items ?? []).map((item) => ({
+      placements(fleet.data.items).map((item) => ({
         value: item.id,
         label: `${item.site_id} · ${item.label}`,
       })),
@@ -327,13 +352,7 @@ export function Observations() {
   )
 
   return (
-    <PageContent>
-      <PageHeader
-        crumb="Inventory"
-        title="Observations"
-        sub="What the readers saw. Evidence, never a movement — the ledger is only ever corrected by a person."
-      />
-
+    <>
       {/* On a phone the search, the filter and the order are the dock's, and
           so is the one thing this screen makes. */}
       <DockTools
@@ -348,61 +367,50 @@ export function Observations() {
         }}
         sort={dockSortOf(readTable)}
       />
-      <Fab label="Submit a batch" onClick={() => setSubmitting(true)} />
-      <Toolbar className="max-md:hidden">
+      <div className="group/bar mb-3.5 flex min-h-[2.25rem] flex-wrap items-center gap-2 max-md:hidden">
+        <ExpandingSearch
+          value={text}
+          onChange={setText}
+          label="Search observations"
+        />
+        <FilterPanel model={readModel} />
         <Choice
           value={pool}
           onChange={setPool}
-          options={poolOptions}
+          options={[{ value: "", label: "Every pool" }, ...poolOptions]}
           className="max-w-72"
         />
-        <Input
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-          aria-label="Search observations"
-          className="h-8 w-64"
-        />
-        <FilterPanel model={readModel} />
-        <Toolbar.Spacer />
+        <BarSpacer />
         {readHead && (
           <span className="text-meta text-mute tabular-nums">
             {count(readHead.total)} observations
           </span>
         )}
-        <Button onClick={() => setSubmitting(true)}>
-          <Radar />
-          Submit a batch
-        </Button>
-      </Toolbar>
+      </div>
 
-      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-        {queryState(reads, {
-          loading: "Reading the sweeps…",
-          render: () =>
-            readRows.length === 0 ? (
-              <EmptyState>
-                {pool === "" &&
-                needle === "" &&
-                readFilters.filters.length === 0
-                  ? "No reader has reported an observation to this node."
-                  : "No observation matches what you asked for."}
-              </EmptyState>
-            ) : (
-              <DataTable<Observation>
-                refresh={[reads]}
-                table={readTable}
-                more={reads}
-                className="max-h-[calc(100dvh-17rem)]"
-                cardSort={false}
-                cardsApart
-                cardLead
-              />
-            ),
-        })}
+      <Card
+        aria-busy={asked !== scope || undefined}
+        className="list-swap overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none"
+      >
+        {readRows.length === 0 ? (
+          <EmptyState>
+            {pool === "" && needle === "" && readFilters.filters.length === 0
+              ? "No reader has reported an observation to this node."
+              : "No observation matches what you asked for."}
+          </EmptyState>
+        ) : (
+          <DataTable<Observation>
+            refresh={[reads]}
+            table={readTable}
+            more={reads}
+            className="max-h-[calc(100dvh-17rem)]"
+            cardSort={false}
+            cardsApart
+            cardLead
+          />
+        )}
       </Card>
-
-      <BatchSheet open={submitting} onClose={() => setSubmitting(false)} />
-    </PageContent>
+    </>
   )
 }
 
@@ -487,7 +495,7 @@ function BatchSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
         }}
         className="flex flex-col gap-4"
       >
-        <p className="text-[0.875rem] text-mute">
+        <p className="text-[0.9375rem] text-mute">
           Reads of the same tag by the same reader inside the burst window are
           folded into one observation rather than counted forty times. Nothing
           here moves stock.

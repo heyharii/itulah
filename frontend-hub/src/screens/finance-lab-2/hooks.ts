@@ -1,4 +1,5 @@
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useSuspenseQuery } from "@tanstack/react-query"
+import { useHydrated } from "@tanstack/react-router"
 import { useMemo } from "react"
 
 import type { MoneyAccountRow, MoneyPot } from "@itulah/contract"
@@ -9,6 +10,7 @@ import {
   financeKeys,
   listBankStatements,
   moneyOverview,
+  moneyOverviewQuery,
 } from "@/lib/queries/finance"
 
 /// The module's reads. Every key here is one the live Finance module already
@@ -54,6 +56,20 @@ export function useMoneyRows(pots: readonly MoneyPot[]): {
   return { rows, pending: money.isPending, error: money.error }
 }
 
+/// The same rows for a screen that reads the money inside a `<Suspense>`
+/// (`prefetch.ts` warms it under the same options), so the server's HTML holds
+/// them and the browser's first render is the same one.
+export function useSuspenseMoneyRows(
+  pots: readonly MoneyPot[]
+): MoneyAccountRow[] {
+  const money = useSuspenseQuery(moneyOverviewQuery())
+  return useMemo(
+    () => money.data.rows.filter((row) => pots.includes(row.pot)),
+    // `pots` is a module-level constant at every call site, so it is stable.
+    [money.data, pots]
+  )
+}
+
 export function useStatements() {
   return useQuery({
     queryKey: financeKeys.bankStatements(),
@@ -87,7 +103,13 @@ export function useSuggestions(statementId: string | null, exact = true) {
 /// The server adds this up — a browser summing the page it happens to hold
 /// would report reconciliation finished while a second page of unagreed lines
 /// waited below. Undefined while loading, which the sidebar draws as nothing.
+///
+/// Nothing at all until the page has hydrated. The sidebar is on every screen,
+/// and the Bank Reconciliation screen warms this very list for the server: the
+/// answer would reach the browser's cache before the sidebar hydrates, and it
+/// would draw a count where the server drew none.
 export function useUnagreedLineCount(): number | null | undefined {
+  const hydrated = useHydrated()
   const statements = useStatements()
-  return statements.data?.total_unmatched
+  return hydrated ? statements.data?.total_unmatched : null
 }

@@ -21,10 +21,11 @@ import { ExceptionQueue } from "@/components/ui/exception-queue"
 import { Field, Input, Select, Textarea } from "@/components/ui/field"
 import { useUnits } from "@/lib/queries/organisation"
 import { FilterPanel } from "@/components/ui/filter-panel"
+import { ExpandingSearch } from "@/components/ui/list-chrome"
 import { Choices } from "@/components/ui/form"
 import { Fab } from "@/components/ui/fab"
 import { PageHeader } from "@/components/ui/page-header"
-import { Pill } from "@/components/ui/pill"
+import { Pill, Status } from "@/components/ui/pill"
 import {
   KeyValue,
   MiniCell,
@@ -33,8 +34,9 @@ import {
   SubHead,
 } from "@/components/ui/rows"
 import { Toolbar } from "@/components/ui/segmented"
-import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import { Banner, EmptyState, ErrorState } from "@/components/ui/states"
+import { Fact, Facts, Sheet, type SheetTab } from "@/components/ui/sheet"
+import { SheetFooter } from "@/components/ui/sheet-footer"
+import { EmptyState, ErrorState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { Timeline } from "@/components/ui/timeline"
 import { useFilterState, type Filter, type FilterField } from "@/lib/filters"
@@ -98,7 +100,7 @@ import type {
   EmployeeView,
   ProfileAmendmentView,
 } from "@itulah/contract"
-import { Quiet, SheetTabs } from "@/screens/people/parts"
+import { Quiet } from "@/screens/people/parts"
 import { ChecklistPanel } from "@/screens/people/checklist"
 import { ClaimBalances } from "@/screens/people/claim-benefits"
 import { DisciplinePanel } from "@/screens/people/discipline"
@@ -161,9 +163,7 @@ function columnsOf(
       // by, and the search box in the header already reads them — at the
       // server, which matches the number and the name.
       cell: ({ row }) => (
-        <span className="font-mono text-id text-body">
-          {row.original.employee_code}
-        </span>
+        <span className="text-body">{row.original.employee_code}</span>
       ),
     },
     {
@@ -191,9 +191,9 @@ function columnsOf(
       enableSorting: false,
       meta: { card: "hide" },
       cell: ({ row }) => (
-        <Pill tone={statusTone(row.original.status)}>
+        <Status tone={statusTone(row.original.status)}>
           {statusLabel(row.original.status)}
-        </Pill>
+        </Status>
       ),
     },
     {
@@ -227,20 +227,12 @@ function columnsOf(
       enableSorting: false,
       meta: { card: "hide" },
       cell: ({ row }) =>
-        row.original.contract_kind ? (
-          <Tag
-            tone={row.original.contract_kind === "PKWT" ? "warn" : "neutral"}
-          >
-            {row.original.contract_kind}
-          </Tag>
-        ) : (
-          <span className="text-mute">None</span>
-        ),
+        row.original.contract_kind || <span className="text-mute">None</span>,
     },
     {
       id: "expiry",
       accessorFn: (row) => daysUntil(row.contract_ends_on) ?? PERMANENT,
-      header: "Term Ends in",
+      header: "Term ends in",
       size: 140,
       /// **Not filterable, because of the accessor directly above.** A permanent
       /// contract has no end date and is stood in for by `PERMANENT` so that it
@@ -280,9 +272,13 @@ function columnsOf(
       // words has no order worth asking for.
       enableSorting: false,
       meta: { card: "hide" },
+      // Invited: asked to make their own login and not answered yet, so
+      // nobody sends a second link (owner, 2026-10-16).
       cell: ({ row }) =>
         row.original.username ? (
           <span className="text-text">Linked</span>
+        ) : row.original.invited ? (
+          <span className="text-text">Invited</span>
         ) : (
           <span className="text-mute">None</span>
         ),
@@ -303,7 +299,7 @@ function columnsOf(
               <span className="text-mute">Not enrolled yet</span>
             )}
           </span>
-          <span className="text-[0.875rem] font-normal break-words text-mute">
+          <span className="text-[0.9375rem] font-normal break-words text-mute">
             {[
               row.original.position,
               row.original.unit_id
@@ -341,7 +337,7 @@ function columnsOf(
             >
               {figure}
             </span>
-            <span className="text-[0.875rem] text-mute">
+            <span className="text-[0.9375rem] text-mute">
               {left === null
                 ? "permanent"
                 : left < 0
@@ -359,9 +355,9 @@ function columnsOf(
       enableSorting: false,
       meta: { card: "foot" },
       cell: ({ row }) => (
-        <Pill tone={statusTone(row.original.status)}>
+        <Status tone={statusTone(row.original.status)}>
           {statusLabel(row.original.status)}
-        </Pill>
+        </Status>
       ),
     },
     {
@@ -640,30 +636,19 @@ export function Directory() {
   return (
     <PageContent>
       <PageHeader
-        crumb="People"
         title="Employees"
-        sub={
-          bounded === null
-            ? "Who works here, under what contract, and where they are posted. Personal data is a different question and a different privilege."
-            : `${bounded} only — your own posting is what you may read. Personal data is a different question and a different privilege.`
-        }
         // On a phone the search, the filters and the sort are in the dock over
         // the bottom bar, and adding is its round +.
         actions={
           phone ? undefined : (
             <>
-              <Input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                className="h-8 w-48"
-              />
-              {/* Adding somebody, as Talenta's Add employee does it — the
-                hire request it replaced went with recruitment (2026-09-30). */}
               {employer && (
                 <Button variant="ghost" onClick={() => porting.open(true)}>
                   Import & export
                 </Button>
               )}
+              {/* Adding somebody, as Talenta's Add employee does it — the
+                hire request it replaced went with recruitment (2026-09-30). */}
               <Button variant="primary" onClick={() => adding.open(true)}>
                 <UserPlus />
                 Add employee
@@ -682,13 +667,22 @@ export function Directory() {
       )}
 
       <div className="max-md:hidden">
-        <Toolbar>
+        <Toolbar className="group/bar">
+          <ExpandingSearch
+            value={query}
+            onChange={setQuery}
+            label="Search employees"
+          />
           <FilterPanel model={{ ...filters, fields: counted }} />
           {/* The server's count of everything the search and the chips match,
-            not of the rows loaded so far. */}
+            not of the rows loaded so far. A bounded caller is told whose list
+            this is: a supervisor posted to one shop is served that shop and
+            nothing else, and eight names would otherwise read as a company
+            of eight. */}
           {head !== undefined && (
-            <span className="ml-auto text-[0.875rem] text-body">
+            <span className="ml-auto text-[0.9375rem] text-body">
               {count(head.total)} {head.total === 1 ? "employee" : "employees"}
+              {bounded !== null && ` in ${bounded}`}
             </span>
           )}
         </Toolbar>
@@ -712,18 +706,20 @@ export function Directory() {
         sort={dockSortOf(table)}
       />
 
-      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+      <Card
+        aria-busy={people.isPlaceholderData || undefined}
+        className="list-swap overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none"
+      >
         {queryState(people, {
           loading: "Loading the workforce…",
           render: () =>
             rows.length === 0 ? (
               <EmptyState>
-                {narrowed
-                  ? "Nobody matches this search and the filters in force."
-                  : "Nobody has been registered yet. An employee record is created with a number, and a name is enrolled onto it afterwards."}
+                {narrowed ? "Nobody matches." : "No employees yet."}
               </EmptyState>
             ) : (
               <DataTable<EmployeeSummary>
+                refresh={[people]}
                 table={table}
                 onRowClick={(row) => employee.open(row.employee_id)}
                 isSelected={(row) => row.employee_id === employee.value}
@@ -838,222 +834,195 @@ function EmployeeSheet({
     enabled: id !== null,
   })
 
-  return (
-    <Sheet
-      open={id !== null}
-      subject={id === null ? undefined : { kind: "employee", id }}
-      onOpenChange={(open) => !open && onClose()}
-      id={detail.data?.employee_code ?? listed?.employee_code}
-      title={listed?.full_name ?? detail.data?.employee_code ?? "Employee"}
-    >
-      {queryState(detail, {
-        loading: "Loading the record…",
-        render: (person) => (
-          <EmployeeSheetBody
-            person={person}
-            listed={listed}
-            employer={employer}
-          />
-        ),
-      })}
-    </Sheet>
-  )
-}
-
-/// One person's sheet, once the record is in hand.
-///
-/// # The tabs depend on the reader AND the record
-///
-/// The Change forms are head office's, and the exit tab belongs to a leaver —
-/// an exit interview exists for somebody whose employment ended, and showing
-/// it beside an active record promises something that cannot exist. Both
-/// facts arrive with the detail read, so the tabs are computed here rather
-/// than in the sheet. A tab the reader may no longer be offered falls back
-/// rather than rendering nothing: opening a second person keeps the tab the
-/// first one was read on, and that tab may not exist for them.
-function EmployeeSheetBody({
-  person,
-  listed,
-  employer,
-}: {
-  person: EmployeeView
-  listed: EmployeeSummary | null
-  employer: boolean
-}) {
-  // A link from another screen can land on a tab (`/people?employee=…#change`).
-  // The hash is read once, on open, and dropped so the next person opened from
-  // the list starts on their record as usual.
-  const [tab, setTab] = useState<string>(
-    () => window.location.hash.slice(1) || "record"
-  )
+  // A link from another screen can land on a section
+  // (`/people?employee=…#change`). The hash is read when a record opens and
+  // dropped so the next person opened from the list starts at the top.
+  const [landing, setLanding] = useState<string | null>(null)
   useEffect(() => {
-    if (window.location.hash !== "")
+    if (id === null) return
+    const wanted = window.location.hash.slice(1)
+    setLanding(wanted === "" ? null : wanted)
+    if (wanted !== "")
       window.history.replaceState(
         window.history.state,
         "",
         window.location.pathname + window.location.search
       )
-  }, [])
-  const tabs = tabsFor(employer, person.status)
-  const shown = tabs.some((one) => one.value === tab) ? tab : "record"
+  }, [id])
 
+  const person = detail.data
   return (
-    <div className="flex flex-col gap-5">
-      <div className="flex flex-wrap items-center gap-2">
-        <Pill tone={statusTone(person.status)}>
-          {statusLabel(person.status)}
-        </Pill>
-        {!person.selectable && (
-          <Pill tone="neutral">Not available for new work</Pill>
-        )}
-        {person.status !== "ACTIVE" &&
-          person.status !== "CANDIDATE" &&
-          person.account !== null &&
-          person.account.active && (
-            // Ending or suspending employment closes the login as part of
-            // the same act, so this is either a binding made before that
-            // was true or a close that failed. Both are a working
-            // credential for somebody who is not working, which is the
-            // one thing on this sheet worth interrupting somebody about.
-            <Pill tone="bad">Login still open</Pill>
+    <Sheet
+      open={id !== null}
+      subject={id === null ? undefined : { kind: "employee", id }}
+      onOpenChange={(open) => !open && onClose()}
+      id={person?.employee_code ?? listed?.employee_code}
+      title={listed?.full_name ?? person?.employee_code ?? "Employee"}
+      badge={
+        person && (
+          <Pill tone={statusTone(person.status)}>
+            {statusLabel(person.status)}
+          </Pill>
+        )
+      }
+      tabs={person ? employeeSections(person, listed, employer) : undefined}
+      tab={person ? landing : null}
+    >
+      {queryState(detail, {
+        loading: "Loading the record…",
+        render: () => null,
+      })}
+    </Sheet>
+  )
+}
+
+/// One person's sections, once the record is in hand — ONE scroll, no tabs.
+///
+/// The Change forms are head office's, and the exit section belongs to a
+/// leaver — an exit interview exists for somebody whose employment ended, and
+/// showing it beside an active record promises something that cannot exist.
+/// Both facts arrive with the detail read, so the sections are computed here
+/// rather than in the sheet.
+function employeeSections(
+  person: EmployeeView,
+  listed: EmployeeSummary | null,
+  employer: boolean
+): readonly SheetTab[] {
+  const content: Record<string, React.ReactNode> = {
+    record: (
+      <div className="flex flex-col gap-5">
+        <div className="flex flex-wrap items-center gap-2 empty:hidden">
+          {!person.selectable && (
+            <Pill tone="neutral">Not available for new work</Pill>
           )}
-      </div>
+          {person.status !== "ACTIVE" &&
+            person.status !== "CANDIDATE" &&
+            person.account !== null &&
+            person.account.active && (
+              // Ending or suspending employment closes the login as part of
+              // the same act, so this is either a binding made before that
+              // was true or a close that failed. Both are a working
+              // credential for somebody who is not working, which is the
+              // one thing on this sheet worth interrupting somebody about.
+              <Pill tone="bad">Login still open</Pill>
+            )}
+        </div>
 
-      <Facts>
-        <Fact term="Posted to">
-          {person.current_unit_name ?? person.current_unit_id ?? "—"}
-        </Fact>
-        <Fact term="Login">
-          {person.account === null ? (
-            "None"
-          ) : person.account.active ? (
-            person.account.username
-          ) : (
-            <span className="text-mute">
-              {person.account.username} · closed
-            </span>
-          )}
-        </Fact>
-        <Fact term="Job">{listed?.position ?? "—"}</Fact>
-        <Fact term="Registered">{day(person.created_at)}</Fact>
-      </Facts>
+        <Facts>
+          <Fact term="Posted to">
+            {person.current_unit_name ?? person.current_unit_id ?? "—"}
+          </Fact>
+          <Fact term="Login">
+            {person.account === null ? (
+              "None"
+            ) : person.account.active ? (
+              person.account.username
+            ) : (
+              <span className="text-mute">
+                {person.account.username} · closed
+              </span>
+            )}
+          </Fact>
+          <Fact term="Job">{listed?.position ?? "—"}</Fact>
+          <Fact term="Registered">{day(person.created_at)}</Fact>
+        </Facts>
 
-      <div>
-        <SheetTabs tabs={tabs} value={shown} onChange={setTab} />
-
-        {shown === "record" && (
-          <div className="flex flex-col gap-5">
-            <div>
-              <SubHead>Employment</SubHead>
-              {person.history.length === 0 ? (
-                <Quiet>
-                  Nothing has happened to this record yet — not even a hire.
-                </Quiet>
-              ) : (
-                <Timeline
-                  events={person.history.map((event, index) => ({
-                    id: `${event.transition}-${event.at}-${index}`,
-                    title: `${event.transition} — ${event.from} → ${event.to}`,
-                    detail: `${event.actor} · ${event.reason}`,
-                    at: day(event.effective_on),
-                    state:
-                      index === person.history.length - 1 ? "current" : "done",
-                  }))}
-                />
-              )}
-            </div>
-
-            <div>
-              <SubHead>Postings</SubHead>
-              {person.assignments.length === 0 ? (
-                <Quiet>Never posted anywhere.</Quiet>
-              ) : (
-                <MiniTable
-                  head={["Place", { label: "From", align: "left" }, "Until"]}
-                >
-                  {person.assignments.map((assignment) => (
-                    <MiniRow
-                      key={`${assignment.unit_id}-${assignment.valid_from}`}
-                    >
-                      <MiniCell>
-                        <span className="block text-[0.875rem] text-ink">
-                          {assignment.unit_name ?? assignment.unit_id}
-                        </span>
-                        <span className="font-mono text-[0.875rem] text-mute">
-                          {assignment.actor} · {assignment.reason}
-                        </span>
-                      </MiniCell>
-                      <MiniCell>{day(assignment.valid_from)}</MiniCell>
-                      <MiniCell align="right">
-                        {assignment.valid_to
-                          ? day(assignment.valid_to)
-                          : "open"}
-                      </MiniCell>
-                    </MiniRow>
-                  ))}
-                </MiniTable>
-              )}
-            </div>
-
-            {person.code_history.length > 0 && (
-              <div>
-                <SubHead>Number corrections</SubHead>
-                <MiniTable
-                  head={["Was", { label: "Became", align: "left" }, "By"]}
-                >
-                  {person.code_history.map((correction, index) => (
-                    <MiniRow key={`${correction.from}-${index}`}>
-                      <MiniCell>
-                        <span className="font-mono text-id text-mute line-through">
-                          {correction.from}
-                        </span>
-                      </MiniCell>
-                      <MiniCell>
-                        <span className="font-mono text-id text-ink">
-                          {correction.to}
-                        </span>
-                      </MiniCell>
-                      <MiniCell align="right">{correction.actor}</MiniCell>
-                    </MiniRow>
-                  ))}
-                </MiniTable>
-              </div>
+        <div className="flex flex-col gap-5">
+          <div>
+            <SubHead>Employment</SubHead>
+            {person.history.length === 0 ? (
+              <Quiet>
+                Nothing has happened to this record yet — not even a hire.
+              </Quiet>
+            ) : (
+              <Timeline
+                events={person.history.map((event, index) => ({
+                  id: `${event.transition}-${event.at}-${index}`,
+                  title: `${event.transition} — ${event.from} → ${event.to}`,
+                  detail: `${event.actor} · ${event.reason}`,
+                  at: day(event.effective_on),
+                  state:
+                    index === person.history.length - 1 ? "current" : "done",
+                }))}
+              />
             )}
           </div>
-        )}
 
-        {shown === "leave" && <LeaveTab employeeId={person.employee_id} />}
+          <div>
+            <SubHead>Postings</SubHead>
+            {person.assignments.length === 0 ? (
+              <Quiet>Never posted anywhere.</Quiet>
+            ) : (
+              <MiniTable
+                head={["Place", { label: "From", align: "left" }, "Until"]}
+              >
+                {person.assignments.map((assignment) => (
+                  <MiniRow
+                    key={`${assignment.unit_id}-${assignment.valid_from}`}
+                  >
+                    <MiniCell>
+                      <span className="block text-[0.9375rem] text-ink">
+                        {assignment.unit_name ?? assignment.unit_id}
+                      </span>
+                      <span className="font-mono text-[0.9375rem] text-mute">
+                        {assignment.actor} · {assignment.reason}
+                      </span>
+                    </MiniCell>
+                    <MiniCell>{day(assignment.valid_from)}</MiniCell>
+                    <MiniCell align="right">
+                      {assignment.valid_to ? day(assignment.valid_to) : "open"}
+                    </MiniCell>
+                  </MiniRow>
+                ))}
+              </MiniTable>
+            )}
+          </div>
 
-        {shown === "claims" && <ClaimsTab employeeId={person.employee_id} />}
-
-        {shown === "contracts" && <Contracts employeeId={person.employee_id} />}
-
-        {shown === "discipline" && (
-          <DisciplinePanel employeeId={person.employee_id} />
-        )}
-
-        {shown === "checklist" && (
-          <ChecklistPanel employeeId={person.employee_id} />
-        )}
-
-        {shown === "position" && (
-          <PlacementPanel employeeId={person.employee_id} />
-        )}
-
-        {shown === "pay" && <PayPanel employeeId={person.employee_id} />}
-
-        {shown === "loans" && <LoansPanel employeeId={person.employee_id} />}
-
-        {shown === "exit" && (
-          <ExitTab employeeId={person.employee_id} employer={employer} />
-        )}
-
-        {shown === "change" && (
-          <Changes employeeId={person.employee_id} account={person.account} />
-        )}
+          {person.code_history.length > 0 && (
+            <div>
+              <SubHead>Number corrections</SubHead>
+              <MiniTable
+                head={["Was", { label: "Became", align: "left" }, "By"]}
+              >
+                {person.code_history.map((correction, index) => (
+                  <MiniRow key={`${correction.from}-${index}`}>
+                    <MiniCell>
+                      <span className="font-mono text-id text-mute line-through">
+                        {correction.from}
+                      </span>
+                    </MiniCell>
+                    <MiniCell>
+                      <span className="font-mono text-id text-ink">
+                        {correction.to}
+                      </span>
+                    </MiniCell>
+                    <MiniCell align="right">{correction.actor}</MiniCell>
+                  </MiniRow>
+                ))}
+              </MiniTable>
+            </div>
+          )}
+        </div>
       </div>
-    </div>
-  )
+    ),
+    leave: <LeaveTab employeeId={person.employee_id} />,
+    claims: <ClaimsTab employeeId={person.employee_id} />,
+    contracts: <Contracts employeeId={person.employee_id} />,
+    discipline: <DisciplinePanel employeeId={person.employee_id} />,
+    checklist: <ChecklistPanel employeeId={person.employee_id} />,
+    position: <PlacementPanel employeeId={person.employee_id} />,
+    pay: <PayPanel employeeId={person.employee_id} />,
+    loans: <LoansPanel employeeId={person.employee_id} />,
+    exit: <ExitTab employeeId={person.employee_id} employer={employer} />,
+    change: (
+      <Changes employeeId={person.employee_id} account={person.account} />
+    ),
+  }
+  return tabsFor(employer, person.status).map((one) => ({
+    value: one.value,
+    label: one.label,
+    content: content[one.value],
+  }))
 }
 
 function Contracts({ employeeId }: { employeeId: string }) {
@@ -1081,7 +1050,7 @@ function Contracts({ employeeId }: { employeeId: string }) {
                     </Tag>
                     {contract.in_force && <Pill tone="ok">In force</Pill>}
                   </span>
-                  <span className="mt-0.5 block font-mono text-[0.875rem] text-mute">
+                  <span className="mt-0.5 block font-mono text-[0.9375rem] text-mute">
                     {contract.actor} · {contract.reason}
                   </span>
                 </MiniCell>
@@ -1136,28 +1105,39 @@ function Changes({
   employeeId: string
   account: AccountBinding | null
 }) {
-  const [action, setAction] = useState<string>("employment")
+  const [action, setAction] = useState<string | null>(null)
+  const chosen = ACTIONS.find((one) => one.value === action)
 
   return (
-    <div className="flex flex-col gap-4">
-      <Field label="What are you changing?">
-        <Select value={action} onChange={(next) => setAction(next)}>
-          {ACTIONS.map((one) => (
-            <option key={one.value} value={one.value}>
-              {one.label}
-            </option>
-          ))}
-        </Select>
-      </Field>
+    <div className="flex flex-col gap-3">
+      {ACTIONS.map((one) => (
+        <button
+          key={one.value}
+          type="button"
+          className="record-link text-left text-[0.9375rem]"
+          onClick={() => setAction(one.value)}
+        >
+          {one.label}
+        </button>
+      ))}
 
-      {action === "employment" && <TransitionForm employeeId={employeeId} />}
-      {action === "posting" && <PostingForm employeeId={employeeId} />}
-      {action === "contract" && <ContractForm employeeId={employeeId} />}
-      {action === "code" && <CodeForm employeeId={employeeId} />}
-      {action === "account" && (
-        <AccountForm employeeId={employeeId} account={account} />
-      )}
-      {action === "personal" && <AmendmentForm employeeId={employeeId} />}
+      <Sheet
+        open={action !== null}
+        swap={false}
+        onOpenChange={(open) => !open && setAction(null)}
+        title={chosen?.label ?? "Change"}
+        context="Change"
+        footer={<SheetFooter onCancel={() => setAction(null)} />}
+      >
+        {action === "employment" && <TransitionForm employeeId={employeeId} />}
+        {action === "posting" && <PostingForm employeeId={employeeId} />}
+        {action === "contract" && <ContractForm employeeId={employeeId} />}
+        {action === "code" && <CodeForm employeeId={employeeId} />}
+        {action === "account" && (
+          <AccountForm employeeId={employeeId} account={account} />
+        )}
+        {action === "personal" && <AmendmentForm employeeId={employeeId} />}
+      </Sheet>
     </div>
   )
 }
@@ -1398,7 +1378,7 @@ function PostingForm({ employeeId }: { employeeId: string }) {
           <Field
             label="Place"
             required
-            hint="To move somebody from one place to another, propose a transfer under Transfers & changes; this records a posting with no other open."
+            hint="To move somebody, propose a transfer under Changes."
           >
             <Select
               value={field.state.value}
@@ -1913,12 +1893,7 @@ function AccountForm({
           {queryState(targets, {
             loading: "Looking up this person's nodes…",
             render: (nodes) =>
-              nodes.length === 0 ? (
-                <Banner tone="info">
-                  This person&rsquo;s place is served by no syncing node, so
-                  there is no till to grant. Head office staff usually are not.
-                </Banner>
-              ) : (
+              nodes.length === 0 ? null : (
                 <>
                   <Field
                     label="Also signs in at"
@@ -2134,11 +2109,6 @@ function AmendmentForm({ employeeId }: { employeeId: string }) {
     >
       {amend.isError && <ErrorState error={amend.error} />}
 
-      <Banner tone="info">
-        One field per amendment. Two at once would be two changes recorded as
-        one, and the trail would say less than it appears to.
-      </Banner>
-
       <form.Field name="field">
         {(field) => (
           <Field label="Field">
@@ -2280,10 +2250,10 @@ function LeaveTab({ employeeId }: { employeeId: string }) {
                 {rows.map((row) => (
                   <MiniRow key={row.leave_type}>
                     <MiniCell>
-                      <span className="block text-[0.875rem] text-ink">
+                      <span className="block text-[0.9375rem] text-ink">
                         {row.name}
                       </span>
-                      <span className="font-mono text-[0.875rem] text-mute">
+                      <span className="font-mono text-[0.9375rem] text-mute">
                         {row.leave_type}
                       </span>
                     </MiniCell>
@@ -2320,10 +2290,10 @@ function LeaveTab({ employeeId }: { employeeId: string }) {
                 {rows.map((row) => (
                   <MiniRow key={row.id}>
                     <MiniCell>
-                      <span className="block text-[0.875rem] text-ink">
+                      <span className="block text-[0.9375rem] text-ink">
                         {row.leave_type_name}
                       </span>
-                      <span className="font-mono text-[0.875rem] text-mute">
+                      <span className="font-mono text-[0.9375rem] text-mute">
                         {leaveStateLabel(row.state)}
                         {row.decided_by !== null && ` · ${row.decided_by}`}
                       </span>
@@ -2395,10 +2365,10 @@ function ClaimsTab({ employeeId }: { employeeId: string }) {
                   {rows.map((row) => (
                     <MiniRow key={row.claim_id}>
                       <MiniCell>
-                        <span className="block font-mono text-[0.875rem] text-ink">
+                        <span className="block font-mono text-[0.9375rem] text-ink">
                           {row.claim_number}
                         </span>
-                        <span className="font-mono text-[0.875rem] text-mute">
+                        <span className="font-mono text-[0.9375rem] text-mute">
                           {claimStateLabel(row.state)}
                           {row.decided_by !== null && ` · ${row.decided_by}`}
                         </span>
@@ -2446,10 +2416,10 @@ function ClaimsTab({ employeeId }: { employeeId: string }) {
                 {rows.map((row) => (
                   <MiniRow key={row.advance_id}>
                     <MiniCell>
-                      <span className="block font-mono text-[0.875rem] text-ink">
+                      <span className="block font-mono text-[0.9375rem] text-ink">
                         {row.advance_number}
                       </span>
-                      <span className="font-mono text-[0.875rem] text-mute">
+                      <span className="font-mono text-[0.9375rem] text-mute">
                         {row.status.toLowerCase()}
                       </span>
                     </MiniCell>
@@ -2579,7 +2549,7 @@ function ExitTab({
                     <MiniRow key={row.fnf_id}>
                       <MiniCell>
                         {day(row.transaction_on)}
-                        <span className="block font-mono text-[0.875rem] text-mute">
+                        <span className="block font-mono text-[0.9375rem] text-mute">
                           {moment(row.created_at)} · {row.created_by}
                         </span>
                       </MiniCell>

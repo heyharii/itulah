@@ -219,7 +219,7 @@ function ConnectionTest() {
       <Problem error={test.error} />
       {probe !== null &&
         (probe.reachable ? (
-          <div className="flex flex-col gap-1 text-[0.875rem]">
+          <div className="flex flex-col gap-1 text-[0.9375rem]">
             <div className="flex items-center gap-1.5">
               <Pill tone="ok">answered</Pill>
               <span className="font-mono text-mute">
@@ -241,7 +241,7 @@ function ConnectionTest() {
             )}
           </div>
         ) : (
-          <div className="flex flex-col gap-1 text-[0.875rem]">
+          <div className="flex flex-col gap-1 text-[0.9375rem]">
             <div className="flex items-center gap-1.5">
               <Pill tone="bad">no answer</Pill>
               <span className="font-mono text-mute">{probe.address}</span>
@@ -263,7 +263,7 @@ export function PrinterCard() {
           somebody walks to another one, and then the first thing they want to
           know is which machine this browser still thinks it is talking to.
           The summary answers that without opening anything. */}
-      <Collapsible.Trigger className="group flex w-full items-center gap-1.5 text-left text-[0.875rem] font-medium text-body transition-colors hover:text-ink">
+      <Collapsible.Trigger className="group flex w-full items-center gap-1.5 text-left text-[0.9375rem] font-medium text-body transition-colors hover:text-ink">
         <ChevronRight className="size-3.5 text-line-ico transition-transform duration-150 group-data-[panel-open]:rotate-90" />
         Printer
         <span className="font-normal text-mute">
@@ -273,7 +273,7 @@ export function PrinterCard() {
           · {printer.language} · {printer.widthMm} × {printer.heightMm} mm
         </span>
       </Collapsible.Trigger>
-      <Collapsible.Panel className="overflow-hidden">
+      <Collapsible.Panel className="fold-panel">
         <div className="flex flex-col gap-3 px-1 py-3.5">
           <Field label="Printer host">
             <Input
@@ -387,7 +387,7 @@ export function PrinterCard() {
                     })
                   }
                   title={preset.note}
-                  className={`min-h-[1.875rem] rounded-full px-2.5 text-[0.875rem] tabular-nums transition-colors ${
+                  className={`min-h-[1.875rem] rounded-full px-2.5 text-[0.9375rem] tabular-nums transition-colors ${
                     chosen
                       ? "bg-ink text-canvas"
                       : "bg-soft-2 text-body hover:bg-soft-3"

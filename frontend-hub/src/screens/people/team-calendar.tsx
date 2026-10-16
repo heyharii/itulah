@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { useState } from "react"
+import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { DockChoice } from "@/components/shell/dock-tools"
@@ -8,9 +8,18 @@ import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { PageHeader } from "@/components/ui/page-header"
+import { MiniCell, MiniRow, MiniTable, SubHead } from "@/components/ui/rows"
+import { ButtonGroup, Toolbar } from "@/components/ui/segmented"
 import { EmptyState } from "@/components/ui/states"
-import { day, dayMonth, monthYear } from "@/lib/format"
+import { dateRange, day, weekday } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
+import {
+  currentMonth,
+  monthBounds,
+  monthTitle,
+  stepMonth,
+  useActiveEmployees,
+} from "@/lib/queries/hr-time"
 import { holidayWork, leaveExtraKeys, teamCalendar } from "@/lib/queries/people"
 import { queryState } from "@/lib/query-state"
 import { cn } from "@/lib/utils"
@@ -23,17 +32,18 @@ import {
 } from "@/components/ui/phone-cards"
 import type { TeamCalendarView, TeamLeaveSpan } from "@itulah/contract"
 
-/// Kalender tim: who is away when, a month at a time — approved leave solid,
+/// Roster › Month: who is away when, a month at a time — approved leave solid,
 /// leave still waiting on a decision outlined — with the public holidays and
 /// the dates closed to leave marked on the days. Head office sees every unit;
 /// a manager their own.
+///
+/// The Week view reads the same team calendar, so a day of leave reads the
+/// same on both.
 export function TeamCalendar() {
   const phone = useLayout() === "phone"
-  const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7))
-  const first = `${month}-01`
-  const [year, monthNumber] = month.split("-").map(Number) as [number, number]
-  const daysInMonth = new Date(year, monthNumber, 0).getDate()
-  const last = `${month}-${String(daysInMonth).padStart(2, "0")}`
+  const [month, setMonth] = useState(currentMonth)
+  const { from: first, to: last } = monthBounds(month)
+  const daysInMonth = Number(last.slice(8))
   const calendar = useQuery({
     queryKey: leaveExtraKeys.calendar(first, last),
     queryFn: ({ signal }) => teamCalendar(first, last, signal),
@@ -42,79 +52,118 @@ export function TeamCalendar() {
     queryKey: leaveExtraKeys.holidayWork(first, last),
     queryFn: ({ signal }) => holidayWork(first, last, signal),
   })
-  const step = (by: number) => {
-    const next = new Date(year, monthNumber - 1 + by, 1)
-    setMonth(
-      `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}`
-    )
-  }
+  const { people } = useActiveEmployees()
+  /// Unit ids are codes; the people list knows what each is called.
+  const unitNames = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const one of people) {
+      if (one.unit_id !== null)
+        map.set(one.unit_id, one.unit_name ?? one.unit_id)
+    }
+    return map
+  }, [people])
 
   return (
     <PageContent>
-      <PageHeader
-        crumb="People"
-        title="Team Calendar"
-        sub="Who is away when, with the holidays and the dates closed to leave."
+      <PageHeader title="Roster" />
+      {phone ? (
         // On a phone the month is the chip over the bottom bar.
-        actions={
-          phone ? undefined : (
-            <div className="flex items-center gap-2">
-              <Button variant="quiet" onClick={() => step(-1)}>
-                ‹
-              </Button>
-              <span className="min-w-28 text-center text-[0.875rem] font-medium text-ink">
-                {monthYear(new Date(year, monthNumber - 1, 1), true)}
-              </span>
-              <Button variant="quiet" onClick={() => step(1)}>
-                ›
-              </Button>
-            </div>
-          )
-        }
-      />
-      {phone && (
         <DockChoice
+          title="Month"
           value={month}
           onChange={setMonth}
-          options={monthOptions(month).map((value) => {
-            const [y, m] = value.split("-").map(Number) as [number, number]
-            const title = monthYear(new Date(y, m - 1, 1), true)
-            return { value, label: title, short: title }
-          })}
+          options={monthOptions(month).map((value) => ({
+            value,
+            label: monthTitle(value),
+            short: monthTitle(value),
+          }))}
         />
+      ) : (
+        <Toolbar>
+          <ButtonGroup>
+            <Button
+              variant="ghost"
+              aria-label="Previous month"
+              onClick={() => setMonth(stepMonth(month, -1))}
+            >
+              ‹
+            </Button>
+            <Button variant="ghost" onClick={() => setMonth(currentMonth())}>
+              {monthTitle(month)}
+            </Button>
+            <Button
+              variant="ghost"
+              aria-label="Next month"
+              onClick={() => setMonth(stepMonth(month, 1))}
+            >
+              ›
+            </Button>
+          </ButtonGroup>
+        </Toolbar>
       )}
       <Card className="mb-4 overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(calendar, {
           loading: "Reading the month…",
           render: (view) =>
             phone ? (
-              <MonthList view={view} month={month} days={daysInMonth} />
+              <MonthList
+                view={view}
+                month={month}
+                days={daysInMonth}
+                unitNames={unitNames}
+              />
             ) : (
-              <MonthGrid view={view} month={month} days={daysInMonth} />
+              <MonthGrid
+                view={view}
+                month={month}
+                days={daysInMonth}
+                unitNames={unitNames}
+              />
             ),
         })}
       </Card>
       {(worked.data ?? []).length > 0 && (
         <Card className="mb-4 p-4">
-          <p className="mb-2 text-card-title font-semibold text-ink">
-            Holidays and rest days worked
-          </p>
-          <ul className="flex flex-col gap-1 text-[0.875rem]">
+          <SubHead>Holidays and rest days worked</SubHead>
+          <MiniTable
+            head={[
+              "Date",
+              { label: "Employee", align: "left" },
+              { label: "Day", align: "left" },
+              "Days back",
+              { label: "Reason", align: "left" },
+            ]}
+          >
             {(worked.data ?? []).map((row) => (
-              <li key={row.id}>
-                <span className="font-mono">{row.on_date}</span> ·{" "}
-                {row.full_name ?? row.employee_code} ·{" "}
-                {row.day_kind === "PUBLIC_HOLIDAY"
-                  ? "public holiday"
-                  : "rest day"}{" "}
-                · {row.centidays / 100} day back · {row.reason}
-              </li>
+              <MiniRow key={row.id}>
+                <MiniCell>{weekday(row.on_date, true)}</MiniCell>
+                <MiniCell>{row.full_name ?? row.employee_code}</MiniCell>
+                <MiniCell>
+                  {row.day_kind === "PUBLIC_HOLIDAY"
+                    ? "Public holiday"
+                    : "Rest day"}
+                </MiniCell>
+                <MiniCell align="right">{row.centidays / 100}</MiniCell>
+                <MiniCell>{row.reason}</MiniCell>
+              </MiniRow>
             ))}
-          </ul>
+          </MiniTable>
         </Card>
       )}
     </PageContent>
   )
+}
+
+/// The span that reads on a day: where an approved stretch and a waiting one
+/// cover the same date, the approved one.
+function readOn(
+  spans: readonly TeamLeaveSpan[],
+  date: string
+): TeamLeaveSpan | undefined {
+  const covering = spans.filter(
+    (one) => one.from_date <= date && one.to_date >= date
+  )
+  return covering.find((one) => one.state === "APPROVED") ?? covering[0]
 }
 
 /// The month on a phone: one card per person who is away, with how many days
@@ -124,10 +173,12 @@ function MonthList({
   view,
   month,
   days,
+  unitNames,
 }: {
   view: TeamCalendarView
   month: string
   days: number
+  unitNames: ReadonlyMap<string, string>
 }) {
   const navigate = useNavigate()
   const first = `${month}-01`
@@ -181,7 +232,12 @@ function MonthList({
             title: (row) => (
               <CardName
                 name={row.spans[0]?.full_name ?? row.spans[0]?.employee_code}
-                line={row.spans[0]?.unit_id}
+                line={
+                  row.spans[0] === undefined
+                    ? undefined
+                    : (unitNames.get(row.spans[0].unit_id) ??
+                      row.spans[0].unit_id)
+                }
               />
             ),
             lead: (row) => (
@@ -196,11 +252,10 @@ function MonthList({
                   <span
                     key={`${span.leave_type}-${span.from_date}-${span.to_date}`}
                   >
-                    {span.from_date === span.to_date
-                      ? day(span.from_date)
-                      : `${dayMonth(span.from_date)} – ${day(span.to_date)}`}{" "}
-                    · {span.leave_name}
-                    {span.state === "APPROVED" ? "" : " · waiting"}
+                    {dateRange(span.from_date, span.to_date)} ·{" "}
+                    {span.state === "APPROVED"
+                      ? span.leave_name
+                      : `Waiting · ${span.leave_name}`}
                   </span>
                 ))}
               </span>
@@ -217,10 +272,8 @@ function MonthList({
       )}
       {view.holidays.length > 0 && (
         <Card className="p-4">
-          <p className="mb-2 text-card-title font-semibold text-ink">
-            Public holidays
-          </p>
-          <ul className="flex flex-col gap-1 text-[0.875rem]">
+          <SubHead>Public holidays</SubHead>
+          <ul className="flex flex-col gap-1 text-[0.9375rem]">
             {view.holidays.map(([date, name]) => (
               <li key={date}>
                 <span className="tabular-nums">{day(date)}</span> · {name}
@@ -231,16 +284,12 @@ function MonthList({
       )}
       {view.blocked.length > 0 && (
         <Card className="p-4">
-          <p className="mb-2 text-card-title font-semibold text-ink">
-            Closed to leave
-          </p>
-          <ul className="flex flex-col gap-1 text-[0.875rem]">
+          <SubHead>Closed to leave</SubHead>
+          <ul className="flex flex-col gap-1 text-[0.9375rem]">
             {view.blocked.map((block) => (
               <li key={`${block.from_date}-${block.to_date}-${block.reason}`}>
                 <span className="tabular-nums">
-                  {block.from_date === block.to_date
-                    ? day(block.from_date)
-                    : `${dayMonth(block.from_date)} – ${day(block.to_date)}`}
+                  {dateRange(block.from_date, block.to_date)}
                 </span>{" "}
                 · {block.reason}
               </li>
@@ -256,10 +305,12 @@ function MonthGrid({
   view,
   month,
   days,
+  unitNames,
 }: {
   view: TeamCalendarView
   month: string
   days: number
+  unitNames: ReadonlyMap<string, string>
 }) {
   const dates = Array.from(
     { length: days },
@@ -281,15 +332,15 @@ function MonthGrid({
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-max border-collapse text-[0.875rem]">
+      <table className="w-full min-w-max border-collapse text-[0.9375rem]">
         <thead>
           <tr>
             <th className="sticky left-0 min-w-44 bg-canvas px-3 py-2 text-left font-medium text-mute">
               Who
             </th>
             {dates.map((date) => {
-              const weekday = new Date(`${date}T00:00:00`).getDay()
-              const off = holidays.has(date) || weekday === 0
+              const dayOfWeek = new Date(`${date}T00:00:00`).getDay()
+              const off = holidays.has(date) || dayOfWeek === 0
               return (
                 <th
                   key={date}
@@ -319,12 +370,14 @@ function MonthGrid({
                 >
                   {spans[0]?.full_name ?? spans[0]?.employee_code}
                 </AppLink>
-                <span className="block text-mute">{spans[0]?.unit_id}</span>
+                <span className="block text-mute">
+                  {spans[0] === undefined
+                    ? ""
+                    : (unitNames.get(spans[0].unit_id) ?? spans[0].unit_id)}
+                </span>
               </td>
               {dates.map((date) => {
-                const span = spans.find(
-                  (one) => one.from_date <= date && one.to_date >= date
-                )
+                const span = readOn(spans, date)
                 return (
                   <td key={date} className="min-w-9 px-0.5 py-1.5">
                     {span !== undefined && (
@@ -345,9 +398,9 @@ function MonthGrid({
           ))}
         </tbody>
       </table>
-      <p className="px-3 py-2 text-[0.875rem] text-mute">
-        Solid: approved. Outlined: waiting on a decision. Red dates are Sundays
-        and public holidays; shaded dates are closed to leave.
+      <p className="px-3 py-2 text-[0.9375rem] text-mute">
+        Solid: approved. Outlined: waiting. Red dates: Sundays and public
+        holidays. Shaded: closed to leave.
       </p>
     </div>
   )

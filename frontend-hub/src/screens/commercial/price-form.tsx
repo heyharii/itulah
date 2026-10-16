@@ -192,7 +192,7 @@ function ShopTile({
     >
       <span
         className={cn(
-          "w-full truncate text-[0.875rem] font-medium",
+          "w-full truncate text-[0.9375rem] font-medium",
           on ? "text-accent" : "text-ink"
         )}
       >
@@ -482,7 +482,7 @@ export function NewPriceSheet({
         <div className="flex items-center justify-between gap-3">
           <span
             className={cn(
-              "min-w-0 truncate text-[0.875rem]",
+              "min-w-0 truncate text-[0.9375rem]",
               unpriced.length > 0 ? "text-bad" : "text-text"
             )}
           >
@@ -562,7 +562,7 @@ export function NewPriceSheet({
                           />
                         </MiniCell>
                         <MiniCell className="py-3.5">
-                          <span className="text-[0.875rem] text-mute">
+                          <span className="text-[0.9375rem] text-mute">
                             {variantOf(product)}
                           </span>
                         </MiniCell>
@@ -638,7 +638,7 @@ export function NewPriceSheet({
                         invalid={
                           minor === null && priceText(product.sku_id) !== ""
                         }
-                        className="h-9 w-32 px-3 text-right text-[0.875rem]"
+                        className="h-9 w-32 px-3 text-right text-[0.9375rem]"
                         onChange={(next) =>
                           setOwn((was) => ({ ...was, [product.sku_id]: next }))
                         }
@@ -689,7 +689,7 @@ export function NewPriceSheet({
               {/* The header only appears where the row is a row. Below `sm`
                   the three fields stack, and a caption sitting above the first
                   of three stacks would be labelling one of them. */}
-              <div className="hidden bg-soft px-4 py-3 text-[0.875rem] font-medium text-mute sm:grid sm:grid-cols-[1fr_8.5rem_10.5rem] sm:gap-3">
+              <div className="hidden bg-soft px-4 py-3 text-[0.9375rem] font-medium text-mute sm:grid sm:grid-cols-[1fr_8.5rem_10.5rem] sm:gap-3">
                 <span>Store</span>
                 <span>Its own price</span>
                 <span>Starts</span>
@@ -701,7 +701,7 @@ export function NewPriceSheet({
                 >
                   <span
                     title={id}
-                    className="min-w-0 truncate text-[0.875rem] text-ink"
+                    className="min-w-0 truncate text-[0.9375rem] text-ink"
                   >
                     {labelOf(id)}
                   </span>

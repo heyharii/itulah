@@ -1,11 +1,54 @@
-import { Auth, Clock, Dc, Node, Sync } from "@itulah/contract/client"
+import {
+  Auth,
+  Clock,
+  Dc,
+  Node,
+  Sync,
+  type RequestOptions,
+} from "@itulah/contract/client"
+import { createIsomorphicFn, createServerOnlyFn } from "@tanstack/react-start"
+import { getRequestHeader } from "@tanstack/react-start/server"
 
 /// This surface is served from the same origin as the CLOUD node it talks to,
 /// so the base URL is empty: production rewrites `/api/*` to the node and
 /// development proxies it (see vite.config.ts). One origin is not a
 /// convenience — the session cookie is `SameSite=Strict`, so a browser simply
 /// would not send it across two.
-export const node = new Node()
+///
+/// On the SERVER (the SSR pass) the same client runs without a browser: the
+/// Start server addresses the node directly, and every read carries the
+/// incoming request's session cookie, so what the server renders is what this
+/// browser would have fetched. Only reads: a write belongs to the browser
+/// session that made it, and never runs during a render. The request and the
+/// node's address are both read per call, inside the request, never at module
+/// load (Start's execution model: module scope runs before any request).
+const requestCookie = createIsomorphicFn()
+  .server(() => getRequestHeader("cookie") || undefined)
+  .client(() => undefined)
+
+const serverCloudBase = createServerOnlyFn(
+  () =>
+    process.env.ITULAH_CLOUD_URL ??
+    // Development: the node the dev proxy targets, so the server and the
+    // browser never read two different backends.
+    process.env.VITE_API_TARGET ??
+    "http://127.0.0.1:8080"
+)
+
+class ServerNode extends Node {
+  override get<T>(path: string, options: RequestOptions = {}): Promise<T> {
+    const cookie = requestCookie()
+    return new Node(serverCloudBase()).get<T>(
+      path,
+      cookie === undefined
+        ? options
+        : { ...options, headers: { cookie, ...options.headers } }
+    )
+  }
+}
+
+export const node: Node =
+  typeof window === "undefined" ? new ServerNode() : new Node()
 export const auth = new Auth(node)
 
 /// The **second** backend this surface talks to: a DC edge node.
@@ -69,7 +112,9 @@ export function setEdgeToken(token: string | null): void {
   }
 }
 
-setEdgeToken(readStoredEdgeToken())
+// Restoring the warehouse session is a browser concern: the server has no
+// `sessionStorage` and no edge session of its own.
+if (typeof window !== "undefined") setEdgeToken(readStoredEdgeToken())
 
 /// Local password sign-in for a warehouse recovery account. The normal hub
 /// path exchanges a Cloud ticket for a local DC session in `edge-session.tsx`.
@@ -224,6 +269,9 @@ export interface PurchaseReturnWork {
   readonly note_pic?: string | null
   /// When the delivery note was generated; null until it is.
   readonly note_generated_at?: string | null
+  /// A few words per item on the note, by article code ("*" for the
+  /// not-as-ordered pieces).
+  readonly line_notes?: Readonly<Record<string, string>>
   readonly note: string | null
   readonly raised_by: string
   readonly received_at: string
@@ -258,7 +306,11 @@ export async function dcPurchaseReturns(
 /// charge is named, and each return has its note from then on. Refused for one
 /// that is no longer open.
 export async function generatePurchaseReturnNote(
-  body: { return_ids: readonly string[]; pic: string },
+  body: {
+    return_ids: readonly string[]
+    pic: string
+    notes?: Readonly<Record<string, string>>
+  },
   signal?: AbortSignal
 ): Promise<PurchaseReturnWork[]> {
   const answer = await dcNode().post<{ items: PurchaseReturnWork[] }>(

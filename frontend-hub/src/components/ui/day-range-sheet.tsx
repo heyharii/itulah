@@ -122,7 +122,7 @@ export function DayRangePage({
           )
         })}
       </div>
-      <p className="mx-1 mt-2 min-h-5 text-[0.875rem] text-mute">
+      <p className="mx-1 mt-2 min-h-5 text-[0.9375rem] text-mute">
         {anchor !== null
           ? `From ${long(anchor)} — pick the last day`
           : days.from === ""

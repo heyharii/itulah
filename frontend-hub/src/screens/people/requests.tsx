@@ -1,99 +1,82 @@
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-  type UseQueryResult,
-} from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useNavigate } from "@tanstack/react-router"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { useMemo, useState } from "react"
+import { useCallback, useMemo, useState } from "react"
 
 import { Button } from "@/components/ui/button"
-import { Card, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Field, Input } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
-import { Pill } from "@/components/ui/pill"
+import { Status } from "@/components/ui/pill"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { ButtonGroup, Toolbar } from "@/components/ui/segmented"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { useFilters } from "@/lib/filters"
-import { day, moment } from "@/lib/format"
+import { day, moment, money, monthYear, weekday } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import {
-  boundedTo,
+  CHANGE_KIND_LABEL,
+  DATA_FIELD_LABEL,
+  nameOf as nameIn,
+  useEveryEmployee,
+  useNameOfLogin,
+} from "@/lib/queries/hr-employees"
+import {
   decideCorrection,
   decideSwap,
-  listCorrections,
   listEmployees,
   nextKeys,
   peopleKeys,
-  pendingSwaps,
   punchKeys,
   decideLeave,
   leaveKeys,
-  pendingLeave,
   rosterKeys,
-  useReach,
+  useReachableUnits,
+  type ClaimRow,
+  type PayrollRunView,
   type RosterSwapView,
 } from "@/lib/queries/people"
 import { queryState } from "@/lib/query-state"
+import { everyoneBalancesKey } from "@/lib/queries/hr-time"
+import { useCanWrite } from "@/lib/session"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { AppLink } from "@/components/ui/app-link"
-import {
-  CardButton,
-  CardDate,
-  CardFigure,
-  CardName,
-  PhoneCards,
-} from "@/components/ui/phone-cards"
-import type { CorrectionRow, LeaveRequestView } from "@itulah/contract"
+import { CardButton, CardName, PhoneCards } from "@/components/ui/phone-cards"
+import { usePeopleInbox } from "@/screens/people/badges"
+import { changeSummary } from "@/screens/people/change-words"
+import { ChangeSheet, DataRequestSheet } from "@/screens/people/changes"
+import { ClaimSheet } from "@/screens/people/claims"
+import type {
+  CorrectionRow,
+  LeaveRequestView,
+  PersonalDataRequestView,
+} from "@itulah/contract"
 
-/// One queue, not three — drawn on the People overview.
+/// HR's one inbox, drawn on Overview › Requests: everything waiting on the
+/// reader's decision, in one table (owner, 2026-10-16, `hr-doors-prototype.html`
+/// — "One inbox: change proposals and detail requests join leave,
+/// corrections, swaps; claims decided here too").
 ///
-/// A manager does not have a "leave task" and a "correction task" and an
-/// "overtime task" — they have five minutes and a list of things waiting on
-/// them. Three screens each holding two rows is how all three stop being
-/// opened. So everything a manager decides is decided here: leave, attendance
-/// corrections and roster swaps, each its own table because each is judged on
-/// different facts, all opening into the same sheet with the same two verbs.
+/// A manager does not have a "leave task" and a "correction task" — they have
+/// five minutes and a list of things waiting on them. So every kind is a row
+/// of the same table, read the same way (who, what they ask, the day it is
+/// about, where), and a row opens the sheet that decides it, on this page.
+/// A payroll run is the one exception: it is a month's document, and opens on
+/// Pay › Payroll.
 ///
-/// This was its own screen, Requests, beside an Overview that listed the same
-/// leave again. The owner asked for a shorter menu on 2026-09-27, and two
-/// front doors onto one queue were one too many: the tables are drawn under
-/// the Overview's attention list now, and the overtime orders and expense
-/// claims that were banners here are rows in that list.
+/// The rows are `usePeopleInbox`'s, the same reads the Overview's badge counts,
+/// so the number on the menu is the number of rows here.
 ///
-/// Corrections were a banner too, pointing at the attendance screen. That
-/// stopped being enough the day head office's own staff came into the
-/// module: somebody posted at `ho` has no till, so the hub is the only place
-/// their correction or their swap can be answered — and a queue that could
-/// only count them left those with nowhere to be decided at all.
-///
-/// The list is bounded by the caller's own posting, on the server. A manager
+/// The lists are bounded by the caller's own posting, on the server: a manager
 /// posted to store-07 is served store-07's requests and nothing else, and head
-/// office is served every place's — the same reach the Directory is bounded by,
-/// asked of a different row. Nothing here re-implements that rule: a screen
-/// that filtered by place itself would be a second place the bound is decided,
-/// and the day the two disagreed the screen would be the one that looked right.
+/// office every place's. Nothing here re-implements that rule.
 ///
-/// Every decision carries a reason. The server refuses one without it, because
-/// "refused" with no reason is the half of an audit trail that never helps
-/// anybody — least of all the person who was refused. It also refuses a
-/// decision by the person who filed the request, and says so in its own words;
-/// the sheet shows that sentence rather than hiding the buttons, because a
-/// screen guessing who filed what would be a second copy of the rule.
-///
-/// # Overtime is here to be seen, not to be decided
-///
-/// It appears in the queue because a manager needs to know an order is sitting
-/// unanswered — an order nobody answers authorizes nothing, so it is overtime
-/// that will be worked unpaid or not worked at all. But the decision is not
-/// theirs: PP 35/2021 art. 26(2) wants the worker's own agreement, and it
-/// arrives from their phone under a key nobody here holds. So the Overview's
-/// rows for them link to the Overtime screen rather than opening a sheet with
-/// buttons in it.
+/// Every decision carries a reason. The server refuses one without it, and
+/// refuses a decision by the person who filed the request; the sheet shows
+/// that sentence rather than hiding the buttons.
 
 /// A leave request, with the name of the person it is for.
 type LeaveRow = LeaveRequestView & { readonly name: string }
@@ -104,191 +87,215 @@ type SwapRow = RosterSwapView & {
   readonly withName: string
 }
 
-const columns: ColumnDef<TableSetup, LeaveRow>[] = [
+/// One row of the inbox, whatever kind of request it is.
+interface InboxRow {
+  /// The sheet's key: the request's own id, unique across kinds.
+  readonly id: string
+  readonly kind:
+    "LEAVE" | "CORRECTION" | "SWAP" | "CLAIM" | "RUN" | "CHANGE" | "DETAILS"
+  /// Who asks — a place, for a payroll run.
+  readonly who: string
+  readonly asks: string
+  readonly detail: string
+  /// The day the request is about, for sorting; `when` is how it reads.
+  readonly on: string
+  readonly when: string
+  readonly unit: string
+}
+
+const columns: ColumnDef<TableSetup, InboxRow>[] = [
   {
     id: "who",
-    accessorFn: (row) => row.name,
+    accessorFn: (row) => row.who,
     header: "Employee",
-    size: 200,
-    // No filter: narrowing a queue by one person would mean already knowing
-    // whose request you were looking for, which is the opposite of what a
-    // queue is read for.
-    cell: ({ row }) => (
-      <Who id={row.original.employee_id} name={row.original.name} />
-    ),
+    size: 210,
   },
   {
-    accessorKey: "leave_type_name",
-    header: "Kind",
-    size: 180,
-    /// The leave types actually waiting, faceted off the queue: five minutes
-    /// and a list of things is exactly the situation where "just the sick
-    /// leave" is worth one click.
+    id: "asks",
+    accessorFn: (row) => row.asks,
+    header: "Asks",
+    size: 150,
+    /// The kinds actually waiting, faceted off the inbox: five minutes and a
+    /// list of things is exactly when "just the time off" is worth one click.
     meta: { filter: { kind: "option" } },
   },
   {
+    id: "detail",
+    accessorFn: (row) => row.detail,
+    header: "Detail",
+    size: 280,
+  },
+  {
     id: "when",
-    accessorFn: (row) => row.from_date,
-    header: "From",
-    size: 130,
-    /// Two date columns filtered separately, and that is the point: "starts
-    /// before Friday" and "ends after Friday" together are the request that
-    /// spans the day the shop is short-handed.
-    meta: { filter: { kind: "date" } },
-    cell: ({ row }) => day(row.original.from_date),
+    accessorFn: (row) => row.on,
+    header: "Date",
+    size: 220,
+    cell: ({ row }) => row.original.when,
   },
   {
-    id: "until",
-    accessorFn: (row) => row.to_date,
-    header: "To",
-    size: 130,
-    meta: { filter: { kind: "date" } },
-    cell: ({ row }) => day(row.original.to_date),
-  },
-  {
-    accessorKey: "chargeable_days",
-    header: "Charged",
-    size: 110,
-    meta: { align: "right", filter: { kind: "number", unit: "days" } },
-    /// The days actually charged, which is not the length of the span: a *cuti
-    /// bersama* inside it is already taken out of the twelve by the calendar,
-    /// and charging it again would take the same day off the employee twice.
-    /// Settled by the server on the day the request was filed.
-    cell: ({ row }) => row.original.chargeable_days,
-  },
-  {
-    accessorKey: "unit_id",
+    id: "unit",
+    accessorFn: (row) => row.unit,
     header: "Unit",
-    size: 130,
-    /// Faceted from the queue itself, never from a places list: the server has
-    /// already bounded these rows to the caller's own reach, so the places
-    /// present here are exactly the places they may narrow by — and the ids on
-    /// these rows are the only spelling that matches them.
+    size: 150,
+    /// Faceted from the inbox itself: the server has already bounded these
+    /// rows to the caller's reach, so the places here are the ones they may
+    /// narrow by.
     meta: { filter: { kind: "option" } },
   },
-]
-
-const correctionColumns: ColumnDef<TableSetup, CorrectionRow>[] = [
-  {
-    id: "who",
-    accessorFn: (row) => row.display_name,
-    header: "Employee",
-    size: 200,
-  },
-  {
-    id: "when",
-    accessorFn: (row) => row.business_date,
-    header: "Day",
-    size: 130,
-    cell: ({ row }) => day(row.original.business_date),
-  },
-  {
-    id: "effect",
-    accessorFn: (row) => effectLabel(row.effect),
-    header: "Claims",
-    size: 170,
-  },
-  {
-    id: "arrival",
-    accessorFn: (row) => row.corrected_arrival,
-    header: "Arrived",
-    size: 110,
-    cell: ({ row }) => correctedTime(row.original.corrected_arrival),
-  },
-  {
-    id: "departure",
-    accessorFn: (row) => row.corrected_departure,
-    header: "Left",
-    size: 130,
-    cell: ({ row }) => correctedTime(row.original.corrected_departure),
-  },
-  { accessorKey: "reason", header: "Reason", size: 240 },
-  { accessorKey: "unit_id", header: "Unit", size: 130 },
-]
-
-const swapColumns: ColumnDef<TableSetup, SwapRow>[] = [
-  {
-    id: "who",
-    accessorFn: (row) => row.name,
-    header: "Employee",
-    size: 200,
-    cell: ({ row }) => (
-      <Who id={row.original.employee_id} name={row.original.name} />
-    ),
-  },
-  {
-    id: "with",
-    accessorFn: (row) => row.withName,
-    header: "Swaps with",
-    size: 200,
-    cell: ({ row }) => (
-      <Who id={row.original.with_employee_id} name={row.original.withName} />
-    ),
-  },
-  {
-    id: "when",
-    accessorFn: (row) => row.on_date,
-    header: "Day",
-    size: 130,
-    cell: ({ row }) => day(row.original.on_date),
-  },
-  { accessorKey: "reason", header: "Reason", size: 240 },
-  { accessorKey: "unit_id", header: "Unit", size: 130 },
 ]
 
 export function RequestQueues() {
   const phone = useLayout() === "phone"
+  const navigate = useNavigate()
   const request = useSheet("request")
+  const canWrite = useCanWrite()
   const [sorting, setSorting] = useState<SortingState>([
     { id: "when", desc: false },
   ])
-  const reach = useReach()
-  const bounded = boundedTo(reach.data)
+  const inbox = usePeopleInbox()
   const nameOf = useNames()
+  const unitName = useUnitName()
+  const people = useEveryEmployee()
 
-  const queue = useQuery({
-    queryKey: leaveKeys.pending(),
-    queryFn: ({ signal }) => pendingLeave(signal),
-  })
-  /// No place asked for: the server bounds the queue by the caller's own
-  /// posting, and `boundedTo` is a place's *name* for the header, which the
-  /// route would read as a place it does not know.
-  const corrections = useQuery({
-    queryKey: punchKeys.corrections(null, true),
-    queryFn: ({ signal }) => listCorrections({ pending: true }, signal),
-  })
-  const swaps = useQuery({
-    queryKey: nextKeys.pendingSwaps(),
-    queryFn: ({ signal }) => pendingSwaps(signal),
-  })
-
-  const rows = useMemo(
+  const leave = useMemo<LeaveRow[]>(
     () =>
-      (queue.data ?? []).map((row) => ({
+      (inbox.leave.data ?? []).map((row) => ({
         ...row,
         name: nameOf(row.employee_id),
       })),
-    [queue.data, nameOf]
+    [inbox.leave.data, nameOf]
   )
-  const swapRows = useMemo(
+  const swaps = useMemo<SwapRow[]>(
     () =>
-      (swaps.data ?? []).map((row) => ({
+      (inbox.swaps.data ?? []).map((row) => ({
         ...row,
         name: nameOf(row.employee_id),
         withName: nameOf(row.with_employee_id),
       })),
-    [swaps.data, nameOf]
+    [inbox.swaps.data, nameOf]
+  )
+  const corrections = inbox.corrections.data
+  const claims = inbox.claims.data
+  const { waitingRuns: runs, waitingChanges: changes } = inbox
+  const details = inbox.waitingDetails
+
+  const rows = useMemo<InboxRow[]>(
+    () => [
+      ...leave.map((row) => ({
+        id: row.id,
+        kind: "LEAVE" as const,
+        who: row.name,
+        asks: "Time off",
+        detail: `${row.leave_type_name} · ${row.chargeable_days} ${row.chargeable_days === 1 ? "day" : "days"}`,
+        on: row.from_date,
+        when:
+          row.to_date === row.from_date
+            ? weekday(row.from_date, true)
+            : `${weekday(row.from_date)} – ${weekday(row.to_date, true)}`,
+        unit: unitName(row.unit_id),
+      })),
+      ...(corrections ?? []).map((row) => ({
+        id: row.id,
+        kind: "CORRECTION" as const,
+        who: row.display_name,
+        asks: "Correction",
+        detail: correctionWords(row),
+        on: row.business_date,
+        when: weekday(row.business_date, true),
+        unit: unitName(row.unit_id),
+      })),
+      ...swaps.map((row) => ({
+        id: row.id,
+        kind: "SWAP" as const,
+        who: row.name,
+        asks: "Swap",
+        detail: `With ${row.withName}`,
+        on: row.on_date,
+        when: weekday(row.on_date, true),
+        unit: unitName(row.unit_id),
+      })),
+      ...(claims ?? []).map((row) => ({
+        id: row.claim_id,
+        kind: "CLAIM" as const,
+        who: row.employee_name ?? row.employee_code ?? row.employee_id,
+        asks: "Claim",
+        detail: `${row.claim_number} · ${money(row.claimed_minor)}`,
+        on: row.posted_on,
+        when: weekday(row.posted_on, true),
+        unit: row.unit_name ?? unitName(row.unit_id),
+      })),
+      ...runs.map((row) => ({
+        id: row.id,
+        kind: "RUN" as const,
+        who: unitName(row.unit_id),
+        asks: "Payroll",
+        detail: runWords(row),
+        on: `${row.period}-01`,
+        when: monthYear(row.period, true),
+        unit: unitName(row.unit_id),
+      })),
+      ...changes.map((row) => ({
+        id: row.id,
+        kind: "CHANGE" as const,
+        who: nameIn(people.data, row.employee_id),
+        asks: CHANGE_KIND_LABEL[row.kind] ?? row.kind,
+        detail: changeSummary(row, unitName),
+        on: row.effective_on,
+        when: `From ${weekday(row.effective_on, true)}`,
+        unit: unitName(row.unit_id),
+      })),
+      ...details.map((row) => ({
+        id: row.id,
+        kind: "DETAILS" as const,
+        who: row.full_name ?? row.employee_code,
+        asks: "Detail change",
+        detail: `New ${(DATA_FIELD_LABEL[row.field] ?? row.field).toLowerCase()}: ${row.value === "" ? "cleared" : row.value}`,
+        on: row.filed_at.slice(0, 10),
+        when: weekday(row.filed_at, true),
+        unit: row.unit_id === null ? "—" : unitName(row.unit_id),
+      })),
+    ],
+    [
+      leave,
+      corrections,
+      swaps,
+      claims,
+      runs,
+      changes,
+      details,
+      people.data,
+      unitName,
+    ]
   )
 
-  const filters = useFilters(columns)
+  /// The reads every row needs before the inbox says anything — a partly
+  /// answered inbox is not evidence that nothing is waiting. Head office's own
+  /// three only for head office, the one caller who asks for them.
+  const sources = [
+    inbox.leave,
+    inbox.corrections,
+    inbox.swaps,
+    inbox.claims,
+    ...(inbox.employer ? [inbox.runs, inbox.changes, inbox.details] : []),
+  ]
+  const read = {
+    isPending: sources.some((one) => one.isPending),
+    isError: sources.some((one) => one.isError),
+    error: sources.find((one) => one.isError)?.error ?? null,
+    data: rows,
+    refetch: () => {
+      for (const one of sources) if (one.isError) void one.refetch()
+    },
+  }
 
+  const filters = useFilters(columns)
   const table = useTable(
     useMemo(
       () => ({
         features: tableSetup,
         data: rows,
         columns: filters.columns,
-        getRowId: (row: LeaveRow) => row.id,
+        getRowId: (row: InboxRow) => row.id,
         state: { columnFilters: filters.columnFilters, sorting },
         onSortingChange: setSorting,
       }),
@@ -296,12 +303,29 @@ export function RequestQueues() {
     )
   )
 
-  // One sheet key for all three kinds: the value is a request id, and ids are
-  // minted per kind, so it can only ever be found in one of the three lists.
-  const open = rows.find((row) => row.id === request.value) ?? null
-  const openCorrection =
-    corrections.data?.find((row) => row.id === request.value) ?? null
-  const openSwap = swapRows.find((row) => row.id === request.value) ?? null
+  /// A payroll run is a month's document and opens on its own screen; every
+  /// other kind is decided in its sheet, here.
+  const open = useCallback(
+    (row: InboxRow) => {
+      if (row.kind === "RUN")
+        void navigate({
+          to: "/people/payroll",
+          search: { payrollRun: row.id },
+        } as never)
+      else request.open(row.id)
+    },
+    [navigate, request]
+  )
+
+  const id = request.value
+  const openLeave = leave.find((row) => row.id === id) ?? null
+  const openCorrection = corrections?.find((row) => row.id === id) ?? null
+  const openSwap = swaps.find((row) => row.id === id) ?? null
+  const openClaim: ClaimRow | null =
+    claims?.find((row) => row.claim_id === id) ?? null
+  const openChange = changes.find((row) => row.id === id) ?? null
+  const openDetails: PersonalDataRequestView | null =
+    details.find((row) => row.id === id) ?? null
 
   return (
     <>
@@ -310,99 +334,95 @@ export function RequestQueues() {
       </Toolbar>
 
       <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-        <CardHeader>
-          <CardTitle>Leave</CardTitle>
-        </CardHeader>
-        {queryState(queue, {
-          loading: "Reading the queue…",
+        {queryState(read, {
+          loading: "Loading requests…",
           render: () =>
             rows.length === 0 ? (
-              <EmptyState>
-                {bounded === null
-                  ? "No leave anywhere is waiting on a decision."
-                  : `No leave at ${bounded} is waiting on a decision.`}
-              </EmptyState>
+              <EmptyState>Nothing is waiting on you.</EmptyState>
             ) : phone ? (
               <PhoneCards
                 rows={table.getRowModel().rows.map((one) => one.original)}
-                onOpen={(row) => request.open(row.id)}
-                empty={`${rows.length.toLocaleString("id-ID")} requests are waiting, and none of them match the filters in force.`}
+                onOpen={open}
+                empty="No request matches the filters."
                 rowId={(row) => row.id}
                 spec={{
                   title: (row) => (
                     <CardName
-                      name={row.name}
-                      line={
-                        <>
-                          <span className="block">
-                            {row.leave_type_name} · {row.unit_id}
-                          </span>
-                          <span className="block">
-                            {day(row.from_date)}
-                            {row.to_date !== row.from_date && (
-                              <> – {day(row.to_date)}</>
-                            )}
-                          </span>
-                        </>
-                      }
+                      name={row.who}
+                      line={[`${row.asks} · ${row.detail}`, row.when]}
                     />
                   ),
-                  lead: (row) => (
-                    <CardFigure
-                      value={row.chargeable_days}
-                      caption={row.chargeable_days === 1 ? "day" : "days"}
-                    />
-                  ),
-                  foot: () => <>Waiting on a decision</>,
+                  foot: (row) => row.unit,
                   action: (row) => (
                     <CardButton
-                      label="Open"
-                      ariaLabel={`Open ${row.name}’s leave`}
-                      onClick={() => request.open(row.id)}
+                      label="Decide"
+                      ariaLabel={`Decide ${row.who}’s ${row.asks.toLowerCase()}`}
+                      onClick={() => open(row)}
                     />
                   ),
                 }}
               />
             ) : (
-              <DataTable<LeaveRow>
+              <DataTable<InboxRow>
+                refresh={sources}
                 table={table}
-                onRowClick={(row) => request.open(row.id)}
-                isSelected={(row) => row.id === request.value}
-                // A queue narrowed to nothing is not an empty queue, and on
-                // this screen the difference is somebody's leave waiting
-                // unanswered behind a clause they forgot was there.
-                empty={
-                  <>
-                    {rows.length.toLocaleString("id-ID")} requests are waiting,
-                    and none of them match the filters in force.
-                  </>
-                }
+                onRowClick={open}
+                isSelected={(row) => row.id === id}
+                empty="No request matches the filters."
               />
             ),
         })}
       </Card>
 
-      <CorrectionQueue
-        query={corrections}
-        selected={request.value}
-        onOpen={request.open}
+      <RequestSheet
+        key={openLeave?.id}
+        request={openLeave}
+        onClose={request.close}
       />
-      <SwapQueue
-        query={swaps}
-        rows={swapRows}
-        selected={request.value}
-        onOpen={request.open}
-      />
-
-      <RequestSheet key={open?.id} request={open} onClose={request.close} />
       <CorrectionSheet
         key={openCorrection?.id}
         correction={openCorrection}
         onClose={request.close}
       />
       <SwapSheet key={openSwap?.id} swap={openSwap} onClose={request.close} />
+      <ClaimSheet row={openClaim} onClose={request.close} />
+      <ChangeSheet
+        change={openChange}
+        canWrite={canWrite}
+        who={
+          openChange === null ? "" : nameIn(people.data, openChange.employee_id)
+        }
+        onClose={request.close}
+      />
+      <DataRequestSheet
+        request={openDetails}
+        canWrite={canWrite}
+        onClose={request.close}
+      />
     </>
   )
+}
+
+/// What a correction claims, in the words the inbox reads: "Arrived 08:10".
+function correctionWords(row: CorrectionRow): string {
+  const arrived =
+    row.corrected_arrival === null
+      ? null
+      : `arrived ${correctedTime(row.corrected_arrival)}`
+  const left =
+    row.corrected_departure === null
+      ? null
+      : `left ${correctedTime(row.corrected_departure)}`
+  const said = [arrived, left].filter((one) => one !== null).join(", ")
+  const words = said === "" ? effectLabel(row.effect).toLowerCase() : said
+  return words.charAt(0).toUpperCase() + words.slice(1)
+}
+
+/// A run a place has sent, and whether its month is whole yet.
+function runWords(row: PayrollRunView): string {
+  return row.complete
+    ? "Sent for approval"
+    : (row.incomplete_because ?? "Sent, incomplete")
 }
 
 /// Employee id → name, out of the workforce list the Leave screen already
@@ -426,14 +446,14 @@ function useNames(): (id: string) => string {
   }, [team.data])
 }
 
-/// A name, or the id set as one when no name was found — so a uuid never
-/// passes for somebody's name.
-function Who({ id, name }: { id: string; name: string }) {
-  return name === id ? (
-    <span className="font-mono text-id text-body">{id}</span>
-  ) : (
-    <span className="text-body">{name}</span>
-  )
+/// A unit id → its name, out of the units the caller reaches; the id itself
+/// for one the list does not carry.
+function useUnitName(): (id: string) => string {
+  const units = useReachableUnits()
+  return useMemo(() => {
+    const names = new Map((units.data ?? []).map((one) => [one.id, one.name]))
+    return (id: string) => names.get(id) ?? id
+  }, [units.data])
 }
 
 /// What a correction claims, in words. A code this screen has not been taught
@@ -461,174 +481,6 @@ function correctedTime(value: string | null): string {
   if (value === null) return "—"
   const time = value.slice(value.indexOf(" ") + 1)
   return time.endsWith("+1") ? `${time.slice(0, -2)} next day` : time
-}
-
-/// Attendance corrections waiting on a decision.
-///
-/// Fingerprint is the only way in, by the owner's decision — no PIN, no card.
-/// So a correction is the *only* route by which a real day of work the reader
-/// failed to see becomes a real day of work again. An unanswered one is
-/// somebody's day quietly missing from the month their pay is built on.
-///
-/// Drawn only when something is waiting, like the banners: an empty card for
-/// a kind of request that rarely comes is a card people learn to scroll past.
-function CorrectionQueue({
-  query,
-  selected,
-  onOpen,
-}: {
-  query: UseQueryResult<CorrectionRow[]>
-  selected: string | undefined
-  onOpen: (id: string) => void
-}) {
-  const phone = useLayout() === "phone"
-  const [sorting, setSorting] = useState<SortingState>([
-    { id: "when", desc: false },
-  ])
-  const rows = useMemo(() => query.data ?? [], [query.data])
-  const table = useTable(
-    useMemo(
-      () => ({
-        features: tableSetup,
-        data: rows,
-        columns: correctionColumns,
-        getRowId: (row: CorrectionRow) => row.id,
-        state: { sorting },
-        onSortingChange: setSorting,
-      }),
-      [rows, sorting]
-    )
-  )
-  if (query.isPending || (query.isSuccess && rows.length === 0)) return null
-
-  return (
-    <Card className="mt-4 overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-      <CardHeader>
-        <CardTitle>Attendance corrections</CardTitle>
-      </CardHeader>
-      {queryState(query, {
-        render: () =>
-          phone ? (
-            <PhoneCards
-              rows={table.getRowModel().rows.map((one) => one.original)}
-              onOpen={(row) => onOpen(row.id)}
-              rowId={(row) => row.id}
-              spec={{
-                title: (row) => (
-                  <CardName
-                    name={row.display_name}
-                    line={
-                      <>
-                        <span className="block">
-                          {effectLabel(row.effect)} · {row.unit_id}
-                        </span>
-                        <span className="block">{row.reason}</span>
-                      </>
-                    }
-                  />
-                ),
-                lead: (row) => <CardDate iso={row.business_date} />,
-                foot: () => <>Waiting on a decision</>,
-                action: (row) => (
-                  <CardButton
-                    label="Open"
-                    ariaLabel={`Open the correction for ${row.display_name}`}
-                    onClick={() => onOpen(row.id)}
-                  />
-                ),
-              }}
-            />
-          ) : (
-            <DataTable<CorrectionRow>
-              table={table}
-              onRowClick={(row) => onOpen(row.id)}
-              isSelected={(row) => row.id === selected}
-            />
-          ),
-      })}
-    </Card>
-  )
-}
-
-/// Roster swaps waiting on a decision. Drawn only when one is, for the same
-/// reason as the corrections above.
-function SwapQueue({
-  query,
-  rows,
-  selected,
-  onOpen,
-}: {
-  query: UseQueryResult<RosterSwapView[]>
-  rows: SwapRow[]
-  selected: string | undefined
-  onOpen: (id: string) => void
-}) {
-  const phone = useLayout() === "phone"
-  const [sorting, setSorting] = useState<SortingState>([
-    { id: "when", desc: false },
-  ])
-  const table = useTable(
-    useMemo(
-      () => ({
-        features: tableSetup,
-        data: rows,
-        columns: swapColumns,
-        getRowId: (row: SwapRow) => row.id,
-        state: { sorting },
-        onSortingChange: setSorting,
-      }),
-      [rows, sorting]
-    )
-  )
-  if (query.isPending || (query.isSuccess && rows.length === 0)) return null
-
-  return (
-    <Card className="mt-4 overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-      <CardHeader>
-        <CardTitle>Roster swaps</CardTitle>
-      </CardHeader>
-      {queryState(query, {
-        render: () =>
-          phone ? (
-            <PhoneCards
-              rows={table.getRowModel().rows.map((one) => one.original)}
-              onOpen={(row) => onOpen(row.id)}
-              rowId={(row) => row.id}
-              spec={{
-                title: (row) => (
-                  <CardName
-                    name={row.name}
-                    line={
-                      <>
-                        <span className="block">
-                          with {row.withName} · {row.unit_id}
-                        </span>
-                        <span className="block">{row.reason}</span>
-                      </>
-                    }
-                  />
-                ),
-                lead: (row) => <CardDate iso={row.on_date} />,
-                foot: () => <>Waiting on a decision</>,
-                action: (row) => (
-                  <CardButton
-                    label="Open"
-                    ariaLabel={`Open the swap for ${row.name}`}
-                    onClick={() => onOpen(row.id)}
-                  />
-                ),
-              }}
-            />
-          ) : (
-            <DataTable<SwapRow>
-              table={table}
-              onRowClick={(row) => onOpen(row.id)}
-              isSelected={(row) => row.id === selected}
-            />
-          ),
-      })}
-    </Card>
-  )
 }
 
 /// The half of every sheet here that decides: a reason, then one of two verbs.
@@ -661,11 +513,7 @@ function Verdict({
       )}
 
       <div className="mt-4 flex flex-col gap-3">
-        <Field
-          label="Why"
-          hint="Recorded against the decision, and required."
-          required
-        >
+        <Field label="Why" required>
           <Input
             value={reason}
             onChange={(event) => onReason(event.target.value)}
@@ -733,6 +581,8 @@ function RequestSheet({
   onClose: () => void
 }) {
   const client = useQueryClient()
+  const unitName = useUnitName()
+  const nameOfLogin = useNameOfLogin()
   const phone = useLayout() === "phone"
   const [reason, setReason] = useState("")
   const [failed, setFailed] = useState<string | null>(null)
@@ -754,6 +604,7 @@ function RequestSheet({
       // both change — an approval mints the deduction in the same transaction,
       // so a stale balance beside a decided request would be visibly wrong.
       void client.invalidateQueries({ queryKey: leaveKeys.pending() })
+      void client.invalidateQueries({ queryKey: everyoneBalancesKey() })
       if (request !== null) {
         void client.invalidateQueries({
           queryKey: leaveKeys.balances(request.employee_id),
@@ -787,20 +638,18 @@ function RequestSheet({
       }
       title={request.leave_type_name}
     >
-      <Pill tone="warn">Waiting on a decision</Pill>
+      <Status tone="warn">Waiting on a decision</Status>
 
       <Facts>
-        <Fact term="Employee">
-          <Who id={request.employee_id} name={request.name} />
-        </Fact>
-        <Fact term="Unit">{request.unit_id}</Fact>
+        <Fact term="Employee">{request.name}</Fact>
+        <Fact term="Unit">{unitName(request.unit_id)}</Fact>
         <Fact term="From">{day(request.from_date)}</Fact>
         <Fact term="To">{day(request.to_date)}</Fact>
         {/* Not the length of the span. The server settled which days this
             charges against the calendar on the day it was filed, and a holiday
             inside the span is not one of them. */}
         <Fact term="Days charged">{request.chargeable_days}</Fact>
-        <Fact term="Asked by">{request.requested_by}</Fact>
+        <Fact term="Asked by">{nameOfLogin(request.requested_by)}</Fact>
         <Fact term="Reason">{request.reason}</Fact>
         {request.evidence !== null && (
           <Fact term="Evidence">{request.evidence}</Fact>
@@ -832,6 +681,8 @@ function CorrectionSheet({
   onClose: () => void
 }) {
   const client = useQueryClient()
+  const unitName = useUnitName()
+  const nameOfLogin = useNameOfLogin()
   const phone = useLayout() === "phone"
   const [reason, setReason] = useState("")
   const [failed, setFailed] = useState<string | null>(null)
@@ -873,11 +724,11 @@ function CorrectionSheet({
       }
       title="Attendance correction"
     >
-      <Pill tone="warn">Waiting on a decision</Pill>
+      <Status tone="warn">Waiting on a decision</Status>
 
       <Facts>
         <Fact term="Employee">{correction.display_name}</Fact>
-        <Fact term="Unit">{correction.unit_id}</Fact>
+        <Fact term="Unit">{unitName(correction.unit_id)}</Fact>
         <Fact term="Day">{day(correction.business_date)}</Fact>
         <Fact term="Claims">{effectLabel(correction.effect)}</Fact>
         {correction.corrected_arrival !== null && (
@@ -890,7 +741,7 @@ function CorrectionSheet({
             {correctedTime(correction.corrected_departure)}
           </Fact>
         )}
-        <Fact term="Asked by">{correction.requested_by}</Fact>
+        <Fact term="Asked by">{nameOfLogin(correction.requested_by)}</Fact>
         <Fact term="Asked at">{moment(correction.requested_at)}</Fact>
         <Fact term="Reason">{correction.reason}</Fact>
       </Facts>
@@ -902,7 +753,6 @@ function CorrectionSheet({
         >
           See their attendance
         </AppLink>
-        .
       </p>
 
       <Verdict
@@ -929,6 +779,8 @@ function SwapSheet({
   onClose: () => void
 }) {
   const client = useQueryClient()
+  const unitName = useUnitName()
+  const nameOfLogin = useNameOfLogin()
   const phone = useLayout() === "phone"
   const [reason, setReason] = useState("")
   const [failed, setFailed] = useState<string | null>(null)
@@ -968,18 +820,14 @@ function SwapSheet({
       }
       title="Roster swap"
     >
-      <Pill tone="warn">Waiting on a decision</Pill>
+      <Status tone="warn">Waiting on a decision</Status>
 
       <Facts>
-        <Fact term="Employee">
-          <Who id={swap.employee_id} name={swap.name} />
-        </Fact>
-        <Fact term="Swaps with">
-          <Who id={swap.with_employee_id} name={swap.withName} />
-        </Fact>
-        <Fact term="Unit">{swap.unit_id}</Fact>
+        <Fact term="Employee">{swap.name}</Fact>
+        <Fact term="Swaps with">{swap.withName}</Fact>
+        <Fact term="Unit">{unitName(swap.unit_id)}</Fact>
         <Fact term="Day">{day(swap.on_date)}</Fact>
-        <Fact term="Asked by">{swap.requested_by}</Fact>
+        <Fact term="Asked by">{nameOfLogin(swap.requested_by)}</Fact>
         <Fact term="Reason">{swap.reason}</Fact>
       </Facts>
 

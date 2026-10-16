@@ -70,7 +70,7 @@ export function MissingList({ canWriteOff }: { canWriteOff: boolean }) {
                   <CardFigure value={count(group.left)} caption="missing" />
                 }
                 body={
-                  <div className="flex flex-col gap-1 text-[0.875rem]">
+                  <div className="flex flex-col gap-1 text-[0.9375rem]">
                     <span className="text-ink">
                       {group.poolLabel} · {group.site}
                     </span>
@@ -126,7 +126,7 @@ export function MissingList({ canWriteOff }: { canWriteOff: boolean }) {
         ) : (
           <table className="w-full border-collapse text-body">
             <thead>
-              <tr className="h-12 border-b border-hairline bg-soft text-left text-[0.875rem] font-medium text-body">
+              <tr className="h-12 border-b border-hairline bg-soft text-left text-[0.9375rem] font-medium text-body">
                 <th className="pl-4">Article</th>
                 <th>Pool</th>
                 <th>From</th>
@@ -155,7 +155,7 @@ export function MissingList({ canWriteOff }: { canWriteOff: boolean }) {
                     <span className="block leading-snug text-ink">
                       {group.poolLabel}
                     </span>
-                    <span className="mt-1 block text-[0.875rem] text-mute">
+                    <span className="mt-1 block text-[0.9375rem] text-mute">
                       {group.site}
                     </span>
                   </td>

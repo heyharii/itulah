@@ -16,6 +16,10 @@ import {
   fleetPoolsQuery,
   MOVEMENTS_OPENING_SCOPE,
   movementsLedgerQuery,
+  RECONCILIATIONS_OPENING_SCOPE,
+  reconciliationsPageQuery,
+  SIGHTINGS_OPENING_SCOPE,
+  sightingsPageQuery,
 } from "@/lib/queries/inventory"
 import { unitsQuery } from "@/lib/queries/organisation"
 import { listPurchaseOrders, procurementKeys } from "@/lib/queries/procurement"
@@ -29,13 +33,17 @@ import {
 /// The options are the screens' own: the list screens share theirs through
 /// `lib/queries/inventory.ts` and `exceptions-data.ts`.
 ///
-/// Never here, on purpose: Control, Observations (and its anomalies), As of,
-/// Time machine, Reconciliations and Flows. They are slow, or nobody opens
-/// them by hovering.
+/// Every query here is read by its screen with `useSuspense…` inside a
+/// `<Suspense>`, so the server starts them too and streams the real page. A
+/// query a screen reads with a plain hook (a corner of a card that fills in
+/// when it lands) is asked for in the browser only, never on the server.
+///
+/// Never here, on purpose: Control, As of, Time machine and Flows. They are
+/// slow, wait for something to be typed, or nobody opens them by hovering.
 
 /// The exception feeds Stock's cards and the Exceptions inbox are made of (and
-/// the nav badge counts): missing balances, short receipts, and the fleet read
-/// that places them. The same three `useExceptionCases` asks.
+/// the nav badge counts): missing balances and short receipts. With the fleet
+/// read that places them, the three `useExceptionCases` asks.
 const exceptionFeeds: Prefetcher = (client) =>
   Promise.all([
     warmQuery(client, missingFeedQuery()),
@@ -61,53 +69,92 @@ const narrowed = (
 ) => ["q", "f", "f2", ...extra].some((name) => search[name] !== undefined)
 
 export const prefetch: PrefetchMap = {
-  // Stock: one card per place. Mirrors `StockCards` — the fleet, the units,
-  // the exception feeds, the allotment book (the road card), the open order
-  // book and the count board.
-  "/inventory": (client, context) =>
-    Promise.all([
+  // Stock: one card per place. The cards wait for the fleet and the stores
+  // (`StockPlaces`); what a card says beyond them — the exception feeds, the
+  // allotment book (the road card), the open order book and the count board —
+  // is read by plain hooks and so is asked for in the browser only.
+  "/inventory": async (client, context) => {
+    await Promise.all([
+      warmQuery(client, fleetPoolsQuery()),
+      warmQuery(client, unitsQuery()),
+      ...(import.meta.env.SSR
+        ? []
+        : [
+            exceptionFeeds(client, context),
+            warmQuery(client, allotmentListQuery("", "")),
+            warmQuery(client, openOrdersQuery()),
+            warmQuery(client, countsBoardQuery()),
+          ]),
+    ])
+  },
+
+  // The inbox waits for the three feeds and the register of places.
+  "/inventory/exceptions": async (client, context) => {
+    await Promise.all([
       exceptionFeeds(client, context),
       warmQuery(client, unitsQuery()),
-      warmQuery(client, allotmentListQuery("", "")),
-      warmQuery(client, openOrdersQuery()),
-      warmQuery(client, countsBoardQuery()),
-    ]),
-
-  "/inventory/exceptions": exceptionFeeds,
+    ])
+  },
 
   // On Hand & Shortfall opens on the warehouse, no search, every SKU: the
   // first page of its availability and the fleet read behind the pool picker.
-  "/inventory/availability": (client) =>
-    Promise.all([
+  "/inventory/availability": async (client) => {
+    await Promise.all([
       warmQuery(client, fleetPoolsQuery()),
       warmInfinite(
         client,
         availabilityQuery(AVAILABILITY_OPENING_POOL, "", false)
       ),
-    ]),
+    ])
+  },
 
-  // Pools: the fleet table and the count board behind its "last counted".
-  "/inventory/pools": (client) =>
-    Promise.all([
+  // Pools: the fleet table. The count board behind its "last counted" column
+  // is a plain read that costs the column and nothing else, so it is asked for
+  // in the browser only.
+  "/inventory/pools": async (client) => {
+    await Promise.all([
       warmQuery(client, fleetPoolsQuery()),
-      warmQuery(client, countsBoardQuery()),
-    ]),
+      ...(import.meta.env.SSR ? [] : [warmQuery(client, countsBoardQuery())]),
+    ])
+  },
 
   // Counts: the fleet read (site and pool names) and the first page of the
   // count book as the screen opens it.
-  "/inventory/counts": (client, { search }) => {
+  "/inventory/counts": async (client, { search }) => {
     if (narrowed(search, "count-status")) return
-    return Promise.all([
+    await Promise.all([
       warmQuery(client, fleetPoolsQuery()),
       warmInfinite(client, countsBookQuery(COUNTS_OPENING_SCOPE)),
     ])
   },
 
+  // Observations opens on every pool, newest sweep first: the fleet read
+  // behind the pool picker and the first page of the sightings. Mirrors
+  // `ObservationBook` in `observations.tsx`.
+  "/inventory/observations": async (client, { search }) => {
+    if (narrowed(search)) return
+    await Promise.all([
+      warmQuery(client, fleetPoolsQuery()),
+      warmInfinite(client, sightingsPageQuery(SIGHTINGS_OPENING_SCOPE)),
+    ])
+  },
+
+  // Reconciliations opens on the claims that stop a fleet total being
+  // certified, in the house order. Mirrors `ClaimBook` in
+  // `reconciliations.tsx`.
+  "/inventory/reconciliations": async (client, { search }) => {
+    if (narrowed(search)) return
+    await warmInfinite(
+      client,
+      reconciliationsPageQuery(RECONCILIATIONS_OPENING_SCOPE)
+    )
+  },
+
   // Movements: the fleet read (pool names on every route chip) and the first
   // page of the ledger, newest first.
-  "/inventory/movements": (client, { search }) => {
+  "/inventory/movements": async (client, { search }) => {
     if (narrowed(search)) return
-    return Promise.all([
+    await Promise.all([
       warmQuery(client, fleetPoolsQuery()),
       warmInfinite(client, movementsLedgerQuery(MOVEMENTS_OPENING_SCOPE)),
     ])

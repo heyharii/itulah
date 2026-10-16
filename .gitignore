@@ -50,4 +50,13 @@ research/erpnext-indonesia/andrimuhyidin/
 # Secrets for deploy/gcp/deploy.sh (see cloud.env.example).
 deploy/gcp/cloud.env
 deploy/gcp/cloud-demo.env
+deploy/gcp/cloud-demo3.env
 deploy/gcp/cloud-sandbox.env
+flux-catalog-test/
+
+# Build outputs and local run artefacts (2026-10-16)
+frontend-hub/.output/
+frontend-hub-start/dist/
+e2e/agentic/.e2e/
+outputs/
+design-review/

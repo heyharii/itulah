@@ -4,11 +4,13 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { CardList } from "@/components/ui/card-list"
 import { Field, Input, Textarea } from "@/components/ui/field"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { LeadCard } from "@/components/ui/lead-card"
 import { SheetSection } from "@/components/ui/people-sheet"
 import { Pill, Status } from "@/components/ui/pill"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
+import { count } from "@/lib/format"
 import {
   gaKeys,
   recordGaSupply,
@@ -19,6 +21,7 @@ import { useIdentity } from "@/lib/session"
 import {
   dateLead,
   day,
+  daysUntil,
   SUPPLY_FLOW,
   supplyCategoryWords,
   supplyIsOpen,
@@ -109,9 +112,36 @@ function SupplyList({
   const [openId, setOpenId] = useState<string | null>(null)
   const [showing, setShowing] = useState(false)
   const needle = typed.trim().toLowerCase()
+  const all = supplies.data
+  const figure = (pick: (row: GaSupplyRequestRow) => boolean) =>
+    all === undefined ? "—" : count(all.filter(pick).length)
 
   return (
     <>
+      <KpiStrip>
+        <Kpi
+          label="On the way"
+          value={figure((row) => supplyIsOpen(row.status))}
+        />
+        <Kpi
+          label="Waiting for approval"
+          value={figure((row) => row.status === "REQUESTED")}
+        />
+        <Kpi
+          label="Ordered"
+          value={figure((row) => row.status === "ORDERED")}
+        />
+        <Kpi
+          label="Needed within 7 days"
+          value={figure(
+            (row) =>
+              supplyIsOpen(row.status) &&
+              row.needed_by !== null &&
+              daysUntil(row.needed_by) <= 7,
+          )}
+        />
+      </KpiStrip>
+
       {gaState(supplies, {
         loading: "Reading the supply requests…",
         render: (rows) => {

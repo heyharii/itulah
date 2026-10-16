@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>New Article - photo placement options</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#1d1d1f;--mute:#6e6e73;--line:#e5e5ea;--acc:#2862dc;--bg:#f5f5f7}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.4 Inter,-apple-system,system-ui,sans-serif}
+.bar{position:sticky;top:0;z-index:5;background:#fff;border-bottom:1px solid var(--line);padding:10px 16px;display:flex;flex-wrap:wrap;gap:8px 20px;align-items:center}
+.seg{display:flex;gap:4px;flex-wrap:wrap}
+.seg button{font:inherit;height:36px;padding:0 14px;border:1px solid var(--line);background:#fff;border-radius:8px;color:var(--ink);cursor:pointer}
+.seg button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.cap{width:100%;color:var(--mute)}
+.stage{padding:24px 16px;display:flex;justify-content:center}
+.sheet{background:#fff;border:1px solid var(--line);border-radius:14px;width:100%;max-width:780px;display:flex;flex-direction:column;overflow:hidden}
+.stage.phone .sheet{max-width:414px;height:860px}
+.stage.desk .sheet{height:min(900px,calc(100vh - 140px))}
+.head{padding:16px 20px;border-bottom:1px solid var(--line);display:flex;gap:14px;align-items:center}
+.head .t{min-width:0;flex:1}
+.crumb{color:var(--mute)}
+.title{font-size:17px;font-weight:600;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sub{color:var(--mute)}
+.x{width:36px;height:36px;border:0;background:none;font-size:22px;color:var(--mute)}
+.body{flex:1;overflow:auto;padding:20px;overflow-x:hidden}
+.foot{border-top:1px solid var(--line);padding:12px 20px;display:flex;gap:8px;justify-content:flex-end}
+.stage.phone .foot{padding:12px 16px}
+.stage.phone .foot button{flex:1;padding:0 6px}
+.foot button{font:inherit;height:40px;padding:0 16px;border-radius:8px;border:1px solid transparent;background:none;color:var(--ink);cursor:pointer}
+.foot .b1{background:#fff;border-color:var(--line)}
+.foot .b3{background:var(--acc);color:#fff}
+label.f{display:block;min-width:0}
+.l{color:var(--mute);margin-bottom:6px}
+.l i{color:#c0392b;font-style:normal}
+input.in,.pick{width:100%;height:40px;border:1px solid var(--line);border-radius:8px;padding:0 12px;font:inherit;color:var(--ink);background:#fff}
+.pick{display:flex;align-items:center;gap:6px;overflow:hidden;white-space:nowrap}
+.pick .tag{background:#f0f0f3;border-radius:6px;padding:2px 8px}
+.pick .ch{margin-left:auto;color:var(--mute)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px 24px}
+.stage.phone .grid{grid-template-columns:1fr}
+.span{grid-column:1/-1}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 12px;border:1px solid var(--line);border-radius:8px;cursor:pointer;background:#fff}
+.chip.on{border-color:var(--acc);background:#f2f6ff}
+.chip.ph{padding:0 12px 0 4px}
+.sw{width:16px;height:16px;border-radius:50%;border:1px solid rgba(0,0,0,.15)}
+.ph-img{border-radius:8px;display:grid;place-items:center;flex:none;overflow:hidden}
+.mk{position:relative}
+.mk span{position:absolute;right:12px;top:0;line-height:40px;color:var(--mute)}
+.mk input{text-align:right;padding-right:28px}
+.aside{color:var(--mute);float:right}
+table{width:100%;border-collapse:collapse;table-layout:fixed;margin-top:8px}
+th{color:var(--mute);font-weight:400;text-align:center;padding:6px 4px}
+th:first-child,td:first-child{text-align:left;width:34%}
+td{padding:6px 4px;border-top:1px solid var(--line)}
+td input{width:100%;height:40px;border:1px solid var(--line);border-radius:8px;text-align:center;font:inherit;color:var(--ink);min-width:0;padding:0}
+.rh{display:flex;align-items:center;gap:8px;min-width:0}
+.rh span.n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.stage.phone th:first-child,.stage.phone td:first-child{width:30%}
+.stage.phone td,.stage.phone th{padding-left:2px;padding-right:2px}
+.tot{width:12%;text-align:right;font-variant-numeric:tabular-nums}
+.sec{margin-top:24px}
+.row{display:flex;gap:16px;align-items:flex-start}
+.row>.col{flex:1;min-width:0}
+</style></head><body>
+<div class="bar">
+  <div class="seg" id="opts"></div>
+  <div class="seg" id="dev"><button data-d="desk" class="on">Desk</button><button data-d="phone">Phone 414</button></div>
+  <div class="cap" id="cap"></div>
+</div>
+<div class="stage desk" id="stage"><div class="sheet" id="sheet"></div></div>
+<script>
+const OPTS={
+ today:['Today','Photo alone in its row above the form'],
+ A:['A','Photo in the sheet head, 64px, left of crumb / title / supplier'],
+ B:['B','Photo is the left column of the first form row, 120px, Name / Division / Tags beside it'],
+ C:['C','Each colour chip carries its own photo; no photo on top'],
+ D:['D','Photo becomes the row-head thumbnail of every colour in the count grid'],
+ E:['E','Compact identity row: 48px photo and the Name input on one line']};
+const COL=[['Khaki','#c3b091','#e9dfc8'],['Navy','#1f2a44','#cfd6e8'],['Hitam','#1d1d1f','#d9d9de']];
+const SIZES=['S','M','L','XL'];
+const QTY={Khaki:[6,12,12,6],Navy:[6,12,12,6],Hitam:[4,10,10,4]};
+const pants=(c='#c3b091')=>`<svg viewBox="0 0 24 24" width="60%" height="60%" fill="${c}"><path d="M7 3h10l1.2 18h-4.3L12 9.5 10.1 21H5.8z"/></svg>`;
+const photo=(s,i=0)=>`<div class="ph-img" style="width:${s}px;height:${s}px;background:${COL[i][2]}">${pants(COL[i][1])}</div>`;
+const field=(l,inner,req,cls='')=>`<label class="f ${cls}"><div class="l">${l}${req?' <i>*</i>':''}</div>${inner}</label>`;
+const name=`<input class="in" value="Celana Chino Slim Fit">`;
+const div=`<div class="pick">Pria<span class="ch">&#8964;</span></div>`;
+const tags=`<div class="pick"><span class="tag">Celana</span><span class="tag">Basic</span><span class="ch">&#8964;</span></div>`;
+const price=`<div class="grid">
+ ${field('Base Price',`<input class="in" value="Rp 189.000" style="text-align:right">`,1)}
+ <label class="f"><div class="l">Markup <span class="aside">Purchase price Rp 110.000</span></div><div class="mk"><input class="in" value="72"><span>%</span></div></label></div>`;
+function colors(withPhoto){return field('Colors',`<div class="chips">${COL.map((c,i)=>`<span class="chip on ${withPhoto?'ph':''}">${withPhoto?photo(32,i):`<i class="sw" style="background:${c[1]}"></i>`}${withPhoto?`<i class="sw" style="background:${c[1]}"></i>`:''}${c[0]}</span>`).join('')}</div>`,1)}
+const sizes=field('Sizes',`<div class="chips">${SIZES.map(s=>`<span class="chip on">${s}</span>`).join('')}</div>`,1);
+function matrix(withPhoto){return `<table><thead><tr><th></th>${SIZES.map(s=>`<th>${s}</th>`).join('')}<th class="tot">Qty</th></tr></thead><tbody>${COL.map((c,i)=>`<tr><td><div class="rh">${withPhoto?photo(40,i):`<i class="sw" style="background:${c[1]}"></i>`}<span class="n">${c[0]}</span></div></td>${QTY[c[0]].map(q=>`<td><input inputmode="numeric" value="${q}"></td>`).join('')}<td class="tot">${QTY[c[0]].reduce((a,b)=>a+b)}</td></tr>`).join('')}</tbody></table>`}
+function form(o,phone){
+ let top='';
+ if(o==='today') top=`<div style="margin-bottom:20px">${photo(96)}</div>`;
+ const idRow = o==='B' ? (phone
+   ? `<div class="row" style="margin-bottom:16px">${photo(96)}<div class="col">${field('Name',name,1)}</div></div><div class="grid">${field('Division',div,1)}${field('Tags',tags,1)}</div>`
+   : `<div class="row"><div style="padding-top:26px">${photo(120)}</div><div class="col"><div class="grid">${field('Name',name,1,'span')}${field('Division',div,1)}${field('Tags',tags,1)}</div></div></div>`)
+  : o==='E' ? `<div class="grid"><div class="span"><div class="l">Name <i style="color:#c0392b;font-style:normal">*</i></div><div class="row" style="align-items:center">${photo(48)}<div class="col">${name}</div></div></div>${field('Division',div,1)}${field('Tags',tags,1)}</div>`
+  : `<div class="grid">${field('Name',name,1,'span')}${field('Division',div,1)}${field('Tags',tags,1)}</div>`;
+ return `${top}${idRow}<div class="sec">${price}</div><div class="sec grid">${colors(o==='C')}${sizes}</div><div class="sec">${matrix(o==='D')}</div>`;
+}
+function render(){
+ const o=state.o,phone=state.d==='phone';
+ const hp=o==='A'?photo(64):'';
+ $('sheet').innerHTML=`<div class="head">${hp}<div class="t"><div class="crumb">New Article</div><div class="title">Celana Chino Slim Fit</div><div class="sub">Garmen Nusantara, PT</div></div><button class="x">&times;</button></div>
+ <div class="body">${form(o,phone)}</div>
+ <div class="foot"><button class="b1">Save as Draft</button><button>Submit and Next</button><button class="b3">Submit</button></div>`;
+ $('stage').className='stage '+state.d;
+ $('cap').textContent=(o==='today'?'Today':'Option '+o)+' - '+OPTS[o][1];
+ [...$('opts').children].forEach(b=>b.classList.toggle('on',b.dataset.o===o));
+ [...$('dev').children].forEach(b=>b.classList.toggle('on',b.dataset.d===state.d));
+}
+const $=id=>document.getElementById(id);
+const state={o:'today',d:'desk'};
+$('opts').innerHTML=Object.keys(OPTS).map(k=>`<button data-o="${k}">${k==='today'?'Today':'Option '+k}</button>`).join('');
+$('opts').onclick=e=>{if(e.target.dataset.o){state.o=e.target.dataset.o;render()}};
+$('dev').onclick=e=>{if(e.target.dataset.d){state.d=e.target.dataset.d;render()}};
+render();
+</script></body></html>

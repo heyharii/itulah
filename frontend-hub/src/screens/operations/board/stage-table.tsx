@@ -14,6 +14,7 @@ import {
   PhoneCard,
   STICKY_HEADING,
 } from "@/components/ui/phone-cards"
+import { RefreshStrip, type Refreshable } from "@/components/ui/refresh-stamp"
 import { EmptyState } from "@/components/ui/states"
 import { Segmented } from "@/components/ui/segmented"
 import { count as figure } from "@/lib/format"
@@ -124,7 +125,16 @@ export interface StageRow {
   readonly moveBack?: () => void
   /// What MD changed that the warehouse has not acknowledged ("Added +20",
   /// "300 → 330", "Cancelled"), and the button that acknowledges it.
-  readonly tags?: readonly { readonly tone: "warn" | "bad"; readonly label: string }[]
+  readonly tags?: readonly {
+    readonly tone: "warn" | "bad"
+    readonly label: string
+    readonly was?: number
+    readonly now?: number
+  }[]
+  /// MD changed it and nobody opened it yet: a blue dot by the name.
+  readonly dot?: boolean
+  /// The "OK" of a leftover cancelled row; no other row has a button for
+  /// MD's change — opening the work is seeing it.
   readonly ack?: {
     readonly label: string
     readonly onClick: () => void
@@ -136,7 +146,33 @@ const markTone = (mark: NonNullable<StageRow["mark"]>) =>
   mark.tone === "bad" ? "text-bad-fg" : "text-warn-fg"
 
 const tagTone = (tag: { readonly tone: "warn" | "bad" }) =>
-  tag.tone === "bad" ? "text-bad-fg" : "text-warn-fg"
+  tag.tone === "bad" ? "text-bad-fg" : "text-accent"
+
+/// One of MD's changes as the row says it: "<s>300</s> 250 pcs by MD", or
+/// its word ("Cancelled", "Added +20").
+function TagText({ tag }: { tag: NonNullable<StageRow["tags"]>[number] }) {
+  if (tag.was === undefined || tag.now === undefined)
+    return <span className={tagTone(tag)}>{tag.label}</span>
+  return (
+    <span className="font-normal text-body tabular-nums">
+      <s className="text-mute">{figure(tag.was)}</s>{" "}
+      <span className="font-semibold text-ink">{figure(tag.now)}</span>{" "}
+      {tag.now === 1 ? "pc" : "pcs"} by MD
+    </span>
+  )
+}
+
+/// The blue dot of a row MD changed that nobody has opened yet.
+function Dot() {
+  return (
+    <span
+      title="Changed by MD"
+      className="inline-block size-[7px] shrink-0 rounded-full bg-accent"
+    >
+      <span className="sr-only">Changed by MD</span>
+    </span>
+  )
+}
 
 /// The hatched layer of a card that is switched off: it reads as something
 /// that no longer works, whatever is written on it. It never takes a press, so
@@ -197,7 +233,16 @@ function columnsFor(
       enableSorting: false,
       cell: ({ row }) => (
         <TwoLines
-          top={row.original.title}
+          top={
+            row.original.dot ? (
+              <span className="inline-flex items-center gap-2">
+                <Dot />
+                {row.original.title}
+              </span>
+            ) : (
+              row.original.title
+            )
+          }
           bottom={row.original.doc ?? ""}
           mono
         />
@@ -271,9 +316,7 @@ function columnsFor(
             </span>
           )}
           {row.original.tags?.map((tag) => (
-            <span key={tag.label} className={tagTone(tag)}>
-              {tag.label}
-            </span>
+            <TagText key={tag.label} tag={tag} />
           ))}
           {row.original.flag !== undefined && (
             <span className="text-bad-fg">{row.original.flag}</span>
@@ -321,7 +364,7 @@ function columnsFor(
             >
               {figure(shown)}
             </span>
-            <span className="text-[0.875rem] text-mute">
+            <span className="text-[0.9375rem] text-mute">
               {one.of !== undefined && one.change === undefined
                 ? `of ${figure(one.of)} pcs`
                 : "pcs"}
@@ -370,7 +413,7 @@ function columnsFor(
       cell: ({ row }) =>
         row.original.moveBack !== undefined ? (
           <CardButton
-            label={row.original.act ?? "Move back"}
+            label={row.original.act ?? "Put back"}
             onClick={row.original.moveBack}
           />
         ) : row.original.act === undefined ? null : (
@@ -422,7 +465,7 @@ function LaneHeading({
         {figure(count)}
       </span>
       <span className="flex-1" />
-      <span className="text-[0.875rem] text-mute tabular-nums">
+      <span className="text-[0.9375rem] text-mute tabular-nums">
         {`${figure(pieces)} pcs`}
       </span>
       <ChevronDown
@@ -451,20 +494,50 @@ function StageCard({
 }) {
   const off = row.off === true
   const shown = row.change === undefined ? row.pieces : row.change.to
+  // MD's change on the very figure the card leads with: its "was" goes in
+  // the caption ("was 220 · pcs"), not again in the body.
+  const struck =
+    row.change === undefined
+      ? row.tags?.find((tag) => tag.was !== undefined && tag.now === shown)
+      : undefined
+  const bodyTags = row.tags?.filter((tag) => tag !== struck)
   // A carton MD took out has no tick: its reason is the line under it.
   const tick = row.pick !== undefined && row.pick.disabled !== true
   const caption =
     row.of !== undefined && row.change === undefined
       ? `of ${figure(row.of)} pcs`
       : "pcs"
+  const captionShown =
+    struck?.was === undefined ? (
+      caption
+    ) : (
+      <>
+        <s>{figure(struck.was)}</s> {caption}
+      </>
+    )
   return (
     <PhoneCard
-      head={<CardName name={row.title} code={row.doc} muted={off} />}
+      head={
+        <CardName
+          name={
+            row.dot ? (
+              <span className="inline-flex items-center gap-2">
+                <Dot />
+                {row.title}
+              </span>
+            ) : (
+              row.title
+            )
+          }
+          code={row.doc}
+          muted={off}
+        />
+      }
       lead={
         <span className={cn(off && "opacity-50")}>
           <CardFigure
             value={figure(shown)}
-            caption={caption}
+            caption={captionShown}
             tone={row.flag !== undefined ? "bad" : off ? "quiet" : undefined}
           />
         </span>
@@ -487,17 +560,15 @@ function StageCard({
               {row.stamp ?? "CANCELLED"}
             </span>
           </span>
-        ) : row.tags !== undefined && row.tags.length > 0 ? (
+        ) : bodyTags !== undefined && bodyTags.length > 0 ? (
           <span className="flex flex-col gap-3">
             <span className="flex flex-wrap gap-x-3 text-[0.9375rem] font-semibold tabular-nums">
-              {row.tags.map((tag) => (
-                <span key={tag.label} className={tagTone(tag)}>
-                  {tag.label}
-                </span>
+              {bodyTags.map((tag) => (
+                <TagText key={tag.label} tag={tag} />
               ))}
             </span>
-            {/* The foot holds one button: Move back keeps it, so Got it
-            sits here instead. */}
+            {/* The foot holds one button: Move back keeps it, so OK sits
+            here instead. */}
             {row.ack !== undefined && row.moveBack !== undefined && (
               <Button
                 variant="tint"
@@ -552,7 +623,7 @@ function StageCard({
               row.moveBack?.()
             }}
           >
-            {row.act ?? "Move back"}
+            {row.act ?? "Put back"}
           </Button>
         ) : tick && row.pick !== undefined ? (
           <span title={row.pick.title}>
@@ -580,7 +651,7 @@ function StageCard({
       {row.mark?.strip !== undefined && (
         <span
           className={cn(
-            "order-first flex h-7 shrink-0 items-center px-4 text-[0.875rem] font-semibold text-white",
+            "order-first flex h-7 shrink-0 items-center px-4 text-[0.9375rem] font-semibold text-white",
             row.mark.tone === "bad" ? "bg-bad-fg" : "bg-warn-fg"
           )}
         >
@@ -601,6 +672,7 @@ export function StageTable({
   group,
   empty,
   stages = true,
+  refresh,
 }: {
   rows: readonly StageRow[]
   /// Header of the first named column.
@@ -611,6 +683,8 @@ export function StageTable({
   /// Whether the lane a row sits in is a column. A list that is only a list
   /// (Return to supplier) leaves it out.
   stages?: boolean
+  /// The queries behind the rows, for the stamp over the table.
+  refresh?: readonly Refreshable[]
 }) {
   const go = useAppNavigate()
   const openHere = useOpenHere()
@@ -699,39 +773,46 @@ export function StageTable({
   // carry a band across its top edge and a stamp.
   if (grouped) {
     return (
-      <ul className="flex flex-col gap-2.5">
-        {ordered.map((row, index) => (
-          <Fragment key={row.key}>
-            {(index === 0 || ordered[index - 1].stage.id !== row.stage.id) && (
-              <li data-sub className={STICKY_HEADING}>
-                <LaneHeading
-                  stage={row.stage}
-                  count={lanes.get(row.stage.id)?.count ?? 0}
-                  pieces={lanes.get(row.stage.id)?.pieces ?? 0}
-                  open={!folded.has(row.stage.id)}
-                  onToggle={() =>
-                    setFolded((was) => {
-                      const next = new Set(was)
-                      if (next.has(row.stage.id)) next.delete(row.stage.id)
-                      else next.add(row.stage.id)
-                      return next
-                    })
-                  }
-                />
-              </li>
-            )}
-            {!folded.has(row.stage.id) && (
-              <StageCard row={row} onPress={press} />
-            )}
-          </Fragment>
-        ))}
-      </ul>
+      <>
+        {refresh !== undefined && refresh.length > 0 && (
+          <RefreshStrip queries={refresh} />
+        )}
+        <ul className="flex flex-col gap-2.5">
+          {ordered.map((row, index) => (
+            <Fragment key={row.key}>
+              {(index === 0 ||
+                ordered[index - 1].stage.id !== row.stage.id) && (
+                <li data-sub className={STICKY_HEADING}>
+                  <LaneHeading
+                    stage={row.stage}
+                    count={lanes.get(row.stage.id)?.count ?? 0}
+                    pieces={lanes.get(row.stage.id)?.pieces ?? 0}
+                    open={!folded.has(row.stage.id)}
+                    onToggle={() =>
+                      setFolded((was) => {
+                        const next = new Set(was)
+                        if (next.has(row.stage.id)) next.delete(row.stage.id)
+                        else next.add(row.stage.id)
+                        return next
+                      })
+                    }
+                  />
+                </li>
+              )}
+              {!folded.has(row.stage.id) && (
+                <StageCard row={row} onPress={press} />
+              )}
+            </Fragment>
+          ))}
+        </ul>
+      </>
     )
   }
 
   return (
     <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
       <DataTable<StageRow>
+        refresh={refresh}
         table={table}
         touch
         pageScroll
@@ -757,7 +838,7 @@ export function StageTable({
                   row.moveBack?.()
                 }}
               >
-                {row.act ?? "Move back"}
+                {row.act ?? "Put back"}
               </Button>
             ) : row.act === undefined ? null : (
               <span className={cn(button({ variant: "ghost", size: "sm" }))}>

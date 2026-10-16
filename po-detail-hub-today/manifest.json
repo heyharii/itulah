@@ -1,0 +1,590 @@
+[
+ {
+  "dev": "desk",
+  "id": "new",
+  "view": "detail",
+  "file": "desk-new.png"
+ },
+ {
+  "dev": "desk",
+  "id": "late",
+  "view": "detail",
+  "file": "desk-late.png"
+ },
+ {
+  "dev": "desk",
+  "id": "variants",
+  "view": "detail",
+  "file": "desk-variants.png"
+ },
+ {
+  "dev": "desk",
+  "id": "recalled",
+  "view": "detail",
+  "file": "desk-recalled.png"
+ },
+ {
+  "dev": "desk",
+  "id": "count-match",
+  "view": "detail",
+  "file": "desk-count-match.png"
+ },
+ {
+  "dev": "desk",
+  "id": "count-match",
+  "view": "review",
+  "file": "desk-count-match-review.png"
+ },
+ {
+  "dev": "desk",
+  "id": "count-over",
+  "view": "detail",
+  "file": "desk-count-over.png"
+ },
+ {
+  "dev": "desk",
+  "id": "count-over",
+  "view": "review",
+  "file": "desk-count-over-review.png"
+ },
+ {
+  "dev": "desk",
+  "id": "count-nao",
+  "view": "detail",
+  "file": "desk-count-nao.png"
+ },
+ {
+  "dev": "desk",
+  "id": "count-nao",
+  "view": "review",
+  "file": "desk-count-nao-review.png"
+ },
+ {
+  "dev": "desk",
+  "id": "recount",
+  "view": "detail",
+  "file": "desk-recount.png"
+ },
+ {
+  "dev": "desk",
+  "id": "recount",
+  "view": "review",
+  "file": "desk-recount-review.png"
+ },
+ {
+  "dev": "desk",
+  "id": "cancelled",
+  "view": "detail",
+  "file": "desk-cancelled.png"
+ },
+ {
+  "dev": "phone",
+  "id": "new",
+  "view": "detail",
+  "file": "phone-new.png"
+ },
+ {
+  "dev": "phone",
+  "id": "late",
+  "view": "detail",
+  "file": "phone-late.png"
+ },
+ {
+  "dev": "phone",
+  "id": "variants",
+  "view": "detail",
+  "file": "phone-variants.png"
+ },
+ {
+  "dev": "phone",
+  "id": "recalled",
+  "view": "detail",
+  "file": "phone-recalled.png"
+ },
+ {
+  "dev": "phone",
+  "id": "count-match",
+  "view": "detail",
+  "file": "phone-count-match.png"
+ },
+ {
+  "dev": "phone",
+  "id": "count-match",
+  "view": "review",
+  "file": "phone-count-match-review.png"
+ },
+ {
+  "dev": "phone",
+  "id": "count-over",
+  "view": "detail",
+  "file": "phone-count-over.png"
+ },
+ {
+  "dev": "phone",
+  "id": "count-over",
+  "view": "review",
+  "file": "phone-count-over-review.png"
+ },
+ {
+  "dev": "phone",
+  "id": "count-nao",
+  "view": "detail",
+  "file": "phone-count-nao.png"
+ },
+ {
+  "dev": "phone",
+  "id": "count-nao",
+  "view": "review",
+  "file": "phone-count-nao-review.png"
+ },
+ {
+  "dev": "phone",
+  "id": "recount",
+  "view": "detail",
+  "file": "phone-recount.png"
+ },
+ {
+  "dev": "phone",
+  "id": "recount",
+  "view": "review",
+  "file": "phone-recount-review.png"
+ },
+ {
+  "dev": "phone",
+  "id": "cancelled",
+  "view": "detail",
+  "file": "phone-cancelled.png"
+ },
+ {
+  "dev": "desk",
+  "id": "count-short",
+  "view": "detail",
+  "file": "desk-count-short.png"
+ },
+ {
+  "dev": "desk",
+  "id": "count-short",
+  "view": "review",
+  "file": "desk-count-short-review.png"
+ },
+ {
+  "dev": "desk",
+  "id": "count-short",
+  "view": "confirm",
+  "file": "desk-count-short-confirm.png"
+ },
+ {
+  "dev": "desk",
+  "id": "count-mixed",
+  "view": "detail",
+  "file": "desk-count-mixed.png"
+ },
+ {
+  "dev": "desk",
+  "id": "count-mixed",
+  "view": "review",
+  "file": "desk-count-mixed-review.png"
+ },
+ {
+  "dev": "desk",
+  "id": "count-mixed",
+  "view": "hide",
+  "file": "desk-count-mixed-hide.png"
+ },
+ {
+  "dev": "desk",
+  "id": "rc-kodi",
+  "view": "detail",
+  "file": "desk-rc-kodi.png"
+ },
+ {
+  "dev": "desk",
+  "id": "rc-kodi",
+  "view": "review",
+  "file": "desk-rc-kodi-review.png"
+ },
+ {
+  "dev": "desk",
+  "id": "rc-variants",
+  "view": "detail",
+  "file": "desk-rc-variants.png"
+ },
+ {
+  "dev": "desk",
+  "id": "rc-variants",
+  "view": "review",
+  "file": "desk-rc-variants-review.png"
+ },
+ {
+  "dev": "desk",
+  "id": "rc-one",
+  "view": "detail",
+  "file": "desk-rc-one.png"
+ },
+ {
+  "dev": "desk",
+  "id": "rc-one",
+  "view": "review",
+  "file": "desk-rc-one-review.png"
+ },
+ {
+  "dev": "desk",
+  "id": "rc-recount-short",
+  "view": "detail",
+  "file": "desk-rc-recount-short.png"
+ },
+ {
+  "dev": "desk",
+  "id": "rc-recount-short",
+  "view": "review",
+  "file": "desk-rc-recount-short-review.png"
+ },
+ {
+  "dev": "desk",
+  "id": "rc-recount-short",
+  "view": "hide",
+  "file": "desk-rc-recount-short-hide.png"
+ },
+ {
+  "dev": "phone",
+  "id": "count-short",
+  "view": "detail",
+  "file": "phone-count-short.png"
+ },
+ {
+  "dev": "phone",
+  "id": "count-short",
+  "view": "review",
+  "file": "phone-count-short-review.png"
+ },
+ {
+  "dev": "phone",
+  "id": "count-short",
+  "view": "confirm",
+  "file": "phone-count-short-confirm.png"
+ },
+ {
+  "dev": "phone",
+  "id": "count-mixed",
+  "view": "detail",
+  "file": "phone-count-mixed.png"
+ },
+ {
+  "dev": "phone",
+  "id": "count-mixed",
+  "view": "review",
+  "file": "phone-count-mixed-review.png"
+ },
+ {
+  "dev": "phone",
+  "id": "count-mixed",
+  "view": "hide",
+  "file": "phone-count-mixed-hide.png"
+ },
+ {
+  "dev": "phone",
+  "id": "rc-kodi",
+  "view": "detail",
+  "file": "phone-rc-kodi.png"
+ },
+ {
+  "dev": "phone",
+  "id": "rc-kodi",
+  "view": "review",
+  "file": "phone-rc-kodi-review.png"
+ },
+ {
+  "dev": "phone",
+  "id": "rc-variants",
+  "view": "detail",
+  "file": "phone-rc-variants.png"
+ },
+ {
+  "dev": "phone",
+  "id": "rc-variants",
+  "view": "review",
+  "file": "phone-rc-variants-review.png"
+ },
+ {
+  "dev": "phone",
+  "id": "rc-one",
+  "view": "detail",
+  "file": "phone-rc-one.png"
+ },
+ {
+  "dev": "phone",
+  "id": "rc-one",
+  "view": "review",
+  "file": "phone-rc-one-review.png"
+ },
+ {
+  "dev": "phone",
+  "id": "rc-recount-short",
+  "view": "detail",
+  "file": "phone-rc-recount-short.png"
+ },
+ {
+  "dev": "phone",
+  "id": "rc-recount-short",
+  "view": "review",
+  "file": "phone-rc-recount-short-review.png"
+ },
+ {
+  "dev": "phone",
+  "id": "rc-recount-short",
+  "view": "hide",
+  "file": "phone-rc-recount-short-hide.png"
+ },
+ {
+  "dev": "phone",
+  "id": "part-count",
+  "view": "detail",
+  "file": "phone-part-count.png"
+ },
+ {
+  "dev": "phone",
+  "id": "part-count",
+  "view": "review",
+  "file": "phone-part-count-review.png"
+ },
+ {
+  "dev": "phone",
+  "id": "part-count",
+  "view": "last",
+  "file": "phone-part-count-last.png"
+ },
+ {
+  "dev": "phone",
+  "id": "part",
+  "view": "detail",
+  "file": "phone-part.png"
+ },
+ {
+  "dev": "phone",
+  "id": "part-late",
+  "view": "detail",
+  "file": "phone-part-late.png"
+ },
+ {
+  "dev": "phone",
+  "id": "part-two",
+  "view": "detail",
+  "file": "phone-part-two.png"
+ },
+ {
+  "dev": "phone",
+  "id": "part-extra",
+  "view": "detail",
+  "file": "phone-part-extra.png"
+ },
+ {
+  "dev": "phone",
+  "id": "full",
+  "view": "detail",
+  "file": "phone-full.png"
+ },
+ {
+  "dev": "phone",
+  "id": "full-extra",
+  "view": "detail",
+  "file": "phone-full-extra.png"
+ },
+ {
+  "dev": "phone",
+  "id": "full-nao",
+  "view": "detail",
+  "file": "phone-full-nao.png"
+ },
+ {
+  "dev": "phone",
+  "id": "full-both",
+  "view": "detail",
+  "file": "phone-full-both.png"
+ },
+ {
+  "dev": "phone",
+  "id": "ret-raised",
+  "view": "detail",
+  "file": "phone-ret-raised.png"
+ },
+ {
+  "dev": "phone",
+  "id": "ret-note",
+  "view": "detail",
+  "file": "phone-ret-note.png"
+ },
+ {
+  "dev": "phone",
+  "id": "ret-done",
+  "view": "detail",
+  "file": "phone-ret-done.png"
+ },
+ {
+  "dev": "phone",
+  "id": "short",
+  "view": "detail",
+  "file": "phone-short.png"
+ },
+ {
+  "dev": "phone",
+  "id": "rc-part-over",
+  "view": "detail",
+  "file": "phone-rc-part-over.png"
+ },
+ {
+  "dev": "phone",
+  "id": "rc-part-over",
+  "view": "review",
+  "file": "phone-rc-part-over-review.png"
+ },
+ {
+  "dev": "phone",
+  "id": "rc-part-over",
+  "view": "last",
+  "file": "phone-rc-part-over-last.png"
+ },
+ {
+  "dev": "phone",
+  "id": "rc-part-nao",
+  "view": "detail",
+  "file": "phone-rc-part-nao.png"
+ },
+ {
+  "dev": "phone",
+  "id": "rc-part-nao",
+  "view": "review",
+  "file": "phone-rc-part-nao-review.png"
+ },
+ {
+  "dev": "phone",
+  "id": "rc-part-nao",
+  "view": "last",
+  "file": "phone-rc-part-nao-last.png"
+ },
+ {
+  "dev": "desk",
+  "id": "part-count",
+  "view": "detail",
+  "file": "desk-part-count.png"
+ },
+ {
+  "dev": "desk",
+  "id": "part-count",
+  "view": "review",
+  "file": "desk-part-count-review.png"
+ },
+ {
+  "dev": "desk",
+  "id": "part-count",
+  "view": "last",
+  "file": "desk-part-count-last.png"
+ },
+ {
+  "dev": "desk",
+  "id": "part",
+  "view": "detail",
+  "file": "desk-part.png"
+ },
+ {
+  "dev": "desk",
+  "id": "part-late",
+  "view": "detail",
+  "file": "desk-part-late.png"
+ },
+ {
+  "dev": "desk",
+  "id": "part-two",
+  "view": "detail",
+  "file": "desk-part-two.png"
+ },
+ {
+  "dev": "desk",
+  "id": "part-extra",
+  "view": "detail",
+  "file": "desk-part-extra.png"
+ },
+ {
+  "dev": "desk",
+  "id": "full",
+  "view": "detail",
+  "file": "desk-full.png"
+ },
+ {
+  "dev": "desk",
+  "id": "full-extra",
+  "view": "detail",
+  "file": "desk-full-extra.png"
+ },
+ {
+  "dev": "desk",
+  "id": "full-nao",
+  "view": "detail",
+  "file": "desk-full-nao.png"
+ },
+ {
+  "dev": "desk",
+  "id": "full-both",
+  "view": "detail",
+  "file": "desk-full-both.png"
+ },
+ {
+  "dev": "desk",
+  "id": "ret-raised",
+  "view": "detail",
+  "file": "desk-ret-raised.png"
+ },
+ {
+  "dev": "desk",
+  "id": "ret-note",
+  "view": "detail",
+  "file": "desk-ret-note.png"
+ },
+ {
+  "dev": "desk",
+  "id": "ret-done",
+  "view": "detail",
+  "file": "desk-ret-done.png"
+ },
+ {
+  "dev": "desk",
+  "id": "short",
+  "view": "detail",
+  "file": "desk-short.png"
+ },
+ {
+  "dev": "desk",
+  "id": "rc-part-over",
+  "view": "detail",
+  "file": "desk-rc-part-over.png"
+ },
+ {
+  "dev": "desk",
+  "id": "rc-part-over",
+  "view": "review",
+  "file": "desk-rc-part-over-review.png"
+ },
+ {
+  "dev": "desk",
+  "id": "rc-part-over",
+  "view": "last",
+  "file": "desk-rc-part-over-last.png"
+ },
+ {
+  "dev": "desk",
+  "id": "rc-part-nao",
+  "view": "detail",
+  "file": "desk-rc-part-nao.png"
+ },
+ {
+  "dev": "desk",
+  "id": "rc-part-nao",
+  "view": "review",
+  "file": "desk-rc-part-nao-review.png"
+ },
+ {
+  "dev": "desk",
+  "id": "rc-part-nao",
+  "view": "last",
+  "file": "desk-rc-part-nao-last.png"
+ }
+]

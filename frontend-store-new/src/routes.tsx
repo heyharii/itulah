@@ -2,12 +2,14 @@ import {
   createRootRoute,
   createRoute,
   createRouter,
+  lazyRouteComponent,
   redirect,
 } from "@tanstack/react-router"
 
 import { AppShell } from "@/components/shell/app-shell"
 import { allNavItems, homePath } from "@/lib/navigation"
 import { validateSearch } from "@/lib/params"
+import { prefetchRoute } from "@/lib/prefetch"
 import { screens } from "@/screens"
 
 /// The route tree, built from the navigation registry.
@@ -52,7 +54,21 @@ const routes = allNavItems.map((item) =>
   createRoute({
     getParentRoute: () => rootRoute,
     path: item.path,
-    component: screens[item.path],
+    // The screen's first data starts moving with its code: on a hover, a
+    // touch or a focus of any link to it (`intent`) and again when it is
+    // really navigated to. Never awaited — the router must not wait for data
+    // the screen asks for itself (`lib/prefetch.ts`).
+    loader: ({ preload, location }) => {
+      prefetchRoute(
+        item.path,
+        preload ? "intent" : "navigate",
+        location.search as Record<string, unknown>,
+      )
+    },
+    // The screen's chunk is fetched when it is opened (`screens/index.ts`),
+    // and router holds the route until it arrives — the counter's first tab
+    // no longer waits for the money screens' charts.
+    component: lazyRouteComponent(screens[item.path]),
   }),
 )
 

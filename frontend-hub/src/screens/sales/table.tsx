@@ -637,7 +637,7 @@ function DayCards({
                   )}
                 </span>
                 {!quiet && (
-                  <span className="text-[0.875rem] font-normal text-mute">
+                  <span className="text-[0.9375rem] font-normal text-mute">
                     {count(sales)}{" "}
                     {sales === 1 ? "transaction" : "transactions"}
                     {!alone && (
@@ -699,7 +699,7 @@ function DayCards({
                 {traded.map((site) => (
                   <li
                     key={site.site_id}
-                    className="flex min-h-11 items-center justify-between gap-3 px-4 text-[0.875rem] not-first:border-t not-first:border-hairline"
+                    className="flex min-h-11 items-center justify-between gap-3 px-4 text-[0.9375rem] not-first:border-t not-first:border-hairline"
                   >
                     <button
                       type="button"

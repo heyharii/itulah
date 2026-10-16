@@ -1,3 +1,5 @@
+import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query"
+
 import { node } from "@/lib/api"
 import type {
   Advance,
@@ -106,6 +108,27 @@ export function prepaidSchedulePage(
   )
 }
 
+/// The schedules a page at a time, newest first, under one status filter
+/// (none is every status). The cards read the server's figures over every
+/// schedule the filter matches, never a sum of the pages loaded.
+export const prepaidSchedulePagesQuery = (status?: string) =>
+  infiniteQueryOptions({
+    queryKey: [...domainKeys.prepaidSchedules(undefined, status), "pages"],
+    queryFn: ({ pageParam, signal }) =>
+      prepaidSchedulePage({ status, cursor: pageParam, limit: 100 }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+  })
+
+/// How many are due in a month (`YYYY-MM`), asked separately so picking a month
+/// re-asks one small question rather than reloading the list.
+export const prepaidDueQuery = (status: string | undefined, month: string) =>
+  queryOptions({
+    queryKey: [...domainKeys.prepaidSchedules(undefined, status), "due", month],
+    queryFn: ({ signal }) =>
+      prepaidSchedulePage({ status, period: `${month}-01`, limit: 1 }, signal),
+  })
+
 export function readPrepaidSchedule(
   id: string,
   signal?: AbortSignal
@@ -149,6 +172,13 @@ export function listTaxPeriods(
   )
 }
 
+/// Every tax period, whatever its status — the screen filters them.
+export const taxPeriodsQuery = () =>
+  queryOptions({
+    queryKey: domainKeys.taxPeriods(),
+    queryFn: ({ signal }) => listTaxPeriods(signal),
+  })
+
 export function readTaxPeriod(
   id: string,
   signal?: AbortSignal
@@ -167,6 +197,13 @@ export function taxReconciliation(
     { signal }
   )
 }
+
+/// What the tax periods say against what the ledger says, per tax.
+export const taxReconciliationQuery = () =>
+  queryOptions({
+    queryKey: domainKeys.taxReconciliation(),
+    queryFn: ({ signal }) => taxReconciliation(signal),
+  })
 
 // ── advances ───────────────────────────────────────────────────────────────
 
@@ -225,11 +262,37 @@ export function advanceControl(
   )
 }
 
+/// The advances a page at a time, newest first, under one status filter (none
+/// is every status). The cards read the server's figures over the whole book,
+/// never a sum of the pages loaded.
+export const advancePagesQuery = (status?: string) =>
+  infiniteQueryOptions({
+    queryKey: [...domainKeys.advances(undefined, status), "pages"],
+    queryFn: ({ pageParam, signal }) =>
+      advancePage({ status, cursor: pageParam, limit: 100 }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+  })
+
+/// What the advances say against what the ledger says, per account.
+export const advanceControlQuery = () =>
+  queryOptions({
+    queryKey: domainKeys.advanceControl(),
+    queryFn: ({ signal }) => advanceControl(signal),
+  })
+
 // ── owners ─────────────────────────────────────────────────────────────────
 
 export function listPrincipals(signal?: AbortSignal): Promise<Principal[]> {
   return node.get<Principal[]>("/api/v1/finance/principals", { signal })
 }
+
+/// The owners and investors, with the equity each has put in.
+export const principalsQuery = () =>
+  queryOptions({
+    queryKey: domainKeys.principals(),
+    queryFn: ({ signal }) => listPrincipals(signal),
+  })
 
 export function readPrincipal(
   id: string,
@@ -251,6 +314,13 @@ export function listFacilities(
     { signal }
   )
 }
+
+/// Every financing facility: the loans and leases, with what is still owed.
+export const facilitiesQuery = () =>
+  queryOptions({
+    queryKey: domainKeys.facilities(),
+    queryFn: ({ signal }) => listFacilities(signal),
+  })
 
 export function readFacility(
   id: string,
@@ -285,6 +355,21 @@ export function closeReadiness(
     { signal }
   )
 }
+
+/// What stands between a month and being shut. A month with no period reads
+/// as `NONE` rather than failing, so any month the picker can make is safe.
+export const closeReadinessQuery = (year: number, month: number) =>
+  queryOptions({
+    queryKey: domainKeys.closeReadiness(year, month),
+    queryFn: ({ signal }) => closeReadiness(year, month, signal),
+  })
+
+/// Every subledger beside the ledger account that controls it.
+export const financeControlsQuery = () =>
+  queryOptions({
+    queryKey: domainKeys.controls(),
+    queryFn: ({ signal }) => financeControls(signal),
+  })
 
 export function softCloseMonth(
   body: { year: number; month: number },
@@ -351,3 +436,11 @@ export function unitResults(
     { signal }
   )
 }
+
+/// The result over a window, as the Overview's charts, the Profit and Loss
+/// report and the by-unit report read it: one read per window, under one key.
+export const profitAndLossQuery = (from: string, to: string, unit?: string) =>
+  queryOptions({
+    queryKey: domainKeys.profitAndLoss(from, to, unit),
+    queryFn: ({ signal }) => profitAndLoss(from, to, signal, { unit }),
+  })

@@ -4,6 +4,7 @@ import { useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { CardList } from "@/components/ui/card-list"
 import { LeadCard } from "@/components/ui/lead-card"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { Pill } from "@/components/ui/pill"
 import { Screen } from "@/components/ui/screen"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
@@ -21,7 +22,6 @@ import { queryState } from "@/lib/query-state"
 import { useHeld, useOpenRecord } from "@/screens/stock/open-record"
 import {
   FOOT,
-  Figures,
   Row,
   RowList,
   SheetSection,
@@ -32,7 +32,7 @@ import { idempotencyKey } from "@itulah/contract/client"
 /// never starts a return and picks nothing: it taps **Pack and send** and the
 /// whole request goes on the road.
 ///
-/// Nothing at the top but the title (the top bar's) and one line of figures. A
+/// Nothing at the top but the title (the top bar's) and the figures. A
 /// request is a card — its number over how many items it holds, the pieces as
 /// the one figure, and in the foot when it was asked beside the word that sends
 /// it — and opens as a sheet over the list (`?returning=`) with the items it
@@ -56,9 +56,18 @@ export function ReturnToHo() {
 
   const rows = returns.data ?? []
   const pieces = rows.reduce((sum, ask) => sum + ask.quantity, 0)
+  const items = rows.reduce((sum, ask) => sum + ask.lines.length, 0)
+
+  const ready = returns.data !== undefined
 
   return (
     <Screen counter>
+      <KpiStrip>
+        <Kpi label="Requests" value={ready ? count(rows.length) : "—"} />
+        <Kpi label="Items" value={ready ? count(items) : "—"} />
+        <Kpi label="Pieces to send" value={ready ? count(pieces) : "—"} />
+      </KpiStrip>
+
       {queryState(returns, {
         loading: "Reading the return requests…",
         render: () => (
@@ -73,11 +82,6 @@ export function ReturnToHo() {
               <EmptyState>Nothing to send.</EmptyState>
             ) : (
               <>
-                <Figures>
-                  <b className="font-medium text-ink">{count(rows.length)}</b>{" "}
-                  {rows.length === 1 ? "request" : "requests"} · {count(pieces)}{" "}
-                  pcs to send
-                </Figures>
                 <CardList grid>
                   {rows.map((ask) => (
                     <AskCard

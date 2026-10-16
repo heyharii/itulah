@@ -131,7 +131,7 @@ export function FacetGroup({
         </span>
         <div className="flex items-center gap-1">
           {all.length > 0 && (
-            <span className="text-[0.875rem] text-faint tabular-nums">
+            <span className="text-[0.9375rem] text-faint tabular-nums">
               {count(needle === "" ? all.length : shown.length)}
             </span>
           )}
@@ -159,13 +159,13 @@ export function FacetGroup({
             value={needle}
             onChange={(event) => setNeedle(event.target.value)}
             aria-label={`Find a ${label.toLowerCase()}`}
-            className="h-7 w-full rounded-full border border-transparent bg-soft-2 pr-2 pl-7 text-[0.875rem] text-ink transition-colors outline-none placeholder:text-mute hover:border-hairline-2 focus:border-hairline-strong focus:bg-canvas"
+            className="h-7 w-full rounded-full border border-transparent bg-soft-2 pr-2 pl-7 text-[0.9375rem] text-ink transition-colors outline-none placeholder:text-mute hover:border-hairline-2 focus:border-hairline-strong focus:bg-canvas"
           />
         </div>
       )}
 
       {all.length > 0 && shown.length === 0 ? (
-        <p className="py-1 text-[0.875rem] text-mute">Nothing by that name.</p>
+        <p className="py-1 text-[0.9375rem] text-mute">Nothing by that name.</p>
       ) : (
         <div className="max-h-[13.5rem] overflow-y-auto pr-1">
           {shape === "chip" ? (
@@ -281,20 +281,20 @@ function FacetSheet({
             onChange={(event) => setNeedle(event.target.value)}
             aria-label={`Search ${label.toLowerCase()}`}
             autoFocus
-            className="h-9 w-full rounded-full border border-transparent bg-soft-2 pr-3 pl-9 text-[0.875rem] text-ink transition-colors outline-none placeholder:text-mute hover:border-hairline-2 focus:border-hairline-strong focus:bg-canvas"
+            className="h-9 w-full rounded-full border border-transparent bg-soft-2 pr-3 pl-9 text-[0.9375rem] text-ink transition-colors outline-none placeholder:text-mute hover:border-hairline-2 focus:border-hairline-strong focus:bg-canvas"
           />
         </div>
 
         {/* What is already ticked, said in words. A sheet opened over a filtered
             list should not make somebody count the boxes. */}
-        <div className="text-[0.875rem] text-mute">
+        <div className="text-[0.9375rem] text-mute">
           {picked === 0
             ? "Nothing chosen — everything is shown."
             : `${count(picked)} chosen.`}
         </div>
 
         {shown.length === 0 ? (
-          <p className="py-2 text-[0.875rem] text-mute">
+          <p className="py-2 text-[0.9375rem] text-mute">
             Nothing by that name.
           </p>
         ) : (
@@ -341,7 +341,7 @@ export function FacetItem({
       onClick={onToggle}
       aria-pressed={on}
       className={cn(
-        "flex w-full items-center gap-2.5 text-left text-[0.875rem] text-text transition-colors hover:text-ink",
+        "flex w-full items-center gap-2.5 text-left text-[0.9375rem] text-text transition-colors hover:text-ink",
         size === "tight"
           ? "py-[0.3125rem]"
           : "rounded-inner px-1 py-2 hover:bg-soft-2"
@@ -357,7 +357,7 @@ export function FacetItem({
       </span>
       {leading}
       <span className="min-w-0 flex-1 truncate">{label}</span>
-      <span className="shrink-0 text-[0.875rem] text-mute tabular-nums">
+      <span className="shrink-0 text-[0.9375rem] text-mute tabular-nums">
         {count(howMany)}
       </span>
     </button>
@@ -385,7 +385,7 @@ export function FacetChip({
       onClick={onToggle}
       aria-pressed={on}
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[0.875rem] transition-colors",
+        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[0.9375rem] transition-colors",
         on
           ? "border-ink bg-ink text-white"
           : "border-hairline-2 text-text hover:bg-soft-2"

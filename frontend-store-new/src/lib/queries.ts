@@ -1,7 +1,10 @@
+import { queryOptions } from "@tanstack/react-query"
+
 import { node } from "@/lib/api"
 import { ApiError, readError } from "@itulah/contract/client"
 import type {
   CatalogRow,
+  FinalUnitPrices,
   MovementView,
   SkuStock,
   StoreInboundCountRequest,
@@ -204,6 +207,15 @@ export async function fetchCatalogue(signal?: AbortSignal): Promise<Catalogue> {
   return book
 }
 
+/// The book, as every screen that reads it asks for it — and as the route's
+/// prefetcher does (`src/prefetch/catalogue.ts`), so a warmed answer is the
+/// one the screen would have fetched. Screens add their own poll on top.
+export const catalogueQuery = () =>
+  queryOptions({
+    queryKey: catalogueKey(),
+    queryFn: ({ signal }) => fetchCatalogue(signal),
+  })
+
 // ─────────────────────────────────────────────────────────────────────────────
 // What the shop is offering
 
@@ -224,6 +236,36 @@ export const offersKey = () => ["offers"] as const
 export function fetchOffers(signal?: AbortSignal): Promise<StoreOffers> {
   return node.get<StoreOffers>("/api/v1/store/offers", { signal })
 }
+
+export const offersQuery = () =>
+  queryOptions({
+    queryKey: offersKey(),
+    queryFn: ({ signal }) => fetchOffers(signal),
+  })
+
+/// Under the catalogue's key, so whatever refreshes the book refreshes these.
+export const finalPricesKey = () => ["catalogue", "final-prices"] as const
+
+/// `GET /api/v1/store/final-prices` — `edge/http.rs::store_final_prices`.
+///
+/// What one piece costs a walk-in shopper this minute, after the promotions
+/// that reach a single piece — the counter's own answer, so the catalogue
+/// quotes what the till then charges. Only the SKUs a promotion brings down;
+/// every other SKU costs its catalogue price.
+export function fetchFinalPrices(
+  signal?: AbortSignal,
+): Promise<FinalUnitPrices> {
+  return node.get<FinalUnitPrices>("/api/v1/store/final-prices", { signal })
+}
+
+export const finalPricesQuery = () =>
+  queryOptions({
+    queryKey: finalPricesKey(),
+    queryFn: ({ signal }) => fetchFinalPrices(signal),
+    // A node that does not serve it yet costs the promotions their place in
+    // the price, never an error over the range — asking again changes nothing.
+    retry: false,
+  })
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Stock, as this node owns it
@@ -276,12 +318,24 @@ export function fetchPools(signal?: AbortSignal): Promise<PoolsAnswer> {
   return node.get<PoolsAnswer>("/api/v1/inventory/pools", { signal })
 }
 
+export const poolsQuery = () =>
+  queryOptions({
+    queryKey: poolsKey(),
+    queryFn: ({ signal }) => fetchPools(signal),
+  })
+
 /// Every SKU's spendable units here, split floor / warehouse.
 export const skuStockKey = () => ["inventory", "sku-stock"] as const
 
 export function fetchSkuStock(signal?: AbortSignal): Promise<SkuStock> {
   return node.get<SkuStock>("/api/v1/inventory/sku-stock", { signal })
 }
+
+export const skuStockQuery = () =>
+  queryOptions({
+    queryKey: skuStockKey(),
+    queryFn: ({ signal }) => fetchSkuStock(signal),
+  })
 
 export const movementsKey = (limit: number) =>
   ["inventory", "movements", limit] as const
@@ -297,6 +351,12 @@ export async function fetchMovements(
   )
   return answer.items
 }
+
+export const movementsQuery = (limit: number) =>
+  queryOptions({
+    queryKey: movementsKey(limit),
+    queryFn: ({ signal }) => fetchMovements(limit, signal),
+  })
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Deliveries on their way here, and what arrived
@@ -458,6 +518,16 @@ export function fetchWindow(
     { signal },
   )
 }
+
+/// One day's takings, as Sales and Reconciliation both read them. Never
+/// fresh: a drawer open all day moves with every sale, so a screen coming
+/// back asks again.
+export const dayTakingsQuery = (day: string) =>
+  queryOptions({
+    queryKey: windowKey(day, day),
+    queryFn: ({ signal }) => fetchWindow({ from: day, to: day }, signal),
+    staleTime: 0,
+  })
 
 export const seriesKey = (from: string, to: string, bucket: Bucket) =>
   ["sales", "series", from, to, bucket] as const

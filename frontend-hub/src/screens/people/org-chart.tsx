@@ -10,17 +10,19 @@ import { Fab } from "@/components/ui/fab"
 import { Field } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { PickOne } from "@/components/ui/pick"
-import { Pill } from "@/components/ui/pill"
+import { Status } from "@/components/ui/pill"
+import { Toolbar } from "@/components/ui/segmented"
 import { Sheet } from "@/components/ui/sheet"
 import { EmptyState } from "@/components/ui/states"
-import { departments, orgChart, orgKeys } from "@/lib/queries/people"
+import { useUnits } from "@/lib/queries/organisation"
+import { departments, orgKeys, orgChartQuery } from "@/lib/queries/people"
 import { useLayout } from "@/lib/layout"
-import { queryState } from "@/lib/query-state"
 import { useCanWrite } from "@/lib/session"
 import { cn } from "@/lib/utils"
 import { EmployeePick } from "@/screens/people/employee-pick"
 import { PlacementPanel } from "@/screens/people/placement"
 import type { OrgChartNode } from "@itulah/contract"
+import { awaiting } from "@/screens/people/awaiting"
 
 /// The organisation chart, as Talenta draws it: who reports to whom, from
 /// the top down, with each person's department and level.
@@ -30,10 +32,6 @@ import type { OrgChartNode } from "@itulah/contract"
 /// on it: somebody nobody has placed sits at the top level and says so,
 /// rather than vanishing from the chart.
 export function OrgChart() {
-  const chart = useQuery({
-    queryKey: orgKeys.chart(),
-    queryFn: ({ signal }) => orgChart(signal),
-  })
   const depts = useQuery({
     queryKey: orgKeys.departments(),
     queryFn: ({ signal }) => departments(signal),
@@ -43,59 +41,54 @@ export function OrgChart() {
   const canWrite = useCanWrite()
   const phone = useLayout() === "phone"
 
+  const choices = (depts.data ?? [])
+    .filter((one) => !one.retired)
+    .map((one) => ({ value: one.code, label: one.name }))
+
   return (
     <PageContent>
       <PageHeader
-        crumb="People"
-        title="Org Chart"
-        sub="Who reports to whom, by department and level."
-        // On a phone the department is the chip over the bottom bar and
-        // placing somebody is its round +.
+        title="Org chart"
         actions={
-          phone ? undefined : (
-            <>
-              <Field label="Department">
-                <PickOne
-                  label="Department"
-                  choices={(depts.data ?? [])
-                    .filter((one) => !one.retired)
-                    .map((one) => ({ value: one.code, label: one.name }))}
-                  value={department}
-                  onChange={setDepartment}
-                />
-              </Field>
-              {canWrite && (
-                <Button variant="primary" onClick={() => setPlacing(true)}>
-                  Place someone
-                </Button>
-              )}
-            </>
+          !phone &&
+          canWrite && (
+            <Button variant="primary" onClick={() => setPlacing(true)}>
+              Place someone
+            </Button>
           )
         }
       />
-      {phone && (
+      {/* On a phone the department is the chip over the bottom bar and
+          placing somebody is its round +. */}
+      {phone ? (
         <>
           <DockChoice
+            title="Department"
             value={department ?? ""}
             onChange={(next) => setDepartment(next === "" ? null : next)}
             options={[
               { value: "", label: "All departments", short: "All departments" },
-              ...(depts.data ?? [])
-                .filter((one) => !one.retired)
-                .map((one) => ({
-                  value: one.code,
-                  label: one.name,
-                  short: one.name,
-                })),
+              ...choices.map((one) => ({ ...one, short: one.label })),
             ]}
           />
           {canWrite && (
             <Fab label="Place someone" onClick={() => setPlacing(true)} />
           )}
         </>
+      ) : (
+        <Toolbar>
+          <PickOne
+            label="Department"
+            placeholder="All departments"
+            choices={choices}
+            value={department}
+            onChange={setDepartment}
+            className="w-56"
+          />
+        </Toolbar>
       )}
       <Card className="overflow-hidden p-4">
-        {queryState(chart, {
+        {awaiting(orgChartQuery(), {
           loading: "Drawing the chart…",
           render: (nodes) => {
             const shown =
@@ -148,6 +141,8 @@ function PlaceSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
 }
 
 function Tree({ nodes }: { nodes: readonly OrgChartNode[] }) {
+  const units = useUnits()
+  const unitNames = new Map((units.data ?? []).map((one) => [one.id, one.name]))
   const here = new Set(nodes.map((node) => node.employee_id))
   const under = new Map<string, OrgChartNode[]>()
   const tops: OrgChartNode[] = []
@@ -165,7 +160,13 @@ function Tree({ nodes }: { nodes: readonly OrgChartNode[] }) {
   return (
     <ul className="flex flex-col gap-1">
       {tops.map((node) => (
-        <Branch key={node.employee_id} node={node} under={under} depth={0} />
+        <Branch
+          key={node.employee_id}
+          node={node}
+          under={under}
+          unitNames={unitNames}
+          depth={0}
+        />
       ))}
     </ul>
   )
@@ -174,10 +175,12 @@ function Tree({ nodes }: { nodes: readonly OrgChartNode[] }) {
 function Branch({
   node,
   under,
+  unitNames,
   depth,
 }: {
   node: OrgChartNode
   under: ReadonlyMap<string, OrgChartNode[]>
+  unitNames: ReadonlyMap<string, string>
   depth: number
 }) {
   const reports = under.get(node.employee_id) ?? []
@@ -208,17 +211,22 @@ function Branch({
         <AppLink
           to="/people"
           sheet={{ key: "employee", value: node.employee_id }}
-          className="text-[0.875rem] font-medium text-ink hover:underline"
+          className="text-[0.9375rem] font-medium text-ink hover:underline"
         >
           {node.full_name ?? node.employee_code}
         </AppLink>
-        {node.level_name !== null && <Pill tone="info">{node.level_name}</Pill>}
-        <span className="text-[0.875rem] text-mute">
-          {[node.department_name, node.unit_id].filter(Boolean).join(" · ")}
+        <span className="text-[0.9375rem] text-mute">
+          {[
+            node.level_name,
+            node.department_name,
+            node.unit_id === null ? null : unitNames.get(node.unit_id),
+          ]
+            .filter(Boolean)
+            .join(" · ")}
         </span>
-        {unplaced && <Pill tone="warn">Not placed</Pill>}
+        {unplaced && <Status tone="warn">Not placed</Status>}
         {reports.length > 0 && (
-          <span className="text-[0.875rem] text-mute">
+          <span className="text-[0.9375rem] text-mute">
             {reports.length} report{reports.length === 1 ? "" : "s"}
           </span>
         )}
@@ -230,6 +238,7 @@ function Branch({
               key={child.employee_id}
               node={child}
               under={under}
+              unitNames={unitNames}
               depth={depth + 1}
             />
           ))}

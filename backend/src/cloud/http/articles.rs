@@ -105,6 +105,16 @@ pub async fn search_articles(
             )));
         }
     };
+    let in_stock = match single_value(&params, "in_stock").as_deref() {
+        None => None,
+        Some("true") => Some(true),
+        Some("false") => Some(false),
+        Some(other) => {
+            return Err(AppError::Validation(format!(
+                "in_stock must be true or false, not {other:?}"
+            )));
+        }
+    };
     // A word this server does not answer to is refused rather than ignored: a
     // sort control that silently does nothing is how somebody reports that the
     // newest articles are missing.
@@ -130,6 +140,7 @@ pub async fn search_articles(
                 size_codes: facet_values(&params, "size_code"),
                 colour_codes: facet_values(&params, "colour_code"),
                 active,
+                in_stock,
                 order,
                 cursor: single_value(&params, "cursor"),
                 limit,

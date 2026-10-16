@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { Component, useEffect, useState, type ReactNode } from "react"
 import { useQuery } from "@tanstack/react-query"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -49,15 +49,46 @@ export function SuppliersGate() {
     if (probe.isSuccess) void refreshReference()
   }, [probe.isSuccess])
 
-  if (probe.isError && cache.suppliers.length > 0)
-    return (
+  const offline =
+    cache.suppliers.length > 0 ? (
       <OfflineSuppliers
         suppliers={cache.suppliers}
         total={cache.suppliers_total}
         at={cache.suppliers_at}
       />
-    )
-  return <Suppliers />
+    ) : null
+  if (probe.isError && offline !== null) return offline
+  // The real screen reads its book under a `<Suspense>`, so a read that fails
+  // is thrown rather than drawn: with the line down and a copy on this device,
+  // the copy is shown in its place. With no copy the failure goes on up to the
+  // app's own error screen, which says it honestly.
+  return (
+    <FallBackTo offline={offline}>
+      <Suppliers />
+    </FallBackTo>
+  )
+}
+
+/// Shows `offline` when what is inside fails to read, and lets the failure
+/// pass when there is nothing to show instead.
+class FallBackTo extends Component<
+  { offline: ReactNode; children: ReactNode },
+  { failure: unknown; failed: boolean }
+> {
+  state: { failure: unknown; failed: boolean } = {
+    failure: null,
+    failed: false,
+  }
+
+  static getDerivedStateFromError(failure: unknown) {
+    return { failure, failed: true }
+  }
+
+  render() {
+    if (!this.state.failed) return this.props.children
+    if (this.props.offline === null) throw this.state.failure
+    return this.props.offline
+  }
 }
 
 /// The read-only book, from the cache. Search narrows what is stored; a row

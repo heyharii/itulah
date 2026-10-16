@@ -1,11 +1,17 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query"
 import { ArrowLeft } from "lucide-react"
-import { useMemo, useState } from "react"
+import { Suspense, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Day } from "@/components/ui/day"
-import { Panel } from "@/components/ui/dialog"
+import { Sheet } from "@/components/ui/sheet"
+import { SheetFooter } from "@/components/ui/sheet-footer"
 import { Field, Input, Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import {
@@ -19,6 +25,11 @@ import { node } from "@/lib/api"
 import { count, day, money } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import { problemOf } from "@/lib/problem"
+import {
+  contractorProjectKeys,
+  contractorProjectsQuery,
+  type ContractorProject,
+} from "@/lib/queries/finance"
 import { Grid, Td, Th } from "@/screens/finance-final/parts"
 import { todayIso } from "@/screens/finance/chart"
 import { PhoneCard, PhoneList } from "@/components/ui/phone-cards"
@@ -31,6 +42,7 @@ import {
   useSupplierName,
 } from "@/screens/finance/hooks"
 import { AccountPicker, UnitSelect } from "@/screens/finance/parts"
+import { ScreenPending } from "@/screens/finance/pending"
 
 /// Assets › Contractor projects (owner, 2026-10-01).
 ///
@@ -43,25 +55,7 @@ import { AccountPicker, UnitSelect } from "@/screens/finance/parts"
 ///
 /// One screen: the list, and a project opened in place of it.
 
-interface Project {
-  readonly project_id: string
-  readonly project_number: string
-  readonly name: string
-  readonly supplier_id: string
-  readonly supplier_name: string | null
-  readonly unit_id: string
-  readonly note: string | null
-  readonly status: "OPEN" | "CLOSED"
-  readonly opened_at: string
-  readonly closed_on: string | null
-  readonly advanced_minor: number
-  readonly invoiced_minor: number
-  readonly applied_minor: number
-  readonly advance_left_minor: number
-  readonly owed_minor: number
-  readonly advance_count: number
-  readonly invoice_count: number
-}
+type Project = ContractorProject
 
 interface Detail {
   readonly project: Project
@@ -95,10 +89,7 @@ interface Detail {
 }
 
 const BASE = "/api/v1/finance/contractor-projects"
-const keys = {
-  all: ["finance", "contractor-projects"] as const,
-  one: (id: string) => ["finance", "contractor-projects", id] as const,
-}
+const keys = contractorProjectKeys
 
 export function ContractorProjects() {
   const [openId, setOpenId] = useState<string | null>(null)
@@ -114,14 +105,25 @@ export function ContractorProjects() {
 // ---------------------------------------------------------------------------
 
 function ProjectList({ onOpen }: { onOpen: (id: string) => void }) {
+  return (
+    <Suspense
+      fallback={
+        <ScreenPending crumb="Finance · Assets" title="Contractor Projects">
+          Reading the projects…
+        </ScreenPending>
+      }
+    >
+      <ProjectListScreen onOpen={onOpen} />
+    </Suspense>
+  )
+}
+
+function ProjectListScreen({ onOpen }: { onOpen: (id: string) => void }) {
   const phone = useLayout() === "phone"
   const unitName = useUnitName()
   const supplierName = useSupplierName()
   const [creating, setCreating] = useState(false)
-  const projects = useQuery({
-    queryKey: keys.all,
-    queryFn: ({ signal }) => node.get<Project[]>(BASE, { signal }),
-  })
+  const projects = useSuspenseQuery(contractorProjectsQuery())
 
   return (
     <PageContent>
@@ -140,18 +142,11 @@ function ProjectList({ onOpen }: { onOpen: (id: string) => void }) {
       />
       {phone && <Fab label="New project" onClick={() => setCreating(true)} />}
 
-      {projects.isPending ? (
-        <LoadingState>Reading the projects…</LoadingState>
-      ) : projects.isError ? (
-        <ErrorState error={projects.error} />
-      ) : (projects.data ?? []).length === 0 ? (
-        <EmptyState>
-          No contractor project yet. Open one when a contractor is paid ahead
-          for work that will take months.
-        </EmptyState>
+      {projects.data.length === 0 ? (
+        <EmptyState>No contractor project yet.</EmptyState>
       ) : phone ? (
         <PhoneList>
-          {(projects.data ?? []).map((row) => (
+          {projects.data.map((row) => (
             <PhoneCard
               key={row.project_id}
               title={row.name}
@@ -187,7 +182,7 @@ function ProjectList({ onOpen }: { onOpen: (id: string) => void }) {
             </tr>
           </thead>
           <tbody>
-            {(projects.data ?? []).map((row) => (
+            {projects.data.map((row) => (
               <tr
                 key={row.project_id}
                 onClick={() => onOpen(row.project_id)}
@@ -195,7 +190,7 @@ function ProjectList({ onOpen }: { onOpen: (id: string) => void }) {
               >
                 <Td className="max-w-0">
                   <span className="block truncate text-ink">{row.name}</span>
-                  <span className="block truncate text-[0.875rem] text-mute">
+                  <span className="block truncate text-[0.9375rem] text-mute">
                     {supplierName(row.supplier_id, row.supplier_name)} ·{" "}
                     {row.project_number}
                   </span>
@@ -220,20 +215,15 @@ function ProjectList({ onOpen }: { onOpen: (id: string) => void }) {
         </Grid>
       )}
 
-      <Panel
-        open={creating}
-        onOpenChange={(next) => !next && setCreating(false)}
-        title="New project"
-      >
-        {creating && (
-          <OpenForm
-            onDone={(id) => {
-              setCreating(false)
-              if (id) onOpen(id)
-            }}
-          />
-        )}
-      </Panel>
+      {creating && (
+        <OpenForm
+          onClose={() => setCreating(false)}
+          onDone={(id) => {
+            setCreating(false)
+            if (id) onOpen(id)
+          }}
+        />
+      )}
     </PageContent>
   )
 }
@@ -283,7 +273,7 @@ function ProjectPage({ id, onBack }: { id: string; onBack: () => void }) {
       <button
         type="button"
         onClick={onBack}
-        className="mb-3 inline-flex items-center gap-1.5 text-[0.875rem] text-mute hover:text-ink"
+        className="mb-3 inline-flex items-center gap-1.5 text-[0.9375rem] text-mute hover:text-ink"
       >
         <ArrowLeft className="size-4" /> Contractor projects
       </button>
@@ -389,7 +379,7 @@ function ProjectPage({ id, onBack }: { id: string; onBack: () => void }) {
                           {moneyAccountWord(row.account_key)}{" "}
                           {row.account_qualifier}
                         </span>
-                        <span className="block text-[0.875rem] text-mute">
+                        <span className="block text-[0.9375rem] text-mute">
                           {[row.reference, row.entry_number]
                             .filter(Boolean)
                             .join(" · ")}
@@ -417,7 +407,7 @@ function ProjectPage({ id, onBack }: { id: string; onBack: () => void }) {
                   return {
                     key: row.invoice_id,
                     title: (
-                      <span className="font-mono text-[0.875rem]">
+                      <span className="font-mono text-[0.9375rem]">
                         {row.invoice_number}
                       </span>
                     ),
@@ -465,10 +455,10 @@ function ProjectPage({ id, onBack }: { id: string; onBack: () => void }) {
                       <tr key={row.invoice_id}>
                         <Td className="text-body">{day(row.invoice_date)}</Td>
                         <Td className="max-w-0">
-                          <span className="block font-mono text-[0.875rem] text-ink">
+                          <span className="block font-mono text-[0.9375rem] text-ink">
                             {row.invoice_number}
                           </span>
-                          <span className="block truncate text-[0.875rem] text-mute">
+                          <span className="block truncate text-[0.9375rem] text-mute">
                             {row.note ?? ""}
                           </span>
                         </Td>
@@ -539,7 +529,7 @@ function ProjectPage({ id, onBack }: { id: string; onBack: () => void }) {
                       <tr key={row.line_number}>
                         <Td>
                           <span className="block text-ink">{row.name}</span>
-                          <span className="block text-[0.875rem] text-mute">
+                          <span className="block text-[0.9375rem] text-mute">
                             {row.kind === "ASSET"
                               ? `New asset · ${row.account_code}`
                               : `Expense · ${row.account_code}`}
@@ -577,34 +567,27 @@ function ProjectPage({ id, onBack }: { id: string; onBack: () => void }) {
             </div>
           )}
 
-          <Panel
-            open={acting === "advance"}
-            onOpenChange={(next) => !next && setActing(null)}
-            title="Pay an advance"
-          >
-            {acting === "advance" && (
-              <AdvanceForm project={project} onDone={() => setActing(null)} />
-            )}
-          </Panel>
-          <Panel
-            open={acting === "invoice"}
-            onOpenChange={(next) => !next && setActing(null)}
-            title="Add the contractor's invoice"
-          >
-            {acting === "invoice" && (
-              <InvoiceForm project={project} onDone={() => setActing(null)} />
-            )}
-          </Panel>
-          <Panel
-            open={acting === "close"}
-            onOpenChange={(next) => !next && setActing(null)}
-            title="Close and split"
-            sub={`${money(project.invoiced_minor)} waits in Contract in Progress`}
-          >
-            {acting === "close" && (
-              <CloseForm project={project} onDone={() => setActing(null)} />
-            )}
-          </Panel>
+          {acting === "advance" && (
+            <AdvanceForm
+              project={project}
+              onDone={() => setActing(null)}
+              onClose={() => setActing(null)}
+            />
+          )}
+          {acting === "invoice" && (
+            <InvoiceForm
+              project={project}
+              onDone={() => setActing(null)}
+              onClose={() => setActing(null)}
+            />
+          )}
+          {acting === "close" && (
+            <CloseForm
+              project={project}
+              onDone={() => setActing(null)}
+              onClose={() => setActing(null)}
+            />
+          )}
         </>
       )}
     </PageContent>
@@ -638,7 +621,7 @@ function Figure({
 }) {
   return (
     <div className="rounded-card border border-hairline-2 bg-canvas px-5 py-4">
-      <div className="text-[0.875rem] text-body">{label}</div>
+      <div className="text-[0.9375rem] text-body">{label}</div>
       <div
         className={
           tone === "warn" && value > 0
@@ -648,7 +631,7 @@ function Figure({
       >
         {money(value)}
       </div>
-      <div className="mt-0.5 text-[0.875rem] text-mute">{note}</div>
+      <div className="mt-0.5 text-[0.9375rem] text-mute">{note}</div>
     </div>
   )
 }
@@ -666,7 +649,7 @@ function Section({
     <section className="mb-8">
       <div className="mb-3 flex items-baseline justify-between gap-3">
         <h2 className="text-[1rem] font-medium text-ink">{title}</h2>
-        <span className="text-[0.875rem] text-mute">{note}</span>
+        <span className="text-[0.9375rem] text-mute">{note}</span>
       </div>
       {children}
     </section>
@@ -694,7 +677,13 @@ function useSave<T>(
   })
 }
 
-function OpenForm({ onDone }: { onDone: (id: string | null) => void }) {
+function OpenForm({
+  onDone,
+  onClose,
+}: {
+  onDone: (id: string | null) => void
+  onClose: () => void
+}) {
   const suppliers = useSuppliers()
   const [name, setName] = useState("")
   const [supplier, setSupplier] = useState("")
@@ -705,57 +694,71 @@ function OpenForm({ onDone }: { onDone: (id: string | null) => void }) {
   )
 
   return (
-    <div className="flex flex-col gap-4">
-      {save.isError && <Banner tone="bad">{problemOf(save.error)}</Banner>}
-      <Field label="Project" required>
-        <Input
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          autoFocus
+    <Sheet
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose()
+      }}
+      title="New project"
+      size="rail"
+      footer={
+        <SheetFooter
+          onCancel={onClose}
+          primary={{
+            label: "Open the project",
+            pending: save.isPending,
+            disabled: name.trim() === "" || supplier === "" || unit === "",
+            onClick: () =>
+              save.mutate({ name, supplier_id: supplier, unit_id: unit, note }),
+          }}
         />
-      </Field>
-      <Field label="Contractor" required>
-        <Select value={supplier} onChange={setSupplier}>
-          <option value="">Choose the contractor</option>
-          {(suppliers.data ?? []).map((row) => (
-            <option key={row.supplier_code} value={row.supplier_code}>
-              {row.name}
-            </option>
-          ))}
-        </Select>
-      </Field>
-      <Field label="Whose books" required hint="The unit the work is for.">
-        <UnitSelect
-          value={unit}
-          onChange={setUnit}
-          emptyLabel="Choose a unit"
-        />
-      </Field>
-      <Field label="Note">
-        <Input value={note} onChange={(event) => setNote(event.target.value)} />
-      </Field>
-      <div className="flex justify-end">
-        <Button
-          variant="primary"
-          pending={save.isPending}
-          disabled={name.trim() === "" || supplier === "" || unit === ""}
-          onClick={() =>
-            save.mutate({ name, supplier_id: supplier, unit_id: unit, note })
-          }
-        >
-          Open the project
-        </Button>
+      }
+    >
+      <div className="flex flex-col gap-4">
+        {save.isError && <Banner tone="bad">{problemOf(save.error)}</Banner>}
+        <Field label="Project" required>
+          <Input
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            autoFocus
+          />
+        </Field>
+        <Field label="Contractor" required>
+          <Select value={supplier} onChange={setSupplier}>
+            <option value="">Choose the contractor</option>
+            {(suppliers.data ?? []).map((row) => (
+              <option key={row.supplier_code} value={row.supplier_code}>
+                {row.name}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Whose books" required hint="The unit the work is for.">
+          <UnitSelect
+            value={unit}
+            onChange={setUnit}
+            emptyLabel="Choose a unit"
+          />
+        </Field>
+        <Field label="Note">
+          <Input
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+          />
+        </Field>
       </div>
-    </div>
+    </Sheet>
   )
 }
 
 function AdvanceForm({
   project,
   onDone,
+  onClose,
 }: {
   project: Project
   onDone: () => void
+  onClose: () => void
 }) {
   const { accounts } = useMoneyAccountChoices(project.unit_id)
   const [paidOn, setPaidOn] = useState(todayIso())
@@ -773,66 +776,77 @@ function AdvanceForm({
   )
 
   return (
-    <div className="flex flex-col gap-4">
-      {save.isError && <Banner tone="bad">{problemOf(save.error)}</Banner>}
-      <Field label="Paid on" required>
-        <Day value={paidOn} onChange={setPaidOn} notAfter={todayIso()} />
-      </Field>
-      <Field label="Amount" required>
-        <Input
-          inputMode="numeric"
-          value={amount}
-          onChange={(event) => setAmount(grouped(event.target.value))}
-          className="text-right tabular-nums"
+    <Sheet
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose()
+      }}
+      title="Pay an advance"
+      size="rail"
+      footer={
+        <SheetFooter
+          onCancel={onClose}
+          primary={{
+            label: `Pay ${minor > 0 ? money(minor) : ""}`,
+            pending: save.isPending,
+            disabled: minor <= 0 || chosen === undefined || paidOn === "",
+            onClick: () =>
+              save.mutate({
+                paid_on: paidOn,
+                amount_minor: minor,
+                account_key: chosen!.account_key,
+                account_qualifier: chosen!.account_qualifier,
+                reference,
+              }),
+          }}
         />
-      </Field>
-      <Field label="Paid from" required>
-        <Select value={from} onChange={setFrom}>
-          <option value="">Choose the account</option>
-          {accounts.map((row) => (
-            <option
-              key={`${row.account_key}|${row.account_qualifier}`}
-              value={`${row.account_key}|${row.account_qualifier}`}
-            >
-              {row.account_code} · {row.account_name}
-            </option>
-          ))}
-        </Select>
-      </Field>
-      <Field label="Reference" hint="The transfer or BKK number.">
-        <Input
-          value={reference}
-          onChange={(event) => setReference(event.target.value)}
-        />
-      </Field>
-      <div className="flex justify-end">
-        <Button
-          variant="primary"
-          pending={save.isPending}
-          disabled={minor <= 0 || chosen === undefined || paidOn === ""}
-          onClick={() =>
-            save.mutate({
-              paid_on: paidOn,
-              amount_minor: minor,
-              account_key: chosen!.account_key,
-              account_qualifier: chosen!.account_qualifier,
-              reference,
-            })
-          }
-        >
-          Pay {minor > 0 ? money(minor) : ""}
-        </Button>
+      }
+    >
+      <div className="flex flex-col gap-4">
+        {save.isError && <Banner tone="bad">{problemOf(save.error)}</Banner>}
+        <Field label="Paid on" required>
+          <Day value={paidOn} onChange={setPaidOn} notAfter={todayIso()} />
+        </Field>
+        <Field label="Amount" required>
+          <Input
+            inputMode="numeric"
+            value={amount}
+            onChange={(event) => setAmount(grouped(event.target.value))}
+            className="text-right tabular-nums"
+          />
+        </Field>
+        <Field label="Paid from" required>
+          <Select value={from} onChange={setFrom}>
+            <option value="">Choose the account</option>
+            {accounts.map((row) => (
+              <option
+                key={`${row.account_key}|${row.account_qualifier}`}
+                value={`${row.account_key}|${row.account_qualifier}`}
+              >
+                {row.account_code} · {row.account_name}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Reference" hint="The transfer or BKK number.">
+          <Input
+            value={reference}
+            onChange={(event) => setReference(event.target.value)}
+          />
+        </Field>
       </div>
-    </div>
+    </Sheet>
   )
 }
 
 function InvoiceForm({
   project,
   onDone,
+  onClose,
 }: {
   project: Project
   onDone: () => void
+  onClose: () => void
 }) {
   const [number, setNumber] = useState("")
   const [date, setDate] = useState(todayIso())
@@ -847,56 +861,68 @@ function InvoiceForm({
   const covered = Math.min(project.advance_left_minor, minor)
 
   return (
-    <div className="flex flex-col gap-4">
-      {save.isError && <Banner tone="bad">{problemOf(save.error)}</Banner>}
-      <Field label="Invoice number" required>
-        <Input
-          value={number}
-          onChange={(event) => setNumber(event.target.value)}
-          autoFocus
+    <Sheet
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose()
+      }}
+      title="Add the contractor's invoice"
+      size="rail"
+      footer={
+        <SheetFooter
+          onCancel={onClose}
+          primary={{
+            label: "Add the invoice",
+            pending: save.isPending,
+            disabled: number.trim() === "" || minor <= 0 || date === "",
+            onClick: () =>
+              save.mutate({
+                invoice_number: number,
+                invoice_date: date,
+                amount_minor: minor,
+                note,
+              }),
+          }}
         />
-      </Field>
-      <Field label="Invoice date" required>
-        <Day value={date} onChange={setDate} />
-      </Field>
-      <Field label="Amount" required>
-        <Input
-          inputMode="numeric"
-          value={amount}
-          onChange={(event) => setAmount(grouped(event.target.value))}
-          className="text-right tabular-nums"
-        />
-      </Field>
-      <Field label="What it is for">
-        <Input value={note} onChange={(event) => setNote(event.target.value)} />
-      </Field>
-      {minor > 0 && (
-        <p className="rounded-inner bg-soft px-4 py-3 text-[0.875rem] text-body">
-          {covered === minor
-            ? `The advance pays all of it. ${money(project.advance_left_minor - covered)} of the advance stays for the next invoice.`
-            : covered > 0
-              ? `The advance pays ${money(covered)}; ${money(minor - covered)} is owed to the contractor and paid by BKK.`
-              : `No advance is left: ${money(minor)} is owed to the contractor and paid by BKK.`}
-        </p>
-      )}
-      <div className="flex justify-end">
-        <Button
-          variant="primary"
-          pending={save.isPending}
-          disabled={number.trim() === "" || minor <= 0 || date === ""}
-          onClick={() =>
-            save.mutate({
-              invoice_number: number,
-              invoice_date: date,
-              amount_minor: minor,
-              note,
-            })
-          }
-        >
-          Add the invoice
-        </Button>
+      }
+    >
+      <div className="flex flex-col gap-4">
+        {save.isError && <Banner tone="bad">{problemOf(save.error)}</Banner>}
+        <Field label="Invoice number" required>
+          <Input
+            value={number}
+            onChange={(event) => setNumber(event.target.value)}
+            autoFocus
+          />
+        </Field>
+        <Field label="Invoice date" required>
+          <Day value={date} onChange={setDate} />
+        </Field>
+        <Field label="Amount" required>
+          <Input
+            inputMode="numeric"
+            value={amount}
+            onChange={(event) => setAmount(grouped(event.target.value))}
+            className="text-right tabular-nums"
+          />
+        </Field>
+        <Field label="What it is for">
+          <Input
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+          />
+        </Field>
+        {minor > 0 && (
+          <p className="rounded-inner bg-soft px-4 py-3 text-[0.9375rem] text-body">
+            {covered === minor
+              ? `The advance pays all of it. ${money(project.advance_left_minor - covered)} of the advance stays for the next invoice.`
+              : covered > 0
+                ? `The advance pays ${money(covered)}; ${money(minor - covered)} is owed to the contractor and paid by BKK.`
+                : `No advance is left: ${money(minor)} is owed to the contractor and paid by BKK.`}
+          </p>
+        )}
       </div>
-    </div>
+    </Sheet>
   )
 }
 
@@ -914,9 +940,11 @@ interface SplitDraft {
 function CloseForm({
   project,
   onDone,
+  onClose,
 }: {
   project: Project
   onDone: () => void
+  onClose: () => void
 }) {
   const classes = useAssetClasses()
   const [closedOn, setClosedOn] = useState(todayIso())
@@ -951,194 +979,209 @@ function CloseForm({
     )
 
   return (
-    <div className="flex flex-col gap-4">
-      {save.isError && <Banner tone="bad">{problemOf(save.error)}</Banner>}
-      {project.advance_left_minor > 0 && (
-        <Banner tone="warn">
-          {money(project.advance_left_minor)} of the advance is not covered by
-          an invoice. Add the last invoice before closing.
-        </Banner>
-      )}
-      <Field label="Closed on" required>
-        <Day value={closedOn} onChange={setClosedOn} notAfter={todayIso()} />
-      </Field>
+    <Sheet
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose()
+      }}
+      title="Close and split"
+      caption={`${money(project.invoiced_minor)} waits in Contract in Progress`}
+      size="wide"
+      footer={
+        <SheetFooter
+          onCancel={onClose}
+          primary={{
+            label: "Close the project",
+            pending: save.isPending,
+            disabled: !ready || project.advance_left_minor > 0,
+            onClick: () =>
+              save.mutate({
+                closed_on: closedOn,
+                lines: lines.map((line) => ({
+                  kind: line.kind,
+                  name: line.name,
+                  class_code: line.kind === "ASSET" ? line.class_code : null,
+                  account_code:
+                    line.kind === "EXPENSE" ? line.account_code : null,
+                  useful_life_months:
+                    line.kind === "ASSET" && line.life !== ""
+                      ? Number(line.life)
+                      : null,
+                  amount_minor: digits(line.amount),
+                })),
+              }),
+          }}
+        />
+      }
+    >
+      <div className="flex flex-col gap-4">
+        {save.isError && <Banner tone="bad">{problemOf(save.error)}</Banner>}
+        {project.advance_left_minor > 0 && (
+          <Banner tone="warn">
+            {money(project.advance_left_minor)} of the advance is not covered by
+            an invoice. Add the last invoice before closing.
+          </Banner>
+        )}
+        <Field label="Closed on" required>
+          <Day value={closedOn} onChange={setClosedOn} notAfter={todayIso()} />
+        </Field>
 
-      <div className="flex flex-col gap-3">
-        {lines.map((line, index) => (
-          <div
-            key={line.key}
-            className="rounded-inner border border-hairline-2 p-4"
-          >
-            <div className="mb-3 flex items-center justify-between">
-              <span className="text-[0.875rem] font-medium text-ink">
-                Line {index + 1}
-              </span>
-              {lines.length > 1 && (
-                <button
-                  type="button"
-                  className="text-[0.875rem] text-mute hover:text-ink"
-                  onClick={() =>
-                    setLines((now) => now.filter((one) => one.key !== line.key))
-                  }
-                >
-                  Remove
-                </button>
-              )}
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Into">
-                <Select
-                  value={line.kind}
-                  onChange={(kind) =>
-                    update(line.key, { kind: kind as SplitDraft["kind"] })
-                  }
-                >
-                  <option value="ASSET">A new asset</option>
-                  <option value="EXPENSE">An expense</option>
-                </Select>
-              </Field>
-              <Field label="Amount">
-                <Input
-                  inputMode="numeric"
-                  value={line.amount}
-                  onChange={(event) =>
-                    update(line.key, { amount: grouped(event.target.value) })
-                  }
-                  className="text-right tabular-nums"
-                />
-              </Field>
-              <Field label="Name" className="col-span-2">
-                <Input
-                  value={line.name}
-                  onChange={(event) =>
-                    update(line.key, { name: event.target.value })
-                  }
-                />
-              </Field>
-              {line.kind === "ASSET" ? (
-                <>
-                  <Field label="Asset category">
-                    <Select
-                      value={line.class_code}
-                      onChange={(code) => {
-                        const picked = usable.find(
-                          (row) => row.class_code === code
-                        )
-                        update(line.key, {
-                          class_code: code,
-                          life:
-                            picked?.default_useful_life_months != null
-                              ? String(picked.default_useful_life_months)
-                              : line.life,
-                        })
-                      }}
-                    >
-                      <option value="">Choose a category</option>
-                      {usable.map((row) => (
-                        <option key={row.class_code} value={row.class_code}>
-                          {row.name}
-                        </option>
-                      ))}
-                    </Select>
-                  </Field>
-                  <Field label="Life (months)">
-                    <Input
-                      inputMode="numeric"
-                      value={line.life}
-                      onChange={(event) =>
-                        update(line.key, {
-                          life: event.target.value.replace(/\D/g, ""),
-                        })
-                      }
-                    />
-                  </Field>
-                </>
-              ) : (
-                <Field label="Expense account" className="col-span-2">
-                  {line.account_code === "" ? (
-                    <AccountPicker
-                      onPick={(account) =>
-                        update(line.key, {
-                          account_code: account.account_code,
-                          account_name: account.name,
-                        })
-                      }
-                    />
-                  ) : (
-                    <button
-                      type="button"
-                      className="text-left text-ink hover:underline"
-                      onClick={() =>
-                        update(line.key, { account_code: "", account_name: "" })
-                      }
-                    >
-                      {line.account_code} · {line.account_name}
-                    </button>
-                  )}
+        <div className="flex flex-col gap-3">
+          {lines.map((line, index) => (
+            <div
+              key={line.key}
+              className="rounded-inner border border-hairline-2 p-4"
+            >
+              <div className="mb-3 flex items-center justify-between">
+                <span className="text-[0.9375rem] font-medium text-ink">
+                  Line {index + 1}
+                </span>
+                {lines.length > 1 && (
+                  <button
+                    type="button"
+                    className="text-[0.9375rem] text-mute hover:text-ink"
+                    onClick={() =>
+                      setLines((now) =>
+                        now.filter((one) => one.key !== line.key)
+                      )
+                    }
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Into">
+                  <Select
+                    value={line.kind}
+                    onChange={(kind) =>
+                      update(line.key, { kind: kind as SplitDraft["kind"] })
+                    }
+                  >
+                    <option value="ASSET">A new asset</option>
+                    <option value="EXPENSE">An expense</option>
+                  </Select>
                 </Field>
-              )}
+                <Field label="Amount">
+                  <Input
+                    inputMode="numeric"
+                    value={line.amount}
+                    onChange={(event) =>
+                      update(line.key, { amount: grouped(event.target.value) })
+                    }
+                    className="text-right tabular-nums"
+                  />
+                </Field>
+                <Field label="Name" className="col-span-2">
+                  <Input
+                    value={line.name}
+                    onChange={(event) =>
+                      update(line.key, { name: event.target.value })
+                    }
+                  />
+                </Field>
+                {line.kind === "ASSET" ? (
+                  <>
+                    <Field label="Asset category">
+                      <Select
+                        value={line.class_code}
+                        onChange={(code) => {
+                          const picked = usable.find(
+                            (row) => row.class_code === code
+                          )
+                          update(line.key, {
+                            class_code: code,
+                            life:
+                              picked?.default_useful_life_months != null
+                                ? String(picked.default_useful_life_months)
+                                : line.life,
+                          })
+                        }}
+                      >
+                        <option value="">Choose a category</option>
+                        {usable.map((row) => (
+                          <option key={row.class_code} value={row.class_code}>
+                            {row.name}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                    <Field label="Life (months)">
+                      <Input
+                        inputMode="numeric"
+                        value={line.life}
+                        onChange={(event) =>
+                          update(line.key, {
+                            life: event.target.value.replace(/\D/g, ""),
+                          })
+                        }
+                      />
+                    </Field>
+                  </>
+                ) : (
+                  <Field label="Expense account" className="col-span-2">
+                    {line.account_code === "" ? (
+                      <AccountPicker
+                        onPick={(account) =>
+                          update(line.key, {
+                            account_code: account.account_code,
+                            account_name: account.name,
+                          })
+                        }
+                      />
+                    ) : (
+                      <button
+                        type="button"
+                        className="text-left text-ink hover:underline"
+                        onClick={() =>
+                          update(line.key, {
+                            account_code: "",
+                            account_name: "",
+                          })
+                        }
+                      >
+                        {line.account_code} · {line.account_name}
+                      </button>
+                    )}
+                  </Field>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
-        <button
-          type="button"
-          className="self-start text-[0.875rem] font-medium text-accent hover:underline"
-          onClick={() =>
-            setLines((now) => [
-              ...now,
-              blankSplit(Math.max(...now.map((one) => one.key)) + 1),
-            ])
-          }
-        >
-          + Add a line
-        </button>
-      </div>
+          ))}
+          <button
+            type="button"
+            className="self-start text-[0.9375rem] font-medium text-accent hover:underline"
+            onClick={() =>
+              setLines((now) => [
+                ...now,
+                blankSplit(Math.max(...now.map((one) => one.key)) + 1),
+              ])
+            }
+          >
+            + Add a line
+          </button>
+        </div>
 
-      <div className="flex items-center justify-between rounded-inner bg-soft px-4 py-3">
-        <span className="text-body">Left to place</span>
-        <span
-          className={
-            left === 0
-              ? "font-medium text-ok-fg tabular-nums"
-              : "font-medium text-bad-fg tabular-nums"
-          }
-        >
-          {money(left)}
-        </span>
-      </div>
+        <div className="flex items-center justify-between rounded-inner bg-soft px-4 py-3">
+          <span className="text-body">Left to place</span>
+          <span
+            className={
+              left === 0
+                ? "font-medium text-ok-fg tabular-nums"
+                : "font-medium text-bad-fg tabular-nums"
+            }
+          >
+            {money(left)}
+          </span>
+        </div>
 
-      <p className="text-[0.875rem] text-mute">
-        New assets go into the Fixed Asset Register at their share and start
-        depreciating; expense lines land in this month&rsquo;s profit and loss.
-      </p>
-
-      <div className="flex justify-end">
-        <Button
-          variant="primary"
-          pending={save.isPending}
-          disabled={!ready || project.advance_left_minor > 0}
-          onClick={() =>
-            save.mutate({
-              closed_on: closedOn,
-              lines: lines.map((line) => ({
-                kind: line.kind,
-                name: line.name,
-                class_code: line.kind === "ASSET" ? line.class_code : null,
-                account_code:
-                  line.kind === "EXPENSE" ? line.account_code : null,
-                useful_life_months:
-                  line.kind === "ASSET" && line.life !== ""
-                    ? Number(line.life)
-                    : null,
-                amount_minor: digits(line.amount),
-              })),
-            })
-          }
-        >
-          Close the project
-        </Button>
+        <p className="text-[0.9375rem] text-mute">
+          New assets go into the Fixed Asset Register at their share and start
+          depreciating; expense lines land in this month&rsquo;s profit and
+          loss.
+        </p>
       </div>
-    </div>
+    </Sheet>
   )
 }
 

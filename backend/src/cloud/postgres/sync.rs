@@ -6395,6 +6395,9 @@ pub async fn record_command_ack(
     if let Err(error) = super::store_actions::settle_after_ack(pool, origin_id).await {
         tracing::warn!(%error, origin_id, "store actions were not settled after an ack");
     }
+    // A new server's first data is acknowledged here, so this is the moment
+    // it is ready: told now, not at its next heartbeat up to a minute later.
+    super::node_enrolment::settle_first_data(pool, origin_id).await;
     Ok(())
 }
 
@@ -8905,7 +8908,8 @@ pub async fn purchase_order_status(pool: &PgPool, id: Uuid) -> Result<Value, App
                         'matched_quantity', r.matched_quantity,
                         'excess_quantity', r.excess_quantity,
                         'wrong_quantity', r.wrong_quantity,
-                        'received_at', r.verified_at
+                        'received_at', r.verified_at,
+                        'received_by', r.verified_by
                     ) ORDER BY r.verified_at, r.receipt_line_id) AS receipts
                FROM po_lines l
                JOIN goods_receipt_line r ON r.po_line_id = l.po_line_id

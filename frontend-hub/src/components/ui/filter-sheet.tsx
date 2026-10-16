@@ -61,7 +61,7 @@ export function FilterSheet({
       <div className="min-h-0 overflow-y-auto overscroll-contain pb-3">
         {groups?.map((group) => (
           <section key={group.key} className="px-2 pb-2">
-            <h3 className="px-3 pt-3 pb-1 text-[0.875rem] font-medium text-mute">
+            <h3 className="px-3 pt-3 pb-1 text-[0.9375rem] font-medium text-mute">
               {group.label}
             </h3>
             {group.options.map((option) => {
@@ -128,7 +128,7 @@ export function DockSettings({
           aria-label={compact ? label : undefined}
           title={compact ? label : undefined}
           className={cn(
-            "inline-flex h-9 max-w-full items-center gap-1.5 rounded-full bg-soft-2 text-[0.875rem] font-medium text-ink transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.97]",
+            "inline-flex h-9 max-w-full items-center gap-1.5 rounded-full bg-soft-2 text-[0.9375rem] font-medium text-ink transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.97]",
             compact ? "w-9 justify-center" : "pr-3.5 pl-3"
           )}
         >

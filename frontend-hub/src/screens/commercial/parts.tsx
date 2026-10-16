@@ -19,9 +19,9 @@ export function Named({
 }) {
   return (
     <>
-      <span className="block text-[0.875rem] text-ink">{name}</span>
+      <span className="block text-[0.9375rem] text-ink">{name}</span>
       {code && (
-        <span className="font-mono text-[0.875rem] text-mute">{code}</span>
+        <span className="font-mono text-[0.9375rem] text-mute">{code}</span>
       )}
     </>
   )

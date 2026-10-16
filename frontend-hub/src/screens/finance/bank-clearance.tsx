@@ -1,9 +1,19 @@
-import { useMutation, useQueries, useQueryClient } from "@tanstack/react-query"
-import { useMemo, useState } from "react"
+import {
+  useMutation,
+  useQueryClient,
+  useSuspenseQueries,
+} from "@tanstack/react-query"
+import type { ColumnDef } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
+import { Check } from "lucide-react"
+import { Suspense, useDeferredValue, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
+import { Card } from "@/components/ui/card"
+import { DataTable } from "@/components/ui/data-table"
 import { Day } from "@/components/ui/day"
+import { Fab } from "@/components/ui/fab"
 import { Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Status } from "@/components/ui/pill"
@@ -11,10 +21,11 @@ import { Banner, EmptyState } from "@/components/ui/states"
 import { count, day, money } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import { problemOf } from "@/lib/problem"
-import { clearGiro, financeKeys, listGiros } from "@/lib/queries/finance"
-import { Code, Grid, Td, Th, TotalRow } from "@/screens/finance-final/parts"
-import { CardFigure, PhoneList } from "@/components/ui/phone-cards"
+import { clearGiro, giroClearanceQueries } from "@/lib/queries/finance"
+import { tableSetup, type TableSetup } from "@/lib/table"
+import { Code } from "@/screens/finance-final/parts"
 import { PhoneFigures } from "@/screens/finance/parts"
+import { ScreenPending } from "@/screens/finance/pending"
 import { FilterCheck, ReportFilters } from "@/screens/finance/report"
 
 import type { GiroRow } from "@itulah/contract"
@@ -38,6 +49,20 @@ import type { GiroRow } from "@itulah/contract"
 /// actions and stay with the giro; this screen does the one thing ERPNext's
 /// does.
 export function BankClearance() {
+  return (
+    <Suspense
+      fallback={
+        <ScreenPending crumb="Finance · Banking" title="Bank Clearance">
+          Reading the giros…
+        </ScreenPending>
+      }
+    >
+      <BankClearanceScreen />
+    </Suspense>
+  )
+}
+
+function BankClearanceScreen() {
   const client = useQueryClient()
   const [bank, setBank] = useState("")
   const [direction, setDirection] = useState("")
@@ -47,17 +72,13 @@ export function BankClearance() {
   const phone = useLayout() === "phone"
 
   // One request per status, so every narrowing is the server's.
-  const statuses = withCleared ? [...OPEN, "CLEARED"] : OPEN
-  const reads = useQueries({
-    queries: statuses.map((status) => ({
-      queryKey: financeKeys.giros(status),
-      queryFn: ({ signal }: { signal: AbortSignal }) =>
-        listGiros({ status, limit: 500 }, signal),
-    })),
+  // Ticking "Include reconciled" answers at once; the cleared ones follow,
+  // and the giros in hand stay on screen until they are read.
+  const asked = useDeferredValue(withCleared)
+  const reads = useSuspenseQueries({
+    queries: giroClearanceQueries(asked),
     combine: (results) => ({
-      rows: results.flatMap((result) => result.data ?? []),
-      pending: results.some((result) => result.isPending),
-      error: results.find((result) => result.isError)?.error,
+      rows: results.flatMap((result) => result.data),
     }),
   })
 
@@ -108,29 +129,192 @@ export function BankClearance() {
     .filter((row) => row.direction === "OUT")
     .reduce((sum, row) => sum + row.amount_minor, 0)
 
+  /// ERPNext's Payment Entries grid. The clearance date is the one cell that
+  /// is typed into; on a card the party names it, the cheque number sits over
+  /// it, and the figures and the date follow.
+  const columns = useMemo<ColumnDef<TableSetup, GiroRow>[]>(
+    () => [
+      {
+        id: "document",
+        accessorFn: (row) =>
+          row.supplier_payment_id !== null
+            ? "Payment Entry"
+            : row.cash_document_id !== null
+              ? "Cash Document"
+              : "—",
+        header: "Payment Document",
+        size: 110,
+        enableSorting: false,
+        meta: { card: "hide", priority: 3 },
+      },
+      {
+        id: "entry",
+        accessorFn: (row) => row.payment_number ?? row.cash_document_number,
+        header: "Payment Entry",
+        size: 140,
+        enableSorting: false,
+        meta: { card: "meta" },
+        cell: ({ row }) => (
+          <Code>
+            {row.original.payment_number ??
+              row.original.cash_document_number ??
+              "—"}
+          </Code>
+        ),
+      },
+      {
+        id: "number",
+        accessorFn: (row) => row.number,
+        header: "Cheque Number",
+        size: 140,
+        enableSorting: false,
+        meta: { card: "id", priority: 2 },
+        cell: ({ row }) => <Code>{row.original.number}</Code>,
+      },
+      {
+        id: "date",
+        accessorFn: (row) => row.due_date,
+        header: "Cheque Date",
+        size: 120,
+        enableSorting: false,
+        meta: { card: "meta", priority: 2 },
+        cell: ({ row }) => day(row.original.due_date),
+      },
+      {
+        id: "debit",
+        accessorFn: (row) => (row.direction === "IN" ? row.amount_minor : null),
+        header: "Debit",
+        size: 130,
+        enableSorting: false,
+        meta: { align: "right", card: "metric" },
+        cell: ({ row }) =>
+          row.original.direction === "IN"
+            ? money(row.original.amount_minor)
+            : "",
+      },
+      {
+        id: "credit",
+        accessorFn: (row) =>
+          row.direction === "OUT" ? row.amount_minor : null,
+        header: "Credit",
+        size: 130,
+        enableSorting: false,
+        meta: { align: "right", card: "metric" },
+        cell: ({ row }) =>
+          row.original.direction === "OUT"
+            ? money(row.original.amount_minor)
+            : "",
+      },
+      {
+        id: "party",
+        accessorFn: (row) => row.party_name,
+        header: "Against Account",
+        size: 150,
+        enableSorting: false,
+        meta: { card: "title", grow: 120 },
+        cell: ({ row }) =>
+          row.original.party_name === null ? (
+            <span className="text-faint">—</span>
+          ) : (
+            <span className="block whitespace-normal">
+              {row.original.party_name}
+            </span>
+          ),
+      },
+      {
+        id: "clearance",
+        // Never blank: on a card the date is typed here, and a card leaves out
+        // a figure that says nothing.
+        accessorFn: (row) => row.cleared_on ?? "open",
+        header: "Clearance Date",
+        size: 170,
+        enableSorting: false,
+        meta: { card: "metric" },
+        cell: ({ row }) =>
+          row.original.status === "CLEARED" ? (
+            day(row.original.cleared_on)
+          ) : (
+            <Day
+              value={dates[row.original.giro_id] ?? ""}
+              onChange={(value) =>
+                setDates((was) => ({ ...was, [row.original.giro_id]: value }))
+              }
+              className="h-control w-36"
+              label="Clearance Date"
+            />
+          ),
+      },
+      {
+        id: "bank",
+        accessorFn: (row) => row.bank,
+        header: "Bank",
+        size: 80,
+        enableSorting: false,
+        meta: { card: "meta", priority: 3 },
+      },
+      {
+        id: "status",
+        accessorFn: (row) => row.status,
+        header: "Status",
+        size: 120,
+        enableSorting: false,
+        meta: { card: "status" },
+        cell: ({ row }) => (
+          <Status tone={STATUS_TONE[row.original.status] ?? "neutral"}>
+            {STATUS_LABEL[row.original.status] ?? row.original.status}
+          </Status>
+        ),
+      },
+    ],
+    [dates]
+  )
+
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: rows,
+        columns,
+        getRowId: (row: GiroRow) => row.giro_id,
+      }),
+      [rows, columns]
+    )
+  )
+
   return (
     <PageContent>
-      {/* A phone's "Update Clearance Date" is the last thing on the page,
-          under the giros it clears. */}
+      {/* The one action stands in the head; a phone has it at the thumb once a
+          date has been typed. */}
       <PageHeader
-        className="max-md:hidden"
         crumb="Finance · Banking"
         title="Bank Clearance"
         actions={
-          <Button
-            variant="primary"
-            pending={update.isPending}
-            disabled={ready.length === 0}
-            onClick={() => {
-              setDone(null)
-              update.mutate(ready)
-            }}
-          >
-            Update Clearance Date
-            {ready.length > 0 && ` (${count(ready.length)})`}
-          </Button>
+          phone ? undefined : (
+            <Button
+              variant="primary"
+              pending={update.isPending}
+              disabled={ready.length === 0}
+              onClick={() => {
+                setDone(null)
+                update.mutate(ready)
+              }}
+            >
+              Update Clearance Date
+              {ready.length > 0 && ` (${count(ready.length)})`}
+            </Button>
+          )
         }
       />
+      {phone && ready.length > 0 && (
+        <Fab
+          label={`Update Clearance Date (${count(ready.length)})`}
+          icon={Check}
+          onClick={() => {
+            setDone(null)
+            update.mutate(ready)
+          }}
+        />
+      )}
 
       <ReportFilters
         note={`${count(rows.length)} ${rows.length === 1 ? "giro" : "giros"}`}
@@ -180,174 +364,40 @@ export function BankClearance() {
         </Banner>
       )}
 
-      {reads.pending ? (
-        <p className="py-10 text-center text-[0.875rem] text-mute">
-          Reading the giros…
-        </p>
-      ) : reads.error !== undefined ? (
-        <Banner tone="bad">
-          {problemOf(reads.error) ?? "The giros could not be read."}
-        </Banner>
-      ) : rows.length === 0 ? (
+      {rows.length === 0 ? (
         <EmptyState>
           No giro is waiting for the bank
           {bank === "" ? "" : ` at ${bank}`}. A giro is written from a payment
           or a cash document paid by giro.
         </EmptyState>
-      ) : phone ? (
-        <>
-          <PhoneFigures
-            items={[
-              { label: "Received", value: debit },
-              { label: "Paid out", value: credit },
-            ]}
-          />
-          <PhoneList
-            rows={rows.map((row) => ({
-              key: row.giro_id,
-              title: row.party_name ?? (
-                <span className="font-normal text-faint">No party</span>
-              ),
-              code: row.number,
-              lead: (
-                <CardFigure
-                  value={money(row.amount_minor)}
-                  caption={row.direction === "IN" ? "received" : "paid out"}
-                />
-              ),
-              body:
-                row.status === "CLEARED" ? (
-                  <span className="text-[0.9375rem] text-ink">
-                    Cleared {day(row.cleared_on)}
-                  </span>
-                ) : (
-                  <Day
-                    value={dates[row.giro_id] ?? ""}
-                    onChange={(value) =>
-                      setDates((was) => ({ ...was, [row.giro_id]: value }))
-                    }
-                    className="h-control w-full"
-                    label="Clearance Date"
-                  />
-                ),
-              foot: (
-                <span>
-                  {row.bank} · cheque date {day(row.due_date)}
-                </span>
-              ),
-              action: (
-                <Status tone={STATUS_TONE[row.status] ?? "neutral"}>
-                  {STATUS_LABEL[row.status] ?? row.status}
-                </Status>
-              ),
-            }))}
-          />
-          <Button
-            variant="primary"
-            size="lg"
-            className="mt-4 w-full"
-            pending={update.isPending}
-            disabled={ready.length === 0}
-            onClick={() => {
-              setDone(null)
-              update.mutate(ready)
-            }}
-          >
-            Update Clearance Date
-            {ready.length > 0 && ` (${count(ready.length)})`}
-          </Button>
-        </>
       ) : (
-        <Grid>
-          <thead>
-            <tr>
-              <Th width="9rem">Payment Document</Th>
-              <Th width="10rem">Payment Entry</Th>
-              <Th width="9rem">Cheque Number</Th>
-              <Th width="7.5rem">Cheque Date</Th>
-              <Th align="right" width="9rem">
-                Debit
-              </Th>
-              <Th align="right" width="9rem">
-                Credit
-              </Th>
-              <Th>Against Account</Th>
-              <Th width="11rem">Clearance Date</Th>
-              <Th width="6rem">Bank</Th>
-              <Th width="7rem">Status</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr key={row.giro_id}>
-                <Td>
-                  {row.supplier_payment_id !== null
-                    ? "Payment Entry"
-                    : row.cash_document_id !== null
-                      ? "Cash Document"
-                      : "—"}
-                </Td>
-                <Td>
-                  <Code>
-                    {row.payment_number ?? row.cash_document_number ?? "—"}
-                  </Code>
-                </Td>
-                <Td>
-                  <Code>{row.number}</Code>
-                </Td>
-                <Td className="whitespace-nowrap">{day(row.due_date)}</Td>
-                <Td align="right">
-                  {row.direction === "IN" ? money(row.amount_minor) : ""}
-                </Td>
-                <Td align="right">
-                  {row.direction === "OUT" ? money(row.amount_minor) : ""}
-                </Td>
-                <Td>
-                  {row.party_name ?? <span className="text-faint">—</span>}
-                </Td>
-                <Td>
-                  {row.status === "CLEARED" ? (
-                    day(row.cleared_on)
-                  ) : (
-                    <Day
-                      value={dates[row.giro_id] ?? ""}
-                      onChange={(value) =>
-                        setDates((was) => ({ ...was, [row.giro_id]: value }))
-                      }
-                      className="h-control w-40"
-                      label="Clearance Date"
-                    />
-                  )}
-                </Td>
-                <Td>{row.bank}</Td>
-                <Td>
-                  <Status tone={STATUS_TONE[row.status] ?? "neutral"}>
-                    {STATUS_LABEL[row.status] ?? row.status}
-                  </Status>
-                </Td>
-              </tr>
-            ))}
-            <TotalRow>
-              <Td>Total</Td>
-              <Td />
-              <Td />
-              <Td />
-              <Td align="right">{money(debit)}</Td>
-              <Td align="right">{money(credit)}</Td>
-              <Td />
-              <Td />
-              <Td />
-              <Td />
-            </TotalRow>
-          </tbody>
-        </Grid>
+        <>
+          {phone && (
+            <PhoneFigures
+              items={[
+                { label: "Received", value: debit },
+                { label: "Paid out", value: credit },
+              ]}
+            />
+          )}
+          <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+            <DataTable<GiroRow>
+              table={table}
+              summary={{
+                document: "Total",
+                debit: money(debit),
+                credit: money(credit),
+              }}
+              pageScroll
+              cardSort={false}
+              cardsApart
+            />
+          </Card>
+        </>
       )}
     </PageContent>
   )
 }
-
-/// Written and not yet taken by the bank: in hand, handed over, or due.
-const OPEN: readonly string[] = ["ISSUED", "DELIVERED", "DUE"]
 
 const STATUS_LABEL: Readonly<Record<string, string>> = {
   ISSUED: "Issued",

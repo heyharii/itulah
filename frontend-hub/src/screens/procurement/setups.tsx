@@ -24,10 +24,11 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { SavedDialog } from "@/components/ui/dialog"
-import { Field, Input, Money } from "@/components/ui/field"
+import { Field, Input, Money, Textarea } from "@/components/ui/field"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { BarSpacer, SearchSuggest } from "@/components/ui/list-chrome"
 import { RecordPanel } from "@/components/ui/record-panel"
+import type { Refreshable } from "@/components/ui/refresh-stamp"
 import { SubHead } from "@/components/ui/rows"
 import { PickMany, PickOne, type Choice } from "@/components/ui/pick"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
@@ -42,6 +43,7 @@ import {
 import {
   listLineQuantityChecks,
   quantityCheckKeys,
+  type QuantityCheck,
   type QuantityCheckCell,
 } from "@/lib/queries/quantity-checks"
 import { ago, count, money, quantity } from "@/lib/format"
@@ -80,8 +82,11 @@ import {
   listSuppliers,
   procurementKeys,
   setupSessionDetail,
+  readArticlePhoto,
   supplierItemImage,
+  type ArticlePhotoReading,
   uploadArticleImage,
+  uploadSupplierItemImage,
   type SetupSession,
   type UnidentifiedReceipt,
   catalogueVocabulary,
@@ -105,6 +110,7 @@ import { queryState } from "@/lib/query-state"
 import { useSheet, type SheetSearch } from "@/lib/sheets"
 import {
   supplierDisplayName,
+  titleCaseTyping,
   titled,
 } from "@/screens/procurement/supplier-format"
 import { useSupplierName } from "@/screens/procurement/supplier-name"
@@ -209,7 +215,6 @@ export function SetupWorkspace() {
   const supplierOf = useSupplierName()
   const phone = useLayout() === "phone"
   const [query, setQuery] = useState("")
-
   /// How the last press of Submit ended, for the record the sheet hands over
   /// to. Not in the URL: it is what just happened in front of one person, not
   /// a property of the record.
@@ -516,138 +521,45 @@ export function SetupWorkspace() {
       {/* A ledger: the supplier said once in its own column and held in
       place while its lines scroll past, one fact per column. Under 42rem of
       card the supplier becomes a band above its lines instead. */}
-      <Card
-        className={cn(
-          "@container overflow-clip",
-          phone && "overflow-visible border-0 bg-transparent shadow-none"
-        )}
-      >
+      <div className={cn("@container", phone && "overflow-visible")}>
         {nothingWaiting ? (
-          <EmptyState>Nothing waiting.</EmptyState>
+          <Card>
+            <EmptyState>Nothing waiting.</EmptyState>
+          </Card>
         ) : cards.length === 0 ? (
-          <EmptyState>
-            {receipts.isPending
-              ? "Reading the queue…"
-              : "Nothing here matches that."}
-          </EmptyState>
+          <Card>
+            <EmptyState>
+              {receipts.isPending
+                ? "Reading the queue…"
+                : "Nothing here matches that."}
+            </EmptyState>
+          </Card>
         ) : phone ? (
-          <PhoneLines
-            waiting={shown}
-            stalled={stalledShown}
-            supplierOf={supplierOf}
-            onOpen={(line) =>
-              go(
-                line.retry
-                  ? { setupFor: railNow, setup: line.key }
-                  : { setupFor: railNow, receipt: line.key }
-              )
-            }
-          />
+          <Card className="overflow-visible border-0 bg-transparent shadow-none">
+            <PhoneLines
+              refresh={[receipts, sessions]}
+              waiting={shown}
+              stalled={stalledShown}
+              supplierOf={supplierOf}
+              onOpen={(line) =>
+                go(
+                  line.retry
+                    ? { setupFor: railNow, setup: line.key }
+                    : { setupFor: railNow, receipt: line.key }
+                )
+              }
+            />
+          </Card>
         ) : (
-          <>
-            <div
-              className={cn(
-                LEDGER_COLUMNS,
-                "sticky top-0 z-[3] h-10 border-b border-hairline bg-soft text-[0.875rem] font-medium tracking-[0.04em] text-body"
-              )}
-            >
-              <span className="hidden px-5 @2xl:block">Supplier</span>
-              <span className="px-4 @2xl:px-5">Article</span>
-              <span className="hidden px-5 @2xl:block">PO</span>
-              <span className="px-4 text-right @2xl:px-5">Quantity</span>
-              <span className="hidden px-5 text-right @2xl:block">
-                Received At
-              </span>
-            </div>
-            {sections.map((group) => (
-              <LedgerGroup
-                key={group.id}
-                name={group.name}
-                pieces={group.rows.reduce((sum, row) => sum + row.quantity, 0)}
-                lines={group.rows.length}
-              >
-                {group.rows.map((row) => (
-                  <WaitingRow
-                    key={row.receipt_line_id}
-                    row={row}
-                    on={row.receipt_line_id === active?.receipt_line_id}
-                    onOpen={() =>
-                      go({
-                        setupFor: railNow,
-                        receipt: row.receipt_line_id,
-                      })
-                    }
-                  />
-                ))}
-              </LedgerGroup>
-            ))}
-            {/* A session still open is a mint that did not run: the delivery
-            has its identity and is out of the queue, and nothing but a
-            person pressing the button on its record will finish it. */}
-            {stalledShown.length > 0 && (
-              <LedgerGroup
-                name={
-                  stalledShown.some(
-                    (row) =>
-                      row.issue_state === "QUEUED" ||
-                      row.issue_state === "PROCESSING"
-                  )
-                    ? "Processing / Needs Retry"
-                    : "Needs Retry"
-                }
-                warn
-                pieces={stalledShown.reduce(
-                  (sum, row) => sum + row.receipt_quantity,
-                  0
-                )}
-                lines={stalledShown.length}
-              >
-                {stalledShown.map((row) => (
-                  <LedgerRow
-                    key={row.session_id}
-                    image={null}
-                    name={row.article_name}
-                    division={row.division_code}
-                    code={row.article_code}
-                    pieces={row.receipt_quantity}
-                    since={row.created_at}
-                    on={row.session_id === session.value}
-                    onOpen={() =>
-                      go({ setupFor: railNow, setup: row.session_id })
-                    }
-                  />
-                ))}
-              </LedgerGroup>
-            )}
-            <div
-              className={cn(
-                LEDGER_COLUMNS,
-                "sticky bottom-0 z-[3] h-12 border-t border-hairline-2 bg-soft text-[0.875rem] text-mute"
-              )}
-            >
-              <span className="px-4 @2xl:px-5">
-                <b className="font-medium text-ink tabular-nums">
-                  {count(cards.length)}
-                </b>{" "}
-                {cards.length === 1 ? "item" : "items"}
-              </span>
-              <span className="hidden @2xl:block" />
-              <span className="hidden @2xl:block" />
-              <span className="px-4 text-right font-medium text-ink tabular-nums @2xl:px-5">
-                {count(
-                  shown.reduce((sum, row) => sum + row.quantity, 0) +
-                    stalledShown.reduce(
-                      (sum, row) => sum + row.receipt_quantity,
-                      0
-                    )
-                )}{" "}
-                pcs
-              </span>
-              <span className="hidden @2xl:block" />
-            </div>
-          </>
+          <CardGrid
+            sections={sections}
+            stalled={stalledShown}
+            active={active?.receipt_line_id ?? session.value ?? null}
+            open={needle !== ""}
+            onOpen={(target) => go({ setupFor: railNow, ...target })}
+          />
         )}
-      </Card>
+      </div>
 
       <Sheet
         open={sheetOpen}
@@ -657,10 +569,12 @@ export function SetupWorkspace() {
         // `workspace` once there is a count (the form keeps the 52.5rem it has
         // at `wide`, the Quantity Check box takes the right); `wide` before.
         width={hasCount ? "workspace" : "wide"}
+        // The setup form ends in its own Save as Draft / Submit bar.
+        noFoot={active !== null}
         // The kind in small type above, the name as the title, as the master
         // lists' sheets read ("Division" over "Pria"; owner, 2026-10-05).
         id={
-          <span className="font-sans text-[0.875rem] text-mute">
+          <span className="font-sans text-[0.9375rem] text-mute">
             New Article
           </span>
         }
@@ -670,9 +584,11 @@ export function SetupWorkspace() {
             : (record.data?.article_name ?? "New article")
         }
         caption={
-          // The delivery's own line (supplier, PO, pieces) is not repeated
-          // under the title (owner, 2026-10-05); a minted record shows its code.
-          active === null && record.data !== undefined ? (
+          // The supplier under the title (owner, 2026-10-15: "supplier
+          // pindahkan ke header"); a minted record shows its code.
+          active !== null ? (
+            supplierOf(active.supplier_id, active.supplier_id, active.supplier_id)
+          ) : record.data !== undefined ? (
             <span className="font-mono">{record.data.article_code}</span>
           ) : undefined
         }
@@ -716,72 +632,221 @@ export function SetupWorkspace() {
   )
 }
 
-/// Codes minted together, as one span when they run on — `00000010–00000012`
-/// — and listed when something else drew a code between them.
-function codeSpan(codes: readonly string[]): string {
-  const sorted = [...codes].sort()
-  const consecutive = sorted.every(
-    (code, index) => index === 0 || Number(code) === Number(sorted[0]) + index
+/// New Articles as cards on a desk (prototype, owner 2026-10-14, his sketch):
+/// one full-width card per supplier, its name and counts on top, and inside
+/// it one card per waiting line, stacked — the ledger's facts, card by card.
+function CardGrid({
+  sections,
+  stalled,
+  active,
+  open: allOpen,
+  onOpen,
+}: {
+  sections: readonly {
+    id: string
+    name: string
+    rows: readonly UnidentifiedReceipt[]
+  }[]
+  stalled: readonly {
+    session_id: string
+    article_name: string
+    article_code: string
+    division_code: string | null
+    receipt_quantity: number
+    created_at: string
+    issue_state?: string | null
+  }[]
+  active: string | null
+  /// Every supplier is held open while a search is in progress.
+  open: boolean
+  onOpen: (target: Target) => void
+}) {
+  /// The suppliers folded shut by hand; every supplier starts open, and
+  /// they fold independently so two queues can be read side by side.
+  const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set())
+  const toggle = (id: string) =>
+    setFolded((now) => {
+      const next = new Set(now)
+      if (!next.delete(id)) next.add(id)
+      return next
+    })
+  const isOpen = (id: string) => allOpen || !folded.has(id)
+  return (
+    <div className="flex flex-col gap-3">
+      {sections.map((group) => (
+        <SupplierCard
+          key={group.id}
+          open={isOpen(group.id)}
+          onToggle={() => toggle(group.id)}
+          onStart={() => onOpen({ receipt: group.rows[0]?.receipt_line_id })}
+          name={group.name}
+          lines={group.rows.length}
+          pieces={group.rows.reduce((sum, row) => sum + row.quantity, 0)}
+        >
+          {group.rows.map((row) => (
+            <WaitingCard
+              key={row.receipt_line_id}
+              row={row}
+              on={row.receipt_line_id === active}
+              onOpen={() => onOpen({ receipt: row.receipt_line_id })}
+            />
+          ))}
+        </SupplierCard>
+      ))}
+      {stalled.length > 0 && (
+        <SupplierCard
+          open={isOpen("stalled")}
+          onToggle={() => toggle("stalled")}
+          name={
+            stalled.some(
+              (row) =>
+                row.issue_state === "QUEUED" || row.issue_state === "PROCESSING"
+            )
+              ? "Processing / Needs Retry"
+              : "Needs Retry"
+          }
+          warn
+          lines={stalled.length}
+          pieces={stalled.reduce((sum, row) => sum + row.receipt_quantity, 0)}
+        >
+          {stalled.map((row) => (
+            <LineCard
+              key={row.session_id}
+              image={null}
+              name={row.article_name}
+              division={row.division_code}
+              code={row.article_code}
+              pieces={row.receipt_quantity}
+              since={row.created_at}
+              on={row.session_id === active}
+              onOpen={() => onOpen({ setup: row.session_id })}
+            />
+          ))}
+        </SupplierCard>
+      )}
+    </div>
   )
-  return sorted.length > 1 && consecutive
-    ? `${sorted[0]}–${sorted[sorted.length - 1]}`
-    : sorted.join(", ")
 }
 
-/// The ledger's columns, shared by its heading, its rows and its foot so the
-/// three line up: Supplier · Article · PO · Quantity · Received At from 42rem of
-/// card, Article and Quantity below it.
-const LEDGER_COLUMNS =
-  "grid grid-cols-[minmax(0,1fr)_auto] items-center @2xl:grid-cols-[15.5rem_minmax(0,1fr)_10.75rem_7.25rem_8.75rem]"
-
-/// One supplier's lines. The supplier is said once: a column of its own that
-/// holds its place while the lines beside it scroll, or, under 42rem of card,
-/// a band above them that sticks under the heading.
-function LedgerGroup({
+/// The supplier's card, an accordion: the head (name, counts, chevron) is a
+/// button that folds its lines open. The height animates through a grid row
+/// going 0fr to 1fr, so no height is measured.
+function SupplierCard({
   name,
   lines,
   pieces,
   warn,
+  open,
+  onToggle,
+  onStart,
   children,
 }: {
   name: string
   lines: number
   pieces: number
-  /// Not minted: said in the warning colour, as the cards used to say it.
   warn?: boolean
+  open: boolean
+  onToggle: () => void
+  /// Opens the supplier's first line, so the rest can be walked with
+  /// Submit and Next. Absent where there is nothing to set up (Needs Retry).
+  onStart?: () => void
   children: React.ReactNode
 }) {
+  const body = useId()
   return (
-    <div
-      role="group"
+    <section
       aria-label={name}
-      className="grid grid-cols-1 not-first:border-t not-first:border-hairline-2 @2xl:grid-cols-[15.5rem_minmax(0,1fr)]"
+      className="rounded-[0.625rem] border border-hairline bg-canvas"
     >
-      <div className="sticky top-10 z-[2] border-b border-hairline bg-soft px-4 py-2.5 @2xl:static @2xl:z-auto @2xl:border-b-0 @2xl:bg-transparent @2xl:px-5 @2xl:py-[1.0625rem]">
-        <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 @2xl:sticky @2xl:top-[3.5625rem] @2xl:flex-col @2xl:gap-0.5">
-          <span
+      <div className="flex items-center gap-3 pr-4 @2xl:pr-5">
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={open}
+          aria-controls={body}
+          className="my-1.5 ml-1.5 flex min-h-11 min-w-0 flex-1 items-center gap-3 rounded-[0.5rem] py-1.5 pl-3.5 text-left transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent/40 [@media(hover:hover)]:hover:bg-soft"
+        >
+          <ChevronDown
+            aria-hidden
             className={cn(
-              "text-[0.9375rem] font-medium [overflow-wrap:anywhere]",
+              "size-4 shrink-0 text-mute transition-transform duration-200 ease-out",
+              !open && "-rotate-90"
+            )}
+          />
+          <h2
+            className={cn(
+              "min-w-0 flex-1 text-[1.0625rem] font-semibold [overflow-wrap:anywhere]",
               warn ? "text-warn-fg" : "text-ink"
             )}
           >
             {name}
-          </span>
-          <span className="text-[0.875rem] text-mute tabular-nums">
+          </h2>
+          <span className="text-[0.9375rem] whitespace-nowrap text-mute tabular-nums">
             {quantity(lines, "items")} · {quantity(pieces)}
           </span>
+        </button>
+        {onStart !== undefined && (
+          <Button
+            variant="tint"
+            size="card"
+            aria-label={`Set up all ${lines} from ${name}`}
+            onClick={onStart}
+          >
+            Set up all
+          </Button>
+        )}
+      </div>
+      <div
+        id={body}
+        inert={!open}
+        className={cn(
+          "grid transition-[grid-template-rows] duration-200 ease-out",
+          open ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+        )}
+      >
+        <div className="min-h-0 overflow-hidden">
+          {/* Air between the supplier's head and its first line, so a picked
+              line's ring never meets the head's hover ground (owner,
+              2026-10-15: "kasih spacing biar border ini ga aneh"). */}
+          <div className="flex flex-col gap-2 px-4 pt-2 pb-4 @2xl:px-5 @2xl:pb-5">
+            {children}
+          </div>
         </div>
       </div>
-      <div className="min-w-0">{children}</div>
-    </div>
+    </section>
   )
 }
 
-/// One line of the ledger: the photograph and name, the PO it came on (or
-/// the article code, for a session that did not mint), the pieces, and how
-/// long since the goods were received. A button, the whole row — the row IS the
-/// way in.
-function LedgerRow({
+function WaitingCard({
+  row,
+  on,
+  onOpen,
+}: {
+  row: UnidentifiedReceipt
+  on: boolean
+  onOpen: () => void
+}) {
+  const image = useLineImage(row)
+  const draft = useDraftedLines().has(row.receipt_line_id)
+  return (
+    <LineCard
+      image={image}
+      draft={draft}
+      name={row.article_name}
+      division={row.division_code}
+      code={row.po_number}
+      pieces={row.quantity}
+      since={row.verified_at}
+      on={on}
+      onOpen={onOpen}
+    />
+  )
+}
+
+/// One line as a card inside its supplier's: photograph, name over the PO (or
+/// the article code of a session that did not mint), the pieces and how long
+/// it has waited. The whole card is the button.
+function LineCard({
   image,
   name,
   division,
@@ -799,7 +864,6 @@ function LedgerRow({
   pieces: number
   since: string
   on: boolean
-  /// The line has a form saved for it on the server.
   draft?: boolean
   onOpen: () => void
 }) {
@@ -809,38 +873,49 @@ function LedgerRow({
       onClick={onOpen}
       aria-current={on}
       className={cn(
-        "grid min-h-14 w-full grid-cols-[minmax(0,1fr)_auto] items-center text-left transition-colors outline-none not-first:border-t not-first:border-hairline focus-visible:bg-soft-2 @2xl:grid-cols-[minmax(0,1fr)_10.75rem_7.25rem_8.75rem]",
-        on ? "bg-soft-2" : "bg-canvas hover:bg-soft active:bg-soft-2"
+        "grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-4 rounded-[0.625rem] border px-4 py-3 text-left outline-none",
+        "transition-[background-color,border-color,transform] duration-150 ease-out active:scale-[0.99]",
+        "focus-visible:ring-2 focus-visible:ring-accent/40",
+        on
+          ? "border-ink/30 bg-soft-2"
+          : "border-hairline bg-canvas [@media(hover:hover)]:hover:bg-soft"
       )}
     >
-      <span className="row-span-2 flex min-w-0 items-center gap-3 py-2 pl-4 @2xl:row-span-1 @2xl:px-5">
-        <Thumbnail
-          url={image}
-          name={name}
-          division={division}
-          className="size-8 shrink-0 rounded-[0.375rem]"
-        />
-        <span className="flex min-w-0 flex-col">
-          <span className="text-[0.9375rem] [overflow-wrap:anywhere] text-ink">
-            {name}
-            {draft && <DraftMark />}
-          </span>
-          <span className="font-mono text-[0.875rem] text-mute @2xl:hidden">
-            {code}
-          </span>
+      <Thumbnail
+        url={image}
+        name={name}
+        division={division}
+        className="size-12 shrink-0 rounded-[0.5rem] border border-hairline"
+      />
+      <span className="flex min-w-0 flex-col gap-0.5">
+        <span className="text-[0.9375rem] font-medium break-words text-ink">
+          {name}
+          {draft && <DraftMark />}
         </span>
+        <span className="font-mono text-[0.9375rem] text-mute">{code}</span>
       </span>
-      <span className="hidden truncate px-5 font-mono text-[0.875rem] text-mute @2xl:block">
-        {code}
-      </span>
-      <span className="self-end px-4 pt-2 text-right text-[0.9375rem] whitespace-nowrap text-ink tabular-nums @2xl:self-auto @2xl:px-5 @2xl:pt-0">
-        {quantity(pieces)}
-      </span>
-      <span className="self-start px-4 pb-2 text-right text-[0.875rem] whitespace-nowrap text-mute tabular-nums @2xl:self-auto @2xl:px-5 @2xl:pb-0 @2xl:text-[0.9375rem]">
-        {ago(since)}
+      <span className="flex flex-col items-end gap-0.5 tabular-nums">
+        <span className="text-[0.9375rem] font-semibold whitespace-nowrap text-ink">
+          {quantity(pieces)}
+        </span>
+        <span className="text-[0.9375rem] whitespace-nowrap text-mute">
+          {ago(since)}
+        </span>
       </span>
     </button>
   )
+}
+
+/// Codes minted together, as one span when they run on — `00000010–00000012`
+/// — and listed when something else drew a code between them.
+function codeSpan(codes: readonly string[]): string {
+  const sorted = [...codes].sort()
+  const consecutive = sorted.every(
+    (code, index) => index === 0 || Number(code) === Number(sorted[0]) + index
+  )
+  return sorted.length > 1 && consecutive
+    ? `${sorted[0]}–${sorted[sorted.length - 1]}`
+    : sorted.join(", ")
 }
 
 /// One line of the phone's list, said once and drawn as a card.
@@ -880,7 +955,7 @@ function LineHead({ line }: { line: CardLine }) {
           {line.name}
           {draft && <DraftMark />}
         </span>
-        <span className="font-mono text-[0.875rem] font-normal break-words text-mute">
+        <span className="font-mono text-[0.9375rem] font-normal break-words text-mute">
           {line.code}
         </span>
       </span>
@@ -946,7 +1021,7 @@ const CARD_COLUMNS: ColumnDef<TableSetup, CardLine>[] = [
         <span className="text-[1.5rem] leading-tight font-semibold tracking-tight text-ink">
           {count(row.original.pieces)}
         </span>
-        <span className="text-[0.875rem] text-mute">pcs</span>
+        <span className="text-[0.9375rem] text-mute">pcs</span>
       </span>
     ),
   },
@@ -976,7 +1051,9 @@ function PhoneLines({
   stalled,
   supplierOf,
   onOpen,
+  refresh,
 }: {
+  refresh?: readonly Refreshable[]
   waiting: readonly UnidentifiedReceipt[]
   stalled: readonly {
     session_id: string
@@ -1058,6 +1135,7 @@ function PhoneLines({
   return (
     <OpenLine.Provider value={onOpen}>
       <DataTable<CardLine>
+        refresh={refresh}
         table={table}
         onRowClick={onOpen}
         pageScroll
@@ -1092,7 +1170,7 @@ function PhoneLines({
                 {`${count(row.groupLines)} ${row.groupLines === 1 ? "item" : "items"}`}
               </span>
               <span className="flex-1" />
-              <span className="shrink-0 text-[0.875rem] text-mute tabular-nums">
+              <span className="shrink-0 text-[0.9375rem] text-mute tabular-nums">
                 {`${quantity(row.groupPieces)}`}
               </span>
               <ChevronDown
@@ -1150,38 +1228,7 @@ function useDraftedLines(): ReadonlySet<string> {
 /// The quiet word beside a name whose form is saved.
 function DraftMark() {
   return (
-    <span className="ml-2 text-[0.875rem] font-normal text-mute">Draft</span>
-  )
-}
-
-/// One delivery line waiting for its identity. The photograph is the PO
-/// line's own (`image_url`), else the one kept on the supplier's item, else
-/// the garment placeholder the Thumbnail draws from the name.
-function WaitingRow({
-  row,
-  on,
-  onOpen,
-}: {
-  row: UnidentifiedReceipt
-  on: boolean
-  onOpen: () => void
-}) {
-  const image = useLineImage(row)
-  const draft = useDraftedLines().has(row.receipt_line_id)
-  return (
-    <LedgerRow
-      image={image}
-      draft={draft}
-      name={row.article_name}
-      division={row.division_code}
-      // The supplier is the column the row stands beside; the PO is what
-      // tells one delivery of theirs from another.
-      code={row.po_number}
-      pieces={row.quantity}
-      since={row.verified_at}
-      on={on}
-      onOpen={onOpen}
-    />
+    <span className="ml-2 text-[0.9375rem] font-normal text-mute">Draft</span>
   )
 }
 
@@ -1278,7 +1325,7 @@ export function Matrix({
     // `min-w-fit` is what keeps that honest when the sizes outrun the room:
     // the declared widths win, the box scrolls, and the frozen colour column
     // below is the reason that is readable.
-    <div className="w-full overflow-x-auto rounded-inner border border-hairline">
+    <div className="ui-matrix w-full overflow-x-auto rounded-inner border border-hairline">
       {/* Fixed layout and separated borders, the same as the pricelist grid:
           a matrix is read across as much as down, and without a rule between
           the columns the eye loses which size a figure belongs to halfway
@@ -1342,7 +1389,7 @@ export function Matrix({
                 {rowHead ? (
                   rowHead(colour)
                 ) : (
-                  <span className="block truncate text-[0.875rem] font-medium text-ink">
+                  <span className="block truncate text-[0.9375rem] font-medium text-ink">
                     {colour.label}
                   </span>
                 )}
@@ -1364,7 +1411,7 @@ export function Matrix({
                 )
               })}
               {rowTotal && (
-                <td className="h-9 border-t border-l border-hairline px-3 text-right text-[0.875rem] font-medium text-ink tabular-nums">
+                <td className="h-9 border-t border-l border-hairline px-3 text-right text-[0.9375rem] font-medium text-ink tabular-nums">
                   {rowTotal(colour)}
                 </td>
               )}
@@ -1385,14 +1432,14 @@ export function Matrix({
                 <td
                   key={size.code}
                   className={cn(
-                    "h-9 border-t border-hairline bg-soft-2 px-2 text-right text-[0.875rem] text-text tabular-nums",
+                    "h-9 border-t border-hairline bg-soft-2 px-2 text-right text-[0.9375rem] text-text tabular-nums",
                     at > 0 && "border-l"
                   )}
                 >
                   {columnTotal?.(size)}
                 </td>
               ))}
-              <td className="h-9 border-t border-l border-hairline bg-soft-2 px-3 text-right text-[0.875rem] font-semibold text-ink tabular-nums">
+              <td className="h-9 border-t border-l border-hairline bg-soft-2 px-3 text-right text-[0.9375rem] font-semibold text-ink tabular-nums">
                 {total}
               </td>
             </tr>
@@ -1639,7 +1686,7 @@ function SessionRecord({ id }: { id: string }) {
               <Fact term="Markup">
                 {markupText}
                 {purchase !== null && (
-                  <span className="ml-2 text-[0.875rem] text-mute">
+                  <span className="ml-2 text-[0.9375rem] text-mute">
                     Purchase price {money(purchase)}
                   </span>
                 )}
@@ -1672,7 +1719,7 @@ function SessionRecord({ id }: { id: string }) {
                           articleName={session.article_name}
                           division={session.division_code}
                         />
-                        <span className="min-w-0 flex-1 truncate text-[0.875rem] font-medium text-ink">
+                        <span className="min-w-0 flex-1 truncate text-[0.9375rem] font-medium text-ink">
                           {colour.label}
                         </span>
                       </span>
@@ -1690,10 +1737,10 @@ function SessionRecord({ id }: { id: string }) {
                           <span className="text-[0.9375rem] text-ink">
                             {count(one.quantity)}
                           </span>
-                          <span className="text-[0.875rem] whitespace-nowrap text-mute">
+                          <span className="text-[0.9375rem] whitespace-nowrap text-mute">
                             {money(one.base_price_minor)}
                           </span>
-                          <span className="font-mono text-[0.875rem] text-mute">
+                          <span className="font-mono text-[0.9375rem] text-mute">
                             {one.sku_code}
                           </span>
                         </span>
@@ -1730,7 +1777,7 @@ function SessionRecord({ id }: { id: string }) {
                 stands at the foot of it. */}
             {(session.issue_state === "QUEUED" ||
               session.issue_state === "PROCESSING") && (
-              <p role="status" className="text-[0.875rem] text-mute">
+              <p role="status" className="text-[0.9375rem] text-mute">
                 Processing the article, stock and prices. This continues after
                 you close this screen.
               </p>
@@ -1742,7 +1789,7 @@ function SessionRecord({ id }: { id: string }) {
               session.issue_state !== "QUEUED" &&
               session.issue_state !== "PROCESSING" && (
                 <div className="sticky bottom-0 -mx-1 flex flex-col gap-2.5 border-t border-hairline bg-canvas px-1 pt-3.5 pb-1 @xl:flex-row @xl:items-center @xl:justify-between">
-                  <p className="min-w-0 text-[0.875rem] leading-relaxed text-mute">
+                  <p className="min-w-0 text-[0.9375rem] leading-relaxed text-mute">
                     Nothing has been drawn against this session yet. Minting
                     draws the SKUs, their serial ranges and their EPCs in one
                     transaction and sends the tagging job to {session.site_id}.
@@ -1767,6 +1814,74 @@ function SessionRecord({ id }: { id: string }) {
           </div>
         ),
       })}
+    </div>
+  )
+}
+
+/// The article's photograph in the New Article form: the picture, and a way to
+/// change it — a press on it, or the word under it, opens the file picker.
+/// Not offered where the delivery names no supplier item to file it on.
+function ArticlePhoto({
+  url,
+  name,
+  division,
+  canChange,
+  pending,
+  error,
+  onPick,
+}: {
+  url: string | null
+  name: string
+  division: string | null
+  canChange: boolean
+  pending: boolean
+  error: string | null
+  onPick: (file: File) => void
+}) {
+  const input = useRef<HTMLInputElement>(null)
+  return (
+    <div className="flex flex-col items-start gap-2">
+      <button
+        type="button"
+        disabled={!canChange || pending}
+        onClick={() => input.current?.click()}
+        aria-label="Change the photo"
+        className={cn(
+          "block size-36 overflow-hidden rounded-inner border border-hairline transition-opacity disabled:cursor-default",
+          pending && "opacity-60"
+        )}
+      >
+        <Thumbnail
+          url={url}
+          name={name}
+          division={division}
+          className="size-full"
+        />
+      </button>
+      {canChange && (
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => input.current?.click()}
+          className="text-[0.9375rem] font-medium text-accent hover:underline disabled:text-mute"
+        >
+          {pending ? "Uploading…" : "Change photo"}
+        </button>
+      )}
+      {error !== null && (
+        <span className="text-[0.9375rem] text-bad-fg">{error}</span>
+      )}
+      <input
+        ref={input}
+        type="file"
+        accept={PICTURE_TYPES}
+        hidden
+        onChange={(event) => {
+          const file = event.target.files?.[0]
+          event.target.value = ""
+          if (file) onPick(file)
+        }}
+      />
     </div>
   )
 }
@@ -1845,7 +1960,7 @@ function ColourwayPhoto({
               className="size-full object-cover"
             />
             {upload.isPending && (
-              <span className="absolute inset-0 grid place-items-center bg-canvas/75 text-[0.875rem] font-medium text-body">
+              <span className="absolute inset-0 grid place-items-center bg-canvas/75 text-[0.9375rem] font-medium text-body">
                 …
               </span>
             )}
@@ -1902,7 +2017,7 @@ function ColourwayPhoto({
         </>
       )}
       {upload.isPending && (
-        <span className="absolute inset-0 grid place-items-center bg-canvas/75 text-[0.875rem] font-medium text-body">
+        <span className="absolute inset-0 grid place-items-center bg-canvas/75 text-[0.9375rem] font-medium text-body">
           …
         </span>
       )}
@@ -2247,7 +2362,7 @@ function Chip({
         top: box.bottom + 4,
         right: window.innerWidth - box.right,
       }}
-      className="sku-price-pop pointer-events-none fixed z-[60] rounded-[0.375rem] bg-tooltip px-2.5 py-1 text-[0.875rem] whitespace-nowrap text-on-dark tabular-nums shadow-pop"
+      className="sku-price-pop pointer-events-none fixed z-[60] rounded-[0.375rem] bg-tooltip px-2.5 py-1 text-[0.9375rem] whitespace-nowrap text-on-dark tabular-nums shadow-pop"
     >
       {children}
     </span>,
@@ -2306,10 +2421,10 @@ function SkuCell({
         aria-label={`${label} pieces`}
         value={quantity}
         onChange={(event) => onQuantity(onlyDigits(event.target.value))}
-        className={cn(
-          SKU_BOX,
-          "border-0 bg-transparent focus:bg-canvas focus:shadow-[inset_0_0_0_1.5px_var(--accent)]"
-        )}
+        placeholder="0"
+        // The field's own outline, drawn even when empty: a bare box read as
+        // nothing to type into, and every cell stayed "Not created".
+        className={cn(SKU_BOX, "shadow-none placeholder:text-faint")}
       />
       {editing ? (
         <input
@@ -2350,30 +2465,37 @@ function SkuCell({
           // price until one was typed hid the base price from the whole
           // table (the owner's report of 2026-09-29). A cell with no pieces
           // is only quieter — it mints no SKU, so its price goes nowhere yet.
+          // A box like the pieces' (owner, 2026-10-16: "jangan -, input aja
+          // isi dengan base price"): it shows the base price until the SKU is
+          // given its own, and an empty one says what goes in it.
           className={cn(
             SKU_BOX,
-            "mt-1 cursor-text border-0 bg-transparent",
+            "mt-1 cursor-text bg-canvas hover:shadow-[inset_0_0_0_1.5px_var(--accent)]",
             loss
               ? "text-bad"
               : own
                 ? "font-medium text-accent"
                 : has
-                  ? "text-mute"
-                  : "text-faint"
+                  ? "text-ink"
+                  : "text-mute"
           )}
         >
-          {priced ? `Rp ${formatThousands(price)}` : "—"}
+          {priced ? (
+            `Rp ${formatThousands(price)}`
+          ) : (
+            <span className="text-faint">Price</span>
+          )}
         </button>
       )}
       {/* What the cell says about itself, in words under it. A SKU with no
           pieces is not created — said calmly, not as an error. */}
       {loss && !editing && (
-        <span className="mt-1.5 block text-right text-[0.875rem] text-bad">
+        <span className="mt-1.5 block text-right text-[0.9375rem] text-bad">
           Above purchase price
         </span>
       )}
       {!has && (
-        <span className="mt-1.5 block text-right text-[0.875rem] text-mute">
+        <span className="mt-1.5 block text-right text-[0.9375rem] text-mute">
           Not created
         </span>
       )}
@@ -2475,7 +2597,7 @@ function HeadPricePopover({
               className="h-10 text-right text-[0.9375rem] tabular-nums"
             />
             {tooLow && (
-              <p className="mt-2 text-[0.875rem] text-bad">
+              <p className="mt-2 text-[0.9375rem] text-bad">
                 Must be above the purchase price, {money(purchase)}
               </p>
             )}
@@ -2486,7 +2608,7 @@ function HeadPricePopover({
                   onApply(null)
                   setOpen(false)
                 }}
-                className="text-[0.875rem] text-mute hover:text-ink"
+                className="text-[0.9375rem] text-mute hover:text-ink"
               >
                 Reset
               </button>
@@ -2680,20 +2802,35 @@ function SessionComposer({
   const wantsNext = useRef(false)
   /// The delivery line's picture, shown at the head of the form.
   const lineImage = useLineImage(receipt)
+  /// The article's one photograph, changed in the form (owner, 2026-10-15:
+  /// "B lebih cocok"; one photo per article, not per colour). Filed on the
+  /// supplier's item — the only thing that exists before Submit — and sent as
+  /// the article's picture with the setup.
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null)
+  const photoClient = useQueryClient()
+  const photoUpload = useMutation({
+    mutationFn: async (file: File) =>
+      uploadSupplierItemImage(
+        receipt.supplier_id,
+        receipt.supplier_article_code!,
+        await asJpeg(file)
+      ),
+    onSuccess: (url) => {
+      setPhotoUrl(url)
+      void photoClient.invalidateQueries({
+        queryKey: procurementKeys.itemImage(
+          receipt.supplier_id,
+          receipt.supplier_article_code ?? ""
+        ),
+      })
+    },
+  })
   /// The colour master, for the words and for the swatches. A colour is the
   /// one vocabulary here that is RECOGNISED rather than read — "the navy one"
   /// is how somebody describes a garment they are holding.
   const master = useQuery({
     queryKey: colourKeys.list(),
     queryFn: ({ signal }) => listColours(signal),
-    staleTime: 30 * 60 * 1000,
-  })
-
-  /// Who sent it, by name. The receipt carries an id and the supplier's own
-  /// code for the article, and neither is something a person recognises.
-  const suppliers = useQuery({
-    queryKey: procurementKeys.suppliers(),
-    queryFn: ({ signal }) => listSuppliers(undefined, signal),
     staleTime: 30 * 60 * 1000,
   })
 
@@ -2804,6 +2941,54 @@ function SessionComposer({
   const [division, setDivision] = useState(
     saved?.division ?? receipt.division_code ?? ""
   )
+  /// The supplier item's description from the PO line, editable (owner,
+  /// 2026-10-16): one description for the delivery line, shared by every
+  /// sibling article tab, filed on the article when it is issued.
+  const [description, setDescription] = useState(
+    // In Title Case, as it is typed here (owner, 2026-10-16).
+    () => titleCaseTyping(saved?.description ?? receipt.description ?? "")
+  )
+  /// Jev reading the line's photo once (owner, 15 Oct 2026): a name from the
+  /// Name suggestions master, put in only while the name is still the order
+  /// line's own; and the existing articles it may already be — said, never
+  /// in the way.
+  const latestName = useRef(name)
+  latestName.current = name
+  const latestDivision = useRef(division)
+  latestDivision.current = division
+  const [nameFromPhoto, setNameFromPhoto] = useState<string | null>(null)
+  const [similar, setSimilar] = useState<ArticlePhotoReading["similar"]>([])
+  useEffect(() => {
+    if (lineImage === null) return
+    const controller = new AbortController()
+    fetch(lineImage, { signal: controller.signal })
+      .then((response) =>
+        response.ok ? response.blob() : Promise.reject(new Error("unreadable"))
+      )
+      .then((photo) =>
+        readArticlePhoto(
+          photo,
+          latestName.current,
+          latestDivision.current === "" ? null : latestDivision.current,
+          controller.signal
+        )
+      )
+      .then((read) => {
+        setSimilar(read.similar)
+        const untouched =
+          saved === null &&
+          latestName.current === suggestName(receipt.article_name)
+        if (read.name !== null && read.name.confidence >= 0.6 && untouched) {
+          setName(read.name.name)
+          setNameFromPhoto(read.name.name)
+        }
+      })
+      .catch(() => {})
+    return () => controller.abort()
+    // Once per photograph: the name and division are read from refs so typing
+    // does not ask again.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lineImage])
   /// What the buyer already filed it under. Editable, because the buyer was
   /// describing an order line and this is the article the company will keep.
   const [tags, setTags] = useState<readonly string[]>(
@@ -2833,6 +3018,7 @@ function SessionComposer({
     tabs.length > 1 ||
     name !== suggestName(receipt.article_name) ||
     division !== (receipt.division_code ?? "") ||
+    description !== titleCaseTyping(receipt.description ?? "") ||
     tags.join() !== receipt.tags.join() ||
     chosenColours.join() !== start.colours.join() ||
     chosenSizes.join() !== start.sizes.join() ||
@@ -2856,6 +3042,7 @@ function SessionComposer({
         nextTabId,
         name,
         division,
+        description,
         tags,
         pricing,
       })
@@ -2868,6 +3055,7 @@ function SessionComposer({
     nextTabId,
     name,
     division,
+    description,
     tags,
     pricing,
   ])
@@ -3001,6 +3189,43 @@ function SessionComposer({
     })
     return [...seen.values()]
   }, [tabs, sizes, colourNamed, name])
+
+  /// "Use count": the warehouse's answer becomes the grid. Each article (tab)
+  /// takes the rows named for it — a count from before the sheet named the
+  /// article goes to the one on screen — and what was typed there before is
+  /// replaced. A colour or size the form did not have yet is added, up to the
+  /// ceilings the pickers keep.
+  const takeCount = (check: QuantityCheck) => {
+    const base = name.trim() === "" ? "Delivery" : name.trim()
+    const colourCode = new Map(colours.map((one) => [one.label, one.code]))
+    const sizeCode = new Map(sizes.map((term) => [term.label, term.code]))
+    setEditingPrice(null)
+    setTabs((all) =>
+      all.map((one, index) => {
+        const tail = all.length > 1 ? ` · ${tabLabel(index)}` : ""
+        const article = `${base.slice(0, 60 - tail.length)}${tail}`
+        const lines = check.lines.filter((line) =>
+          line.article === undefined
+            ? index === current
+            : line.article === article
+        )
+        if (lines.length === 0) return one
+        const chosen = [...one.colours]
+        const sized = [...one.sizes]
+        const next: Record<string, string> = {}
+        for (const line of lines) {
+          const colour = colourCode.get(line.colour) ?? line.colour
+          const size = sizeCode.get(line.size) ?? line.size
+          if (!chosen.includes(colour) && chosen.length < COLOURWAY_CEILING)
+            chosen.push(colour)
+          if (!sized.includes(size)) sized.push(size)
+          if (chosen.includes(colour))
+            next[`${colour}|${size}`] = String(line.quantity)
+        }
+        return { ...one, colours: chosen, sizes: sized, pieces: next }
+      })
+    )
+  }
 
   const piecesAt = (colour: string, size: string) =>
     Number(pieces[`${colour}|${size}`]) || 0
@@ -3158,16 +3383,6 @@ function SessionComposer({
     })),
   })
 
-  /// The receipt's `supplier_id` carries the supplier CODE — `SUP02` — which
-  /// is the id the warehouse and the order paperwork use. Matched on the code
-  /// first and the uuid second, so it reads as a name either way.
-  const supplier = (suppliers.data ?? []).find(
-    (one) =>
-      one.supplier_code.toLowerCase() === receipt.supplier_id.toLowerCase() ||
-      one.supplier_code_normalized === receipt.supplier_id.toLowerCase() ||
-      one.supplier_id === receipt.supplier_id
-  )
-
   return (
     <form
       onSubmit={(event) => {
@@ -3180,7 +3395,8 @@ function SessionComposer({
           article_name: name.trim(),
           division_code: division,
           tags,
-          image_url: receipt.image_url,
+          description: description.trim() === "" ? null : description.trim(),
+          image_url: photoUrl ?? receipt.image_url,
           currency: "IDR",
           created_by: actor,
         }
@@ -3220,27 +3436,6 @@ function SessionComposer({
         >
           {problem !== null && <Banner tone="bad">{problem}</Banner>}
 
-          {/* Three facts, kept as a group at the left rather than spread across
-          sixty rem: they are read as one line about the delivery, and a third
-          of a metre between "Supplier" and "Counted" makes them three
-          unrelated labels. */}
-          <div className="mt-3 flex items-start gap-5">
-            {/* The delivery line's own picture, so the form says which goods it is
-            about. The card on the rail shows it; the sheet had lost it. */}
-            <Thumbnail
-              url={lineImage}
-              name={receipt.article_name}
-              division={receipt.division_code}
-              className="size-24 shrink-0 rounded-inner border border-hairline"
-            />
-            <Facts className="min-w-0 flex-1 gap-x-10 gap-y-6 min-[100rem]:gap-y-9 @2xl:max-w-[48rem] @2xl:grid-cols-2 [&_dd]:mt-1.5 min-[100rem]:[&_dd]:mt-2">
-              <Fact term="Supplier">
-                {supplier ? supplierDisplayName(supplier) : receipt.supplier_id}
-              </Fact>
-              <Fact term="Counted">{quantity(receipt.quantity)}</Fact>
-            </Facts>
-          </div>
-
           {/* What the article IS, in four fields two to a row.
 
           They sat under a heading reading "What it is", beside a second column
@@ -3266,10 +3461,47 @@ function SessionComposer({
           reads on its own line ahead of Division and Tags, and Base price and
           Markup follow as their own row rather than one of the four sharing a
           row with Name by accident of grid order. */}
-          <div className="grid items-start gap-5 min-[100rem]:gap-7 @xl:grid-cols-2 @xl:gap-x-8">
-            <Field label="Name" required className="@xl:col-span-2">
+          {/* The photo beside what the article IS (owner, 2026-10-15, option
+              B of new-article-photo-options.html): the Add item form's shape,
+              Photo at the left, the fields at the right — not a picture alone
+              above the form. */}
+          <div className="grid items-start gap-5 min-[100rem]:gap-7 @xl:grid-cols-[9rem_minmax(0,1fr)] @xl:gap-x-8">
+            <Field label="Photo">
+              <ArticlePhoto
+                url={photoUrl ?? lineImage}
+                name={receipt.article_name}
+                division={receipt.division_code}
+                canChange={receipt.supplier_article_code !== null}
+                pending={photoUpload.isPending}
+                error={
+                  photoUpload.isError
+                    ? (photoUpload.error as Error).message
+                    : null
+                }
+                onPick={(file) => photoUpload.mutate(file)}
+              />
+            </Field>
+            <div className="grid min-w-0 items-start gap-5 min-[100rem]:gap-7 @xl:grid-cols-2 @xl:gap-x-8">
+            <Field
+              label="Name"
+              required
+              className="@xl:col-span-2"
+              aside={
+                nameFromPhoto !== null && name === nameFromPhoto
+                  ? "From the photo"
+                  : undefined
+              }
+            >
               <NameInput value={name} onChange={setName} />
             </Field>
+            {similar.length > 0 && (
+              <Banner tone="warn" className="@xl:col-span-2">
+                May already exist:{" "}
+                {similar
+                  .map((one) => `${one.article_code} ${one.name}`)
+                  .join(", ")}
+              </Banner>
+            )}
 
             <Field label="Division" required>
               <PickOne
@@ -3288,6 +3520,20 @@ function SessionComposer({
                 label="Tags"
               />
             </Field>
+
+            <Field label="Description" className="@xl:col-span-2">
+              <Textarea
+                rows={3}
+                value={description}
+                onChange={(event) =>
+                  titled(event, setDescription)
+                }
+              />
+            </Field>
+            </div>
+          </div>
+
+          <div className="grid items-start gap-5 min-[100rem]:gap-7 @xl:grid-cols-2 @xl:gap-x-8">
 
             <Field
               label="Base Price"
@@ -3323,7 +3569,7 @@ function SessionComposer({
                     setPricingField({ markup: event.target.value })
                   }
                 />
-                <span className="pointer-events-none absolute right-3.5 text-[0.875rem] text-mute">
+                <span className="pointer-events-none absolute right-3.5 text-[0.9375rem] text-mute">
                   %
                 </span>
               </span>
@@ -3368,6 +3614,7 @@ function SessionComposer({
                 expected={expectedCheck}
                 division={division}
                 tags={tags}
+                onUse={takeCount}
               />
             </div>
 
@@ -3435,7 +3682,7 @@ function SessionComposer({
                 should be able to tell at a glance without opening every cell.
                 The owner's word of 2026-09-28. */}
                 <div className="mb-3 flex items-baseline justify-between gap-4 min-[100rem]:mb-4">
-                  <p className="min-w-0 text-[0.875rem] text-mute">
+                  <p className="min-w-0 text-[0.9375rem] text-mute">
                     {clashHere !== undefined ? (
                       <span className="text-bad">{clashText(clashHere)}</span>
                     ) : ownCount > 0 ? (
@@ -3454,12 +3701,12 @@ function SessionComposer({
                           : `${skuMarkup(purchaseMinor, priceMin).replace(".", ",")}% – ${skuMarkup(purchaseMinor, priceMax).replace(".", ",")}%`}
                       </>
                     ) : (
-                      "Every SKU at base — click a grey price to give that SKU its own"
+                      "Every SKU at base — click a price to give that SKU its own"
                     )}
                   </p>
                   <span
                     className={cn(
-                      "shrink-0 text-[0.875rem] font-medium whitespace-nowrap tabular-nums",
+                      "shrink-0 text-[0.9375rem] font-medium whitespace-nowrap tabular-nums",
                       over
                         ? "text-bad"
                         : balanced
@@ -3506,7 +3753,7 @@ function SessionComposer({
                           />
                         </ZoomPhoto>
                       )}
-                      <span className="min-w-0 flex-1 truncate text-[0.875rem] font-medium text-ink">
+                      <span className="min-w-0 flex-1 truncate text-[0.9375rem] font-medium text-ink">
                         {colour.label}
                       </span>
                       <HeadPricePopover
@@ -3595,7 +3842,7 @@ function SessionComposer({
                               />
                             </ZoomPhoto>
                             {photos.length > 1 && (
-                              <span className="text-[0.875rem] text-mute tabular-nums">
+                              <span className="text-[0.9375rem] text-mute tabular-nums">
                                 +{photos.length - 1}
                               </span>
                             )}
@@ -3652,6 +3899,7 @@ function SessionComposer({
                 expected={expectedCheck}
                 division={division}
                 tags={tags}
+                onUse={takeCount}
               />
             </div>
           </aside>

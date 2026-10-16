@@ -77,6 +77,32 @@ const CHAT_COMPLETIONS: &str = "/chat/completions";
 const APP_URL: &str = "https://github.com/itulah";
 const APP_TITLE: &str = "itulah Cloud Hub";
 
+/// A short-lived token for Vertex AI, from the metadata server of the VM this
+/// node runs on, signed in as the VM's own service account. Fetched per
+/// question: it lasts an hour and a turn lasts seconds.
+async fn vertex_token() -> Result<String, AppError> {
+    let unavailable = |why: String| {
+        AppError::Configuration(format!("assistant cannot reach Vertex AI: {why}"))
+    };
+    let response = reqwest::Client::new()
+        .get("http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token")
+        .header("Metadata-Flavor", "Google")
+        .timeout(Duration::from_secs(5))
+        .send()
+        .await
+        .map_err(|error| unavailable(error.to_string()))?;
+    let body: Value = response
+        .error_for_status()
+        .map_err(|error| unavailable(error.to_string()))?
+        .json()
+        .await
+        .map_err(|error| unavailable(error.to_string()))?;
+    body.get("access_token")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| unavailable("no access token from the metadata server".into()))
+}
+
 /// How many times the model may call tools before we stop asking it anything
 /// more. Six rounds is far more than any question in the catalogue below
 /// needs; it exists so a model that has decided to keep looking cannot bill
@@ -143,7 +169,7 @@ pub async fn capabilities(
     )
     .await?;
     Ok(Json(json!({
-        "enabled": state.config.assistant_api_key.is_some(),
+        "enabled": state.config.assistant_vertex || state.config.assistant_api_key.is_some(),
         "allowed": allowed,
         "model": state.config.assistant_model,
         "tools": catalogue()
@@ -386,9 +412,13 @@ pub async fn ask(
     Extension(principal): Extension<Principal>,
     Json(request): Json<AskRequest>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, AppError> {
-    let key = state.config.assistant_api_key.clone().ok_or_else(|| {
-        AppError::Configuration("assistant is not configured on this node".into())
-    })?;
+    let key = if state.config.assistant_vertex {
+        vertex_token().await?
+    } else {
+        state.config.assistant_api_key.clone().ok_or_else(|| {
+            AppError::Configuration("assistant is not configured on this node".into())
+        })?
+    };
 
     let question = request.question.trim().to_owned();
     if question.is_empty() {
@@ -747,6 +777,15 @@ async fn run_turn(
             // right way for it to fail.
             "provider": { "require_parameters": true, "zdr": true },
         });
+        if state.config.assistant_vertex {
+            // Vertex is one host that keeps nothing (Google Cloud's terms), so
+            // OpenRouter's routing field means nothing there; and it sends the
+            // token counts only when asked.
+            if let Some(object) = body.as_object_mut() {
+                object.remove("provider");
+                object.insert("stream_options".into(), json!({ "include_usage": true }));
+            }
+        }
         if offer_tools {
             if let Some(object) = body.as_object_mut() {
                 object.insert("tools".into(), Value::Array(tools.clone()));
@@ -756,16 +795,28 @@ async fn run_turn(
         // Counted when the call is made rather than when it is answered: a
         // call that fails upstream may still have been billed.
         record.usage.rounds += 1;
-        let response = client
-            .post(&endpoint)
-            .bearer_auth(key)
-            .header("content-type", "application/json")
-            .header("HTTP-Referer", APP_URL)
-            .header("X-Title", APP_TITLE)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|error| TurnError::Transport(error.to_string()))?;
+        // A shared host turns calls away when it is busy (Gemma on Vertex
+        // answers about one in three with 429, 15 Oct 2026): asked again after
+        // a short wait it answers, and a refused call is not billed.
+        let mut attempt = 0u32;
+        let response = loop {
+            let response = client
+                .post(&endpoint)
+                .bearer_auth(key)
+                .header("content-type", "application/json")
+                .header("HTTP-Referer", APP_URL)
+                .header("X-Title", APP_TITLE)
+                .json(&body)
+                .send()
+                .await
+                .map_err(|error| TurnError::Transport(error.to_string()))?;
+            let busy = matches!(response.status().as_u16(), 429 | 503);
+            if !busy || attempt >= 5 || tx.is_closed() {
+                break response;
+            }
+            attempt += 1;
+            tokio::time::sleep(Duration::from_millis(500 * 2u64.pow(attempt - 1))).await;
+        };
 
         let status = response.status();
         if !status.is_success() {
@@ -776,7 +827,22 @@ async fn run_turn(
             });
         }
 
-        let turn = read_model_stream(response, tx).await?;
+        let mut turn = read_model_stream(response, tx).await?;
+        // A host that does not price its answers is priced here, from the
+        // tokens, so the monthly budget still counts.
+        if let (Some(round), Some([input, output, cached])) =
+            (turn.usage.as_mut(), state.config.assistant_price_per_mtok)
+        {
+            if round.cost_usd_micros.is_none() {
+                let fresh = (round.prompt_tokens - round.cached_tokens).max(0) as f64;
+                round.cost_usd_micros = Some(
+                    (fresh * input
+                        + round.cached_tokens as f64 * cached
+                        + round.completion_tokens as f64 * output)
+                        .round() as i64,
+                );
+            }
+        }
         // Before anything that can end the turn: a call the model answered
         // with an error was still paid for.
         tally(&mut record.usage, &turn);
@@ -1772,6 +1838,7 @@ async fn run_tool(
                 size_codes: Vec::new(),
                 colour_codes: Vec::new(),
                 active: input.get("active").and_then(Value::as_bool),
+                in_stock: None,
                 order: Default::default(),
                 cursor: None,
                 limit: number("limit").unwrap_or(20).clamp(1, 100),

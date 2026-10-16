@@ -163,7 +163,7 @@ export function Correction() {
           </p>
           {request.error !== null && <Failure error={request.error} />}
           <div className="flex flex-col-reverse gap-2 md:flex-row md:justify-end">
-            <Button
+            <Button data-cancel
               type="button"
               variant="quiet"
               size="tap"

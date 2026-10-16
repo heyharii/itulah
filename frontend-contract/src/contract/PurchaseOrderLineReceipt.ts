@@ -7,5 +7,7 @@
  * accepted (`matched_quantity + excess_quantity`); `received_at` is when the
  * count was accepted at the DC. `wrong_quantity` is what the checker counted
  * as not the article the order names — a part of `excess_quantity` (0829).
+ * `received_by` is the login that accepted the count: who took the goods in.
+ * Absent on a server that does not send it yet.
  */
-export type PurchaseOrderLineReceipt = { receipt_number: string, quantity: number, matched_quantity: number, excess_quantity: number, wrong_quantity: number, received_at: string, };
+export type PurchaseOrderLineReceipt = { receipt_number: string, quantity: number, matched_quantity: number, excess_quantity: number, wrong_quantity: number, received_at: string, received_by?: string | null, };

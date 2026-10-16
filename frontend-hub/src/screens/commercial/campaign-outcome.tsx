@@ -80,7 +80,7 @@ export function BlockHead({
   return (
     <div
       className={cn(
-        "flex min-h-9 items-center gap-3 border-b border-hairline pb-3",
+        "form-section-head flex min-h-9 items-center gap-3 border-b border-hairline pb-3",
         className
       )}
     >
@@ -89,7 +89,7 @@ export function BlockHead({
         {title}
       </h4>
       {aside !== undefined && aside !== "" && (
-        <span className="text-[0.875rem] text-mute">{aside}</span>
+        <span className="text-[0.9375rem] text-mute">{aside}</span>
       )}
     </div>
   )
@@ -690,12 +690,12 @@ function IntentEditor({
         )}
 
         <div className="mt-6 flex items-center justify-between gap-4">
-          <span className="min-w-0 text-[0.875rem] text-bad">
+          <span className="min-w-0 text-[0.9375rem] text-bad">
             {problem ?? ""}
           </span>
           <span className="flex shrink-0 items-center gap-3">
             {onCancel !== undefined && (
-              <Button variant="ghost" onClick={onCancel}>
+              <Button data-cancel variant="ghost" onClick={onCancel}>
                 Cancel
               </Button>
             )}

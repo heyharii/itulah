@@ -1,0 +1,9 @@
+[
+  { "id": "intro", "text": "Setiap langkah barang di Central punya batas mundur." },
+  { "id": "back", "text": "**Back** artinya meninggalkan layar yang belum disimpan. Dokumen yang sudah tersimpan tidak ikut batal." },
+  { "id": "recall", "text": "**Recall** menarik count yang belum diterima reviewer." },
+  { "id": "cancel", "text": "**Cancel** atau **Close remaining** menghentikan permintaan yang belum terjadi." },
+  { "id": "moveback", "text": "**Move back**: gudang membalik kerja fisik, selama barang belum berangkat." },
+  { "id": "others", "text": "Di sampingnya ada **Edit**, **Recount**, dan koreksi: revisi yang tercatat, hitung ulang, dan dokumen baru." },
+  { "id": "rule", "text": "Aturannya satu. Setelah receipt, stok, atau pengiriman tercatat, perbaikannya selalu catatan atau dokumen baru." }
+]

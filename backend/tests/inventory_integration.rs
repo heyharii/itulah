@@ -136,6 +136,8 @@ async fn inventory_foundation_end_to_end(pool: PgPool) {
             assistant_api_key: None,
             assistant_base_url: "https://openrouter.ai/api/v1".into(),
             assistant_model: "anthropic/claude-opus-5".into(),
+            assistant_vertex: false,
+            assistant_price_per_mtok: None,
         },
     ));
     let health = app
@@ -752,6 +754,8 @@ async fn commercial_and_store_sales_are_versioned_atomic_and_retry_safe(pool: Pg
             assistant_api_key: None,
             assistant_base_url: "https://openrouter.ai/api/v1".into(),
             assistant_model: "anthropic/claude-opus-5".into(),
+            assistant_vertex: false,
+            assistant_price_per_mtok: None,
         },
     ));
     let offers_response = app
@@ -1568,6 +1572,8 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
             assistant_api_key: None,
             assistant_base_url: "https://openrouter.ai/api/v1".into(),
             assistant_model: "anthropic/claude-opus-5".into(),
+            assistant_vertex: false,
+            assistant_price_per_mtok: None,
         },
     ));
     for uri in [

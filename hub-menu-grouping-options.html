@@ -1,0 +1,507 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Hub menu grouping</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+/* ─────────────────────────────────────────────────────────────────────────
+   Hub menu grouping: today + four versions (A–D) + Compare, every department.
+   Same chrome as marketing-menu-options.html (shell measured on :5480,
+   11 Oct 2026). Folds = Finance's menu → sub-menu (closed until you're in
+   it). Headings = the same groups drawn open. Nothing below 14px.
+   ───────────────────────────────────────────────────────────────────────── */
+:root{
+  --ink:#20242c; --text:#394150; --body:#565f6d; --mute:#666f7d; --faint:#b9c0c9; --line-ico:#89919d;
+  --canvas:#fff; --soft:#f8f8f9; --soft-2:#f0f0f2; --soft-3:#f6f6f7;
+  --hairline:#e6e6e9; --hairline-2:#dadade; --hairline-strong:#c6c6cc;
+  --rail:#242526; --rail-3:#393b3d; --rail-text:#c3c4c7;
+  --accent:#2563eb; --accent-bg:#eff5ff; --cta:#2563eb;
+  --ok-fg:#137a37; --warn-fg:#a64a08; --bad-fg:#be123c;
+  --r-card:10px; --r-inner:8px;
+  --ease-out:cubic-bezier(.23,1,.32,1); --ease-drawer:cubic-bezier(.32,.72,0,1);
+  --font:"Inter","Inter Variable",system-ui,-apple-system,sans-serif;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font-family:var(--font);font-size:15px;color:var(--ink);background:var(--soft-3);letter-spacing:-.006em;-webkit-font-smoothing:antialiased;overflow:hidden}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+.i{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+
+/* prototype chrome */
+.proto{height:48px;background:#141518;color:#fff;display:flex;align-items:center;gap:14px;padding:0 14px 0 18px}
+.proto .t{font-weight:600;font-size:15px;white-space:nowrap}
+.proto .t span{color:#8b8f97;font-weight:400}
+.seg{display:flex;gap:2px;background:#24262b;border-radius:9px;padding:3px;overflow-x:auto}
+.seg button{height:30px;padding:0 11px;border-radius:7px;font-size:14px;color:#b9bcc3;white-space:nowrap;transition:background-color .15s ease,color .15s ease}
+.seg button b{font-weight:600;color:#fff;margin-right:5px}
+.seg button.on{background:#fff;color:var(--ink)}
+.seg button.on b{color:var(--ink)}
+.seg .star{color:#f4b740;margin-left:4px}
+.proto .sp{flex:1}
+.pbtn{height:30px;padding:0 12px;border-radius:7px;border:1px solid #393c43;color:#e7e8ea;font-size:14px;display:flex;align-items:center;gap:7px;white-space:nowrap}
+.note{height:34px;background:#1c1e22;color:#a7abb3;font-size:14px;display:flex;align-items:center;gap:10px;padding:0 18px;white-space:nowrap;overflow:hidden;border-top:1px solid #26282d}
+.note b{color:#fff;font-weight:500}
+.note .dotsep{color:#5b5f67}
+
+/* hub shell */
+.app{height:calc(100vh - 82px);display:grid;grid-template-columns:68px 232px minmax(0,1fr)}
+.app.wide{grid-template-columns:68px minmax(0,1fr)}
+.app.wide .dept{display:none}
+.rail{background:var(--rail);color:var(--rail-text);display:flex;flex-direction:column;align-items:center;padding:12px 0}
+.logo{width:28px;height:28px;border-radius:7px;background:#0b0b0c;position:relative;display:grid;place-items:center;color:#fff;font-weight:600;font-size:15px;margin-bottom:14px;box-shadow:inset 0 0 0 1px #3a3c40}
+.logo::after{content:"";position:absolute;right:5px;top:5px;width:5px;height:5px;border-radius:50%;background:var(--accent)}
+.rail .ri{width:40px;height:36px;border-radius:8px;display:grid;place-items:center;position:relative;margin:2px 0;color:var(--rail-text);transition:background-color .15s ease,color .15s ease}
+.rail .ri.on{background:var(--rail-3);color:#fff}
+.rail .ri .bd{position:absolute;right:8px;top:7px;width:6px;height:6px;border-radius:50%;background:#e0823c}
+.rail .gap{flex:1}
+.rail .av{width:28px;height:28px;border-radius:50%;background:var(--rail-3);color:#fff;display:grid;place-items:center;font-size:14px;font-weight:500;margin:6px 0}
+.tip{position:fixed;left:74px;background:#101012;color:#fff;font-size:14px;padding:5px 9px;border-radius:6px;pointer-events:none;opacity:0;transform:translateX(-3px);transition:opacity .12s ease,transform .12s var(--ease-out);z-index:60;white-space:nowrap}
+.tip.on{opacity:1;transform:none}
+
+.dept{background:var(--canvas);border-right:1px solid var(--hairline);display:flex;flex-direction:column;min-height:0}
+.dept .dh{height:52px;display:flex;align-items:center;padding:0 12px 0 16px;gap:8px;flex:none}
+.dept .dh h2{margin:0;font-size:15px;font-weight:600;letter-spacing:-.01em;flex:1}
+.dept .dh .i{color:var(--line-ico)}
+.rows{padding:2px 10px 12px;display:flex;flex-direction:column;gap:2px;overflow-y:auto;flex:1}
+.row{height:36px;flex:none;display:flex;align-items:center;gap:8px;padding:0 10px;border-radius:8px;font-size:14px;color:var(--body);text-align:left;width:100%;transition:background-color .15s ease,color .15s ease,transform .16s var(--ease-out)}
+.row .lb{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row.on{background:var(--accent-bg);color:var(--accent);font-weight:500}
+.row .ct{font-size:14px;font-weight:500;padding:0 4px;color:var(--warn-fg)}
+.row .ct.bad{color:var(--bad-fg)}
+.fold.in{color:var(--ink);font-weight:500}
+.fold .chev{transition:transform .2s var(--ease-out);color:var(--line-ico);width:16px;height:16px}
+.fold[aria-expanded="true"] .chev{transform:rotate(90deg)}
+.kids{display:grid;grid-template-rows:0fr;transition:grid-template-rows .2s var(--ease-out)}
+.kids.open{grid-template-rows:1fr}
+.kids>div{overflow:hidden;display:flex;flex-direction:column;gap:2px;padding-left:12px}
+.kids.open>div{padding-bottom:4px}
+.cap{font-size:14px;font-weight:500;color:var(--mute);padding:14px 10px 4px;flex:none}
+.cap:first-child{padding-top:6px}
+.dept .clock{height:48px;border-top:1px solid var(--hairline);display:flex;align-items:center;gap:8px;padding:0 16px;font-size:14px;color:var(--text);flex:none}
+.dept .clock .i{color:var(--line-ico);width:16px;height:16px}
+.btn:active,.row:active,.seg button:active,.pbtn:active,.ri:active{transform:scale(.97)}
+@media (hover:hover) and (pointer:fine){
+  .row:not(.on):hover{background:var(--soft-2);color:var(--ink)}
+  .seg button:not(.on):hover{color:#fff}
+  .rail .ri:not(.on):hover{color:#fff;background:#2e3032}
+  .li.go:hover{color:var(--ink)}
+}
+
+/* page */
+.main{overflow-y:auto;min-width:0}
+.page{padding:24px 32px 48px;max-width:1180px}
+.ph{margin-bottom:18px}
+.crumb{font-size:14px;font-weight:500;color:var(--mute);margin-bottom:5px}
+.ph h1{margin:0;font-size:15px;font-weight:600;line-height:20px}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--hairline);margin:14px 0 0}
+.tab{height:38px;padding:0 8px;font-size:14px;color:var(--body);position:relative;white-space:nowrap;display:flex;align-items:center}
+.tab.on{color:var(--ink);font-weight:500}
+.tab.on::after{content:"";position:absolute;left:6px;right:6px;bottom:-1px;height:2px;border-radius:2px;background:var(--ink)}
+.card{background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden;margin-bottom:16px}
+.ch{min-height:52px;display:flex;align-items:center;gap:10px;padding:0 20px;border-bottom:1px solid var(--hairline)}
+.ch h2{margin:0;font-size:15px;font-weight:600;flex:1}
+.t2{color:var(--mute);font-size:14px}
+.dg{display:grid;grid-template-columns:1fr 1fr}
+.dcol{padding:14px 20px 18px;min-width:0}
+.dcol+.dcol{border-left:1px solid var(--hairline)}
+.dcol .dt{font-size:14px;color:var(--mute);margin:0 0 6px;display:flex;gap:8px}
+.dcol .dt b{color:var(--ink);font-weight:500}
+.li{display:flex;align-items:center;gap:10px;min-height:32px;font-size:14px;color:var(--text)}
+.li .nm{flex:1;min-width:0}
+.li.g{font-weight:600;color:var(--ink);margin-top:8px}
+.li.g .gk{font-weight:400;color:var(--mute);margin-left:6px}
+.li.k{padding-left:16px}
+.li.on .nm{color:var(--accent);font-weight:500}
+.li.go{cursor:pointer}
+.li .sub{display:block;color:var(--mute);font-weight:400;line-height:20px;padding-bottom:4px}
+.tg{font-size:14px;white-space:nowrap}
+.tg.in{color:var(--accent)} .tg.back{color:var(--ok-fg)} .tg.out{color:var(--mute)} .tg.newp{color:var(--warn-fg)}
+.same{padding:16px 20px;color:var(--mute);font-size:14px}
+
+table{width:100%;border-collapse:separate;border-spacing:0;table-layout:fixed}
+th{background:var(--soft);font-size:14px;font-weight:500;color:var(--body);letter-spacing:.04em;text-align:left;padding:10px 20px;border-bottom:1px solid var(--hairline-2);line-height:20px;vertical-align:bottom}
+td{padding:14px 20px;border-bottom:1px solid var(--hairline);color:var(--text);vertical-align:top;font-size:14px;line-height:20px}
+tbody tr:last-child td{border-bottom:0}
+td:first-child{font-weight:500;color:var(--ink)}
+td .m2{color:var(--mute);margin-top:2px}
+th.star{color:var(--ink)}
+tr.tot td{background:var(--soft);font-weight:500;color:var(--ink)}
+tr.link{cursor:pointer}
+@media (hover:hover) and (pointer:fine){tr.link:hover td{background:#fafafb}}
+.gone{color:var(--faint)}
+
+/* phone menu */
+.ph-wrap{position:fixed;inset:82px 0 0 0;background:rgba(20,21,24,.42);display:grid;place-items:center;z-index:50;opacity:0;pointer-events:none;transition:opacity .2s ease}
+.ph-wrap.on{opacity:1;pointer-events:auto}
+.phone{width:414px;height:min(896px,calc(100vh - 110px));background:var(--soft-3);border-radius:34px;box-shadow:0 0 0 10px #0d0e10,0 30px 60px rgba(0,0,0,.35);overflow:hidden;position:relative;display:flex;flex-direction:column}
+.phone .tb{height:52px;display:flex;align-items:center;gap:6px;padding:0 16px;border-bottom:1px solid var(--hairline);margin-top:28px;flex:none}
+.phone .tb .dp{color:var(--mute);font-size:15px}
+.phone .tb .sc{font-weight:600;font-size:15px;display:flex;align-items:center;gap:4px}
+.phone .sk{padding:16px;display:flex;flex-direction:column;gap:10px}
+.phone .sk div{height:86px;border-radius:10px;background:var(--canvas);border:1px solid var(--hairline)}
+.phone .scrim{position:absolute;inset:0;background:rgba(20,21,24,.3)}
+.sheet{position:absolute;left:0;right:0;bottom:0;background:var(--canvas);border-radius:16px 16px 0 0;padding:8px 12px 42px;transform:translateY(100%);transition:transform .32s var(--ease-drawer);max-height:84%;overflow-y:auto;display:flex;flex-direction:column;gap:2px}
+.ph-wrap.on .sheet{transform:translateY(0)}
+.sheet .hd{width:36px;height:5px;border-radius:3px;background:var(--hairline-2);margin:0 auto 10px;flex:none}
+.sheet .sh{display:flex;align-items:center;padding:4px 8px 10px;flex:none}
+.sheet .sh h3{margin:0;font-size:18px;font-weight:600;flex:1}
+.sheet .x{width:44px;height:44px;display:grid;place-items:center;color:var(--line-ico);margin-right:-10px}
+.sheet .row{height:44px;font-size:15px}
+.sheet .kids>div{padding-left:14px}
+@media (prefers-reduced-motion:reduce){
+  .sheet,.kids,.fold .chev,.row,.tip{transition:none}
+  .btn:active,.row:active,.seg button:active,.pbtn:active,.ri:active{transform:none}
+}
+</style>
+</head>
+<body>
+<header class="proto">
+  <div class="t">Hub menu <span>· grouping</span></div>
+  <div class="seg" id="seg" role="tablist" aria-label="Version"></div>
+  <div class="sp"></div>
+  <button class="pbtn" id="phoneBtn" type="button"><svg class="i" viewBox="0 0 24 24"><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/></svg>Phone menu</button>
+</header>
+<div class="note" id="note"></div>
+<div class="app" id="app">
+  <nav class="rail" id="rail"></nav>
+  <aside class="dept" id="dept"></aside>
+  <main class="main" id="main"></main>
+</div>
+<div class="tip" id="tip"></div>
+<div class="ph-wrap" id="phw" aria-hidden="true"></div>
+
+<script>
+/* ───────────────────────── icons ───────────────────────── */
+const P={
+  cart:'<circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M2 3h3l2.6 12.2a1.5 1.5 0 0 0 1.5 1.3h8.6a1.5 1.5 0 0 0 1.5-1.2L21 8H6"/>',
+  shirt:'<path d="M8 3 3 6l2 5 2-1v11h10V10l2 1 2-5-5-3a4 4 0 0 1-8 0z"/>',
+  truck:'<path d="M2 6h12v10H2zM14 9h4l4 4v3h-8"/><circle cx="6.5" cy="17.5" r="1.8"/><circle cx="17.5" cy="17.5" r="1.8"/>',
+  boxes:'<path d="M7 3h10v7H7zM2 13h9v8H2zM13 13h9v8h-9z"/>',
+  mega:'<path d="M3 11v2a1 1 0 0 0 1 1h3l6 4V6L7 10H4a1 1 0 0 0-1 1zM17 9a4 4 0 0 1 0 6"/>',
+  store:'<path d="M3 9l1.5-5h15L21 9M3 9v11h18V9M3 9h18M9 20v-6h6v6"/>',
+  bank:'<path d="M3 10h18L12 4zM5 10v8M9.5 10v8M14.5 10v8M19 10v8M3 20h18"/>',
+  users:'<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14c2 .8 3.5 3 3.5 6"/>',
+  chat:'<path d="M4 5h16v11H9l-5 4z"/>',
+  book:'<path d="M12 6c-2-1.5-5-2-8-2v14c3 0 6 .5 8 2 2-1.5 5-2 8-2V4c-3 0-6 .5-8 2zM12 6v14"/>',
+  bell:'<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15zM10 20a2 2 0 0 0 4 0"/>',
+  out:'<path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10"/>',
+  clock:'<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+  panel:'<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M9 4.5v15"/>',
+  chev:'<path d="m6 9 6 6 6-6"/>',
+  right:'<path d="m9 6 6 6-6 6"/>',
+  x:'<path d="M6 6l12 12M18 6 6 18"/>',
+}
+const ic=(n,c='i')=>`<svg class="${c}" viewBox="0 0 24 24" aria-hidden="true">${P[n]||''}</svg>`
+const slug=s=>s.toLowerCase().replace(/&/g,'and').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')
+
+/* ───────────────────────── rows (labels as the hub shows them, 11 Oct) ───────────────────────── */
+const r=(label,o={})=>({id:o.id||slug(label),label,...o})
+const F=(name,rows)=>({fold:name,rows})   // menu → sub-menu, closed until you're in it
+const C=(name,rows)=>({cap:name,rows})    // the same group drawn as an open heading
+const L={
+  po:r('Purchase Orders',{count:1}), sup:r('Suppliers'), src:r('Sourcing'), rpo:r('Return PO',{count:3,tone:'bad'}),
+  art:r('Articles'), nw:r('New Articles',{count:12}), div:r('Divisions'), tag:r('Tags'), siz:r('Sizes'), col:r('Colors'), nam:r('Name Suggestions'),
+  allot:r('Allotments'), rho:r('Return to HO'),
+  rcv:r('Receiving',{count:6}), qc:r('Quantity Checks',{count:1}), oal:r('Allotment',{id:'ops-allotment',count:8}), rfs:r('Return from Store'), prt:r('Printing'), pkl:r('Packing Lists'),
+  stk:r('Stock'), exc:r('Exceptions',{id:'inv-exceptions'}), cnt:r('Counts'), mov:r('Movements'), obs:r('Observations'),
+  mov2:null,
+  mov3:null,
+  mo:r('Overview',{id:'mkt-overview'}), pl:r('Pricelist'), chg:r('Price changes',{count:1,tone:'bad'}), his:r('Price history'), pro:r('Promotions'), cam:r('Campaigns'), vou:r('Vouchers'),
+  sal:r('Sales'), ret:r('Returns'), sto:r('Stores'), sex:r('Exceptions',{id:'store-exceptions'}), mem:r('Members'), seg:r('Segments'),
+  gov:r('Overview',{id:'ga-overview'}), sreq:r('Supply Requests'), rep:r('Repairs'), svc:r('Service Schedule'), ast:r('Assets',{id:'ga-assets'}), con:r('Contracts'), site:r('Sites'), gsup:r('Suppliers',{id:'ga-suppliers'}), let:r('Letters'), fil:r('Files'),
+}
+const H=(label,o={})=>r(label,{id:'hr-'+slug(label),...o})
+const HR={
+  ov:H('Overview & Requests'),
+  people:['Employee List','Org Chart','Transfers & Changes','Onboarding','Offboarding','Reprimands','Invitations'].map(l=>H(l)),
+  time:['Time Off Requests','Time Off Balances','Attendance','Overtime','Roster','Team Calendar'].map(l=>H(l)),
+  pay:[H('Payroll Runs'),H('One-offs'),H('Claims'),H('Claim Allowances'),H('Loans'),H('Balances'),H('Tax & BPJS Report'),H('1721-A1')],
+  payToday:['Claims','Loans','Claim Allowances','Balances','Payroll Runs','One-offs','Tax & BPJS Report','1721-A1'].map(l=>H(l)),
+  rep:H('Reports'),
+  sCompany:['Company & NPP','Group & Business Units','Departments','Job Levels & Grades'].map(l=>H(l)),
+  sTime:['Attendance Rules','Mobile & Locations','Shifts & Breaks','Time Off Types','Holidays','Overtime Rules'].map(l=>H(l)),
+  sPay:['Schedule & Pro-rate','Components & Structures','Payslip','Absence Deduction','BPJS & Tax Rates','Claim Types','Benefit'].map(l=>H(l)),
+  sAccess:['Job Roles','Onboarding Tasks','Approval Delegation','Employee App'].map(l=>H(l)),
+}
+HR.pay[5]={...HR.pay[5],label:'Benefit Balances'}
+// HR settings as four pages; their old rows become tabs
+const page=(label,tabs)=>r(label,{id:'hr-set-'+slug(label),tabs})
+HR.pages=[page('Company',HR.sCompany),page('Time rules',HR.sTime),page('Pay rules',HR.sPay),page('Access',HR.sAccess)]
+
+const FN=(label)=>r(label,{id:'fin-'+slug(label)})
+const FIN=[FN('Overview'),
+  F('Stores',['Overview','Sales by Day','Cash on Hand','Petty Cash','Cashier Float','Cash Counts'].map(l=>r(l,{id:'fin-st-'+slug(l)}))),
+  F('Inventory',['Inventory Valuation','Stock vs Ledger','Goods in Transit','Cost of Goods Sold','Stock Adjustments'].map(FN)),
+  F('Payables',['Purchase Invoice','Credit Note','Recurring Bills','Accruals','Accounts Payable','Supplier Bills','Payment Projection','Loans'].map(FN)),
+  F('Receivables',['Card & EDC Settlement'].map(FN)),
+  F('Payments',['BKK','BKM','Journal Entry','Recurring Journal','Mode of Payment'].map(FN)),
+  F('Banking',['Bank Account','Giro Board','Bank Transactions','Bank Reconciliation','Bank Rules'].map(FN)),
+  F('Financial Reports',['General Ledger','Trial Balance','Profit and Loss','Balance Sheet','Cash Flow','Profit and Loss by Unit','Balance Sheet 2 Years','Sales by Division','Statement of Changes in Equity','Expenses by Month','Bank Reconciliation Summary'].map(FN)),
+  F('Assets',['Asset','Contractor Projects','Asset Category','Fixed Asset Register','Asset Disposals'].map(FN)),
+  F('Tax',['Tax Withholding','Tax Withholding Details','Tax Payables','Tax Types'].map(FN)),
+  F('Accounting Masters',['Chart of Accounts','Accounts Settings','Accounting Period','Pay Components'].map(FN)),
+  F('Closing',['Period Close','Period Closing Voucher'].map(FN)),
+]
+
+/* ───────────────────────── departments ───────────────────────── */
+const DEPTS=[
+  {id:'proc',label:'Procurement',icon:'cart',dot:1},{id:'merch',label:'Merchandise',icon:'shirt',dot:1},{id:'ops',label:'Ops',icon:'truck',dot:1},
+  {id:'inv',label:'Inventory',icon:'boxes'},{id:'mkt',label:'Marketing',icon:'mega'},{id:'sales',label:'Sales',icon:'store'},
+  {id:'fin',label:'Finance',icon:'bank',dot:1},{id:'hr',label:'HR',icon:'users'},{id:'ga',label:'GA',icon:'chat'},{id:'master',label:'Master',icon:'book',dot:1},
+]
+const capsOf=nav=>nav.map(x=>x.fold?C(x.fold,x.rows):x)
+
+/* ───────────────────────── versions ───────────────────────── */
+const MERCH3=[F('Articles',[L.art,L.nw,L.nam]),F('Attributes',[L.div,L.tag,L.siz,L.col]),F('Allotments',[L.allot,L.rho])]
+const MKT=[L.mo,F('Prices',[L.pl,L.chg,L.his]),F('Offers',[L.cam,L.pro,L.vou])]
+const GA3=[L.gov,F('Requests',[L.sreq,L.rep,L.svc]),F('Property',[L.ast,L.site,L.con,L.gsup]),F('Documents',[L.let,L.fil])]
+const B_NAV={
+  proc:[F('Orders',[L.po,L.rpo]),F('Suppliers',[L.sup,L.src])],
+  merch:MERCH3,
+  ops:[F('Inbound',[L.rcv,L.qc,L.prt,L.rfs]),F('Outbound',[L.oal,L.pkl])],
+  inv:[F('Stock',[L.stk,L.mov]),F('Checks',[L.cnt,L.exc,L.obs])],
+  mkt:MKT,
+  sales:[F('Sales',[L.sal,L.ret]),F('Stores',[L.sto,L.sex]),F('Members',[L.mem,L.seg])],
+  fin:FIN,
+  hr:[HR.ov,F('People',HR.people),F('Time',HR.time),F('Pay',HR.pay),HR.rep,F('Settings',HR.pages)],
+  ga:GA3,
+}
+const VERS=[
+  {k:'today',key:'Today',name:'',note:['<b>10 departments</b>','HR 44 rows, no groups','Merchandise and Master repeat 7 rows','Sales is one screen','Finance already in folds'],
+   nav:{
+    proc:[L.po,L.sup,L.src,L.rpo],
+    merch:[L.art,L.nw,L.div,L.tag,L.siz,L.col,L.nam,L.allot,L.rho],
+    ops:[L.rcv,L.qc,L.oal,L.rfs],
+    inv:[L.stk,L.exc,L.cnt,L.mov],
+    mkt:[L.pl,L.pro,L.cam,L.vou],
+    sales:[L.sal],
+    fin:FIN,
+    hr:[HR.ov,...HR.people,...HR.time,...HR.payToday,HR.rep,...HR.sCompany,...HR.sTime,...HR.sPay,...HR.sAccess],
+    ga:[L.gov,L.sreq,L.rep,L.svc,L.ast,L.con,L.site,L.gsup,L.let,L.fil],
+    master:[L.art,L.nw,L.div,L.tag,L.siz,L.col,L.nam,L.sup],
+   }},
+  {k:'a',key:'A',name:'Only the long ones',note:['<b>Folds where a department runs long</b>','Merchandise · Marketing · HR · GA · Master','Procurement, Ops, Inventory, Sales stay flat','Finance as is'],
+   nav:{
+    proc:[L.po,L.sup,L.src,L.rpo],
+    merch:MERCH3,
+    ops:[L.rcv,L.qc,L.oal,L.rfs],
+    inv:[L.stk,L.exc,L.cnt,L.mov],
+    mkt:MKT,
+    sales:[L.sal],
+    fin:FIN,
+    hr:[HR.ov,F('People',HR.people),F('Time',HR.time),F('Pay',HR.pay),HR.rep,F('Company setup',HR.sCompany),F('Time setup',HR.sTime),F('Payroll setup',HR.sPay),F('Access',HR.sAccess)],
+    ga:GA3,
+    master:[F('Articles',[L.art,L.nw,L.nam]),F('Attributes',[L.div,L.tag,L.siz,L.col]),L.sup],
+   }},
+  {k:'b',key:'B',name:'Prices + Offers everywhere',star:true,note:['<b>Every department reads as 2–3 nouns</b>','Master moves into Merchandise and Procurement','HR settings become 4 pages with tabs','Finance as is'],
+   nav:B_NAV},
+  {k:'c',key:'C',name:'Same groups, open',note:['<b>B’s groups as headings</b>','every row visible, no clicks to open','Finance keeps its folds'],
+   nav:Object.fromEntries(Object.entries(B_NAV).map(([d,nav])=>[d,d==='fin'?nav:capsOf(nav)]))},
+  {k:'d',key:'D',name:'Work, then Setup',note:['<b>Daily rows on top, one Setup fold last</b>','like Odoo’s Configuration menu','Master moves into Merchandise and Procurement','Finance as is'],
+   nav:{
+    proc:[L.po,L.rpo,L.sup,L.src],
+    merch:[L.art,L.nw,L.allot,L.rho,F('Setup',[L.div,L.tag,L.siz,L.col,L.nam])],
+    ops:[L.rcv,L.qc,L.prt,L.oal,L.pkl,L.rfs],
+    inv:[L.stk,L.exc,L.cnt,L.mov,L.obs],
+    mkt:[L.mo,L.pl,L.chg,L.pro,L.cam,L.vou],
+    sales:[L.sal,L.ret,L.sex,L.mem,F('Setup',[L.sto,L.seg])],
+    fin:FIN,
+    hr:[HR.ov,...HR.people,...HR.time,...HR.pay,HR.rep,F('Setup',[...HR.sCompany,...HR.sTime,...HR.sPay,...HR.sAccess])],
+    ga:[L.gov,L.sreq,L.rep,L.svc,L.ast,L.con,L.let,L.fil,F('Setup',[L.site,L.gsup])],
+   }},
+  {k:'cmp',key:'Compare',name:'',note:['<b>Every department, every version</b>'],nav:{}},
+]
+
+/* ───────────────────────── helpers ───────────────────────── */
+const leaves=nav=>(nav||[]).flatMap(x=>x.rows?x.rows:[x])
+const groupOf=(nav,id)=>{for(const x of nav||[]) if(x.rows&&x.rows.some(r=>r.id===id)) return x.fold||x.cap;return null}
+const isFlat=nav=>nav&&nav.length===1&&!nav[0].rows
+const verOf=k=>VERS.find(v=>v.k===k)
+const deptsOf=v=>DEPTS.filter(d=>v.nav[d.id])
+const TODAY=VERS[0]
+// where is a screen in a version: {dept, row, tabOf}
+function locate(v,id){
+  for(const d of deptsOf(v)){
+    for(const row of leaves(v.nav[d.id])){
+      if(row.id===id) return {d,row}
+      if(row.tabs&&row.tabs.some(t=>t.id===id)) return {d,row,tab:true}
+    }
+  }
+  return null
+}
+// provenance of a row in a version vs today
+function inTag(v,dId,row){
+  if(v.k==='today') return ''
+  if(row.tabs) return '<span class="tg newp">new page</span>'
+  const here=leaves(TODAY.nav[dId]||[]).some(x=>x.id===row.id)
+  if(here) return ''
+  const t=locate(TODAY,row.id)
+  return t?`<span class="tg in">from ${t.d.label}</span>`:'<span class="tg back">back from ⌘K</span>'
+}
+function outTag(v,dId,row){
+  if(v.k==='today') return ''
+  const here=leaves(v.nav[dId]||[])
+  if(here.some(x=>x.id===row.id)) return ''
+  const hit=here.find(x=>x.tabs&&x.tabs.some(t=>t.id===row.id))
+  if(hit) return `<span class="tg out">→ ${hit.label} tab</span>`
+  const t=locate(v,row.id)
+  return t?`<span class="tg out">→ ${t.d.label}</span>`:'<span class="tg out">→ ⌘K</span>'
+}
+
+/* ───────────────────────── state ───────────────────────── */
+const S={ver:'b',dept:'merch',at:{},open:{},phone:false}
+try{Object.assign(S,JSON.parse(localStorage.getItem('hub-menu-grouping')||'{}'));S.phone=false}catch(e){}
+const save=()=>{try{localStorage.setItem('hub-menu-grouping',JSON.stringify({ver:S.ver,dept:S.dept,at:S.at}))}catch(e){}}
+const ver=()=>verOf(S.ver)||VERS[2]
+function dept(){const v=ver();const ds=deptsOf(v);return ds.find(d=>d.id===S.dept)||ds.find(d=>d.id==='merch')||ds[0]}
+function current(){const v=ver(),d=dept();const all=leaves(v.nav[d.id]);return all.find(x=>x.id===S.at[v.k+':'+d.id])||all[0]}
+
+/* ───────────────────────── render ───────────────────────── */
+function renderSeg(){
+  document.getElementById('seg').innerHTML=VERS.map(v=>`<button role="tab" aria-selected="${v.k===S.ver}" class="${v.k===S.ver?'on':''}" data-ver="${v.k}"><b>${v.key}</b>${v.name}${v.star?'<span class="star">★</span>':''}</button>`).join('')
+  document.getElementById('note').innerHTML=ver().note.join('<span class="dotsep">·</span>')
+}
+function renderRail(){
+  const v=ver(),d=v.k==='cmp'?null:dept()
+  document.getElementById('rail').innerHTML=`<div class="logo">C</div>${deptsOf(v.k==='cmp'?TODAY:v).map(x=>`<button class="ri ${d&&x.id===d.id?'on':''}" data-dept="${x.id}" data-tip="${x.label}" aria-label="${x.label}">${ic(x.icon)}${x.dot?'<span class="bd"></span>':''}</button>`).join('')}<div class="gap"></div><div class="ri">${ic('chat')}</div><div class="ri">${ic('bell')}</div><div class="av">R</div><div class="ri">${ic('out')}</div>`
+}
+function navRows(v,d,cur){
+  const nav=v.nav[d.id]
+  const row=r=>`<button class="row ${cur&&r.id===cur.id?'on':''}" data-go="${r.id}"><span class="lb">${r.label}</span>${r.count?`<span class="ct ${r.tone||''}">${r.count}</span>`:''}</button>`
+  return nav.map(x=>{
+    if(x.cap) return `<div class="cap">${x.cap}</div>${x.rows.map(row).join('')}`
+    if(!x.fold) return row(x)
+    const inside=x.rows.some(r=>cur&&r.id===cur.id)
+    const key=v.k+':'+d.id+':'+x.fold
+    const open=S.open[key]!==undefined?S.open[key]:inside
+    const badges=!open?x.rows.filter(r=>r.count).map(r=>`<span class="ct ${r.tone||''}">${r.count}</span>`).join(''):''
+    return `<button class="row fold ${inside&&!open?'in':''}" aria-expanded="${open}" data-fold="${key}"><span class="lb">${x.fold}</span>${badges}${ic('right','i chev')}</button><div class="kids ${open?'open':''}"><div>${x.rows.map(row).join('')}</div></div>`
+  }).join('')
+}
+function renderDept(){
+  const v=ver(),app=document.getElementById('app')
+  if(v.k==='cmp'){app.classList.add('wide');return}
+  const d=dept(),cur=current()
+  app.classList.toggle('wide',isFlat(v.nav[d.id]))
+  document.getElementById('dept').innerHTML=`<div class="dh"><h2>${d.label}</h2>${ic('panel')}</div><div class="rows">${navRows(v,d,cur)}</div><div class="clock">${ic('clock')}Sun 11 Oct 2026 · 06:35</div>`
+}
+function counts(nav){const groups=nav.filter(x=>x.rows).length;const n=leaves(nav).length;const tabs=leaves(nav).reduce((a,x)=>a+(x.tabs?x.tabs.length:0),0);return {groups,n,top:nav.length,tabs}}
+function listCol(v,dId,nav,cur,side){
+  const item=(row,kid)=>{
+    const tag=side==='left'?outTag(ver(),dId,row):inTag(v,dId,row)
+    const on=side==='right'&&cur&&row.id===cur.id
+    const sub=row.tabs?`<span class="sub">${row.tabs.map(t=>t.label).join(' · ')}</span>`:''
+    return `<div class="li ${kid?'k':''} ${on?'on':''} ${side==='right'?'go':''}" ${side==='right'?`data-go="${row.id}"`:''}><span class="nm">${row.label}${sub}</span>${tag}</div>`
+  }
+  return nav.map(x=>x.rows?`<div class="li g">${x.fold||x.cap}<span class="gk">${x.rows.length}</span></div>${x.rows.map(r=>item(r,true)).join('')}`:item(x,false)).join('')
+}
+function renderMain(){
+  const v=ver(),m=document.getElementById('main')
+  if(v.k==='cmp'){m.innerHTML=`<div class="page">${compare()}</div>`;return}
+  const d=dept(),cur=current(),nav=v.nav[d.id],tnav=TODAY.nav[d.id]
+  const g=groupOf(nav,cur.id)
+  const same=JSON.stringify(nav)===JSON.stringify(tnav)
+  const ct=counts(nav),tt=tnav?counts(tnav):null
+  const sum=c=>`${c.top} at the top${c.groups?` · ${c.groups} groups`:''} · ${c.n} rows`
+  // what came in from elsewhere (rows not in today's version of this department)
+  const head=`<div class="ph"><div class="crumb">${d.label}${g?' · '+g:''}</div><h1>${cur.label}</h1>${cur.tabs?`<div class="tabs">${cur.tabs.map((t,i)=>`<span class="tab ${i?'':'on'}">${t.label}</span>`).join('')}</div>`:''}</div>`
+  let body
+  if(v.k==='today'){
+    body=`<section class="card"><div class="ch"><h2>${d.label}</h2><span class="t2">${sum(ct)}</span></div><div class="dcol">${listCol(v,d.id,nav,cur,'right')}</div></section>`
+  }else if(same){
+    body=`<section class="card"><div class="ch"><h2>${d.label}</h2><span class="t2">Same as today · ${sum(ct)}</span></div><div class="dcol">${listCol(v,d.id,nav,cur,'right')}</div></section>`
+  }else{
+    // Master has no column in B/C/D: show today's Master moving out
+    body=`<section class="card"><div class="ch"><h2>${d.label}</h2><span class="t2">${tt?sum(tt):'—'} → ${sum(ct)}</span></div>
+      <div class="dg"><div class="dcol"><div class="dt"><b>Today</b></div>${tnav?listCol(TODAY,d.id,tnav,null,'left'):''}</div>
+      <div class="dcol"><div class="dt"><b>${v.key} · ${v.name}</b></div>${listCol(v,d.id,nav,cur,'right')}</div></div></section>`
+  }
+  // in versions without Master, show where Master's rows went
+  let extra=''
+  if(v.k!=='today'&&!v.nav.master&&(d.id==='merch'||d.id==='proc')){
+    extra=`<section class="card"><div class="ch"><h2>Master</h2><span class="t2">Leaves the rail</span></div><div class="dcol">${listCol(TODAY,'master',TODAY.nav.master,null,'left')}</div></section>`
+  }
+  m.innerHTML=`<div class="page">${head}${body}${extra}</div>`
+}
+function compare(){
+  const vs=VERS.filter(v=>v.k!=='cmp')
+  const cell=(v,d)=>{
+    const nav=v.nav[d.id]
+    if(!nav) return '<span class="gone">Gone</span>'
+    const c=counts(nav)
+    const names=nav.filter(x=>x.rows).map(x=>x.fold||x.cap)
+    const loose=nav.filter(x=>!x.rows).length
+    const rows=k=>`${k} ${k===1?'row':'rows'}`
+    const first=d.id==='fin'?'11 folds, ERPNext':isFlat(nav)?'1 screen, no menu':!names.length?rows(c.n):loose>1?`${rows(loose)} + ${names.join(' · ')}`:names.join(' · ')
+    return `${first}<div class="m2">${c.top} at the top · ${rows(c.n)}${c.tabs?` · ${c.tabs} as tabs`:''}</div>`
+  }
+  const dup=[
+    ['Articles, New Articles, Divisions, Tags, Sizes, Colors, Name Suggestions','Merchandise and Master','Merchandise only'],
+    ['Suppliers','Procurement and Master','Procurement only · GA keeps its own service suppliers'],
+    ['Allotment','Merchandise (Allotments) and Ops (Allotment)','Merchandise › Allotments · Ops › Outbound › Allotment'],
+    ['Loans','Finance › Payables and HR','Finance › Payables · HR › Pay'],
+    ['Assets','Finance › Assets and GA','Finance › Assets · GA › Property'],
+  ]
+  return `<div class="ph"><h1>Compare</h1></div>
+  <section class="card"><table><colgroup><col style="width:140px">${vs.map(()=>'<col>').join('')}</colgroup>
+   <thead><tr><th>Department</th>${vs.map(v=>`<th class="${v.star?'star':''}">${v.key}${v.name?' · '+v.name:''}${v.star?' ★':''}</th>`).join('')}</tr></thead><tbody>
+   <tr class="tot"><td>In the rail</td>${vs.map(v=>`<td>${deptsOf(v).length} departments</td>`).join('')}</tr>
+   ${DEPTS.map(d=>`<tr class="link" data-dept="${d.id}">${`<td>${d.label}</td>`}${vs.map(v=>`<td>${cell(v,d)}</td>`).join('')}</tr>`).join('')}
+  </tbody></table></section>
+  <section class="card"><div class="ch"><h2>Same word, two places</h2></div><table><colgroup><col><col style="width:300px"><col style="width:360px"></colgroup>
+   <thead><tr><th>Rows</th><th>Today</th><th>B ★</th></tr></thead><tbody>
+   ${dup.map(x=>`<tr><td>${x[0]}</td><td>${x[1]}</td><td>${x[2]}</td></tr>`).join('')}
+  </tbody></table></section>`
+}
+function renderPhone(){
+  const w=document.getElementById('phw'),v=ver()
+  if(v.k==='cmp') S.phone=false
+  w.setAttribute('aria-hidden',!S.phone)
+  if(!S.phone){w.classList.remove('on');return}
+  const d=dept(),cur=current()
+  w.classList.remove('on')
+  w.innerHTML=`<div class="phone"><div class="tb"><span class="dp">${d.label} /</span><span class="sc">${cur.label}${ic('chev')}</span></div><div class="sk"><div></div><div></div><div></div><div></div></div><div class="scrim" data-close></div>
+    <div class="sheet" role="dialog" aria-label="${d.label} menu"><div class="hd"></div><div class="sh"><h3>${d.label}</h3><button class="x" data-close aria-label="Close">${ic('x')}</button></div>${navRows(v,d,cur)}</div></div>`
+  void w.offsetHeight
+  w.classList.add('on')
+}
+function render(){renderSeg();renderRail();renderDept();renderMain();renderPhone();save()}
+
+/* ───────────────────────── events ───────────────────────── */
+document.addEventListener('click',e=>{
+  const t=e.target.closest('[data-ver],[data-dept],[data-go],[data-fold],[data-close],#phoneBtn')
+  if(!t) return
+  if(t.dataset.ver){S.ver=t.dataset.ver;render();document.getElementById('main').scrollTop=0;return}
+  if(t.dataset.dept){S.dept=t.dataset.dept;if(ver().k==='cmp')S.ver='b';render();document.getElementById('main').scrollTop=0;return}
+  if(t.dataset.go){const v=ver(),d=dept();S.at[v.k+':'+d.id]=t.dataset.go;if(t.closest('.sheet'))S.phone=false;render();return}
+  if(t.dataset.fold){
+    const k=t.dataset.fold,was=t.getAttribute('aria-expanded')==='true';S.open[k]=!was
+    // every copy of this fold (column and phone sheet) slides; no re-render
+    document.querySelectorAll(`[data-fold="${CSS.escape(k)}"]`).forEach(b=>{
+      b.setAttribute('aria-expanded',!was);b.nextElementSibling.classList.toggle('open',!was)
+      const v=ver(),d=dept(),f=v.nav[d.id].find(x=>x.fold&&k.endsWith(':'+x.fold)),inside=f&&f.rows.some(r=>r.id===current().id)
+      b.classList.toggle('in',was&&!!inside);b.querySelectorAll('.ct').forEach(x=>x.remove())
+      if(was&&f) b.querySelector('.chev').insertAdjacentHTML('beforebegin',f.rows.filter(r=>r.count).map(r=>`<span class="ct ${r.tone||''}">${r.count}</span>`).join(''))
+    })
+    return
+  }
+  if(t.id==='phoneBtn'){S.phone=!S.phone;renderPhone();return}
+  if(t.hasAttribute('data-close')){S.phone=false;renderPhone();return}
+})
+// rail labels on hover (the hub shows names in a tooltip too)
+const tip=document.getElementById('tip')
+document.addEventListener('mouseover',e=>{const b=e.target.closest('[data-tip]');if(!b){tip.classList.remove('on');return}const r=b.getBoundingClientRect();tip.textContent=b.dataset.tip;tip.style.top=(r.top+r.height/2-15)+'px';tip.classList.add('on')})
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'&&S.phone){S.phone=false;renderPhone();return}
+  if(e.key==='ArrowRight'||e.key==='ArrowLeft'){const i=VERS.findIndex(v=>v.k===S.ver);S.ver=VERS[(i+(e.key==='ArrowRight'?1:-1)+VERS.length)%VERS.length].k;render()}
+  if(e.key==='ArrowDown'||e.key==='ArrowUp'){const v=ver();if(v.k==='cmp')return;e.preventDefault();const ds=deptsOf(v);const i=ds.findIndex(d=>d.id===dept().id);S.dept=ds[(i+(e.key==='ArrowDown'?1:-1)+ds.length)%ds.length].id;render()}
+})
+render()
+</script>
+</body>
+</html>

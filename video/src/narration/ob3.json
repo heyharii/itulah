@@ -1,0 +1,54 @@
+[
+  {
+    "id": "edit",
+    "text": "Rencana berubah: Store Kemang cukup 250, bukan 300. MD membuka allotment-nya dan menekan **Edit**."
+  },
+  {
+    "id": "steps",
+    "text": "Jumlahnya diubah langsung per SKU."
+  },
+  {
+    "id": "lock",
+    "text": "Toko yang sudah **In transit** terkunci. Yang sudah dikirim tidak bisa dikurangi."
+  },
+  {
+    "id": "save",
+    "text": "Barangnya sudah di-pack, jadi ada 50 pcs yang harus dikembalikan gudang. **Save changes**."
+  },
+  {
+    "id": "strip",
+    "text": "Di papan gudang, kartunya mendapat strip merah **Edited −50**: dari 300 jadi 250."
+  },
+  {
+    "id": "blocked",
+    "text": "Kartu ini belum bisa dikirim sampai kelebihannya dikembalikan."
+  },
+  {
+    "id": "sheet",
+    "text": "Di detailnya terlihat per SKU: **Was**, **Now**, dan berapa yang di-**Move back**."
+  },
+  {
+    "id": "moveback",
+    "text": "**Move back** sudah terisi dengan kelebihannya. Gudang tinggal mengonfirmasi."
+  },
+  {
+    "id": "racks",
+    "text": "Label koli yang dibuka dicetak ulang, dan 50 pcs kembali ke rak sebagai stok."
+  },
+  {
+    "id": "normal",
+    "text": "Kartunya kembali normal: 250 pcs, siap dikirim."
+  },
+  {
+    "id": "partial",
+    "text": "Move back juga bisa sebagian, ke **Picked** atau ke **To pick**."
+  },
+  {
+    "id": "transit",
+    "text": "Yang sudah **In transit** tidak bisa ditarik kembali."
+  },
+  {
+    "id": "add",
+    "text": "Kalau MD menambah jumlah, gudang mendapat kartu baru di **To pick**."
+  }
+]

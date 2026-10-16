@@ -1,0 +1,9 @@
+[
+  { "id": "intro", "text": "Ringkasnya, delapan hal ini tidak bisa mundur." },
+  { "id": "list1", "text": "Count yang sudah diterima, receipt yang sudah menggerakkan stok, dan kiriman yang sedang jalan." },
+  { "id": "list2", "text": "Receipt toko atau DC setelah Submit, dan dokumen yang selesai, ditutup, atau dibatalkan." },
+  { "id": "list3", "text": "Kehilangan atau penyesuaian stok yang sudah diposting, barang yang sudah di supplier, dan penyelesaian yang sudah ditutup." },
+  { "id": "partly", "text": "Kalau baru sebagian yang diproses, batasnya hanya untuk bagian itu. Sisanya masih bisa ditarik, diubah, atau ditutup." },
+  { "id": "race", "text": "Kalau Recall dan Accept terjadi bersamaan, hanya satu yang menang. Yang lain ditolak dengan alasannya." },
+  { "id": "retry", "text": "Dan kalau koneksi putus lalu dikirim ulang, hasilnya tetap sama. Bukan Recall, bukan kiriman kedua." }
+]

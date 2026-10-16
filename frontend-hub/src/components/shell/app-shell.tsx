@@ -23,6 +23,7 @@ const AssistantPanel = lazy(() =>
 )
 import { AssistantProvider } from "@/components/assistant/session"
 import { useAssistant } from "@/components/assistant/state"
+import { AccountOrb } from "@/components/shell/account-orb"
 import { BottomBar } from "@/components/shell/bottom-bar"
 import { DockProvider, useDockRow } from "@/components/shell/dock"
 import { CommandPalette } from "@/components/shell/command-palette"
@@ -36,6 +37,7 @@ import {
 } from "@/components/shell/sub-sidebar"
 import { TopBar } from "@/components/shell/top-bar"
 import { SheetSpace } from "@/components/shell/sheet-space"
+import { StoreServerNews } from "@/components/shell/store-server-news"
 import {
   atLeast,
   publishPageWidth,
@@ -48,11 +50,14 @@ import { useSections } from "@/lib/session"
 import { useSheetsOpen } from "@/lib/sheet-space"
 import { cn } from "@/lib/utils"
 
-/// The screens that stand alone, without the shell's navigation: they hold one
-/// task and bring their own title and a way out (owner, 10 Oct 2026: New
-/// allotment "kayak sheet satu page", no sidebar showing; the Ops allotment
-/// board full screen with an ×).
-const FOCUS_PATHS: readonly string[] = ["/allotment/new", "/operations/board"]
+/// The screens that hold one task and bring their own title and a way out
+/// (owner, 10 Oct 2026: New allotment "kayak sheet satu page"). They keep the
+/// rail, and the screens panel starts folded (owner, 14 Oct: "tetap ada inner
+/// sidebar dan outer sidebar tapi innernya collapse saja").
+// The Ops board is no longer one of them: it sits in the shell like every
+// other page, its lanes and cards as they were (owner, 14 Oct: "board jangan
+// gitu, tetap ada sidebarnya", "kanban jangan diubah").
+const FOCUS_PATHS: readonly string[] = ["/allotment/new"]
 
 /// The shell: rail · panel · (bar over page).
 ///
@@ -89,6 +94,7 @@ export function AppShell() {
     <AssistantProvider>
       <SheetSpace>
         <Shell />
+        <StoreServerNews />
       </SheetSpace>
     </AssistantProvider>
   )
@@ -107,9 +113,9 @@ function Shell() {
   /// for a `md:`/`lg:` class instead, and the two agree because `useLayout`
   /// breaks on Tailwind's own numbers.
   const docked = atLeast(layout, "desktop")
-  /// A task that is a page of its own — the allotment grid — is given the
-  /// whole window: no rail, no screens panel, no bar. The page carries its own
-  /// title and Back, so there is nothing the chrome would add.
+  /// A task that is a page of its own — the allotment grid: the rail stays,
+  /// the screens panel starts folded, no bar. The page carries its own title
+  /// and Back.
   const focus = useRouterState({
     select: (state) => FOCUS_PATHS.includes(state.location.pathname),
   })
@@ -152,6 +158,13 @@ function Shell() {
   const [paletteOpen, setPaletteOpen] = useState(false)
   const openPalette = useCallback(() => setPaletteOpen(true), [])
   const [sidebarOpen, setSidebarOpen] = useState(readSidebarOpen)
+  /// On a task page (New allotment) the rail stays and the screens panel
+  /// starts folded (owner, 14 Oct: "tetap ada inner sidebar dan outer sidebar
+  /// tapi innernya collapse saja"). Opened there, it is opened for that visit
+  /// only — the desk's own choice is left alone.
+  const [focusPanel, setFocusPanel] = useState(false)
+  if (!focus && focusPanel) setFocusPanel(false)
+  const panelShown = focus ? focusPanel : sidebarOpen
   /// The floating screens panel, on a compact desk. A boolean closed by every
   /// finished navigation, like the drawer.
   const [floatDomain, setFloatDomain] = useState<string | null>(null)
@@ -206,13 +219,14 @@ function Shell() {
       setFloatDomain((open) =>
         open !== null ? null : (subSidebar?.id ?? null)
       )
+    else if (docked && focus) setFocusPanel((open) => !open)
     else if (docked) {
       setSidebarOpen((open) => {
         writeSidebarOpen(!open)
         return !open
       })
     } else setDrawerOpen((open) => !open)
-  }, [docked, compact, subSidebar?.id])
+  }, [docked, compact, focus, subSidebar?.id])
 
   /// Every finished navigation shuts it. One subscription rather than a rule
   /// each in the drawer, the palette, the domain bar and every link a screen
@@ -261,18 +275,18 @@ function Shell() {
   return (
     <RailPick.Provider value={compact ? pick : null}>
       <DockProvider phone={phone}>
-        <div className="app-shell flex h-full w-full overflow-hidden bg-soft-3">
+        <div className="app-shell flex h-full w-full overflow-hidden bg-canvas">
           {/* The rail is docked-only and always the icons; the screens live in
           the light panel beside it. Under 64rem both become the drawer:
           68px + 232px of permanent chrome on a 768px screen, to hold
           something a thumb opens once a session, is the trade the drawer
           exists to refuse. */}
-          {docked && !focus && (
+          {docked && (
             <NavColumn
               folded
               panelOpen={
                 subSidebar === null ||
-                (compact ? floatDomain !== null : sidebarOpen)
+                (compact ? floatDomain !== null : panelShown)
               }
               onSearch={() => setPaletteOpen(true)}
               onToggleNav={toggleSidebar}
@@ -281,12 +295,12 @@ function Shell() {
           {/* Full height, beside the page column: the desk bar spans only the
           page, and the panel's head (the rail brand's height) is what lines
           the three columns' lower edges up. */}
-          {docked && !focus && !compact && subSidebar !== null && sidebarOpen && (
+          {docked && !compact && subSidebar !== null && panelShown && (
             <SubSidebar onFold={toggleSidebar} />
           )}
           {/* On a compact desk the panel is over the page, beside the rail: a
           scrim to tap away, and the panel in the light, with a shadow. */}
-          {compact && !focus && floatPanel !== null && (
+          {compact && floatPanel !== null && (
             <>
               <div
                 aria-hidden
@@ -298,7 +312,7 @@ function Shell() {
               </div>
             </>
           )}
-          <div ref={page} className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <div ref={page} className="shell-page flex min-h-0 min-w-0 flex-1 flex-col">
             {/* On a desk the header is a slim strip carrying only the business
             time (2 Oct 2026; the "Find anything" bar went, search stays on
             ⌘K and in the column). It sits outside the scroller below, so
@@ -346,6 +360,13 @@ function Shell() {
           </div>
 
           {phone && !focus && <BottomBar />}
+          {/* The account corner — chat, discussions, notifications, profile,
+          search, sign-out — as one orb over every screen, on every device
+          (owner, 2026-10-16: account-corner-prototype.html E). After the
+          bars, so it can find the bottom bar it rests above. */}
+          {!docked && (
+            <AccountOrb onSearch={openPalette} bars={`${layout}-${focus}`} />
+          )}
           {!docked && !phone && (
             <NavDrawer
               open={drawerOpen}
@@ -508,7 +529,7 @@ export function PageContent({
     <div
       className={cn(
         // Airy on a desk (2026-09-28): 32px gutters, 28px under the bar.
-        "mx-auto max-w-[100rem] px-4 pt-4 pb-10 md:px-8 md:pt-7 md:pb-16",
+        "page-content mx-auto max-w-[100rem] px-4 pt-4 pb-10 md:px-8 md:pt-7 md:pb-16",
         fill && "flex h-full min-h-0 flex-col pb-4 md:pb-6"
       )}
     >

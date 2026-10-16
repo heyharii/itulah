@@ -42,7 +42,7 @@ import { cn } from "@/lib/utils"
 /// prose beside it is what they read the first time.
 export function Keycap({ children }: { children: ReactNode }) {
   return (
-    <kbd className="shrink-0 rounded-[5px] border border-hairline-2 bg-canvas px-1.5 py-px font-mono text-[0.875rem] leading-[1.4] text-body">
+    <kbd className="shrink-0 rounded-[5px] border border-hairline-2 bg-canvas px-1.5 py-px font-mono text-[0.9375rem] leading-[1.4] text-body">
       {children}
     </kbd>
   )
@@ -90,7 +90,7 @@ export function OperatorMenu({
             {sections.map((section) => (
               <Menu.Group key={section.group}>
                 {sections.length > 1 && (
-                  <Menu.GroupLabel className="px-2.5 pt-2 pb-1 text-[0.875rem] font-semibold tracking-wide text-mute uppercase">
+                  <Menu.GroupLabel className="px-2.5 pt-2 pb-1 text-[0.9375rem] font-semibold tracking-wide text-mute uppercase">
                     {section.label}
                   </Menu.GroupLabel>
                 )}
@@ -167,7 +167,7 @@ export function FilterChip({
         field={field}
         operator={filter.operator}
         onChange={(operator) => onChange(retarget(filter, operator))}
-        className="flex shrink-0 items-center border-x border-hairline bg-soft px-2 font-mono text-[0.875rem] text-body transition-colors hover:text-ink"
+        className="flex shrink-0 items-center border-x border-hairline bg-soft px-2 font-mono text-[0.9375rem] text-body transition-colors hover:text-ink"
       >
         {operatorSymbol(filter.operator)}
       </OperatorMenu>

@@ -64,9 +64,8 @@ export const commercialNav: AppModule = {
   sections: [
     {
       // Owner's menu of 2026-09-28: Pricelist, Promotions, Campaigns and
-      // Vouchers are the department's own primary rows now; Overview,
-      // Changes and History (still Prices' own three tenses, in order) moved
-      // under More.
+      // Vouchers are the department's own primary rows now; Overview and
+      // History moved under More. Changes became the Pricelist's second tab.
       items: [
         {
           path: "/commercial",
@@ -74,12 +73,19 @@ export const commercialNav: AppModule = {
           icon: LayoutDashboard,
           more: true,
         },
-        { path: "/commercial/prices", label: "Pricelist", icon: Tags },
         {
+          path: "/commercial/prices",
+          label: "Pricelist",
+          icon: Tags,
+          alsoLights: ["/commercial/changes"],
+        },
+        {
+          // Price changes are a tab of the Pricelist now; the path stays
+          // routed for the links that name it.
           path: "/commercial/changes",
           label: "Changes",
           icon: Waypoints,
-          more: true,
+          hidden: true,
         },
         {
           path: "/commercial/history",

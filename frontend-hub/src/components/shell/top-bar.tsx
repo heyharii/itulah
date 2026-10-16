@@ -5,17 +5,13 @@ import {
   allNavItems,
   domainForPath,
   domainHome,
+  doorForPath,
   moduleForPath,
-  topBarAsides,
-  type AppModule,
 } from "@/lib/navigation"
 import { BrandMark } from "@/components/brand-mark"
 import { TimeTravel } from "@/components/shell/time-travel"
-import { NotificationBell } from "@/components/shell/notification-bell"
 import { cn } from "@/lib/utils"
 import { useAssistant } from "@/components/assistant/state"
-import { initialOf } from "@/lib/format"
-import { useIdentity } from "@/lib/session"
 
 /// The bar over the page: where you are, and the tools that are not a place.
 ///
@@ -50,10 +46,13 @@ export function TopBar({
   const parent = domain?.label ?? module.label
 
   return (
-    // On the page's own grey rather than white (2026-09-28, airy charcoal):
-    // the bar is part of the page it names, separated by a hairline, not a
-    // second strip of chrome across the top of it.
-    <header className="flex h-13 shrink-0 items-center gap-3 border-b border-hairline bg-soft-3 px-5 max-md:bg-canvas max-md:px-3 max-md:[[data-header-band]_&]:border-b-transparent">
+    // On the page's own white (the ground is white since 2026-10-11): the bar
+    // is part of the page it names, separated by a hairline, not a second
+    // strip of chrome across the top of it.
+    <header
+      data-shell-bar="top"
+      className="flex h-13 shrink-0 items-center gap-3 border-b border-hairline bg-canvas px-5 max-md:px-3 max-md:[[data-header-band]_&]:border-b-transparent"
+    >
       {onToggleNav && (
         <button
           type="button"
@@ -83,7 +82,7 @@ export function TopBar({
       <PhoneTitle pathname={pathname} />
       <nav
         aria-label="Breadcrumb"
-        className="flex min-w-0 flex-1 items-center gap-2 text-[0.875rem] font-medium max-md:hidden"
+        className="flex min-w-0 flex-1 items-center gap-2 text-[0.9375rem] font-medium max-md:hidden"
       >
         {domain ? (
           <Link
@@ -113,22 +112,14 @@ export function TopBar({
       </nav>
 
       <div className="flex shrink-0 items-center gap-2">
-        {/* On a phone the bar holds the title and the profile, nothing else
-            (owner, 2026-10-06): no clock, no Ask. */}
+        {/* On a phone the bar holds the title, nothing else (owner,
+            2026-10-06): no clock, no Ask; the profile is the orb's. */}
         <span className="contents max-md:hidden">
           <TimeTravel place="bar" />
         </span>
-        {topBarAsides.map((aside) => (
-          <AsideLink
-            key={aside.id}
-            aside={aside}
-            here={module.id === aside.id}
-          />
-        ))}
-        {/* On a phone the bell is the bottom bar's Notifications tab. */}
-        <span className="contents max-md:hidden">
-          <NotificationBell />
-        </span>
+        {/* Chat, Discussions, the bell and the profile stood here; they are
+            the account orb now, the same on every device (owner,
+            2026-10-16: `account-orb.tsx`). */}
         {/* The assistant, as a control with its word on it. It was a bare
             sparkle glyph that did nothing when pressed; ⌘J was the only way
             in. */}
@@ -137,12 +128,11 @@ export function TopBar({
           onClick={() => assistant.setOpen(!assistant.open)}
           aria-pressed={assistant.open}
           title="Ask  ⌘J"
-          className="inline-flex h-8 items-center gap-1.5 rounded-inner px-2.5 text-[0.875rem] font-medium text-body transition-colors hover:bg-soft-2 hover:text-ink aria-pressed:bg-soft-2 aria-pressed:text-ink max-md:hidden pointer-coarse:h-11"
+          className="inline-flex h-8 items-center gap-1.5 rounded-inner px-2.5 text-[0.9375rem] font-medium text-body transition-colors hover:bg-soft-2 hover:text-ink aria-pressed:bg-soft-2 aria-pressed:text-ink max-md:hidden pointer-coarse:h-11"
         >
           <Sparkles className="size-[0.9375rem] stroke-[1.7] text-accent" />
           <span className="max-md:hidden">Ask</span>
         </button>
-        <ProfileLink />
       </div>
     </header>
   )
@@ -159,7 +149,10 @@ export function DeskBar() {
   return (
     // h-13: the rail brand's and the screens panel's head height, so the
     // three columns' lower edges are one line across the window.
-    <header className="flex h-13 shrink-0 items-center justify-end border-b border-hairline bg-soft-3 px-5">
+    <header
+      data-shell-bar="top"
+      className="flex h-13 shrink-0 items-center justify-end border-b border-hairline bg-canvas px-5"
+    >
       <TimeTravel place="header" />
     </header>
   )
@@ -179,7 +172,12 @@ function PhoneTitle({ pathname }: { pathname: string }) {
   const domain = domainForPath(pathname)
   const module = moduleForPath(pathname)
   const screen = screenForPath(pathname)
-  const title = screen?.label ?? domain?.label ?? module.label
+  // A door's tab or view is named by its door; the dock says which tab.
+  const title =
+    doorForPath(pathname)?.door.label ??
+    screen?.label ??
+    domain?.label ??
+    module.label
 
   if (within(pathname, "/chat") || within(pathname, "/discussions")) {
     return (
@@ -198,7 +196,7 @@ function PhoneTitle({ pathname }: { pathname: string }) {
                 className={cn(
                   // 40 in the pill's 2px rim is 44; `after` makes the rim part of
                   // the target (D1).
-                  "relative inline-flex h-10 items-center rounded-[calc(var(--r-inner)-2px)] px-3.5 text-[0.875rem] font-medium transition-colors after:absolute after:inset-x-0 after:-inset-y-0.5 after:content-['']",
+                  "relative inline-flex h-10 items-center rounded-[calc(var(--r-inner)-2px)] px-3.5 text-[0.9375rem] font-medium transition-colors after:absolute after:inset-x-0 after:-inset-y-0.5 after:content-['']",
                   on ? "bg-canvas text-ink shadow-soft" : "text-body"
                 )}
               >
@@ -275,63 +273,4 @@ function screenForPath(pathname: string) {
     if (matches && item.path.length > (best?.path.length ?? -1)) best = item
   }
   return best
-}
-
-/// One aside in the top bar, with the count it carries.
-///
-/// Its own component so the aside's `useCount` is one hook call at the top of
-/// a component — `aside.useCount?.()` inside the `.map()` above would be a
-/// hook in a loop body.
-function AsideLink({ aside, here }: { aside: AppModule; here: boolean }) {
-  const useCount = aside.useCount ?? noAsideCount
-  const waiting = useCount()
-  const label =
-    typeof waiting === "number" && waiting > 0
-      ? `${aside.label}, ${waiting} unread`
-      : aside.label
-  return (
-    <Link
-      to={aside.home}
-      title={label}
-      aria-label={label}
-      aria-current={here ? "page" : undefined}
-      className={cn(
-        "relative grid size-8 shrink-0 place-items-center rounded-inner text-line-ico transition-colors hover:bg-soft-2 hover:text-text pointer-coarse:size-tap",
-        // On a phone these are the bottom bar's Messages tab.
-        "max-md:hidden",
-        here && "bg-soft-2 text-ink"
-      )}
-    >
-      <aside.icon className="size-[1.0625rem] stroke-[1.55]" />
-      {typeof waiting === "number" && waiting > 0 && (
-        <span className="absolute -top-1.5 -right-1.5 grid h-5 min-w-5 place-items-center rounded-full bg-accent px-1 text-[0.875rem] leading-none font-semibold text-white tabular-nums ring-2 ring-canvas">
-          {waiting > 99 ? "99+" : waiting}
-        </span>
-      )}
-    </Link>
-  )
-}
-
-function noAsideCount(): null {
-  return null
-}
-
-/// Profile, at the top of a phone's screen (owner, 2026-10-05): the account is
-/// opened rarely, so it takes the corner a thumb reaches last, and the bottom
-/// bar keeps to what is pressed all day. A circle with the initial, as phones
-/// draw an account.
-function ProfileLink() {
-  const identity = useIdentity()
-  const name = identity.data?.display_name ?? identity.data?.username ?? ""
-  return (
-    <Link
-      to={"/me" as string}
-      aria-label="Profile"
-      title="Profile"
-      // 32px to see, 44px to press: the ring of extra reach is invisible.
-      className="relative grid size-8 shrink-0 place-items-center rounded-full bg-accent-bg text-[0.875rem] font-semibold text-accent transition-[scale] duration-(--t-press) ease-(--ease-out) select-none after:absolute after:-inset-1.5 after:content-[''] active:scale-[0.92] md:hidden"
-    >
-      {initialOf(name)}
-    </Link>
-  )
 }

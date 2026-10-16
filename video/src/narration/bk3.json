@@ -1,0 +1,9 @@
+[
+  { "id": "pick", "text": "Di jalur DC ke toko, barang yang sudah di-pick atau di-pack masih bisa dikembalikan gudang dengan **Move back**." },
+  { "id": "part", "text": "Bisa juga sebagian. Kalau 40 sudah berangkat, 40 itu tetap terkirim." },
+  { "id": "rest", "text": "Sisa 60 masih bisa di-Move back, atau ditutup MD dengan **Close remaining**." },
+  { "id": "transit", "text": "Garis merahnya di **In transit**. Yang sudah berangkat tidak bisa ditarik." },
+  { "id": "count", "text": "Kalau ada yang salah di kiriman, ketahuannya saat toko menghitung." },
+  { "id": "receipt", "text": "Receipt toko langsung tercatat begitu di-Submit, jadi tidak ada Recall. Jalannya **Recount** atau koreksi baru." },
+  { "id": "closed", "text": "Allotment yang sudah selesai tidak dibuka lagi. Gantinya Return to HO atau allotment baru." }
+]

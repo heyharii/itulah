@@ -38,17 +38,20 @@ export const button = cva(
   {
     variants: {
       variant: {
-        primary: "bg-cta text-cta-fg hover:bg-cta-hover [&_svg]:text-cta-fg",
+        primary: "btn-primary bg-cta text-cta-fg hover:bg-cta-hover [&_svg]:text-cta-fg",
         ghost:
-          "border border-hairline-2 bg-canvas text-text shadow-soft hover:bg-soft-2 hover:text-ink [&_svg]:text-line-ico",
-        soft: "bg-soft-2 text-text hover:bg-hairline [&_svg]:text-line-ico",
+          "btn-ghost border border-hairline-2 bg-canvas text-text shadow-soft hover:bg-soft-2 hover:text-ink [&_svg]:text-line-ico",
+        soft: "btn-soft bg-soft-2 text-text hover:bg-hairline [&_svg]:text-line-ico",
         // The button on a record card's foot (Edit, Set up, Pick): accent text on
         // the accent's own wash, as Apple's tinted button. Quieter than `primary`
         // where a list carries twenty of them, and the same on every card
         // (owner, 2026-10-06).
-        tint: "bg-accent-bg font-semibold text-accent hover:bg-accent-bg/60 [&_svg]:text-accent",
-        quiet: "text-body hover:bg-soft-2 hover:text-ink [&_svg]:text-line-ico",
-        danger: "bg-bad-bg text-bad-fg hover:brightness-97",
+        tint: "btn-tint bg-accent-bg font-semibold text-accent hover:bg-accent-bg/60 [&_svg]:text-accent",
+        quiet: "btn-quiet text-body hover:bg-soft-2 hover:text-ink [&_svg]:text-line-ico",
+        danger: "btn-danger bg-bad-bg text-bad-fg hover:brightness-97",
+        // Calling something off (Cancel, Close Short): solid red with white text, the one
+        // place red is a fill (owner, 2026-10-12).
+        destructive: "btn-destructive bg-bad-fg text-white hover:brightness-90 [&_svg]:text-white",
       },
       size: {
         // 32, from `--spacing-control` — the one height every control in a

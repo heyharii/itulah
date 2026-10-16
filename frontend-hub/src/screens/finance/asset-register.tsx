@@ -1,20 +1,21 @@
-import { useQuery } from "@tanstack/react-query"
-import { Fragment, useMemo, useState } from "react"
+import { useQuery, useSuspenseQuery } from "@tanstack/react-query"
+import { Fragment, Suspense, useDeferredValue, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { AppLink } from "@/components/ui/app-link"
-import { Panel } from "@/components/ui/dialog"
 import { ExportButton } from "@/components/ui/export-button"
 import { Input, Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
+import { Sheet } from "@/components/ui/sheet"
+import { SheetFooter } from "@/components/ui/sheet-footer"
 import { Banner, EmptyState } from "@/components/ui/states"
 import type { ExportSheet } from "@/lib/export-xlsx"
 import { count, day, money } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import {
   assetSchedule,
+  assetsAllQuery,
   financeKeys,
-  listAllAssets,
 } from "@/lib/queries/finance"
 import { useSiteLabel } from "@/lib/queries/organisation"
 import { queryState } from "@/lib/query-state"
@@ -26,6 +27,7 @@ import {
 } from "@/screens/finance/chart"
 import { PhoneCard, PhoneHeading, PhoneList } from "@/components/ui/phone-cards"
 import { SiteSelect } from "@/screens/finance/parts"
+import { ScreenPending } from "@/screens/finance/pending"
 import { ReportFilters, ReportSummary } from "@/screens/finance/report"
 
 import type { AssetRow } from "@itulah/contract"
@@ -49,6 +51,23 @@ import type { AssetRow } from "@itulah/contract"
 /// wrong figure that looks right.
 
 export function AssetRegister() {
+  return (
+    <Suspense
+      fallback={
+        <ScreenPending
+          crumb="Finance · Financial Reports"
+          title="Fixed Asset Register"
+        >
+          Reading the register…
+        </ScreenPending>
+      }
+    >
+      <AssetRegisterScreen />
+    </Suspense>
+  )
+}
+
+function AssetRegisterScreen() {
   const phone = useLayout() === "phone"
   const [site, setSite] = useState("")
   const [category, setCategory] = useState("")
@@ -56,19 +75,17 @@ export function AssetRegister() {
   const [opened, setOpened] = useState<AssetRow | null>(null)
   const siteName = useSiteLabel()
 
-  const register = useQuery({
-    queryKey: financeKeys.assetsAll("CAPITALIZE", null, site || null),
-    queryFn: ({ signal }) =>
-      listAllAssets(
-        { decision: "CAPITALIZE", site: site || undefined },
-        signal
-      ),
-  })
+  // The site select answers at once; the register trails it, and the rows in
+  // hand stay on screen (dimmed) until the next are read.
+  const askedSite = useDeferredValue(site)
+  const register = useSuspenseQuery(
+    assetsAllQuery("CAPITALIZE", null, askedSite)
+  )
 
   /// Capitalised and still owned. `disposed_on` is the fact; the status text
   /// follows it.
   const owned = useMemo(
-    () => (register.data?.rows ?? []).filter((row) => row.disposed_on === null),
+    () => register.data.rows.filter((row) => row.disposed_on === null),
     [register.data]
   )
   const categories = useMemo(() => {
@@ -236,152 +253,157 @@ export function AssetRegister() {
         )}
       </ReportFilters>
 
-      {queryState(register, {
-        loading: "Reading the asset register…",
-        render: (data) => (
-          <>
-            {!data.complete && (
-              <Banner tone="warn" className="mb-3">
-                The register is larger than this report reads in one go, so the
-                figures below are for part of it. Narrow the site.
-              </Banner>
-            )}
-            <ReportSummary
-              items={[
-                { label: "Assets", display: count(all.assets) },
-                { label: "Cost", value: all.cost },
-                { label: "Accumulated depreciation", value: all.accumulated },
-                { label: "Book value", value: all.book },
-              ]}
-            />
-            {groups.length === 0 ? (
-              <EmptyState>
-                No capitalised asset is on the books
-                {needle.trim() !== ""
-                  ? ` that matches “${needle.trim()}”.`
-                  : site === "" && category === ""
-                    ? " yet. An asset appears here once Finance has capitalised it and until it is disposed of."
-                    : " for this narrowing."}
-              </EmptyState>
-            ) : phone ? (
-              <PhoneList>
-                {groups.map((group) => (
-                  <Fragment key={group.code}>
-                    <PhoneHeading
-                      title={`${group.name} · ${count(group.rows.length)}`}
-                      total={money(group.book)}
-                    />
-                    {group.rows.map((row) => (
-                      <PhoneCard
-                        key={row.asset_id}
-                        title={row.name}
-                        line={
-                          <span className="font-mono">{row.asset_number}</span>
-                        }
-                        lead={money(row.book_value_minor)}
-                        caption="book value"
-                        foot={
-                          <>
-                            <div>
-                              In service {day(row.in_service_on)} ·{" "}
-                              {methodLabel(row.method)}
-                            </div>
-                            <div className="tabular-nums">
-                              Cost {money(row.capitalized_cost_minor)} ·
-                              Depreciated {money(row.accumulated_minor)}
-                            </div>
-                          </>
-                        }
-                        onOpen={() => setOpened(row)}
-                      />
-                    ))}
-                  </Fragment>
-                ))}
-              </PhoneList>
-            ) : (
-              <Grid>
-                <thead>
-                  <tr>
-                    <Th>Asset</Th>
-                    <Th>In service</Th>
-                    <Th align="right">Cost</Th>
-                    <Th align="right">Accumulated depreciation</Th>
-                    <Th align="right">Book value</Th>
-                  </tr>
-                </thead>
-                <tbody>
+      <div className="list-swap" aria-busy={askedSite !== site || undefined}>
+        {queryState(register, {
+          render: (data) => (
+            <>
+              {!data.complete && (
+                <Banner tone="warn" className="mb-3">
+                  The register is larger than this report reads in one go, so
+                  the figures below are for part of it. Narrow the site.
+                </Banner>
+              )}
+              <ReportSummary
+                items={[
+                  { label: "Assets", display: count(all.assets) },
+                  { label: "Cost", value: all.cost },
+                  { label: "Accumulated depreciation", value: all.accumulated },
+                  { label: "Book value", value: all.book },
+                ]}
+              />
+              {groups.length === 0 ? (
+                <EmptyState>
+                  No capitalised asset is on the books
+                  {needle.trim() !== ""
+                    ? ` that matches “${needle.trim()}”.`
+                    : site === "" && category === ""
+                      ? " yet. An asset appears here once Finance has capitalised it and until it is disposed of."
+                      : " for this narrowing."}
+                </EmptyState>
+              ) : phone ? (
+                <PhoneList>
                   {groups.map((group) => (
                     <Fragment key={group.code}>
-                      {/* The category is the band, so it is not a column. */}
-                      <tr className="bg-soft [&>td]:h-10">
-                        <Td colSpan={5} className="font-medium text-ink">
-                          {group.name}{" "}
-                          <span className="font-normal text-mute">
-                            · {count(group.rows.length)}
-                          </span>
-                        </Td>
-                      </tr>
+                      <PhoneHeading
+                        title={`${group.name} · ${count(group.rows.length)}`}
+                        total={money(group.book)}
+                      />
                       {group.rows.map((row) => (
-                        <tr
+                        <PhoneCard
                           key={row.asset_id}
-                          onClick={() => setOpened(row)}
-                          className="cursor-pointer"
-                        >
-                          <Td className="max-w-[26rem]">
-                            <span
-                              className="block truncate text-ink"
-                              title={row.name}
-                            >
-                              {row.name}
+                          title={row.name}
+                          line={
+                            <span className="font-mono">
+                              {row.asset_number}
                             </span>
-                            <span className="block">
-                              <Code>{row.asset_number}</Code>
-                            </span>
-                          </Td>
-                          <Td>
-                            {day(row.in_service_on)}
-                            <span className="block text-[0.875rem] text-mute">
-                              {methodLabel(row.method)} ·{" "}
-                              {count(row.useful_life_months)} months
-                            </span>
-                          </Td>
-                          <Td align="right">
-                            {money(row.capitalized_cost_minor)}
-                          </Td>
-                          <Td align="right">{money(row.accumulated_minor)}</Td>
-                          <Td align="right" className="font-medium text-ink">
-                            {money(row.book_value_minor)}
-                          </Td>
-                        </tr>
+                          }
+                          lead={money(row.book_value_minor)}
+                          caption="book value"
+                          foot={
+                            <>
+                              <div>
+                                In service {day(row.in_service_on)} ·{" "}
+                                {methodLabel(row.method)}
+                              </div>
+                              <div className="tabular-nums">
+                                Cost {money(row.capitalized_cost_minor)} ·
+                                Depreciated {money(row.accumulated_minor)}
+                              </div>
+                            </>
+                          }
+                          onOpen={() => setOpened(row)}
+                        />
                       ))}
-                      <tr className="border-t border-hairline-strong">
-                        <Td colSpan={2} className="font-medium text-ink">
-                          Subtotal — {group.name}
-                        </Td>
-                        <Td align="right" className="font-medium text-ink">
-                          {money(group.cost)}
-                        </Td>
-                        <Td align="right" className="font-medium text-ink">
-                          {money(group.accumulated)}
-                        </Td>
-                        <Td align="right" className="font-medium text-ink">
-                          {money(group.book)}
-                        </Td>
-                      </tr>
                     </Fragment>
                   ))}
-                  <TotalRow>
-                    <Td colSpan={2}>Total</Td>
-                    <Td align="right">{money(all.cost)}</Td>
-                    <Td align="right">{money(all.accumulated)}</Td>
-                    <Td align="right">{money(all.book)}</Td>
-                  </TotalRow>
-                </tbody>
-              </Grid>
-            )}
-          </>
-        ),
-      })}
+                </PhoneList>
+              ) : (
+                <Grid>
+                  <thead>
+                    <tr>
+                      <Th>Asset</Th>
+                      <Th>In service</Th>
+                      <Th align="right">Cost</Th>
+                      <Th align="right">Accumulated depreciation</Th>
+                      <Th align="right">Book value</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {groups.map((group) => (
+                      <Fragment key={group.code}>
+                        {/* The category is the band, so it is not a column. */}
+                        <tr className="bg-soft [&>td]:h-10">
+                          <Td colSpan={5} className="font-medium text-ink">
+                            {group.name}{" "}
+                            <span className="font-normal text-mute">
+                              · {count(group.rows.length)}
+                            </span>
+                          </Td>
+                        </tr>
+                        {group.rows.map((row) => (
+                          <tr
+                            key={row.asset_id}
+                            onClick={() => setOpened(row)}
+                            className="cursor-pointer"
+                          >
+                            <Td className="max-w-[26rem]">
+                              <span
+                                className="block truncate text-ink"
+                                title={row.name}
+                              >
+                                {row.name}
+                              </span>
+                              <span className="block">
+                                <Code>{row.asset_number}</Code>
+                              </span>
+                            </Td>
+                            <Td>
+                              {day(row.in_service_on)}
+                              <span className="block text-[0.9375rem] text-mute">
+                                {methodLabel(row.method)} ·{" "}
+                                {count(row.useful_life_months)} months
+                              </span>
+                            </Td>
+                            <Td align="right">
+                              {money(row.capitalized_cost_minor)}
+                            </Td>
+                            <Td align="right">
+                              {money(row.accumulated_minor)}
+                            </Td>
+                            <Td align="right" className="font-medium text-ink">
+                              {money(row.book_value_minor)}
+                            </Td>
+                          </tr>
+                        ))}
+                        <tr className="border-t border-hairline-strong">
+                          <Td colSpan={2} className="font-medium text-ink">
+                            Subtotal — {group.name}
+                          </Td>
+                          <Td align="right" className="font-medium text-ink">
+                            {money(group.cost)}
+                          </Td>
+                          <Td align="right" className="font-medium text-ink">
+                            {money(group.accumulated)}
+                          </Td>
+                          <Td align="right" className="font-medium text-ink">
+                            {money(group.book)}
+                          </Td>
+                        </tr>
+                      </Fragment>
+                    ))}
+                    <TotalRow>
+                      <Td colSpan={2}>Total</Td>
+                      <Td align="right">{money(all.cost)}</Td>
+                      <Td align="right">{money(all.accumulated)}</Td>
+                      <Td align="right">{money(all.book)}</Td>
+                    </TotalRow>
+                  </tbody>
+                </Grid>
+              )}
+            </>
+          ),
+        })}
+      </div>
 
       {opened !== null && (
         <ScheduleSheet asset={opened} onClose={() => setOpened(null)} />
@@ -435,13 +457,16 @@ function ScheduleSheet({
   })
 
   return (
-    <Panel
+    <Sheet
       open
       onOpenChange={(next) => {
         if (!next) onClose()
       }}
-      title={`${asset.asset_number} · ${asset.name}`}
-      sub={asset.category_name}
+      title={asset.name}
+      id={asset.asset_number}
+      caption={asset.category_name}
+      size="rail"
+      footer={<SheetFooter onCancel={onClose} cancelLabel="Close" />}
     >
       {queryState(schedule, {
         loading: "Reading what has been charged…",
@@ -477,9 +502,8 @@ function ScheduleSheet({
                 ))}
               </dl>
               {data.charged.length === 0 ? (
-                <p className="text-[0.875rem] text-mute">
-                  Nothing has been charged yet. Land never charges, and an asset
-                  capitalised this month has not been reached by the run.
+                <p className="text-[0.9375rem] text-mute">
+                  Nothing has been charged yet.
                 </p>
               ) : phone ? (
                 <ul className="flex flex-col">
@@ -493,7 +517,7 @@ function ScheduleSheet({
                         <AppLink
                           to="/finance/accounting/journal-entries"
                           sheet={{ key: "entry", value: row.entry_id }}
-                          className="block font-mono text-[0.875rem] text-accent hover:underline"
+                          className="block font-mono text-[0.9375rem] text-accent hover:underline"
                         >
                           {row.entry_number}
                         </AppLink>
@@ -521,7 +545,7 @@ function ScheduleSheet({
                           <AppLink
                             to="/finance/accounting/journal-entries"
                             sheet={{ key: "entry", value: row.entry_id }}
-                            className="font-mono text-[0.875rem] text-accent hover:underline"
+                            className="font-mono text-[0.9375rem] text-accent hover:underline"
                           >
                             {row.entry_number}
                           </AppLink>
@@ -536,6 +560,6 @@ function ScheduleSheet({
           )
         },
       })}
-    </Panel>
+    </Sheet>
   )
 }

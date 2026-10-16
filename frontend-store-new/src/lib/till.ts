@@ -220,6 +220,8 @@ export function useCashMovement(shiftId: string): UseMutationResult<
         reason,
         actor_id: actorFrom(client),
         supervisor,
+        received_by: null,
+        counted: [],
         idempotency_key: commandKey(`cash-${kind.toLowerCase()}`),
       }
       return node.post<ShiftReport>(

@@ -1,33 +1,44 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useMemo, useState } from "react"
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query"
+import type { ColumnDef } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
+import { Suspense, useDeferredValue, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { ConfirmButton, Panel } from "@/components/ui/dialog"
+import { DataTable } from "@/components/ui/data-table"
+import { ConfirmButton } from "@/components/ui/dialog"
 import { Fab } from "@/components/ui/fab"
 import { Checkbox, Field, Input, Select, Textarea } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
+import { Sheet } from "@/components/ui/sheet"
+import { SheetFooter } from "@/components/ui/sheet-footer"
 import { Toolbar } from "@/components/ui/segmented"
 import { Banner, EmptyState, Problem } from "@/components/ui/states"
 import { count } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import { queryState } from "@/lib/query-state"
 import {
+  bankRulesQuery,
   evaluateBankRules,
   financeKeys,
-  listBankRules,
   listTransactionCategories,
   recordBankRule,
   retireBankRule,
   updateBankRule,
 } from "@/lib/queries/finance"
-import { Code, Grid, Td, Th } from "@/screens/finance-final/parts"
+import { tableSetup, type TableSetup } from "@/lib/table"
+import { Code } from "@/screens/finance-final/parts"
 import { useMeaningLabel } from "@/screens/finance/hooks"
-import { CardFigure, PhoneList } from "@/components/ui/phone-cards"
 import { PhoneChoice, UnitName, UnitSelect } from "@/screens/finance/parts"
+import { ScreenPending } from "@/screens/finance/pending"
 import type {
   BankRuleRow,
   BankRuleRunOutcome,
@@ -63,6 +74,20 @@ import type {
 /// Retiring is the only way to stop a rule. A proposal names the rule that
 /// made it, and "why was this booked there" has to keep an answer.
 export function BankRules() {
+  return (
+    <Suspense
+      fallback={
+        <ScreenPending crumb="Finance · Banking" title="Bank Rules">
+          Reading the rules…
+        </ScreenPending>
+      }
+    >
+      <BankRulesScreen />
+    </Suspense>
+  )
+}
+
+function BankRulesScreen() {
   const [showRetired, setShowRetired] = useState(false)
   const [editing, setEditing] = useState<BankRuleRow | "new" | null>(null)
   const [outcome, setOutcome] = useState<BankRuleRunOutcome | null>(null)
@@ -70,11 +95,9 @@ export function BankRules() {
   const meaning = useMeaningLabel()
   const phone = useLayout() === "phone"
 
-  const rules = useQuery({
-    queryKey: financeKeys.bankRules(showRetired),
-    queryFn: ({ signal }) =>
-      listBankRules({ include_retired: showRetired }, signal),
-  })
+  // Ticking "Show retired" answers at once; the retired rules follow, and the
+  // rules in hand stay on screen until they are read.
+  const rules = useSuspenseQuery(bankRulesQuery(useDeferredValue(showRetired)))
 
   const refresh = () => {
     void client.invalidateQueries({ queryKey: ["finance", "bank-rules"] })
@@ -98,28 +121,188 @@ export function BankRules() {
 
   // The server orders active rules first, lowest priority first; a retired
   // rule shown on request sits after them, which is where it belongs.
-  const rows = rules.data ?? []
+  const rows = rules.data
   const active = rows.filter((row) => row.active).length
+
+  /// The rules in the order they are tried. A row opens the rule to edit it
+  /// (a retired one is a record and stays as it is); on a card the pattern
+  /// names it, what it records as and where follow, and how often it was
+  /// accepted stands beneath, with the rule's state at the right.
+  const columns = useMemo<ColumnDef<TableSetup, BankRuleRow>[]>(
+    () => [
+      {
+        id: "priority",
+        accessorFn: (row) => row.priority,
+        header: "Priority",
+        size: 100,
+        enableSorting: false,
+        meta: { align: "right", card: "hide", priority: 2 },
+      },
+      {
+        id: "pattern",
+        accessorFn: (row) => row.pattern,
+        header: "When the description…",
+        size: 280,
+        enableSorting: false,
+        meta: { card: "title", grow: 240 },
+        cell: ({ row }) => (
+          <span className="flex min-w-0 flex-col whitespace-normal">
+            <span>
+              <span className="font-normal text-mute">
+                {MATCH_VERB[row.original.match_kind] ?? row.original.match_kind}
+              </span>{" "}
+              <span className="font-mono text-[0.9375rem] text-ink">
+                {row.original.pattern}
+              </span>
+            </span>
+            {row.original.party !== null && (
+              <span className="text-[0.9375rem] font-normal text-mute">
+                Party: {row.original.party}
+              </span>
+            )}
+          </span>
+        ),
+      },
+      {
+        id: "direction",
+        accessorFn: (row) => row.direction,
+        header: "Direction",
+        size: 110,
+        enableSorting: false,
+        meta: { card: "metric", priority: 2 },
+        cell: ({ row }) =>
+          DIRECTION[row.original.direction] ?? row.original.direction,
+      },
+      {
+        id: "records_as",
+        accessorFn: (row) => row.category_name ?? row.semantic_key,
+        header: "Records as",
+        size: 260,
+        enableSorting: false,
+        meta: { card: "meta" },
+        cell: ({ row }) => (
+          <span className="flex min-w-0 flex-col whitespace-normal">
+            <RecordsAs row={row.original} meaning={meaning} />
+          </span>
+        ),
+      },
+      {
+        id: "unit",
+        accessorFn: (row) => row.unit_id,
+        header: "Unit",
+        size: 130,
+        enableSorting: false,
+        meta: { card: "metric", priority: 3 },
+        cell: ({ row }) => <UnitName id={row.original.unit_id} />,
+      },
+      {
+        id: "used",
+        accessorFn: (row) => row.accepted_count,
+        header: "Used",
+        size: 120,
+        enableSorting: false,
+        meta: { align: "right", card: "metric" },
+        // A rule with proposals and no acceptances is one people keep saying
+        // no to — say so in words, beside the figure.
+        cell: ({ row }) =>
+          row.original.proposed_count === 0 ? (
+            <span className="text-mute">Never</span>
+          ) : (
+            <>
+              {count(row.original.accepted_count)}
+              <span className="text-mute">
+                {" "}
+                of {count(row.original.proposed_count)}
+              </span>
+            </>
+          ),
+      },
+      {
+        id: "active",
+        accessorFn: (row) => row.active,
+        header: "Active",
+        size: 100,
+        enableSorting: false,
+        meta: { card: "status" },
+        cell: ({ row }) =>
+          row.original.active ? (
+            <span className="text-mute">Active</span>
+          ) : (
+            <Pill tone="neutral">Retired</Pill>
+          ),
+      },
+      {
+        id: "actions",
+        accessorFn: (row) => row.rule_id,
+        header: "",
+        size: 170,
+        enableSorting: false,
+        enableHiding: false,
+        meta: { align: "right", card: "hide" },
+        cell: ({ row }) =>
+          row.original.active && (
+            // A click in here is the button's, and a dialog it opens is part of
+            // this cell as far as React is concerned: neither opens the rule.
+            <span
+              className="inline-flex items-center gap-1.5"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <Button size="sm" onClick={() => setEditing(row.original)}>
+                Edit
+              </Button>
+              <ConfirmButton
+                size="sm"
+                variant="quiet"
+                label="Retire"
+                title={`Retire the rule for “${row.original.pattern}”?`}
+                description="It stops proposing from the next run. Proposals it already made stay, and keep naming this rule."
+                confirmLabel="Retire rule"
+                tone="danger"
+                onConfirm={() => retire.mutateAsync(row.original.rule_id)}
+              />
+            </span>
+          ),
+      },
+    ],
+    // `retire` is a mutation object that changes every render; its
+    // `mutateAsync` is stable, which is all the cell holds on to.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [meaning, retire.mutateAsync]
+  )
+
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: rows,
+        columns,
+        getRowId: (row: BankRuleRow) => row.rule_id,
+      }),
+      [rows, columns]
+    )
+  )
 
   return (
     <PageContent>
       <PageHeader
-        className="max-md:hidden"
         crumb="Finance · Banking"
         title="Bank Rules"
+        // A phone has the + at the thumb and "Apply rules now" at the foot.
         actions={
-          <>
-            <Button
-              pending={apply.isPending}
-              disabled={active === 0}
-              onClick={() => apply.mutate()}
-            >
-              {apply.isPending ? "Applying…" : "Apply rules now"}
-            </Button>
-            <Button variant="primary" onClick={() => setEditing("new")}>
-              New rule
-            </Button>
-          </>
+          phone ? undefined : (
+            <>
+              <Button
+                pending={apply.isPending}
+                disabled={active === 0}
+                onClick={() => apply.mutate()}
+              >
+                {apply.isPending ? "Applying…" : "Apply rules now"}
+              </Button>
+              <Button variant="primary" onClick={() => setEditing("new")}>
+                New rule
+              </Button>
+            </>
+          )
         }
       />
 
@@ -177,16 +360,15 @@ export function BankRules() {
               onChange={setShowRetired}
             />
             <Toolbar.Spacer />
-            <span className="text-[0.875rem] text-mute">
+            <span className="text-[0.9375rem] text-mute">
               {count(active)} active {active === 1 ? "rule" : "rules"} · lowest
               priority is tried first
             </span>
           </Toolbar>
         )}
 
-        <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+        <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
           {queryState(rules, {
-            loading: "Reading the rules…",
             render: () =>
               rows.length === 0 ? (
                 <EmptyState
@@ -196,146 +378,22 @@ export function BankRules() {
                     </Button>
                   }
                 >
-                  No rule yet. A rule recognises a bank line you see every month
-                  — a charge, interest, a tax — and proposes what it is.
+                  No rule yet.
                 </EmptyState>
-              ) : phone ? (
-                <PhoneList
-                  rows={rows.map((row) => ({
-                    key: row.rule_id,
-                    title: (
-                      <>
-                        <span className="font-normal text-mute">
-                          {MATCH_VERB[row.match_kind] ?? row.match_kind}
-                        </span>{" "}
-                        <span className="font-mono text-[1rem]">
-                          {row.pattern}
-                        </span>
-                      </>
-                    ),
-                    line: <RecordsAs row={row} meaning={meaning} />,
-                    lead:
-                      row.proposed_count === 0 ? (
-                        <CardFigure value="Never" caption="used" />
-                      ) : (
-                        <CardFigure
-                          value={count(row.accepted_count)}
-                          caption={`of ${count(row.proposed_count)} used`}
-                        />
-                      ),
-                    foot: (
-                      <span className="flex flex-col">
-                        <span>
-                          Priority {row.priority} ·{" "}
-                          {DIRECTION[row.direction] ?? row.direction}
-                        </span>
-                        <UnitName id={row.unit_id} />
-                      </span>
-                    ),
-                    action: row.active ? (
-                      <Button
-                        variant="tint"
-                        size="card"
-                        onClick={() => setEditing(row)}
-                      >
-                        Edit
-                      </Button>
-                    ) : (
-                      <Pill tone="neutral">Retired</Pill>
-                    ),
-                    onOpen: row.active ? () => setEditing(row) : undefined,
-                  }))}
-                />
               ) : (
-                <Grid>
-                  <thead>
-                    <tr>
-                      <Th align="right" width="5.5rem">
-                        Priority
-                      </Th>
-                      <Th>When the description…</Th>
-                      <Th width="6.5rem">Direction</Th>
-                      <Th>Records as</Th>
-                      <Th width="9rem">Unit</Th>
-                      <Th align="right" width="8rem">
-                        Used
-                      </Th>
-                      <Th width="6.5rem">Active</Th>
-                      <Th width="11rem" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((row) => (
-                      <tr key={row.rule_id}>
-                        <Td align="right">{row.priority}</Td>
-                        <Td>
-                          <span className="text-mute">
-                            {MATCH_VERB[row.match_kind] ?? row.match_kind}
-                          </span>{" "}
-                          <span className="font-mono text-[0.875rem] text-ink">
-                            {row.pattern}
-                          </span>
-                          {row.party !== null && (
-                            <span className="block text-[0.875rem] text-mute">
-                              Party: {row.party}
-                            </span>
-                          )}
-                        </Td>
-                        <Td>{DIRECTION[row.direction] ?? row.direction}</Td>
-                        <Td>
-                          <RecordsAs row={row} meaning={meaning} />
-                        </Td>
-                        <Td>
-                          <UnitName id={row.unit_id} />
-                        </Td>
-                        <Td align="right">
-                          {/* A rule with proposals and no acceptances is one
-                              people keep saying no to — say so in words,
-                              beside the figure. */}
-                          {row.proposed_count === 0 ? (
-                            <span className="text-mute">Never</span>
-                          ) : (
-                            <>
-                              {count(row.accepted_count)}
-                              <span className="text-mute">
-                                {" "}
-                                of {count(row.proposed_count)}
-                              </span>
-                            </>
-                          )}
-                        </Td>
-                        <Td>
-                          {row.active ? (
-                            <span className="text-mute">Active</span>
-                          ) : (
-                            <Pill tone="neutral">Retired</Pill>
-                          )}
-                        </Td>
-                        <Td align="right">
-                          {row.active && (
-                            <span className="inline-flex items-center gap-1.5">
-                              <Button size="sm" onClick={() => setEditing(row)}>
-                                Edit
-                              </Button>
-                              <ConfirmButton
-                                size="sm"
-                                variant="quiet"
-                                label="Retire"
-                                title={`Retire the rule for “${row.pattern}”?`}
-                                description="It stops proposing from the next run. Proposals it already made stay, and keep naming this rule."
-                                confirmLabel="Retire rule"
-                                tone="danger"
-                                onConfirm={() =>
-                                  retire.mutateAsync(row.rule_id)
-                                }
-                              />
-                            </span>
-                          )}
-                        </Td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </Grid>
+                <DataTable<BankRuleRow>
+                  refresh={[rules]}
+                  table={table}
+                  onRowClick={(row) => row.active && setEditing(row)}
+                  isSelected={(row) =>
+                    editing !== null &&
+                    editing !== "new" &&
+                    editing.rule_id === row.rule_id
+                  }
+                  pageScroll
+                  cardSort={false}
+                  cardsApart
+                />
               ),
           })}
         </Card>
@@ -351,23 +409,17 @@ export function BankRules() {
         )}
       </div>
 
-      <Panel
-        open={editing !== null}
-        onOpenChange={(next) => !next && setEditing(null)}
-        title={editing === "new" ? "New rule" : "Edit rule"}
-        sub="When a bank line's description matches, propose what it is. Nothing posts until somebody accepts."
-      >
-        {editing !== null && (
-          <RuleForm
-            key={editing === "new" ? "new" : editing.rule_id}
-            rule={editing === "new" ? null : editing}
-            onDone={() => {
-              setEditing(null)
-              refresh()
-            }}
-          />
-        )}
-      </Panel>
+      {editing !== null && (
+        <RuleForm
+          key={editing === "new" ? "new" : editing.rule_id}
+          rule={editing === "new" ? null : editing}
+          onClose={() => setEditing(null)}
+          onDone={() => {
+            setEditing(null)
+            refresh()
+          }}
+        />
+      )}
     </PageContent>
   )
 }
@@ -403,7 +455,7 @@ function RecordsAs({
   return (
     <>
       <span className="text-ink">{name}</span>
-      <span className="block text-[0.875rem]">
+      <span className="block text-[0.9375rem]">
         {row.account_code === null ? (
           <span className="text-warn-fg">
             No account mapped in this unit yet
@@ -426,9 +478,11 @@ function RecordsAs({
 
 function RuleForm({
   rule,
+  onClose,
   onDone,
 }: {
   rule: BankRuleRow | null
+  onClose: () => void
   onDone: () => void
 }) {
   const [matchKind, setMatchKind] = useState(rule?.match_kind ?? "CONTAINS")
@@ -500,126 +554,144 @@ function RuleForm({
     pattern.trim() !== "" && priorityValid && (category !== "" || meaningOnly)
 
   return (
-    <div className="flex flex-col gap-3">
-      <Problem error={save.error} />
-
-      <div className="grid gap-3 md:grid-cols-[11rem_minmax(0,1fr)]">
-        <Field label="Match" required>
-          <Select value={matchKind} onChange={setMatchKind} aria-label="Match">
-            <option value="CONTAINS">Contains</option>
-            <option value="STARTS_WITH">Starts with</option>
-            <option value="REGEX">Regex</option>
-          </Select>
-        </Field>
-        <Field
-          label="Text"
-          required
-          hint={
-            matchKind === "REGEX"
-              ? "A POSIX pattern, not case sensitive. One the database cannot read is refused when you save."
-              : "Not case sensitive. Spaces and punctuation are ignored when comparing."
-          }
-        >
-          <Input
-            value={pattern}
-            onChange={(event) => setPattern(event.target.value)}
-            className="font-mono"
-          />
-        </Field>
-      </div>
-
-      <div className="grid gap-3 md:grid-cols-2">
-        <Field label="Direction" hint="As the bank reports the line.">
-          <Select
-            value={direction}
-            onChange={setDirection}
-            aria-label="Direction"
-          >
-            <option value="ANY">Any</option>
-            <option value="IN">In — money received</option>
-            <option value="OUT">Out — money paid</option>
-          </Select>
-        </Field>
-        <Field
-          label="Category"
-          required
-          aside={
-            meaningOnly
-              ? "Keeps its own meaning until you choose one"
-              : undefined
-          }
-        >
-          <Select value={category} onChange={setCategory} aria-label="Category">
-            {options.map((one) => (
-              <option key={one.code} value={one.code}>
-                {one.display_name}
-                {one.bank_postable ? "" : " — not for bank lines"}
-              </option>
-            ))}
-          </Select>
-        </Field>
-      </div>
-
-      {chosen !== undefined && !chosen.bank_postable && (
-        <Banner tone="warn">
-          {chosen.refusal ??
-            "A person cannot book this category from a bank line, so every proposal from this rule will be refused."}
-        </Banner>
-      )}
-
-      <div className="grid gap-3 md:grid-cols-2">
-        <Field
-          label="Unit"
-          hint="Whose books the line is booked in. Head office keeps the bank accounts."
-        >
-          <UnitSelect
-            value={unit}
-            onChange={setUnit}
-            emptyLabel="Head office"
-            aria-label="Unit"
-          />
-        </Field>
-        <Field label="Party" hint="Put on the document when it is accepted.">
-          <Input
-            value={party}
-            onChange={(event) => setParty(event.target.value)}
-          />
-        </Field>
-        <Field
-          label="Priority"
-          problem={priorityValid ? undefined : "A whole number, 1 or more."}
-          hint="Lowest runs first. Put the narrower rule above the wider one."
-        >
-          <Input
-            value={priority}
-            inputMode="numeric"
-            onChange={(event) =>
-              setPriority(event.target.value.replace(/\D/g, ""))
-            }
-          />
-        </Field>
-      </div>
-
-      <Field label="Note">
-        <Textarea
-          value={note}
-          onChange={(event) => setNote(event.target.value)}
-          rows={2}
+    <Sheet
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose()
+      }}
+      title={rule === null ? "New rule" : "Edit rule"}
+      size="wide"
+      footer={
+        <SheetFooter
+          onCancel={onClose}
+          primary={{
+            label: "Submit",
+            pending: save.isPending,
+            disabled: !ready,
+            onClick: () => save.mutate(),
+          }}
         />
-      </Field>
+      }
+    >
+      <div className="flex flex-col gap-3">
+        <Problem error={save.error} />
 
-      <div className="flex items-center justify-between gap-3">
+        <div className="grid gap-3 md:grid-cols-[11rem_minmax(0,1fr)]">
+          <Field label="Match" required>
+            <Select
+              value={matchKind}
+              onChange={setMatchKind}
+              aria-label="Match"
+            >
+              <option value="CONTAINS">Contains</option>
+              <option value="STARTS_WITH">Starts with</option>
+              <option value="REGEX">Regex</option>
+            </Select>
+          </Field>
+          <Field
+            label="Text"
+            required
+            hint={
+              matchKind === "REGEX"
+                ? "A POSIX pattern, not case sensitive. One the database cannot read is refused when you save."
+                : "Not case sensitive. Spaces and punctuation are ignored when comparing."
+            }
+          >
+            <Input
+              value={pattern}
+              onChange={(event) => setPattern(event.target.value)}
+              className="font-mono"
+            />
+          </Field>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-2">
+          <Field label="Direction" hint="As the bank reports the line.">
+            <Select
+              value={direction}
+              onChange={setDirection}
+              aria-label="Direction"
+            >
+              <option value="ANY">Any</option>
+              <option value="IN">In — money received</option>
+              <option value="OUT">Out — money paid</option>
+            </Select>
+          </Field>
+          <Field
+            label="Category"
+            required
+            aside={
+              meaningOnly
+                ? "Keeps its own meaning until you choose one"
+                : undefined
+            }
+          >
+            <Select
+              value={category}
+              onChange={setCategory}
+              aria-label="Category"
+            >
+              {options.map((one) => (
+                <option key={one.code} value={one.code}>
+                  {one.display_name}
+                  {one.bank_postable ? "" : " — not for bank lines"}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
+
+        {chosen !== undefined && !chosen.bank_postable && (
+          <Banner tone="warn">
+            {chosen.refusal ??
+              "A person cannot book this category from a bank line, so every proposal from this rule will be refused."}
+          </Banner>
+        )}
+
+        <div className="grid gap-3 md:grid-cols-2">
+          <Field
+            label="Unit"
+            hint="Whose books the line is booked in. Head office keeps the bank accounts."
+          >
+            <UnitSelect
+              value={unit}
+              onChange={setUnit}
+              emptyLabel="Head office"
+              aria-label="Unit"
+            />
+          </Field>
+          <Field label="Party" hint="Put on the document when it is accepted.">
+            <Input
+              value={party}
+              onChange={(event) => setParty(event.target.value)}
+            />
+          </Field>
+          <Field
+            label="Priority"
+            problem={priorityValid ? undefined : "A whole number, 1 or more."}
+            hint="Lowest runs first. Put the narrower rule above the wider one."
+          >
+            <Input
+              value={priority}
+              inputMode="numeric"
+              onChange={(event) =>
+                setPriority(event.target.value.replace(/\D/g, ""))
+              }
+            />
+          </Field>
+        </div>
+
+        <Field label="Note">
+          <Textarea
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+            rows={2}
+          />
+        </Field>
+
         <Checkbox label="Active" checked={active} onChange={setActive} />
-        <Button
-          variant="primary"
-          pending={save.isPending}
-          disabled={!ready}
-          onClick={() => save.mutate()}
-        >
-          {save.isPending ? "Submitting…" : rule === null ? "Submit" : "Submit"}
-        </Button>
       </div>
-    </div>
+    </Sheet>
   )
 }
 

@@ -313,7 +313,7 @@ function RunSheet({
       footer={
         canPay ? (
           <div className="flex justify-end gap-2">
-            <Button variant="quiet" onClick={onClose}>
+            <Button data-cancel variant="quiet" onClick={onClose}>
               Cancel
             </Button>
             <Button
@@ -364,7 +364,7 @@ function RunSheet({
 
         {standing !== null && (
           <div>
-            <div className="mb-1 text-[0.875rem] text-mute">Per employee</div>
+            <div className="mb-1 text-[0.9375rem] text-mute">Per employee</div>
             {handover.isPending ? (
               <LoadingState />
             ) : handover.isError ? (

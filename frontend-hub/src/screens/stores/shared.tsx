@@ -1,3 +1,6 @@
+import { useCallback } from "react"
+import { useRouterState, type LinkProps } from "@tanstack/react-router"
+
 import type { Tone } from "@/lib/format"
 import type { ServerState, StoreStatus } from "@/lib/queries/stores"
 import { cn } from "@/lib/utils"
@@ -5,7 +8,8 @@ import { cn } from "@/lib/utils"
 /// Words and tones for the two state machines every Stores screen draws —
 /// the store's own lifecycle and its server's — kept in one place so the list
 /// and the detail page never disagree about what "waiting for approval" is
-/// called or what colour it wears.
+/// called or what colour it wears. The server reads "Waiting for the server",
+/// "Getting data" and "Ready" — the words the install flow speaks.
 
 const STORE_STATUS_LABEL: Record<StoreStatus, string> = {
   GETTING_READY: "Getting ready",
@@ -21,10 +25,10 @@ const STORE_STATUS_TONE: Record<StoreStatus, Tone> = {
 
 const SERVER_STATE_LABEL: Record<ServerState, string> = {
   NOT_INSTALLED: "Not installed",
-  WAITING_TO_INSTALL: "Waiting to be installed",
+  WAITING_TO_INSTALL: "Waiting for the server",
   WAITING_FOR_APPROVAL: "Waiting for approval",
-  SYNCING: "Pulling its first data",
-  ONLINE: "Online",
+  SYNCING: "Getting data",
+  ONLINE: "Ready",
   OFFLINE: "Offline",
 }
 
@@ -67,6 +71,8 @@ export function ServerDot({ state }: { state: string }) {
       aria-hidden
       className={cn(
         "inline-block size-[8px] shrink-0 rounded-full",
+        // A code is out and the shop has not used it yet: the dot breathes.
+        state === "WAITING_TO_INSTALL" && "motion-safe:animate-pulse",
         tone === "ok" && "bg-ok",
         tone === "bad" && "bg-bad",
         tone === "warn" && "bg-warn",
@@ -129,7 +135,7 @@ export function ReadinessRing({
           strokeDashoffset={round * (1 - share)}
         />
       </svg>
-      <span className="text-[0.875rem] leading-none font-semibold text-ink tabular-nums">
+      <span className="text-[0.9375rem] leading-none font-semibold text-ink tabular-nums">
         {complete ? "✓" : `${done}/${total}`}
       </span>
     </div>
@@ -157,5 +163,23 @@ export function Section({
       </div>
       {children}
     </div>
+  )
+}
+
+/// The path of one store's page, from wherever the link sits.
+///
+/// The Stores screens are filed twice: Master › Stores, where a shop is added
+/// and its server installed (owner, 2026-10-11), and Sales › Stores, where
+/// shops are watched trading. A link keeps the department it is clicked in, so
+/// the sidebar does not change under somebody opening a store; anything outside
+/// Sales — Locations, the setup list, the manager links — lands in Master.
+export function useStorePath(): (unitId: string) => LinkProps["to"] {
+  const inSales = useRouterState({
+    select: (state) => state.location.pathname.startsWith("/stores"),
+  })
+  const base = inSales ? "/stores" : "/master/stores"
+  return useCallback(
+    (unitId: string) => `${base}/${encodeURIComponent(unitId)}` as LinkProps["to"],
+    [base]
   )
 }

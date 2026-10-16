@@ -120,6 +120,96 @@ export function todayIso(): string {
   return isoDay(new Date())
 }
 
+/// The month before the one `today` is in, as `YYYY-MM` — the month a
+/// withholding return is being filed for.
+export function previousMonthOf(today: string = todayIso()): string {
+  const year = Number(today.slice(0, 4))
+  const month = Number(today.slice(5, 7))
+  return month === 1
+    ? `${year - 1}-12`
+    : `${year}-${String(month - 1).padStart(2, "0")}`
+}
+
+/// First and last day of a `YYYY-MM`.
+export function monthWindowOf(value: string): { from: string; to: string } {
+  const year = Number(value.slice(0, 4))
+  const month = Number(value.slice(5, 7))
+  const last = new Date(year, month, 0).getDate()
+  return {
+    from: `${value}-01`,
+    to: `${value}-${String(last).padStart(2, "0")}`,
+  }
+}
+
+/// The day before `iso`, in local time.
+export function dayBefore(iso: string): string {
+  const [year, month, date] = iso.split("-").map(Number)
+  return isoDay(new Date(year, month - 1, date - 1))
+}
+
+/// The year so far — what a report read over a year opens on (7Soft's
+/// summaries were read for a year). A function so the prefetcher asks for the
+/// window the screen then opens on.
+export function yearToDate(today: string = todayIso()): {
+  from: string
+  to: string
+} {
+  return { from: `${today.slice(0, 4)}-01-01`, to: today }
+}
+
+/// The window a date question opens on: from the first of the month the books
+/// are being worked in — the most recent period somebody opened and has not
+/// sealed — to today. With no period open, the calendar month is the only
+/// honest guess.
+///
+/// One function for the hook (`useWindow`, `useSettledWindow`) and for the
+/// prefetcher, so what the server warms is exactly the window the screen then
+/// asks for.
+export function defaultWindow(
+  periods: readonly { status: string; year: number; month: number }[],
+  now: Date = new Date()
+): { from: string; to: string } {
+  const open = periods
+    .filter((row) => row.status.toUpperCase() === "OPEN")
+    .sort((a, b) => b.year * 12 + b.month - (a.year * 12 + a.month))[0]
+  const start =
+    open === undefined
+      ? new Date(now.getFullYear(), now.getMonth(), 1)
+      : new Date(open.year, open.month - 1, 1)
+  return { from: isoDay(start), to: isoDay(now) }
+}
+
+/// One calendar month, as a chart draws it.
+export interface MonthBucket {
+  /// `YYYY-MM`, the chart's category.
+  readonly key: string
+  readonly year: number
+  readonly month: number
+  readonly from: string
+  /// The month's last day, or today for the month in progress.
+  readonly to: string
+}
+
+/// The last `count` months, oldest first, ending with the one `today` is in —
+/// ERPNext's "Last Year, Monthly" timespan. A function and not a hook so the
+/// prefetcher asks for the very months the Overview then draws.
+export function lastMonths(count: number, today: string): MonthBucket[] {
+  const now = new Date(`${today}T00:00:00`)
+  const out: MonthBucket[] = []
+  for (let back = count - 1; back >= 0; back--) {
+    const first = new Date(now.getFullYear(), now.getMonth() - back, 1)
+    const last = new Date(first.getFullYear(), first.getMonth() + 1, 0)
+    out.push({
+      key: isoDay(first).slice(0, 7),
+      year: first.getFullYear(),
+      month: first.getMonth() + 1,
+      from: isoDay(first),
+      to: back === 0 ? today : isoDay(last),
+    })
+  }
+  return out
+}
+
 /// "September 2026" — in English, like the rest of the hub's copy; printed
 /// documents keep Indonesian through their own formatters.
 export function monthLabel(year: number, month: number): string {

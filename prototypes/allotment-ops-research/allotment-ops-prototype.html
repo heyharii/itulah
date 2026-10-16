@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Allotment · Operations workbench</title><style>:root{font-size:16px;--ink:#20242c;--body:#565f6d;--muted:#666f7d;--line:#e6e6e9;--soft:#f8f8f9;--blue:#2563eb;--amber:#9b4809;--red:#be123c;--green:#137a37;--rail:#242526}*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#fff;font:15px/1.5 Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}button,input,select,textarea{font:inherit}button{cursor:pointer;color:inherit;background:white;border:1px solid var(--line);border-radius:9px;padding:8px 14px;min-height:40px;transition:background .15s,transform .15s}button:hover{background:#f0f0f2}button:active{transform:scale(.98)}button:disabled{opacity:.45;cursor:not-allowed}button:focus-visible,a:focus-visible{outline:3px solid #93b5ff;outline-offset:3px}button.primary{background:var(--blue);border-color:var(--blue);color:white}button.primary:hover{background:#1d4ed8}button.danger{color:var(--red);border-color:#f1c5cd}button.ghost{border-color:transparent;background:transparent}a{color:var(--blue)}.demo-bar{padding:7px 24px;border-bottom:1px solid var(--line);background:#f8f8f9;display:flex;justify-content:space-between;align-items:center;gap:16px;font-size:14px}.demo-bar button{min-height:32px;padding:3px 10px}.shell{display:grid;grid-template-columns:228px minmax(0,1fr);min-height:calc(100vh - 49px)}.sidebar{background:var(--rail);color:#c3c4c7;padding:26px 16px;display:flex;flex-direction:column;gap:10px}.brand{font-size:30px;color:white;text-decoration:none;letter-spacing:-1.4px;font-weight:650;padding:0 12px}.brand span{display:block;font-size:14px;letter-spacing:0;color:#a1a3a8;font-weight:400}.workspace{margin:22px 0 20px;padding:12px;border:1px solid #454749;border-radius:9px;display:flex;justify-content:space-between}.workspace span{color:#a1a3a8}.nav-label{font-size:14px;color:#a1a3a8;padding:0 12px}.nav-item{border:0;background:transparent;text-align:left;color:#c3c4c7;padding:12px;display:flex;justify-content:space-between}.nav-item:hover,.nav-item.active{background:#393b3d;color:white}.sidebar-foot{margin-top:auto;display:flex;align-items:center;gap:10px;padding:24px 12px 0}.avatar{border-radius:50%;background:#393b3d;color:white;padding:8px;font-size:14px}.sidebar-foot div span{display:block;font-size:14px;color:#a1a3a8}main{padding:30px 36px 70px;min-width:0}.page-header{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:30px}.eyebrow{font-size:14px;color:var(--muted);letter-spacing:.09em}h1{font-size:28px;letter-spacing:-.7px;margin:5px 0 0;font-weight:600}h2{font-size:20px;letter-spacing:-.3px;margin:0;font-weight:600}h3{font-size:16px;margin:0;font-weight:600}p{margin:6px 0;color:var(--body)}.role-switch{display:flex;background:#f0f0f2;padding:3px;border-radius:11px}.role-switch button{border:0;background:transparent}.role-switch button.active{background:white;box-shadow:0 1px 4px #00000012}.subnav,.filters,.toolbar,.actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.subnav{border-bottom:1px solid var(--line);padding-bottom:15px;margin-bottom:24px}.subnav button{border:0}.subnav button.active{background:#eff5ff;color:var(--blue)}.count{display:inline-block;margin-left:7px;font-variant-numeric:tabular-nums;color:var(--muted)}.toolbar{justify-content:space-between;margin:18px 0}.search{position:relative;max-width:340px;flex:1;min-width:180px}input,select,textarea{border:1px solid #dadade;border-radius:8px;background:white;padding:9px 11px;color:var(--ink);max-width:100%}.search input{width:100%}.filters button.active{background:var(--ink);border-color:var(--ink);color:white}.filters button.active .count{color:white}.queue-heading{display:flex;justify-content:space-between;align-items:center;gap:16px}.queue-heading p{font-size:14px}.table-wrap{border:1px solid var(--line);border-radius:14px;overflow:hidden}table{width:100%;border-collapse:collapse;text-align:left}th{font-size:14px;font-weight:500;color:var(--body);background:var(--soft)}th,td{padding:14px 18px;border-bottom:1px solid var(--line);vertical-align:middle}tr:last-child td{border:0}td.num{text-align:right;font-variant-numeric:tabular-nums}.record-button{border:0;padding:0;min-height:32px;background:transparent;color:var(--blue);font-weight:550;text-align:left}.secondary{display:block;color:var(--muted);font-size:14px;font-weight:400;margin-top:3px}.badge{display:inline-flex;align-items:center;gap:6px;max-width:100%;font-size:14px;line-height:1.4;padding:4px 8px;border-radius:6px;background:#f0f0f2;white-space:normal}.badge.warn{background:#fff1dc;color:var(--amber)}.badge.bad{background:#fbeaea;color:var(--red)}.badge.good{background:#e8f6e9;color:var(--green)}.badge.blue{background:#eff5ff;color:var(--blue)}.task-title{font-weight:550}.task-note{font-size:14px;color:var(--muted);margin-top:4px;max-width:350px}.empty{padding:55px 20px;text-align:center;color:var(--muted)}.guide-line{margin-top:20px;font-size:14px;color:var(--muted)}.mobile-cards{display:none}.mobile-dock{display:none}#lab{background:var(--soft);border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:26px}#lab[hidden]{display:none}.lab-top{display:flex;justify-content:space-between;gap:16px}.lab-top p{font-size:14px}.scenarios{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0}.offline-control{display:inline-flex;align-items:center;gap:8px;margin-right:12px;font-size:14px}.offline-control input{width:18px;height:18px}dialog{border:1px solid var(--line);border-radius:18px;padding:0;color:var(--ink);width:min(880px,calc(100vw - 48px));max-height:90vh;box-shadow:0 18px 100px #20242c22;overflow:auto}dialog::backdrop{background:#f6f6f7bf;backdrop-filter:blur(3px)}#action{width:min(590px,calc(100vw - 48px))}.dialog-header{padding:24px 26px 20px;display:flex;justify-content:space-between;align-items:flex-start;border-bottom:1px solid var(--line);gap:15px}.dialog-header p{font-size:14px}.close{font-size:22px;border:0;padding:0;min-width:40px;min-height:40px}.dialog-content{padding:24px 26px}.dialog-footer{position:sticky;bottom:0;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;padding:16px 26px;background:white;border-top:1px solid var(--line);z-index:2}.dialog-footer .actions{margin-left:auto}.detail-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:24px 0 18px}.detail-tabs button{border:0}.detail-tabs button.active{background:#eff5ff;color:var(--blue)}.notice{padding:14px 16px;background:#fff6e7;border-radius:10px;color:var(--amber);margin:0 0 20px;font-size:14px}.notice.blue{background:#eff5ff;color:#2054a3}.notice.bad{background:#fbeaea;color:var(--red)}.notice.good{background:#e8f6e9;color:var(--green)}.notice b{display:block;margin-bottom:3px}.figures{display:flex;gap:28px;flex-wrap:wrap;padding-bottom:22px;border-bottom:1px solid var(--line)}.figure span{display:block;font-size:14px;color:var(--muted)}.figure strong{font-size:25px;font-weight:550;font-variant-numeric:tabular-nums}.line-row{padding:18px 0;border-bottom:1px solid var(--line)}.line-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}.line-head strong{font-weight:550}.quantities{display:flex;flex-wrap:wrap;gap:10px 20px;margin-top:12px;font-size:14px}.quantities span{color:var(--muted)}.quantities b{color:var(--ink);font-weight:550}.line-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}.line-actions button{font-size:14px;min-height:36px;padding:5px 10px}.field{display:flex;flex-direction:column;gap:7px;margin-bottom:18px}.field label{font-weight:500}.field small{font-size:14px;color:var(--muted)}.impact{border-top:1px solid var(--line);margin-top:20px;padding-top:16px}.impact-row{display:flex;justify-content:space-between;gap:20px;padding:7px 0;font-size:14px}.impact-row b{font-variant-numeric:tabular-nums}.error{color:var(--red);font-size:14px;margin:10px 0}.warning-text{color:var(--amber)}.history-item{padding:13px 0 13px 18px;border-left:2px solid var(--line);margin-left:5px}.history-item strong{font-weight:500}.history-item p{font-size:14px}.history-item small{font-size:14px;color:var(--muted)}#toast{position:fixed;bottom:25px;left:50%;transform:translateX(-50%);padding:13px 20px;max-width:calc(100vw - 32px);border-radius:11px;background:var(--ink);color:white;box-shadow:0 8px 25px #0002;z-index:50;font-size:14px}.research{max-width:960px}.research .intro{font-size:19px;line-height:1.6;color:var(--ink);margin-bottom:30px}.research-section{margin:30px 0}.research-section h2{margin-bottom:12px}.research-section li{margin:9px 0;color:var(--body)}.research-section a{overflow-wrap:anywhere}.research-section table{font-size:14px}.research-section th,.research-section td{padding:12px}.research-section .table-wrap{margin-top:18px}.case-chip{font-size:14px;color:var(--muted);margin-top:12px}.list-heading{font-size:14px;color:var(--muted);margin:30px 0 12px}.quiet-button{color:var(--body)}.action-preview{min-height:110px}.new-line-fields{display:grid;grid-template-columns:1fr 1fr;gap:12px}.skeleton-note{background:#eff5ff;padding:12px;border-radius:8px;font-size:14px}.status-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:22px}.pending-detail{border-left:3px solid #c9892e;padding:5px 0 5px 14px;margin-top:16px;color:var(--amber)}.stock-row{display:flex;justify-content:space-between;gap:14px;padding:18px 0;border-bottom:1px solid var(--line)}.stock-row strong{font-weight:550}.research-section .comparison{display:grid;grid-template-columns:1fr 1fr;gap:22px}.comparison>div{padding:18px;background:var(--soft);border-radius:12px}.comparison p{font-size:14px}.bottom-caption{font-size:14px;color:var(--muted);margin-top:20px}.document{padding:15px 0;border-bottom:1px solid var(--line)}.document b{display:block;font-weight:550}.document span{font-size:14px;color:var(--body)}
+@media(min-width:1600px){main{padding-left:52px;padding-right:52px}.table-wrap td{padding-top:18px;padding-bottom:18px}}
+@media(max-width:1100px){.shell{grid-template-columns:190px minmax(0,1fr)}main{padding:25px 22px 70px}th,td{padding:12px}.sidebar{padding:24px 10px}.task-note{max-width:240px}.table-wrap .optional{display:none}}
+@media(max-width:760px){body{font-size:15px}.demo-bar{padding:8px 16px;font-size:14px}.demo-bar span{max-width:230px}.shell{display:block}.sidebar{display:none}main{padding:22px 16px 110px}.page-header{margin-bottom:22px;align-items:flex-start}h1{font-size:25px}.role-switch{display:none}.mobile-dock{display:flex;justify-content:space-around;gap:3px;position:fixed;bottom:0;left:0;right:0;padding:10px 8px calc(10px + env(safe-area-inset-bottom));background:#fffffff2;backdrop-filter:blur(10px);border-top:1px solid var(--line);z-index:5}.mobile-dock button{font-size:14px;padding:8px 9px;min-height:44px;border:0}.mobile-dock button.active{color:var(--blue);background:#eff5ff}.desktop-table{display:none}.mobile-cards{display:grid;gap:12px}.mobile-card{border:1px solid var(--line);border-radius:13px;padding:17px}.mobile-card .head{display:flex;justify-content:space-between;gap:14px}.mobile-card .lead{font-size:23px;font-weight:550;font-variant-numeric:tabular-nums}.mobile-card .foot{border-top:1px solid var(--line);margin-top:14px;padding-top:12px;display:flex;justify-content:space-between;align-items:center;gap:10px}.mobile-card p{font-size:14px;margin-top:10px}.toolbar{align-items:stretch}.search{max-width:none;flex-basis:100%}button{min-height:44px}.subnav{gap:4px}.subnav button{padding:8px 12px}.filters{gap:6px}.filters button{padding:8px 10px;font-size:14px}.queue-heading{align-items:flex-start}.queue-heading p{max-width:260px}.queue-heading>span{display:none}dialog,#action{width:100%;max-width:100%;max-height:94dvh;margin:auto 0 0;border-radius:18px 18px 0 0}.dialog-header{padding:20px}.dialog-content{padding:20px}.dialog-footer{padding:14px 20px}.dialog-footer .actions{gap:8px}.figures{gap:18px 24px}.figure strong{font-size:23px}.line-actions button{min-height:44px}.research-section .comparison{grid-template-columns:1fr}.research-section .table-wrap{border:0}.research-section table,.research-section tbody,.research-section tr,.research-section td{display:block}.research-section thead{display:none}.research-section tr{border-bottom:1px solid var(--line);padding:8px 0}.research-section td{border:0;padding:6px 0}.research-section td:first-child{font-weight:600}.new-line-fields{grid-template-columns:1fr}.scenarios button{font-size:14px}.notice{font-size:14px}.dialog-header h2{font-size:19px}.line-head{flex-wrap:wrap}#toast{bottom:90px}.lab-top{flex-wrap:wrap}.status-row{gap:8px}.quantities{gap:10px 16px}.dialog-footer>span{flex-basis:100%;font-size:14px}.record-button{min-height:44px}.research-section td:before{content:attr(data-label);display:block;font-weight:500;color:var(--muted)} }
+@media(prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+.stage-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:20px;align-items:start}.stage-lane h3{padding-bottom:14px;border-bottom:1px solid var(--line);margin-bottom:14px}.stage-lane h3 .count{display:block;margin:4px 0 0;font-size:14px;font-weight:400}.stage-card{border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:12px}.stage-number{font-size:26px;font-weight:550;margin-top:12px}.stage-number span{font-size:14px;font-weight:400;color:var(--muted)}.stage-card p{font-size:14px}.stage-card button:last-child{width:100%;margin-top:12px}@media(max-width:760px){.stage-grid{grid-template-columns:1fr}}
+@media(max-width:760px){input,select,textarea{font-size:16px}.close{min-height:44px;min-width:44px}}
+@media(max-width:760px){.demo-bar button{min-height:44px}}
+</style></head><body>
+<div class="demo-bar"><span><b>Interactive prototype</b> · Sample data · Changes stay in this browser</span><button id="lab-toggle">Scenarios</button></div>
+<div class="shell"><aside class="sidebar"><a class="brand" href="#">itulah<span>Cloud Hub</span></a><div class="workspace">Head office <span>HO</span></div><div class="nav-label">WORKSPACE</div><button data-section="ops" class="nav-item">Operations <span>↗</span></button><button data-section="md" class="nav-item">Merchandising <span>↗</span></button><button data-section="research" class="nav-item">Research & rationale <span>↗</span></button><div class="sidebar-foot"><span class="avatar">HA</span><div>Hari<span>Prototype workspace</span></div></div></aside>
+<main><header class="page-header"><div><div class="eyebrow" id="eyebrow">OPERATIONS</div><h1 id="title">Allotment</h1></div><div class="role-switch" aria-label="View as"><button data-role="ops">Warehouse</button><button data-role="md">MD</button></div></header>
+<section id="lab" hidden aria-label="Demo scenarios"><div class="lab-top"><div><b>Try the difficult cases</b><p>Load a scenario, then act as MD or Warehouse. Each scenario resets the demo.</p></div><button id="reset">Reset all</button></div><div id="scenario-buttons" class="scenarios"></div><label class="offline-control"><input id="offline" type="checkbox"> Simulate warehouse offline</label><button id="sync" hidden>Warehouse reconnects · Apply requests</button></section>
+<div id="content"></div>
+<footer class="mobile-dock"><button data-role="ops">Warehouse</button><button data-role="md">MD</button><button data-section="research">Research</button><button id="mobile-lab">Scenarios</button></footer>
+</main></div>
+<dialog id="detail" aria-labelledby="detail-title"><div id="detail-body"></div></dialog><dialog id="action" aria-labelledby="action-title"><form id="action-form"><div id="action-body"></div></form></dialog><div id="toast" role="status" aria-live="polite" hidden></div>
+<script type="module">
+// Browser-local domain simulator. No production API calls.
+const STAGES = ['waiting','picked','packed','staged','loaded','transit','received','gap','lost','wrong','returnTransit','returned'];
+const LABELS = {waiting:'To pick',picked:'Picked',packed:'Packed',staged:'Surat jalan issued',loaded:'Loaded',transit:'In transit',received:'At intended store',gap:'Receiving discrepancy',lost:'Confirmed lost',wrong:'At wrong destination',returnTransit:'Return in progress',returned:'Returned · quarantine'};
+const SKU = {'OX-NV-M':{name:'Oxford shirt',variant:'Navy · M'},'TS-WH-L':{name:'Essential tee',variant:'White · L'},'JN-IN-32':{name:'Straight jeans',variant:'Indigo · 32'}};
+const STORES = ['Kemang','PIK Avenue','Cikupa'];
+function line(id,store,sku,buckets,extra={}) {
+  const stages=Object.fromEntries(STAGES.map(s=>[s,buckets[s]||0]));
+  const target=Object.values(stages).reduce((a,b)=>a+b,0);
+  return {id,store,sku,stages,target,original:target,added:0,removed:0,pending:[],hold:false,carton:`KOLI-${store==='Kemang'?'087':store==='PIK Avenue'?'088':'089'}`, ...extra};
+}
+function order(id,lines,extra={}) {return {id,supplier:'Garmen Nusantara',source:'HO · Gudang',revision:1,cancelled:false,hold:false,lines,queue:[],lastError:null,events:[{time:'11 Oct 2026 · 09:00',actor:'MD · Nadya',text:'Allotment created',detail:`${lines.reduce((s,l)=>s+l.target,0)} pieces · ${new Set(lines.map(l=>l.store)).size} stores`}], ...extra};}
+function seed() {
+  return {version:1,online:true,stock:{'OX-NV-M':180,'TS-WH-L':240,'JN-IN-32':96},orders:[
+    order('ALT-001042',[
+      line('a','Kemang','OX-NV-M',{waiting:20,picked:20,packed:40,transit:40}),
+      line('b','Kemang','TS-WH-L',{packed:40}),
+      line('c','PIK Avenue','OX-NV-M',{waiting:20,picked:20,packed:20,received:20}),
+      line('d','Cikupa','JN-IN-32',{waiting:60})]),
+    order('ALT-001043',[line('e','Kemang','TS-WH-L',{}, {original:50,removed:50,pending:[{id:'initial-e',stage:'packed',quantity:30,reason:'Store plan changed',actor:'MD · Nadya',time:'11 Oct 2026 · 10:12'}]}),line('f','PIK Avenue','JN-IN-32',{}, {original:20,removed:20,pending:[{id:'initial-f',stage:'picked',quantity:20,reason:'Store plan changed',actor:'MD · Nadya',time:'11 Oct 2026 · 10:12'}]})],{cancelled:true,events:[{time:'11 Oct 2026 · 10:12',actor:'MD · Nadya',text:'Allotment cancelled',detail:'70 pieces removed from demand · 50 pieces still need putting back'}]}),
+    order('ALT-001044',[line('g','PIK Avenue','OX-NV-M',{waiting:5,received:95},{original:100,short:5,issue:{kind:'short',owner:'MD',quantity:5,resolved:false}})],{supplier:'Sentosa Apparel'}),
+    order('ALT-001045',[line('h','Cikupa','TS-WH-L',{staged:40,loaded:20})],{supplier:'Sentosa Apparel'}),
+    order('ALT-001046',[line('i','Kemang','JN-IN-32',{received:72})],{supplier:'Indigo Works'})
+  ]};
+}
+const scenarios = [
+  {id:'mixed',name:'Partial dispatch + MD edit',hint:'Reduce Kemang Oxford from 120 to 60, then switch to Warehouse.'},
+  {id:'cancel',name:'Cancel during packing',hint:'Cancel 100 pieces. 30 release now; 70 stay blocked until physically returned.'},
+  {id:'issued',name:'SJ issued, truck not left',hint:'Warehouse reverses the document first; MD can then change the released quantity.'},
+  {id:'departed',name:'Cancel after departure',hint:'Close 40 unsent pieces. Handle the 60 already departed through a linked Return.'},
+  {id:'short',name:'95 / 100 received',hint:'The remaining 5 are still needed. MD can wait or close that balance.'},
+  {id:'receipt',name:'SJ 100 · counted 95',hint:'Delivery count is complete with a 5-piece discrepancy. Inventory establishes the facts first.'},
+  {id:'lost',name:'Lost confirmed',hint:'Inventory has confirmed 5 lost. MD chooses no replacement or a linked replacement.'},
+  {id:'wrong',name:'Wrong destination',hint:'20 pieces are at PIK, intended for Kemang. Return starts from the actual location.'},
+  {id:'offline',name:'Warehouse offline',hint:'MD requests a change. It remains pending until the warehouse acknowledges it.'},
+  {id:'conflict',name:'MD + warehouse together',hint:'Open Edit target and simulate the warehouse packing while the form is open.'},
+  {id:'finished',name:'Finished + later return',hint:'A return stays linked to the completed allotment; history remains visible.'}
+];
+function scenario(id){
+  const s=seed();
+  const base = {
+    mixed:s.orders[0],
+    cancel:order('ALT-DEMO-CANCEL',[line('x','Kemang','OX-NV-M',{waiting:30,picked:20,packed:50})]),
+    issued:s.orders[3],
+    departed:order('ALT-DEMO-SENT',[line('x','Kemang','OX-NV-M',{waiting:20,packed:20,transit:60})]),
+    short:s.orders[2],
+    receipt:order('ALT-DEMO-RECEIPT',[line('x','Kemang','OX-NV-M',{received:95,gap:5},{issue:{kind:'gap',quantity:5,owner:'Inventory',resolved:false}})]),
+    lost:order('ALT-DEMO-LOST',[line('x','Kemang','OX-NV-M',{received:95,lost:5},{issue:{kind:'lost',quantity:5,owner:'MD',resolved:false}})],{supplier:'Sentosa Apparel'}),
+    wrong:order('ALT-DEMO-WRONG',[line('x','Kemang','OX-NV-M',{wrong:20},{issue:{kind:'wrong',quantity:20,owner:'MD',resolved:false,actual:'PIK Avenue'}})]),
+    offline:s.orders[0],conflict:s.orders[0],finished:s.orders[4]
+  }[id];
+  if(!base)throw Error('Unknown scenario');s.orders=[base];s.online=id!=='offline';return s;
+}
+const sum=(xs,fn)=>xs.reduce((a,x)=>a+fn(x),0);
+function pending(l){return sum(l.pending,p=>p.quantity);}
+function committed(l){return sum(['staged','loaded','transit','received','gap','lost','wrong','returnTransit','returned'],s=>l.stages[s]);}
+function departed(l){return sum(['transit','received','gap','lost','wrong','returnTransit','returned'],s=>l.stages[s]);}
+function floor(l){return committed(l);}
+function receivedEver(o){return sum(o.lines,l=>l.stages.received+(l.receivedReturned||0));}
+function totals(o){const t=Object.fromEntries(STAGES.map(k=>[k,sum(o.lines,l=>l.stages[k])]));return {...t,target:sum(o.lines,l=>l.target),original:sum(o.lines,l=>l.original),removed:sum(o.lines,l=>l.removed),pending:sum(o.lines,pending),floor:sum(o.lines,floor),departed:sum(o.lines,departed),stores:new Set(o.lines.map(l=>l.store)).size};}
+function status(o){const t=totals(o);if(o.queue.length)return 'Awaiting warehouse';if(o.cancelled)return 'Cancelled';if(o.hold)return 'On hold';if(t.waiting+t.picked+t.packed+t.staged+t.loaded+t.transit+t.gap)return 'Active';if(t.lost+t.wrong+t.removed||o.lines.some(l=>l.returnedBeforeReceipt))return 'Closed short';return 'Completed';}
+function finished(o){return ['Cancelled','Closed short','Completed'].includes(status(o));}
+function blocked(o,l){return o.hold||l.hold||o.queue.length>0||o.lines.some(x=>x.carton===l.carton&&pending(x)>0);}
+function preview(l,to){
+  if(!Number.isSafeInteger(to)||to<floor(l))throw Error(`Minimum ${floor(l)} pieces: already on a surat jalan or further. Reverse an un-departed SJ through Warehouse, or use a Return after departure.`);
+  if(to>=l.target)return {delta:to-l.target,release:0,picked:0,packed:0};
+  let left=l.target-to;
+  const release=Math.min(left,l.stages.waiting);left-=release;
+  const picked=Math.min(left,l.stages.picked);left-=picked;
+  const packed=Math.min(left,l.stages.packed);left-=packed;
+  if(left)throw Error('This quantity is committed to a delivery. Refresh the current position.');
+  return {delta:to-l.target,release,picked,packed};
+}
+function event(o,actor,text,detail='') {o.events.unshift({time:new Date().toLocaleString('en-GB',{timeZone:'Asia/Jakarta',day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}),actor,text,detail});}
+function required(reason){if(!reason?.trim())throw Error('Choose a reason before continuing.');}
+function quant(q,max){if(!Number.isSafeInteger(q)||q<=0||q>max)throw Error(`Enter a whole quantity from 1 to ${max}.`);}
+function change(s,o,l,to,reason){
+  const p=preview(l,to);const old=l.target;
+  if(p.delta>0){if(s.stock[l.sku]<p.delta)throw Error(`Only ${s.stock[l.sku]} free pieces of ${l.sku} remain.`);s.stock[l.sku]-=p.delta;l.added+=p.delta;l.stages.waiting+=p.delta;}
+  else if(p.delta<0){
+    s.stock[l.sku]+=p.release;l.stages.waiting-=p.release;l.stages.picked-=p.picked;l.stages.packed-=p.packed;l.removed-=p.delta;
+    for(const stage of ['picked','packed'])if(p[stage])l.pending.push({id:`${o.revision}-${l.id}-${stage}-${l.pending.length}`,stage,quantity:p[stage],reason,actor:'MD · Nadya',time:'Just now'});
+  }
+  l.target=to;if(l.short)l.short=Math.min(l.short,l.stages.waiting);
+  if(l.issue?.kind==='short'&&l.stages.waiting===0)l.issue.resolved=true;
+  return `${l.store} · ${l.sku}: ${old} → ${to}. ${p.release} released; ${p.picked+p.packed} to put back.`;
+}
+function execute(s,o,cmd){
+  const l=o.lines.find(x=>x.id===cmd.line);const why=cmd.reason?.trim()||'';
+  if(!l&&!['cancel','holdOrder','addLine'].includes(cmd.type))throw Error('This line is no longer available.');
+  if(cmd.type==='edit'){
+    if(o.cancelled||finished(o))throw Error('The request has ended. Create a linked new allotment.');required(why);event(o,'MD · Nadya','Target edited',change(s,o,l,cmd.quantity,why)+` ${why}`);
+  }else if(cmd.type==='cancel'){
+    required(why);if(o.cancelled)throw Error('Already cancelled.');
+    const t=totals(o);if(t.floor===t.target)throw Error('No unsent balance remains. Use a Return for departed goods.');
+    for(const x of o.lines)change(s,o,x,floor(x),why);
+    o.cancelled=t.floor===0;event(o,'MD · Nadya',o.cancelled?'Allotment cancelled':'Unsent balance closed',`${t.target-t.floor} pieces removed · ${t.floor} committed pieces retained. ${why}`);
+  }else if(cmd.type==='holdOrder'){
+    required(why);o.hold=!o.hold;event(o,'MD · Nadya',o.hold?'Work put on hold':'Work resumed',why);
+  }else if(cmd.type==='holdLine'){
+    required(why);l.hold=!l.hold;event(o,'MD · Nadya',l.hold?'Line put on hold':'Line resumed',`${l.store} · ${l.sku}. ${why}`);
+  }else if(cmd.type==='pick'||cmd.type==='pack'||cmd.type==='issue'||cmd.type==='load'||cmd.type==='depart'){
+    if(o.cancelled||o.hold||l.hold||o.queue.length||cmd.type!=='pick'&&blocked(o,l))throw Error('This work is held. Resolve the affected change before proceeding.');
+    const flow={pick:['waiting','picked'],pack:['picked','packed'],issue:['packed','staged'],load:['staged','loaded'],depart:['loaded','transit']}[cmd.type];
+    quant(cmd.quantity,l.stages[flow[0]]);l.stages[flow[0]]-=cmd.quantity;l.stages[flow[1]]+=cmd.quantity;if(cmd.type==='pick'&&l.issue?.kind==='short'){l.short=Math.min(l.short||0,l.stages.waiting);l.issue.quantity=l.short;if(l.short===0)l.issue.resolved=true;}
+    event(o,'Warehouse · Budi',`${LABELS[flow[1]]} · ${cmd.quantity} pieces`,`${l.store} · ${l.sku}`);
+  }else if(cmd.type==='receive'){
+    quant(cmd.quantity,l.stages.transit);l.stages.transit-=cmd.quantity;l.stages.received+=cmd.quantity;if(cmd.closeCount&&l.stages.transit){const gap=l.stages.transit;l.stages.transit=0;l.stages.gap+=gap;l.issue={kind:'gap',quantity:gap,owner:'Inventory',resolved:false};}event(o,'Store · Maya','Receive count submitted',`${cmd.quantity} pieces · ${l.store} · ${l.sku}`);
+  }else if(cmd.type==='resolvePending'){
+    const p=l.pending.find(x=>x.id===cmd.pendingId);if(!p)throw Error('This correction was already completed.');quant(cmd.quantity,p.quantity);
+    s.stock[l.sku]+=cmd.quantity;p.quantity-=cmd.quantity;l.pending=l.pending.filter(x=>x.quantity>0);
+    event(o,'Warehouse · Budi','Putback confirmed',`${cmd.quantity} ${l.sku} physically back at RACK-A01. ${pending(l)} still to put back.`);
+  }else if(cmd.type==='moveBack'){
+    required(why);if(!['picked','packed','staged','loaded'].includes(cmd.from))throw Error('Departed goods require a Return.');quant(cmd.quantity,l.stages[cmd.from]);
+    const to=cmd.from==='loaded'?'staged':cmd.from==='staged'?'packed':cmd.to==='picked'?'picked':'waiting';
+    l.stages[cmd.from]-=cmd.quantity;l.stages[to]+=cmd.quantity;
+    event(o,'Warehouse · Budi',cmd.from==='staged'?'SJ corrected / voided before departure':'Physical step reversed',`${cmd.quantity} pieces · ${LABELS[cmd.from]} → ${LABELS[to]}. ${why}`);
+  }else if(cmd.type==='short'){
+    required(why);quant(cmd.quantity,l.stages.waiting);l.short=cmd.quantity;l.issue={kind:'short',quantity:cmd.quantity,owner:cmd.stockIssue?'Inventory':'MD',resolved:false};event(o,'Warehouse · Budi','Short pick reported',`${cmd.quantity} pieces · ${why}. Owner: ${l.issue.owner}`);
+  }else if(cmd.type==='closeShort'){
+    required(why);quant(cmd.quantity,l.stages.waiting);event(o,'MD · Nadya','Remaining demand closed',change(s,o,l,l.target-cmd.quantity,why));
+  }else if(cmd.type==='investigate'){
+    if(!l.issue||l.issue.resolved)throw Error('No investigation is open.');
+    const amount=l.issue.quantity;
+    if(cmd.result==='found'){if(l.issue.kind==='gap'&&l.stages.gap>=amount){l.stages.gap-=amount;l.stages.received+=amount;event(o,'Inventory · Rina','Receiving record corrected',`${amount} pieces verified at the intended store.`);}else event(o,'Inventory · Rina','Stock found',`${amount} pieces. Existing demand can continue.`);l.issue.resolved=true;l.short=0;}
+    else{if(l.issue.kind==='short'){l.stages.waiting-=amount;l.stages.lost+=amount;l.short=0;}else if(l.stages.gap>=amount){l.stages.gap-=amount;l.stages.lost+=amount;}l.issue={kind:'lost',quantity:amount,owner:'MD',resolved:false};event(o,'Inventory · Rina','Loss confirmed',`${amount} pieces · MD to decide replacement. The old demand is settled.`);}
+  }else if(cmd.type==='replacement'){
+    required(why);if(l.issue?.kind!=='lost'||l.issue.resolved)throw Error('Loss must be confirmed and awaiting an MD decision.');
+    if(s.stock[l.sku]<l.issue.quantity)throw Error('Insufficient free stock for the replacement.');const q=l.issue.quantity;
+    const child=order(`${o.id}-R${s.orders.length+1}`,[line('replacement',l.store,l.sku,{waiting:q})],{parent:o.id,supplier:o.supplier});
+    s.stock[l.sku]-=q;s.orders.push(child);l.issue.resolved=true;l.issue.replacement=child.id;event(o,'MD · Nadya','Replacement issued',`${child.id} · ${q} pieces. Old demand remains settled. ${why}`);
+  }else if(cmd.type==='noReplacement'){
+    required(why);if(!l.issue||l.issue.resolved)throw Error('The decision was already resolved.');l.issue.resolved=true;event(o,'MD · Nadya','No replacement required',why);
+  }else if(cmd.type==='return'){
+    required(why);const available=l.stages.transit+l.stages.received+l.stages.wrong;quant(cmd.quantity,available);
+    let left=cmd.quantity;for(const stage of ['wrong','transit','received']){const q=Math.min(left,l.stages[stage]);l.stages[stage]-=q;l.stages.returnTransit+=q;left-=q;if(q&&stage!=='received')l.returnedBeforeReceipt=true;if(q&&stage==='received')l.receivedReturned=(l.receivedReturned||0)+q;}
+    l.returnSource=l.issue?.actual||l.store;l.returnDocument=`RT-${o.id}-${o.revision}`;
+    if(l.issue?.kind==='wrong'&&l.stages.wrong===0)l.issue.resolved=true;
+    event(o,'MD · Nadya','Linked Return issued',`${l.returnDocument} · ${cmd.quantity} pieces · ${l.returnSource} → HO. Historical dispatch is retained. ${why}`);
+  }else if(cmd.type==='returnReceive'){
+    quant(cmd.quantity,l.stages.returnTransit);l.stages.returnTransit-=cmd.quantity;l.stages.returned+=cmd.quantity;event(o,'Warehouse · Budi','Return received into quarantine',`${cmd.quantity} pieces. Awaiting quality release; unavailable for new allotment.`);
+  }else if(cmd.type==='releaseReturn'){
+    required(why);quant(cmd.quantity,l.stages.returned-(l.qualityReleased||0));l.qualityReleased=(l.qualityReleased||0)+cmd.quantity;s.stock[l.sku]+=cmd.quantity;event(o,'Inventory · Rina','Returned stock released',`${cmd.quantity} pieces inspected and released to free stock. ${why}`);
+  }else if(cmd.type==='addLine'){
+    required(why);if(o.cancelled||finished(o))throw Error('Create a linked new allotment for an ended request.');
+    if(!SKU[cmd.sku]||!STORES.includes(cmd.store))throw Error('Choose a valid SKU and store.');
+    if(o.lines.some(x=>x.sku===cmd.sku&&x.store===cmd.store))throw Error('This SKU/store already exists. Edit its target instead.');quant(cmd.quantity,s.stock[cmd.sku]);
+    s.stock[cmd.sku]-=cmd.quantity;const x=line(`new-${o.revision}`,cmd.store,cmd.sku,{waiting:cmd.quantity},{original:0,added:cmd.quantity});o.lines.push(x);event(o,'MD · Nadya','Line added',`${cmd.store} · ${cmd.sku} · ${cmd.quantity} pieces. ${why}`);
+  }else throw Error('Unsupported action');
+}
+function apply(state,id,cmd,expectedRevision){
+  // Clone first: stock checks or failed multi-line commands never partially commit.
+  const s=structuredClone(state),o=s.orders.find(x=>x.id===id);if(!o)throw Error('Allotment not found.');
+  if(expectedRevision!==o.revision)throw Error('Warehouse progress changed while this form was open. Refresh the impact and review again.');
+  const md=['edit','cancel','holdOrder','holdLine','closeShort','replacement','noReplacement','return','addLine'].includes(cmd.type);
+  if(!s.online&&!md)throw Error('Warehouse is offline. Reconnect before executing physical work.');
+  if(!s.online&&md){if(o.queue.length)throw Error('A request is already awaiting the warehouse. Reconnect before sending another.');o.queue.push({cmd,revision:o.revision});event(o,'MD · Nadya','Change requested · awaiting warehouse','Nothing is released until the warehouse applies this request.');assertState(s);return s;}
+  execute(s,o,cmd);o.revision++;o.lastError=null;assertState(s);return s;
+}
+function reconnect(state){
+  let s=structuredClone(state);s.online=true;
+  for(const id of s.orders.map(o=>o.id)){
+    const o=s.orders.find(o=>o.id===id),requests=o.queue.splice(0);
+    for(const r of requests){try{s=apply(s,id,r.cmd,r.revision);}catch(e){const x=s.orders.find(o=>o.id===id);x.lastError=e.message;event(x,'System','Change could not be applied',e.message);}}
+  }
+  assertState(s);return s;
+}
+function tasks(state,role='ops'){
+  const out=[];
+  for(const o of state.orders)for(const l of o.lines){
+    const base={order:o.id,line:l.id,store:l.store,sku:l.sku,revision:o.revision};
+    if(role==='md'){
+      if(l.issue&&!l.issue.resolved){out.push({...base,type:l.issue.owner==='Inventory'?'investigation':l.issue.kind,qty:l.issue.quantity,title:l.issue.owner==='Inventory'?'Inventory checking discrepancy':l.issue.kind==='lost'?'Decide replacement':l.issue.kind==='wrong'?'Decide goods at wrong store':'Decide remaining demand',owner:l.issue.owner,note:l.issue.kind==='wrong'?`Actual location: ${l.issue.actual}`:l.issue.kind==='lost'?'Confirmed loss · old demand settled':'Keep remaining demand, or close it'});}continue;
+    }
+    if(l.issue&&!l.issue.resolved&&l.issue.owner==='Inventory')out.push({...base,type:'investigation',qty:l.issue.quantity,title:'Await Inventory finding',owner:'Inventory',note:'Quantity / whereabouts uncertain · facts required before MD replacement',priority:1});
+    for(const p of l.pending)out.push({...base,type:'correction',pendingId:p.id,qty:p.quantity,title:p.stage==='packed'?'Unpack & put back':'Put back to rack',owner:'Warehouse',note:`${p.stage==='packed'?l.carton:'Pick area'} → RACK-A01 · ${p.reason}`,priority:0});
+    if(o.queue.length){if(l===o.lines[0])out.push({...base,type:'sync',qty:0,title:'Awaiting warehouse acknowledgement',owner:'Warehouse',note:'Requested change · stock not released',priority:1});continue;}
+    if(o.hold||l.hold){out.push({...base,type:'held',qty:l.stages.waiting+l.stages.picked+l.stages.packed,title:'On hold',owner:'MD',note:'Resume request before continuing',priority:2});continue;}
+    for(const [stage,title] of [['waiting','Pick'],['picked','Pack'],['packed','Issue surat jalan'],['staged','Load'],['loaded','Confirm departure'],['transit','Await store receipt'],['returnTransit','Receive Return']]){
+      const qty=l.stages[stage];if(qty<=0)continue;
+      const isBlocked=blocked(o,l)&&['picked','packed','staged','loaded'].includes(stage);
+      out.push({...base,type:stage,qty,title:isBlocked?`${title} · carton held`:title,owner:stage==='transit'?'Store':'Warehouse',note:isBlocked?'Shared carton contains pieces MD removed':stage==='waiting'&&l.short?`${l.short} pieces reported short`:`${SKU[l.sku].name} · ${SKU[l.sku].variant}`,blocked:isBlocked,priority:isBlocked?2:3});
+    }
+    const quarantine=l.stages.returned-(l.qualityReleased||0);if(quarantine)out.push({...base,type:'quarantine',qty:quarantine,title:'Inspect returned stock',owner:'Inventory',note:'Quarantine · unavailable for new allotment',priority:2});
+  }
+  return out.sort((a,b)=>(a.priority||0)-(b.priority||0)||a.order.localeCompare(b.order));
+}
+function assertState(s){
+  for(const [sku,n]of Object.entries(s.stock))if(!Number.isSafeInteger(n)||n<0)throw Error(`Invalid free stock: ${sku}`);
+  for(const o of s.orders)for(const l of o.lines){
+    for(const stage of STAGES)if(!Number.isSafeInteger(l.stages[stage])||l.stages[stage]<0)throw Error(`Invalid ${stage}`);
+    if(sum(STAGES,k=>l.stages[k])!==l.target)throw Error(`Target does not match live buckets for ${l.id}`);
+    if(l.original+l.added-l.removed!==l.target)throw Error(`Demand ledger mismatch for ${l.id}`);
+    if(l.pending.some(p=>!Number.isSafeInteger(p.quantity)||p.quantity<=0))throw Error('Invalid pending correction');
+    if(floor(l)>l.target)throw Error('Target below committed quantity');
+  }
+  return true;
+}
+function createAllotment(state,sku,quantities,reason){
+  required(reason);if(!SKU[sku])throw Error('Choose an SKU.');const s=structuredClone(state);
+  if(Object.values(quantities).some(q=>!Number.isSafeInteger(q)||q<0))throw Error('Store quantities must be whole non-negative numbers.');const entries=Object.entries(quantities).filter(([,q])=>q>0);if(!entries.length)throw Error('Enter a quantity for at least one store.');
+  for(const [store,q]of entries){if(!STORES.includes(store))throw Error('Unknown store');quant(q,s.stock[sku]);}
+  const total=sum(entries,([,q])=>q);if(total>s.stock[sku])throw Error(`Only ${s.stock[sku]} free pieces remain.`);
+  if(!s.online)throw Error('New reservations require warehouse availability. Reconnect first.');
+  s.stock[sku]-=total;const o=order(`ALT-NEW-${1047+s.orders.length}`,entries.map(([store,q],i)=>line(`create-${i}`,store,sku,{waiting:q})));event(o,'MD · Nadya','Allotment issued',reason);s.orders.unshift(o);assertState(s);return s;
+}
+
+const researchHTML=`<article class="research">
+<p class="intro">Make the next action obvious. Keep MD's request, the goods' physical position, and corrective work visible as separate facts.</p>
+<div class="notice blue"><b>Research scope</b>Five ERP families reviewed through official documentation; current Hub and backend inspected through source. This is a local interactive proposal, not a deployed ERP change or an authenticated audit of today's live screens.</div>
+<section class="research-section"><h2>Our recommendation</h2><ol><li><b>Warehouse starts with actionable work.</b> A queue says what, how many, where, and who acts next. A stage view remains available for coordination.</li><li><b>MD keeps Unallotted / Allotted.</b> Active / Finished and a decision filter handle mixed progress without adding more top-level pages.</li><li><b>Edit the remaining demand.</b> Show the before / after target, immediate release, physical putback, and committed quantity before save.</li><li><b>After departure, create a linked Return.</b> Preserve the shipment, start from the actual location, and release returned stock only after receipt and inspection.</li><li><b>Corrections stay visible until done.</b> Hold the affected carton, not every store in the allotment.</li></ol></section>
+<section class="research-section"><h2>What other systems teach us</h2><div class="table-wrap"><table><thead><tr><th>ERP</th><th>Documented pattern</th><th>Our design interpretation</th></tr></thead><tbody>
+<tr><td>SAP EWM</td><td>Cancel picking can release selected stock and create a putback task. Partial handling-unit cancellation requires repacking. <a href="https://help.sap.com/docs/SAP_S4HANA_ON-PREMISE/9832125c23154a179bfa1784cdc9577a/4f414373dd89535be10000000a421937.html" target="_blank" rel="noopener">Official reference ↗</a></td><td>Generate a specific correction task with carton, SKU, quantity, source and destination.</td></tr>
+<tr><td>Dynamics 365</td><td>Warehouse work, loads, shipment confirmation and posting are distinct. Reversals change the related remaining quantity. <a href="https://learn.microsoft.com/en-us/dynamics365/supply-chain/warehousing/outbound-load-handling" target="_blank" rel="noopener">Official reference ↗</a></td><td>Expose the true commitment boundary; a document reversal cannot prove physical return.</td></tr>
+<tr><td>Odoo</td><td>Partial batch validation offers a backorder choice. Returns create another warehouse operation. <a href="https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/shipping_receiving/picking_methods/batch.html" target="_blank" rel="noopener">Backorders ↗</a> · <a href="https://www.odoo.com/documentation/19.0/applications/services/helpdesk/advanced/after_sales.html" target="_blank" rel="noopener">Returns ↗</a></td><td>Ask only when the remainder needs a decision. Pre-fill the linked correction from existing facts.</td></tr>
+<tr><td>ERPNext</td><td>Allowed item edits are validated against linked fulfilment. Broader amendments keep the cancelled original and create a linked draft. <a href="https://docs.frappe.io/erpnext/amending-sales-order-after-submit" target="_blank" rel="noopener">Official reference ↗</a></td><td>Keep revisions and document links, while avoiding cancel-and-recreate for every small quantity change.</td></tr>
+<tr><td>NetSuite</td><td>Unfulfilled lines or the remaining order can be closed while prior fulfilment is retained. <a href="https://docs.oracle.com/en/cloud/saas/netsuite/ns-online-help/section_4698204292.html" target="_blank" rel="noopener">Official reference ↗</a></td><td>Use “Close unsent balance” after partial dispatch; distinguish it from cancelling the whole request.</td></tr>
+</tbody></table></div><p class="bottom-caption">These are documented workflow comparisons. No claim that our proposal is objectively faster than every ERP; that requires task testing with actual MD and warehouse users.</p></section>
+<section class="research-section"><h2>Compared with our current UI</h2><div class="comparison"><div><h3>Current source</h3><p>Desktop Ops uses a stage board. Changes are marked on picked / packed cards; Move back opens the physical correction. MD edits through the original matrix, with the minimum already committed to an SJ. Cloud and edge paths have different capabilities.</p></div><div><h3>Proposed workbench</h3><p>One queue brings corrections and executable tasks into view. A shared detail shows per-store / SKU position, request revisions, linked deliveries, and the next owner. The same information reflows into phone cards with actions at the bottom.</p></div></div><p>Keep the current quantity matrix for bulk creation and edits. This prototype's small line editor demonstrates an individual correction; it is not a proposed replacement for high-volume matrix entry.</p></section>
+<section class="research-section"><h2>Eleven scenarios you can try</h2><p>Use <b>Scenarios</b> above, then switch between <b>MD</b> and <b>Warehouse</b>.</p><ol><li>Partial dispatch and target reduction, including a shared carton.</li><li>Cancellation during picking / packing and partial putback.</li><li>SJ issued, goods still at the warehouse.</li><li>Cancellation after departure and a linked Return.</li><li>95 received out of 100; the other 5 remain open.</li><li>SJ 100, counted 95: a receiving discrepancy owned by Inventory.</li><li>Confirmed loss and a linked replacement without duplicate old demand.</li><li>Wrong destination and return from the actual store.</li><li>Offline warehouse, pending request, then acknowledgement.</li><li>Warehouse packing while MD's edit preview is open.</li><li>A later Return linked to a finished allotment.</li></ol></section>
+<section class="research-section"><h2>Implementation boundaries</h2><p>Already present in source: target amendments, cancellation, owed putback, move-back, short-pick reports, idempotency and guards on affected cartons.</p><p>Proposed extensions requiring production design: temporary holds, consistent revision checks across all writers, controlled SJ / loading reversals, linked return and replacement orchestration, durable correction inbox and consistent cloud / edge acknowledgements.</p><p>Demo simplifications: quantities instead of serialized EPCs, one representative carton per store, synthetic document IDs, no carrier / print / accounting integration, no server permissions. Warehouse receipt and Inventory decisions are explicitly labelled simulations.</p></section>
+<section class="research-section"><h2>Full research and specification</h2><p><a href="research.md" target="_blank">Read the detailed Indonesian report ↗</a> · <a href="README.md" target="_blank">Prototype instructions ↗</a></p><p>The report includes the scenario matrix, current source evidence, data contracts, race conditions, offline behavior, implementation order, and a task-based usability test plan.</p></section>
+</article>`;
+
+const $=s=>document.querySelector(s), esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let state;try{state=JSON.parse(localStorage.getItem('itulah-allotment-research-v1'))||seed();if(state.version!==1)state=seed();}catch{state=seed();}
+let role='ops',section='ops',view='queue',filter='all',search='',detailId=null,detailTab='items',context=null,activeScenario=null;
+const n=v=>Number(v).toLocaleString('en-US'), btn=(text,action,cls='',data='')=>`<button type="button" class="${cls}" data-action="${action}" ${data}>${text}</button>`;
+const badge=(text,tone='')=>`<span class="badge ${tone}">${esc(text)}</span>`;
+const getOrder=id=>state.orders.find(o=>o.id===id), getLine=(o,id)=>o.lines.find(l=>l.id===id);
+function save(){try{localStorage.setItem('itulah-allotment-research-v1',JSON.stringify(state));}catch{}}
+function toast(msg){$('#toast').textContent=msg;$('#toast').hidden=false;clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>$('#toast').hidden=true,4600);}
+function tone(o){const s=status(o);return totals(o).pending||o.queue.length?'warn':s==='Completed'?'good':s==='Cancelled'?'bad':s==='Closed short'?'':'blue';}
+function reasonField(){return `<div class="field"><label for="reason">Reason</label><select id="reason" required><option value="">Choose a reason</option>${['Store plan changed','Wrong quantity','Wrong SKU / destination','Store requested cancellation','Stock discrepancy','Packaging needs correction','Physical position verified','Other'].map(x=>`<option>${x}</option>`).join('')}</select><textarea id="note" rows="2" placeholder="Additional detail (optional)" aria-label="Additional detail"></textarea></div>`;}
+function rowData(t){return `data-order="${esc(t.order)}" data-line="${esc(t.line)}"`;}
+function pickTaskAction(t){return {correction:'resolvePending',waiting:'pick',picked:'pack',packed:'issue',staged:'load',loaded:'depart',returnTransit:'returnReceive',quarantine:'releaseReturn',short:'closeShort',lost:'replacement',wrong:'return',investigation:'investigate'}[t.type];}
+function taskButton(t){const action=pickTaskAction(t);if(t.type==='sync')return btn('Reconnect','sync','',rowData(t));if(!action||t.blocked)return btn('Open','detail','',rowData(t));return btn(t.type==='correction'?'Resolve':t.type==='lost'?'Decide':t.type==='wrong'?'Handle':t.type==='short'?'Decide':t.title, 'task','',`${rowData(t)} data-task="${t.type}" data-pending="${t.pendingId||''}"`);}
+function taskRow(t){return `<tr><td><button class="record-button" data-action="detail" data-order="${esc(t.order)}">${esc(t.order)}</button><span class="secondary">${esc(t.store)} · ${esc(t.sku)}</span></td><td><div class="task-title">${esc(t.title)}</div><div class="task-note">${esc(t.note)}</div></td><td class="num">${n(t.qty)}</td><td class="optional">${badge(t.owner,t.type==='correction'?'warn':'')}</td><td>${taskButton(t)}</td></tr>`;}
+function taskCard(t){return `<article class="mobile-card"><div class="head"><div><button class="record-button" data-action="detail" data-order="${esc(t.order)}">${esc(t.order)}</button><span class="secondary">${esc(t.store)} · ${esc(t.sku)}</span></div><span class="lead">${n(t.qty)}</span></div><p><strong>${esc(t.title)}</strong><br>${esc(t.note)}</p><div class="foot">${badge(t.owner,t.type==='correction'?'warn':'')}${taskButton(t)}</div></article>`;}
+function matching(s){return !search||s.toLowerCase().includes(search.toLowerCase());}
+function toolbar(filters){return `<div class="toolbar"><label class="search"><input id="search" type="search" placeholder="Search allotment, store, SKU" aria-label="Search" value="${esc(search)}"></label><div class="filters">${filters.map(([id,label,count])=>btn(`${label}${count===undefined?'':`<span class="count">${count}</span>`}`,'filter',filter===id?'active':'',`data-filter="${id}"`)).join('')}</div></div>`;}
+function renderOps(){
+ const all=tasks(state),visible=all.filter(t=>matching([t.order,t.store,t.sku,t.title].join(' '))&&(filter==='all'||filter==='attention'&&['correction','sync','held','quarantine','investigation'].includes(t.type)||filter===t.type));
+ let html=`<div class="subnav">${btn('Work queue','view',view==='queue'?'active':'','data-view="queue"')}${btn('By stage','view',view==='stage'?'active':'','data-view="stage"')}</div><div class="queue-heading"><div><h2>${view==='queue'?'What needs doing':'Physical position'}</h2><p>${state.online?'Warehouse connected · current demo state':'Warehouse offline · changes require acknowledgement'}</p></div><span>${all.length} tasks · ${state.orders.length} allotment${state.orders.length===1?'':'s'}</span></div>`;
+ html+=toolbar([['all','All work',all.length],['attention','Needs attention',all.filter(t=>['correction','sync','held','quarantine','investigation'].includes(t.type)).length],['waiting','To pick'],['picked','To pack'],['packed','Ready to send']]);
+ if(!state.online)html+=`<div class="notice blue"><b>Warehouse offline</b>MD requests stay pending. Free stock and warehouse work change only after acknowledgement. ${btn('Simulate reconnection','sync')}</div>`;
+ if(view==='stage'){
+  html+='<div class="stage-grid">';for(const [key,label]of [['correction','Changes to resolve'],['waiting','To pick'],['picked','To pack'],['packed','Packed'],['staged','SJ issued'],['loaded','Loaded'],['transit','In transit'],['returnTransit','Returns']]){const group=visible.filter(t=>t.type===key);if(!group.length)continue;html+=`<section class="stage-lane"><h3>${label} <span class="count">${sum(group,x=>x.qty)} pcs</span></h3>${group.map(t=>`<article class="stage-card"><button class="record-button" data-action="detail" data-order="${esc(t.order)}">${esc(t.order)}</button><span class="secondary">${esc(t.store)} · ${esc(t.sku)}</span><div class="stage-number">${t.qty}<span> pieces</span></div><p>${esc(t.title)}</p>${taskButton(t)}</article>`).join('')}</section>`;}html+='</div>';
+ }else html+=visible.length?`<div class="table-wrap desktop-table"><table><thead><tr><th>Allotment / destination</th><th>Next action</th><th class="num">Pieces</th><th class="optional">Owner</th><th></th></tr></thead><tbody>${visible.map(taskRow).join('')}</tbody></table></div><div class="mobile-cards">${visible.map(taskCard).join('')}</div>`:`<div class="empty">No work in this view.</div>`;
+ html+='<p class="guide-line">A change stays in the queue until the physical correction is confirmed. Unaffected work can continue.</p>';return html;
+}
+function orderRow(o){const t=totals(o),dec=tasks({orders:[o]},'md').filter(x=>x.owner==='MD').length;return `<tr><td><button class="record-button" data-action="detail" data-order="${esc(o.id)}">${esc(o.id)}</button><span class="secondary">${esc(o.supplier)} · ${t.stores} store${t.stores===1?'':'s'}</span></td><td>${badge(status(o),tone(o))}${t.pending?`<span class="secondary warning-text">${t.pending} physical putback pending</span>`:''}${dec?`<span class="secondary warning-text">${dec} MD decision${dec>1?'s':''}</span>`:''}</td><td class="num">${n(t.target)}<span class="secondary">${n(receivedEver(o))} received</span></td><td class="optional">${t.pending?`${n(t.pending)} to put back`:t.transit?`${n(t.transit)} in transit`:t.waiting?`${n(t.waiting)} still to pick`:t.staged+t.loaded?`${t.staged+t.loaded} on SJ`:finished(o)?'No open warehouse work':'Warehouse continuing'}</td><td>${btn('Open','detail','',`data-order="${esc(o.id)}"`)}</td></tr>`;}
+function orderCard(o){const t=totals(o);return `<article class="mobile-card"><div class="head"><div><button class="record-button" data-action="detail" data-order="${esc(o.id)}">${esc(o.id)}</button><span class="secondary">${esc(o.supplier)} · ${t.stores} store${t.stores===1?'':'s'}</span></div><span class="lead">${n(t.target)}</span></div><p>${n(receivedEver(o))} received · ${t.pending?`${t.pending} to put back`:`${t.waiting} still to pick`}</p><div class="foot">${badge(status(o),tone(o))}${btn('Open','detail','',`data-order="${esc(o.id)}"`)}</div></article>`;}
+function renderMD(){
+ const decisions=tasks(state,'md'),count=decisions.filter(t=>t.owner==='MD').length;
+ let html=`<div class="subnav">${btn('Unallotted','view',view==='stock'?'active':'','data-view="stock"')}${btn('Allotted','view',view!=='stock'?'active':'','data-view="orders"')}</div>`;
+ if(view==='stock')return html+`<div class="queue-heading"><h2>Available to allot</h2>${btn('New allotment','create','primary')}</div>${Object.entries(state.stock).map(([sku,q])=>`<div class="stock-row"><div><strong>${SKU[sku].name}</strong><span class="secondary">${sku} · ${SKU[sku].variant} · HO Gudang</span></div><div><strong>${q} pieces</strong>${btn('Allot','create','',`data-sku="${sku}"`)}</div></div>`).join('')}<p class="guide-line">Picked / packed goods waiting for putback, and returns in quarantine, are excluded from free stock.</p>`;
+ html+=`<div class="queue-heading"><div><h2>Allotted</h2><p>One request, all changes and deliveries.</p></div>${btn('New allotment','create','primary')}</div>`;
+ html+=toolbar([['all','All',state.orders.length],['active','Active',state.orders.filter(o=>!finished(o)).length],['finished','Finished',state.orders.filter(finished).length],['decisions','Needs MD decision',count]]);
+ if(filter==='decisions'){const rows=decisions.filter(t=>t.owner==='MD'&&matching(t.order+t.store+t.sku));html+=rows.length?`<div class="table-wrap desktop-table"><table><thead><tr><th>Allotment / destination</th><th>Decision</th><th>Pieces</th><th class="optional">Owner</th><th></th></tr></thead><tbody>${rows.map(taskRow).join('')}</tbody></table></div><div class="mobile-cards">${rows.map(taskCard).join('')}</div>`:`<div class="empty">No MD decisions open.</div>`;return html;}
+ const os=state.orders.filter(o=>matching(o.id+o.supplier+o.lines.map(l=>l.store+l.sku).join(' '))&&(filter==='all'||filter==='active'&&!finished(o)||filter==='finished'&&finished(o)));
+ html+=`<div class="table-wrap desktop-table"><table><thead><tr><th>Allotment</th><th>Request / remaining work</th><th>Target</th><th class="optional">Current position</th><th></th></tr></thead><tbody>${os.map(orderRow).join('')}</tbody></table></div><div class="mobile-cards">${os.map(orderCard).join('')}</div>`;return html;
+}
+function render(){
+ $('#content').innerHTML=section==='research'?researchHTML:role==='md'?renderMD():renderOps();$('#title').textContent=section==='research'?'Allotment, without the guesswork':'Allotment';$('#eyebrow').textContent=section==='research'?'RESEARCH · 11 OCTOBER 2026':role==='md'?'MERCHANDISING':'OPERATIONS';
+ document.querySelectorAll('[data-role]').forEach(x=>x.classList.toggle('active',x.dataset.role===role&&section!=='research'));
+ document.querySelectorAll('.nav-item').forEach(x=>x.classList.toggle('active',x.dataset.section===section));$('#offline').checked=!state.online;$('#sync').hidden=state.online;
+ $('#scenario-buttons').innerHTML=scenarios.map(s=>btn(esc(s.name),'scenario',activeScenario===s.id?'primary':'',`data-scenario="${s.id}"`)).join('');save();
+}
+function lineActions(o,l){const d=`data-order="${esc(o.id)}" data-line="${esc(l.id)}"`;let out=[];
+ if(role==='md'){
+  if(!finished(o)&&!o.cancelled&&!o.queue.length){out.push(btn('Edit target','edit','',d));out.push(btn(l.hold?'Resume line':'Hold line','holdLine','',d));if(l.stages.waiting)out.push(btn('Close remaining demand','closeShort','',d));}
+  if(l.stages.transit+l.stages.received+l.stages.wrong)out.push(btn('Create linked Return','return','',d));
+  if(l.issue&&!l.issue.resolved&&l.issue.owner==='MD'){
+   if(l.issue.kind==='lost')out.push(btn('Issue replacement','replacement','',d),btn('No replacement','noReplacement','',d));
+   if(l.issue.kind==='short')out.push(btn('Keep remaining demand','keepDemand','',d));
+  }
+ }else{
+  for(const [st,act,label]of [['waiting','pick','Pick'],['picked','pack','Pack'],['packed','issue','Issue SJ'],['staged','load','Load'],['loaded','depart','Confirm departure'],['transit','receive','Store receipt'],['returnTransit','returnReceive','Receive Return']])if(l.stages[st]){const held=['pick','pack','issue','load','depart'].includes(act)&&(o.cancelled||o.hold||l.hold||o.queue.length||act!=='pick'&&blocked(o,l));out.push(btn(held?`${label} · held`:label,act,'',`${d} ${held?'disabled':''}`));}
+  for(const st of ['picked','packed','staged','loaded'])if(l.stages[st])out.push(btn(st==='staged'?'Correct / void SJ':st==='loaded'?'Unload':'Move back','moveBack','quiet-button',`${d} data-from="${st}"`));
+  if(l.stages.waiting)out.push(btn('Report short pick','short','quiet-button',d));
+  if(l.issue&&!l.issue.resolved&&l.issue.owner==='Inventory')out.push(btn('Review Inventory finding','investigate','',d));
+  if(l.stages.returned>(l.qualityReleased||0))out.push(btn('Inventory quality release','releaseReturn','',d));
+ }
+ return `<div class="line-actions">${out.join('')}</div>`;
+}
+function detail(){
+ const o=getOrder(detailId);if(!o)return;const t=totals(o);
+ let body=`<div class="dialog-header"><div><h2 id="detail-title">${esc(o.id)}</h2><p>${esc(o.source)} → ${t.stores} store${t.stores>1?'s':''} · ${esc(o.supplier)}</p></div>${btn('×','closeDetail','close','aria-label="Close allotment"')}</div><div class="dialog-content"><div class="status-row">${badge(status(o),tone(o))}${badge(`Revision ${o.revision}`)}${o.parent?`<button data-action="detail" data-order="${esc(o.parent)}">Original: ${esc(o.parent)}</button>`:''}</div>`;
+ if(o.queue.length)body+=`<div class="notice blue"><b>Change requested · awaiting warehouse</b>Current quantities remain confirmed at revision ${o.revision}. Nothing is released yet. ${btn('Simulate reconnection','sync')}</div>`;
+ if(o.lastError)body+=`<div class="notice bad"><b>Request not applied</b>${esc(o.lastError)}</div>`;
+ if(t.pending)body+=`<div class="notice"><b>${t.pending} pieces need physical putback</b>MD's request is updated. Affected cartons stay blocked until Warehouse confirms the correction.</div>`;
+ if(o.hold)body+='<div class="notice"><b>Further warehouse work is on hold</b>Goods already travelling remain in transit. MD can resume the remaining work.</div>';
+ body+=`<div class="figures"><div class="figure"><span>Current target</span><strong>${t.target}</strong></div><div class="figure"><span>Received at intended store</span><strong>${receivedEver(o)}</strong></div><div class="figure"><span>In transit</span><strong>${t.transit}</strong></div><div class="figure"><span>To put back</span><strong>${t.pending}</strong></div></div><div class="detail-tabs">${[['items','Items & actions'],['changes','Changes'],['documents','Documents']].map(([id,label])=>btn(label,'detailTab',detailTab===id?'active':'',`data-tab="${id}"`)).join('')}</div>`;
+ if(detailTab==='items')for(const l of o.lines){
+  body+=`<section class="line-row"><div class="line-head"><div><strong>${esc(l.store)} · ${SKU[l.sku].name}</strong><span class="secondary">${esc(l.sku)} · ${SKU[l.sku].variant}</span></div><span>${l.original!==l.target?`<span class="secondary">Originally ${l.original}</span>`:''}<strong>${l.target} pieces</strong></span></div><div class="quantities">${STAGES.filter(s=>l.stages[s]>0).map(s=>`<span>${LABELS[s]} <b>${l.stages[s]}</b></span>`).join('')||'<span>No remaining demand</span>'}</div>`;
+  if(l.issue&&!l.issue.resolved)body+=`<p class="case-chip">${badge(l.issue.kind==='lost'?'Loss confirmed':l.issue.kind==='wrong'?'Wrong destination':`${l.issue.quantity} short`, 'warn')} · Next: ${esc(l.issue.owner)}${l.issue.actual?` · Physically at ${esc(l.issue.actual)}`:''}</p>`;
+  if(l.hold)body+=`<p>${badge('Line on hold','warn')}</p>`;if(role==='ops'&&blocked(o,l)&&pending(l)===0&&!o.hold&&!l.hold&&!o.queue.length)body+=`<p class="case-chip warning-text">${esc(l.carton)} is held by another affected SKU. Resolve that carton’s putback first.</p>`;
+  for(const p of l.pending)body+=`<div class="pending-detail"><b>${p.quantity} to ${p.stage==='packed'?'unpack & put back':'put back'}</b><span class="secondary">${p.stage==='packed'?esc(l.carton):'Pick area'} · ${esc(p.reason)}</span>${role==='ops'?btn('Confirm physical putback','resolvePending','',`data-order="${esc(o.id)}" data-line="${esc(l.id)}" data-pending="${esc(p.id)}"`):''}</div>`;
+  body+=lineActions(o,l)+'</section>';
+ }else if(detailTab==='changes')body+=o.events.map(e=>`<article class="history-item"><small>${esc(e.time)} · ${esc(e.actor)}</small><br><strong>${esc(e.text)}</strong><p>${esc(e.detail)}</p></article>`).join('');
+ else{body+=`<div class="document"><b>${esc(o.id)} · Allotment</b><span>Original demand ${t.original} · Additions ${sum(o.lines,l=>l.added)} · Removed ${t.removed} · Current target ${t.target}</span></div>`;for(const l of o.lines){if(committed(l))body+=`<div class="document"><b>SJ-${esc(o.id)}-${l.id} · ${esc(l.store)}</b><span>${l.stages.staged+l.stages.loaded?'Issued / loaded · warehouse can reverse before departure':l.stages.transit?'In transit · physical Return required':l.stages.gap?'Receive count completed · Inventory investigating':l.stages.lost?'Delivery accounted for · confirmed loss':l.stages.wrong?'Reported at wrong destination':'Historical delivery retained'} · ${committed(l)} committed pieces</span></div>`;if(l.returnDocument)body+=`<div class="document"><b>${esc(l.returnDocument)}</b><span>${esc(l.returnSource)} → HO · ${l.stages.returnTransit} returning · ${l.stages.returned} received into quarantine</span></div>`;if(l.issue?.replacement)body+=`<div class="document"><b>Replacement ${esc(l.issue.replacement)}</b><span>New request linked to original loss. ${btn('Open replacement','detail','',`data-order="${esc(l.issue.replacement)}"`)}</span></div>`;}body+='<p class="bottom-caption">Demo document IDs illustrate linkage. Print / carrier integrations are outside this local prototype.</p>';}
+ body+='</div><div class="dialog-footer"><span class="secondary">Request status and delivery position are tracked separately.</span><div class="actions">';
+ if(role==='md'&&!o.cancelled&&!finished(o)&&!o.queue.length){body+=btn(t.floor?'Close unsent balance':'Cancel allotment','cancel','danger',`data-order="${esc(o.id)}"`);body+=btn(o.hold?'Resume work':'Hold work','holdOrder','',`data-order="${esc(o.id)}"`);body+=btn('Add SKU / store','addLine','primary',`data-order="${esc(o.id)}"`);}
+ else body+=btn('Done','closeDetail','primary');body+='</div></div>';
+ $('#detail-body').innerHTML=body;if(!$('#detail').open)$('#detail').showModal();
+}
+const actionTitles={edit:'Edit target',cancel:'Stop remaining demand',holdOrder:'Hold / resume warehouse work',holdLine:'Hold / resume this line',pick:'Confirm picking',pack:'Pack pieces',issue:'Issue surat jalan',load:'Confirm loading',depart:'Confirm physical departure',receive:'Submit store receipt',resolvePending:'Confirm physical putback',moveBack:'Move goods back',short:'Report short pick',closeShort:'Close remaining demand',investigate:'Inventory finding',replacement:'Issue linked replacement',noReplacement:'Close the replacement decision',return:'Create linked Return',returnReceive:'Receive Return into quarantine',releaseReturn:'Release inspected returned stock',addLine:'Add SKU / store',create:'New allotment'};
+function openAction(type,d={}){
+ const o=getOrder(d.order||detailId);const l=o&&getLine(o,d.line);context={type,order:o?.id,line:l?.id,revision:o?.revision,from:d.from,pendingId:d.pending};
+ const t=o&&totals(o);let max=0,value=0;
+ if(l){max={edit:l.target+state.stock[l.sku],pick:l.stages.waiting,pack:l.stages.picked,issue:l.stages.packed,load:l.stages.staged,depart:l.stages.loaded,receive:l.stages.transit,closeShort:l.stages.waiting,short:l.stages.waiting,return:l.stages.transit+l.stages.received+l.stages.wrong,returnReceive:l.stages.returnTransit,releaseReturn:l.stages.returned-(l.qualityReleased||0),moveBack:l.stages[context.from],resolvePending:l.pending.find(p=>p.id===context.pendingId)?.quantity}[type]||0;value=type==='edit'?l.target:type==='short'?Math.min(5,max):max;}
+ let html=`<div class="dialog-header"><div><h2 id="action-title">${actionTitles[type]}</h2><p>${o?esc(o.id)+' · ':''}${l?esc(l.store)+' · '+esc(l.sku):'Review the effect before saving'}</p></div>${btn('×','closeAction','close','aria-label="Close action"')}</div><div class="dialog-content">`;
+ if(['resolvePending','pick','pack','load','depart','receive','returnReceive','releaseReturn'].includes(type))html+=`<div class="notice blue"><b>Confirm the physical step</b>${type==='resolvePending'?'Return the pieces to RACK-A01 first. The reservation is released only after confirmation.':type==='depart'?'Confirm only when the truck has actually left. Changes afterwards use a linked Return.':type==='receive'?'Count the pieces received at the intended store. An unreceived balance remains in transit.':type==='returnReceive'?'Received goods go into quarantine first. Inventory must inspect them before they become free stock.':'Record the quantity physically processed, including partial work.'}</div>`;
+ if(type==='issue'||type==='moveBack'&&['staged','loaded'].includes(context.from))html+=`<div class="notice"><b>Proposed extension</b>The demo separates SJ issued, loaded, and physically departed. A controlled document reversal requires new backend support; current MD edits stop at SJ issue.</div>`;
+ if(type==='return')html+=`<div class="notice blue"><b>Return starts from ${esc(l?.issue?.actual||l?.store)}</b>Dispatch history stays recorded. Stock becomes available after receipt and quality release at HO.</div>`;
+ if(type==='replacement')html+=`<div class="notice"><b>${l.issue.quantity} pieces confirmed lost</b>A new ${l.issue.quantity}-piece allotment is issued and linked. The old demand remains settled. Creating this document completes the MD decision.</div>`;
+ if(type==='cancel')html+=`<div class="notice"><b>${t.floor?'Close the unsent balance':'Cancel the whole remaining request'}</b>${t.floor?`${t.floor} pieces on a surat jalan or further remain recorded. Departed goods need a separate Return.`:'The physical correction remains assigned to Warehouse until completed.'}</div>`;
+ if(type==='create'||type==='addLine'){
+ html+=`<div class="field"><label for="sku">SKU</label><select id="sku">${Object.entries(SKU).map(([id,x])=>`<option value="${id}" ${d.sku===id?'selected':''}>${x.name} · ${x.variant} · ${state.stock[id]} free</option>`).join('')}</select></div>`;
+ if(type==='create')html+=`<div class="new-line-fields">${STORES.map((store,i)=>`<div class="field"><label for="store-${i}">${store}</label><input id="store-${i}" type="number" min="0" step="1" value="0" data-store="${store}"></div>`).join('')}</div>`;
+ else html+=`<div class="field"><label for="store">Destination</label><select id="store">${STORES.map(store=>`<option>${store}</option>`).join('')}</select></div><div class="field"><label for="quantity">Quantity (pieces)</label><input id="quantity" type="number" min="1" step="1" value="10" required></div>`;
+ }else if(max>0||type==='edit')html+=`<div class="field"><label for="quantity">${type==='edit'?'New total target':'Quantity (pieces)'}</label><input id="quantity" type="number" min="${type==='edit'?floor(l):1}" step="1" value="${value}" required><small>${type==='edit'?`Current ${l.target} · Minimum ${floor(l)} on SJ or further · ${state.stock[l.sku]} free for additions`:`${max} pieces available for this action`}</small></div>`;
+ if(type==='moveBack'&&!['staged','loaded'].includes(context.from))html+=`<div class="field"><label for="move-to">Put goods at</label><select id="move-to"><option value="waiting">Rack · keep remaining demand</option>${context.from==='packed'?'<option value="picked">Pick area · repack</option>':''}</select></div><p class="secondary">Moving wanted goods back keeps the request active. Removed goods use the dedicated putback task.</p>`;
+ if(type==='investigate')html+=`<div class="notice blue"><b>View as Inventory · Rina</b>This finding requires Inventory permission in production.</div><div class="field"><label for="finding">Confirmed result</label><select id="finding"><option value="found">${l.issue.kind==='gap'?'Found at intended store · correct receipt':'Found · continue fulfilment'}</option><option value="lost">Lost confirmed · MD decides replacement</option></select></div>`;
+ if(type==='receive')html+=`<label class="offline-control"><input id="close-count" type="checkbox"> Finish this delivery count · investigate any missing remainder</label><p class="secondary">Demonstration of count outcome. Production keeps the existing blind scan/count interface.</p>`;
+ if(type==='short')html+=`<label class="offline-control"><input id="stock-issue" type="checkbox"> Stock / quantity is uncertain · send to Inventory</label>`;
+ html+=(['edit','cancel','holdOrder','holdLine','moveBack','short','closeShort','investigate','replacement','noReplacement','return','releaseReturn','addLine','create'].includes(type)?reasonField():'')+`<div id="impact" class="impact action-preview" aria-live="polite"></div><div id="action-error" class="error" role="alert"></div>`;
+ if(type==='edit')html+=`<div class="scenarios">${btn('Simulate warehouse packs 5','race','','aria-label="Simulate concurrent warehouse packing"')}${btn('Refresh current impact','refreshImpact')}</div>`;
+ html+=`</div><div class="dialog-footer"><div class="actions">${btn('Back','closeAction')}`;
+ if(type==='closeShort')html+=btn('Keep demand','keepDemand','',`data-order="${esc(o.id)}" data-line="${esc(l.id)}"`);
+ if(type==='replacement')html+=btn('No replacement','alternativeNoReplacement');
+ html+=`<button class="primary" type="submit" id="confirm">${!state.online?'Request change':type==='edit'?'Save change':type==='cancel'?'Confirm stop':type==='replacement'?'Issue replacement':type==='create'?'Issue allotment':'Confirm'}</button></div></div>`;
+ $('#action-body').innerHTML=html;$('#action').showModal();renderImpact();
+}
+function readCommand(){const c={type:context.type,line:context.line,from:context.from,pendingId:context.pendingId,quantity:$('#quantity')?Number($('#quantity').value):undefined,reason:[$('#reason')?.value,$('#note')?.value].filter(Boolean).join(' · ')};
+ if($('#close-count'))c.closeCount=$('#close-count').checked;if($('#move-to'))c.to=$('#move-to').value;if($('#finding'))c.result=$('#finding').value;if($('#stock-issue'))c.stockIssue=$('#stock-issue').checked;if($('#sku'))c.sku=$('#sku').value;if($('#store'))c.store=$('#store').value;return c;}
+function impactRow(label,q){return `<div class="impact-row"><span>${label}</span><b>${q}</b></div>`;}
+function renderImpact(){if(!context)return;const c=readCommand(),o=getOrder(context.order),l=o&&getLine(o,context.line);let html='',error='';
+ try{
+  if(c.type==='edit'){const p=preview(l,c.quantity);html+=impactRow('Current target → new target',`${l.target} → ${c.quantity}`);html+=impactRow('Released immediately',`${p.release} pcs`);html+=impactRow('Warehouse puts back from pick area',`${p.picked} pcs`);html+=impactRow('Warehouse unpacks & puts back',`${p.packed} pcs`);if(p.delta>0)html+=impactRow('Additional stock reserved',`${p.delta} pcs`);html+=impactRow('Committed / dispatched history retained',`${floor(l)} pcs`);}
+  else if(c.type==='cancel'){let release=0,correction=0;for(const x of o.lines){const p=preview(x,floor(x));release+=p.release;correction+=p.picked+p.packed;}html+=impactRow('Demand stopped',`${totals(o).target-totals(o).floor} pcs`)+impactRow('Released immediately',`${release} pcs`)+impactRow('Physical correction for Warehouse',`${correction} pcs`)+impactRow('On SJ / further retained',`${totals(o).floor} pcs`);}
+  else if(c.type==='create'){const q=sum([...document.querySelectorAll('[data-store]')],x=>Number(x.value));html+=impactRow('Total to reserve',`${q} pcs`)+impactRow('Free after reservation',`${state.stock[c.sku]-q} pcs`);if(q>state.stock[c.sku])throw Error('Requested quantity exceeds free stock.');}
+  else if(c.type==='addLine')html+=impactRow('Stock reserved',`${c.quantity} pcs`)+impactRow('Free after reservation',`${state.stock[c.sku]-c.quantity} pcs`);
+  else if(c.type==='resolvePending')html+=impactRow('Free stock after confirmed putback',`${state.stock[l.sku]+c.quantity} pcs`)+impactRow('Correction still open',`${pending(l)-c.quantity} pcs`);
+  else if(c.type==='closeShort'){html+=impactRow('Target after closing balance',`${l.target-c.quantity} pcs`)+impactRow('Already dispatched / received retained',`${floor(l)} pcs`);}
+  else if(c.type==='return')html+=impactRow('Linked Return quantity',`${c.quantity} pcs`)+impactRow('Free stock released now','0 pcs');
+  else if(c.type==='moveBack')html+=impactRow('Physical movement',`${c.quantity} pcs`)+impactRow('Demand retained',`${l.target} pcs`);
+  else html='<p class="secondary">Only the selected SKU and destination are affected. The change is added to history.</p>';
+  if(o&&o.revision!==context.revision)throw Error(`Current revision ${o.revision} differs from reviewed revision ${context.revision}. Refresh the impact before saving.`);
+  if(!state.online)html+='<p class="skeleton-note">Request only · stock remains reserved until warehouse acknowledgement.</p>';
+ }catch(e){error=e.message;}
+ $('#impact').innerHTML=html;$('#action-error').textContent=error;$('#confirm').disabled=!!error;
+}
+function run(cmd){state=apply(state,context.order,cmd,context.revision);save();$('#action').close();render();if(detailId)detail();toast(!state.online?'Change requested · awaiting warehouse acknowledgement':'Saved · work and history updated');}
+$('#action-form').addEventListener('submit',e=>{e.preventDefault();try{const c=readCommand();if(context.type==='create'){const quantities=Object.fromEntries([...document.querySelectorAll('[data-store]')].map(x=>[x.dataset.store,Number(x.value)]));state=createAllotment(state,c.sku,quantities,c.reason);detailId=state.orders[0].id;$('#action').close();render();detail();toast('Allotment issued · stock reserved');}else run(c);}catch(e){$('#action-error').textContent=e.message;}});
+$('#action-form').addEventListener('input',renderImpact);$('#action-form').addEventListener('change',renderImpact);
+function switchRole(next){role=next;section=next;filter='all';view=next==='md'?'orders':'queue';search='';render();if(detailId&&$('#detail').open)detail();}
+document.addEventListener('click',e=>{
+ const b=e.target.closest('button');if(!b)return;
+ if(b.dataset.role){switchRole(b.dataset.role);return;}if(b.dataset.section){if(b.dataset.section==='research'){section='research';render();}else switchRole(b.dataset.section);return;}
+ if(b.id==='lab-toggle'||b.id==='mobile-lab'){$('#lab').hidden=!$('#lab').hidden;return;}if(b.id==='reset'){state=seed();activeScenario=null;detailId=null;$('#detail').close();render();toast('Demo reset');return;}
+ const d=b.dataset,a=d.action;if(!a)return;
+ try{
+ if(a==='view'){view=d.view;filter='all';render();}
+ else if(a==='filter'){filter=d.filter;render();}
+ else if(a==='detail'){detailId=d.order;detailTab='items';detail();}
+ else if(a==='closeDetail'){$('#detail').close();detailId=null;}
+ else if(a==='detailTab'){detailTab=d.tab;detail();}
+ else if(a==='closeAction'){$('#action').close();context=null;}
+ else if(a==='scenario'){state=scenario(d.scenario);activeScenario=d.scenario;detailTab='items';switchRole(['issued'].includes(d.scenario)?'ops':'md');detailId=state.orders[0].id;detail();toast(scenarios.find(s=>s.id===d.scenario).hint);}
+ else if(a==='sync'){state=reconnect(state);render();if(detailId)detail();toast('Warehouse connected · pending requests processed');}
+ else if(a==='task'){const type=pickTaskAction({type:d.task});openAction(type,d);}
+ else if(a==='keepDemand'){if($('#action').open)$('#action').close();toast('Remaining demand kept · Warehouse can continue. No duplicate request created.');}
+ else if(a==='alternativeNoReplacement'){$('#action').close();openAction('noReplacement',{order:context.order,line:context.line});}
+ else if(a==='race'){const o=getOrder(context.order),l=getLine(o,context.line);if(l.stages.picked<5)throw Error('At least 5 picked pieces are needed for this simulation.');state=apply(state,o.id,{type:'pack',line:l.id,quantity:5},o.revision);render();renderImpact();toast('Warehouse packed 5 pieces · MD preview is now stale');}
+ else if(a==='refreshImpact'){context.revision=getOrder(context.order).revision;renderImpact();toast('Impact refreshed · review the latest physical position');}
+ else if(actionTitles[a])openAction(a,d);
+ }catch(err){if($('#action').open)$('#action-error').textContent=err.message;else toast(err.message);}
+});
+$('#offline').addEventListener('change',e=>{if(e.target.checked){state.online=false;render();if(detailId)detail();}else{state=reconnect(state);render();if(detailId)detail();}});
+$('#sync').addEventListener('click',()=>{state=reconnect(state);render();if(detailId)detail();toast('Warehouse acknowledged pending requests');});
+document.addEventListener('input',e=>{if(e.target.id==='search'){const start=e.target.selectionStart;search=e.target.value;render();const input=$('#search');input?.focus();input?.setSelectionRange(start,start);}});
+$('#detail').addEventListener('close',()=>{if(!$('#detail').open&&!$('#action').open)detailId=null;});
+render();
+// Expose read-only snapshots for demo QA; changes still use the public UI.
+window.demoSnapshot=()=>structuredClone(state);
+
+</script></body></html>

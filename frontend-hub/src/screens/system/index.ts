@@ -1,9 +1,4 @@
-import type { ScreenMap } from "@/screens/registry"
-import { ActivityLog } from "@/screens/system/activity"
-import { Devices } from "@/screens/system/devices"
-import { Notifications } from "@/screens/system/notifications"
-import { StoreServers } from "@/screens/system/servers"
-import { Users } from "@/screens/system/users"
+import { lazyScreen, type ScreenMap } from "@/screens/registry"
 
 /// Screens this module has written. Keys must be paths declared in
 /// `lib/navigation.ts`; anything not listed here renders `Placeholder`.
@@ -20,9 +15,29 @@ import { Users } from "@/screens/system/users"
 /// personal half of `Account` moved to `/me`. See `nav.ts` for the redirects
 /// from every path this leaves behind.
 export const screens: ScreenMap = {
-  "/system/users": Users,
-  "/system/servers": StoreServers,
-  "/system/devices": Devices,
-  "/system/notifications": Notifications,
-  "/system/activity": ActivityLog,
+  "/system/users": lazyScreen(
+    "system/users",
+    () => import("@/screens/system/users"),
+    (m) => m.Users
+  ),
+  "/system/servers": lazyScreen(
+    "system/servers",
+    () => import("@/screens/system/servers"),
+    (m) => m.StoreServers
+  ),
+  "/system/devices": lazyScreen(
+    "system/devices",
+    () => import("@/screens/system/devices"),
+    (m) => m.Devices
+  ),
+  "/system/notifications": lazyScreen(
+    "system/notifications",
+    () => import("@/screens/system/notifications"),
+    (m) => m.Notifications
+  ),
+  "/system/activity": lazyScreen(
+    "system/activity",
+    () => import("@/screens/system/activity"),
+    (m) => m.ActivityLog
+  ),
 }

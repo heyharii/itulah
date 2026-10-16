@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { dc } from "@/lib/api"
 import { useEdgeNodeIdentity } from "@/lib/edge-session"
 import { clock, count, dayIndonesian, quantity } from "@/lib/format"
-import { useCatalogueIdentity } from "@/lib/operations/catalogue"
+import { divisionName, useCatalogueIdentity } from "@/lib/operations/catalogue"
 import { keys } from "@/lib/operations/keys"
 import { tripDocumentNumber } from "@/lib/operations/trip-number"
 import { useSiteLabel, useUnitLabel } from "@/lib/queries/organisation"
@@ -373,7 +373,7 @@ export function PackingListPrint({
       size="A5"
       ready={ready}
       title="Packing list"
-      note={`A5 · goes inside the carton${koliIds.length > 1 ? ` · ${koliIds.length} pages` : ""}`}
+      note={`A5 · goes inside the koli${koliIds.length > 1 ? ` · ${koliIds.length} pages` : ""}`}
     >
       {manifests.map((one, index) =>
         one.data ? (
@@ -384,7 +384,7 @@ export function PackingListPrint({
           />
         ) : (
           <div key={koliIds[index]} className="text-[0.875rem] text-canvas">
-            Reading the carton…
+            Reading the koli…
           </div>
         )
       )}
@@ -678,6 +678,198 @@ export function TripSuratJalanPrint({
           {trip.isError ? "Could not read the trip." : "Reading the trip…"}
         </div>
       )}
+    </PaperOverlay>
+  )
+}
+
+/// One picklist on paper: A5, in Indonesian, taken to the racks. Grouped the
+/// way the sheet is — article, then colourway, then sizes — with Diambil left
+/// blank for the pen. No pictures: the placeholders stay on screen.
+export function PicklistPaper({
+  allotmentNumber,
+  destinationId,
+  lines,
+  supplier,
+  from,
+}: {
+  allotmentNumber: string
+  destinationId: string
+  lines: readonly { readonly sku_code: string; readonly outstanding: number }[]
+  supplier: string | null
+  from: string
+}) {
+  const identity = useCatalogueIdentity()
+  const shop = useShopName()
+  const total = lines.reduce((sum, line) => sum + line.outstanding, 0)
+  const articles = new Map<string, Map<string, typeof lines>>()
+  for (const line of lines) {
+    if (line.outstanding <= 0) continue
+    const one = identity.get(line.sku_code)
+    const article = one?.article_code ?? line.sku_code
+    const colour = one?.colour ?? "—"
+    const byColour = articles.get(article) ?? new Map<string, typeof lines>()
+    byColour.set(colour, [...(byColour.get(colour) ?? []), line])
+    articles.set(article, byColour)
+  }
+  const named = [...articles.keys()].map((code) => {
+    const first = [...articles.get(code)!.values()][0]![0]!
+    const one = identity.get(first.sku_code)
+    return {
+      code,
+      name: one?.article_name ?? code,
+      division: one?.division_code ?? null,
+    }
+  })
+  let no = 0
+  return (
+    <div className={`${PAPER} min-h-[210mm] w-[148mm] p-[9mm]`}>
+      <div className="mb-3 flex items-start justify-between gap-4 border-b-2 border-[#111] pb-3">
+        <div>
+          <div className="text-[24px] leading-[28px] font-bold tracking-[0.02em]">
+            PICKLIST
+          </div>
+          <div className="mt-1">{from}</div>
+        </div>
+        <div className="font-mono text-[14px]">{allotmentNumber}</div>
+      </div>
+      <dl className="mb-3.5 grid grid-cols-[auto_1fr] gap-x-3.5 gap-y-[3px]">
+        <dt className="text-[#555]">Toko</dt>
+        <dd className="font-semibold">{shop(destinationId)}</dd>
+        <dt className="text-[#555]">Artikel</dt>
+        <dd>
+          {named.map((one) => (
+            <div key={one.code}>
+              {one.name} ·{" "}
+              <span className="font-mono text-[14px]">{one.code}</span>
+              {one.division && <> · {divisionName(one.division)}</>}
+            </div>
+          ))}
+        </dd>
+        {supplier && (
+          <>
+            <dt className="text-[#555]">Supplier</dt>
+            <dd>{supplier}</dd>
+          </>
+        )}
+        <dt className="text-[#555]">Dicetak</dt>
+        <dd>
+          {today()}, {clock(new Date().toISOString())}
+        </dd>
+      </dl>
+      <table className="w-full border-collapse">
+        <thead>
+          <tr className="text-left">
+            <th className="border-b-[1.5px] border-[#111] p-1.5 font-semibold">
+              No
+            </th>
+            <th className="border-b-[1.5px] border-[#111] p-1.5 font-semibold">
+              Ukuran
+            </th>
+            <th className="border-b-[1.5px] border-[#111] p-1.5 font-semibold">
+              SKU
+            </th>
+            <th className="border-b-[1.5px] border-[#111] p-1.5 text-right font-semibold">
+              Diminta
+            </th>
+            <th className="border-b-[1.5px] border-[#111] p-1.5 text-right font-semibold">
+              Diambil
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {[...articles].flatMap(([code, byColour]) =>
+            [...byColour].flatMap(([colour, list]) => [
+              <tr key={`${code}-${colour}`}>
+                <td
+                  colSpan={5}
+                  className="border-b border-[#ccc] p-1.5 pt-3 font-semibold"
+                >
+                  {articles.size > 1
+                    ? `${named.find((one) => one.code === code)?.name ?? code} · ${colour}`
+                    : colour}
+                </td>
+              </tr>,
+              ...list.map((line) => (
+                <tr key={line.sku_code}>
+                  <td className="border-b border-[#ccc] p-1.5">{++no}</td>
+                  <td className="border-b border-[#ccc] p-1.5">
+                    {identity.get(line.sku_code)?.size ?? "—"}
+                  </td>
+                  <td className="border-b border-[#ccc] p-1.5 font-mono text-[14px]">
+                    {line.sku_code}
+                  </td>
+                  <td className="border-b border-[#ccc] p-1.5 text-right">
+                    {count(line.outstanding)}
+                  </td>
+                  <td className="w-[22mm] border border-[#111]" />
+                </tr>
+              )),
+            ])
+          )}
+        </tbody>
+        <tfoot>
+          <tr className="font-bold">
+            <td colSpan={3} className="border-t-[1.5px] border-[#111] p-1.5">
+              Total
+            </td>
+            <td className="border-t-[1.5px] border-[#111] p-1.5 text-right">
+              {count(total)}
+            </td>
+            <td className="border-[1.5px] border-[#111]" />
+          </tr>
+        </tfoot>
+      </table>
+      <div className="mt-3.5 min-h-[16mm] border border-[#ccc] p-1.5 text-[#555]">
+        Catatan
+      </div>
+      <div className="mt-[14mm] grid grid-cols-2 gap-[14mm] text-[#555]">
+        <div>
+          <div className="mb-1 h-[12mm] border-b border-[#111]" />
+          Diambil oleh · jam
+        </div>
+        <div>
+          <div className="mb-1 h-[12mm] border-b border-[#111]" />
+          Diterima packer · jam
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/// The picklist paper, ready to print over the Pick sheet.
+export function PicklistPrint({
+  open,
+  onClose,
+  allotmentNumber,
+  destinationId,
+  lines,
+  supplier,
+}: {
+  open: boolean
+  onClose: () => void
+  allotmentNumber: string
+  destinationId: string
+  lines: readonly { readonly sku_code: string; readonly outstanding: number }[]
+  supplier: string | null
+}) {
+  const from = useFrom()(null)
+  const shop = useShopName()
+  return (
+    <PaperOverlay
+      open={open}
+      onClose={onClose}
+      size="A5"
+      ready
+      title="Picklist"
+      note={`A5 · ${shop(destinationId)} · ${allotmentNumber}`}
+    >
+      <PicklistPaper
+        allotmentNumber={allotmentNumber}
+        destinationId={destinationId}
+        lines={lines}
+        supplier={supplier}
+        from={from}
+      />
     </PaperOverlay>
   )
 }

@@ -251,6 +251,12 @@ pub async fn record_heartbeat(
         .await?;
     announce(&mut tx, origin_id, &status.site_id, &assessment, now).await?;
     tx.commit().await?;
+    // A server let in by an install code is ready once it has taken all its
+    // first data and is being heard from; and if its first data never went
+    // out whole, it is sent once more. After the heartbeat is filed, and
+    // neither can fail it (`node_enrolment.rs`).
+    super::node_enrolment::settle_first_data(pool, origin_id).await;
+    super::node_enrolment::retry_first_data(pool, origin_id).await;
     Ok(now)
 }
 

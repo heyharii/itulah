@@ -1,3 +1,5 @@
+import { POP_MOTION } from "@/lib/filter-chrome"
+import { cn } from "@/lib/utils"
 import { Menu } from "@base-ui/react/menu"
 import { Printer, Upload } from "lucide-react"
 import { useRef, useState } from "react"
@@ -54,7 +56,7 @@ function MenuItem({
   return (
     <Menu.Item
       onClick={onClick}
-      className="flex min-h-8 cursor-default items-center rounded-inner px-2 text-[0.875rem] text-ink outline-none select-none data-[highlighted]:bg-soft-2"
+      className="flex min-h-8 cursor-default items-center rounded-inner px-2 text-[0.9375rem] text-ink outline-none select-none data-[highlighted]:bg-soft-2"
     >
       {children}
     </Menu.Item>
@@ -240,7 +242,7 @@ export function BankReconciliation() {
                 const r = b.importStatement(account, SAMPLE_CSV)
                 setImported(`Sample loaded: ${count(r.added, "line")} added.`)
               }}
-              className="text-[0.875rem] font-medium whitespace-nowrap text-accent hover:underline"
+              className="text-[0.9375rem] font-medium whitespace-nowrap text-accent hover:underline"
             >
               Load sample
             </button>
@@ -290,7 +292,7 @@ export function BankReconciliation() {
         <button
           type="button"
           onClick={() => setShowRegister((v) => !v)}
-          className="text-[0.875rem] font-medium text-accent hover:underline"
+          className="text-[0.9375rem] font-medium text-accent hover:underline"
         >
           {showRegister ? "Back to transactions" : "Go to account register"}
         </button>
@@ -475,7 +477,7 @@ export function BankReconciliation() {
                             value={l.counterparty ?? ""}
                             onChange={(v) => b.setCounterparty(l.line_id, v)}
                             aria-label="From/To"
-                            className="h-7 max-w-[11rem] bg-transparent px-1.5 text-[0.875rem]"
+                            className="h-7 max-w-[11rem] bg-transparent px-1.5 text-[0.9375rem]"
                           >
                             <option value="">Select name…</option>
                             {PARTIES.map((p) => (
@@ -500,7 +502,7 @@ export function BankReconciliation() {
                                 ? "matched"
                                 : "posted"}
                             </Pill>
-                            <span className="font-mono text-[0.875rem] text-mute">
+                            <span className="font-mono text-[0.9375rem] text-mute">
                               {b.ledger.entry(l.entry_id)?.entry_number}
                             </span>
                           </span>
@@ -541,7 +543,7 @@ export function BankReconciliation() {
                                 setChosen({ ...chosen, [l.line_id]: v })
                               }
                               aria-label="Category"
-                              className="h-7 max-w-[13rem] bg-transparent px-1.5 text-[0.875rem]"
+                              className="h-7 max-w-[13rem] bg-transparent px-1.5 text-[0.9375rem]"
                             >
                               <option value="">Select category…</option>
                               {CATEGORIES.map((c) => (
@@ -582,7 +584,12 @@ export function BankReconciliation() {
                                   sideOffset={4}
                                   className="z-50"
                                 >
-                                  <Menu.Popup className="min-w-44 rounded-card border border-hairline bg-canvas p-1.5 shadow-pop">
+                                  <Menu.Popup
+                                    className={cn(
+                                      "min-w-44 rounded-card border border-hairline bg-canvas p-1.5 shadow-pop",
+                                      POP_MOTION
+                                    )}
+                                  >
                                     <MenuItem
                                       onClick={() => {
                                         setOpen(l.line_id)

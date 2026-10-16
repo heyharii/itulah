@@ -129,7 +129,7 @@ export function BasketSheet({
         // cannot be — item names on three lines, money off the edge, exactly
         // the thing this comment claimed to have fixed.
         width="wide"
-        className="md:w-[52rem]"
+        className="md:w-[52rem] xl:w-[52rem] min-[90rem]:w-[52rem]"
         actions={
           <div className="flex items-center gap-1.5">
             <Button
@@ -197,7 +197,7 @@ export function BasketSheet({
                       <span className="flex-1 text-card-title font-semibold text-ink">
                         {group.supplierName}
                       </span>
-                      <span className="text-[0.875rem] text-mute tabular-nums">
+                      <span className="text-[0.9375rem] text-mute tabular-nums">
                         {count(group.pieces)} pieces · {money(group.value)}
                       </span>
                     </CardStrip>
@@ -211,11 +211,11 @@ export function BasketSheet({
                             className="border-t border-hairline"
                           >
                             <td className="py-2 pr-2">
-                              <span className="block text-[0.875rem] text-ink">
+                              <span className="block text-[0.9375rem] text-ink">
                                 {line.item.name}
                               </span>
                               {realItemCode(line.item.supplier_item_code) && (
-                                <span className="font-mono text-[0.875rem] text-mute">
+                                <span className="font-mono text-[0.9375rem] text-mute">
                                   {line.item.supplier_item_code}
                                 </span>
                               )}

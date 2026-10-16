@@ -87,6 +87,14 @@ pub struct AppConfig {
     /// assistant insists on (`cloud/http/assistant.rs`), so a replacement must
     /// be served that way too.
     pub assistant_model: String,
+    /// Who serves the model. OpenRouter takes `assistant_api_key`; Vertex AI
+    /// (`ASSISTANT_PROVIDER=vertex`) signs in as the VM's own service account,
+    /// so a Google deployment carries no key at all.
+    pub assistant_vertex: bool,
+    /// US dollars per million tokens — input, output, cached input — for a
+    /// provider that does not price each answer itself (Vertex does not;
+    /// OpenRouter does). Without it the monthly budget would count nothing.
+    pub assistant_price_per_mtok: Option<[f64; 3]>,
     /// The PO intake extraction doors (`intake::po`). A node without them
     /// still imports Excel and text-layer PDFs; scans fail honestly.
     pub po_import: crate::cloud::intake::po::PoImportConfig,
@@ -171,6 +179,8 @@ impl AppConfig {
                 "INVENTORY_AUTH_SESSION_IDLE_MINUTES must be between 1 and 1440".into(),
             ));
         }
+        let vertex = env_opt("ASSISTANT_PROVIDER")
+            .is_some_and(|value| value.eq_ignore_ascii_case("vertex"));
         Ok(Self {
             bind_addr,
             database_url,
@@ -222,12 +232,38 @@ impl AppConfig {
             default_destination_site_id: env_opt("INVENTORY_DEFAULT_DESTINATION_SITE_ID")
                 .unwrap_or_default(),
             assistant_api_key: env_opt("OPENROUTER_API_KEY"),
-            assistant_base_url: env_opt("OPENROUTER_BASE_URL")
+            assistant_base_url: env_opt("ASSISTANT_BASE_URL")
+                .or_else(|| env_opt("OPENROUTER_BASE_URL"))
+                .or_else(|| {
+                    // Gemma on Vertex is served from the global endpoint only.
+                    vertex.then(|| {
+                        format!(
+                            "https://aiplatform.googleapis.com/v1/projects/{}/locations/global/endpoints/openapi",
+                            env_opt("GOOGLE_CLOUD_PROJECT").unwrap_or_default()
+                        )
+                    })
+                })
                 .unwrap_or_else(|| "https://openrouter.ai/api/v1".into())
                 .trim_end_matches('/')
                 .to_owned(),
-            assistant_model: env_opt("ASSISTANT_MODEL")
-                .unwrap_or_else(|| "google/gemma-4-31b-it".into()),
+            assistant_model: env_opt("ASSISTANT_MODEL").unwrap_or_else(|| {
+                if vertex {
+                    "google/gemma-4-26b-a4b-it-maas".into()
+                } else {
+                    "google/gemma-4-31b-it".into()
+                }
+            }),
+            assistant_vertex: vertex,
+            assistant_price_per_mtok: env_opt("ASSISTANT_PRICE_PER_MTOK")
+                .and_then(|value| {
+                    let parts: Vec<f64> = value
+                        .split(',')
+                        .filter_map(|part| part.trim().parse().ok())
+                        .collect();
+                    (parts.len() == 3).then(|| [parts[0], parts[1], parts[2]])
+                })
+                // Vertex AI's list price for Gemma 4 26B, 15 Oct 2026.
+                .or_else(|| vertex.then_some([0.15, 0.60, 0.015])),
             po_import: crate::cloud::intake::po::PoImportConfig::from_env(),
         })
     }

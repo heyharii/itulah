@@ -1,0 +1,30 @@
+[
+  {
+    "id": "cancel",
+    "text": "Allotment bisa dibatalkan kapan saja sebelum dikirim. MD menekan **Cancel allotment**."
+  },
+  {
+    "id": "costs",
+    "text": "Dialognya menyebut akibat di tiap tahap. Yang sudah dikirim tetap jalan."
+  },
+  {
+    "id": "ack",
+    "text": "Karena gudang sudah bekerja, MD harus mencentang pengakuannya dan memilih alasan."
+  },
+  {
+    "id": "cancelled",
+    "text": "MD langsung melihat statusnya **Cancelled**."
+  },
+  {
+    "id": "remove",
+    "text": "Di papan, kartu To pick cukup dihapus: **Remove picklist**."
+  },
+  {
+    "id": "stamp",
+    "text": "Kartu Picked dan Packed diberi stempel **CANCELLED**. Kartu itu tidak bisa di-pick, di-pack, atau dikirim."
+  },
+  {
+    "id": "moveback",
+    "text": "Gudang mengembalikannya lewat **Move back**, dan barangnya kembali menjadi stok."
+  }
+]

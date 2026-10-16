@@ -4,6 +4,7 @@ import { useMemo, useState } from "react"
 
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
+import type { Refreshable } from "@/components/ui/refresh-stamp"
 import { EmptyState } from "@/components/ui/states"
 import { count, quantity } from "@/lib/format"
 import { tableSetup, type TableSetup } from "@/lib/table"
@@ -75,10 +76,13 @@ export function ProblemsTable({
   loading,
   selected,
   onOpen,
+  refresh,
 }: {
   rows: readonly ProblemRow[]
   /// The reads it is made of are still on their way.
   loading: boolean
+  /// The queries `rows` were made from, for the stamp over the table.
+  refresh?: readonly Refreshable[]
   selected: string | undefined
   onOpen: (allotmentId: string) => void
 }) {
@@ -104,6 +108,7 @@ export function ProblemsTable({
         </EmptyState>
       ) : (
         <DataTable<ProblemRow>
+          refresh={refresh}
           table={table}
           roomy
           pageScroll

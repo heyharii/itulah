@@ -469,7 +469,7 @@ export function ChatComposer({
       )}
 
       {problem !== null && (
-        <div className="flex items-start gap-2 rounded-inner bg-bad-bg px-3 py-1.5 text-[0.875rem] text-bad-fg">
+        <div className="flex items-start gap-2 rounded-inner bg-bad-bg px-3 py-1.5 text-[0.9375rem] text-bad-fg">
           <span className="min-w-0 flex-1">{problem}</span>
           {editing === null && (
             <button
@@ -514,7 +514,7 @@ export function ChatComposer({
                   }}
                   onMouseEnter={() => setHighlight(index)}
                   className={cn(
-                    "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[0.875rem]",
+                    "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[0.9375rem]",
                     index === active ? "bg-soft-2 text-ink" : "text-text"
                   )}
                 >
@@ -573,7 +573,7 @@ export function ChatComposer({
           onSelect={(event) => setCaret(event.currentTarget.selectionStart)}
           onBlur={() => setCaret(null)}
           aria-label={editing !== null ? "Edit message" : "Message"}
-          className="max-h-40 w-full resize-none overflow-y-auto rounded-inner border border-hairline-2 bg-canvas px-3.5 py-2 text-[0.875rem] leading-normal text-ink transition-colors outline-none placeholder:text-mute hover:border-hairline-strong focus:border-hairline-strong"
+          className="max-h-40 w-full resize-none overflow-y-auto rounded-inner border border-hairline-2 bg-canvas px-3.5 py-2 text-[0.9375rem] leading-normal text-ink transition-colors outline-none placeholder:text-mute hover:border-hairline-strong focus:border-hairline-strong"
         />
 
         <Button
@@ -620,7 +620,7 @@ function ContextBar({
           )}
         </div>
         {line !== "" && (
-          <div className="truncate text-[0.875rem] text-body">{line}</div>
+          <div className="truncate text-[0.9375rem] text-body">{line}</div>
         )}
       </div>
       <button

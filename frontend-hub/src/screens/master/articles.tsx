@@ -1,9 +1,19 @@
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
+import {
+  useQueries,
+  useSuspenseInfiniteQuery,
+  useSuspenseQueries,
+} from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { useNavigate } from "@tanstack/react-router"
 import { EyeOff } from "lucide-react"
-import { useCallback, useMemo, useState } from "react"
+import {
+  Suspense,
+  useCallback,
+  useDeferredValue,
+  useMemo,
+  useState,
+} from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { DockTools } from "@/components/shell/dock-tools"
@@ -14,7 +24,7 @@ import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { PickOne, type Choice } from "@/components/ui/pick"
 import { Pill } from "@/components/ui/pill"
-import { EmptyState, LoadMore } from "@/components/ui/states"
+import { EmptyState, LoadingState, LoadMore } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { FilterOmnibox } from "@/components/ui/filter-omnibox"
 import {
@@ -31,16 +41,18 @@ import {
 import { count, money } from "@/lib/format"
 import { colourwayFill } from "@/lib/colourway-fill"
 import { cn } from "@/lib/utils"
+import { SubTabs } from "@/components/ui/sub-tabs"
 import {
+  ACTIVE_ARTICLES,
   articlePagesQuery,
   articleScopeFromFilters,
+  searchArticles,
   type ArticleRow,
   type ArticleScope,
   type FacetCount,
 } from "@/lib/queries/articles"
-import { colourKeys, listColours, type ColourTerm } from "@/lib/queries/colours"
-import { catalogueVocabulary, procurementKeys } from "@/lib/queries/procurement"
-import { queryState } from "@/lib/query-state"
+import { colourLabelsQuery, type ColourTerm } from "@/lib/queries/colours"
+import { catalogueVocabularyQuery } from "@/lib/queries/procurement"
 import { useLayout } from "@/lib/layout"
 import { useSheet, type SheetSearch } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
@@ -143,7 +155,7 @@ const columns: ColumnDef<TableSetup, CatalogueRow>[] = [
           <span className="truncate font-medium text-ink">
             {row.original.article.name}
           </span>
-          <span className="font-mono text-[0.875rem] text-mute">
+          <span className="font-mono text-[0.9375rem] text-mute">
             {row.original.article.article_code}
           </span>
         </span>
@@ -154,7 +166,10 @@ const columns: ColumnDef<TableSetup, CatalogueRow>[] = [
     id: "division",
     accessorFn: (row) => row.divisionLabel,
     header: "Division",
-    size: 130,
+    // Wide enough for "Anak Perempuan" in the Tag's mono face (132px, chip and
+    // all) beside the cell's own padding. At 130 the chip ran 2px past its
+    // column and sat on the first swatch of Colors.
+    size: 176,
     // No sideways scroll (owner, 2026-10-10): on a narrow card the columns go,
     // SKUs first, then Sizes, then Division — the filters above still offer
     // all three. Colors, Price Range and Status stay.
@@ -165,7 +180,9 @@ const columns: ColumnDef<TableSetup, CatalogueRow>[] = [
       row.original.article.division_code === null ? (
         <span className="text-mute">—</span>
       ) : (
-        <Tag>{row.original.divisionLabel}</Tag>
+        <Tag className="max-w-full" title={row.original.divisionLabel}>
+          <span className="truncate">{row.original.divisionLabel}</span>
+        </Tag>
       ),
   },
   {
@@ -187,15 +204,19 @@ const columns: ColumnDef<TableSetup, CatalogueRow>[] = [
     cell: ({ row }) => row.original.sizes,
   },
   {
-    id: "skus",
-    accessorFn: (row) => row.article.sku_count,
-    header: "SKUs",
-    size: 90,
-    meta: { align: "right", card: "hide", priority: 4 },
-    // Colourways times sizes, in principle. Where it is less, somebody stopped
-    // half way through a setup session — which is the thing this column is
-    // sorted on to find.
-    cell: ({ row }) => count(row.original.article.sku_count),
+    // Pieces on hand, everywhere, in place of the SKU count (owner,
+    // 2026-10-15: "ada stock kali ya, tapi hapus sku di table").
+    id: "stock",
+    accessorFn: (row) => row.article.stock_qty ?? -1,
+    header: "Stock",
+    size: 100,
+    meta: { align: "right", card: "hide", priority: 3 },
+    cell: ({ row }) =>
+      row.original.article.stock_qty === undefined ? (
+        <span className="text-mute">—</span>
+      ) : (
+        `${count(row.original.article.stock_qty)} pcs`
+      ),
   },
   {
     id: "price",
@@ -216,7 +237,7 @@ const columns: ColumnDef<TableSetup, CatalogueRow>[] = [
     meta: { card: "hide" },
     cell: ({ row }) => (
       <Pill tone={row.original.article.active ? "ok" : "neutral"}>
-        {row.original.article.active ? "Active" : "Cancelled"}
+        {row.original.article.active ? "Active" : "Inactive"}
       </Pill>
     ),
   },
@@ -251,19 +272,23 @@ const columns: ColumnDef<TableSetup, CatalogueRow>[] = [
             >
               {!one.active && (
                 <EyeOff
-                  aria-label="Cancelled"
+                  aria-label="Inactive"
                   className="size-4 shrink-0 text-mute"
                 />
               )}
               <span className="min-w-0 break-words">{one.name}</span>
             </span>
-            <span className="font-mono text-[0.875rem] font-normal text-mute">
+            <span className="font-mono text-[0.9375rem] font-normal text-mute">
               {one.article_code}
             </span>
             {(one.division_code !== null || one.colours.length > 0) && (
               <span className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 font-normal">
                 {one.division_code !== null && (
-                  <Tag>{row.original.divisionLabel}</Tag>
+                  <Tag className="max-w-full">
+                    <span className="truncate">
+                      {row.original.divisionLabel}
+                    </span>
+                  </Tag>
                 )}
                 <Swatches colours={one.colours} cap={4} />
               </span>
@@ -294,7 +319,7 @@ const columns: ColumnDef<TableSetup, CatalogueRow>[] = [
           >
             {first === null ? "—" : money(first)}
           </span>
-          <span className="text-[0.875rem] text-mute">
+          <span className="text-[0.9375rem] text-mute">
             {low !== null && high !== null && high > low
               ? `up to ${money(high)}`
               : "price"}
@@ -305,19 +330,20 @@ const columns: ColumnDef<TableSetup, CatalogueRow>[] = [
   },
   {
     id: "foot",
-    accessorFn: (row) => row.article.sku_count,
+    accessorFn: (row) => row.article.stock_qty ?? -1,
     header: "",
     enableHiding: false,
     enableSorting: false,
     meta: { card: "foot" },
     cell: ({ row }) => {
-      const n = row.original.article.sku_count
+      // The stock, as the desk's Stock column says it (same on every device).
+      const n = row.original.article.stock_qty
       const sizes = row.original.sizes
       return (
         <span className="tabular-nums">
-          {`${count(n)} ${n === 1 ? "SKU" : "SKUs"}`}
+          {n === undefined ? "—" : `${count(n)} pcs`}
           {sizes !== "" && sizes !== "—" && ` · ${sizes}`}
-          {!row.original.article.active && " · Cancelled"}
+          {!row.original.article.active && " · Inactive"}
         </span>
       )
     },
@@ -364,6 +390,22 @@ function EditArticle({ code, name }: { code: string; name: string }) {
 }
 
 export function Articles() {
+  // The title stands at once; the catalogue waits for its first page, the
+  // words and the colour names and streams in with them (the server starts the
+  // reads too).
+  return (
+    <PageContent>
+      <PageHeader title="Articles" small />
+      <Suspense
+        fallback={<LoadingState>Reading the article master…</LoadingState>}
+      >
+        <ArticleCatalogue />
+      </Suspense>
+    </PageContent>
+  )
+}
+
+function ArticleCatalogue() {
   /// Which article is open. In the URL rather than in state beside the list,
   /// so a merchandiser can send "look at this one" and so the back button
   /// leaves the article rather than the app.
@@ -384,27 +426,19 @@ export function Articles() {
 
   const needle = (search.value ?? "").trim()
 
-  const vocabulary = useQuery({
-    queryKey: procurementKeys.vocabulary(),
-    queryFn: ({ signal }) => catalogueVocabulary(signal),
-    // The words the catalogue may be described with change when somebody edits
-    // the vocabulary table, which is roughly never.
-    staleTime: 30 * 60 * 1000,
-  })
-
-  /// The colour facets come back as codes, because that is what the filter
-  /// sends. A person reads a name and recognises a swatch, so the master is
-  /// joined to the counts here — once — rather than asking the list endpoint
-  /// to repeat a hundred labels on every page.
-  const master = useQuery({
-    queryKey: colourKeys.list(),
-    queryFn: ({ signal }) => listColours(signal),
-    staleTime: 30 * 60 * 1000,
+  /// The words the catalogue may be described with (they change when somebody
+  /// edits the vocabulary table, which is roughly never), and the colour
+  /// facets, which come back as codes, because that is what the filter sends.
+  /// A person reads a name and recognises a swatch, so the master is joined to
+  /// the counts here — once — rather than asking the list endpoint to repeat a
+  /// hundred labels on every page.
+  const [vocabulary, master] = useSuspenseQueries({
+    queries: [catalogueVocabularyQuery(), colourLabelsQuery()],
   })
   const colourTerms = useMemo(
     () =>
       new Map<string, ColourTerm>(
-        (master.data?.colours ?? []).map((term) => [term.code, term])
+        master.data.colours.map((term) => [term.code, term])
       ),
     [master.data]
   )
@@ -518,7 +552,12 @@ export function Articles() {
   /// somebody does with a narrowed catalogue.
   const filters = useFilterState(fields)
 
-  const scope = useMemo<ArticleScope>(
+  /// Active, Sold out or Inactive (owner, 2026-10-15). An article goes
+  /// inactive only by hand — selling out does not retire it; Sold out is the
+  /// active articles with nothing on hand anywhere.
+  const [tab, setTab] = useState<ArticleTab>("ACTIVE")
+
+  const base = useMemo<ArticleScope>(
     () => ({
       ...articleScopeFromFilters(filters.filters),
       q: needle === "" ? undefined : needle,
@@ -526,22 +565,41 @@ export function Articles() {
     }),
     [filters.filters, needle, articleOrder.value]
   )
+  const scope = useMemo<ArticleScope>(
+    () => ({ ...base, ...TAB_SCOPE[tab] }),
+    [base, tab]
+  )
+  /// Each tab's count: the same search under that tab, one row asked for —
+  /// the total is what is wanted.
+  const tabCounts = useQueries({
+    queries: ARTICLE_TABS.map((one) => ({
+      queryKey: ["articles", "count", { ...base, ...TAB_SCOPE[one.value] }],
+      queryFn: ({ signal }: { signal: AbortSignal }) =>
+        searchArticles({ ...base, ...TAB_SCOPE[one.value], limit: 1 }, signal),
+    })),
+  })
+  const countOf = (value: ArticleTab) =>
+    tabCounts[ARTICLE_TABS.findIndex((one) => one.value === value)]?.data?.total
 
-  const catalogue = useInfiniteQuery(articlePagesQuery(scope))
+  // A tab or a filter changed: the list in hand stays (dimmed, below) until
+  // the new one lands, instead of blinking to the loading state between — the
+  // deferred scope keeps the old question on screen while the new one is read.
+  const asked = useDeferredValue(scope)
+  const catalogue = useSuspenseInfiniteQuery(articlePagesQuery(asked))
 
   // Append-only: the list grows as more is asked for, and every article
   // fetched stays in the model. Nothing is sliced away to make it look fast.
   const articles = useMemo(
-    () => catalogue.data?.pages.flatMap((page) => page.items) ?? [],
+    () => catalogue.data.pages.flatMap((page) => page.items),
     [catalogue.data]
   )
   // From the first page. Every page reports the same totals, so taking the
   // first is what stops the counts flickering as more pages arrive.
-  const facets = catalogue.data?.pages[0]?.facets
+  const facets = catalogue.data.pages[0]?.facets
   /// How many articles the SEARCH matches — not how many the facets do. The
   /// server computes this from the words alone, so saying "40 of 2.810" with
   /// three facets on would claim a number nobody computed.
-  const searchable = catalogue.data?.pages[0]?.total ?? 0
+  const searchable = catalogue.data.pages[0]?.total ?? 0
 
   const rows = useMemo<CatalogueRow[]>(
     () =>
@@ -627,9 +685,7 @@ export function Articles() {
   const filtered = needle !== "" || filters.filters.length > 0
 
   return (
-    <PageContent>
-      <PageHeader title="Articles" small />
-
+    <>
       {/* The same head as the order book, New Articles and Divisions: the
           figures, then one line of controls over the table. The facets that
           stood in a panel beside the list are in that line now (owner,
@@ -642,6 +698,16 @@ export function Articles() {
           <Kpi label="Sizes" value={count(facets.sizes.length)} />
         </KpiStrip>
       )}
+
+      <SubTabs
+        className="max-md:hidden"
+        tabs={ARTICLE_TABS.map((one) => ({
+          value: one.value,
+          label: <TabLabel text={one.label} n={countOf(one.value)} />,
+        }))}
+        value={tab}
+        onChange={(next) => setTab(next as ArticleTab)}
+      />
 
       {/* Two columns from 1440 up: the catalogue, and the facets standing
           beside it.
@@ -723,6 +789,15 @@ export function Articles() {
               onChange: (next) => (next ? search.open(next) : search.close()),
               label: "Search Articles",
             }}
+            status={{
+              value: tab,
+              options: ARTICLE_TABS.map((one) => ({
+                value: one.value,
+                label: one.label,
+                count: countOf(one.value) ?? 0,
+              })),
+              onChange: (next) => setTab(next as ArticleTab),
+            }}
             filter={{
               count: filters.filters.length,
               panel: { model: { ...filters, fields: counted } },
@@ -747,81 +822,85 @@ export function Articles() {
             }}
           />
 
-          {queryState(catalogue, {
-            loading: "Reading the article master…",
-            render: () =>
-              rows.length === 0 ? (
-                <EmptyState>
-                  {filtered
-                    ? "No article matches that. Widen the filters, or search the whole master."
-                    : "No article has been created yet. Articles are created in New Articles."}
-                </EmptyState>
-              ) : (
-                <>
-                  {view === "grid" ? (
-                    /* Container queries, not viewport ones. This column's
+          <div
+            // The list being replaced steps back while the next is read, and
+            // comes forward when it lands — a transition, so a second tab
+            // pressed mid-way retargets instead of restarting (Emil).
+            aria-busy={asked !== scope || undefined}
+            className="list-swap"
+          >
+            {rows.length === 0 ? (
+              <EmptyState>
+                {filtered
+                  ? "No article matches that. Widen the filters, or search the whole master."
+                  : "No article has been created yet. Articles are created in New Articles."}
+              </EmptyState>
+            ) : (
+              <>
+                {view === "grid" ? (
+                  /* Container queries, not viewport ones. This column's
                        width is whatever the rail, the sidebar and — from 96rem
                        up — the docked filter panel leave it, so a `md:`
                        breakpoint reading the viewport puts three cards in a
                        space that fits two and truncates every name. It is also
                        what makes opening the panel re-lay the grid rather than
                        squeeze it. */
-                    <div className="grid grid-cols-1 gap-[1.125rem] @sm:grid-cols-2 @2xl:grid-cols-3 @5xl:grid-cols-4">
-                      {rows.map((row) => (
-                        <ArticleCard
-                          key={row.article.article_code}
-                          row={row}
-                          onOpen={() => article.open(row.article.article_code)}
-                        />
-                      ))}
-                    </div>
-                  ) : (
-                    <Card ref={fit.ref} className="overflow-clip">
-                      {/* Sorting is over what has been loaded, not over the
+                  <div className="grid grid-cols-1 gap-[1.125rem] @sm:grid-cols-2 @2xl:grid-cols-3 @5xl:grid-cols-4">
+                    {rows.map((row) => (
+                      <ArticleCard
+                        key={row.article.article_code}
+                        row={row}
+                        onOpen={() => article.open(row.article.article_code)}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <Card ref={fit.ref} className="overflow-clip">
+                    {/* Sorting is over what has been loaded, not over the
                           whole catalogue: the cursor is keyed on article code,
                           so a sort by price can only order the pages already
                           fetched. That is honest as long as the count above
                           says how many are shown — which is why it does. */}
-                      <DataTable<CatalogueRow>
-                        refresh={[catalogue]}
-                        table={table}
-                        onRowClick={(row) =>
-                          article.open(row.article.article_code)
-                        }
-                        isSelected={(row) =>
-                          row.article.article_code === article.value
-                        }
-                        more={catalogue}
-                        // The window scrolls, not the table (owner,
-                        // 2026-10-05): no box inside the card with its own bars.
-                        pageScroll
-                        cardsApart
-                        cardLead
-                        cardSort={false}
-                      />
-                      <div className="flex h-11 items-center border-t border-hairline bg-soft px-5 text-[0.875rem] text-body">
-                        <b className="mr-1 font-medium text-ink">
-                          {count(articles.length)}
-                        </b>
-                        {filtered
-                          ? catalogue.hasNextPage
-                            ? "shown, more to load"
-                            : articles.length === 1
-                              ? "article matches"
-                              : "articles match"
-                          : `of ${count(searchable)} shown`}
-                      </div>
-                    </Card>
-                  )}
+                    <DataTable<CatalogueRow>
+                      refresh={[catalogue]}
+                      table={table}
+                      onRowClick={(row) =>
+                        article.open(row.article.article_code)
+                      }
+                      isSelected={(row) =>
+                        row.article.article_code === article.value
+                      }
+                      more={catalogue}
+                      // The window scrolls, not the table (owner,
+                      // 2026-10-05): no box inside the card with its own bars.
+                      pageScroll
+                      cardsApart
+                      cardLead
+                      cardSort={false}
+                    />
+                    <div className="flex h-11 items-center border-t border-hairline bg-soft px-5 text-[0.9375rem] text-body">
+                      <b className="mr-1 font-medium text-ink">
+                        {count(articles.length)}
+                      </b>
+                      {filtered
+                        ? catalogue.hasNextPage
+                          ? "shown, more to load"
+                          : articles.length === 1
+                            ? "article matches"
+                            : "articles match"
+                        : `of ${count(searchable)} shown`}
+                    </div>
+                  </Card>
+                )}
 
-                  {/* The grid scrolls with the page, so its foot is watched
+                {/* The grid scrolls with the page, so its foot is watched
                       here; the table scrolls itself and watches its own. */}
-                  {view === "grid" && (
-                    <LoadMore query={catalogue} className="mt-6" />
-                  )}
-                </>
-              ),
-          })}
+                {view === "grid" && (
+                  <LoadMore query={catalogue} className="mt-6" />
+                )}
+              </>
+            )}
+          </div>
         </div>
       </div>
 
@@ -831,7 +910,7 @@ export function Articles() {
         onClose={closeArticle}
         edit={edit.isOpen}
       />
-    </PageContent>
+    </>
   )
 }
 
@@ -964,7 +1043,7 @@ function ArticleCard({
             it belongs with the picture rather than in a list of facts below
             it. */}
         {article.division_code !== null && (
-          <span className="absolute top-2.5 left-2.5 inline-flex items-center rounded-full bg-canvas/95 px-2 py-[0.1875rem] text-[0.875rem] font-semibold text-ink shadow-[0_1px_3px_rgba(20,20,25,.1)] backdrop-blur-[5px]">
+          <span className="absolute top-2.5 left-2.5 inline-flex items-center rounded-full bg-canvas/95 px-2 py-[0.1875rem] text-[0.9375rem] font-semibold text-ink shadow-[0_1px_3px_rgba(20,20,25,.1)] backdrop-blur-[5px]">
             {row.divisionLabel}
           </span>
         )}
@@ -974,16 +1053,16 @@ function ArticleCard({
             of the card somebody actually looks at. */}
         {!article.active && (
           <span className="absolute top-2.5 right-2.5">
-            <Pill tone="neutral">Cancelled</Pill>
+            <Pill tone="neutral">Inactive</Pill>
           </span>
         )}
       </Thumbnail>
 
       <div className="px-[0.9375rem] pt-3 pb-[0.875rem]">
-        <div className="truncate text-[0.875rem] font-medium text-ink">
+        <div className="truncate text-[0.9375rem] font-medium text-ink">
           {article.name}
         </div>
-        <div className="mt-[0.1875rem] truncate font-mono text-[0.875rem] text-mute">
+        <div className="mt-[0.1875rem] truncate font-mono text-[0.9375rem] text-mute">
           {article.article_code}
         </div>
 
@@ -996,20 +1075,52 @@ function ArticleCard({
             cap={5}
             onShow={(at) => setShown(at ?? 0)}
           />
-          <span className="min-w-0 flex-1 truncate text-right text-[0.875rem] text-body">
+          <span className="min-w-0 flex-1 truncate text-right text-[0.9375rem] text-body">
             {row.sizes}
           </span>
         </div>
 
         <div className="mt-2 flex items-baseline justify-between gap-2">
-          <span className="truncate text-[0.875rem] font-semibold text-ink tabular-nums">
+          <span className="truncate text-[0.9375rem] font-semibold text-ink tabular-nums">
             {priceSpan(article)}
           </span>
-          <span className="shrink-0 text-[0.875rem] text-mute tabular-nums">
-            {count(article.sku_count)} SKU
+          <span className="shrink-0 text-[0.9375rem] text-mute tabular-nums">
+            {article.stock_qty === undefined
+              ? "—"
+              : `${count(article.stock_qty)} pcs`}
           </span>
         </div>
       </div>
     </button>
+  )
+}
+
+type ArticleTab = "ACTIVE" | "SOLD_OUT" | "INACTIVE"
+
+const ARTICLE_TABS: readonly { value: ArticleTab; label: string }[] = [
+  { value: "ACTIVE", label: "Active" },
+  { value: "SOLD_OUT", label: "Sold out" },
+  { value: "INACTIVE", label: "Inactive" },
+]
+
+/// What each tab asks the server for.
+const TAB_SCOPE: Record<
+  ArticleTab,
+  Pick<ArticleScope, "active" | "inStock">
+> = {
+  ACTIVE: ACTIVE_ARTICLES,
+  SOLD_OUT: { active: true, inStock: false },
+  INACTIVE: { active: false },
+}
+
+/// A tab's word and its count, the count quiet (as Colors draws it).
+function TabLabel({ text, n }: { text: string; n: number | undefined }) {
+  return (
+    <span>
+      {text}
+      {n !== undefined && (
+        <span className="ml-1.5 text-body tabular-nums">{count(n)}</span>
+      )}
+    </span>
   )
 }

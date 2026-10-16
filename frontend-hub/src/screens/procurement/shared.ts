@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { useCallback, useState } from "react"
 
-import { count } from "@/lib/format"
+import { count, money } from "@/lib/format"
 import {
   catalogueVocabulary,
   procurementKeys,
@@ -26,7 +26,7 @@ import type { VocabularyTerm } from "@itulah/contract"
 /// look like the thing they came back to. One pair of classes, imported by
 /// both.
 export const GRID_HEAD =
-  "border-b border-l border-hairline bg-soft-2 px-3 py-2.5 text-left text-[0.875rem] font-medium text-body first:border-l-0"
+  "border-b border-l border-hairline bg-soft-2 px-3 py-2.5 text-left text-[0.9375rem] font-medium text-body first:border-l-0"
 
 /// A read-only cell in one of those grids. Padded, unlike the composer's own
 /// editable `CELL`, which is `p-0` because the control inside it owns the
@@ -254,6 +254,20 @@ export function lineValue(line: PurchaseOrderLine, pieces: number): number {
   return lineTotal(pieces, line.unit_price_minor)
 }
 
+/// What one of the line's own unit costs: the price agreed per unit when the
+/// order kept one, else the per-piece price times the pieces in the unit — a
+/// line ordered in kodi reads "Rp 20.000 / kodi", not "Rp 1.000 / pc".
+export function unitPriceText(line: PurchaseOrderLine): string {
+  const unit = line.order_unit_code?.toLowerCase()
+  if (unit === undefined || unit === "")
+    return `${money(line.unit_price_minor)} / pc`
+  const factor = Number(line.unit_factor ?? "1")
+  const perUnit =
+    line.order_unit_price_minor ??
+    Math.round(line.unit_price_minor * (Number.isFinite(factor) ? factor : 1))
+  return `${money(perUnit)} / ${unit}`
+}
+
 /// The order's discount, line by line. Every piece takes the same discount, so
 /// a line's share goes by its pieces, to the rupiah, and the shares add up to
 /// the order's discount exactly. The server's own split is used when it sends
@@ -470,4 +484,4 @@ export function useFittedVisibility(
 /// figure under it still reads. Open orders have no stamp: they keep their
 /// status word (the owner, 2026-10-05).
 export const STAMP =
-  "pointer-events-none inline-block -rotate-12 rounded-[6px] border-[3px] border-double border-current px-2.5 py-0.5 text-center text-[0.875rem] leading-5 font-bold tracking-[0.06em] whitespace-nowrap uppercase opacity-85 mix-blend-multiply lg:-rotate-6"
+  "pointer-events-none inline-block -rotate-12 rounded-[6px] border-[3px] border-double border-current px-2.5 py-0.5 text-center text-[0.9375rem] leading-5 font-bold tracking-[0.06em] whitespace-nowrap uppercase opacity-85 mix-blend-multiply lg:-rotate-6"

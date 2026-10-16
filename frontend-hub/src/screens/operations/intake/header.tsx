@@ -1,12 +1,9 @@
 import { useQuery } from "@tanstack/react-query"
 
-import { DockTools } from "@/components/shell/dock-tools"
+import { DockTools, type DockStatus } from "@/components/shell/dock-tools"
 import { dockSortOf } from "@/components/ui/data-table"
 import { PageHeader } from "@/components/ui/page-header"
-import { SubTabs } from "@/components/ui/sub-tabs"
-import { useAppNavigate } from "@/lib/navigate"
 import { storeInboundQuery } from "@/lib/operations/queries"
-import { useWaiting } from "@/lib/operations/waiting"
 import { useSheet } from "@/lib/sheets"
 
 /// What the two Receiving lists are searched by: one `q` in the URL, so a
@@ -25,7 +22,7 @@ export function useIntakeSearch() {
 /// Which list of store returns is on show.
 export type ReturnsStatus = "IN_TRANSIT" | "RECEIVED"
 
-/// Receiving's title and its two tabs — each with what is waiting in it.
+/// The head of Receiving PO and Receiving Return: the title, and the dock.
 ///
 /// On a phone the tabs are not drawn at the top of the page, and there is no
 /// status button for the orders (see `status` below); with store returns open
@@ -36,6 +33,7 @@ export function IntakeHeader({
   searchLabel,
   table,
   returns,
+  stages,
 }: {
   tab: "orders" | "returns"
   search: ReturnType<typeof useIntakeSearch>
@@ -45,53 +43,37 @@ export function IntakeHeader({
   table: any
   /// Store returns only: which of its two lists is open.
   returns?: { value: ReturnsStatus; onChange: (next: ReturnsStatus) => void }
+  /// Purchase orders only: the stages as the dock's status on a phone, where
+  /// the tabs under the title are not drawn.
+  stages?: DockStatus
 }) {
-  const navigate = useAppNavigate()
-  const owed = useWaiting().owed
-  // The same query the Store returns tab reads, so the number never lags it.
+  // The same query the Receiving Return menu counts, so the number never lags it.
   const inTransit = useQuery(storeInboundQuery("IN_TRANSIT"))
   const onTheWay = inTransit.data?.length ?? 0
-  const tabs = [
-    {
-      value: "orders",
-      label: `Purchase orders${owed > 0 ? ` · ${owed}` : ""}`,
-      path: "/operations/intake",
-    },
-    {
-      value: "returns",
-      label: `Store returns${onTheWay > 0 ? ` · ${onTheWay}` : ""}`,
-      path: "/operations/intake/returns",
-    },
-  ] as const
-  // Purchase orders have no status — an order is owed a count or it is not on
-  // the list — so there is no chip over the bottom bar for them (owner,
-  // 2026-10-06). Store returns have two real ones: on the way, and counted.
-  const status =
-    tab === "returns" && returns !== undefined
-      ? {
-          value: returns.value,
-          options: [
-            {
-              value: "IN_TRANSIT",
-              label: "In Transit",
-              count: onTheWay,
-            },
-            { value: "RECEIVED", label: "Received" },
-          ],
-          onChange: (next: string) => returns.onChange(next as ReturnsStatus),
-        }
-      : undefined
+  // Purchase orders carry their stages (to count, in review, completed — owner,
+  // 2026-10-16); store returns have two: on the way, and counted.
+  const status: DockStatus | undefined =
+    tab === "orders"
+      ? stages
+      : returns !== undefined
+        ? {
+            value: returns.value,
+            options: [
+              {
+                value: "IN_TRANSIT",
+                label: "In Transit",
+                count: onTheWay,
+              },
+              { value: "RECEIVED", label: "Received" },
+            ],
+            onChange: (next: string) => returns.onChange(next as ReturnsStatus),
+          }
+        : undefined
   return (
     <>
-      <PageHeader title="Receiving" />
-      <SubTabs
-        className="max-md:hidden"
-        tabs={tabs}
-        value={tab}
-        onChange={(next) => {
-          const to = tabs.find((one) => one.value === next)
-          if (to) void navigate(to.path)
-        }}
+      {/* Two menus now, each its own title (owner, 2026-10-15) — no tabs. */}
+      <PageHeader
+        title={tab === "orders" ? "Receiving PO" : "Receiving Return"}
       />
       <DockTools
         search={{ ...search, label: searchLabel }}

@@ -1,10 +1,10 @@
 import { useQueries, useQuery } from "@tanstack/react-query"
-import { useMemo, useState } from "react"
+import { Suspense, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
-import { Toolbar } from "@/components/ui/segmented"
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states"
 import { count, day, money } from "@/lib/format"
 import {
@@ -21,17 +21,11 @@ import {
   unitAccounts,
 } from "@/lib/queries/finance"
 import { useUnits } from "@/lib/queries/organisation"
-import {
-  CardRow,
-  Grid,
-  Note,
-  NumberCard,
-  Td,
-  Th,
-  TotalRow,
-} from "@/screens/finance-final/parts"
-import { useWindow } from "@/screens/finance/hooks"
+import { Grid, Note, Td, Th, TotalRow } from "@/screens/finance-final/parts"
+import { useSettledWindow } from "@/screens/finance/hooks"
 import { SiteSelect, WindowControl } from "@/screens/finance/parts"
+import { ReportFilters } from "@/screens/finance/report"
+import { ScreenPending } from "@/screens/finance/pending"
 import type {
   BankStatementRow,
   CashCountRow,
@@ -80,7 +74,24 @@ import type {
 /// account here, because until it has, a short drawer can be observed and
 /// cannot be booked.
 export function SalesReconciliation() {
-  const range = useWindow()
+  return (
+    <Suspense
+      fallback={
+        <ScreenPending
+          crumb="Finance · Receivables"
+          title="Sales Reconciliation"
+        >
+          Reading the calendar…
+        </ScreenPending>
+      }
+    >
+      <SalesReconciliationScreen />
+    </Suspense>
+  )
+}
+
+function SalesReconciliationScreen() {
+  const range = useSettledWindow()
   // The shop is a SITE — the till and the drawer are the premises' — and
   // its books, bank statements included, are the unit's that owns it. Each
   // read below is asked with the one it takes.
@@ -261,13 +272,12 @@ export function SalesReconciliation() {
 
   return (
     <PageContent>
-      <PageHeader
-        crumb="Finance · Receivables"
-        title="Sales Reconciliation"
-        sub="What the till says was taken, what the drawer held, and what the bank says arrived — and which of the gaps between them is explained."
-      />
+      <PageHeader crumb="Finance · Receivables" title="Sales Reconciliation" />
 
-      <Toolbar>
+      {/* The scope — which store and which days — stands under the head, with
+          what is on screen said at its end. A reconciliation is one store's, so
+          the store is asked for here; with none chosen the body says why. */}
+      <ReportFilters note={scoped ? range.chip : undefined}>
         <SiteSelect
           value={site}
           onChange={setSite}
@@ -275,71 +285,70 @@ export function SalesReconciliation() {
           className="h-8 w-44"
         />
         <WindowControl range={range} />
-        <Toolbar.Spacer />
-        <span className="text-[0.875rem] text-mute">{range.chip}</span>
-      </Toolbar>
+      </ReportFilters>
 
       {!scoped ? (
-        <EmptyState>
-          A reconciliation is one store&rsquo;s. The drawer belongs to a counter,
-          the bank statement to that store&rsquo;s own account, and a fleet-wide
-          total would hide the one branch that is short. Choose a store.
-        </EmptyState>
+        <EmptyState>Choose a store.</EmptyState>
       ) : failure !== null ? (
         <ErrorState error={failure} />
       ) : tooWide ? (
-        <Note>
-          This span is {count(dates.length)} days. The till answers one day at a
-          time, so the day-by-day reading below is drawn for spans up to{" "}
-          {DAY_LIMIT} days — narrow the window.
-        </Note>
+        <Note>Choose {DAY_LIMIT} days or fewer.</Note>
       ) : pending ? (
         <LoadingState>
           Reading the till, the drawer, the bank and the books…
         </LoadingState>
       ) : (
         <div className="flex flex-col gap-5">
-          <CardRow columns={4}>
-            <NumberCard
+          <KpiStrip className="mb-0 grid-cols-2 md:grid-cols-4 xl:grid-cols-4">
+            <Kpi
               label="Taken"
-              value={takings.gross}
-              note={`${count(takings.sales)} sales, till`}
+              value={money(takings.gross)}
+              delta={`${count(takings.sales)} sales, till`}
+              tone="flat"
             />
-            <NumberCard
-              label="Cash into the drawer"
-              value={takings.cashExpected}
-              note="Tendered, less change and cash refunds"
-            />
-            <NumberCard
+            <div title="Tendered, less change and cash refunds">
+              <Kpi
+                label="Cash into the drawer"
+                value={money(takings.cashExpected)}
+              />
+            </div>
+            <Kpi
               label="Owed by the acquirer"
-              value={books.card === null ? null : books.card.closing_minor}
-              note={
+              value={
+                <span
+                  className={
+                    books.card !== null &&
+                    books.card.closing_minor === 0 &&
+                    cardAndQris(takings) > 0
+                      ? "text-bad-fg"
+                      : undefined
+                  }
+                >
+                  {books.card === null ? "—" : money(books.card.closing_minor)}
+                </span>
+              }
+              delta={
                 books.card === null
                   ? "No card clearing account here"
                   : `Clearing balance at ${day(range.to)}`
               }
-              tone={
-                books.card !== null &&
-                books.card.closing_minor === 0 &&
-                cardAndQris(takings) > 0
-                  ? "bad"
-                  : undefined
-              }
+              tone="flat"
             />
-            <NumberCard
+            <Kpi
               label="Credited by the bank"
               // Absent, not zero. No statement imported and a month in which
               // nothing arrived are different facts and must not render the
               // same — that distinction is the whole reason this module draws
               // a dash.
-              value={imports.kept.length === 0 ? null : bankIn}
-              note={
+              value={imports.kept.length === 0 ? "—" : money(bankIn)}
+              delta={
                 imports.kept.length === 0
                   ? "No statement covers this span"
                   : `${count(bank.length)} lines, ${money(bankOut)} out`
               }
+              tone="flat"
             />
-          </CardRow>
+          </KpiStrip>
 
           {/* ── The POS Closing Entry, as a table ─────────────────────────
               Five columns, in ERPNext's order and with its words, because the
@@ -350,7 +359,7 @@ export function SalesReconciliation() {
               check that expected really is opening plus takings, and what this
               screen can honestly say about the gap. */}
           <section className="flex flex-col gap-2">
-            <h2 className="text-[0.875rem] font-semibold text-ink">
+            <h2 className="text-[0.9375rem] font-semibold text-ink">
               By mode of payment
             </h2>
             <Grid>
@@ -412,7 +421,7 @@ export function SalesReconciliation() {
                           <Pill tone={row.standing.tone}>
                             {row.standing.label}
                           </Pill>
-                          <span className="text-[0.875rem] text-mute">
+                          <span className="text-[0.9375rem] text-mute">
                             {row.standing.why}
                           </span>
                         </span>
@@ -433,20 +442,11 @@ export function SalesReconciliation() {
                 </TotalRow>
               </tbody>
             </Grid>
-            <Note>
-              <b>Expected</b> is opening plus what the till took, which is
-              ERPNext&rsquo;s definition — but for a card it is not a promise
-              that the money is anywhere. It is <b>what the acquirer owes us</b>
-              , sitting in a clearing account, and it stays owed until a
-              settlement lands and credits that account. <b>Closing</b> is an
-              observation and only cash has one: somebody counts a drawer, and
-              nobody counts an acquirer.
-            </Note>
           </section>
 
           {/* ── The three numbers, day by day ────────────────────────────── */}
           <section className="flex flex-col gap-2">
-            <h2 className="text-[0.875rem] font-semibold text-ink">
+            <h2 className="text-[0.9375rem] font-semibold text-ink">
               Day by day
             </h2>
             <Grid>
@@ -595,21 +595,11 @@ export function SalesReconciliation() {
                 </TotalRow>
               </tbody>
             </Grid>
-            <Note>
-              The drawer columns are a <b>balance</b>, not a day&rsquo;s
-              takings: a count says what was in the till at that moment, float
-              and all, against what the books say should have been there. That
-              is why a day with a count and no sales is ordinary, and why
-              &ldquo;drawer vs books&rdquo; never equals &ldquo;cash of
-              it&rdquo;. Both figures are the server&rsquo;s —{" "}
-              <code className="font-mono text-[0.875rem]">variance_minor</code>{" "}
-              is computed on read from the count and the ledger, never stored.
-            </Note>
           </section>
 
           {/* ── The differences, named ───────────────────────────────────── */}
           <section className="flex flex-col gap-2">
-            <h2 className="text-[0.875rem] font-semibold text-ink">
+            <h2 className="text-[0.9375rem] font-semibold text-ink">
               The differences, named
             </h2>
             <Grid>
@@ -651,7 +641,7 @@ export function SalesReconciliation() {
                     <Td>
                       <Pill tone={row.standing.tone}>{row.standing.label}</Pill>
                     </Td>
-                    <Td className="text-[0.875rem] text-body">
+                    <Td className="text-[0.9375rem] text-body">
                       {row.standing.why}
                     </Td>
                   </tr>
@@ -660,54 +650,13 @@ export function SalesReconciliation() {
             </Grid>
           </section>
 
-          <Note>
-            <b>What is the server&rsquo;s and what is this page&rsquo;s.</b>{" "}
-            Every figure here is a server answer: the till from{" "}
-            <code className="font-mono text-[0.875rem]">
-              /reports/sales/daily
-            </code>{" "}
-            once per date, the drawer from{" "}
-            <code className="font-mono text-[0.875rem]">
-              /finance/cash-counts?site=
-            </code>
-            , the books from{" "}
-            <code className="font-mono text-[0.875rem]">
-              /finance/accounts/&#123;code&#125;/ledger
-            </code>{" "}
-            and the bank from that statement&rsquo;s own lines — each narrowed
-            by the server to this unit. What this page does to them is{" "}
-            <b>add and subtract</b>, and two narrowings it has to do itself:
-            cash counts and statement lines carry no date filter, so both lists
-            are fetched whole for this unit and cut to the window here.
-            {imports.dropped === 0 ? null : (
-              <>
-                {" "}
-                {count(imports.dropped)} older import
-                {imports.dropped === 1 ? " was" : "s were"} ignored — the same
-                account and period had been loaded more than once, and adding
-                both would have counted the month twice.
-              </>
-            )}
-          </Note>
-
-          <Note>
-            <b>
-              None of this is trustworthy at scale, and it is worth being
-              precise about why.
-            </b>{" "}
-            There is no reconciliation endpoint: no server-side object that
-            holds a shop&rsquo;s day, its expected tenders, its counted drawer
-            and its matched settlements, and no status on it. So two things this
-            screen shows are judgements it made, not records anybody kept —{" "}
-            <i>which</i> statement to read when a period has been imported
-            twice, and the arithmetic in the table above. Neither survives a
-            reload as a decision, neither can be approved, and neither can be
-            asked for again next month. The endpoint this wants is a POST that
-            stores a closing for one unit and one day, the way a POS Closing
-            Entry is stored — except that ours would post its cash difference to{" "}
-            <code className="font-mono text-[0.875rem]">cash_variance</code>,
-            which ERPNext has no equivalent of at all.
-          </Note>
+          {imports.dropped > 0 && (
+            <Note>
+              {count(imports.dropped)} older import
+              {imports.dropped === 1 ? " was" : "s were"} left out: the same
+              account and period was loaded more than once.
+            </Note>
+          )}
         </div>
       )}
     </PageContent>

@@ -1,5 +1,5 @@
 import type { ChangeKind, ChangeStatus, PriceChange } from "@itulah/contract"
-import { infiniteQueryOptions } from "@tanstack/react-query"
+import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query"
 
 import { node } from "@/lib/api"
 
@@ -52,6 +52,14 @@ export function listPriceChanges(
     )
     .then((body) => body.rows)
 }
+
+/// The list as a query, for the Changes screen (and the Pricelist's tab of it)
+/// and for the prefetcher (`screens/commercial/prefetch.ts`).
+export const priceChangesQuery = (includeSettled: boolean) =>
+  queryOptions({
+    queryKey: changeKeys.list(includeSettled),
+    queryFn: ({ signal }) => listPriceChanges(includeSettled, signal),
+  })
 
 /// Whether this change is somebody's problem right now.
 ///

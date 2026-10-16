@@ -1,4 +1,5 @@
 import {
+  queryOptions,
   useMutation,
   useQuery,
   useQueryClient,
@@ -33,11 +34,17 @@ const LIST_POLL_MS = 20_000
 const path = (id: string) =>
   `/api/v1/chat/conversations/${encodeURIComponent(id)}`
 
-export function useConversations(enabled = true) {
-  return useQuery({
+export function conversationsQuery() {
+  return queryOptions({
     queryKey: chatKeys.conversations(),
     queryFn: ({ signal }) =>
       cloud.get<ChatConversation[]>("/api/v1/chat/conversations", { signal }),
+  })
+}
+
+export function useConversations(enabled = true) {
+  return useQuery({
+    ...conversationsQuery(),
     refetchInterval: LIST_POLL_MS,
     enabled,
   })
@@ -61,7 +68,9 @@ export function useThread(conversationId: string) {
 export function useSend(conversationId: string) {
   const client = useQueryClient()
   return useMutation({
-    mutationFn: (request: Pick<SendMessageRequest, "body" | "idempotency_key">) =>
+    mutationFn: (
+      request: Pick<SendMessageRequest, "body" | "idempotency_key">,
+    ) =>
       cloud.post<ChatMessage>(`${path(conversationId)}/messages`, {
         ...request,
         reply_to_seq: null,

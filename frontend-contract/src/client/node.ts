@@ -51,6 +51,12 @@ export interface NodeIdentity {
   /// lower-case would be a lie that only comes true on a node running without
   /// authentication, which is the one moment anybody needs to be told.
   readonly auth: "enabled" | "DISABLED";
+  /// Whether this server hosts many businesses (`sandbox`) or one
+  /// (`single`). Absent on nodes that predate the field and on an edge node,
+  /// which both mean `single`. The hub's tenancy gate reads the answer here
+  /// rather than asking `/api/v1/tenancy`: the question it replaces was a
+  /// round trip on every open for a fact about the deployment.
+  readonly mode?: "single" | "sandbox";
   /// The operations this node performs locally, as the node itself reports
   /// them. A surface can hide what its node does not do rather than guessing
   /// from the role.

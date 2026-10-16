@@ -100,7 +100,7 @@ export function ImportExportSheet({
       title="Import & export"
     >
       <SubHead>Export</SubHead>
-      <p className="mb-2 text-[0.875rem] text-mute">
+      <p className="mb-2 text-[0.9375rem] text-mute">
         Everybody on record, as a CSV for Excel.
       </p>
       <Button
@@ -120,7 +120,7 @@ export function ImportExportSheet({
         <SubHead aside="employee_code, effective_from, base_salary, allowances, reason">
           Import pay changes
         </SubHead>
-        <p className="mb-2 text-[0.875rem] text-mute">
+        <p className="mb-2 text-[0.9375rem] text-mute">
           Each row is a new pay agreement from its date. A month a change falls
           in is prorated by the payroll schedule.
         </p>
@@ -129,7 +129,7 @@ export function ImportExportSheet({
             <input
               type="file"
               accept=".csv,text/csv"
-              className="text-[0.875rem] text-body file:mr-3 file:rounded-inner file:border file:border-hairline-2 file:bg-canvas file:px-3 file:py-1.5 file:text-ink"
+              className="text-[0.9375rem] text-body file:mr-3 file:rounded-inner file:border file:border-hairline-2 file:bg-canvas file:px-3 file:py-1.5 file:text-ink"
               onChange={(event) => {
                 const chosen = event.target.files?.[0]
                 setOutcomes(new Map())
@@ -182,7 +182,7 @@ export function ImportExportSheet({
                       <MiniCell align="right">
                         {money(row.baseMinor)}
                         {row.allowances.length > 0 && (
-                          <span className="block text-[0.875rem] text-mute">
+                          <span className="block text-[0.9375rem] text-mute">
                             +{row.allowances.length} allowance
                             {row.allowances.length === 1 ? "" : "s"}
                           </span>

@@ -309,8 +309,11 @@ async function write(next: PersistedClient, use: UseStore): Promise<void> {
   }
   await setMany(
     [
-      ...changed.map((one) => [entryKey(one.queryHash), one] as const),
-      ["meta", meta] as const,
+      ...changed.map(
+        (one) =>
+          [entryKey(one.queryHash), one] as [string, DehydratedQueryRecord]
+      ),
+      ["meta", meta] as [string, Meta],
     ],
     use
   )
@@ -547,8 +550,7 @@ function reconcile(client: QueryClient) {
   activate(client, buster)
 }
 
-/// Start persisting this client. Called once, from `main.tsx`, before the first
-/// render.
+/// Start persisting this client. Called once, from `App`, after hydration.
 export function startPersistence(client: QueryClient): void {
   if (engine !== null) return
   engine = client
@@ -585,6 +587,9 @@ export function startPersistence(client: QueryClient): void {
     if (document.visibilityState === "hidden") save()
   })
   window.addEventListener("pagehide", save)
+  // Started after hydration (`App`): who is signed in is already in the
+  // cache, so the first reconcile is asked here rather than awaited.
+  reconcile(client)
   if (import.meta.env.DEV) {
     ;(window as unknown as Record<string, unknown>).__persistStats = () => ({
       active,

@@ -1,0 +1,1060 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Stockroom to floor · options</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@0.453.0/dist/umd/lucide.min.js"></script>
+<style>
+/* Tokens measured on the running store app, store.localhost:5482/stock (11 Oct 2026) */
+:root{
+  --ink:#20242c;--text:#394150;--body:#565f6d;--mute:#666f7d;--faint:#b9c0c9;--ico:#89919d;
+  --canvas:#fff;--soft:#f8f8f9;--soft-2:#f0f0f2;--soft-3:#f6f6f7;
+  --line:#e6e6e9;--line-2:#dadade;--line-3:#c6c6cc;
+  --accent:#2563eb;--accent-bg:#eff5ff;--cta-hover:#1d4ed8;
+  --info-bg:#ddebfa;--info-fg:#2c57bf;
+  --ok:#36b827;--ok-bg:#d9f4d2;--ok-fg:#137a37;
+  --warn:#c9892e;--warn-bg:#faeacd;--warn-fg:#a64a08;
+  --bad:#d05151;--bad-bg:#fbeaea;--bad-fg:#be123c;
+  --rail:#242526;--rail-text:#c3c4c7;
+  --r-card:10px;--r-inner:8px;--r-sheet:16px;
+  --ease-out:cubic-bezier(.23,1,.32,1);--ease-io:cubic-bezier(.77,0,.175,1);--ease-drawer:cubic-bezier(.32,.72,0,1);
+  --shadow-soft:0 1px 3px rgb(24 39 60 / 4%);
+  --shadow-pop:0 4px 8px rgb(24 39 60 / 4%),0 12px 32px rgb(24 39 60 / 8%);
+  --shadow-float:0 8px 24px rgb(24 39 60 / 6%),0 24px 64px rgb(24 39 60 / 12%);
+  --ph:44px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{min-height:100%}
+body{font:15px/1.45 Inter,system-ui,sans-serif;color:var(--text);background:var(--soft-3);-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent;letter-spacing:-.006em}
+button,input,select{font:inherit;color:inherit;letter-spacing:inherit}
+button{background:none;border:0;cursor:pointer}
+a{color:inherit}
+svg.lucide{width:16px;height:16px;stroke-width:1.7;flex-shrink:0}
+.n{font-variant-numeric:tabular-nums}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:14px;letter-spacing:0}
+[hidden]{display:none!important}
+
+/* ── prototype chrome — not part of the app ── */
+.proto{position:sticky;top:0;z-index:80;background:#101012;color:#d9dbe0;font-size:14px}
+.proto .row{min-height:44px;display:flex;align-items:center;gap:14px;padding:0 16px}
+.proto b{color:#fff;font-weight:600;white-space:nowrap}
+.proto .opts{display:flex;gap:2px;overflow-x:auto;scrollbar-width:none;min-width:0}
+.proto .opts button{height:30px;padding:0 12px;border-radius:7px;color:#a9adb6;white-space:nowrap}
+.proto .opts button:hover{color:#fff}
+.proto .opts button[aria-pressed=true]{background:#2c2d31;color:#fff;font-weight:500}
+.proto .sim{margin-left:auto;display:flex;gap:6px;align-items:center;white-space:nowrap;flex-shrink:0}
+.proto .sim button{height:30px;padding:0 10px;border-radius:7px;background:#2c2d31;color:#e4e6ea;display:inline-flex;align-items:center;gap:6px}
+.proto .sim button:hover{background:#38393e}
+.proto .sim button:active{transform:scale(.97)}
+.proto .sim svg{width:14px;height:14px}
+.proto .row2{display:flex;align-items:center;gap:16px;padding:6px 16px 8px;border-top:1px solid #222327}
+.proto .note{display:flex;gap:4px 18px;flex-wrap:wrap;color:#a9adb6;line-height:1.4;min-width:0;flex:1}
+.proto .note span b{color:#e4e6ea;font-weight:500}
+.proto .note .good b{color:#8fd6a0}
+.proto .note .weak b{color:#f0b37a}
+
+/* ── shell: 68 rail + 232 department column + soft-3 page ── */
+.app{display:flex;min-height:calc(100vh - var(--ph))}
+.rail{width:68px;flex-shrink:0;background:var(--rail);display:flex;flex-direction:column;align-items:center;gap:2px;padding:12px 0;position:sticky;top:var(--ph);height:calc(100vh - var(--ph))}
+.mark{width:32px;height:32px;border-radius:9px;background:#000;color:#fff;display:grid;place-items:center;font-weight:700;position:relative;margin-bottom:14px;box-shadow:0 0 0 1px #3a3b3f}
+.mark::after{content:"";position:absolute;right:6px;bottom:6px;width:5px;height:5px;border-radius:50%;background:var(--accent)}
+.rail .ri{width:40px;height:36px;border-radius:9px;display:grid;place-items:center;color:var(--rail-text)}
+.rail .ri.on{background:#393b3d;color:#fff}
+.rail .sp{flex:1}
+.rail .av{width:28px;height:28px;border-radius:50%;background:#3a3b3f;color:#fff;display:grid;place-items:center;font-size:14px;font-weight:600;margin:6px 0}
+.dept{width:232px;flex-shrink:0;background:var(--canvas);border-right:1px solid var(--line);position:sticky;top:var(--ph);height:calc(100vh - var(--ph));display:flex;flex-direction:column}
+.dept-h{height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;font-weight:600;color:var(--ink);font-size:15px}
+.dept-h svg{color:var(--ico)}
+.dept nav{display:flex;flex-direction:column;gap:2px;padding:0 10px}
+.dept nav a{display:flex;align-items:center;height:36px;padding:0 10px;border-radius:var(--r-inner);font-size:14px;color:var(--body);text-decoration:none}
+.dept nav a.on{background:var(--accent-bg);color:var(--accent);font-weight:500}
+.dept .where{margin-top:auto;border-top:1px solid var(--line);padding:10px 16px 12px;font-size:14px;line-height:1.3}
+.dept .where b{display:block;color:var(--ink);font-weight:500}
+.dept .where span{color:var(--mute)}
+main{flex:1;min-width:0;display:flex;flex-direction:column}
+.top{height:52px;display:flex;align-items:center;gap:12px;padding:0 20px;border-bottom:1px solid var(--line);background:var(--soft-3);position:sticky;top:var(--ph);z-index:5}
+.top .ttl{display:none;font-size:17px;font-weight:600;color:var(--ink);margin-right:auto}
+.top .sync{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:14px;font-weight:500;color:var(--body)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--ok);flex-shrink:0}
+.top .bell{width:32px;height:32px;display:grid;place-items:center;color:var(--ico)}
+.top .me{display:none;width:36px;height:36px;border-radius:50%;background:var(--accent-bg);color:var(--accent);font-weight:600;place-items:center}
+.content{width:100%;max-width:1600px;margin:0 auto;padding:24px 30px 56px}
+
+/* buttons */
+.btn{height:36px;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:0 12px;border-radius:var(--r-inner);font-size:15px;font-weight:500;white-space:nowrap;border:1px solid var(--line-2);background:var(--canvas);color:#394150;box-shadow:var(--shadow-soft);transition:background-color 160ms ease,border-color 160ms ease,transform 160ms var(--ease-out)}
+.btn:active{transform:scale(.97)}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.pri:disabled{opacity:.45;cursor:default;transform:none}
+.btn.tint{height:32px;border:0;background:var(--accent-bg);color:var(--accent);font-weight:600;box-shadow:none;padding:0 14px}
+.btn.ghost{height:32px;border:0;box-shadow:none;background:none;color:var(--body);padding:0 10px;font-size:14px}
+@media (hover:hover) and (pointer:fine){
+  .btn:hover{background:var(--soft)}
+  .btn.pri:hover:not(:disabled){background:var(--cta-hover)}
+  .btn.tint:hover{background:#e2ecff}
+  .btn.ghost:hover{background:var(--soft-2);color:var(--ink)}
+}
+
+/* the Stock page, as it is */
+.phead{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.phead h1{font-size:15px;font-weight:600;color:var(--ink);margin-right:auto}
+.kpis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px;margin-bottom:16px}
+.kpi{display:flex;flex-direction:column;text-align:left;border:1px solid var(--line);border-radius:var(--r-card);background:var(--canvas);box-shadow:var(--shadow-soft);padding:10px 16px;min-height:66px}
+.kpi .l{font-size:14px;font-weight:500;color:var(--body);letter-spacing:.04em;display:flex;align-items:center;gap:4px}
+.kpi .v{margin-top:auto;padding-top:6px;font-size:18px;font-weight:600;color:var(--ink);letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1}
+button.kpi{cursor:pointer;transition:background-color 160ms ease,transform 160ms var(--ease-out)}
+button.kpi:active{transform:scale(.98)}
+button.kpi .l svg{width:14px;height:14px;color:var(--ico);margin-left:auto}
+@media (hover:hover) and (pointer:fine){button.kpi:hover{background:var(--soft)}}
+.seg{display:inline-flex;background:var(--soft-2);border-radius:var(--r-inner);padding:2px;margin-bottom:14px}
+.seg button{height:28px;padding:0 10px;border-radius:6px;font-size:15px;font-weight:500;color:var(--body)}
+.seg button.on{background:var(--canvas);color:var(--ink);box-shadow:0 1px 2px rgb(24 39 60 / 8%)}
+.pools{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.card{background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-card);box-shadow:var(--shadow-soft)}
+.pool{display:flex;flex-direction:column;cursor:pointer;transition:border-color 160ms ease,box-shadow 160ms ease}
+@media (hover:hover) and (pointer:fine){.pool:hover{border-color:var(--line-3);box-shadow:var(--shadow-pop)}}
+.pool .tp{display:flex;gap:12px;align-items:flex-start;padding:16px}
+.glyph{width:64px;height:64px;border-radius:var(--r-inner);background:var(--soft-2);display:grid;place-items:center;color:var(--ico);flex-shrink:0}
+.glyph svg{width:22px;height:22px}
+.pool .nm{flex:1;font-size:16px;font-weight:600;color:var(--ink)}
+.pool .fig{text-align:right}
+.pool .fig b{display:block;font-size:24px;font-weight:600;color:var(--ink);letter-spacing:-.025em;line-height:1.25}
+.pool .fig span{font-size:14px;color:var(--mute)}
+.pool .ft{display:flex;align-items:center;justify-content:space-between;gap:12px;border-top:1px solid var(--line);padding:12px 16px;font-size:14px;color:var(--body)}
+
+/* phone furniture (hidden on desk) */
+.dock,.tabbar{display:none}
+
+/* ── sheet ── */
+.scrim{position:fixed;inset:var(--ph) 0 0 0;background:rgba(246,246,247,.72);opacity:0;transition:opacity 280ms ease;z-index:40}
+.scrim.in{opacity:1}
+.sheet{position:fixed;top:calc(var(--ph) + 20px);right:20px;bottom:20px;width:min(896px,calc(100vw - 40px));background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-sheet);box-shadow:var(--shadow-float);z-index:41;display:flex;flex-direction:column;overflow:hidden;transform:translateX(calc(100% + 24px));transition:transform 300ms var(--ease-drawer)}
+.sheet.in{transform:none}
+.sheet.out{transition-duration:200ms;transition-timing-function:var(--ease-out)}
+.sh-head{display:flex;align-items:center;gap:10px;padding:16px 20px 16px 28px;border-bottom:1px solid var(--line);min-height:60px}
+.sh-head h2{font-size:16px;font-weight:600;color:var(--ink);letter-spacing:-.01em}
+.sh-head .sp{flex:1}
+.x{width:36px;height:36px;border-radius:var(--r-inner);display:grid;place-items:center;color:var(--ico)}
+.x:hover{background:var(--soft-2);color:var(--ink)}
+.sh-body{flex:1;overflow-y:auto;padding:24px 28px 32px;overscroll-behavior:contain}
+.sh-foot{display:flex;align-items:center;gap:8px;border-top:1px solid var(--line);padding:14px 28px}
+.sh-foot .sum{margin-right:auto;font-size:14px;color:var(--body)}
+.sh-foot .sum b{color:var(--ink);font-weight:600}
+
+/* title menu — "Move to shop floor ⌄" */
+.tmenu{display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 10px;margin-left:-10px;border-radius:var(--r-inner);font-size:16px;font-weight:600;color:var(--ink);letter-spacing:-.01em;transition:background-color 160ms ease}
+.tmenu svg{color:var(--ico);transition:transform 200ms var(--ease-out)}
+.tmenu[aria-expanded=true] svg{transform:rotate(180deg)}
+@media (hover:hover) and (pointer:fine){.tmenu:hover{background:var(--soft-2)}}
+.pop{position:fixed;z-index:60;background:var(--canvas);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow-pop);padding:6px;min-width:260px;transform-origin:top left;opacity:0;transform:scale(.96);transition:opacity 150ms var(--ease-out),transform 150ms var(--ease-out)}
+.pop.in{opacity:1;transform:none}
+.pop button{width:100%;display:flex;align-items:center;gap:10px;height:40px;padding:0 10px;border-radius:var(--r-inner);font-size:15px;color:var(--ink);text-align:left}
+.pop button .c{margin-left:auto;font-size:14px;color:var(--mute);font-variant-numeric:tabular-nums}
+.pop button .ck{width:16px;color:var(--accent)}
+@media (hover:hover) and (pointer:fine){.pop button:hover{background:var(--soft)}}
+
+/* scan strip — the one place a scan answers */
+.strip{display:flex;align-items:center;gap:14px;padding:12px 16px;border:1px solid var(--line);border-radius:var(--r-card);background:var(--soft);margin-bottom:24px;min-height:68px;transition:background-color 200ms ease,border-color 200ms ease}
+.strip .ic{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;background:var(--canvas);border:1px solid var(--line);color:var(--ico);flex-shrink:0;transition:background-color 200ms ease,color 200ms ease,border-color 200ms ease}
+.strip .ic svg{width:18px;height:18px}
+.strip .tx{flex:1;min-width:0}
+.strip .tx b{display:block;font-size:15px;font-weight:500;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.strip .tx>span{display:block;font-size:14px;color:var(--mute)}
+.strip .ready{display:inline-flex;align-items:center;gap:6px}
+.strip[data-t=ok]{background:#f3fbf1;border-color:#cfe9c8}
+.strip[data-t=ok] .ic{background:var(--ok-bg);border-color:transparent;color:var(--ok-fg)}
+.strip[data-t=warn]{background:#fdf6ea;border-color:#f1dcb4}
+.strip[data-t=warn] .ic{background:var(--warn-bg);border-color:transparent;color:var(--warn-fg)}
+.strip[data-t=bad]{background:#fdf3f3;border-color:#f3cccc}
+.strip[data-t=bad] .ic{background:var(--bad-bg);border-color:transparent;color:var(--bad-fg)}
+.strip.shake{animation:shake 260ms var(--ease-out)}
+@keyframes shake{20%{transform:translateX(-4px)}45%{transform:translateX(4px)}70%{transform:translateX(-2px)}100%{transform:none}}
+
+.sec{display:flex;align-items:baseline;gap:6px;margin:0 0 8px;font-size:15px;font-weight:600;color:var(--ink)}
+.sec span{font-weight:400;color:var(--mute);font-variant-numeric:tabular-nums}
+.sec .r{margin-left:auto;font-weight:400;font-size:14px;color:var(--mute)}
+.list{border:1px solid var(--line);border-radius:var(--r-card);overflow:hidden;margin-bottom:24px;background:var(--canvas)}
+.list.muted{background:var(--soft)}
+
+/* one colourway on the list */
+.lrow{display:grid;grid-template-rows:1fr;transition:grid-template-rows 260ms var(--ease-io),opacity 200ms ease}
+.lrow.gone{grid-template-rows:0fr;opacity:0}
+.lrow>.clip{overflow:hidden;min-height:0}
+.lrow+.lrow>.clip>.in{border-top:1px solid var(--line)}
+.lrow .in{display:grid;grid-template-columns:48px minmax(0,1fr) auto auto;gap:14px;align-items:center;padding:12px 12px 12px 16px;min-height:72px}
+.th{width:48px;height:48px;border-radius:var(--r-inner);background:var(--soft-2);display:grid;place-items:center;overflow:hidden;flex-shrink:0}
+.th svg{width:38px;height:38px}
+.th.sm{width:36px;height:36px}
+.th.sm svg{width:28px;height:28px}
+.lt{min-width:0}
+.lt b{display:block;font-size:15px;font-weight:500;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lt>span{display:block;font-size:14px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lt .hot{color:var(--ink)}
+.chips{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.chip{height:32px;min-width:44px;padding:0 10px;border-radius:var(--r-inner);border:1px solid var(--line-2);background:var(--canvas);font-size:14px;font-weight:500;color:var(--ink);display:inline-flex;align-items:center;justify-content:center;gap:5px;font-variant-numeric:tabular-nums;transition:background-color 160ms ease,border-color 160ms ease,color 160ms ease}
+.chip .ck{display:none;width:14px;height:14px;stroke-width:2.4}
+.chip[data-s=moving]{border-color:var(--accent);color:var(--accent);background:var(--accent-bg)}
+.chip[data-s=done]{background:var(--ok-bg);border-color:transparent;color:var(--ok-fg)}
+.chip[data-s=done] .ck{display:block;animation:pop 200ms var(--ease-out)}
+.chip[data-s=missing]{background:var(--soft-2);border-color:transparent;color:var(--mute);text-decoration:line-through}
+.chip .q{color:var(--mute);font-weight:400}
+@keyframes pop{from{transform:scale(.5);opacity:0}to{transform:none;opacity:1}}
+
+.complete{display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;padding:40px 16px;border:1px solid var(--line);border-radius:var(--r-card);margin-bottom:24px;animation:rise 260ms var(--ease-out)}
+.complete .ok{width:48px;height:48px;border-radius:50%;background:var(--ok-bg);color:var(--ok-fg);display:grid;place-items:center;margin-bottom:6px}
+.complete .ok svg{width:22px;height:22px;stroke-width:2.2}
+.complete b{font-size:16px;font-weight:600;color:var(--ink)}
+.complete span{font-size:14px;color:var(--mute)}
+@keyframes rise{from{opacity:0;transform:scale(.97)}to{opacity:1;transform:none}}
+
+/* moved, newest first */
+.mv{display:grid;grid-template-columns:20px 36px minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px 16px;border-top:1px solid var(--line);font-size:14px}
+.mv:first-child{border-top:0}
+.mv>svg{color:var(--ok-fg)}
+.mv .lt b{font-size:15px;font-weight:400}
+.mv .r{text-align:right;color:var(--mute);font-variant-numeric:tabular-nums;white-space:nowrap}
+.mv.enter{animation:slide 220ms var(--ease-out)}
+@keyframes slide{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+.empty{padding:28px 16px;text-align:center;font-size:14px;color:var(--mute)}
+
+/* Today — the sheet as it is */
+.fields{display:flex;align-items:flex-end;gap:10px;margin-bottom:20px}
+.field{flex:1;min-width:0}
+.field label{display:block;font-size:15px;font-weight:500;color:var(--text);margin-bottom:6px}
+.field .hint{font-size:14px;color:var(--mute);margin-top:6px}
+.inp,.sel{width:100%;height:44px;border:1px solid var(--line-2);border-radius:var(--r-inner);background:var(--canvas);padding:0 12px;font-size:15px;color:var(--ink);box-shadow:var(--shadow-soft);outline:none}
+.sel{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' fill='none' stroke='%2389919d' stroke-width='2' viewBox='0 0 24 24'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:34px}
+.inp:focus,.sel:focus{border-color:var(--accent)}
+.fields>svg{margin-bottom:14px;color:var(--ico)}
+.scanf{position:relative;margin-bottom:20px}
+.scanf svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--ico)}
+.scanf .inp{padding-left:38px}
+.dash{border:1px dashed var(--line-2);border-radius:var(--r-card);padding:32px 16px;text-align:center;font-size:15px;color:var(--body);margin-bottom:20px}
+.dash b{color:var(--ink);font-weight:500}
+.piece{border:1px solid var(--line);border-radius:var(--r-card);overflow:hidden;box-shadow:var(--shadow-soft);margin-bottom:20px}
+.piece .pt{display:flex;gap:14px;padding:14px}
+.piece .pt .th{width:64px;height:64px}
+.piece .pt .th svg{width:50px;height:50px}
+.piece .pt b{font-size:16px;font-weight:600;color:var(--ink)}
+.piece .pf{border-top:1px solid var(--line);background:var(--soft);padding:10px 14px;font-size:14px;color:var(--body)}
+.pill{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px;border:1px solid var(--line-2);border-radius:999px;font-size:14px;font-weight:500;color:var(--text);white-space:nowrap;background:var(--canvas)}
+.pill i{width:6px;height:6px;border-radius:50%;background:currentColor;display:block}
+.pill.info{color:var(--info-fg);border-color:#bcd3f3}
+.pill.warn{color:var(--warn-fg);border-color:#efd3a6}
+.pill.ok{color:var(--ok-fg);border-color:#bfe2b7}
+.banner{border-radius:var(--r-inner);padding:10px 14px;font-size:14px;margin-bottom:20px}
+.banner.warn{background:var(--warn-bg);color:var(--warn-fg)}
+.banner.bad{background:var(--bad-bg);color:var(--bad-fg)}
+
+/* B — the till's feed */
+.feed .in{grid-template-columns:52px 36px minmax(0,1fr) auto}
+.feed .tm{font-size:14px;color:var(--mute);font-variant-numeric:tabular-nums}
+.feed .lrow.enter .in{animation:slide 260ms var(--ease-out);background:var(--accent-bg);transition:background-color 1200ms ease}
+.feed .st{font-size:14px;font-weight:500;color:var(--accent);white-space:nowrap}
+.feed .st.ok{color:var(--ok-fg)}
+.feed .st.mute{color:var(--mute);font-weight:400}
+
+/* C — floor target table */
+table.t{width:100%;border-collapse:collapse;table-layout:fixed;font-size:15px}
+table.t th{height:40px;background:var(--soft);font-size:14px;font-weight:500;color:var(--body);text-align:left;padding:0 12px;border-bottom:1px solid var(--line)}
+table.t td{padding:0 12px;height:56px;border-bottom:1px solid var(--line);color:var(--ink);vertical-align:middle}
+table.t tr:last-child td{border-bottom:0}
+table.t .r{text-align:right;font-variant-numeric:tabular-nums}
+table.t td.mu{color:var(--mute)}
+table.t tr.art td{background:var(--soft);height:52px}
+table.t tr.done td{color:var(--mute)}
+.step{display:inline-flex;align-items:center;border:1px solid var(--line-2);border-radius:var(--r-inner);height:32px;background:var(--canvas)}
+.step button{width:30px;height:30px;display:grid;place-items:center;color:var(--body)}
+.step button:active{transform:scale(.92)}
+.step b{min-width:22px;text-align:center;font-weight:600;font-variant-numeric:tabular-nums;color:var(--ink)}
+.tick{color:var(--ok-fg);display:inline-flex;align-items:center;gap:4px;font-weight:500}
+
+/* D — transfer note */
+.facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-bottom:24px}
+.facts div span{display:block;font-size:14px;color:var(--mute)}
+.facts div b{display:block;font-size:15px;font-weight:500;color:var(--ink);margin-top:2px}
+
+/* research */
+.doc{max-width:1120px}
+.doc h1{font-size:22px;font-weight:600;color:var(--ink);letter-spacing:-.02em;margin-bottom:6px}
+.doc .lede{font-size:15px;color:var(--body);max-width:760px;margin-bottom:24px}
+.doc h2{font-size:18px;font-weight:600;color:var(--ink);margin:32px 0 12px;letter-spacing:-.01em}
+.doc p{max-width:780px;margin-bottom:10px}
+.doc .card{overflow:hidden}
+.doc table.t td{height:auto;padding:12px;vertical-align:top;font-size:14px;line-height:1.45;color:var(--text)}
+.doc table.t td:first-child{font-weight:500;color:var(--ink);font-size:15px}
+.doc table.t tr.me td{background:var(--accent-bg)}
+.doc table.t tr.best td{background:#f3fbf1}
+.rank{display:grid;gap:10px}
+.rank li{list-style:none;display:grid;grid-template-columns:32px minmax(0,1fr);gap:12px;background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-card);padding:14px 16px;box-shadow:var(--shadow-soft)}
+.rank li>b{width:28px;height:28px;border-radius:50%;background:var(--soft-2);display:grid;place-items:center;font-size:14px;color:var(--ink)}
+.rank li div b{display:block;color:var(--ink);font-weight:600;margin-bottom:2px}
+.rank li div span{font-size:14px;color:var(--body)}
+.verdict{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.verdict .card{padding:16px 18px}
+.verdict h3{font-size:15px;font-weight:600;color:var(--ink);margin-bottom:8px}
+.verdict ul{padding-left:18px;font-size:14px;color:var(--text);display:grid;gap:4px}
+.src{font-size:14px;color:var(--body);display:grid;gap:4px;padding-left:18px}
+.src a{color:var(--accent);text-decoration:none;word-break:break-all}
+.src a:hover{text-decoration:underline}
+.score{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-bottom:8px}
+.score .card{padding:12px 14px}
+.score .card span{display:block;font-size:14px;color:var(--body);font-weight:500}
+.score .card b{display:block;font-size:18px;font-weight:600;color:var(--ink);margin-top:4px;font-variant-numeric:tabular-nums}
+.score .card em{display:block;font-style:normal;font-size:14px;color:var(--mute)}
+.score .card.star{border-color:#bcd3f3;background:var(--accent-bg)}
+
+/* tablet: no rail */
+@media (max-width:1023px){
+  .rail{display:none}
+  .kpis{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .pools{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .proto .sim .lbl{display:none}
+  .score{grid-template-columns:repeat(3,minmax(0,1fr))}
+}
+/* phone: white top bar, dock + tab bar, full-height sheet with its actions at the foot */
+@media (max-width:767px){
+  .proto .row{padding:0 12px;gap:10px}
+  .proto .row>b{display:none}
+  .proto .row2{padding:6px 12px}
+  .proto .sim{margin-left:0;flex-wrap:wrap}
+  .proto .note{display:none}
+  .dept{display:none}
+  .top{background:var(--canvas);padding:0 12px 0 16px}
+  .top .ttl{display:block}
+  .top .sync{margin-left:0}
+  .top .sync span{display:none}
+  .top .me{display:grid}
+  .content{padding:16px 16px calc(130px + env(safe-area-inset-bottom))}
+  .phead,.seg{display:none}
+  .kpis{grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--r-card);overflow:hidden}
+  .kpi{border:0;border-radius:0;box-shadow:none;min-height:0;padding:14px 16px}
+  .kpis .kpi:last-child:nth-child(odd){grid-column:1 / -1}
+  .pools{grid-template-columns:minmax(0,1fr);gap:10px}
+  .pool .ft .btn.tint{height:36px}
+  .dock{display:flex;position:fixed;left:9px;right:9px;bottom:calc(60px + env(safe-area-inset-bottom));z-index:30;background:var(--canvas);border-radius:999px;box-shadow:0 4px 16px rgb(24 39 60 / 10%),0 0 0 1px rgb(24 39 60 / 5%);padding:8px;gap:6px;align-items:center}
+  .dock .dchip{height:36px;display:inline-flex;align-items:center;gap:4px;padding:0 10px 0 14px;border-radius:999px;background:var(--soft-2);font-size:14px;font-weight:500;color:var(--ink)}
+  .dock .dchip svg{width:14px;height:14px;color:var(--ico)}
+  .dock .fab{width:36px;height:36px;border-radius:50%;background:var(--accent);color:#fff;display:grid;place-items:center;transition:transform 160ms var(--ease-out)}
+  .dock .fab:active{transform:scale(.94)}
+  .dock .fab.wide{width:auto;padding:0 14px;gap:6px;display:inline-flex;align-items:center;font-size:14px;font-weight:600;margin-left:auto}
+  .tabbar{display:grid;grid-template-columns:repeat(5,1fr);position:fixed;left:0;right:0;bottom:0;height:calc(52px + env(safe-area-inset-bottom));padding-bottom:env(safe-area-inset-bottom);background:var(--canvas);border-top:1px solid var(--line);z-index:30}
+  .tabbar a{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:14px;font-weight:500;color:var(--body);text-decoration:none;position:relative}
+  .tabbar a svg{width:20px;height:20px}
+  .tabbar a.on{color:var(--accent);background:linear-gradient(var(--accent-bg),transparent)}
+  .tabbar a.on::before{content:"";position:absolute;top:0;left:30%;right:30%;height:3px;border-radius:0 0 3px 3px;background:var(--accent)}
+
+  .scrim{inset:0}
+  .sheet{top:var(--ph);right:0;bottom:0;left:0;width:auto;border-radius:0;border:0;transform:translateY(100%)}
+  .sheet.in{transform:none}
+  .sh-head{padding:6px 6px 6px 16px;min-height:56px}
+  .x{width:44px;height:44px}
+  .sh-body{padding:16px 16px 24px}
+  .sh-foot{padding:10px 16px calc(10px + env(safe-area-inset-bottom));flex-wrap:wrap}
+  .sh-foot .btn{height:44px;flex:1}
+  .sh-foot .sum{flex-basis:100%;margin:0 0 2px}
+  .lrow .in{grid-template-columns:48px minmax(0,1fr) auto;gap:4px 12px;padding:12px 8px 12px 14px}
+  .lrow .in .chips{grid-column:2 / -1;justify-content:flex-start;margin-top:6px}
+  .lrow .in .btn.ghost{grid-row:1;grid-column:3;align-self:start;height:36px}
+  .chip{height:36px;min-width:48px}
+  .feed .in{grid-template-columns:44px 36px minmax(0,1fr)}
+  .feed .in .st{grid-column:3}
+  .fields{flex-direction:column;align-items:stretch}
+  .fields>svg{display:none}
+  .facts{grid-template-columns:minmax(0,1fr)}
+  table.t.c th:nth-child(2),table.t.c td:nth-child(2){display:none}
+  .doc table.t,.doc table.t tbody,.doc table.t tr,.doc table.t td{display:block;width:100%}
+  .doc table.t thead{display:none}
+  .doc table.t tr{border-top:1px solid var(--line);padding:8px 0}
+  .doc table.t tr:first-child{border-top:0}
+  .doc table.t td{border:0;padding:4px 14px}
+  .doc table.t td::before{content:attr(data-l);display:block;font-size:14px;color:var(--mute);font-weight:500}
+  .doc table.t td:first-child::before{content:none}
+  .verdict{grid-template-columns:minmax(0,1fr)}
+  .score{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .pop{left:12px!important;right:12px;min-width:0}
+}
+@media (prefers-reduced-motion:reduce){
+  .sheet,.pop,.btn,.chip,.lrow,.tmenu svg{transition-property:opacity,background-color,border-color,color!important;transform:none!important}
+  .chip[data-s=done] .ck,.mv.enter,.complete,.strip.shake,.feed .lrow.enter .in{animation:none}
+}
+</style>
+</head>
+<body>
+
+<div class="proto" id="proto">
+  <div class="row">
+    <b>Stockroom → Shop floor</b>
+    <div class="opts" id="opts">
+      <button data-o="T">Today</button>
+      <button data-o="A">★ A · To the floor</button>
+      <button data-o="B">B · Sold today</button>
+      <button data-o="C">C · Fill to target</button>
+      <button data-o="D">D · Transfer note</button>
+      <button data-o="R">Research</button>
+    </div>
+  </div>
+  <div class="row2">
+    <div class="note" id="note"></div>
+    <div class="sim" id="sim">
+      <button data-sim="next" title="S"><i data-lucide="scan-line"></i><span class="lbl">Scan a piece</span></button>
+      <button data-sim="burst" title="R"><i data-lucide="radio"></i><span class="lbl">RFID read ×5</span></button>
+      <button data-sim="sale" id="simSale"><i data-lucide="shopping-bag"></i><span class="lbl">Sale at the till</span></button>
+      <button data-sim="there"><i data-lucide="triangle-alert"></i><span class="lbl">Already there</span></button>
+      <button data-sim="barcode"><i data-lucide="scan-barcode"></i><span class="lbl">Barcode</span></button>
+      <button data-sim="reset" title="Start over"><i data-lucide="rotate-ccw"></i></button>
+    </div>
+  </div>
+
+</div>
+
+<div class="app">
+  <nav class="rail" aria-label="Modules">
+    <div class="mark">C</div>
+    <span class="ri"><i data-lucide="layout-grid"></i></span>
+    <span class="ri"><i data-lucide="percent"></i></span>
+    <span class="ri on"><i data-lucide="layers"></i></span>
+    <span class="ri"><i data-lucide="wallet"></i></span>
+    <span class="sp"></span>
+    <span class="ri"><i data-lucide="scan-line"></i></span>
+    <span class="ri"><i data-lucide="bell"></i></span>
+    <span class="av">M</span>
+    <span class="ri"><i data-lucide="log-out"></i></span>
+  </nav>
+  <aside class="dept">
+    <div class="dept-h">Stock <i data-lucide="panel-left"></i></div>
+    <nav>
+      <a class="on" href="#">Stock</a>
+      <a href="#">Receive</a>
+      <a href="#">Count</a>
+      <a href="#">Return to HO</a>
+      <a href="#">Stock ledger</a>
+    </nav>
+    <div class="where"><b>Store 01</b><span>Store server</span></div>
+  </aside>
+  <main>
+    <header class="top">
+      <span class="ttl">Stock</span>
+      <span class="sync"><span class="dot"></span><span>Synced</span></span>
+      <span class="bell"><i data-lucide="bell"></i></span>
+      <span class="me">M</span>
+    </header>
+    <div class="content" id="page"></div>
+  </main>
+</div>
+
+<div class="dock" id="dock"></div>
+<nav class="tabbar">
+  <a href="#"><i data-lucide="layout-grid"></i>Catalogue</a>
+  <a href="#" class="on"><i data-lucide="layers"></i>Stock</a>
+  <a href="#"><i data-lucide="wallet"></i>Money</a>
+  <a href="#"><i data-lucide="users"></i>People</a>
+  <a href="#"><i data-lucide="ellipsis"></i>More</a>
+</nav>
+
+<div id="layer"></div>
+
+<script>
+/* ───────────────────────── data ───────────────────────── */
+const SHAPES={
+  shirt:"M33 12 L42 9 L50 15 L58 9 L67 12 L84 24 L91 72 L81 74 L74 38 L74 92 L26 92 L26 38 L19 74 L9 72 L16 24 Z",
+  tee:"M31 14 L41 10 Q50 18 59 10 L69 14 L88 29 L80 41 L72 36 L72 90 L28 90 L28 36 L20 41 L12 29 Z",
+  gamis:"M38 9 Q50 14 62 9 L78 20 L88 60 L78 64 L72 38 L82 94 L18 94 L28 38 L22 64 L12 60 L22 20 Z",
+  blouse:"M34 11 L43 9 Q50 17 57 9 L66 11 L80 24 L88 50 L77 52 L72 36 L76 90 Q50 96 24 90 L28 36 L23 52 L12 50 L20 24 Z",
+  pants:"M29 8 L71 8 L76 93 L58 93 L50 34 L42 93 L24 93 Z",
+  hijab:"M50 6 Q74 6 76 30 Q78 52 90 92 L10 92 Q22 52 24 30 Q26 6 50 6 Z M38 22 Q50 16 62 22 L62 40 Q50 48 38 40 Z",
+  dress:"M39 8 L44 8 Q50 16 56 8 L61 8 L64 32 L58 36 L81 93 L19 93 L42 36 L36 32 Z"
+};
+/* [size, size code, on the floor, in the stockroom, sold today] */
+const ARTS=[
+  {code:"00000002",c:"1",name:"Kemeja Oxford",colour:"Navy",hex:"#27334f",shape:"shirt",sizes:[["M","03",0,2,2],["L","04",1,3,0],["XL","05",0,1,1]]},
+  {code:"00000003",c:"1",name:"Kaos Oblong",colour:"Charcoal",hex:"#3d3f45",shape:"tee",sizes:[["M","03",1,4,0],["L","04",0,2,3],["XL","05",0,3,1],["XXL","06",1,0,0]]},
+  {code:"00000004",c:"3",name:"Gamis",colour:"Natural",hex:"#dccdb0",shape:"gamis",sizes:[["One Size","00",0,3,2]]},
+  {code:"00000008",c:"2",name:"Blus Linen",colour:"Sage",hex:"#9fb197",shape:"blouse",sizes:[["S","02",0,1,0],["M","03",0,2,1],["L","04",1,2,0]]},
+  {code:"00000009",c:"1",name:"Celana Chino",colour:"Khaki",hex:"#b79f70",shape:"pants",sizes:[["30","30",1,2,0],["32","32",0,2,0],["34","34",1,0,0]]},
+  {code:"00000010",c:"4",name:"Hijab Voal",colour:"Dusty Pink",hex:"#d8a7a6",shape:"hijab",sizes:[["One Size","00",0,4,0]]},
+  {code:"00000001",c:"1",name:"Kemeja",colour:"Off White",hex:"#efebe2",shape:"shirt",sizes:[["L","04",2,1,0],["XL","05",1,1,0]]},
+  {code:"00000011",c:"2",name:"Dress Midi Floral",colour:"Navy",hex:"#2d3f68",shape:"dress",sizes:[["S","02",0,0,0],["M","03",0,0,0],["L","04",0,1,0]]},
+  {code:"00000012",c:"5",name:"Kaos Anak Dino",colour:"Yellow",hex:"#e8c364",shape:"tee",sizes:[["2-3Y","23",0,1,1],["4-5Y","45",1,1,0],["6-7Y","67",0,2,0]]}
+];
+/* sales this morning, for B */
+const SALES=[[150,"00000002103","Till 1"],[136,"00000003104","Till 2"],[117,"00000004300","Till 1"],[101,"00000003104","Till 1"],[83,"00000002105","Till 2"],[68,"00000008203","Till 1"],[54,"00000003105","Till 2"],[36,"00000012523","Till 1"],[22,"00000004300","Till 2"],[13,"00000003104","Till 1"],[4,"00000002103","Till 2"]];
+
+const PLACES={floor:"Shop floor",warehouse:"Stockroom",reject:"Return stock"};
+const SKU=new Map(), PIECES=new Map(), byArt=new Map();
+const epcOf=(sku,serial)=>("A1"+sku+serial.toString(16).padStart(11,"0")).toUpperCase();
+function build(){
+  SKU.clear();PIECES.clear();byArt.clear();
+  for(const a of ARTS){
+    a.key=a.code+a.c; a.title=a.name+" "+a.colour; a.skus=[];
+    byArt.set(a.key,a);
+    for(const [size,sc,f,s,sold] of a.sizes){
+      const sku=a.key+sc; const r={sku,a,size,sold}; SKU.set(sku,r); a.skus.push(r);
+      let n=1;
+      for(let i=0;i<f;i++) PIECES.set(epcOf(sku,n++),{sku,pool:"floor"});
+      for(let i=0;i<s;i++) PIECES.set(epcOf(sku,n++),{sku,pool:"warehouse"});
+    }
+  }
+  const rej=SKU.get("00000003103"); PIECES.set(epcOf(rej.sku,40),{sku:rej.sku,pool:"reject"}); PIECES.set(epcOf(rej.sku,41),{sku:rej.sku,pool:"reject"});
+}
+const inPool=(sku,pool)=>{let n=0;for(const p of PIECES.values()) if(p.sku===sku&&p.pool===pool) n++;return n};
+const poolSum=pool=>{let n=0;for(const p of PIECES.values()) if(p.pool===pool) n++;return n};
+const pieceIn=(sku,pool,skip=new Set())=>{for(const [e,p] of PIECES) if(p.sku===sku&&p.pool===pool&&!skip.has(e)) return e;return null};
+
+/* ───────────────────────── state ───────────────────────── */
+const S={opt:"A",open:false,dest:"floor",tasks:[],moved:[],missing:new Set(),last:null,today:null,draft:[],posted:false,targets:new Map(),feed:[],menu:false,seq:0};
+function reset(){
+  build();
+  Object.assign(S,{open:false,dest:"floor",tasks:[],moved:[],missing:new Set(),last:null,today:{piece:null,from:"warehouse",to:"floor",why:"",note:null},draft:[],posted:false,targets:new Map(),feed:[],menu:false});
+  for(const a of ARTS) S.targets.set(a.key,2);
+  S.feed=SALES.map(([ago,sku,till])=>({id:"s"+(++S.seq),at:clock(-ago),sku,till,state:"todo"})).reverse();
+  budgetFeed();
+}
+/* a sale asks for one back only while the stockroom still has one to give */
+function budgetFeed(){
+  const left=new Map();
+  for(const f of [...S.feed].reverse()){
+    if(f.state==="done") continue;
+    if(!left.has(f.sku)) left.set(f.sku,inPool(f.sku,"warehouse"));
+    const n=left.get(f.sku);
+    if(n>0){f.state="todo";left.set(f.sku,n-1)} else f.state="none";
+  }
+}
+
+/* what the floor is missing: a size with none on the floor and some in the stockroom — bring one */
+function tasksA(){
+  const t=[];
+  for(const r of SKU.values()){
+    if(S.missing.has(r.sku)) continue;
+    if(inPool(r.sku,"floor")===0&&inPool(r.sku,"warehouse")>0) t.push({sku:r.sku,need:1,got:0,state:"todo"});
+  }
+  return t;
+}
+/* C — fill each size up to the colourway's floor target */
+function tasksC(){
+  const t=[];
+  for(const r of SKU.values()){
+    const target=S.targets.get(r.a.key)??2, f=inPool(r.sku,"floor"), w=inPool(r.sku,"warehouse");
+    const need=Math.min(Math.max(0,target-f),w);
+    t.push({sku:r.sku,need,got:0,state:need>0?"todo":"none",floor:f,ware:w});
+  }
+  return t;
+}
+const soldOf=a=>a.skus.reduce((s,r)=>s+r.sold,0);
+function groups(tasks){
+  const m=new Map();
+  for(const t of tasks){const a=SKU.get(t.sku).a; if(!m.has(a.key)) m.set(a.key,{a,tasks:[]}); m.get(a.key).tasks.push(t)}
+  const g=[...m.values()];
+  for(const x of g) x.hot=x.tasks.reduce((s,t)=>s+SKU.get(t.sku).sold,0);
+  g.sort((p,q)=>q.hot-p.hot||p.a.title.localeCompare(q.a.title));
+  return g;
+}
+
+/* ───────────────────────── helpers ───────────────────────── */
+const $=(s,r=document)=>r.querySelector(s);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const icons=()=>lucide.createIcons({attrs:{"stroke-width":1.7}});
+const thumb=(a,sm)=>`<span class="th${sm?" sm":""}"><svg viewBox="0 0 100 100" aria-hidden="true"><path d="${SHAPES[a.shape]}" fill="${a.hex}" stroke="rgb(24 39 60 / 18%)" stroke-width="1.4" stroke-linejoin="round" fill-rule="evenodd"/></svg></span>`;
+const pcs=n=>`${n} ${n===1?"pc":"pcs"}`;
+const clock=(min=0)=>{const d=new Date(Date.now()+min*60000);return d.getHours().toString().padStart(2,"0")+":"+d.getMinutes().toString().padStart(2,"0")};
+const now=()=>clock(0);
+const destWord=()=>PLACES[S.dest].toLowerCase();
+
+const NOTES={
+  T:{from:"Central today — From/To like an ERP stock entry (ERPNext Material Transfer, Odoo internal transfer)",good:"Any move, any direction",weak:"Asks From (the tag already knows), Why on every piece, two presses per piece, and never says what the floor is missing"},
+  A:{from:"Nedap iD Cloud Refill + American Apparel (one of every size) + Oracle SIOCS (to pick / picked, short picks stay open) + Zara (what sold first)",good:"The shop is told what to bring; one scan per piece, nothing else to press; From is read off the tag",weak:"Needs the floor/stockroom split to be honest — a piece carried out without a scan still reads as in the stockroom"},
+  B:{from:"Inditex/Zara RFID replenishment, Apple Store runner queue",good:"Live — a sale at the till asks for its replacement within seconds",weak:"Only sees sizes that sold here today; a size that ran out any other way never shows (4 in this demo)"},
+  C:{from:"Oracle Retail SIOCS shelf replenishment (capacity), SAP shelf fill",good:"Exact fill for a store that plans every rail",weak:"Someone has to keep a target per colourway — 12,000 articles; the list more than doubles (26 pcs vs 12)"},
+  D:{from:"Odoo internal transfer / ERPNext Stock Entry → Submit",good:"One document to approve and print",weak:"Pools don't change until Post; the floor reads empty while the pieces are already on the rail; one more step"}
+};
+
+/* ───────────────────────── the Stock page ───────────────────────── */
+function kpiTask(){
+  if(S.opt==="A"){const n=S.open&&S.dest==="floor"?S.tasks.filter(t=>t.state==="todo"||t.state==="moving").length:tasksA().length;return {l:"To the floor",v:n}}
+  if(S.opt==="B"){return {l:"Sold, to replace",v:S.feed.filter(f=>f.state==="todo").length}}
+  if(S.opt==="C"){const t=S.open?S.tasks:tasksC();return {l:"Below target",v:t.reduce((s,x)=>s+Math.max(0,x.need-x.got),0)}}
+  if(S.opt==="D"){return {l:"Draft moves",v:S.draft.length&&!S.posted?1:0}}
+  return null;
+}
+function renderPage(){
+  const page=$("#page");
+  if(S.opt==="R"){page.innerHTML=research();icons();$("#dock").innerHTML="";return}
+  const f=poolSum("floor"),w=poolSum("warehouse"),r=poolSum("reject"),k=kpiTask();
+  const pool=(code,name,ico,n)=>`<div class="card pool" data-pool="${code}">
+      <div class="tp"><span class="glyph"><i data-lucide="${ico}"></i></span><span class="nm">${name}</span><span class="fig"><b class="n">${n}</b><span>pcs on hand</span></span></div>
+      <div class="ft"><span>0 allotted · 0 missing</span><button class="btn tint" data-move="${code}">Move</button></div></div>`;
+  page.innerHTML=`
+    <div class="phead"><h1>Stock</h1>
+      <button class="btn"><i data-lucide="history"></i>Stock ledger</button>
+      <button class="btn pri" data-open="1"><i data-lucide="arrow-left-right"></i>Move stock</button></div>
+    <div class="kpis">
+      <div class="kpi"><span class="l">On hand</span><span class="v">${f+w+r}</span></div>
+      <div class="kpi"><span class="l">Allotted</span><span class="v">0</span></div>
+      <div class="kpi"><span class="l">Missing</span><span class="v">0</span></div>
+      ${k?`<button class="kpi" data-open="1"><span class="l">${k.l}<i data-lucide="chevron-right"></i></span><span class="v">${k.v}</span></button>`:""}
+    </div>
+    <div class="seg"><button class="on">Everything · 3</button><button>Missing · 0</button></div>
+    <div class="pools">${pool("warehouse","Stockroom","boxes",w)}${pool("floor","Shop floor","store",f)}${pool("reject","Return stock","trash-2",r)}</div>`;
+  $("#dock").innerHTML=`<button class="dchip">Everything<i data-lucide="chevron-down"></i></button>
+    ${k&&k.v>0?`<button class="fab wide" data-open="1"><i data-lucide="arrow-left-right"></i>${k.l} · ${k.v}</button>`:`<button class="fab" data-open="1" aria-label="Move stock" style="margin-left:0"><i data-lucide="arrow-left-right"></i></button>`}`;
+  icons();
+}
+
+/* ───────────────────────── the sheet ───────────────────────── */
+let sheetEl=null,scrimEl=null;
+function openSheet(dest){
+  if(S.opt==="R") return;
+  if(dest) S.dest=dest; else if(!S.open) S.dest="floor";
+  if(S.opt==="T"&&dest){S.today.from=dest;S.today.to=dest==="floor"?"warehouse":"floor"}
+  if(S.open){renderSheet();return}
+  S.open=true; S.last=null;
+  if(S.opt==="A") S.tasks=S.dest==="floor"?tasksA():[];
+  if(S.opt==="C") S.tasks=tasksC();
+  const layer=$("#layer");
+  scrimEl=document.createElement("div");scrimEl.className="scrim";scrimEl.dataset.close="";
+  sheetEl=document.createElement("section");sheetEl.className="sheet";sheetEl.setAttribute("role","dialog");
+  layer.append(scrimEl,sheetEl);
+  renderSheet();
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{scrimEl.classList.add("in");sheetEl.classList.add("in")}));
+  renderPage();
+}
+function closeSheet(){
+  if(!S.open) return; S.open=false; closeMenu();
+  const s=sheetEl,c=scrimEl; sheetEl=scrimEl=null;
+  s.classList.add("out");s.classList.remove("in");c.classList.remove("in");
+  setTimeout(()=>{s.remove();c.remove()},220);
+  renderPage();
+}
+function renderSheet(){
+  if(!sheetEl) return;
+  const o=S.opt;
+  if(o==="T") sheetEl.innerHTML=sheetToday();
+  if(o==="A") sheetEl.innerHTML=sheetA();
+  if(o==="B") sheetEl.innerHTML=sheetB();
+  if(o==="C") sheetEl.innerHTML=sheetC();
+  if(o==="D") sheetEl.innerHTML=sheetD();
+  icons();
+}
+const head=(title,extra="")=>`<header class="sh-head">${title}<span class="sp"></span>${extra}<button class="x" data-close aria-label="Close"><i data-lucide="x"></i></button></header>`;
+const titleMenu=()=>`<button class="tmenu" id="tmenu" aria-haspopup="menu" aria-expanded="${S.menu}">Move to ${destWord()}<i data-lucide="chevron-down"></i></button>`;
+
+function strip(){
+  const L=S.last;
+  if(!L) return `<div class="strip" id="strip"><span class="ic"><i data-lucide="scan-line"></i></span><span class="tx"><b>Scan a tag</b><span class="ready"><span class="dot"></span>Ready</span></span></div>`;
+  const ico={ok:"check",warn:"triangle-alert",bad:"circle-x",info:"rotate-ccw"}[L.t];
+  return `<div class="strip" id="strip" data-t="${L.t==="info"?"":L.t}"><span class="ic"><i data-lucide="${ico}"></i></span><span class="tx"><b>${esc(L.b)}</b><span>${esc(L.s)}</span></span>${L.undo?`<button class="btn ghost" data-undo>Undo</button>`:""}</div>`;
+}
+function movedList(title="Moved"){
+  const rows=S.moved.map(m=>{const r=SKU.get(m.sku);return `<div class="mv" data-id="${m.id}"><i data-lucide="check"></i>${thumb(r.a,1)}<span class="lt"><b>${esc(r.a.title)} · ${esc(r.size)}</b><span>${PLACES[m.from]} → ${PLACES[m.to]}${m.extra?" · not on the list":""}</span></span><span class="r"><span class="mono">…${m.epc.slice(-6)}</span><br>${m.at}</span></div>`}).join("");
+  return `<div class="sec">${title} <span id="movedN">· ${S.moved.length}</span></div><div class="list" id="movedList">${rows||`<div class="empty" id="movedEmpty">Nothing yet.</div>`}</div>`;
+}
+
+/* ★ A — the list of what the floor is missing */
+function sheetA(){
+  let body;
+  if(S.dest!=="floor"){
+    body=strip()+movedList();
+  } else {
+    const live=S.tasks.filter(t=>t.state!=="missing");
+    const left=live.filter(t=>t.state==="todo"||t.state==="moving").length;
+    const g=groups(live);
+    const rows=g.map(x=>{
+      const all=x.tasks.every(t=>t.state==="done");
+      return `<div class="lrow${all?" gone":""}" id="row-${x.a.key}"><div class="clip"><div class="in">
+        ${thumb(x.a)}
+        <span class="lt"><b>${esc(x.a.title)}</b><span><span class="mono">${x.a.code}</span>${x.hot?` · <span class="hot">Sold ${x.hot} today</span>`:""}</span></span>
+        <span class="chips">${x.tasks.map(t=>`<span class="chip" id="chip-${t.sku}" data-s="${t.state}"><i data-lucide="check" class="ck"></i>${esc(SKU.get(t.sku).size)}</span>`).join("")}</span>
+        <button class="btn ghost" data-cant="${x.a.key}">Can't find</button>
+      </div></div></div>`}).join("");
+    const miss=[...S.missing].map(sku=>SKU.get(sku));
+    const missG=new Map(); for(const r of miss){if(!missG.has(r.a.key)) missG.set(r.a.key,{a:r.a,sizes:[]}); missG.get(r.a.key).sizes.push(r)}
+    const missRows=[...missG.values()].map(x=>`<div class="lrow"><div class="clip"><div class="in">${thumb(x.a)}<span class="lt"><b>${esc(x.a.title)}</b><span class="mono">${x.a.code}</span></span><span class="chips">${x.sizes.map(r=>`<span class="chip" data-s="missing">${esc(r.size)}</span>`).join("")}</span><button class="btn ghost" data-back="${x.a.key}">Put back</button></div></div></div>`).join("");
+    const total=S.tasks.filter(t=>t.state!=="missing").length;
+    body=strip()+
+      (left===0&&total+S.missing.size>0||S.tasks.length===0?
+        `<div class="complete"><span class="ok"><i data-lucide="check"></i></span><b>${S.tasks.length===0&&S.moved.length===0?"Every size is on the floor":"Shop floor complete"}</b><span>${S.moved.length?pcs(S.moved.length)+" moved":"Nothing to bring"}</span></div>`
+        :`<div class="sec">To bring <span id="leftN">· ${pcs(left)}</span></div><div class="list" id="listA">${rows}</div>`)+
+      (missRows?`<div class="sec">Can't find <span>· ${miss.length}</span></div><div class="list muted">${missRows}</div>`:"")+
+      movedList();
+  }
+  const total=S.tasks.filter(t=>t.state!=="missing").length, done=S.tasks.filter(t=>t.state==="done").length;
+  const sum=S.dest==="floor"&&total?`<span class="sum" id="sumA">Moved <b class="n">${done}</b> of ${total}</span>`:`<span class="sum">Moved <b class="n">${S.moved.length}</b></span>`;
+  return head(titleMenu())+`<div class="sh-body" id="body">${body}</div><footer class="sh-foot">${sum}<button class="btn pri" data-close>Done</button></footer>`;
+}
+
+/* Today — From / To / scan / Why / Move */
+function sheetToday(){
+  const T=S.today, P=T.piece, r=P?SKU.get(P.sku):null;
+  const opts=v=>Object.entries(PLACES).map(([k,l])=>`<option value="${k}"${k===v?" selected":""}>${l}</option>`).join("");
+  const body=`
+    <div class="fields"><div class="field"><label>From</label><select class="sel" data-f="from">${opts(T.from)}</select></div><i data-lucide="arrow-right"></i><div class="field"><label>To</label><select class="sel" data-f="to">${opts(T.to)}</select></div></div>
+    <div class="scanf"><i data-lucide="search"></i><input class="inp" placeholder="${P?"Scan the next tag…":"Scan the garment's tag…"}" readonly></div>
+    ${T.note?`<div class="banner ${T.note.t}">${esc(T.note.s)}</div>`:""}
+    ${P?`<div class="piece"><div class="pt">${thumb(r.a)}<div style="flex:1;min-width:0"><div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start"><b>${esc(r.a.title)} ${esc(r.size)}</b><span class="pill info"><i></i>Ready to move</span></div><div class="mono" style="color:var(--body);margin-top:4px">${r.sku}</div><div class="mono" style="color:var(--mute)">${P.epc}</div></div></div><div class="pf">Not in the newest 100 movements. The node checks where it is when it moves.</div></div>
+      ${T.from===T.to?`<div class="banner warn">A garment cannot be moved to where it already is. Pick where it is going.</div>`:""}
+      <div class="field" style="margin-bottom:24px"><label>Why</label><input class="inp" data-f="why" placeholder="e.g. Put out on the rail" value="${esc(T.why)}"><div class="hint">Written into the ledger beside the movement.</div></div>`
+    :`<div class="dash">Scan a tag to load the piece. It moves <b>${PLACES[T.from].toLowerCase()} → ${PLACES[T.to].toLowerCase()}</b> unless the ledger says it is somewhere else.</div>`}
+    ${S.moved.length?movedList("Moved just now"):""}`;
+  const ready=P&&T.from!==T.to;
+  return head(`<h2>Move stock</h2>`)+`<div class="sh-body" id="body">${body}</div><footer class="sh-foot" style="justify-content:flex-end">${P?`<button class="btn" data-drop>Drop it</button>`:""}<button class="btn pri" data-domove ${ready?"":"disabled"}>Move to ${PLACES[T.to].toLowerCase()}</button></footer>`;
+}
+
+/* B — every sale asks for its replacement */
+function sheetB(){
+  const rows=S.feed.map(f=>{
+    const r=SKU.get(f.sku), w=inPool(f.sku,"warehouse");
+    const st=f.state==="done"?`<span class="st ok">Brought</span>`:f.state==="none"?`<span class="st mute">None in the stockroom</span>`:`<span class="st">Bring 1</span>`;
+    return `<div class="lrow${f.fresh?" enter":""}" id="feed-${f.id}"><div class="clip"><div class="in"><span class="tm">${f.at}</span>${thumb(r.a,1)}<span class="lt"><b>${esc(r.a.title)} · ${esc(r.size)}</b><span>Sold at ${f.till}</span></span>${st}</div></div></div>`}).join("");
+  S.feed.forEach(f=>f.fresh=false);
+  const todo=S.feed.filter(f=>f.state==="todo").length;
+  const body=strip()+`<div class="sec">Sold today <span>· ${S.feed.length}</span><span class="r">${pcs(todo)} to bring</span></div><div class="list feed">${rows}</div>`;
+  return head(`<h2>Replace what sold</h2>`)+`<div class="sh-body" id="body">${body}</div><footer class="sh-foot"><span class="sum">Brought <b class="n">${S.feed.filter(f=>f.state==="done").length}</b> of ${S.feed.filter(f=>f.state!=="none").length}</span><button class="btn pri" data-close>Done</button></footer>`;
+}
+
+/* C — fill to a floor target per colourway */
+function sheetC(){
+  const by=new Map(S.tasks.map(t=>[t.sku,t]));
+  const rows=ARTS.map(a=>{
+    const ts=a.skus.map(r=>by.get(r.sku));
+    const need=ts.reduce((s,t)=>s+Math.max(0,t.need-t.got),0);
+    return `<tr class="art"><td colspan="3"><span style="display:flex;align-items:center;gap:12px">${thumb(a,1)}<span class="lt"><b>${esc(a.title)}</b><span class="mono">${a.code}</span></span></span></td><td class="r" colspan="2"><span style="display:inline-flex;align-items:center;gap:8px;color:var(--body);font-size:14px">Floor target <span class="step"><button data-tg="${a.key}" data-d="-1" aria-label="Less"><i data-lucide="minus"></i></button><b>${S.targets.get(a.key)}</b><button data-tg="${a.key}" data-d="1" aria-label="More"><i data-lucide="plus"></i></button></span></span></td></tr>`+
+      a.skus.map(r=>{const t=by.get(r.sku),left=Math.max(0,t.need-t.got);return `<tr class="${t.need>0&&left===0?"done":""}"><td style="padding-left:60px">${esc(r.size)}</td><td class="r mu">${inPool(r.sku,"warehouse")}</td><td class="r">${inPool(r.sku,"floor")}</td><td class="r">${t.need===0?`<span class="mu">—</span>`:left===0?`<span class="tick"><i data-lucide="check"></i>${t.got}</span>`:`<b>${left}</b>`}</td><td class="r mu">${t.got?t.got+" moved":""}</td></tr>`}).join("")}).join("");
+  const total=S.tasks.reduce((s,t)=>s+t.need,0), got=S.tasks.reduce((s,t)=>s+Math.min(t.got,t.need),0);
+  const body=strip()+`<div class="sec">Below target <span>· ${pcs(total-got)}</span></div><div class="list"><table class="t c"><colgroup><col><col style="width:110px"><col style="width:90px"><col style="width:90px"><col style="width:110px"></colgroup><thead><tr><th>Size</th><th class="r">Stockroom</th><th class="r">Floor</th><th class="r">Bring</th><th class="r"></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  return head(`<h2>Fill the floor</h2>`)+`<div class="sh-body" id="body">${body}</div><footer class="sh-foot"><span class="sum">Moved <b class="n">${got}</b> of ${total}</span><button class="btn pri" data-close>Done</button></footer>`;
+}
+
+/* D — a transfer note, posted at the end */
+function sheetD(){
+  const lines=new Map(); for(const d of S.draft){lines.set(d.sku,(lines.get(d.sku)||0)+1)}
+  const rows=[...lines].map(([sku,q])=>{const r=SKU.get(sku);return `<tr><td><span style="display:flex;align-items:center;gap:12px">${thumb(r.a,1)}<span class="lt"><b>${esc(r.a.title)}</b><span class="mono">${sku}</span></span></span></td><td>${esc(r.size)}</td><td class="r">${q}</td></tr>`}).join("");
+  const body=(S.posted?"":strip())+`<div class="facts"><div><span>From</span><b>Stockroom</b></div><div><span>To</span><b>Shop floor</b></div><div><span>Status</span><b>${S.posted?`<span class="pill ok"><i></i>Posted</span>`:`<span class="pill warn"><i></i>Draft</span>`}</b></div></div>
+    <div class="sec">Lines <span>· ${lines.size}</span><span class="r">${pcs(S.draft.length)}</span></div>
+    <div class="list">${rows?`<table class="t"><colgroup><col><col style="width:110px"><col style="width:110px"></colgroup><thead><tr><th>Article</th><th>Size</th><th class="r">Quantity</th></tr></thead><tbody>${rows}</tbody></table>`:`<div class="empty">Scan pieces to add lines.</div>`}</div>`;
+  return head(`<h2>Stock move MV-0013</h2>`)+`<div class="sh-body" id="body">${body}</div><footer class="sh-foot">${S.posted?`<span class="sum">Posted ${pcs(S.draft.length)}</span><button class="btn pri" data-close>Done</button>`:`<button class="btn" data-close>Save draft</button><button class="btn pri" data-post ${S.draft.length?"":"disabled"}>Post move</button>`}</footer>`;
+}
+
+/* ───────────────────────── scanning ───────────────────────── */
+function setStrip(t,b,s,undo){
+  S.last={t,b,s,undo};
+  const el=$("#strip"); if(!el) return;
+  const tmp=document.createElement("div"); tmp.innerHTML=strip(); const nw=tmp.firstElementChild;
+  el.replaceWith(nw); icons();
+  if(t==="warn"||t==="bad"){requestAnimationFrame(()=>nw.classList.add("shake"))}
+}
+function scan(raw){
+  if(S.opt==="R") return;
+  if(!S.open) openSheet();
+  if(/^\d{12,13}$/.test(raw)){ return S.opt==="T"?todayNote("warn","Moving stock needs the garment's own tag — a barcode names the article, not the piece in your hand."):setStrip("warn","That's the barcode","Scan the tag sewn into the garment") }
+  const p=PIECES.get(raw);
+  if(!p){return setStrip("bad","Not a tag from this shop",raw.slice(-6))}
+  const r=SKU.get(p.sku);
+  if(S.opt==="T"){S.today.piece={epc:raw,sku:p.sku};S.today.note=null;renderSheet();return}
+  if(S.opt==="D"){
+    if(S.posted) return;
+    if(S.draft.some(d=>d.epc===raw)) return setStrip("warn",`${r.a.title} · ${r.size}`,"Already on this note");
+    if(p.pool!=="warehouse") return setStrip("warn",`${r.a.title} · ${r.size}`,`On the ${PLACES[p.pool].toLowerCase()}, not in the stockroom`);
+    S.draft.push({epc:raw,sku:p.sku}); S.last={t:"ok",b:`${r.a.title} · ${r.size}`,s:"Added to the note · not moved yet"}; renderSheet(); return;
+  }
+  const dest=S.opt==="A"?S.dest:"floor";
+  if(p.pool===dest) return setStrip("warn",`${r.a.title} · ${r.size}`,`Already on the ${PLACES[dest].toLowerCase()}`);
+  const from=p.pool; p.pool=dest;
+  const m={id:"m"+(++S.seq),epc:raw,sku:p.sku,from,to:dest,at:now()};
+  S.moved.unshift(m);
+  if(S.opt==="A") tickA(m);
+  if(S.opt==="B") tickB(m);
+  if(S.opt==="C") tickC(m);
+  setStrip("ok",`${r.a.title} · ${r.size}`,`Moved to ${PLACES[dest].toLowerCase()} · …${raw.slice(-6)}`,true);
+  renderPage();
+}
+function addMovedRow(m){
+  const list=$("#movedList"); if(!list) return;
+  $("#movedEmpty")?.remove();
+  const r=SKU.get(m.sku), d=document.createElement("div");
+  d.className="mv enter"; d.dataset.id=m.id;
+  d.innerHTML=`<i data-lucide="check"></i>${thumb(r.a,1)}<span class="lt"><b>${esc(r.a.title)} · ${esc(r.size)}</b><span>${PLACES[m.from]} → ${PLACES[m.to]}${m.extra?" · not on the list":""}</span></span><span class="r"><span class="mono">…${m.epc.slice(-6)}</span><br>${m.at}</span>`;
+  list.prepend(d); icons();
+  const n=$("#movedN"); if(n) n.textContent="· "+S.moved.length;
+}
+function tickA(m){
+  const t=S.dest==="floor"?S.tasks.find(x=>x.sku===m.sku&&x.got<x.need):null;
+  if(!t){m.extra=S.dest==="floor"; addMovedRow(m); updSumA(); return}
+  t.got++; t.state="moving"; m.task=t;
+  const chip=$("#chip-"+t.sku); if(chip) chip.dataset.s="moving";
+  addMovedRow(m); updSumA();
+  /* the node answers in a breath on the shop's own network */
+  setTimeout(()=>{
+    if(t.state!=="moving") return;
+    t.state="done"; if(chip) chip.dataset.s="done";
+    const a=SKU.get(t.sku).a, mine=S.tasks.filter(x=>SKU.get(x.sku).a.key===a.key&&x.state!=="missing");
+    if(mine.every(x=>x.state==="done")) setTimeout(()=>{ $("#row-"+a.key)?.classList.add("gone"); setTimeout(checkCompleteA,280) },420);
+    updSumA();
+  },320);
+}
+function updSumA(){
+  const total=S.tasks.filter(t=>t.state!=="missing").length, done=S.tasks.filter(t=>t.state==="done").length;
+  const left=S.tasks.filter(t=>t.state==="todo"||t.state==="moving").length;
+  const s=$("#sumA"); if(s) s.innerHTML=`Moved <b class="n">${done}</b> of ${total}`;
+  const l=$("#leftN"); if(l) l.textContent="· "+pcs(left);
+}
+function checkCompleteA(){
+  if(S.dest!=="floor") return;
+  const left=S.tasks.filter(t=>t.state==="todo"||t.state==="moving").length;
+  if(left===0){const sc=$("#body")?.scrollTop||0; renderSheet(); const b=$("#body"); if(b) b.scrollTop=sc}
+}
+function tickB(m){
+  const f=[...S.feed].reverse().find(x=>x.sku===m.sku&&x.state==="todo");
+  if(f) f.state="done";
+  const sc=$("#body")?.scrollTop||0; renderSheet(); $("#body").scrollTop=sc;
+}
+function tickC(m){
+  const t=S.tasks.find(x=>x.sku===m.sku);
+  if(t&&t.got<t.need) t.got++;
+  const sc=$("#body")?.scrollTop||0; renderSheet(); $("#body").scrollTop=sc;
+}
+function undo(){
+  const m=S.moved.shift(); if(!m) return;
+  PIECES.get(m.epc).pool=m.from;
+  if(S.opt==="A"&&m.task){m.task.got--;m.task.state="todo"}
+  if(S.opt==="B"){const f=S.feed.find(x=>x.sku===m.sku&&x.state==="done"); if(f) f.state="todo"}
+  if(S.opt==="C"){const t=S.tasks.find(x=>x.sku===m.sku); if(t&&t.got>0) t.got--}
+  const r=SKU.get(m.sku);
+  S.last={t:"info",b:`${r.a.title} · ${r.size}`,s:`Back in the ${PLACES[m.from].toLowerCase()}`};
+  const sc=$("#body")?.scrollTop||0; renderSheet(); $("#body").scrollTop=sc; renderPage();
+}
+function todayNote(t,s){S.today.note={t:t==="warn"?"warn":"bad",s};renderSheet()}
+
+/* the scanner, simulated: which tag would the next pull of the trigger read */
+const pending=new Set(), pendingSku=new Set();
+function nextEpc(){
+  if(S.opt==="T"){const T=S.today; for(const r of SKU.values()){ if(T.from==="warehouse"&&inPool(r.sku,"floor")>0) continue; const e=pieceIn(r.sku,T.from,pending); if(e) return e } return null}
+  if(S.opt==="A"&&S.dest!=="floor"){for(const r of SKU.values()){const e=pieceIn(r.sku,"floor",pending); if(e) return e} return null}
+  if(S.opt==="A"){const g=groups(S.tasks.filter(t=>t.state!=="missing")); for(const x of g) for(const t of x.tasks) if(t.state==="todo"&&!pendingSku.has(t.sku)){const e=pieceIn(t.sku,"warehouse",pending); if(e) return e}}
+  if(S.opt==="B"){for(const f of [...S.feed].reverse()) if(f.state==="todo"){const e=pieceIn(f.sku,"warehouse",pending); if(e) return e}}
+  if(S.opt==="C"){for(const t of S.tasks) if(t.got<t.need){const e=pieceIn(t.sku,"warehouse",pending); if(e) return e}}
+  if(S.opt==="D"){const t=tasksA(); for(const x of t){const e=pieceIn(x.sku,"warehouse",new Set([...pending,...S.draft.map(d=>d.epc)])); if(e) return e}}
+  for(const r of SKU.values()){const e=pieceIn(r.sku,"warehouse",new Set([...pending,...S.draft.map(d=>d.epc)])); if(e) return e}
+  return null;
+}
+function sim(kind){
+  if(kind==="reset"){closeSheet();reset();setTimeout(renderPage,240);return}
+  if(S.opt==="R") return;
+  if(kind==="next"){const e=nextEpc(); if(e) scan(e); else {if(!S.open) openSheet(); setStrip("warn","Nothing left to read","Every piece the list asked for is out")}}
+  if(kind==="burst"){if(!S.open) openSheet(); const picks=[]; for(let i=0;i<5;i++){const e=nextEpc(); if(!e) break; picks.push(e); pending.add(e); pendingSku.add(PIECES.get(e).sku)} picks.forEach((e,i)=>setTimeout(()=>{pending.delete(e);pendingSku.delete(PIECES.get(e).sku);scan(e)},i*70))}
+  if(kind==="barcode"){scan("800000003004")}
+  if(kind==="there"){const dest=S.opt==="A"?S.dest:"floor"; for(const [e,p] of PIECES) if(p.pool===dest){ if(S.opt==="T"){scan(e);S.today.from="floor";S.today.to="floor";renderSheet();return} if(S.opt==="D"){scan(e);return} scan(e); return}}
+  if(kind==="sale"){
+    /* a customer buys a piece off the floor — the till takes it out of Shop floor */
+    for(const r of SKU.values()){
+      if(inPool(r.sku,"floor")===1&&inPool(r.sku,"warehouse")>0&&!(S.opt==="A"&&S.tasks.some(t=>t.sku===r.sku))){
+        const e=pieceIn(r.sku,"floor"); PIECES.get(e).pool="sold"; r.sold++;
+        if(S.opt==="B"){S.feed.unshift({id:"s"+(++S.seq),at:now(),sku:r.sku,till:"Till 1",state:"todo",fresh:true}); budgetFeed(); if(!S.open) openSheet(); else {const sc=$("#body").scrollTop; renderSheet(); $("#body").scrollTop=sc}}
+        else if(S.opt==="A"&&S.open&&S.dest==="floor"){S.tasks.push({sku:r.sku,need:1,got:0,state:"todo"}); const sc=$("#body").scrollTop; renderSheet(); $("#body").scrollTop=sc; setStrip("info",`${r.a.title} · ${r.size}`,"Sold at Till 1 · the floor has none left")}
+        else if(S.opt==="C"&&S.open){const t=S.tasks.find(x=>x.sku===r.sku); t.need=Math.min(t.need+1,inPool(r.sku,"warehouse")); renderSheet()}
+        renderPage(); return;
+      }
+    }
+  }
+}
+
+/* ───────────────────────── title menu ───────────────────────── */
+let popEl=null;
+function openMenu(btn){
+  closeMenu(); S.menu=true; btn.setAttribute("aria-expanded","true");
+  const r=btn.getBoundingClientRect();
+  popEl=document.createElement("div"); popEl.className="pop"; popEl.setAttribute("role","menu");
+  popEl.style.left=r.left+"px"; popEl.style.top=(r.bottom+6)+"px";
+  popEl.innerHTML=Object.entries(PLACES).map(([k,l])=>`<button role="menuitemradio" data-dest="${k}"><span class="ck">${k===S.dest?'<i data-lucide="check"></i>':""}</span>${l}<span class="c">${pcs(poolSum(k))}</span></button>`).join("");
+  document.body.append(popEl); icons();
+  requestAnimationFrame(()=>popEl.classList.add("in"));
+}
+function closeMenu(){
+  S.menu=false; $("#tmenu")?.setAttribute("aria-expanded","false");
+  if(!popEl) return; const p=popEl; popEl=null; p.classList.remove("in"); setTimeout(()=>p.remove(),160);
+}
+
+/* ───────────────────────── research ───────────────────────── */
+function research(){ return RESEARCH_HTML }
+let RESEARCH_HTML=`<div class="doc">
+<h1>Stockroom to shop floor</h1>
+<p class="lede">How the best stores and systems bring stock out of the stockroom, and what Store › Stock takes from them. Twelve pieces are missing from the floor in this demo.</p>
+
+<div class="score">
+  <div class="card"><span>Today</span><b>26 actions</b><em>Scan + Move per piece; nothing says which 12</em></div>
+  <div class="card star"><span>★ A · To the floor</span><b>12 scans</b><em>Or 3 RFID reads; then Done</em></div>
+  <div class="card"><span>B · Sold today</span><b>10 scans</b><em>4 empty sizes never asked for</em></div>
+  <div class="card"><span>C · Fill to target</span><b>26 pcs</b><em>A target on every colourway</em></div>
+  <div class="card"><span>D · Transfer note</span><b>12 scans + Post</b><em>The floor reads empty until Post</em></div>
+</div>
+
+<h2>How each system does it</h2>
+<div class="card"><table class="t">
+<colgroup><col style="width:17%"><col style="width:17%"><col style="width:20%"><col style="width:14%"><col style="width:18%"><col style="width:14%"></colgroup>
+<thead><tr><th>System</th><th>What starts it</th><th>The list</th><th>How many</th><th>Confirm</th><th>Can't find</th></tr></thead>
+<tbody>
+<tr class="best"><td>Nedap iD Cloud Refill</td><td data-l="What starts it">An RFID count; then live after sales and deliveries</td><td data-l="The list">Only what is in the stockroom and meant for the floor; by article with pictures, size dots, sorted by size</td><td data-l="How many">Size-range targets (core sizes on the floor: 88% → 98%)</td><td data-l="Confirm">RFID; picked articles fade; Refill opens Move</td><td data-l="Can't find">Not public</td></tr>
+<tr><td>Oracle SIOCS</td><td data-l="What starts it">Pick lists: Capacity, Sale, Gap, Display; within day or end of day</td><td data-l="The list">Items by out-of-stock %; Items to pick vs Fully picked</td><td data-l="How many">Smaller of the need and the backroom; Display = one per size</td><td data-l="Confirm">Scan each or enter quantity; any order; Save → Confirm</td><td data-l="Can't find">Stays under Items to pick; substitute size or colour</td></tr>
+<tr><td>SAP S/4HANA Retail</td><td data-l="What starts it">Sales (Move Products worklist)</td><td data-l="The list">Products to move after sales</td><td data-l="How many">Sold units</td><td data-l="Confirm">Cart read at the stockroom door; tap To Sales Floor</td><td data-l="Can't find">Not public</td></tr>
+<tr><td>Inditex / Zara</td><td data-l="What starts it">Each sale</td><td data-l="The list">An order to the stockroom for the identical piece</td><td data-l="How many">Replace what sold</td><td data-l="Confirm">RFID</td><td data-l="Can't find">Not public</td></tr>
+<tr><td>American Apparel</td><td data-l="What starts it">Readers at the till and the stockroom door</td><td data-l="The list">Every piece that left the floor, on stockroom screens</td><td data-l="How many">One of every size, colour and style</td><td data-l="Confirm">RFID at the door</td><td data-l="Can't find">—</td></tr>
+<tr><td>TrueVUE · SML Clarity · gStore</td><td data-l="What starts it">Exit gates, stock thresholds</td><td data-l="The list">Real-time list of what should go out; phone alerts</td><td data-l="How many">Thresholds</td><td data-l="Confirm">RFID</td><td data-l="Can't find">—</td></tr>
+<tr><td>Odoo</td><td data-l="What starts it">Reordering rule per location (min / max)</td><td data-l="The list">Replenishment dashboard; a transfer in Barcode</td><td data-l="How many">Up to max</td><td data-l="Confirm">Scan, +1 or number pad, Validate</td><td data-l="Can't find">Backorder prompt</td></tr>
+<tr><td>ERPNext</td><td data-l="What starts it">Reorder level → Material Request</td><td data-l="The list">Pick List in Scan mode</td><td data-l="How many">Reorder quantity</td><td data-l="Confirm">Scan against the list or Prompt Qty; then Stock Entry</td><td data-l="Can't find">Not documented</td></tr>
+<tr><td>Dynamics 365 Commerce</td><td data-l="What starts it">Someone opens it</td><td data-l="The list">None — an inventory movement form</td><td data-l="How many">Typed</td><td data-l="Confirm">Scan, review, submit</td><td data-l="Can't find">—</td></tr>
+<tr><td>Target · Walmart</td><td data-l="What starts it">Autofills, out of stock, guest requests</td><td data-l="The list">By backroom location (bins); Walmart AR lights the boxes to take</td><td data-l="How many">—</td><td data-l="Confirm">Walmart AR: 42 s instead of minutes</td><td data-l="Can't find">—</td></tr>
+<tr><td>Shopify · Square · Lightspeed</td><td data-l="What starts it">—</td><td data-l="The list">No stockroom vs floor (a second location, a feature request, a text label)</td><td data-l="How many">—</td><td data-l="Confirm">—</td><td data-l="Can't find">—</td></tr>
+<tr class="me"><td>Central today</td><td data-l="What starts it">Someone opens Move stock</td><td data-l="The list">None</td><td data-l="How many">—</td><td data-l="Confirm">From, To, scan, Why, press Move — per piece</td><td data-l="Can't find">The node refuses a wrong From</td></tr>
+</tbody></table></div>
+
+<h2>What the best ones share</h2>
+<ol class="rank">
+<li><b>1</b><div><b>The system writes the list</b><span>Nedap, SIOCS, SAP, SML, gStore say what to bring. A free move (D365, Odoo) is the fallback, not the screen.</span></div></li>
+<li><b>2</b><div><b>Only what the stockroom really holds</b><span>Need capped by stockroom stock (SIOCS); Nedap lists only stockroom pieces — so "can't find" stays rare.</span></div></li>
+<li><b>3</b><div><b>Fashion fills by size, not by capacity</b><span>One per size (American Apparel, SIOCS Display), size ranges (Nedap), what sold (Zara, SAP). Capacity needs planograms.</span></div></li>
+<li><b>4</b><div><b>A row per article, picture first, sizes as chips</b><span>Nedap's pictures and size dots, HALO's picks by model; sorted by priority.</span></div></li>
+<li><b>5</b><div><b>Scanning what you carry ticks it off</b><span>Any order; one RFID read at the door (SAP); done rows fade or move to Picked (Nedap, SIOCS).</span></div></li>
+<li><b>6</b><div><b>A short pick is normal</b><span>The rest stays open (SIOCS), a backorder (Odoo). Nobody asks for a typed Why.</span></div></li>
+<li><b>7</b><div><b>The list keeps itself current</b><span>Refreshed after sales, counts and deliveries; deliveries can go straight to the floor (Nedap Refill from Shipments).</span></div></li>
+<li><b>8</b><div><b>Floor → stockroom is a small separate move</b><span>SIOCS "move to backroom"; broken size runs (Nextail).</span></div></li>
+</ol>
+
+<h2>Best: Nedap iD Cloud Refill — so ★ A</h2>
+<p>Nedap is built for the same shop: apparel, a tag in every piece, a floor and a stockroom, no bins. It turns the gap between the two into a short list by article and size. Its confirm and shortfall screens aren't public, so A takes those from Oracle SIOCS.</p>
+<div class="verdict">
+  <div class="card"><h3>Taken</h3><ul>
+    <li>List = sizes with none on the floor and some in the stockroom; bring one — Nedap, American Apparel</li>
+    <li>Only pieces the stockroom holds — SIOCS</li>
+    <li>What sold today first — Zara, SIOCS Sale</li>
+    <li>Row per article × colour, picture, size chips — Nedap, HALO</li>
+    <li>Scan in any order; an RFID read ticks many — SIOCS, SAP</li>
+    <li>To bring / Moved; Can't find leaves it open, no Why — SIOCS</li>
+    <li>Direction as the title menu; From read off the tag — iOS title menus</li>
+  </ul></div>
+  <div class="card"><h3>Left out</h3><ul>
+    <li>A capacity target per colourway (SIOCS Capacity, Odoo min/max) — 12,000 articles to set (C)</li>
+    <li>Four list types, within day / end of day (SIOCS) — one list, always current</li>
+    <li>Draft then Post (Odoo, ERPNext, D365) — the floor reads wrong until Post (D)</li>
+    <li>Replace only what sold (Zara) — misses sizes that ran out another way (B)</li>
+    <li>Substitute size or colour (SIOCS) — later, if a shop asks</li>
+  </ul></div>
+</div>
+
+<h2>To build</h2>
+<div class="verdict">
+  <div class="card"><h3>Store app</h3><ul>
+    <li><span class="mono">GET /api/v1/inventory/sku-stock</span> already gives floor / warehouse per SKU — the list can be drawn today</li>
+    <li>Move sheet: title menu for the destination, scan strip, list, Moved; From/To selects and Why go</li>
+    <li>Keep the idempotency key per piece (<span class="mono">mover.ts</span>)</li>
+    <li>"To the floor" figure on Stock; the dock's button carries it on a phone</li>
+  </ul></div>
+  <div class="card"><h3>Store node</h3><ul>
+    <li>Sold today per SKU (add to <span class="mono">sku-stock</span>)</li>
+    <li>A move that takes only To — the node reads From off the piece</li>
+    <li>Reason written by the node ("Refill"), cause stays <span class="mono">NORMAL_MOVE</span></li>
+    <li>Can't find kept on the node per day, so a second device sees it</li>
+    <li>Chainway C5: a Refill job, or its read sent into this sheet</li>
+  </ul></div>
+</div>
+
+<h2>Open for Hari</h2>
+<ol class="rank">
+<li><b>1</b><div><b>One per size enough?</b><span>Or two of the core sizes (M, L)? Nedap counts "three core sizes".</span></div></li>
+<li><b>2</b><div><b>Pieces not meant for the floor</b><span>End of season kept in the stockroom would show up. Nedap calls the plain list noisy; a "Keep in the stockroom" per article would fix it.</span></div></li>
+<li><b>3</b><div><b>Can't find</b><span>Only off today's list, or also ask for a Stockroom count?</span></div></li>
+</ol>
+
+<h2>Sources</h2>
+<ul class="src">
+<li><a href="https://www.nedap.com/en/retail/inventory-engine/education/playbooks-and-guides/tackling-the-challenge-of-merchandise-refill-in-retail-stores" target="_blank" rel="noopener">Nedap — merchandise refill in retail stores</a></li>
+<li><a href="https://www.nedap.com/en/retail/inventory-engine/use-cases/product-availability" target="_blank" rel="noopener">Nedap — product availability use case</a></li>
+<li><a href="https://apps.apple.com/us/app/nedap-id-cloud/id591784316" target="_blank" rel="noopener">Nedap iD Cloud — App Store release notes</a></li>
+<li><a href="https://docs.oracle.com/en/industries/retail/store-inventory-op-cloud/latest/reirz/c_feature_summary.htm" target="_blank" rel="noopener">Oracle SIOCS — feature summary</a></li>
+<li><a href="https://docs.oracle.com/cd/E12454_01/sim/pdf/150/html/user_guide/chapter16.htm" target="_blank" rel="noopener">Oracle SIM 15 — shelf replenishment</a></li>
+<li><a href="https://learning.sap.com/learning-journeys/discover-retail-functions-and-business-processes-in-sap-s-4hana-retail/managing-retail-store-operations_f77c8f4d-b247-4ef0-879b-3c4f469a6323" target="_blank" rel="noopener">SAP Learning — retail store operations</a></li>
+<li><a href="https://learn.microsoft.com/en-us/dynamics365-release-plan/2021wave2/commerce/dynamics365-commerce/support-inventory-movement-between-in-store-locations-pos" target="_blank" rel="noopener">Dynamics 365 Commerce — in-store inventory movement</a></li>
+<li><a href="https://www.odoo.com/documentation/18.0/applications/inventory_and_mrp/inventory/warehouses_storage/replenishment/reordering_rules.html" target="_blank" rel="noopener">Odoo — reordering rules</a></li>
+<li><a href="https://www.odoo.com/documentation/18.0/applications/inventory_and_mrp/barcode/operations/transfers_scratch.html" target="_blank" rel="noopener">Odoo — Barcode transfers</a></li>
+<li><a href="https://docs.frappe.io/erpnext/user/manual/en/pick-list" target="_blank" rel="noopener">ERPNext — Pick List</a></li>
+<li><a href="https://docs.frappe.io/erpnext/user/manual/en/auto-creation-of-material-request" target="_blank" rel="noopener">ERPNext — auto Material Request</a></li>
+<li><a href="http://www.scdigest.com/ontarget/14-09-30-2.php?cid=8543&amp;ctype=content" target="_blank" rel="noopener">SCDigest — Zara's RFID</a></li>
+<li><a href="https://www.rfidjournal.com/inditex-ceo-announces-rfid-expansion-plans" target="_blank" rel="noopener">RFID Journal — Inditex</a></li>
+<li><a href="https://www.theregister.com/2008/04/15/american_apparel/" target="_blank" rel="noopener">The Register — American Apparel</a></li>
+<li><a href="https://tech.walmart.com/content/walmart-global-tech/en_us/blog/post/our-new-augmented-reality-feature-for-associates.html" target="_blank" rel="noopener">Walmart Global Tech — AR for associates</a></li>
+<li><a href="https://apps.apple.com/to/app/truevue/id808622559" target="_blank" rel="noopener">Sensormatic TrueVUE — App Store</a></li>
+<li><a href="https://www.ajot.com/news/stadium-partners-with-sml-to-supercharge-retail-operations" target="_blank" rel="noopener">SML Clarity at Stadium</a></li>
+<li><a href="https://www.automatedwarehouseonline.com/fabletics-gets-jump-inventory-replenishment-greyorange-gstore/" target="_blank" rel="noopener">GreyOrange gStore at Fabletics</a></li>
+<li><a href="https://help.nextail.co/en/display-conditions" target="_blank" rel="noopener">Nextail — display conditions</a></li>
+<li><a href="https://community.squareup.com/t5/Feature-Requests/Specify-a-location-floor-backstore-for-inventory-management/idi-p/718320" target="_blank" rel="noopener">Square — floor / backstore feature request</a></li>
+<li><a href="https://x-series-support.lightspeedhq.com/hc/articles/25534140055067-Adding-and-viewing-product-locations" target="_blank" rel="noopener">Lightspeed X-Series — product locations</a></li>
+</ul>
+</div>`;
+
+/* ───────────────────────── wiring ───────────────────────── */
+function setOpt(o){
+  const was=S.open; closeSheet(); S.opt=o; reset(); S.opt=o;
+  document.querySelectorAll("#opts button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.o===o));
+  $("#sim").hidden=o==="R"; $("#simSale").hidden=!(o==="A"||o==="B"||o==="C");
+  const n=NOTES[o];
+  $("#note").innerHTML=n?`<span><b>From</b> ${n.from}</span><span class="good"><b>Good</b> ${n.good}</span><span class="weak"><b>Weak</b> ${n.weak}</span>`:`<span>How the best stores and systems move stock from the stockroom to the floor, and why ★ A.</span>`;
+  try{history.replaceState(null,"","#"+o)}catch(e){}
+  setTimeout(()=>{renderPage();measure()},was?230:0);
+  window.scrollTo({top:0});
+}
+function measure(){document.documentElement.style.setProperty("--ph",$("#proto").offsetHeight+"px")}
+new ResizeObserver(measure).observe($("#proto"));
+
+document.addEventListener("click",e=>{
+  const t=e.target.closest("button,[data-close],.pool,a");
+  if(!t){ if(popEl&&!e.target.closest(".pop")) closeMenu(); return }
+  if(t.tagName==="A"){e.preventDefault();return}
+  if(t.dataset.o) return setOpt(t.dataset.o);
+  if(t.dataset.sim) return sim(t.dataset.sim);
+  if(t.id==="tmenu"){ return popEl?closeMenu():openMenu(t) }
+  if(t.dataset.dest){ S.dest=t.dataset.dest; closeMenu(); if(S.opt==="A") S.tasks=S.dest==="floor"?tasksA():[]; S.last=null; renderSheet(); renderPage(); return }
+  if(popEl&&!t.closest(".pop")) closeMenu();
+  if(t.dataset.close!==undefined) return closeSheet();
+  if(t.dataset.open) return openSheet();
+  if(t.dataset.move){ e.stopPropagation(); return openSheet(t.dataset.move==="warehouse"?"floor":"warehouse") }
+  if(t.classList.contains("pool")) return;
+  if(t.dataset.undo!==undefined) return undo();
+  if(t.dataset.cant){
+    const key=t.dataset.cant;
+    for(const x of S.tasks) if(SKU.get(x.sku).a.key===key&&x.state==="todo"){x.state="missing";S.missing.add(x.sku)}
+    $("#row-"+key)?.classList.add("gone");
+    setTimeout(()=>{const sc=$("#body").scrollTop; renderSheet(); $("#body").scrollTop=sc; renderPage()},280); return;
+  }
+  if(t.dataset.back){
+    const key=t.dataset.back;
+    for(const sku of [...S.missing]) if(SKU.get(sku).a.key===key){S.missing.delete(sku); const x=S.tasks.find(y=>y.sku===sku); if(x) x.state="todo"}
+    renderSheet(); renderPage(); return;
+  }
+  if(t.dataset.tg){ const k=t.dataset.tg; S.targets.set(k,Math.max(0,Math.min(6,S.targets.get(k)+ +t.dataset.d))); const keep=new Map(S.tasks.map(x=>[x.sku,x.got])); S.tasks=tasksC(); for(const x of S.tasks){x.got=keep.get(x.sku)||0; x.need+=x.got} const sc=$("#body").scrollTop; renderSheet(); $("#body").scrollTop=sc; renderPage(); return }
+  if(t.dataset.drop!==undefined){S.today.piece=null;S.today.why="";S.today.note=null;renderSheet();return}
+  if(t.dataset.domove!==undefined){
+    const T=S.today,P=T.piece; if(!P||T.from===T.to) return;
+    const p=PIECES.get(P.epc);
+    if(p.pool!==T.from){todayNote("bad",`The node refused: this piece is on the ${PLACES[p.pool].toLowerCase()}, not in the ${PLACES[T.from].toLowerCase()}.`);return}
+    p.pool=T.to; S.moved.unshift({id:"m"+(++S.seq),epc:P.epc,sku:P.sku,from:T.from,to:T.to,at:now()});
+    T.piece=null;T.why="";renderSheet();renderPage();return;
+  }
+  if(t.dataset.post!==undefined){ for(const d of S.draft) PIECES.get(d.epc).pool="floor"; S.posted=true; renderSheet(); renderPage(); return }
+});
+document.addEventListener("change",e=>{ const f=e.target.dataset.f; if(f==="from"||f==="to"){S.today[f]=e.target.value; renderSheet()} });
+document.addEventListener("input",e=>{ if(e.target.dataset.f==="why") S.today.why=e.target.value });
+document.addEventListener("keydown",e=>{
+  if(e.target.closest("input,select,textarea")) return;
+  if(e.key==="Escape"){ if(popEl) closeMenu(); else closeSheet() }
+  if(e.key==="s"||e.key==="S") sim("next");
+  if(e.key==="r"||e.key==="R") sim("burst");
+});
+window.addEventListener("resize",()=>closeMenu());
+
+reset();
+const first=(location.hash||"#A").slice(1);
+setOpt(["T","A","B","C","D","R"].includes(first)?first:"A");
+icons();
+</script>
+</body>
+</html>

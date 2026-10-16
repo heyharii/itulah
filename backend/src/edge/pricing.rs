@@ -1100,6 +1100,140 @@ pub fn store_catalog_page(
     })
 }
 
+/// One piece, as a walk-in shopper with no code pays for it right now.
+///
+/// The catalogue's `unit_price_minor` is the shelf price: base and markdown,
+/// on purpose (`price_catalog`). A promotion that takes 20% off every Kemeja
+/// Oxford is not on the shelf edge, and a screen that showed only the shelf
+/// price would quote a customer more than the counter then charges. This is
+/// the counter's own answer, from the same evaluator, for a basket of one.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct FinalUnitPrice {
+    pub sku_code: String,
+    /// What the till takes for one, after the markdown and every promotion
+    /// that reaches a single piece on its own.
+    pub final_unit_price_minor: i64,
+    /// The promotions that took something off, as the engine applied them.
+    pub promotions: Vec<FinalPromotion>,
+}
+
+/// A promotion that brought one piece down.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct FinalPromotion {
+    pub rule_id: String,
+    pub name: String,
+    pub benefit_minor: i64,
+}
+
+/// The final prices a shop is charging this minute.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct FinalUnitPrices {
+    pub as_of: DateTime<Utc>,
+    /// Only the SKUs a promotion brings down. Every other SKU's final price is
+    /// its catalogue price, and listing those would repeat the catalogue.
+    pub items: Vec<FinalUnitPrice>,
+}
+
+/// What each SKU costs one walk-in shopper today — no member card, no code.
+///
+/// The hub's "Final price" (`cloud::postgres::commercial::final_of`), asked of
+/// the shop's own book. Not folded into `store_catalog`: that answer is cached
+/// by publication generation, and a final price moves when a promotion's hour
+/// starts with no new publication at all.
+///
+/// One basket per SKU, because a basket of every SKU would let a "buy 2 get 1"
+/// or a minimum spend reach across products and price a piece by its
+/// neighbours. Each basket is priced against that SKU's own entries only:
+/// the engine indexes the whole price list on every call, and a catalogue of
+/// thousands priced against the whole list each time is the quadratic screen
+/// `price_stacks` was written to avoid.
+pub fn store_final_prices(
+    connection: &Connection,
+    site_id: &str,
+    channel: &str,
+    at: DateTime<Utc>,
+) -> Result<FinalUnitPrices, EdgeError> {
+    let mut snapshot = load_snapshot(connection, site_id, channel)?;
+    let context = crate::reporting::pricing_context(
+        site_id,
+        channel,
+        at,
+        crate::edge::site_profile::utc_offset_minutes(connection),
+    );
+
+    // Only what a walk-in can get: running now, and without a code. A shop
+    // running nothing — most hours of most days — answers without pricing
+    // a single basket.
+    let live: Vec<Rule> = snapshot
+        .rules
+        .iter()
+        .filter(|rule| {
+            rule.coupon_code.is_none()
+                && pricing_engine::rule_standing(rule, &snapshot, &context).is_ok()
+        })
+        .cloned()
+        .collect();
+    if live.is_empty() {
+        return Ok(FinalUnitPrices {
+            as_of: at,
+            items: Vec::new(),
+        });
+    }
+    snapshot.rules = live;
+
+    let mut by_sku: BTreeMap<String, Vec<PriceEntry>> = BTreeMap::new();
+    for entry in std::mem::take(&mut snapshot.entries) {
+        by_sku
+            .entry(entry.sku_code.clone())
+            .or_default()
+            .push(entry);
+    }
+
+    let codes = connection
+        .prepare("SELECT sku_code FROM catalog_item WHERE active = 1 ORDER BY sku_code")
+        .map_err(db)?
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(db)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(db)?;
+    let facts = merchandise(connection, None)?;
+
+    let mut items = Vec::new();
+    for code in codes {
+        let Some(entries) = by_sku.remove(&code) else {
+            continue;
+        };
+        snapshot.entries = entries;
+        let cart = [line_for(&code, 1, &facts)];
+        // A SKU the book cannot price is not on the catalogue either.
+        let Ok(result) = price_cart(&snapshot, &context, &cart) else {
+            continue;
+        };
+        let promotions: Vec<FinalPromotion> = result
+            .applied_rules
+            .iter()
+            .filter(|rule| rule.benefit.minor > 0)
+            .map(|rule| FinalPromotion {
+                rule_id: rule.rule_id.clone(),
+                name: rule.name.clone(),
+                benefit_minor: rule.benefit.minor,
+            })
+            .collect();
+        if promotions.is_empty() {
+            continue;
+        }
+        items.push(FinalUnitPrice {
+            sku_code: code,
+            final_unit_price_minor: result.total.minor,
+            promotions,
+        });
+    }
+    Ok(FinalUnitPrices { as_of: at, items })
+}
+
 /// One offer, as a shop floor needs to read it.
 ///
 /// Not the engine's `Rule`. A rule is a document written for an evaluator —

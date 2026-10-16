@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query"
-import { Fragment, useState } from "react"
+import { useQuery, useSuspenseQuery } from "@tanstack/react-query"
+import { Fragment, Suspense, useDeferredValue, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Card } from "@/components/ui/card"
@@ -13,16 +13,19 @@ import { count, day, money, percentBps } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import { queryState } from "@/lib/query-state"
 import { financeKeys, listTaxTemplates } from "@/lib/queries/finance"
-import {
-  financeReportKeys,
-  withholdingReport,
-} from "@/lib/queries/finance-reports"
+import { withholdingReportQuery } from "@/lib/queries/finance-reports"
 import { Grid, Td, Th, TotalRow } from "@/screens/finance-final/parts"
-import { monthLabel, todayIso } from "@/screens/finance/chart"
+import {
+  monthLabel,
+  monthWindowOf,
+  previousMonthOf,
+  todayIso,
+} from "@/screens/finance/chart"
 import { useSupplierName, useUnitName } from "@/screens/finance/hooks"
 import { PhoneCard, PhoneHeading, PhoneList } from "@/components/ui/phone-cards"
 import { UnitSelect } from "@/screens/finance/parts"
 import { FactsSheet } from "@/screens/finance/phone-parts"
+import { ScreenPending } from "@/screens/finance/pending"
 import { ReportFilters, ReportSummary } from "@/screens/finance/report"
 import type { WithholdingRow } from "@itulah/contract"
 
@@ -44,14 +47,28 @@ import type { WithholdingRow } from "@itulah/contract"
 /// certificate (bukti potong) cannot be issued without one, and the person
 /// reading this is the person who will find that out otherwise on the 10th.
 export function WithholdingReport() {
+  return (
+    <Suspense
+      fallback={
+        <ScreenPending crumb="Finance · Taxes" title="Tax Withholding Details">
+          Adding up what was withheld…
+        </ScreenPending>
+      }
+    >
+      <WithholdingReportScreen />
+    </Suspense>
+  )
+}
+
+function WithholdingReportScreen() {
   const phone = useLayout() === "phone"
-  const [month, setMonth] = useState(lastMonth)
+  const [month, setMonth] = useState(() => previousMonthOf())
   const [unit, setUnit] = useState("")
   const [template, setTemplate] = useState("")
   const unitName = useUnitName()
   const supplierName = useSupplierName()
 
-  const { from, to } = windowOf(month)
+  const { from, to } = monthWindowOf(month)
 
   const templates = useQuery({
     queryKey: financeKeys.taxTemplates(),
@@ -59,24 +76,17 @@ export function WithholdingReport() {
     staleTime: 5 * 60_000,
   })
 
-  const report = useQuery({
-    queryKey: financeReportKeys.withholding(
-      from,
-      to,
-      unit || null,
-      template || null
-    ),
-    queryFn: ({ signal }) =>
-      withholdingReport(
-        {
-          from,
-          to,
-          unit: unit || undefined,
-          template: template || undefined,
-        },
-        signal
-      ),
-  })
+  // The boxes answer at once; the report trails them, and the rows in hand
+  // stay on screen (dimmed) until the next are read.
+  const askedFrom = useDeferredValue(from)
+  const askedTo = useDeferredValue(to)
+  const askedUnit = useDeferredValue(unit)
+  const askedTemplate = useDeferredValue(template)
+  const stale =
+    askedFrom !== from || askedUnit !== unit || askedTemplate !== template
+  const report = useSuspenseQuery(
+    withholdingReportQuery(askedFrom, askedTo, askedUnit, askedTemplate)
+  )
 
   const note = [
     monthName(month),
@@ -212,10 +222,11 @@ export function WithholdingReport() {
         )}
       </ReportFilters>
 
-      {queryState(report, {
-        loading: "Adding up what was withheld…",
-        render: (rows) => <Body rows={rows} />,
-      })}
+      <div className="list-swap" aria-busy={stale || undefined}>
+        {queryState(report, {
+          render: (rows) => <Body rows={rows} />,
+        })}
+      </div>
     </PageContent>
   )
 }
@@ -280,7 +291,7 @@ function Body({ rows }: { rows: WithholdingRow[] }) {
       )}
 
       {missing.length > 0 && (
-        <p className="mt-3 px-1 text-[0.875rem] text-warn-fg">
+        <p className="mt-3 px-1 text-[0.9375rem] text-warn-fg">
           {count(missing.length)}{" "}
           {missing.length === 1 ? "payment is" : "payments are"} for a supplier
           with no NPWP. A withholding certificate cannot be issued without it.
@@ -448,11 +459,11 @@ function GroupRows({ group }: { group: Group }) {
           {/* The payment and the bills it paid: one answer to "which
               document", two lines instead of two columns. */}
           <Td className="max-w-0">
-            <span className="block font-mono text-[0.875rem] text-ink">
+            <span className="block font-mono text-[0.9375rem] text-ink">
               {row.payment_number}
             </span>
             <span
-              className="block truncate text-[0.875rem] text-mute"
+              className="block truncate text-[0.9375rem] text-mute"
               title={row.invoices}
             >
               {row.invoices === "" ? "—" : row.invoices}
@@ -469,7 +480,7 @@ function GroupRows({ group }: { group: Group }) {
                 </span>
               )}
             </span>
-            <span className="block text-[0.875rem]">
+            <span className="block text-[0.9375rem]">
               {row.npwp === null || row.npwp === "" ? (
                 <span className="text-warn-fg">No NPWP</span>
               ) : (
@@ -538,13 +549,6 @@ function sum(
 
 /// `YYYY-MM` of the month before today's. Sliced, not parsed — see
 /// `report.tsx`'s `periodsOf` for why a bare date is never `new Date`d here.
-function lastMonth(): string {
-  const today = todayIso()
-  const year = Number(today.slice(0, 4))
-  const month = Number(today.slice(5, 7))
-  return month === 1 ? stamp(year - 1, 12) : stamp(year, month - 1)
-}
-
 function stamp(year: number, month: number): string {
   return `${year}-${String(month).padStart(2, "0")}`
 }
@@ -569,15 +573,4 @@ function monthChoices(): string[] {
 
 function monthName(value: string): string {
   return monthLabel(Number(value.slice(0, 4)), Number(value.slice(5, 7)))
-}
-
-/// First and last day of a `YYYY-MM`.
-function windowOf(value: string): { from: string; to: string } {
-  const year = Number(value.slice(0, 4))
-  const month = Number(value.slice(5, 7))
-  const last = new Date(year, month, 0).getDate()
-  return {
-    from: `${value}-01`,
-    to: `${value}-${String(last).padStart(2, "0")}`,
-  }
 }

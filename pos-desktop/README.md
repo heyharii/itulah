@@ -49,7 +49,7 @@ till and reads one tag at a time.
 
 | Device | Whether .NET wins |
 |---|---|
-| RFID | No. The networked lane still POSTs signed sweeps to `/api/v1/rfid/observations`. The counter's Chainway R3 is the local exception: Rust calls Chainway's Windows C SDK, mutes and verifies the buzzer before each single-tag read, then sends that EPC through the same basket validation as a keyboard scan. |
+| RFID | No. The networked lane still POSTs signed sweeps to `/api/v1/rfid/observations`. The counter's Chainway R3 is the local exception: Rust calls Chainway's Windows C SDK, keeps the reader open with its buzzer muted, verifies the buzzer before each single-tag read, then sends that EPC through the same basket validation as a keyboard scan. |
 | Fingerprint | No, though it looks like it does. `pos-fp-host/Native/ZkfpNative.cs` is a P/Invoke surface over `libzkfp.dll` from `libzkfp.h` — a plain **C** API. Rust binds a C API the same way. What C# has is a binding that already works, not a capability Rust lacks. **And it is not Windows-bound:** ZKTeco publishes an official ZKFinger SDK for Linux covering the SLK20R and ZK series, so a Linux till — or a Linux VM with USB passthrough, for testing — uses the same FFI. No official native macOS SDK was found; the only macOS mention is a third-party wrapper needing .NET/Mono, which is not evidence of a driver. Verify against the model actually bought. |
 | Printer / drawer | No. Receipts are ESC/POS from the edge, which is already the party on the printer's LAN. |
 
@@ -72,7 +72,7 @@ ui/              React + Vite. The shape is prototypes/pos.
 src-tauri/
   src/edge.rs    Proxy to the shop node. Holds the address, the token, the timeout.
   src/device.rs  The Chainway R3 read command, fingerprint and drawer status.
-  src/rfid.rs    Windows SDK binding; one-shot reads refuse unless the buzzer is verified off.
+  src/rfid.rs    Windows SDK binding; reader kept open, reads refuse unless the buzzer is verified off.
   src/discovery.rs  Finds the shop's node on the LAN (mDNS), confirms each answer.
   src/join.rs       Asks the node to let this till in; the key never reaches the page.
   src/peripherals.rs  What is plugged into this till, reported to the node.
@@ -245,6 +245,7 @@ runner, tests the native commands, downloads the official Chainway R3 Windows
 SDK, verifies its archive and DLL hashes, and packages an MSI. Pull requests
 and pushes that touch `pos-desktop` upload the MSI as a 30-day Actions artifact.
 The Windows build keeps the vendor DLLs in the installer without committing
-them to this repository. In the sale screen, **Baca R3** performs one read;
-the command refuses to inventory unless the SDK identifies an R3 and the
-buzzer reads back as off.
+them to this repository. In the sale screen, **Baca R3** performs one read on
+a reader that stays open between scans (opened on first use, reopened once if
+it was unplugged); the command refuses to inventory unless the SDK identifies
+an R3 and the buzzer reads back as off.

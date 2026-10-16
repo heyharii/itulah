@@ -1,0 +1,1445 @@
+<!doctype html>
+<html lang="en" data-v="a">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pricelist · improvements</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+/* Measured on the running hub (white.localhost:5352, 15 Oct 2026): Fog shell, floating panel and page,
+   17px title, KPI 15 over 18, framed tables with a #fafafb heading band, 15px everywhere. */
+:root{
+  --shell:#e8ebf0; --panel:#f4f6f9; --canvas:#fff;
+  --ink:#1d1d1f; --mute:#6e6e73; --grey:#8e8e93; --faint:#c7c7cc;
+  --hair:#e8e8ec; --hair-2:#eeeef1; --band:#fafafb; --hover:#f7f8fa; --cellhover:#f1f4fb;
+  --accent:#2862dc; --accent-h:#1f55c7; --accent-bg:#eef3fd;
+  --red:#d92d20; --red-h:#c2251a; --amber:#c9892e;
+  --teal:#0f8a7e; --pink:#d6447e;
+  --ease-out:cubic-bezier(.23,1,.32,1); --ease-sheet:cubic-bezier(.32,.72,0,1);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font:15px/1.45 Inter,"Inter Variable",system-ui,sans-serif;color:var(--ink);background:var(--shell);-webkit-font-smoothing:antialiased;overflow:hidden}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer;background:none;border:0}
+svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.num,table{font-variant-numeric:tabular-nums}
+.g{color:var(--grey)}
+.m{color:var(--mute)}
+.amber{color:var(--amber)}
+.ink{color:var(--ink)}
+.strike{text-decoration:line-through}
+
+/* shell */
+.shell{display:flex;height:100vh}
+.rail{width:68px;flex:none;display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 0}
+.rail .ic{width:40px;height:40px;display:grid;place-items:center;border-radius:10px;color:#5a6271}
+.rail .ic svg{width:20px;height:20px;stroke-width:1.6}
+.rail .ic.on{background:#fff;color:var(--ink);box-shadow:0 0 0 1px rgb(0 0 0/6%),0 1px 3px rgb(0 0 0/6%)}
+.rail .end{margin-top:auto}
+.panel{width:216px;flex:none;margin:12px 0;background:var(--panel);border-radius:16px;box-shadow:0 0 0 1px rgb(0 0 0/5%),0 2px 6px rgb(0 0 0/4%);display:flex;flex-direction:column;padding:10px}
+.panel h2{font-size:15px;font-weight:600;letter-spacing:-.01em;padding:5px 6px 16px;display:flex;justify-content:space-between;color:var(--ink)}
+.panel h2 .fold{color:var(--grey);font-weight:400;width:24px;border-radius:6px}
+.rail .unfold{display:none;font-size:20px;color:var(--grey)}
+.shell.folded .panel{display:none}
+.shell.folded .rail .unfold{display:grid}
+.panel .item{height:36px;display:flex;align-items:center;padding:0 10px;border-radius:8px;color:var(--mute)}
+.panel .item.on{background:#fff;color:var(--ink);font-weight:500;box-shadow:0 0 0 1px rgb(0 0 0/6%),0 1px 3px rgb(0 0 0/6%)}
+.panel .time{margin-top:auto;display:flex;align-items:center;gap:8px;padding:8px 6px}
+.panel .time svg{color:var(--grey)}
+.page{flex:1;min-width:0;margin:12px;background:var(--canvas);border-radius:16px;box-shadow:0 0 0 1px rgb(0 0 0/5%),0 2px 8px rgb(0 0 0/4%),0 24px 72px rgb(0 0 0/8%);display:flex;flex-direction:column;overflow:hidden}
+.ph{padding:24px 28px 16px;border-bottom:1px solid var(--hair);display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex:none}
+.ph .crumb{color:var(--mute)}
+.ph h1{font-size:17px;font-weight:600;line-height:24px;letter-spacing:-.01em}
+.pin{flex:1;min-height:0;display:flex;flex-direction:column;padding:24px 28px 20px}
+
+/* figures, tabs, bar */
+.kpis{display:flex;margin-bottom:22px;flex:none}
+.kpi{display:flex;flex-direction:column;gap:7px;padding:0 24px;border-left:1px solid var(--hair)}
+.kpi:first-child{padding-left:0;border-left:0}
+.kpi span{color:var(--mute);font-weight:500;white-space:nowrap}
+.kpi strong{font-size:18px;line-height:1;font-weight:600;letter-spacing:-.02em;white-space:nowrap}
+.tabs{display:flex;gap:22px;border-bottom:1px solid var(--hair);margin-bottom:16px;flex:none}
+.tab{padding:8px 0 11px;border-bottom:2px solid transparent;margin-bottom:-1px;color:var(--mute);font-weight:500;transition:color 150ms ease}
+.tab.on{color:var(--ink);border-color:var(--ink)}
+.tab i{font-style:normal;color:var(--grey);font-weight:400;margin-left:6px}
+.bar{display:flex;align-items:center;gap:10px;margin-bottom:16px;min-height:36px;flex:none}
+.bar .sp{flex:1}
+.field{display:flex;align-items:center;gap:8px;height:36px;border:1px solid var(--hair);border-radius:8px;padding:0 10px;width:300px;background:#fff;transition:border-color 150ms ease,box-shadow 150ms ease}
+.field.wide{flex:1;width:auto}
+.field svg{width:16px;height:16px;color:var(--grey)}
+.field input{border:0;outline:0;flex:1;min-width:0;background:none}
+.field input::placeholder{color:var(--grey)}
+.field:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px rgb(40 98 220/14%)}
+.selbar{display:flex;align-items:center;gap:14px;height:36px}
+.selbar b{font-weight:600}
+
+/* buttons */
+.btn{height:36px;padding:0 14px;border-radius:8px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap;transition:transform 160ms var(--ease-out),background-color 150ms ease,border-color 150ms ease}
+.btn:active:not(:disabled){transform:scale(.97)}
+.btn.pri{background:var(--accent);color:#fff}
+.btn.red{background:var(--red);color:#fff}
+.btn.ghost{background:#fff;border:1px solid var(--hair);font-weight:500}
+.btn.plain{font-weight:500;color:var(--mute);padding:0 6px}
+.btn:disabled{cursor:default}
+.btn.pri:disabled{background:#b9caf0}
+.link{color:var(--accent);font-weight:500;transition:opacity 150ms ease}
+@media (hover:hover) and (pointer:fine){
+  .btn.pri:hover:not(:disabled){background:var(--accent-h)}
+  .btn.red:hover{background:var(--red-h)}
+  .btn.ghost:hover{background:var(--hover)}
+  .link:hover{opacity:.8}
+}
+.seg{display:inline-flex;background:#f0f0f3;border-radius:9px;padding:3px;gap:2px}
+.seg button{height:30px;padding:0 12px;border-radius:7px;color:var(--mute);font-weight:500;white-space:nowrap;transition:background-color 150ms ease,color 150ms ease,box-shadow 150ms ease}
+.seg button.on{background:#fff;color:var(--ink);box-shadow:0 0 0 1px rgb(0 0 0/5%),0 1px 2px rgb(0 0 0/8%)}
+.sel{height:36px;border:1px solid var(--hair);border-radius:8px;padding:0 34px 0 12px;background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238e8e93' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 10px center/16px;appearance:none;cursor:pointer}
+.ck{width:18px;height:18px;border:1.5px solid var(--faint);border-radius:5px;background:#fff;display:inline-grid;place-items:center;vertical-align:middle;transition:background-color 120ms ease,border-color 120ms ease}
+.ck.on{background:var(--accent);border-color:var(--accent)}
+.ck.on::after{content:"";width:9px;height:5px;border:2px solid #fff;border-top:0;border-right:0;transform:translateY(-1px) rotate(-45deg)}
+
+/* tables */
+.frame{flex:1;min-height:0;display:flex;flex-direction:column;border:1px solid var(--hair);border-radius:10px;overflow:hidden;background:#fff}
+.scroll{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain}
+table{border-collapse:separate;border-spacing:0;table-layout:fixed;min-width:100%}
+th{position:sticky;top:0;z-index:2;background:var(--band);color:var(--mute);font-weight:500;text-align:left;padding:12px 14px;border-bottom:1px solid var(--hair);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+td{padding:14px;border-bottom:1px solid var(--hair-2);vertical-align:top;background:#fff}
+tbody tr:last-child td{border-bottom:0}
+.r{text-align:right}
+td.r{white-space:nowrap}
+.stick{position:sticky;z-index:1}
+th.stick{z-index:3}
+.art{border-right:1px solid var(--hair-2)}
+.grp{border-right:1px solid var(--hair)}
+.tfoot{flex:none;padding:12px 16px;border-top:1px solid var(--hair);color:var(--mute);display:flex;gap:16px}
+.nm{font-weight:500;text-align:left}
+/* the name is never cut; the grey code gives way first */
+.an{display:grid;grid-template-columns:fit-content(100%) minmax(0,1fr);gap:8px;align-items:baseline}
+.an .bd{color:var(--mute);white-space:nowrap}
+.an .g{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pc{cursor:pointer;transition:background-color 120ms ease;white-space:nowrap}
+.dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--amber);margin-right:7px;vertical-align:1px}
+tr.open-row{cursor:pointer}
+@media (hover:hover) and (pointer:fine){
+  tbody tr.rw:hover td{background:var(--hover)}
+  tbody tr.rw td.pc:hover{background:var(--cellhover)}
+  .nm:hover{color:var(--accent)}
+  .mini tbody tr[data-cell]:hover td,.mini tbody tr[data-act]:hover td{background:var(--hover)}
+}
+tr.sel td{background:#f5f8fe}
+.chev{width:24px;height:24px;display:grid;place-items:center;border-radius:6px;color:var(--grey);transition:transform 160ms var(--ease-out)}
+.chev svg{width:16px;height:16px}
+.chev.open{transform:rotate(90deg)}
+tr.sub td{background:#fcfcfd}
+tr.sub td.sname{padding-left:28px;color:var(--ink)}
+td.why{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+td.fcell{white-space:normal}
+td.mcell{white-space:normal}
+tr.mr td.grp{white-space:normal}
+.mtab .pp{white-space:nowrap}
+.ac{display:flex;gap:12px;align-items:flex-start;text-align:left}
+.ph{width:44px;height:44px;border-radius:8px;display:grid;place-items:center;flex:none}
+.ph svg{width:26px;height:26px;stroke:rgb(0 0 0/42%);fill:rgb(255 255 255/60%);stroke-width:1.3}
+.acx{min-width:0;flex:1}
+.tgs{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:4px;margin-top:6px}
+.tg{display:inline-flex;align-items:center;height:24px;padding:0 7px;border-radius:6px;font-weight:500;white-space:nowrap}
+.tg.promo{background:#e3f3f0;color:#0d7469}
+.tg.md{background:#fbe9f1;color:#b2386a}
+.tg.chg{background:#eef3fd;color:#2459c9}
+.tg.wait{background:#fbf0e1;color:#9a6418}
+.tg.low{background:#fdeceb;color:#c4271b}
+.mtab .pcs{color:var(--mute);white-space:nowrap}
+.mtab .pcs.zero{color:var(--grey)}
+.mtab .pp.zero{opacity:.55}
+
+tr.has-lay td{border-bottom:0}
+.exb{display:inline-flex;align-items:center;gap:4px;text-align:left}
+.exb .chev{width:20px;height:20px}
+@media (hover:hover) and (pointer:fine){.exb:hover{color:var(--accent)}}
+tr.lay td{padding-top:6px;padding-bottom:6px;border-bottom:0}
+tr.lay.end td{padding-bottom:14px;border-bottom:1px solid var(--hair-2)}
+tr.lay td.lab{padding-left:30px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+tr.lay .ofl{color:var(--mute)}
+.offs{margin-top:4px;display:flex;flex-direction:column;gap:2px;color:var(--mute)}
+.offs .ofl{color:var(--mute)}
+.ofl{text-align:left;transition:color 150ms ease}
+@media (hover:hover) and (pointer:fine){.ofl:hover{color:var(--accent)}}
+
+/* Today: copied from the hub as it is */
+.legend{display:flex;gap:24px;color:#424245;margin-bottom:16px;flex:none}
+.legend span{display:flex;align-items:center;gap:8px}
+.legend i{width:20px;height:14px;border-radius:4px;border:1px solid}
+.tband{display:flex;align-items:center;gap:12px;height:56px;padding:0 16px;border-radius:7px;background:var(--accent-bg);color:#1f4fb5;margin-bottom:16px;flex:none}
+.tband b{font-weight:500}
+.ta{display:flex;gap:8px;align-items:flex-start}
+.ta .ck{margin-top:2px}
+.tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.tags span{padding:0 6px;border-radius:5px;background:#f2f2f4;color:#424245}
+.tc{display:flex;flex-direction:column;align-items:flex-end;text-align:right}
+.tc b{font-weight:600}
+.chipp{display:inline-block;padding:0 6px;border-radius:5px;font-weight:500;margin-left:6px}
+.teal{color:var(--teal)} .pink{color:var(--pink)}
+.chipp.teal{background:color-mix(in srgb,var(--teal) 14%,#fff)}
+.chipp.pink{background:color-mix(in srgb,var(--pink) 14%,#fff)}
+.chipp.ink{background:#f0f0f3}
+td.t-promo{background:color-mix(in srgb,var(--teal) 7%,#fff)}
+td.t-md{background:color-mix(in srgb,var(--pink) 7%,#fff)}
+.tq{margin-bottom:22px}
+.tl{font-weight:600;margin-bottom:10px}
+.opts{display:flex;flex-direction:column;gap:8px}
+.opt{height:40px;border:1px solid var(--hair);border-radius:8px;text-align:left;padding:0 12px;transition:background-color 120ms ease,border-color 120ms ease}
+.opt.on{border-color:#7d9fe8;background:var(--accent-bg);color:var(--accent)}
+.optbox{border:1px solid var(--hair);border-radius:8px;padding:12px;margin-top:8px;display:flex;flex-wrap:wrap;gap:12px 22px}
+.optbox label{display:flex;align-items:center;gap:8px}
+.qp{display:flex;gap:8px;margin-top:10px}
+.qp button{height:32px;padding:0 10px;border:1px solid var(--hair);border-radius:7px}
+
+/* sheets */
+.veil{position:fixed;inset:0;z-index:40;background:rgb(28 28 36/12%);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);opacity:0;pointer-events:none;transition:opacity 340ms var(--ease-sheet)}
+.veil.on{opacity:1;pointer-events:auto}
+.sheet{position:fixed;top:12px;bottom:12px;right:12px;z-index:50;max-width:calc(100vw - 24px);background:#fff;border-radius:16px;box-shadow:0 0 0 1px rgb(0 0 0/6%),0 24px 72px rgb(0 0 0/16%);display:flex;flex-direction:column;transform:translateX(calc(100% + 24px));transition:transform 340ms var(--ease-sheet)}
+.sheet.in{transform:none}
+.sheet.out{transform:translateX(calc(100% + 24px));transition:transform 200ms var(--ease-out)}
+.sheet::after{content:"";position:absolute;inset:0;border-radius:inherit;background:rgb(28 28 36/8%);opacity:0;pointer-events:none;transition:opacity 340ms var(--ease-sheet)}
+.sheet.under::after{opacity:1;pointer-events:auto}
+.sh-head{display:flex;gap:16px;align-items:flex-start;padding:22px 24px 16px 28px;border-bottom:1px solid var(--hair);flex:none}
+.sh-head .crumb{color:var(--mute)}
+.sh-head h2{font-size:17px;font-weight:600;line-height:24px;letter-spacing:-.01em}
+.sh-head .sub{color:var(--mute)}
+.sh-x{margin-left:auto;width:32px;height:32px;border-radius:8px;display:grid;place-items:center;color:var(--ink);transition:background-color 150ms ease,transform 160ms var(--ease-out)}
+.sh-x:active{transform:scale(.94)}
+@media (hover:hover) and (pointer:fine){.sh-x:hover{background:#f2f2f4}}
+.sh-body{flex:1;min-height:0;overflow:auto;padding:24px 28px}
+.sh-foot{flex:none;display:flex;align-items:center;justify-content:flex-end;gap:10px;padding:14px 24px 14px 28px;border-top:1px solid var(--hair)}
+.sh-foot:empty{display:none}
+.sec{font-weight:600;margin:26px 0 10px}
+.sec:first-child{margin-top:0}
+.mframe{border:1px solid var(--hair);border-radius:10px;overflow:hidden}
+.mini{width:100%}
+.mini th{position:static}
+.mini td{padding:12px 14px}
+.fgrid{display:grid;grid-template-columns:1fr 1fr;gap:18px 16px}
+.f{display:flex;flex-direction:column;gap:7px;min-width:0}
+.f.full{grid-column:1/-1}
+.f>label{color:var(--mute)}
+.f>.seg{align-self:flex-start}
+#pv .sec{margin-top:28px}
+.inp{display:flex;align-items:center;gap:8px;height:40px;border:1px solid var(--hair);border-radius:8px;padding:0 12px;background:#fff;transition:border-color 150ms ease,box-shadow 150ms ease}
+.inp input{border:0;outline:0;flex:1;min-width:0;background:none;font-variant-numeric:tabular-nums}
+.inp:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px rgb(40 98 220/14%)}
+.f .sel{height:40px;width:100%}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
+.chipb{height:32px;padding:0 12px;border-radius:8px;border:1px solid var(--hair);transition:background-color 120ms ease,border-color 120ms ease,color 120ms ease}
+.chipb.on{background:var(--accent-bg);border-color:#9db6ee;color:var(--accent);font-weight:500}
+
+/* E · edit in place */
+td.ed{padding:9px 6px}
+.ci{width:100%;height:32px;border:1px solid transparent;border-radius:7px;background:none;text-align:right;padding:0 8px;font-variant-numeric:tabular-nums;transition:border-color 120ms ease,background-color 120ms ease,box-shadow 120ms ease}
+.ci.base{color:var(--grey)}
+.ci::placeholder{color:transparent}
+.ci:focus::placeholder{color:var(--grey)}
+.ci:focus{outline:0;border-color:var(--accent);box-shadow:0 0 0 3px rgb(40 98 220/14%);background:#fff;color:var(--ink)}
+@media (hover:hover) and (pointer:fine){.ci:hover{border-color:var(--hair)}}
+td.chg{background:var(--accent-bg)!important}
+td.chg .ci{color:var(--accent);font-weight:600}
+td.allc{background:#fbfbfc}
+
+/* menu, hover card, toast, switch */
+.menuwrap{position:relative}
+.menu{position:absolute;top:42px;left:0;z-index:20;min-width:220px;background:#fff;border-radius:12px;padding:6px;box-shadow:0 0 0 1px rgb(0 0 0/6%),0 10px 30px rgb(0 0 0/12%);transform-origin:top left;transition:opacity 150ms var(--ease-out),transform 150ms var(--ease-out)}
+@starting-style{.menu{opacity:0;transform:scale(.97)}}
+.menu button{width:100%;height:36px;display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-radius:8px;text-align:left}
+.menu button svg{color:var(--accent)}
+.menu hr{border:0;border-top:1px solid var(--hair);margin:6px 4px}
+@media (hover:hover) and (pointer:fine){.menu button:hover{background:#f2f2f4}}
+.hc{position:fixed;z-index:30;width:320px;background:#fff;border-radius:12px;padding:12px 14px;box-shadow:0 0 0 1px rgb(0 0 0/6%),0 10px 30px rgb(0 0 0/12%);pointer-events:none;opacity:0;transform:scale(.97);transform-origin:top right;transition:opacity 125ms var(--ease-out),transform 125ms var(--ease-out)}
+.hc.on{opacity:1;transform:none}
+.hc.instant{transition-duration:0ms}
+.hc .hh{font-weight:600;margin-bottom:6px}
+.hc .ln{display:flex;justify-content:space-between;gap:14px}
+.hc .ln>span:last-child{flex:none;white-space:nowrap}
+.toast{position:fixed;left:50%;bottom:84px;z-index:70;transform:translate(-50%,8px);opacity:0;background:var(--ink);color:#fff;border-radius:12px;padding:10px 16px;pointer-events:none;transition:opacity 200ms var(--ease-out),transform 200ms var(--ease-out)}
+.toast.on{opacity:1;transform:translate(-50%,0)}
+.switch{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:35;display:flex;gap:4px;padding:6px;border-radius:14px;background:rgb(255 255 255/86%);backdrop-filter:blur(16px) saturate(1.4);-webkit-backdrop-filter:blur(16px) saturate(1.4);box-shadow:0 0 0 1px rgb(0 0 0/7%),0 8px 30px rgb(0 0 0/12%);max-width:calc(100vw - 32px);overflow-x:auto}
+.switch button{height:34px;padding:0 10px;border-radius:9px;color:var(--mute);font-weight:500;white-space:nowrap;transition:background-color 150ms ease,color 150ms ease,transform 160ms var(--ease-out)}
+.switch button:active{transform:scale(.97)}
+.switch button.on{background:var(--ink);color:#fff}
+@media (hover:hover) and (pointer:fine){.switch button:not(.on):hover{background:rgb(0 0 0/5%);color:var(--ink)}}
+@media (prefers-reduced-motion:reduce){
+  .sheet,.sheet.out{transform:none;opacity:0;transition:opacity 200ms ease}
+  .sheet.in{opacity:1}
+}
+@media (max-width:1100px){.panel{display:none}}
+</style>
+</head>
+<body>
+<div class="shell">
+  <nav class="rail" aria-label="Departments">
+    <span class="ic"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></span>
+    <span class="ic"><svg viewBox="0 0 24 24"><circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M2 3h3l2.6 12.4a2 2 0 0 0 2 1.6h8.2a2 2 0 0 0 2-1.6L21 7H6"/></svg></span>
+    <span class="ic"><svg viewBox="0 0 24 24"><path d="M8 3 4 6v4h3v11h10V10h3V6l-4-3a4 4 0 0 1-8 0Z"/></svg></span>
+    <span class="ic"><svg viewBox="0 0 24 24"><path d="M3 7h11v9H3zM14 10h4l3 3v3h-7"/><circle cx="7" cy="18" r="1.6"/><circle cx="17" cy="18" r="1.6"/></svg></span>
+    <span class="ic"><svg viewBox="0 0 24 24"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9Z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/></svg></span>
+    <span class="ic on"><svg viewBox="0 0 24 24"><path d="M3 11v2a1 1 0 0 0 1 1h3l5 4V6L7 10H4a1 1 0 0 0-1 1ZM16 8a5 5 0 0 1 0 8"/></svg></span>
+    <span class="ic"><svg viewBox="0 0 24 24"><path d="M3 21h18M5 21V10M19 21V10M9 21v-6h6v6M3 10l9-6 9 6"/></svg></span>
+    <span class="ic"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 20a6 6 0 0 1 12 0M16 4a3 3 0 0 1 0 6M21 20a5 5 0 0 0-4-5"/></svg></span>
+    <button class="ic unfold" data-act="fold" aria-label="Show the menu">›</button>
+    <span class="ic end"><svg viewBox="0 0 24 24"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3"/></svg></span>
+  </nav>
+  <nav class="panel" aria-label="Marketing">
+    <h2>Marketing <button class="fold" data-act="fold" aria-label="Hide the menu">‹</button></h2>
+    <span class="item on">Pricelist</span>
+    <span class="item">Promotions</span>
+    <span class="item">Campaigns</span>
+    <span class="item">Vouchers</span>
+    <span class="time"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>15 Oct 2026 · 14:09</span>
+  </nav>
+  <main class="page" id="page"></main>
+</div>
+<div class="veil" id="veil"></div>
+<div id="sheets"></div>
+<div class="hc" id="hc"></div>
+<div class="toast" id="toast"></div>
+<div class="switch" id="switch" role="group" aria-label="Version"></div>
+
+<script>
+const $ = (s, el = document) => el.querySelector(s)
+const IC = {
+  search: '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
+  chev: '<svg viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>',
+  down: '<svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>',
+  x: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>',
+  eye: '<svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>',
+  check: '<svg viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></svg>',
+  store: '<svg viewBox="0 0 24 24"><path d="M3 21h18M5 21V10M19 21V10M9 21v-6h6v6M3 10l9-6 9 6"/></svg>',
+}
+
+// ── data (fictional, session-local) ─────────────────────────────────────────
+const STORES = [['dgo','Dago'],['chp','Cihampelas'],['ckp','Cikupa'],['crb','Cirebon'],['bks','Bekasi'],['dpk','Depok'],['bgr','Bogor'],['mdn','Medan']].map(([id, name]) => ({ id, name }))
+const ALL = STORES.map(s => s.id)
+const each = v => Object.fromEntries(ALL.map(id => [id, { ...v }]))
+const some = (ids, v) => Object.fromEntries(ids.map(id => [id, { ...v }]))
+const PW = { id: 'pw', label: 'Diskon 10% Koleksi Wanita', pct: 10, from: '14 Oct', to: '31 Oct' }
+const PS = { id: 'ps', label: 'Diskon 15% Sandal & Sepatu', pct: 15, from: '14 Oct', to: '15 Nov' }
+const PROMOS = [PW, PS]
+// offers a shopper only gets when a condition holds: being a member, buying more, typing a code
+const OFFERS = [
+  { id: 'mem', name: 'Harga Member', kind: 'Members', short: 'Member', pct: 10, divs: ['Pria', 'Anak Laki-laki', 'Tas'], from: '1 Oct' },
+  { id: 'b2', name: 'Beli 2 Kaos', kind: 'Buy more', short: 'Beli 2', pct: 20, tags: ['Kaos'], from: '10 Oct', to: '31 Oct' },
+  { id: 'b2g1', name: 'Beli 2 gratis 1', kind: 'Buy more', short: 'Beli 2 gratis 1', free: [2, 1], tags: ['Aksesori'], from: '12 Oct' },
+  { id: 'code', name: 'Kode SEPATU25', kind: 'With code', short: 'SEPATU25', pct: 25, divs: ['Sandal dan Sepatu'], from: '14 Oct', to: '31 Oct' },
+]
+const ROWS = [
+  { code: '00000001', name: 'Blus Rayon Motif Bunga', div: 'Wanita', tags: ['Blus'], skus: 6, base: 159000, promo: PW },
+  { code: '00000002', name: 'Celana Chino Slim Fit', div: 'Pria', tags: ['Celana'], skus: 6, base: 249000, own: some(['mdn'], { price: 259000, from: '1 Oct' }) },
+  { code: '00000003', name: 'Kaos Basic Katun Combed', div: 'Pria', tags: ['Basic', 'Kaos', 'Lengan Pendek'], skus: 6, base: 89000, next: { kind: 'price', price: 79000, from: '20 Oct', change: 'Kaos Basic new price' } },
+  { code: '00000004', name: 'Kaos Anak Karakter', div: 'Anak Laki-laki', tags: ['Kaos', 'Lengan Pendek'], skus: 6, base: 69000, md: some(['crb', 'bks'], { pct: 30, from: '10 Oct', to: '31 Oct' }) },
+  { code: '00000005', band: 'S – L', name: 'Kemeja Oxford Lengan Panjang', div: 'Pria', tags: ['Kemeja', 'Lengan Panjang'], skus: 4, base: 199000, own: some(['dgo'], { price: 189000, from: '5 Oct' }) },
+  { code: '00000005', band: 'XL – XXL', name: 'Kemeja Oxford Lengan Panjang', div: 'Pria', tags: ['Kemeja', 'Lengan Panjang'], skus: 2, base: 219000 },
+  { code: '00000006', name: 'Flat Shoes Wanita', div: 'Sandal dan Sepatu', tags: ['Sepatu'], skus: 6, base: 279000, promo: PS, md: some(['dpk'], { pct: 20, from: '1 Oct', to: '31 Oct' }), waiting: ['mdn'] },
+  { code: '00000007', name: 'Loafers Kulit Sintetis', div: 'Sandal dan Sepatu', tags: ['Formal', 'Sepatu'], skus: 6, base: 399000, promo: PS, waiting: ['mdn'] },
+  { code: '00000008', name: 'Sandal Slide Karet', div: 'Sandal dan Sepatu', tags: ['Musiman'], skus: 6, base: 99000, promo: PS, md: each({ pct: 20, from: '14 Oct', to: '18 Nov' }), waiting: ['mdn'] },
+  { code: '00000009', name: 'Sneakers Kanvas Low', div: 'Sandal dan Sepatu', tags: ['Sepatu'], skus: 6, base: 329000, promo: PS, waiting: ['mdn'] },
+  { code: '00000010', name: 'Tas Selempang Kanvas', div: 'Tas', tags: ['Aksesori'], skus: 2, base: 219000, notSold: ['crb'] },
+  { code: '00000011', name: 'Dress Midi Linen', div: 'Wanita', tags: ['Dress'], skus: 5, base: 289000, promo: PW, next: { kind: 'md', pct: 20, from: '1 Nov', change: 'End of season Wanita' } },
+  { code: '00000012', name: 'Jaket Denim Oversize', div: 'Pria', tags: ['Jaket', 'Denim'], skus: 5, base: 349000, own: some(['bgr', 'dpk'], { price: 329000, from: '8 Oct' }) },
+  { code: '00000013', name: 'Rok Plisket Satin', div: 'Wanita', tags: ['Rok'], skus: 5, base: 179000, promo: PW },
+  { code: '00000014', name: 'Topi Bucket Twill', div: 'Tas', tags: ['Aksesori', 'Topi'], skus: 1, base: 79000 },
+]
+let UPCOMING = [
+  { id: 'u1', name: 'Kaos Basic new price', kind: 'New price', codes: ['00000003'], stores: ALL, when: 'Tue 20 Oct 2026', status: 'Scheduled' },
+  { id: 'u2', name: 'End of season Wanita', kind: 'Markdown −20%', codes: ['00000011'], stores: ALL, when: 'Sun 1 Nov 2026', status: 'Scheduled' },
+  { id: 'u3', name: 'Diskon 15% Sandal & Sepatu', kind: 'Promotion', codes: ['00000006', '00000007', '00000008', '00000009'], stores: ['mdn'], when: 'Wed 14 Oct 2026', status: "Not on Medan's till yet" },
+]
+const COST = { '00000001': 82000, '00000002': 128000, '00000003': 46000, '00000004': 52000, '00000005': 101000, '00000006': 142000, '00000007': 205000, '00000008': 62000, '00000009': 168000, '00000010': 110000, '00000011': 151000, '00000012': 178000, '00000013': 93000, '00000014': 38000 }
+// Price Change documents: every price change made from the Pricelist is one numbered document, like an allotment
+let PCS = [
+  { no: 'PC-200926-001', kind: 'Markdown', pct: 25, codes: ['00000002'], stores: ALL, from: '20 Sep', to: '30 Sep', status: 'Ended', by: 'Dimas Pratama' },
+  { no: 'PC-011026-001', kind: 'Regular price change', price: 259000, codes: ['00000002'], stores: ['mdn'], from: '1 Oct', to: null, status: 'Active', by: 'Dimas Pratama' },
+  { no: 'PC-011026-002', kind: 'Markdown', pct: 20, codes: ['00000006'], stores: ['dpk'], from: '1 Oct', to: '31 Oct', status: 'Active', by: 'Dimas Pratama' },
+  { no: 'PC-051026-001', kind: 'Regular price change', price: 189000, codes: ['00000005'], band: 'S – L', stores: ['dgo'], from: '5 Oct', to: null, status: 'Active', by: 'Rina Kartika' },
+  { no: 'PC-081026-001', kind: 'Regular price change', price: 329000, codes: ['00000012'], stores: ['bgr', 'dpk'], from: '8 Oct', to: null, status: 'Active', by: 'Dimas Pratama' },
+  { no: 'PC-101026-001', kind: 'Markdown', pct: 30, codes: ['00000004'], stores: ['crb', 'bks'], from: '10 Oct', to: '31 Oct', status: 'Active', by: 'Dimas Pratama' },
+  { no: 'PC-141026-001', kind: 'Markdown', pct: 20, codes: ['00000008'], stores: ALL, from: '14 Oct', to: '18 Nov', status: 'Active', by: 'Rina Kartika' },
+  { no: 'PC-151026-001', kind: 'Regular price change', price: 79000, codes: ['00000003'], stores: ALL, from: '20 Oct', to: null, status: 'Scheduled', by: 'Rina Kartika' },
+  { no: 'PC-151026-002', kind: 'Markdown', pct: 20, codes: ['00000011'], stores: ALL, from: '1 Nov', to: null, status: 'Scheduled', by: 'Rina Kartika' },
+]
+const HISTORY = [
+  { id: 'h1', date: '14 Oct 2026', name: 'Diskon 15% Sandal & Sepatu', kind: 'Promotion', codes: ['00000006', '00000007', '00000008', '00000009'], stores: ALL, by: 'Rina Kartika' },
+  { id: 'h2', date: '14 Oct 2026', name: 'Diskon 10% Koleksi Wanita', kind: 'Promotion', codes: ['00000001', '00000011', '00000013'], stores: ALL, by: 'Rina Kartika' },
+  { id: 'h3', date: '14 Oct 2026', name: 'Sandal Slide clearance', kind: 'Markdown −20%', codes: ['00000008'], stores: ALL, by: 'Rina Kartika' },
+  { id: 'h4', date: '10 Oct 2026', name: 'Kaos Anak Cirebon & Bekasi', kind: 'Markdown −30%', codes: ['00000004'], stores: ['crb', 'bks'], by: 'Dimas Pratama' },
+  { id: 'h5', date: '8 Oct 2026', name: 'Jaket Denim Bogor & Depok', kind: 'New price', codes: ['00000012'], stores: ['bgr', 'dpk'], by: 'Dimas Pratama' },
+  { id: 'h6', date: '5 Oct 2026', name: 'Kemeja Oxford Dago', kind: 'New price', codes: ['00000005'], stores: ['dgo'], by: 'Rina Kartika' },
+  { id: 'h7', date: '1 Oct 2026', name: 'Celana Chino Medan', kind: 'New price', codes: ['00000002'], stores: ['mdn'], by: 'Dimas Pratama' },
+  { id: 'h8', date: '1 Oct 2026', name: 'Flat Shoes Depok', kind: 'Markdown −20%', codes: ['00000006'], stores: ['dpk'], by: 'Dimas Pratama' },
+]
+
+// ── reading the data ────────────────────────────────────────────────────────
+const n = v => v.toLocaleString('id-ID')
+const rp = v => 'Rp ' + n(v)
+const off = (p, pct) => Math.round(p * (100 - pct) / 100)
+const pctVs = (p, of) => { const v = Math.round((p - of) / of * 100); return v === 0 ? '' : (v > 0 ? '+' : '−') + Math.abs(v) + '%' }
+const span = (from, to) => from ? (to ? `${from} – ${to}` : `from ${from}`) : ''
+const key = r => r.code + (r.band ? '~' + r.band : '')
+const byKey = k => ROWS.find(r => key(r) === k)
+const storeName = id => STORES.find(s => s.id === id)?.name ?? id
+const storesText = ids => ids.length === STORES.length ? 'All stores' : ids.map(storeName).join(', ')
+
+const SOLD_OUT = new Set(['00000007@ckp', '00000009@dgo', '00000009@chp', '00000010@bks', '00000013@mdn', '00000001@bgr'])
+function cellOf(row, sid) {
+  const idx = ALL.indexOf(sid)
+  const c = { row, store: STORES[idx], base: row.base, stock: SOLD_OUT.has(key(row) + '@' + sid) ? 0 : (parseInt(row.code, 10) * 7 + idx * 13 + (row.band === 'XL – XXL' ? 5 : 0)) % 37 + 3 }
+  if (row.notSold?.includes(sid)) return { ...c, kind: 'none', label: 'Not sold here' }
+  const own = row.own?.[sid]
+  c.own = own
+  c.normal = own ? own.price : row.base
+  const cands = []
+  const md = row.md?.[sid]
+  if (md) { const p = md.price ?? off(c.normal, md.pct); cands.push({ kind: 'md', label: 'Markdown', pct: md.price ? Math.round((1 - p / c.normal) * 100) : md.pct, price: p, from: md.from, to: md.to }) }
+  const waiting = row.waiting?.includes(sid)
+  if (row.promo && !waiting) cands.push({ kind: 'promo', label: row.promo.label, pct: row.promo.pct, price: off(c.normal, row.promo.pct), from: row.promo.from, to: row.promo.to })
+  cands.sort((a, b) => a.price - b.price)
+  if (cands.length) Object.assign(c, cands[0], { pctText: '−' + cands[0].pct + '%', lost: cands.slice(1) })
+  else if (own) Object.assign(c, { kind: 'own', label: 'Store price', price: own.price, pctText: pctVs(own.price, row.base), from: own.from })
+  else Object.assign(c, { kind: 'base', label: 'Base price', price: row.base, pctText: '' })
+  if (waiting) {
+    const p = off(c.normal, row.promo.pct)
+    if (p < c.price) c.waiting = { label: row.promo.label, price: p, pctText: '−' + row.promo.pct + '%' }
+  }
+  // an upcoming change is priced by the same rules once it starts: a new price becomes the
+  // normal price (a running promotion still comes off it); a markdown and a promotion never
+  // stack, the cheaper one is charged
+  if (row.next) {
+    const r = { ...row, next: undefined, own: { ...row.own }, md: { ...row.md } }
+    if (row.next.kind === 'md') r.md[sid] = { pct: row.next.pct, from: row.next.from }
+    else { r.own[sid] = { price: row.next.price, from: row.next.from }; delete r.md[sid] }
+    const a = cellOf(r, sid)
+    c.next = { label: row.next.change, price: a.price, pctText: a.pctText, from: row.next.from }
+  }
+  return c
+}
+const cellsOf = row => ALL.map(sid => cellOf(row, sid))
+
+// ── what it costs on a given day, and what it becomes next (today = 15 Oct 2026) ──
+const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const dayOf = t => { if (!t) return null; const [d, m] = t.split(' '); return Date.UTC(2026, MON.indexOf(m), +d) / 864e5 }
+const dayText = d => { const x = new Date(d * 864e5); return `${x.getUTCDate()} ${MON[x.getUTCMonth()]}` }
+const TODAY = dayOf('15 Oct')
+function priceAt(row, sid, d) {
+  if (row.notSold?.includes(sid)) return null
+  const live = r => r && dayOf(r.from) <= d && (r.to == null || d <= dayOf(r.to))
+  let normal = row.base, base = { label: 'Base price', kind: 'base' }
+  const own = row.own?.[sid]
+  if (own && dayOf(own.from) <= d) { normal = own.price; base = { label: 'Store price', kind: 'own' } }
+  if (row.next?.kind === 'price' && d >= dayOf(row.next.from)) { normal = row.next.price; base = { label: row.next.change, kind: 'own' } }
+  const cands = []
+  const md = row.md?.[sid]
+  if (live(md)) cands.push({ price: md.price ?? off(normal, md.pct), label: 'Markdown', kind: 'md' })
+  if (row.next?.kind === 'md' && d >= dayOf(row.next.from)) cands.push({ price: off(normal, row.next.pct), label: row.next.change, kind: 'md' })
+  if (row.promo && !row.waiting?.includes(sid) && live(row.promo)) cands.push({ price: off(normal, row.promo.pct), label: row.promo.label, kind: 'promo' })
+  cands.sort((a, b) => a.price - b.price)
+  const w = cands[0] ?? { price: normal, ...base }
+  return { ...w, pctText: w.kind === 'base' ? '' : pctVs(w.price, w.kind === 'own' ? row.base : normal) }
+}
+// every day a rule starts or stops is a moment the price may change; keep the ones where it does
+function timelineOf(row, sid) {
+  const now = priceAt(row, sid, TODAY)
+  if (!now) return null
+  const pts = new Set()
+  const add = (from, to) => { const f = dayOf(from), t = dayOf(to); if (f > TODAY) pts.add(f); if (t != null && t >= TODAY) pts.add(t + 1) }
+  if (row.md?.[sid]) add(row.md[sid].from, row.md[sid].to)
+  if (row.promo) add(row.promo.from, row.promo.to)
+  if (row.own?.[sid]) add(row.own[sid].from)
+  if (row.next) add(row.next.from)
+  const steps = []
+  let cur = now
+  for (const d of [...pts].sort((a, b) => a - b)) {
+    const p = priceAt(row, sid, d)
+    if (p.price !== cur.price || p.label !== cur.label) { steps.push({ day: d, ...p }); cur = p }
+  }
+  const ready = row.waiting?.includes(sid) ? priceAt({ ...row, waiting: [] }, sid, TODAY) : null
+  return { sid, now, steps, waiting: !!ready && ready.price < now.price }
+}
+const offersFor = row => OFFERS.filter(o => o.divs?.includes(row.div) || o.tags?.some(t => row.tags.includes(t)))
+// what a shopper who meets the condition pays at this store — never stacked, the cheapest one is charged
+function extrasOf(c) {
+  if (c.kind === 'none') return []
+  return offersFor(c.row).map(o => {
+    const cand = o.free ? Math.round(c.normal * o.free[0] / (o.free[0] + o.free[1])) : off(c.normal, o.pct)
+    const price = Math.min(c.price, cand)
+    return { o, price, helps: cand < c.price, pctText: pctVs(price, c.normal) }
+  })
+}
+const extraOf = (c, kind) => extrasOf(c).find(x => x.o.kind === kind)
+const sourceOf = c => c.kind === 'md' ? 'Markdown' : c.kind === 'own' ? 'Store price' : c.kind === 'promo' ? c.label : ''
+const whoOf = o => o.kind === 'Members' ? 'Members' : o.kind === 'With code' ? 'With code' : o.free ? `Buying ${o.free[0] + o.free[1]}` : 'Buying 2'
+const offerPrice = x => x.helps ? `${n(x.price)} <span class="g">${x.pctText}</span>` : `<span class="g">${n(x.price)}</span>`
+
+const S = { v: 'a', q: '', sel: new Set(), exp: new Set(), store: 'dgo', tab: 'now', menu: false, edit: false, edits: {}, ekind: 'price', estarts: 'After publish' }
+const visible = () => ROWS.filter(r => !S.q || (r.name + ' ' + r.code + ' ' + r.div).toLowerCase().includes(S.q.toLowerCase()))
+const articleCount = rows => new Set(rows.map(r => r.code)).size
+
+function kpis(sids = ALL, withStock = false) {
+  const has = kind => new Set(ROWS.filter(r => sids.some(s => kind === 'own' ? r.own?.[s] && !r.notSold?.includes(s) : cellOf(r, s).kind === kind)).map(r => r.code)).size
+  const up = UPCOMING.filter(u => u.stores.some(s => sids.includes(s))).length
+  const cut = ROWS.flatMap(r => sids.map(s => cellOf(r, s))).filter(c => c.kind === 'promo' || c.kind === 'md').reduce((a, c) => a + c.stock, 0)
+  return `<div class="kpis num">${[['Articles', articleCount(ROWS)], ['On promotion', has('promo')], ['Markdown', has('md')], ['Store price', has('own')], ['Upcoming', up], ...(withStock ? [['Stock at a discount', n(cut) + ' pcs'], ['Below cost', new Set(ROWS.filter(r => sids.some(s => { const c = cellOf(r, s); return c.kind !== 'none' && c.price < COST[r.code] })).map(r => r.code)).size]] : [])]
+    .map(([l, v]) => `<div class="kpi"><span>${l}</span><strong>${v}</strong></div>`).join('')}</div>`
+}
+
+// ── shared pieces ───────────────────────────────────────────────────────────
+const head = (act = '') => `<header class="ph"><div><div class="crumb">Marketing</div><h1>Pricelist</h1></div><div>${act}</div></header>`
+const box = (on, act, k = '') => `<button class="ck${on ? ' on' : ''}" data-act="${act}" data-key="${k}" aria-pressed="${on}" aria-label="Select"></button>`
+const frame = (table, rows) => `<div class="frame"><div class="scroll" id="scroll">${table}</div><div class="tfoot num"><span>${articleCount(rows)} of ${articleCount(ROWS)} articles</span></div></div>`
+const search = (ph = 'Search articles', wide = false) => `<label class="field${wide ? ' wide' : ''}">${IC.search}<input id="q" placeholder="${ph}" value="${S.q}" autocomplete="off"></label>`
+const seg = (name, opts, val) => `<div class="seg" role="group">${opts.map(([v, l]) => `<button data-seg="${name}" data-val="${v}" class="${v === val ? 'on' : ''}">${l}</button>`).join('')}</div>`
+const select = (name, opts, val) => `<select class="sel" data-sel="${name}" aria-label="${name}">${opts.map(o => `<option${o === val ? ' selected' : ''}>${o}</option>`).join('')}</select>`
+const artName = row => `<span class="an"><span><button class="nm" data-act="art" data-key="${key(row)}">${row.name}</button>${row.band ? ` <span class="bd">${row.band}</span>` : ''}</span><span class="g">${row.code}</span></span>`
+
+function bar(extraLeft = '', right = '') {
+  const rows = visible()
+  if (S.sel.size) {
+    const k = [...S.sel].filter(k => byKey(k)).length
+    return `<div class="bar"><div class="selbar"><b>${k} ${k === 1 ? 'article' : 'articles'} selected</b><button class="link" data-act="clear-sel">Clear</button></div><span class="sp"></span><button class="btn pri" data-act="change-sel">Change price</button></div>`
+  }
+  return `<div class="bar">${extraLeft}${search()}<button class="btn ghost">Division</button><span class="sp"></span>${right}</div>`
+}
+
+// one figure per cell: grey = base price, ink = anything else, its % after it
+function calm(c) {
+  if (c.kind === 'none') return '<span class="g">—</span>'
+  const dot = c.waiting ? '<i class="dot"></i>' : ''
+  if (c.kind === 'base') return `${dot}<span class="g">${n(c.price)}</span>`
+  return `${dot}${n(c.price)}${c.pctText ? ` <span class="g">${c.pctText}</span>` : ''}`
+}
+
+function matrix({ edit = false, check = true, cellFn = calm, st = 124, art = 330, cls = '', artFn = artName } = {}) {
+  const rows = visible()
+  const W = { ck: 48, art, base: 112, all: 128, st }
+  const cols = [check && W.ck, W.art, W.base, edit && W.all, ...STORES.map(() => W.st)].filter(Boolean)
+  const total = cols.reduce((a, b) => a + b, 0)
+  const left = check ? W.ck : 0
+  const allOn = rows.length > 0 && rows.every(r => S.sel.has(key(r)))
+  let h = `<table class="mx" style="width:${total}px"><colgroup>${cols.map(w => `<col style="width:${w}px">`).join('')}</colgroup><thead><tr>`
+  if (check) h += `<th class="stick" style="left:0">${box(allOn, 'selall')}</th>`
+  h += `<th class="stick art" style="left:${left}px">Article</th><th class="r grp">Base price</th>`
+  if (edit) h += '<th class="r">All stores</th>'
+  h += STORES.map(s => `<th class="r">${s.name}</th>`).join('') + '</tr></thead><tbody>'
+  for (const row of rows) {
+    const k = key(row)
+    h += `<tr class="rw${S.sel.has(k) ? ' sel' : ''}">`
+    if (check) h += `<td class="stick" style="left:0">${box(S.sel.has(k), 'sel', k)}</td>`
+    h += `<td class="stick art" style="left:${left}px">${artFn(row)}</td><td class="r grp">${n(row.base)}</td>`
+    if (edit) h += `<td class="r ed allc"><input class="ci" data-all="${k}" aria-label="${row.name} at all stores" placeholder="Price or %" autocomplete="off"></td>`
+    for (const c of cellsOf(row)) h += edit ? editCell(c, k) : `<td class="r pc ${cls}" data-cell="${k}@${c.store.id}">${cellFn(c)}</td>`
+    h += '</tr>'
+  }
+  return h + '</tbody></table>'
+}
+
+// ── Today: the hub as it is ─────────────────────────────────────────────────
+function todayCell(c) {
+  if (c.kind === 'none') return '<div class="tc"><span class="g">—</span></div>'
+  if (c.kind === 'base') return `<div class="tc"><span class="g">${rp(c.price)}</span></div>`
+  const col = c.kind === 'promo' ? 'teal' : c.kind === 'md' ? 'pink' : 'ink'
+  let h = `<div class="tc"><div><b class="${col}">${rp(c.price)}</b>${c.pctText ? `<span class="chipp ${col}">${c.pctText}</span>` : ''}</div>`
+  if (c.kind !== 'own') h += `<div class="${col}">${c.label}</div>`
+  h += `<div class="g">${span(c.from, c.to)}</div>`
+  for (const l of c.lost || []) h += `<div class="g strike">${rp(l.price)}</div>`
+  return h + '</div>'
+}
+function viewToday(cellFn = todayCell, st = 210) {
+  const rows = visible()
+  const W = [384, 170, 150, ...STORES.map(() => st)]
+  const allOn = rows.length > 0 && rows.every(r => S.sel.has(key(r)))
+  let t = `<table style="width:${W.reduce((a, b) => a + b)}px"><colgroup>${W.map(w => `<col style="width:${w}px">`).join('')}</colgroup><thead><tr>
+    <th class="stick art" style="left:0"><span style="display:inline-flex;gap:10px;align-items:center;padding-left:32px">${box(allOn, 'selall')}Article</span></th><th>Division</th><th class="r grp">Base price</th>${STORES.map(s => `<th class="r">${s.name.toLowerCase()}</th>`).join('')}</tr></thead><tbody>`
+  for (const row of rows) {
+    const k = key(row)
+    t += `<tr class="rw${S.sel.has(k) ? ' sel' : ''}"><td class="stick art" style="left:0"><div class="ta"><span class="chev">${IC.chev}</span>${box(S.sel.has(k), 'sel', k)}<div><button class="nm" data-act="art" data-key="${k}">${row.name}</button><div class="g">${row.code} · ${row.skus} SKU${row.band ? ' · Sizes ' + row.band : ''}</div><div class="tags">${row.tags.map(x => `<span>${x}</span>`).join('')}</div></div></div></td>
+      <td>${row.div}</td><td class="r grp"><b>${rp(row.base)}</b></td>
+      ${cellsOf(row).map(c => `<td class="pc ${c.kind === 'promo' ? 't-promo' : c.kind === 'md' ? 't-md' : ''}" data-cell="${k}@${c.store.id}">${cellFn(c)}</td>`).join('')}</tr>`
+  }
+  t += '</tbody></table>'
+  const legend = `<div class="legend"><span><i style="background:#fff;border-color:#d1d1d6"></i>Base price</span><span><i style="background:#1d1d1f;border-color:#1d1d1f"></i>Store price</span><span><i style="background:#fbe5ee;border-color:#eaa9c3"></i>Markdown</span><span><i style="background:#dcefec;border-color:#9fd0ca"></i>Promotion</span></div>`
+  const k = S.sel.size
+  const band = k ? `<div class="tband"><b>${k} ${k === 1 ? 'article' : 'articles'} selected</b><button class="btn pri" style="margin-left:auto" data-act="change-sel">Change price…</button><button class="btn ghost" data-act="clear-sel">Clear</button></div>` : ''
+  return head() + `<div class="pin"><div class="bar">${search('Search or filter', true)}<button class="btn plain">${IC.eye}Show</button></div>${legend}${band}${frame(t, rows)}</div>`
+}
+
+// ── L · Today, plus what comes next: the date line becomes "until 31 Oct → Rp 159.000" ──
+function todayNextCell(c) {
+  const tl = c.kind === 'none' ? null : timelineOf(c.row, c.store.id)
+  if (!tl) return todayCell(c)
+  const step = tl.steps[0]
+  const next = step ? `<div class="g">until ${dayText(step.day - 1)} → ${rp(step.price)}</div>` : ''
+  const waiting = tl.waiting ? `<div class="amber">Not on ${c.store.name}'s till yet</div>` : ''
+  if (c.kind === 'base') return `<div class="tc"><span class="g">${rp(c.price)}</span>${waiting}${next}</div>`
+  const col = c.kind === 'promo' ? 'teal' : c.kind === 'md' ? 'pink' : 'ink'
+  let h = `<div class="tc"><div><b class="${col}">${rp(c.price)}</b>${c.pctText ? `<span class="chipp ${col}">${c.pctText}</span>` : ''}</div>`
+  if (c.kind !== 'own') h += `<div class="${col}">${c.label}</div>`
+  h += step ? next : `<div class="g">${span(c.from, c.to)}</div>`
+  for (const l of c.lost || []) h += `<div class="g strike">${rp(l.price)}</div>`
+  return h + waiting + '</div>'
+}
+const viewL = () => viewToday(todayNextCell, 226)
+
+// ── A · Calm ────────────────────────────────────────────────────────────────
+const viewA = () => head() + `<div class="pin">${kpis()}${bar()}${frame(matrix(), visible())}</div>`
+
+// ── B · Store rows ──────────────────────────────────────────────────────────
+function modeOf(cells) {
+  const tally = new Map()
+  for (const c of cells) tally.set(c.price, (tally.get(c.price) || 0) + 1)
+  const price = [...tally.entries()].sort((a, b) => b[1] - a[1])[0][0]
+  return cells.find(c => c.price === price)
+}
+function viewB() {
+  const rows = visible()
+  const allOn = rows.length > 0 && rows.every(r => S.sel.has(key(r)))
+  let t = `<table><colgroup><col style="width:44px"><col style="width:44px"><col><col style="width:120px"><col style="width:150px"><col style="width:380px"></colgroup>
+    <thead><tr><th></th><th>${box(allOn, 'selall')}</th><th>Article</th><th class="r">Base price</th><th class="r">Price</th><th>Stores</th></tr></thead><tbody>`
+  for (const row of rows) {
+    const k = key(row), open = S.exp.has(k)
+    const sold = cellsOf(row).filter(c => c.kind !== 'none')
+    const mode = modeOf(sold)
+    const differ = sold.filter(c => c.price !== mode.price || c.waiting)
+    const notSold = cellsOf(row).filter(c => c.kind === 'none')
+    let where = '<span class="g">All stores</span>'
+    if (differ.length) where = (differ.some(c => c.waiting) ? '<i class="dot"></i>' : '') + (differ.length <= 2 ? differ.map(c => c.store.name).join(', ') : differ.length + ' stores') + (differ.length === 1 ? ' differs' : ' differ')
+    else if (notSold.length) where = `<span class="g">Not at ${notSold.map(c => c.store.name).join(', ')}</span>`
+    t += `<tr class="rw open-row${S.sel.has(k) ? ' sel' : ''}" data-act="exp" data-key="${k}"><td><span class="chev${open ? ' open' : ''}">${IC.chev}</span></td><td>${box(S.sel.has(k), 'sel', k)}</td>
+      <td>${artName(row)}</td><td class="r">${n(row.base)}</td><td class="r">${calm(mode)}</td><td>${where}</td></tr>`
+    if (open) for (const c of cellsOf(row)) {
+      const why = c.waiting ? `<span class="amber">Not on ${c.store.name}'s till yet</span>` : c.kind === 'base' ? '' : c.kind === 'none' ? '<span class="g">Not sold here</span>' : `<span class="m">${c.label}</span> <span class="g">${span(c.from, c.to)}</span>`
+      t += `<tr class="rw sub" data-cell="${k}@${c.store.id}" style="cursor:pointer"><td></td><td></td><td class="sname">${c.store.name}</td><td></td><td class="r">${calm(c)}</td><td class="why">${why}</td></tr>`
+    }
+  }
+  t += '</tbody></table>'
+  const allOpen = rows.length > 0 && rows.every(r => S.exp.has(key(r)))
+  return head() + `<div class="pin">${kpis()}${bar('', `<button class="btn ghost" data-act="exp-all">${allOpen ? 'Collapse all' : 'Expand all'}</button>`)}${frame(t, rows)}</div>`
+}
+
+// ── C · One store ───────────────────────────────────────────────────────────
+function storePicker() {
+  const name = S.store === 'all' ? 'All stores' : storeName(S.store)
+  const items = [['all', 'All stores'], ...STORES.map(s => [s.id, s.name])]
+  return `<div class="menuwrap"><button class="btn ghost" data-act="store-menu">${IC.store}${name}${IC.down}</button>${S.menu ? `<div class="menu" id="menu">${items.map(([id, nm], i) => `${i === 1 ? '<hr>' : ''}<button data-act="store" data-sid="${id}">${nm}${S.store === id ? IC.check : ''}</button>`).join('')}</div>` : ''}</div>`
+}
+function viewC() {
+  if (S.store === 'all') return head() + `<div class="pin">${kpis()}${bar(storePicker())}${frame(matrix(), visible())}</div>`
+  const rows = visible()
+  const allOn = rows.length > 0 && rows.every(r => S.sel.has(key(r)))
+  let t = `<table><colgroup><col style="width:48px"><col><col style="width:104px"><col style="width:140px"><col style="width:236px"><col style="width:140px"><col style="width:64px"></colgroup>
+    <thead><tr><th>${box(allOn, 'selall')}</th><th>Article</th><th class="r">Base price</th><th class="r">Price</th><th>Comes from</th><th>Dates</th><th class="r">Stock</th></tr></thead><tbody>`
+  for (const row of rows) {
+    const k = key(row), c = cellOf(row, S.store)
+    const why = c.waiting ? `<span class="amber">Not on ${c.store.name}'s till yet</span>` : c.kind === 'base' ? '<span class="g">—</span>' : c.kind === 'none' ? '<span class="g">Not sold here</span>' : c.label
+    t += `<tr class="rw${S.sel.has(k) ? ' sel' : ''}" data-cell="${k}@${S.store}" style="cursor:pointer"><td>${box(S.sel.has(k), 'sel', k)}</td><td>${artName(row)}</td><td class="r">${n(row.base)}</td><td class="r">${calm(c)}</td><td>${why}</td><td class="m" style="white-space:nowrap">${span(c.from, c.to) || '<span class="g">—</span>'}</td><td class="r">${c.kind === 'none' ? '<span class="g">—</span>' : c.stock}</td></tr>`
+  }
+  t += '</tbody></table>'
+  return head() + `<div class="pin">${kpis([S.store])}${bar(storePicker())}${frame(t, rows)}</div>`
+}
+
+// ── D · Now · Upcoming · History ────────────────────────────────────────────
+function viewD() {
+  const tabs = `<div class="tabs">${[['now', 'Now', articleCount(ROWS)], ['up', 'Upcoming', UPCOMING.length], ['hist', 'History', HISTORY.length]].map(([id, l, c]) => `<button class="tab${S.tab === id ? ' on' : ''}" data-act="tab" data-tab="${id}">${l}<i>${c}</i></button>`).join('')}</div>`
+  if (S.tab === 'now') return head() + `<div class="pin">${kpis()}${tabs}${bar()}${frame(matrix(), visible())}</div>`
+  const list = S.tab === 'up' ? UPCOMING : HISTORY
+  let t = S.tab === 'up'
+    ? `<table><colgroup><col><col style="width:160px"><col style="width:90px"><col style="width:170px"><col style="width:170px"><col style="width:200px"></colgroup><thead><tr><th>Change</th><th>Kind</th><th class="r">Articles</th><th>Stores</th><th>Starts</th><th>Status</th></tr></thead><tbody>`
+    : `<table><colgroup><col style="width:130px"><col><col style="width:160px"><col style="width:90px"><col style="width:170px"><col style="width:170px"></colgroup><thead><tr><th>Date</th><th>Change</th><th>Kind</th><th class="r">Articles</th><th>Stores</th><th>By</th></tr></thead><tbody>`
+  for (const ch of list) {
+    t += S.tab === 'up'
+      ? `<tr class="rw" data-act="change" data-id="${ch.id}" style="cursor:pointer"><td>${ch.name}</td><td>${ch.kind}</td><td class="r">${ch.codes.length}</td><td>${storesText(ch.stores)}</td><td>${ch.when}</td><td>${ch.status.startsWith('Not on') ? `<span class="amber"><i class="dot"></i>${ch.status}</span>` : `<span class="m">${ch.status}</span>`}</td></tr>`
+      : `<tr class="rw" data-act="change" data-id="${ch.id}" style="cursor:pointer"><td>${ch.date}</td><td>${ch.name}</td><td>${ch.kind}</td><td class="r">${ch.codes.length}</td><td>${storesText(ch.stores)}</td><td>${ch.by}</td></tr>`
+  }
+  t += '</tbody></table>'
+  return head() + `<div class="pin">${kpis()}${tabs}<div class="bar">${search(S.tab === 'up' ? 'Search upcoming changes' : 'Search history')}</div><div class="frame"><div class="scroll">${t}</div><div class="tfoot num"><span>${list.length} ${list.length === 1 ? 'change' : 'changes'}</span></div></div></div>`
+}
+
+// ── E · Edit in place ───────────────────────────────────────────────────────
+function editCell(c, k) {
+  if (c.kind === 'none') return '<td class="r"><span class="g">—</span></td>'
+  const ek = k + '@' + c.store.id
+  const v = S.edits[ek]
+  const chg = v != null && v !== c.price
+  return `<td class="r ed${chg ? ' chg' : ''}"><input class="ci${!chg && c.kind === 'base' ? ' base' : ''}" data-ek="${ek}" aria-label="${c.row.name} at ${c.store.name}" inputmode="decimal" autocomplete="off" value="${n(v ?? c.price)}"></td>`
+}
+const changedEdits = () => Object.entries(S.edits).filter(([ek, v]) => { const [k, sid] = ek.split('@'); return v !== cellOf(byKey(k), sid).price })
+function editBar() {
+  const ch = changedEdits()
+  const stores = new Set(ch.map(([ek]) => ek.split('@')[1])).size
+  return `<div class="bar" id="ebar">${seg('ekind', [['price', 'New price'], ['md', 'Markdown']], S.ekind)}${select('estarts', ['After publish', 'Mon 19 Oct 2026', 'Sun 1 Nov 2026'], S.estarts)}<span class="sp"></span>
+    <span class="m num">${ch.length ? `${ch.length} ${ch.length === 1 ? 'price' : 'prices'} changed` : ''}</span><button class="btn red" data-act="edit-cancel">Cancel</button><button class="btn pri" data-act="edit-publish"${ch.length ? '' : ' disabled'}>${ch.length ? `Publish to ${stores} ${stores === 1 ? 'store' : 'stores'}` : 'Publish'}</button></div>`
+}
+function viewE() {
+  if (!S.edit) return head('<button class="btn pri" data-act="edit">Edit prices</button>') + `<div class="pin" id="pin">${kpis()}<div class="bar">${search()}<button class="btn ghost">Division</button></div>${frame(matrix({ check: false }), visible())}</div>`
+  return head() + `<div class="pin" id="pin">${kpis()}${editBar()}${frame(matrix({ edit: true, check: false }), visible())}</div>`
+}
+// "149000", "149.000", "-20%", "+5%"; % is taken from the store's own normal price
+function parseEntry(raw, normal) {
+  const s = String(raw).trim().replace(/\s/g, '')
+  if (!s) return null
+  if (s.endsWith('%')) {
+    const p = parseFloat(s.replace('%', '').replace(',', '.').replace('−', '-'))
+    if (isNaN(p)) return null
+    const pct = S.ekind === 'md' ? -Math.abs(p) : p
+    return Math.round(normal * (100 + pct) / 100)
+  }
+  const v = parseInt(s.replace(/[^\d]/g, ''), 10)
+  return isNaN(v) || v <= 0 ? null : v
+}
+
+// ── F · Source in the cell: every price that can be charged, written out ──────
+function fullCell(c) {
+  if (c.kind === 'none') return '<span class="g">Not sold here</span>'
+  let h = `<div>${calm(c)}</div>`
+  if (c.waiting) h += `<div class="amber">Waiting for ${c.store.name}</div>`
+  else if (c.kind !== 'base') h += `<div class="g">${sourceOf(c)}</div>`
+  for (const x of extrasOf(c)) h += `<div class="g">${x.o.short} <span class="${x.helps ? 'ink' : ''}">${n(x.price)}</span></div>`
+  return h
+}
+const viewF = () => head() + `<div class="pin">${kpis()}${bar()}${frame(matrix({ cellFn: fullCell, st: 176, cls: 'fcell' }), visible())}</div>`
+
+// ── G · Offers under the name: every rule on the article, once per row ───────
+function offerLines(row) {
+  const sold = cellsOf(row).filter(c => c.kind !== 'none').map(c => c.store.id)
+  const where = ids => ids.length === sold.length ? '' : ' · ' + (ids.length <= 2 ? ids.map(storeName).join(', ') : ids.length + ' stores')
+  const L = []
+  if (row.promo) {
+    const ids = sold.filter(id => !row.waiting?.includes(id))
+    L.push(`<button class="ofl" data-act="offer" data-id="${row.promo.id}">${row.promo.label}</button><span class="g">${where(ids)}</span>${row.waiting?.length ? `<span class="amber"> · waiting for ${row.waiting.map(storeName).join(', ')}</span>` : ''}`)
+  }
+  const byPct = new Map()
+  for (const [id, m] of Object.entries(row.md || {})) byPct.set(m.pct, [...(byPct.get(m.pct) || []), id])
+  for (const [pct, ids] of byPct) L.push(`Markdown <span class="g">−${pct}%${where(ids)}</span>`)
+  const own = Object.keys(row.own || {})
+  if (own.length) L.push(`Store price <span class="g">${where(own) || ' · every store'}</span>`)
+  for (const o of offersFor(row)) L.push(`<button class="ofl" data-act="offer" data-id="${o.id}">${o.name}</button><span class="g"> · ${o.free ? 'take 3' : (o.pct ? '−' + o.pct + '% · ' : '') + whoOf(o).toLowerCase()}</span>`)
+  if (row.next) L.push(`${row.next.change} <span class="g">· from ${row.next.from}</span>`)
+  return L
+}
+const viewG = () => head() + `<div class="pin">${kpis()}${bar()}${frame(matrix({ art: 380, artFn: row => artName(row) + `<div class="offs">${offerLines(row).map(l => `<div>${l}</div>`).join('')}</div>` }), visible())}</div>`
+
+// ── H · Price per shopper: one store, a column for each kind of shopper ──────
+// Everyone | Comes from | Members | Buying more | With code — one store's prices by kind of shopper
+function shopperCells(c) {
+  const none = '<span class="g">—</span>'
+  if (c.kind === 'none') return `<td class="r">${none}</td><td class="g">Not sold here</td><td class="r">${none}</td><td class="r">${none}</td><td class="r">${none}</td>`
+  const mem = extraOf(c, 'Members'), more = extraOf(c, 'Buy more'), code = extraOf(c, 'With code')
+  const from = c.waiting ? `<span class="amber">Not on ${c.store.name}'s till yet</span>` : c.kind === 'base' ? '<span class="g">Base price</span>' : sourceOf(c)
+  return `<td class="r">${calm(c)}</td><td>${from}</td><td class="r">${mem ? offerPrice(mem) : none}</td><td class="r">${more ? `${offerPrice(more)}<div class="g">${more.o.short}</div>` : none}</td><td class="r">${code ? `${offerPrice(code)}<div class="g">${code.o.short}</div>` : none}</td>`
+}
+const SHOPPER_HEAD = '<th class="r">Everyone</th><th>Comes from</th><th class="r">Members</th><th class="r">Buying more</th><th class="r">With code</th>'
+
+// ── J · Three views of one page: all stores = G, one store = H, one article = stores × shoppers ──
+const viewJ = () => S.store === 'all'
+  ? head() + `<div class="pin">${kpis()}${bar(storePicker())}${frame(matrix({ art: 380, artFn: row => artName(row) + `<div class="offs">${offerLines(row).map(l => `<div>${l}</div>`).join('')}</div>` }), visible())}</div>`
+  : viewH()
+
+// ── K · Now → Then: per article what it costs now and why, until when, and what it becomes ──
+// "upcoming" and "when the promo ends" are the same question: the next price
+const priceLine = p => p.kind === 'base' ? `<span class="g">${n(p.price)}</span>` : `${n(p.price)}${p.pctText ? ` <span class="g">${p.pctText}</span>` : ''}`
+const nowCell = tl => `<div>${tl.waiting ? '<i class="dot"></i>' : ''}${priceLine(tl.now)}</div><div class="${tl.waiting ? 'amber' : 'g'}">${tl.waiting ? `Not on ${storeName(tl.sid)}'s till yet` : tl.now.label}</div>`
+const untilCell = tl => tl.steps.length ? dayText(tl.steps[0].day - 1) : '<span class="g">—</span>'
+const thenCell = tl => tl.steps.length ? `<div>${priceLine(tl.steps[0])}</div><div class="g">${tl.steps[0].label}</div>` : '<span class="g">—</span>'
+const sigOf = tl => [tl.now.price, tl.now.label, tl.waiting, tl.steps[0]?.day, tl.steps[0]?.price, tl.steps[0]?.label].join('|')
+// a small picture of the article: its silhouette on its colourway (prototype stand-in for the photo)
+const SIL = {
+  top: '<path d="M8 4 4 7l2 3 2-1v11h8V9l2 1 2-3-4-3a4 4 0 0 1-8 0Z"/>',
+  pants: '<path d="M7 3h10l1 18h-4l-2-11-2 11H6Z"/>',
+  dress: '<path d="M9 3h6l-1 4 4 14H6l4-14Z"/>',
+  skirt: '<path d="M8 4h8l3 16H5Z"/>',
+  shoe: '<path d="M3 15c0-3 1-6 3-7l3 3c2 1 5 2 9 2 2 0 3 1 3 3v1H3Z"/>',
+  bag: '<path d="M5 8h14l-1 12H6Z"/><path d="M9 8a3 3 0 0 1 6 0"/>',
+  hat: '<path d="M4 16c0-4 3-8 8-8s8 4 8 8Z"/><path d="M2 16h20"/>',
+}
+const LOOK = { '00000001': ['top', '#f3d9e3'], '00000002': ['pants', '#e6dccb'], '00000003': ['top', '#dfe6f2'], '00000004': ['top', '#fbe7c6'], '00000005': ['top', '#dbe7f5'], '00000006': ['shoe', '#efe1d6'], '00000007': ['shoe', '#e2d6cc'], '00000008': ['shoe', '#d9eee8'], '00000009': ['shoe', '#e9e9ec'], '00000010': ['bag', '#e4ddd0'], '00000011': ['dress', '#e9eedf'], '00000012': ['top', '#d6dfee'], '00000013': ['skirt', '#efdcec'], '00000014': ['hat', '#e8e2d2'] }
+const photo = row => { const [k, bg] = LOOK[row.code] || ['top', '#eee']; return `<span class="ph" style="background:${bg}"><svg viewBox="0 0 24 24">${SIL[k]}</svg></span>` }
+const artCell = row => `<div class="ac">${photo(row)}<div class="acx">${artName(row)}<div class="g">${row.div}${row.tags.length ? ' · ' + row.tags.join(', ') : ''}</div></div></div>`
+
+// K's table on its own, so the Pricelist can show it as "By article"
+function kTable() {
+  const rows = visible(), one = S.store !== 'all'
+  const allOn = rows.length > 0 && rows.every(r => S.sel.has(key(r)))
+  let t = `<table><colgroup><col style="width:48px"><col><col style="width:210px"><col style="width:90px"><col style="width:210px"><col style="width:90px">${one ? '' : '<col style="width:170px">'}</colgroup>
+    <thead><tr><th>${box(allOn, 'selall')}</th><th>Article</th><th class="r">Current price</th><th>Ends</th><th class="r">Next price</th><th class="r">Stock</th>${one ? '' : '<th>Stores</th>'}</tr></thead><tbody>`
+  for (const row of rows) {
+    const k = key(row)
+    const cks = `<td>${box(S.sel.has(k), 'sel', k)}</td>`
+    const cells = cellsOf(row)
+    if (one) {
+      const tl = timelineOf(row, S.store), st = cellOf(row, S.store).stock
+      t += tl ? `<tr class="rw kr${S.sel.has(k) ? ' sel' : ''}" data-cell="${k}@${S.store}" style="cursor:pointer">${cks}<td>${artCell(row)}</td><td class="r">${nowCell(tl)}</td><td>${untilCell(tl)}</td><td class="r">${thenCell(tl)}</td><td class="r${st ? '' : ' g'}">${n(st)}</td></tr>`
+        : `<tr class="rw kr">${cks}<td>${artCell(row)}</td><td class="r g">Not sold here</td><td></td><td></td><td></td></tr>`
+      continue
+    }
+    const tls = ALL.map(sid => timelineOf(row, sid)).filter(Boolean)
+    const groups = new Map()
+    for (const tl of tls) groups.set(sigOf(tl), [...(groups.get(sigOf(tl)) || []), tl])
+    const main = [...groups.values()].sort((a, b) => b.length - a.length)[0]
+    const differ = tls.filter(tl => !main.includes(tl))
+    const notSold = ALL.filter(sid => row.notSold?.includes(sid))
+    const open = S.exp.has(k)
+    const total = cells.reduce((a, c) => a + (c.kind === 'none' ? 0 : c.stock), 0)
+    let where = notSold.length ? `<span class="g">Not at ${notSold.map(storeName).join(', ')}</span>` : '<span class="g">All stores</span>'
+    if (differ.length) where = `<button class="exb" data-act="exp" data-key="${k}">${differ.some(tl => tl.waiting) ? '<i class="dot"></i>' : ''}Different at ${differ.length <= 2 ? differ.map(tl => storeName(tl.sid)).join(', ') : differ.length + ' stores'}<span class="chev${open ? ' open' : ''}">${IC.chev}</span></button>`
+    const tl = main[0]
+    t += `<tr class="rw kr${S.sel.has(k) ? ' sel' : ''}" data-act="art" data-key="${k}" style="cursor:pointer">${cks}<td>${artCell(row)}</td><td class="r">${nowCell(tl)}</td><td>${untilCell(tl)}</td><td class="r">${thenCell(tl)}</td><td class="r">${n(total)}</td><td>${where}</td></tr>`
+    if (open) for (const d of differ) { const st = cellOf(row, d.sid).stock; t += `<tr class="rw kr sub" data-cell="${k}@${d.sid}" style="cursor:pointer"><td></td><td class="sname">${storeName(d.sid)}</td><td class="r">${nowCell(d)}</td><td>${untilCell(d)}</td><td class="r">${thenCell(d)}</td><td class="r${st ? '' : ' g'}">${n(st)}</td><td></td></tr>` }
+  }
+  t += '</tbody></table>'
+  return { t, rows, one }
+}
+
+function viewK() {
+  const { t, rows, one } = kTable()
+  return head() + `<div class="pin">${kpis(one ? [S.store] : ALL)}${bar(storePicker())}${frame(t, rows)}</div>`
+}
+
+// ── M · K + L: the price every store follows, written once; store columns light up only where a store differs ──
+const nextLine = (tl, why = false) => tl.steps.length ? `<div class="g">until ${dayText(tl.steps[0].day - 1)} → ${n(tl.steps[0].price)}${why ? ` · ${tl.steps[0].label}` : ''}</div>` : ''
+// the tags a price can carry: where it comes from, a problem, or that it is about to change
+function tagsOf(c, tl) {
+  const T = []
+  if (c.kind === 'promo') T.push(['promo', 'Promo'])
+  if (c.kind === 'md') T.push(['md', 'Markdown'])
+  if (tl.waiting) T.push(['wait', 'Not on till yet'])
+  if (COST[c.row.code] && c.price < COST[c.row.code]) T.push(['low', 'Below cost'])
+  if (tl.steps.length) T.push(['chg', `Changes ${dayText(tl.steps[0].day)}`])
+  return T
+}
+const tagRow = T => T.length ? `<div class="tgs">${T.map(([k, l]) => `<span class="tg ${k}">${l}</span>`).join('')}</div>` : ''
+const PC_DOT = { Scheduled: 'var(--grey)', Sending: 'var(--amber)', Active: '#2f9e5b', Ended: 'var(--faint)' }
+const pcStatus = pc => `<span class="${pc.status === 'Ended' ? 'g' : ''}" style="white-space:nowrap"><i class="dot" style="background:${PC_DOT[pc.status]}"></i>${pc.status}${pc.status === 'Sending' ? ` · ${pc.got} of ${pc.stores.length}` : ''}</span>`
+function viewM() {
+  const tabs = `<div class="tabs">${[['prices', 'Prices', articleCount(ROWS)], ['changes', 'Price changes', PCS.length]].map(([id, l, c]) => `<button class="tab${(S.mtab || 'prices') === id ? ' on' : ''}" data-act="mtab" data-tab="${id}">${l}<i>${c}</i></button>`).join('')}</div>`
+  const top = head() + `<div class="pin">${kpis(ALL, true)}${tabs}`
+  if (S.mtab === 'changes') {
+    const list = [...PCS].reverse()
+    let t = `<table><colgroup><col style="width:170px"><col style="width:190px"><col><col style="width:180px"><col style="width:110px"><col style="width:110px"><col style="width:170px"><col style="width:160px"></colgroup>
+      <thead><tr><th>Number</th><th>Kind</th><th>Articles</th><th>Stores</th><th>Starts</th><th>Ends</th><th>Status</th><th>Published by</th></tr></thead><tbody>`
+    for (const pc of list) {
+      const names = pc.codes.map(code => ROWS.find(r => r.code === code).name)
+      t += `<tr class="rw" data-act="pc" data-no="${pc.no}" style="cursor:pointer"><td>${pc.no}</td><td>${pc.kind}${pc.pct ? ` <span class="g">−${pc.pct}%</span>` : ''}</td><td>${names.length === 1 ? names[0] : names.length + ' articles'}</td><td>${storesText(pc.stores)}</td><td>${pc.from}</td><td>${pc.to ?? '<span class="g">—</span>'}</td><td>${pcStatus(pc)}</td><td>${pc.by}</td></tr>`
+    }
+    t += '</tbody></table>'
+    return top + `<div class="bar">${search('Search price changes')}</div><div class="frame"><div class="scroll" id="scroll">${t}</div><div class="tfoot num"><span>${list.length} price changes</span></div></div></div>`
+  }
+  const view = S.mview || 'store'
+  const sw = seg('mview', [['article', 'By article'], ['store', 'By store']], view)
+  if (view === 'article') { const { t: kt, rows: kr } = kTable(); return top + `${bar(sw + storePicker())}${frame(kt, kr)}</div>` }
+  const rows = visible()
+  const W = [48, 310, 220, ...STORES.map(() => 158)]
+  const allOn = rows.length > 0 && rows.every(r => S.sel.has(key(r)))
+  let t = `<table class="mx mtab" style="width:${W.reduce((a, b) => a + b)}px"><colgroup>${W.map(w => `<col style="width:${w}px">`).join('')}</colgroup><thead><tr>
+    <th class="stick" style="left:0">${box(allOn, 'selall')}</th><th class="stick" style="left:48px">Article</th><th class="stick r grp" style="left:358px">All stores</th>${STORES.map(s => `<th class="r">${s.name}</th>`).join('')}</tr></thead><tbody>`
+  for (const row of rows) {
+    const k = key(row)
+    const tls = ALL.map(sid => timelineOf(row, sid))
+    const groups = new Map()
+    for (const tl of tls.filter(Boolean)) groups.set(sigOf(tl), [...(groups.get(sigOf(tl)) || []), tl])
+    const main = [...groups.values()].sort((a, b) => b.length - a.length)[0], m = main[0]
+    const cells = cellsOf(row), total = cells.reduce((a, c) => a + (c.kind === 'none' ? 0 : c.stock), 0)
+    t += `<tr class="rw mr${S.sel.has(k) ? ' sel' : ''}"><td class="stick" style="left:0">${box(S.sel.has(k), 'sel', k)}</td><td class="stick" style="left:48px">${artCell(row)}</td>
+      <td class="stick r grp mcell" style="left:358px"><div class="pp">${priceLine(m.now)}</div><div class="pcs">${n(total)} pcs</div>${tagRow(tagsOf(cellOf(row, m.sid), m))}</td>`
+    tls.forEach((tl, i) => {
+      const sid = ALL[i], c = cells[i], zero = c.stock === 0 ? ' zero' : ''
+      if (!tl) { t += '<td class="r g mcell">Not sold</td>'; return }
+      const same = main.includes(tl)
+      const price = same ? `<span class="g">${n(tl.now.price)}</span>` : priceLine(tl.now)
+      t += `<td class="r pc mcell" data-cell="${k}@${sid}"><div class="pp${zero}">${price}</div><div class="pcs${zero}">${n(c.stock)} pcs</div>${same ? '' : tagRow(tagsOf(c, tl))}</td>`
+    })
+    t += '</tr>'
+  }
+  t += '</tbody></table>'
+  return top + `${bar(sw)}${frame(t, rows)}</div>`
+}
+
+function pcParts(pc) {
+  const lines = pc.codes.map(code => {
+    const row = ROWS.find(r => r.code === code && (!pc.band || r.band === pc.band))
+    const c = cellOf(row, pc.stores[0])
+    const before = pc.kind === 'Markdown' ? c.normal : row.base
+    const after = pc.price ?? off(c.normal, pc.pct)
+    return `<tr data-act="art" data-key="${key(row)}" style="cursor:pointer"><td>${row.name}${row.band ? ` <span class="g">${row.band}</span>` : ''}</td><td class="m">${storesText(pc.stores)}</td><td class="r g">${n(before)}</td><td class="r">${n(after)} <span class="g">${pctVs(after, before)}</span></td></tr>`
+  })
+  return {
+    crumb: 'Pricelist / Price changes', title: pc.no, sub: `${pc.kind}${pc.pct ? ' −' + pc.pct + '%' : ''} · ${pc.by}`,
+    body: kstrip([['Status', pc.status + (pc.status === 'Sending' ? ` · ${pc.got} of ${pc.stores.length}` : '')], ['Starts', pc.from], ['Ends', pc.to ?? '—'], ['Stores', pc.stores.length === STORES.length ? 'All 8' : pc.stores.length]])
+      + miniTable(['Article', 'Stores', { l: 'Before', r: 1 }, { l: 'After', r: 1 }], lines),
+    foot: pc.status === 'Scheduled' ? `<button class="btn red" data-act="pc-withdraw" data-no="${pc.no}">Withdraw</button>` : '<button class="btn ghost" data-act="x">Close</button>',
+  }
+}
+
+function viewH() {
+  if (S.store === 'all') return head() + `<div class="pin">${kpis()}${bar(storePicker())}${frame(matrix({ cellFn: fullCell, st: 176, cls: 'fcell' }), visible())}</div>`
+  const rows = visible()
+  const allOn = rows.length > 0 && rows.every(r => S.sel.has(key(r)))
+  let t = `<table><colgroup><col style="width:48px"><col><col style="width:128px"><col style="width:214px"><col style="width:116px"><col style="width:130px"><col style="width:126px"></colgroup>
+    <thead><tr><th>${box(allOn, 'selall')}</th><th>Article</th>${SHOPPER_HEAD}</tr></thead><tbody>`
+  for (const row of rows) {
+    const k = key(row), c = cellOf(row, S.store)
+    t += `<tr class="rw${S.sel.has(k) ? ' sel' : ''}" data-cell="${k}@${S.store}" style="cursor:pointer"><td>${box(S.sel.has(k), 'sel', k)}</td><td>${artName(row)}</td>${shopperCells(c)}</tr>`
+  }
+  t += '</tbody></table>'
+  return head() + `<div class="pin">${kpis([S.store])}${bar(storePicker())}${frame(t, rows)}</div>`
+}
+
+// ── I · A row per price: the article's row is what everyone pays now; one row under it ─────
+// for each rule and each kind of shopper, one figure per store (struck = applies but not charged)
+function layersOf(row) {
+  const L = []
+  if (row.promo) L.push({
+    label: `<button class="ofl" data-act="offer" data-id="${row.promo.id}">${row.promo.label}</button> <span class="g">${span(row.promo.from, row.promo.to)}</span>`,
+    at: c => {
+      const p = off(c.normal, row.promo.pct)
+      if (row.waiting?.includes(c.store.id)) return `<span class="amber"><i class="dot"></i>${n(p)}</span>`
+      return c.kind === 'promo' ? `${n(p)} <span class="g">−${row.promo.pct}%</span>` : `<span class="g strike">${n(p)}</span>`
+    },
+  })
+  const byPct = new Map()
+  for (const m of Object.values(row.md || {})) if (!byPct.has(m.pct)) byPct.set(m.pct, m)
+  for (const [pct, m] of byPct) L.push({
+    label: `Markdown −${pct}% <span class="g">${span(m.from, m.to)}</span>`,
+    at: c => {
+      const md = row.md?.[c.store.id]
+      if (!md || md.pct !== pct) return ''
+      const p = md.price ?? off(c.normal, md.pct)
+      return c.kind === 'md' && c.price === p ? `${n(p)} <span class="g">−${pct}%</span>` : `<span class="g strike">${n(p)}</span>`
+    },
+  })
+  const own = Object.values(row.own || {})
+  if (own.length) L.push({
+    label: `Store price <span class="g">${span(own[0].from)}</span>`,
+    at: c => { const o = row.own?.[c.store.id]; return !o ? '' : c.kind === 'own' ? `${n(o.price)} <span class="g">${pctVs(o.price, row.base)}</span>` : `<span class="g">${n(o.price)}</span>` },
+  })
+  for (const o of offersFor(row)) L.push({
+    label: `<button class="ofl" data-act="offer" data-id="${o.id}">${whoOf(o)} <span class="g">· ${o.name}</span></button>`,
+    at: c => { const x = extrasOf(c).find(x => x.o === o); return x ? offerPrice(x) : '' },
+  })
+  if (row.next) L.push({
+    label: `From ${row.next.from} <span class="g">· ${row.next.change}</span>`,
+    at: c => c.next ? `${n(c.next.price)}${c.next.pctText ? ` <span class="g">${c.next.pctText}</span>` : ''}` : '',
+  })
+  return L
+}
+function viewI() {
+  const rows = visible()
+  const W = [48, 360, 112, ...STORES.map(() => 124)]
+  const allOn = rows.length > 0 && rows.every(r => S.sel.has(key(r)))
+  let t = `<table class="mx" style="width:${W.reduce((a, b) => a + b)}px"><colgroup>${W.map(w => `<col style="width:${w}px">`).join('')}</colgroup><thead><tr>
+    <th class="stick" style="left:0">${box(allOn, 'selall')}</th><th class="stick art" style="left:48px">Article</th><th class="r grp">Base price</th>${STORES.map(s => `<th class="r">${s.name}</th>`).join('')}</tr></thead><tbody>`
+  for (const row of rows) {
+    const k = key(row), cells = cellsOf(row), layers = layersOf(row)
+    const td = (c, html) => `<td class="r pc" data-cell="${k}@${c.store.id}">${c.kind === 'none' ? (html === null ? '<span class="g">—</span>' : '') : html ?? calm(c)}</td>`
+    t += `<tr class="rw${S.sel.has(k) ? ' sel' : ''}${layers.length ? ' has-lay' : ''}"><td class="stick" style="left:0">${box(S.sel.has(k), 'sel', k)}</td><td class="stick art" style="left:48px">${artName(row)}</td><td class="r grp">${n(row.base)}</td>${cells.map(c => td(c, c.kind === 'none' ? null : undefined)).join('')}</tr>`
+    layers.forEach((l, i) => {
+      t += `<tr class="rw lay${i === layers.length - 1 ? ' end' : ''}"><td class="stick" style="left:0"></td><td class="stick art lab" style="left:48px">${l.label}</td><td class="grp"></td>${cells.map(c => td(c, c.kind === 'none' ? '' : l.at(c))).join('')}</tr>`
+    })
+  }
+  t += '</tbody></table>'
+  return head() + `<div class="pin">${kpis()}${bar()}${frame(t, rows)}</div>`
+}
+
+function offerParts(id) {
+  const promo = PROMOS.find(p => p.id === id), o = OFFERS.find(x => x.id === id)
+  const rows = promo ? ROWS.filter(r => r.promo === promo) : ROWS.filter(r => offersFor(r).includes(o))
+  const lines = rows.map(row => {
+    const sold = cellsOf(row).filter(c => c.kind !== 'none'), c = modeOf(sold)
+    let w
+    if (promo) { const p = off(c.normal, promo.pct); w = p === c.price ? n(p) : `<span class="g strike">${n(p)}</span>` }
+    else { const x = extrasOf(c).find(x => x.o === o); w = offerPrice(x) }
+    return `<tr data-act="art" data-key="${key(row)}" style="cursor:pointer"><td>${row.name}${row.band ? ` <span class="g">${row.band}</span>` : ''}</td><td class="r">${n(row.base)}</td><td class="r">${calm(c)}</td><td class="r">${w}</td></tr>`
+  })
+  const name = promo ? promo.label : o.name
+  const what = promo ? `−${promo.pct}%` : o.free ? `Take ${o.free[0] + o.free[1]}, pay ${o.free[0]}` : `−${o.pct}%`
+  const who = promo ? 'Everyone' : o.kind === 'Members' ? 'Members' : o.kind === 'With code' ? 'With the code' : 'Everyone, 2 or more'
+  const f = promo ?? o
+  return {
+    crumb: 'Pricelist', title: name, sub: promo ? 'Promotion' : o.kind,
+    body: kstrip([['Discount', what], ['Who', who], ['Dates', span(f.from, f.to)], ['Articles', rows.length]])
+      + miniTable(['Article', { l: 'Base price', r: 1 }, { l: 'Everyone pays', r: 1 }, { l: 'With this', r: 1 }], lines),
+    foot: '<button class="btn ghost" data-act="x">Close</button>',
+  }
+}
+
+// ── sheets: one layer move, one mode move ───────────────────────────────────
+const stack = []
+function openSheet({ w = 560, crumb, title, sub = '', body, foot = '' }) {
+  const el = document.createElement('aside')
+  el.className = 'sheet'
+  el.style.width = w + 'px'
+  el.innerHTML = sheetInner({ crumb, title, sub, body, foot })
+  $('#sheets').appendChild(el)
+  stack.at(-1)?.classList.add('under')
+  stack.push(el)
+  $('#veil').classList.add('on')
+  hideHC()
+  el.getBoundingClientRect() // commit the start position so the slide-in runs
+  el.classList.add('in')
+  return el
+}
+const sheetInner = ({ crumb, title, sub, body, foot }) => `<div class="sh-head"><div><div class="crumb">${crumb}</div><h2>${title}</h2>${sub ? `<div class="sub">${sub}</div>` : ''}</div><button class="sh-x" data-act="x" aria-label="Close">${IC.x}</button></div><div class="sh-body">${body}</div><div class="sh-foot">${foot}</div>`
+function closeTop() {
+  const el = stack.pop()
+  if (!el) return
+  el.classList.remove('in'); el.classList.add('out')
+  setTimeout(() => el.remove(), 220)
+  stack.at(-1)?.classList.remove('under')
+  if (!stack.length) $('#veil').classList.remove('on')
+}
+const closeAll = () => { while (stack.length) closeTop() }
+// mode move: the frame stays, its contents swap out (100ms) and in (160ms)
+// the swap runs on a timer, so a paused animation (a background tab) never strands the old contents
+const still = matchMedia('(prefers-reduced-motion: reduce)')
+function swapIn(target, change) {
+  const out = still.matches ? null : target.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 100, easing: 'ease-out', fill: 'forwards' })
+  setTimeout(() => {
+    const el = change()
+    out?.cancel()
+    if (!still.matches) el.animate([{ opacity: 0, transform: 'translateY(4px)' }, { opacity: 1, transform: 'none' }], { duration: 160, easing: 'cubic-bezier(.23,1,.32,1)' })
+  }, out ? 100 : 0)
+}
+const swap = (el, parts) => swapIn(el, () => { el.innerHTML = sheetInner(parts); return el })
+
+const kstrip = list => `<div class="kpis num" style="margin-bottom:26px">${list.map(([l, v]) => `<div class="kpi"><span>${l}</span><strong>${v}</strong></div>`).join('')}</div>`
+const miniTable = (heads, rows) => `<div class="mframe"><table class="mini"><thead><tr>${heads.map(h => `<th${h.r ? ' class="r"' : ''}>${h.l ?? h}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table></div>`
+
+function cellParts(c) {
+  const row = c.row
+  const crumb = 'Pricelist'
+  const title = row.name
+  const sub = `${c.store.name} · ${row.band ? 'Sizes ' + row.band : 'All sizes'} · ${row.code}`
+  if (c.kind === 'none') return { crumb, title, sub, body: `${kstrip([['Charged now', '—'], ['Base price', rp(row.base)]])}<div class="m">Not sold at ${c.store.name}.</div>`, foot: '' }
+  const lines = [`<tr><td>${c.label}</td><td class="m">${span(c.from, c.to) || '—'}</td><td class="r">${rp(c.price)}${c.pctText ? ` <span class="g">${c.pctText}</span>` : ''}</td></tr>`]
+  for (const l of c.lost || []) lines.push(`<tr><td class="g">${l.label}</td><td class="g">${span(l.from, l.to)}</td><td class="r g strike">${rp(l.price)}</td></tr>`)
+  if (c.own && c.kind !== 'own') lines.push(`<tr><td class="g">Store price</td><td class="g">${span(c.own.from)}</td><td class="r g">${rp(c.own.price)}</td></tr>`)
+  if (c.kind !== 'base') lines.push(`<tr><td class="g">Base price</td><td class="g">—</td><td class="r g">${rp(row.base)}</td></tr>`)
+  const up = [], ex = extrasOf(c)
+  if (c.waiting) up.push(`<tr><td>${c.waiting.label}</td><td class="amber"><i class="dot"></i>Not on ${c.store.name}'s till yet</td><td class="r">${rp(c.waiting.price)} <span class="g">${c.waiting.pctText}</span></td></tr>`)
+  if (c.next && S.v !== 'k' && S.v !== 'm') up.push(`<tr><td>${c.next.label}</td><td class="m">from ${c.next.from}</td><td class="r">${rp(c.next.price)}${c.next.pctText ? ` <span class="g">${c.next.pctText}</span>` : ''}</td></tr>`)
+  const body = kstrip([['Charged now', rp(c.price)], [c.own ? 'Store price' : 'Base price', rp(c.normal)], ['Stock', n(c.stock) + ' pcs']])
+    + `<h3 class="sec">Why this price</h3>${miniTable(['Comes from', 'Dates', { l: 'Price', r: 1 }], lines)}`
+    + (up.length ? `<h3 class="sec">Upcoming</h3>${miniTable(['Change', 'Starts', { l: 'Price', r: 1 }], up)}` : '')
+    + ((S.v === 'k' || S.v === 'm') && timelineOf(row, c.store.id)?.steps.length ? `<h3 class="sec">Next prices</h3>${miniTable(['From', 'Comes from', { l: 'Price', r: 1 }], timelineOf(row, c.store.id).steps.map(st => `<tr><td>${dayText(st.day)}</td><td class="m">${st.label}</td><td class="r">${priceLine(st)}</td></tr>`))}` : '')
+    + (ex.length ? `<h3 class="sec">Who pays what</h3>${miniTable(['Who', 'Offer', { l: 'Price', r: 1 }], [`<tr><td>Everyone</td><td class="m">${sourceOf(c) || 'Base price'}</td><td class="r">${rp(c.price)}</td></tr>`, ...ex.map(x => `<tr><td>${whoOf(x.o)}</td><td class="m">${x.o.name}</td><td class="r${x.helps ? '' : ' g'}">${rp(x.price)}${x.helps ? ` <span class="g">${x.pctText}</span>` : ''}</td></tr>`)])}` : '')
+  return { crumb, title, sub, body, foot: `<button class="btn pri" data-act="to-form" data-ck="${key(row)}@${c.store.id}">Change price</button>` }
+}
+function articleParts(row) {
+  const k = key(row)
+  const cells = cellsOf(row), sold = cells.filter(c => c.kind !== 'none')
+  const onBase = sold.filter(c => c.kind === 'base').length
+  const low = Math.min(...sold.map(c => c.price))
+  const lines = cells.map(c => `<tr data-cell="${k}@${c.store.id}" style="cursor:pointer"><td>${c.store.name}</td><td class="r">${calm(c)}</td><td>${c.waiting ? `<span class="amber">Not on the till yet</span>` : c.kind === 'base' ? '<span class="g">—</span>' : c.kind === 'none' ? '<span class="g">Not sold here</span>' : c.label}</td><td class="m">${span(c.from, c.to) || '<span class="g">—</span>'}</td><td class="r">${c.kind === 'none' ? '<span class="g">—</span>' : c.stock}</td></tr>`)
+  const sub = `${row.code} · ${row.div} · ${row.band ? 'Sizes ' + row.band + ' · ' : ''}${row.skus} SKU`
+  if (S.v === 'k' || S.v === 'm') {
+    const tls = ALL.map(sid => timelineOf(row, sid))
+    const next = tls.filter(Boolean).flatMap(tl => tl.steps.map(st => st.day)).sort((a, b) => a - b)[0]
+    return {
+      crumb: 'Pricelist', title: row.name, sub,
+      body: kstrip([['Base price', rp(row.base)], ['Lowest now', rp(low)], ['Next change', next ? dayText(next) : '—'], ['Stock in stores', n(sold.reduce((a, c) => a + c.stock, 0)) + ' pcs']])
+        + `<div class="mframe"><table class="mini"><colgroup><col style="width:130px"><col><col style="width:96px"><col><col style="width:84px"></colgroup><thead><tr><th>Store</th><th class="r">Current price</th><th>Ends</th><th class="r">Next price</th><th class="r">Stock</th></tr></thead><tbody>`
+        + tls.map((tl, i) => tl ? `<tr class="kr" data-cell="${k}@${ALL[i]}" style="cursor:pointer"><td>${storeName(ALL[i])}</td><td class="r">${nowCell(tl)}</td><td>${untilCell(tl)}</td><td class="r">${thenCell(tl)}</td><td class="r${cells[i].stock ? '' : ' g'}">${cells[i].stock ? n(cells[i].stock) : 'None'}</td></tr>` : `<tr><td>${storeName(ALL[i])}</td><td class="r g">Not sold here</td><td></td><td></td><td></td></tr>`).join('') + '</tbody></table></div>',
+      foot: `<button class="btn pri" data-act="to-form-art" data-key="${k}">Change price</button>`,
+    }
+  }
+  if (S.v === 'j') return {
+    crumb: 'Pricelist', title: row.name, sub,
+    body: kstrip([['Base price', rp(row.base)], ['Lowest now', rp(low)], ['On base price', `${onBase} of ${sold.length}`]])
+      + `<div class="mframe"><table class="mini"><colgroup><col style="width:130px"><col style="width:132px"><col><col style="width:120px"><col style="width:136px"><col style="width:130px"></colgroup><thead><tr><th>Store</th>${SHOPPER_HEAD}</tr></thead><tbody>`
+      + cells.map(c => `<tr data-cell="${k}@${c.store.id}" style="cursor:pointer"><td>${c.store.name}</td>${shopperCells(c)}</tr>`).join('') + '</tbody></table></div>'
+      + (row.next ? `<h3 class="sec">Upcoming</h3>${miniTable(['Change', 'Starts', { l: 'Everyone pays', r: 1 }], [`<tr><td>${row.next.change}</td><td class="m">from ${row.next.from}</td><td class="r">${n(cells.find(c => c.next).next.price)} <span class="g">${cells.find(c => c.next).next.pctText}</span></td></tr>`])}` : ''),
+    foot: `<button class="btn pri" data-act="to-form-art" data-key="${k}">Change price</button>`,
+  }
+  return {
+    crumb: 'Pricelist', title: row.name, sub,
+    body: kstrip([['Base price', rp(row.base)], ['Lowest now', rp(low)], ['On base price', `${onBase} of ${sold.length}`]]) + miniTable(['Store', { l: 'Price', r: 1 }, 'Comes from', 'Dates', { l: 'Stock', r: 1 }], lines),
+    foot: `<button class="btn pri" data-act="to-form-art" data-key="${k}">Change price</button>`,
+  }
+}
+function changeParts(ch) {
+  const isUp = UPCOMING.includes(ch)
+  const lines = ch.codes.map(code => {
+    const row = ROWS.find(r => r.code === code)
+    const cells = ch.stores.map(sid => cellOf(row, sid)).filter(c => c.kind !== 'none')
+    const now = modeOf(cells)
+    // markdown and promotion never stack: the cheaper one is charged
+    let a = null
+    if (!isUp) a = now.price
+    else if (ch.kind === 'New price') a = now.next?.price ?? ch.after
+    else if (ch.kind.startsWith('Markdown')) a = now.next?.price ?? Math.min(now.price, off(now.normal, parseInt(ch.kind.replace(/\D/g, ''), 10)))
+    else if (ch.kind === 'Promotion' && row.promo) a = Math.min(now.price, off(now.normal, row.promo.pct))
+    const after = a ? rp(a) : '—'
+    return `<tr><td>${row.name}</td><td class="m">${storesText(ch.stores)}</td><td class="r">${isUp ? rp(now.price) : '<span class="g">' + rp(row.base) + '</span>'}</td><td class="r">${after}</td></tr>`
+  })
+  let foot = '<button class="btn ghost" data-act="x">Close</button>'
+  if (isUp && ch.status === 'Scheduled') foot = `<button class="btn red" data-act="withdraw" data-id="${ch.id}">Withdraw</button>`
+  if (isUp && ch.status.startsWith('Not on')) foot = `<button class="btn pri" data-act="resend" data-id="${ch.id}">Send to ${storeName(ch.stores[0])} again</button>`
+  return {
+    crumb: 'Pricelist', title: ch.name, sub: `${ch.kind}${isUp ? ' · ' + ch.status : ' · ' + ch.by}`,
+    body: kstrip([[isUp ? 'Starts' : 'Published', isUp ? ch.when : ch.date], ['Articles', ch.codes.length], ['Stores', ch.stores.length === STORES.length ? 'All 8' : ch.stores.length]])
+      + miniTable(['Article', 'Stores', { l: isUp ? 'Now' : 'Before', r: 1 }, { l: 'After', r: 1 }], lines),
+    foot,
+  }
+}
+
+// ── Change price: one short form, the per-store preview under it ────────────
+function storesFor(f, row) {
+  const sold = ALL.filter(sid => !row.notSold?.includes(sid))
+  if (f.scope === 'all') return sold
+  if (f.scope === 'base') return sold.filter(sid => !row.own?.[sid])
+  return sold.filter(sid => f.picked.has(sid))
+}
+// what the till will charge once the change is in — a promotion still comes off a new store price
+function simulate(f, row, sid) {
+  const r = { ...row, own: { ...row.own }, md: { ...row.md } }
+  if (f.kind === 'price') { if (!(+f.price > 0)) return null; r.own[sid] = { price: +f.price, from: '15 Oct' }; delete r.md[sid] }
+  else { if (!(+f.pct > 0 && +f.pct < 100)) return null; r.md[sid] = { pct: +f.pct, from: '15 Oct' } }
+  return cellOf(r, sid)
+}
+function formParts(f) {
+  const rows = f.targets.map(byKey)
+  const one = rows.length === 1 ? rows[0] : null
+  const fields = `<div class="fgrid">
+    <div class="f full"><label>Kind</label>${seg('kind', [['price', 'New price'], ['md', 'Markdown']], f.kind)}</div>
+    <div class="f full"><label>Stores</label>${seg('scope', [['all', 'All stores'], ['base', 'On base price'], ['pick', 'Choose']], f.scope)}
+      ${f.scope === 'pick' ? `<div class="chips">${STORES.map(s => `<button class="chipb${f.picked.has(s.id) ? ' on' : ''}" data-pick="${s.id}">${s.name}</button>`).join('')}</div>` : ''}</div>
+    ${f.kind === 'price'
+      ? `<div class="f"><label>New price</label><div class="inp"><span class="g">Rp</span><input data-f="price" aria-label="New price" inputmode="numeric" value="${f.price ? n(+f.price) : ''}" autocomplete="off"></div></div>`
+      : `<div class="f"><label>Markdown</label><div class="inp"><input data-f="pct" aria-label="Markdown" inputmode="numeric" value="${f.pct}" autocomplete="off"><span class="g">%</span></div></div>`}
+    <div class="f"><label>Starts</label>${select('starts', ['After publish', 'Mon 19 Oct 2026', 'Sun 1 Nov 2026'], f.starts)}</div>
+    ${f.kind === 'md' ? `<div class="f"><label>Ends</label>${select('ends', ['No end', 'Sat 31 Oct 2026', 'Wed 18 Nov 2026'], f.ends)}</div>` : ''}
+  </div>`
+  return {
+    crumb: one ? `Pricelist / ${one.name}` : 'Pricelist',
+    title: 'Change price',
+    sub: one ? (one.band ? 'Sizes ' + one.band + ' · ' : '') + one.code : `${rows.length} articles`,
+    body: fields + `<div id="pv">${previewOf(f)}</div>`,
+    foot: footOf(f),
+  }
+}
+function previewOf(f) {
+  const rows = f.targets.map(byKey)
+  if (rows.length === 1) {
+    const row = rows[0]
+    const lines = storesFor(f, row).map(sid => { const c = cellOf(row, sid), a = simulate(f, row, sid); return `<tr><td>${c.store.name}</td><td class="r">${calm(c)}</td><td class="r">${a ? calm(a) : '<span class="g">—</span>'}</td></tr>` })
+    return `<h3 class="sec">Preview</h3>` + (lines.length ? miniTable(['Store', { l: 'Now', r: 1 }, { l: 'After', r: 1 }], lines) : '<div class="m">No store chosen.</div>')
+  }
+  const lines = rows.map(row => {
+    const sids = storesFor(f, row)
+    if (!sids.length) return ''
+    const now = modeOf(sids.map(sid => cellOf(row, sid))), a = simulate(f, row, now.store.id)
+    return `<tr><td>${row.name}${row.band ? ` <span class="g">${row.band}</span>` : ''}</td><td class="r">${sids.length}</td><td class="r">${calm(now)}</td><td class="r">${a ? calm(a) : '<span class="g">—</span>'}</td></tr>`
+  })
+  return `<h3 class="sec">Preview</h3>` + miniTable(['Article', { l: 'Stores', r: 1 }, { l: 'Now', r: 1 }, { l: 'After', r: 1 }], lines)
+}
+function footOf(f) {
+  const stores = new Set(f.targets.flatMap(k => storesFor(f, byKey(k)))).size
+  const ok = stores > 0 && (f.kind === 'price' ? +f.price > 0 : +f.pct > 0 && +f.pct < 100)
+  return `<button class="btn red" data-act="form-cancel">Cancel</button><button class="btn pri" data-act="publish"${ok ? '' : ' disabled'}>Publish to ${stores} ${stores === 1 ? 'store' : 'stores'}</button>`
+}
+function openForm(f, el) {
+  const parts = formParts(f)
+  if (el) { el._back = el._parts; el._form = f; el._parts = parts; swap(el, parts) }
+  else { el = openSheet({ ...parts }); el._form = f; el._parts = parts }
+}
+const shortDate = d => d.replace(/^\w+ /, '').replace(/ \d{4}$/, '')
+function newPc(f, rows, stores) {
+  const pre = 'PC-151026-', seq = PCS.filter(x => x.no.startsWith(pre)).length + 1
+  const pc = { no: pre + String(seq).padStart(3, '0'), kind: f.kind === 'md' ? 'Markdown' : 'Regular price change', pct: f.kind === 'md' ? +f.pct : undefined, price: f.kind === 'price' ? +f.price : undefined,
+    codes: [...new Set(rows.map(r => r.code))], stores, from: f.starts === 'After publish' ? '15 Oct' : shortDate(f.starts), to: f.kind === 'md' && f.ends !== 'No end' ? shortDate(f.ends) : null,
+    status: f.starts === 'After publish' ? 'Sending' : 'Scheduled', got: 0, by: 'Rina Kartika' }
+  PCS.push(pc)
+  if (pc.status === 'Sending') { setTimeout(() => { pc.got = Math.max(1, stores.length - 1); render() }, 1200); setTimeout(() => { pc.status = 'Active'; render() }, 4000) }
+  return pc
+}
+function publish(f) {
+  const rows = f.targets.map(byKey)
+  const all = new Set()
+  for (const row of rows) storesFor(f, row).forEach(s => all.add(s))
+  const pc = newPc(f, rows, ALL.filter(s => all.has(s)))
+  all.clear()
+  if (f.starts !== 'After publish') {
+    for (const row of rows) storesFor(f, row).forEach(s => all.add(s))
+    const one = rows.length === 1 ? rows[0] : null
+    UPCOMING.push({ id: 'u' + Date.now(), name: one ? `${one.name} ${f.kind === 'md' ? 'markdown' : 'new price'}` : `${rows.length} articles ${f.kind === 'md' ? 'markdown' : 'new price'}`, kind: f.kind === 'md' ? `Markdown −${+f.pct}%` : 'New price', codes: [...new Set(rows.map(r => r.code))], stores: [...all], when: f.starts, status: 'Scheduled', after: f.kind === 'price' ? +f.price : null })
+    finish(`${pc.no} · scheduled for ${f.starts}`)
+    return
+  }
+  for (const row of rows) for (const sid of storesFor(f, row)) {
+    all.add(sid)
+    if (f.kind === 'price') { row.own = { ...row.own, [sid]: { price: +f.price, from: '15 Oct' } }; if (row.md) delete row.md[sid] }
+    else row.md = { ...row.md, [sid]: { pct: +f.pct, from: '15 Oct', to: f.ends === 'No end' ? null : shortDate(f.ends) } }
+  }
+  finish(`${pc.no} · sent to ${all.size} ${all.size === 1 ? 'store' : 'stores'}`)
+}
+function finish(msg) { closeAll(); S.sel.clear(); render(); toast(msg) }
+
+// Today's sheet, as the hub has it: a clicked price goes straight to this
+function todaySheet(row, sid) {
+  const c = sid ? cellOf(row, sid) : null
+  const stores = STORES.map(s => `<label><span class="ck${s.id === sid ? ' on' : ''}"></span>${s.name} <span class="g">${rp(cellOf(row, s.id).price ?? row.base)}</span></label>`).join('')
+  const body = `<div class="tq"><div class="tl">What kind of price?</div><div class="opts"><button class="opt on">New price</button><button class="opt">Markdown</button></div></div>
+    <div class="tq"><div class="tl">Applied to</div><div class="opts"><button class="opt${sid ? '' : ' on'}">All stores</button><button class="opt${sid ? ' on' : ''}">Choose stores</button></div><div class="optbox">${stores}</div></div>
+    <div class="tq"><div class="tl">Sizes</div><div class="opts"><button class="opt on">All sizes</button><button class="opt">Choose sizes</button></div></div>
+    <div class="tq"><div class="tl">New price</div><div style="display:flex;gap:12px"><div class="f" style="width:150px"><label>% change</label><div class="inp"><input><span class="g">%</span></div></div><div class="f" style="flex:1"><label>Price</label><div class="inp"><span class="g">Rp</span><input></div></div></div><div class="qp"><button>−10%</button><button>−5%</button><button>+5%</button><button>+10%</button></div></div>
+    <div class="tq"><div class="tl">When?</div><div class="f" style="width:260px"><label>Starts</label><div class="inp">After publish</div></div></div>
+    ${miniTable(['Store', { l: 'Now', r: 1 }, { l: 'After', r: 1 }], [`<tr><td>${c ? c.store.name : 'All stores'}</td><td class="r">${rp(c ? c.price : row.base)}</td><td class="r">—</td></tr>`])}`
+  openSheet({ w: 1030, crumb: `Pricelist / ${row.code}`, title: 'Change price', body, foot: `<span class="m" style="margin-right:auto">Fill in the price.</span><button class="btn red" data-act="x">Cancel</button><button class="btn pri" disabled>Publish to ${sid ? 1 : 8} ${sid ? 'store' : 'stores'}</button>` })
+}
+
+// ── hover card on a price (first one waits, the next ones are instant) ───────
+let hcT = 0, hcFor = null
+function showHC(td) {
+  const [k, sid] = td.dataset.cell.split('@'), c = cellOf(byKey(k), sid)
+  const hc = $('#hc')
+  let h = `<div class="hh">${c.store.name}</div>`
+  if (c.kind === 'none') h += '<div class="m">Not sold here</div>'
+  else {
+    h += `<div class="ln"><span>${c.label}</span><span>${rp(c.price)}</span></div>`
+    if (c.from) h += `<div class="m">${span(c.from, c.to)}</div>`
+    for (const l of c.lost || []) h += `<div class="ln g"><span>${l.label}</span><span class="strike">${rp(l.price)}</span></div>`
+    if (c.waiting) h += `<div class="amber" style="margin-top:6px"><i class="dot"></i>Not on ${c.store.name}'s till yet</div>`
+    if (c.next) h += `<div class="ln" style="margin-top:6px"><span class="m">From ${c.next.from}</span><span>${rp(c.next.price)}</span></div>`
+    for (const x of extrasOf(c)) h += `<div class="ln"><span class="m">${whoOf(x.o)} · ${x.o.short}</span><span class="${x.helps ? '' : 'g'}">${rp(x.price)}</span></div>`
+    h += `<div class="ln" style="margin-top:6px"><span class="m">Stock</span><span>${c.stock} pcs</span></div>`
+  }
+  const instant = hc.classList.contains('on')
+  hc.classList.toggle('instant', instant)
+  hc.innerHTML = h
+  const r = td.getBoundingClientRect(), hh = hc.offsetHeight
+  const below = r.bottom + 6 + hh < innerHeight - 8
+  hc.style.left = Math.max(8, r.right - 320) + 'px'
+  hc.style.top = (below ? r.bottom + 6 : r.top - 6 - hh) + 'px'
+  hc.style.transformOrigin = below ? 'top right' : 'bottom right'
+  hc.classList.add('on')
+  hcFor = td
+}
+function hideHC() { clearTimeout(hcT); hcFor = null; $('#hc').classList.remove('on') }
+document.addEventListener('mouseover', e => {
+  if (isToday() || stack.length) return
+  const td = e.target.closest('td.pc')
+  if (!td) { if (hcFor || hcT) hideHC(); return }
+  if (td === hcFor) return
+  clearTimeout(hcT)
+  if ($('#hc').classList.contains('on')) showHC(td)
+  else hcT = setTimeout(() => showHC(td), 450)
+})
+
+// ── toast, switch, render ───────────────────────────────────────────────────
+let toastT
+function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('on'), 2600) }
+const isToday = () => S.v === 'today' || S.v === 'l'
+const VERSIONS = [['today', 'Today'], ['a', 'A Calm'], ['b', 'B Store rows'], ['c', 'C One store'], ['d', 'D Upcoming'], ['e', 'E Edit'], ['f', 'F In cell'], ['g', 'G Under name'], ['h', 'H Shopper'], ['i', 'I Row per price'], ['j', 'J G+H'], ['k', 'K Now → Then'], ['l', 'L Today + next'], ['m', 'M Pricelist']]
+const VIEWS = { today: viewToday, a: viewA, b: viewB, c: viewC, d: viewD, e: viewE, f: viewF, g: viewG, h: viewH, i: viewI, j: viewJ, k: viewK, l: viewL, m: viewM }
+function render() {
+  document.documentElement.dataset.v = S.v
+  const sc = $('#scroll'), x = sc?.scrollLeft ?? 0, y = sc?.scrollTop ?? 0
+  $('#page').innerHTML = VIEWS[S.v]()
+  const sc2 = $('#scroll'); if (sc2) { sc2.scrollLeft = x; sc2.scrollTop = y }
+  $('#switch').innerHTML = VERSIONS.map(([v, l]) => `<button data-v="${v}" class="${S.v === v ? 'on' : ''}">${l}</button>`).join('')
+}
+function setVersion(v) {
+  if (!VIEWS[v] || v === S.v) return
+  closeAll(); hideHC()
+  Object.assign(S, { v, sel: new Set(), menu: false, edit: false, edits: {}, tab: 'now', store: ['j', 'k', 'm'].includes(v) ? 'all' : 'dgo' })
+  history.replaceState(null, '', '#' + v)
+  const sc = $('#scroll'); if (sc) { sc.scrollLeft = 0; sc.scrollTop = 0 }
+  render()
+}
+
+// ── events ──────────────────────────────────────────────────────────────────
+document.addEventListener('click', e => {
+  const t = e.target.closest('[data-act],[data-cell],[data-v],[data-seg],[data-pick],.opt')
+  if (S.menu && !e.target.closest('.menuwrap')) { S.menu = false; render(); if (!t) return }
+  if (!t) return
+  if (t.dataset.v) return setVersion(t.dataset.v)
+  const sh = t.closest('.sheet')
+  if (t.classList.contains('opt')) { [...t.parentElement.children].forEach(o => o.classList.toggle('on', o === t)); return }
+  if (t.dataset.seg && sh) {
+    const f = sh._form; f[t.dataset.seg] = t.dataset.val
+    if (t.dataset.seg === 'scope' && f.scope === 'pick' && !f.picked.size) ALL.forEach(s => f.picked.add(s))
+    sh._parts = formParts(f)
+    const body = sh.querySelector('.sh-body'), st = body.scrollTop
+    sh.innerHTML = sheetInner(sh._parts); sh.querySelector('.sh-body').scrollTop = st
+    return
+  }
+  if (t.dataset.seg === 'ekind') { S.ekind = t.dataset.val; render(); return }
+  if (t.dataset.seg === 'mview') { S.mview = t.dataset.val; S.store = 'all'; S.sel.clear(); render(); return }
+  if (t.dataset.pick && sh) {
+    const f = sh._form; f.picked.has(t.dataset.pick) ? f.picked.delete(t.dataset.pick) : f.picked.add(t.dataset.pick)
+    t.classList.toggle('on'); $('#pv', sh).innerHTML = previewOf(f); sh.querySelector('.sh-foot').innerHTML = footOf(f)
+    return
+  }
+  const act = t.dataset.act
+  if (!act && t.dataset.cell) {
+    const [k, sid] = t.dataset.cell.split('@'), row = byKey(k)
+    if (isToday()) return todaySheet(row, sid)
+    const p = cellParts(cellOf(row, sid)); const el = openSheet(p); el._parts = p
+    return
+  }
+  switch (act) {
+    case 'x': return closeTop()
+    case 'art': {
+      const row = byKey(t.dataset.key)
+      if (isToday()) return todaySheet(row, null)
+      const p = articleParts(row); const el = openSheet({ w: S.v === 'j' ? 1000 : S.v === 'k' || S.v === 'm' ? 860 : 760, ...p }); el._parts = p
+      return
+    }
+    case 'sel': { const k = t.dataset.key; S.sel.has(k) ? S.sel.delete(k) : S.sel.add(k); return render() }
+    case 'selall': { const rows = visible().map(key); const on = rows.every(k => S.sel.has(k)); rows.forEach(k => on ? S.sel.delete(k) : S.sel.add(k)); return render() }
+    case 'clear-sel': S.sel.clear(); return render()
+    case 'change-sel': {
+      const targets = [...S.sel]
+      if (isToday()) return todaySheet(byKey(targets[0]), null)
+      return openForm({ targets, kind: 'price', scope: 'all', picked: new Set(), price: '', pct: '', starts: 'After publish', ends: 'No end' })
+    }
+    case 'to-form': {
+      const [k, sid] = t.dataset.ck.split('@'), c = cellOf(byKey(k), sid)
+      return openForm({ targets: [k], kind: c.kind === 'md' ? 'md' : 'price', scope: 'pick', picked: new Set([sid]), price: '', pct: c.kind === 'md' ? String(c.pct) : '', starts: 'After publish', ends: 'No end' }, sh)
+    }
+    case 'to-form-art': return openForm({ targets: [t.dataset.key], kind: 'price', scope: 'all', picked: new Set(), price: '', pct: '', starts: 'After publish', ends: 'No end' }, sh)
+    case 'form-cancel': {
+      if (sh._back) { const back = sh._back; sh._back = null; sh._form = null; sh._parts = back; swap(sh, back) } else closeTop()
+      return
+    }
+    case 'publish': return publish(sh._form)
+    case 'exp': { const k = t.dataset.key; S.exp.has(k) ? S.exp.delete(k) : S.exp.add(k); return render() }
+    case 'exp-all': { const rows = visible().map(key); const all = rows.every(k => S.exp.has(k)); rows.forEach(k => all ? S.exp.delete(k) : S.exp.add(k)); return render() }
+    case 'fold': return $('.shell').classList.toggle('folded')
+    case 'store-menu': S.menu = !S.menu; return render()
+    case 'store': S.store = t.dataset.sid; S.menu = false; S.sel.clear(); return render()
+    case 'tab': S.tab = t.dataset.tab; S.q = ''; return render()
+    case 'mtab': S.mtab = t.dataset.tab; S.q = ''; S.sel.clear(); return render()
+    case 'pc': return openSheet({ w: 760, ...pcParts(PCS.find(x => x.no === t.dataset.no)) })
+    case 'pc-withdraw': {
+      const pc = PCS.find(x => x.no === t.dataset.no)
+      PCS = PCS.filter(x => x !== pc)
+      for (const code of pc.codes) { const r = ROWS.find(x => x.code === code); if (r?.next && r.next.from === pc.from) delete r.next }
+      return finish(`${pc.no} withdrawn`)
+    }
+    case 'offer': { const p = offerParts(t.dataset.id); return openSheet({ w: 760, ...p }) }
+    case 'change': { const ch = [...UPCOMING, ...HISTORY].find(x => x.id === t.dataset.id); return openSheet({ w: 760, ...changeParts(ch) }) }
+    case 'withdraw': {
+      const ch = UPCOMING.find(x => x.id === t.dataset.id)
+      UPCOMING = UPCOMING.filter(x => x !== ch)
+      for (const code of ch.codes) { const r = ROWS.find(x => x.code === code); if (r?.next?.change === ch.name) delete r.next }
+      return finish('Withdrawn')
+    }
+    case 'resend': closeAll(); return toast(`Sent to ${storeName(UPCOMING.find(x => x.id === t.dataset.id).stores[0])} again`)
+    case 'edit': return modeSwap(() => { S.edit = true; S.edits = {} }, () => $('.ci')?.focus())
+    case 'edit-cancel': return modeSwap(() => { S.edit = false; S.edits = {} })
+    case 'edit-publish': {
+      const ch = changedEdits()
+      const stores = new Set()
+      if (S.estarts !== 'After publish') {
+        ch.forEach(([ek]) => stores.add(ek.split('@')[1]))
+        const codes = [...new Set(ch.map(([ek]) => byKey(ek.split('@')[0]).code))]
+        UPCOMING.push({ id: 'u' + Date.now(), name: `${codes.length} ${codes.length === 1 ? 'article' : 'articles'} ${S.ekind === 'md' ? 'markdown' : 'new price'}`, kind: S.ekind === 'md' ? 'Markdown' : 'New price', codes, stores: [...stores], when: S.estarts, status: 'Scheduled' })
+        S.edit = false; S.edits = {}; render(); return toast(`Scheduled for ${S.estarts}`)
+      }
+      for (const [ek, v] of ch) {
+        const [k, sid] = ek.split('@'), row = byKey(k), c = cellOf(row, sid)
+        stores.add(sid)
+        if (S.ekind === 'price') { row.own = { ...row.own, [sid]: { price: v, from: '15 Oct' } }; if (row.md) delete row.md[sid] }
+        else if (v < c.normal) row.md = { ...row.md, [sid]: { pct: Math.round((1 - v / c.normal) * 100), price: v, from: '15 Oct', to: null } }
+      }
+      S.edit = false; S.edits = {}; render()
+      return toast(`Published ${ch.length} ${ch.length === 1 ? 'price' : 'prices'} to ${stores.size} ${stores.size === 1 ? 'store' : 'stores'}`)
+    }
+  }
+})
+// the page's own mode move (E): bar and table swap in place, the frame stays
+function modeSwap(change, after) {
+  swapIn($('#pin'), () => { change(); render(); after?.(); return $('#pin') })
+}
+
+document.addEventListener('input', e => {
+  const t = e.target
+  if (t.id === 'q') {
+    const pos = t.selectionStart
+    S.q = t.value; render()
+    const q = $('#q'); q.focus(); q.setSelectionRange(pos, pos)
+    return
+  }
+  const sh = t.closest('.sheet')
+  if (t.dataset.f && sh) {
+    const f = sh._form
+    if (t.dataset.f === 'price') {
+      const digits = t.value.replace(/[^\d]/g, '')
+      f.price = digits
+      const before = t.value.length, caret = t.selectionStart
+      t.value = digits ? n(+digits) : ''
+      const p = Math.max(0, caret + (t.value.length - before)); t.setSelectionRange(p, p)
+    } else f.pct = t.value.replace(/[^\d]/g, '').slice(0, 2), t.value = f.pct
+    $('#pv', sh).innerHTML = previewOf(f); sh.querySelector('.sh-foot').innerHTML = footOf(f)
+    return
+  }
+  if (t.dataset.ek) {
+    const [k, sid] = t.dataset.ek.split('@'), c = cellOf(byKey(k), sid)
+    const v = parseEntry(t.value, c.normal)
+    t.closest('td').classList.toggle('chg', v != null && v !== c.price)
+  }
+})
+document.addEventListener('change', e => {
+  const t = e.target
+  const sh = t.closest('.sheet')
+  if (t.dataset.sel && sh) { sh._form[t.dataset.sel] = t.value; return }
+  if (t.dataset.sel === 'estarts') { S.estarts = t.value; return }
+  if (t.dataset.ek) commitCell(t)
+  if (t.dataset.all) fillRow(t)
+})
+function commitCell(t) {
+  const [k, sid] = t.dataset.ek.split('@'), c = cellOf(byKey(k), sid)
+  const v = parseEntry(t.value, c.normal)
+  if (v == null || v === c.price) { delete S.edits[t.dataset.ek]; t.value = n(c.price) } else { S.edits[t.dataset.ek] = v; t.value = n(v) }
+  const chg = S.edits[t.dataset.ek] != null
+  t.closest('td').classList.toggle('chg', chg)
+  t.classList.toggle('base', !chg && c.kind === 'base')
+  $('#ebar').outerHTML = editBar()
+}
+// "All stores" fills every store of its row; a % is taken from each store's own price
+function fillRow(t) {
+  const row = byKey(t.dataset.all)
+  if (!t.value.trim()) return
+  for (const c of cellsOf(row)) {
+    if (c.kind === 'none') continue
+    const v = parseEntry(t.value, c.normal)
+    if (v == null) continue
+    const inp = document.querySelector(`[data-ek="${key(row)}@${c.store.id}"]`)
+    inp.value = n(v); commitCell(inp)
+  }
+}
+document.addEventListener('focusin', e => { if (e.target.classList?.contains('ci')) e.target.select() })
+document.addEventListener('keydown', e => {
+  const t = e.target
+  if (e.key === 'Enter' && t.classList?.contains('ci')) {
+    e.preventDefault()
+    t.dispatchEvent(new Event('change', { bubbles: true }))
+    const td = t.closest('td'), tr = td.closest('tr'), next = tr.nextElementSibling
+    next?.children[td.cellIndex]?.querySelector('input')?.focus()
+    return
+  }
+  if (e.key === 'Escape') {
+    if (S.menu) { S.menu = false; render(); return }
+    if (stack.length) { closeTop(); return }
+    if (t.blur && t.matches?.('input')) t.blur()
+    return
+  }
+  if (t.matches?.('input,select,textarea')) return
+  const i = '1234567890'.indexOf(e.key)
+  if (i >= 0 && !e.metaKey && !e.ctrlKey) setVersion(VERSIONS[i][0])
+})
+$('#veil').addEventListener('click', closeTop)
+
+S.v = VIEWS[location.hash.slice(1)] ? location.hash.slice(1) : 'a'
+if (['j', 'k', 'm'].includes(S.v)) S.store = 'all'
+render()
+</script>
+</body>
+</html>

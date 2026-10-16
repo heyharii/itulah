@@ -1,29 +1,39 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
+import {
+  useMutation,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query"
+import type { ColumnDef } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
+import { Suspense, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { AppLink } from "@/components/ui/app-link"
+import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { DataTable } from "@/components/ui/data-table"
 import { Day } from "@/components/ui/day"
 import { ConfirmButton } from "@/components/ui/dialog"
 import { Field, Input } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Fab } from "@/components/ui/fab"
-import { Pill, Status } from "@/components/ui/pill"
+import { Status } from "@/components/ui/pill"
 import { Sheet } from "@/components/ui/sheet"
-import { EmptyState, Problem, Receipt } from "@/components/ui/states"
+import { SheetFooter } from "@/components/ui/sheet-footer"
+import { EmptyState, Problem } from "@/components/ui/states"
 import { day, money, moment } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import {
   cancelPeriodClosing,
   financeKeys,
-  listPeriodClosings,
+  periodClosingsQuery,
   postPeriodClosing,
 } from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
-import { Grid, Td, Th } from "@/screens/finance-final/parts"
-import { PhoneCard, PhoneList } from "@/components/ui/phone-cards"
+import { toast } from "@/lib/toast"
+import { tableSetup, type TableSetup } from "@/lib/table"
 import { Amount } from "@/screens/finance/parts"
+import { ScreenPending } from "@/screens/finance/pending"
 import type { PeriodClosingVoucher } from "@itulah/contract"
 
 /// Period Closing Voucher: a date range's profit or loss moved into retained
@@ -51,67 +61,197 @@ function dayAfter(iso: string): string {
 }
 
 export function PeriodClosing() {
+  return (
+    <Suspense
+      fallback={
+        <ScreenPending
+          crumb="Finance · Opening & Closing"
+          title="Period Closing Vouchers"
+        >
+          Reading the vouchers…
+        </ScreenPending>
+      }
+    >
+      <PeriodClosingScreen />
+    </Suspense>
+  )
+}
+
+function PeriodClosingScreen() {
   const phone = useLayout() === "phone"
-  /// The phone's form is a sheet the dock's + opens.
+  /// The form is a sheet: the head's "Close a range" opens it, and on a phone
+  /// the dock's + does.
   const [closing, setClosing] = useState(false)
-  const list = useQuery({
-    queryKey: financeKeys.periodClosings(),
-    queryFn: ({ signal }) => listPeriodClosings(signal),
-  })
-  const last = lastPosted(list.data ?? [])
+  const list = useSuspenseQuery(periodClosingsQuery())
+  const rows = list.data
+  const last = lastPosted(rows)
+  const lastId = last?.voucher_id
+
+  /// The vouchers, newest range first as the server sends them. On a card the
+  /// range names it, the entry it made sits under it, the profit it moved is
+  /// the figure and who made it and where it stands are in the foot, with
+  /// Cancel on the latest one.
+  const columns = useMemo<ColumnDef<TableSetup, PeriodClosingVoucher>[]>(
+    () => [
+      {
+        id: "range",
+        accessorFn: (row) => row.period_start,
+        header: "Range",
+        size: 260,
+        enableSorting: false,
+        meta: { card: "title", grow: 220 },
+        cell: ({ row }) => {
+          const cancelled = row.original.status === "CANCELLED"
+          return (
+            <span className="flex flex-col whitespace-normal">
+              <span
+                className={cancelled ? "text-faint line-through" : "text-ink"}
+              >
+                {day(row.original.period_start)} –{" "}
+                {day(row.original.period_end)}
+              </span>
+              {row.original.remarks && (
+                <span className="text-[0.9375rem] text-mute">
+                  {row.original.remarks}
+                </span>
+              )}
+            </span>
+          )
+        },
+      },
+      {
+        id: "status",
+        accessorFn: (row) => row.status,
+        header: "Status",
+        size: 200,
+        enableSorting: false,
+        meta: { card: "foot" },
+        cell: ({ row }) => {
+          const cancelled = row.original.status === "CANCELLED"
+          return (
+            <span className="flex flex-col items-start">
+              <Status tone={cancelled ? "neutral" : "ok"}>
+                {cancelled ? "Cancelled" : "Posted"}
+              </Status>
+              <span className="text-[0.9375rem] text-mute">
+                {cancelled && row.original.cancelled_by
+                  ? `${row.original.cancelled_by} · ${moment(row.original.cancelled_at)}`
+                  : `${row.original.created_by} · ${moment(row.original.created_at)}`}
+              </span>
+            </span>
+          )
+        },
+      },
+      {
+        id: "profit",
+        accessorFn: (row) => row.profit_minor,
+        header: "Profit moved",
+        size: 190,
+        enableSorting: false,
+        meta: { align: "right", card: "lead" },
+        cell: ({ row }) => (
+          <span className="flex flex-col items-end">
+            <Amount minor={row.original.profit_minor} warnNegative />
+            <span className="text-[0.9375rem] text-mute">
+              {row.original.profit_minor >= 0 ? "profit" : "loss"}
+            </span>
+          </span>
+        ),
+      },
+      {
+        id: "entry",
+        accessorFn: (row) => row.entry_id,
+        header: "Entry",
+        size: 160,
+        enableSorting: false,
+        meta: { card: "meta", priority: 2 },
+        cell: ({ row }) => (
+          <span className="flex flex-col items-start">
+            {row.original.entry_id === null ? (
+              <span className="text-mute">Nothing to move</span>
+            ) : (
+              <AppLink
+                to="/finance/accounting/journal-entries"
+                sheet={{ key: "entry", value: row.original.entry_id }}
+                className="underline underline-offset-2"
+              >
+                Open entry
+              </AppLink>
+            )}
+            {row.original.reversal_entry_id !== null && (
+              <AppLink
+                to="/finance/accounting/journal-entries"
+                sheet={{ key: "entry", value: row.original.reversal_entry_id }}
+                className="text-mute underline underline-offset-2"
+              >
+                Reversal
+              </AppLink>
+            )}
+          </span>
+        ),
+      },
+      {
+        id: "cancel",
+        accessorFn: (row) => row.voucher_id,
+        header: "",
+        size: 130,
+        enableSorting: false,
+        enableHiding: false,
+        meta: { align: "right", card: "status" },
+        cell: ({ row }) =>
+          row.original.voucher_id === lastId ? (
+            <CancelVoucher voucher={row.original} />
+          ) : null,
+      },
+    ],
+    [lastId]
+  )
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: rows,
+        columns,
+        getRowId: (row: PeriodClosingVoucher) => row.voucher_id,
+      }),
+      [rows, columns]
+    )
+  )
 
   return (
     <PageContent>
       <PageHeader
         crumb="Finance · Opening & Closing"
         title="Period Closing Vouchers"
-        sub="Move a range's profit or loss into retained earnings as one entry. Only the latest voucher can be cancelled, by reversing it."
+        // The one action stands in the head; a phone has the + at the thumb.
+        actions={
+          phone ? undefined : (
+            <Button variant="primary" onClick={() => setClosing(true)}>
+              Close a range
+            </Button>
+          )
+        }
       />
 
       {phone && <Fab label="Close a range" onClick={() => setClosing(true)} />}
 
-      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
-        <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+      <div className="flex flex-col gap-4">
+        <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
           {queryState(list, {
-            loading: "Reading the vouchers…",
-            render: (rows) =>
+            render: () =>
               rows.length === 0 ? (
                 <EmptyState>
                   No range has been closed into retained earnings yet.
                 </EmptyState>
-              ) : phone ? (
-                <PhoneList>
-                  {rows.map((row) => (
-                    <VoucherRow
-                      key={row.voucher_id}
-                      voucher={row}
-                      cancellable={row.voucher_id === last?.voucher_id}
-                      phone
-                    />
-                  ))}
-                </PhoneList>
               ) : (
-                <Grid>
-                  <thead>
-                    <tr>
-                      <Th>Range</Th>
-                      <Th>Status</Th>
-                      <Th align="right">Profit moved</Th>
-                      <Th>Entry</Th>
-                      <Th>By</Th>
-                      <Th />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((row) => (
-                      <VoucherRow
-                        key={row.voucher_id}
-                        voucher={row}
-                        cancellable={row.voucher_id === last?.voucher_id}
-                      />
-                    ))}
-                  </tbody>
-                </Grid>
+                <DataTable<PeriodClosingVoucher>
+                  refresh={[list]}
+                  table={table}
+                  pageScroll
+                  cardSort={false}
+                  cardsApart
+                  cardLead
+                />
               ),
           })}
         </Card>
@@ -119,7 +259,6 @@ export function PeriodClosing() {
         <CloseRange
           key={last?.voucher_id ?? "first"}
           start={last === undefined ? "" : dayAfter(last.period_end)}
-          phone={phone}
           open={closing}
           onOpenChange={setClosing}
         />
@@ -128,16 +267,8 @@ export function PeriodClosing() {
   )
 }
 
-function VoucherRow({
-  voucher,
-  cancellable,
-  phone = false,
-}: {
-  voucher: PeriodClosingVoucher
-  cancellable: boolean
-  /// A card of its own on a phone.
-  phone?: boolean
-}) {
+/// Cancel the latest voucher: its entry is reversed, never deleted.
+function CancelVoucher({ voucher }: { voucher: PeriodClosingVoucher }) {
   const client = useQueryClient()
   const cancel = useMutation({
     mutationFn: () => cancelPeriodClosing(voucher.voucher_id),
@@ -146,160 +277,30 @@ function VoucherRow({
       void client.invalidateQueries({ queryKey: financeKeys.all })
     },
   })
-  const cancelled = voucher.status === "CANCELLED"
-
-  if (phone) {
-    return (
-      <PhoneCard
-        title={
-          <span className={cancelled ? "text-mute line-through" : undefined}>
-            {day(voucher.period_start)} – {day(voucher.period_end)}
-          </span>
-        }
-        line={
-          <>
-            {voucher.remarks && <div>{voucher.remarks}</div>}
-            <div className="flex flex-wrap gap-x-3">
-              {voucher.entry_id === null ? (
-                <span>Nothing to move</span>
-              ) : (
-                <AppLink
-                  to="/finance/accounting/journal-entries"
-                  sheet={{ key: "entry", value: voucher.entry_id }}
-                  className="underline underline-offset-2"
-                >
-                  Open entry
-                </AppLink>
-              )}
-              {voucher.reversal_entry_id !== null && (
-                <AppLink
-                  to="/finance/accounting/journal-entries"
-                  sheet={{ key: "entry", value: voucher.reversal_entry_id }}
-                  className="underline underline-offset-2"
-                >
-                  Reversal
-                </AppLink>
-              )}
-            </div>
-            {cancel.isError && (
-              <Problem error={cancel.error} className="mt-1" />
-            )}
-          </>
-        }
-        lead={money(Math.abs(voucher.profit_minor))}
-        caption={voucher.profit_minor >= 0 ? "profit" : "loss"}
-        tone={voucher.profit_minor < 0 ? "bad" : undefined}
-        foot={
-          <>
-            <Status tone={cancelled ? "neutral" : "ok"}>
-              {cancelled ? "Cancelled" : "Posted"}
-            </Status>
-            <div>
-              {cancelled && voucher.cancelled_by
-                ? `${voucher.cancelled_by} · ${moment(voucher.cancelled_at)}`
-                : `${voucher.created_by} · ${moment(voucher.created_at)}`}
-            </div>
-          </>
-        }
-        action={
-          cancellable ? (
-            <ConfirmButton
-              label="Cancel"
-              variant="quiet"
-              size="sm"
-              tone="danger"
-              title="Cancel this closing voucher?"
-              description={`Its entry is reversed: ${money(Math.abs(voucher.profit_minor))} of ${voucher.profit_minor >= 0 ? "profit" : "loss"} moves back out of retained earnings into ${day(voucher.period_start)} – ${day(voucher.period_end)}. The voucher stays, marked cancelled.`}
-              confirmLabel="Reverse it"
-              pending={cancel.isPending}
-              onConfirm={() => cancel.mutate()}
-            />
-          ) : undefined
-        }
-      />
-    )
-  }
-
   return (
-    <tr>
-      <Td>
-        <span className={cancelled ? "text-faint line-through" : "text-ink"}>
-          {day(voucher.period_start)} – {day(voucher.period_end)}
-        </span>
-        {voucher.remarks && <div className="text-mute">{voucher.remarks}</div>}
-        {cancel.isError && <Problem error={cancel.error} className="mt-1" />}
-      </Td>
-      <Td>
-        <Pill tone={cancelled ? "neutral" : "ok"}>
-          {cancelled ? "Cancelled" : "Posted"}
-        </Pill>
-        {cancelled && voucher.cancelled_by && (
-          <div className="text-faint">
-            {voucher.cancelled_by} · {moment(voucher.cancelled_at)}
-          </div>
-        )}
-      </Td>
-      <Td align="right">
-        <Amount minor={voucher.profit_minor} warnNegative />
-        <div className="text-faint">
-          {voucher.profit_minor >= 0 ? "profit" : "loss"}
-        </div>
-      </Td>
-      <Td>
-        {voucher.entry_id === null ? (
-          <span className="text-faint">Nothing to move</span>
-        ) : (
-          <AppLink
-            to="/finance/accounting/journal-entries"
-            sheet={{ key: "entry", value: voucher.entry_id }}
-            className="underline underline-offset-2"
-          >
-            Open entry
-          </AppLink>
-        )}
-        {voucher.reversal_entry_id !== null && (
-          <div>
-            <AppLink
-              to="/finance/accounting/journal-entries"
-              sheet={{ key: "entry", value: voucher.reversal_entry_id }}
-              className="text-mute underline underline-offset-2"
-            >
-              Reversal
-            </AppLink>
-          </div>
-        )}
-      </Td>
-      <Td>
-        <span className="text-faint">
-          {voucher.created_by} · {moment(voucher.created_at)}
-        </span>
-      </Td>
-      <Td align="right">
-        {cancellable && (
-          <ConfirmButton
-            label="Cancel"
-            variant="quiet"
-            tone="danger"
-            title="Cancel this closing voucher?"
-            description={`Its entry is reversed: ${money(Math.abs(voucher.profit_minor))} of ${voucher.profit_minor >= 0 ? "profit" : "loss"} moves back out of retained earnings into ${day(voucher.period_start)} – ${day(voucher.period_end)}. The voucher stays, marked cancelled.`}
-            confirmLabel="Reverse it"
-            pending={cancel.isPending}
-            onConfirm={() => cancel.mutate()}
-          />
-        )}
-      </Td>
-    </tr>
+    <span className="flex flex-col items-end">
+      <ConfirmButton
+        label="Cancel"
+        variant="quiet"
+        size="sm"
+        tone="danger"
+        title="Cancel this closing voucher?"
+        description={`Its entry is reversed: ${money(Math.abs(voucher.profit_minor))} of ${voucher.profit_minor >= 0 ? "profit" : "loss"} moves back out of retained earnings into ${day(voucher.period_start)} – ${day(voucher.period_end)}. The voucher stays, marked cancelled.`}
+        confirmLabel="Reverse it"
+        pending={cancel.isPending}
+        onConfirm={() => cancel.mutate()}
+      />
+      {cancel.isError && <Problem error={cancel.error} className="mt-1" />}
+    </span>
   )
 }
 
 function CloseRange({
   start,
-  phone,
   open,
   onOpenChange,
 }: {
   start: string
-  phone: boolean
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
@@ -315,9 +316,13 @@ function CloseRange({
         period_end: to,
         remarks: remarks.trim() === "" ? null : remarks.trim(),
       }),
-    onSuccess: () => {
+    onSuccess: (closed) => {
       setRemarks("")
       onOpenChange(false)
+      // The sheet is gone, so the receipt is said here.
+      toast.success(
+        `Closed ${day(closed.period_start)} – ${day(closed.period_end)}: ${money(Math.abs(closed.profit_minor))} ${closed.profit_minor >= 0 ? "profit" : "loss"} moved.`
+      )
       void client.invalidateQueries({ queryKey: financeKeys.all })
     },
   })
@@ -326,18 +331,11 @@ function CloseRange({
 
   const fields = (
     <>
-      <p className="text-[0.875rem] text-body">
+      <p className="text-[0.9375rem] text-body">
         Every income and expense account's balance over the range is moved to
         retained earnings, at every site, in one entry dated the last day.
       </p>
       <Problem error={close.error} />
-      {close.isSuccess && !phone && (
-        <Receipt>
-          Closed {day(close.data.period_start)} – {day(close.data.period_end)}:{" "}
-          {money(Math.abs(close.data.profit_minor))}{" "}
-          {close.data.profit_minor >= 0 ? "profit" : "loss"} moved.
-        </Receipt>
-      )}
       <div className="grid grid-cols-2 gap-3">
         <Field label="From" required>
           <Day value={from} onChange={setFrom} label="From" />
@@ -372,24 +370,17 @@ function CloseRange({
     />
   )
 
-  if (phone) {
-    return (
-      <Sheet
-        open={open}
-        onOpenChange={onOpenChange}
-        title="Close a range"
-        footer={<div className="flex justify-end">{submit}</div>}
-      >
-        <div className="flex flex-col gap-3">{fields}</div>
-      </Sheet>
-    )
-  }
-
   return (
-    <Card className="flex flex-col gap-3 p-4">
-      <h3 className="text-card-title font-semibold text-ink">Close a range</h3>
-      {fields}
-      <div className="flex justify-end">{submit}</div>
-    </Card>
+    <Sheet
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Close a range"
+      size="rail"
+      footer={
+        <SheetFooter onCancel={() => onOpenChange(false)} primary={submit} />
+      }
+    >
+      <div className="flex flex-col gap-3">{fields}</div>
+    </Sheet>
   )
 }

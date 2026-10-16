@@ -130,7 +130,7 @@ export function Banks() {
 
           {onlyMapped.length > 0 && (
             <div className="flex flex-col gap-3">
-              <h2 className="text-[0.875rem] font-medium text-ink">
+              <h2 className="text-[0.9375rem] font-medium text-ink">
                 Named only on the account map
               </h2>
               <Grid>

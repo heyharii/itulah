@@ -34,7 +34,11 @@ import { useSheet, type SheetSearch } from "@/lib/sheets"
 /// one column; a year at a daily resolution is three hundred and sixty-five
 /// bars three pixels wide. Each resolution gets a span that is legible AT that
 /// resolution.
-const OPENS_ON: Record<SalesBucket, number> = { day: 30, week: 13, month: 12 }
+export const OPENS_ON: Record<SalesBucket, number> = {
+  day: 30,
+  week: 13,
+  month: 12,
+}
 
 /// Every span a phone can pick, as one list: how wide a column is and how many
 /// of them, in the words "Last 13 weeks". The value is `bucket:buckets`.

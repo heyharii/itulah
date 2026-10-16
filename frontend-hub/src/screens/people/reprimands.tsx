@@ -1,5 +1,9 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
+import {
+  useMutation,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query"
+import { useState, Suspense } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { useLayout } from "@/lib/layout"
@@ -12,7 +16,7 @@ import { Day } from "@/components/ui/day"
 import { Field, Input, Textarea } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { PickOne } from "@/components/ui/pick"
-import { Pill } from "@/components/ui/pill"
+import { Pill, Status } from "@/components/ui/pill"
 import { KeyValue, MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { Sheet } from "@/components/ui/sheet"
@@ -21,7 +25,8 @@ import { count, day } from "@/lib/format"
 import {
   hrEmployeeKeys,
   LETTER_LEVEL_LABEL,
-  useAllWarningLetters,
+  allWarningLettersQuery,
+  useNameOfLogin,
 } from "@/lib/queries/hr-employees"
 import {
   issueWarningLetter,
@@ -51,10 +56,14 @@ function today(): string {
   return new Date().toISOString().slice(0, 10)
 }
 
-function LetterState({ letter }: { letter: WarningLetterView }) {
-  if (letter.revoked) return <Pill tone="neutral">Revoked</Pill>
-  if (!letter.active) return <Pill tone="neutral">Lapsed</Pill>
-  return <Pill tone={letter.level === "SP3" ? "bad" : "warn"}>In force</Pill>
+/// Where a letter stands, as a tone and a word.
+function letterState(letter: WarningLetterView): {
+  tone: "neutral" | "warn" | "bad"
+  label: string
+} {
+  if (letter.revoked) return { tone: "neutral", label: "Revoked" }
+  if (!letter.active) return { tone: "neutral", label: "Lapsed" }
+  return { tone: letter.level === "SP3" ? "bad" : "warn", label: "In force" }
 }
 
 /// Every warning letter ever issued — teguran and SP 1 to 3 — whether still in
@@ -63,23 +72,14 @@ function LetterState({ letter }: { letter: WarningLetterView }) {
 export function Reprimands() {
   const canWrite = useCanWrite()
   const phone = useLayout() === "phone"
-  const letters = useAllWarningLetters()
   const [slice, setSlice] = useState<Slice>("ACTIVE")
   const [openId, setOpenId] = useState<string | null>(null)
   const [issuing, setIssuing] = useState(false)
 
-  const all = letters.data ?? []
-  const rows = (slice === "ACTIVE" ? all.filter((one) => one.active) : all)
-    .slice()
-    .sort((a, b) => b.issued_on.localeCompare(a.issued_on))
-  const open = all.find((one) => one.id === openId) ?? null
-
   return (
     <PageContent>
       <PageHeader
-        crumb="People"
         title="Reprimands"
-        sub="Reprimands and warning letters, in force or not, and whether each was acknowledged."
         actions={
           !phone &&
           canWrite && (
@@ -117,111 +117,169 @@ export function Reprimands() {
             onChange={setSlice}
           />
           <Toolbar.Spacer />
-          <span className="text-[0.875rem] text-mute tabular-nums">
-            {count(rows.length)} {rows.length === 1 ? "letter" : "letters"}
-          </span>
+          <Suspense fallback={null}>
+            <LetterCount slice={slice} />
+          </Suspense>
         </Toolbar>
       )}
 
       <Card className="overflow-hidden px-4 py-3 max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:p-0 max-md:shadow-none">
-        {letters.isPending ? (
-          <LoadingState>Reading the letters…</LoadingState>
-        ) : letters.isError ? (
-          <Problem error={letters.error} />
-        ) : rows.length === 0 ? (
-          <EmptyState>
-            {slice === "ACTIVE"
-              ? "No warning letter is in force. “Issue letter” in the header records one."
-              : "No warning letter has been issued yet."}
-          </EmptyState>
-        ) : phone ? (
-          <PhoneCards
-            rows={rows}
-            onOpen={(letter) => setOpenId(letter.id)}
-            rowId={(letter) => letter.id}
-            spec={{
-              title: (letter) => (
-                <CardName
-                  name={letter.full_name ?? letter.employee_code}
-                  line={`Issued ${day(letter.issued_on)}${
-                    letter.revoked ? "" : ` · to ${day(letter.valid_until)}`
-                  }`}
-                />
-              ),
-              lead: (letter) => (
-                <CardFigure
-                  value={LETTER_LEVEL_LABEL[letter.level] ?? letter.level}
-                  caption={
-                    letter.acknowledged_at === null
-                      ? "not acknowledged"
-                      : `acknowledged ${day(letter.acknowledged_at)}`
-                  }
-                  tone={letter.active && !letter.revoked ? undefined : "quiet"}
-                />
-              ),
-              foot: (letter) => <LetterState letter={letter} />,
-              action: (letter) => (
-                <CardButton
-                  label="Open"
-                  ariaLabel={`Open the letter to ${letter.full_name ?? letter.employee_code}`}
-                  onClick={() => setOpenId(letter.id)}
-                />
-              ),
-            }}
-          />
-        ) : (
-          <MiniTable
-            head={[
-              "Employee",
-              "Letter",
-              "Issued",
-              "In Force to",
-              "Acknowledged",
-            ]}
-          >
-            {rows.map((letter) => (
-              <MiniRow key={letter.id}>
-                <MiniCell>
-                  <button
-                    type="button"
-                    onClick={() => setOpenId(letter.id)}
-                    className="font-medium text-ink hover:underline"
-                  >
-                    {letter.full_name ?? letter.employee_code}
-                  </button>
-                </MiniCell>
-                <MiniCell align="right">
-                  {LETTER_LEVEL_LABEL[letter.level] ?? letter.level}
-                </MiniCell>
-                <MiniCell align="right">{day(letter.issued_on)}</MiniCell>
-                <MiniCell align="right">
-                  {letter.revoked ? (
-                    <Pill tone="neutral">Revoked</Pill>
-                  ) : (
-                    day(letter.valid_until)
-                  )}
-                </MiniCell>
-                <MiniCell align="right">
-                  {letter.acknowledged_at === null ? (
-                    <Pill tone="warn">Not yet</Pill>
-                  ) : (
-                    day(letter.acknowledged_at)
-                  )}
-                </MiniCell>
-              </MiniRow>
-            ))}
-          </MiniTable>
-        )}
+        <Suspense fallback={<LoadingState>Reading the letters…</LoadingState>}>
+          <Letters slice={slice} onOpen={setOpenId} />
+        </Suspense>
       </Card>
 
-      <LetterSheet
-        letter={open}
-        canWrite={canWrite}
-        onClose={() => setOpenId(null)}
-      />
+      {/* The sheet finds its letter in the list, so it reads the list itself. */}
+      <Suspense fallback={null}>
+        <LetterSheetFromList
+          openId={openId}
+          canWrite={canWrite}
+          onClose={() => setOpenId(null)}
+        />
+      </Suspense>
       <IssueSheet open={issuing} onClose={() => setIssuing(false)} />
     </PageContent>
   )
+}
+
+/// What the slice shows: the letters in force, or all of them, newest first.
+function shownLetters(
+  all: readonly WarningLetterView[],
+  slice: Slice
+): WarningLetterView[] {
+  return (slice === "ACTIVE" ? all.filter((one) => one.active) : [...all]).sort(
+    (a, b) => b.issued_on.localeCompare(a.issued_on)
+  )
+}
+
+/// How many letters the slice shows, at the right of the toolbar.
+function LetterCount({ slice }: { slice: Slice }) {
+  const letters = useSuspenseQuery(allWarningLettersQuery())
+  const rows = shownLetters(letters.data, slice)
+  return (
+    <span className="text-[0.9375rem] text-mute tabular-nums">
+      {count(rows.length)} {rows.length === 1 ? "letter" : "letters"}
+    </span>
+  )
+}
+
+/// The letters, as cards or a table. Here and not in the screen so the head
+/// paints at once and this waits alone for its answer.
+function Letters({
+  slice,
+  onOpen,
+}: {
+  slice: Slice
+  onOpen: (id: string) => void
+}) {
+  const phone = useLayout() === "phone"
+  const letters = useSuspenseQuery(allWarningLettersQuery())
+  const rows = shownLetters(letters.data, slice)
+  const setOpenId = onOpen
+  return rows.length === 0 ? (
+    <EmptyState>
+      {slice === "ACTIVE"
+        ? "No letter is in force."
+        : "No letter has been issued yet."}
+    </EmptyState>
+  ) : phone ? (
+    <PhoneCards
+      rows={rows}
+      onOpen={(letter) => setOpenId(letter.id)}
+      rowId={(letter) => letter.id}
+      spec={{
+        title: (letter) => (
+          <CardName
+            name={letter.full_name ?? letter.employee_code}
+            line={`Issued ${day(letter.issued_on)}${
+              letter.revoked ? "" : ` · to ${day(letter.valid_until)}`
+            }`}
+          />
+        ),
+        lead: (letter) => (
+          <CardFigure
+            value={LETTER_LEVEL_LABEL[letter.level] ?? letter.level}
+            caption={
+              letter.acknowledged_at === null
+                ? "not acknowledged"
+                : `acknowledged ${day(letter.acknowledged_at)}`
+            }
+            tone={letter.active && !letter.revoked ? undefined : "quiet"}
+          />
+        ),
+        foot: (letter) => {
+          const state = letterState(letter)
+          return <Status tone={state.tone}>{state.label}</Status>
+        },
+        action: (letter) => (
+          <CardButton
+            label="Open"
+            ariaLabel={`Open the letter to ${letter.full_name ?? letter.employee_code}`}
+            onClick={() => setOpenId(letter.id)}
+          />
+        ),
+      }}
+    />
+  ) : (
+    <MiniTable
+      head={[
+        "Employee",
+        "Letter",
+        "Issued",
+        "In force to",
+        "Acknowledged",
+        "State",
+      ]}
+    >
+      {rows.map((letter) => {
+        const state = letterState(letter)
+        return (
+          <MiniRow key={letter.id}>
+            <MiniCell>
+              <button
+                type="button"
+                onClick={() => setOpenId(letter.id)}
+                className="font-medium text-ink hover:underline"
+              >
+                {letter.full_name ?? letter.employee_code}
+              </button>
+            </MiniCell>
+            <MiniCell align="right">
+              {LETTER_LEVEL_LABEL[letter.level] ?? letter.level}
+            </MiniCell>
+            <MiniCell align="right">{day(letter.issued_on)}</MiniCell>
+            <MiniCell align="right">
+              {letter.revoked ? "—" : day(letter.valid_until)}
+            </MiniCell>
+            <MiniCell align="right">
+              {letter.acknowledged_at === null ? (
+                <span className="text-mute">Not yet</span>
+              ) : (
+                day(letter.acknowledged_at)
+              )}
+            </MiniCell>
+            <MiniCell align="right">
+              <Status tone={state.tone}>{state.label}</Status>
+            </MiniCell>
+          </MiniRow>
+        )
+      })}
+    </MiniTable>
+  )
+}
+
+function LetterSheetFromList({
+  openId,
+  canWrite,
+  onClose,
+}: {
+  openId: string | null
+  canWrite: boolean
+  onClose: () => void
+}) {
+  const letters = useSuspenseQuery(allWarningLettersQuery())
+  const open = letters.data.find((one) => one.id === openId) ?? null
+  return <LetterSheet letter={open} canWrite={canWrite} onClose={onClose} />
 }
 
 function useRefresh() {
@@ -245,6 +303,7 @@ function LetterSheet({
   onClose: () => void
 }) {
   const refresh = useRefresh()
+  const nameOfLogin = useNameOfLogin()
   const [why, setWhy] = useState("")
   const revoke = useMutation({
     mutationFn: (id: string) => revokeWarningLetter(id, why.trim()),
@@ -270,7 +329,13 @@ function LetterSheet({
           ? "Letter"
           : `${LETTER_LEVEL_LABEL[letter.level] ?? letter.level} · ${letter.full_name ?? letter.employee_code}`
       }
-      badge={letter === null ? undefined : <LetterState letter={letter} />}
+      badge={
+        letter === null ? undefined : (
+          <Pill tone={letterState(letter).tone}>
+            {letterState(letter).label}
+          </Pill>
+        )
+      }
       footer={
         letter !== null && canWrite && letter.active && !letter.revoked ? (
           <div className="flex justify-end gap-2">
@@ -305,7 +370,9 @@ function LetterSheet({
               {LETTER_LEVEL_LABEL[letter.level] ?? letter.level}
             </KeyValue>
             <KeyValue term="Issued">{day(letter.issued_on)}</KeyValue>
-            <KeyValue term="Issued by">{letter.issued_by}</KeyValue>
+            <KeyValue term="Issued by">
+              {nameOfLogin(letter.issued_by)}
+            </KeyValue>
             <KeyValue term="In force to">{day(letter.valid_until)}</KeyValue>
             <KeyValue term="Acknowledged">
               {letter.acknowledged_at === null
@@ -314,8 +381,8 @@ function LetterSheet({
             </KeyValue>
           </div>
           <div>
-            <p className="mb-1 text-[0.875rem] text-mute">What was done</p>
-            <p className="text-[0.875rem] whitespace-pre-wrap text-body">
+            <p className="mb-1 text-[0.9375rem] text-mute">What was done</p>
+            <p className="text-[0.9375rem] whitespace-pre-wrap text-body">
               {letter.violation}
             </p>
           </div>
@@ -379,7 +446,7 @@ function IssueSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
       title="Issue a letter"
       footer={
         <div className="flex justify-end gap-2">
-          <Button variant="quiet" onClick={close}>
+          <Button data-cancel variant="quiet" onClick={close}>
             Cancel
           </Button>
           <Button

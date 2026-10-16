@@ -293,6 +293,7 @@ function ReconciliationTab() {
               </EmptyState>
             ) : (
               <DataTable<PoolDiscrepancy>
+                refresh={[report]}
                 table={table}
                 className="max-h-[calc(100dvh-18rem)]"
               />
@@ -328,7 +329,7 @@ function DeadLettersTab() {
             the page — which was the same number only while the backlog was
             smaller than the request. */}
         {total > 0 && (
-          <span className="text-[0.875rem] text-mute tabular-nums">
+          <span className="text-[0.9375rem] text-mute tabular-nums">
             {count(total)}
           </span>
         )}
@@ -352,20 +353,20 @@ function DeadLettersTab() {
                   >
                     <summary className="flex cursor-pointer flex-wrap items-center gap-2 px-4 py-2.5 transition-colors hover:bg-soft">
                       <Tag>{letter.origin_id}</Tag>
-                      <span className="text-[0.875rem] font-medium text-ink">
+                      <span className="text-[0.9375rem] font-medium text-ink">
                         {letter.event_type}
                       </span>
                       <span className="font-mono text-id text-mute">
                         gen {count(letter.generation)} · seq {count(letter.seq)}
                       </span>
-                      <span className="min-w-0 flex-1 truncate text-[0.875rem] text-bad-fg">
+                      <span className="min-w-0 flex-1 truncate text-[0.9375rem] text-bad-fg">
                         {letter.reason}
                       </span>
-                      <span className="shrink-0 text-[0.875rem] text-mute tabular-nums">
+                      <span className="shrink-0 text-[0.9375rem] text-mute tabular-nums">
                         {moment(letter.rejected_at)}
                       </span>
                     </summary>
-                    <pre className="mx-4 mb-3 max-h-64 overflow-auto rounded-inner bg-soft p-2.5 font-mono text-[0.875rem] leading-relaxed text-body">
+                    <pre className="mx-4 mb-3 max-h-64 overflow-auto rounded-inner bg-soft p-2.5 font-mono text-[0.9375rem] leading-relaxed text-body">
                       {JSON.stringify(letter.payload, null, 2)}
                     </pre>
                   </details>
@@ -491,17 +492,17 @@ function CommandsTab({
                 <Section title="Issued">
                   <MiniTable head={["Fact", "Value"]}>
                     <tr className="border-t border-hairline">
-                      <td className="py-2 pr-2 text-[0.875rem] text-ink">By</td>
+                      <td className="py-2 pr-2 text-[0.9375rem] text-ink">By</td>
                       <td className="py-2 text-right">{command.issued_by}</td>
                     </tr>
                     <tr className="border-t border-hairline">
-                      <td className="py-2 pr-2 text-[0.875rem] text-ink">At</td>
+                      <td className="py-2 pr-2 text-[0.9375rem] text-ink">At</td>
                       <td className="py-2 text-right tabular-nums">
                         {moment(command.issued_at)}
                       </td>
                     </tr>
                     <tr className="border-t border-hairline">
-                      <td className="py-2 pr-2 text-[0.875rem] text-ink">
+                      <td className="py-2 pr-2 text-[0.9375rem] text-ink">
                         Expires
                       </td>
                       <td className="py-2 text-right tabular-nums">
@@ -521,7 +522,7 @@ function CommandsTab({
                           key={target.origin_id}
                           className="border-t border-hairline"
                         >
-                          <td className="py-2 pr-2 text-[0.875rem] text-ink">
+                          <td className="py-2 pr-2 text-[0.9375rem] text-ink">
                             {target.origin_id}
                           </td>
                           <td className="py-2 text-right tabular-nums">
@@ -530,7 +531,7 @@ function CommandsTab({
                           <td className="py-2 text-right tabular-nums">
                             {count(target.seq)}
                           </td>
-                          <td className="py-2 text-right text-[0.875rem] text-bad-fg">
+                          <td className="py-2 text-right text-[0.9375rem] text-bad-fg">
                             {target.blocked_reason ?? "—"}
                           </td>
                         </tr>
@@ -555,7 +556,7 @@ function CommandsTab({
 
                 {!command.revoked_at && (
                   <Section title="Recall">
-                    <p className="mb-2.5 text-[0.875rem] text-body">
+                    <p className="mb-2.5 text-[0.9375rem] text-body">
                       Nodes that have not applied it yet will skip it. Nodes
                       that already applied it keep what it did.
                     </p>
@@ -707,7 +708,7 @@ function IssueSheet({
       title="Issue a command"
       footer={
         <div className="flex justify-end gap-2">
-          <Button
+          <Button data-cancel
             variant="quiet"
             onClick={() => {
               clear()
@@ -777,7 +778,7 @@ function IssueSheet({
                 value={field.state.value}
                 onBlur={field.handleBlur}
                 onChange={(event) => field.handleChange(event.target.value)}
-                className="font-mono text-[0.875rem]"
+                className="font-mono text-[0.9375rem]"
               />
             </Field>
           )}
@@ -821,7 +822,7 @@ function IssueSheet({
           )}
         </form.Field>
 
-        <p className="text-[0.875rem] text-mute">
+        <p className="text-[0.9375rem] text-mute">
           Issued as {identity.data?.display_name ?? "—"}. The centre records the
           signed-in name, not one typed into a box.
         </p>

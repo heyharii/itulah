@@ -152,7 +152,7 @@ export function PaymentInstructions() {
           onChange={setStatus}
         />
         <Toolbar.Spacer />
-        <span className="text-[0.875rem] text-mute">
+        <span className="text-[0.9375rem] text-mute">
           {site === "" ? "all sites" : <SiteName id={site} />}
         </span>
       </Toolbar>
@@ -190,7 +190,7 @@ export function PaymentInstructions() {
 
             {/* ── The ladder, with what is standing on each rung ─────────── */}
             <section className="flex flex-col gap-2">
-              <h2 className="text-[0.875rem] font-semibold text-ink">
+              <h2 className="text-[0.9375rem] font-semibold text-ink">
                 Where the asks are
               </h2>
               <div className="flex flex-wrap items-center gap-x-1.5 gap-y-2">
@@ -208,7 +208,7 @@ export function PaymentInstructions() {
                   </span>
                 ))}
               </div>
-              <p className="text-[0.875rem] leading-relaxed text-mute">
+              <p className="text-[0.9375rem] leading-relaxed text-mute">
                 Six rungs, against ERPNext&rsquo;s eight. <b>Refused</b> is ours
                 and is not their <Code>Cancelled</Code>: a refusal is a decision
                 head office made and has to give a reason for, where{" "}
@@ -224,7 +224,7 @@ export function PaymentInstructions() {
 
             {/* ── The queue ─────────────────────────────────────────────── */}
             <section className="flex flex-col gap-2">
-              <h2 className="text-[0.875rem] font-semibold text-ink">
+              <h2 className="text-[0.9375rem] font-semibold text-ink">
                 Instructions
               </h2>
               {page.rows.length === 0 ? (
@@ -339,7 +339,7 @@ function AskRow({ row }: { row: PaymentInstruction }) {
             <AppLink
               to="/finance/bills"
               sheet={{ key: "bill", value: row.bill_id }}
-              className="text-[0.875rem] text-accent hover:underline"
+              className="text-[0.9375rem] text-accent hover:underline"
             >
               Draft bill {row.bill_number ?? ""}
             </AppLink>
@@ -363,7 +363,7 @@ function AskRow({ row }: { row: PaymentInstruction }) {
               name={row.supplier_name}
               className="text-ink"
             />
-            <span className="block text-[0.875rem] text-mute">{row.payee}</span>
+            <span className="block text-[0.9375rem] text-mute">{row.payee}</span>
           </>
         )}
       </Td>
@@ -385,14 +385,14 @@ function AskRow({ row }: { row: PaymentInstruction }) {
             button would carry is said where the decision is read instead:
             saying yes keys a DRAFT bill, it does not post one. */}
         {row.status === "REQUESTED" && (
-          <span className="mt-0.5 block text-[0.875rem] leading-snug text-mute">
+          <span className="mt-0.5 block text-[0.9375rem] leading-snug text-mute">
             Approving keys a DRAFT bill — it does not post anything.
           </span>
         )}
         {/* A no the shop cannot read is a no they will ask about twice, so the
             reason travels with the state rather than hiding in a detail view. */}
         {row.decision_reason !== "" && (
-          <span className="mt-0.5 block text-[0.875rem] leading-snug text-mute">
+          <span className="mt-0.5 block text-[0.9375rem] leading-snug text-mute">
             {row.decision_reason}
           </span>
         )}

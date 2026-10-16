@@ -109,15 +109,15 @@ export function DisciplinePanel({ employeeId }: { employeeId: string }) {
                     <span className="text-card-title font-semibold text-ink">
                       {LEVEL_LABEL[letter.level] ?? letter.level}
                     </span>
-                    <span className="text-[0.875rem] text-mute">
+                    <span className="text-[0.9375rem] text-mute">
                       {day(letter.issued_on)} · {letter.issued_by}
                     </span>
                     <LetterState letter={letter} />
                   </div>
-                  <p className="text-[0.875rem] text-body">
+                  <p className="text-[0.9375rem] text-body">
                     {letter.violation}
                   </p>
-                  <p className="mt-1 text-[0.875rem] text-mute">
+                  <p className="mt-1 text-[0.9375rem] text-mute">
                     {letter.acknowledged_at === null
                       ? "Not yet acknowledged by them."
                       : `Acknowledged ${day(letter.acknowledged_at)}.`}

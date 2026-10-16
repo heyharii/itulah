@@ -42,7 +42,7 @@ export const CHIP =
 export const POP_MOTION =
   "origin-(--transform-origin) transition-[opacity,scale] duration-(--t-pop) ease-(--ease-out) data-[starting-style]:scale-95 data-[starting-style]:opacity-0 data-[ending-style]:scale-95 data-[ending-style]:opacity-0 motion-reduce:data-[starting-style]:scale-100 motion-reduce:data-[ending-style]:scale-100"
 
-export const PANEL = `z-50 min-w-[12rem] rounded-card border border-hairline bg-canvas p-[0.3125rem] text-[0.875rem] shadow-pop outline-none ${POP_MOTION}`
+export const PANEL = `z-50 min-w-[12rem] rounded-card border border-hairline bg-canvas p-[0.3125rem] text-[0.9375rem] shadow-pop outline-none ${POP_MOTION}`
 
 export const POPUP = `${PANEL} max-h-[22rem] overflow-y-auto`
 

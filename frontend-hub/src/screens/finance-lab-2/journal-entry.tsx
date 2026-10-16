@@ -167,13 +167,13 @@ export function JournalEntrySheet({
       width="workspace"
       footer={
         <div className="flex items-center justify-between gap-3">
-          <span className="text-[0.875rem] text-mute">
+          <span className="text-[0.9375rem] text-mute">
             {difference === 0
               ? `${money(debits)} each side`
               : `Out by ${money(Math.abs(difference))}`}
           </span>
           <span className="flex items-center gap-2">
-            <Button variant="ghost" onClick={() => (reset(), onClose())}>
+            <Button data-cancel variant="ghost" onClick={() => (reset(), onClose())}>
               Cancel
             </Button>
             <Button

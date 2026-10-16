@@ -138,12 +138,12 @@ function TileTags({
       {/* The folder stands in when a filed document has no tags: an empty rail
           under every tile is a row of white space pretending to be a control. */}
       {row.tags.length === 0 && row.room === null && row.folder.length > 0 && (
-        <span className="min-w-0 truncate font-mono text-[0.875rem] text-mute">
+        <span className="min-w-0 truncate font-mono text-[0.9375rem] text-mute">
           {folderOf(row)}
         </span>
       )}
 
-      <span className="ml-auto shrink-0 pl-2 text-[0.875rem] text-mute tabular-nums">
+      <span className="ml-auto shrink-0 pl-2 text-[0.9375rem] text-mute tabular-nums">
         {bytes(row.byteSize)}
       </span>
     </div>
@@ -186,12 +186,12 @@ function Thumbnail({ row, seen }: { row: VaultRow; seen: boolean }) {
           aria-label={row.name}
           className="pointer-events-none size-full"
         >
-          <span className="font-mono text-[0.875rem] text-mute">
+          <span className="font-mono text-[0.9375rem] text-mute">
             {fileKind(row.name)}
           </span>
         </object>
       ) : (
-        <span className="font-mono text-[0.875rem] font-semibold text-mute">
+        <span className="font-mono text-[0.9375rem] font-semibold text-mute">
           {fileKind(row.name)}
         </span>
       )}

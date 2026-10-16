@@ -238,6 +238,9 @@ export const SHEET_PARAMS = {
     /^(topup|reallot|edit)~[A-Za-z0-9-]{1,64}$/.test(value)
       ? value
       : undefined,
+  /// What has been typed into New allotment so far, laid out article by
+  /// article and store by store, over the grid. A flag: there is one draft.
+  "allotment-draft": flag,
   /// The articles a New allotment is made of, as comma-joined article ids,
   /// with `supplier` saying whose they are. With them the page is the grid;
   /// without them it is the list they are picked from.
@@ -336,6 +339,11 @@ export const SHEET_PARAMS = {
   /// not exist until somebody presses Buka toko, so there is nothing to key
   /// it by — what the URL buys is a reload that keeps the sheet open.
   "new-stores": flag,
+  /// Which tab a store's own page stands on. Not a sheet: in the URL so the
+  /// "Add store" sheet can land somebody on the Server tab, and so a reload
+  /// stays where it was. Anything but these three words is dropped, and no
+  /// word means Overview.
+  "store-tab": oneOf(["overview", "server", "status"] as const),
   /// The company's own description — name, legal form, head-office address,
   /// NPWP — over the home screen. A flag: there is one company.
   company: flag,
@@ -388,6 +396,10 @@ export const SHEET_PARAMS = {
   /// different things to send somebody, and one parameter carrying both would
   /// open whichever sheet happened to read it first.
   shop: id,
+  /// Which page of the Pricelist is on screen: the prices, or the price
+  /// changes behind them. Not a sheet: in the URL so a link to the changes
+  /// arrives on them, and a reload stays where it was. No word means Prices.
+  "price-tab": oneOf(["prices", "changes"] as const),
   /// The two halves of a price history: which product, and where.
   ///
   /// Both in the URL because a history is a question about ONE product at ONE

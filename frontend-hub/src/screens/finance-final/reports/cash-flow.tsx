@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query"
-import { useState } from "react"
+import { useSuspenseQuery } from "@tanstack/react-query"
+import { Suspense, useDeferredValue, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Card } from "@/components/ui/card"
@@ -9,16 +9,23 @@ import { EmptyState } from "@/components/ui/states"
 import { monthStamp, type ExportSheet } from "@/lib/export-xlsx"
 import { money } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
-import { financeKeys, statement } from "@/lib/queries/finance"
+import { cashFlowStatementQuery } from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
-import { Grid, Td, Th, TotalRow } from "@/screens/finance-final/parts"
-import { useUnitName, useWindow } from "@/screens/finance/hooks"
+import {
+  Grid,
+  Td,
+  Th,
+  TotalRow,
+  useAskedWindow,
+} from "@/screens/finance-final/parts"
+import { useSettledWindow, useUnitName } from "@/screens/finance/hooks"
 import { UnitName, UnitSelect, WindowControl } from "@/screens/finance/parts"
 import {
   PhoneStatement,
   type StatementLine,
 } from "@/screens/finance/phone-parts"
 import { ReportFilters, ReportSummary } from "@/screens/finance/report"
+import { ScreenPending } from "@/screens/finance/pending"
 import type { Statement } from "@itulah/contract"
 
 /// Where cash came from and where it went over a window — ERPNext's Cash Flow
@@ -33,24 +40,32 @@ import type { Statement } from "@itulah/contract"
 /// file under an activity is shown under "Not classified" rather than guessed
 /// into one.
 export function CashFlow() {
+  return (
+    <Suspense
+      fallback={
+        <ScreenPending crumb="Finance · Financial Reports" title="Cash Flow">
+          Reading the cash movements…
+        </ScreenPending>
+      }
+    >
+      <CashFlowScreen />
+    </Suspense>
+  )
+}
+
+function CashFlowScreen() {
   const phone = useLayout() === "phone"
-  const range = useWindow()
+  const range = useSettledWindow()
   const [unit, setUnit] = useState("")
 
-  const flow = useQuery({
-    queryKey: financeKeys.statement(
-      "CASH_FLOW",
-      range.from,
-      range.to,
-      unit || null
-    ),
-    queryFn: ({ signal }) =>
-      statement(
-        "CASH_FLOW",
-        { from: range.from, to: range.to, unit: unit || undefined },
-        signal
-      ),
-  })
+  // The boxes answer at once; the statement trails them, and the figures in
+  // hand stay on screen (dimmed) until the next are read.
+  const asked = useAskedWindow(range)
+  const askedUnit = useDeferredValue(unit)
+  const stale = asked.stale || askedUnit !== unit
+  const flow = useSuspenseQuery(
+    cashFlowStatementQuery(asked.from, asked.to, askedUnit || null)
+  )
 
   const unitName = useUnitName()
 
@@ -58,7 +73,6 @@ export function CashFlow() {
   /// change — with the opening and closing cash the summary shows above it.
   const build = (): ExportSheet | null => {
     const data = flow.data
-    if (data === undefined) return null
     const sections = data.sections.filter((section) => section.lines.length > 0)
     const net = data.sections.reduce(
       (sum, section) => sum + section.total_minor,
@@ -85,10 +99,10 @@ export function CashFlow() {
     rows.push([null, "Net change in cash", net])
     rowStyles.push({ bold: true })
     return {
-      filename: `Cash-Flow-${monthStamp(range.to)}`,
+      filename: `Cash-Flow-${monthStamp(asked.to)}`,
       sheet: "Cash Flow",
       title: "Cash Flow",
-      subtitle: `${range.chip} · ${unit === "" ? "all units" : unitName(unit)}`,
+      subtitle: `${range.chip} · ${askedUnit === "" ? "all units" : unitName(askedUnit)}`,
       columns: [
         { header: "Code", kind: "text", width: 12 },
         { header: "Account", kind: "text", width: 48 },
@@ -107,11 +121,7 @@ export function CashFlow() {
         title="Cash Flow"
         // On a phone Export is a row of the Filters sheet, not a button at the
         // top of the page.
-        actions={
-          phone ? undefined : (
-            <ExportButton build={build} disabled={flow.data === undefined} />
-          )
-        }
+        actions={phone ? undefined : <ExportButton build={build} />}
       />
 
       <ReportFilters
@@ -136,15 +146,18 @@ export function CashFlow() {
           aria-label="Unit"
         />
         <WindowControl range={range} />
-        {phone && (
-          <ExportButton build={build} disabled={flow.data === undefined} />
-        )}
+        {phone && <ExportButton build={build} />}
       </ReportFilters>
 
-      {queryState(flow, {
-        loading: "Reading the cash movements…",
-        render: (data) => <Body flow={data} />,
-      })}
+      <div className="list-swap" aria-busy={stale || undefined}>
+        {!asked.valid ? (
+          <EmptyState>
+            Choose a From date that is on or before the To date.
+          </EmptyState>
+        ) : (
+          queryState(flow, { render: (data) => <Body flow={data} /> })
+        )}
+      </div>
     </PageContent>
   )
 }
@@ -249,7 +262,7 @@ function SectionRows({ section }: { section: Statement["sections"][number] }) {
         <tr key={line.account_code}>
           <Td>
             <span className="pl-4">
-              <span className="mr-2 font-mono text-[0.875rem] text-mute">
+              <span className="mr-2 font-mono text-[0.9375rem] text-mute">
                 {line.account_code}
               </span>
               <span className="text-body">{line.name}</span>

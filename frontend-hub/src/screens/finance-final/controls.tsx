@@ -1,6 +1,10 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  useMutation,
+  useQueryClient,
+  useSuspenseQueries,
+} from "@tanstack/react-query"
 import { Check, CircleAlert, X } from "lucide-react"
-import { useMemo, useState } from "react"
+import { Suspense, useDeferredValue, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
@@ -9,19 +13,20 @@ import { Fab } from "@/components/ui/fab"
 import { Input } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Status } from "@/components/ui/pill"
-import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states"
+import { Toolbar } from "@/components/ui/segmented"
+import { EmptyState } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { count, money } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import {
-  closeReadiness,
-  domainKeys,
-  financeControls,
+  closeReadinessQuery,
+  financeControlsQuery,
   softCloseMonth,
 } from "@/lib/queries/finance-domains"
 import { Grid, Td, Th } from "@/screens/finance-final/parts"
 import { monthLabel } from "@/screens/finance/chart"
 import { PhoneCard, PhoneList } from "@/components/ui/phone-cards"
+import { ScreenPending } from "@/screens/finance/pending"
 
 /// Period Close — what stands between a month and being shut, then every
 /// subledger beside the ledger it controls.
@@ -40,6 +45,20 @@ import { PhoneCard, PhoneList } from "@/components/ui/phone-cards"
 /// lock) and Period Closing Voucher (the year-end entry). This is the step
 /// before both.
 export function FinanceControls() {
+  return (
+    <Suspense
+      fallback={
+        <ScreenPending crumb="Finance · Closing" title="Period Close">
+          Checking the month and the controls…
+        </ScreenPending>
+      }
+    >
+      <FinanceControlsScreen />
+    </Suspense>
+  )
+}
+
+function FinanceControlsScreen() {
   const phone = useLayout() === "phone"
   const client = useQueryClient()
   const now = new Date()
@@ -48,23 +67,27 @@ export function FinanceControls() {
     month: now.getMonth() + 1,
   })
 
-  const controls = useQuery({
-    queryKey: domainKeys.controls(),
-    queryFn: ({ signal }) => financeControls(signal),
-  })
-  const readiness = useQuery({
-    queryKey: domainKeys.closeReadiness(month.year, month.month),
-    queryFn: ({ signal }) => closeReadiness(month.year, month.month, signal),
+  // The month answers at once; the checklist trails it, and the one in hand
+  // stays on screen (dimmed) until the next is read.
+  const askedMonth = useDeferredValue(month)
+  const stale = askedMonth !== month
+  const [controls, readiness] = useSuspenseQueries({
+    queries: [
+      financeControlsQuery(),
+      closeReadinessQuery(askedMonth.year, askedMonth.month),
+    ],
   })
 
   const soft = useMutation({
-    mutationFn: () => softCloseMonth({ year: month.year, month: month.month }),
+    // The month the checklist beside the button is about.
+    mutationFn: () =>
+      softCloseMonth({ year: askedMonth.year, month: askedMonth.month }),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ["finance"] })
     },
   })
 
-  const rows = useMemo(() => controls.data ?? [], [controls.data])
+  const rows = controls.data
   const byDomain = useMemo(
     () => new Map(rows.map((row) => [row.domain, row])),
     [rows]
@@ -72,55 +95,58 @@ export function FinanceControls() {
   // Blockers first, then what cannot be known yet, then what is fine.
   const checks = useMemo(
     () =>
-      [...(readiness.data?.checks ?? [])].sort(
+      [...readiness.data.checks].sort(
         (a, b) => RANK[a.status] - RANK[b.status]
       ),
     [readiness.data]
   )
-  const blockers = readiness.data?.blockers ?? 0
-  const status = readiness.data?.period_status
+  const blockers = readiness.data.blockers
+  const status = readiness.data.period_status
   const off = rows.filter((row) => row.covered && row.difference_minor !== 0)
-  const name = monthLabel(month.year, month.month)
+  const name = monthLabel(askedMonth.year, askedMonth.month)
 
   return (
     <PageContent>
       <PageHeader
         crumb="Finance · Closing"
         title="Period Close"
-        sub="Check the month, then close it for the shops."
-        // On a phone the month is the dock's status button and closing for the
-        // shops its +.
+        // The one action stands in the head; the month it acts on is the scope
+        // bar's, under it. On a phone the month is the dock's status button and
+        // closing for the shops its +.
         actions={
           phone ? undefined : (
-            <>
-              <Input
-                type="month"
-                aria-label="Month"
-                className="h-control w-44"
-                value={`${month.year}-${String(month.month).padStart(2, "0")}`}
-                onChange={(event) => {
-                  const [year, part] = event.target.value.split("-")
-                  if (year && part)
-                    setMonth({ year: Number(year), month: Number(part) })
-                }}
-              />
-              <Button
-                variant="primary"
-                pending={soft.isPending}
-                disabled={status !== "OPEN"}
-                title={
-                  status === "OPEN"
-                    ? undefined
-                    : `${name} is already ${statusWord(status).toLowerCase()}`
-                }
-                onClick={() => soft.mutate()}
-              >
-                Close for the shops
-              </Button>
-            </>
+            <Button
+              variant="primary"
+              pending={soft.isPending}
+              disabled={status !== "OPEN"}
+              title={
+                status === "OPEN"
+                  ? undefined
+                  : `${name} is already ${statusWord(status).toLowerCase()}`
+              }
+              onClick={() => soft.mutate()}
+            >
+              Close for the shops
+            </Button>
           )
         }
       />
+
+      {!phone && (
+        <Toolbar>
+          <Input
+            type="month"
+            aria-label="Month"
+            className="h-control w-44"
+            value={`${month.year}-${String(month.month).padStart(2, "0")}`}
+            onChange={(event) => {
+              const [year, part] = event.target.value.split("-")
+              if (year && part)
+                setMonth({ year: Number(year), month: Number(part) })
+            }}
+          />
+        </Toolbar>
+      )}
 
       {phone && (
         <>
@@ -153,70 +179,42 @@ export function FinanceControls() {
         <Status tone={status === "OPEN" ? "info" : "ok"}>
           {statusWord(status)}
         </Status>
-        {/* Nothing is "all clear" until it has been read: before the answers
-            land, both say so instead of drawing the good news. */}
-        {readiness.data === undefined ? (
-          <span className="text-mute">
-            {readiness.isError
-              ? "The month could not be checked"
-              : "Checking the month…"}
-          </span>
-        ) : (
-          <span className={blockers > 0 ? "text-bad-fg" : "text-ok-fg"}>
-            {blockers === 0
-              ? "Nothing blocks closing"
-              : `${count(blockers)} ${blockers === 1 ? "thing blocks" : "things block"} closing`}
-          </span>
-        )}
+        <span className={blockers > 0 ? "text-bad-fg" : "text-ok-fg"}>
+          {blockers === 0
+            ? "Nothing blocks closing"
+            : `${count(blockers)} ${blockers === 1 ? "thing blocks" : "things block"} closing`}
+        </span>
         <span className="text-mute">
-          {controls.data === undefined
-            ? controls.isError
-              ? "The controls could not be checked"
-              : "Checking the controls…"
-            : off.length === 0
-              ? "Every control agrees with the ledger"
-              : `${count(off.length)} ${off.length === 1 ? "control is" : "controls are"} off`}
+          {off.length === 0
+            ? "Every control agrees with the ledger"
+            : `${count(off.length)} ${off.length === 1 ? "control is" : "controls are"} off`}
         </span>
       </div>
 
       <h2 className="mb-3 text-[1rem] font-medium text-ink">
         Before closing {name}
       </h2>
-      {readiness.isPending ? (
-        <LoadingState />
-      ) : readiness.isError ? (
-        <ErrorState error={readiness.error} />
-      ) : (
-        <Card className="mb-8 divide-y divide-hairline">
-          {checks.map((check) => (
-            <div key={check.code} className="flex items-start gap-4 px-5 py-4">
-              <CheckMark status={check.status} />
-              <div className="min-w-0 flex-1">
-                <div className="text-[0.9375rem] text-ink">
-                  {labelOf(check)}
-                </div>
-                <div className="mt-0.5 text-[0.875rem] text-mute">
-                  {detailOf(check, byDomain)}
-                </div>
+      <Card
+        className="list-swap mb-8 divide-y divide-hairline"
+        aria-busy={stale || undefined}
+      >
+        {checks.map((check) => (
+          <div key={check.code} className="flex items-start gap-4 px-5 py-4">
+            <CheckMark status={check.status} />
+            <div className="min-w-0 flex-1">
+              <div className="text-[0.9375rem] text-ink">{labelOf(check)}</div>
+              <div className="mt-0.5 text-[0.9375rem] text-mute">
+                {detailOf(check, byDomain)}
               </div>
             </div>
-          ))}
-        </Card>
-      )}
+          </div>
+        ))}
+      </Card>
 
       <h2 className="mb-1 text-[1rem] font-medium text-ink">
         Ledger against subledgers
       </h2>
-      <p className="mb-3 text-[0.875rem] text-mute">
-        Each balance in the books beside the register that should explain it.
-        Closing for the shops still leaves adjustments, depreciation, tax,
-        payroll and reversals open.
-      </p>
-      {controls.isPending ? (
-        <LoadingState />
-      ) : controls.isError ? (
-        <ErrorState error={controls.error} />
-      ) : rows.length === 0 ? (
+      {rows.length === 0 ? (
         <EmptyState>Nothing can be checked yet.</EmptyState>
       ) : phone ? (
         <PhoneList>
@@ -283,7 +281,7 @@ export function FinanceControls() {
                     {DOMAIN_LABEL[row.domain] ?? row.label}
                   </span>
                   {!row.covered && (
-                    <span className="block text-[0.875rem] text-mute">
+                    <span className="block text-[0.9375rem] text-mute">
                       Not reconciled yet
                     </span>
                   )}

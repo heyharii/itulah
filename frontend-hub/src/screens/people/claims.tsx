@@ -1,8 +1,15 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import type { UseQueryResult } from "@tanstack/react-query"
+import { ActivityFold } from "@/components/ui/activity-fold"
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  useSuspenseQuery,
+  type QueryKey,
+  type UseSuspenseQueryOptions,
+} from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { useMemo, useState } from "react"
+import { useMemo, useState, Suspense } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { useLayout } from "@/lib/layout"
@@ -14,11 +21,11 @@ import { DataTable } from "@/components/ui/data-table"
 import { Field, Input, Select } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
-import { Pill } from "@/components/ui/pill"
+import { Pill, Status } from "@/components/ui/pill"
 import { MiniCell, MiniRow, MiniTable, SubHead } from "@/components/ui/rows"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { ButtonGroup, Toolbar } from "@/components/ui/segmented"
-import { Banner, EmptyState } from "@/components/ui/states"
+import { Banner, EmptyState, LoadingState } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { Timeline } from "@/components/ui/timeline"
 import { useFilters } from "@/lib/filters"
@@ -32,7 +39,6 @@ import {
   decideClaim,
   fileClaim,
   listClaimTypes,
-  listClaims,
   listEmployees,
   payClaim,
   peopleKeys,
@@ -42,8 +48,9 @@ import {
   withdrawClaim,
   type ClaimRow,
   type NewClaimLine,
+  claimQueueQuery,
+  claimListQuery,
 } from "@/lib/queries/people"
-import { queryState } from "@/lib/query-state"
 import { useCanWrite } from "@/lib/session"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
@@ -137,11 +144,6 @@ const listColumns: ColumnDef<TableSetup, ClaimRow>[] = [
     accessorKey: "claim_number",
     header: "Number",
     size: 170,
-    cell: ({ row }) => (
-      <span className="font-mono text-id text-body">
-        {row.original.claim_number}
-      </span>
-    ),
   },
   {
     id: "who",
@@ -180,9 +182,9 @@ const listColumns: ColumnDef<TableSetup, ClaimRow>[] = [
     /// manager wants to find.
     meta: { filter: { kind: "option", format: claimStateLabel } },
     cell: ({ row }) => (
-      <Pill tone={claimStateTone(row.original.state)}>
+      <Status tone={claimStateTone(row.original.state)}>
         {claimStateLabel(row.original.state)}
-      </Pill>
+      </Status>
     ),
   },
   {
@@ -226,41 +228,25 @@ export function Claims() {
 
   // Waiting is what a manager comes for; All is the record. A filter on one
   // list rather than two destinations — the other tabs this screen once held
-  // (loans, allowances, kinds) are pages of their own under Claims & loans.
+  // (loans, allowances, kinds) are pages of their own.
   const [show, setShow] = useState<string>("queue")
-
-  // Both reads live here rather than in the table, because the sheet has to
-  // find its row whichever filter it was opened from. Claims move at
-  // petty-cash volumes; asking for both is cheaper than the gymnastics of a
-  // sheet that guesses which one is mounted.
-  const queue = useQuery({
-    queryKey: claimsKeys.queue(),
-    queryFn: ({ signal }) => listClaims({ state: "SUBMITTED" }, signal),
-  })
-  const all = useQuery({
-    queryKey: claimsKeys.list(),
-    queryFn: ({ signal }) => listClaims({}, signal),
-  })
-
-  const queueRows = useMemo(() => queue.data ?? [], [queue.data])
-  const allRows = useMemo(() => all.data ?? [], [all.data])
-  const open =
-    queueRows.find((row) => row.claim_id === claim.value) ??
-    allRows.find((row) => row.claim_id === claim.value) ??
-    null
+  /// The screen's own tabs, first in the toolbar of whichever list is shown:
+  /// inside the Pay door they are a choice, not a second row of tabs.
+  const tabs = (
+    <SubTabs
+      tabs={[
+        { value: "queue", label: "Waiting" },
+        { value: "all", label: "All" },
+      ]}
+      value={show}
+      onChange={setShow}
+    />
+  )
 
   return (
     <PageContent>
       <PageHeader
-        crumb="People"
         title="Claims"
-        sub={
-          show === "queue"
-            ? bounded === null
-              ? "Claims waiting on a decision, across every place."
-              : `Claims waiting on a decision at ${bounded}.`
-            : "Every claim the caller may see, decided or not."
-        }
         actions={
           !phone &&
           canWrite && (
@@ -272,59 +258,66 @@ export function Claims() {
       />
       {canWrite && <Fab label="File claim" onClick={() => setFiling(true)} />}
 
-      <SubTabs
-        tabs={[
-          { value: "queue", label: "Waiting" },
-          { value: "all", label: "All" },
-        ]}
-        value={show}
-        onChange={setShow}
-      />
-
       {show === "queue" ? (
-        <>
-          <Banner tone="info" className="mb-4">
-            A claim is sanctioned by two people: whoever filed it never decides
-            it, and approving writes what the company owes before the payout
-            moves a rupiah.
-          </Banner>
-          <ClaimTable
-            rows={queueRows}
-            columns={queueColumns}
-            query={queue}
-            loading="Reading the queue…"
-            sorting={[{ id: "posted", desc: false }]}
-            onOpen={claim.open}
-            isSelected={(row) => row.claim_id === claim.value}
-            emptyNone={
-              bounded === null
-                ? "Nothing anywhere is waiting on a decision."
-                : `Nothing at ${bounded} is waiting on a decision.`
-            }
-          />
-        </>
+        <ClaimTable
+          key="queue"
+          lead={tabs}
+          query={claimQueueQuery()}
+          columns={queueColumns}
+          loading="Reading the queue…"
+          sorting={[{ id: "posted", desc: false }]}
+          onOpen={claim.open}
+          isSelected={(row) => row.claim_id === claim.value}
+          emptyNone={
+            bounded === null
+              ? "Nothing is waiting on a decision."
+              : `Nothing at ${bounded} is waiting on a decision.`
+          }
+        />
       ) : (
         <ClaimTable
-          rows={allRows}
+          key="all"
+          lead={tabs}
+          query={claimListQuery()}
           columns={listColumns}
-          query={all}
           loading="Reading the claims…"
           sorting={[{ id: "posted", desc: true }]}
           onOpen={claim.open}
           isSelected={(row) => row.claim_id === claim.value}
           emptyNone={
             bounded === null
-              ? "No claim has been filed yet. Use File claim to add the first."
-              : `No claim has been filed at ${bounded} yet. Use File claim to add the first.`
+              ? "No claim has been filed yet."
+              : `No claim has been filed at ${bounded} yet.`
           }
         />
       )}
 
       {filing && <FileClaimSheet onClose={() => setFiling(false)} />}
 
-      <ClaimSheet row={open} onClose={claim.close} />
+      {/* The sheet has to find its row whichever filter it was opened from.
+          Claims move at petty-cash volumes; asking for both lists is cheaper
+          than the gymnastics of a sheet that guesses which one is mounted. */}
+      <Suspense fallback={null}>
+        <ClaimSheetFromLists claimId={claim.value} onClose={claim.close} />
+      </Suspense>
     </PageContent>
   )
+}
+
+function ClaimSheetFromLists({
+  claimId,
+  onClose,
+}: {
+  claimId: string | undefined
+  onClose: () => void
+}) {
+  const queue = useSuspenseQuery(claimQueueQuery())
+  const all = useSuspenseQuery(claimListQuery())
+  const open =
+    queue.data.find((row) => row.claim_id === claimId) ??
+    all.data.find((row) => row.claim_id === claimId) ??
+    null
+  return <ClaimSheet row={open} onClose={onClose} />
 }
 
 /// The table both list tabs draw, with the sentence each empty state says.
@@ -332,26 +325,70 @@ export function Claims() {
 /// "Empty" and "empty because of a filter" are different sentences everywhere
 /// in this app, and on the queue the difference is somebody's claim waiting
 /// unanswered behind a clause somebody forgot was there.
-function ClaimTable({
-  rows,
-  columns,
+function ClaimTable<K extends QueryKey>({
+  lead,
   query,
+  columns,
   loading,
   sorting: defaultSorting,
   onOpen,
   isSelected,
   emptyNone,
 }: {
-  rows: ClaimRow[]
+  /// The screen's tabs, kept in the toolbar while the list is read.
+  lead: React.ReactNode
+  query: UseSuspenseQueryOptions<ClaimRow[], Error, ClaimRow[], K>
   columns: ColumnDef<TableSetup, ClaimRow>[]
-  query: UseQueryResult<ClaimRow[]>
   loading: string
   sorting: SortingState
   onOpen: (id: string) => void
   isSelected: (row: ClaimRow) => boolean
   emptyNone: string
 }) {
+  return (
+    <Suspense
+      fallback={
+        <>
+          <Toolbar lead={lead} />
+          <Card className="overflow-hidden">
+            <LoadingState>{loading}</LoadingState>
+          </Card>
+        </>
+      }
+    >
+      <ClaimRows
+        lead={lead}
+        query={query}
+        columns={columns}
+        sorting={defaultSorting}
+        onOpen={onOpen}
+        isSelected={isSelected}
+        emptyNone={emptyNone}
+      />
+    </Suspense>
+  )
+}
+
+function ClaimRows<K extends QueryKey>({
+  lead,
+  query: options,
+  columns,
+  sorting: defaultSorting,
+  onOpen,
+  isSelected,
+  emptyNone,
+}: {
+  lead: React.ReactNode
+  query: UseSuspenseQueryOptions<ClaimRow[], Error, ClaimRow[], K>
+  columns: ColumnDef<TableSetup, ClaimRow>[]
+  sorting: SortingState
+  onOpen: (id: string) => void
+  isSelected: (row: ClaimRow) => boolean
+  emptyNone: string
+}) {
   const phone = useLayout() === "phone"
+  const query = useSuspenseQuery(options)
+  const rows = query.data
   const [sorting, setSorting] = useState<SortingState>(defaultSorting)
   const filters = useFilters(columns)
 
@@ -371,80 +408,74 @@ function ClaimTable({
 
   return (
     <>
-      <Toolbar>
+      <Toolbar lead={lead}>
         <FilterPanel model={filters} table={table} />
       </Toolbar>
 
       <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-        {queryState(query, {
-          loading,
-          render: () =>
-            rows.length === 0 ? (
-              <EmptyState>{emptyNone}</EmptyState>
-            ) : phone ? (
-              <PhoneCards
-                rows={table.getRowModel().rows.map((one) => one.original)}
-                onOpen={(row) => onOpen(row.claim_id)}
-                empty={`${rows.length.toLocaleString("id-ID")} claims are here, and none of them match the filters in force.`}
-                rowId={(row) => row.claim_id}
-                spec={{
-                  title: (row) => (
-                    <CardName
-                      name={
-                        row.employee_name ??
-                        row.employee_code ??
-                        row.employee_id
-                      }
-                      line={
-                        <>
-                          <span className="block">
-                            {row.claim_number} · {row.unit_name ?? row.unit_id}
-                          </span>
-                          <span className="block">
-                            Filed {day(row.posted_on)} ·{" "}
-                            {count(row.lines.length)}{" "}
-                            {row.lines.length === 1 ? "line" : "lines"}
-                          </span>
-                        </>
-                      }
-                    />
-                  ),
-                  lead: (row) => (
-                    <CardFigure
-                      value={money(row.sanctioned_minor ?? row.claimed_minor)}
-                      caption={
-                        row.sanctioned_minor === null ? "claimed" : "sanctioned"
-                      }
-                    />
-                  ),
-                  foot: (row) => (
-                    <Pill tone={claimStateTone(row.state)}>
-                      {claimStateLabel(row.state)}
-                    </Pill>
-                  ),
-                  action: (row) => (
-                    <CardButton
-                      label="Open"
-                      ariaLabel={`Open claim ${row.claim_number}`}
-                      onClick={() => onOpen(row.claim_id)}
-                    />
-                  ),
-                }}
-              />
-            ) : (
-              <DataTable<ClaimRow>
-                table={table}
-                onRowClick={(row) => onOpen(row.claim_id)}
-                isSelected={isSelected}
-                empty={
-                  <>
-                    {rows.length.toLocaleString("id-ID")} claims are here, and
-                    none of them match the filters in force.
-                  </>
-                }
-              />
-            ),
-        })}
+        {rows.length === 0 ? (
+          <EmptyState>{emptyNone}</EmptyState>
+        ) : phone ? (
+          <PhoneCards
+            rows={table.getRowModel().rows.map((one) => one.original)}
+            onOpen={(row) => onOpen(row.claim_id)}
+            empty={`${rows.length.toLocaleString("id-ID")} claims are here, and none of them match the filters in force.`}
+            rowId={(row) => row.claim_id}
+            spec={{
+              title: (row) => (
+                <CardName
+                  name={
+                    row.employee_name ?? row.employee_code ?? row.employee_id
+                  }
+                  line={
+                    <>
+                      <span className="block">
+                        {row.claim_number} · {row.unit_name ?? row.unit_id}
+                      </span>
+                      <span className="block">
+                        Filed {day(row.posted_on)} · {count(row.lines.length)}{" "}
+                        {row.lines.length === 1 ? "line" : "lines"}
+                      </span>
+                    </>
+                  }
+                />
+              ),
+              lead: (row) => (
+                <CardFigure
+                  value={money(row.sanctioned_minor ?? row.claimed_minor)}
+                  caption={
+                    row.sanctioned_minor === null ? "claimed" : "sanctioned"
+                  }
+                />
+              ),
+              foot: (row) => (
+                <Status tone={claimStateTone(row.state)}>
+                  {claimStateLabel(row.state)}
+                </Status>
+              ),
+              action: (row) => (
+                <CardButton
+                  label="Open"
+                  ariaLabel={`Open claim ${row.claim_number}`}
+                  onClick={() => onOpen(row.claim_id)}
+                />
+              ),
+            }}
+          />
+        ) : (
+          <DataTable<ClaimRow>
+            refresh={[query]}
+            table={table}
+            onRowClick={(row) => onOpen(row.claim_id)}
+            isSelected={isSelected}
+            empty={
+              <>
+                {rows.length.toLocaleString("id-ID")} claims are here, and none
+                of them match the filters in force.
+              </>
+            }
+          />
+        )}
       </Card>
     </>
   )
@@ -537,7 +568,7 @@ function FileClaimSheet({ onClose }: { onClose: () => void }) {
       title="File claim"
       footer={
         <div className="flex justify-end gap-2">
-          <Button variant="quiet" onClick={onClose}>
+          <Button data-cancel variant="quiet" onClick={onClose}>
             Cancel
           </Button>
           <Button
@@ -580,18 +611,10 @@ function FileClaimSheet({ onClose }: { onClose: () => void }) {
             ))}
           </Select>
         </Field>
-        <Field
-          label="Spent on"
-          required
-          hint="The day the money went out, not the day the claim is filed."
-        >
+        <Field label="Spent on" required>
           <Day value={spentOn} onChange={setSpentOn} />
         </Field>
-        <Field
-          label="Amount"
-          hint="Whole rupiah, as the receipt shows it."
-          required
-        >
+        <Field label="Amount" required>
           <Input
             type="number"
             min={1}
@@ -599,21 +622,13 @@ function FileClaimSheet({ onClose }: { onClose: () => void }) {
             onChange={(event) => setAmount(event.target.value)}
           />
         </Field>
-        <Field
-          label="What for"
-          hint="Said the way the receipt would say it."
-          required
-        >
+        <Field label="What for" required>
           <Input
             value={description}
             onChange={(event) => setDescription(event.target.value)}
           />
         </Field>
-        <Field
-          label="Why this claim"
-          required
-          hint="Recorded against the filing and the submission, and required."
-        >
+        <Field label="Why this claim" required>
           <Input
             value={reason}
             onChange={(event) => setReason(event.target.value)}
@@ -634,7 +649,7 @@ function FileClaimSheet({ onClose }: { onClose: () => void }) {
 /// reading it without asking, so it offers the act and lets the server answer,
 /// which is the payroll sheet's rule: a button that appears a moment late is
 /// worse than one that is answered honestly.
-function ClaimSheet({
+export function ClaimSheet({
   row,
   onClose,
 }: {
@@ -702,9 +717,7 @@ function ClaimSheet({
 
       <Facts>
         <Fact term="Employee">
-          {row.employee_name ?? (
-            <span className="font-mono text-id">{row.employee_id}</span>
-          )}
+          {row.employee_name ?? row.employee_code ?? "—"}
         </Fact>
         <Fact term="Unit">{row.unit_name ?? row.unit_id}</Fact>
         <Fact term="Filed">{day(row.posted_on)}</Fact>
@@ -737,10 +750,10 @@ function ClaimSheet({
           {row.lines.map((line) => (
             <MiniRow key={line.line_id}>
               <MiniCell>
-                <span className="block text-[0.875rem] text-ink">
+                <span className="block text-[0.9375rem] text-ink">
                   {line.type_name}
                 </span>
-                <span className="font-mono text-[0.875rem] text-mute">
+                <span className="text-[0.9375rem] text-mute">
                   {line.description}
                 </span>
               </MiniCell>
@@ -765,9 +778,8 @@ function ClaimSheet({
       {row.state === "APPROVED" && (
         <div className="mt-4 flex flex-col gap-3">
           <p className="text-meta text-body">
-            Approved and owed. Paying takes the sanctioned total out of the
-            place's petty cash and posts the entry — the act that cannot be
-            taken back on its own.
+            Paying takes the sanctioned total out of the place&rsquo;s petty
+            cash and cannot be taken back.
           </p>
           <div>
             <Button
@@ -798,11 +810,7 @@ function ClaimSheet({
           {/* The filer's own act, offered to whoever is looking and refused by
               the server for anybody else — the sheet cannot know who that is
               without asking. */}
-          <Field
-            label="Why"
-            hint="Recorded against the submission or withdrawal, and required."
-            required
-          >
+          <Field label="Why" required>
             <Input
               value={reason}
               onChange={(event) => setReason(event.target.value)}
@@ -823,14 +831,12 @@ function ClaimSheet({
 
       {row.state === "REJECTED" && (
         <p className="mt-4 text-meta text-mute">
-          Refused. There is no way back from here, by design — the claim keeps
-          its history below.
+          Refused. There is no way back from here.
         </p>
       )}
 
       {row.history.length > 0 && (
-        <div className="mt-4">
-          <SubHead>History</SubHead>
+        <ActivityFold count={row.history.length}>
           <Timeline
             events={row.history.map((event, index) => ({
               id: `${event.action}-${event.at}-${index}`,
@@ -842,7 +848,7 @@ function ClaimSheet({
               state: index === row.history.length - 1 ? "current" : "done",
             }))}
           />
-        </div>
+        </ActivityFold>
       )}
 
       {failed !== null && (
@@ -924,10 +930,10 @@ function DecidePanel({ row }: { row: ClaimRow }) {
         {row.lines.map((line) => (
           <MiniRow key={line.line_id}>
             <MiniCell>
-              <span className="block text-[0.875rem] text-ink">
+              <span className="block text-[0.9375rem] text-ink">
                 {line.type_name}
               </span>
-              <span className="font-mono text-[0.875rem] text-mute">
+              <span className="text-[0.9375rem] text-mute">
                 {line.description}
               </span>
             </MiniCell>
@@ -949,11 +955,7 @@ function DecidePanel({ row }: { row: ClaimRow }) {
           </MiniRow>
         ))}
       </MiniTable>
-      <Field
-        label="Why"
-        hint="Recorded against the decision, and required."
-        required
-      >
+      <Field label="Why" required>
         <Input
           value={reason}
           onChange={(event) => setReason(event.target.value)}

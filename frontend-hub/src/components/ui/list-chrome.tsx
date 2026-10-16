@@ -1,4 +1,5 @@
 import { Menu } from "@base-ui/react/menu"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import {
   ArrowDown,
   ArrowUp,
@@ -36,6 +37,7 @@ import {
   type FilterField,
   type FilterState,
 } from "@/lib/filters"
+import { isWhiteLook } from "@/lib/look"
 
 /// The chrome a list wears beside its rows: the filters as a column, the
 /// columns as a menu, and the views somebody named because they ask the same
@@ -56,7 +58,7 @@ import {
 /* -------------------------------------------------------------------------- */
 
 const ROW =
-  "flex h-[2.375rem] w-full items-center gap-2 rounded-inner border border-hairline-2 bg-canvas px-3 text-left text-[0.875rem] transition-colors hover:border-hairline-strong"
+  "ui-field flex h-[2.375rem] w-full items-center gap-2 rounded-inner border border-hairline-2 bg-canvas px-3 text-left text-[0.9375rem] transition-colors hover:border-hairline-strong"
 
 export function DockedFilters({
   model,
@@ -135,7 +137,18 @@ export function DockedFilters({
   // are portalled, so a hidden panel still puts a dialog on the same
   // `?filters=` key as the narrow-width `<FilterPanel>` a screen renders in its
   // place, and opening one opened two. See `usePanelDock`.
-  if (fields.length === 0 || !docked) return null
+  // Not docked: in the All white look the column's figures still have a place —
+  // over the list, as its KPI cards (`order-first` in the screen's grid, whose
+  // one column this is then). The filters themselves are the toolbar's.
+  if (!docked)
+    return kpis && kpis.length > 0 && isWhiteLook() ? (
+      <KpiStrip className="order-first mb-0! max-md:hidden">
+        {kpis.map((kpi) => (
+          <Kpi key={kpi.label} label={kpi.label} value={kpi.value} />
+        ))}
+      </KpiStrip>
+    ) : null
+  if (fields.length === 0) return null
 
   return (
     <aside
@@ -149,12 +162,12 @@ export function DockedFilters({
         <dl className="-mx-1 mb-1 grid grid-cols-2 gap-x-3 gap-y-2 border-b border-hairline px-1 pb-3">
           {kpis.map((kpi) => (
             <div key={kpi.label} className="min-w-0">
-              <dt className="truncate text-[0.875rem] font-medium tracking-[0.04em] text-mute uppercase">
+              <dt className="truncate text-[0.9375rem] font-medium tracking-[0.04em] text-mute uppercase">
                 {kpi.label}
               </dt>
               <dd
                 title={kpi.note}
-                className="truncate text-[0.875rem] font-semibold text-ink tabular-nums"
+                className="truncate text-[0.9375rem] font-semibold text-ink tabular-nums"
               >
                 {kpi.value}
               </dd>
@@ -170,7 +183,7 @@ export function DockedFilters({
       )}
 
       <div className="flex items-center justify-between gap-2">
-        <h4 className="text-[0.875rem] font-medium text-body">Filter by</h4>
+        <h4 className="text-[0.9375rem] font-medium text-body">Filter by</h4>
         {filters.length > 0 && (
           <ClearFilters model={model} label={`Clear ${filters.length}`} />
         )}
@@ -193,7 +206,7 @@ export function DockedFilters({
         <button
           type="button"
           onClick={() => (sheet.isOpen ? sheet.close() : sheet.open(true))}
-          className="inline-flex items-center gap-1.5 text-[0.875rem] font-medium text-body transition-colors hover:text-ink"
+          className="inline-flex items-center gap-1.5 text-[0.9375rem] font-medium text-body transition-colors hover:text-ink"
         >
           <SlidersHorizontal className="size-3.5" />
           Edit filters
@@ -201,7 +214,7 @@ export function DockedFilters({
         <button
           type="button"
           onClick={() => (picker.isOpen ? picker.close() : picker.open(true))}
-          className="inline-flex items-center gap-1.5 text-[0.875rem] font-medium text-body transition-colors hover:text-ink"
+          className="inline-flex items-center gap-1.5 text-[0.9375rem] font-medium text-body transition-colors hover:text-ink"
         >
           <Check className="size-3.5" />
           Fields
@@ -242,14 +255,14 @@ export function DockedFilters({
                   writeFields(id, null)
                   setPicked(null)
                 }}
-                className="text-[0.875rem] font-medium text-body transition-colors hover:text-ink"
+                className="text-[0.9375rem] font-medium text-body transition-colors hover:text-ink"
               >
                 Show all
               </button>
               <button
                 type="button"
                 onClick={() => picker.close()}
-                className="inline-flex h-8 items-center rounded-inner bg-cta px-3 text-[0.875rem] font-medium text-cta-fg transition-colors hover:bg-cta-hover"
+                className="inline-flex h-8 items-center rounded-inner bg-cta px-3 text-[0.9375rem] font-medium text-cta-fg transition-colors hover:bg-cta-hover"
               >
                 Save
               </button>
@@ -263,10 +276,10 @@ export function DockedFilters({
             value={needle}
             onChange={(event) => setNeedle(event.target.value)}
             aria-label="Search fields"
-            className="h-9 min-w-0 flex-1 bg-transparent text-[0.875rem] text-ink outline-none placeholder:text-mute"
+            className="h-9 min-w-0 flex-1 bg-transparent text-[0.9375rem] text-ink outline-none placeholder:text-mute"
           />
         </div>
-        <h4 className="mb-1.5 text-[0.875rem] font-medium text-body">
+        <h4 className="mb-1.5 text-[0.9375rem] font-medium text-body">
           {subject}
         </h4>
         <div className="grid gap-x-6 sm:grid-cols-2">
@@ -281,7 +294,7 @@ export function DockedFilters({
                     ? "This field is narrowing the list, so it stays on screen"
                     : undefined
                 }
-                className="flex min-h-9 cursor-pointer items-center gap-2.5 text-[0.875rem] text-text"
+                className="flex min-h-9 cursor-pointer items-center gap-2.5 text-[0.9375rem] text-text"
               >
                 <input
                   type="checkbox"
@@ -302,7 +315,7 @@ export function DockedFilters({
             )
           })}
           {matching.length === 0 && (
-            <p className="text-[0.875rem] text-mute">No field like that.</p>
+            <p className="text-[0.9375rem] text-mute">No field like that.</p>
           )}
         </div>
       </Sheet>
@@ -444,13 +457,13 @@ function FieldRow({
                   onChange={(event) => setNeedle(event.target.value)}
                   onKeyDown={(event) => event.stopPropagation()}
                   aria-label={`Search ${field.label}`}
-                  className="min-w-0 flex-1 bg-transparent py-1 text-[0.875rem] text-ink outline-none placeholder:text-mute"
+                  className="min-w-0 flex-1 bg-transparent py-1 text-[0.9375rem] text-ink outline-none placeholder:text-mute"
                 />
               </div>
             )}
             <div className="min-h-0 flex-1 overflow-y-auto">
               {shortlist.length === 0 && (
-                <p className="px-2 py-3 text-[0.875rem] text-mute">
+                <p className="px-2 py-3 text-[0.9375rem] text-mute">
                   No {field.label.toLowerCase()} like that.
                 </p>
               )}
@@ -478,7 +491,7 @@ function FieldRow({
                       }
                     }}
                     className={cn(
-                      "flex min-h-8 cursor-default items-center gap-2 rounded-inner px-2 text-[0.875rem] outline-none select-none",
+                      "flex min-h-8 cursor-default items-center gap-2 rounded-inner px-2 text-[0.9375rem] outline-none select-none",
                       on ? "text-ink" : "text-text",
                       "data-[highlighted]:bg-soft-2"
                     )}
@@ -610,7 +623,7 @@ export function SavedViews({
 
   return (
     <div className="mt-1 flex flex-col gap-2 border-t border-hairline pt-3">
-      <h5 className="text-[0.875rem] font-semibold text-body">Saved views</h5>
+      <h5 className="text-[0.9375rem] font-semibold text-body">Saved views</h5>
 
       {views.length > 0 && (
         <ul className="flex flex-col gap-px">
@@ -619,11 +632,11 @@ export function SavedViews({
               <button
                 type="button"
                 onClick={() => apply(view)}
-                className="flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-inner px-2 text-left text-[0.875rem] text-text transition-colors hover:bg-soft-2 hover:text-ink"
+                className="flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-inner px-2 text-left text-[0.9375rem] text-text transition-colors hover:bg-soft-2 hover:text-ink"
               >
                 <Bookmark className="size-3.5 shrink-0 text-line-ico" />
                 <span className="truncate">{view.name}</span>
-                <span className="ml-auto shrink-0 text-[0.875rem] text-mute tabular-nums">
+                <span className="ml-auto shrink-0 text-[0.9375rem] text-mute tabular-nums">
                   {count(view.filters.length)}
                 </span>
               </button>
@@ -648,13 +661,13 @@ export function SavedViews({
           onChange={(event) => setName(event.target.value)}
           onKeyDown={(event) => event.key === "Enter" && save()}
           aria-label="Name this view"
-          className="h-[2.125rem] min-w-0 flex-1 rounded-inner border border-hairline-2 bg-canvas px-2.5 text-[0.875rem] text-ink outline-none placeholder:text-mute focus:border-accent"
+          className="ui-field h-[2.125rem] min-w-0 flex-1 rounded-inner border border-hairline-2 bg-canvas px-2.5 text-[0.9375rem] text-ink outline-none placeholder:text-mute focus:border-accent"
         />
         <button
           type="button"
           onClick={save}
           disabled={name.trim() === ""}
-          className="inline-flex h-[2.125rem] shrink-0 items-center gap-1.5 rounded-inner border border-hairline-2 bg-canvas px-2.5 text-[0.875rem] font-medium text-text transition-colors hover:bg-soft-2 disabled:opacity-50"
+          className="inline-flex h-[2.125rem] shrink-0 items-center gap-1.5 rounded-inner border border-hairline-2 bg-canvas px-2.5 text-[0.9375rem] font-medium text-text transition-colors hover:bg-soft-2 disabled:opacity-50"
         >
           <Save className="size-3.5" />
           Save
@@ -711,7 +724,7 @@ export function ExportCsv<Row>({
         }
       }}
       className={cn(
-        "inline-flex h-control items-center gap-1.5 rounded-inner px-[0.5625rem] text-[0.875rem] font-medium text-body transition-colors hover:bg-soft-2 hover:text-ink disabled:opacity-60",
+        "inline-flex h-control items-center gap-1.5 rounded-inner px-[0.5625rem] text-[0.9375rem] font-medium text-body transition-colors hover:bg-soft-2 hover:text-ink disabled:opacity-60",
         className
       )}
     >
@@ -748,7 +761,8 @@ export function ColumnsMenu({
     <Menu.Root>
       <Menu.Trigger
         className={cn(
-          "inline-flex h-control items-center gap-1.5 rounded-inner px-[0.5625rem] text-[0.875rem] font-medium text-body transition-colors hover:bg-soft-2 hover:text-ink",
+          // A supporting action: the neutral ghost (hub-ui-patterns).
+          "inline-flex h-control items-center gap-1.5 rounded-inner border border-hairline-2 bg-canvas px-3 text-[0.9375rem] font-medium text-ink transition-[background-color,scale] duration-(--t-press) ease-(--ease-out) hover:bg-soft-2 active:scale-[0.97] data-[popup-open]:bg-soft-2",
           className
         )}
       >
@@ -781,7 +795,7 @@ export function ColumnsMenu({
                   closeOnClick={false}
                   onClick={() => column.toggleVisibility(!on)}
                   className={cn(
-                    "flex min-h-8 cursor-default items-center gap-2 rounded-inner px-2 text-[0.875rem] outline-none select-none",
+                    "flex min-h-8 cursor-default items-center gap-2 rounded-inner px-2 text-[0.9375rem] outline-none select-none",
                     on ? "text-ink" : "text-text",
                     "data-[highlighted]:bg-soft-2"
                   )}
@@ -875,14 +889,14 @@ export function ViewPicker({
     <Menu.Root>
       <Menu.Trigger
         className={cn(
-          "inline-flex h-control items-center gap-2 rounded-inner border border-hairline-2 bg-canvas px-2.5 text-[0.875rem] font-medium text-text shadow-soft transition-colors hover:bg-soft-2",
+          "inline-flex h-control items-center gap-2 rounded-inner border border-hairline-2 bg-canvas px-2.5 text-[0.9375rem] font-medium text-text shadow-soft transition-colors hover:bg-soft-2",
           className
         )}
       >
         <Bookmark className="size-3.5 text-line-ico" />
         {label}
         {here === undefined && model.filters.length > 0 && (
-          <span className="rounded-full bg-warn-bg px-1.5 py-px text-[0.875rem] font-semibold text-warn-fg">
+          <span className="rounded-full bg-warn-bg px-1.5 py-px text-[0.9375rem] font-semibold text-warn-fg">
             edited
           </span>
         )}
@@ -901,7 +915,7 @@ export function ViewPicker({
               POP_MOTION
             )}
           >
-            <span className="block px-2 pt-1 pb-1.5 text-[0.875rem] font-semibold tracking-[0.06em] text-mute uppercase">
+            <span className="block px-2 pt-1 pb-1.5 text-[0.9375rem] font-semibold tracking-[0.06em] text-mute uppercase">
               Views
             </span>
             {/* The screen's own readings, when it has more than one. Choosing
@@ -957,7 +971,7 @@ export function ViewPicker({
                   {here?.name === one.name && <Check className="size-3.5" />}
                 </span>
                 <span className="truncate">{one.name}</span>
-                <span className="ml-auto shrink-0 text-[0.875rem] text-mute tabular-nums">
+                <span className="ml-auto shrink-0 text-[0.9375rem] text-mute tabular-nums">
                   {count(one.filters.length)}
                 </span>
               </Menu.Item>
@@ -979,7 +993,7 @@ export function ViewPicker({
 }
 
 const ITEM =
-  "flex min-h-8 cursor-default items-center gap-2 rounded-inner px-2 text-[0.875rem] text-text outline-none select-none data-[highlighted]:bg-soft-2"
+  "flex min-h-8 cursor-default items-center gap-2 rounded-inner px-2 text-[0.9375rem] text-text outline-none select-none data-[highlighted]:bg-soft-2"
 
 /* -------------------------------------------------------------------------- */
 /*  The sort menu                                                              */
@@ -1031,7 +1045,7 @@ export function SortMenu({
         aria-label={`Sort by ${label}`}
         title={`Sort by ${label}`}
         className={cn(
-          "inline-flex h-control items-center gap-1.5 rounded-inner px-[0.5625rem] text-[0.875rem] font-medium text-body transition-colors hover:bg-soft-2 hover:text-ink",
+          "inline-flex h-control items-center gap-1.5 rounded-inner px-[0.5625rem] text-[0.9375rem] font-medium text-body transition-colors hover:bg-soft-2 hover:text-ink",
           className
         )}
       >
@@ -1055,7 +1069,7 @@ export function SortMenu({
               POP_MOTION
             )}
           >
-            <span className="block px-2 pt-1 pb-1.5 text-[0.875rem] font-semibold tracking-[0.06em] text-mute uppercase">
+            <span className="block px-2 pt-1 pb-1.5 text-[0.9375rem] font-semibold tracking-[0.06em] text-mute uppercase">
               Sort by
             </span>
             {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
@@ -1129,7 +1143,7 @@ export function ChoiceMenu({
     <Menu.Root>
       <Menu.Trigger
         className={cn(
-          "inline-flex h-control items-center gap-1.5 rounded-inner px-[0.5625rem] text-[0.875rem] font-medium text-body transition-colors hover:bg-soft-2 hover:text-ink",
+          "inline-flex h-control items-center gap-1.5 rounded-inner px-[0.5625rem] text-[0.9375rem] font-medium text-body transition-colors hover:bg-soft-2 hover:text-ink",
           className
         )}
       >
@@ -1149,7 +1163,7 @@ export function ChoiceMenu({
               POP_MOTION
             )}
           >
-            <span className="block px-2 pt-1 pb-1.5 text-[0.875rem] font-semibold tracking-[0.06em] text-mute uppercase">
+            <span className="block px-2 pt-1 pb-1.5 text-[0.9375rem] font-semibold tracking-[0.06em] text-mute uppercase">
               {heading}
             </span>
             {options.map((option) => {
@@ -1411,13 +1425,16 @@ export function ListOptionsSheet({
             setOpen(true)
           }}
           className={cn(
-            "relative grid size-tap shrink-0 place-items-center rounded-inner border border-hairline-2 bg-canvas text-text shadow-soft transition-[scale] duration-(--t-press) active:scale-[0.97]",
+            "list-options relative grid size-tap shrink-0 place-items-center rounded-inner border border-hairline-2 bg-canvas text-text shadow-soft transition-[scale] duration-(--t-press) active:scale-[0.97]",
             className
           )}
         >
           <SlidersHorizontal className="size-4" />
+          <span aria-hidden className="btn-word hidden">
+            Filter
+          </span>
           {narrowing > 0 && (
-            <span className="absolute -top-1 -right-1 grid h-4 min-w-4 place-items-center rounded-full bg-accent px-1 text-[0.875rem] font-semibold text-white tabular-nums ring-2 ring-canvas">
+            <span className="absolute -top-1 -right-1 grid h-4 min-w-4 place-items-center rounded-full bg-accent px-1 text-[0.9375rem] font-semibold text-white tabular-nums ring-2 ring-canvas">
               {narrowing}
             </span>
           )}
@@ -1919,7 +1936,7 @@ export function ExpandingSearch({
   placeholder?: string
 }) {
   return (
-    <span className="relative min-w-0 flex-1 transition-[flex-grow] duration-200 ease-[var(--ease-in-out)] motion-reduce:transition-none lg:flex-[0_1_11rem] lg:group-has-[input[data-expanding-search]:focus]/bar:grow lg:group-has-[input[data-expanding-search]:focus]/bar:duration-300">
+    <span className="bar-search relative min-w-0 flex-1 transition-[flex-grow] duration-200 ease-[var(--ease-in-out)] motion-reduce:transition-none lg:flex-[0_1_11rem] lg:group-has-[input[data-expanding-search]:focus]/bar:grow lg:group-has-[input[data-expanding-search]:focus]/bar:duration-300">
       <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-line-ico" />
       <input
         data-expanding-search=""
@@ -1927,7 +1944,7 @@ export function ExpandingSearch({
         onChange={(event) => onChange(event.target.value)}
         aria-label={label}
         placeholder={placeholder ?? label}
-        className="h-[2.125rem] w-full rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.875rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent pointer-coarse:h-11"
+        className="ui-field h-[2.125rem] w-full rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.9375rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent pointer-coarse:h-11"
       />
     </span>
   )
@@ -1937,7 +1954,7 @@ export function ExpandingSearch({
 /// up while the `ExpandingSearch` beside it has focus.
 export function BarSpacer() {
   return (
-    <span className="flex-1 transition-[flex-grow] duration-200 ease-[var(--ease-in-out)] group-has-[input[data-expanding-search]:focus]/bar:grow-0 group-has-[input[data-expanding-search]:focus]/bar:duration-300 motion-reduce:transition-none max-lg:hidden" />
+    <span className="bar-spacer flex-1 transition-[flex-grow] duration-200 ease-[var(--ease-in-out)] group-has-[input[data-expanding-search]:focus]/bar:grow-0 group-has-[input[data-expanding-search]:focus]/bar:duration-300 motion-reduce:transition-none max-lg:hidden" />
   )
 }
 
@@ -1998,7 +2015,7 @@ export function SearchSuggest({
     <>
       <span
         ref={box}
-        className="relative min-w-0 flex-1 transition-[flex-grow] duration-200 ease-[var(--ease-in-out)] motion-reduce:transition-none lg:flex-[0_1_11rem] lg:group-has-[input[data-expanding-search]:focus]/bar:grow lg:group-has-[input[data-expanding-search]:focus]/bar:duration-300"
+        className="bar-search relative min-w-0 flex-1 transition-[flex-grow] duration-200 ease-[var(--ease-in-out)] motion-reduce:transition-none lg:flex-[0_1_11rem] lg:group-has-[input[data-expanding-search]:focus]/bar:grow lg:group-has-[input[data-expanding-search]:focus]/bar:duration-300"
         onBlur={(event) => {
           if (!box.current?.contains(event.relatedTarget as Node | null)) {
             setOpen(false)
@@ -2037,7 +2054,7 @@ export function SearchSuggest({
           }}
           aria-label={label}
           placeholder={placeholder ?? label}
-          className="h-[2.125rem] w-full rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.875rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent pointer-coarse:h-11"
+          className="ui-field h-[2.125rem] w-full rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.9375rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent pointer-coarse:h-11"
         />
         {showing && (
           <ul
@@ -2059,7 +2076,7 @@ export function SearchSuggest({
                 }}
                 onMouseEnter={() => setActive(index)}
                 className={cn(
-                  "flex cursor-pointer items-baseline justify-between gap-3 rounded-[0.5rem] px-2.5 py-2 text-[0.875rem] text-ink",
+                  "flex cursor-pointer items-baseline justify-between gap-3 rounded-[0.5rem] px-2.5 py-2 text-[0.9375rem] text-ink",
                   index === active && "bg-soft-2"
                 )}
               >
@@ -2079,7 +2096,7 @@ export function SearchSuggest({
           type="button"
           onClick={onClear}
           aria-label={`Clear ${picked.label}`}
-          className="inline-flex h-[2.125rem] max-w-56 shrink-0 cursor-pointer items-center gap-1.5 rounded-inner border border-accent/40 bg-accent-bg pr-2 pl-2.5 text-[0.875rem] font-medium text-accent pointer-coarse:h-11"
+          className="inline-flex h-[2.125rem] max-w-56 shrink-0 cursor-pointer items-center gap-1.5 rounded-inner border border-accent/40 bg-accent-bg pr-2 pl-2.5 text-[0.9375rem] font-medium text-accent pointer-coarse:h-11"
         >
           <span className="truncate">{picked.label}</span>
           <X className="size-3.5 shrink-0" />

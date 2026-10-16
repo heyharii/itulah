@@ -14,11 +14,12 @@ import { PeopleTable } from "@/components/ui/people-table"
 import { PeopleTabs } from "@/components/ui/people-tabs"
 import { Pill, Status } from "@/components/ui/pill"
 import { Segmented } from "@/components/ui/segmented"
+import { Stat, StatStrip } from "@/components/ui/stat-strip"
 import { Banner } from "@/components/ui/states"
 import { moment } from "@/lib/format"
 import {
   adjustmentsAt,
-  changeProposalsAt,
+  changeProposalsQuery,
   fileAdjustment,
   fileChangeProposal,
   hrKeys,
@@ -60,11 +61,16 @@ import type {
 ///
 /// Two kinds of asking, kept apart on purpose:
 ///
-///  - **A change to the employment** — a promotion, a transfer, a new base
-///    salary, an end of employment. "Toko mengajukan setelah kepala toko
-///    setuju; HO memutuskan": the shop files it once the store head has
-///    agreed, head office decides, and nothing about the person changes until
-///    it does. A shop cannot change pay, job or status by itself.
+///  - **A change to the employment** — a promotion, a transfer, an end of
+///    employment. "Toko mengajukan setelah kepala toko setuju; HO memutuskan":
+///    the shop files it once the store head has agreed, head office decides,
+///    and nothing about the person changes until it does. A shop cannot change
+///    pay, job or status by itself.
+///
+///    **A new base salary is not filed from here** (11 Oct 2026): the store
+///    never works with anybody's pay, so the form has no pay field and the kind
+///    is not offered. The centre still accepts a `SALARY` proposal and a list
+///    can still hold one filed before — those are shown, not hidden.
 ///  - **A pay component, + or −, for one month** — an incentive, a *kasbon*
 ///    instalment. `menu-final.md` keeps this separate from a salary change "so
 ///    a change to the agreed base pay is not mixed up with a bonus or a
@@ -103,6 +109,10 @@ const KINDS: Record<ChangeKind, { label: string; icon: React.ReactNode }> = {
   SEPARATION: { label: "Separation", icon: <LogOut /> },
 }
 
+/// The kinds a shop may ask for. `SALARY` is in `KINDS` so a proposal filed
+/// before it was taken off the form still reads properly; it is not offered.
+const FILEABLE: readonly ChangeKind[] = ["PROMOTION", "TRANSFER", "SEPARATION"]
+
 function kindWord(kind: string): string {
   return KINDS[kind as ChangeKind]?.label ?? kind
 }
@@ -132,14 +142,21 @@ function Changes({
   /// the form opens on the month the list is showing.
   const [which, setWhich] = useState<MonthChoice>("this")
   const team = useTeam(scope)
-  const changes = useQuery({
-    queryKey: hrKeys.changes(scope.unit_id),
-    queryFn: ({ signal }) => changeProposalsAt(scope.unit_id, signal),
-  })
+  const changes = useQuery(changeProposalsQuery(scope.unit_id))
   const [open, setOpen] = useState<ChangeProposalView | null>(null)
+
+  const countOf = (state: string) =>
+    changes.data === undefined
+      ? "—"
+      : changes.data.filter((change) => change.state === state).length
 
   return (
     <>
+      <StatStrip>
+        <Stat label="Waiting on head office" value={countOf("PENDING")} />
+        <Stat label="Approved" value={countOf("APPROVED")} />
+        <Stat label="Rejected" value={countOf("REJECTED")} />
+      </StatStrip>
       <PeopleTabs
         value={tab}
         onChange={setTab}
@@ -364,30 +381,19 @@ function ProposeChange({
     queryFn: ({ signal }) => positions(signal),
     staleTime: 5 * 60_000,
   })
-  const [kind, setKind] = useState<ChangeKind>("SALARY")
+  const [kind, setKind] = useState<ChangeKind>("PROMOTION")
   const [employeeId, setEmployeeId] = useState("")
   const [position, setPosition] = useState("")
-  const [base, setBase] = useState("")
   const [toPlace, setToPlace] = useState("")
   const [effectiveOn, setEffectiveOn] = useState(isoDay(new Date()))
   const [reason, setReason] = useState("")
   const [endorsed, setEndorsed] = useState<"no" | "yes">("no")
-  const baseMinor = parseMoneyToMinor(base)
   const person = team?.rows.find((row) => row.employee_id === employeeId)
 
   const props = (): { field: string; toText?: string; toMinor?: number }[] => {
-    if (kind === "SALARY")
-      return [{ field: "base_minor", toMinor: baseMinor ?? 0 }]
     if (kind === "TRANSFER")
       return [{ field: "unit_id", toText: toPlace.trim() }]
-    if (kind === "PROMOTION") {
-      const out: { field: string; toText?: string; toMinor?: number }[] = [
-        { field: "position", toText: position },
-      ]
-      if (baseMinor !== null && baseMinor > 0)
-        out.push({ field: "base_minor", toMinor: baseMinor })
-      return out
-    }
+    if (kind === "PROMOTION") return [{ field: "position", toText: position }]
     return []
   }
   const ready =
@@ -395,7 +401,6 @@ function ProposeChange({
     effectiveOn !== "" &&
     reason.trim() !== "" &&
     endorsed === "yes" &&
-    (kind !== "SALARY" || (baseMinor !== null && baseMinor > 0)) &&
     (kind !== "TRANSFER" ||
       (toPlace.trim() !== "" && toPlace.trim() !== scope.unit_id)) &&
     (kind !== "PROMOTION" || position !== "")
@@ -440,7 +445,7 @@ function ProposeChange({
             value={kind}
             onChange={(value) => setKind(value as ChangeKind)}
           >
-            {(Object.keys(KINDS) as ChangeKind[]).map((key) => (
+            {FILEABLE.map((key) => (
               <option key={key} value={key}>
                 {KINDS[key].label}
               </option>
@@ -470,30 +475,6 @@ function ProposeChange({
                 </option>
               ))}
             </Select>
-          </Field>
-        )}
-        {(kind === "SALARY" || kind === "PROMOTION") && (
-          <Field
-            label={
-              kind === "SALARY"
-                ? "New base pay (Rp)"
-                : "New base pay (Rp), if it changes"
-            }
-            required={kind === "SALARY"}
-            hint={
-              baseMinor === null || baseMinor <= 0
-                ? undefined
-                : money(baseMinor)
-            }
-          >
-            <Input
-              inputMode="numeric"
-              value={base}
-              placeholder="5500000"
-              onChange={(event) =>
-                setBase(event.target.value.replace(/[^\d]/g, ""))
-              }
-            />
           </Field>
         )}
         {kind === "TRANSFER" && (

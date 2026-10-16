@@ -1,0 +1,969 @@
+<!doctype html>
+<html lang="en" data-tpl="list" data-click="row" data-panel="mist" data-initial>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Layout templates</title>
+<style>
+@font-face{font-family:Inter;src:url('/frontend-hub/node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2') format('woff2');font-weight:100 900;font-display:swap}
+/* ── Central's premium grey, 15px floor (owner, 14 Oct) ── */
+:root{
+ --shell:#e9e9ed;--panel:#f5f5f7;--panel-on:#fff;--panel-on-ring:0 0 0 1px rgb(0 0 0 / 5%),0 1px 3px rgb(0 0 0 / 8%);--panel-ring:0 0 0 1px rgb(0 0 0 / 4%),0 1px 3px rgb(0 0 0 / 4%);
+ --ink:#1d1d1f;--mute:#6e6e73;--faint:#a1a1a6;--hair:#e8e8ec;--hair-2:#dcdce1;--band:#fafafb;--hover:#f7f7f9;
+ --blue:#2862dc;--blue-h:#2055c7;--blue-bg:#eef3fc;--red:#d70015;--red-h:#b80013;--green:#248a3d;--warn:#a66c1f;
+ --scrim:rgb(208 208 213 / 48%);
+ --ease-ui:cubic-bezier(.23,1,.32,1);--ease-drawer:cubic-bezier(.32,.72,0,1);
+ --t-in:340ms;--t-out:200ms;--t-swap-out:100ms;--t-swap-in:160ms;
+ --label:15px;--body:15px;--value:16px;--title:17px;
+ --gut:28px;--blk:24px}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;font:15px/1.45 Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;letter-spacing:-.006em;color:var(--ink);background:var(--shell);-webkit-font-smoothing:antialiased;overflow:hidden}
+svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+button,input,select{font:inherit;color:inherit}
+button{border:0;background:none;cursor:pointer;padding:0}
+.num{font-variant-numeric:tabular-nums}
+[hidden]{display:none!important}
+
+/* ── shell: rail · panel · page, 12px of grey between ── */
+.shell{display:flex;height:100vh;height:100dvh}
+.rail{width:64px;flex:none;display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 0;color:#55555b}
+.rail .ic{position:relative;width:40px;height:40px;border-radius:10px;display:grid;place-items:center;transition:background-color .15s,transform .12s var(--ease-ui)}
+.rail .ic:active{transform:scale(.97)}
+.rail .ic.on{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgb(0 0 0 / 7%)}
+@media(hover:hover) and (pointer:fine){.rail .ic:not(.on):hover{background:rgb(255 255 255 / 55%)}}
+.rail .gap{height:10px}
+.rail .end{margin-top:auto}
+.badge{display:inline-grid;place-items:center;min-width:20px;height:20px;padding:0 6px;border-radius:10px;background:var(--red);color:#fff;font-size:15px;font-weight:600;line-height:1}
+.rail .badge{position:absolute;top:-3px;right:-6px;min-width:18px;height:18px;padding:0 5px;font-size:15px;box-shadow:0 0 0 2px var(--shell)}
+.panel{width:216px;flex:none;display:flex;flex-direction:column;margin:12px 12px 12px 0;padding:14px 10px;border-radius:16px;background:var(--panel);box-shadow:var(--panel-ring);transition:background-color .2s ease,box-shadow .2s ease}
+.panel-head{display:flex;align-items:center;justify-content:space-between;margin:2px 4px 14px 10px}
+.panel-head b{font-weight:600}
+.panel-head button{width:28px;height:28px;border-radius:7px;display:grid;place-items:center;color:var(--mute)}
+.panel-head button svg{width:16px;height:16px}
+.panel .grp{margin:14px 10px 6px;color:var(--mute);font-size:15px}
+.nav{display:flex;align-items:center;justify-content:space-between;height:36px;padding:0 10px;border-radius:8px;color:#45454a;cursor:pointer;transition:background-color .15s}
+.nav.on{background:var(--panel-on);color:var(--ink);font-weight:500;box-shadow:var(--panel-on-ring)}
+.nav i{font-style:normal;color:var(--mute)}
+@media(hover:hover) and (pointer:fine){.nav:not(.on):hover{background:rgb(0 0 0 / 3.5%)}}
+.panel .foot-time{margin-top:auto;padding:0 10px 4px;color:var(--mute)}
+.page{flex:1;min-width:0;display:flex;flex-direction:column;margin:12px 12px 12px 0;border-radius:16px;background:#fff;box-shadow:0 0 0 1px rgb(0 0 0 / 5%),0 2px 8px rgb(0 0 0 / 4%);overflow:hidden}
+.page-in{flex:1;overflow:auto;padding:0 var(--gut) 40px;opacity:1;transition:opacity var(--t-swap-in) ease}
+.page-in.out{opacity:0;transition:opacity var(--t-swap-out) ease}
+
+/* ── panel greys (owner, 14 Oct: "opsi abu abu premium untuk inner sidebar") ── */
+html[data-panel="pearl"]{--panel:#fafafc;--panel-on:#ececf0;--panel-on-ring:none}
+html[data-panel="silver"]{--panel:#f0f0f3}
+html[data-panel="smoke"]{--panel:#ebebef;--panel-ring:0 0 0 1px rgb(0 0 0 / 5%)}
+html[data-panel="flush"] .panel{background:transparent;box-shadow:none;margin-left:-6px}
+html[data-panel="white"]{--panel:#fff;--panel-on:#f0f0f3;--panel-on-ring:none}
+
+/* ── one head for every page: crumb · 17px title · action at the right ── */
+.head{position:sticky;top:0;z-index:2;display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin:0 calc(-1 * var(--gut)) 20px;padding:var(--blk) var(--gut) 16px;background:#fff;border-bottom:1px solid var(--hair)}
+.head>div{min-width:0}
+.crumb{color:var(--mute);margin-bottom:2px}
+h1,h2{margin:0;font-size:var(--title);line-height:24px;font-weight:600;letter-spacing:-.3px}
+.acts{display:flex;gap:8px;align-items:center;flex:none}
+.btn{height:36px;padding:0 14px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;gap:6px;font-weight:500;white-space:nowrap;transition:transform .16s var(--ease-ui),background-color .15s}
+.btn:active{transform:scale(.97)}
+.btn svg{width:17px;height:17px}
+a.btn{text-decoration:none}
+.primary{background:var(--blue);color:#fff;font-weight:600;box-shadow:0 1px 2px rgb(20 50 100 / 12%)}
+.ghost{background:#fff;color:var(--ink);box-shadow:inset 0 0 0 1px var(--hair-2)}
+.danger{background:var(--red);color:#fff;font-weight:600}
+@media(hover:hover) and (pointer:fine){.primary:hover{background:var(--blue-h)}.ghost:hover{background:#f5f5f7}.danger:hover{background:var(--red-h)}}
+.btn.sm{height:30px;padding:0 10px}
+.word{display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 4px;color:var(--ink);font-weight:500}
+
+/* KPI strip: 15 grey over 16 */
+.kpis{display:flex;margin:0 0 20px}
+.kpi{padding:0 24px;border-left:1px solid var(--hair);min-width:0}
+.kpi:first-child{padding-left:0;border:0}
+.kpi span{display:block;color:var(--mute);line-height:20px}
+.kpi b{display:block;font-size:var(--value);line-height:22px;font-weight:600;white-space:nowrap}
+.kpi small{font-size:15px;font-weight:400;color:var(--mute);margin-left:6px}
+/* tabs: page only, never in a record */
+.tabs{display:flex;gap:20px;box-shadow:inset 0 -1px 0 var(--hair);margin:0 0 16px}
+.tab{padding:6px 0 10px;color:var(--mute);font-weight:500;border-bottom:2px solid transparent;cursor:pointer;white-space:nowrap}
+.tab.on{color:var(--ink);border-color:var(--ink)}
+.tab i{font-style:normal;font-weight:400;margin-left:6px;color:var(--mute)}
+/* the bar: search · Filter · (the rest at the right) */
+.bar{display:flex;align-items:center;gap:8px;margin:0 0 16px;flex-wrap:wrap}
+.search{display:flex;align-items:center;gap:8px;width:280px;height:36px;padding:0 11px;border-radius:8px;box-shadow:inset 0 0 0 1px var(--hair-2);color:var(--mute)}
+.search input{border:0;outline:0;background:transparent;min-width:0;flex:1;color:var(--ink)}
+.search:focus-within{box-shadow:inset 0 0 0 1px var(--blue),0 0 0 3px rgb(40 98 220 / 12%)}
+.select{position:relative;display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 12px;border-radius:8px;box-shadow:inset 0 0 0 1px var(--hair-2);background:#fff;white-space:nowrap;cursor:pointer}
+.select em{font-style:normal;color:var(--mute)}
+.select svg{width:15px;height:15px;color:var(--mute)}
+.sp{flex:1}
+.seg{display:inline-flex;padding:2px;border-radius:9px;background:#f0f0f3}
+.seg b{height:32px;padding:0 12px;display:grid;place-items:center;border-radius:7px;font-weight:500;color:var(--mute);cursor:pointer}
+.seg b.on{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgb(0 0 0 / 8%)}
+
+/* the framed table: one size, one figure a cell */
+.frame{border:1px solid var(--hair);border-radius:10px;overflow:clip}
+table{width:100%;border-collapse:collapse}
+th{position:sticky;top:var(--head-h,0px);z-index:1;height:42px;padding:0 16px;text-align:left;font-weight:500;color:var(--mute);background:var(--band);box-shadow:inset 0 -1px 0 var(--hair);white-space:nowrap}
+td{height:50px;padding:0 16px;border-bottom:1px solid var(--hair);white-space:nowrap}
+tbody tr:last-child td{border-bottom:0}
+.r{text-align:right}
+.m{color:var(--mute)}
+.late{color:var(--red)}
+tfoot td{position:sticky;bottom:0;z-index:1;background:var(--band);box-shadow:inset 0 1px 0 var(--hair);border-bottom:0;font-weight:400}
+.page tfoot td{bottom:-40px}
+td.chev{width:1%;padding:0 12px 0 0;color:var(--faint)}
+td.chev svg{width:16px;height:16px;opacity:0;transition:opacity .12s ease}
+tr[data-open]{cursor:pointer}
+@media(hover:hover) and (pointer:fine){tr[data-open]:hover td{background:var(--hover)}tr[data-open]:hover td.chev svg{opacity:1}}
+.it{display:flex;align-items:center;gap:12px}
+.thumb{width:36px;height:36px;flex:none;border-radius:8px;background:#f0f0f3;display:grid;place-items:center;color:var(--faint)}
+.thumb svg{width:18px;height:18px}
+
+/* ── what can be clicked (owner, 14 Oct: "bisa di klik … warna biru atau tidak
+   ini membingungkan") — three rules on a switch, one at a time ──
+   .obj = a word that opens something (a supplier, an item, a PO number).
+   .id  = a row's own name.  .rel = another record named in a row.          */
+.obj,.rel{border-radius:4px;text-decoration-line:underline;text-decoration-color:transparent;text-underline-offset:3px;transition:color .15s ease,text-decoration-color .15s ease}
+.obj{cursor:pointer}
+.id{font-weight:500}
+/* 1 · Row opens (Apple): a row is one target — no blue in it; a chevron on hover.
+       Blue is only a word that opens something, outside a row. */
+html[data-click="row"] .obj{color:var(--blue)}
+@media(hover:hover) and (pointer:fine){html[data-click="row"] .obj:hover{text-decoration-color:currentColor}}
+/* 2 · All ink: nothing blue at rest, blue + underline under the pointer (the hub today). */
+html[data-click="ink"] td.chev svg{display:none}
+@media(hover:hover) and (pointer:fine){html[data-click="ink"] :is(.obj,.rel):hover{color:var(--blue);text-decoration-color:currentColor}}
+html[data-click="ink"] .rel{cursor:pointer}
+/* 3 · All blue: everything that opens is blue — the row's name and every other record. */
+html[data-click="blue"] :is(.obj,.id,.rel){color:var(--blue)}
+html[data-click="blue"] .rel{cursor:pointer}
+html[data-click="blue"] td.chev svg{display:none}
+@media(hover:hover) and (pointer:fine){html[data-click="blue"] :is(.obj,.rel):hover{text-decoration-color:currentColor}}
+
+/* ── the rail and panel as the hub draws them ── */
+.rail{gap:2px;padding:12px 0 14px}
+.rail .ic{width:40px;height:40px}
+.rail .badge.solo{position:static;box-shadow:none}
+.rail .me{width:28px;height:28px;margin:6px 0;border-radius:50%;display:grid;place-items:center;background:#fff;color:var(--ink);font-weight:600;box-shadow:0 0 0 1px rgb(0 0 0 / 6%)}
+.panel-head span{display:flex;gap:2px}
+.panel-list{flex:1;min-height:0;overflow:auto;margin:0 -4px;padding:0 4px}
+.nav>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nav-r{display:flex;align-items:center;gap:6px;flex:none}
+.nav-r em{display:grid;color:var(--mute)}
+.nav-r em svg{width:15px;height:15px}
+.nav.sub{padding-left:22px}
+.foot-time{display:flex;align-items:center;gap:8px;padding-top:10px!important;color:var(--ink)!important}
+.foot-time svg{width:16px;height:16px;color:var(--mute)}
+.topbar,.greet,.range-top{display:none}
+
+/* ── A · List — the hub's Purchase Orders, copied as it is (owner, 14 Oct:
+   "lebih rapi yg kita punya sebelumnya") ── */
+.cards,.dock,.tabbar{display:none}
+.sub{display:block;color:var(--mute)}
+.code{letter-spacing:.04em}
+td.tl{height:auto;padding-top:13px;padding-bottom:13px;line-height:22px}
+.bad{color:var(--red)}
+.good{color:var(--green)}
+.datef{display:inline-flex;align-items:center;justify-content:space-between;gap:10px;min-width:176px;height:36px;padding:0 11px;border-radius:8px;box-shadow:inset 0 0 0 1px var(--hair-2);color:var(--mute);white-space:nowrap}
+.datef svg{width:16px;height:16px}
+.datef .clr{display:inline-flex;gap:6px;color:var(--mute)}
+.datef .clr svg:first-child{width:13px;height:13px;margin-top:1.5px}
+.sect-t{margin:22px 0 10px;font-weight:600}
+.sect-t i{font-style:normal;font-weight:400;color:var(--mute);margin-left:6px}
+.terms{margin-top:22px}
+.terms>span:first-child{display:block;color:var(--mute);margin-bottom:8px}
+.disc{display:flex;align-items:center;gap:6px;margin-top:20px;padding-top:14px;border-top:1px solid var(--hair);color:var(--mute);cursor:pointer}
+.disc svg{width:15px;height:15px}
+.above{display:flex;justify-content:flex-end;margin:-6px 0 10px}
+.toggle{display:inline-flex;align-items:center;gap:10px;color:var(--mute)}
+.toggle i{width:34px;height:20px;border-radius:10px;background:#e3e3e8;position:relative;transition:background-color .15s ease}
+.toggle i::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgb(0 0 0 / 20%);transition:transform .2s var(--ease-ui)}
+.toggle[aria-pressed=true] i{background:var(--green)}
+.toggle[aria-pressed=true] i::after{transform:translateX(14px)}
+.sheet:has([data-toggle][aria-pressed=true]) [data-matched]{display:none}
+.totals2{display:grid;grid-template-columns:auto 190px;justify-content:end;margin-top:16px;padding-right:16px}
+.totals2>*{padding:9px 0}
+.totals2 span{color:var(--mute);padding-right:48px}
+.totals2 b{text-align:right;font-weight:500}
+.totals2 .acc{border-top:1px solid var(--hair);color:var(--ink);font-weight:600}
+h2 .alert{display:inline-grid;color:var(--red);vertical-align:-3px;margin-left:8px}
+h2 .alert svg{width:17px;height:17px}
+.ok-dot::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--green);margin:0 7px 1px 0}
+
+/* ── B · Report — the hub's Profit and Loss Statement, as it is ── */
+.scope{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:0 0 10px}
+.scope .select{min-width:120px;justify-content:space-between}
+.scope .datef{min-width:150px}
+.scope .to{color:var(--mute)}
+.check{display:inline-flex;align-items:center;gap:8px;margin-left:6px;cursor:pointer}
+.check i{width:16px;height:16px;border-radius:4px;box-shadow:inset 0 0 0 1px var(--hair-2)}
+.scope-cap{color:var(--mute);margin:0 0 18px}
+.chartbox{border:1px solid var(--hair);border-radius:10px;padding:16px 20px 14px;margin:0 0 16px}
+.cw{position:relative;height:180px;margin:8px 0 0 52px}
+.cw svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible;stroke:none;stroke-width:1}
+.cy span{position:absolute;right:calc(100% + 10px);transform:translateY(-50%);color:var(--mute);white-space:nowrap;line-height:20px}
+.cx{position:relative;height:24px;margin-left:52px}
+.cx span{position:absolute;top:4px;transform:translateX(-50%);color:var(--mute)}
+.card .axis{margin-left:52px}
+.legend{display:flex;gap:16px;color:var(--mute);margin-top:6px}
+.legend i{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;vertical-align:1px}
+.tree .cd{color:var(--mute);margin-right:8px}
+.tree tr.d0 td{background:var(--band);font-weight:500}
+.tree tr.d0 .cd{color:var(--ink)}
+.tree tr.d1 td:first-child{padding-left:30px}
+.tree tr.d2 td:first-child{padding-left:44px}
+.tree tr.d3 td:first-child{padding-left:58px}
+
+/* ── C · Dashboard — the hub's Executive Overview, as it is ── */
+.dbar{display:flex;align-items:center;gap:8px;margin:0 0 20px}
+.dbar .seg b{height:30px}
+.dbar .range,.range-top{color:var(--mute)}
+.dbar .range{margin-left:auto}
+.dbar .range span,.range-top span{color:var(--faint);margin:0 4px}
+.kpi em{display:block;font-style:normal;color:var(--mute);line-height:20px}
+.dgrid{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(0,1fr);gap:16px}
+.dgrid .full{grid-column:1/-1}
+.card-h .obj{font-weight:400}
+.cfoot{display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;color:var(--mute);margin-top:12px}
+.cfoot b{color:var(--ink);font-weight:600}
+.cfoot .legend{margin:0}
+.prow{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--hair)}
+.prow .v{display:flex;gap:16px}
+.prow.b{font-weight:600;border-bottom:0}
+.pnote{color:var(--mute);margin:10px 0 0}
+.pnote b{color:var(--ink);font-weight:500}
+table.plain th{position:static;background:none;box-shadow:inset 0 -1px 0 var(--hair);height:38px;padding:0 8px}
+table.plain td{height:44px;padding:0 8px}
+table.plain th:first-child,table.plain td:first-child{padding-left:0}
+.card table.plain{margin-top:-4px}
+
+/* ── E · Form — the hub's settings page: facts on the page, Edit opens a sheet ── */
+.fcard{border:1px solid var(--hair);border-radius:10px;padding:16px 18px 12px;margin:0 0 16px}
+.fcard h3{margin:0 0 10px;font-size:15px;font-weight:600}
+.frow{display:flex;justify-content:space-between;gap:24px;padding:4px 0}
+.frow span{color:var(--mute)}
+.frow b{font-weight:400;text-align:right}
+.page-foot.view-only{display:none}
+.fform{display:grid;gap:18px}
+.fform label{display:grid;gap:8px;color:var(--mute)}
+.fform .hint{display:flex;justify-content:space-between}
+.fform .hint em{font-style:normal;color:var(--faint)}
+textarea.inp{height:80px;padding:10px 12px;resize:vertical;font:inherit;line-height:1.45}
+.fform .cb{display:flex;gap:10px;align-items:flex-start;color:var(--ink)}
+.fform .cb input{width:16px;height:16px;margin:3px 0 0;flex:none;accent-color:var(--blue)}
+.fform .cb em{font-style:normal}
+.req{color:var(--red);margin-left:2px}
+.btn[disabled]{opacity:.45;pointer-events:none}
+
+.card{border:1px solid var(--hair);border-radius:12px;padding:16px 18px;min-width:0}
+.card-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.card-h b{font-weight:600}
+.axis{display:flex;justify-content:space-between;color:var(--mute);margin-top:6px}
+.inp{height:40px;width:100%;padding:0 12px;border:0;border-radius:8px;box-shadow:inset 0 0 0 1px var(--hair-2);background:#fff;color:var(--ink);outline:0}
+.inp:focus{box-shadow:inset 0 0 0 1px var(--blue),0 0 0 3px rgb(40 98 220 / 12%)}
+.page-foot{display:flex;justify-content:flex-end;gap:8px;padding:12px var(--gut);border-top:1px solid var(--hair);background:#fff}
+
+/* ── Board: the lanes and cards as they are today (owner: "kanban jangan
+   diubah"), inside the shell like every other page (owner: "tetap ada
+   sidebarnya") — head · bar · lanes ── */
+.lanes{display:flex;gap:24px;align-items:flex-start;margin:0 calc(-1 * var(--gut));padding:4px var(--gut) 0;overflow-x:auto}
+.lane{width:286px;flex:none}
+.lane-h{display:flex;align-items:center;gap:10px;height:30px;padding:0 16px 0 8px;font-weight:600}
+.lane-h .dot{width:7px;height:7px;border-radius:50%;background:#77777c}
+.lane-h i{font-style:normal;font-weight:400;color:var(--mute);margin-left:auto}
+.lane-sub{display:flex;justify-content:space-between;padding:0 8px 6px;color:var(--mute)}
+.fold{width:22px;flex:none;display:flex;flex-direction:column;align-items:center;gap:8px;color:var(--mute);padding-top:6px}
+.fold span{writing-mode:vertical-rl;font-weight:500}
+.fold .dot{width:7px;height:7px;border-radius:50%}
+.bcard{border:1px solid var(--hair);border-radius:10px;padding:14px 16px;margin-bottom:10px;background:#fff;cursor:pointer;transition:transform .16s var(--ease-ui)}
+.bcard:active{transform:scale(.99)}
+@media(hover:hover) and (pointer:fine){.bcard:hover{border-color:var(--hair-2);box-shadow:0 2px 8px rgb(0 0 0 / 5%)}}
+.bcard .t{display:flex;justify-content:space-between;gap:8px}
+.bcard .t b{font-size:16px;font-weight:600}
+.bcard .f{display:flex;justify-content:space-between;align-items:center;margin-top:12px}
+.lane-foot{padding:8px;color:var(--mute)}
+
+/* ── Screens (the map): every audited screen, by template ── */
+.shot{width:84px;height:52px;border-radius:6px;border:1px solid var(--hair);object-fit:cover;object-position:top left;display:block;background:#f5f5f7}
+td.sc{white-space:normal;min-width:240px}
+td.sc .m{display:block}
+td.ch{white-space:normal;color:var(--ink);max-width:380px}
+td.ch.ok{color:var(--mute)}
+td.now{color:var(--mute);white-space:normal;max-width:240px}
+.big{width:100%;border:1px solid var(--hair);border-radius:10px;display:block}
+.chg{margin:0;padding:0;list-style:none}
+.chg li{display:grid;grid-template-columns:220px minmax(0,1fr);gap:16px;padding:12px 0;border-bottom:1px solid var(--hair)}
+.chg li:last-child{border-bottom:0}
+.chg li span{color:var(--mute)}
+
+/* ── sheets: LAYER — slides in from the right on the drawer curve; what is
+   under it dims in place, the new one sits 12px further in. Close and Escape
+   walk back one layer. ── */
+.veil{position:fixed;inset:0;z-index:20;background:var(--scrim);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);opacity:0;pointer-events:none;transition:opacity var(--t-out) ease}
+html[data-sheets] .veil{opacity:1;pointer-events:auto;transition:opacity var(--t-in) ease}
+.sheet{position:fixed;top:var(--inset,12px);right:var(--inset,12px);bottom:var(--inset,12px);z-index:21;display:flex;flex-direction:column;width:min(960px,calc(100vw - 300px));border-radius:16px;background:#fff;overflow:hidden;
+ box-shadow:0 0 0 1px rgb(0 0 0 / 5%),0 2px 8px rgb(0 0 0 / 5%),0 24px 64px rgb(0 0 0 / 14%);
+ transform:translateX(calc(100% + 40px));transition:transform var(--t-out) var(--ease-ui)}
+.sheet.narrow{width:min(600px,calc(100vw - 48px))}
+.sheet[data-open]{transform:none;transition:transform var(--t-in) var(--ease-drawer)}
+.sheet::after{content:"";position:absolute;inset:0;border-radius:inherit;background:var(--scrim);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);opacity:0;pointer-events:none;transition:opacity var(--t-out) ease}
+.sheet[data-under]::after{opacity:1;pointer-events:auto;transition:opacity var(--t-in) ease}
+.sh-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:var(--blk) var(--gut) 16px;border-bottom:1px solid var(--hair)}
+.sh-head .cap{color:var(--mute);margin-top:2px}
+.sh-head .cap .st{color:var(--ink)}
+.sh-head .cap .st::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--warn);margin:0 7px 1px 0}
+.crumb a{color:inherit;text-decoration:none;cursor:pointer}
+@media(hover:hover) and (pointer:fine){.crumb a:hover{color:var(--ink)}}
+.x{width:36px;height:36px;border-radius:8px;display:grid;place-items:center;color:var(--ink);flex:none;transition:transform .16s var(--ease-ui)}
+.x:active{transform:scale(.97)}
+@media(hover:hover) and (pointer:fine){.x:hover{background:#f5f5f7}}
+.sh-body{flex:1;overflow:auto;padding:20px var(--gut) 28px}
+.sh-body .kpis{margin-bottom:20px}
+.sheet th{top:0}
+.sh-foot{display:flex;align-items:center;gap:8px;padding:12px var(--gut);min-height:64px;border-top:1px solid var(--hair)}
+.totals{display:grid;grid-template-columns:auto auto;justify-content:end;gap:8px 40px;margin-top:16px;padding-right:16px}
+.totals span{color:var(--mute)}
+.totals b{font-weight:600;text-align:right}
+.sh-sect{margin-top:24px}
+.sh-sect h3{margin:0 0 12px;font-size:15px;font-weight:600}
+@media(prefers-reduced-motion:reduce){
+ .sheet{transform:none;opacity:0;transition:opacity 160ms ease,visibility 0s 160ms;visibility:hidden}
+ .sheet[data-open]{opacity:1;visibility:visible;transition:opacity 160ms ease}
+}
+html[data-initial] *{transition:none!important}
+
+/* ── the switch (prototype only) ── */
+.pick{position:fixed;left:12px;bottom:12px;z-index:40;width:338px;padding:6px;border-radius:12px;background:rgb(29 29 31 / 90%);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);box-shadow:0 8px 30px rgb(0 0 0 / 22%);color:#d9d9de}
+.pick .row{display:flex;flex-wrap:wrap;gap:2px;align-items:center}
+.pick .row+.row{margin-top:6px;padding-top:6px;border-top:1px solid rgb(255 255 255 / 12%)}
+.pick .lbl{flex-basis:100%;padding:0 8px 2px;color:#8e8e93}
+.pick button{height:30px;padding:0 9px;border-radius:7px;color:#d9d9de;white-space:nowrap;transition:background-color .15s,color .15s,transform .12s var(--ease-ui)}
+.pick button:active{transform:scale(.97)}
+.pick button[aria-pressed=true]{background:#fff;color:var(--ink)}
+.pick button i{font-style:normal;color:#8e8e93;margin-left:4px}
+.pick button[aria-pressed=true] i{color:var(--mute)}
+@media(hover:hover) and (pointer:fine){.pick button:not([aria-pressed=true]):hover{background:rgb(255 255 255 / 10%);color:#fff}}
+.pick .sw{width:30px;padding:0;display:grid;place-items:center}
+.pick .sw span{width:20px;height:20px;border-radius:50%;box-shadow:inset 0 0 0 1px rgb(0 0 0 / 12%)}
+.pick .sw[aria-pressed=true]{background:rgb(255 255 255 / 18%)}
+.pick .sw[aria-pressed=true] span{box-shadow:0 0 0 2px #fff}
+.pick .name{margin-left:6px;color:#fff}
+.pick .star{color:#ffd60a}
+html[data-frame] .pick{display:none}
+.pick[data-min] .row:not(.keep){display:none}
+.pick[data-min]{width:auto}
+.pick[data-min] .row{border:0;margin:0;padding:0}
+.pick .row.keep{justify-content:space-between}
+.dotx{display:inline-block;width:7px;height:7px;border-radius:50%;background:#8e8e93;margin-right:6px;vertical-align:1px}
+.phone{position:fixed;inset:0;z-index:50;display:grid;place-items:center;background:rgb(30 30 34 / 42%)}
+.phone-box{position:relative;padding:12px;border-radius:46px;background:#1d1d1f;box-shadow:0 30px 80px rgb(0 0 0 / 35%)}
+.phone-box iframe{display:block;border:0;border-radius:34px;width:414px;height:min(896px,calc(100vh - 48px));background:#fff}
+.phone-x{position:absolute;top:-12px;right:-12px;width:36px;height:36px;border-radius:50%;background:#fff;font-size:20px;line-height:1;box-shadow:0 2px 10px rgb(0 0 0 / 25%)}
+
+/* ── laptop ── */
+@media(max-width:1100px){.panel{display:none!important}.rail{width:56px}.sheet{width:calc(100vw - 80px)}.dgrid{grid-template-columns:1fr}}
+
+/* ── phone (414 × 896, iPhone XR) — as the hub draws it: a top bar, cards, the
+   dock at the thumb, the department's tab bar ── */
+@media(max-width:600px){
+ :root{--gut:16px;--blk:16px}
+ body{background:#fff}
+ .shell{display:block;height:100dvh}
+ .rail,.panel{display:none!important}
+ .page{margin:0;border-radius:0;box-shadow:none;height:100dvh}
+ .page-in{padding-bottom:190px}
+ .topbar{display:flex;align-items:center;justify-content:space-between;height:52px;padding:max(0px,env(safe-area-inset-top)) 16px 0}
+ .topbar b{font-size:17px;font-weight:600}
+ .topbar .me{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;background:var(--blue-bg);color:var(--blue);font-weight:600}
+ .head{display:none}
+ .head.keep{display:flex;position:static;border:0;margin:0 0 12px;padding:4px 0 0}
+ .head.keep .acts{display:none}
+ .greet{display:block;margin:0 calc(-1 * var(--gut)) 4px;padding:0 var(--gut) 14px;border-bottom:1px solid var(--hair);color:var(--mute)}
+ .greet b{color:var(--ink);font-weight:600}
+ .range-top{display:block;margin:4px 0 14px}
+ .kpis{display:grid;grid-template-columns:1fr 1fr;gap:14px 20px;padding:0 0 16px;border-bottom:0}
+ .kpi{padding:0;border:0}
+ html[data-tpl="list"] .page-in>.kpis{display:none}
+ .tabs,.bar,.frame,.scope,.dbar,.datef{display:none}
+ .scope-cap{display:none}
+ .cards{display:block}
+ .lf{border:1px solid var(--hair);border-radius:12px;margin:12px 0;overflow:hidden;transition:transform .16s var(--ease-ui)}
+ .lf:active{transform:scale(.99)}
+ .lf-h{display:flex;justify-content:space-between;gap:12px;padding:16px}
+ .lf-h .nm{min-width:0}
+ .lf-h .nm b{display:block;font-weight:600}
+ .lf-h .nm>span{display:block;color:var(--mute)}
+ .lf-h .nm em{font-style:normal;color:var(--ink)}
+ .lf-h .fig{text-align:right;flex:none}
+ .lf-h .fig b{display:block;font-size:22px;line-height:28px;font-weight:600}
+ .lf-h .fig b small{font-size:15px;font-weight:400;color:var(--mute);margin-left:4px}
+ .lf-h .fig span{color:var(--mute)}
+ .lf-f{display:flex;justify-content:space-between;align-items:center;gap:12px;min-height:56px;padding:10px 16px;border-top:1px solid var(--hair);color:var(--mute)}
+ .lf-f .rc b{color:var(--ink);font-weight:600}
+ .lf-f .rc b.bad{color:var(--red)}
+ .lf-f .rc b.good{color:var(--green)}
+ .lf-f .btn{height:44px;padding:0 16px}
+ .lf-shot{display:block;width:100%;height:150px;object-fit:cover;object-position:top left;border-bottom:1px solid var(--hair)}
+ .dock{display:flex;position:fixed;left:10px;right:10px;bottom:calc(66px + env(safe-area-inset-bottom));z-index:5;gap:6px;align-items:center;padding:6px;border-radius:999px;background:rgb(255 255 255 / 88%);-webkit-backdrop-filter:blur(20px) saturate(180%);backdrop-filter:blur(20px) saturate(180%);box-shadow:0 0 0 1px rgb(0 0 0 / 6%),0 8px 24px rgb(0 0 0 / 10%)}
+ .dock .chip{height:44px;padding:0 12px 0 14px;border-radius:999px;background:#f0f0f3;display:flex;align-items:center;gap:6px;font-weight:500;flex:none}
+ .dock .chip svg{width:15px;height:15px;color:var(--mute)}
+ .dock .q{flex:1;min-width:0;height:44px;border-radius:999px;background:#f0f0f3;display:flex;align-items:center;gap:8px;padding:0 14px;color:var(--mute)}
+ .dock .q input{border:0;background:transparent;outline:0;min-width:0;flex:1;font-size:16px}
+ .dock .round{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;flex:none;background:#f0f0f3}
+ .dock .round.fab{background:var(--blue);color:#fff}
+ .tabbar{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:6;height:calc(62px + env(safe-area-inset-bottom));padding:5px 6px env(safe-area-inset-bottom);justify-content:space-around;background:rgb(249 249 251 / 94%);-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px);border-top:1px solid var(--hair)}
+ .tabbar span{flex:1;min-width:0;display:grid;justify-items:center;align-content:center;gap:1px;border-radius:12px;color:var(--mute);font-size:15px;line-height:18px}
+ .tabbar span em{font-style:normal;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 2px}
+ .tabbar span.on{color:var(--blue);background:var(--blue-bg)}
+ .tabbar svg{width:22px;height:22px}
+ /* report: the chart, then the accounts as one list */
+ .chartbox{padding:12px}
+ .cw{height:140px}
+ .tree-c{border:1px solid var(--hair);border-radius:12px;overflow:hidden}
+ .rrow{display:flex;justify-content:space-between;gap:12px;padding:12px 14px;border-top:1px solid var(--hair)}
+ .tree-c .rrow:first-child{border-top:0}
+ .rrow.d0{background:var(--band);font-weight:500}
+ .rrow.d1{padding-left:26px}.rrow.d2{padding-left:38px}.rrow.d3{padding-left:50px}
+ .rrow .cd{color:var(--mute);margin-right:8px}
+ /* dashboard: the cards stack */
+ .dgrid{grid-template-columns:1fr}
+ .card table.plain{display:none}
+ .card .cards .rrow{padding:12px 0}
+ .card .cards .rrow:first-child{border-top:0}
+ /* form: one column; Edit at the thumb */
+ .page-foot.view-only{display:flex;position:fixed;left:0;right:0;bottom:calc(62px + env(safe-area-inset-bottom));z-index:5}
+ .page-foot .btn{flex:1;height:44px}
+ .frow{display:grid;gap:2px;padding:6px 0}
+ .frow b{text-align:left}
+ .inp{height:44px;font-size:16px}
+ /* board: the lanes stack, each folds — as the hub draws it today */
+ .lanes{display:block;margin:0;padding:4px 0 0}
+ .lane{width:auto;margin-bottom:22px}
+ .lane-h i{margin-left:4px}
+ .lane-h .tot{margin-left:auto;font-weight:400;color:var(--mute);display:flex;align-items:center;gap:6px}
+ .lane-sub,.fold,.lane-foot{display:none}
+ /* sheets fill the phone; the foot sits at the thumb */
+ .sheet,.sheet.narrow{top:0;right:0;bottom:0;width:100%;border-radius:0}
+ .sheet{--inset:0px!important}
+ .sh-head{padding-top:max(16px,env(safe-area-inset-top))}
+ .sh-foot{padding-bottom:max(12px,env(safe-area-inset-bottom));flex-wrap:wrap}
+ .sh-foot .btn{height:44px}
+ .sh-body .kpis{border-bottom:1px solid var(--hair)}
+ .totals2{padding-right:0;grid-template-columns:1fr auto}
+ .chg li{grid-template-columns:1fr;gap:4px}
+}
+@media(min-width:601px){.lane-h .tot{display:none}}
+</style>
+</head>
+<body>
+<div class="shell">
+ <nav class="rail" id="rail"></nav>
+ <aside class="panel" id="panel"></aside>
+ <main class="page"><header class="topbar" id="topbar"></header><div class="page-in" id="page"></div></main>
+</div>
+<div class="veil" id="veil"></div>
+<div id="sheets"></div>
+<nav class="tabbar" id="tabbar"></nav>
+
+<div class="pick" id="pick">
+ <div class="row" id="pick-tpl"><span class="lbl">Template</span></div>
+ <div class="row" id="pick-click"><span class="lbl">What can be clicked</span></div>
+ <div class="row" id="pick-panel"><span class="lbl">Inner sidebar</span></div>
+ <div class="row keep"><button id="pick-phone">Phone 414</button><button id="pick-min">Hide</button></div>
+</div>
+<div class="phone" id="phone" hidden><div class="phone-box"><iframe id="phone-frame" title="Phone"></iframe><button class="phone-x" id="phone-x" aria-label="Close">×</button></div></div>
+
+<script>
+const $ = (s, el = document) => el.querySelector(s)
+const H = document.documentElement
+const fmt = (n) => new Intl.NumberFormat('id-ID').format(n)
+const rp = (n) => (n < 0 ? '(' : '') + 'Rp ' + fmt(Math.abs(n)) + (n < 0 ? ')' : '')
+const I = {
+ search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+ home: '<path d="M4 10.5 12 4l8 6.5V20H4z"/><path d="M10 20v-5h4v5"/>',
+ box: '<path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5z"/><path d="M3 7.5 12 12l9-4.5M12 12v9"/>',
+ truck: '<path d="M3 6h11v10H3zM14 9h4l3 3v4h-7"/><circle cx="7" cy="17.5" r="1.5"/><circle cx="17" cy="17.5" r="1.5"/>',
+ wallet: '<rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M16 14.5h2"/>',
+ users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5M16 4.5a3.5 3.5 0 0 1 0 7M18 14.8c1.8.7 3 2.4 3.5 5.2"/>',
+ chart: '<path d="M4 20V11M10 20V5M16 20v-7M21 20H3"/>',
+ grid: '<rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/>',
+ gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/>',
+ bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 21h4"/>',
+ left: '<path d="m15 6-6 6 6 6"/>', right: '<path d="m9 6 6 6-6 6"/>', down: '<path d="m6 9 6 6 6-6"/>',
+ x: '<path d="M6 6l12 12M18 6 6 18"/>', plus: '<path d="M12 5v14M5 12h14"/>',
+ filter: '<path d="M4 6h16M7 12h10M10 18h4"/>', cols: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16"/>',
+ print: '<path d="M7 9V3h10v6M7 17H4v-7h16v7h-3"/><rect x="7" y="14" width="10" height="7"/>',
+ export: '<path d="M12 3v12M7 8l5-5 5 5M4 15v5h16v-5"/>', shirt: '<path d="M8 3 3 6l2 4 2-1v12h10V9l2 1 2-4-5-3c-.5 1.5-2 2.5-4 2.5S8.5 4.5 8 3z"/>',
+ back: '<path d="m14 6-6 6 6 6"/>', more: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
+}
+const svg = (n) => `<svg viewBox="0 0 24 24">${I[n]}</svg>`
+const chev = `<td class="chev">${svg('right')}</td>`
+
+/* ── data: the hub's own, as white.localhost:5352 shows it on 14 Oct ── */
+// [supplier, PO, items, delivery, ordered pcs, ordered Rp, received pcs, extra pcs, received Rp, status]
+const PO = [
+ ['Garmen Nusantara, PT', 'PO-0001-OPE5', 2, '12 Nov 2026', 30, 2844000, 28, 0, 2700000, 'review'],
+ ['Garmen Nusantara, PT', 'PO-0001-OPE4', 3, '06 Nov 2026', 36, 3012000, 36, 3, 3012000, 'review'],
+ ['Garmen Nusantara, PT', 'PO-0001-OPE3', 2, '31 Oct 2026', 24, 1698000, 24, 2, 1698000, 'review'],
+ ['Garmen Nusantara, PT', 'PO-0001-OPE2', 3, '25 Oct 2026', 36, 2118000, 34, 0, 2048000, 'review'],
+ ['Sepatu Sejahtera, CV', 'PO-141026-001', 1, '28 Nov 2026', 12, 1800000, 0, 0, 0, 'Active'],
+ ['Sepatu Sejahtera, CV', 'PO-0002-REC1', 2, '20 Oct 2026', 18, 2310000, 0, 0, 0, 'Active'],
+ ['Sepatu Sejahtera, CV', 'PO-0002-OPE6', 3, '19 Nov 2026', 36, 4470000, 0, 0, 0, 'Active'],
+ ['Sepatu Sejahtera, CV', 'PO-0002-OPE5', 2, '13 Nov 2026', 30, 4710000, 0, 0, 0, 'Active'],
+ ['Sepatu Sejahtera, CV', 'PO-0002-OPE4', 3, '07 Nov 2026', 36, 4980000, 0, 0, 0, 'Active'],
+ ['Sepatu Sejahtera, CV', 'PO-0002-OPE3', 2, '01 Nov 2026', 24, 1980000, 0, 0, 0, 'Active'],
+ ['Sepatu Sejahtera, CV', 'PO-0002-OPE2', 3, '26 Oct 2026', 36, 3420000, 0, 0, 0, 'Active'],
+ ['Garmen Nusantara, PT', 'PO-0001-REC3', 2, '31 Oct 2026', 24, 1698000, 0, 0, 0, 'Active'],
+ ['Garmen Nusantara, PT', 'PO-0001-REC2', 3, '25 Oct 2026', 36, 2118000, 0, 0, 0, 'Active'],
+ ['Garmen Nusantara, PT', 'PO-0001-REC1', 2, '19 Oct 2026', 18, 1080000, 0, 0, 0, 'Active'],
+ ['Garmen Nusantara, PT', 'PO-0001-OPE7', 2, '24 Nov 2026', 18, 1230000, 0, 0, 0, 'Active'],
+ ['Garmen Nusantara, PT', 'PO-0001-OPE6', 3, '18 Nov 2026', 36, 3210000, 0, 0, 0, 'Active'],
+]
+const WEAR = [['Blus Rayon Motif Bunga', 'Wanita · Blus'], ['Celana Chino Slim Fit', 'Pria · Celana'], ['Kemeja Linen Lengan Panjang', 'Pria · Kemeja']]
+const SHOES = [['Sneakers Kanvas Putih', 'Sepatu · Sneakers'], ['Sandal Slide Karet', 'Sandal sepatu · Basic'], ['Loafer Kulit Sintetis', 'Sepatu · Loafer']]
+// [name, division, ordered, unit price, counted] — exact where the hub showed them
+const KNOWN = {
+ 'PO-0001-OPE5': [['Blus Rayon Motif Bunga', 'Wanita · Blus', 12, 72000, 10], ['Celana Chino Slim Fit', 'Pria · Celana', 18, 110000, 18]],
+ 'PO-141026-001': [['Sneakers Uji Taste', 'Sandal sepatu · Basic', 12, 150000, 0]],
+}
+function linesOf(p) {
+ if (KNOWN[p[1]]) return KNOWN[p[1]]
+ const pool = p[0].startsWith('Sepatu') ? SHOES : WEAR
+ const n = p[2], P = p[4], R = p[5]
+ for (let q = Math.floor(P / n); q >= 1; q--) {
+  const last = P - q * (n - 1)
+  for (let base = 60000; base <= 160000; base += 1000) {
+   const firsts = Array.from({ length: n - 1 }, (_, i) => base + i * 15000)
+   const rem = R - firsts.reduce((a, x) => a + x * q, 0)
+   if (rem > 0 && rem % last === 0 && rem / last >= 30000 && rem / last <= 300000) {
+    const prices = [...firsts, rem / last]
+    return prices.map((u, i) => [pool[i][0], pool[i][1], i < n - 1 ? q : last, u, i < n - 1 ? q : last])
+   }
+  }
+ }
+ const q = Math.round(P / n)
+ return pool.slice(0, n).map((it, i) => [it[0], it[1], q, Math.round(R / P / 1000) * 1000, q])
+}
+const rpm = (n) => (n < 0 ? '−' : '') + 'Rp ' + fmt(Math.abs(n))
+
+/* ── the shell, as the hub draws it ── */
+Object.assign(I, {
+ cart: '<circle cx="9" cy="20" r="1.2"/><circle cx="18" cy="20" r="1.2"/><path d="M2.5 3.5h2.6l2.4 11.2a2 2 0 0 0 2 1.6h7.8a2 2 0 0 0 1.9-1.5l1.6-6.6H6"/>',
+ boxes: '<path d="M7.5 3.5 12 6v5l-4.5 2.5L3 11V6zM16.5 3.5 21 6v5l-4.5 2.5L12 11V6zM12 11l4.5 2.5V18.5L12 21l-4.5-2.5v-5z"/>',
+ mega: '<path d="M3 11v3a1 1 0 0 0 1 1h2l5 4V6L6 10H4a1 1 0 0 0-1 1zM15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/>',
+ store: '<path d="M3 9.5 4.5 4h15L21 9.5M3 9.5a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0M5 12v8h14v-8M10 20v-4h4v4"/>',
+ bank: '<path d="M3 9.5 12 4l9 5.5M5 10v8M9.5 10v8M14.5 10v8M19 10v8M3 20.5h18"/>',
+ chat: '<path d="M4 5h11a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H9l-4 3v-3H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM16 9h4a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1h-1v3l-4-3h-4"/>',
+ book: '<path d="M4 4.5h6a2 2 0 0 1 2 2V20a1.5 1.5 0 0 0-1.5-1.5H4zM20 4.5h-6a2 2 0 0 0-2 2V20a1.5 1.5 0 0 1 1.5-1.5H20z"/>',
+ logout: '<path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4M10 16l-4-4 4-4M6 12h10"/>',
+ palette: '<circle cx="12" cy="12" r="8.5"/><circle cx="8.5" cy="10" r="1"/><circle cx="12" cy="7.5" r="1"/><circle cx="15.5" cy="10" r="1"/><path d="M12 20.5a2 2 0 0 1 0-4h1.5a2.5 2.5 0 0 0 2.5-2.5"/>',
+ cal: '<rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
+ refresh: '<path d="M20 11a8 8 0 0 0-14.5-4.5L3 9M3 4v5h5M4 13a8 8 0 0 0 14.5 4.5L21 15M21 20v-5h-5"/>',
+ orders: '<rect x="5" y="3.5" width="14" height="17" rx="2"/><path d="M9 8h6M9 12h6M9 16h3"/>',
+ building: '<rect x="5" y="3.5" width="14" height="17" rx="1.5"/><path d="M9 8h1M14 8h1M9 12h1M14 12h1M10 20.5v-4h4v4"/>',
+ undo: '<path d="M9 14 4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
+ dots: '<circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/>',
+ alert: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v5M12 16v.5"/>',
+ check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
+ trend: '<path d="M3 17l6-6 4 4 8-8M15 7h6v6"/>',
+})
+const RAIL = [['cart', 'list'], ['shirt', '', 7], ['truck', 'board', 19], ['boxes'], ['mega'], ['store', '', '99+'], ['bank', 'report'], ['users', 'form', 4], ['chat'], ['book', '', 7], ['grid', 'map']]
+const SUB = '›', OPEN = '⌄'
+const PANELS = {
+ list: ['Procurement', [['Purchase Orders', 4, 1], ['Suppliers'], ['Return PO']]],
+ report: ['Finance', [['Overview'], ['Stores', 0, 0, SUB], ['Inventory', 0, 0, SUB], ['Payables', 53, 0, SUB], ['Receivables', 0, 0, SUB], ['Payments', 0, 0, SUB], ['Banking', 19, 0, SUB], ['Financial Reports', 0, 0, OPEN],
+  ['-General Ledger'], ['-Trial Balance'], ['-Profit and Loss', 0, 1], ['-Balance Sheet'], ['-Cash Flow'], ['-Profit and Loss by Unit'], ['-Balance Sheet 2 Years'], ['-Sales by Division'], ['-Statement of Changes in Equity'], ['-Expenses by Month'], ['-Bank Reconciliation Summary'], ['Assets', 0, 0, SUB]]],
+ board: ['Operations', [['Overview'], ['Receiving', 2], ['Quantity Checks'], '#Outbound', ['Allotment', 3, 1], ['Return from Store'], ['Return PO']]],
+ form: ['HR', [['Overview & Requests', 4], ['Employee List'], ['Org Chart'], ['Transfers & Changes'], ['Onboarding'], ['Offboarding'], ['Time Off Requests'], ['Attendance'], ['Payroll Runs'], '#Settings', ['Company'], ['Payslip', 0, 1], ['Employee App'], ['Benefit']]],
+}
+const TOP = { list: 'Purchase Orders', report: 'Profit and Loss', dashboard: 'Overview', board: 'Allotment', form: 'Payslip', map: 'Screens' }
+const TABS = {
+ list: [['home', 'Home'], ['orders', 'Orders', 1], ['building', 'Suppliers'], ['undo', 'Return PO']],
+ report: [['home', 'Home'], ['chart', 'Overview'], ['wallet', 'Finance'], ['bank', 'Sales by Division'], ['dots', 'More', 1]],
+ dashboard: [['home', 'Home'], ['grid', 'Overview', 1], ['store', 'Store Performance'], ['boxes', 'Stock & Purchases'], ['dots', 'More']],
+ board: [['home', 'Home'], ['box', 'Receiving'], ['truck', 'Allotment', 1], ['undo', 'Returns'], ['dots', 'More']],
+ form: [['home', 'Home'], ['bell', 'Requests'], ['users', 'Employees'], ['gear', 'Settings', 1], ['dots', 'More']],
+ map: [['home', 'Home'], ['grid', 'Screens', 1]],
+}
+function shell() {
+ const t = H.dataset.tpl
+ $('#rail').innerHTML = `<button class="ic" aria-label="Search">${svg('search')}</button>` +
+  RAIL.map(([ic, tp, n]) => `<button class="ic${tp && tp === t ? ' on' : ''}" data-go="${tp || ''}" aria-label="${ic}">${svg(ic)}${n && tp !== t ? `<span class="badge">${n}</span>` : ''}</button>`).join('') +
+  `<span class="end"></span><button class="ic" aria-label="Messages">${svg('chat')}</button><button class="ic" aria-label="Notifications">${svg('bell')}<span class="badge">4</span></button><button class="ic" aria-label="Approvals"><span class="badge solo">15</span></button><span class="me">R</span><button class="ic" aria-label="Sign out">${svg('logout')}</button>`
+ let p = PANELS[t]
+ if (t === 'map') p = ['Screens', [['All screens', 0, !MAP.dept]].concat(MAP.depts.map(([d, n]) => [d, n, MAP.dept === d, 'count']))]
+ $('#panel').hidden = !p
+ if (p) $('#panel').innerHTML = `<div class="panel-head"><b>${p[0]}</b><span><button aria-label="Look">${svg('palette')}</button><button aria-label="Hide the screens">${svg('left')}</button></span></div><div class="panel-list">` +
+  p[1].map((it) => typeof it === 'string' ? `<div class="grp">${it.slice(1)}</div>` :
+   `<div class="nav${it[2] ? ' on' : ''}${it[0].startsWith('-') ? ' sub' : ''}" ${t === 'map' ? `data-dept="${it[0] === 'All screens' ? '' : it[0]}"` : ''}><span>${it[0].replace(/^-/, '')}</span><span class="nav-r">${it[1] ? (it[3] === 'count' ? `<i>${it[1]}</i>` : `<span class="badge">${it[1]}</span>`) : ''}${it[3] && it[3] !== 'count' ? `<em>${it[3] === OPEN ? svg('down') : svg('right')}</em>` : ''}</span></div>`).join('') +
+  `</div><div class="foot-time">${svg('cal')}14 Oct 2026 · 17:40</div>`
+ $('#topbar').innerHTML = `<b>${TOP[t]}</b><span class="me">R</span>`
+ $('#tabbar').innerHTML = (TABS[t] || TABS.map).map(([ic, l, on]) => `<span class="${on ? 'on' : ''}">${svg(ic)}<em>${l}</em></span>`).join('')
+}
+
+/* ── A · List: the hub's Purchase Orders, as it is (owner, 14 Oct: "lebih rapi
+   yg kita punya sebelumnya") ── */
+function list() {
+ const tot = PO.reduce((a, p) => [a[0] + p[4], a[1] + p[5], a[2] + p[6], a[3] + p[7], a[4] + p[8]], [0, 0, 0, 0, 0])
+ const rec = (p) => p[6] ? `<span class="${p[6] < p[4] ? 'bad' : ''}">${fmt(p[6])} pcs</span>${p[7] ? ` <span class="bad">(+${p[7]})</span>` : ''}<span class="sub">${rp(p[8])}</span>` : '<span class="m">0 pcs</span>'
+ const st = (p) => p[9] === 'review' ? `<button class="btn primary sm" data-review>Review Count</button>` : `<span class="good">${p[9]}</span>`
+ const inReview = PO.filter((p) => p[9] === 'review').length
+ return `<header class="head"><div><div class="crumb">Procurement</div><h1>Purchase Orders</h1></div><div class="acts"><button class="btn primary">${svg('plus')}New order</button></div></header>
+ <p class="greet">Hi Rina, <b>${inReview} orders in review</b>. ${PO.length} orders are active, Rp 42,7 M in total.</p>
+ <div class="kpis"><div class="kpi"><span>Orders</span><b>${PO.length}</b></div><div class="kpi"><span>Still open</span><b>${PO.length}</b></div><div class="kpi"><span>Overdue</span><b>0</b></div><div class="kpi"><span>On order</span><b class="num">Rp 42,7 M</b></div></div>
+ <nav class="tabs"><span class="tab on">Active PO<i>16</i></span><span class="tab">Completed PO<i>5</i></span><span class="tab">Cancelled PO<i>13</i></span></nav>
+ <div class="bar"><label class="search">${svg('search')}<input placeholder="Search orders"></label><button class="btn ghost">${svg('filter')}Filter</button><span class="datef">Created at${svg('cal')}</span><span class="datef">Delivery date${svg('cal')}</span><span class="sp"></span><button class="btn ghost">${svg('cols')}Columns</button></div>
+ <div class="frame"><table><thead><tr><th>PO</th><th style="width:150px">Delivery Date</th><th class="r" style="width:170px">Ordered</th><th class="r" style="width:170px">Received</th><th style="width:200px">Status</th><th style="width:1%"></th></tr></thead><tbody>
+ ${PO.map((p, i) => `<tr data-open="po" data-i="${i}"><td class="tl"><span class="id">${p[0]}</span><span class="sub"><span class="code">${p[1]}</span> · ${p[2]} item${p[2] > 1 ? 's' : ''}</span></td><td>${p[3]}</td><td class="tl r num">${fmt(p[4])} pcs<span class="sub">${rp(p[5])}</span></td><td class="tl r num">${rec(p)}</td><td>${st(p)}</td>${chev}</tr>`).join('')}
+ </tbody><tfoot><tr><td>${PO.length} orders</td><td></td><td class="tl r num">${fmt(tot[0])} pcs<span class="sub">${rp(tot[1])}</span></td><td class="tl r num">${fmt(tot[2])} pcs <span class="bad">(+${tot[3]})</span><span class="sub">${rp(tot[4])}</span></td><td></td><td></td></tr></tfoot></table></div>
+ <div class="cards">${PO.map((p, i) => `<div class="lf" data-open="po" data-i="${i}"><div class="lf-h"><div class="nm"><b class="id">${p[0]}</b><span><span class="code">${p[1]}</span> · ${p[2]} item${p[2] > 1 ? 's' : ''}</span><span>Delivery <em>${p[3]}</em></span></div><div class="fig"><b class="num">${fmt(p[4])}<small>pcs</small></b><span>${rp(p[5])}</span></div></div>
+  <div class="lf-f"><span class="rc">Received <b class="${p[6] && p[6] < p[4] ? 'bad' : ''}">${fmt(p[6])} pcs</b>${p[7] ? ` <b class="bad">(+${p[7]})</b>` : ''}${p[6] ? `<br>${rp(p[8])}` : ''}</span>${p[9] === 'review' ? '<button class="btn primary" data-review>Review Count</button>' : `<span class="good">${p[9]}</span>`}</div></div>`).join('')}</div>
+ <div class="dock"><span class="chip">Active${svg('down')}</span><label class="q">${svg('search')}<input placeholder="Search Orders">${svg('filter')}</label><button class="round" aria-label="Refresh">${svg('refresh')}</button><button class="round fab" aria-label="New order">${svg('plus')}</button></div>`
+}
+function poSheet(i) {
+ const p = PO[i]
+ if (p[9] === 'review') return reviewSheet(i)
+ const L = linesOf(p)
+ return {
+  key: 'po:' + i,
+  head: `<div class="crumb"><a data-close>Purchase Orders</a> / ${p[1]}</div><h2><span class="obj" data-sup="${p[0]}">${p[0]}</span></h2><div class="cap"><span class="good ok-dot">Active</span> · ${p[2]} item${p[2] > 1 ? 's' : ''}</div>`,
+  body: `<div class="kpis"><div class="kpi"><span>Delivery Date</span><b>${p[3]}</b></div><div class="kpi"><span>Payment</span><b>Giro · Cash on delivery</b></div><div class="kpi"><span>Ordered</span><b class="num">${fmt(p[4])} pcs</b></div><div class="kpi"><span>Grand Total</span><b class="num">${rp(L.reduce((a, l) => a + l[2] * l[3], 0))}</b></div></div>
+   <div class="sect-t">Order items<i>${L.length}</i></div>
+   <div class="frame"><table><thead><tr><th>Item</th><th class="r">Ordered</th><th class="r">Unit Price</th><th class="r">Amount</th><th style="width:1%"></th></tr></thead><tbody>${L.map((l, k) => `<tr data-open="item" data-n="${l[0]}"><td class="tl"><div class="it"><span class="thumb">${svg(p[0].startsWith('Sepatu') ? 'box' : 'shirt')}</span><div><span class="id">${l[0]}</span><span class="sub">${l[1]}</span></div></div></td><td class="r num">${fmt(l[2])} pcs</td><td class="r num">${rp(l[3])} / pc</td><td class="r num">${rp(l[2] * l[3])}</td>${chev}</tr>`).join('')}</tbody></table></div>
+   <div class="cards">${L.map((l) => `<div class="lf" data-open="item" data-n="${l[0]}"><div class="lf-h"><div class="nm"><b class="id">${l[0]}</b><span>${l[1]}</span><span>${rp(l[3])} / pc</span></div><div class="fig"><b class="num">${fmt(l[2])}<small>pcs</small></b><span>${rp(l[2] * l[3])}</span></div></div></div>`).join('')}</div>
+   <div class="terms"><span>Terms and Conditions</span>Goods are received Monday to Saturday, 08:00–15:00, with a break from 12:00 to 13:00. On Fridays the break is from 11:30 to 13:00.</div>
+   <div class="disc">${svg('right')}Activity (1)</div>`,
+  foot: `<button class="btn ghost">${svg('print')}Print${svg('down')}</button><span class="sp"></span><button class="btn danger">Cancel order</button><button class="btn ghost">Edit</button>`,
+ }
+}
+function reviewSheet(i) {
+ const p = PO[i]
+ const L = linesOf(p).map((l) => [...l])
+ const extra = p[7], short = p[4] - (p[6] - extra)
+ if (!KNOWN[p[1]]) { L.forEach((l) => { l[4] = l[2] }); if (short) L[0][4] -= short; if (extra) L[L.length - 1][4] += extra }
+ const total = L.reduce((a, l) => a + l[2] * l[3], 0)
+ const counted = (l) => l[4] < l[2] ? `<span class="bad">${fmt(l[4])} pcs</span><span class="sub bad">${fmt(l[2] - l[4])} pcs short</span>` : l[4] > l[2] ? `<span class="bad">${fmt(l[4])} pcs</span><span class="sub bad">${fmt(l[4] - l[2])} pcs extra</span>` : `<span class="good">${fmt(l[4])} pcs</span>`
+ return {
+  key: 'review:' + i,
+  head: `<div class="crumb"><a data-close>Purchase Orders</a> / ${p[1]}</div><h2><span class="obj" data-sup="${p[0]}">${p[0]}</span><span class="alert">${svg('alert')}</span></h2><div class="cap">Review Count · Counted by Nina Oktaviani, 14 Oct, 05:22</div>`,
+  body: `<div class="kpis"><div class="kpi"><span>Ordered</span><b class="num">${fmt(p[4])} pcs</b></div><div class="kpi"><span>Counted</span><b class="num">${fmt(p[6])} pcs</b></div><div class="kpi"><span>Accepted</span><b class="num">${fmt(p[6] - extra)} pcs</b></div>${short ? `<div class="kpi"><span>Short</span><b class="num bad">${fmt(short)} pcs</b></div>` : ''}${extra ? `<div class="kpi"><span>Extra</span><b class="num bad">${fmt(extra)} pcs</b></div>` : ''}</div>
+   <div class="above"><button class="toggle" aria-pressed="false" data-toggle>Hide matched<i></i></button></div>
+   <div class="frame"><table><thead><tr><th>Item</th><th class="r">Ordered</th><th class="r">Counted</th><th class="r">Unit Price</th><th class="r">Amount</th><th style="width:1%"></th></tr></thead><tbody>${L.map((l) => `<tr data-open="item" data-n="${l[0]}" ${l[4] === l[2] ? 'data-matched' : ''}><td class="tl"><span class="id">${l[0]}</span><span class="sub">${l[1]}</span></td><td class="r num m">${fmt(l[2])} pcs</td><td class="tl r num">${counted(l)}</td><td class="r num">${rp(l[3])} / pc</td><td class="r num">${rp(l[2] * l[3])}</td>${chev}</tr>`).join('')}</tbody></table></div>
+   <div class="cards">${L.map((l) => `<div class="lf" data-open="item" data-n="${l[0]}" ${l[4] === l[2] ? 'data-matched' : ''}><div class="lf-h"><div class="nm"><b class="id">${l[0]}</b><span>${l[1]}</span><span>${rp(l[3])} / pc</span></div><div class="fig"><b class="num">${fmt(l[2])}<small>pcs</small></b><span>${rp(l[2] * l[3])}</span></div></div><div class="lf-f"><span class="rc">Counted <b class="${l[4] === l[2] ? 'good' : 'bad'}">${fmt(l[4])} pcs</b>${l[4] < l[2] ? ` · ${fmt(l[2] - l[4])} pcs short` : l[4] > l[2] ? ` · ${fmt(l[4] - l[2])} pcs extra` : ''}</span></div></div>`).join('')}</div>
+   <div class="totals2"><span>Total</span><b class="num">${rp(total)}</b><span class="acc">Accepted</span><b class="num acc">${rp(p[8])}</b></div>`,
+  foot: `<span class="sp"></span><button class="btn ghost">Recount</button><button class="btn danger">Close Short</button><button class="btn primary">${svg('check')}Partial Receive</button>`,
+ }
+}
+function supSheet(name) {
+ const mine = PO.filter((p) => p[0] === name)
+ return {
+  size: 'narrow',
+  key: 'sup:' + name,
+  head: `<div class="crumb">Suppliers / ${name.startsWith('Sepatu') ? 'SUP-0002' : 'SUP-0001'}</div><h2>${name}</h2><div class="cap"><span class="good ok-dot">Active</span> · ${mine.length} open orders</div>`,
+  body: `<div class="kpis"><div class="kpi"><span>Open orders</span><b>${mine.length}</b></div><div class="kpi"><span>On order</span><b class="num">${rp(mine.reduce((a, p) => a + p[5], 0))}</b></div><div class="kpi"><span>Payment</span><b>Giro</b></div></div>
+   <div class="sect-t">Orders<i>${mine.length}</i></div>
+   <div class="frame"><table><thead><tr><th>PO</th><th>Delivery Date</th><th class="r">Ordered</th><th style="width:1%"></th></tr></thead><tbody>${mine.map((p) => `<tr data-open="po" data-i="${PO.indexOf(p)}"><td><span class="id code">${p[1]}</span></td><td>${p[3]}</td><td class="r num">${fmt(p[4])} pcs</td>${chev}</tr>`).join('')}</tbody></table></div>
+   <div class="cards">${mine.map((p) => `<div class="lf" data-open="po" data-i="${PO.indexOf(p)}"><div class="lf-h"><div class="nm"><b class="id code">${p[1]}</b><span>Delivery <em>${p[3]}</em></span></div><div class="fig"><b class="num">${fmt(p[4])}<small>pcs</small></b><span>${rp(p[5])}</span></div></div></div>`).join('')}</div>`,
+  foot: `<span class="sp"></span><button class="btn ghost">Edit</button>`,
+ }
+}
+function itemSheet(name) {
+ const l = [...WEAR, ...SHOES, ['Sneakers Uji Taste', 'Sandal sepatu · Basic']].find((x) => x[0] === name) || [name, '']
+ return {
+  size: 'narrow',
+  key: 'item:' + name,
+  head: `<div class="crumb">Catalogue / ${name.split(' ').map((w) => w[0]).join('').slice(0, 3).toUpperCase()}-0412</div><h2>${name}</h2><div class="cap">${l[1]}</div>`,
+  body: `<div class="kpis"><div class="kpi"><span>Cost</span><b class="num">Rp 72.000</b></div><div class="kpi"><span>Price</span><b class="num">Rp 139.000</b></div><div class="kpi"><span>In stock</span><b class="num">1.284 pcs</b></div></div>
+   <div class="terms"><span>Supplier</span><span class="obj" data-sup="Garmen Nusantara, PT">Garmen Nusantara, PT</span></div>`,
+  foot: `<span class="sp"></span><button class="btn ghost">Edit</button>`,
+ }
+}
+
+/* ── B · Report: the hub's Profit and Loss Statement, as it is ── */
+// [depth, code, name, amount]
+const PLT = [
+ [0, '4', 'PENDAPATAN', 2171900], [1, '4000', 'PENJUALAN', 2171900], [2, '4001', 'PENJUALAN', 2271900], [3, '4002', 'Penjualan Tunai', 784000], [3, '4003', 'Penjualan Non Tunai', 1487900], [2, '4100', 'RETUR PENJUALAN', -100000],
+ [0, '5', 'HARGA POKOK PENJUALAN', 1067300], [1, '5001', 'Harga Pokok Penjualan', 1067300],
+ [0, '6', 'BEBAN OPERASIONAL', 65032165], [1, '6100', 'BEBAN GAJI', 48500000], [1, '6200', 'BEBAN SEWA', 12000000], [1, '6300', 'BEBAN LISTRIK DAN AIR', 3212165], [1, '6900', 'BEBAN LAIN-LAIN', 1320000],
+]
+function plChart() {
+ // value (Rp) → % from the top of a −70 M … 70 M band
+ const y = (v) => (70e6 - v) / 140e6 * 100
+ const bar = (x, v, c) => `<rect x="${x}" y="${Math.min(y(v), 50)}" width="2.2" height="${Math.abs(y(v) - 50)}" fill="${c}"/>`
+ return `<div class="cw"><div class="cy">${[70, 35, 0, -35, -70].map((t) => `<span style="top:${y(t * 1e6)}%">${t ? (t < 0 ? '−' : '') + Math.abs(t) + ' M' : '0'}</span>`).join('')}</div>
+  <svg viewBox="0 0 100 100" preserveAspectRatio="none">${[70, 35, 0, -35, -70].map((t) => `<line x1="0" x2="100" y1="${y(t * 1e6)}" y2="${y(t * 1e6)}" stroke="#ececf0" vector-effect="non-scaling-stroke" ${t ? 'stroke-dasharray="3 4"' : ''}/>`).join('')}
+  ${bar(44, 2171900, '#2862dc')}${bar(49, 66099465, '#e8833a')}${bar(54, -63927565, '#1d1d1f')}</svg></div><div class="cx"><span style="left:50%">2026</span></div>`
+}
+function report() {
+ const rows = PLT.map((r, i) => `<tr class="d${r[0]}" ${r[0] ? `data-open="acc" data-i="${i}"` : ''}><td><span class="cd">${r[1]}</span><span${r[0] ? ' class="id"' : ''}>${r[2]}</span></td><td class="r num">${rpm(r[3])}</td>${r[0] ? chev : '<td class="chev"></td>'}</tr>`).join('')
+ return `<header class="head keep"><div><div class="crumb">Finance · Financial Reports</div><h1>Profit and Loss Statement</h1></div><div class="acts"><button class="word">${svg('export')}Export</button></div></header>
+ <div class="scope"><span class="select">All units${svg('down')}</span><span class="datef">01 Oct 2026<span class="clr">${svg('x')}${svg('cal')}</span></span><span class="to">to</span><span class="datef">14 Oct 2026<span class="clr">${svg('x')}${svg('cal')}</span></span><span class="select">Yearly${svg('down')}</span><label class="check"><i></i>Accumulated Values</label><label class="check"><i></i>Compare Units</label></div>
+ <p class="scope-cap">01 Oct 2026 – 14 Oct 2026 · all units</p>
+ <div class="kpis"><div class="kpi"><span>Total Income</span><b class="num">${rpm(2171900)}</b></div><div class="kpi"><span>Total Expense</span><b class="num">${rpm(66099465)}</b></div><div class="kpi"><span>Net Profit</span><b class="num bad">${rpm(-63927565)}</b></div></div>
+ <div class="chartbox">${plChart()}<div class="legend"><span><i style="background:#2862dc"></i>Income</span><span><i style="background:#e8833a"></i>Expense</span><span><i style="background:#1d1d1f"></i>Net Profit/Loss</span></div></div>
+ <div class="frame tree"><table><thead><tr><th>Account</th><th class="r" style="width:220px">2026</th><th style="width:1%"></th></tr></thead><tbody>${rows}</tbody>
+ <tfoot><tr><td>LABA (RUGI) BERSIH</td><td class="r num bad">${rpm(-63927565)}</td><td></td></tr></tfoot></table></div>
+ <div class="cards tree-c">${PLT.map((r, i) => `<div class="rrow d${r[0]}" ${r[0] ? `data-open="acc" data-i="${i}"` : ''}><span><span class="cd">${r[1]}</span><span${r[0] ? ' class="id"' : ''}>${r[2]}</span></span><span class="num">${rpm(r[3])}</span></div>`).join('')}<div class="rrow d0"><span>LABA (RUGI) BERSIH</span><span class="num bad">${rpm(-63927565)}</span></div></div>
+ <div class="dock"><span class="chip">${svg('filter')}Filters</span></div>`
+}
+function accSheet(i) {
+ const r = PLT[i]
+ const jv = [['JV-00001470', '13 Oct 2026', 'Sales C001 · Cikupa'], ['JV-00001466', '11 Oct 2026', 'Sales C002 · Tangerang'], ['JV-00001461', '08 Oct 2026', 'Sales C001 · Cikupa'], ['JV-00001455', '03 Oct 2026', 'Sales C004 · Bekasi']]
+ const part = [0.31, 0.27, 0.24, 0.18].map((f) => Math.round(r[3] * f))
+ return {
+  key: 'acc:' + i,
+  head: `<div class="crumb"><a data-close>Profit and Loss Statement</a> / ${r[1]}</div><h2>${r[2]}</h2><div class="cap">01 Oct 2026 – 14 Oct 2026 · all units</div>`,
+  body: `<div class="kpis"><div class="kpi"><span>Opening</span><b class="num">Rp 0</b></div><div class="kpi"><span>Movement</span><b class="num">${rpm(r[3])}</b></div><div class="kpi"><span>Closing</span><b class="num">${rpm(r[3])}</b></div></div>
+  <div class="frame"><table><thead><tr><th>Journal</th><th>Date</th><th>Description</th><th class="r">Amount</th><th style="width:1%"></th></tr></thead><tbody>${jv.map((j, k) => `<tr data-open="none"><td><span class="id code">${j[0]}</span></td><td>${j[1]}</td><td>${j[2]}</td><td class="r num">${rpm(part[k])}</td>${chev}</tr>`).join('')}</tbody></table></div>
+  <div class="cards">${jv.map((j, k) => `<div class="lf"><div class="lf-h"><div class="nm"><b class="id code">${j[0]}</b><span>${j[1]} · ${j[2]}</span></div><div class="fig"><span class="num" style="color:var(--ink)">${rpm(part[k])}</span></div></div></div>`).join('')}</div>`,
+  foot: `<button class="btn ghost">${svg('print')}Print</button><span class="sp"></span><button class="btn ghost" data-close>Close</button>`,
+ }
+}
+
+/* ── C · Dashboard: the hub's Executive Overview, as it is ── */
+function dashboard() {
+ const now = [0.9, 1.4, 1.1, 1.8, 1.6, 2.4, 2.2, 1.3, 1.2, 1.5, 1.9, 1.7, 2.6, 2.3]
+ const prev = [1.0, 1.2, 1.3, 1.5, 1.4, 2.0, 2.1, 1.2, 1.1, 1.4, 1.6, 1.5, 2.1, 2.0]
+ const pts = (a) => a.map((v, i) => `${i * (100 / 13)},${100 - v / 3 * 100}`).join(' ')
+ const stores = [['C001 · Cikupa', 'Rp 18,4 M', '+6,2%', '38%', 121], ['C002 · Tangerang', 'Rp 12,9 M', '+2,4%', '27%', 88], ['C004 · Bekasi', 'Rp 9,6 M', '−3,1%', '20%', 64], ['C003 · Serpong', 'Rp 7,3 M', '+1,0%', '15%', 39]]
+ return `<header class="head"><div><div class="crumb">Executive</div><h1>Overview</h1></div></header>
+ <p class="range-top">1–14 October 2026 <span>vs</span> 1–14 September 2026</p>
+ <div class="dbar"><span class="seg"><b class="on">This month</b><b>Last month</b><b>This quarter</b><b>This year</b></span><button class="btn ghost sm">${svg('store')}All stores</button><span class="range">1–14 October 2026 <span>vs</span> 1–14 September 2026</span></div>
+ <div class="kpis"><div class="kpi"><span>Net sales</span><b class="num">Rp 48,2 M</b><em>vs previous period +4,8%</em></div><div class="kpi"><span>Transactions</span><b class="num">312</b><em>vs previous period +2,1%</em></div><div class="kpi"><span>Gross profit</span><b class="num">Rp 19,8 M</b><em>vs previous period +4,1%</em></div><div class="kpi"><span>Cash &amp; bank</span><b class="num">Rp 1,2 B</b><em>Balance as of 14 Oct 2026</em></div></div>
+ <div class="dgrid">
+  <div class="card"><div class="card-h"><b>Net sales</b><span class="obj" data-go="report">Store performance →</span></div>
+   <div class="cw"><div class="cy">${['3 M', '2 M', '1 M', '0'].map((l, k) => `<span style="top:${k / 3 * 100}%">${l}</span>`).join('')}</div><svg viewBox="0 0 100 100" preserveAspectRatio="none">${[0, 1, 2, 3].map((k) => `<line x1="0" x2="100" y1="${k / 3 * 100}" y2="${k / 3 * 100}" stroke="#ececf0" vector-effect="non-scaling-stroke"/>`).join('')}<polyline points="${pts(prev)}" fill="none" stroke="#c7c7cc" stroke-width="1.6" stroke-dasharray="4 4" vector-effect="non-scaling-stroke"/><polyline points="${pts(now)}" fill="none" stroke="#2862dc" stroke-width="2" vector-effect="non-scaling-stroke"/></svg></div>
+   <div class="axis"><span>1 Oct</span><span>7 Oct</span><span>14 Oct</span></div>
+   <div class="cfoot"><span>Average sale <b>Rp 154,5 K</b> · Pcs sold <b>486</b></span><span class="legend"><span><i style="background:#2862dc"></i>This period</span><span><i style="background:#c7c7cc"></i>Previous period</span></span></div></div>
+  <div class="card"><div class="card-h"><b>Profit</b><span class="obj" data-go="report">Cash &amp; profit →</span></div>
+   <div class="prow"><span>Sales</span><span class="v"><span class="m">+4,8%</span><span class="num">Rp 48,2 M</span></span></div>
+   <div class="prow"><span>Gross profit</span><span class="v"><span class="m">+4,1%</span><span class="num">Rp 19,8 M</span></span></div>
+   <div class="prow"><span>Operating profit</span><span class="v"><span class="m">+1,2%</span><span class="num">Rp 6,3 M</span></span></div>
+   <div class="prow b"><span>Net profit</span><span class="v"><span class="m">+0,9%</span><span class="num">Rp 5,1 M</span></span></div>
+   <p class="pnote">Gross margin <b>41,1%</b> · Net margin <b>10,6%</b></p></div>
+  <div class="card full"><div class="card-h"><b>Stores</b><span class="obj" data-go="report">All store figures →</span></div>
+   <table class="plain"><thead><tr><th>Store</th><th class="r">Net Sales</th><th class="r">Change</th><th class="r">Share</th><th class="r">Transactions</th><th style="width:1%"></th></tr></thead><tbody>${stores.map((s) => `<tr data-open="none"><td><span class="id">${s[0]}</span></td><td class="r num">${s[1]}</td><td class="r num m">${s[2]}</td><td class="r num">${s[3]}</td><td class="r num">${s[4]}</td>${chev}</tr>`).join('')}</tbody></table>
+   <div class="cards">${stores.map((s) => `<div class="rrow"><span class="id">${s[0]}</span><span class="num">${s[1]}</span></div>`).join('')}</div></div>
+ </div>
+ <div class="dock"><span class="chip">This month${svg('down')}</span><span class="chip">${svg('store')}All stores${svg('down')}</span></div>`
+}
+
+/* ── D · Board, as today ── */
+function board() {
+ const card = (a, b, c, d, f, act) => `<div class="bcard" data-open="none"><div class="t"><b>${a}</b><span class="m">${d}</span></div><div class="m">${b}</div><div class="f"><span><b>${c}</b> pcs</span>${act || `<span class="m">${f || ''}</span>`}</div></div>`
+ const lf = (a, b, n, foot, act) => `<div class="lf" data-open="none"><div class="lf-h"><div class="nm"><b>${a}</b><span>${b}</span></div><div class="fig"><b class="num">${n}</b><span>pcs</span></div></div><div class="lf-f"><span>${foot}</span>${act || ''}</div></div>`
+ const desk = innerWidth > 600
+ const lane = (name, dot, n, tot, inner, sub) => `<section class="lane"><div class="lane-h"><span class="dot" style="background:${dot}"></span>${name}<i>${n}</i><span class="tot">${tot}${svg('down')}</span></div>${sub || ''}${inner}</section>`
+ const pick = '<button class="btn primary sm">Pick</button>'
+ return `<header class="head"><div><div class="crumb">Operations</div><h1>Allotment</h1></div></header>
+ <div class="bar"><label class="search">${svg('search')}<input placeholder="Search the board"></label><span class="select">All stores${svg('down')}</span></div>
+ <div class="lanes">
+  ${lane('Pick List', '#77777c', 3, '14 pcs', desk ? card('C001 · Cikupa', 'ALT-00000002', 2, '2 SKUs', '', pick) + card('C002 · Tangerang', 'ALT-00000003', 8, '3 SKUs', '', pick) + card('C004 · Bekasi', 'ALT-00000005', 4, '1 SKU', '', pick) : lf('C001 · Cikupa', 'ALT-00000002', 2, '2 SKUs · 12h ago', pick) + lf('C002 · Tangerang', 'ALT-00000003', 8, '3 SKUs · 3h ago', pick))}
+  ${desk ? '<div class="fold"><span class="dot" style="background:#c98a1e"></span><span>Picked</span>0</div>' : ''}
+  ${lane('Pack', '#77777c', 1, '2 pcs', desk ? card('C001 · Cikupa', 'A00004', 2, '', '') : lf('C001 · Cikupa', 'A00004', 2, '12h ago', '<input type="checkbox" style="width:20px;height:20px">'), '<div class="lane-sub"><span>1 carton</span><span>Select All</span></div>')}
+  ${lane('Dispatch', '#2f7de1', 1, '32 pcs', desk ? card('C001 · Cikupa', 'DSP-HO-GUDANG-000001', 32, '2 cartons', '<span class="dotx"></span>11h ago') : lf('C001 · Cikupa', 'DSP-HO-GUDANG-000001', 32, '2 cartons · 12h ago'))}
+  ${desk ? '<div class="fold"><span class="dot" style="background:#34a853"></span><span>Received</span>0</div>' : ''}
+ </div>
+ <div class="dock"><span class="chip">All stores${svg('down')}</span><label class="q">${svg('search')}<input placeholder="Search the board"></label></div>`
+}
+
+/* ── E · Form: the hub's settings page (People › Payslip), as it is — the facts
+   on the page, Edit opens the form as a sheet ── */
+const SLIP = [['Company name', '—'], ['Address', '—'], ['Closing note', '—'], ['Employees see what the company pays on top', 'Yes'], ['Employees open payslips with a password of their own', 'No']]
+function form() {
+ return `<header class="head"><div><div class="crumb">People</div><h1>Payslip</h1></div><div class="acts"><button class="btn primary" data-edit>Edit</button></div></header>
+ <section class="fcard"><h3>Template</h3>${SLIP.map(([a, b]) => `<div class="frow"><span>${a}</span><b>${b}</b></div>`).join('')}</section>
+ <div class="page-foot view-only"><button class="btn primary" data-edit>Edit</button></div>`
+}
+function editSheet() {
+ return {
+  size: 'narrow',
+  key: 'edit:payslip',
+  head: `<div class="crumb">Payslip</div><h2>Edit payslip</h2>`,
+  body: `<div class="fform">
+   <label>Company name<input class="inp"></label>
+   <label>Address<input class="inp"></label>
+   <label><span class="hint">Closing note<em>printed under the figures</em></span><textarea class="inp"></textarea></label>
+   <label class="cb"><input type="checkbox" checked>Show employees what the company pays on top (BPJS share, borne tax)</label>
+   <label class="cb"><input type="checkbox"><span>Employees open their payslips with a password of their own<em class="m"> · Separate from their login. Head office is never asked for it.</em></span></label>
+   <label><span>Why<span class="req">*</span></span><input class="inp" id="why"></label>
+  </div>`,
+  foot: `<span class="sp"></span><button class="btn danger" data-close>Cancel</button><button class="btn primary" id="submit" disabled data-close>Submit</button>`,
+ }
+}
+
+/* ── Screens: the map ── */
+const MAP = { rows: [], depts: [], dept: '', tpl: '', q: '' }
+const WHY = {
+ 'DataTable · cards on phone': 'A hand-made table → the shared one: sorting, sticky headings, and Lead Figure cards on a phone.',
+ 'fix the order': 'Slots out of order → head · KPI · tabs · bar · table.',
+ 'one body': 'Cards and a table on one page → one table.',
+ 'pickers into the bar': 'Selects above the table → in the bar, beside search.',
+ 'New … into the head': 'New sits in the body → top right of the head.',
+ 'one bar': 'Two toolbars → one.',
+ 'scope bar on top': 'Asks for a scope in the body → the scope bar under the head.',
+ 'record: right sheet': 'Opens as a centred dialog → a sheet from the right.',
+ 'split → list + sheet': 'A list left and the detail right → the list, and the detail as a sheet.',
+ 'record: Edit as ghost': 'Edit is blue → white; blue is the one main action.',
+ 'own head → page head': 'Its own header → the page head.',
+ 'record: no tabs': 'Tabs inside a record → one scroll of sections.',
+ 'record: KPI first': 'Figures below the table → above it.',
+ 'back inside the shell': 'Full screen, no menu → inside the shell; the lanes and cards stay as they are.',
+}
+const TPLS = [['List', 'list'], ['Report', 'report'], ['Dashboard', 'dashboard'], ['Board', 'board'], ['Form', 'form']]
+function mapPage() {
+ const rows = MAP.rows.filter((r) => (!MAP.tpl || r.template === MAP.tpl) && (!MAP.dept || r.dept === MAP.dept) && (!MAP.q || (r.title + r.path).toLowerCase().includes(MAP.q)))
+ const cnt = (t) => MAP.rows.filter((r) => (!MAP.dept || r.dept === MAP.dept) && (!t || r.template === t)).length
+ const all = MAP.rows.filter((r) => !MAP.dept || r.dept === MAP.dept)
+ const fit = all.filter((r) => !r.changes.length).length
+ return `<header class="head"><div><div class="crumb">Layout audit${MAP.dept ? ' · ' + MAP.dept : ''}</div><h1>Screens</h1></div><div class="acts"><a class="btn ghost" href="outputs/layout-audit/index.html" target="_blank">Full audit</a></div></header>
+ <div class="kpis"><div class="kpi"><span>Screens</span><b>${all.length}</b></div><div class="kpi"><span>Layouts today</span><b>${new Set(all.map((r) => r.now)).size}</b></div><div class="kpi"><span>Templates</span><b>5</b></div><div class="kpi"><span>Fit already</span><b>${fit}</b></div><div class="kpi"><span>To change</span><b>${all.length - fit}</b></div></div>
+ <nav class="tabs"><span class="tab${MAP.tpl ? '' : ' on'}" data-mt="">All<i>${cnt()}</i></span>${TPLS.map(([t]) => `<span class="tab${MAP.tpl === t ? ' on' : ''}" data-mt="${t}">${t}<i>${cnt(t)}</i></span>`).join('')}</nav>
+ <div class="bar"><label class="search">${svg('search')}<input id="mq" placeholder="Search screens" value="${MAP.q}"></label></div>
+ <div class="frame"><table><thead><tr><th></th><th>Screen</th><th>Template</th><th>Today</th><th>Changes</th><th></th></tr></thead><tbody>
+ ${rows.map((r) => `<tr data-open="screen" data-p="${r.path}"><td style="width:1%"><img class="shot" loading="lazy" src="outputs/layout-audit/${r.shot}" alt=""></td><td class="sc"><span class="id">${r.title}</span><span class="m">${r.path}</span></td><td>${r.template}</td><td class="now">${r.now}</td><td class="ch ${r.changes.length ? '' : 'ok'}">${r.changes.length ? r.changes.join(' · ') : (r.template === 'Board' ? 'Stays as it is' : 'Fits')}</td>${chev}</tr>`).join('')}
+ </tbody></table></div>
+ <div class="cards">${rows.map((r) => `<div class="lf" data-open="screen" data-p="${r.path}"><img class="lf-shot" loading="lazy" src="outputs/layout-audit/${r.shot}" alt=""><div class="lf-h"><div class="nm"><b class="id">${r.title}</b><span>${r.path}</span></div><div class="fig"><b class="num">${r.changes.length}</b><span>changes</span></div></div><div class="lf-f"><span>${r.changes.length ? r.changes.join(' · ') : (r.template === 'Board' ? 'Stays as it is' : 'Fits')}</span><span>${r.template}</span></div></div>`).join('')}</div>
+ <div class="dock"><span class="chip">${MAP.tpl || 'All'} ${rows.length}${svg('down')}</span><label class="q">${svg('search')}<input placeholder="Search"></label></div>`
+}
+function screenSheet(path) {
+ const r = MAP.rows.find((x) => x.path === path)
+ return {
+  key: 'screen:' + path,
+  head: `<div class="crumb"><a data-close>Screens</a> / ${r.path}</div><h2>${r.title}</h2><div class="cap">${r.template} · ${r.dept}</div>`,
+  body: `<div class="kpis"><div class="kpi"><span>Template</span><b>${r.template}</b></div><div class="kpi"><span>Today</span><b style="white-space:normal">${r.now}</b></div><div class="kpi"><span>Changes</span><b>${r.changes.length}</b></div></div>
+   ${r.changes.length ? `<div class="sh-sect"><h3>Changes</h3><ul class="chg">${r.changes.map((c) => `<li><b style="font-weight:500">${c}</b><span>${WHY[c] || ''}</span></li>`).join('')}</ul></div>` : ''}
+   <div class="sh-sect"><h3>Today</h3><img class="big" src="outputs/layout-audit/${r.shot}" alt="">${r.sheetShot ? `<img class="big" style="margin-top:12px" src="outputs/layout-audit/${r.sheetShot}" alt="">` : ''}</div>`,
+  foot: `<span class="sp"></span><a class="btn ghost" href="http://white.localhost:5352${r.path}" target="_blank">Open in the hub</a>`,
+ }
+}
+
+/* ── render ── */
+const PAGES = { list, report, dashboard, board, form, map: mapPage }
+function render(fade) {
+ const t = H.dataset.tpl
+ const draw = () => {
+  shell()
+  $('#page').innerHTML = PAGES[t]()
+  const head = $('.head'); H.style.setProperty('--head-h', head && innerWidth > 600 ? head.offsetHeight + 'px' : '0px')
+  $('#page').classList.remove('out')
+ }
+ if (fade && !matchMedia('(prefers-reduced-motion: reduce)').matches) { $('#page').classList.add('out'); setTimeout(draw, 100) } else draw()
+ picker()
+ save()
+}
+
+/* ── layers ── */
+const stack = []
+function open(s) {
+ if (!s) return
+ const at = stack.findIndex((e) => e.dataset.key === s.key)
+ if (at >= 0) { while (stack.length > at + 1) close(); return }
+ const el = document.createElement('section')
+ el.dataset.key = s.key
+ el.className = 'sheet' + (s.size === 'narrow' ? ' narrow' : '')
+ el.setAttribute('role', 'dialog')
+ el.style.setProperty('--inset', 12 + 12 * stack.length + 'px')
+ el.innerHTML = `<div class="sh-head"><div style="min-width:0">${s.head}</div><button class="x" data-close aria-label="Close">${svg('x')}</button></div><div class="sh-body">${s.body}</div><div class="sh-foot">${s.foot}</div>`
+ $('#sheets').append(el)
+ stack.forEach((u) => u.setAttribute('data-under', ''))
+ stack.push(el)
+ H.setAttribute('data-sheets', '')
+ el.getBoundingClientRect()
+ requestAnimationFrame(() => el.setAttribute('data-open', ''))
+}
+function close() {
+ const el = stack.pop()
+ if (!el) return
+ el.removeAttribute('data-open')
+ setTimeout(() => el.remove(), 220)
+ const top = stack[stack.length - 1]
+ if (top) top.removeAttribute('data-under')
+ else H.removeAttribute('data-sheets')
+}
+function closeAll() { while (stack.length) close() }
+
+/* ── clicks ── */
+document.addEventListener('click', (e) => {
+ const t = e.target
+ const go = t.closest('[data-go]')
+ if (go && go.dataset.go) { closeAll(); H.dataset.tpl = go.dataset.go; render(true); return }
+ if (t.closest('[data-close]') || t === $('#veil')) { close(); return }
+ const tg = t.closest('[data-toggle]'); if (tg) { tg.setAttribute('aria-pressed', String(tg.getAttribute('aria-pressed') !== 'true')); return }
+ if (t.closest('[data-review]')) { e.stopPropagation(); open(poSheet(+t.closest('[data-i]').dataset.i)); return }
+ const sup = t.closest('[data-sup]')
+ if (sup) { e.stopPropagation(); open(supSheet(sup.dataset.sup)); return }
+ if (t.closest('[data-edit]')) { open(editSheet()); return }
+ const mt = t.closest('[data-mt]'); if (mt) { MAP.tpl = mt.dataset.mt; render(); return }
+ const dp = t.closest('[data-dept]'); if (dp) { MAP.dept = dp.dataset.dept; render(); return }
+ const row = t.closest('[data-open]')
+ if (row) {
+  const k = row.dataset.open
+  if (k === 'po') open(poSheet(+row.dataset.i))
+  else if (k === 'item') open(itemSheet(row.dataset.n))
+  else if (k === 'acc') open(accSheet(+row.dataset.i))
+  else if (k === 'screen') open(screenSheet(row.dataset.p))
+ }
+})
+document.addEventListener('input', (e) => {
+ if (e.target.id === 'why') $('#submit').disabled = !e.target.value.trim()
+ if (e.target.id === 'mq') { MAP.q = e.target.value.toLowerCase(); const pos = e.target.selectionStart; render(); const q = $('#mq'); q.focus(); q.setSelectionRange(pos, pos) }
+})
+document.addEventListener('keydown', (e) => {
+ if (e.key === 'Escape' && stack.length) close()
+ if (e.target.matches('input')) return
+ const n = '123456'.indexOf(e.key); if (n >= 0) { closeAll(); H.dataset.tpl = ['list', 'report', 'dashboard', 'board', 'form', 'map'][n]; render(true) }
+})
+
+/* ── the switch ── */
+const CLICK = [['row', 'Row opens', 1], ['ink', 'Ink'], ['blue', 'All blue']]
+const GREYS = [['mist', '#f5f5f7', 'Mist (now)'], ['pearl', '#fafafc', 'Pearl'], ['silver', '#f0f0f3', 'Silver'], ['smoke', '#ebebef', 'Smoke'], ['flush', '#e9e9ed', 'Flush'], ['white', '#ffffff', 'White']]
+function picker() {
+ const t = H.dataset.tpl
+ $('#pick-tpl').innerHTML = '<span class="lbl">Template</span>' + [['list', 'A List'], ['report', 'B Report'], ['dashboard', 'C Dashboard'], ['board', 'D Board'], ['form', 'E Form'], ['map', `Screens<i>${MAP.rows.length || ''}</i>`]]
+  .map(([k, l]) => `<button data-t="${k}" aria-pressed="${k === t}">${l}</button>`).join('')
+ $('#pick-click').innerHTML = '<span class="lbl">What can be clicked</span>' + CLICK.map(([k, l, star]) => `<button data-c="${k}" aria-pressed="${H.dataset.click === k}">${l}${star ? ' <span class="star">★</span>' : ''}</button>`).join('')
+ const g = GREYS.find((x) => x[0] === H.dataset.panel)
+ $('#pick-panel').innerHTML = '<span class="lbl">Inner sidebar</span>' + GREYS.map(([k, c, n]) => `<button class="sw" data-g="${k}" title="${n}" aria-pressed="${H.dataset.panel === k}"><span style="background:${c}"></span></button>`).join('') + `<span class="name">${g[2]}</span>`
+}
+$('#pick').addEventListener('click', (e) => {
+ const b = e.target.closest('button'); if (!b) return
+ e.stopPropagation()
+ if (b.dataset.t) { closeAll(); H.dataset.tpl = b.dataset.t; render(true) }
+ if (b.dataset.c) { H.dataset.click = b.dataset.c; picker(); save() }
+ if (b.dataset.g) { H.dataset.panel = b.dataset.g; picker(); save() }
+ if (b.id === 'pick-phone') phone(true)
+ if (b.id === 'pick-min') { const m = $('#pick').toggleAttribute('data-min'); b.textContent = m ? 'Show the switch' : 'Hide'; $('#pick-phone').hidden = m }
+ syncPhone()
+})
+function phone(on) {
+ $('#phone').hidden = !on
+ if (on) $('#phone-frame').src = `layout-templates.html?frame=1&tpl=${H.dataset.tpl}&click=${H.dataset.click}&panel=${H.dataset.panel}`
+}
+function syncPhone() {
+ const w = $('#phone-frame').contentWindow
+ if ($('#phone').hidden || !w || !w.applyState) return
+ w.applyState(H.dataset.tpl, H.dataset.click, H.dataset.panel)
+}
+$('#phone-x').onclick = () => phone(false)
+window.applyState = (t, c, p) => { if (t !== H.dataset.tpl) { closeAll(); H.dataset.tpl = t; render(true) } H.dataset.click = c; H.dataset.panel = p }
+function save() { try { localStorage.setItem('layout-templates', JSON.stringify({ t: H.dataset.tpl, c: H.dataset.click, p: H.dataset.panel })) } catch (_) {} }
+
+/* ── start ── */
+const qs = new URLSearchParams(location.search)
+try { const s = JSON.parse(localStorage.getItem('layout-templates') || 'null'); if (s && !qs.has('tpl')) { H.dataset.tpl = s.t; H.dataset.click = s.c; H.dataset.panel = s.p } } catch (_) {}
+if (qs.has('frame')) H.setAttribute('data-frame', '')
+for (const [k, a] of [['tpl', 'tpl'], ['click', 'click'], ['panel', 'panel']]) if (qs.get(k)) H.dataset[a] = qs.get(k)
+fetch('outputs/layout-audit/mapping.json').then((r) => r.json()).then((rows) => {
+ MAP.rows = rows
+ rows.forEach((r) => { r.dept = r.dept.charAt(0).toUpperCase() + r.dept.slice(1) })
+ const by = {}; rows.forEach((r) => { by[r.dept] = (by[r.dept] || 0) + 1 })
+ MAP.depts = Object.entries(by).sort((a, b) => b[1] - a[1]).map(([d, n]) => [d, n])
+ render()
+}).catch(() => render())
+render()
+let rz; addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => render(), 150) })
+requestAnimationFrame(() => requestAnimationFrame(() => H.removeAttribute('data-initial')))
+</script>
+</body>
+</html>

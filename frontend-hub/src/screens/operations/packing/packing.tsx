@@ -1,13 +1,8 @@
-import {
-  useMutation,
-  useQueries,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { Printer } from "lucide-react"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { DockTools } from "@/components/shell/dock-tools"
@@ -18,17 +13,18 @@ import {
 import {
   PositionPill,
   QrBlock,
-  QtyInput,
   SkuLines,
 } from "@/components/operations/outbound-parts"
-import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
-import { Card, CardHeader, CardTitle } from "@/components/ui/card"
+import { ConfirmButton } from "@/components/ui/dialog"
+import { Card } from "@/components/ui/card"
 import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
+import { ExpandingSearch } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { SheetFooter } from "@/components/ui/sheet-footer"
+import { SubTabs } from "@/components/ui/sub-tabs"
 import {
   EmptyState,
   ErrorState,
@@ -42,19 +38,21 @@ import type { MoveBackTarget } from "@/screens/operations/board/owed"
 import { PackingCell } from "@/screens/operations/packing/packing-cell"
 import { prefetchKoliDetail } from "@/screens/operations/prefetch"
 import { usePackingShort } from "@/screens/operations/packing/packing-short"
+import { moveBack } from "@/lib/operations/changes"
 import { loadPrinter } from "@/lib/operations/printer"
+import { toast } from "@/lib/toast"
+import { idempotencyKey } from "@itulah/contract/client"
 import { keys } from "@/lib/operations/keys"
 import {
   koliManifestQuery,
   koliQuery,
   picklistsQuery,
 } from "@/lib/operations/queries"
-import { useCatalogue } from "@/lib/operations/catalogue"
-import { useEdgeActor, useEdgeNodeIdentity } from "@/lib/edge-session"
+import { useEdgeNodeIdentity } from "@/lib/edge-session"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
-import { idempotencyKey } from "@itulah/contract/client"
 import type { Koli, KoliManifest, PicklistSummary } from "@itulah/contract"
+import { PackSheet } from "@/screens/operations/packing/pack-sheet"
 
 /// **Packing: the cartons this floor has made, and the next one.**
 ///
@@ -82,14 +80,12 @@ export function Packing() {
   const node = useEdgeNodeIdentity()
   const client = useQueryClient()
 
-  const [justPacked, setJustPacked] = useState<{
-    readonly manifest: KoliManifest
-    readonly shopId: string | null
-  } | null>(null)
-  const [showList, setShowList] = useState(false)
   const [printKoliId, setPrintKoliId] = useState<string | null>(null)
   const [sorting, setSorting] = useState<SortingState>([])
   const [typed, setTyped] = useState("")
+  /// The two lists are two tabs: the shops waiting to be packed, and the
+  /// cartons already sealed.
+  const [tab, setTab] = useState<"pack" | "cartons">("pack")
 
   /// Every picklist this DC has raised — the same list Picking reads.
   const picklists = useQuery(picklistsQuery())
@@ -141,26 +137,6 @@ export function Packing() {
     [sealed]
   )
 
-  const printSticker = useMutation({
-    mutationFn: (koliId: string) => {
-      const printer = loadPrinter()
-      return dc.printKoliLabel(koliId, {
-        printer_host: printer.host,
-        printer_port: printer.port,
-        label_width_mm: printer.widthMm,
-        label_height_mm: printer.heightMm,
-      })
-    },
-  })
-
-  /// The next shop "Pack next shop" should land on: whichever is not the one
-  /// just sealed, or that same one again if it is genuinely the only one
-  /// left waiting.
-  const nextToPack = (excludingShopId: string | null) => {
-    const other = toPack.find((row) => row.shopId !== excludingShopId)
-    return other ?? toPack.find((row) => row.shopId === excludingShopId) ?? null
-  }
-
   const cartonColumns = useMemo(() => cartonColumnsFor(setPrintKoliId), [])
 
   // A phone's search, over the cartons: the dock that carries their sort.
@@ -199,7 +175,7 @@ export function Packing() {
       <PageHeader
         crumb="Operations"
         title="Packing"
-        sub="Open a shop, gather its picked picklists, enter quantities and seal. The packing list and sticker print on seal."
+        sub="Open a store, fill its koli by hand and pack each one. The sticker prints on pack."
       />
 
       <KpiStrip className="grid-cols-2 md:grid-cols-4 xl:grid-cols-4">
@@ -217,181 +193,142 @@ export function Packing() {
         />
       </KpiStrip>
 
-      {/* On a phone the cartons' sort is the dock's, not a bar over them. */}
-      <DockTools
-        search={{ value: typed, onChange: setTyped, label: "Search cartons" }}
-        sort={dockSortOf(cartons)}
+      <SubTabs
+        tabs={[
+          {
+            value: "pack",
+            label: (
+              <span>
+                To pack
+                <span className="ml-1.5 text-body tabular-nums">
+                  {count(toPack.length)}
+                </span>
+              </span>
+            ),
+          },
+          {
+            value: "cartons",
+            label: (
+              <span>
+                Koli
+                <span className="ml-1.5 text-body tabular-nums">
+                  {count(sealed.length)}
+                </span>
+              </span>
+            ),
+          },
+        ]}
+        value={tab}
+        onChange={(next) => setTab(next as "pack" | "cartons")}
       />
 
-      <Card className="mb-5 overflow-clip">
-        <CardHeader>
-          <CardTitle>To pack</CardTitle>
-        </CardHeader>
-        {picklists.isPending ? (
-          <LoadingState>Reading the picklists…</LoadingState>
-        ) : picklists.isError ? (
-          <ErrorState
-            error={picklists.error}
-            onRetry={() => picklists.refetch()}
-          />
-        ) : toPack.length === 0 ? (
-          <EmptyState>
-            Nothing is waiting to be packed. Every accepted picklist is already
-            in a carton.
-          </EmptyState>
-        ) : (
-          <ul className="flex flex-col border-t border-hairline">
-            {toPack.map((row) => (
-              <li
-                key={row.shopId}
-                className="flex min-h-row items-center justify-between gap-3 border-b border-hairline px-3.5 py-2.5 last:border-b-0"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-[0.9375rem] font-medium text-ink">
-                    {shopName(row.shopId)}
-                  </div>
-                  <div className="truncate text-[0.875rem] text-mute">
-                    {count(row.rounds.length)}{" "}
-                    {row.rounds.length === 1 ? "picklist" : "picklists"} ·{" "}
-                    {quantity(row.pieces)} to pack
-                  </div>
-                </div>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={() => packSheet.open(row.shopId)}
+      {tab === "pack" ? (
+        <Card className="overflow-clip">
+          {picklists.isPending ? (
+            <LoadingState>Reading the picklists…</LoadingState>
+          ) : picklists.isError ? (
+            <ErrorState
+              error={picklists.error}
+              onRetry={() => picklists.refetch()}
+            />
+          ) : toPack.length === 0 ? (
+            <EmptyState>
+              Nothing is waiting to be packed. Every accepted picklist is
+              already in a koli.
+            </EmptyState>
+          ) : (
+            <ul className="flex flex-col">
+              {toPack.map((row) => (
+                <li
+                  key={row.shopId}
+                  className="flex min-h-row items-center justify-between gap-3 border-b border-hairline px-3.5 py-2.5 last:border-b-0"
                 >
-                  Pack
-                </Button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
-
-      <Card className="overflow-clip">
-        <CardHeader>
-          <CardTitle>Cartons</CardTitle>
-        </CardHeader>
-
-        {cartonsLoading ? (
-          <LoadingState>Reading the cartons…</LoadingState>
-        ) : cartonsError ? (
-          <ErrorState
-            error={cartonsError.error}
-            onRetry={() => cartonsError.refetch()}
-          />
-        ) : sealed.length === 0 ? (
-          <EmptyState>
-            No cartons yet. A pack is made from a shop's own picklists.
-          </EmptyState>
-        ) : (
-          <DataTable<Koli>
-            refresh={[picklists, koli]}
-            table={cartons}
-            onRowClick={(row) => opened.open(row.koli_id)}
-            onRowIntent={(row) => void prefetchKoliDetail(client, row.koli_id)}
-            isSelected={(row) => row.koli_id === opened.value}
-            summary={{
-              carton: (
-                <span>
-                  {count(sealed.length)}{" "}
-                  <span className="font-normal text-body">
-                    {sealed.length === 1 ? "carton" : "cartons"}
-                  </span>
-                </span>
-              ),
-              pieces: count(
-                sealed.reduce((total, row) => total + row.unit_count, 0)
-              ),
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[0.9375rem] font-medium text-ink">
+                      {shopName(row.shopId)}
+                    </div>
+                    <div className="truncate text-[0.9375rem] text-mute">
+                      {count(row.rounds.length)}{" "}
+                      {row.rounds.length === 1 ? "picklist" : "picklists"} ·{" "}
+                      {quantity(row.pieces)} to pack
+                    </div>
+                  </div>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={() => packSheet.open(row.shopId)}
+                  >
+                    Pack
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      ) : (
+        <>
+          {/* The search under the tabs; on a phone it and the cartons' sort
+              are the dock's, not a bar over them. */}
+          <div className="group/bar mb-3.5 flex min-h-[2.25rem] flex-wrap items-center gap-2 max-md:hidden">
+            <ExpandingSearch
+              value={typed}
+              onChange={setTyped}
+              label="Search koli"
+            />
+          </div>
+          <DockTools
+            search={{
+              value: typed,
+              onChange: setTyped,
+              label: "Search koli",
             }}
-            pageScroll
-            cardSort={false}
+            sort={dockSortOf(cartons)}
           />
-        )}
-      </Card>
+
+          <Card className="overflow-clip">
+            {cartonsLoading ? (
+              <LoadingState>Reading the koli…</LoadingState>
+            ) : cartonsError ? (
+              <ErrorState
+                error={cartonsError.error}
+                onRetry={() => cartonsError.refetch()}
+              />
+            ) : sealed.length === 0 ? (
+              <EmptyState>
+                No koli yet. A pack is made from a shop's own picklists.
+              </EmptyState>
+            ) : (
+              <DataTable<Koli>
+                refresh={[picklists, koli]}
+                table={cartons}
+                onRowClick={(row) => opened.open(row.koli_id)}
+                onRowIntent={(row) =>
+                  void prefetchKoliDetail(client, row.koli_id)
+                }
+                isSelected={(row) => row.koli_id === opened.value}
+                summary={{
+                  carton: (
+                    <span>
+                      {count(sealed.length)}{" "}
+                      <span className="font-normal text-body">koli</span>
+                    </span>
+                  ),
+                  pieces: count(
+                    sealed.reduce((total, row) => total + row.unit_count, 0)
+                  ),
+                }}
+                pageScroll
+                cardSort={false}
+              />
+            )}
+          </Card>
+        </>
+      )}
 
       <PackSheet
         shopId={packSheet.value ?? null}
         onClose={() => packSheet.close()}
-        onPacked={(manifest) => {
-          const shopId = packSheet.value ?? null
-          packSheet.close()
-          // The packing list is printed on purpose — Print on the carton, or
-          // Packing list below — not thrown up after every seal (owner,
-          // 10 Oct 2026).
-          setJustPacked({ manifest, shopId })
-          if (manifest.koli.koli_id)
-            void printSticker.mutate(manifest.koli.koli_id)
-          // The carton exists — its list, its ready row and its manifest —
-          // the rounds it drew from have less waiting, and the pieces moved
-          // out of pickable stock.
-          void client.invalidateQueries({ queryKey: ["dc", "koli"] })
-          void client.invalidateQueries({ queryKey: keys.picklists() })
-          void client.invalidateQueries({ queryKey: ["dc", "pick-session"] })
-          void client.invalidateQueries({ queryKey: keys.pools() })
-        }}
       />
-
-      <Sheet
-        open={justPacked !== null}
-        onOpenChange={(next) => {
-          if (!next) setJustPacked(null)
-        }}
-        title="Packed"
-        // Print lives at the top, in the head's ⋯, on every width (owner,
-        // 10 Oct 2026) — the foot is for what comes next.
-        more={[
-          {
-            label: "Print packing list",
-            icon: <Printer />,
-            onSelect: () => setShowList(true),
-          },
-        ]}
-        footer={
-          justPacked && (
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="flex-1" />
-              {(() => {
-                const next = nextToPack(justPacked.shopId)
-                return next ? (
-                  <Button
-                    variant="primary"
-                    onClick={() => {
-                      setJustPacked(null)
-                      packSheet.replace(next.shopId)
-                    }}
-                  >
-                    Pack next shop · {shopName(next.shopId)}
-                  </Button>
-                ) : (
-                  <AppLink
-                    to="/operations/despatch"
-                    variant="primary"
-                    onClick={() => setJustPacked(null)}
-                  >
-                    Go to Dispatch
-                  </AppLink>
-                )
-              })()}
-            </div>
-          )
-        }
-      >
-        {justPacked && (
-          <div className="flex flex-col gap-4">
-            <Facts>
-              <Fact term="Shop">
-                {shopName(justPacked.manifest.koli.destination_store_id)}
-              </Fact>
-              <Fact term="Carton">{justPacked.manifest.koli.koli_number}</Fact>
-              <Fact term="Pcs">
-                {count(justPacked.manifest.koli.unit_count)}
-              </Fact>
-            </Facts>
-          </div>
-        )}
-      </Sheet>
 
       <Carton
         id={opened.value ?? null}
@@ -400,18 +337,9 @@ export function Packing() {
       />
 
       <PackingListPrint
-        koliIds={
-          printKoliId !== null
-            ? [printKoliId]
-            : justPacked && showList
-              ? [justPacked.manifest.koli.koli_id]
-              : []
-        }
-        open={printKoliId !== null || (showList && justPacked !== null)}
-        onClose={() => {
-          setPrintKoliId(null)
-          setShowList(false)
-        }}
+        koliIds={printKoliId !== null ? [printKoliId] : []}
+        open={printKoliId !== null}
+        onClose={() => setPrintKoliId(null)}
         siteId={node.data?.site_id ?? null}
       />
     </PageContent>
@@ -423,129 +351,14 @@ export function Packing() {
 export function PackSheets() {
   const packSheet = useSheet("pack")
   const opened = useSheet("koli")
-  const shopName = useShopName()
   const node = useEdgeNodeIdentity()
-  const client = useQueryClient()
-  const [justPacked, setJustPacked] = useState<{
-    readonly manifest: KoliManifest
-    readonly shopId: string | null
-  } | null>(null)
-  const [showList, setShowList] = useState(false)
   const [printKoliId, setPrintKoliId] = useState<string | null>(null)
-  const picklists = useQuery({
-    queryKey: keys.picklists(),
-    queryFn: ({ signal }) => dc.picklists(signal),
-  })
-  const printSticker = useMutation({
-    mutationFn: (koliId: string) => {
-      const printer = loadPrinter()
-      return dc.printKoliLabel(koliId, {
-        printer_host: printer.host,
-        printer_port: printer.port,
-        label_width_mm: printer.widthMm,
-        label_height_mm: printer.heightMm,
-      })
-    },
-  })
-  const nextToPack = (excludingShopId: string | null) => {
-    const waiting = new Map<string, number>()
-    for (const round of picklists.data ?? []) {
-      if (round.waiting <= 0 || round.destination_id === null) continue
-      waiting.set(
-        round.destination_id,
-        (waiting.get(round.destination_id) ?? 0) + round.waiting
-      )
-    }
-    const shops = [...waiting.entries()]
-      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-      .map(([shopId]) => ({ shopId }))
-    const other = shops.find((row) => row.shopId !== excludingShopId)
-    return other ?? shops.find((row) => row.shopId === excludingShopId) ?? null
-  }
-
   return (
     <>
       <PackSheet
         shopId={packSheet.value ?? null}
         onClose={() => packSheet.close()}
-        onPacked={(manifest) => {
-          const shopId = packSheet.value ?? null
-          packSheet.close()
-          // The packing list is printed on purpose — Print on the carton, or
-          // Packing list below — not thrown up after every seal (owner,
-          // 10 Oct 2026).
-          setJustPacked({ manifest, shopId })
-          if (manifest.koli.koli_id)
-            void printSticker.mutate(manifest.koli.koli_id)
-          // The carton exists — its list, its ready row and its manifest —
-          // the rounds it drew from have less waiting, and the pieces moved
-          // out of pickable stock.
-          void client.invalidateQueries({ queryKey: ["dc", "koli"] })
-          void client.invalidateQueries({ queryKey: keys.picklists() })
-          void client.invalidateQueries({ queryKey: ["dc", "pick-session"] })
-          void client.invalidateQueries({ queryKey: keys.pools() })
-        }}
       />
-
-      <Sheet
-        open={justPacked !== null}
-        onOpenChange={(next) => {
-          if (!next) setJustPacked(null)
-        }}
-        title="Packed"
-        // Print lives at the top, in the head's ⋯, on every width (owner,
-        // 10 Oct 2026) — the foot is for what comes next.
-        more={[
-          {
-            label: "Print packing list",
-            icon: <Printer />,
-            onSelect: () => setShowList(true),
-          },
-        ]}
-        footer={
-          justPacked && (
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="flex-1" />
-              {(() => {
-                const next = nextToPack(justPacked.shopId)
-                return next ? (
-                  <Button
-                    variant="primary"
-                    onClick={() => {
-                      setJustPacked(null)
-                      packSheet.replace(next.shopId)
-                    }}
-                  >
-                    Pack next shop · {shopName(next.shopId)}
-                  </Button>
-                ) : (
-                  <AppLink
-                    to="/operations/despatch"
-                    variant="primary"
-                    onClick={() => setJustPacked(null)}
-                  >
-                    Go to Dispatch
-                  </AppLink>
-                )
-              })()}
-            </div>
-          )
-        }
-      >
-        {justPacked && (
-          <div className="flex flex-col gap-4">
-            <Facts>
-              <Fact term="Shop">
-                {shopName(justPacked.manifest.koli.destination_store_id)}
-              </Fact>
-              <Fact term="Carton">{justPacked.manifest.koli.koli_number}</Fact>
-              <Fact term="Pcs">
-                {count(justPacked.manifest.koli.unit_count)}
-              </Fact>
-            </Facts>
-          </div>
-        )}
-      </Sheet>
 
       <Carton
         id={opened.value ?? null}
@@ -554,18 +367,9 @@ export function PackSheets() {
       />
 
       <PackingListPrint
-        koliIds={
-          printKoliId !== null
-            ? [printKoliId]
-            : justPacked && showList
-              ? [justPacked.manifest.koli.koli_id]
-              : []
-        }
-        open={printKoliId !== null || (showList && justPacked !== null)}
-        onClose={() => {
-          setPrintKoliId(null)
-          setShowList(false)
-        }}
+        koliIds={printKoliId !== null ? [printKoliId] : []}
+        open={printKoliId !== null}
+        onClose={() => setPrintKoliId(null)}
         siteId={node.data?.site_id ?? null}
       />
     </>
@@ -598,11 +402,11 @@ function cartonColumnsFor(
     {
       id: "carton",
       accessorKey: "koli_number",
-      header: "Carton",
+      header: "Koli",
       size: 210,
       meta: { card: "id", mono: true },
       cell: ({ row }) => (
-        <span className="font-mono text-[0.875rem] text-ink">
+        <span className="font-mono text-[0.9375rem] text-ink">
           {row.original.koli_number}
         </span>
       ),
@@ -654,287 +458,6 @@ function cartonColumnsFor(
   ]
 }
 
-/// Pack one shop's carton: gather the picklists it has waiting — ticked by
-/// default, any of them can be left off this carton — and enter how much of
-/// each article goes in. Starts empty rather than prefilled, so a carton
-/// says what somebody put in it, not what the sheet assumed. Single column
-/// throughout: this sheet is used on a phone at the bench.
-function PackSheet({
-  shopId,
-  onClose,
-  onPacked,
-}: {
-  shopId: string | null
-  onClose: () => void
-  onPacked: (manifest: KoliManifest) => void
-}) {
-  const actor = useEdgeActor()
-  const shopName = useShopName()
-  const { identities: catalogue } = useCatalogue()
-  const [ticked, setTicked] = useState<ReadonlySet<string>>(new Set())
-  const [drawn, setDrawn] = useState<Readonly<Record<string, number>>>({})
-
-  const picklists = useQuery({
-    queryKey: keys.picklists(),
-    queryFn: ({ signal }) => dc.picklists(signal),
-    enabled: shopId !== null,
-  })
-
-  const shopRounds = useMemo(
-    () =>
-      (picklists.data ?? []).filter(
-        (round) => round.destination_id === shopId && round.waiting > 0
-      ),
-    [picklists.data, shopId]
-  )
-
-  // Every ticked-or-not picklist's own lines, read together — a shop's carton
-  // draws from more than one allotment, and each is fetched once regardless
-  // of whether it is ticked, so toggling a tick needs no new request.
-  const sessionQueries = useQueries({
-    queries: shopRounds.map((round) => ({
-      queryKey: keys.pickRound(round.session.session_id),
-      queryFn: ({ signal }: { signal: AbortSignal }) =>
-        dc.pickSession(round.session.session_id, signal),
-      enabled: shopId !== null,
-    })),
-  })
-  const sessionsLoaded = sessionQueries.every((one) => one.data !== undefined)
-
-  // Every picklist starts ticked when the sheet opens on a (new) shop — reset
-  // once the shop's own picklists have arrived, not on every background
-  // refetch, which would re-tick a picklist somebody had deliberately left
-  // off.
-  const openedFor = useRef<string | null>(null)
-  useEffect(() => {
-    if (shopId === null) {
-      openedFor.current = null
-      return
-    }
-    if (openedFor.current === shopId || picklists.data === undefined) return
-    openedFor.current = shopId
-    setTicked(new Set(shopRounds.map((round) => round.session.session_id)))
-    setDrawn({})
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shopId, picklists.data])
-
-  /// Every ticked picklist's lines, summed by SKU — what this carton can
-  /// still draw on. Recomputed plainly on every render rather than memoised:
-  /// the lists involved are one carton's worth of SKUs, and a memo keyed on
-  /// `sessionQueries` (a fresh array every render) would either recompute
-  /// just as often or go stale the moment a ticked session's own data
-  /// changes underneath it.
-  const toPackBySku = new Map<string, number>()
-  shopRounds.forEach((round, index) => {
-    if (!ticked.has(round.session.session_id)) return
-    const data = sessionQueries[index]?.data
-    if (!data) return
-    for (const line of data.lines) {
-      if (line.waiting <= 0) continue
-      toPackBySku.set(
-        line.sku_code,
-        (toPackBySku.get(line.sku_code) ?? 0) + line.waiting
-      )
-    }
-  })
-  const lines = [...toPackBySku.entries()].map(([sku_code, waiting]) => ({
-    sku_code,
-    waiting,
-  }))
-
-  // A tick removed while its SKU had a Pack quantity drawn must not leave a
-  // number on screen bigger than what this carton can now actually take —
-  // clamped for display here, and clamped again below when the mutation
-  // builds its own lines, so a stale value can never reach the server either.
-  const clamp = (sku: string, value: number): number =>
-    Math.min(value, toPackBySku.get(sku) ?? 0)
-
-  const pieces = Object.entries(drawn).reduce(
-    (total, [sku, qty]) => total + clamp(sku, qty),
-    0
-  )
-  const lineCount = Object.entries(drawn).filter(
-    ([sku, qty]) => clamp(sku, qty) > 0
-  ).length
-  const tickedCount = shopRounds.filter((round) =>
-    ticked.has(round.session.session_id)
-  ).length
-
-  const pack = useMutation({
-    mutationFn: () => {
-      if (shopId === null) throw new Error("No shop chosen.")
-      const pickSessionIds = shopRounds
-        .filter((round) => ticked.has(round.session.session_id))
-        .map((round) => round.session.session_id)
-      return dc.pack({
-        destination_store_id: shopId,
-        lines: Object.entries(drawn)
-          .map(([sku_code, qty]) => ({
-            sku_code,
-            quantity: clamp(sku_code, qty),
-          }))
-          .filter((line) => line.quantity > 0),
-        actor_id: actor,
-        // One carton, one seal. Applied twice the second attempt would pack
-        // and seal a second carton from the same picklists.
-        idempotency_key: idempotencyKey(),
-        seal: true,
-        pick_session_ids: pickSessionIds,
-      })
-    },
-    onSuccess: (manifest) => onPacked(manifest),
-  })
-
-  // A refusal from the last shop must not still be sitting under this one —
-  // the sheet stays mounted between openings.
-  useEffect(() => {
-    if (shopId !== null) pack.reset()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shopId])
-
-  return (
-    <Sheet
-      open={shopId !== null}
-      onOpenChange={(next) => {
-        if (!next) onClose()
-      }}
-      width="workspace"
-      title="Pack"
-      caption={shopId ? shopName(shopId) : undefined}
-      footer={
-        shopId === null ? undefined : (
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="mr-auto text-[0.875rem] text-mute">
-              {lineCount > 0
-                ? `${quantity(lineCount, "items")} · ${quantity(pieces)}`
-                : "Enter what went in the carton"}
-            </span>
-            <Button
-              variant="primary"
-              disabled={lineCount === 0 || tickedCount === 0}
-              pending={pack.isPending}
-              onClick={() => pack.mutate()}
-            >
-              Pack and seal
-            </Button>
-          </div>
-        )
-      }
-    >
-      {shopId === null ? null : picklists.isPending ? (
-        <LoadingState>Reading the picklists…</LoadingState>
-      ) : picklists.isError ? (
-        <ErrorState
-          error={picklists.error}
-          onRetry={() => picklists.refetch()}
-        />
-      ) : (
-        <div className="flex flex-col gap-5">
-          {shopRounds.length === 0 ? (
-            <EmptyState>
-              Nothing is waiting to be packed for this shop.
-            </EmptyState>
-          ) : (
-            <>
-              <div>
-                <h4 className="mb-1.5 text-[0.9375rem] font-semibold text-ink">
-                  Lines
-                </h4>
-                {!sessionsLoaded ? (
-                  <LoadingState>Reading the ticked picklists…</LoadingState>
-                ) : lines.length === 0 ? (
-                  <EmptyState>Nothing to draw here.</EmptyState>
-                ) : (
-                  <div className="overflow-hidden rounded-inner border border-hairline">
-                    <table className="w-full border-collapse">
-                      <thead>
-                        <tr className="border-b border-hairline text-left text-[0.875rem] text-body">
-                          <th className="h-9 px-3 font-normal">Article</th>
-                          <th className="h-9 w-20 px-3 text-right font-normal">
-                            Stock
-                          </th>
-                          <th className="h-9 w-24 px-3 text-center font-normal">
-                            Pack
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {lines.map((line) => {
-                          const identity = catalogue.get(line.sku_code)
-                          const name =
-                            [
-                              identity?.article_name,
-                              identity?.colour,
-                              identity?.size,
-                            ]
-                              .filter(Boolean)
-                              .join(" · ") || line.sku_code
-                          return (
-                            <tr
-                              key={line.sku_code}
-                              className="border-b border-hairline last:border-b-0"
-                            >
-                              <td className="px-3 py-2">
-                                <div className="min-w-0">
-                                  <div className="truncate text-[0.875rem] text-ink">
-                                    {name}
-                                  </div>
-                                  <div className="mt-0.5 truncate font-mono text-[0.875rem] text-faint">
-                                    {line.sku_code}
-                                  </div>
-                                </div>
-                              </td>
-                              <td className="px-3 py-2 text-right text-[0.875rem] text-body tabular-nums">
-                                {count(line.waiting)}
-                              </td>
-                              <td className="px-3 py-2">
-                                <QtyInput
-                                  value={clamp(
-                                    line.sku_code,
-                                    drawn[line.sku_code] ?? 0
-                                  )}
-                                  max={line.waiting}
-                                  label={`Pack ${line.sku_code}`}
-                                  padTitle={name}
-                                  onChange={(qty) =>
-                                    setDrawn((current) => {
-                                      if (qty <= 0) {
-                                        if (
-                                          current[line.sku_code] === undefined
-                                        )
-                                          return current
-                                        const rest = { ...current }
-                                        delete rest[line.sku_code]
-                                        return rest
-                                      }
-                                      if (current[line.sku_code] === qty)
-                                        return current
-                                      return {
-                                        ...current,
-                                        [line.sku_code]: qty,
-                                      }
-                                    })
-                                  }
-                                />
-                              </td>
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            </>
-          )}
-
-          <Problem error={pack.error} />
-        </div>
-      )}
-    </Sheet>
-  )
-}
-
 /// One carton, read back: where it has got to, and what is in it. Unchanged
 /// in spirit from before the RFID rewrite — a sealed carton is still read the
 /// same way once it exists, whatever put the goods inside it.
@@ -958,12 +481,32 @@ function Carton({
   /// Take pieces out of this carton (or all of them): Move back, asked first.
   /// Only a carton that has not left on a trip; the server refuses the rest.
   const [moving, setMoving] = useState<MoveBackTarget | null>(null)
+  const client = useQueryClient()
+  /// Unpack: the whole koli goes back to picked, the move-back the dialog
+  /// makes with every line at its full quantity.
+  const unpack = async (one: KoliManifest) => {
+    const by = new Map<string, number>()
+    for (const line of one.lines)
+      by.set(line.sku_code, (by.get(line.sku_code) ?? 0) + line.quantity)
+    const result = await moveBack({
+      idempotency_key: idempotencyKey(),
+      destination_id: one.koli.destination_store_id,
+      from: "packed",
+      to: "picked",
+      koli_id: one.koli.koli_id,
+      lines: [...by].map(([sku_code, quantity]) => ({ sku_code, quantity })),
+    })
+    void client.invalidateQueries({ queryKey: keys.dc.all })
+    void client.invalidateQueries({ queryKey: keys.pools() })
+    toast.success(`${one.koli.koli_number} unpacked · back to picked`)
+    if (result.kolis.some((k) => k.emptied)) onClose()
+  }
 
   return (
     <Sheet
       open={id !== null}
       onOpenChange={onClose}
-      title="Carton"
+      title="Koli"
       id={data?.koli.koli_number}
       actions={
         data && (
@@ -985,18 +528,30 @@ function Carton({
           <>
             <SheetFooter
               start={
-                <Button
-                  variant="ghost"
-                  onClick={() =>
-                    setMoving({
-                      from: "packed",
-                      destinationId: data.koli.destination_store_id,
-                      koliId: data.koli.koli_id,
-                    })
-                  }
-                >
-                  Move back
-                </Button>
+                <>
+                  <Button
+                    variant="ghost"
+                    onClick={() =>
+                      setMoving({
+                        from: "packed",
+                        destinationId: data.koli.destination_store_id,
+                        koliId: data.koli.koli_id,
+                      })
+                    }
+                  >
+                    Put back
+                  </Button>
+                  <ConfirmButton
+                    label="Unpack"
+                    title="Unpack this koli?"
+                    description="All of it goes back to picked and the label is void. Pack it again from the Pack sheet."
+                    confirmLabel="Unpack"
+                    cancelLabel="Keep"
+                    variant="danger"
+                    tone="danger"
+                    onConfirm={() => unpack(data)}
+                  />
+                </>
               }
             />
             {/* Inside the sheet's own tree, so it opens over the carton. */}
@@ -1013,7 +568,7 @@ function Carton({
       }
     >
       {id === null ? null : manifest.isPending ? (
-        <LoadingState>Reading the carton…</LoadingState>
+        <LoadingState>Reading the koli…</LoadingState>
       ) : manifest.isError ? (
         <ErrorState error={manifest.error} onRetry={() => manifest.refetch()} />
       ) : data ? (
@@ -1052,7 +607,11 @@ function PrintSticker({ manifest }: { manifest: KoliManifest }) {
         pending={print.isPending}
       >
         <Printer />
-        {print.isPending ? "Sending…" : "Print sticker"}
+        {print.isPending
+          ? "Printing…"
+          : manifest.koli.sealed_at === null
+            ? "Print label"
+            : "Reprint label"}
       </Button>
       <Problem error={print.error} />
     </div>
@@ -1084,7 +643,7 @@ function Manifest({ manifest }: { manifest: KoliManifest }) {
       </Facts>
 
       <QrBlock svg={manifest.qr_svg} payload={manifest.qr_payload}>
-        On the carton&apos;s sticker. The shop scans it to receive this carton.
+        On the koli&apos;s sticker. The shop scans it to receive this koli.
       </QrBlock>
 
       <SkuLines quantityLabel="Pcs" lines={manifest.lines} />

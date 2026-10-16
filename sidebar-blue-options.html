@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sidebar blue options</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --ink: #1d1d1f; --mute: #6e6e73; --faint: #c7c7cc;
+  --canvas: #ffffff; --soft-2: #f2f2f5; --rail-2: #f5f5f7;
+  --hairline: #e8e8ec; --hairline-2: #dcdce1;
+  --accent: #2862dc; --accent-bg: #eef3fc;
+  --cta: #2862dc; --cta-hover: #2055c7;
+  --old-blue: #2563eb;
+  --ok: #248a3d;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: #f2f2f4; font: 15px/1.4 Inter, -apple-system, system-ui, sans-serif; color: var(--ink); -webkit-font-smoothing: antialiased; }
+
+.switch { position: sticky; top: 0; z-index: 2; display: flex; justify-content: center; padding: 14px 16px; background: #f2f2f4; }
+.seg { display: inline-flex; gap: 2px; padding: 3px; border-radius: 10px; background: #e4e4e9; }
+.seg button { border: 0; background: transparent; font: inherit; font-weight: 500; color: var(--mute); padding: 7px 14px; border-radius: 8px; cursor: pointer; transition: background .15s, color .15s; }
+.seg button[aria-pressed="true"] { background: #fff; color: var(--ink); box-shadow: 0 1px 2px rgb(0 0 0 / 8%); }
+.seg button:active { transform: scale(.97); }
+
+.app { display: grid; grid-template-columns: 240px 1fr; gap: 10px; max-width: 1100px; margin: 0 auto; padding: 0 16px 24px; }
+.panel, .page { background: #fff; border-radius: 14px; box-shadow: 0 0 0 1px rgb(0 0 0 / 5%), 0 2px 6px rgb(0 0 0 / 4%); }
+.panel { padding: 16px 10px; display: flex; flex-direction: column; gap: 1px; }
+.panel h2 { margin: 0 0 12px 10px; font-size: 22px; font-weight: 700; letter-spacing: -.02em; }
+.row { display: flex; align-items: center; height: 36px; padding: 0 10px; border-radius: 8px; color: var(--ink); text-decoration: none; cursor: pointer; transition: background .15s, color .15s; }
+.row:hover { background: var(--rail-2); }
+.row .n { margin-left: auto; font-size: 15px; color: #a66c1f; font-weight: 600; }
+.chip { align-self: flex-start; margin: 22px 0 4px 6px; height: 22px; line-height: 22px; padding: 0 8px; border-radius: 6px; background: var(--soft-2); color: var(--mute); font-size: 12px; font-weight: 600; }
+
+/* the three ways the row you are on is drawn */
+[data-v="now"] .row.on { background: var(--old-blue); color: #fff; font-weight: 550; }
+[data-v="now"] .row.on .n { color: #fff; }
+[data-v="a"] .row.on { background: var(--accent); color: #fff; font-weight: 550; }
+[data-v="a"] .row.on .n { color: #fff; }
+[data-v="b"] .row.on { background: var(--accent-bg); color: var(--accent); font-weight: 600; }
+[data-v="b2"] .row.on { background: #dbe6fb; color: #1f4fb8; font-weight: 600; }
+[data-v="b3"] .row.on { background: #c6d8f8; color: #1a45a3; font-weight: 600; }
+
+.page { padding: 24px 28px; min-width: 0; }
+.head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 18px; border-bottom: 1px solid var(--hairline); }
+.head h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -.02em; }
+.btn { border: 0; height: 36px; padding: 0 14px; border-radius: 8px; background: var(--cta); color: #fff; font: inherit; font-weight: 600; box-shadow: 0 1px 2px rgb(20 50 100 / 10%); cursor: pointer; transition: background .15s, transform .1s; }
+.btn:hover { background: var(--cta-hover); }
+.btn:active { transform: scale(.97); }
+table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+th { text-align: left; font-weight: 500; color: var(--mute); padding: 10px 12px; border-bottom: 1px solid var(--hairline); }
+td { padding: 14px 12px; border-bottom: 1px solid #eeeef1; }
+td small { display: block; color: var(--mute); font-size: 15px; }
+.r { text-align: right; }
+.ok { color: var(--ok); }
+
+.note { max-width: 1100px; margin: 0 auto; padding: 0 16px 32px; display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+.note div { background: #fff; border-radius: 12px; padding: 14px 16px; box-shadow: 0 0 0 1px rgb(0 0 0 / 5%); color: var(--mute); }
+.note b { display: block; color: var(--ink); margin-bottom: 4px; }
+.note div.on { box-shadow: 0 0 0 2px var(--accent); }
+.sw { display: inline-block; width: 14px; height: 14px; border-radius: 4px; vertical-align: -2px; margin-right: 6px; }
+
+@media (max-width: 760px) {
+  .app { grid-template-columns: 1fr; }
+  .note { grid-template-columns: 1fr; }
+  .hide-sm { display: none; }
+  .page { padding: 18px 16px; }
+}
+</style>
+</head>
+<body data-v="now">
+
+<div class="switch">
+  <div class="seg" role="group">
+    <button data-pick="now">Now</button>
+    <button data-pick="a">A · Minimal</button>
+    <button data-pick="b">B · Tint</button>
+    <button data-pick="b2">B2 · Clear</button>
+    <button data-pick="b3">B3 · Strong</button>
+  </div>
+</div>
+
+<div class="app">
+  <nav class="panel">
+    <h2>Merchandise</h2>
+    <a class="row on">Articles</a>
+    <a class="row">New Articles <span class="n">4</span></a>
+    <span class="chip">Attributes</span>
+    <a class="row">Divisions</a>
+    <a class="row">Tags</a>
+    <a class="row">Sizes</a>
+    <a class="row">Colors</a>
+    <a class="row">Name Suggestions</a>
+    <span class="chip">Distribution</span>
+    <a class="row">Allotments</a>
+    <a class="row">Return HO</a>
+  </nav>
+
+  <main class="page">
+    <div class="head">
+      <h1>Articles</h1>
+      <button class="btn">+ New article</button>
+    </div>
+    <table>
+      <thead><tr><th>Article</th><th class="hide-sm">Division</th><th class="r">Stock</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td>Kemeja Linen Oversize<small>ART-24019 · 6 colours</small></td><td class="hide-sm">Men · Top</td><td class="r">1.240 pcs</td><td class="ok">Active</td></tr>
+        <tr><td>Celana Chino Slim<small>ART-24020 · 4 colours</small></td><td class="hide-sm">Men · Bottom</td><td class="r">860 pcs</td><td class="ok">Active</td></tr>
+        <tr><td>Dress Midi Floral<small>ART-24021 · 3 colours</small></td><td class="hide-sm">Women · Dress</td><td class="r">412 pcs</td><td class="ok">Active</td></tr>
+      </tbody>
+    </table>
+  </main>
+</div>
+
+<div class="note">
+  <div data-n="now"><b>Now</b><span class="sw" style="background:#2563eb"></span>Sidebar #2563eb, button #2862dc. Two blues, the sidebar is the brighter one.</div>
+  <div data-n="a"><b>A · Minimal</b><span class="sw" style="background:#2862dc"></span>One blue. Both solid, so the sidebar still competes with the button.</div>
+  <div data-n="b"><b>B · Tint</b><span class="sw" style="background:#eef3fc;box-shadow:inset 0 0 0 1px #2862dc"></span>The row you're on is a light tint. "+ New article" is the only solid blue.</div>
+  <div data-n="b2"><b>B2 · Clear</b><span class="sw" style="background:#dbe6fb"></span>A clearer tint, darker blue words. Easy to spot, still lighter than the button.</div>
+  <div data-n="b3"><b>B3 · Strong</b><span class="sw" style="background:#c6d8f8"></span>The strongest tint before it starts to compete with the button.</div>
+</div>
+
+<script>
+const pick = (v) => {
+  document.body.dataset.v = v;
+  document.querySelectorAll("[data-pick]").forEach(b => b.setAttribute("aria-pressed", b.dataset.pick === v));
+  document.querySelectorAll("[data-n]").forEach(n => n.classList.toggle("on", n.dataset.n === v));
+  try { history.replaceState(null, "", "?pv=" + v); } catch {}
+};
+document.querySelectorAll("[data-pick]").forEach(b => b.onclick = () => pick(b.dataset.pick));
+document.querySelectorAll(".panel .row").forEach(r => r.onclick = () => {
+  document.querySelectorAll(".panel .row").forEach(x => x.classList.remove("on"));
+  r.classList.add("on");
+  document.querySelector(".head h1").textContent = r.firstChild.textContent.trim();
+});
+const v = new URLSearchParams(location.search).get("pv");
+pick(["now", "a", "b", "b2", "b3"].includes(v) ? v : "now");
+</script>
+</body>
+</html>

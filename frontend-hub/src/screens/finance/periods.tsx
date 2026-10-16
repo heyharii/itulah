@@ -1,7 +1,16 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import type { ColumnDef, SortingState } from "@tanstack/react-table"
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query"
+import type {
+  ColumnDef,
+  SortingState,
+  VisibilityState,
+} from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { useMemo, useState } from "react"
+import { Suspense, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { AppLink } from "@/components/ui/app-link"
@@ -14,9 +23,13 @@ import { Fab } from "@/components/ui/fab"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { BottomSheet } from "@/components/ui/picker-sheet"
 import { MiniTable } from "@/components/ui/rows"
+import {
+  BarSpacer,
+  ColumnsMenu,
+  ExpandingSearch,
+} from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Status } from "@/components/ui/pill"
-import { Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Lifecycle } from "@/components/ui/timeline"
@@ -27,10 +40,10 @@ import {
   financeKeys,
   listBankStatements,
   listBills,
-  listPeriods,
   openPeriod,
   periodChecklist,
   periodEvents,
+  periodsQuery,
   previewDepreciation,
   reopenPeriod,
   runDepreciation,
@@ -43,6 +56,7 @@ import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { usePostingReadiness } from "@/screens/finance/badges"
 import { isoDay, monthLabel, monthOf } from "@/screens/finance/chart"
+import { ScreenPending } from "@/screens/finance/pending"
 import type { DepreciationRun, FiscalPeriod } from "@itulah/contract"
 
 /// Which months are open, and what closing one seals.
@@ -177,7 +191,7 @@ const columns: ColumnDef<TableSetup, FiscalPeriod>[] = [
         >
           {count(row.original.entry_count)}
         </span>
-        <span className="text-[0.875rem] text-mute">
+        <span className="text-[0.9375rem] text-mute">
           {row.original.entry_count === 1 ? "entry" : "entries"}
         </span>
       </span>
@@ -196,7 +210,7 @@ const columns: ColumnDef<TableSetup, FiscalPeriod>[] = [
           {label(row.original.status)}
         </Status>
         {row.original.closed_by !== null && (
-          <span className="text-[0.875rem] text-mute">
+          <span className="text-[0.9375rem] text-mute">
             {row.original.closed_by} · {moment(row.original.closed_at)}
           </span>
         )}
@@ -206,6 +220,23 @@ const columns: ColumnDef<TableSetup, FiscalPeriod>[] = [
 ]
 
 export function Periods() {
+  return (
+    <Suspense
+      fallback={
+        <ScreenPending
+          crumb="Finance · Accounting Masters"
+          title="Accounting Period"
+        >
+          Loading the calendar…
+        </ScreenPending>
+      }
+    >
+      <PeriodsScreen />
+    </Suspense>
+  )
+}
+
+function PeriodsScreen() {
   const phone = useLayout() === "phone"
   const [needle, setNeedle] = useState("")
   /// The phone's "open a month" sheet, the dock's + opens it.
@@ -219,14 +250,12 @@ export function Periods() {
   const [sorting, setSorting] = useState<SortingState>([
     { id: "period", desc: true },
   ])
+  const [visibility, setVisibility] = useState<VisibilityState>({})
 
-  const periods = useQuery({
-    queryKey: financeKeys.periods(),
-    queryFn: ({ signal }) => listPeriods(signal).then((page) => page.rows),
-  })
+  const periods = useSuspenseQuery(periodsQuery())
 
   const rows = useMemo(() => {
-    const all = periods.data ?? []
+    const all = periods.data
     const text = needle.trim().toLowerCase()
     // The phone's dock search, over the month names.
     return text === ""
@@ -235,7 +264,7 @@ export function Periods() {
           monthLabel(row.year, row.month).toLowerCase().includes(text)
         )
   }, [periods.data, needle])
-  const already = (periods.data ?? []).some(
+  const already = periods.data.some(
     (row) => row.year === year && row.month === month
   )
 
@@ -271,11 +300,17 @@ export function Periods() {
           columnFilters: filters.columnFilters,
           sorting,
           // The card's own columns are drawn on a phone and never on a desk.
-          columnVisibility: { head: phone, lead: phone, foot: phone },
+          columnVisibility: {
+            ...visibility,
+            head: phone,
+            lead: phone,
+            foot: phone,
+          },
         },
         onSortingChange: setSorting,
+        onColumnVisibilityChange: setVisibility,
       }),
-      [rows, filters.columns, filters.columnFilters, sorting, phone]
+      [rows, filters.columns, filters.columnFilters, sorting, phone, visibility]
     )
   )
 
@@ -369,11 +404,18 @@ export function Periods() {
       )}
 
       {!phone && (
-        <Toolbar>
-          {/* Wrapped for the reason `<UnitSelect>` is: `<Select>` draws a
-            `w-full` span around the native control, and in a wrapping toolbar
-            that claims the whole row — which is why these two sat on two lines
-            with their chevrons out at the edge of the page. */}
+        <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2">
+          <ExpandingSearch
+            value={needle}
+            onChange={setNeedle}
+            label="Search months"
+          />
+          {/* The two selects are not a filter on this list — they name the
+            month the button in the head opens. So the Filter button is the
+            only thing here that narrows what is on screen, and it stands
+            beside them. Wrapped for the reason `<UnitSelect>` is: `<Select>`
+            draws a `w-full` span around the native control, and in a wrapping
+            bar that claims the whole row. */}
           <span className="inline-flex w-40 shrink-0">
             <Select
               value={String(month)}
@@ -407,22 +449,19 @@ export function Periods() {
               ))}
             </Select>
           </span>
-          {/* The two selects above are not a filter on this list — they name the
-            month the button opens. So the panel is the only thing here that
-            narrows what is on screen, and it sits beside them rather than
-            among them. */}
           <FilterPanel model={filters} table={table} />
-          <Toolbar.Spacer />
-          {/* The effective answer, like every other toolbar in this module: what
+          <BarSpacer />
+          {/* The effective answer, like every other bar in this module: what
             the two selects add up to, and how much calendar there is. The
             caution that was here — "closing is not undoable" — is now said in
             the sheet where closing actually happens, which is where somebody
             about to do it will read it. */}
-          <span className="text-[0.875rem] text-mute">
+          <span className="text-[0.9375rem] text-mute">
             {monthLabel(year, month)} · {count(rows.length)} months opened
             {already ? "" : " · this one is not"}
           </span>
-        </Toolbar>
+          <ColumnsMenu table={table} />
+        </div>
       )}
 
       {receipt && (
@@ -438,9 +477,8 @@ export function Periods() {
         </Banner>
       )}
 
-      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+      <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(periods, {
-          loading: "Loading the calendar…",
           render: () =>
             rows.length === 0 ? (
               <EmptyState>
@@ -449,12 +487,12 @@ export function Periods() {
               </EmptyState>
             ) : (
               <DataTable<FiscalPeriod>
+                refresh={[periods]}
                 table={table}
                 onRowClick={(row) => period.open(periodId(row))}
                 isSelected={(row) => periodId(row) === period.value}
                 empty="No month matches the filters in force."
-                className="max-h-[calc(100dvh-20rem)] max-md:max-h-none"
-                pageScroll={phone}
+                pageScroll
                 cardsApart
                 cardLead
                 cardSort={false}
@@ -486,13 +524,9 @@ function PeriodSheet({
   const [reason, setReason] = useState("")
   const [reopened, setReopened] = useState<string | null>(null)
 
-  const periods = useQuery({
-    queryKey: financeKeys.periods(),
-    queryFn: ({ signal }) => listPeriods(signal).then((page) => page.rows),
-    enabled: id !== null,
-  })
+  const periods = useSuspenseQuery(periodsQuery())
 
-  const period = periods.data?.find((row) => periodId(row) === id)
+  const period = periods.data.find((row) => periodId(row) === id)
   const closeChecks = useQuery({
     queryKey: financeKeys.closeChecklist(id),
     queryFn: ({ signal }) => periodChecklist(id!, signal),
@@ -561,13 +595,17 @@ function PeriodSheet({
         period && isOpen ? (
           confirming ? (
             <div className="flex items-center justify-between gap-3">
-              <span className="text-[0.875rem] text-body">
+              <span className="text-[0.9375rem] text-body">
                 Seal {count(period.entry_count)}{" "}
                 {period.entry_count === 1 ? "entry" : "entries"}? Nothing can be
                 posted into this month again.
               </span>
               <div className="flex shrink-0 gap-1.5">
-                <Button variant="quiet" onClick={() => setConfirming(false)}>
+                <Button
+                  data-cancel
+                  variant="quiet"
+                  onClick={() => setConfirming(false)}
+                >
                   Cancel
                 </Button>
                 <Button
@@ -600,7 +638,7 @@ function PeriodSheet({
                 onChange={(event) => setReason(event.target.value)}
               />
               <div className="flex justify-end gap-1.5">
-                <Button variant="quiet" onClick={leaveUndo}>
+                <Button data-cancel variant="quiet" onClick={leaveUndo}>
                   Cancel
                 </Button>
                 <Button
@@ -676,7 +714,7 @@ function PeriodSheet({
                   <h4 className="mb-2 text-card-title font-semibold text-ink">
                     History
                   </h4>
-                  <ul className="flex flex-col gap-1.5 text-[0.875rem] text-body">
+                  <ul className="flex flex-col gap-1.5 text-[0.9375rem] text-body">
                     {events.data.map((event) => (
                       <li key={event.event_id}>
                         {event.event === "REOPEN" ? "Reopened" : "Closed"} by{" "}
@@ -699,7 +737,7 @@ function PeriodSheet({
 
               <Checklist key={periodId(period)} period={period} />
 
-              <p className="text-[0.875rem] text-body">
+              <p className="text-[0.9375rem] text-body">
                 {isOpen
                   ? "Closing seals every entry already posted into this month. A close and a posting cannot interleave — the database serialises them — so the number above is the number that will be sealed."
                   : "This month is sealed. If a transaction has to be entered into it after all, Undo closing opens it again — newest month first, one at a time, with a reason that is kept. Otherwise a correction is posted into an open month, the way a wrong entry is answered by its mirror."}
@@ -985,7 +1023,7 @@ function Checklist({ period }: { period: FiscalPeriod }) {
       {report && (
         <div className="mt-3 rounded-inner border border-hairline p-3">
           <div className="mb-2 flex items-center justify-between gap-2">
-            <h5 className="text-[0.875rem] font-semibold text-ink">
+            <h5 className="text-[0.9375rem] font-semibold text-ink">
               {/* The month the run charged, as a month. The server names it
                   by its first day — `2026-09-01` — and printing that raw put
                   an ISO date under a heading nothing else on this screen dates
@@ -1005,12 +1043,12 @@ function Checklist({ period }: { period: FiscalPeriod }) {
                 default window, which is the open period — usually this one. */}
             <AppLink
               to="/finance/accounting/journal-entries"
-              className="text-[0.875rem] font-medium text-accent hover:underline"
+              className="text-[0.9375rem] font-medium text-accent hover:underline"
             >
               Open the journal
             </AppLink>
           </div>
-          <p className="mb-2 text-[0.875rem] text-body">
+          <p className="mb-2 text-[0.9375rem] text-body">
             {reportKind === "preview"
               ? `${count(report.posted_count)} assets can post ${money(report.posted_total_minor)}. ${count(report.skipped_count)} need no entry.${report.blocked_count > 0 ? ` ${count(report.blocked_count)} are blocked; see each asset line for the reason before posting.` : " Review the lines, then post this preview."}`
               : `${count(report.posted_count)} assets posted ${money(report.posted_total_minor)}. ${count(report.skipped_count)} needed no entry.`}
@@ -1028,10 +1066,10 @@ function Checklist({ period }: { period: FiscalPeriod }) {
             {report.lines.map((line) => (
               <tr key={line.asset_id} className="border-t border-hairline">
                 <td className="py-2 pr-2">
-                  <span className="block text-[0.875rem] text-ink">
+                  <span className="block text-[0.9375rem] text-ink">
                     {line.name}
                   </span>
-                  <span className="font-mono text-[0.875rem] text-mute">
+                  <span className="font-mono text-[0.9375rem] text-mute">
                     {line.asset_number}
                   </span>
                 </td>
@@ -1042,7 +1080,7 @@ function Checklist({ period }: { period: FiscalPeriod }) {
                     money(line.amount_minor)
                   )}
                 </td>
-                <td className="py-2 text-right text-[0.875rem] text-body">
+                <td className="py-2 text-right text-[0.9375rem] text-body">
                   {line.blocked_because ?? line.skipped_because ?? "—"}
                 </td>
               </tr>
@@ -1085,10 +1123,10 @@ function Row({
     <div className="flex items-start gap-2.5 border-b border-hairline px-3 py-2.5 last:border-b-0 max-md:flex-col">
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-2">
-          <span className="text-[0.875rem] font-medium text-ink">{title}</span>
+          <span className="text-[0.9375rem] font-medium text-ink">{title}</span>
           <Status tone={status.tone}>{status.text}</Status>
         </span>
-        <span className="mt-0.5 block text-[0.875rem] text-body">{note}</span>
+        <span className="mt-0.5 block text-[0.9375rem] text-body">{note}</span>
       </span>
       <span className="shrink-0 pt-0.5">{action}</span>
     </div>

@@ -63,7 +63,7 @@ export function PeopleTabs<T extends string>({
     <div
       role="tablist"
       className={cn(
-        "mb-[1.125rem] flex flex-wrap gap-0.5 border-b border-hairline",
+        "sub-tabs mb-[1.125rem] flex flex-wrap gap-0.5 border-b border-hairline",
         className,
       )}
     >
@@ -77,7 +77,7 @@ export function PeopleTabs<T extends string>({
             aria-selected={on}
             onClick={() => onChange(tab.value)}
             className={cn(
-              "-mb-px inline-flex shrink-0 items-center gap-1.5 border-b-2 px-3 pt-2 pb-2.5 text-[0.9375rem] font-medium whitespace-nowrap transition-colors pointer-coarse:min-h-11",
+              "sub-tab -mb-px inline-flex shrink-0 items-center gap-1.5 border-b-2 px-3 pt-2 pb-2.5 text-[0.9375rem] font-medium whitespace-nowrap transition-colors pointer-coarse:min-h-11",
               on
                 ? "border-ink text-ink"
                 : "border-transparent text-body hover:text-ink",

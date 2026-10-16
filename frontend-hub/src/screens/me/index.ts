@@ -1,15 +1,4 @@
-import type { ScreenMap } from "@/screens/registry"
-import { Attendance } from "@/screens/me/attendance"
-import { Claims } from "@/screens/me/claims"
-import { Correction } from "@/screens/me/correction"
-import { Me } from "@/screens/me/details"
-import { Leave } from "@/screens/me/leave"
-import { LeaveNew } from "@/screens/me/leave-new"
-import { Overtime } from "@/screens/me/overtime"
-import { Pay } from "@/screens/me/pay"
-import { Payslip } from "@/screens/me/payslip"
-import { Profile } from "@/screens/me/profile"
-import { Swap } from "@/screens/me/swap"
+import { lazyScreen, type ScreenMap } from "@/screens/registry"
 import { gated } from "@/screens/me/data/ess"
 
 /// Screens this module has written. Keys must be paths declared in
@@ -17,15 +6,59 @@ import { gated } from "@/screens/me/data/ess"
 ///
 /// Each screen of a module is gated by the company's module setting (0813).
 export const screens: ScreenMap = {
-  "/me": Profile,
-  "/me/attendance": gated(Attendance, "/me/attendance"),
-  "/me/attendance/correction": gated(Correction, "/me/attendance/correction"),
-  "/me/attendance/swap": gated(Swap, "/me/attendance/swap"),
-  "/me/leave": gated(Leave, "/me/leave"),
-  "/me/leave/new": gated(LeaveNew, "/me/leave/new"),
-  "/me/overtime": gated(Overtime, "/me/overtime"),
-  "/me/pay": gated(Pay, "/me/pay"),
-  "/me/pay/slip": gated(Payslip, "/me/pay/slip"),
-  "/me/pay/claims": gated(Claims, "/me/pay/claims"),
-  "/me/details": Me,
+  "/me": lazyScreen(
+    "me/profile",
+    () => import("@/screens/me/profile"),
+    (m) => m.Profile
+  ),
+  "/me/attendance": lazyScreen(
+    "me/attendance",
+    () => import("@/screens/me/attendance"),
+    (m) => gated(m.Attendance, "/me/attendance")
+  ),
+  "/me/attendance/correction": lazyScreen(
+    "me/correction",
+    () => import("@/screens/me/correction"),
+    (m) => gated(m.Correction, "/me/attendance/correction")
+  ),
+  "/me/attendance/swap": lazyScreen(
+    "me/swap",
+    () => import("@/screens/me/swap"),
+    (m) => gated(m.Swap, "/me/attendance/swap")
+  ),
+  "/me/leave": lazyScreen(
+    "me/leave",
+    () => import("@/screens/me/leave"),
+    (m) => gated(m.Leave, "/me/leave")
+  ),
+  "/me/leave/new": lazyScreen(
+    "me/leave-new",
+    () => import("@/screens/me/leave-new"),
+    (m) => gated(m.LeaveNew, "/me/leave/new")
+  ),
+  "/me/overtime": lazyScreen(
+    "me/overtime",
+    () => import("@/screens/me/overtime"),
+    (m) => gated(m.Overtime, "/me/overtime")
+  ),
+  "/me/pay": lazyScreen(
+    "me/pay",
+    () => import("@/screens/me/pay"),
+    (m) => gated(m.Pay, "/me/pay")
+  ),
+  "/me/pay/slip": lazyScreen(
+    "me/payslip",
+    () => import("@/screens/me/payslip"),
+    (m) => gated(m.Payslip, "/me/pay/slip")
+  ),
+  "/me/pay/claims": lazyScreen(
+    "me/claims",
+    () => import("@/screens/me/claims"),
+    (m) => gated(m.Claims, "/me/pay/claims")
+  ),
+  "/me/details": lazyScreen(
+    "me/details",
+    () => import("@/screens/me/details"),
+    (m) => m.Me
+  ),
 }

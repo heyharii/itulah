@@ -248,6 +248,7 @@ fn setup_for(receipt_line_id: Uuid, article_code: Option<&str>) -> NewSetupSessi
         division_code: "PRIA".into(),
         tags: vec!["KEMEJA".into(), "LENGAN_PANJANG".into()],
         image_url: Some("https://cdn.itulah.co.id/kemeja-merah.jpg".into()),
+        description: None,
         currency: "IDR".into(),
         colours: vec![NewSetupColour {
             colour_digit: "1".into(),

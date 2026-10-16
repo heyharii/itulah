@@ -418,9 +418,14 @@ fn normal_pool_transition(from: &OperationalPool, to: &OperationalPool) -> bool 
         // start anywhere goods rest — a shop picks a return off its floor —
         // and a pick undone goes back to the stockroom. The legacy
         // per-destination pick leaves take no new writes.
-        (Stockroom | Floor | Reject | Return, Picking) | (Picking, Stockroom) => {
-            !from.is_legacy_leaf() && !to.is_legacy_leaf()
-        }
+        //
+        // The Gudang takes its own work back before anything leaves (a move
+        // back, as `cloud::dc::move_back`): a pick undone goes back to the
+        // room it was fetched from, and a carton opened again puts its pieces
+        // back in the pick area. Nothing ever goes back into a legacy leaf.
+        (Stockroom | Floor | Reject | Return, Picking)
+        | (Picking, Stockroom | Floor | Reject | Return)
+        | (Packed, Picking) => !from.is_legacy_leaf() && !to.is_legacy_leaf(),
         // Packing binds goods to a koli, and the koli to a destination.
         (_, Packed) => from.is_fulfillment_source_for(to.site_id()),
         (Packed, Shipment) | (Shipment, Loaded) | (Loaded, InTransit) => same_destination(from, to),

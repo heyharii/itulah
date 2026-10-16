@@ -1,9 +1,13 @@
 import { useForm } from "@tanstack/react-form"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  useMutation,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { EyeOff, Pencil } from "lucide-react"
-import { useCallback, useMemo, useState } from "react"
+import { EyeOff } from "lucide-react"
+import { Suspense, useCallback, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
@@ -23,7 +27,7 @@ import { PageHeader } from "@/components/ui/page-header"
 import { Status } from "@/components/ui/pill"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { Sheet } from "@/components/ui/sheet"
-import { Banner, EmptyState } from "@/components/ui/states"
+import { Banner, EmptyState, LoadingState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { useFilters } from "@/lib/filters"
 import { count } from "@/lib/format"
@@ -34,14 +38,13 @@ import { procurementKeys } from "@/lib/queries/procurement"
 import {
   createTerm,
   deleteTerm,
-  listTerms,
+  termsQuery,
   termUsage,
   updateTerm,
   vocabularyKeys,
   type MasterTerm,
   type VocabularyKind,
 } from "@/lib/queries/vocabulary"
-import { queryState } from "@/lib/query-state"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import {
   ActiveRow,
@@ -212,8 +215,8 @@ function columnsOf(
         <span
           className={
             row.original.active
-              ? "inline-flex items-center gap-2 text-[0.875rem] font-medium text-ink"
-              : "inline-flex items-center gap-2 text-[0.875rem] font-medium text-mute"
+              ? "inline-flex items-center gap-2 text-[0.9375rem] font-medium text-ink"
+              : "inline-flex items-center gap-2 text-[0.9375rem] font-medium text-mute"
           }
         >
           {!row.original.active && (
@@ -247,7 +250,7 @@ function columnsOf(
       size: 90,
       meta: { align: "right", card: "hide" },
       cell: ({ row }) => (
-        <span className="text-[0.875rem] text-text tabular-nums">
+        <span className="text-[0.9375rem] text-text tabular-nums">
           {row.original.order}
         </span>
       ),
@@ -281,7 +284,7 @@ function columnsOf(
       const n = row.original.term.in_use
       const unit = vocabulary.kind === "sizes" ? "SKU" : "Article"
       return (
-        <span className="text-[0.875rem] tabular-nums">
+        <span className="text-[0.9375rem] tabular-nums">
           <span className={n === 0 ? "text-mute" : "text-ink"}>{count(n)}</span>{" "}
           <span className="text-mute">{n === 1 ? unit : `${unit}s`}</span>
         </span>
@@ -291,7 +294,7 @@ function columnsOf(
 
   columns.push({
     id: "action",
-    header: "Action",
+    header: "",
     size: 80,
     enableSorting: false,
     meta: { align: "right", card: "hide" },
@@ -335,7 +338,7 @@ function columnsOf(
           the SKU it stands for — is a thin line under the label, no chip
           (owner, 2026-10-06). The sheet and the search still have them all. */}
           {vocabulary.kind === "sizes" && (
-            <span className="font-mono text-[0.875rem] font-normal text-mute">
+            <span className="font-mono text-[0.9375rem] font-normal text-mute">
               {row.original.term.code}
             </span>
           )}
@@ -362,7 +365,7 @@ function columnsOf(
             >
               {count(n)}
             </span>
-            <span className="text-[0.875rem] text-mute">
+            <span className="text-[0.9375rem] text-mute">
               {n === 1 ? unit : `${unit}s`}
             </span>
           </span>
@@ -411,14 +414,9 @@ function columnsOf(
 /// and Delete live in the sheet (owner, 2026-10-05).
 function RowActions({ label }: { label: string }) {
   return (
-    <button
-      type="button"
-      aria-label={`Edit ${label}`}
-      title="Edit"
-      className="inline-flex size-8 cursor-pointer items-center justify-center rounded-inner text-mute transition-colors hover:bg-soft-2 hover:text-ink"
-    >
-      <Pencil className="size-4" />
-    </button>
+    <Button size="sm" aria-label={`Edit ${label}`}>
+      Edit
+    </Button>
   )
 }
 
@@ -438,25 +436,71 @@ function TabLabel({ text, n }: { text: string; n: number }) {
 }
 
 function VocabularyScreen({ vocabulary }: { vocabulary: Vocabulary }) {
-  const [query, setQuery] = useState("")
-  const [sorting, setSorting] = useState<SortingState>([])
   const [editing, setEditing] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
+  const phone = useLayout() === "phone"
+  const create = () => {
+    setEditing(null)
+    setCreating(true)
+  }
+
+  return (
+    <PageContent>
+      {/* The screen's one action stands in its head; a phone has the + at the
+          thumb (`Fab` below). Both stand while the list is read: the list
+          waits for its terms and streams in with them (the server starts the
+          read too). */}
+      <PageHeader
+        title={vocabulary.title}
+        small
+        actions={
+          phone ? undefined : (
+            <Button variant="primary" onClick={create}>
+              New {capitalise(vocabulary.one)}
+            </Button>
+          )
+        }
+      />
+
+      <Fab label={`New ${capitalise(vocabulary.one)}`} onClick={create} />
+
+      <Suspense fallback={<LoadingState>Reading the vocabulary…</LoadingState>}>
+        <VocabularyList
+          vocabulary={vocabulary}
+          editing={editing}
+          setEditing={setEditing}
+          creating={creating}
+          setCreating={setCreating}
+        />
+      </Suspense>
+    </PageContent>
+  )
+}
+
+function VocabularyList({
+  vocabulary,
+  editing,
+  setEditing,
+  creating,
+  setCreating,
+}: {
+  vocabulary: Vocabulary
+  editing: string | null
+  setEditing: (code: string | null) => void
+  creating: boolean
+  setCreating: (creating: boolean) => void
+}) {
+  const [query, setQuery] = useState("")
+  const [sorting, setSorting] = useState<SortingState>([])
   const [tab, setTab] = useState<StatusTab>("ACTIVE")
   const [inUseOnly, setInUseOnly] = useState(false)
 
   // The whole list in one read. A company has five divisions, a dozen sizes and
   // a few dozen tags, so there is nothing to page — which is also what lets the
   // duplicate-label check answer while somebody is still typing.
-  const terms = useQuery({
-    queryKey: vocabularyKeys.list(vocabulary.kind),
-    queryFn: ({ signal }) => listTerms(vocabulary.kind, signal),
-  })
+  const terms = useSuspenseQuery(termsQuery(vocabulary.kind))
 
-  const all = useMemo(
-    () => (terms.data?.terms ?? []).map(readRow),
-    [terms.data]
-  )
+  const all = useMemo(() => terms.data.terms.map(readRow), [terms.data])
 
   // Every term reaches the table. What narrows it is the panel beside it, and
   // only that — a second sieve in front of the table is how a status segment
@@ -471,10 +515,13 @@ function VocabularyScreen({ vocabulary }: { vocabulary: Vocabulary }) {
     [all, tab, inUseOnly]
   )
 
-  const edit = useCallback((code: string) => {
-    setCreating(false)
-    setEditing(code)
-  }, [])
+  const edit = useCallback(
+    (code: string) => {
+      setCreating(false)
+      setEditing(code)
+    },
+    [setCreating, setEditing]
+  )
   const columns = useMemo(() => columnsOf(vocabulary, edit), [vocabulary, edit])
   const filters = useFilters(columns)
   const phone = useLayout() === "phone"
@@ -520,12 +567,10 @@ function VocabularyScreen({ vocabulary }: { vocabulary: Vocabulary }) {
   const close = useCallback(() => {
     setCreating(false)
     setEditing(null)
-  }, [])
+  }, [setCreating, setEditing])
 
   return (
-    <PageContent>
-      <PageHeader title={vocabulary.title} small />
-
+    <>
       {/* The same cards the order book opens on. */}
       <KpiStrip className="grid-cols-2 md:grid-cols-4 xl:grid-cols-4">
         {kpis.map((one) => (
@@ -556,8 +601,7 @@ function VocabularyScreen({ vocabulary }: { vocabulary: Vocabulary }) {
       />
 
       {/* One line, as the order book draws it: the search and what narrows the
-          list at the left, what shapes the table and what makes a new one at
-          the right. */}
+          list at the left, what shapes the table at the right. */}
       <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2 max-md:hidden">
         <span className="contents max-md:hidden">
           <ExpandingSearch
@@ -577,25 +621,8 @@ function VocabularyScreen({ vocabulary }: { vocabulary: Vocabulary }) {
         <div className="hidden md:contents">
           <ColumnsMenu table={table} />
         </div>
-        <Button
-          variant="primary"
-          className="max-md:hidden"
-          onClick={() => {
-            setEditing(null)
-            setCreating(true)
-          }}
-        >
-          New {capitalise(vocabulary.one)}
-        </Button>
       </div>
 
-      <Fab
-        label={`New ${capitalise(vocabulary.one)}`}
-        onClick={() => {
-          setEditing(null)
-          setCreating(true)
-        }}
-      />
       <DockTools
         search={{
           value: query,
@@ -619,36 +646,32 @@ function VocabularyScreen({ vocabulary }: { vocabulary: Vocabulary }) {
       />
 
       <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-        {queryState(terms, {
-          loading: "Reading the vocabulary…",
-          render: () =>
-            all.length === 0 ? (
-              <EmptyState
-                action={
-                  <Button variant="primary" onClick={() => setCreating(true)}>
-                    New {capitalise(vocabulary.one)}
-                  </Button>
-                }
-              >
-                {vocabulary.empty}
-              </EmptyState>
-            ) : (
-              <DataTable<TermRow>
-                refresh={[terms]}
-                table={table}
-                onRowClick={(row) => {
-                  setCreating(false)
-                  setEditing(row.term.code)
-                }}
-                isSelected={(row) => row.term.code === editing}
-                empty="Nothing matches that search."
-                pageScroll
-                cardSort={false}
-                cardsApart
-                cardLead
-              />
-            ),
-        })}
+        {all.length === 0 ? (
+          <EmptyState
+            action={
+              <Button variant="primary" onClick={() => setCreating(true)}>
+                New {capitalise(vocabulary.one)}
+              </Button>
+            }
+          >
+            {vocabulary.empty}
+          </EmptyState>
+        ) : (
+          <DataTable<TermRow>
+            refresh={[terms]}
+            table={table}
+            onRowClick={(row) => {
+              setCreating(false)
+              setEditing(row.term.code)
+            }}
+            isSelected={(row) => row.term.code === editing}
+            empty="Nothing matches that search."
+            pageScroll
+            cardSort={false}
+            cardsApart
+            cardLead
+          />
+        )}
       </Card>
 
       <TermSheet
@@ -658,7 +681,7 @@ function VocabularyScreen({ vocabulary }: { vocabulary: Vocabulary }) {
         existing={all}
         onClose={close}
       />
-    </PageContent>
+    </>
   )
 }
 

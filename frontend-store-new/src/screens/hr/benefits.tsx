@@ -19,7 +19,7 @@ import {
   isoDay,
   readDate,
   recordUniform,
-  rules,
+  rulesQuery,
   uniformsOf,
   type StoreScope,
 } from "@/lib/queries/hr"
@@ -58,9 +58,7 @@ import type {
 /// registrations are head office's, rather than drawing a column of blanks
 /// that would read as "nobody is registered".
 export function HrBenefits() {
-  return (
-    <HrWorkspace>{(scope) => <Benefits scope={scope} />}</HrWorkspace>
-  )
+  return <HrWorkspace>{(scope) => <Benefits scope={scope} />}</HrWorkspace>
 }
 
 type Tab = "uniforms" | "bpjs" | "other"
@@ -68,16 +66,8 @@ type Tab = "uniforms" | "bpjs" | "other"
 function Benefits({ scope }: { scope: StoreScope }) {
   const [tab, setTab] = useState<Tab>("uniforms")
   const team = useTeam(scope)
-  const benefit = useQuery({
-    queryKey: hrKeys.rules("benefit"),
-    queryFn: ({ signal }) => rules("benefit", signal),
-    staleTime: 5 * 60_000,
-  })
-  const statutory = useQuery({
-    queryKey: hrKeys.rules("statutory"),
-    queryFn: ({ signal }) => rules("statutory", signal),
-    staleTime: 5 * 60_000,
-  })
+  const benefit = useQuery(rulesQuery("benefit"))
+  const statutory = useQuery(rulesQuery("statutory"))
 
   return (
     <>
@@ -140,7 +130,10 @@ function allowanceState(
   if (allowance === null) return null
   if (given >= allowance) return { label: "Allowance given", tone: "ok" }
   const left = allowance - given
-  return { label: `${left} ${left === 1 ? "set" : "sets"} left`, tone: "neutral" }
+  return {
+    label: `${left} ${left === 1 ? "set" : "sets"} left`,
+    tone: "neutral",
+  }
 }
 
 function Uniforms({
@@ -448,7 +441,9 @@ function Bpjs({
         card={(person) => ({
           ...personCard(team, person.employee_id),
           foot: {
-            info: <Status tone="neutral">Registration held at head office</Status>,
+            info: (
+              <Status tone="neutral">Registration held at head office</Status>
+            ),
           },
         })}
         columns={[

@@ -8,10 +8,12 @@ import { day, dateRange, monthYear, weekdayName } from "@/lib/format"
 /// and into a saved view, what "this year" means, and the small sums a row is
 /// read through.
 ///
-/// **Filter is which data, the tab is the rows, Totals / Per store is how to
-/// read them** (owner, 9 Oct 2026, the "Navbar" prototype). Each of those is
-/// one field of `ExplorerState` and nothing else carries meaning, which is
-/// what lets a whole view be a string.
+/// **Filter is which data, the page is the rows, the tab is how to read them**
+/// (owner, 16 Oct 2026, `sales-sidebar-tabs-prototype.html` A · Views): each
+/// grouping is its own row in the Sales sidebar (`PAGE_OF`), and the tabs are
+/// Totals · Per store · Per month. Each of those is one field of
+/// `ExplorerState` and nothing else carries meaning, which is what lets a
+/// whole view be a string.
 ///
 /// One word, "Sales", everywhere: it is what was charged after discounts and
 /// returns (`sales_minor`). There is no "net" and no "gross" on this screen.
@@ -27,14 +29,14 @@ export type GroupKey =
   | "sku"
   | "store"
   | "supplier"
-  | "month"
+  | "po"
   | "session"
   | "payment"
 
 export const GROUPS: readonly {
   readonly value: GroupKey
   readonly label: string
-  /// What the tab says on a tablet, where nine labels do not fit a row.
+  /// The one word for it where the label does not fit.
   readonly short: string
   readonly one: string
   readonly many: string
@@ -70,11 +72,11 @@ export const GROUPS: readonly {
     many: "suppliers",
   },
   {
-    value: "month",
-    label: "Month",
-    short: "Month",
-    one: "month",
-    many: "months",
+    value: "po",
+    label: "Purchase order",
+    short: "PO",
+    one: "purchase order",
+    many: "purchase orders",
   },
   {
     value: "session",
@@ -102,14 +104,14 @@ export function noun(group: GroupKey, n: number): string {
   return found === undefined ? "rows" : n === 1 ? found.one : found.many
 }
 
-/// Months, sessions and payment methods hold no stock: what is on the shelves
-/// is now, and belongs to no month, no shift and no tender.
+/// Sessions and payment methods hold no stock: what is on the shelves is now,
+/// and belongs to no shift and no tender.
 export const noStock = (group: GroupKey) =>
-  group === "month" || group === "session" || group === "payment"
+  group === "session" || group === "payment"
 
 /// A row of these is drilled into: its key becomes a filter and the rows go
-/// back to articles. A month narrows the period instead; a session or a payment
-/// method is not drilled into at all.
+/// back to articles. A session, a payment method or a purchase order is not
+/// drilled into at all.
 export const DRILL: Readonly<Partial<Record<GroupKey, FilterKey>>> = {
   division: "divisions",
   tag: "tags",
@@ -121,14 +123,114 @@ export const DRILL: Readonly<Partial<Record<GroupKey, FilterKey>>> = {
 export const opensSheet = (group: GroupKey) =>
   group === "article" || group === "sku"
 
-/// Whether pressing a row does anything: it drills, narrows a month, or opens
-/// the sheet. A session and a payment method are only read.
+/// Whether pressing a row does anything: it drills, or opens the sheet. A
+/// session, a payment method and a purchase order are only read.
 export const rowOpens = (group: GroupKey) =>
-  DRILL[group] !== undefined || group === "month" || opensSheet(group)
+  DRILL[group] !== undefined || opensSheet(group)
 
 /// Rows whose server figures carry the receipts counted under them.
 export const hasReceipts = (group: GroupKey) =>
   group === "store" || group === "session" || group === "payment"
+
+// ---------------------------------------------------------------------------
+// The columns of Per store and Per month
+// ---------------------------------------------------------------------------
+
+/// A column of the per-store or the per-month table: a store, or a month of
+/// the period (`YYYY-MM`, the key the server's month cells carry).
+export interface MatrixColumn {
+  readonly id: string
+  /// What its head says: the store's code, or the month's short name.
+  readonly head: string
+  /// The whole of it, for the tooltip and the spreadsheet.
+  readonly title: string
+}
+
+/// The stores in scope, by their codes without what every code ends in.
+export const storeColumns = (
+  stores: readonly { site_id: string; code: string | null; name: string }[]
+): MatrixColumn[] =>
+  stores.map((store) => ({
+    id: store.site_id,
+    head: (store.code ?? store.name).replace(/-TOKO$/i, ""),
+    title: store.name,
+  }))
+
+const MONTH_SHORT = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+]
+
+/// The months a period touches, oldest first; over more than one year each
+/// says its year too ("Dec 25").
+export function monthColumns(range: Range): MatrixColumn[] {
+  const spans = range.from.slice(0, 4) !== range.to.slice(0, 4)
+  const last = range.to.slice(0, 7)
+  const out: MatrixColumn[] = []
+  let year = Number(range.from.slice(0, 4))
+  let month = Number(range.from.slice(5, 7))
+  for (;;) {
+    const id = `${year}-${String(month).padStart(2, "0")}`
+    if (id > last) break
+    const short = MONTH_SHORT[month - 1]
+    out.push({
+      id,
+      head: spans ? `${short} ${String(year).slice(2)}` : short,
+      title: monthYear(`${id}-01`, true),
+    })
+    month += 1
+    if (month > 12) {
+      month = 1
+      year += 1
+    }
+  }
+  return out
+}
+
+// ---------------------------------------------------------------------------
+// Pages
+// ---------------------------------------------------------------------------
+
+/// Each grouping's page: a row of the Sales sidebar (`nav.ts`). The "Sales by
+/// …" paths are the ones the older reports answered at, so a link to one still
+/// lands on its rows.
+export const PAGE_OF: Readonly<Record<GroupKey, string>> = {
+  division: "/sales/by-division",
+  tag: "/sales/by-tag",
+  article: "/sales/by-article",
+  sku: "/sales/by-sku",
+  store: "/sales/by-store",
+  session: "/sales/by-session",
+  payment: "/sales/by-payment",
+  supplier: "/sales/by-supplier",
+  po: "/sales/by-po",
+}
+
+/// The grouping a page shows: the one asked for when the page holds it, else
+/// the page's first.
+export function groupOfPage(
+  path: string,
+  asked?: GroupKey | null
+): GroupKey | null {
+  const here = GROUPS.map((one) => one.value).filter(
+    (group) => PAGE_OF[group] === path
+  )
+  if (here.length === 0) return null
+  return asked != null && here.includes(asked) ? asked : here[0]
+}
+
+/// The page's title over the figures.
+export const pageTitle = (group: GroupKey) => `Sales by ${groupLabel(group)}`
 
 // ---------------------------------------------------------------------------
 // Filters
@@ -175,8 +277,6 @@ export function nameParts(
     if (group === "sku" && row.detail !== null)
       return { title: row.label, code: row.detail, sub: null }
   }
-  if (group === "month")
-    return { title: monthYear(row.key), code: null, sub: null }
   return { title: row.label, code: null, sub: row.detail }
 }
 
@@ -242,7 +342,26 @@ export function rowTint(
 // The state of the screen
 // ---------------------------------------------------------------------------
 
-export type ViewMode = "totals" | "stores"
+export type ViewMode = "totals" | "stores" | "months"
+
+export const VIEW_LABEL: Readonly<Record<ViewMode, string>> = {
+  totals: "Totals",
+  stores: "Per store",
+  months: "Per month",
+}
+
+/// The tabs a page reads its rows with. Stores are not laid out per store, and
+/// a cashier's session and a purchase order are read as they are: they have no
+/// tabs.
+export function viewsOf(group: GroupKey): readonly ViewMode[] {
+  if (group === "session" || group === "po") return []
+  if (group === "store") return ["totals", "months"]
+  return ["totals", "stores", "months"]
+}
+
+/// The tab that is open: the one asked for when the page has it.
+export const viewOf = (state: ExplorerState): ViewMode =>
+  viewsOf(state.group).includes(state.view) ? state.view : "totals"
 
 /// A step down into a row: which filter it narrowed, to what, and what the
 /// filter and the grouping were before, so a step back puts them there.
@@ -296,10 +415,15 @@ const SHORT: Readonly<Record<FilterKey, string>> = {
   sizes: "sz",
 }
 
-export function encodeState(state: ExplorerState): string {
+/// `home` is the grouping the page shows when nothing says otherwise
+/// (`groupOfPage`); a saved view, which belongs to no page, writes its own.
+export function encodeState(
+  state: ExplorerState,
+  home: GroupKey = DEFAULT_STATE.group
+): string {
   const out = new URLSearchParams()
   if (state.period !== "") out.set("p", state.period)
-  if (state.group !== DEFAULT_STATE.group) out.set("g", state.group)
+  if (state.group !== home) out.set("g", state.group)
   if (state.view !== DEFAULT_STATE.view) out.set("v", state.view)
   if (!state.heat) out.set("h", "0")
   for (const key of FILTER_KEYS) {
@@ -369,11 +493,19 @@ export function decodeState(raw: string | undefined): ExplorerState {
   return {
     period: validPeriod(period) ? period : "",
     group: GROUP_KEYS.has(group) ? (group as GroupKey) : DEFAULT_STATE.group,
-    view: view === "stores" ? "stores" : "totals",
+    view: view === "stores" || view === "months" ? view : "totals",
     heat: p.get("h") !== "0",
     ...lists,
     crumbs: crumbsOf(p.get("cr")),
   }
+}
+
+/// The grouping a link names (`g`), if it names one: a link from before the
+/// groupings had pages of their own is sent to the page of its rows.
+export function askedGroup(raw: string | undefined): GroupKey | null {
+  if (raw === undefined || raw === "") return null
+  const group = new URLSearchParams(raw).get("g") ?? ""
+  return GROUP_KEYS.has(group) ? (group as GroupKey) : null
 }
 
 /// Filters that are on: every pane with something picked. What the badge on

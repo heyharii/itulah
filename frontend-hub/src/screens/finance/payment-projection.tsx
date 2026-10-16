@@ -1,44 +1,42 @@
-import { useQuery } from "@tanstack/react-query"
+import { useSuspenseQuery } from "@tanstack/react-query"
+import type { ColumnDef } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
 import { ChevronLeft, ChevronRight } from "lucide-react"
-import { useRef, useState } from "react"
+import { Suspense, useDeferredValue, useMemo, useRef, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { Checkbox, Input } from "@/components/ui/field"
+import { DataTable } from "@/components/ui/data-table"
+import { Checkbox } from "@/components/ui/field"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
+import { ExpandingSearch } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Status } from "@/components/ui/pill"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
-import { Banner, LoadingState } from "@/components/ui/states"
 import { ExportButton } from "@/components/ui/export-button"
 import { fileSafe, type ExportSheet } from "@/lib/export-xlsx"
 import { count, day, money, moneyCompact } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
-import { problemOf } from "@/lib/problem"
 import {
-  financeKeys,
-  listBillTemplates,
-  listAllBills,
-  listGiros,
-  unbilledReceipts,
+  billTemplatesQuery,
+  projectionBillsQuery,
+  projectionGirosQuery,
+  projectionOrdersQuery,
+  projectionTermsQuery,
+  projectionUnbilledQuery,
 } from "@/lib/queries/finance"
-import { useUnits } from "@/lib/queries/organisation"
-import {
-  listPurchaseOrders,
-  paymentTermsBook,
-  procurementKeys,
-} from "@/lib/queries/procurement"
+import { unitsQuery } from "@/lib/queries/organisation"
+import { supplierNamesQuery } from "@/lib/queries/procurement"
+import { tableSetup, type TableSetup } from "@/lib/table"
 import { cn } from "@/lib/utils"
-import { Code, Grid, Td, Th, TotalRow } from "@/screens/finance-final/parts"
+import { Code } from "@/screens/finance-final/parts"
 import { isoDay, monthLabel, todayIso } from "@/screens/finance/chart"
-import {
-  useSuppliers,
-  useSupplierName,
-  useUnitName,
-} from "@/screens/finance/hooks"
-import { CardFigure, PhoneList } from "@/components/ui/phone-cards"
+import { useSupplierName, useUnitName } from "@/screens/finance/hooks"
+import { PhoneList } from "@/components/ui/phone-cards"
 import { SupplierName, UnitName, UnitSelect } from "@/screens/finance/parts"
+import { ScreenPending } from "@/screens/finance/pending"
 import type { PaymentTermsBook } from "@itulah/contract"
 
 /// The owner's asks, settled into one shape: "kita di payables perlu
@@ -75,10 +73,25 @@ import type { PaymentTermsBook } from "@itulah/contract"
 /// it), or 30 days when the supplier names no template. Their date cell says
 /// "est." because it is one.
 export function PaymentProjection() {
+  return (
+    <Suspense
+      fallback={
+        <ScreenPending crumb="Finance · Payables" title="Payment Projection">
+          Working out what must be paid…
+        </ScreenPending>
+      }
+    >
+      <PaymentProjectionScreen />
+    </Suspense>
+  )
+}
+
+function PaymentProjectionScreen() {
   const now = new Date()
   const currentYear = now.getFullYear()
   const currentMonth = now.getMonth() + 1 // 1–12
   const today = todayIso()
+  const phone = useLayout() === "phone"
   const unitName = useUnitName()
   const supplierLabel = useSupplierName()
 
@@ -95,79 +108,26 @@ export function PaymentProjection() {
   const [overdueExpanded, setOverdueExpanded] = useState(false)
   const overdueRef = useRef<HTMLDivElement>(null)
 
-  const units = useUnits()
+  const units = useSuspenseQuery(unitsQuery())
   const sites =
     unit === ""
       ? ""
-      : (units.data?.find((one) => one.id === unit)?.sites ?? [])
+      : (units.data.find((one) => one.id === unit)?.sites ?? [])
           .map((site) => site.id)
           .join(",")
   const siteFilter = sites === "" ? undefined : sites
-  // A unit whose sites are not known yet must not read as every unit.
-  const unitReady = unit === "" || sites !== ""
+  // The unit select answers at once; the bills trail it, and the ones in hand
+  // stay on screen until the next are read.
+  const askedSites = useDeferredValue(siteFilter)
 
-  const bills = useQuery({
-    queryKey: [
-      ...financeKeys.bills("POSTED", siteFilter ?? null),
-      "projection",
-    ],
-    queryFn: ({ signal }) => listAllBills("POSTED", siteFilter, signal),
-    enabled: unitReady,
-    staleTime: 30_000,
-  })
-  const drafts = useQuery({
-    queryKey: [...financeKeys.bills("DRAFT", siteFilter ?? null), "projection"],
-    queryFn: ({ signal }) => listAllBills("DRAFT", siteFilter, signal),
-    enabled: unitReady,
-    staleTime: 30_000,
-  })
-  const giros = useQuery({
-    queryKey: ["finance", "giros", "projection", "OUT"] as const,
-    queryFn: ({ signal }) =>
-      listGiros({ direction: "OUT", limit: 1000 }, signal),
-    staleTime: 30_000,
-  })
-  const templates = useQuery({
-    queryKey: financeKeys.billTemplates(),
-    queryFn: ({ signal }) => listBillTemplates(signal),
-    staleTime: 60_000,
-  })
-  const unbilled = useQuery({
-    queryKey: ["finance", "unbilled", "projection"] as const,
-    queryFn: ({ signal }) => unbilledReceipts(signal),
-    staleTime: 30_000,
-  })
-  const purchaseOrders = useQuery({
-    queryKey: procurementKeys.orders(),
-    queryFn: ({ signal }) => listPurchaseOrders(undefined, signal),
-    staleTime: 30_000,
-  })
-  const suppliers = useSuppliers()
-  const termsBook = useQuery({
-    queryKey: procurementKeys.paymentTerms(),
-    queryFn: ({ signal }) => paymentTermsBook(signal),
-    staleTime: 5 * 60_000,
-  })
-
-  const loading =
-    !unitReady ||
-    bills.isPending ||
-    drafts.isPending ||
-    giros.isPending ||
-    templates.isPending ||
-    unbilled.isPending ||
-    purchaseOrders.isPending ||
-    suppliers.isPending ||
-    termsBook.isPending
-  const errored =
-    bills.error ??
-    drafts.error ??
-    giros.error ??
-    templates.error ??
-    unbilled.error ??
-    purchaseOrders.error ??
-    suppliers.error ??
-    termsBook.error
+  const bills = useSuspenseQuery(projectionBillsQuery("POSTED", askedSites))
+  const drafts = useSuspenseQuery(projectionBillsQuery("DRAFT", askedSites))
+  const giros = useSuspenseQuery(projectionGirosQuery())
+  const templates = useSuspenseQuery(billTemplatesQuery())
+  const unbilled = useSuspenseQuery(projectionUnbilledQuery())
+  const purchaseOrders = useSuspenseQuery(projectionOrdersQuery())
+  const suppliers = useSuspenseQuery(supplierNamesQuery())
+  const termsBook = useSuspenseQuery(projectionTermsQuery())
 
   // ── the non-recurring rows — every date is the document's own, so these
   // don't depend on which month or year the calendar is showing ──────────
@@ -181,7 +141,7 @@ export function PaymentProjection() {
   const baseEntries = ((): ProjectionEntry[] => {
     const list: ProjectionEntry[] = []
 
-    for (const bill of bills.data ?? []) {
+    for (const bill of bills.data) {
       if (bill.outstanding_minor <= 0 || bill.due_date === null) continue
       list.push({
         key: `bill-${bill.invoice_id}`,
@@ -201,7 +161,7 @@ export function PaymentProjection() {
     }
 
     if (includeNotPayable) {
-      for (const bill of drafts.data ?? []) {
+      for (const bill of drafts.data) {
         if (bill.due_date === null) continue
         list.push({
           key: `draft-${bill.invoice_id}`,
@@ -221,7 +181,7 @@ export function PaymentProjection() {
       }
     }
 
-    for (const giro of giros.data ?? []) {
+    for (const giro of giros.data) {
       if (
         giro.status === "CLEARED" ||
         giro.status === "REJECTED" ||
@@ -252,14 +212,14 @@ export function PaymentProjection() {
       // Supplier codes (`SUP-001`), not the register's uuid: bills, receipts
       // and orders all carry the code — see `useSupplierName`'s own comment.
       const termCodeByCode = new Map<string, string | null>()
-      for (const supplier of suppliers.data ?? []) {
+      for (const supplier of suppliers.data) {
         termCodeByCode.set(
           supplier.supplier_code,
           supplier.default_payment_terms_code
         )
       }
 
-      for (const receipt of unbilled.data ?? []) {
+      for (const receipt of unbilled.data) {
         if (siteSet !== null && !siteSet.has(receipt.site_id)) continue
         const amount =
           receipt.invoice_total_minor ?? receipt.value_at_order_price_minor
@@ -281,7 +241,7 @@ export function PaymentProjection() {
         })
       }
 
-      for (const po of purchaseOrders.data ?? []) {
+      for (const po of purchaseOrders.data) {
         if (po.outstanding_stock_units <= 0 || po.fully_received) continue
         if (po.expected_stock_units <= 0 || po.expected_arrival === null)
           continue
@@ -325,7 +285,7 @@ export function PaymentProjection() {
   const recurringEntries = ((): ProjectionEntry[] => {
     if (!includeNotPayable) return []
     const list: ProjectionEntry[] = []
-    const bothBills = [...(bills.data ?? []), ...(drafts.data ?? [])]
+    const bothBills = [...bills.data, ...drafts.data]
     for (const { year, month } of monthsShown) {
       const monthKey = keyOf(year, month)
       const daysInThatMonth = new Date(year, month, 0).getDate()
@@ -337,7 +297,7 @@ export function PaymentProjection() {
           )
           .map((bill) => bill.supplier_id)
       )
-      for (const template of templates.data ?? []) {
+      for (const template of templates.data) {
         if (!template.active) continue
         if (siteSet !== null && !siteSet.has(template.site_id)) continue
         // A real bill from this supplier due this same month already
@@ -521,21 +481,28 @@ export function PaymentProjection() {
   return (
     <PageContent>
       <PageHeader
-        className="max-md:hidden"
         crumb="Finance · Payables"
         title="Payment Projection"
+        // The report's one action stands in the head; on a phone Export is a
+        // row of the Filters sheet.
+        actions={
+          phone ? undefined : (
+            <ExportButton
+              build={buildExport}
+              disabled={periodRows.length === 0 && overdueRows.length === 0}
+            />
+          )
+        }
       />
 
-      <Toolbar>
-        <Input
+      <Toolbar className="group/bar">
+        <ExpandingSearch
           value={needle}
-          onChange={(event) => {
-            setNeedle(event.target.value)
+          onChange={(next) => {
+            setNeedle(next)
             setSelectedDay(null)
           }}
-          aria-label="Search payments"
-          placeholder="Search payments"
-          className="h-control w-64"
+          label="Search payments"
         />
         <UnitSelect
           value={unit}
@@ -552,176 +519,168 @@ export function PaymentProjection() {
           onChange={setIncludeNotPayable}
         />
         <Toolbar.Spacer />
-        <span className="text-[0.875rem] text-mute">
+        <span className="text-[0.9375rem] text-mute">
           {unit === "" ? "all units" : <UnitName id={unit} />}
           {includeNotPayable ? "" : " · not-payable-yet excluded"}
         </span>
-        <ExportButton
-          variant="ghost"
-          build={buildExport}
-          disabled={periodRows.length === 0 && overdueRows.length === 0}
-        />
+        {phone && (
+          <ExportButton
+            variant="ghost"
+            build={buildExport}
+            disabled={periodRows.length === 0 && overdueRows.length === 0}
+          />
+        )}
       </Toolbar>
 
-      {errored !== undefined && errored !== null && (
-        <Banner tone="bad">
-          {problemOf(errored) ?? "The projection could not be read."}
-        </Banner>
-      )}
+      <>
+        <PeriodSummary items={summary} />
 
-      {loading ? (
-        <LoadingState>Working out what must be paid…</LoadingState>
-      ) : (
-        <>
-          <PeriodSummary items={summary} />
-
-          <Card className="mb-3 p-3">
-            <div className="mb-2 flex flex-wrap items-center gap-2">
-              <Segmented
-                options={[
-                  { value: "month" as const, label: "Month" },
-                  { value: "year" as const, label: "Year" },
-                ]}
-                value={mode}
-                onChange={(next) => {
-                  setMode(next)
-                  setSelectedDay(null)
-                }}
-              />
-              <span className="inline-flex items-center gap-1">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label={
-                    mode === "month" ? "Previous month" : "Previous year"
-                  }
-                  onClick={() => stepPeriod(-1)}
-                >
-                  <ChevronLeft className="size-4 stroke-[1.7]" />
-                </Button>
-                <span className="min-w-[8rem] text-center text-[0.9375rem] font-medium text-ink">
-                  {mode === "month"
-                    ? monthLabel(periodYear, periodMonth)
-                    : periodYear}
-                </span>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label={mode === "month" ? "Next month" : "Next year"}
-                  onClick={() => stepPeriod(1)}
-                >
-                  <ChevronRight className="size-4 stroke-[1.7]" />
-                </Button>
-              </span>
-              <Button variant="ghost" onClick={goToday}>
-                Today
+        <Card className="mb-3 p-3">
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <Segmented
+              options={[
+                { value: "month" as const, label: "Month" },
+                { value: "year" as const, label: "Year" },
+              ]}
+              value={mode}
+              onChange={(next) => {
+                setMode(next)
+                setSelectedDay(null)
+              }}
+            />
+            <span className="inline-flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label={
+                  mode === "month" ? "Previous month" : "Previous year"
+                }
+                onClick={() => stepPeriod(-1)}
+              >
+                <ChevronLeft className="size-4 stroke-[1.7]" />
               </Button>
-            </div>
-
-            {mode === "month" ? (
-              <BigMonthCalendar
-                year={periodYear}
-                month={periodMonth}
-                today={today}
-                dayTotals={monthDayTotals}
-                selectedDay={selectedDay}
-                onSelectDay={toggleDay}
-              />
-            ) : (
-              <YearGrid
-                year={periodYear}
-                rows={periodRows}
-                today={today}
-                onSelectMonth={selectMonth}
-                onSelectDay={selectMonthDay}
-              />
-            )}
-          </Card>
+              <span className="min-w-[8rem] text-center text-[0.9375rem] font-medium text-ink">
+                {mode === "month"
+                  ? monthLabel(periodYear, periodMonth)
+                  : periodYear}
+              </span>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label={mode === "month" ? "Next month" : "Next year"}
+                onClick={() => stepPeriod(1)}
+              >
+                <ChevronRight className="size-4 stroke-[1.7]" />
+              </Button>
+            </span>
+            <Button variant="ghost" onClick={goToday}>
+              Today
+            </Button>
+          </div>
 
           {mode === "month" ? (
-            <>
-              {selectedDay !== null && (
-                <div className="mb-1.5 flex items-center gap-2 text-[0.875rem] text-mute">
-                  <span>Showing {day(selectedDay)}</span>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedDay(null)}
-                    className="text-accent hover:underline"
-                  >
-                    Clear
-                  </button>
-                </div>
-              )}
+            <BigMonthCalendar
+              year={periodYear}
+              month={periodMonth}
+              today={today}
+              dayTotals={monthDayTotals}
+              selectedDay={selectedDay}
+              onSelectDay={toggleDay}
+            />
+          ) : (
+            <YearGrid
+              year={periodYear}
+              rows={periodRows}
+              today={today}
+              onSelectMonth={selectMonth}
+              onSelectDay={selectMonthDay}
+            />
+          )}
+        </Card>
+
+        {mode === "month" ? (
+          <>
+            {selectedDay !== null && (
+              <div className="mb-1.5 flex items-center gap-2 text-[0.9375rem] text-mute">
+                <span>Showing {day(selectedDay)}</span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedDay(null)}
+                  className="text-accent hover:underline"
+                >
+                  Clear
+                </button>
+              </div>
+            )}
+            <MonthSection
+              heading={monthLabel(periodYear, periodMonth)}
+              rows={
+                selectedDay === null
+                  ? periodRows
+                  : periodRows.filter((row) => row.date === selectedDay)
+              }
+              today={today}
+              selectedDay={null}
+              emptyText={
+                text !== ""
+                  ? `No payment matches “${needle.trim()}”.`
+                  : selectedDay === null
+                    ? `Nothing falls due in ${monthLabel(periodYear, periodMonth)}.`
+                    : `Nothing falls due on ${day(selectedDay)}.`
+              }
+            />
+
+            {showOverdue && overdueRows.length > 0 && (
+              <OverdueSection
+                rows={overdueRows}
+                today={today}
+                expanded={overdueExpanded}
+                onToggle={() => setOverdueExpanded((was) => !was)}
+                registerRef={overdueRef}
+              />
+            )}
+          </>
+        ) : (
+          <>
+            {showOverdue && overdueRows.length > 0 && (
               <MonthSection
-                heading={monthLabel(periodYear, periodMonth)}
-                rows={
-                  selectedDay === null
-                    ? periodRows
-                    : periodRows.filter((row) => row.date === selectedDay)
-                }
+                heading="Overdue"
+                rows={overdueRows}
                 today={today}
                 selectedDay={null}
-                emptyText={
-                  text !== ""
-                    ? `No payment matches “${needle.trim()}”.`
-                    : selectedDay === null
-                      ? `Nothing falls due in ${monthLabel(periodYear, periodMonth)}.`
-                      : `Nothing falls due on ${day(selectedDay)}.`
-                }
+                emptyText="Nothing is overdue."
               />
+            )}
 
-              {showOverdue && overdueRows.length > 0 && (
-                <OverdueSection
-                  rows={overdueRows}
-                  today={today}
-                  expanded={overdueExpanded}
-                  onToggle={() => setOverdueExpanded((was) => !was)}
-                  registerRef={overdueRef}
-                />
+            {text !== "" &&
+              periodRows.length === 0 &&
+              overdueRows.length === 0 && (
+                <p className="px-1 pb-1 text-[0.9375rem] text-mute">
+                  No payment matches “{needle.trim()}”.
+                </p>
               )}
-            </>
-          ) : (
-            <>
-              {showOverdue && overdueRows.length > 0 && (
+
+            {monthsShown.map(({ year, month }) => {
+              const key = keyOf(year, month)
+              const inMonth = periodRows.filter(
+                (row) => row.date.slice(0, 7) === key
+              )
+              // A month the search left empty is not worth a heading.
+              if (text !== "" && inMonth.length === 0) return null
+              return (
                 <MonthSection
-                  heading="Overdue"
-                  rows={overdueRows}
+                  key={key}
+                  heading={monthLabel(year, month)}
+                  rows={inMonth}
                   today={today}
                   selectedDay={null}
-                  emptyText="Nothing is overdue."
+                  emptyText={`Nothing falls due in ${monthLabel(year, month)}.`}
                 />
-              )}
-
-              {text !== "" &&
-                periodRows.length === 0 &&
-                overdueRows.length === 0 && (
-                  <p className="px-1 pb-1 text-[0.875rem] text-mute">
-                    No payment matches “{needle.trim()}”.
-                  </p>
-                )}
-
-              {monthsShown.map(({ year, month }) => {
-                const key = keyOf(year, month)
-                const inMonth = periodRows.filter(
-                  (row) => row.date.slice(0, 7) === key
-                )
-                // A month the search left empty is not worth a heading.
-                if (text !== "" && inMonth.length === 0) return null
-                return (
-                  <MonthSection
-                    key={key}
-                    heading={monthLabel(year, month)}
-                    rows={inMonth}
-                    today={today}
-                    selectedDay={null}
-                    emptyText={`Nothing falls due in ${monthLabel(year, month)}.`}
-                  />
-                )
-              })}
-            </>
-          )}
-        </>
-      )}
+              )
+            })}
+          </>
+        )}
+      </>
     </PageContent>
   )
 }
@@ -799,13 +758,13 @@ function MonthSection({
       <div className="mb-1.5 flex items-baseline justify-between gap-2">
         <h2 className="text-[0.9375rem] font-semibold text-ink">{heading}</h2>
         {rows.length > 0 && (
-          <span className="text-[0.875rem] text-mute">
+          <span className="text-[0.9375rem] text-mute">
             {rows.length} {rows.length === 1 ? "item" : "items"}
           </span>
         )}
       </div>
       {rows.length === 0 ? (
-        <p className="px-1 pb-1 text-[0.875rem] text-mute">{emptyText}</p>
+        <p className="px-1 pb-1 text-[0.9375rem] text-mute">{emptyText}</p>
       ) : (
         <ProjectionTable
           rows={rows}
@@ -849,7 +808,7 @@ function OverdueSection({
             Overdue · {rows.length} {rows.length === 1 ? "item" : "items"} ·{" "}
             {money(total)}
           </span>
-          <span className="shrink-0 text-[0.875rem] font-medium text-accent">
+          <span className="shrink-0 text-[0.9375rem] font-medium text-accent">
             {expanded ? "Hide" : "Show"}
           </span>
         </button>
@@ -886,131 +845,210 @@ function ProjectionTable({
     grandTotalLabel !== undefined &&
     payableRows.length > 0 &&
     notPayableRows.length > 0
-  const phone = useLayout() === "phone"
+  const both = payableRows.length > 0 && notPayableRows.length > 0
 
-  if (phone) {
-    const cards = (list: readonly ProjectionEntry[], muted: boolean) => (
-      <PhoneList
-        rows={list.map((row) => {
-          const status = statusOf(row, today)
-          return {
-            key: row.key,
-            title: <PartyCell row={row} muted={muted} />,
-            code: <WhatCell row={row} muted={muted} />,
-            lead: (
-              <CardFigure
-                value={money(row.amountMinor)}
-                tone={!muted && status.tone === "bad" ? "bad" : undefined}
-              />
-            ),
-            foot: (
-              <span>
-                {day(row.date)}
-                {row.estimated && " est."} · {TYPE_LABEL[row.kind]}
-              </span>
-            ),
-            action: (
-              <Status tone={muted ? "neutral" : status.tone}>
-                {status.label}
-              </Status>
-            ),
-          }
-        })}
-      />
+  /// Payables first, then what is only expected after them.
+  const lines = useMemo<ProjectionLine[]>(
+    () => [
+      ...rows
+        .filter((row) => row.payable)
+        .map((entry) => ({ entry, muted: false })),
+      ...rows
+        .filter((row) => !row.payable)
+        .map((entry) => ({ entry, muted: true })),
+    ],
+    [rows]
+  )
+  const columns = useMemo(() => projectionColumns(today), [today])
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: lines,
+        columns,
+        getRowId: (line: ProjectionLine) => line.entry.key,
+      }),
+      [lines, columns]
     )
-    const total = (text: string, minor: number) => (
-      <p className="flex items-baseline justify-between gap-3 px-1 text-[0.9375rem] font-medium text-ink tabular-nums">
-        <span>{text}</span>
-        <span>{money(minor)}</span>
-      </p>
-    )
-    return (
-      <div className="flex flex-col gap-3">
-        {payableRows.length > 0 && (
-          <>
-            {cards(payableRows, false)}
-            {total("Total payable", sumOf(payableRows))}
-          </>
-        )}
-        {notPayableRows.length > 0 && (
-          <>
-            <h3 className="px-1 text-[0.875rem] text-mute">Not payable yet</h3>
-            {cards(notPayableRows, true)}
-            {total("Total not payable yet", sumOf(notPayableRows))}
-          </>
-        )}
-        {showGrandTotal && total(`Total ${grandTotalLabel}`, sumOf(rows))}
-      </div>
-    )
-  }
+  )
 
   return (
-    <Grid>
-      <thead>
-        <tr>
-          <Th width="7rem">Date</Th>
-          <Th>What</Th>
-          <Th>Supplier</Th>
-          <Th width="7rem">Type</Th>
-          <Th width="7rem">Status</Th>
-          <Th align="right" width="9.5rem">
-            Amount
-          </Th>
-        </tr>
-      </thead>
-      <tbody>
-        {payableRows.map((row) => (
-          <ProjectionRow
-            key={row.key}
-            row={row}
-            today={today}
-            highlighted={selectedDay === row.date}
-          />
-        ))}
-        {payableRows.length > 0 && (
-          <TotalRow>
-            <Td colSpan={5}>Total payable</Td>
-            <Td align="right">{money(sumOf(payableRows))}</Td>
-          </TotalRow>
-        )}
-        {notPayableRows.length > 0 && (
-          <>
-            <tr>
-              <Td colSpan={6} className="bg-soft whitespace-normal text-mute">
-                Not payable yet
-              </Td>
-            </tr>
-            {notPayableRows.map((row) => (
-              <ProjectionRow
-                key={row.key}
-                row={row}
-                today={today}
-                highlighted={selectedDay === row.date}
-                muted
-              />
-            ))}
-            <tr className="h-11 border-t border-hairline-2 bg-soft [&>td]:border-b-0 [&>td]:py-0 [&>td]:whitespace-nowrap [&>td]:text-mute [&>td]:tabular-nums">
-              <Td colSpan={5}>Total not payable yet</Td>
-              <Td align="right">{money(sumOf(notPayableRows))}</Td>
-            </tr>
-          </>
-        )}
-        {showGrandTotal && (
-          <TotalRow>
-            <Td colSpan={5}>Total {grandTotalLabel}</Td>
-            <Td align="right">{money(sumOf(rows))}</Td>
-          </TotalRow>
-        )}
-      </tbody>
-    </Grid>
+    <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+      <DataTable<ProjectionLine>
+        table={table}
+        isSelected={(line) => selectedDay === line.entry.date}
+        // A band over each half, with how many it holds and what they add up
+        // to — the subtotal rows this table used to carry. A table of payables
+        // alone needs none: its total is the foot.
+        renderBefore={(line, index, all) =>
+          index > 0 &&
+          all[index - 1].muted === line.muted ? null : line.muted ? (
+            <ProjectionBand
+              title="Not payable yet"
+              rows={notPayableRows}
+              tone="mute"
+            />
+          ) : both ? (
+            <ProjectionBand title="Payable" rows={payableRows} />
+          ) : null
+        }
+        summary={{
+          date: (
+            <span>
+              {showGrandTotal
+                ? `Total ${grandTotalLabel}`
+                : payableRows.length > 0
+                  ? "Total payable"
+                  : "Total not payable yet"}
+            </span>
+          ),
+          amount: money(sumOf(rows)),
+        }}
+        pageScroll
+        cardSort={false}
+        cardsApart
+        cardLead
+      />
+    </Card>
   )
 }
 
+/// One half of a month's table, named, counted and added up.
+function ProjectionBand({
+  title,
+  rows,
+  tone,
+}: {
+  title: string
+  rows: readonly ProjectionEntry[]
+  tone?: "mute"
+}) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 bg-soft px-3 py-2 text-[0.9375rem]">
+      <span
+        className={cn(
+          "font-semibold",
+          tone === "mute" ? "text-mute" : "text-ink"
+        )}
+      >
+        {title}
+        <span className="font-normal text-mute">
+          {" "}
+          · {rows.length} {rows.length === 1 ? "item" : "items"}
+        </span>
+      </span>
+      <span className="text-mute tabular-nums">{money(sumOf(rows))}</span>
+    </div>
+  )
+}
+
+/// A row of the projection, and whether it is only an expectation. On a card
+/// the supplier names it, the document sits over it, the amount stands at the
+/// right and the day and the kind are in the foot with the status.
+interface ProjectionLine {
+  readonly entry: ProjectionEntry
+  readonly muted: boolean
+}
+
+function projectionColumns(
+  today: string
+): ColumnDef<TableSetup, ProjectionLine>[] {
+  return [
+    {
+      id: "date",
+      accessorFn: (line) => line.entry.date,
+      header: "Date",
+      size: 135,
+      enableSorting: false,
+      meta: { card: "foot" },
+      cell: ({ row }) => (
+        <span className={row.original.muted ? "text-mute" : undefined}>
+          {day(row.original.entry.date)}
+          {row.original.entry.estimated && (
+            <span className="text-mute"> est.</span>
+          )}
+        </span>
+      ),
+    },
+    {
+      id: "what",
+      accessorFn: (line) => line.entry.whatLabel,
+      header: "What",
+      size: 200,
+      enableSorting: false,
+      meta: { card: "id", grow: 160 },
+      cell: ({ row }) => (
+        <WhatCell row={row.original.entry} muted={row.original.muted} />
+      ),
+    },
+    {
+      id: "supplier",
+      accessorFn: (line) => line.entry.supplierName,
+      header: "Supplier",
+      size: 220,
+      enableSorting: false,
+      meta: { card: "title" },
+      cell: ({ row }) => (
+        <PartyCell row={row.original.entry} muted={row.original.muted} />
+      ),
+    },
+    {
+      id: "type",
+      accessorFn: (line) => line.entry.kind,
+      header: "Type",
+      size: 150,
+      enableSorting: false,
+      meta: { card: "foot", priority: 3 },
+      cell: ({ row }) => (
+        <span className={row.original.muted ? "text-mute" : undefined}>
+          {TYPE_LABEL[row.original.entry.kind]}
+        </span>
+      ),
+    },
+    {
+      id: "status",
+      accessorFn: (line) => statusOf(line.entry, today).label,
+      header: "Status",
+      size: 120,
+      enableSorting: false,
+      meta: { card: "status" },
+      cell: ({ row }) => {
+        const status = statusOf(row.original.entry, today)
+        return (
+          <Status tone={row.original.muted ? "neutral" : status.tone}>
+            {status.label}
+          </Status>
+        )
+      },
+    },
+    {
+      id: "amount",
+      accessorFn: (line) => line.entry.amountMinor,
+      header: "Amount",
+      size: 150,
+      enableSorting: false,
+      meta: { align: "right", card: "lead" },
+      cell: ({ row }) => (
+        <span
+          className={
+            row.original.muted
+              ? "text-mute"
+              : statusOf(row.original.entry, today).tone === "bad"
+                ? "text-bad-fg"
+                : undefined
+          }
+        >
+          {money(row.original.entry.amountMinor)}
+        </span>
+      ),
+    },
+  ]
+}
+
 // ---------------------------------------------------------------------------
-// The summary strip — `ReportSummary`'s own markup, kept local rather than
-// shared: this is the one screen in Finance whose Overdue figure is also a
-// button, and a shared component grown an `onClick` only one caller uses is
-// a worse trade than a page-local copy of four short lines of JSX.
+// The summary strip — the report's figures as `KpiStrip`, with one difference:
+// this is the one screen in Finance whose Overdue figure is also a button, so
+// its card opens the Overdue table.
 // ---------------------------------------------------------------------------
 
 interface SummaryTile {
@@ -1022,42 +1060,42 @@ interface SummaryTile {
 
 function PeriodSummary({ items }: { items: readonly SummaryTile[] }) {
   return (
-    <Card className="mb-3">
-      <dl className="grid grid-cols-2 divide-hairline sm:flex sm:divide-x">
-        {items.map((item) => {
-          const valueCls = cn(
-            "mt-1 text-[1.25rem] leading-tight font-semibold tracking-[-0.01em] tabular-nums",
-            item.indicator === "Red" ? "text-bad-fg" : "text-ink"
-          )
-          const body = (
-            <>
-              <dt className="truncate text-[0.875rem] text-mute">
-                {item.label}
-              </dt>
-              <dd className={valueCls}>
+    <KpiStrip
+      className={
+        items.length === 4
+          ? "grid-cols-2 md:grid-cols-4 xl:grid-cols-4"
+          : "grid-cols-2 md:grid-cols-3 xl:grid-cols-3"
+      }
+    >
+      {items.map((item) => {
+        const card = (
+          <Kpi
+            label={item.label}
+            value={
+              <span
+                className={item.indicator === "Red" ? "text-bad-fg" : undefined}
+              >
                 {item.value === null || item.value === undefined
                   ? "—"
                   : money(item.value)}
-              </dd>
-            </>
-          )
-          return item.onClick ? (
-            <button
-              key={item.label}
-              type="button"
-              onClick={item.onClick}
-              className="min-w-0 flex-1 px-4 py-3.5 text-left hover:bg-soft"
-            >
-              {body}
-            </button>
-          ) : (
-            <div key={item.label} className="min-w-0 flex-1 px-4 py-3.5">
-              {body}
-            </div>
-          )
-        })}
-      </dl>
-    </Card>
+              </span>
+            }
+          />
+        )
+        return item.onClick ? (
+          <button
+            key={item.label}
+            type="button"
+            onClick={item.onClick}
+            className="h-full min-w-0 text-left"
+          >
+            {card}
+          </button>
+        ) : (
+          <div key={item.label}>{card}</div>
+        )
+      })}
+    </KpiStrip>
   )
 }
 
@@ -1155,7 +1193,7 @@ function BigMonthCalendar({
         {WEEKDAY_LABELS.map((label) => (
           <div
             key={label}
-            className="px-1 pb-1.5 text-center text-[0.875rem] font-medium text-mute"
+            className="px-1 pb-1.5 text-center text-[0.9375rem] font-medium text-mute"
           >
             {label}
           </div>
@@ -1195,7 +1233,7 @@ function BigMonthCalendar({
             >
               <span
                 className={cn(
-                  "text-[0.875rem] tabular-nums",
+                  "text-[0.9375rem] tabular-nums",
                   !cell.inMonth && "text-faint",
                   cell.inMonth && !pastOpen && cell.weekend && "text-mute",
                   cell.inMonth && !pastOpen && !cell.weekend && "text-ink",
@@ -1208,13 +1246,13 @@ function BigMonthCalendar({
                 <>
                   <span
                     className={cn(
-                      "text-[0.875rem] font-medium tabular-nums max-md:hidden",
+                      "text-[0.9375rem] font-medium tabular-nums max-md:hidden",
                       pastOpen ? "text-bad-fg" : "text-ink"
                     )}
                   >
                     {compactRupiah.format(totals.total)}
                   </span>
-                  <span className="text-[0.875rem] text-mute max-md:hidden">
+                  <span className="text-[0.9375rem] text-mute max-md:hidden">
                     {totals.count} {totals.count === 1 ? "item" : "items"}
                   </span>
                 </>
@@ -1321,11 +1359,11 @@ function MiniMonthCard({
       <button
         type="button"
         onClick={onSelectMonth}
-        className="mb-1 block w-full truncate text-left text-[0.875rem] font-medium text-ink hover:text-accent"
+        className="mb-1 block w-full truncate text-left text-[0.9375rem] font-medium text-ink hover:text-accent"
       >
         {monthLabel(year, month)}
       </button>
-      <div className="mb-1.5 text-[0.875rem] tabular-nums">
+      <div className="mb-1.5 text-[0.9375rem] tabular-nums">
         <span className="text-ink">{compactRupiah.format(payable)}</span>
         {notPayable > 0 && (
           <span className="text-mute">
@@ -1336,7 +1374,7 @@ function MiniMonthCard({
       </div>
       <div className="grid grid-cols-7 gap-0.5">
         {WEEKDAY_INITIALS.map((label, index) => (
-          <div key={index} className="text-center text-[0.875rem] text-mute">
+          <div key={index} className="text-center text-[0.9375rem] text-mute">
             {label}
           </div>
         ))}
@@ -1377,7 +1415,7 @@ function MiniMonthCard({
             >
               <span
                 className={cn(
-                  "text-[0.875rem] tabular-nums",
+                  "text-[0.9375rem] tabular-nums",
                   !cell.inMonth && "text-faint",
                   cell.inMonth && !hasItem && cell.weekend && "text-mute",
                   cell.inMonth && !hasItem && !cell.weekend && "text-ink",
@@ -1477,44 +1515,6 @@ function statusOf(
     : { label: "Due", tone: "neutral" }
 }
 
-function ProjectionRow({
-  row,
-  today,
-  highlighted,
-  muted,
-}: {
-  row: ProjectionEntry
-  today: string
-  highlighted: boolean
-  muted?: boolean
-}) {
-  const status = statusOf(row, today)
-  const dim = muted === true ? "text-mute" : undefined
-  return (
-    <tr className={cn(highlighted && "bg-soft-2")}>
-      <Td className={cn("whitespace-nowrap", dim)}>
-        {day(row.date)}
-        {row.estimated && <span className="text-mute"> est.</span>}
-      </Td>
-      <Td className={dim}>
-        <WhatCell row={row} muted={muted === true} />
-      </Td>
-      <Td className={dim}>
-        <PartyCell row={row} muted={muted === true} />
-      </Td>
-      <Td className={dim}>{TYPE_LABEL[row.kind]}</Td>
-      <Td className={dim}>
-        <Status tone={muted === true ? "neutral" : status.tone}>
-          {status.label}
-        </Status>
-      </Td>
-      <Td align="right" className={dim}>
-        {money(row.amountMinor)}
-      </Td>
-    </tr>
-  )
-}
-
 function WhatCell({ row, muted }: { row: ProjectionEntry; muted: boolean }) {
   if (
     row.kind === "recurring" ||
@@ -1530,7 +1530,7 @@ function WhatCell({ row, muted }: { row: ProjectionEntry; muted: boolean }) {
     <AppLink
       to={row.link.to}
       sheet={row.link.sheet}
-      className="font-mono text-[0.875rem] text-mute hover:text-accent hover:underline"
+      className="font-mono text-[0.9375rem] text-mute hover:text-accent hover:underline"
     >
       {row.whatLabel}
     </AppLink>

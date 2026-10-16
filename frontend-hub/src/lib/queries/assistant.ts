@@ -1,4 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  queryOptions,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
 
 import { node } from "@/lib/api"
 
@@ -122,14 +127,21 @@ export interface Brief {
   readonly prompts: readonly string[]
 }
 
-export function useBrief() {
-  return useQuery({
+/// Options form of the morning brief, shared by the hooks, the screens that
+/// read it by suspending and the prefetcher (`screens/home/prefetch.ts`), so
+/// the figures are in the first HTML.
+export function briefQueryOptions() {
+  return queryOptions({
     queryKey: cacheKey.brief(),
     queryFn: () => node.get<Brief>("/api/v1/assistant/brief"),
     // A morning brief is a morning's worth of news. Refetching it on every
     // focus would make the headline figure flicker while somebody reads it.
     staleTime: 60_000,
   })
+}
+
+export function useBrief() {
+  return useQuery(briefQueryOptions())
 }
 
 // ---- The chats somebody kept -------------------------------------------
@@ -382,14 +394,20 @@ export interface GlossaryEntry {
   readonly set_at: string
 }
 
-export function useGlossary() {
-  return useQuery({
+/// Options form of the glossary, shared by the hook, the screen (which reads
+/// it by suspending) and the prefetcher.
+export function glossaryQuery() {
+  return queryOptions({
     queryKey: cacheKey.glossary(),
     queryFn: () =>
       node
         .get<{ items: GlossaryEntry[] }>("/api/v1/assistant/glossary")
         .then((page) => page.items),
   })
+}
+
+export function useGlossary() {
+  return useQuery(glossaryQuery())
 }
 
 /// Add a word, or change one when `id` is given.

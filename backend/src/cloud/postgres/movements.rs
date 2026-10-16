@@ -887,16 +887,19 @@ fn movement_scope_places(bind: usize) -> String {
     )
 }
 
-/// The needle's predicate over one movement row — the tag, the SKU code, who
-/// posted it, the two place ids and the reference. `bind` is the position the
-/// pattern sits at: the page wraps it in a null-check so one text serves every
-/// call, the facets in brackets, since their text carries only set filters.
+/// The needle's predicate over one movement row — the tag, the SKU code, the
+/// article's name, who posted it, the two place ids and the reference. `bind`
+/// is the position the pattern sits at: the page wraps it in a null-check so
+/// one text serves every call, the facets in brackets, since their text
+/// carries only set filters.
 fn movement_needle_clause(bind: usize) -> String {
     format!(
         r#"m.actor_id ILIKE ${bind} OR m.from_place_id ILIKE ${bind} OR m.to_place_id ILIKE ${bind}
        OR m.reference_id ILIKE ${bind}
        OR EXISTS (SELECT 1 FROM inventory_subject s LEFT JOIN sku sk ON sk.id=s.sku_id
-                   WHERE s.id=m.subject_id AND (s.epc ILIKE ${bind} OR sk.sku_code ILIKE ${bind}))"#
+                   LEFT JOIN article a ON a.id=sk.article_id
+                   WHERE s.id=m.subject_id
+                     AND (s.epc ILIKE ${bind} OR sk.sku_code ILIKE ${bind} OR a.name ILIKE ${bind}))"#
     )
 }
 

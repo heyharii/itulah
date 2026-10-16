@@ -137,8 +137,15 @@ export function variantPieces(variants: readonly VariantDraft[]): number {
   return variants.reduce((sum, one) => sum + (digits(one.quantity) ?? 0), 0)
 }
 
-/// The rows with a quantity, as the wire wants them.
-export function variantsForWire(variants: readonly VariantDraft[]) {
+/// The rows with a quantity, as the wire wants them. A SKU without photos of
+/// its own wears the article's (owner, 2026-10-16: "ikut yg default article
+/// dlu, tapi bisa diubah").
+export function variantsForWire(
+  variants: readonly VariantDraft[],
+  articlePhoto: string | null = null
+) {
+  const fallback =
+    articlePhoto !== null && /^(https?:)?\//.test(articlePhoto) ? [articlePhoto] : []
   return variants
     .filter((one) => (digits(one.quantity) ?? 0) > 0)
     .map((one) => ({
@@ -146,7 +153,7 @@ export function variantsForWire(variants: readonly VariantDraft[]) {
       size_code: one.size,
       quantity: digits(one.quantity) ?? 0,
       base_price_minor: digits(one.price),
-      image_urls: [...(one.photos ?? [])],
+      image_urls: (one.photos ?? []).length > 0 ? [...(one.photos ?? [])] : fallback,
     }))
 }
 

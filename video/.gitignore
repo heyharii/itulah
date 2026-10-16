@@ -1,0 +1,3 @@
+out/
+# Copied from frontend-hub on every dev/render (scripts/sync-hub-css.mjs).
+src/hub.css

@@ -1,3 +1,4 @@
+import { DocStamp } from "@/components/ui/doc-stamp"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Download, Printer, ChevronRight, Search } from "lucide-react"
 import { useMemo, useState } from "react"
@@ -8,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { ConfirmButton } from "@/components/ui/dialog"
 import { Input, Select } from "@/components/ui/field"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { Segmented } from "@/components/ui/segmented"
 import { Fab } from "@/components/ui/fab"
@@ -41,6 +43,7 @@ import {
   expectsReplacement,
   isReplacementPo,
   raiseReplacementOrder,
+  returnProof,
   skuSuppliers,
   supplierReturnKeys,
   supplierReturns,
@@ -73,6 +76,7 @@ import {
   foldLines,
   NOT_AS_ORDERED_ROW,
   returnLineParts,
+  UNKNOWN_NOTE,
 } from "@/screens/procurement/return-lines"
 import { useActor } from "@/screens/procurement/shared"
 import {
@@ -89,7 +93,13 @@ import {
 /// over). Confirming a return of the first book issues its surat — the
 /// numbered return delivery note, QR-tracked, the supplier signs against.
 
-type Tab = "open" | "closed"
+/// Where a return stands (owner, 16 Oct 2026): To be returned → In progress
+/// (its delivery note is generated) → Completed.
+type Tab = "todo" | "progress" | "closed"
+function stageOf(row: Row): Tab {
+  if (!row.open) return "closed"
+  return row.noteAt !== null ? "progress" : "todo"
+}
 type Tone = "ok" | "warn" | "bad" | "info" | "accent" | "neutral" | "done"
 
 /// One line of the list, whichever book it came from.
@@ -137,6 +147,9 @@ export interface Row {
   /// them; the register's problem-goods returns leave through the picklist.
   readonly pic: string | null
   readonly noteAt: string | null
+  /// A few words per item on the note, by article code (`UNKNOWN_NOTE` for
+  /// the not-as-ordered pieces), written when it was generated.
+  readonly lineNotes: Readonly<Record<string, string>>
   /// The return itself, for the actions that raise something from it.
   readonly raw: SupplierReturn | null
 }
@@ -197,6 +210,7 @@ function fromSupplierReturn(
     letterId: r.letter_id,
     pic: null,
     noteAt: null,
+    lineNotes: {},
     letterNumber: r.letter_number,
     raw: r,
   }
@@ -296,6 +310,7 @@ export function useReturnRows() {
       letterId: null,
       pic: r.note_pic ?? null,
       noteAt: r.note_generated_at ?? null,
+      lineNotes: r.line_notes ?? {},
       letterNumber: null,
       raw: null,
     }))
@@ -306,7 +321,7 @@ export function useReturnRows() {
 }
 
 export function SupplierReturns() {
-  const [tab, setTab] = useState<Tab>("open")
+  const [tab, setTab] = useState<Tab>("todo")
   const [asking, setAsking] = useState(false)
   const sheet = useSheet("allotment")
   /// What was typed in the search, in the URL like the order list's: a supplier,
@@ -314,14 +329,14 @@ export function SupplierReturns() {
   const search = useSheet("q")
   const needle = (search.value ?? "").trim().toLowerCase()
 
-  const { all, returns } = useReturnRows()
+  const { all, returns, over } = useReturnRows()
 
   const owed = all.reduce((sum, row) => sum + row.owedMinor, 0)
   const rows = useMemo(
     () =>
       all.filter(
         (row) =>
-          row.open === (tab === "open") &&
+          stageOf(row) === tab &&
           (needle === "" ||
             [row.supplier, row.number, row.reference ?? ""].some((text) =>
               text.toLowerCase().includes(needle)
@@ -336,11 +351,24 @@ export function SupplierReturns() {
 
   if (asking) return <NewReturn onDone={() => setAsking(false)} />
 
-  const openCount = all.filter((row) => row.open).length
+  const byStage = (stage: Tab) => all.filter((row) => stageOf(row) === stage)
+  const todo = byStage("todo")
+  const progress = byStage("progress")
+  const closed = byStage("closed")
+  const pcsOf = (list: readonly Row[]) =>
+    list.reduce((sum, row) => sum + row.pcs, 0)
 
   return (
     <PageContent>
       <PageHeader title="Return PO" />
+
+      {/* The book at a glance, as Allotments reads it (owner, 16 Oct 2026). */}
+      <KpiStrip className="grid-cols-2 md:grid-cols-4 xl:grid-cols-4">
+        <Kpi label="To be returned" value={`${quantity(pcsOf(todo))}`} />
+        <Kpi label="In progress" value={`${quantity(pcsOf(progress))}`} />
+        <Kpi label="Completed" value={`${quantity(pcsOf(closed))}`} />
+        <Kpi label="Suppliers owe" value={money(owed)} />
+      </KpiStrip>
 
       <div className="flex flex-wrap items-end justify-between gap-x-6">
         <SubTabs
@@ -350,19 +378,15 @@ export function SupplierReturns() {
           value={tab}
           onChange={(next) => setTab(next as Tab)}
           tabs={[
-            { value: "open", label: `Active ${count(openCount)}` },
+            { value: "todo", label: `To be returned ${count(todo.length)}` },
             {
-              value: "closed",
-              label: `Completed ${count(all.length - openCount)}`,
+              value: "progress",
+              label: "In progress",
+              alert: progress.length,
             },
+            { value: "closed", label: `Completed ${count(closed.length)}` },
           ]}
         />
-        <span className="mb-3.5 text-body">
-          Suppliers still owe{" "}
-          <span className="font-semibold text-ink tabular-nums">
-            {money(owed)}
-          </span>
-        </span>
       </div>
 
       {/* The same search and the same New return as every list: a field and a
@@ -396,12 +420,9 @@ export function SupplierReturns() {
         status={{
           value: tab,
           options: [
-            { value: "open", label: "Active", count: openCount },
-            {
-              value: "closed",
-              label: "Completed",
-              count: all.length - openCount,
-            },
+            { value: "todo", label: "To be returned", count: todo.length },
+            { value: "progress", label: "In progress", count: progress.length },
+            { value: "closed", label: "Completed", count: closed.length },
           ],
           onChange: (next) => setTab(next as Tab),
         }}
@@ -421,6 +442,7 @@ export function SupplierReturns() {
               selected={sheet.value}
               onOpen={sheet.open}
               showPic={false}
+              refresh={[returns, over]}
             />
           ),
       })}
@@ -447,7 +469,23 @@ export function noteOf(
       reason: one.reason,
       reference: one.reference,
       lines: one.lines,
+      notes: one.lineNotes,
     })),
+    // One finished return: the note wears the stamp its sheet does.
+    stamp:
+      returns.length === 1 && !returns[0].open
+        ? {
+            word:
+              returns[0].status === "Closed short" ? "CLOSED SHORT" : "COMPLETED",
+            at:
+              [
+                ...returns[0].settlements.map((one) => one.recorded_at),
+                returns[0].handedOverAt ?? "",
+              ]
+                .sort()
+                .at(-1) || null,
+          }
+        : undefined,
   }
 }
 
@@ -463,6 +501,7 @@ export function ReturnSheet({
   onClose,
   extra,
   form,
+  notes,
 }: {
   row: Row | null
   onClose: () => void
@@ -472,12 +511,25 @@ export function ReturnSheet({
   /// A form at the head of the sheet's body — the board's Person in Charge,
   /// asked before the note can be generated.
   form?: React.ReactNode
+  /// Each item's note being written before the note is generated (the
+  /// board's); without it the sheet reads the notes the return was given.
+  notes?: {
+    readonly value: Readonly<Record<string, string>>
+    readonly onChange: (sku: string, text: string) => void
+  }
 }) {
   const client = useQueryClient()
+  // The photo taken when the return was confirmed, once it is done.
+  const proof = useQuery({
+    queryKey: supplierReturnKeys.proof(row?.id ?? ""),
+    queryFn: ({ signal }) => returnProof(row!.id, signal),
+    enabled: row !== null && (row.handedOverAt !== null || !row.open),
+    staleTime: 60_000,
+  })
   // The note's public link (its QR) is made as soon as the sheet shows the
   // note, so Print and Download below stay synchronous. A sheet that leaves
   // the note to its own step (`extra`) makes it there.
-  const qrUrl = useReturnNoteLink(
+  const link = useReturnNoteLink(
     row && extra === undefined ? noteOf([row], row.pic) : null
   )
   const expectSaid = useSaid()
@@ -639,7 +691,7 @@ export function ReturnSheet({
               <Button
                 variant="ghost"
                 onClick={() =>
-                  printReturnNote(withNoteLink(noteOf([row], row.pic), qrUrl))
+                  printReturnNote(withNoteLink(noteOf([row], row.pic), link))
                 }
               >
                 <Printer />
@@ -648,7 +700,7 @@ export function ReturnSheet({
               <Button
                 variant="ghost"
                 onClick={() =>
-                  downloadReturnPdf(withNoteLink(noteOf([row], row.pic), qrUrl))
+                  downloadReturnPdf(withNoteLink(noteOf([row], row.pic), link))
                 }
               >
                 <Download />
@@ -705,15 +757,22 @@ export function ReturnSheet({
         {row && (
           <div className="relative flex flex-col gap-6">
             {/* The stamp the order sheet wears, over the corner once the return
-                is done: green for completed, and for one closed short. It takes
-                no row of its own. */}
+                is done, with the day: the last settlement, or the hand-over. */}
             {!row.open && (
-              <span
-                aria-hidden
-                className="pointer-events-none absolute top-1 right-2 z-10 inline-block -rotate-6 rounded-inner border-2 border-ok-fg px-3 py-0.5 text-[1.125rem] font-bold tracking-[0.14em] text-ok-fg opacity-40 select-none"
-              >
-                {row.status === "Closed short" ? "CLOSED SHORT" : "COMPLETED"}
-              </span>
+              <DocStamp
+                word={
+                  row.status === "Closed short" ? "Closed short" : "Completed"
+                }
+                at={
+                  [
+                    ...row.settlements.map((one) => one.recorded_at),
+                    row.handedOverAt ?? "",
+                  ]
+                    .sort()
+                    .at(-1) || null
+                }
+                tone={row.status === "Closed short" ? "bad" : "ok"}
+              />
             )}
             {form}
             <Problem error={expect.error} />
@@ -762,6 +821,24 @@ export function ReturnSheet({
                   </button>
                 </Fact>
               )}
+              {/* The photo taken on Confirm, proof the supplier received the
+                  goods (owner, 2026-10-16). */}
+              {proof.data && (
+                <Fact term="Proof of Receipt">
+                  <a
+                    href={proof.data.photo_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block w-40 overflow-hidden rounded-inner border border-hairline"
+                  >
+                    <img
+                      src={proof.data.photo_url}
+                      alt="Proof of receipt"
+                      className="aspect-[4/3] w-full object-cover"
+                    />
+                  </a>
+                </Fact>
+              )}
               {row.settleBy !== null && row.handedOverAt !== null && (
                 <Fact term="Settled">
                   <Settled row={row} wide />
@@ -776,8 +853,9 @@ export function ReturnSheet({
               <Card className="overflow-hidden">
                 <table className="w-full border-collapse text-[0.9375rem]">
                   <thead>
-                    <tr className="h-11 bg-soft text-left text-[0.875rem] font-medium text-body">
+                    <tr className="h-11 bg-soft text-left text-[0.9375rem] font-medium text-body">
                       <th className="pl-4">Item</th>
+                      <th className="w-[40%] px-3">Notes</th>
                       <th className="pr-4 text-right">Quantity</th>
                     </tr>
                   </thead>
@@ -787,6 +865,7 @@ export function ReturnSheet({
                         <td className="pl-4 leading-snug font-medium text-ink">
                           {one.name}
                         </td>
+                        <NoteCell sku={one.sku} row={row} notes={notes} />
                         <td className="pr-4 text-right tabular-nums">
                           {count(one.qty)}
                         </td>
@@ -802,13 +881,16 @@ export function ReturnSheet({
                             {NOT_AS_ORDERED_ROW.sub}
                           </span>
                         </td>
+                        <NoteCell sku={UNKNOWN_NOTE} row={row} notes={notes} />
                         <td className="pr-4 text-right tabular-nums">
                           {count(folded.unknown)}
                         </td>
                       </tr>
                     )}
                     <tr className="border-t border-ink font-semibold text-ink">
-                      <td className="pl-4">Total</td>
+                      <td className="pl-4" colSpan={2}>
+                        Total
+                      </td>
                       <td className="pr-4 text-right tabular-nums">
                         {count(folded.total)}
                       </td>
@@ -823,6 +905,38 @@ export function ReturnSheet({
         )}
       </Sheet>
     </>
+  )
+}
+
+/// An item's note in the sheet: a field while the note is being generated,
+/// the words it was given after; not required.
+function NoteCell({
+  sku,
+  row,
+  notes,
+}: {
+  sku: string
+  row: Row
+  notes?: {
+    readonly value: Readonly<Record<string, string>>
+    readonly onChange: (sku: string, text: string) => void
+  }
+}) {
+  if (notes === undefined)
+    return (
+      <td className="px-3 leading-snug break-words text-ink">
+        {row.lineNotes[sku] ?? ""}
+      </td>
+    )
+  return (
+    <td className="px-3 !py-2">
+      <Input
+        value={notes.value[sku] ?? ""}
+        onChange={(event) => notes.onChange(sku, event.target.value)}
+        aria-label="Notes"
+        className="h-9"
+      />
+    </td>
   )
 }
 
@@ -1038,7 +1152,7 @@ function NewReturn({ onDone }: { onDone: () => void }) {
                 ) : (
                   <table className="w-full border-collapse text-body">
                     <thead>
-                      <tr className="h-12 border-b border-hairline bg-soft text-left text-[0.875rem] font-medium text-body">
+                      <tr className="h-12 border-b border-hairline bg-soft text-left text-[0.9375rem] font-medium text-body">
                         <th className="pl-4">Items</th>
                         <th className="text-right">Available</th>
                         <th className="pr-4 text-right">To Return</th>
@@ -1054,7 +1168,7 @@ function NewReturn({ onDone }: { onDone: () => void }) {
                             <span className="block leading-snug font-medium text-ink">
                               {item.article_name}
                             </span>
-                            <span className="mt-1 block font-mono text-[0.875rem] text-mute">
+                            <span className="mt-1 block font-mono text-[0.9375rem] text-mute">
                               {item.sku_code}
                             </span>
                           </td>
@@ -1127,15 +1241,17 @@ function NewReturn({ onDone }: { onDone: () => void }) {
 function ActivityFold({ events }: { events: TimelineEvent[] }) {
   return (
     <Collapsible.Root>
-      <Collapsible.Trigger className="group flex w-full items-center gap-1.5 border-t border-hairline pt-3.5 text-left text-[0.875rem] font-medium text-body transition-colors hover:text-ink">
+      <Collapsible.Trigger className="group flex w-full items-center gap-1.5 border-t border-hairline pt-3.5 text-left text-[0.9375rem] font-medium text-body transition-colors hover:text-ink">
         <ChevronRight className="size-3.5 text-line-ico transition-transform duration-150 group-data-[panel-open]:rotate-90" />
         Activity
         {events.length > 0 && (
           <span className="text-mute tabular-nums">{events.length}</span>
         )}
       </Collapsible.Trigger>
-      <Collapsible.Panel className="overflow-hidden pt-3">
-        <Timeline events={events} />
+      <Collapsible.Panel className="fold-panel">
+        <div className="pt-3">
+          <Timeline events={events} />
+        </div>
       </Collapsible.Panel>
     </Collapsible.Root>
   )

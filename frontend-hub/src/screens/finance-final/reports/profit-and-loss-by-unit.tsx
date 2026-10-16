@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query"
-import { useMemo, useState } from "react"
+import { useSuspenseQueries } from "@tanstack/react-query"
+import { Suspense, useDeferredValue, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Card } from "@/components/ui/card"
@@ -8,7 +8,7 @@ import { PageHeader } from "@/components/ui/page-header"
 import { EmptyState } from "@/components/ui/states"
 import { fileSafe, type ExportSheet } from "@/lib/export-xlsx"
 import { useLayout } from "@/lib/layout"
-import { financeKeys, statement } from "@/lib/queries/finance"
+import { resultStatementQuery } from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
 import { Code, Grid, Td, Th, TotalRow } from "@/screens/finance-final/parts"
 import {
@@ -33,6 +33,7 @@ import {
   type StatementLine,
 } from "@/screens/finance/phone-parts"
 import { ReportFilters, ReportSummary } from "@/screens/finance/report"
+import { ScreenPending } from "@/screens/finance/pending"
 import type { Statement } from "@itulah/contract"
 
 /// 7Soft's "Laba Rugi GL per Cabang 2 Tahunan": the profit and loss of one
@@ -61,6 +62,23 @@ import type { Statement } from "@itulah/contract"
 /// flipped for reading by `asPresented()`, shared with every other statement
 /// so no two can disagree about a sign.
 export function ProfitAndLossByUnit() {
+  return (
+    <Suspense
+      fallback={
+        <ScreenPending
+          crumb="Finance · Financial Reports"
+          title="Profit and Loss by Unit"
+        >
+          Reading this year…
+        </ScreenPending>
+      }
+    >
+      <ProfitAndLossByUnitScreen />
+    </Suspense>
+  )
+}
+
+function ProfitAndLossByUnitScreen() {
   const phone = useLayout() === "phone"
   const [unit, setUnit] = useState("")
   const [year, setYear] = useState(() => new Date().getFullYear())
@@ -68,63 +86,57 @@ export function ProfitAndLossByUnit() {
   const unitName = useUnitName()
   const month = monthDraft ?? defaultMonth(year)
 
+  // The boxes answer at once; the two statements trail them, and the figures
+  // in hand stay on screen (dimmed) until the next are read.
+  const askedUnit = useDeferredValue(unit)
+  const askedYear = useDeferredValue(year)
+  const askedMonth = useDeferredValue(month)
+  const stale = askedUnit !== unit || askedYear !== year || askedMonth !== month
+
   const windows = {
-    now: { from: `${year}-01-01`, to: lastDayOf(year, month) },
-    before: { from: `${year - 1}-01-01`, to: lastDayOf(year - 1, month) },
+    now: {
+      from: `${askedYear}-01-01`,
+      to: lastDayOf(askedYear, askedMonth),
+    },
+    before: {
+      from: `${askedYear - 1}-01-01`,
+      to: lastDayOf(askedYear - 1, askedMonth),
+    },
   }
 
-  const now = useQuery({
-    queryKey: financeKeys.statement(
-      "PROFIT_LOSS",
-      windows.now.from,
-      windows.now.to,
-      unit || null
-    ),
-    queryFn: ({ signal }) =>
-      statement(
-        "PROFIT_LOSS",
-        { ...windows.now, unit: unit || undefined },
-        signal
+  const [now, before] = useSuspenseQueries({
+    queries: [
+      resultStatementQuery(windows.now.from, windows.now.to, askedUnit || null),
+      resultStatementQuery(
+        windows.before.from,
+        windows.before.to,
+        askedUnit || null
       ),
-  })
-  const before = useQuery({
-    queryKey: financeKeys.statement(
-      "PROFIT_LOSS",
-      windows.before.from,
-      windows.before.to,
-      unit || null
-    ),
-    queryFn: ({ signal }) =>
-      statement(
-        "PROFIT_LOSS",
-        { ...windows.before, unit: unit || undefined },
-        signal
-      ),
+    ],
   })
 
   const rows = useMemo(
-    () => (now.data && before.data ? linesOf(now.data, before.data) : null),
+    () => linesOf(now.data, before.data),
     [now.data, before.data]
   )
 
-  const scope = unit === "" ? "All units (compiled)" : unitName(unit)
-  const note = `${spanLabel(year, month)} against ${spanLabel(year - 1, month)} · ${scope}`
+  const scope = askedUnit === "" ? "All units (compiled)" : unitName(askedUnit)
+  const note = `${spanLabel(askedYear, askedMonth)} against ${spanLabel(askedYear - 1, askedMonth)} · ${scope}`
 
   const build = (): ExportSheet | null => {
-    if (rows === null) return null
     const body = rows.filter((row) => row.key !== "net")
     const net = rows.find((row) => row.key === "net")
     return {
-      filename: `Profit-and-Loss-by-Unit-${unit === "" ? "All-Units" : fileSafe(unitName(unit))}-${year}-${String(month).padStart(2, "0")}`,
+      filename: `Profit-and-Loss-by-Unit-${askedUnit === "" ? "All-Units" : fileSafe(unitName(askedUnit))}-${askedYear}-${String(askedMonth).padStart(2, "0")}`,
       sheet: "Profit and Loss by Unit",
       title: "Profit and Loss by Unit",
       subtitle: note,
       columns: [
         { header: "Code", kind: "text", width: 12 },
         { header: "Account", kind: "text", width: 48 },
-        { header: String(year), kind: "money" },
+        { header: String(askedYear), kind: "money" },
         { header: "%", kind: "percent" },
-        { header: String(year - 1), kind: "money" },
+        { header: String(askedYear - 1), kind: "money" },
         { header: "%", kind: "percent" },
       ],
       rows: body.map(exportRow),
@@ -143,11 +155,7 @@ export function ProfitAndLossByUnit() {
         title="Profit and Loss by Unit"
         // On a phone Export is a row of the Filters sheet, not a button at the
         // top of the page.
-        actions={
-          phone ? undefined : (
-            <ExportButton build={build} disabled={rows === null} />
-          )
-        }
+        actions={phone ? undefined : <ExportButton build={build} />}
       />
 
       <ReportFilters note={note}>
@@ -167,24 +175,24 @@ export function ProfitAndLossByUnit() {
           }}
           onMonth={setMonthDraft}
         />
-        {phone && <ExportButton build={build} disabled={rows === null} />}
+        {phone && <ExportButton build={build} />}
       </ReportFilters>
 
-      {queryState(now, {
-        loading: "Reading this year…",
-        render: (report) =>
-          queryState(before, {
-            loading: "Reading last year…",
-            render: (prior) => (
-              <Body
-                report={report}
-                prior={prior}
-                year={year}
-                rows={rows ?? []}
-              />
-            ),
-          }),
-      })}
+      <div className="list-swap" aria-busy={stale || undefined}>
+        {queryState(now, {
+          render: (report) =>
+            queryState(before, {
+              render: (prior) => (
+                <Body
+                  report={report}
+                  prior={prior}
+                  year={askedYear}
+                  rows={rows}
+                />
+              ),
+            }),
+        })}
+      </div>
     </PageContent>
   )
 }

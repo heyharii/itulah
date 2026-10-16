@@ -1,5 +1,10 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useMemo, useState } from "react"
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query"
+import { Suspense, useDeferredValue, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { AppLink } from "@/components/ui/app-link"
@@ -7,9 +12,11 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Day } from "@/components/ui/day"
 import { Fab } from "@/components/ui/fab"
-import { Panel, ConfirmButton } from "@/components/ui/dialog"
+import { ConfirmButton } from "@/components/ui/dialog"
 import { Field, Input, Money, Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
+import { Sheet } from "@/components/ui/sheet"
+import { SheetFooter } from "@/components/ui/sheet-footer"
 import { Status } from "@/components/ui/pill"
 import { EmptyState, Problem, Truncated } from "@/components/ui/states"
 import { day, money } from "@/lib/format"
@@ -17,9 +24,9 @@ import { useLayout } from "@/lib/layout"
 import {
   accountDetail,
   createCreditNote,
+  creditNotesQuery,
   financeKeys,
   listBills,
-  listCreditNotes,
   postCreditNote,
   refundCreditNote,
 } from "@/lib/queries/finance"
@@ -54,6 +61,7 @@ import {
   SupplierPicker,
   type AccountChoice,
 } from "@/screens/finance/parts"
+import { ScreenPending } from "@/screens/finance/pending"
 
 import type { CreditNote, SupplierBill } from "@itulah/contract"
 
@@ -102,21 +110,37 @@ function NoteStatus({ status }: { status: string }) {
 const LIMIT = 500
 
 export function CreditNotes() {
+  return (
+    <Suspense
+      fallback={
+        <ScreenPending
+          crumb="Finance · Payables"
+          title="Credit Note"
+          className="max-md:hidden"
+        >
+          Reading the credit notes…
+        </ScreenPending>
+      }
+    >
+      <CreditNotesScreen />
+    </Suspense>
+  )
+}
+
+function CreditNotesScreen() {
   const [status, setStatus] = useState("")
   const [opened, setOpened] = useState<string | "new" | null>(null)
   const phone = useLayout() === "phone"
 
-  const notes = useQuery({
-    queryKey: financeKeys.creditNotes(status || null, null),
-    queryFn: ({ signal }) =>
-      listCreditNotes({ status: status || undefined }, signal),
-  })
+  // The select answers at once; the list trails it, and the notes in hand stay
+  // (dimmed) until the next are read.
+  const asked = useDeferredValue(status)
+  const notes = useSuspenseQuery(creditNotesQuery(asked))
 
   const open =
     opened === null || opened === "new"
       ? null
-      : ((notes.data ?? []).find((row) => row.credit_note_id === opened) ??
-        null)
+      : (notes.data.find((row) => row.credit_note_id === opened) ?? null)
 
   return (
     <PageContent>
@@ -161,84 +185,85 @@ export function CreditNotes() {
         </span>
       </div>
 
-      {(notes.data ?? []).length >= LIMIT && (
+      {notes.data.length >= LIMIT && (
         <Truncated limit={LIMIT} noun="credit notes" className="mb-3" />
       )}
 
-      {queryState(notes, {
-        loading: "Reading the credit notes…",
-        render: (rows) =>
-          rows.length === 0 ? (
-            <Card>
-              <EmptyState>
-                {status === ""
-                  ? "No credit note yet. Record one when a supplier takes goods back or corrects a price on a bill already agreed."
-                  : "No credit note has this status."}
-              </EmptyState>
-            </Card>
-          ) : phone ? (
-            <PhoneList
-              rows={rows.map((row) => ({
-                key: row.credit_note_id,
-                title: <SupplierName id={row.supplier_id} />,
-                code: row.credit_number,
-                lead: <CardFigure value={money(row.total_minor)} />,
-                foot: (
-                  <span className="flex flex-col">
-                    <span>
-                      {day(row.credit_date)} · {reasonLabel(row.reason)}
+      <div className="list-swap" aria-busy={asked !== status || undefined}>
+        {queryState(notes, {
+          render: (rows) =>
+            rows.length === 0 ? (
+              <Card>
+                <EmptyState>
+                  {status === ""
+                    ? "No credit note yet."
+                    : "No credit note has this status."}
+                </EmptyState>
+              </Card>
+            ) : phone ? (
+              <PhoneList
+                rows={rows.map((row) => ({
+                  key: row.credit_note_id,
+                  title: <SupplierName id={row.supplier_id} />,
+                  code: row.credit_number,
+                  lead: <CardFigure value={money(row.total_minor)} />,
+                  foot: (
+                    <span className="flex flex-col">
+                      <span>
+                        {day(row.credit_date)} · {reasonLabel(row.reason)}
+                      </span>
+                      <span>Against {row.invoice_number}</span>
+                      {row.refund_date !== null && (
+                        <span>Refunded {day(row.refund_date)}</span>
+                      )}
                     </span>
-                    <span>Against {row.invoice_number}</span>
-                    {row.refund_date !== null && (
-                      <span>Refunded {day(row.refund_date)}</span>
-                    )}
-                  </span>
-                ),
-                action: <NoteStatus status={row.status} />,
-                onOpen: () => setOpened(row.credit_note_id),
-              }))}
-            />
-          ) : (
-            <Grid>
-              <thead>
-                <tr>
-                  <Th>Credit No</Th>
-                  <Th>Date</Th>
-                  <Th>Supplier</Th>
-                  <Th>Against invoice</Th>
-                  <Th>Reason</Th>
-                  <Th align="right">Total</Th>
-                  <Th>Status</Th>
-                  <Th>Refunded</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => (
-                  <tr
-                    key={row.credit_note_id}
-                    onClick={() => setOpened(row.credit_note_id)}
-                    className="cursor-pointer"
-                  >
-                    <Td>
-                      <Code>{row.credit_number}</Code>
-                    </Td>
-                    <Td>{day(row.credit_date)}</Td>
-                    <Td className="min-w-[10rem] whitespace-normal">
-                      <SupplierName id={row.supplier_id} />
-                    </Td>
-                    <Td>{row.invoice_number}</Td>
-                    <Td>{reasonLabel(row.reason)}</Td>
-                    <Td align="right">{money(row.total_minor)}</Td>
-                    <Td>
-                      <NoteStatus status={row.status} />
-                    </Td>
-                    <Td className="text-mute">{day(row.refund_date)}</Td>
+                  ),
+                  action: <NoteStatus status={row.status} />,
+                  onOpen: () => setOpened(row.credit_note_id),
+                }))}
+              />
+            ) : (
+              <Grid>
+                <thead>
+                  <tr>
+                    <Th>Credit No</Th>
+                    <Th>Date</Th>
+                    <Th>Supplier</Th>
+                    <Th>Against invoice</Th>
+                    <Th>Reason</Th>
+                    <Th align="right">Total</Th>
+                    <Th>Status</Th>
+                    <Th>Refunded</Th>
                   </tr>
-                ))}
-              </tbody>
-            </Grid>
-          ),
-      })}
+                </thead>
+                <tbody>
+                  {rows.map((row) => (
+                    <tr
+                      key={row.credit_note_id}
+                      onClick={() => setOpened(row.credit_note_id)}
+                      className="cursor-pointer"
+                    >
+                      <Td>
+                        <Code>{row.credit_number}</Code>
+                      </Td>
+                      <Td>{day(row.credit_date)}</Td>
+                      <Td className="min-w-[10rem] whitespace-normal">
+                        <SupplierName id={row.supplier_id} />
+                      </Td>
+                      <Td>{row.invoice_number}</Td>
+                      <Td>{reasonLabel(row.reason)}</Td>
+                      <Td align="right">{money(row.total_minor)}</Td>
+                      <Td>
+                        <NoteStatus status={row.status} />
+                      </Td>
+                      <Td className="text-mute">{day(row.refund_date)}</Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Grid>
+            ),
+        })}
+      </div>
 
       {opened === "new" && (
         <NewCreditNote
@@ -285,7 +310,7 @@ function EntryLink({
     <AppLink
       to="/finance/accounting/journal-entries"
       sheet={{ key: "entry", value: entryId }}
-      className="font-mono text-[0.875rem] text-accent hover:underline"
+      className="font-mono text-[0.9375rem] text-accent hover:underline"
     >
       {number ?? "Open the entry"}
     </AppLink>
@@ -377,13 +402,38 @@ function CreditNoteDetail({
   }
 
   return (
-    <Panel
+    <Sheet
       open
       onOpenChange={(next) => {
         if (!next) onClose()
       }}
       title={note.credit_number}
-      sub={<NoteStatus status={note.status} />}
+      badge={<NoteStatus status={note.status} />}
+      size="rail"
+      footer={
+        <SheetFooter
+          onCancel={onClose}
+          cancelLabel="Close"
+          note={
+            state === "DRAFT"
+              ? "Not in the books until it is posted."
+              : undefined
+          }
+          primary={
+            state === "DRAFT" ? (
+              <ConfirmButton
+                label="Post"
+                variant="primary"
+                title="Post this credit note?"
+                description={`${money(note.total_minor)} comes off what we owe on ${note.invoice_number}. No money moves; if the supplier sends the money instead, record the refund afterwards.`}
+                confirmLabel="Post"
+                pending={post.isPending}
+                onConfirm={() => post.mutateAsync()}
+              />
+            ) : undefined
+          }
+        />
+      }
     >
       <div className="flex flex-col gap-4">
         <Problem error={post.error} />
@@ -396,26 +446,9 @@ function CreditNoteDetail({
           ))}
         </dl>
 
-        {state === "DRAFT" && (
-          <div className="flex items-center justify-between gap-3 border-t border-hairline pt-3">
-            <span className="text-[0.875rem] text-mute">
-              Not in the books until it is posted.
-            </span>
-            <ConfirmButton
-              label="Post"
-              variant="primary"
-              title="Post this credit note?"
-              description={`${money(note.total_minor)} comes off what we owe on ${note.invoice_number}. No money moves; if the supplier sends the money instead, record the refund afterwards.`}
-              confirmLabel="Post"
-              pending={post.isPending}
-              onConfirm={() => post.mutateAsync()}
-            />
-          </div>
-        )}
-
         {state === "POSTED" && <Refund note={note} onDone={refresh} />}
       </div>
-    </Panel>
+    </Sheet>
   )
 }
 
@@ -453,7 +486,7 @@ function Refund({ note, onDone }: { note: CreditNote; onDone: () => void }) {
   if (!asking) {
     return (
       <div className="flex items-center justify-between gap-3 border-t border-hairline pt-3">
-        <span className="text-[0.875rem] text-mute">
+        <span className="text-[0.9375rem] text-mute">
           In the books. The next bill from this supplier can absorb it, or the
           supplier can send the money back.
         </span>
@@ -494,13 +527,13 @@ function Refund({ note, onDone }: { note: CreditNote; onDone: () => void }) {
         </Field>
       </div>
       <div className="flex items-center justify-between gap-3">
-        <span className="text-[0.875rem] text-mute">
+        <span className="text-[0.9375rem] text-mute">
           {accounts.length === 0
             ? "No cash or bank account is mapped for this unit."
             : `${money(note.total_minor)} comes back and the debt it had answered is owed again.`}
         </span>
         <div className="flex items-center gap-3">
-          <Button variant="quiet" onClick={() => setAsking(false)}>
+          <Button data-cancel variant="quiet" onClick={() => setAsking(false)}>
             Cancel
           </Button>
           <Button
@@ -610,13 +643,24 @@ function NewCreditNote({
   const invoices = useMemo(() => bills.data ?? [], [bills.data])
 
   return (
-    <Panel
+    <Sheet
       open
       onOpenChange={(next) => {
         if (!next) onClose()
       }}
       title="New credit note"
-      sub="Goods that went back, or a price corrected after the bill was agreed. It stays a draft until it is posted."
+      size="wide"
+      footer={
+        <SheetFooter
+          onCancel={onClose}
+          primary={{
+            label: "Submit",
+            pending: save.isPending,
+            disabled: !ready,
+            onClick: () => save.mutate(),
+          }}
+        />
+      }
     >
       <div className="flex flex-col gap-4">
         <Problem error={save.error} />
@@ -725,20 +769,7 @@ function NewCreditNote({
             />
           </div>
         </div>
-        <div className="flex items-center justify-end gap-3 border-t border-hairline pt-3">
-          <Button variant="quiet" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            pending={save.isPending}
-            disabled={!ready}
-            onClick={() => save.mutate()}
-          >
-            {save.isPending ? "Submitting…" : "Submit"}
-          </Button>
-        </div>
       </div>
-    </Panel>
+    </Sheet>
   )
 }

@@ -1,3 +1,5 @@
+import { queryOptions } from "@tanstack/react-query"
+
 import { node } from "@/lib/api"
 import { financeKeys } from "@/lib/queries/finance"
 import type {
@@ -68,6 +70,27 @@ export function listCashDocuments(
     { signal }
   )
 }
+
+/// The register of BKK (`PAY`) or BKM (`RECEIVE`) documents, narrowed on the
+/// server by status and unit.
+export const cashDocumentsQuery = (
+  kind: "PAY" | "RECEIVE",
+  status = "",
+  unit = ""
+) =>
+  queryOptions({
+    queryKey: cashDocumentKeys.list(status || null, kind, unit || null),
+    queryFn: ({ signal }) =>
+      listCashDocuments(
+        {
+          status: status || undefined,
+          kind,
+          unit: unit || undefined,
+          limit: 300,
+        },
+        signal
+      ),
+  })
 
 export function cashDocument(
   id: string,

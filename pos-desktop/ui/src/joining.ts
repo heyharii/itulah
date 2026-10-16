@@ -174,15 +174,15 @@ export function spaced(digits: string | null): string {
 export function refusedBecause(reason: string | null): string {
   switch (reason) {
     case "REJECTED":
-      return "Supervisor menolak permintaan kasir ini."
+      return "A supervisor refused this till."
     case "EXPIRED":
-      return "Tidak ada yang menyetujui dalam 15 menit, jadi permintaannya kedaluwarsa."
+      return "Nobody approved within 15 minutes, so the request expired."
     case "UNKNOWN":
-      return "Node tidak lagi mengenal permintaan ini — mungkin node dipulihkan dari cadangan."
+      return "The store server no longer knows this request; it may have been restored from a backup."
     default:
       return reason === null
-        ? "Permintaan kasir ini tidak disetujui."
-        : `Permintaan kasir ini tidak disetujui (${reason.toLowerCase()}).`
+        ? "This till was not approved."
+        : `This till was not approved (${reason.toLowerCase()}).`
   }
 }
 

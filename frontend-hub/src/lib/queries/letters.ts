@@ -1,3 +1,5 @@
+import { infiniteQueryOptions } from "@tanstack/react-query"
+
 import { node } from "@/lib/api"
 import type {
   LetterDetail,
@@ -170,6 +172,20 @@ export function listLetters(
 /// How many letters one page of the register asks for. A step, not a
 /// ceiling: the server clamps anything above 500.
 export const LETTERS_PAGE = 100
+
+/// The register, a page at a time on the server's cursor. Shared by the screen
+/// (which reads it with `useSuspenseInfiniteQuery`) and by its prefetcher
+/// (`screens/letters/prefetch.ts`) so the key and the request cannot drift
+/// apart. It used to stop at the two-hundredth letter without saying so, and
+/// the count beside it counted what had loaded.
+export const letterListQuery = (query: LetterQuery) =>
+  infiniteQueryOptions({
+    queryKey: letterKeys.list(query),
+    queryFn: ({ pageParam, signal }) =>
+      listLetters(query, { cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+  })
 
 export function readLetter(
   id: string,

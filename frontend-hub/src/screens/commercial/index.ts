@@ -1,11 +1,4 @@
-import type { ScreenMap } from "@/screens/registry"
-import { Campaigns } from "@/screens/commercial/campaigns"
-import { Changes } from "@/screens/commercial/changes"
-import { History } from "@/screens/commercial/history"
-import { CommercialOverview } from "@/screens/commercial/overview"
-import { Pricelist } from "@/screens/commercial/pricelist"
-import { Vouchers } from "@/screens/commercial/vouchers"
-import { Promotions } from "@/screens/commercial/promotions"
+import { lazyScreen, type ScreenMap } from "@/screens/registry"
 
 /// Screens this module has written. Keys must be paths declared in
 /// `lib/navigation.ts`; anything not listed here renders `Placeholder`.
@@ -13,11 +6,39 @@ import { Promotions } from "@/screens/commercial/promotions"
 /// Each module owns this file alone, so two modules being built at once never
 /// touch the same registry.
 export const screens: ScreenMap = {
-  "/commercial": CommercialOverview,
-  "/commercial/prices": Pricelist,
-  "/commercial/changes": Changes,
-  "/commercial/history": History,
-  "/commercial/promotions": Promotions,
-  "/commercial/campaigns": Campaigns,
-  "/commercial/vouchers": Vouchers,
+  "/commercial": lazyScreen(
+    "commercial/overview",
+    () => import("@/screens/commercial/overview"),
+    (m) => m.CommercialOverview
+  ),
+  "/commercial/prices": lazyScreen(
+    "commercial/pricelist",
+    () => import("@/screens/commercial/pricelist"),
+    (m) => m.Pricelist
+  ),
+  "/commercial/changes": lazyScreen(
+    "commercial/changes",
+    () => import("@/screens/commercial/changes"),
+    (m) => m.Changes
+  ),
+  "/commercial/history": lazyScreen(
+    "commercial/history",
+    () => import("@/screens/commercial/history"),
+    (m) => m.History
+  ),
+  "/commercial/promotions": lazyScreen(
+    "commercial/promotions",
+    () => import("@/screens/commercial/promotions"),
+    (m) => m.Promotions
+  ),
+  "/commercial/campaigns": lazyScreen(
+    "commercial/campaigns",
+    () => import("@/screens/commercial/campaigns"),
+    (m) => m.Campaigns
+  ),
+  "/commercial/vouchers": lazyScreen(
+    "commercial/vouchers",
+    () => import("@/screens/commercial/vouchers"),
+    (m) => m.Vouchers
+  ),
 }

@@ -2,12 +2,11 @@ import { useQuery } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 
 import {
-  financeKeys,
-  listDimensions,
-  listExpenseCategories,
-  listPayComponentPostings,
-  listPaymentMethods,
-  listTaxTemplates,
+  dimensionsQuery,
+  expenseCategoriesQuery,
+  payComponentsQuery,
+  paymentMethodsQuery,
+  taxTemplatesQuery,
 } from "@/lib/queries/finance"
 
 /// Finance's master data, and the one bridge every master screen shares: the
@@ -110,49 +109,27 @@ export function useOpenAccountLinks() {
 // The lists, one key each
 // ---------------------------------------------------------------------------
 
-const FIVE_MINUTES = 5 * 60 * 1000
+/// For the pickers and panels that read a list only when asked (`enabled`).
+/// A screen whose body IS one of these lists reads the options themselves
+/// (`lib/queries/finance.ts`) with `useSuspenseQuery`, which is what
+/// `prefetch.ts` warms.
 
 export function useExpenseCategories(enabled = true) {
-  return useQuery({
-    queryKey: financeKeys.expenseCategories(),
-    queryFn: ({ signal }) => listExpenseCategories(signal),
-    staleTime: FIVE_MINUTES,
-    enabled,
-  })
+  return useQuery({ ...expenseCategoriesQuery(), enabled })
 }
 
 export function usePayComponents(enabled = true) {
-  return useQuery({
-    queryKey: financeKeys.payComponents(),
-    queryFn: ({ signal }) => listPayComponentPostings(signal),
-    staleTime: FIVE_MINUTES,
-    enabled,
-  })
+  return useQuery({ ...payComponentsQuery(), enabled })
 }
 
 export function usePaymentMethods(enabled = true) {
-  return useQuery({
-    queryKey: financeKeys.paymentMethods(),
-    queryFn: ({ signal }) => listPaymentMethods(signal),
-    staleTime: FIVE_MINUTES,
-    enabled,
-  })
+  return useQuery({ ...paymentMethodsQuery(), enabled })
 }
 
 export function useTaxTemplates(enabled = true) {
-  return useQuery({
-    queryKey: financeKeys.taxTemplates(),
-    queryFn: ({ signal }) => listTaxTemplates(signal),
-    staleTime: FIVE_MINUTES,
-    enabled,
-  })
+  return useQuery({ ...taxTemplatesQuery(), enabled })
 }
 
 export function useDimensions(enabled = true) {
-  return useQuery({
-    queryKey: financeKeys.dimensions(),
-    queryFn: ({ signal }) => listDimensions(signal),
-    staleTime: FIVE_MINUTES,
-    enabled,
-  })
+  return useQuery({ ...dimensionsQuery(), enabled })
 }

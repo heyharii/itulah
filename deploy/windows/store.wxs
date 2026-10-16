@@ -1,17 +1,22 @@
 <!--
-  itulah Store Server — Windows installer (WiX v5).
+  Central Store Server — Windows installer (WiX v5).
 
   Built by .github/workflows/store-server.yml:
 
-    wix build store.wxs -arch x64 -ext WixToolset.Util.wixext
+    wix build store.wxs -arch x64 -ext WixToolset.Util.wixext -ext WixToolset.UI.wixext
               -d Version=1.2.3 -d BinDir=<dir with store.exe and web\>
-              -d TrayScript=store-tray.ps1 -o itulah-store.msi
+              -d TrayScript=store-tray.ps1
+              [-d CloudUrl=https://… (the build's ITULAH_DEFAULT_CLOUD_URL)]
+              -o central-store-server-1.2.3-x64.msi
 
-  Interactive:   double-click. Installs, starts the service, opens the setup
-                 page where the shop types the code from head office.
-  Silent:        msiexec /i itulah-store.msi /qn ENROLL_CODE=7K4P9-QX2MA CLOUD_URL=https://…
-                 The service claims the code on its first start and waits for
-                 approval; head office sees the verification number in the hub.
+  Interactive:   double-click. One dialog, "Connect this PC to Central", asks
+                 for the install code from Central › Stores › the store ›
+                 Server (XXXXX-XXXXX). Then it installs and starts the service,
+                 which claims the code on its first start. "Skip" installs
+                 without a code and opens the browser setup page instead.
+  Silent:        msiexec /i central-store-server-1.2.3-x64.msi /qn ENROLL_CODE=7K4P9-QX2MA
+                 CLOUD_URL is optional: it defaults to the Central address the
+                 build was made with (also baked into store.exe itself).
 
   Everything the installer does to the machine is done by the program itself
   (`store.exe install-service`, `stage-code`, `uninstall-service`) so that a
@@ -24,16 +29,25 @@
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
-  <Package Name="itulah Store Server"
+  <Package Name="Central Store Server"
            Manufacturer="itulah"
            Version="$(Version)"
            UpgradeCode="6f0b5c8e-2d4a-4c7e-9b1f-3a5e7d9c1b24"
            Scope="perMachine">
-    <MajorUpgrade DowngradeErrorMessage="A newer itulah Store Server is already installed." />
+    <MajorUpgrade DowngradeErrorMessage="A newer Central Store Server is already installed." />
     <MediaTemplate EmbedCab="yes" />
 
     <Property Id="ENROLL_CODE" Secure="yes" Hidden="yes" />
+    <!-- Central's address, from the build (-d CloudUrl=…), so nobody types it.
+         `msiexec … CLOUD_URL=…` still overrides it. -->
+    <?ifndef CloudUrl?>
+    <?define CloudUrl=""?>
+    <?endif?>
+    <?if "$(CloudUrl)" = ""?>
     <Property Id="CLOUD_URL" Secure="yes" />
+    <?else?>
+    <Property Id="CLOUD_URL" Value="$(CloudUrl)" Secure="yes" />
+    <?endif?>
 
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLFOLDER" Name="itulah Store">
@@ -57,7 +71,7 @@
       <Directory Id="MenuFolder" Name="itulah Store">
         <Component Id="MenuShortcuts" Guid="0c9f2a61-5b7e-4f3d-8a2c-1e6d4b9f7a35">
           <util:InternetShortcut Id="SetupShortcut"
-                                 Name="itulah Store — Setup and status"
+                                 Name="Central Store Server — Setup and status"
                                  Target="http://localhost:8082/setup" />
           <RemoveFolder Id="RemoveMenuFolder" On="uninstall" />
           <RegistryValue Root="HKLM" Key="Software\itulah\Store" Name="menu"
@@ -85,15 +99,74 @@
     <CustomAction Id="UninstallService" FileRef="StoreExe"
                   ExeCommand="uninstall-service"
                   Execute="deferred" Impersonate="no" Return="ignore" />
-    <!-- After an interactive first install with no code, open the setup page
-         for the person sitting there. -->
     <!-- Show the tray icon now rather than at the next sign-in. -->
     <CustomAction Id="StartTray" Directory="INSTALLFOLDER"
                   ExeCommand="powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File &quot;[#TrayScript]&quot;"
                   Execute="immediate" Impersonate="yes" Return="asyncNoWait" />
+    <!-- After an interactive first install where the code was skipped, open
+         the setup page for the person sitting there. With a code, the service
+         connects by itself and nothing opens. -->
     <CustomAction Id="OpenSetup" Directory="INSTALLFOLDER"
                   ExeCommand="explorer.exe http://localhost:8082/setup"
                   Execute="immediate" Impersonate="yes" Return="ignore" />
+
+    <!-- The one question the installer asks. Modelled on WixUI_Minimal (same
+         dialog set and sequence), without its licence page. Skipped on an
+         upgrade, a repair, a removal and in silent installs; skipped too
+         when ENROLL_CODE is already on the command line. -->
+    <UI Id="CentralStoreUI">
+      <TextStyle Id="WixUI_Font_Normal" FaceName="Tahoma" Size="8" />
+      <TextStyle Id="WixUI_Font_Bigger" FaceName="Tahoma" Size="12" />
+      <TextStyle Id="WixUI_Font_Title" FaceName="Tahoma" Size="9" Bold="yes" />
+
+      <Property Id="DefaultUIFont" Value="WixUI_Font_Normal" />
+      <Property Id="WixUI_Mode" Value="Minimal" />
+
+      <DialogRef Id="ErrorDlg" />
+      <DialogRef Id="FatalError" />
+      <DialogRef Id="FilesInUse" />
+      <DialogRef Id="MsiRMFilesInUse" />
+      <DialogRef Id="PrepareDlg" />
+      <DialogRef Id="ProgressDlg" />
+      <DialogRef Id="ResumeDlg" />
+      <DialogRef Id="UserExit" />
+
+      <Dialog Id="EnrollDlg" Width="370" Height="270" Title="Central Store Server">
+        <Control Id="Title" Type="Text" X="20" Y="15" Width="330" Height="18" Transparent="yes" NoPrefix="yes"
+                 Text="{\WixUI_Font_Bigger}Connect this PC to Central" />
+        <Control Id="Description" Type="Text" X="20" Y="45" Width="330" Height="30" Transparent="yes" NoPrefix="yes"
+                 Text="Enter the install code from Central &gt; Stores &gt; your store &gt; Server. This PC then becomes that store's server." />
+        <Control Id="CodeLabel" Type="Text" X="20" Y="96" Width="330" Height="12" Transparent="yes" NoPrefix="yes"
+                 Text="Install code" />
+        <!-- {11}: XXXXX-XXXXX. The Connect button stays disabled until the
+             code has its dash; store.exe checks the rest when it stages it. -->
+        <Control Id="CodeEdit" Type="Edit" X="20" Y="110" Width="150" Height="18" Property="ENROLL_CODE" Text="{11}" Sunken="yes" />
+        <Control Id="CodeHint" Type="Text" X="20" Y="134" Width="330" Height="12" Transparent="yes" NoPrefix="yes"
+                 Text="It looks like 7K4P9-QX2MA." />
+        <Control Id="SkipHint" Type="Text" X="20" Y="190" Width="330" Height="30" Transparent="yes" NoPrefix="yes"
+                 Text="No code yet? Choose Skip: the server installs and a setup page opens in the browser where the code can be entered later." />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Connect" Type="PushButton" X="232" Y="243" Width="64" Height="17" Default="yes" Text="Connect">
+          <Condition Action="disable"><![CDATA[NOT (ENROLL_CODE >< "-")]]></Condition>
+          <Condition Action="enable"><![CDATA[ENROLL_CODE >< "-"]]></Condition>
+        </Control>
+        <Control Id="Skip" Type="PushButton" X="168" Y="243" Width="56" Height="17" Text="Skip" />
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="Cancel" />
+      </Dialog>
+
+      <Publish Dialog="EnrollDlg" Control="Connect" Event="EndDialog" Value="Return" />
+      <!-- Skipping clears whatever half a code was typed. -->
+      <Publish Dialog="EnrollDlg" Control="Skip" Property="ENROLL_CODE" Value="{}" Order="1" />
+      <Publish Dialog="EnrollDlg" Control="Skip" Event="EndDialog" Value="Return" Order="2" />
+      <Publish Dialog="EnrollDlg" Control="Cancel" Event="EndDialog" Value="Exit" />
+      <Publish Dialog="ExitDialog" Control="Finish" Event="EndDialog" Value="Return" Order="999" />
+
+      <InstallUISequence>
+        <Show Dialog="EnrollDlg" Before="ProgressDlg"
+              Condition="NOT Installed AND NOT ENROLL_CODE AND NOT WIX_UPGRADE_DETECTED" />
+      </InstallUISequence>
+    </UI>
+    <UIRef Id="WixUI_Common" />
 
     <InstallExecuteSequence>
       <Custom Action="UninstallService" Before="RemoveFiles"

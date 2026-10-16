@@ -1310,7 +1310,23 @@ async fn counts_awaiting_verification(
                             FROM dc_receiving_count_breakdown(c.count_id) v
                             LEFT JOIN colour col ON col.code = v.colour_code
                             LEFT JOIN size_code sz ON sz.code::text = v.size_code),
-                         '[]'::jsonb) AS variants
+                         '[]'::jsonb) AS variants,
+                -- After a recount: the count it replaced (its matching pieces),
+                -- why it was sent back, and when the first count was taken.
+                (SELECT (p.counted_quantity - p.wrong_quantity)::bigint
+                   FROM dc_receiving_count p
+                  WHERE p.po_line_id = c.po_line_id AND p.status = 'RECOUNT_REQUESTED'
+                    AND p.counted_at < c.counted_at
+                  ORDER BY p.counted_at DESC LIMIT 1) AS previous_counted_quantity,
+                (SELECT NULLIF(btrim(p.verifier_note), '')
+                   FROM dc_receiving_count p
+                  WHERE p.po_line_id = c.po_line_id AND p.status = 'RECOUNT_REQUESTED'
+                    AND p.counted_at < c.counted_at
+                  ORDER BY p.counted_at DESC LIMIT 1) AS recount_reason,
+                (SELECT min(p.counted_at)
+                   FROM dc_receiving_count p
+                  WHERE p.po_line_id = c.po_line_id AND p.status = 'RECOUNT_REQUESTED'
+                    AND p.counted_at < c.counted_at) AS first_counted_at
            FROM dc_receiving_count c
            JOIN dc_goods_receipt r ON r.receipt_id = c.receipt_id
            JOIN purchase_order_line l ON l.po_line_id = c.po_line_id
@@ -1355,6 +1371,9 @@ async fn counts_awaiting_verification(
             counted_unit_quantity: row.try_get("counted_unit_quantity")?,
             stock_unit_code: row.try_get("stock_unit_code")?,
             variants: serde_json::from_value::<Vec<PurchaseReviewVariant>>(variants)?,
+            previous_counted_quantity: row.try_get("previous_counted_quantity")?,
+            recount_reason: row.try_get("recount_reason")?,
+            first_counted_at: row.try_get("first_counted_at")?,
         });
     }
     Ok(Json(json!({ "items": items })))

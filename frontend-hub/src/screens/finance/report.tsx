@@ -48,7 +48,7 @@ export function ReportFilters({
       {note && (
         <>
           <Toolbar.Spacer />
-          <span className="text-[0.875rem] text-mute">{note}</span>
+          <span className="text-[0.9375rem] text-mute">{note}</span>
         </>
       )}
       {exportAction !== undefined && (
@@ -249,11 +249,11 @@ export function ReportSummary({ items }: { items: readonly SummaryItem[] }) {
           />
         ))}
       </KpiStrip>
-      <Card className="mb-3 max-md:hidden">
+      <Card className="figure-box mb-3 max-md:hidden">
         <dl className="grid grid-cols-2 divide-hairline sm:flex sm:divide-x">
           {items.map((item) => (
             <div key={item.label} className="min-w-0 flex-1 px-4 py-3.5">
-              <dt className="truncate text-[0.875rem] text-mute">
+              <dt className="truncate text-[0.9375rem] text-mute">
                 {item.label}
               </dt>
               <dd
@@ -345,7 +345,7 @@ export function ReportChart({
           if (info.active !== true || !info.payload?.length) return null
           return (
             <div className="rounded-inner border border-hairline bg-canvas px-2.5 py-2 shadow-pop">
-              <div className="mb-1 text-[0.875rem] font-medium text-ink">
+              <div className="mb-1 text-[0.9375rem] font-medium text-ink">
                 {String(info.label ?? "")}
               </div>
               {shown.map((item, index) => {
@@ -355,7 +355,7 @@ export function ReportChart({
                 return (
                   <div
                     key={item.key}
-                    className="flex items-center gap-1.5 text-[0.875rem] text-body"
+                    className="flex items-center gap-1.5 text-[0.9375rem] text-body"
                   >
                     <span
                       aria-hidden
@@ -423,7 +423,7 @@ export function ReportChart({
           )}
         </ResponsiveContainer>
       </div>
-      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-[0.875rem] text-body">
+      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-[0.9375rem] text-body">
         {shown.map((item, index) => (
           <span key={item.key} className="inline-flex items-center gap-1.5">
             <span

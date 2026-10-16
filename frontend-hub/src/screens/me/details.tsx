@@ -208,7 +208,7 @@ function Letters() {
                 ? "Reprimand"
                 : letter.level.replace("SP", "SP ")}
             </span>
-            <span className="text-[0.875rem] text-mute">
+            <span className="text-[0.9375rem] text-mute">
               {shortDate(letter.issued_on)}
             </span>
             {letter.active ? (
@@ -219,7 +219,7 @@ function Letters() {
               <Pill tone="neutral">Lapsed</Pill>
             )}
           </div>
-          <p className="text-[0.875rem] text-body">{letter.violation}</p>
+          <p className="text-[0.9375rem] text-body">{letter.violation}</p>
           {letter.acknowledged_at === null ? (
             <Button
               variant="primary"
@@ -230,7 +230,7 @@ function Letters() {
               I have received this letter
             </Button>
           ) : (
-            <p className="text-[0.875rem] text-mute">You acknowledged it.</p>
+            <p className="text-[0.9375rem] text-mute">You acknowledged it.</p>
           )}
         </div>
       ))}
@@ -331,7 +331,7 @@ function AskToChange() {
       </Field>
       {ask.error !== null && <Failure error={ask.error} />}
       <div className="flex flex-col-reverse gap-2 md:flex-row md:justify-end">
-        <Button
+        <Button data-cancel
           type="button"
           variant="quiet"
           size="tap"

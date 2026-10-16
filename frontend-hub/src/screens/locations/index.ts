@@ -1,5 +1,4 @@
-import type { ScreenMap } from "@/screens/registry"
-import { Locations } from "@/screens/locations/locations"
+import { lazyScreen, type ScreenMap } from "@/screens/registry"
 
 /// Screens this module has written. Keys must be paths declared in
 /// `lib/navigation.ts`.
@@ -10,5 +9,9 @@ import { Locations } from "@/screens/locations/locations"
 /// the hub is a query back through the references that already point at the
 /// site (brief §2.1).
 export const screens: ScreenMap = {
-  "/locations": Locations,
+  "/locations": lazyScreen(
+    "locations/locations",
+    () => import("@/screens/locations/locations"),
+    (m) => m.Locations
+  ),
 }

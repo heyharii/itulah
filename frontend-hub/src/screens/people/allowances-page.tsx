@@ -16,13 +16,13 @@ import { Banner, EmptyState } from "@/components/ui/states"
 import { day, money } from "@/lib/format"
 import {
   claimBenefitKeys,
-  claimBenefits,
   claimsKeys,
   listClaimTypes,
   stateClaimBenefit,
+  claimBenefitRulesQuery,
 } from "@/lib/queries/people"
-import { queryState } from "@/lib/query-state"
 import { useCanWrite } from "@/lib/session"
+import { awaiting } from "@/screens/people/awaiting"
 
 /// Claims & loans › Yearly allowances — how much one person may be
 /// reimbursed for a kind of claim in a calendar year. An approval that would
@@ -32,11 +32,6 @@ export function ClaimAllowancesPage() {
   const canWrite = useCanWrite()
   const phone = useLayout() === "phone"
   const [setting, setSetting] = useState(false)
-  const rules = useQuery({
-    queryKey: claimBenefitKeys.rules(),
-    queryFn: ({ signal }) => claimBenefits(signal),
-  })
-  const rows = rules.data ?? []
 
   return (
     <PageContent>
@@ -58,9 +53,9 @@ export function ClaimAllowancesPage() {
       />
 
       <Card className="overflow-hidden px-4 py-2">
-        {queryState(rules, {
+        {awaiting(claimBenefitRulesQuery(), {
           loading: "Reading the allowances…",
-          render: () =>
+          render: (rows) =>
             rows.length === 0 ? (
               <EmptyState>
                 No kind of claim has a yearly limit. Use Set allowance to give
@@ -138,7 +133,7 @@ function AllowanceSheet({ onClose }: { onClose: () => void }) {
       title="Set allowance"
       footer={
         <div className="flex justify-end gap-2">
-          <Button variant="quiet" onClick={onClose}>
+          <Button data-cancel variant="quiet" onClick={onClose}>
             Cancel
           </Button>
           <Button

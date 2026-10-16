@@ -171,14 +171,14 @@ function ProfileButton({ onClick }: { onClick: () => void }) {
   )
 }
 
-const SYNC_DOT = {
+export const SYNC_DOT = {
   current: "bg-ok",
   behind: "bg-warn",
   blocked: "bg-bad",
   off: "bg-faint",
 } as const
 
-const SYNC_WORD = {
+export const SYNC_WORD = {
   current: "Synced",
   behind: "Sending",
   blocked: "Stuck",
@@ -188,13 +188,17 @@ const SYNC_WORD = {
 /// Whether this node is reaching head office. The shop works either way; this
 /// is what tells somebody that the day's figures have not left the building.
 /// A dot on a phone, the dot and the word on a desk.
-function SyncChip() {
+export function useSyncHealth() {
   const status = useQuery({
     queryKey: ["sync", "status"],
     queryFn: ({ signal }) => sync.status(signal),
     refetchInterval: 15_000,
   })
-  const health = status.data === undefined ? null : syncHealth(status.data)
+  return status.data === undefined ? null : syncHealth(status.data)
+}
+
+function SyncChip() {
+  const health = useSyncHealth()
   return (
     <Link
       to={"/node/sync" as never}

@@ -4,6 +4,8 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query"
+import type { ColumnDef } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -12,16 +14,17 @@ import { Fab } from "@/components/ui/fab"
 import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { DataTable } from "@/components/ui/data-table"
 import { Day } from "@/components/ui/day"
 import { Field, Input } from "@/components/ui/field"
+import { ExpandingSearch } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { PickOne } from "@/components/ui/pick"
-import { Pill } from "@/components/ui/pill"
-import { MiniCell, MiniTable } from "@/components/ui/rows"
+import { Pill, Status } from "@/components/ui/pill"
 import { ButtonGroup, Segmented, Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
-import { day } from "@/lib/format"
+import { dateRange, day } from "@/lib/format"
 import {
   currentMonth,
   fileLeaveFor,
@@ -41,14 +44,9 @@ import {
   teamCalendar,
 } from "@/lib/queries/people"
 import { queryState } from "@/lib/query-state"
-import { cn } from "@/lib/utils"
+import { tableSetup, type TableSetup } from "@/lib/table"
 import { monthOptions } from "@/screens/people/parts"
-import {
-  CardButton,
-  CardFigure,
-  CardName,
-  PhoneCards,
-} from "@/components/ui/phone-cards"
+import { CardFigure, CardName } from "@/components/ui/phone-cards"
 import type { LeaveRequestView } from "@itulah/contract"
 
 /// Time off › Requests — every leave request, with what is waiting on a
@@ -71,7 +69,8 @@ interface Row {
   readonly key: string
   readonly employeeId: string
   readonly name: string
-  readonly unitId: string
+  /// The unit's name, as the people list spells it.
+  readonly unit: string
   readonly kind: string
   readonly from: string
   readonly to: string
@@ -81,18 +80,118 @@ interface Row {
   readonly leaveType: string
 }
 
-function stateTone(state: string): "ok" | "warn" | "bad" | "neutral" {
+/// Waiting is not a problem, so it stays grey; only a refusal is coloured.
+function stateTone(state: string): "ok" | "bad" | "neutral" {
   switch (state) {
     case "APPROVED":
       return "ok"
-    case "PENDING":
-      return "warn"
     case "REJECTED":
       return "bad"
     default:
       return "neutral"
   }
 }
+
+const datesOf = (row: Row) => dateRange(row.from, row.to)
+
+const columns: ColumnDef<TableSetup, Row>[] = [
+  {
+    id: "who",
+    accessorFn: (row) => row.name,
+    header: "Employee",
+    size: 240,
+    meta: { card: "hide" },
+  },
+  {
+    id: "unit",
+    accessorFn: (row) => row.unit,
+    header: "Unit",
+    size: 200,
+    meta: { card: "hide" },
+  },
+  {
+    accessorKey: "kind",
+    header: "Kind",
+    size: 200,
+    meta: { card: "hide" },
+  },
+  {
+    id: "dates",
+    accessorFn: (row) => row.from,
+    header: "Dates",
+    size: 240,
+    meta: { card: "hide" },
+    cell: ({ row }) => datesOf(row.original),
+  },
+  {
+    id: "days",
+    accessorFn: (row) => row.days ?? -1,
+    header: "Days",
+    size: 110,
+    meta: { align: "right", card: "hide" },
+    cell: ({ row }) => (row.original.days === null ? "—" : row.original.days),
+  },
+  {
+    id: "state",
+    accessorFn: (row) => row.state,
+    header: "Status",
+    size: 180,
+    meta: { card: "hide" },
+    cell: ({ row }) => (
+      <Status tone={stateTone(row.original.state)}>
+        {leaveStateLabel(row.original.state)}
+      </Status>
+    ),
+  },
+  // Three columns that exist only on a card (`cardLead`; a phone): the person
+  // over their kind, place and dates, the days charged as the figure, and
+  // where the request stands.
+  {
+    id: "head",
+    accessorFn: (row) => row.name,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "title" },
+    cell: ({ row }) => (
+      <CardName
+        name={row.original.name}
+        line={[
+          `${row.original.kind} · ${row.original.unit}`,
+          datesOf(row.original),
+        ]}
+      />
+    ),
+  },
+  {
+    id: "lead",
+    accessorFn: (row) => row.days ?? -1,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "lead" },
+    cell: ({ row }) => (
+      <CardFigure
+        value={row.original.days === null ? "—" : row.original.days}
+        caption={row.original.days === 1 ? "day" : "days"}
+        tone={row.original.days === null ? "quiet" : undefined}
+      />
+    ),
+  },
+  {
+    id: "foot",
+    accessorFn: (row) => row.state,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "foot" },
+    cell: ({ row }) => (
+      <Status tone={stateTone(row.original.state)}>
+        {leaveStateLabel(row.original.state)}
+      </Status>
+    ),
+  },
+]
 
 export function TimeOffRequests() {
   const phone = useLayout() === "phone"
@@ -102,7 +201,16 @@ export function TimeOffRequests() {
   const [opened, setOpened] = useState<Row | null>(null)
   const [filing, setFiling] = useState(false)
   const [filed, setFiled] = useState<string | null>(null)
-  const { nameOf } = useActiveEmployees()
+  const { people: staff, nameOf } = useActiveEmployees()
+  /// Unit ids are codes; the people list knows what each is called.
+  const unitNames = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const one of staff) {
+      if (one.unit_id !== null)
+        map.set(one.unit_id, one.unit_name ?? one.unit_id)
+    }
+    return map
+  }, [staff])
 
   const { from, to } = monthBounds(month)
   const waiting = useQuery({
@@ -137,7 +245,7 @@ export function TimeOffRequests() {
         key: one.id,
         employeeId: one.employee_id,
         name: nameOf(one.employee_id),
-        unitId: one.unit_id,
+        unit: unitNames.get(one.unit_id) ?? one.unit_id,
         kind: one.leave_type_name,
         leaveType: one.leave_type,
         from: one.from_date,
@@ -146,7 +254,7 @@ export function TimeOffRequests() {
         state: one.state,
         requestId: one.id,
       })),
-    [waiting.data, nameOf]
+    [waiting.data, nameOf, unitNames]
   )
 
   const monthRows = useMemo<Row[]>(() => {
@@ -166,7 +274,7 @@ export function TimeOffRequests() {
         key: `${span.employee_id}-${span.leave_type}-${span.from_date}-${span.to_date}`,
         employeeId: span.employee_id,
         name: span.full_name ?? span.employee_code,
-        unitId: span.unit_id,
+        unit: unitNames.get(span.unit_id) ?? span.unit_id,
         kind: span.leave_name,
         leaveType: span.leave_type,
         from: span.from_date,
@@ -176,20 +284,37 @@ export function TimeOffRequests() {
         requestId: match?.id ?? null,
       }
     })
-  }, [spans, people, histories])
+  }, [spans, people, histories, unitNames])
 
   const needle = search.trim().toLowerCase()
-  const rows = (view === "WAITING" ? waitingRows : monthRows)
-    .filter(
-      (row) =>
-        needle === "" ||
-        row.name.toLowerCase().includes(needle) ||
-        row.kind.toLowerCase().includes(needle) ||
-        row.unitId.toLowerCase().includes(needle)
+  const rows = useMemo(
+    () =>
+      (view === "WAITING" ? waitingRows : monthRows)
+        .filter(
+          (row) =>
+            needle === "" ||
+            row.name.toLowerCase().includes(needle) ||
+            row.kind.toLowerCase().includes(needle) ||
+            row.unit.toLowerCase().includes(needle)
+        )
+        .sort(
+          (a, b) => a.from.localeCompare(b.from) || a.name.localeCompare(b.name)
+        ),
+    [view, waitingRows, monthRows, needle]
+  )
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: rows,
+        columns,
+        getRowId: (row: Row) => row.key,
+        // The card's own columns are drawn on a phone and never on a desk.
+        state: { columnVisibility: { head: phone, lead: phone, foot: phone } },
+      }),
+      [rows, phone]
     )
-    .sort(
-      (a, b) => a.from.localeCompare(b.from) || a.name.localeCompare(b.name)
-    )
+  )
 
   const active = view === "WAITING" ? waiting : calendar
   const source = {
@@ -204,9 +329,7 @@ export function TimeOffRequests() {
   return (
     <PageContent>
       <PageHeader
-        crumb="People"
-        title="Time Off"
-        sub="Leave requests — what is waiting on a decision, and who is away in a month."
+        title="Time off"
         actions={
           !phone && (
             <Button variant="primary" onClick={() => setFiling(true)}>
@@ -257,14 +380,16 @@ export function TimeOffRequests() {
           />
         </>
       ) : (
-        <Toolbar>
+        <Toolbar className="group/bar">
           <Segmented<View>
             value={view}
             onChange={setView}
             options={[
               {
                 value: "WAITING",
-                label: `Waiting${waiting.data ? ` (${waiting.data.length})` : ""}`,
+                // No count: the list under it is the count, and a figure
+                // the server's render did not have broke hydration.
+                label: "Waiting",
               },
               { value: "MONTH", label: "By month" },
             ]}
@@ -291,11 +416,10 @@ export function TimeOffRequests() {
             </ButtonGroup>
           )}
           <Toolbar.Spacer />
-          <Input
+          <ExpandingSearch
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            className="h-8 w-60"
-            aria-label="Search requests"
+            onChange={setSearch}
+            label="Search requests"
           />
         </Toolbar>
       )}
@@ -306,103 +430,22 @@ export function TimeOffRequests() {
           render: () =>
             rows.length === 0 ? (
               <EmptyState>
-                {view === "WAITING"
-                  ? "No leave is waiting on a decision."
-                  : `Nobody is away in ${monthTitle(month)}.`}{" "}
-                {needle === ""
-                  ? "Use Request leave to file one for somebody."
-                  : "Nothing matches that search."}
+                {needle !== ""
+                  ? "Nothing matches that search."
+                  : view === "WAITING"
+                    ? "No requests waiting."
+                    : `Nobody is away in ${monthTitle(month)}.`}
               </EmptyState>
-            ) : phone ? (
-              <PhoneCards
-                rows={rows}
-                onOpen={(row) => setOpened(row)}
-                rowId={(row) => row.key}
-                spec={{
-                  title: (row) => (
-                    <CardName
-                      name={row.name}
-                      line={
-                        <>
-                          <span className="block">
-                            {row.kind} · {row.unitId}
-                          </span>
-                          <span className="block">
-                            {day(row.from)}
-                            {row.to !== row.from && <> – {day(row.to)}</>}
-                          </span>
-                        </>
-                      }
-                    />
-                  ),
-                  lead: (row) => (
-                    <CardFigure
-                      value={row.days === null ? "—" : row.days}
-                      caption={row.days === 1 ? "day" : "days"}
-                      tone={row.days === null ? "quiet" : undefined}
-                    />
-                  ),
-                  foot: (row) => (
-                    <Pill tone={stateTone(row.state)}>
-                      {leaveStateLabel(row.state)}
-                    </Pill>
-                  ),
-                  action: (row) => (
-                    <CardButton
-                      label="Open"
-                      ariaLabel={`Open ${row.name}’s leave`}
-                      onClick={() => setOpened(row)}
-                    />
-                  ),
-                }}
-              />
             ) : (
-              <div className="px-4 pt-3 pb-4">
-                <MiniTable
-                  head={[
-                    "Employee",
-                    { label: "Kind", align: "left" },
-                    { label: "Dates", align: "left" },
-                    "Days",
-                    { label: "State", align: "left" },
-                  ]}
-                >
-                  {rows.map((row) => (
-                    <tr
-                      key={row.key}
-                      tabIndex={0}
-                      onClick={() => setOpened(row)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") setOpened(row)
-                      }}
-                      className={cn(
-                        "cursor-pointer border-t border-hairline transition-colors hover:bg-soft",
-                        opened?.key === row.key && "bg-soft"
-                      )}
-                    >
-                      <MiniCell>
-                        <span className="font-medium text-ink">{row.name}</span>
-                        <span className="block text-[0.875rem] text-mute">
-                          {row.unitId}
-                        </span>
-                      </MiniCell>
-                      <MiniCell>{row.kind}</MiniCell>
-                      <MiniCell>
-                        {day(row.from)}
-                        {row.to !== row.from && <> – {day(row.to)}</>}
-                      </MiniCell>
-                      <MiniCell align="right">
-                        {row.days === null ? "—" : row.days}
-                      </MiniCell>
-                      <MiniCell>
-                        <Pill tone={stateTone(row.state)}>
-                          {leaveStateLabel(row.state)}
-                        </Pill>
-                      </MiniCell>
-                    </tr>
-                  ))}
-                </MiniTable>
-              </div>
+              <DataTable<Row>
+                refresh={[active]}
+                table={table}
+                onRowClick={(row) => setOpened(row)}
+                isSelected={(row) => row.key === opened?.key}
+                cardsApart
+                cardLead
+                cardSort={false}
+              />
             ),
         })}
       </Card>
@@ -417,7 +460,7 @@ export function TimeOffRequests() {
           setView("MONTH")
           setMonth(fromDate.slice(0, 7))
           setFiled(
-            `Leave filed for ${name}. Somebody other than you approves it — it shows here as pending until then.`
+            `Leave filed for ${name}. It waits for somebody else to decide.`
           )
         }}
       />
@@ -442,6 +485,7 @@ function RequestSheet({
 }) {
   const client = useQueryClient()
   const phone = useLayout() === "phone"
+  const { nameOf } = useActiveEmployees()
   const [reason, setReason] = useState("")
   const [failed, setFailed] = useState<string | null>(null)
 
@@ -461,6 +505,8 @@ function RequestSheet({
               one.leave_type === row.leaveType &&
               (one.state === "APPROVED" || one.state === "PENDING")
         ) ?? null)
+
+  const decidedBy = full?.decided_by ?? null
 
   const decide = useMutation({
     mutationFn: (approve: boolean) => {
@@ -525,7 +571,7 @@ function RequestSheet({
     >
       <Facts>
         <Fact term="Employee">{row.name}</Fact>
-        <Fact term="Unit">{row.unitId}</Fact>
+        <Fact term="Unit">{row.unit}</Fact>
         <Fact term="From">{day(row.from)}</Fact>
         <Fact term="To">{day(row.to)}</Fact>
         {/* Not the length of the span: the server settled which days this
@@ -533,11 +579,13 @@ function RequestSheet({
         <Fact term="Days charged">
           {full === null ? (row.days ?? "…") : full.chargeable_days}
         </Fact>
-        {full !== null && <Fact term="Asked by">{full.requested_by}</Fact>}
+        {full !== null && (
+          <Fact term="Asked by">{nameOf(full.requested_by)}</Fact>
+        )}
         {full !== null && <Fact term="Reason">{full.reason}</Fact>}
         {full?.evidence != null && <Fact term="Evidence">{full.evidence}</Fact>}
-        {full?.decided_by != null && (
-          <Fact term="Decided by">{full.decided_by}</Fact>
+        {decidedBy !== null && (
+          <Fact term="Decided by">{nameOf(decidedBy)}</Fact>
         )}
         {full?.decision_reason != null && (
           <Fact term="They said">{full.decision_reason}</Fact>
@@ -557,11 +605,7 @@ function RequestSheet({
 
       {state === "PENDING" && full !== null && (
         <div className="mt-4 flex flex-col gap-3">
-          <Field
-            label="Why"
-            hint="Recorded against the decision, and required."
-            required
-          >
+          <Field label="Why" required>
             <Input
               value={reason}
               onChange={(event) => setReason(event.target.value)}
@@ -658,10 +702,9 @@ function FileLeaveSheet({
         }
       }}
       title="Request leave"
-      caption="Filed in their name; it waits for a decision like any other."
       footer={
         <div className="flex justify-end gap-2">
-          <Button variant="quiet" onClick={onClose}>
+          <Button data-cancel variant="quiet" onClick={onClose}>
             Cancel
           </Button>
           <Button

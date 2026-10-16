@@ -118,7 +118,7 @@ function RowFacts({ row, canCost }: { row: ExplorerRow; canCost: boolean }) {
       )}
       <Fact term="Stock">{f.stock === null ? "—" : quantity(f.stock)}</Fact>
       {canCost && (
-        <Fact term="Stock at acquisition">
+        <Fact term="Stock value">
           {f.stock_cost_minor === null ? "—" : money(f.stock_cost_minor)}
         </Fact>
       )}
@@ -217,7 +217,7 @@ function SkuGrid({ data }: { data: SalesExplorer }) {
                 </span>
               </div>
               {code !== null && (
-                <span className="font-mono text-[0.875rem] text-mute">
+                <span className="font-mono text-[0.9375rem] text-mute">
                   {code}
                 </span>
               )}
@@ -246,22 +246,22 @@ function SkuGrid({ data }: { data: SalesExplorer }) {
           <table className="w-full border-collapse text-[0.9375rem]">
             <thead>
               <tr className="text-body">
-                <th className="pr-3 pb-2.5 text-left text-[0.875rem] font-medium whitespace-nowrap">
+                <th className="pr-3 pb-2.5 text-left text-[0.9375rem] font-medium whitespace-nowrap">
                   Colour / size
                 </th>
                 {stores.map((store) => (
                   <th
                     key={store.site_id}
                     title={store.name}
-                    className="px-2 pb-2.5 text-right text-[0.875rem] font-medium whitespace-nowrap"
+                    className="px-2 pb-2.5 text-right text-[0.9375rem] font-medium whitespace-nowrap"
                   >
                     {(store.code ?? store.name).replace(/-TOKO$/i, "")}
                   </th>
                 ))}
-                <th className="pb-2.5 pl-3 text-right text-[0.875rem] font-medium whitespace-nowrap">
+                <th className="pb-2.5 pl-3 text-right text-[0.9375rem] font-medium whitespace-nowrap">
                   Sold
                 </th>
-                <th className="pb-2.5 pl-3 text-right text-[0.875rem] font-medium whitespace-nowrap">
+                <th className="pb-2.5 pl-3 text-right text-[0.9375rem] font-medium whitespace-nowrap">
                   Stock
                 </th>
               </tr>
@@ -275,7 +275,7 @@ function SkuGrid({ data }: { data: SalesExplorer }) {
                         {label}
                       </span>
                       {code !== null && (
-                        <span className="font-mono text-[0.875rem] text-mute">
+                        <span className="font-mono text-[0.9375rem] text-mute">
                           {code}
                         </span>
                       )}

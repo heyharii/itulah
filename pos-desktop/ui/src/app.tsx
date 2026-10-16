@@ -87,7 +87,7 @@ function Counter() {
     if (seat === null) return
     holdSeat(null)
     setLost(
-      `${seat.label} sudah diambil alih${by !== null ? ` oleh ${by}` : ""} — pilih kasir lagi.`,
+      `Your shift at ${seat.label} was taken over${by !== null ? ` by ${by}` : ""}.`,
     )
     setWhere("sale")
   }, [])
@@ -121,7 +121,7 @@ function Counter() {
       <div id="app" data-screen="sale">
         <Topbar />
         <div className="empty">
-          <p>Menghubungkan…</p>
+          <p>Connecting…</p>
         </div>
       </div>
     )
@@ -165,7 +165,6 @@ function Counter() {
     return (
       <LoginScreen
         onSignedIn={() => setWhere("sale")}
-        onSetup={() => setWhere("setup")}
         onJoin={isWeb ? undefined : () => setWhere("join")}
       />
     )
@@ -204,15 +203,21 @@ function Counter() {
         onDone={() => setWhere("sale")}
         onPeripherals={() => setWhere("peripherals")}
       />
-    ) : where === "sale" || where === "payment" ? null : where === "shift" ? (
+    ) : where === "sale" || where === "payment" ? null : where === "shift" || where === "finish" ? (
       <ShiftScreen
         actorId={actorId}
+        finishing={where === "finish"}
         onBack={() => setWhere("sale")}
         // The shift is over the moment the node says so; the person stays on
-        // the count until they choose to go, and then it is the picker they
-        // return to.
+        // the count until they are done, and then they are signed out — there
+        // is no other way out of a shift.
         onClosed={() => holdSeat(null)}
         onLeave={() => {
+          void session.signOut()
+          setShiftChecked(false)
+          setWhere("sale")
+        }}
+        onOpenShift={() => {
           setShiftChecked(false)
           setWhere("sale")
         }}
@@ -245,11 +250,6 @@ function Counter() {
           terminalId={session.terminalId}
           where={where}
           onGo={setWhere}
-          onSignOut={() => {
-            void session.signOut()
-            setShiftChecked(false)
-            setWhere("sale")
-          }}
           onLock={idle.lock}
           onSeatLost={seatLost}
         />
@@ -257,13 +257,13 @@ function Counter() {
       {lost !== null ? gate : screen}
       {idle.warningIn !== null && !idle.locked && (
         <div id="toast" role="status">
-          Layar terkunci dalam {idle.warningIn} detik
+          Locking the screen in {idle.warningIn} seconds
           <button
             className="btn ghost"
             style={{ marginLeft: 10, minHeight: 22, padding: "0 8px" }}
             onClick={idle.stayAwake}
           >
-            Saya di sini
+            I&apos;m here
           </button>
         </div>
       )}

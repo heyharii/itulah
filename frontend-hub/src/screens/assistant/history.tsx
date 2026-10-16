@@ -57,7 +57,7 @@ export function History({
   return (
     <div
       className={cn(
-        "flex w-[14.5rem] shrink-0 flex-col border-r border-hairline bg-soft-3 px-2 py-3",
+        "flex w-[14.5rem] shrink-0 flex-col border-r border-hairline bg-canvas px-2 py-3",
         className
       )}
     >

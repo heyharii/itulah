@@ -9,9 +9,9 @@ import { cn } from "@/lib/utils"
 /// The foot of a record sheet — the one home for what the sheet does.
 ///
 /// ```
-///  ..................  [Print] [Delete…]  [Cancel]  [secondary]  [Primary]
-///  every button stands at the right (owner, 10 Oct 2026: no sheet has a
-///  button at the far left); the primary is last, danger first, Cancel quiet
+///  ...........  [Print]  [Delete…]  [Cancel]  [secondary]  [Primary]
+///  every button at the right, Print first (owner, 14 Oct: "print jg button
+///  itu selalu sebelah kanan"); the primary is last, Cancel filled red
 /// ```
 ///
 /// Pass it as the Sheet's `footer`. The sheet draws the band (the rule, the
@@ -27,8 +27,8 @@ import { cn } from "@/lib/utils"
 ///  - **Danger first**, away from the primary — a `ConfirmButton` for
 ///    anything that cannot be walked back; for a decision pair, Reject here and
 ///    Approve as the primary.
-///  - **Cancel is quiet** and leaves; a reader who cannot act gets `Close` and
-///    no primary.
+///  - **Cancel is filled red** and leaves; a reader who cannot act gets
+///    `Close`, a plain ghost, and no primary.
 ///  - **Read mode**: `onPrint` draws the Print icon first and the
 ///    primary is "Edit". Editing in place swaps the same foot to Cancel and
 ///    "Save changes".
@@ -74,22 +74,23 @@ export function SheetFooter({
       {note && <FootNote tone={noteTone}>{note}</FootNote>}
       <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
         <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+          {/* Print, first of the verbs at the right (owner, 14 Oct). */}
           {onPrint !== undefined && (
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label="Print"
-              title="Print"
-              className="max-md:w-11"
-              onClick={onPrint}
-            >
+            <Button variant="ghost" onClick={onPrint}>
               <Printer />
+              Print
             </Button>
           )}
           {start}
           {danger}
+          {/* Cancel is filled red (UI-PATTERNS.md §4); a reader's Close is a
+              plain ghost. */}
           {onCancel !== undefined && (
-            <Button variant="quiet" onClick={onCancel}>
+            <Button
+              variant={cancelLabel === "Cancel" ? "destructive" : "ghost"}
+              data-cancel
+              onClick={onCancel}
+            >
               {cancelLabel}
             </Button>
           )}
@@ -149,7 +150,7 @@ export function FootNote({
       role={tone === "bad" ? "alert" : "status"}
       aria-live={tone === "bad" ? "assertive" : "polite"}
       className={cn(
-        "text-[0.875rem] leading-5",
+        "text-[0.9375rem] leading-5",
         tone === "bad"
           ? "text-bad"
           : tone === "warn"

@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
-import { Link } from "@tanstack/react-router"
+import { Link, useHydrated } from "@tanstack/react-router"
 import { Bell, ChevronRight, Search } from "lucide-react"
 
 import { AppIcon } from "@/components/shell/app-icon"
@@ -24,7 +24,7 @@ function Waiting({ tile }: { tile: AppTile }) {
   return (
     <span
       className={cn(
-        "min-w-7 shrink-0 rounded-full px-2 text-center text-[0.875rem] leading-6 font-semibold tabular-nums",
+        "min-w-7 shrink-0 rounded-full px-2 text-center text-[0.9375rem] leading-6 font-semibold tabular-nums",
         tile.badge === "bad"
           ? "bg-bad-bg text-bad-fg"
           : "bg-warn-bg text-warn-fg"
@@ -66,23 +66,31 @@ export function Apps() {
     identity.data?.username ??
     ""
   ).split(" ")[0]
-  const now = new Date()
-  const hour = now.getHours()
+  // The weekday and the time of day are the browser's own: the server's
+  // clock (and zone) is not the person's, so the page names neither until it
+  // is hydrated, and says "Hello" in the meantime rather than a wrong hour.
+  const hydrated = useHydrated()
+  const now = hydrated ? new Date() : null
+  const hour = now?.getHours() ?? 0
   const greeting =
-    hour < 11
-      ? "Good morning"
-      : hour < 15
-        ? "Good afternoon"
-        : hour < 19
-          ? "Good evening"
-          : "Good night"
+    now === null
+      ? "Hello"
+      : hour < 11
+        ? "Good morning"
+        : hour < 15
+          ? "Good afternoon"
+          : hour < 19
+            ? "Good evening"
+            : "Good night"
 
   return (
     <PageContent>
       {/* The greeting is the page's large title, the way a phone's own apps
           open — no card around it. The date above it is the quiet line. */}
       <header className="mb-5">
-        <p className="text-[0.875rem] font-medium text-mute">{weekday(now)}</p>
+        <p className="text-[0.9375rem] font-medium text-mute">
+          {now === null ? "\u00a0" : weekday(now)}
+        </p>
         <h1 className="mt-1 text-[1.75rem] leading-[1.12] font-semibold tracking-[-0.025em] text-ink">
           {greeting}
           {name !== "" && `, ${name}`}
@@ -115,7 +123,7 @@ export function Apps() {
         Apps
       </h2>
       {identity.isPending ? null : tiles.length === 0 ? (
-        <p className="rounded-2xl border border-dashed border-hairline-strong px-5 py-7 text-center text-[0.875rem] leading-relaxed text-body">
+        <p className="rounded-2xl border border-dashed border-hairline-strong px-5 py-7 text-center text-[0.9375rem] leading-relaxed text-body">
           No office apps for this account. Your messages, notifications and
           profile are in the bar below.
         </p>

@@ -23,7 +23,7 @@ on:
   workflow_dispatch:
     inputs:
       cloud_url:
-        description: "Head office address baked in as the setup page's default"
+        description: "Head office address baked into the node and the MSI (nobody types it)"
         required: false
 
 permissions:
@@ -78,8 +78,9 @@ jobs:
           set -euo pipefail
           version="$(backend/target/release/store --version | awk '{print $2}')"
           cp backend/target/release/store package/
-          cp deploy/edge/store-edge.service deploy/edge/install-store.sh package/
-          chmod +x package/install-store.sh package/store
+          cp deploy/edge/store-edge.service deploy/edge/install-store.sh \
+             deploy/edge/central-status.sh deploy/edge/nftables-store-lan.conf package/
+          chmod +x package/install-store.sh package/central-status.sh package/store
           name="itulah-store-${version}-linux-x64"
           mv package "$name"
           tar czf "$name.tar.gz" "$name"
@@ -93,6 +94,11 @@ jobs:
     name: Windows x64 MSI
     needs: web
     runs-on: windows-2022
+    env:
+      # "true" only when the bucket's service-account key is set as a
+      # repository secret (the key itself stays out of the job's environment);
+      # the publish steps below run only then.
+      HAVE_DOWNLOADS_KEY: ${{ secrets.CENTRAL_DOWNLOADS_GCP_KEY != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -121,17 +127,22 @@ jobs:
           if ($errors) { $errors; throw "store-tray.ps1 does not parse" }
           dotnet tool install --global wix --version 5.0.2
           wix extension add -g WixToolset.Util.wixext/5.0.2
-          wix build deploy/windows/store.wxs -arch x64 -ext WixToolset.Util.wixext `
-            -d "Version=$version" -d "BinDir=$PWD\bin" -d "TrayScript=$PWD\deploy\windows\store-tray.ps1" -o "itulah-store-$version-x64.msi"
-          (Get-FileHash -Algorithm SHA256 "itulah-store-$version-x64.msi").Hash.ToLowerInvariant() |
-            Out-File -Encoding ascii "itulah-store-$version-x64.msi.sha256"
+          wix extension add -g WixToolset.UI.wixext/5.0.2
+          $msi = "central-store-server-$version-x64.msi"
+          $defines = @("-d", "Version=$version", "-d", "BinDir=$PWD\bin", "-d", "TrayScript=$PWD\deploy\windows\store-tray.ps1")
+          # Central's address, the same one cargo baked into store.exe: it is
+          # the installer's default for CLOUD_URL, so nobody types it.
+          if ($env:ITULAH_DEFAULT_CLOUD_URL) { $defines += @("-d", "CloudUrl=$env:ITULAH_DEFAULT_CLOUD_URL") }
+          wix build deploy/windows/store.wxs -arch x64 -ext WixToolset.Util.wixext -ext WixToolset.UI.wixext @defines -o $msi
+          if ($LASTEXITCODE -ne 0) { throw "wix build failed: $LASTEXITCODE" }
+          (Get-FileHash -Algorithm SHA256 $msi).Hash.ToLowerInvariant() | Out-File -Encoding ascii "$msi.sha256"
       # Unsigned until a signing identity exists (STORE-SERVER-PLAN §10.3).
       # An unsigned MSI installs, but SmartScreen warns "unknown publisher".
       - name: Smoke-test the installer
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $msi = Get-ChildItem itulah-store-*.msi | Select-Object -First 1
+          $msi = Get-ChildItem central-store-server-*.msi | Select-Object -First 1
           $p = Start-Process msiexec -ArgumentList "/i `"$($msi.FullName)`" /qn /l*v install.log" -Wait -PassThru
           if ($p.ExitCode -ne 0) { Get-Content install.log -Tail 80; throw "install failed: $($p.ExitCode)" }
           Start-Sleep -Seconds 10
@@ -147,4 +158,34 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: windows
-          path: itulah-store-*-x64.msi*
+          path: central-store-server-*-x64.msi*
+      # Release only: a store-v* tag, and only when the bucket's key is set.
+      # Mirrors frontend-hub/desktop/scripts/publish.sh: the file under its
+      # version, then the feed (latest.json) that the Server page in Central
+      # reads, never cached.
+      - name: Publish to gs://itulah-central-desktop/store-server/
+        if: ${{ startsWith(github.ref, 'refs/tags/store-v') && env.HAVE_DOWNLOADS_KEY == 'true' }}
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.CENTRAL_DOWNLOADS_GCP_KEY }}
+      - uses: google-github-actions/setup-gcloud@v2
+        if: ${{ startsWith(github.ref, 'refs/tags/store-v') && env.HAVE_DOWNLOADS_KEY == 'true' }}
+      - name: Upload the MSI and latest.json
+        if: ${{ startsWith(github.ref, 'refs/tags/store-v') && env.HAVE_DOWNLOADS_KEY == 'true' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $msi = Get-ChildItem central-store-server-*-x64.msi | Select-Object -First 1
+          $version = $msi.Name -replace '^central-store-server-(.+)-x64\.msi$', '$1'
+          $sha256 = (Get-FileHash -Algorithm SHA256 $msi.FullName).Hash.ToLowerInvariant()
+          $bucket = 'gs://itulah-central-desktop/store-server'
+          $url = "https://storage.googleapis.com/itulah-central-desktop/store-server/$version/$($msi.Name)"
+          gcloud storage cp $msi.FullName "$bucket/$version/$($msi.Name)"
+          if ($LASTEXITCODE -ne 0) { throw "upload failed: $LASTEXITCODE" }
+          # The same file under a stable name: the hub's Download button points at it.
+          gcloud storage cp --cache-control=no-cache $msi.FullName "$bucket/latest.msi"
+          if ($LASTEXITCODE -ne 0) { throw "latest.msi upload failed: $LASTEXITCODE" }
+          @{ version = $version; url = $url; sha256 = $sha256 } | ConvertTo-Json | Set-Content -Encoding utf8 latest.json
+          gcloud storage cp --cache-control=no-cache --content-type=application/json latest.json "$bucket/latest.json"
+          if ($LASTEXITCODE -ne 0) { throw "feed upload failed: $LASTEXITCODE" }
+          Write-Host "published $version: $url"

@@ -1,21 +1,22 @@
-import { useQueries, useQuery } from "@tanstack/react-query"
-import { useMemo, useState } from "react"
+import { useSuspenseQueries, useSuspenseQuery } from "@tanstack/react-query"
+import type { ColumnDef } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
+import { Suspense, useDeferredValue, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { Card } from "@/components/ui/card"
+import { DataTable } from "@/components/ui/data-table"
 import { PageHeader } from "@/components/ui/page-header"
-import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states"
+import { EmptyState, LoadingState } from "@/components/ui/states"
 import { count, money } from "@/lib/format"
-import { useLayout } from "@/lib/layout"
-import {
-  accountLedger,
-  financeKeys,
-  moneyOverview,
-} from "@/lib/queries/finance"
-import { Code, Grid, Td, Th } from "@/screens/finance-final/parts"
+import { ledgerWindowQuery, moneyOverviewQuery } from "@/lib/queries/finance"
+import { tableSetup, type TableSetup } from "@/lib/table"
+import { Code } from "@/screens/finance-final/parts"
 import { useAsOf } from "@/screens/finance/hooks"
-import { CardFigure, PhoneList } from "@/components/ui/phone-cards"
 import { AsOfControl, UnitName, UnitSelect } from "@/screens/finance/parts"
 import { ReportFilters } from "@/screens/finance/report"
+import { ScreenPending } from "@/screens/finance/pending"
+import type { MoneyAccountRow } from "@itulah/contract"
 
 /// Accounts receivable — what we are actually owed — on ERPNext's Accounts
 /// Receivable page (`accounts/report/accounts_receivable`): unit in
@@ -63,6 +64,23 @@ import { ReportFilters } from "@/screens/finance/report"
 /// manual entry. The gap is the posting, not the chart, and saying that is
 /// more useful than an empty page.
 export function AccountsReceivable() {
+  return (
+    <Suspense
+      fallback={
+        <ScreenPending
+          crumb="Finance · Receivables"
+          title="Accounts Receivable"
+        >
+          Reading what each receivable account holds at the report date…
+        </ScreenPending>
+      }
+    >
+      <AccountsReceivableScreen />
+    </Suspense>
+  )
+}
+
+function AccountsReceivableScreen() {
   const asOf = useAsOf()
   // On the wire, never across an answer already in hand. Inter-unit balances
   // are the case that makes this matter: "who owes whom" is meaningless until
@@ -77,37 +95,21 @@ export function AccountsReceivable() {
     family.codes.map((code) => ({ code, at }))
   )
 
-  const families = useQueries({
-    queries: asked.map(({ code: familyCode }) => ({
-      // The one-day window is how a ledger is asked for a balance:
-      // `closing_minor` is a property of the window's end, so `from == to`
-      // says "as at this date" and `limit: 1` keeps movements nobody is
-      // reading off the wire. The key carries the unit, so two units are two
-      // cache entries and never one answer wearing both names.
-      queryKey: financeKeys.ledger(
-        familyCode,
-        unit || null,
-        asOf.value,
-        asOf.value
-      ),
-      queryFn: ({ signal }: { signal: AbortSignal }) =>
-        accountLedger(
-          familyCode,
-          {
-            unit: unit || undefined,
-            from: asOf.value,
-            to: asOf.value,
-            limit: 1,
-          },
-          signal
-        ),
-    })),
+  // The boxes answer at once; the balances trail them, and the figures in
+  // hand stay on screen (dimmed) until the next are read.
+  const askedUnit = useDeferredValue(unit)
+  const askedAsOf = useDeferredValue(asOf.value)
+  const stale = askedUnit !== unit || askedAsOf !== asOf.value
+
+  // The one-day window is how a ledger is asked for a balance (see
+  // `ledgerWindowQuery`).
+  const families = useSuspenseQueries({
+    queries: asked.map(({ code: familyCode }) =>
+      ledgerWindowQuery(familyCode, askedUnit || null, askedAsOf, askedAsOf)
+    ),
     // `combine` rather than a memo over the results: `useQueries` hands back a
     // new array every render, so a memo keyed on it never holds.
     combine: (answers) => ({
-      isPending: answers.some((one) => one.isPending),
-      isError: answers.some((one) => one.isError),
-      error: answers.find((one) => one.isError)?.error,
       rows: FAMILIES.map((family, at) => {
         const mine = asked
           .map((one, index) => ({ one, index }))
@@ -124,27 +126,31 @@ export function AccountsReceivable() {
             .join(" · ") || null
         /// Debits minus credits, in the accounts' own sign and deliberately
         /// unflipped. A report decides how to present a balance; a balance does
-        /// not decide for itself. `null` while any of them is still in flight,
-        /// and `—` on screen — "we have not asked" and "there is nothing there"
-        /// are different sentences, and a partial sum would be a third thing
-        /// that is neither.
-        const balance = mine.some((one) => one === undefined)
-          ? null
-          : mine.reduce((sum, one) => sum + (one?.closing_minor ?? 0), 0)
+        /// not decide for itself.
+        const balance = mine.reduce(
+          (sum, one) => sum + (one?.closing_minor ?? 0),
+          0
+        )
         return { family, name, balance }
       }),
     }),
   })
 
-  const phone = useLayout() === "phone"
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: families.rows,
+        columns: FAMILY_COLUMNS,
+        getRowId: (row: FamilyBalance) => row.family.key,
+      }),
+      [families.rows]
+    )
+  )
 
   return (
     <PageContent>
-      <PageHeader
-        className="max-md:hidden"
-        crumb="Finance · Receivables"
-        title="Accounts Receivable"
-      />
+      <PageHeader crumb="Finance · Receivables" title="Accounts Receivable" />
 
       <ReportFilters
         note={
@@ -170,94 +176,102 @@ export function AccountsReceivable() {
         <AsOfControl asOf={asOf} />
       </ReportFilters>
 
-      {families.isPending ? (
-        <LoadingState>
-          Reading what each receivable account holds at the report date…
-        </LoadingState>
-      ) : families.isError ? (
-        <ErrorState error={families.error} />
-      ) : (
-        <>
-          {/* No total row: an allowance subtracts, an advance is work owed
+      <div className="list-swap" aria-busy={stale || undefined}>
+        {/* No total row: an allowance subtracts, an advance is work owed
               rather than cash, and the last row is a liability read backwards.
               Adding them would make a figure with no name. */}
-          {phone ? (
-            <PhoneList
-              rows={families.rows.map(({ family, name, balance }) => ({
-                key: family.key,
-                title: family.what,
-                line: family.covers,
-                lead: (
-                  <CardFigure
-                    value={balance === null ? "—" : money(balance)}
-                    tone={balance !== null && balance < 0 ? "bad" : undefined}
-                  />
-                ),
-                foot: (
-                  <span className="flex flex-col">
-                    <span>{name ?? "—"}</span>
-                    <span className="font-mono">
-                      {family.codes.join(" · ")}
-                    </span>
-                  </span>
-                ),
-              }))}
-            />
-          ) : (
-            <Grid>
-              <thead>
-                <tr>
-                  <Th>Party Type</Th>
-                  <Th width="20rem">Account</Th>
-                  <Th width="8rem">Account No</Th>
-                  <Th align="right" width="11rem">
-                    Outstanding Amount
-                  </Th>
-                </tr>
-              </thead>
-              <tbody>
-                {families.rows.map(({ family, name, balance }) => (
-                  <tr key={family.key}>
-                    <Td>
-                      <span
-                        className="font-medium text-ink"
-                        title={family.reading}
-                      >
-                        {family.what}
-                      </span>
-                      <span className="mt-0.5 block text-[0.875rem] text-mute">
-                        {family.covers}
-                      </span>
-                    </Td>
-                    <Td>
-                      {name === null ? (
-                        <span className="text-faint">—</span>
-                      ) : (
-                        name
-                      )}
-                    </Td>
-                    <Td>
-                      {family.codes.map((code) => (
-                        <span key={code} className="block">
-                          <Code>{code}</Code>
-                        </span>
-                      ))}
-                    </Td>
-                    <Td align="right">
-                      <Balance minor={balance} />
-                    </Td>
-                  </tr>
-                ))}
-              </tbody>
-            </Grid>
-          )}
+        <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+          <DataTable<FamilyBalance>
+            table={table}
+            pageScroll
+            cardSort={false}
+            cardsApart
+          />
+        </Card>
 
-          <Settlement asOf={asOf.value} unit={unit} />
-        </>
-      )}
+        <Suspense
+          fallback={
+            <LoadingState>Finding the settlement accounts…</LoadingState>
+          }
+        >
+          <Settlement asOf={askedAsOf} unit={askedUnit} />
+        </Suspense>
+      </div>
     </PageContent>
   )
 }
+
+/// One family and what its accounts held at the report date.
+interface FamilyBalance {
+  readonly family: (typeof FAMILIES)[number]
+  readonly name: string | null
+  readonly balance: number | null
+}
+
+/// One row per kind of party. On a card the party names it, what it covers
+/// stands under it and the amount outstanding follows.
+const FAMILY_COLUMNS: ColumnDef<TableSetup, FamilyBalance>[] = [
+  {
+    id: "party",
+    accessorFn: (row) => row.family.what,
+    header: "Party Type",
+    size: 300,
+    enableSorting: false,
+    meta: { card: "title", grow: 260 },
+    cell: ({ row }) => (
+      <span className="flex min-w-0 flex-col whitespace-normal">
+        <span
+          className="font-medium text-ink"
+          title={row.original.family.reading}
+        >
+          {row.original.family.what}
+        </span>
+        <span className="text-[0.9375rem] font-normal text-mute">
+          {row.original.family.covers}
+        </span>
+      </span>
+    ),
+  },
+  {
+    id: "account",
+    accessorFn: (row) => row.name ?? "",
+    header: "Account",
+    size: 300,
+    enableSorting: false,
+    // On a card the party's own line already says what it covers.
+    meta: { card: "hide", priority: 2 },
+    cell: ({ row }) =>
+      row.original.name === null ? (
+        <span className="text-faint">—</span>
+      ) : (
+        <span className="whitespace-normal">{row.original.name}</span>
+      ),
+  },
+  {
+    id: "codes",
+    accessorFn: (row) => row.family.codes.join(" "),
+    header: "Account No",
+    size: 140,
+    enableSorting: false,
+    meta: { card: "meta", priority: 3 },
+    cell: ({ row }) => (
+      <span className="flex flex-col">
+        {row.original.family.codes.map((code) => (
+          <Code key={code}>{code}</Code>
+        ))}
+      </span>
+    ),
+  },
+  {
+    id: "outstanding",
+    accessorFn: (row) => row.balance ?? 0,
+    header: "Outstanding Amount",
+    size: 190,
+    enableSorting: false,
+    meta: { align: "right", card: "metric" },
+    cell: ({ row }) => <Balance minor={row.original.balance} />,
+  },
+]
 
 /// The receivable families the client's chart actually carries.
 ///
@@ -332,6 +346,11 @@ const FAMILIES: readonly {
   },
 ]
 
+/// Every account the families above read, for the prefetcher to warm.
+export const RECEIVABLE_CODES: readonly string[] = FAMILIES.flatMap(
+  (family) => family.codes
+)
+
 /// A ledger balance, with a zero that is a finding rather than a gap.
 ///
 /// `Rp 0` means the server looked at the account and found nothing posted; `—`
@@ -371,27 +390,27 @@ function Balance({ minor }: { minor: number | null }) {
 /// screen that worked it out by looking for "card" in the name would get it
 /// wrong the first time somebody added a key containing the word.
 function Settlement({ asOf, unit }: { asOf: string; unit: string }) {
-  const phone = useLayout() === "phone"
-  const overview = useQuery({
-    queryKey: financeKeys.money(asOf, unit || null),
-    queryFn: ({ signal }) =>
-      moneyOverview({ as_of: asOf, unit: unit || undefined }, signal),
-  })
+  const overview = useSuspenseQuery(moneyOverviewQuery(unit || null, asOf))
 
   const rows = useMemo(
-    () =>
-      (overview.data?.rows ?? []).filter(
-        (row) => row.pot === "CARD_RECEIVABLE"
-      ),
+    () => overview.data.rows.filter((row) => row.pot === "CARD_RECEIVABLE"),
     [overview.data]
   )
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: rows,
+        columns: SETTLEMENT_COLUMNS,
+        // The same account at the same unit can be mapped under two meanings,
+        // so the pair alone is not an identity.
+        getRowId: (row: MoneyAccountRow, index: number) =>
+          `${row.account_code}@${row.unit_id}:${index}`,
+      }),
+      [rows]
+    )
+  )
 
-  if (overview.isPending) {
-    return <LoadingState>Finding the settlement accounts…</LoadingState>
-  }
-  if (overview.isError) {
-    return <ErrorState error={overview.error} />
-  }
   if (rows.length === 0) {
     return (
       <EmptyState>
@@ -409,66 +428,77 @@ function Settlement({ asOf, unit }: { asOf: string; unit: string }) {
         <h2 className="text-[0.9375rem] font-semibold text-ink">
           Card settlement, by unit
         </h2>
-        <span className="text-[0.875rem] text-mute">
+        <span className="text-[0.9375rem] text-mute">
           {count(rows.length)} accounts · {count(holding)} with a balance
         </span>
       </div>
-      {phone ? (
-        <PhoneList
-          rows={rows.map((row) => ({
-            key: `${row.account_code}@${row.unit_id}`,
-            title: row.account_name,
-            code: row.account_code,
-            line: <UnitName id={row.unit_id} />,
-            lead: (
-              <CardFigure
-                value={money(row.per_books_minor)}
-                tone={row.per_books_minor < 0 ? "bad" : undefined}
-              />
-            ),
-          }))}
+      <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+        <DataTable<MoneyAccountRow>
+          table={table}
+          pageScroll
+          cardSort={false}
+          cardsApart
         />
-      ) : (
-        <Grid>
-          <thead>
-            <tr>
-              <Th>Account</Th>
-              <Th width="9rem">Unit</Th>
-              <Th width="8rem">Ledger</Th>
-              <Th width="13rem">Meaning</Th>
-              <Th align="right" width="11rem">
-                Outstanding Amount
-              </Th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr key={`${row.account_code}@${row.unit_id}`}>
-                <Td>
-                  {/* The client's name, untrimmed, ending in their own code for
-                    the shop — `… C001`. That suffix is THEIR name for the
-                    place; the unit column beside it is ours. */}
-                  <span className="font-medium text-ink">
-                    {row.account_name}
-                  </span>
-                </Td>
-                <Td>
-                  <UnitName id={row.unit_id} />
-                </Td>
-                <Td>
-                  <Code>{row.account_code}</Code>
-                </Td>
-                <Td className="text-[0.875rem] text-mute">
-                  {row.semantic_key}
-                </Td>
-                <Td align="right">
-                  <Balance minor={row.per_books_minor} />
-                </Td>
-              </tr>
-            ))}
-          </tbody>
-        </Grid>
-      )}
+      </Card>
     </>
   )
 }
+
+/// The card settlement accounts, one row each. On a card the account's name
+/// leads with its code over it, the unit follows and so does what is owed.
+const SETTLEMENT_COLUMNS: ColumnDef<TableSetup, MoneyAccountRow>[] = [
+  {
+    id: "account",
+    accessorFn: (row) => row.account_name,
+    header: "Account",
+    size: 300,
+    enableSorting: false,
+    meta: { card: "title", grow: 240 },
+    // The client's name, untrimmed, ending in their own code for the shop —
+    // `… C001`. That suffix is THEIR name for the place; the unit column beside
+    // it is ours.
+    cell: ({ row }) => (
+      <span className="font-medium text-ink">{row.original.account_name}</span>
+    ),
+  },
+  {
+    id: "unit",
+    accessorFn: (row) => row.unit_id,
+    header: "Unit",
+    size: 150,
+    enableSorting: false,
+    meta: { card: "meta" },
+    cell: ({ row }) => <UnitName id={row.original.unit_id} />,
+  },
+  {
+    id: "ledger",
+    accessorFn: (row) => row.account_code,
+    header: "Ledger",
+    size: 150,
+    enableSorting: false,
+    meta: { card: "id" },
+    cell: ({ row }) => <Code>{row.original.account_code}</Code>,
+  },
+  {
+    id: "meaning",
+    accessorFn: (row) => row.semantic_key,
+    header: "Meaning",
+    size: 220,
+    enableSorting: false,
+    meta: { card: "hide", priority: 3 },
+    cell: ({ row }) => (
+      <span className="text-[0.9375rem] text-mute">
+        {row.original.semantic_key}
+      </span>
+    ),
+  },
+  {
+    id: "outstanding",
+    accessorFn: (row) => row.per_books_minor,
+    header: "Outstanding Amount",
+    size: 190,
+    enableSorting: false,
+    meta: { align: "right", card: "metric" },
+    cell: ({ row }) => <Balance minor={row.original.per_books_minor} />,
+  },
+]

@@ -721,7 +721,7 @@ export function ChangePriceSheet({
         <div className="flex items-center justify-between gap-3">
           <span
             className={cn(
-              "min-w-0 truncate text-[0.875rem]",
+              "min-w-0 truncate text-[0.9375rem]",
               actor === "" ? "text-bad" : "text-text"
             )}
           >
@@ -732,7 +732,7 @@ export function ChangePriceSheet({
                 : "Fill in the price."}
           </span>
           <div className="flex items-center gap-3">
-            <Button variant="quiet" onClick={onClose}>
+            <Button data-cancel variant="quiet" onClick={onClose}>
               Cancel
             </Button>
             <Button
@@ -757,7 +757,7 @@ export function ChangePriceSheet({
         ) : null}
 
         <div className="flex flex-col gap-3">
-          <span className="text-[0.875rem] font-medium text-ink">
+          <span className="text-[0.9375rem] font-medium text-ink">
             What kind of price?
           </span>
           <Choices
@@ -770,7 +770,7 @@ export function ChangePriceSheet({
         </div>
 
         <div className="flex flex-col gap-3">
-          <span className="text-[0.875rem] font-medium text-ink">
+          <span className="text-[0.9375rem] font-medium text-ink">
             Applied to
           </span>
           <Choices
@@ -809,7 +809,7 @@ export function ChangePriceSheet({
 
         {single && (
           <div className="flex flex-col gap-3">
-            <span className="text-[0.875rem] font-medium text-ink">Sizes</span>
+            <span className="text-[0.9375rem] font-medium text-ink">Sizes</span>
             <Choices
               label="Sizes"
               columns={1}
@@ -819,9 +819,9 @@ export function ChangePriceSheet({
             />
             {sizesMode === "choose" &&
               (products.isPending ? (
-                <p className="text-[0.875rem] text-mute">Loading…</p>
+                <p className="text-[0.9375rem] text-mute">Loading…</p>
               ) : products.isError ? (
-                <p className="text-[0.875rem] text-bad">
+                <p className="text-[0.9375rem] text-bad">
                   Could not load sizes.
                 </p>
               ) : (
@@ -838,7 +838,7 @@ export function ChangePriceSheet({
                               .filter((one) => one !== null)
                               .join(" · ") || product.sku_code}
                           </span>
-                          <span className="font-mono text-[0.875rem] text-mute">
+                          <span className="font-mono text-[0.9375rem] text-mute">
                             {product.sku_code}
                           </span>
                         </span>
@@ -863,7 +863,7 @@ export function ChangePriceSheet({
         )}
 
         <div className="flex flex-col gap-3">
-          <span className="text-[0.875rem] font-medium text-ink">
+          <span className="text-[0.9375rem] font-medium text-ink">
             {kind === "markdown" ? "Markdown price" : "New price"}
           </span>
           <div className="flex gap-4">
@@ -875,7 +875,7 @@ export function ChangePriceSheet({
                   onChange={(event) => handlePctInput(event.target.value)}
                   className="pr-7 text-right tabular-nums"
                 />
-                <span className="pointer-events-none absolute right-3 text-[0.875rem] text-mute">
+                <span className="pointer-events-none absolute right-3 text-[0.9375rem] text-mute">
                   %
                 </span>
               </span>
@@ -899,7 +899,7 @@ export function ChangePriceSheet({
                   setPctRaw(String(value))
                 }}
                 className={cn(
-                  "h-9 rounded-inner border px-3 text-[0.875rem] font-medium transition-colors",
+                  "h-9 rounded-inner border px-3 text-[0.9375rem] font-medium transition-colors",
                   driver === "pct" && pctValue === value
                     ? "border-accent bg-accent-bg text-accent"
                     : "border-hairline-2 bg-canvas text-body hover:bg-soft"
@@ -913,16 +913,16 @@ export function ChangePriceSheet({
           </div>
           {waitingOnProducts &&
             (products.isError ? (
-              <p className="text-[0.875rem] text-bad">
+              <p className="text-[0.9375rem] text-bad">
                 Could not load products.
               </p>
             ) : (
-              <p className="text-[0.875rem] text-mute">Loading…</p>
+              <p className="text-[0.9375rem] text-mute">Loading…</p>
             ))}
         </div>
 
         <div className="flex flex-col gap-3">
-          <span className="text-[0.875rem] font-medium text-ink">When?</span>
+          <span className="text-[0.9375rem] font-medium text-ink">When?</span>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Starts">
               <Input

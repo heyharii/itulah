@@ -384,6 +384,11 @@ pub struct ExplorerQuery {
     pub compare: Option<String>,
     /// Each row at each store, for the store matrix and the heatmap.
     pub matrix: Option<bool>,
+    /// Each row month by month, for the per-month table (owner, 16 Oct
+    /// 2026): the cells are months (`YYYY-MM`) where the matrix has stores,
+    /// and `store_totals` holds the months' totals. No stock in them — what
+    /// is on the shelves belongs to no month. Ignored beside `matrix`.
+    pub months: Option<bool>,
     /// Stock on hand now, beside the sales.
     pub stock: Option<bool>,
     /// Only rows that hold stock and sold nothing in the window.
@@ -440,6 +445,7 @@ pub struct ExplorerFigures {
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct ExplorerCell {
+    /// The store, or with `months` the month (`YYYY-MM`).
     pub site_id: String,
     pub figures: ExplorerFigures,
 }
@@ -967,6 +973,7 @@ async fn transaction_groups(
     base.sizes = None;
     base.q = None;
     base.matrix = Some(false);
+    base.months = None;
     base.unsold = None;
     base.articles = None;
     base.sort = None;
@@ -988,26 +995,37 @@ async fn transaction_groups(
     let desc = !matches!(query.dir.as_deref(), Some("asc"));
 
     if group == ExplorerGroup::Payment {
+        // By month a method's cells are its months, and the column totals
+        // are the months' rather than the stores'.
+        let by_month = !query.matrix.unwrap_or(false) && query.months.unwrap_or(false);
+        let column = if by_month {
+            "to_char(business_date, 'YYYY-MM')"
+        } else {
+            "site_id"
+        };
+        let sql = format!(
+            "SELECT method, {column} AS site_id, SUM(receipts)::bigint AS receipts,
+                    SUM(amount_minor)::bigint AS amount
+               FROM sales_payment_day
+              WHERE business_date BETWEEN $1 AND $2
+                AND (cardinality($3::text[]) = 0 OR site_id = ANY($3))
+              GROUP BY 1, 2"
+        );
         let window = |from: NaiveDate, to: NaiveDate| {
             let stores = stores.clone();
+            let sql = sql.as_str();
             async move {
-                sqlx::query(
-                    "SELECT method, site_id, SUM(receipts)::bigint AS receipts,
-                            SUM(amount_minor)::bigint AS amount
-                       FROM sales_payment_day
-                      WHERE business_date BETWEEN $1 AND $2
-                        AND (cardinality($3::text[]) = 0 OR site_id = ANY($3))
-                      GROUP BY method, site_id",
-                )
-                .bind(from)
-                .bind(to)
-                .bind(&stores)
-                .fetch_all(pool)
-                .await
+                sqlx::query(sql)
+                    .bind(from)
+                    .bind(to)
+                    .bind(&stores)
+                    .fetch_all(pool)
+                    .await
             }
         };
         let mut figures = std::collections::BTreeMap::<String, (i64, i64)>::new();
         let mut cells = std::collections::BTreeMap::<String, Vec<ExplorerCell>>::new();
+        let mut columns = std::collections::BTreeMap::<String, (i64, i64)>::new();
         for row in window(query.from, query.to).await? {
             let method: String = row.try_get("method")?;
             let site_id: String = row.try_get("site_id")?;
@@ -1016,6 +1034,9 @@ async fn transaction_groups(
             let entry = figures.entry(method.clone()).or_default();
             entry.0 += receipts;
             entry.1 += amount;
+            let column = columns.entry(site_id.clone()).or_default();
+            column.0 += receipts;
+            column.1 += amount;
             cells.entry(method).or_default().push(ExplorerCell {
                 site_id,
                 figures: paid_figures(receipts, amount, 0),
@@ -1053,6 +1074,15 @@ async fn transaction_groups(
         });
         out.rows_total = i64::try_from(rows.len()).unwrap_or(0);
         out.rows = rows;
+        if by_month {
+            out.store_totals = columns
+                .into_iter()
+                .map(|(site_id, (receipts, amount))| ExplorerCell {
+                    site_id,
+                    figures: paid_figures(receipts, amount, 0),
+                })
+                .collect();
+        }
     } else {
         let order = if by_sales {
             "s.net_minor DESC, s.business_date DESC, s.site_id"
@@ -1185,6 +1215,7 @@ async fn sales_explorer_items(
     let want_stock = query.stock.unwrap_or(false) || query.unsold.unwrap_or(false) || matches!(sort, "stock" | "stock_value" | "sell_through");
     let with_stock = want_stock && group.has_stock();
     let matrix = query.matrix.unwrap_or(false);
+    let by_month = !matrix && query.months.unwrap_or(false);
     let head = query.totals.unwrap_or(true);
     let filters = Filters {
         from: query.from,
@@ -1265,7 +1296,15 @@ async fn sales_explorer_items(
          )",
         article = if keeps_article { "w.article_id" } else { "NULL::uuid" },
         count_articles = if keeps_article && wants_articles { "true" } else { "false" },
-        site = if per_store { "w.site_id" } else { "NULL::text" },
+        // By month the month stands where the store would: the cells and the
+        // column totals are then read exactly as the store matrix's are.
+        site = if by_month {
+            "to_char(w.day, 'YYYY-MM')"
+        } else if per_store {
+            "w.site_id"
+        } else {
+            "NULL::text"
+        },
         articles = match group {
             ExplorerGroup::Article => "1::bigint",
             ExplorerGroup::Sku => "1::bigint",
@@ -1470,9 +1509,19 @@ async fn sales_explorer_items(
            FROM page p
            JOIN tot t ON t.p_key = p.p_key AND t.period = 1"
     ));
-    if matrix {
+    if matrix || by_month {
         // Sales and stock per store for the page's rows, added up as one
-        // list rather than joined: no sort, one hash.
+        // list rather than joined: no sort, one hash. By month the slot
+        // holds the month and the shelves stay out of it.
+        let shelves = if matrix {
+            " UNION ALL
+                     SELECT p_key, site_id, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                            on_hand, stock_cost
+                       FROM stk_keyed
+                      WHERE p_key IN (SELECT p_key FROM page)"
+        } else {
+            ""
+        };
         b.push(format!(
             " UNION ALL
              SELECT 'cell', NULL, NULL, c.p_key, c.site_id, 0, NULL, NULL, NULL,
@@ -1483,12 +1532,7 @@ async fn sales_explorer_items(
                             discounted_minor, cost_minor, uncosted_qty, uncosted_minor,
                             NULL::bigint AS on_hand, NULL::bigint AS stock_cost
                        FROM keyed
-                      WHERE period = 0 AND p_key IN (SELECT p_key FROM page)
-                     UNION ALL
-                     SELECT p_key, site_id, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                            on_hand, stock_cost
-                       FROM stk_keyed
-                      WHERE p_key IN (SELECT p_key FROM page)) c
+                      WHERE period = 0 AND p_key IN (SELECT p_key FROM page){shelves}) c
               GROUP BY c.p_key, c.site_id"
         ));
     }
@@ -1508,7 +1552,7 @@ async fn sales_explorer_items(
             count_total = if keeps_article { "true" } else { "false" },
         ));
     }
-    if per_store && head {
+    if (per_store || by_month) && head {
         b.push(format!(
             " UNION ALL
              SELECT 'store_total', NULL, NULL, NULL, w.site_id, w.period, NULL, NULL, NULL,
@@ -1827,7 +1871,8 @@ async fn sales_explorer_items(
         total.stock = Some(on_hand);
         total.stock_cost_minor = can_see_cost.then_some(cost);
     }
-    if with_stock {
+    // By month the column totals are months, which hold no stock.
+    if with_stock && !by_month {
         for store in &stores {
             let (on_hand, cost) = store_stock.get(&store.site_id).copied().unwrap_or((0, 0));
             let entry = store_totals.entry(store.site_id.clone()).or_insert_with(|| {

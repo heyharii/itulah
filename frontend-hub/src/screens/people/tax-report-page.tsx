@@ -10,19 +10,23 @@ import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/field"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
-import { Pill } from "@/components/ui/pill"
+import { Status } from "@/components/ui/pill"
 import { MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
 import { Toolbar } from "@/components/ui/segmented"
 import { EmptyState } from "@/components/ui/states"
 import { csvName, downloadCsv, toCsv } from "@/lib/csv"
-import { count, money } from "@/lib/format"
-import { payKeys, taxMethodLabel, taxReport } from "@/lib/queries/people"
+import { count, money, monthYear } from "@/lib/format"
+import { payKeys, taxReport, useReachableUnits } from "@/lib/queries/people"
 import { queryState } from "@/lib/query-state"
 import { CardFigure, CardName, PhoneCards } from "@/components/ui/phone-cards"
-import { MONTH_COLUMNS, lastMonth } from "@/screens/people/tax-report-columns"
+import {
+  MONTH_COLUMNS,
+  lastMonth,
+  taxMethodWord,
+} from "@/screens/people/tax-report-columns"
 
-/// Tax › PPh 21 & BPJS — one month across everybody the caller reaches: the
-/// figures behind the monthly SPT Masa and the BPJS invoice.
+/// Pay › Tax › PPh 21 & BPJS — one month across everybody the caller reaches:
+/// the figures behind the monthly SPT Masa and the BPJS invoice.
 ///
 /// Nothing here is worked out in the browser. Every figure is the slip's own,
 /// summed by the server from slips built since 0800; a slip from before that
@@ -36,6 +40,16 @@ export function TaxReportPage() {
     enabled: /^\d{4}-\d{2}$/.test(period),
   })
   const rows = report.data ?? []
+  const reachable = useReachableUnits()
+  /// A unit by its name; the report only carries the id.
+  const unitName = (id: string) =>
+    reachable.data?.find((one) => one.id === id)?.name ?? id
+  /// The tax profile in a few words: PTKP, TER category, and the method when
+  /// the company bears or adds the tax.
+  const profile = (row: TaxReportRow) =>
+    [row.ptkp ?? "—", row.ter_category ?? "—", taxMethodWord(row.tax_method)]
+      .filter((one) => one !== null)
+      .join(" · ")
   const sum = (pick: (row: TaxReportRow) => number | null) =>
     rows.reduce((total, row) => total + Number(pick(row) ?? 0), 0)
 
@@ -45,9 +59,7 @@ export function TaxReportPage() {
   return (
     <PageContent>
       <PageHeader
-        crumb="People"
         title="PPh 21 & BPJS"
-        sub="One month across everybody: the figures behind the monthly tax return and the BPJS invoice."
         actions={
           !phone && (
             <Button
@@ -101,9 +113,7 @@ export function TaxReportPage() {
           render: () =>
             rows.length === 0 ? (
               <EmptyState>
-                No payroll for {period} has been worked out with tax yet. A run
-                built for the month shows here as soon as it exists, draft or
-                not.
+                Nothing has been worked out for {monthYear(period)}.
               </EmptyState>
             ) : phone ? (
               <PhoneCards
@@ -116,10 +126,10 @@ export function TaxReportPage() {
                       line={
                         <>
                           <span className="block">
-                            {row.unit_id} · {row.npwp ?? "no NPWP"}
+                            {unitName(row.unit_id)} · {row.npwp ?? "no NPWP"}
                           </span>
                           <span className="block">
-                            {row.ptkp ?? "—"} · {row.ter_category ?? "—"}
+                            {profile(row)}
                             {row.final_tax_month === true && " · year settled"}
                           </span>
                         </>
@@ -147,16 +157,14 @@ export function TaxReportPage() {
                       <span>Company {money(row.bpjs_company_minor)}</span>
                     </span>
                   ),
-                  action: (row) =>
-                    row.tax_method !== null && row.tax_method !== "GROSS" ? (
-                      <Pill tone="info">{taxMethodLabel(row.tax_method)}</Pill>
-                    ) : null,
                 }}
               />
             ) : (
               <MiniTable
                 head={[
                   "Employee",
+                  { label: "Unit", align: "left" },
+                  { label: "NPWP", align: "left" },
                   { label: "PTKP · TER", align: "left" },
                   { label: "Taxable Gross", align: "right" },
                   { label: "PPh 21", align: "right" },
@@ -167,25 +175,13 @@ export function TaxReportPage() {
                 {rows.map((row) => (
                   <MiniRow key={`${row.run_id}-${row.employee_id}`}>
                     <MiniCell>
-                      <span className="block text-[0.875rem] text-ink">
+                      <span className="text-ink">
                         {row.full_name ?? row.employee_code}
                       </span>
-                      <span className="text-[0.875rem] text-mute">
-                        {row.unit_id} · {row.npwp ?? "no NPWP"}
-                      </span>
                     </MiniCell>
-                    <MiniCell>
-                      {row.ptkp ?? "—"} · {row.ter_category ?? "—"}
-                      {row.tax_method !== null &&
-                        row.tax_method !== "GROSS" && (
-                          <>
-                            {" "}
-                            <Pill tone="info">
-                              {taxMethodLabel(row.tax_method)}
-                            </Pill>
-                          </>
-                        )}
-                    </MiniCell>
+                    <MiniCell>{unitName(row.unit_id)}</MiniCell>
+                    <MiniCell>{row.npwp ?? "—"}</MiniCell>
+                    <MiniCell>{profile(row)}</MiniCell>
                     <MiniCell align="right">
                       {row.taxable_gross_minor === null
                         ? "—"
@@ -193,15 +189,13 @@ export function TaxReportPage() {
                     </MiniCell>
                     <MiniCell align="right">
                       {row.pph21_minor === null ? (
-                        <Pill tone="warn">Not worked out</Pill>
+                        <Status tone="warn">Not worked out</Status>
                       ) : (
                         <>
-                          {money(row.pph21_minor)}
                           {row.final_tax_month === true && (
-                            <span className="block text-[0.875rem] text-mute">
-                              year settled
-                            </span>
+                            <span className="mr-2 text-mute">year settled</span>
                           )}
+                          {money(row.pph21_minor)}
                         </>
                       )}
                     </MiniCell>
@@ -221,7 +215,6 @@ export function TaxReportPage() {
       {/* On a phone the export is the last thing on the page, not the first. */}
       <div className="mt-4 md:hidden">
         <Button
-          variant="tint"
           className="w-full"
           disabled={rows.length === 0}
           onClick={exportCsv}

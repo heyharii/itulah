@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sidebar Grouping</title>
+<style>
+@font-face{font-family:Inter;src:url('/frontend-hub/node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2') format('woff2');font-weight:100 900;font-display:swap}
+/* the hub's shell today: All white + Fog (white.css "The shell") */
+:root{--ink:#1d1d1f;--mute:#6e6e73;--line:#ececf0;--blue:#2563eb;--red:#d70015;
+ --stone:#e8ebf0;--panel:#f4f6f9;--side-ink:#5a6271;--side-mute:#8a92a0;--hover:rgb(0 0 0 / 5%);--edge:rgb(0 0 0 / 5%);
+ --ring:0 0 0 1px rgb(0 0 0 / 5%),0 2px 8px rgb(0 0 0 / 4%),0 24px 72px rgb(0 0 0 / 8%);
+ --ease:cubic-bezier(.23,1,.32,1)}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;font:15px/1.45 Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:var(--ink);background:var(--stone);-webkit-font-smoothing:antialiased;overflow:hidden}
+svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+button{font:inherit;color:inherit;border:0;background:none;cursor:pointer;text-align:left}
+.num{font-variant-numeric:tabular-nums}
+
+.shell{display:flex;height:100vh}
+.rail{width:64px;flex:none;display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 0;color:var(--side-ink)}
+.rail .ic{position:relative;width:40px;height:40px;border-radius:10px;display:grid;place-items:center;transition:background-color .15s ease,transform .12s ease}
+.rail .ic:active{transform:scale(.97)}
+@media(hover:hover) and (pointer:fine){.rail .ic:not(.on):hover{background:var(--hover)}}
+.rail .ic.on{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgb(0 0 0 / 7%)}
+.rail .end{margin-top:auto}
+
+.panel{width:216px;flex:none;display:flex;flex-direction:column;margin:12px 12px 12px 0;border-radius:16px;background:var(--panel);box-shadow:0 0 0 1px var(--edge),0 2px 6px rgb(0 0 0 / 4%);overflow:hidden}
+.panel h2{margin:0;padding:18px 20px 10px;font-size:15px;font-weight:650;letter-spacing:-.01em}
+.list{flex:1;min-height:0;overflow-y:auto;padding:2px 10px 16px;scrollbar-width:none;
+ mask-image:linear-gradient(to bottom,transparent 0,#000 8px,#000 calc(100% - 24px),transparent 100%)}
+.list::-webkit-scrollbar{display:none}
+.list.swap{animation:swap .16s var(--ease)}
+@keyframes swap{from{opacity:0;transform:translateY(4px)}}
+.time{flex:none;padding:12px 20px 16px;color:var(--side-mute);white-space:nowrap}
+
+.item{display:flex;width:100%;justify-content:space-between;align-items:center;gap:8px;height:34px;padding:0 10px;border-radius:8px;color:var(--side-ink);white-space:nowrap;transition:background-color .15s ease}
+.item>span:first-child{overflow:hidden;text-overflow:ellipsis}
+@media(hover:hover) and (pointer:fine){.item:not(.on):hover{background:var(--hover)}}
+.item.on{background:#fff;color:var(--ink);font-weight:550;box-shadow:0 0 0 1px rgb(0 0 0 / 6%),0 1px 3px rgb(0 0 0 / 6%)}
+.badge{display:grid;place-items:center;min-width:20px;height:20px;padding:0 5px;border-radius:999px;background:var(--red);color:#fff;font-size:15px;line-height:1;font-weight:600;box-shadow:0 0 0 2px var(--panel)}
+.rail .badge{position:absolute;top:-3px;right:-5px;min-width:18px;height:18px;font-size:14px;padding:0 4px;box-shadow:0 0 0 2px var(--stone)}
+
+/* group heads: a quiet label; a fold carries a chevron */
+.glabel{display:flex;align-items:center;justify-content:space-between;width:100%;height:30px;margin-top:14px;padding:0 10px;color:var(--side-mute);font-weight:500;white-space:nowrap;border-radius:8px}
+.group:first-child>.glabel{margin-top:0}
+.glabel .chev{opacity:0;transition:transform .2s var(--ease),opacity .15s ease}
+button.glabel:hover .chev,button.glabel:focus-visible .chev{opacity:1}
+.glabel .chev{width:14px;height:14px}
+.group.open>.glabel .chev{transform:rotate(90deg)}
+.group.shut>.glabel .chev{opacity:.7}
+.group.shut>.glabel{color:var(--side-ink)}
+@media(hover:hover) and (pointer:fine){button.glabel:hover{background:var(--hover)}}
+.fold{display:grid;grid-template-rows:1fr;transition:grid-template-rows .2s var(--ease),opacity .2s ease}
+.fold>div{min-height:0;overflow:hidden}
+.group.shut>.fold{grid-template-rows:0fr;opacity:0;transition-duration:.15s}
+/* folds stacked tight; space only around an open one */
+.o-d .group.shut>.glabel,.o-a .group.shut>.glabel{margin-top:2px}
+.o-a .glabel{height:34px;margin-top:2px;color:var(--side-ink)}
+.o-a .group.open>.glabel{color:var(--ink);font-weight:550}
+
+/* C · lines between groups, no words */
+.o-c .group+.group{margin-top:7px;padding-top:7px;position:relative}
+.o-c .group+.group::before{content:"";position:absolute;top:0;left:10px;right:10px;border-top:1px solid rgb(0 0 0 / 7%)}
+/* today: GA's dividers */
+.hr{height:1px;margin:6px 10px;background:rgb(0 0 0 / 7%)}
+
+/* E · work rows, then one Setup fold at the foot */
+.setup{flex:none;padding:6px 10px 2px;border-top:1px solid rgb(0 0 0 / 6%)}
+.setup .glabel{margin:0;color:var(--side-ink)}
+.setup .glabel>span{display:flex;align-items:center;gap:8px}
+.setup .glabel .chev{opacity:.7}
+.setup.open .glabel .chev{transform:rotate(-90deg)}
+.setup .fold>div{max-height:44vh;overflow-y:auto;scrollbar-width:none}
+.setup .sublabel{margin:10px 10px 2px;color:var(--side-mute);font-weight:500}
+.setup .sublabel:first-child{margin-top:4px}
+.setup.shut .fold{grid-template-rows:0fr;opacity:0;transition-duration:.15s}
+
+/* F · inset cards, Apple Settings */
+.o-f .list{padding-top:4px}
+.o-f .group{margin-top:12px}
+.o-f .group:first-child{margin-top:0}
+.o-f .glabel{height:26px;margin:0 0 2px;padding:0 10px}
+.o-f .card{background:rgb(255 255 255 / 66%);border-radius:12px;padding:3px;box-shadow:0 0 0 1px rgb(0 0 0 / 4%)}
+.o-f .item{height:32px}
+.o-f .item.on{box-shadow:0 0 0 1px rgb(0 0 0 / 7%),0 1px 3px rgb(0 0 0 / 8%)}
+
+/* the page: just enough to tell where you are */
+.page{flex:1;min-width:0;background:#fff;margin:12px 12px 12px 0;border-radius:16px;box-shadow:var(--ring);overflow:hidden;display:flex;flex-direction:column}
+.page-in{flex:1;overflow:auto;padding:26px 32px 120px}
+.path{color:var(--mute)}
+h1{margin:0 0 22px;font-size:20px;line-height:26px;font-weight:650;letter-spacing:-.015em}
+.facts{display:flex;gap:28px;margin-bottom:24px;flex-wrap:wrap}
+.fact span{display:block;color:var(--mute)}
+.fact strong{font-size:16px;font-weight:600}
+.compare{max-width:760px}
+.compare table{width:100%;border-collapse:collapse}
+.compare th{text-align:left;font-weight:500;color:var(--mute);height:40px;border-bottom:1px solid var(--line);padding:0 12px 0 0}
+.compare td{padding:11px 12px 11px 0;border-bottom:1px solid #f3f3f6;vertical-align:top}
+.compare tr.on td{background:#f6f8fc}
+.compare td:first-child{font-weight:550;white-space:nowrap}
+.compare .r{text-align:right;white-space:nowrap}
+.compare .mute{color:var(--mute)}
+
+
+/* text tone on the panel (owner 15 Oct: "sulit dibaca, warnanya nyatu") */
+body[data-t="dark"]{--side-ink:#3a3f4a;--side-mute:#6b7280}
+body[data-t="ink"]{--side-ink:#1d1d1f;--side-mute:#6e6e73}
+body[data-t="ink"] .item{font-weight:450}
+body[data-t="white"]{--panel:#fff;--side-ink:#1d1d1f;--side-mute:#6e6e73;--edge:rgb(0 0 0 / 7%)}
+body[data-t="white"] .item{font-weight:450}
+body[data-t="white"] .item.on{background:#eef2f8;box-shadow:none;color:#1d1d1f}
+body[data-t="white"] .o-f .card{background:#f6f7f9;box-shadow:none}
+body:is([data-t="dark"],[data-t="ink"],[data-t="white"]) .glabel{font-weight:600}
+body:is([data-t="ink"],[data-t="white"]) .item.on{font-weight:600}
+.switch .sep{width:1px;margin:6px 4px;background:rgb(0 0 0 / 10%);flex:none}
+/* option switch */
+.switch{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);display:flex;gap:4px;padding:6px;border-radius:14px;background:rgb(255 255 255 / 86%);backdrop-filter:blur(16px) saturate(1.4);-webkit-backdrop-filter:blur(16px) saturate(1.4);box-shadow:0 0 0 1px rgb(0 0 0 / 7%),0 8px 30px rgb(0 0 0 / 12%);z-index:10;max-width:calc(100vw - 32px);overflow-x:auto}
+.switch button{height:40px;padding:0 14px;border-radius:9px;white-space:nowrap;color:var(--mute);font-weight:500;transition:background-color .15s ease,color .15s ease,transform .12s ease}
+.switch button:active{transform:scale(.97)}
+@media(hover:hover) and (pointer:fine){.switch button:hover{background:rgb(0 0 0 / 4%)}}
+.switch button[aria-pressed="true"]{background:#1d1d1f;color:#fff}
+.switch b{font-weight:600;margin-right:6px;opacity:.55}
+@media(prefers-reduced-motion:reduce){.list.swap{animation:none}.rail .ic:active,.switch button:active{transform:none}}
+</style>
+</head>
+<body data-t="today">
+<div class="shell">
+ <nav class="rail" id="rail" aria-label="Departments"></nav>
+ <nav class="panel" id="panel"><h2 id="dept"></h2><div class="list" id="list"></div><div id="foot"></div><div class="time num">Thu 15 Oct 2026 · 09:10</div></nav>
+ <main class="page"><div class="page-in" id="page"></div></main>
+</div>
+<div class="switch" id="switch" role="group" aria-label="Grouping"></div>
+
+<script>
+// ── icons (lucide-like) ──
+const I = {
+ home:'<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1Z"/>',
+ buying:'<circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M2 3h3l2.6 12.4a2 2 0 0 0 2 1.6h8.2a2 2 0 0 0 2-1.6L21 7H6"/>',
+ merch:'<path d="M8 3 4 6v4h3v11h10V10h3V6l-4-3a4 4 0 0 1-8 0Z"/>',
+ ops:'<path d="M3 7h11v9H3zM14 10h4l3 3v3h-7"/><circle cx="7" cy="18" r="1.6"/><circle cx="17" cy="18" r="1.6"/>',
+ inv:'<path d="m12 3 8 4.5v9L12 21l-8-4.5v-9Z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/>',
+ mkt:'<path d="M3 11v2a1 1 0 0 0 1 1h3l5 4V6L7 10H4a1 1 0 0 0-1 1ZM16 8a5 5 0 0 1 0 8"/>',
+ sales:'<path d="M3 10h18M5 10l1-6h12l1 6M5 10v10h14V10M10 20v-5h4v5"/>',
+ fin:'<path d="M3 21h18M5 21V10M19 21V10M9 21v-6h6v6M3 10l9-6 9 6"/>',
+ hr:'<circle cx="9" cy="8" r="3"/><path d="M3 20a6 6 0 0 1 12 0M16 4a3 3 0 0 1 0 6M21 20a5 5 0 0 0-4-5"/>',
+ ga:'<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7h2M14 7h2M8 11h2M14 11h2M10 21v-4h4v4"/>',
+ master:'<path d="M4 5c0-1.1 3.6-2 8-2s8 .9 8 2-3.6 2-8 2-8-.9-8-2Z"/><path d="M4 5v14c0 1.1 3.6 2 8 2s8-.9 8-2V5M4 12c0 1.1 3.6 2 8 2s8-.9 8-2"/>',
+ cog:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2"/>',
+ chev:'<path d="m9 6 6 6-6 6"/>',
+}
+const svg = (k) => `<svg viewBox="0 0 24 24">${I[k]}</svg>`
+
+// ── the menu, read from frontend-hub's nav.ts files (15 Oct) ──
+// row = "Label" or ["Label", count]; group = {l: label|null, s: setup?, r: rows}
+// today = how the hub draws it now: flat rows; Finance folds; GA dividers
+const D = [
+ {id:"buying", l:"Procurement", ic:"buying", on:"Purchase Orders", g:[
+  {l:"Orders", r:[["Purchase Orders",4],["Return PO",2]]},
+  {l:"Partners", r:["Suppliers"]}],
+  today:[["Purchase Orders",4],"Suppliers",["Return PO",2]]},
+ {id:"merch", l:"Merchandise", ic:"merch", on:"Articles", g:[
+  {l:"Articles", r:["Articles",["New Articles",7]]},
+  {l:"Allotment", r:["Allotments","Return HO"]},
+  {l:"Attributes", s:1, r:["Divisions","Tags","Sizes","Colors","Name Suggestions"]}]},
+ {id:"ops", l:"Ops", ic:"ops", on:"Receiving PO", g:[
+  {l:"Inbound", r:[["Receiving PO",3],["Quantity Checks",2]]},
+  {l:"Returns", r:[["Receiving Return",1],["Return from Store",1]]},
+  {l:"Outbound", r:[["Allotment",5]]}],
+  today:[["Receiving PO",3],["Receiving Return",1],["Quantity Checks",2],["Allotment",5],["Return from Store",1]]},
+ {id:"inv", l:"Inventory", ic:"inv", on:"Stock", g:[
+  {l:"Stock", r:["Stock",["Exceptions",3]]},
+  {l:"Checks", r:["Counts","Movements"]}]},
+ {id:"mkt", l:"Marketing", ic:"mkt", on:"Pricelist", g:[
+  {l:"Prices", r:["Pricelist"]},
+  {l:"Offers", r:["Promotions","Campaigns","Vouchers"]}]},
+ {id:"sales", l:"Sales", ic:"sales", on:"Sales by Store", g:[
+  {l:null, r:["Sales"]},
+  {l:"By place", r:["Sales by Store","Sales by Payment","Sales by Cashier Session"]},
+  {l:"By product", r:["Sales by Division","Sales by Tag","Sales by Article","Sales by SKU"]},
+  {l:"By source", r:["Sales by PO","Sales by Supplier","Sales by Campaign"]}],
+  today:["Sales","Sales by Store","Sales by Division","Sales by Tag","Sales by Article","Sales by SKU","Sales by PO","Sales by Supplier","Sales by Campaign","Sales by Payment","Sales by Cashier Session"]},
+ {id:"fin", l:"Finance", ic:"fin", on:"Bank Transactions", g:[
+  {l:null, r:["Overview"]},
+  {l:"Stores", r:["Store Overview","Sales by Day","Cash on Hand","Petty Cash","Cashier Float","Cash Counts"]},
+  {l:"Inventory", r:["Inventory Valuation","Stock vs Ledger","Goods in Transit","Cost of Goods Sold","Stock Adjustments"]},
+  {l:"Payables", r:[["Purchase Invoice",6],"Credit Note","Recurring Bills","Accruals","Accounts Payable","Supplier Bills","Payment Projection","Loans"]},
+  {l:"Receivables", r:["Card & EDC Settlement"]},
+  {l:"Payments", r:["BKK","BKM","Journal Entry","Recurring Journal","Mode of Payment"]},
+  {l:"Banking", r:["Bank Account","Giro Board","Bank Transactions",["Bank Reconciliation",2],"Bank Rules"]},
+  {l:"Financial Reports", r:["General Ledger","Trial Balance","Profit and Loss","Balance Sheet","Cash Flow","Profit and Loss by Unit","Balance Sheet 2 Years","Sales by Division","Statement of Changes in Equity","Expenses by Month","Bank Reconciliation Summary"]},
+  {l:"Assets", r:["Asset","Contractor Projects","Asset Category","Fixed Asset Register","Asset Disposals"]},
+  {l:"Tax", r:["Tax Withholding","Tax Withholding Details","Tax Payables","Tax Types"]},
+  {l:"Accounting Masters", s:1, r:["Chart of Accounts","Accounts Settings",["Accounting Period",1],"Pay Components"]},
+  {l:"Closing", r:["Period Close","Period Closing Voucher"]}],
+  todayFold:1},
+ {id:"hr", l:"HR", ic:"hr", on:"Attendance", g:[
+  {l:null, r:[["Overview & Requests",5],"Reports"]},
+  {l:"Employees", r:["Employee List","Org Chart","Transfers & Changes","Onboarding","Offboarding","Reprimands","Invitations"]},
+  {l:"Time", r:["Time Off Requests","Time Off Balances","Attendance","Overtime","Roster","Team Calendar"]},
+  {l:"Claims & Loans", r:["Claims","Loans","Claim Allowances","Benefit Balances"]},
+  {l:"Payroll", r:["Payroll Runs","One-offs","Tax & BPJS Report","1721-A1"]},
+  {l:"Company", s:1, r:["Company & NPP","Group & Business Units","Departments","Job Levels & Grades"]},
+  {l:"Time rules", s:1, r:["Attendance Rules","Mobile & Locations","Shifts & Breaks","Time Off Types","Holidays","Overtime Rules"]},
+  {l:"Pay rules", s:1, r:["Schedule & Pro-rate","Components & Structures","Payslip","Absence Deduction","BPJS & Tax Rates","Claim Types","Benefit"]},
+  {l:"Access", s:1, r:["Job Roles","Onboarding Tasks","Approval Delegation","Employee App"]}],
+  today:[["Overview & Requests",5],"Employee List","Org Chart","Transfers & Changes","Onboarding","Offboarding","Reprimands","Invitations","Time Off Requests","Time Off Balances","Attendance","Overtime","Roster","Team Calendar","Claims","Loans","Claim Allowances","Balances","Payroll Runs","One-offs","Tax & BPJS Report","1721-A1","Reports","Company & NPP","Group & Business Units","Departments","Job Levels & Grades","Attendance Rules","Mobile & Locations","Shifts & Breaks","Time Off Types","Holidays","Overtime Rules","Schedule & Pro-rate","Components & Structures","Payslip","Absence Deduction","BPJS & Tax Rates","Claim Types","Benefit","Job Roles","Onboarding Tasks","Approval Delegation","Employee App"]},
+ {id:"ga", l:"GA", ic:"ga", on:"Repairs", g:[
+  {l:null, r:["Overview"]},
+  {l:"Requests", r:[["Supply Requests",2],"Repairs","Service Schedule"]},
+  {l:"Property", r:["Assets","Contracts","Sites","Suppliers"]},
+  {l:"Documents", r:["Letters","Files"]}],
+  today:["Overview","---",["Supply Requests",2],"Repairs","Service Schedule","---","Assets","Contracts","Sites","Suppliers","---","Letters","Files"]},
+ {id:"master", l:"Master", ic:"master", on:"Articles", g:[
+  {l:"Articles", r:["Articles",["New Articles",7]]},
+  {l:"Places & partners", r:["Stores","Suppliers"]},
+  {l:"Attributes", s:1, r:["Divisions","Tags","Sizes","Colors","Name Suggestions"]}],
+  today:["Articles",["New Articles",7],"Stores","Divisions","Tags","Sizes","Colors","Name Suggestions","Suppliers"]},
+]
+
+const OPTIONS = [
+ ["a","Today"],
+ ["b","Labels"],
+ ["c","Lines"],
+ ["d","Labels + fold"],
+ ["e","Work + Setup"],
+ ["f","Cards"],
+]
+const NOTE = {
+ a:"What the hub draws now",
+ b:"Every row visible, a quiet label over each group",
+ c:"Groups apart by a hairline, no words to read",
+ d:"Labels; a long department folds every group but the one you are in",
+ e:"Labels + fold, and every settings screen behind one Setup row at the foot",
+ f:"Each group a soft card, label above (Apple Settings)",
+}
+
+const rowsOf = (d) => d.g.flatMap((g) => g.r)
+const nameOf = (r) => Array.isArray(r) ? r[0] : r
+const cnt = (r) => Array.isArray(r) ? r[1] : 0
+const SHORT = 5, LONG = 14
+
+const st = {o:"b", d:"hr", on:{}, open:{}, setup:{}}
+D.forEach((d) => st.on[d.id] = d.on)
+
+function item(d, r) {
+ const n = nameOf(r), c = cnt(r)
+ return `<button class="item${st.on[d.id] === n ? " on" : ""}" data-row="${n}"><span>${n}</span>${c ? `<span class="badge num">${c}</span>` : ""}</button>`
+}
+function foldGroup(d, g, key) {
+ const inside = g.r.some((r) => nameOf(r) === st.on[d.id])
+ const open = st.open[key] ?? inside
+ return `<div class="group ${open ? "open" : "shut"}"><button class="glabel" data-fold="${key}"><span>${g.l}</span>${svg("chev").replace("<svg", '<svg class="chev"')}</button><div class="fold"><div>${g.r.map((r) => item(d, r)).join("")}</div></div></div>`
+}
+function openGroup(d, g, labels) {
+ const head = labels && g.l ? `<div class="glabel">${g.l}</div>` : ""
+ return `<div class="group">${head}${g.r.map((r) => item(d, r)).join("")}</div>`
+}
+
+function renderList(d) {
+ const o = st.o, total = rowsOf(d).length, short = total <= SHORT
+ if (o === "a") {
+  if (d.todayFold) return d.g.map((g, i) => g.l ? foldGroup(d, g, d.id + i) : g.r.map((r) => item(d, r)).join("")).join("")
+  return (d.today ?? rowsOf(d)).map((r) => r === "---" ? '<div class="hr"></div>' : item(d, r)).join("")
+ }
+ if (o === "b") return d.g.map((g) => openGroup(d, g, !short)).join("")
+ if (o === "c") return d.g.map((g) => openGroup(d, g, false)).join("")
+ if (o === "d") {
+  if (total <= LONG) return d.g.map((g) => openGroup(d, g, !short)).join("")
+  return d.g.map((g, i) => g.l ? foldGroup(d, g, d.id + i) : openGroup(d, g, false)).join("")
+ }
+ if (o === "e") {
+  const work = d.g.filter((g) => !g.s), n = work.reduce((a, g) => a + g.r.length, 0)
+  if (n <= LONG) return work.map((g) => openGroup(d, g, n > SHORT)).join("")
+  return work.map((g, i) => g.l ? foldGroup(d, g, d.id + "w" + i) : openGroup(d, g, false)).join("")
+ }
+ if (o === "f") return d.g.map((g) => `<div class="group">${g.l && !short ? `<div class="glabel">${g.l}</div>` : ""}<div class="card">${g.r.map((r) => item(d, r)).join("")}</div></div>`).join("")
+}
+function renderFoot(d) {
+ if (st.o !== "e") return ""
+ const set = d.g.filter((g) => g.s)
+ if (!set.length) return ""
+ const inside = set.some((g) => g.r.some((r) => nameOf(r) === st.on[d.id]))
+ const open = st.setup[d.id] ?? inside
+ const n = set.reduce((a, g) => a + g.r.length, 0)
+ const body = set.map((g) => `${set.length > 1 ? `<div class="sublabel">${g.l}</div>` : ""}${g.r.map((r) => item(d, r)).join("")}`).join("")
+ return `<div class="setup ${open ? "open" : "shut"}"><button class="glabel" data-setup><span>${svg("cog")}Setup</span>${svg("chev").replace("<svg", '<svg class="chev"')}</button><div class="fold"><div>${body}</div></div></div>`
+}
+
+// what each option leaves on screen, for the compare table
+function visible(d, o) {
+ const total = rowsOf(d).length
+ if (o === "a") return d.todayFold ? d.g.filter((g) => !g.l).reduce((a, g) => a + g.r.length, 0) + d.g.filter((g) => g.l).length : total
+ if (o === "d" && total > LONG) return d.g.filter((g) => !g.l).reduce((a, g) => a + g.r.length, 0) + d.g.filter((g) => g.l).length
+ if (o === "e") { const w = d.g.filter((g) => !g.s), n = w.reduce((a, g) => a + g.r.length, 0); return (n > LONG ? w.filter((g) => !g.l).reduce((a, g) => a + g.r.length, 0) + w.filter((g) => g.l).length : n) + (d.g.some((g) => g.s) ? 1 : 0) }
+ return total
+}
+
+function renderPage(d) {
+ const rows = D.map((x) => `<tr class="${x.id === d.id ? "on" : ""}"><td>${x.l}</td><td class="r num">${rowsOf(x).length}</td><td class="r num">${visible(x, "a")}</td><td class="r num">${visible(x, st.o)}</td><td class="mute">${x.g.map((g) => g.l ?? "—").join(" · ")}</td></tr>`).join("")
+ document.getElementById("page").innerHTML = `
+  <div class="path">${d.l}</div><h1>${st.on[d.id]}</h1>
+  <div class="facts num">
+   <div class="fact"><span>Option</span><strong>${OPTIONS.find((x) => x[0] === st.o)[1]}</strong></div>
+   <div class="fact"><span>How</span><strong>${NOTE[st.o]}</strong></div>
+  </div>
+  <div class="compare"><table><thead><tr><th>Department</th><th class="r">Screens</th><th class="r">Rows today</th><th class="r">Rows here</th><th>Groups</th></tr></thead><tbody>${rows}</tbody></table></div>`
+}
+
+function render(swap) {
+ const d = D.find((x) => x.id === st.d)
+ document.getElementById("rail").innerHTML =
+  `<button class="ic" title="Home">${svg("home")}</button>` +
+  D.map((x) => {
+   const c = rowsOf(x).reduce((a, r) => a + cnt(r), 0)
+   return `<button class="ic${x.id === st.d ? " on" : ""}" data-dept="${x.id}" title="${x.l}">${svg(x.ic)}${c ? `<span class="badge num">${c}</span>` : ""}</button>`
+  }).join("") +
+  `<button class="ic end" title="System">${svg("cog")}</button>`
+ document.getElementById("dept").textContent = d.l
+ const panel = document.getElementById("panel")
+ panel.className = "panel o-" + st.o
+ const list = document.getElementById("list")
+ list.innerHTML = renderList(d)
+ document.getElementById("foot").innerHTML = renderFoot(d)
+ if (swap) { list.classList.remove("swap"); void list.offsetWidth; list.classList.add("swap"); list.scrollTop = 0 }
+ panel.querySelector(".item.on")?.scrollIntoView({block:"nearest"})
+ renderPage(d)
+ for (const b of document.querySelectorAll("#switch [data-o]")) b.setAttribute("aria-pressed", b.dataset.o === st.o)
+ const u = new URL(location); u.searchParams.set("o", st.o); u.searchParams.set("d", st.d); history.replaceState(null, "", u)
+}
+
+// a fold opens/closes in place, no re-render (keeps the transition)
+document.addEventListener("click", (e) => {
+ const t = e.target.closest("button"); if (!t) return
+ if (t.dataset.dept) { st.d = t.dataset.dept; return render(true) }
+ if (t.dataset.row) { st.on[st.d] = t.dataset.row; return render(false) }
+ if (t.dataset.fold) { const g = t.parentElement; const open = g.classList.contains("shut"); st.open[t.dataset.fold] = open; g.classList.toggle("open", open); g.classList.toggle("shut", !open); return }
+ if (t.hasAttribute("data-setup")) { const g = t.parentElement; const open = g.classList.contains("shut"); st.setup[st.d] = open; g.classList.toggle("open", open); g.classList.toggle("shut", !open); return }
+ if (t.dataset.o) { st.o = t.dataset.o; st.open = {}; st.setup = {}; return render(true) }
+})
+const sw = document.getElementById("switch")
+OPTIONS.forEach(([o, name], i) => {
+ const b = document.createElement("button"); b.type = "button"; b.dataset.o = o
+ b.innerHTML = `<b>${String.fromCharCode(65 + i)}</b>${name}`; b.title = `${i + 1} · ${NOTE[o]}`
+ sw.append(b)
+})
+const TEXT = [["today","Text today","#5a6271 · label #8a92a0"],["dark","Darker","#3a3f4a · label #6b7280"],["ink","Ink","#1d1d1f · label #6e6e73 (Apple)"],["white","Ink on white","white panel, ink text"]]
+sw.append(Object.assign(document.createElement("span"), {className:"sep"}))
+TEXT.forEach(([t, name, title]) => {
+ const b = document.createElement("button"); b.type = "button"; b.dataset.t = t; b.textContent = name; b.title = title
+ b.onclick = () => setText(t); sw.append(b)
+})
+function setText(t) {
+ document.body.dataset.t = t
+ for (const b of sw.querySelectorAll("[data-t]")) b.setAttribute("aria-pressed", b.dataset.t === t)
+ const u = new URL(location); u.searchParams.set("t", t); history.replaceState(null, "", u)
+}
+addEventListener("keydown", (e) => {
+ const ti = "qwer".indexOf(e.key); if (ti >= 0) setText(TEXT[ti][0])
+ const o = OPTIONS[Number(e.key) - 1]; if (o) { st.o = o[0]; st.open = {}; st.setup = {}; render(true) }
+ if (e.key === "ArrowDown" || e.key === "ArrowUp") { const i = D.findIndex((x) => x.id === st.d); const n = D[(i + (e.key === "ArrowDown" ? 1 : D.length - 1)) % D.length]; st.d = n.id; render(true); e.preventDefault() }
+})
+const q = new URLSearchParams(location.search)
+if (OPTIONS.some((x) => x[0] === q.get("o"))) st.o = q.get("o")
+if (D.some((x) => x.id === q.get("d"))) st.d = q.get("d")
+render(false)
+setText(TEXT.some((x) => x[0] === q.get("t")) ? q.get("t") : "today")
+</script>
+</body>
+</html>

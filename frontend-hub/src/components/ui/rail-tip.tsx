@@ -38,7 +38,7 @@ export function RailTip({
           <span
             role="tooltip"
             style={{ left: at.x, top: at.y }}
-            className="pointer-events-none fixed z-[70] -translate-y-1/2 rounded-inner bg-ink px-2.5 py-1.5 text-[0.875rem] leading-none font-medium whitespace-nowrap text-canvas shadow-float"
+            className="pointer-events-none fixed z-[70] -translate-y-1/2 rounded-inner bg-ink px-2.5 py-1.5 text-[0.9375rem] leading-none font-medium whitespace-nowrap text-canvas shadow-float"
           >
             {label}
           </span>,

@@ -3,10 +3,10 @@ import {
   growthLabel,
   type SalesBucket,
 } from "@itulah/contract/reporting"
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useSuspenseQuery } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { useMemo, useState } from "react"
+import { Suspense, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { DockTools } from "@/components/shell/dock-tools"
@@ -22,17 +22,16 @@ import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
 import { ButtonGroup, Segmented, Toolbar } from "@/components/ui/segmented"
-import { EmptyState } from "@/components/ui/states"
+import { EmptyState, LoadingState } from "@/components/ui/states"
 import { useFilters } from "@/lib/filters"
 import { count, money, percent } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
-import { analyticsKeys, salesSeries } from "@/lib/queries/analytics"
-import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { cn } from "@/lib/utils"
 import { CardFigure, CardFoot, CardName } from "@/components/ui/phone-cards"
 import { Delta } from "@/screens/sales/delta"
+import { priorSeriesQuery, seriesQuery } from "@/screens/sales/series-data"
 import {
   buildMatrix,
   SALES_KINDS,
@@ -106,6 +105,59 @@ interface StoreRow {
 }
 
 export function SalesAnalytics() {
+  const phone = useLayout() === "phone"
+  const period = usePeriod()
+  // The title and the period stand at once; the stores wait for the figures
+  // and stream in with them (the server starts the read too).
+  return (
+    <PageContent>
+      <PageHeader
+        crumb="Sales"
+        title="Sales Analytics"
+        sub="Every store against the estate, and against the same span before it."
+      />
+
+      {!phone && (
+        <Toolbar>
+          <Segmented
+            options={BUCKETS}
+            value={period.bucket}
+            onChange={period.setBucket}
+          />
+          <ButtonGroup>
+            {period.options.map((option) => (
+              <button
+                key={option}
+                type="button"
+                aria-pressed={option === period.buckets}
+                onClick={() => period.setBuckets(option)}
+                className={
+                  option === period.buckets ? "bg-soft-2 text-ink!" : undefined
+                }
+              >
+                {option}
+              </button>
+            ))}
+          </ButtonGroup>
+          <Toolbar.Spacer />
+          <span className="text-meta text-mute">
+            {period.range.from} — {period.range.to}
+          </span>
+        </Toolbar>
+      )}
+
+      <Suspense
+        fallback={
+          <LoadingState>Reading the estate&rsquo;s trade…</LoadingState>
+        }
+      >
+        <AnalyticsBody />
+      </Suspense>
+    </PageContent>
+  )
+}
+
+function AnalyticsBody() {
   // A phone draws the stores as cards and keeps the period, the search and the
   // filters in the drawer over the bottom bar (`DockTools`).
   const phone = useLayout() === "phone"
@@ -117,16 +169,10 @@ export function SalesAnalytics() {
     { id: "gross_minor", desc: true },
   ])
 
-  const series = useQuery({
-    queryKey: analyticsKeys.series(period.range),
-    queryFn: ({ signal }) => salesSeries(period.range, signal),
-    refetchInterval: 60_000,
-  })
-  const prior = useQuery({
-    queryKey: analyticsKeys.series(period.before),
-    queryFn: ({ signal }) => salesSeries(period.before, signal),
-    staleTime: 5 * 60_000,
-  })
+  const series = useSuspenseQuery(seriesQuery(period.range))
+  // The span before only qualifies the figures; the screen paints without it.
+  const prior = useQuery(priorSeriesQuery(period.before))
+  const fleet = series.data
 
   const matrix = useMemo(() => buildMatrix(series.data), [series.data])
   const before = useMemo(
@@ -204,42 +250,7 @@ export function SalesAnalytics() {
   const spanText = `${period.buckets} ${period.bucket}${period.buckets === 1 ? "" : "s"} to ${period.range.to}`
 
   return (
-    <PageContent>
-      <PageHeader
-        crumb="Sales"
-        title="Sales Analytics"
-        sub="Every store against the estate, and against the same span before it."
-      />
-
-      {!phone && (
-        <Toolbar>
-          <Segmented
-            options={BUCKETS}
-            value={period.bucket}
-            onChange={period.setBucket}
-          />
-          <ButtonGroup>
-            {period.options.map((option) => (
-              <button
-                key={option}
-                type="button"
-                aria-pressed={option === period.buckets}
-                onClick={() => period.setBuckets(option)}
-                className={
-                  option === period.buckets ? "bg-soft-2 text-ink!" : undefined
-                }
-              >
-                {option}
-              </button>
-            ))}
-          </ButtonGroup>
-          <Toolbar.Spacer />
-          <span className="text-meta text-mute">
-            {period.range.from} — {period.range.to}
-          </span>
-        </Toolbar>
-      )}
-
+    <>
       {/* The period is the status button of the drawer over the bottom bar on a
           phone, beside the search, the filters and the sort. */}
       <DockTools
@@ -259,134 +270,130 @@ export function SalesAnalytics() {
         }}
       />
 
-      {queryState(series, {
-        loading: "Reading the estate's trade…",
-        render: (fleet) =>
-          fleet.sites.length === 0 ? (
-            <Card>
-              <EmptyState>
-                No store traded in this span. Widen it, or pick a coarser
-                bucket.
-              </EmptyState>
-            </Card>
-          ) : (
-            <>
-              {/* Shaped like the chart on Sales, deliberately: the same card,
+      {fleet.sites.length === 0 ? (
+        <Card>
+          <EmptyState>
+            No store traded in this span. Widen it, or pick a coarser bucket.
+          </EmptyState>
+        </Card>
+      ) : (
+        <>
+          {/* Shaped like the chart on Sales, deliberately: the same card,
                   the same five pressable totals, the same ghost comparison —
                   and the only thing that differs is what the axis is. There
                   a column is a day; here a column is a store. Somebody who
                   has learnt to read one has learnt to read the other. */}
-              <Card className="mb-[1.125rem] overflow-hidden">
-                <div className="flex flex-col justify-center gap-0.5 border-b border-hairline px-4 py-3">
-                  <span className="text-card-title font-semibold text-ink">
-                    Sales by store
+          <Card className="mb-[1.125rem] overflow-hidden">
+            <div className="flex flex-col justify-center gap-0.5 border-b border-hairline px-4 py-3">
+              <span className="text-card-title font-semibold text-ink">
+                Sales by store
+              </span>
+              <span className="text-[0.9375rem] text-mute">
+                {spanText} · {count(trading.length)} of {count(rows.length)}{" "}
+                stores trading · faint bars are the {period.buckets}{" "}
+                {period.bucket}
+                {period.buckets === 1 ? "" : "s"} before
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 border-b border-hairline sm:grid-cols-3 lg:grid-cols-5">
+              {SALES_KINDS.map((option) => (
+                <button
+                  key={option.kind}
+                  type="button"
+                  aria-pressed={ranking === option.kind}
+                  onClick={() => setRanking(option.kind)}
+                  className={cn(
+                    "flex cursor-pointer flex-col justify-start gap-1 border-t border-l border-hairline px-4 py-2.5 text-left transition-colors first:border-l-0 sm:border-t-0",
+                    ranking === option.kind ? "bg-soft" : "hover:bg-soft"
+                  )}
+                >
+                  <span className="text-eyebrow font-semibold text-mute uppercase">
+                    {option.label}
                   </span>
-                  <span className="text-[0.875rem] text-mute">
-                    {spanText} · {count(trading.length)} of {count(rows.length)}{" "}
-                    stores trading · faint bars are the {period.buckets}{" "}
-                    {period.bucket}
-                    {period.buckets === 1 ? "" : "s"} before
+                  <span className="text-metric leading-none font-semibold text-ink tabular-nums">
+                    {showSales(option.kind, matrix.grandTotal(option.kind))}
                   </span>
-                </div>
+                  {before === undefined ? (
+                    <span className="text-[0.9375rem] text-faint">
+                      {option.hint}
+                    </span>
+                  ) : (
+                    <Delta
+                      now={matrix.grandTotal(option.kind)}
+                      before={before.grandTotal(option.kind)}
+                    />
+                  )}
+                </button>
+              ))}
+            </div>
 
-                <div className="grid grid-cols-2 border-b border-hairline sm:grid-cols-3 lg:grid-cols-5">
-                  {SALES_KINDS.map((option) => (
-                    <button
-                      key={option.kind}
-                      type="button"
-                      aria-pressed={ranking === option.kind}
-                      onClick={() => setRanking(option.kind)}
-                      className={cn(
-                        "flex cursor-pointer flex-col justify-start gap-1 border-t border-l border-hairline px-4 py-2.5 text-left transition-colors first:border-l-0 sm:border-t-0",
-                        ranking === option.kind ? "bg-soft" : "hover:bg-soft"
-                      )}
-                    >
-                      <span className="text-eyebrow font-semibold text-mute uppercase">
-                        {option.label}
-                      </span>
-                      <span className="text-metric leading-none font-semibold text-ink tabular-nums">
-                        {showSales(option.kind, matrix.grandTotal(option.kind))}
-                      </span>
-                      {before === undefined ? (
-                        <span className="text-[0.875rem] text-faint">
-                          {option.hint}
-                        </span>
-                      ) : (
-                        <Delta
-                          now={matrix.grandTotal(option.kind)}
-                          before={before.grandTotal(option.kind)}
-                        />
-                      )}
-                    </button>
-                  ))}
-                </div>
+            <div className="px-3 pt-3 pb-3.5">
+              <ChartLegend series={SERIES} />
+              <BarSeries
+                rows={bars}
+                series={SERIES}
+                format={(value) => showSales(ranking, value)}
+                labelOf={(store) => store}
+                titleOf={(store) => store}
+              />
+            </div>
+          </Card>
 
-                <div className="px-3 pt-3 pb-3.5">
-                  <ChartLegend series={SERIES} />
-                  <BarSeries
-                    rows={bars}
-                    series={SERIES}
-                    format={(value) => showSales(ranking, value)}
-                    labelOf={(store) => store}
-                    titleOf={(store) => store}
-                  />
-                </div>
-              </Card>
-
-              {/* Two orders nobody would find by sorting a table: who gained
+          {/* Two orders nobody would find by sorting a table: who gained
                   and who lost. Ranked by growth rather than by size, so a small
                   store falling off a cliff is not buried under a big one having
                   an ordinary month. */}
-              {before !== undefined && (
-                <div className="mb-[1.125rem] grid gap-[1.125rem] lg:grid-cols-2">
-                  <Movers
-                    title="Gaining"
-                    empty="No store took more than it did in the span before."
-                    rows={rows}
-                    direction="up"
-                    onOpen={store.open}
-                  />
-                  <Movers
-                    title="Losing ground"
-                    empty="No store took less than it did in the span before."
-                    rows={rows}
-                    direction="down"
-                    onOpen={store.open}
-                  />
-                </div>
-              )}
+          {before !== undefined && (
+            <div className="mb-[1.125rem] grid gap-[1.125rem] lg:grid-cols-2">
+              <Movers
+                title="Gaining"
+                empty="No store took more than it did in the span before."
+                rows={rows}
+                direction="up"
+                onOpen={store.open}
+              />
+              <Movers
+                title="Losing ground"
+                empty="No store took less than it did in the span before."
+                rows={rows}
+                direction="down"
+                onOpen={store.open}
+              />
+            </div>
+          )}
 
-              {!phone && (
-                <Toolbar>
-                  <FilterPanel model={filters} table={table} />
-                  <Toolbar.Spacer />
-                  <span className="text-meta text-mute">
-                    Trend is each store against its own best {period.bucket},
-                    not against the others.
-                  </span>
-                </Toolbar>
-              )}
+          {!phone && (
+            <Toolbar>
+              <FilterPanel model={filters} table={table} />
+              <Toolbar.Spacer />
+              <span className="text-meta text-mute">
+                Trend is each store against its own best {period.bucket}, not
+                against the others.
+              </span>
+            </Toolbar>
+          )}
 
-              <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-                <DataTable<StoreRow>
-                  table={table}
-                  onRowClick={(row) => store.open(row.site_id)}
-                  isSelected={(row) => row.site_id === store.value}
-                  empty={
-                    <>
-                      None of the {count(rows.length)} stores in this span match
-                      the filters in force.
-                    </>
-                  }
-                  cardSort={false}
-                  cardsApart
-                  cardLead
-                  className="max-h-[calc(100dvh-24rem)]"
-                />
-              </Card>
-            </>
-          ),
-      })}
+          <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+            <DataTable<StoreRow>
+              refresh={[series, prior]}
+              table={table}
+              onRowClick={(row) => store.open(row.site_id)}
+              isSelected={(row) => row.site_id === store.value}
+              empty={
+                <>
+                  None of the {count(rows.length)} stores in this span match the
+                  filters in force.
+                </>
+              }
+              cardSort={false}
+              cardsApart
+              cardLead
+              className="max-h-[calc(100dvh-24rem)]"
+            />
+          </Card>
+        </>
+      )}
 
       <WindowSheet
         siteId={store.value ?? null}
@@ -395,7 +402,7 @@ export function SalesAnalytics() {
         spanText={spanText}
         onClose={store.close}
       />
-    </PageContent>
+    </>
   )
 }
 

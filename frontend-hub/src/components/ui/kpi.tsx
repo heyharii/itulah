@@ -1,3 +1,4 @@
+import { FlowText } from "@/components/ui/flow-text"
 import { cn } from "@/lib/utils"
 
 /// The stat strip an overview opens with.
@@ -15,7 +16,7 @@ export function KpiStrip({
         // `group/kpis`: a card with no delta line reserves one while any
         // card in the strip has a delta, so every figure in the row stands
         // on the same line — see `Kpi`.
-        "group/kpis mb-4 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6",
+        "kpi-strip group/kpis mb-4 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6",
         // On a phone the figures are ONE card, two to a row, hairlines between:
         // nothing to swipe sideways (owner, 2026-10-06 — a row that scrolls
         // hides its third figure behind the edge), and half the height of a
@@ -46,15 +47,21 @@ export function Kpi({
     // the rest of the row, which reads as four unrelated boxes instead of one
     // strip — and a long label is not something the caller can always shorten.
     <div className="kpi-card flex h-full flex-col rounded-card border border-hairline bg-canvas px-4 py-2.5 shadow-soft">
-      <div className="text-eyebrow font-medium text-body">{label}</div>
-      <div className="mt-auto pt-1.5 text-[1.125rem] leading-none font-semibold tracking-[-0.02em] text-ink tabular-nums">
-        {value}
+      <div className="kpi-label text-eyebrow font-medium text-body">{label}</div>
+      <div className="kpi-value mt-auto pt-1.5 text-[1.125rem] leading-none font-semibold tracking-[-0.02em] text-ink tabular-nums">
+        {/* A written figure rolls to its next value (FlowText); anything
+            else a screen draws is shown as it is. */}
+        {typeof value === "string" || typeof value === "number" ? (
+          <FlowText text={String(value)} />
+        ) : (
+          value
+        )}
       </div>
       {delta ? (
         <div
           data-kpi-delta
           className={cn(
-            "mt-1.5 inline-flex items-center gap-0.5 text-[0.875rem] font-semibold",
+            "mt-1.5 inline-flex items-center gap-0.5 text-[0.9375rem] font-semibold",
             tone === "up" && "text-ok",
             tone === "down" && "text-bad",
             (tone === "flat" || !tone) && "text-mute"
@@ -70,7 +77,7 @@ export function Kpi({
         // put the two zeros a line apart.
         <div
           aria-hidden
-          className="mt-1.5 hidden text-[0.875rem] group-has-[[data-kpi-delta]]/kpis:block"
+          className="mt-1.5 hidden text-[0.9375rem] group-has-[[data-kpi-delta]]/kpis:block"
         >
           &nbsp;
         </div>
@@ -109,7 +116,7 @@ export function KpiRow({
   return (
     <div
       className={cn(
-        "mb-4 flex flex-wrap overflow-hidden rounded-card border border-hairline bg-canvas shadow-soft md:hidden",
+        "kpi-row mb-4 flex flex-wrap overflow-hidden rounded-card border border-hairline bg-canvas shadow-soft md:hidden",
         className
       )}
     >
@@ -122,7 +129,7 @@ export function KpiRow({
             // Equal cells; a wrapped second row starts with a rule over it.
             style={wrap ? { flex: "1 1 33%" } : { flex: item.wide ? 1.6 : 1 }}
             className={cn(
-              "min-w-0 px-0.5 pt-[0.6875rem] pb-2.5 text-center",
+              "kpi-row-cell min-w-0 px-0.5 pt-[0.6875rem] pb-2.5 text-center",
               index > 0 && "border-l border-hairline",
               wrap && index >= 3 && "border-t",
               wrap && index === 3 && "border-l-0"
@@ -137,12 +144,56 @@ export function KpiRow({
             >
               {item.compact ?? item.value}
             </div>
-            <div className="mt-1 truncate text-[0.875rem] font-medium text-body">
+            <div className="mt-1 truncate text-[0.9375rem] font-medium text-body">
               {item.short ?? item.label}
             </div>
           </div>
         )
       })}
+    </div>
+  )
+}
+
+/// One figure of a `KpiBox`.
+export interface KpiBoxItem {
+  readonly label: string
+  readonly value: React.ReactNode
+  readonly note?: string
+}
+
+/// The figures of a list as ONE box, a cell each with a rule between, standing
+/// at the right of the title (`ListHead`) — not a card apiece in a row of their
+/// own over the list (owner, 2026-10-10: the table comes up by about 110px).
+/// Under 1024px it takes the full width, cells equal, under the title.
+export function KpiBox({
+  items,
+  className,
+}: {
+  items: readonly KpiBoxItem[]
+  className?: string
+}) {
+  return (
+    <div
+      className={cn(
+        "kpi-box flex w-full min-w-0 overflow-hidden rounded-card border border-hairline bg-canvas shadow-soft lg:w-auto",
+        className
+      )}
+    >
+      {items.map((item, index) => (
+        <div
+          key={item.label}
+          title={item.note}
+          className={cn(
+            "kpi-box-cell min-w-0 flex-1 px-4 py-2 lg:flex-none lg:px-5",
+            index > 0 && "border-l border-hairline"
+          )}
+        >
+          <div className="truncate text-[0.9375rem] text-body">{item.label}</div>
+          <div className="text-[1.125rem] leading-6 font-semibold tracking-[-0.02em] whitespace-nowrap text-ink tabular-nums">
+            {item.value}
+          </div>
+        </div>
+      ))}
     </div>
   )
 }

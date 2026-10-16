@@ -74,11 +74,11 @@ export function RecordPanel({
     return (
       <div className={frame}>
         {expanded ? (
-          <p role="status" className="py-1 text-[0.875rem] text-mute">
+          <p role="status" className="py-1 text-[0.9375rem] text-mute">
             Reading the activity…
           </p>
         ) : (
-          <p className="flex items-center gap-1.5 text-[0.875rem] font-medium text-mute">
+          <p className="flex items-center gap-1.5 text-[0.9375rem] font-medium text-mute">
             <ChevronRight className="size-3.5 text-line-ico" />
             Activity
           </p>
@@ -89,7 +89,7 @@ export function RecordPanel({
   if (info.isError) {
     return (
       <div className={frame}>
-        <p className="py-1 text-[0.875rem] text-bad">
+        <p className="py-1 text-[0.9375rem] text-bad">
           The activity on this record could not be read.
         </p>
       </div>
@@ -114,7 +114,7 @@ function Elsewhere({ info }: { info: RecordInfo }) {
   const documents = info.documents.length
   if (documents === 0) return null
   return (
-    <p className="text-[0.875rem] text-mute">
+    <p className="text-[0.9375rem] text-mute">
       {documents} {documents === 1 ? "document" : "documents"} filed
     </p>
   )
@@ -134,7 +134,7 @@ function Trail({ info, expanded }: { info: RecordInfo; expanded: boolean }) {
   const entries = info.activity
   const list =
     entries.length === 0 ? (
-      <p className="py-3 text-[0.875rem] text-mute">
+      <p className="py-3 text-[0.9375rem] text-mute">
         Nothing has been done to this record yet.
       </p>
     ) : (
@@ -167,7 +167,7 @@ function Trail({ info, expanded }: { info: RecordInfo; expanded: boolean }) {
                   </span>
                 )}
               </span>
-              <span className="block text-[0.875rem] text-mute tabular-nums">
+              <span className="block text-[0.9375rem] text-mute tabular-nums">
                 {moment(entry.at)}
               </span>
             </span>
@@ -180,7 +180,7 @@ function Trail({ info, expanded }: { info: RecordInfo; expanded: boolean }) {
 
   return (
     <Collapsible.Root>
-      <Collapsible.Trigger className="group flex min-h-tap w-full items-center gap-1.5 text-left text-[0.875rem] font-medium text-body transition-colors hover:text-ink md:min-h-0">
+      <Collapsible.Trigger className="group flex min-h-tap w-full items-center gap-1.5 text-left text-[0.9375rem] font-medium text-body transition-colors hover:text-ink md:min-h-0">
         <ChevronRight className="size-3.5 text-line-ico transition-transform duration-150 group-data-[panel-open]:rotate-90" />
         Activity
         {entries.length > 0 && (
@@ -189,7 +189,7 @@ function Trail({ info, expanded }: { info: RecordInfo; expanded: boolean }) {
           </span>
         )}
       </Collapsible.Trigger>
-      <Collapsible.Panel className="overflow-hidden">{list}</Collapsible.Panel>
+      <Collapsible.Panel className="fold-panel">{list}</Collapsible.Panel>
     </Collapsible.Root>
   )
 }

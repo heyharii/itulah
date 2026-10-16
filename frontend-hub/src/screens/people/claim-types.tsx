@@ -1,28 +1,114 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query"
+import type { ColumnDef } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
+import { useMemo, useState, Suspense } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { useLayout } from "@/lib/layout"
 import { Fab } from "@/components/ui/fab"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { DataTable } from "@/components/ui/data-table"
 import { Field, Input, Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
-import { MiniCell, MiniRow, MiniTable, SubHead } from "@/components/ui/rows"
+import { SubHead } from "@/components/ui/rows"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import { Banner, EmptyState } from "@/components/ui/states"
+import { Banner, EmptyState, LoadingState } from "@/components/ui/states"
 import { day } from "@/lib/format"
 import { financeKeys, listExpenseCategories } from "@/lib/queries/finance"
 import {
   claimsKeys,
   defineClaimType,
-  listClaimTypes,
   retireClaimType,
   type ClaimTypeRow,
+  claimTypesQuery,
 } from "@/lib/queries/people"
-import { queryState } from "@/lib/query-state"
 import { useCanWrite } from "@/lib/session"
+import { CardFoot, CardName } from "@/components/ui/phone-cards"
+import { tableSetup, type TableSetup } from "@/lib/table"
+
+const columns: ColumnDef<TableSetup, ClaimTypeRow>[] = [
+  {
+    accessorKey: "code",
+    header: "Code",
+    size: 200,
+    meta: { mono: true, card: "hide" },
+    cell: ({ row }) => (
+      <span className="font-mono text-id text-body">{row.original.code}</span>
+    ),
+  },
+  {
+    accessorKey: "name",
+    header: "Name",
+    size: 320,
+    meta: { card: "hide" },
+    cell: ({ row }) => <span className="text-ink">{row.original.name}</span>,
+  },
+  {
+    id: "added",
+    accessorFn: (row) => row.created_at,
+    header: "Added",
+    size: 160,
+    meta: { card: "hide" },
+    cell: ({ row }) => day(row.original.created_at),
+  },
+  {
+    id: "state",
+    accessorFn: (row) => row.retired_at ?? "",
+    header: "State",
+    size: 220,
+    meta: { card: "hide" },
+    cell: ({ row }) =>
+      row.original.retired_at !== null ? (
+        <Pill tone="neutral">Cancelled {day(row.original.retired_at)}</Pill>
+      ) : (
+        <Pill tone="ok">In use</Pill>
+      ),
+  },
+  // Three columns that exist only on a card (`cardLead`; a phone): the name
+  // over its code, when it was added, and where it stands.
+  {
+    id: "head",
+    accessorFn: (row) => row.name,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "title" },
+    cell: ({ row }) => (
+      <CardName name={row.original.name} code={row.original.code} />
+    ),
+  },
+  {
+    id: "foot",
+    accessorFn: (row) => row.created_at,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "foot" },
+    cell: ({ row }) => (
+      <CardFoot>Added {day(row.original.created_at)}</CardFoot>
+    ),
+  },
+  {
+    id: "tag",
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { align: "right", card: "status" },
+    cell: ({ row }) =>
+      row.original.retired_at !== null ? (
+        <Pill tone="neutral">Cancelled {day(row.original.retired_at)}</Pill>
+      ) : (
+        <Pill tone="ok">In use</Pill>
+      ),
+  },
+]
 
 /// Claims & loans › Claim types — the kinds of expense a claim may be filed
 /// against. Head office names them; a place picks from them.
@@ -38,13 +124,6 @@ export function ClaimTypesPage() {
   const phone = useLayout() === "phone"
   const [creating, setCreating] = useState(false)
   const [openCode, setOpenCode] = useState<string | null>(null)
-
-  const types = useQuery({
-    queryKey: claimsKeys.types(),
-    queryFn: ({ signal }) => listClaimTypes(signal),
-  })
-  const kinds = types.data ?? []
-  const open = kinds.find((one) => one.code === openCode) ?? null
 
   return (
     <PageContent>
@@ -63,64 +142,76 @@ export function ClaimTypesPage() {
         }
       />
 
-      <Card className="overflow-hidden px-4 py-2">
-        {queryState(types, {
-          loading: "Reading the claim types…",
-          render: () =>
-            kinds.length === 0 ? (
-              <EmptyState>
-                No kinds of expense are defined, so nothing can be filed. Use
-                New type to add the first.
-              </EmptyState>
-            ) : (
-              <MiniTable
-                head={[
-                  "Code",
-                  "Name",
-                  { label: "Added", align: "left" },
-                  { label: "State", align: "left" },
-                ]}
-              >
-                {kinds.map((kind) => (
-                  <MiniRow key={kind.code}>
-                    <MiniCell>
-                      <button
-                        type="button"
-                        onClick={() => setOpenCode(kind.code)}
-                        className="text-left font-mono text-id text-body hover:underline"
-                      >
-                        {kind.code}
-                      </button>
-                    </MiniCell>
-                    <MiniCell>
-                      <span className="text-ink">{kind.name}</span>
-                    </MiniCell>
-                    <MiniCell>{day(kind.created_at)}</MiniCell>
-                    <MiniCell>
-                      {kind.retired_at !== null ? (
-                        <Pill tone="neutral">
-                          Cancelled {day(kind.retired_at)}
-                        </Pill>
-                      ) : (
-                        <Pill tone="ok">In use</Pill>
-                      )}
-                    </MiniCell>
-                  </MiniRow>
-                ))}
-              </MiniTable>
-            ),
-        })}
+      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+        <Suspense
+          fallback={<LoadingState>Reading the claim types…</LoadingState>}
+        >
+          <Kinds
+            openCode={openCode}
+            onOpen={setOpenCode}
+            canWrite={canWrite}
+            onClose={() => setOpenCode(null)}
+          />
+        </Suspense>
       </Card>
 
       {creating && <NewTypeSheet onClose={() => setCreating(false)} />}
-      {open !== null && (
-        <TypeSheet
-          kind={open}
-          canWrite={canWrite}
-          onClose={() => setOpenCode(null)}
+    </PageContent>
+  )
+}
+
+/// The kinds, as a table, and the sheet one opens. Here and not in the screen
+/// so the head paints at once and this waits alone for its answer.
+function Kinds({
+  openCode,
+  onOpen,
+  onClose,
+  canWrite,
+}: {
+  openCode: string | null
+  onOpen: (code: string) => void
+  onClose: () => void
+  canWrite: boolean
+}) {
+  const types = useSuspenseQuery(claimTypesQuery())
+  const phone = useLayout() === "phone"
+  const kinds = types.data
+  const open = kinds.find((one) => one.code === openCode) ?? null
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: kinds,
+        columns,
+        getRowId: (row: ClaimTypeRow) => row.code,
+        // The card's own columns are drawn on a phone and never on a desk.
+        state: { columnVisibility: { head: phone, foot: phone, tag: phone } },
+      }),
+      [kinds, phone]
+    )
+  )
+  return (
+    <>
+      {kinds.length === 0 ? (
+        <EmptyState>
+          No kinds of expense are defined, so nothing can be filed. Use New type
+          to add the first.
+        </EmptyState>
+      ) : (
+        <DataTable<ClaimTypeRow>
+          refresh={[types]}
+          table={table}
+          onRowClick={(row) => onOpen(row.code)}
+          isSelected={(row) => row.code === openCode}
+          cardsApart
+          cardLead
+          cardSort={false}
         />
       )}
-    </PageContent>
+      {open !== null && (
+        <TypeSheet kind={open} canWrite={canWrite} onClose={onClose} />
+      )}
+    </>
   )
 }
 
@@ -162,7 +253,7 @@ function NewTypeSheet({ onClose }: { onClose: () => void }) {
       title="New claim type"
       footer={
         <div className="flex justify-end gap-2">
-          <Button variant="quiet" onClick={onClose}>
+          <Button data-cancel variant="quiet" onClick={onClose}>
             Cancel
           </Button>
           <Button
@@ -262,7 +353,7 @@ function TypeSheet({
       {live && canWrite ? (
         <div className="mt-5 flex flex-col gap-3 border-t border-hairline pt-4">
           <SubHead>Cancel this kind</SubHead>
-          <p className="text-[0.875rem] text-body">
+          <p className="text-[0.9375rem] text-body">
             Claims already filed keep naming it; nobody can pick it for a new
             claim.
           </p>

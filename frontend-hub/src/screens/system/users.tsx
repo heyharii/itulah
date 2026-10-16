@@ -1,13 +1,20 @@
-import { useForm } from "@tanstack/react-form"
 import {
-  useInfiniteQuery,
   useMutation,
   useQueryClient,
+  useSuspenseInfiniteQuery,
 } from "@tanstack/react-query"
+import { useHydrated } from "@tanstack/react-router"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
-import { flexRender, useTable } from "@tanstack/react-table"
-import { ChevronDown, ChevronUp, ChevronsUpDown } from "lucide-react"
-import { Fragment, useMemo, useState } from "react"
+import { useTable } from "@tanstack/react-table"
+import { ChevronDown } from "lucide-react"
+import {
+  Suspense,
+  useDeferredValue,
+  useMemo,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { AppLink } from "@/components/ui/app-link"
@@ -16,46 +23,42 @@ import { DockTools } from "@/components/shell/dock-tools"
 import { Card } from "@/components/ui/card"
 import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { Fab } from "@/components/ui/fab"
-import { Field, Input, Select } from "@/components/ui/field"
+import { Field, Select } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill, Status } from "@/components/ui/pill"
-import { Segmented, Toolbar } from "@/components/ui/segmented"
-import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import {
-  Banner,
-  EmptyState,
-  LoadMore,
-  type Pageable,
-} from "@/components/ui/states"
+import { BarSpacer, ExpandingSearch } from "@/components/ui/list-chrome"
+import { Segmented } from "@/components/ui/segmented"
+import { Fact, Facts, Sheet, type SheetTab } from "@/components/ui/sheet"
+import { Banner, EmptyState, LoadingState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
-import { useFilterState, type Filter, type FilterField } from "@/lib/filters"
+import {
+  useFilterState,
+  type Filter,
+  type FilterField,
+  type FilterState,
+} from "@/lib/filters"
 import { count, day, moment } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
-import { useRoles } from "@/lib/queries/invitations"
+import { roleAccess, useRoles } from "@/lib/queries/invitations"
 import {
-  createUser,
   resetUserPassword,
   setUserActive,
   unlockUser,
   setUserRole,
-  systemKeys,
-  usersPage,
   type UserRow,
   type UserScope,
 } from "@/lib/queries/system"
 import { statusLabel } from "@/lib/queries/people"
-import { queryState } from "@/lib/query-state"
 import { useCanWrite } from "@/lib/session"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { useDebounced } from "@/lib/use-debounced"
 import { cn } from "@/lib/utils"
 import { InviteSheet } from "@/screens/people/invite-sheet"
-import { DESK_BAR } from "@/components/ui/phone-cards"
+import { usersFeedQuery } from "@/screens/system/data"
 import { Secret } from "@/screens/system/shared"
 import { saying } from "@/screens/system/units"
-import type { Role } from "@itulah/contract"
 
 /// Users & roles — who can sign in at the centre, what each of them may do,
 /// and the roles that answer that question.
@@ -77,12 +80,24 @@ import type { Role } from "@itulah/contract"
 /// Job roles moved to HR › Job roles on 2026-09-29 (owner: a job role is an HR
 /// thing, and System holds only the accounts).
 export function Users() {
+  const canWrite = useCanWrite()
+  const invite = useSheet("invite")
+  const phone = useLayout() === "phone"
   return (
     <PageContent>
+      {/* The screen's one action stands in its head; a phone has the + at the
+          thumb instead. */}
       <PageHeader
         crumb="System"
         title="Users"
         sub="Who can sign in at the centre, and as which job role. Job roles themselves are kept in HR."
+        actions={
+          canWrite && !phone ? (
+            <Button variant="primary" onClick={() => invite.open(true)}>
+              Add account
+            </Button>
+          ) : undefined
+        }
       />
       <UsersTab />
     </PageContent>
@@ -90,8 +105,6 @@ export function Users() {
 }
 
 // ── users ────────────────────────────────────────────────────────────────
-
-const roles: readonly Role[] = ["CASHIER", "SUPERVISOR", "ADMIN"]
 
 const SORTS: Record<string, string> = {
   username: "username",
@@ -202,96 +215,9 @@ function scopeFromFilters(filters: readonly Filter[]): {
   return scope
 }
 
-const columns: ColumnDef<TableSetup, UserRow>[] = [
-  {
-    // Who, then the login under it — one column, not three that each said a
-    // version of the same name (owner, 2026-09-29: "masih ga rapi").
-    accessorKey: "username",
-    header: "Person",
-    size: 240,
-    cell: ({ row }) => (
-      <span className="block min-w-0 leading-tight">
-        <span className="block truncate font-medium text-ink">
-          {row.original.employee_name ?? row.original.display_name}
-        </span>
-        <span className="block truncate text-[0.875rem] text-mute">
-          <span className="font-mono">{row.original.username}</span>
-          {row.original.employee_id === null && " · no employee record"}
-        </span>
-      </span>
-    ),
-  },
-  {
-    id: "job_role",
-    // A grant made by hand before access followed role and unit
-    // (`derived: false`) is said quietly beside the role — the exception
-    // somebody should notice, without a coloured tag on every row.
-    accessorFn: (row) => row.role_name,
-    header: "Job Role",
-    size: 200,
-    enableSorting: false,
-    cell: ({ row }) => (
-      <span className="block leading-tight">
-        <span className="block truncate text-ink">
-          {row.original.role_name}
-        </span>
-        {row.original.nodes.some((node) => !node.derived) && (
-          <span className="block truncate text-[0.875rem] text-warn-fg">
-            Legacy access
-          </span>
-        )}
-      </span>
-    ),
-  },
-  {
-    id: "state",
-    accessorFn: (row) =>
-      row.active && row.employee_status === "TERMINATED"
-        ? "Left, still open"
-        : row.active
-          ? "Active"
-          : "Blocked",
-    header: "State",
-    size: 150,
-    enableSorting: false,
-    cell: ({ row }) =>
-      row.original.active && row.original.employee_status === "TERMINATED" ? (
-        <Status tone="bad">Left, still open</Status>
-      ) : row.original.active && row.original.login_blocked_until ? (
-        <Status tone="warn">Locked</Status>
-      ) : row.original.active ? (
-        <Status tone="ok">Active</Status>
-      ) : (
-        <Status tone="bad">Blocked</Status>
-      ),
-  },
-  {
-    id: "last_login",
-    accessorFn: (row) =>
-      row.last_login_at === null ? 0 : Date.parse(row.last_login_at),
-    header: "Last Sign-in",
-    size: 140,
-    meta: { align: "right" },
-    cell: ({ row }) =>
-      row.original.last_login_at === null ? (
-        <span className="text-mute">Never</span>
-      ) : (
-        day(row.original.last_login_at)
-      ),
-  },
-  {
-    accessorKey: "created_at",
-    header: "Created",
-    size: 120,
-    meta: { align: "right" },
-    cell: ({ row }) => day(row.original.created_at),
-  },
-]
-
-/// The register as a phone draws it: a card per account (the person over the
-/// login, the job role under them, when they last signed in and how they stand)
-/// under a folding heading per group — one list, read down the page, nothing to
-/// scroll sideways.
+/// A row as the table draws it: the account, and the group it stands under.
+/// The register is grouped client side (`groupUsers`), so the rows arrive in
+/// group order and each carries what its group's heading says.
 interface UserCard extends UserRow {
   readonly group: string
   readonly groupLabel: string
@@ -309,19 +235,23 @@ const stateOf = (row: UserRow) =>
     <Status tone="bad">Blocked</Status>
   )
 
-const cardColumns: ColumnDef<TableSetup, UserCard>[] = [
+/// A table on a desk, a card per account on a phone: the person over the
+/// login, the job role under them, when they last signed in and how they
+/// stand. `foot` is the card's own column and is not drawn on a desk.
+const columns: ColumnDef<TableSetup, UserCard>[] = [
   {
-    id: "head",
-    accessorFn: (row) => row.employee_name ?? row.display_name,
-    header: "",
-    enableSorting: false,
-    meta: { card: "title" },
+    // Who, then the login under it — one column, not three that each said a
+    // version of the same name (owner, 2026-09-29: "masih ga rapi").
+    accessorKey: "username",
+    header: "Person",
+    size: 260,
+    meta: { card: "title", grow: 200 },
     cell: ({ row }) => (
-      <span className="flex min-w-0 flex-col gap-0.5">
-        <span className="min-w-0 break-words">
+      <span className="block min-w-0 leading-tight">
+        <span className="block truncate font-medium text-ink">
           {row.original.employee_name ?? row.original.display_name}
         </span>
-        <span className="truncate text-[0.875rem] font-normal text-mute">
+        <span className="block truncate text-[0.9375rem] font-normal text-mute">
           <span className="font-mono">{row.original.username}</span>
           {row.original.employee_id === null && " · no employee record"}
         </span>
@@ -330,131 +260,81 @@ const cardColumns: ColumnDef<TableSetup, UserCard>[] = [
   },
   {
     id: "job_role",
+    // A grant made by hand before access followed role and unit
+    // (`derived: false`) is said quietly beside the role — the exception
+    // somebody should notice, without a coloured tag on every row.
     accessorFn: (row) => row.role_name,
-    header: "",
+    header: "Job Role",
+    size: 220,
     enableSorting: false,
     meta: { card: "meta" },
     cell: ({ row }) => (
-      <span>
-        {row.original.role_name}
+      <span className="block leading-tight">
+        <span className="block truncate text-ink">
+          {row.original.role_name}
+        </span>
         {row.original.nodes.some((node) => !node.derived) && (
-          <span className="text-warn-fg"> · Legacy access</span>
+          <span className="block truncate text-[0.9375rem] text-warn-fg">
+            Legacy access
+          </span>
         )}
       </span>
     ),
+  },
+  {
+    id: "state",
+    accessorFn: (row) =>
+      row.active && row.employee_status === "TERMINATED"
+        ? "Left, still open"
+        : row.active
+          ? "Active"
+          : "Blocked",
+    header: "State",
+    size: 160,
+    enableSorting: false,
+    meta: { card: "status" },
+    cell: ({ row }) => stateOf(row.original),
+  },
+  {
+    id: "last_login",
+    accessorFn: (row) =>
+      row.last_login_at === null ? 0 : Date.parse(row.last_login_at),
+    header: "Last Sign-in",
+    size: 140,
+    meta: { align: "right", card: "hide" },
+    cell: ({ row }) =>
+      row.original.last_login_at === null ? (
+        <span className="text-mute">Never</span>
+      ) : (
+        day(row.original.last_login_at)
+      ),
+  },
+  {
+    accessorKey: "created_at",
+    header: "Created",
+    size: 120,
+    meta: { align: "right", card: "hide" },
+    cell: ({ row }) => day(row.original.created_at),
   },
   {
     id: "foot",
     accessorFn: (row) => row.last_login_at,
     header: "",
     enableSorting: false,
+    enableHiding: false,
     meta: { card: "foot" },
     cell: ({ row }) =>
       row.original.last_login_at === null
         ? "Never signed in"
         : `Signed in ${day(row.original.last_login_at)}`,
   },
-  {
-    id: "state",
-    header: "",
-    enableSorting: false,
-    meta: { card: "status" },
-    cell: ({ row }) => stateOf(row.original),
-  },
 ]
-
-function PhoneUsers({
-  groups,
-  grouped,
-  selected,
-  onOpen,
-  more,
-}: {
-  groups: readonly UserGroup[]
-  grouped: boolean
-  selected: string | undefined
-  onOpen: (username: string) => void
-  more: Pageable
-}) {
-  const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set())
-  const rows = useMemo<UserCard[]>(
-    () =>
-      groups.flatMap((group) =>
-        group.rows.map((row) => ({
-          ...row,
-          group: group.key,
-          groupLabel: group.label,
-          groupCount: group.rows.length,
-        }))
-      ),
-    [groups]
-  )
-  const table = useTable(
-    useMemo(
-      () => ({
-        features: tableSetup,
-        data: rows,
-        columns: cardColumns,
-        getRowId: (row: UserCard) => row.username,
-      }),
-      [rows]
-    )
-  )
-  return (
-    <DataTable<UserCard>
-      table={table}
-      more={more}
-      onRowClick={(row) => onOpen(row.username)}
-      isSelected={(row) => row.username === selected}
-      cardsApart
-      cardLead
-      cardSort={false}
-      stickyBefore
-      isHidden={(row) => grouped && folded.has(row.group)}
-      renderBefore={(row, index, all) =>
-        grouped && (index === 0 || all[index - 1].group !== row.group) ? (
-          <button
-            type="button"
-            aria-expanded={!folded.has(row.group)}
-            onClick={() =>
-              setFolded((was) => {
-                const next = new Set(was)
-                if (!next.delete(row.group)) next.add(row.group)
-                return next
-              })
-            }
-            className="flex w-full items-center gap-2 px-1 py-2 text-left transition-opacity active:opacity-60"
-          >
-            <span className="min-w-0 text-[1rem] font-semibold break-words text-ink">
-              {row.groupLabel}
-            </span>
-            <span className="shrink-0 text-[0.9375rem] text-mute tabular-nums">
-              {count(row.groupCount)}
-            </span>
-            <span className="flex-1" />
-            <ChevronDown
-              className={cn(
-                "size-4 shrink-0 text-line-ico transition-[rotate] duration-200 ease-(--ease-out) motion-reduce:transition-none",
-                folded.has(row.group) && "-rotate-90"
-              )}
-            />
-          </button>
-        ) : null
-      }
-    />
-  )
-}
 
 function UsersTab() {
   const [query, setQuery] = useState("")
-  const [adding, setAdding] = useState(false)
-  const canWrite = useCanWrite()
-  const user = useSheet("user")
-  const invite = useSheet("invite")
   const [sorting, setSorting] = useState<SortingState>([
     { id: "last_login", desc: false },
   ])
-  const phone = useLayout() === "phone"
 
   const filters = useFilterState(FIELDS)
   const [groupBy, setGroupBy] = useState<GroupBy>("place")
@@ -470,20 +350,67 @@ function UsersTab() {
     }
   }, [filters.filters, needle, sorting])
 
-  const users = useInfiniteQuery({
-    queryKey: systemKeys.userList(scope),
-    queryFn: ({ pageParam, signal }) =>
-      usersPage({ ...scope, cursor: pageParam }, signal),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) => last.next_cursor ?? undefined,
-    placeholderData: (previous) => previous,
-  })
+  return (
+    <Suspense fallback={<LoadingState>Loading the accounts…</LoadingState>}>
+      <UserRegister
+        query={query}
+        setQuery={setQuery}
+        sorting={sorting}
+        setSorting={setSorting}
+        filters={filters}
+        groupBy={groupBy}
+        setGroupBy={setGroupBy}
+        needle={needle}
+        scope={scope}
+      />
+    </Suspense>
+  )
+}
+
+/// The register and everything drawn from its answer: the filter chips with
+/// the server's counts, the tally, the grouped table and the sheet of the
+/// account that is open.
+function UserRegister({
+  query,
+  setQuery,
+  sorting,
+  setSorting,
+  filters,
+  groupBy,
+  setGroupBy,
+  needle,
+  scope,
+}: {
+  query: string
+  setQuery: (query: string) => void
+  sorting: SortingState
+  setSorting: Dispatch<SetStateAction<SortingState>>
+  filters: FilterState
+  groupBy: GroupBy
+  setGroupBy: (groupBy: GroupBy) => void
+  /// The search once the typing has stopped: what the server is asked.
+  needle: string
+  scope: UserScope
+}) {
+  const canWrite = useCanWrite()
+  const user = useSheet("user")
+  const invite = useSheet("invite")
+  const phone = useLayout() === "phone"
+  // The dock is the browser's: a boundary that streams in after the page has
+  // hydrated finds the dock already there and would draw into it, where the
+  // server drew nothing.
+  const hydrated = useHydrated()
+
+  /// Read for the question as it was a moment ago while a new one is on its
+  /// way, so a keystroke or a chip does not blank the table to a loading line.
+  const asked = useDeferredValue(scope)
+  const users = useSuspenseInfiniteQuery(usersFeedQuery(asked))
 
   const rows = useMemo(
-    () => users.data?.pages.flatMap((page) => page.rows) ?? [],
+    () => users.data.pages.flatMap((page) => page.rows),
     [users.data]
   )
-  const head = users.data?.pages[0]
+  const head = users.data.pages[0]
 
   const model = useMemo(
     () => ({
@@ -513,45 +440,54 @@ function UsersTab() {
     [filters, head]
   )
 
+  const groups = useMemo(() => groupUsers(rows, groupBy), [rows, groupBy])
+  /// The rows in group order, each knowing its group: the table draws a
+  /// heading above the first row of each.
+  const cards = useMemo<UserCard[]>(
+    () =>
+      groups.flatMap((group) =>
+        group.rows.map((row) => ({
+          ...row,
+          group: group.key,
+          groupLabel: group.label,
+          groupCount: group.rows.length,
+        }))
+      ),
+    [groups]
+  )
+  const grouped = groupBy !== "none"
+  /// Groups that have been folded shut, by key.
+  const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set())
+
   const table = useTable(
     useMemo(
       () => ({
         features: tableSetup,
-        data: rows,
+        data: cards,
         columns,
-        getRowId: (row: UserRow) => row.username,
-        state: { sorting },
+        getRowId: (row: UserCard) => row.username,
+        state: {
+          sorting,
+          // The card's own column is drawn on a phone and never on a desk.
+          columnVisibility: { foot: phone },
+        },
         manualSorting: true,
         onSortingChange: setSorting,
       }),
-      [rows, sorting]
+      [cards, sorting, phone]
     )
-  )
-
-  const groups = useMemo(() => groupUsers(rows, groupBy), [rows, groupBy])
-
-  const inviteNote = (
-    <Banner tone="info" className="mb-3.5">
-      Adding somebody by hand still works below, but{" "}
-      <AppLink to="/people/invitations" className="font-medium underline">
-        Invite people
-      </AppLink>{" "}
-      is the door most people should come in through: they set their own
-      password, and nothing here ever has to hold one of theirs.
-    </Banner>
   )
 
   return (
     <>
-      {/* On a phone this note and the by-hand door close the list instead of
-          opening it. */}
-      {!phone && inviteNote}
-
-      <div className={DESK_BAR}>
-        <Input
+      {/* One bar: the search and what narrows the register at the left, how
+          it is split in the middle, its tally at the right. The one act is the
+          head's. */}
+      <div className="group/bar mb-3.5 flex min-h-[2.25rem] flex-wrap items-center gap-2 max-md:hidden">
+        <ExpandingSearch
           value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          className="h-8 w-48"
+          onChange={setQuery}
+          label="Search accounts"
         />
         <FilterPanel model={model} />
         <Segmented
@@ -559,102 +495,105 @@ function UsersTab() {
           value={groupBy}
           onChange={setGroupBy}
         />
-        <Toolbar.Spacer />
+        <BarSpacer />
         {head && (
-          <span className="text-[0.875rem] text-mute tabular-nums">
+          <span className="text-[0.9375rem] text-mute tabular-nums">
             {count(head.total)} accounts
           </span>
         )}
-        {canWrite && (
-          <>
-            <Button variant="primary" onClick={() => invite.open(true)}>
-              Invite people
-            </Button>
-            <Button variant="quiet" onClick={() => setAdding(true)}>
-              Add user directly
-            </Button>
-          </>
-        )}
       </div>
 
-      {canWrite && (
-        <Fab label="Invite people" onClick={() => invite.open(true)} />
+      {hydrated && canWrite && (
+        <Fab label="Add account" onClick={() => invite.open(true)} />
       )}
-      <DockTools
-        search={{ value: query, onChange: setQuery, label: "Search accounts" }}
-        filter={{
-          count: filters.filters.length,
-          panel: { model: filters, filterModel: model, table },
-        }}
-        sort={dockSortOf(table)}
-        status={{
-          value: groupBy,
-          options: GROUP_OPTIONS.map((one) => ({
-            value: one.value,
-            label:
-              one.value === "none"
-                ? one.label
-                : `By ${one.label.toLowerCase()}`,
-          })),
-          onChange: (next) => setGroupBy(next as GroupBy),
-        }}
-      />
+      {hydrated && (
+        <DockTools
+          search={{
+            value: query,
+            onChange: setQuery,
+            label: "Search accounts",
+          }}
+          filter={{
+            count: filters.filters.length,
+            panel: { model: filters, filterModel: model, table },
+          }}
+          sort={dockSortOf(table)}
+          status={{
+            value: groupBy,
+            options: GROUP_OPTIONS.map((one) => ({
+              value: one.value,
+              label:
+                one.value === "none"
+                  ? one.label
+                  : `By ${one.label.toLowerCase()}`,
+            })),
+            onChange: (next) => setGroupBy(next as GroupBy),
+          }}
+        />
+      )}
 
-      {queryState(users, {
-        loading: "Loading the accounts…",
-        render: () =>
-          rows.length === 0 ? (
-            <Card className="overflow-hidden">
-              {needle !== "" || filters.filters.length > 0 ? (
-                <EmptyState>Nobody matches what you asked for.</EmptyState>
-              ) : (
-                <EmptyState>
-                  There are no accounts on this node yet. Nobody can sign in
-                  until one is created.
-                </EmptyState>
-              )}
-            </Card>
-          ) : phone ? (
-            <PhoneUsers
-              groups={groups}
-              grouped={groupBy !== "none"}
-              selected={user.value}
-              onOpen={(username) => user.open(username)}
+      <div aria-busy={asked !== scope || undefined} className="list-swap">
+        {rows.length === 0 ? (
+          <Card className="overflow-hidden">
+            {needle !== "" || filters.filters.length > 0 ? (
+              <EmptyState>Nobody matches what you asked for.</EmptyState>
+            ) : (
+              <EmptyState>
+                There are no accounts on this node yet. Nobody can sign in until
+                one is created.
+              </EmptyState>
+            )}
+          </Card>
+        ) : (
+          <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+            <DataTable<UserCard>
+              refresh={[users]}
+              table={table}
               more={users}
+              onRowClick={(row) => user.open(row.username)}
+              isSelected={(row) => row.username === user.value}
+              roomy
+              pageScroll
+              cardsApart
+              cardLead
+              cardSort={false}
+              stickyBefore
+              isHidden={(row) => grouped && folded.has(row.group)}
+              renderBefore={(row, index, all) =>
+                grouped &&
+                (index === 0 || all[index - 1].group !== row.group) ? (
+                  <button
+                    type="button"
+                    aria-expanded={!folded.has(row.group)}
+                    onClick={() =>
+                      setFolded((was) => {
+                        const next = new Set(was)
+                        if (!next.delete(row.group)) next.add(row.group)
+                        return next
+                      })
+                    }
+                    className="flex w-full items-center gap-2 px-1 py-2 text-left transition-opacity active:opacity-60 md:bg-soft md:px-3.5 md:py-2.5"
+                  >
+                    <span className="min-w-0 text-[1rem] font-semibold break-words text-ink">
+                      {row.groupLabel}
+                    </span>
+                    <span className="shrink-0 text-[0.9375rem] text-mute tabular-nums">
+                      {count(row.groupCount)}
+                    </span>
+                    <span className="flex-1" />
+                    <ChevronDown
+                      className={cn(
+                        "size-4 shrink-0 text-line-ico transition-[rotate] duration-200 ease-(--ease-out) motion-reduce:transition-none",
+                        folded.has(row.group) && "-rotate-90"
+                      )}
+                    />
+                  </button>
+                ) : null
+              }
             />
-          ) : groupBy === "none" ? (
-            <Card className="overflow-hidden">
-              <DataTable<UserRow>
-                table={table}
-                more={users}
-                onRowClick={(row) => user.open(row.username)}
-                isSelected={(row) => row.username === user.value}
-                className="max-h-[calc(100dvh-22rem)]"
-              />
-            </Card>
-          ) : (
-            <Card className="overflow-hidden">
-              <GroupedDataTable
-                table={table}
-                groups={groups}
-                onRowClick={(row) => user.open(row.username)}
-                isSelected={(row) => row.username === user.value}
-                more={users}
-              />
-            </Card>
-          ),
-      })}
-
-      {phone && (
-        <div className="mt-4 flex flex-col gap-3">
-          {inviteNote}
-          {canWrite && (
-            <Button variant="quiet" onClick={() => setAdding(true)}>
-              Add user directly
-            </Button>
-          )}
-        </div>
-      )}
+          </Card>
+        )}
+      </div>
 
       <UserSheet
         key={user.value ?? "none"}
@@ -664,179 +603,8 @@ function UsersTab() {
         canWrite={canWrite}
       />
 
-      <AddUserSheet open={adding} onClose={() => setAdding(false)} />
       <InviteSheet open={invite.isOpen} onClose={invite.close} />
     </>
-  )
-}
-
-/// The register, grouped — ONE table, so column widths stay identical across
-/// groups. `DataTable` has no grouped-row model (nothing in
-/// `components/ui/data-table.tsx` mentions "group"), so this draws its own
-/// `<table>` around the SAME `useTable` instance the flat list uses: the
-/// header row is rendered once, and each group is a full-width divider row
-/// followed by that group's rows, pulled from `table.getRowModel().rows` in
-/// group order rather than from a second table. Row rendering is a plain
-/// subset of what `DataTable`'s own `Row` does — this screen never
-/// virtualises or shrinks to a phone card, so it does not need that
-/// machinery, but the cell markup matches it (same padding, same hover and
-/// selection tint) so a grouped table reads as the same table, not a
-/// different component wearing its clothes.
-function GroupedDataTable({
-  table,
-  groups,
-  onRowClick,
-  isSelected,
-  more,
-}: {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  table: any
-  groups: readonly UserGroup[]
-  onRowClick: (row: UserRow) => void
-  isSelected: (row: UserRow) => boolean
-  more?: Pageable
-}) {
-  const byUsername = useMemo(
-    () =>
-      new Map(
-        (table as ReturnType<typeof useTable<TableSetup, UserRow>>)
-          .getRowModel()
-          .rows.map((row) => [row.original.username, row])
-      ),
-    [table]
-  )
-  const columnCount = (
-    table as ReturnType<typeof useTable<TableSetup, UserRow>>
-  ).getAllLeafColumns().length
-
-  return (
-    <div className="max-h-[calc(100dvh-22rem)] min-h-0 overflow-auto">
-      <table className="w-full border-collapse text-cell">
-        <thead>
-          {(table as ReturnType<typeof useTable<TableSetup, UserRow>>)
-            .getHeaderGroups()
-            .map((group) => (
-              <tr key={group.id}>
-                {group.headers.map((header) => {
-                  const sortable = header.column.getCanSort()
-                  const sorted = header.column.getIsSorted()
-                  const align = header.column.columnDef.meta?.align
-                  return (
-                    <th
-                      key={header.id}
-                      aria-sort={
-                        !sortable
-                          ? undefined
-                          : sorted === "asc"
-                            ? "ascending"
-                            : sorted === "desc"
-                              ? "descending"
-                              : "none"
-                      }
-                      className={cn(
-                        "sticky top-0 z-10 bg-soft",
-                        "border-b border-hairline",
-                        "h-10 px-3.5 py-0 text-eyebrow font-medium whitespace-nowrap text-body normal-case",
-                        align === "right" ? "text-right" : "text-left"
-                      )}
-                    >
-                      {header.isPlaceholder ? null : sortable ? (
-                        <button
-                          type="button"
-                          onClick={() => header.column.toggleSorting()}
-                          className={cn(
-                            "inline-flex items-center gap-1 transition-colors hover:text-ink",
-                            align === "right" && "flex-row-reverse"
-                          )}
-                        >
-                          {flexRender(
-                            header.column.columnDef.header,
-                            header.getContext()
-                          )}
-                          {sorted === "asc" ? (
-                            <ChevronUp className="size-3 text-ink" />
-                          ) : sorted === "desc" ? (
-                            <ChevronDown className="size-3 text-ink" />
-                          ) : (
-                            <ChevronsUpDown className="size-3 text-faint" />
-                          )}
-                        </button>
-                      ) : (
-                        flexRender(
-                          header.column.columnDef.header,
-                          header.getContext()
-                        )
-                      )}
-                    </th>
-                  )
-                })}
-              </tr>
-            ))}
-        </thead>
-        <tbody>
-          {groups.map((group) => (
-            <Fragment key={group.key}>
-              <tr>
-                <td
-                  colSpan={columnCount}
-                  className="border-b border-hairline bg-soft px-3.5 pt-4 pb-2 text-[0.875rem]"
-                >
-                  <span className="font-semibold text-ink">{group.label}</span>
-                  <span className="ml-2 text-mute tabular-nums">
-                    {count(group.rows.length)}
-                  </span>
-                </td>
-              </tr>
-              {group.rows.map((original) => {
-                const row = byUsername.get(original.username)
-                if (row === undefined) return null
-                const selected = isSelected(original)
-                return (
-                  <tr
-                    key={row.id}
-                    onClick={() => onRowClick(original)}
-                    tabIndex={0}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault()
-                        onRowClick(original)
-                      }
-                    }}
-                    data-selected={selected || undefined}
-                    aria-current={selected || undefined}
-                    className={cn(
-                      "h-row cursor-pointer border-b border-hairline last:border-b-0",
-                      "outline-none focus-visible:bg-accent-bg/60 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent",
-                      selected ? "bg-accent-bg" : "hover:bg-soft"
-                    )}
-                  >
-                    {row.getVisibleCells().map((cell) => {
-                      const align = cell.column.columnDef.meta?.align
-                      return (
-                        <td
-                          key={cell.id}
-                          className={cn(
-                            "px-3.5 py-2.5 whitespace-nowrap text-text",
-                            align === "right" && "text-right",
-                            align === "center" && "text-center"
-                          )}
-                        >
-                          {flexRender(
-                            cell.column.columnDef.cell,
-                            cell.getContext()
-                          )}
-                        </td>
-                      )
-                    })}
-                  </tr>
-                )
-              })}
-            </Fragment>
-          ))}
-        </tbody>
-      </table>
-      {more !== undefined && <LoadMore query={more} />}
-    </div>
   )
 }
 
@@ -868,7 +636,7 @@ function NodeAccess({ user }: { user: UserRow }) {
 
   return (
     <div className="flex flex-col gap-1.5">
-      <p className="text-[0.875rem] text-ink">
+      <p className="text-[0.9375rem] text-ink">
         {user.node_reach === "UNIT"
           ? `${summary} — ${user.role_name}`
           : summary}
@@ -882,7 +650,7 @@ function NodeAccess({ user }: { user: UserRow }) {
           {legacy.map((row) => (
             <div
               key={row.origin_id}
-              className="flex items-center gap-2 rounded-inner bg-soft-2 px-2.5 py-1.5 text-[0.875rem]"
+              className="flex items-center gap-2 rounded-inner bg-soft-2 px-2.5 py-1.5 text-[0.9375rem]"
             >
               <span className="min-w-0 flex-1 truncate font-mono text-id text-body">
                 {row.label ?? row.site_name ?? row.origin_id}
@@ -919,6 +687,8 @@ function UserSheet({
   const [password, setPassword] = useState("")
 
   const chosen = roleCode ?? user?.role_code ?? ""
+  const held = (roleList.data ?? []).find((one) => one.code === user?.role_code)
+  const sees = roleAccess(held)
 
   const invalidate = () =>
     client.invalidateQueries({ queryKey: systemKeys.users() })
@@ -949,6 +719,203 @@ function UserSheet({
   const failure =
     changeRole.error ?? changeActive.error ?? unlock.error ?? reset.error
 
+  // The record's two questions — who this is and what they may do, and how they
+  // sign in — and, appended by the sheet, its Activity. A reader who cannot
+  // change anything has no Sign-in tab to look at.
+  const failureBanner =
+    failure === undefined || failure === null ? null : (
+      <Banner tone="bad">{saying(failure)}</Banner>
+    )
+  const tabs: readonly SheetTab[] | undefined =
+    user === null
+      ? undefined
+      : [
+          {
+            value: "details",
+            label: "Details",
+            content: (
+              <div className="flex flex-col gap-5">
+                <div className="flex items-center gap-2">
+                  <Pill tone={user.active ? "ok" : "bad"}>
+                    {user.active ? "Active" : "Blocked"}
+                  </Pill>
+                  <Tag tone={user.role === "ADMIN" ? "accent" : "neutral"}>
+                    {user.role_name}
+                  </Tag>
+                </div>
+
+                {failureBanner}
+
+                <Facts>
+                  <Fact term="Belongs to">
+                    {user.employee_id === null ? (
+                      <span className="text-mute">
+                        Nobody. A machine account, or a login HR has not bound
+                        yet.
+                      </span>
+                    ) : (
+                      <AppLink
+                        to="/people"
+                        sheet={{ key: "employee", value: user.employee_id }}
+                        className="text-accent hover:underline"
+                      >
+                        {user.employee_name ?? user.employee_code}
+                      </AppLink>
+                    )}
+                  </Fact>
+                  {user.employee_status !== null && (
+                    <Fact term="Employment">
+                      {user.employee_status === "TERMINATED" && user.active
+                        ? "Left — and this login still signs in"
+                        : statusLabel(user.employee_status)}
+                    </Fact>
+                  )}
+                  <Fact term="Created">{day(user.created_at)}</Fact>
+                  <Fact term="Last sign-in">
+                    {user.last_login_at ? moment(user.last_login_at) : "Never"}
+                  </Fact>
+                  {sees !== null && (
+                    <Fact term="Sees" wide>
+                      {sees.text}
+                    </Fact>
+                  )}
+                </Facts>
+
+                <div>
+                  <h4 className="mb-2 text-card-title font-semibold text-ink">
+                    Access at store servers
+                  </h4>
+                  <NodeAccess user={user} />
+                </div>
+
+                <div>
+                  <h4 className="mb-2 text-card-title font-semibold text-ink">
+                    Job role
+                  </h4>
+                  <div className="flex items-end gap-2.5">
+                    <Field label="Job Role" className="flex-1">
+                      <Select
+                        value={chosen}
+                        disabled={!canWrite}
+                        onChange={(next) => setRoleCode(next)}
+                      >
+                        {(roleList.data ?? []).map((option) => (
+                          <option key={option.code} value={option.code}>
+                            {option.name}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                    {canWrite && (
+                      <Button
+                        className="mb-[0.1875rem]"
+                        pending={changeRole.isPending}
+                        disabled={chosen === user.role_code || chosen === ""}
+                        onClick={() => changeRole.mutate()}
+                      >
+                        {changeRole.isPending ? "Submitting…" : "Submit"}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ),
+          },
+          ...(canWrite
+            ? [
+                {
+                  value: "signin",
+                  label: "Sign-in",
+                  content: (
+                    <div className="flex flex-col gap-5">
+                      {failureBanner}
+
+                      <div>
+                        <h4 className="mb-2 text-card-title font-semibold text-ink">
+                          Access
+                        </h4>
+                        {/* Locked by wrong passwords: it lifts by itself at the time
+                    shown, or now. Suspending is the blacklist — it signs the
+                    person out everywhere, at the centre and at every store
+                    server, until somebody restores it. */}
+                        {user.active && user.login_blocked_until && (
+                          <div className="mb-3 flex flex-wrap items-center gap-3 rounded-inner bg-warn-bg px-3.5 py-2.5">
+                            <span className="min-w-0 flex-1 text-[0.9375rem] text-warn-fg">
+                              Locked after too many wrong passwords, until{" "}
+                              {moment(user.login_blocked_until)}.
+                            </span>
+                            <Button
+                              size="sm"
+                              pending={unlock.isPending}
+                              onClick={() => unlock.mutate()}
+                            >
+                              {unlock.isPending ? "Unlocking…" : "Unlock now"}
+                            </Button>
+                          </div>
+                        )}
+                        {user.active ? (
+                          <div className="flex flex-col items-start gap-1.5">
+                            <Button
+                              variant="danger"
+                              pending={changeActive.isPending}
+                              onClick={() => changeActive.mutate(false)}
+                            >
+                              {changeActive.isPending
+                                ? "Blocking…"
+                                : "Block sign-in"}
+                            </Button>
+                            <p className="text-[0.9375rem] text-mute">
+                              Signs them out now, here and at every store
+                              server, and keeps them out until the account is
+                              restored.
+                            </p>
+                          </div>
+                        ) : (
+                          <Button
+                            pending={changeActive.isPending}
+                            onClick={() => changeActive.mutate(true)}
+                          >
+                            {changeActive.isPending
+                              ? "Restoring…"
+                              : "Allow sign-in again"}
+                          </Button>
+                        )}
+                      </div>
+
+                      <div>
+                        <h4 className="mb-2 text-card-title font-semibold text-ink">
+                          Password
+                        </h4>
+                        <div className="flex items-end gap-2.5">
+                          <Field
+                            label="New password"
+                            required
+                            className="flex-1"
+                          >
+                            <Secret
+                              value={password}
+                              onChange={(event) =>
+                                setPassword(event.target.value)
+                              }
+                            />
+                          </Field>
+                          <Button
+                            className="mb-[0.1875rem]"
+                            pending={reset.isPending}
+                            disabled={password === ""}
+                            onClick={() => reset.mutate()}
+                          >
+                            {reset.isPending ? "Setting…" : "Set password"}
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ),
+                },
+              ]
+            : []),
+        ]
+
   return (
     <Sheet
       open={open}
@@ -960,343 +927,14 @@ function UserSheet({
       }}
       id={user?.username}
       title={user?.display_name ?? "Account"}
+      // Details, Sign-in, and the trail the server keeps of what was done to
+      // this login (`app_user`) as the last tab.
+      subject={user === null ? undefined : { kind: "app_user", id: user.id }}
+      tabs={tabs}
     >
       {user === null ? (
         <p className="text-meta text-body">That account is no longer listed.</p>
-      ) : (
-        <div className="flex flex-col gap-5">
-          <div className="flex items-center gap-2">
-            <Pill tone={user.active ? "ok" : "bad"}>
-              {user.active ? "Active" : "Blocked"}
-            </Pill>
-            <Tag tone={user.role === "ADMIN" ? "accent" : "neutral"}>
-              {user.role_name}
-            </Tag>
-          </div>
-
-          {failure && <Banner tone="bad">{saying(failure)}</Banner>}
-
-          <Facts>
-            <Fact term="Belongs to">
-              {user.employee_id === null ? (
-                <span className="text-mute">
-                  Nobody. A machine account, or a login HR has not bound yet.
-                </span>
-              ) : (
-                <AppLink
-                  to="/people"
-                  sheet={{ key: "employee", value: user.employee_id }}
-                  className="text-accent hover:underline"
-                >
-                  {user.employee_name ?? user.employee_code}
-                </AppLink>
-              )}
-            </Fact>
-            {user.employee_status !== null && (
-              <Fact term="Employment">
-                {user.employee_status === "TERMINATED" && user.active
-                  ? "Left — and this login still signs in"
-                  : statusLabel(user.employee_status)}
-              </Fact>
-            )}
-            <Fact term="Created">{day(user.created_at)}</Fact>
-            <Fact term="Created by">{user.created_by}</Fact>
-            <Fact term="Last sign-in">
-              {user.last_login_at ? moment(user.last_login_at) : "Never"}
-            </Fact>
-          </Facts>
-
-          <div>
-            <h4 className="mb-2 text-card-title font-semibold text-ink">
-              Access at store servers
-            </h4>
-            <NodeAccess user={user} />
-          </div>
-
-          <div>
-            <h4 className="mb-2 text-card-title font-semibold text-ink">
-              Job role
-            </h4>
-            <div className="flex items-end gap-2.5">
-              <Field label="Job Role" className="flex-1">
-                <Select
-                  value={chosen}
-                  disabled={!canWrite}
-                  onChange={(next) => setRoleCode(next)}
-                >
-                  {(roleList.data ?? []).map((option) => (
-                    <option key={option.code} value={option.code}>
-                      {option.name}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-              {canWrite && (
-                <Button
-                  className="mb-[0.1875rem]"
-                  pending={changeRole.isPending}
-                  disabled={chosen === user.role_code || chosen === ""}
-                  onClick={() => changeRole.mutate()}
-                >
-                  {changeRole.isPending ? "Submitting…" : "Submit"}
-                </Button>
-              )}
-            </div>
-          </div>
-
-          {canWrite && (
-            <>
-              <div>
-                <h4 className="mb-2 text-card-title font-semibold text-ink">
-                  Access
-                </h4>
-                {/* Locked by wrong passwords: it lifts by itself at the time
-                    shown, or now. Suspending is the blacklist — it signs the
-                    person out everywhere, at the centre and at every store
-                    server, until somebody restores it. */}
-                {user.active && user.login_blocked_until && (
-                  <div className="mb-3 flex flex-wrap items-center gap-3 rounded-inner bg-warn-bg px-3.5 py-2.5">
-                    <span className="min-w-0 flex-1 text-[0.875rem] text-warn-fg">
-                      Locked after too many wrong passwords, until{" "}
-                      {moment(user.login_blocked_until)}.
-                    </span>
-                    <Button
-                      size="sm"
-                      pending={unlock.isPending}
-                      onClick={() => unlock.mutate()}
-                    >
-                      {unlock.isPending ? "Unlocking…" : "Unlock now"}
-                    </Button>
-                  </div>
-                )}
-                {user.active ? (
-                  <div className="flex flex-col items-start gap-1.5">
-                    <Button
-                      variant="danger"
-                      pending={changeActive.isPending}
-                      onClick={() => changeActive.mutate(false)}
-                    >
-                      {changeActive.isPending ? "Blocking…" : "Block sign-in"}
-                    </Button>
-                    <p className="text-[0.875rem] text-mute">
-                      Signs them out now, here and at every store server, and
-                      keeps them out until the account is restored.
-                    </p>
-                  </div>
-                ) : (
-                  <Button
-                    pending={changeActive.isPending}
-                    onClick={() => changeActive.mutate(true)}
-                  >
-                    {changeActive.isPending
-                      ? "Restoring…"
-                      : "Allow sign-in again"}
-                  </Button>
-                )}
-              </div>
-
-              <div>
-                <h4 className="mb-2 text-card-title font-semibold text-ink">
-                  Password
-                </h4>
-                <div className="flex items-end gap-2.5">
-                  <Field label="New password" required className="flex-1">
-                    <Secret
-                      value={password}
-                      onChange={(event) => setPassword(event.target.value)}
-                    />
-                  </Field>
-                  <Button
-                    className="mb-[0.1875rem]"
-                    pending={reset.isPending}
-                    disabled={password === ""}
-                    onClick={() => reset.mutate()}
-                  >
-                    {reset.isPending ? "Setting…" : "Set password"}
-                  </Button>
-                </div>
-              </div>
-            </>
-          )}
-        </div>
-      )}
-    </Sheet>
-  )
-}
-
-interface UserDraft {
-  username: string
-  displayName: string
-  password: string
-  role: Role
-}
-
-function userReady(draft: UserDraft): boolean {
-  return (
-    draft.username.trim() !== "" &&
-    draft.displayName.trim() !== "" &&
-    draft.password !== ""
-  )
-}
-
-/// Adding a login by hand — kept for the account nobody invites (a machine
-/// account moving stock between nodes), and quieted on purpose: see the note
-/// on the Users tab pointing at "Invite people" instead.
-function AddUserSheet({
-  open,
-  onClose,
-}: {
-  open: boolean
-  onClose: () => void
-}) {
-  const client = useQueryClient()
-
-  const add = useMutation({
-    mutationFn: (draft: UserDraft) =>
-      createUser({
-        username: draft.username.trim(),
-        display_name: draft.displayName.trim(),
-        password: draft.password,
-        role: draft.role,
-      }),
-    onSuccess: () => {
-      void client.invalidateQueries({ queryKey: systemKeys.users() })
-      clear()
-      onClose()
-    },
-  })
-
-  const form = useForm({
-    defaultValues: {
-      username: "",
-      displayName: "",
-      password: "",
-      role: "CASHIER",
-    } as UserDraft,
-    onSubmit: ({ value }) => add.mutate(value),
-  })
-
-  function clear() {
-    form.reset()
-    add.reset()
-  }
-
-  return (
-    <Sheet
-      open={open}
-      onOpenChange={(next) => {
-        if (!next) {
-          clear()
-          onClose()
-        }
-      }}
-      title="Add a user directly"
-      footer={
-        <div className="flex justify-end gap-2">
-          <Button
-            variant="quiet"
-            onClick={() => {
-              clear()
-              onClose()
-            }}
-          >
-            Cancel
-          </Button>
-          <form.Subscribe selector={(state) => userReady(state.values)}>
-            {(ready) => (
-              <Button
-                pending={add.isPending}
-                disabled={!ready}
-                onClick={() => form.handleSubmit()}
-              >
-                {add.isPending ? "Submitting…" : "Submit"}
-              </Button>
-            )}
-          </form.Subscribe>
-        </div>
-      }
-    >
-      <form
-        onSubmit={(event) => {
-          event.preventDefault()
-          if (userReady(form.state.values) && !add.isPending) {
-            form.handleSubmit()
-          }
-        }}
-        className="flex flex-col gap-3.5"
-      >
-        <Banner tone="info">
-          Prefer Invite people — this creates a login with a password you type
-          yourself, which is exactly what invitations exist to avoid.
-        </Banner>
-        <form.Field name="username">
-          {(field) => (
-            <Field
-              label="Username"
-              required
-              hint="How they sign in. Never released once taken, and there is no delete."
-            >
-              <Input
-                value={field.state.value}
-                onBlur={field.handleBlur}
-                onChange={(event) => field.handleChange(event.target.value)}
-                autoComplete="off"
-              />
-            </Field>
-          )}
-        </form.Field>
-        <form.Field name="displayName">
-          {(field) => (
-            <Field
-              label="Name"
-              required
-              hint="What colleagues see beside their decisions."
-            >
-              <Input
-                value={field.state.value}
-                onBlur={field.handleBlur}
-                onChange={(event) => field.handleChange(event.target.value)}
-                autoComplete="off"
-              />
-            </Field>
-          )}
-        </form.Field>
-        <form.Field name="password">
-          {(field) => (
-            <Field
-              label="Password"
-              required
-              hint="Sent once. Nothing on this node reads it back, so hand it over now."
-            >
-              <Secret
-                value={field.state.value}
-                onChange={(event) => field.handleChange(event.target.value)}
-              />
-            </Field>
-          )}
-        </form.Field>
-        <form.Field name="role">
-          {(field) => (
-            <Field
-              label="Rung"
-              hint="At the centre. Access at a store server is now derived from job role and unit."
-            >
-              <Select
-                value={field.state.value}
-                onChange={(next) => field.handleChange(next as Role)}
-              >
-                {roles.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-          )}
-        </form.Field>
-
-        {add.isError && <Banner tone="bad">{saying(add.error)}</Banner>}
-      </form>
+      ) : null}
     </Sheet>
   )
 }

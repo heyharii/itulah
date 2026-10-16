@@ -75,7 +75,7 @@ export function Sheet({
       >
         <header className="sheet-head">
           <h2>{title}</h2>
-          <button className="icon-btn" onClick={onClose} aria-label="Tutup">
+          <button className="icon-btn" onClick={onClose} aria-label="Close">
             <Icon name="x" />
           </button>
         </header>
@@ -95,10 +95,10 @@ export function Sheet({
 /// to tell a counter that cancels two baskets a week from one that cancels
 /// twenty. The field underneath takes the fifth thing, which happens daily.
 const REASONS = [
-  "Pembeli berubah pikiran",
-  "Barang salah terpindai",
-  "Harga dipersoalkan",
-  "Barang tidak tersedia",
+  "The customer changed their mind",
+  "Item scanned by mistake",
+  "Price in dispute",
+  "Item not available",
 ] as const
 
 /// Throwing away a basket, out loud.
@@ -139,14 +139,14 @@ export function CancelSale({
         className="overlay-card"
         role="dialog"
         aria-modal="true"
-        aria-label="Batalkan transaksi"
+        aria-label="Cancel sale"
       >
         <span className="seal warn">
           <Icon name="trash" />
         </span>
-        <h3>Batalkan transaksi ini?</h3>
+        <h3>Cancel this sale?</h3>
         <p className="muted num" style={{ fontSize: 12.5 }}>
-          {units} unit · {money(totalMinor, currency)}
+          {units} {units === 1 ? "item" : "items"} · {money(totalMinor, currency)}
         </p>
         <div className="chips" style={{ width: "100%" }}>
           {REASONS.map((one) => (
@@ -160,11 +160,11 @@ export function CancelSale({
           ))}
         </div>
         <label className="field" style={{ width: "100%", textAlign: "left" }}>
-          Alasan lain
+          Another reason
           <input
             value={typed}
             onChange={(event) => setTyped(event.target.value)}
-            placeholder="Tulis alasan"
+            placeholder="Write a reason"
             autoComplete="off"
             maxLength={120}
           />
@@ -175,14 +175,14 @@ export function CancelSale({
           disabled={reason === null}
           onClick={() => reason !== null && onConfirm(reason)}
         >
-          Batalkan transaksi
+          Cancel sale
         </button>
         <button
           className="btn ghost"
           style={{ width: "100%" }}
           onClick={onBack}
         >
-          Kembali ke keranjang
+          Back to basket
         </button>
       </div>
     </div>
@@ -229,17 +229,17 @@ export function HoldList({
   const [dropping, setDropping] = useState<string | null>(null)
 
   return (
-    <Sheet title="Transaksi ditahan" onClose={onBack}>
+    <Sheet title="Held sales" onClose={onBack}>
         {!canResume && held.length > 0 && (
           <div className="notice warn">
-            Selesaikan atau tahan keranjang yang sedang terbuka dulu.
+            Finish or hold the basket that is open first.
           </div>
         )}
 
         {held.length === 0 ? (
           <div className="empty">
             <Icon name="hold" />
-            <h3>Tidak ada transaksi ditahan</h3>
+            <h3>No held sales</h3>
           </div>
         ) : (
           <div className="rows">
@@ -247,11 +247,11 @@ export function HoldList({
               <div className="row-item" key={one.id}>
                 <div className="grow">
                   <h3>
-                    {one.units} unit ·{" "}
+                    {one.units} {one.units === 1 ? "item" : "items"} ·{" "}
                     <span className="num">{money(one.totalMinor)}</span>
                   </h3>
                   <p>
-                    Ditahan {one.at}
+                    Held {one.at}
                     {one.customerId !== null && (
                       <> · member {one.customerId}</>
                     )}
@@ -263,7 +263,7 @@ export function HoldList({
                       className="btn ghost"
                       onClick={() => setDropping(null)}
                     >
-                      Batal
+                      Cancel
                     </button>
                     <button
                       className="btn danger"
@@ -498,7 +498,7 @@ function readDocument(body: unknown): Document | null {
 function refusal(reply: api.EdgeReply<unknown>): string {
   return (
     reply.problem ??
-    `Node toko menolak dengan status ${reply.status} dan tidak menyebut alasannya.`
+    `The store node refused with status ${reply.status} and gave no reason.`
   )
 }
 
@@ -578,7 +578,7 @@ export function ReceiptPreview({
       if (read === null) {
         setDoc(null)
         setTrouble(
-          "Node menjawab, tapi isinya bukan dokumen struk. Periksa ID penjualannya.",
+          "The node answered, but it is not a receipt document. Check the sale ID.",
         )
         return
       }
@@ -602,23 +602,23 @@ export function ReceiptPreview({
 
   return (
     <Sheet
-      title="Pratinjau struk"
+      title="Receipt preview"
       onClose={onBack}
       foot={
         <>
           <button className="btn" onClick={onBack}>
-            Tutup
+            Close
           </button>
           <button className="btn primary" disabled={doc === null} onClick={onPrint}>
             <Icon name="print" />
-            Cetak
+            Print
           </button>
         </>
       }
     >
         {asking && (
           <div className="empty">
-            <h3>Memuat struk…</h3>
+            <h3>Loading receipt…</h3>
             <p className="num">{saleId}</p>
           </div>
         )}
@@ -654,13 +654,13 @@ export function ReceiptPreview({
                 </span>
               </div>
               <div className="kv">
-                <span className="muted">Nomor struk</span>
+                <span className="muted">Receipt number</span>
                 <strong className="num">
                   <Text value={doc.receiptNo} />
                 </strong>
               </div>
               <div className="kv">
-                <span className="muted">ID penjualan</span>
+                <span className="muted">Sale ID</span>
                 <span className="num">
                   <Text value={doc.saleId} />
                 </span>
@@ -669,13 +669,13 @@ export function ReceiptPreview({
                   ke waktu lokal saat mencetak; mengubahnya di sini juga berarti
                   dua tempat yang memformat satu waktu. */}
               <div className="kv">
-                <span className="muted">Waktu</span>
+                <span className="muted">Time</span>
                 <span className="num">
                   <Text value={doc.completedAt} />
                 </span>
               </div>
               <div className="kv">
-                <span className="muted">Kasir</span>
+                <span className="muted">Cashier</span>
                 <span>
                   <Text value={doc.cashier} />
                 </span>
@@ -683,17 +683,17 @@ export function ReceiptPreview({
             </div>
 
             <div>
-              <span className="label">Barang</span>
+              <span className="label">Items</span>
               {doc.lines.length === 0 ? (
-                <p className="muted">Tidak ada baris barang.</p>
+                <p className="muted">No item lines.</p>
               ) : (
                 <div className="receipt-lines" style={{ marginTop: 10 }}>
                   {doc.lines.map((line, at) => (
                     <div className="receipt-line" key={`${line.skuCode}-${at}`}>
                       <span>
-                        {line.name ?? line.skuCode ?? "Tanpa nama di struk"}{" "}
+                        {line.name ?? line.skuCode ?? "No name on the receipt"}{" "}
                         <small className="num muted">
-                          {line.skuCode ?? "tanpa SKU"}
+                          {line.skuCode ?? "no SKU"}
                         </small>
                         {line.quantity !== null && line.quantity !== 1 && (
                           <small className="num muted">
@@ -709,14 +709,14 @@ export function ReceiptPreview({
                           line.unitPriceMinor !== line.lineTotalMinor && (
                             <small className="num muted">
                               {" "}
-                              · satuan {money(line.unitPriceMinor, currency)}
+                              · each {money(line.unitPriceMinor, currency)}
                             </small>
                           )}
                         {line.baseUnitPriceMinor !== null &&
                           line.baseUnitPriceMinor !== line.lineTotalMinor && (
                             <small className="muted">
                               {" "}
-                              · harga normal{" "}
+                              · normal price{" "}
                               {money(line.baseUnitPriceMinor, currency)}
                             </small>
                           )}
@@ -730,7 +730,7 @@ export function ReceiptPreview({
               )}
               {doc.unreadable > 0 && (
                 <p className="error">
-                  {doc.unreadable} entri tidak terbaca.
+                  {doc.unreadable} entries could not be read.
                 </p>
               )}
             </div>
@@ -745,31 +745,31 @@ export function ReceiptPreview({
                 </span>
               </div>
               <div className="kv">
-                <span className="muted">Diskon</span>
+                <span className="muted">Discount</span>
                 <span className="num">
                   <Money value={doc.discountMinor} currency={currency} />
                 </span>
               </div>
               <div className="kv">
-                <span className="muted">Total barang</span>
+                <span className="muted">Items total</span>
                 <strong className="num">
                   <Money value={doc.totalMinor} currency={currency} />
                 </strong>
               </div>
               <div className="kv">
-                <span className="muted">Dibayar</span>
+                <span className="muted">Paid</span>
                 <span className="num">
                   <Money value={doc.paidMinor} currency={currency} />
                 </span>
               </div>
               <div className="kv">
-                <span className="muted">Kembalian</span>
+                <span className="muted">Change</span>
                 <span className="num">
                   <Money value={doc.changeMinor} currency={currency} />
                 </span>
               </div>
               <div className="kv">
-                <span className="muted">Poin</span>
+                <span className="muted">Points</span>
                 <span className="num">
                   {doc.pointsEarned === null ? (
                     <Missing />
@@ -787,9 +787,9 @@ export function ReceiptPreview({
                 keterangan bahwa 0 pada struk tidak berarti nol poin. */}
 
             <div>
-              <span className="label">Pembayaran</span>
+              <span className="label">Payment</span>
               {doc.tenders.length === 0 ? (
-                <p className="muted">Tidak ada data pembayaran.</p>
+                <p className="muted">No payment data.</p>
               ) : (
                 <div className="receipt-lines" style={{ marginTop: 10 }}>
                   {doc.tenders.map((one, at) => (
@@ -811,18 +811,18 @@ export function ReceiptPreview({
 
             {gap !== null && gap !== 0 && (
               <div className="notice warn">
-                Selisih <strong className="num">{money(gap, currency)}</strong>{" "}
-                (biaya seperti kantong tidak tercantum di struk)
+                Difference <strong className="num">{money(gap, currency)}</strong>{" "}
+                (charges such as bags are not listed on the receipt)
               </div>
             )}
 
             {doc.footer !== null && (
-              <p className="muted">Catatan kaki struk: {doc.footer}</p>
+              <p className="muted">Receipt footer: {doc.footer}</p>
             )}
 
             {doc.strange.length > 0 && (
               <div>
-                <span className="label">Data lain</span>
+                <span className="label">Other data</span>
                 <div className="chips">
                   {doc.strange.map(([key, value]) => (
                     <span className="chip" key={key}>
@@ -872,25 +872,25 @@ type Charge = {
 const BAGS: readonly Charge[] = [
   {
     code: "PACKAGING",
-    description: "Kantong kertas kecil",
+    description: "Small paper bag",
     amount_minor: 0,
     tax_category: "STANDARD",
   },
   {
     code: "PACKAGING",
-    description: "Kantong kertas besar",
+    description: "Large paper bag",
     amount_minor: 0,
     tax_category: "STANDARD",
   },
   {
     code: "PACKAGING",
-    description: "Kantong plastik kecil",
+    description: "Small plastic bag",
     amount_minor: 500,
     tax_category: "STANDARD",
   },
   {
     code: "PACKAGING",
-    description: "Kantong plastik besar",
+    description: "Large plastic bag",
     amount_minor: 1_000,
     tax_category: "STANDARD",
   },
@@ -917,7 +917,7 @@ export function BagPicker({
   onBack: () => void
 }) {
   return (
-    <Sheet title="Kantong belanja" onClose={onBack}>
+    <Sheet title="Shopping bags" onClose={onBack}>
         <div className="pick-list">
           {BAGS.map((bag) => (
             <button
@@ -930,7 +930,7 @@ export function BagPicker({
                 <strong>{bag.description}</strong>
               </div>
               {bag.amount_minor === 0 ? (
-                <span className="badge ok">Gratis</span>
+                <span className="badge ok">Free</span>
               ) : (
                 <strong className="num">
                   {money(bag.amount_minor, currency)}

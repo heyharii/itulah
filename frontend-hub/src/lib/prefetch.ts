@@ -126,7 +126,14 @@ export function warmInfinite<T, K extends QueryKey, P>(
     options as unknown as FetchQueryOptions
   )
   note(outcomeOf(client, options.queryKey, resolved.staleTime))
-  return client.prefetchInfiniteQuery({ ...options, pages: 1 })
+  // The options type is a union over both paging conventions (a page count
+  // or a `getNextPageParam`), and spreading `pages: 1` over it leaves the
+  // spread outside either half. It is the same options with a first-page
+  // limit, which is what the server is asked for.
+  return client.prefetchInfiniteQuery({
+    ...options,
+    pages: 1,
+  } as unknown as FetchInfiniteQueryOptions<T, Error, T, K, P>)
 }
 
 /// An answer already in the cache, or one fetched now (for a prefetcher whose
@@ -222,6 +229,29 @@ function moduleOf(folder: string): Promise<PrefetchModule | undefined> {
 /// to prefetch).
 const folderOf = (path: string) => path.split("/")[1] ?? ""
 
+/// The SSR pass: a screen's own prefetcher, started on the server as the
+/// signed-in person (the root route has already asked who that is) and not
+/// waited for. The document's first bytes go out at once; each section of the
+/// screen reads its query with a suspense hook, so the server streams that
+/// section's HTML when its answer lands (`setupRouterSsrQueryIntegration`
+/// carries the answer to the browser with it). Starting the queries here,
+/// all at once, is what keeps sibling sections from asking one after another.
+export async function prefetchOnServer(
+  qc: QueryClient,
+  path: string,
+  search: Readonly<Record<string, unknown>>
+): Promise<void> {
+  const me = qc.getQueryData<Identity | null>(cacheKey.me()) ?? null
+  if (me === null || !allowed(me, path)) return
+  const prefetcher = (await moduleOf(folderOf(path)))?.prefetch[path]
+  if (prefetcher === undefined) return
+  try {
+    await prefetcher(qc, { reason: "navigate", search })
+  } catch {
+    // The section that reads the query asks again, and shows why if it fails.
+  }
+}
+
 /// When each path was last run, so a pointer wandering over a menu asks once.
 const recent = new Map<string, number>()
 const RECENT_MS = 2000
@@ -283,11 +313,25 @@ export function useIntentPreload(path: string | null, delay = 70): void {
 /// How many prefetchers run at once, and the pause before the next starts.
 const CONCURRENCY = 2
 const SPACING_MS = 600
-/// Wait this long after sign-in before starting: the first screen's own
-/// requests go first.
-const SETTLE_MS = 2500
+/// How long the cache must have been quiet — nothing fetching but the
+/// warm-up's own requests — before the warm-up may start, and may continue.
+/// Not a fixed wait: the first screen lands when it lands, and a poll or a
+/// slow export pushes the warm-up back rather than racing it (owner,
+/// 2026-10-10: the old fixed 2.5 s wait "slowed the first screen").
+const QUIET_MS = 1500
 
 let warming: { username: string; cancel: () => void } | null = null
+
+/// Fetches the warm-up itself started, subtracted from the client's count so
+/// its own traffic never counts as the person's.
+let warmFetches = 0
+
+/// Whether anything the warm-up did not start is in flight right now: the
+/// person's screen, a poll, a sheet's fetch. The warm-up starts only in the
+/// gaps this leaves, and pauses the moment a gap closes.
+function busyElsewhere(): boolean {
+  return (client?.isFetching() ?? 0) - warmFetches > 0
+}
 
 function idle(work: () => void, timeout: number): () => void {
   const ric = (
@@ -330,22 +374,25 @@ async function warmAll(qc: QueryClient, me: Identity, live: () => boolean) {
       if (!live()) return finish()
       if (next >= queue.length && running === 0) return finish()
       while (running < CONCURRENCY && next < queue.length) {
-        // A hidden tab, a lost connection or a data saver pauses the warm-up
-        // rather than spending the person's data on a screen nobody sees.
-        if (document.hidden || frugal()) {
-          window.setTimeout(pump, 5000)
+        // A hidden tab, a lost connection, a data saver — or, above all, a
+        // request of the person's own still in flight — pauses the warm-up
+        // rather than competing with it. The queue waits for the next gap.
+        if (document.hidden || frugal() || busyElsewhere()) {
+          window.setTimeout(pump, 800)
           return
         }
         const { path, mod } = queue[next++]
         const prefetcher = mod?.prefetch[path]
         if (prefetcher === undefined) continue
         running += 1
+        warmFetches += 1
         count(path, "warm")
         idle(() => {
           Promise.resolve()
             .then(() => prefetcher(qc, { reason: "warm", search: {} }))
             .catch(() => undefined)
             .finally(() => {
+              warmFetches -= 1
               running -= 1
               window.setTimeout(pump, SPACING_MS)
             })
@@ -358,14 +405,30 @@ async function warmAll(qc: QueryClient, me: Identity, live: () => boolean) {
 
 /// Hook the prefetcher to this client and warm the most-used screens when the
 /// browser has nothing better to do after sign-in. Called once, from
-/// `main.tsx`.
+/// `signed-in.tsx` — the shell's own chunk, because everything here serves
+/// screens and nothing here can run before there is a session.
+///
+/// "When the browser has nothing better to do" is measured, not guessed: the
+/// cache reports every change, so the warm-up starts only after at least one
+/// screen has ANSWERED since sign-in AND nothing has been fetching for
+/// `QUIET_MS` — and its pump re-checks `busyElsewhere()` before every item.
+/// A person who starts working resets the clock by existing; the warm-up
+/// never costs their requests anything but queue position.
 export function startPrefetch(qc: QueryClient): void {
   client = qc
   if (import.meta.env.DEV) installStats()
-  qc.getQueryCache().subscribe((event) => {
-    if (event.type !== "updated") return
-    const key = event.query.queryKey
-    if (key[0] !== cacheKey.me()[0] || key[1] !== cacheKey.me()[1]) return
+
+  // The quiet clock: when the cache last had nothing fetching but the
+  // warm-up's own. `null` means something else is in flight right now.
+  let quietSince: number | null = null
+  // The first screen's own answers have landed — the gate that stops the
+  // warm-up from starting in the instant between "signed in" and "screen
+  // mounted", when the cache is briefly, deceptively, empty.
+  let screenAnswered = false
+
+  /// Whether a warm-up should be running for whoever is signed in, given the
+  /// clocks above. Called on every identity answer, and once at startup.
+  const considerStart = () => {
     const me = qc.getQueryData<Identity | null>(cacheKey.me())
     if (me === undefined) return
     if (me === null) {
@@ -376,19 +439,56 @@ export function startPrefetch(qc: QueryClient): void {
     }
     if (warming?.username === me.username) return
     warming?.cancel()
-    let cancelled = false
-    const timer = window.setTimeout(() => {
-      if (cancelled || frugal()) return
-      void warmAll(qc, me, () => !cancelled && signedIn() !== null)
-    }, SETTLE_MS)
+    let stopped = false
+    const check = window.setInterval(() => {
+      if (stopped) return
+      if (
+        quietSince === null ||
+        Date.now() - quietSince < QUIET_MS ||
+        !screenAnswered ||
+        frugal()
+      ) {
+        return
+      }
+      window.clearInterval(check)
+      void warmAll(qc, me, () => !stopped && signedIn() !== null)
+    }, 500)
     warming = {
       username: me.username,
       cancel: () => {
-        cancelled = true
-        window.clearTimeout(timer)
+        stopped = true
+        window.clearInterval(check)
       },
     }
+  }
+
+  qc.getQueryCache().subscribe((event) => {
+    if (busyElsewhere()) {
+      quietSince = null
+    } else if (quietSince === null) {
+      quietSince = Date.now()
+    }
+    if (
+      event.type === "updated" &&
+      event.query.state.dataUpdatedAt > 0 &&
+      !(
+        event.query.queryKey[0] === cacheKey.me()[0] &&
+        event.query.queryKey[1] === cacheKey.me()[1]
+      )
+    ) {
+      screenAnswered = true
+    }
+
+    if (event.type !== "updated") return
+    const key = event.query.queryKey
+    if (key[0] !== cacheKey.me()[0] || key[1] !== cacheKey.me()[1]) return
+    considerStart()
   })
+
+  // The shell calls this AFTER `/auth/me` has usually answered — a settled
+  // answer fires no further event, so the same question is asked once here
+  // rather than waiting for a change that may never come.
+  considerStart()
 }
 
 // ---------------------------------------------------------------------------

@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>New allotment - few stores</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+<style>
+:root{--ink:#1d1d1f;--mute:#6e6e73;--line:#e5e5ea;--blue:#2862dc;--soft:#f5f5f7;--red:#c4351c}
+*{box-sizing:border-box}
+body{margin:0;background:#fff;color:var(--ink);font:400 15px/1.4 Inter,-apple-system,system-ui,sans-serif}
+button,input{font:inherit;color:inherit}
+.proto{display:flex;gap:24px;flex-wrap:wrap;align-items:center;padding:10px 24px;background:var(--soft);border-bottom:1px solid var(--line)}
+.seg{display:flex;gap:4px;align-items:center}
+.seg span.l{color:var(--mute);margin-right:6px}
+.seg button{border:1px solid var(--line);background:#fff;border-radius:8px;padding:5px 12px;cursor:pointer;min-height:34px}
+.seg button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.name{color:var(--mute);padding:10px 24px 0}
+.bar{display:flex;gap:12px;align-items:center;padding:14px 24px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.bar h1{font-size:17px;font-weight:600;margin:0;flex:1;min-width:200px}
+.btn{border:1px solid var(--line);background:#fff;border-radius:8px;padding:6px 12px;cursor:pointer;min-height:36px;white-space:nowrap}
+.btn:hover{background:var(--soft)}
+.primary{background:var(--blue);border-color:var(--blue);color:#fff;font-weight:500;padding:6px 16px}
+.primary:hover{background:#1f50b8}
+.primary:disabled{opacity:.4;cursor:default}
+.search{border:1px solid var(--line);border-radius:8px;padding:6px 12px;min-height:36px;width:290px}
+.tog{display:flex;gap:8px;align-items:center;cursor:pointer;color:var(--mute)}
+.tog input{width:18px;height:18px;accent-color:var(--blue)}
+.wrap{overflow-x:auto;padding:0 24px 24px}
+.grid{min-width:min-content}
+.row{display:grid;grid-template-columns:minmax(230px,1.7fr) 80px repeat(var(--n),minmax(110px,1fr)) 80px;align-items:center;border-bottom:1px solid var(--line);min-height:52px;gap:0 12px}
+.row.b{grid-template-columns:minmax(230px,1.7fr) 80px repeat(var(--n),minmax(110px,1fr)) 80px 190px}
+.row.c1{grid-template-columns:minmax(230px,1.7fr) 80px minmax(150px,1fr) 80px}
+.row.nostock{grid-template-columns:minmax(230px,1.7fr) repeat(var(--n),minmax(110px,1fr)) 80px}
+.row.many{--w:120px;grid-template-columns:260px 80px repeat(var(--n),var(--w)) 80px}
+.head{position:sticky;top:0;background:#fff;color:var(--mute);min-height:44px;z-index:2}
+.head>*:not(:first-child){text-align:right}
+.head .s{text-align:right}
+.art{background:#fff;min-height:60px;border-bottom:1px solid var(--line)}
+.art .t{font-weight:600}
+.sub{color:var(--mute)}
+.div{padding:14px 0 6px;color:var(--mute)}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+.fig{font-weight:600}
+.cell input{width:100%;height:40px;text-align:right;border:1px solid var(--line);border-radius:8px;padding:0 10px;font-variant-numeric:tabular-nums;background:#fff}
+.cell input:focus{outline:2px solid var(--blue);outline-offset:-1px;border-color:var(--blue)}
+.cell .lab{display:none}
+.acts{display:flex;gap:6px;justify-content:flex-end}
+.acts .btn{padding:4px 10px;min-height:34px}
+.foot{font-weight:600;background:var(--soft);position:sticky;bottom:0;border-top:1px solid var(--line)}
+.fcell{display:flex;justify-content:flex-end;gap:12px}
+.foot .lab{font-weight:400;color:var(--mute)}
+.left.zero{color:var(--mute)}
+.msg{padding:10px 24px;color:var(--mute);min-height:44px}
+.one{display:flex;gap:12px;align-items:center;padding:12px 24px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.one .sp{flex:1}
+.sku-l{display:flex;flex-direction:column;min-width:0;padding-left:0}
+.sku-l .c{display:flex;gap:8px}
+.empty{padding:40px 0;color:var(--mute);text-align:center}
+.storeLab{display:none}
+@media (max-width:500px){
+ .proto{padding:10px 16px;gap:10px}.bar{padding:12px 16px}.name{padding:10px 16px 0}.wrap{padding:0 16px 24px;overflow-x:visible}
+ .search{width:100%}.msg,.one{padding-left:16px;padding-right:16px}
+ .head{display:none}
+ .row,.row.b,.row.c1,.row.nostock{display:block;padding:12px 0;min-height:0}
+ .row.art{padding:12px 0}
+ .row .stk,.row .lft{display:flex;justify-content:space-between;padding:4px 0}
+ .row .stk::before{content:"Stock";color:var(--mute)}
+ .row .lft::before{content:"Left";color:var(--mute)}
+ .cell{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:4px 0}
+ .cell input{width:120px}
+ .cell .lab{display:block;color:var(--mute)}
+ .acts{justify-content:flex-start;padding-top:6px}
+ .foot{position:static;padding:12px 8px}
+ .foot .cell{padding:4px 0}
+ .row.foot .stk::before{content:"Stock"}
+ .many-note{display:block}
+}
+</style></head>
+<body>
+<div class="proto">
+ <div class="seg" id="segStores"><span class="l">Stores</span></div>
+ <div class="seg" id="segOpt"><span class="l">Option</span></div>
+</div>
+<div class="name" id="optName"></div>
+<div id="app"></div>
+<script>
+const STORES=[["C001","Kemang"],["C002","Senayan"],["C003","Bekasi"],["C004","Bandung"],["C005","Depok"],["C006","Tangerang"],["C007","Surabaya"],["C008","Medan"]];
+const ARTS=[
+ {n:"Blus Rayon Motif Bunga",c:"00000012",d:"Wanita",s:[["Pink","S",24,"00000001202"],["Pink","L",18,"00000001203"],["Navy","S",12,"00000001204"]]},
+ {n:"Rok Plisket Panjang",c:"00000013",d:"Wanita",s:[["Hitam","M",60,"00000001301"],["Hitam","L",36,"00000001302"]]},
+ {n:"Kemeja Linen Oversize",c:"00000014",d:"Wanita",s:[["Putih","S",9,"00000001401"],["Putih","M",14,"00000001402"],["Putih","L",2,"00000001403"]]},
+ {n:"Dress Batik Kombinasi",c:"00000015",d:"Wanita",s:[["Coklat","M",30,"00000001501"],["Coklat","L",21,"00000001502"]]}
+];
+const OPTS={A:"A  Today's grid, fewer columns",B:"B  Store columns + Send all / Split evenly per row",C:"C  1 store: one Send column, prefilled. 2-3: side by side",D:"D  Stock, stores, Left; totals per store in the foot"};
+let st={n:2,opt:"A",q:{},filter:"",onlyLeft:false,msg:"",sendAll:true};
+const skus=[];ARTS.forEach(a=>a.s.forEach(s=>skus.push({code:s[3],stock:s[2]})));
+const stock=c=>skus.find(s=>s.code===c).stock;
+const nStores=()=>st.n==="many"?8:st.n;
+const sum=c=>Object.values(st.q[c]||{}).reduce((a,b)=>a+b,0);
+const left=c=>stock(c)-sum(c);
+const get=(c,i)=>(st.q[c]||{})[i]||0;
+function set(c,i,v){st.q[c]=st.q[c]||{};const others=sum(c)-get(c,i);v=Math.max(0,Math.min(v,stock(c)-others));st.q[c][i]=v;return v}
+function reset(){st.q={};st.msg="";if(st.opt==="C"&&st.n===1&&st.sendAll)fillAll()}
+function fillAll(){skus.forEach(s=>{st.q[s.code]={0:s.stock}})}
+function even(c){const n=nStores(),s=stock(c);st.q[c]={};for(let i=0;i<n;i++)st.q[c][i]=Math.floor(s/n)+(i<s%n?1:0)}
+const total=()=>skus.reduce((a,s)=>a+sum(s.code),0);
+
+function seg(id,items,cur,fn){const el=document.getElementById(id);el.querySelectorAll("button").forEach(b=>b.remove());
+ items.forEach(([k,l])=>{const b=document.createElement("button");b.textContent=l;if(String(k)===String(cur))b.className="on";b.onclick=()=>fn(k);el.appendChild(b)})}
+function head(){
+ seg("segStores",[[1,"1"],[2,"2"],[3,"3"],["many","Many"]],st.n,k=>{st.n=k;reset();render()});
+ seg("segOpt",[["A","A"],["B","B"],["C","C"],["D","D"]],st.opt,k=>{st.opt=k;reset();render()});
+ document.getElementById("optName").textContent=st.n==="many"?"Today: many stores":"Option "+OPTS[st.opt];
+}
+function visible(a,s){
+ const q=st.filter.toLowerCase().trim();
+ if(q&&!(a.n+" "+a.d+" "+s[0]+" "+s[1]+" "+s[3]).toLowerCase().includes(q))return false;
+ if(st.onlyLeft&&left(s[3])<=0)return false;return true}
+function inp(c,i,store){return `<div class="cell"><span class="lab">${store}</span><input inputmode="numeric" data-c="${c}" data-i="${i}" value="${get(c,i)||""}" placeholder="0" aria-label="${store}"></div>`}
+function render(){
+ head();
+ const many=st.n==="many",n=nStores(),opt=many?"A":st.opt,one=n===1;
+ let cls="row";
+ if(many)cls+=" many";else if(opt==="B")cls+=" b";else if(opt==="C"&&one)cls+=" c1";else if(opt==="C")cls+=" nostock";
+ const showStock=!(opt==="C"&&!one&&!many);
+ const sn=i=>STORES[i][1];
+ let h=`<div class="bar"><button class="btn">Back</button><h1>Allotment - Garmen Nusantara, PT</h1>
+ <input class="search" id="flt" placeholder="Filter by article, tag or division" value="${st.filter}">
+ <label class="tog"><input type="checkbox" id="onl" ${st.onlyLeft?"checked":""}>To be allotted</label>
+ <button class="btn primary" id="submit">Submit all</button></div>`;
+ if(!many&&opt==="C"&&one)h+=`<div class="one"><label class="tog"><input type="checkbox" id="sa" ${st.sendAll?"checked":""}>Send all stock to ${sn(0)}</label><span class="sp"></span><button class="btn" id="clr">Clear</button></div>`;
+ h+=`<div class="msg" id="msg">${st.msg}</div><div class="wrap"><div class="grid" style="--n:${n}">`;
+ // header
+ let hd=`<div class="${cls} head"><div>Article</div>${showStock?'<div>Stock</div>':''}`;
+ if(opt==="C"&&one&&!many)hd+=`<div>Send to ${sn(0)}</div>`;
+ else for(let i=0;i<n;i++)hd+=`<div>${STORES[i][0]}${many?"":" "+sn(i)}</div>`;
+ hd+=`<div>Left</div>${!many&&opt==="B"?'<div></div>':''}</div>`;
+ h+=hd;
+ let any=false;
+ ARTS.forEach(a=>{
+  const rows=a.s.filter(s=>visible(a,s));if(!rows.length)return;any=true;
+  h+=`<div class="div">${a.d}</div><div class="${cls} art"><div><div class="t">${a.n}</div><div class="sub">${a.c}</div></div></div>`;
+  rows.forEach(s=>{
+   const c=s[3];
+   h+=`<div class="${cls}"><div class="sku-l"><span>${s[0]} · ${s[1]}</span><span class="sub">${c}${showStock?'':' · Stock '+s[2]}</span></div>`;
+   if(showStock)h+=`<div class="num stk">${s[2]}</div>`;
+   for(let i=0;i<n;i++)h+=inp(c,i,many?STORES[i][0]:sn(i));
+   h+=`<div class="num fig lft left" data-left="${c}">${left(c)}</div>`;
+   if(!many&&opt==="B"){h+=`<div class="acts"><button class="btn" data-all="${c}">Send all</button>${one?'':`<button class="btn" data-even="${c}">Split evenly</button>`}<button class="btn" data-clr="${c}" style="border:0">Clear</button></div>`}
+   h+=`</div>`;
+  });
+ });
+ if(!any)h+=`<div class="empty">Nothing to show</div>`;
+ if(!many&&opt==="D"){
+  h+=`<div class="${cls} foot"><div>Total</div><div class="num stk" id="ft-stock">${skus.reduce((a,s)=>a+s.stock,0)}</div>`;
+  for(let i=0;i<n;i++)h+=`<div class="num cell fcell"><span class="lab">${sn(i)}</span><span data-foot="${i}">0</span></div>`;
+  h+=`<div class="num lft" id="ft-left">0</div></div>`;
+ }
+ h+=`</div></div>`;
+ const act=document.activeElement&&document.activeElement.id==="flt";
+ document.getElementById("app").innerHTML=h;
+ bind();derive();
+ if(act){const f=document.getElementById("flt");f.focus();f.setSelectionRange(f.value.length,f.value.length)}
+}
+function derive(){
+ document.querySelectorAll("[data-left]").forEach(el=>{const v=left(el.dataset.left);el.textContent=v;el.classList.toggle("zero",v===0)});
+ const n=nStores();
+ document.querySelectorAll("[data-foot]").forEach(el=>{el.textContent=skus.reduce((a,s)=>a+get(s.code,+el.dataset.foot),0)});
+ const fl=document.getElementById("ft-left");if(fl)fl.textContent=skus.reduce((a,s)=>a+left(s.code),0);
+ const sb=document.getElementById("submit");if(sb)sb.disabled=total()===0;
+}
+function bind(){
+ document.querySelectorAll(".cell input").forEach(el=>{
+  el.oninput=()=>{const raw=parseInt(el.value.replace(/\D/g,""),10);const v=set(el.dataset.c,+el.dataset.i,isNaN(raw)?0:raw);
+   el.value=isNaN(raw)?"":String(v);st.msg="";const m=document.getElementById("msg");if(m)m.textContent="";derive()};
+  el.onfocus=()=>el.select();
+ });
+ const $=id=>document.getElementById(id);
+ $("flt").oninput=e=>{st.filter=e.target.value;render()};
+ $("onl").onchange=e=>{st.onlyLeft=e.target.checked;render()};
+ $("submit").onclick=()=>{st.msg=`Submitted ${total()} pieces`;st.q={};if(st.opt==="C"&&st.n===1&&st.sendAll&&false)fillAll();render()};
+ if($("sa"))$("sa").onchange=e=>{st.sendAll=e.target.checked;if(st.sendAll)fillAll();else st.q={};render()};
+ if($("clr"))$("clr").onclick=()=>{st.sendAll=false;st.q={};render()};
+ document.querySelectorAll("[data-all]").forEach(b=>b.onclick=()=>{const c=b.dataset.all;st.q[c]={0:stock(c)};render()});
+ document.querySelectorAll("[data-even]").forEach(b=>b.onclick=()=>{even(b.dataset.even);render()});
+ document.querySelectorAll("[data-clr]").forEach(b=>b.onclick=()=>{st.q[b.dataset.clr]={};render()});
+}
+reset();render();
+</script></body></html>

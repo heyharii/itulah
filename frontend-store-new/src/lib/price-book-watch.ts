@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect, useRef } from "react"
 
-import { catalogueKey, fetchOffers, offersKey } from "@/lib/queries"
+import { catalogueKey, offersQuery } from "@/lib/queries"
 
 /// How often the shell asks the node which price book it holds. The answer is
 /// a handful of rules from the next room, so a minute costs nothing.
@@ -19,8 +19,7 @@ const PRICE_BOOK_POLL_MS = 60_000
 export function usePriceBookWatch(): void {
   const client = useQueryClient()
   const offers = useQuery({
-    queryKey: offersKey(),
-    queryFn: ({ signal }) => fetchOffers(signal),
+    ...offersQuery(),
     refetchInterval: PRICE_BOOK_POLL_MS,
   })
   const version = offers.data?.publication_version ?? null

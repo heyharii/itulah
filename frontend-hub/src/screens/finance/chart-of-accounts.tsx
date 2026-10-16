@@ -3,9 +3,11 @@ import {
   useMutation,
   useQuery,
   useQueryClient,
+  useSuspenseInfiniteQuery,
+  useSuspenseQuery,
 } from "@tanstack/react-query"
 import { ChevronDown, ChevronRight, Plus } from "lucide-react"
-import { useEffect, useRef, useState } from "react"
+import { Suspense, useDeferredValue, useEffect, useRef, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { DockTools } from "@/components/shell/dock-tools"
@@ -13,23 +15,29 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Fab } from "@/components/ui/fab"
 import { Checkbox, Field, Input, Select, Textarea } from "@/components/ui/field"
+import { ExpandingSearch } from "@/components/ui/list-chrome"
 import { KeyValue } from "@/components/ui/rows"
 import { PageHeader } from "@/components/ui/page-header"
 import { Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import { EmptyState, LoadMore, Problem } from "@/components/ui/states"
+import {
+  EmptyState,
+  LoadMore,
+  LoadingState,
+  Problem,
+} from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { Tag } from "@/components/ui/tag"
 import { label, moment, money } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import {
-  accountBalances,
-  accountChildren,
+  accountBalancesQuery,
+  accountChildrenQuery,
   accountDetail,
+  accountSearchPagesQuery,
   changeChart,
   chartChanges,
   financeKeys,
-  searchAccounts,
 } from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
@@ -70,10 +78,6 @@ import type {
 /// balance still leans on. Its sentence is shown as it is written. Every
 /// change is kept with the account before and after, who, and why — the
 /// History tab.
-/// How many matches one page of a chart search asks for. A step, not a
-/// ceiling: the card asks for the next page as its last rows scroll into view.
-const SEARCH_PAGE = 100
-
 export function ChartOfAccounts() {
   const phone = useLayout() === "phone"
   const [filtering, setFiltering] = useState(false)
@@ -93,42 +97,29 @@ export function ChartOfAccounts() {
   const trimmed = needle.trim()
   const searching = trimmed.length >= 2
 
-  // A page at a time, read on as the card scrolls. `101` matches 1,248
-  // accounts in this client's chart; this used to stop at the server's 500
-  // and ask somebody to narrow the search to see the rest.
-  const results = useInfiniteQuery({
-    queryKey: [...financeKeys.accountSearch(trimmed, inactive), "pages"],
-    queryFn: ({ pageParam, signal }) =>
-      searchAccounts(
-        trimmed,
-        { inactive, limit: SEARCH_PAGE, cursor: pageParam },
-        signal
-      ),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) => last.next_cursor ?? undefined,
-    enabled: searching,
-    staleTime: 60_000,
-  })
+  // The search, the unit and "Show inactive" answer at once; the tree and the
+  // matches trail them, and the ones in hand stay (dimmed, `list-swap`) until
+  // the next are read.
+  const askedTrimmed = useDeferredValue(trimmed)
+  const askedUnit = useDeferredValue(unit)
+  const askedInactive = useDeferredValue(inactive)
+  const stale =
+    askedTrimmed !== trimmed || askedUnit !== unit || askedInactive !== inactive
 
   return (
     <PageContent>
       <PageHeader
         crumb="Finance · Accounting Masters"
         title="Chart of Accounts"
-        // Search, the filters and the new account are in the dock on a phone.
+        // The one action stands in the head; the search is the bar's, under
+        // the tabs. On a phone the search, the filters and the new account are
+        // in the dock.
         actions={
           phone ? undefined : (
-            <>
-              <Input
-                value={needle}
-                onChange={(event) => setNeedle(event.target.value)}
-                className="h-control w-64"
-              />
-              <Button variant="primary" onClick={() => setCreating(true)}>
-                <Plus />
-                New account
-              </Button>
-            </>
+            <Button variant="primary" onClick={() => setCreating(true)}>
+              <Plus />
+              New account
+            </Button>
           )
         }
       />
@@ -200,7 +191,12 @@ export function ChartOfAccounts() {
       ) : (
         <>
           {!phone && (
-            <Toolbar>
+            <Toolbar className="group/bar">
+              <ExpandingSearch
+                value={needle}
+                onChange={setNeedle}
+                label="Search accounts"
+              />
               {/* Not a segmented control: "Active / Including inactive" spent two
             pills announcing that the default is the default, and the second
             label is the first plus something. A checkbox says "and also show
@@ -238,7 +234,7 @@ export function ChartOfAccounts() {
               <Toolbar.Spacer />
               {/* What is on screen, in words — every toolbar in this module
             answers "what am I looking at". */}
-              <span className="text-[0.875rem] text-mute">
+              <span className="text-[0.9375rem] text-mute">
                 {searching
                   ? `Matching “${trimmed}”`
                   : "Balances as of today, headings summed"}
@@ -247,7 +243,10 @@ export function ChartOfAccounts() {
             </Toolbar>
           )}
 
-          <Card className="max-h-[calc(100dvh-16rem)] overflow-auto max-md:max-h-none max-md:overflow-visible">
+          <Card
+            aria-busy={stale || undefined}
+            className="list-swap max-h-[calc(100dvh-16rem)] overflow-auto max-md:max-h-none max-md:overflow-visible"
+          >
             {/* The heading row every table in the app has, so the figures on
             the right are named. */}
             <div className="sticky top-0 z-10 flex h-10 items-center border-b border-hairline bg-soft px-3.5 text-eyebrow font-medium text-body">
@@ -255,33 +254,16 @@ export function ChartOfAccounts() {
               {!searching && <span>Balance</span>}
             </div>
             {searching ? (
-              queryState(results, {
-                loading: "Searching the chart…",
-                render: (data) => {
-                  const rows = data.pages.flatMap((page) => page.rows)
-                  return rows.length === 0 ? (
-                    <EmptyState>
-                      No account matches “{trimmed}”. Codes are matched from the
-                      start, so a fragment from the middle of one will not find
-                      it.
-                    </EmptyState>
-                  ) : (
-                    <div>
-                      {rows.map((row) => (
-                        <AccountRow
-                          key={`${row.account_code}-${row.site_id ?? ""}`}
-                          account={row}
-                          level={0}
-                          selected={row.account_code === account.value}
-                          onOpen={() => account.open(row.account_code)}
-                        />
-                      ))}
-                      {/* Inside the card, which is the box that scrolls. */}
-                      <LoadMore query={results} />
-                    </div>
-                  )
-                },
-              })
+              <Suspense
+                fallback={<LoadingState>Searching the chart…</LoadingState>}
+              >
+                <SearchResults
+                  needle={askedTrimmed}
+                  inactive={askedInactive}
+                  openCode={account.value}
+                  onOpen={(code) => account.open(code)}
+                />
+              </Suspense>
             ) : (
               <Branch
                 // A collapse remounts the tree, so every branch forgets what
@@ -289,8 +271,8 @@ export function ChartOfAccounts() {
                 key={sweep.mode === "close" ? sweep.epoch : "open"}
                 parent={null}
                 level={0}
-                unit={unit}
-                inactive={inactive}
+                unit={askedUnit}
+                inactive={askedInactive}
                 openCode={account.value}
                 onOpen={(code) => account.open(code)}
                 sweep={sweep}
@@ -313,6 +295,46 @@ export function ChartOfAccounts() {
   )
 }
 
+/// The matches of a search, a page at a time, read on as the card scrolls.
+/// `101` matches 1,248 accounts in this client's chart; this used to stop at
+/// the server's 500 and ask somebody to narrow the search to see the rest.
+function SearchResults({
+  needle,
+  inactive,
+  openCode,
+  onOpen,
+}: {
+  needle: string
+  inactive: boolean
+  openCode: string | undefined
+  onOpen: (code: string) => void
+}) {
+  const results = useSuspenseInfiniteQuery(
+    accountSearchPagesQuery(needle, inactive)
+  )
+  const rows = results.data.pages.flatMap((page) => page.rows)
+  return rows.length === 0 ? (
+    <EmptyState>
+      No account matches “{needle}”. Codes are matched from the start, so a
+      fragment from the middle of one will not find it.
+    </EmptyState>
+  ) : (
+    <div>
+      {rows.map((row) => (
+        <AccountRow
+          key={`${row.account_code}-${row.site_id ?? ""}`}
+          account={row}
+          level={0}
+          selected={row.account_code === openCode}
+          onOpen={() => onOpen(row.account_code)}
+        />
+      ))}
+      {/* Inside the card, which is the box that scrolls. */}
+      <LoadMore query={results} />
+    </div>
+  )
+}
+
 /// One rung of the ladder. Its own query, so it can be opened and closed
 /// without the branch above it refetching.
 interface Sweep {
@@ -320,15 +342,7 @@ interface Sweep {
   readonly epoch: number
 }
 
-function Branch({
-  parent,
-  level,
-  unit,
-  inactive,
-  openCode,
-  onOpen,
-  sweep,
-}: {
+interface BranchProps {
   parent: string | null
   level: number
   unit: string
@@ -336,44 +350,41 @@ function Branch({
   openCode: string | undefined
   onOpen: (code: string) => void
   sweep: Sweep
-}) {
+}
+
+/// A branch reads its own level inside its own boundary, so the head and the
+/// toolbar stand — and an opened heading shows its line while its children
+/// come — rather than the whole chart waiting for one branch.
+function Branch(props: BranchProps) {
+  return (
+    <Suspense fallback={<LoadingState>Loading the chart…</LoadingState>}>
+      <BranchRows {...props} />
+    </Suspense>
+  )
+}
+
+function BranchRows({
+  parent,
+  level,
+  unit,
+  inactive,
+  openCode,
+  onOpen,
+  sweep,
+}: BranchProps) {
   const [expanded, setExpanded] = useState<readonly string[]>([])
   const swept = useRef(-1)
 
-  const children = useQuery({
-    queryKey: financeKeys.accountChildren(parent, inactive),
-    // A branch is safely whole: no heading in this client's chart has more
-    // than 36 children, against a page of 200. The envelope's `total` would
-    // say otherwise if that ever changed.
-    queryFn: ({ signal }) =>
-      accountChildren({ parent: parent ?? undefined, inactive }, signal).then(
-        (page) => page.rows
-      ),
-    // The chart is imported once and then sits for months; a branch reopened
-    // twice in a session should not ask twice.
-    staleTime: 10 * 60 * 1000,
-  })
+  const children = useSuspenseQuery(accountChildrenQuery(parent, inactive))
 
   // Beside the rows rather than inside them: the chart sits for months, the
   // balances move with every posting, so they are read on their own clock.
-  const balances = useQuery({
-    queryKey: financeKeys.accountBalances(parent, unit || null),
-    queryFn: ({ signal }) =>
-      accountBalances(
-        { parent: parent ?? undefined, unit: unit || undefined },
-        signal
-      ).then(
-        (rows) =>
-          new Map(rows.map((row) => [row.account_code, row.balance_minor]))
-      ),
-    staleTime: 30_000,
-  })
+  const balances = useSuspenseQuery(accountBalancesQuery(parent, unit || null))
 
   // Once per sweep, as soon as this level is known: open every row that has
   // children. Their own branches mount, read their level, and do the same.
   useEffect(() => {
     if (sweep.mode !== "open" || swept.current === sweep.epoch) return
-    if (children.data === undefined) return
     swept.current = sweep.epoch
     setExpanded(
       children.data
@@ -383,10 +394,9 @@ function Branch({
   }, [sweep, children.data])
 
   return queryState(children, {
-    loading: "Loading the chart…",
     render: (accounts) =>
       accounts.length === 0 ? (
-        <p className="px-4 py-3 text-[0.875rem] text-mute">
+        <p className="px-4 py-3 text-[0.9375rem] text-mute">
           Nothing hangs under this heading.
         </p>
       ) : (
@@ -398,11 +408,7 @@ function Branch({
                 <AccountRow
                   account={row}
                   level={level}
-                  balance={
-                    balances.data === undefined
-                      ? undefined
-                      : (balances.data.get(row.account_code) ?? 0)
-                  }
+                  balance={balances.data[row.account_code] ?? 0}
                   selected={row.account_code === openCode}
                   expanded={isOpen}
                   onToggle={
@@ -486,7 +492,7 @@ function AccountRow({
       >
         {/* On a phone the name stands over its code, and wraps. */}
         <span className="flex min-w-0 flex-1 items-center gap-2.5 max-md:flex-col-reverse max-md:items-start max-md:gap-0.5">
-          <span className="w-16 shrink-0 font-mono text-[0.875rem] text-mute max-md:w-auto">
+          <span className="w-16 shrink-0 font-mono text-[0.9375rem] text-mute max-md:w-auto">
             {account.account_code}
           </span>
           <span
@@ -504,13 +510,13 @@ function AccountRow({
             in mono, which is the one thing an account row has no room to
             explain. */}
         {account.counterparty_site_id && (
-          <span className="shrink-0 text-[0.875rem] text-mute">
+          <span className="shrink-0 text-[0.9375rem] text-mute">
             <SiteName id={account.counterparty_site_id} /> →{" "}
             <SiteName id={account.site_id} />
           </span>
         )}
         {!account.counterparty_site_id && account.site_id && (
-          <span className="shrink-0 text-[0.875rem] text-mute">
+          <span className="shrink-0 text-[0.9375rem] text-mute">
             <SiteName id={account.site_id} />
           </span>
         )}
@@ -530,7 +536,7 @@ function AccountRow({
             ) : (
               <>
                 {money(Math.abs(balance))}
-                <span className="ml-1.5 inline-block w-5 text-left text-[0.875rem] font-normal text-mute">
+                <span className="ml-1.5 inline-block w-5 text-left text-[0.9375rem] font-normal text-mute">
                   {balance > 0 ? "Dr" : "Cr"}
                 </span>
               </>
@@ -611,7 +617,7 @@ function AccountSheet({
             )}
             {/* The headings above it, outermost first. This is what makes a
                 twelve-digit code readable. */}
-            <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[0.875rem] text-body">
+            <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[0.9375rem] text-body">
               {path.map((step) => (
                 <span
                   key={step.account_code}
@@ -677,7 +683,7 @@ function AccountSheet({
             </div>
 
             {account.counterparty_site_id && (
-              <p className="text-[0.875rem] text-body">
+              <p className="text-[0.9375rem] text-body">
                 A goods-in-transit account: the code names a route rather than a
                 place, and the goods came from{" "}
                 <SiteName
@@ -823,7 +829,7 @@ function HeadingPicker({
 }) {
   if (value !== null) {
     return (
-      <div className="flex items-center gap-2 rounded-inner border border-hairline px-3 py-2 text-[0.875rem]">
+      <div className="flex items-center gap-2 rounded-inner border border-hairline px-3 py-2 text-[0.9375rem]">
         <Tag>{value.code}</Tag>
         <span className="min-w-0 flex-1 truncate text-ink">{value.name}</span>
         <Button size="sm" variant="quiet" onClick={() => onChange(null)}>
@@ -985,7 +991,7 @@ function NewAccountSheet({
           />
         </Field>
         <div className="flex items-center justify-end gap-2.5">
-          <span className="min-w-0 flex-1 text-[0.875rem] text-mute">
+          <span className="min-w-0 flex-1 text-[0.9375rem] text-mute">
             {missing ?? `${code.trim()} will sit under ${parent?.code}.`}
           </span>
           <Button
@@ -1131,7 +1137,7 @@ function EditAccount({
         />
       </Field>
       <div className="flex justify-end gap-2">
-        <Button variant="quiet" onClick={onDone}>
+        <Button data-cancel variant="quiet" onClick={onDone}>
           Cancel
         </Button>
         <Button
@@ -1179,7 +1185,7 @@ function RetireOrRevive({
       <h4 className="text-card-title font-semibold text-ink">
         {retiring ? "Deactivate" : "Reactivate"} {account.account_code}
       </h4>
-      <p className="text-[0.875rem] text-body">
+      <p className="text-[0.9375rem] text-body">
         {retiring
           ? "Nothing new can be posted to an inactive account. Its history stays, and it can be reactivated."
           : "The account takes postings again from now on."}
@@ -1193,7 +1199,7 @@ function RetireOrRevive({
         />
       </Field>
       <div className="flex justify-end gap-2">
-        <Button variant="quiet" onClick={onDone}>
+        <Button data-cancel variant="quiet" onClick={onDone}>
           Cancel
         </Button>
         <Button
@@ -1254,7 +1260,7 @@ function ChangeLine({
 }) {
   const fields = changedFields(change)
   return (
-    <div className="flex flex-col gap-1 border-b border-hairline px-4 py-2.5 text-[0.875rem] last:border-b-0">
+    <div className="flex flex-col gap-1 border-b border-hairline px-4 py-2.5 text-[0.9375rem] last:border-b-0">
       <div className="flex flex-wrap items-center gap-2">
         {onOpen ? (
           <button type="button" onClick={() => onOpen(change.account_code)}>

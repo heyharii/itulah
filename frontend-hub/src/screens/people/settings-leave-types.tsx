@@ -1,20 +1,33 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query"
+import type { ColumnDef } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
+import { useMemo, useState, Suspense } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { useLayout } from "@/lib/layout"
 import { Fab } from "@/components/ui/fab"
 import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
+import { DataTable } from "@/components/ui/data-table"
 import { Day } from "@/components/ui/day"
 import { Field, Input, Select } from "@/components/ui/field"
 import { Toggle } from "@/components/ui/form"
 import { PageHeader } from "@/components/ui/page-header"
 import { PickOne } from "@/components/ui/pick"
 import { Pill } from "@/components/ui/pill"
-import { KeyValue, MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
+import { KeyValue } from "@/components/ui/rows"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import { Banner, EmptyState, Problem } from "@/components/ui/states"
+import {
+  Banner,
+  EmptyState,
+  Problem,
+  LoadingState,
+} from "@/components/ui/states"
 import { day } from "@/lib/format"
 import {
   backingLabel,
@@ -24,23 +37,191 @@ import {
   leaveExtraKeys,
   leaveKeys,
   liftLeaveBlock,
-  listLeaveTypes,
   readDays,
   installLeavePolicy,
   readLeavePolicy,
   useReachableUnits,
   type NewLeaveType,
+  leaveTypesQuery,
 } from "@/lib/queries/people"
 import { queryState } from "@/lib/query-state"
 import { useCanWrite } from "@/lib/session"
-import {
-  CardFoot,
-  ListCard,
-  RowOpen,
-  SheetFooter,
-} from "@/screens/people/settings-kit"
+import { CardName } from "@/components/ui/phone-cards"
+import { tableSetup, type TableSetup } from "@/lib/table"
+import { CardFoot, SheetFooter } from "@/screens/people/settings-kit"
 import { useOpener } from "@/screens/people/settings-lib"
-import type { LeaveBlackoutView, LeavePolicyView } from "@itulah/contract"
+import type {
+  LeaveBlackoutView,
+  LeavePolicyView,
+  LeaveTypeView,
+} from "@itulah/contract"
+
+const NO_BLOCKS: LeaveBlackoutView[] = []
+
+const drawsOn = (kind: LeaveTypeView) =>
+  `${backingLabel(kind.backing)}${
+    kind.max_centidays !== null ? ` · ${readDays(kind.max_centidays)}` : ""
+  }`
+
+const kindColumns: ColumnDef<TableSetup, LeaveTypeView>[] = [
+  {
+    accessorKey: "code",
+    header: "Code",
+    size: 180,
+    meta: { mono: true, card: "hide" },
+    cell: ({ row }) => (
+      <span className="font-mono text-id text-body">{row.original.code}</span>
+    ),
+  },
+  {
+    accessorKey: "name",
+    header: "Name",
+    size: 260,
+    meta: { card: "hide" },
+    cell: ({ row }) => <span className="text-ink">{row.original.name}</span>,
+  },
+  {
+    id: "draws",
+    accessorFn: (row) => backingLabel(row.backing),
+    header: "Draws on",
+    size: 300,
+    meta: { card: "hide" },
+    cell: ({ row }) => (
+      <Pill tone={row.original.draws_on_balance ? "info" : "neutral"}>
+        {drawsOn(row.original)}
+      </Pill>
+    ),
+  },
+  {
+    id: "paid",
+    accessorFn: (row) => paymentLabel(row.payment),
+    header: "Paid",
+    size: 220,
+    meta: { card: "hide" },
+  },
+  {
+    accessorKey: "requires_evidence",
+    header: "",
+    size: 180,
+    enableSorting: false,
+    meta: { card: "hide" },
+    cell: ({ row }) =>
+      row.original.requires_evidence && <Pill tone="warn">Needs evidence</Pill>,
+  },
+  // Two columns that exist only on a card (`cardLead`; a phone): the name over
+  // its code and how it is paid, and under it what it draws on and whether it
+  // needs evidence.
+  {
+    id: "head",
+    accessorFn: (row) => row.name,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "title" },
+    cell: ({ row }) => (
+      <CardName
+        name={row.original.name}
+        code={row.original.code}
+        line={paymentLabel(row.original.payment)}
+      />
+    ),
+  },
+  {
+    id: "foot",
+    accessorFn: (row) => row.backing,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "foot" },
+    cell: ({ row }) => (
+      <span className="flex flex-col items-start gap-1">
+        <Pill tone={row.original.draws_on_balance ? "info" : "neutral"}>
+          {drawsOn(row.original)}
+        </Pill>
+        {row.original.requires_evidence && (
+          <Pill tone="warn">Needs evidence</Pill>
+        )}
+      </span>
+    ),
+  },
+]
+
+const spanOf = (row: LeaveBlackoutView) =>
+  `${day(row.from_date)} – ${day(row.to_date)}`
+
+function blockColumns(
+  named: ReadonlyMap<string, string>
+): ColumnDef<TableSetup, LeaveBlackoutView>[] {
+  const where = (row: LeaveBlackoutView) =>
+    row.unit_id === null
+      ? "Every unit"
+      : (named.get(row.unit_id) ?? row.unit_id)
+  const state = (row: LeaveBlackoutView) =>
+    row.lifted ? (
+      <Pill tone="neutral">Lifted</Pill>
+    ) : (
+      <Pill tone="warn">Closed</Pill>
+    )
+  return [
+    {
+      id: "dates",
+      accessorFn: (row) => row.from_date,
+      header: "Dates",
+      size: 300,
+      meta: { card: "hide" },
+      cell: ({ row }) => spanOf(row.original),
+    },
+    {
+      id: "where",
+      accessorFn: (row) => where(row),
+      header: "Where",
+      size: 200,
+      meta: { card: "hide" },
+    },
+    {
+      accessorKey: "reason",
+      header: "Why",
+      size: 300,
+      meta: { card: "hide" },
+      cell: ({ row }) => (
+        <span className="block whitespace-normal">{row.original.reason}</span>
+      ),
+    },
+    {
+      id: "state",
+      accessorFn: (row) => row.lifted,
+      header: "State",
+      size: 140,
+      meta: { card: "hide" },
+      cell: ({ row }) => state(row.original),
+    },
+    // Two columns that exist only on a card (`cardLead`; a phone): the span
+    // over where and why, and whether it still holds.
+    {
+      id: "head",
+      accessorFn: (row) => row.from_date,
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "title" },
+      cell: ({ row }) => (
+        <CardName
+          name={spanOf(row.original)}
+          line={[where(row.original), row.original.reason]}
+        />
+      ),
+    },
+    {
+      id: "foot",
+      accessorFn: (row) => row.lifted,
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "foot" },
+      cell: ({ row }) => state(row.original),
+    },
+  ]
+}
 
 /// Settings › Leave types — what kinds of leave exist, what each draws on, and
 /// the dates head office has closed to leave.
@@ -53,10 +234,6 @@ import type { LeaveBlackoutView, LeavePolicyView } from "@itulah/contract"
 export function LeaveTypeSettings() {
   const canWrite = useCanWrite()
   const phone = useLayout() === "phone"
-  const kinds = useQuery({
-    queryKey: leaveKeys.types(),
-    queryFn: ({ signal }) => listLeaveTypes(signal),
-  })
   const policy = useQuery({
     queryKey: leaveKeys.policy(),
     queryFn: ({ signal }) => readLeavePolicy(signal),
@@ -66,7 +243,10 @@ export function LeaveTypeSettings() {
     queryFn: ({ signal }) => leaveBlackouts(signal),
   })
   const units = useReachableUnits()
-  const named = new Map((units.data ?? []).map((one) => [one.id, one.name]))
+  const named = useMemo(
+    () => new Map((units.data ?? []).map((one) => [one.id, one.name])),
+    [units.data]
+  )
 
   const generations = policy.data ?? []
   const inForce = generations.at(-1) ?? null
@@ -75,6 +255,22 @@ export function LeaveTypeSettings() {
   const closing = useOpener()
   const newPolicy = useOpener()
   const block = useOpener<LeaveBlackoutView>()
+
+  const blockRows = blocks.data ?? NO_BLOCKS
+  const blockCols = useMemo(() => blockColumns(named), [named])
+  const blockTable = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: blockRows,
+        columns: blockCols,
+        getRowId: (row: LeaveBlackoutView) => row.id,
+        // The card's own columns are drawn on a phone and never on a desk.
+        state: { columnVisibility: { head: phone, foot: phone } },
+      }),
+      [blockRows, blockCols, phone]
+    )
+  )
 
   return (
     <PageContent>
@@ -113,52 +309,22 @@ export function LeaveTypeSettings() {
         </div>
       )}
 
-      <ListCard title="Kinds of leave">
-        {queryState(kinds, {
-          loading: "Reading the vocabulary…",
-          render: (rows) =>
-            rows.length === 0 ? (
-              <EmptyState>
-                No kinds of leave are defined, so nobody can ask for any. Add
-                the first with New type.
-              </EmptyState>
-            ) : (
-              <MiniTable head={["Code", "Name", "Draws on", "Paid", ""]}>
-                {rows.map((kind) => (
-                  <MiniRow key={kind.code}>
-                    <MiniCell>
-                      <span className="font-mono text-id text-body">
-                        {kind.code}
-                      </span>
-                    </MiniCell>
-                    <MiniCell>
-                      <span className="text-ink">{kind.name}</span>
-                    </MiniCell>
-                    <MiniCell>
-                      <Pill tone={kind.draws_on_balance ? "info" : "neutral"}>
-                        {backingLabel(kind.backing)}
-                        {kind.max_centidays !== null &&
-                          ` · ${readDays(kind.max_centidays)}`}
-                      </Pill>
-                    </MiniCell>
-                    <MiniCell>{paymentLabel(kind.payment)}</MiniCell>
-                    <MiniCell>
-                      {kind.requires_evidence && (
-                        <Pill tone="warn">Needs evidence</Pill>
-                      )}
-                    </MiniCell>
-                  </MiniRow>
-                ))}
-              </MiniTable>
-            ),
-        })}
-      </ListCard>
+      <Card className="mb-4 overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+        <CardHeader>
+          <CardTitle>Kinds of leave</CardTitle>
+        </CardHeader>
+        <Suspense
+          fallback={<LoadingState>Reading the vocabulary…</LoadingState>}
+        >
+          <KindsTable />
+        </Suspense>
+      </Card>
 
       {inForce !== null && (
         <Card className="mb-4 overflow-hidden">
           <CardHeader>
             <CardTitle>Balance policy in force</CardTitle>
-            <span className="text-[0.875rem] text-mute">
+            <span className="text-[0.9375rem] text-mute">
               since {day(inForce.effective_from)}
             </span>
           </CardHeader>
@@ -205,14 +371,10 @@ export function LeaveTypeSettings() {
         </Card>
       )}
 
-      <ListCard
-        title="Dates closed to leave"
-        foot={
-          canWrite ? (
-            <CardFoot label="Close dates" onClick={() => closing.show()} />
-          ) : undefined
-        }
-      >
+      <Card className="mb-4 overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+        <CardHeader>
+          <CardTitle>Dates closed to leave</CardTitle>
+        </CardHeader>
         {queryState(blocks, {
           loading: "Reading the closed dates…",
           render: (rows) =>
@@ -222,33 +384,21 @@ export function LeaveTypeSettings() {
                 Close dates so nobody can take leave on them.
               </EmptyState>
             ) : (
-              <MiniTable head={["Dates", "Where", "Why", "State"]}>
-                {rows.map((row) => (
-                  <MiniRow key={row.id}>
-                    <MiniCell>
-                      <RowOpen onClick={() => block.show(row)}>
-                        {day(row.from_date)} – {day(row.to_date)}
-                      </RowOpen>
-                    </MiniCell>
-                    <MiniCell>
-                      {row.unit_id === null
-                        ? "Every unit"
-                        : (named.get(row.unit_id) ?? row.unit_id)}
-                    </MiniCell>
-                    <MiniCell>{row.reason}</MiniCell>
-                    <MiniCell>
-                      {row.lifted ? (
-                        <Pill tone="neutral">Lifted</Pill>
-                      ) : (
-                        <Pill tone="warn">Closed</Pill>
-                      )}
-                    </MiniCell>
-                  </MiniRow>
-                ))}
-              </MiniTable>
+              <DataTable<LeaveBlackoutView>
+                refresh={[blocks]}
+                table={blockTable}
+                onRowClick={(row) => block.show(row)}
+                isSelected={(row) => block.isOpen && row.id === block.item?.id}
+                cardsApart
+                cardLead
+                cardSort={false}
+              />
             ),
         })}
-      </ListCard>
+        {canWrite && (
+          <CardFoot label="Close dates" onClick={() => closing.show()} />
+        )}
+      </Card>
 
       <NewTypeSheet
         key={`type-${newType.n}`}
@@ -279,6 +429,41 @@ export function LeaveTypeSettings() {
         canWrite={canWrite}
       />
     </PageContent>
+  )
+}
+
+/// The kinds, as a table. Here and not in the screen so the head paints at
+/// once and this waits alone for its answer.
+function KindsTable() {
+  const kinds = useSuspenseQuery(leaveTypesQuery())
+  const phone = useLayout() === "phone"
+  const kindRows = kinds.data
+  const kindTable = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: kindRows,
+        columns: kindColumns,
+        getRowId: (row: LeaveTypeView) => row.code,
+        // The card's own columns are drawn on a phone and never on a desk.
+        state: { columnVisibility: { head: phone, foot: phone } },
+      }),
+      [kindRows, phone]
+    )
+  )
+  return kindRows.length === 0 ? (
+    <EmptyState>
+      No kinds of leave are defined, so nobody can ask for any. Add the first
+      with New type.
+    </EmptyState>
+  ) : (
+    <DataTable<LeaveTypeView>
+      refresh={[kinds]}
+      table={kindTable}
+      cardsApart
+      cardLead
+      cardSort={false}
+    />
   )
 }
 
@@ -493,7 +678,7 @@ function CloseDatesSheet({
     >
       <div className="flex flex-col gap-3.5">
         <Problem error={save.error} />
-        <p className="text-[0.875rem] text-body">
+        <p className="text-[0.9375rem] text-body">
           A request that would charge a closed date is refused when it is filed.
         </p>
         <div className="grid grid-cols-2 gap-3">

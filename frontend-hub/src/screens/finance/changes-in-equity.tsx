@@ -1,24 +1,28 @@
-import { useQuery } from "@tanstack/react-query"
-import { useState } from "react"
+import { useSuspenseQueries } from "@tanstack/react-query"
+import { Suspense, useDeferredValue, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { ExportButton } from "@/components/ui/export-button"
 import { PageHeader } from "@/components/ui/page-header"
-import { Banner, EmptyState, ErrorState } from "@/components/ui/states"
+import { Banner, EmptyState } from "@/components/ui/states"
 import { monthStamp, type ExportSheet } from "@/lib/export-xlsx"
 import { day, money } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
-import { financeKeys, statement } from "@/lib/queries/finance"
+import {
+  balanceStatementQuery,
+  resultStatementQuery,
+} from "@/lib/queries/finance"
 import { Code, Grid, Td, Th, TotalRow } from "@/screens/finance-final/parts"
 import {
   asPresented,
-  isoDay,
+  dayBefore,
   ladderLevel,
   periodResult,
-  todayIso,
+  yearToDate,
 } from "@/screens/finance/chart"
 import { useUnitName, type DateWindow } from "@/screens/finance/hooks"
 import { UnitName, UnitSelect, WindowControl } from "@/screens/finance/parts"
+import { ScreenPending } from "@/screens/finance/pending"
 import {
   PhoneStatement,
   type StatementLine,
@@ -51,9 +55,27 @@ import type { Statement } from "@itulah/contract"
 /// The profit and loss leaves a closing voucher's entry out (the balance sheet
 /// keeps it), so a window holding the year-end still reports the year's profit.
 export function ChangesInEquity() {
+  return (
+    <Suspense
+      fallback={
+        <ScreenPending
+          crumb="Finance · Financial Reports"
+          title="Statement of Changes in Equity"
+        >
+          Reading equity at both ends of the window…
+        </ScreenPending>
+      }
+    >
+      <ChangesInEquityScreen />
+    </Suspense>
+  )
+}
+
+function ChangesInEquityScreen() {
   const phone = useLayout() === "phone"
-  const [from, setFrom] = useState(() => `${new Date().getFullYear()}-01-01`)
-  const [to, setTo] = useState(todayIso)
+  const [opened] = useState(() => yearToDate())
+  const [from, setFrom] = useState(opened.from)
+  const [to, setTo] = useState(opened.to)
   const [unit, setUnit] = useState("")
   const unitName = useUnitName()
 
@@ -67,30 +89,26 @@ export function ChangesInEquity() {
   const valid = from !== "" && to !== "" && from <= to
   const opening = valid ? dayBefore(from) : ""
 
-  const reading = (at: string) => ({
-    queryKey: financeKeys.statement("BALANCE_SHEET", null, at, unit || null),
-    // No `from`: a balance sheet is cumulative, and the server drops it.
-    queryFn: ({ signal }: { signal: AbortSignal }) =>
-      statement("BALANCE_SHEET", { to: at, unit: unit || undefined }, signal),
-    enabled: valid,
+  // A window that does not make sense asks for nothing new: the reads stay on
+  // the window the page opened on, which is already held. The boxes answer at
+  // once; the statements trail them, and the figures in hand stay on screen
+  // (dimmed) until the next are read.
+  const askedFrom = useDeferredValue(valid ? from : opened.from)
+  const askedTo = useDeferredValue(valid ? to : opened.to)
+  const askedUnit = useDeferredValue(unit) || null
+  const [before, after, result] = useSuspenseQueries({
+    queries: [
+      balanceStatementQuery(dayBefore(askedFrom), askedUnit),
+      balanceStatementQuery(askedTo, askedUnit),
+      resultStatementQuery(askedFrom, askedTo, askedUnit),
+    ],
   })
-  const before = useQuery(reading(opening))
-  const after = useQuery(reading(to))
-  const result = useQuery({
-    queryKey: financeKeys.statement("PROFIT_LOSS", from, to, unit || null),
-    queryFn: ({ signal }) =>
-      statement("PROFIT_LOSS", { from, to, unit: unit || undefined }, signal),
-    enabled: valid,
-  })
+  const stale =
+    askedFrom !== (valid ? from : opened.from) ||
+    askedTo !== (valid ? to : opened.to) ||
+    askedUnit !== (unit || null)
 
-  const pending =
-    valid && (before.isPending || after.isPending || result.isPending)
-  const failed = before.isError || after.isError || result.isError
-
-  const table =
-    pending || failed || !valid
-      ? null
-      : build(before.data, after.data, result.data)
+  const table = valid ? build(before.data, after.data, result.data) : null
 
   const exportSheet = (): ExportSheet | null => {
     if (table === null) return null
@@ -175,14 +193,10 @@ export function ChangesInEquity() {
         <EmptyState>
           Choose a From date that is on or before the To date.
         </EmptyState>
-      ) : pending ? (
-        <p className="py-10 text-center text-[0.875rem] text-mute">
-          Reading equity at both ends of the window…
-        </p>
-      ) : failed || table === null ? (
-        <ErrorState error={before.error ?? after.error ?? result.error} />
-      ) : (
-        <Body table={table} opening={opening} to={to} />
+      ) : table === null ? null : (
+        <div className="list-swap" aria-busy={stale || undefined}>
+          <Body table={table} opening={opening} to={to} />
+        </div>
       )}
     </PageContent>
   )
@@ -236,11 +250,6 @@ function Body({
       ) : phone ? (
         <>
           <PhoneStatement lines={phoneLines(table)} />
-          <p className="mt-3 text-[0.875rem] text-mute">
-            Profit is earned in the window and sits on its own row until a
-            Period Closing Voucher moves it into Retained Earnings; that move
-            appears under Other movements on both rows and cancels in the total.
-          </p>
         </>
       ) : (
         <>
@@ -291,11 +300,6 @@ function Body({
               </TotalRow>
             </tbody>
           </Grid>
-          <p className="mt-3 text-[0.875rem] text-mute">
-            Profit is earned in the window and sits on its own row until a
-            Period Closing Voucher moves it into Retained Earnings; that move
-            appears under Other movements on both rows and cancels in the total.
-          </p>
         </>
       )}
     </>
@@ -485,12 +489,4 @@ function build(
       ...(end.leaves !== end.equity ? [after.to] : []),
     ],
   }
-}
-
-/// The day before an ISO day, in the reader's own calendar — `isoDay` and not
-/// `toISOString`, which is UTC and names yesterday for the first seven hours
-/// of a Jakarta day.
-function dayBefore(iso: string): string {
-  const [year, month, date] = iso.split("-").map(Number)
-  return isoDay(new Date(year, month - 1, date - 1))
 }

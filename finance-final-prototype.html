@@ -1,0 +1,828 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Finance Final</title>
+<style>
+@font-face{font-family:Inter;src:url('/frontend-hub/node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2') format('woff2');font-weight:100 900;font-display:swap}
+/* the hub shell: All white + Fog, Ink text */
+:root{--ink:#1d1d1f;--mute:#6e6e73;--line:#ececf0;--hair:#f3f3f6;--blue:#2563eb;--blue-ink:#1e50b3;--blue-soft:#eef3fd;--red:#d70015;--amber:#b25000;--green:#1f8a3b;
+ --stone:#e8ebf0;--panel:#f4f6f9;--hover:rgb(0 0 0 / 5%);--edge:rgb(0 0 0 / 5%);
+ --ring:0 0 0 1px rgb(0 0 0 / 5%),0 2px 8px rgb(0 0 0 / 4%),0 24px 72px rgb(0 0 0 / 8%);
+ --ease:cubic-bezier(.23,1,.32,1);--drawer:cubic-bezier(.32,.72,0,1)}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;font:15px/1.45 Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:var(--ink);background:var(--stone);-webkit-font-smoothing:antialiased;overflow:hidden}
+svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+button,select,input{font:inherit;color:inherit}
+button{border:0;background:none;cursor:pointer;text-align:left;padding:0}
+.num,.t td.r,.t th.r{font-variant-numeric:tabular-nums}
+.mute{color:var(--mute)}.warn{color:var(--amber)}.bad{color:var(--red)}.ok{color:var(--green)}
+.dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:currentColor;margin-right:7px;vertical-align:2px}
+
+.shell{display:flex;height:100vh;height:100dvh}
+.rail{width:64px;flex:none;display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 0;color:#5a6271}
+.rail .ic{width:40px;height:40px;border-radius:10px;display:grid;place-items:center}
+.rail .ic.on{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgb(0 0 0 / 7%)}
+.panel{width:232px;flex:none;display:flex;flex-direction:column;margin:12px 12px 12px 0;border-radius:16px;background:var(--panel);box-shadow:0 0 0 1px var(--edge),0 2px 6px rgb(0 0 0 / 4%);overflow:hidden}
+.ph{display:flex;align-items:center;justify-content:space-between;padding:16px 12px 10px 20px}
+.ph h2{margin:0;font-size:20px;font-weight:650;letter-spacing:-.015em}
+.icon{width:36px;height:36px;border-radius:9px;display:grid;place-items:center;color:var(--mute);transition:background-color .15s ease,transform .12s ease}
+.icon:active{transform:scale(.97)}
+@media(hover:hover) and (pointer:fine){.icon:hover{background:var(--hover);color:var(--ink)}}
+.list{flex:1;min-height:0;overflow-y:auto;padding:2px 10px 12px}
+.item{display:flex;width:100%;align-items:center;gap:10px;height:38px;padding:0 10px;border-radius:9px;font-weight:450;white-space:nowrap;transition:background-color .15s ease}
+.item svg{color:#5a6271}
+.item>span:not(.badge){flex:1;overflow:hidden;text-overflow:ellipsis}
+@media(hover:hover) and (pointer:fine){.item:not(.on):hover{background:var(--hover)}}
+.item.on{background:#fff;font-weight:600;box-shadow:0 0 0 1px rgb(0 0 0 / 6%),0 1px 3px rgb(0 0 0 / 6%)}
+.item.on svg{color:var(--ink)}
+.badge{display:grid;place-items:center;min-width:20px;height:20px;padding:0 5px;border-radius:999px;background:var(--red);color:#fff;font-size:15px;line-height:1;font-weight:600;font-variant-numeric:tabular-nums}
+.foot{flex:none;padding:6px 10px 12px;border-top:1px solid rgb(0 0 0 / 6%)}
+
+.page{flex:1;min-width:0;background:#fff;margin:12px 12px 12px 0;border-radius:16px;box-shadow:var(--ring);overflow:hidden;display:flex;flex-direction:column}
+.page-in{flex:1;overflow:auto;padding:24px 32px 96px}
+.page-in.swap>*{animation:rise .18s var(--ease)}
+@keyframes rise{from{opacity:0;transform:translateY(4px)}}
+.wrap{max-width:1080px}
+.crumb{color:var(--mute);min-height:22px}
+.crumb button{color:var(--mute)}
+@media(hover:hover) and (pointer:fine){.crumb button:hover{color:var(--ink)}}
+.head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:2px 0 14px}
+h1{margin:0;font-size:24px;line-height:30px;font-weight:650;letter-spacing:-.02em}
+h3{margin:28px 0 6px;font-size:15px;font-weight:600}
+.acts{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+
+.tabs{display:flex;gap:24px;border-bottom:1px solid var(--line);margin:0 0 4px;overflow-x:auto;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tabs button{padding:10px 0 11px;color:var(--mute);font-weight:500;white-space:nowrap;display:flex;gap:7px;align-items:center}
+.tabs button.on{color:var(--ink);font-weight:600;box-shadow:inset 0 -2px 0 var(--ink)}
+@media(hover:hover) and (pointer:fine){.tabs button:not(.on):hover{color:var(--ink)}}
+.tabs .badge{min-width:18px;height:18px;font-size:15px}
+.bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:12px 0 6px}
+.sel{height:36px;padding:0 30px 0 12px;border-radius:8px;border:0;box-shadow:0 0 0 1px #e3e5ea;background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236e6e73' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E") no-repeat right 8px center/16px;appearance:none;-webkit-appearance:none;cursor:pointer}
+.inp{height:36px;padding:0 12px;border-radius:8px;border:0;box-shadow:0 0 0 1px #e3e5ea;background:#fff;width:100%}
+.inp:focus,.sel:focus{outline:none;box-shadow:0 0 0 2px var(--blue)}
+.btn{height:36px;padding:0 16px;border-radius:8px;background:var(--blue);color:#fff;font-weight:600;display:inline-flex;align-items:center;white-space:nowrap;transition:transform .12s ease,opacity .15s ease}
+.btn:active{transform:scale(.97)}
+.btn[disabled]{opacity:.35;cursor:default;transform:none}
+.btn.red{background:var(--red)}
+.ghost{height:36px;padding:0 14px;border-radius:8px;display:inline-flex;align-items:center;gap:6px;white-space:nowrap;transition:background-color .15s ease,transform .12s ease}
+.ghost:active{transform:scale(.97)}
+@media(hover:hover) and (pointer:fine){.ghost:hover{background:#f2f3f5}}
+.small{position:relative;height:30px;padding:0 13px;border-radius:999px;background:#f0f1f4;color:var(--blue);font-weight:600;white-space:nowrap;transition:transform .12s ease,background-color .15s ease}
+.small::after{content:"";position:absolute;inset:-7px 0}
+.small:active{transform:scale(.97)}
+@media(hover:hover) and (pointer:fine){.small:hover{background:#e7e9ee}}
+.small[disabled]{color:var(--mute);cursor:default;transform:none}
+
+/* figures: one row, clipped leading dividers */
+.figs{margin:10px 0 6px;overflow:hidden}
+.fi{display:flex;flex-wrap:wrap;margin-left:-29px}
+.fig{padding:2px 28px;margin:4px 0;border-left:1px solid var(--line)}
+.fig span{display:block;color:var(--mute)}
+.fig b{font-size:22px;font-weight:650;letter-spacing:-.015em;font-variant-numeric:tabular-nums}
+
+.tw{overflow-x:auto;margin:0 -4px;padding:0 4px}
+table.t{width:100%;border-collapse:collapse}
+.t th{text-align:left;font-weight:500;color:var(--mute);height:40px;border-bottom:1px solid var(--line);padding:0 16px 0 0;white-space:nowrap}
+.t td{height:48px;padding:8px 16px 8px 0;border-bottom:1px solid var(--hair);white-space:nowrap}
+.t .r{text-align:right}
+.t tr.go{cursor:pointer}
+@media(hover:hover) and (pointer:fine){.t tr.go:hover td{background:#f8f9fb}}
+.t tr.sub td{color:var(--mute)}
+.t tr.tot td{font-weight:600;border-top:1px solid var(--line)}
+.t tr.hl td{animation:hl 1.6s ease}
+@keyframes hl{from{background:var(--blue-soft)}}
+.t td .s{display:block;color:var(--mute)}
+.t td.w,.t th.w{}
+.empty{padding:28px 0;color:var(--mute)}
+
+/* attention list */
+.queue{list-style:none;margin:0;padding:0}
+.queue li{display:flex;align-items:center;gap:14px;min-height:64px;padding:10px 0;border-bottom:1px solid var(--hair)}
+.queue .w{flex:1;min-width:0}
+.queue .w b{font-weight:600;display:block}
+.queue .w span{color:var(--mute)}
+.queue .a{text-align:right;white-space:nowrap}
+.queue li.out{animation:out .2s ease forwards}
+
+/* checklist */
+.check{list-style:none;margin:6px 0 0;padding:0}
+.check li{display:flex;align-items:center;gap:12px;min-height:52px;border-bottom:1px solid var(--hair)}
+.check li>i{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-style:normal;font-weight:600;flex:none;background:#f0f1f4;color:var(--mute);transition:background-color .2s ease,color .2s ease}
+.check li.done>i{background:#e7f5ec;color:var(--green)}
+.check li .w{flex:1}
+.check li .s{color:var(--mute)}
+.stamp{display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 14px;border-radius:8px;background:#e7f5ec;color:var(--green);font-weight:600}
+
+/* giro board */
+.board{display:grid;grid-template-columns:repeat(4,minmax(200px,1fr));gap:14px;margin-top:12px}
+.lane h4{margin:0 0 8px;font-size:15px;font-weight:600;display:flex;justify-content:space-between}
+.lane h4 span{color:var(--mute);font-weight:500}
+.card{border-radius:12px;box-shadow:0 0 0 1px var(--line);padding:12px 14px;margin-bottom:10px;background:#fff}
+.card b{display:block;font-weight:600}
+.card .m{display:flex;justify-content:space-between;align-items:center;margin-top:8px;gap:8px}
+
+/* the BKK / BKM document */
+.doc{display:grid;grid-template-columns:1fr 1fr;gap:10px 40px;margin:8px 0 18px}
+.doc label{display:grid;grid-template-columns:132px 1fr;align-items:center;gap:12px;color:var(--mute)}
+.doc label>*:last-child{color:var(--ink)}
+.total{border-radius:12px;background:#f6f7f9;padding:14px 16px}
+.total span{color:var(--mute)}
+.total b{display:block;font-size:24px;font-weight:650;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.total i{display:block;font-style:normal;color:var(--mute)}
+.tick{width:18px;height:18px;accent-color:var(--blue);cursor:pointer}
+
+/* setup */
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;margin-top:8px}
+.group{border-radius:12px;box-shadow:0 0 0 1px var(--line);padding:6px}
+.group .gl{padding:8px 10px 4px;color:var(--mute);font-weight:600}
+
+/* sheet */
+.scrim{position:fixed;inset:0;background:rgb(255 255 255 / 55%);opacity:0;pointer-events:none;transition:opacity .2s ease;z-index:30}
+.scrim.on{opacity:1;pointer-events:auto}
+.sheet{position:fixed;top:12px;right:12px;bottom:12px;width:min(480px,calc(100vw - 24px));background:#fff;border-radius:16px;box-shadow:var(--ring);z-index:31;transform:translateX(calc(100% + 24px));transition:transform .26s var(--drawer);display:flex;flex-direction:column}
+.sheet.on{transform:none}
+.sheet .sh{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:20px 20px 8px 24px}
+.sheet .sh h2{margin:0;font-size:20px;font-weight:650;letter-spacing:-.015em}
+.sheet .sb{flex:1;overflow:auto;padding:4px 24px 20px}
+.sheet .sf{display:flex;gap:8px;justify-content:flex-end;padding:14px 20px;border-top:1px solid var(--line)}
+.props{display:grid;grid-template-columns:124px 1fr;gap:8px 12px;margin:6px 0 10px}
+.props dt{color:var(--mute)}
+.props dd{margin:0}
+.big{font-size:28px;font-weight:650;letter-spacing:-.02em;font-variant-numeric:tabular-nums;margin:6px 0 2px}
+
+/* palette: keyboard-opened, no motion */
+.pal{position:fixed;inset:0;display:none;z-index:40;background:rgb(255 255 255 / 45%)}
+.pal.on{display:block}
+.pal-box{width:min(600px,calc(100vw - 32px));margin:14vh auto 0;background:#fff;border-radius:14px;box-shadow:var(--ring);overflow:hidden}
+.pal-box input{width:100%;height:54px;border:0;padding:0 18px;font-size:17px;outline:none;border-bottom:1px solid var(--line)}
+.pal-r{max-height:52vh;overflow:auto;padding:6px}
+.pal-r button{display:flex;justify-content:space-between;gap:12px;width:100%;padding:9px 12px;border-radius:8px}
+.pal-r button.on{background:var(--blue-soft)}
+.pal-r button span:last-child{color:var(--mute);white-space:nowrap}
+
+.toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,16px);opacity:0;background:#1d1d1f;color:#fff;padding:11px 16px;border-radius:12px;box-shadow:0 8px 30px rgb(0 0 0 / 18%);transition:transform .22s var(--ease),opacity .22s ease;z-index:50;pointer-events:none;white-space:nowrap}
+.toast.on{transform:translate(-50%,0);opacity:1}
+
+/* prototype controls, out of the way */
+.proto{position:fixed;right:24px;bottom:22px;display:flex;gap:4px;padding:5px;border-radius:12px;background:rgb(255 255 255 / 88%);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);box-shadow:0 0 0 1px rgb(0 0 0 / 7%),0 8px 24px rgb(0 0 0 / 10%);z-index:20}
+.proto button{height:34px;padding:0 12px;border-radius:8px;color:var(--mute);font-weight:500}
+.proto button[aria-pressed="true"]{background:#1d1d1f;color:#fff}
+.mtag{display:inline-block;margin-left:8px;padding:0 8px;border-radius:999px;background:var(--blue-soft);color:var(--blue-ink);font-weight:600}
+
+.mbar{display:none}
+@media(max-width:760px){
+ .rail{display:none}
+ .shell{flex-direction:column}
+ .mbar{display:flex;align-items:center;gap:8px;padding:10px 12px 0;flex:none}
+ .mbar button{height:40px;padding:0 12px;border-radius:10px;background:#fff;font-weight:600;display:flex;align-items:center;gap:8px;box-shadow:0 1px 2px rgb(0 0 0 / 6%)}
+ .panel{position:fixed;left:12px;top:12px;bottom:12px;z-index:31;margin:0;width:260px;transform:translateX(calc(-100% - 24px));transition:transform .26s var(--drawer)}
+ .panel.on{transform:none}
+ .page{margin:10px 12px 12px}
+ .page-in{padding:18px 16px 110px}
+ .doc{grid-template-columns:1fr}
+ .doc label{grid-template-columns:112px 1fr}
+ .t .w{display:none}
+ .tw{margin:0;padding:0;overflow:visible}
+ .queue li{display:grid;grid-template-columns:1fr auto;gap:2px 12px}
+ .queue .a{grid-column:1;grid-row:2;text-align:left}
+ .queue .small{grid-column:2;grid-row:1/3}
+ .t,.t tbody,.t tr,.t td{display:block}
+ .t tr:has(th){display:none}
+ .t tr{padding:10px 0;border-bottom:1px solid var(--hair)}
+ .t td{display:flex;justify-content:space-between;align-items:center;gap:12px;height:auto;min-height:28px;padding:2px 0;border:0;white-space:normal;text-align:right}
+ .t td::before{content:attr(data-l);color:var(--mute);text-align:left;flex:none}
+ .t td:first-child{font-weight:600;text-align:left}
+ .t td:first-child::before{content:none}
+ .t td:empty,.t td.w{display:none}
+ .t td .s{display:inline;margin-left:6px;font-weight:400}
+ .t tr.tot td{border:0}
+ .board{grid-template-columns:1fr}
+ .proto{right:12px;bottom:12px}
+}
+@keyframes out{to{opacity:0;transform:translateX(8px)}}
+@media(prefers-reduced-motion:reduce){*{animation:none!important}.sheet,.panel,.toast{transition:opacity .2s ease}}
+</style>
+</head>
+<body>
+<div class="shell">
+ <nav class="rail" id="rail" aria-label="Departments"></nav>
+ <nav class="panel" id="panel" aria-label="Finance"><div class="ph"><h2>Finance</h2><button class="icon" data-act="pal" aria-label="Search Finance, ⌘K"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></button></div><div class="list" id="list"></div><div class="foot" id="foot"></div></nav>
+ <div class="mbar"><button data-act="menu"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span id="mtitle">Finance</span></button><button data-act="pal" aria-label="Search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></button></div>
+ <main class="page"><div class="page-in" id="page"></div></main>
+</div>
+<div class="scrim" id="scrim" data-act="close"></div>
+<aside class="sheet" id="sheet" aria-label="Detail"></aside>
+<div class="pal" id="pal" data-act="palclose"><div class="pal-box"><input id="palq" placeholder="Search Finance, or a page name from today" autocomplete="off"><div class="pal-r" id="palr"></div></div></div>
+<div class="toast" id="toast" role="status"></div>
+<div class="proto"><button data-act="map" id="mapbtn" aria-pressed="false">Map</button><button data-act="reset">Reset</button></div>
+
+<script>
+// ── helpers ──
+const $ = (id) => document.getElementById(id)
+const fmt = (n) => (n < 0 ? "−" : "") + Math.abs(n).toLocaleString("id-ID")
+const rp = (n) => "Rp " + fmt(n)
+const P = {
+ home:'<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1Z"/>',
+ store:'<path d="M3 9 4.5 4h15L21 9"/><path d="M4 9v11h16V9"/><path d="M3 9a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0"/><path d="M10 20v-5h4v5"/>',
+ receipt:'<path d="M5 3h14v18l-3-2-2 2-2-2-2 2-2-2-3 2Z"/><path d="M9 8h6M9 12h6"/>',
+ bank:'<path d="M3 21h18M4 10h16M12 3l8 5H4Z"/><path d="M6 10v8M10 10v8M14 10v8M18 10v8"/>',
+ book:'<path d="M4 4.5A1.5 1.5 0 0 1 5.5 3H20v16H5.5A1.5 1.5 0 0 0 4 20.5Z"/><path d="M4 20.5A1.5 1.5 0 0 0 5.5 22H20"/><path d="M8 7h8"/>',
+ check:'<rect x="3" y="4" width="18" height="17" rx="2"/><path d="M8 2v4M16 2v4M3 10h18"/><path d="m9 15 2 2 4-4"/>',
+ asset:'<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 13h18"/>',
+ chart:'<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+ gear:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/>',
+ cart:'<circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M2 3h3l2.6 12.4a2 2 0 0 0 2 1.6h8.2a2 2 0 0 0 2-1.6L21 7H6"/>',
+ tag:'<path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9Z"/><circle cx="7.5" cy="7.5" r="1.3"/>',
+ box:'<path d="M21 8 12 3 3 8v8l9 5 9-5Z"/><path d="m3 8 9 5 9-5M12 13v8"/>',
+ people:'<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/>',
+ x:'<path d="M6 6l12 12M18 6 6 18"/>',
+}
+const svg = (k) => `<svg viewBox="0 0 24 24">${P[k]}</svg>`
+const pill = (cls, w) => `<span class="${cls}"><span class="dot"></span>${w}</span>`
+
+// Indonesian words for a rupiah figure, as the Klasik voucher prints it.
+function terbilang(n) {
+ const s = ["","satu","dua","tiga","empat","lima","enam","tujuh","delapan","sembilan","sepuluh","sebelas"]
+ const f = (x) => x < 12 ? s[x] : x < 20 ? f(x - 10) + " belas" : x < 100 ? f(Math.floor(x / 10)) + " puluh " + f(x % 10) : x < 200 ? "seratus " + f(x - 100) : x < 1000 ? f(Math.floor(x / 100)) + " ratus " + f(x % 100) : x < 2000 ? "seribu " + f(x - 1000) : x < 1e6 ? f(Math.floor(x / 1000)) + " ribu " + f(x % 1000) : x < 1e9 ? f(Math.floor(x / 1e6)) + " juta " + f(x % 1e6) : f(Math.floor(x / 1e9)) + " miliar " + f(x % 1e9)
+ return n ? (f(n).replace(/\s+/g, " ").trim() + " rupiah") : ""
+}
+
+// ── the eight doors ──
+const DOORS = [
+ {k:"overview", l:"Overview", ic:"home"},
+ {k:"stores", l:"Stores", ic:"store", tabs:["Days","Cash","Counts"]},
+ {k:"payables", l:"Payables", ic:"receipt", tabs:["Bills","Due","Suppliers","Loans"]},
+ {k:"cash", l:"Cash & Bank", ic:"bank", tabs:["BKK","BKM","Giro","Bank"]},
+ {k:"journal", l:"Journal", ic:"book"},
+ {k:"assets", l:"Assets", ic:"asset", tabs:["Register","Projects"]},
+ {k:"monthend", l:"Month End", ic:"check", tabs:["Checklist","Accruals","Inventory","Tax"]},
+ {k:"reports", l:"Reports", ic:"chart", tabs:["Profit and Loss","Balance Sheet","Cash Flow","Ledger","Sales by Division"]},
+ {k:"setup", l:"Setup", ic:"gear", foot:true},
+]
+const SETUP = [
+ ["Accounts",["Chart of Accounts","Accounts Settings","Accounting Dimension","Posting Policies","Permissions"]],
+ ["Account links",["Account Links","Pay Components","Expense Categories","Line Categories"]],
+ ["Money",["Mode of Payment","Giro Templates"]],
+ ["Tax",["Tax Types","Tax Withholding"]],
+ ["Assets",["Asset Category"]],
+]
+
+// ── demo data (fictional, in memory) ──
+const fresh = () => ({
+ d:"overview", t:{}, v:{}, doc:null, sheet:null, map:false, hl:null,
+ bills:[
+  {id:"PINV-26-10-0098", sup:"PT Karya Mandiri", kind:"Expenses", what:"Store fittings", due:"9 Oct", days:-7, total:7450000, credit:0, paid:0, st:"Posted"},
+  {id:"PINV-26-10-0112", sup:"PT Sinar Garmen", kind:"Merchandise", what:"PO-26-09-0088", due:"16 Oct", days:0, total:48250000, credit:1200000, paid:0, st:"Posted"},
+  {id:"PINV-26-10-0120", sup:"PT Mitra Label", kind:"Merchandise", what:"PO-26-10-0007", due:"19 Oct", days:3, total:6400000, credit:0, paid:0, st:"Posted"},
+  {id:"PINV-26-10-0117", sup:"PT Graha Cikupa", kind:"Expenses", what:"Rent Cikupa · Oct", due:"20 Oct", days:4, total:15000000, credit:0, paid:0, st:"Posted", rep:true},
+  {id:"PINV-26-10-0125", sup:"CV Tiga Benang", kind:"Merchandise", what:"PO-26-10-0012", due:"23 Oct", days:7, total:12150000, credit:0, paid:0, st:"Draft"},
+  {id:"PINV-26-09-0087", sup:"PT Mitra Label", kind:"Merchandise", what:"PO-26-09-0061", due:"14 Oct", days:-2, total:3150000, credit:0, paid:3150000, st:"Paid"},
+ ],
+ credits:[{id:"CN-26-10-0004", sup:"PT Sinar Garmen", against:"PINV-26-10-0112", why:"Returned 24 pcs", total:1200000, st:"Posted"}],
+ unbilled:[{id:"DO-26-10-0031", sup:"PT Sinar Garmen", po:"PO-26-10-0031", date:"14 Oct", total:62800000}],
+ bkk:[
+  {no:"KK-26-10-00011", date:"14 Oct", acct:"BCA 0123 Operasional", to:"PT Mitra Label", kind:"Settle bills", amt:3150000, st:"Posted"},
+  {no:"KK-26-10-00010", date:"13 Oct", acct:"Kas HO", to:"Courier JNE", kind:"Other", amt:420000, st:"Posted"},
+  {no:"KK-26-10-00009", date:"12 Oct", acct:"BCA 0123 Operasional", to:"Dewi Lestari", kind:"Advance", amt:2000000, st:"Posted"},
+ ],
+ bkm:[
+  {no:"KM-26-10-00004", date:"12 Oct", acct:"BCA 0123 Operasional", from:"PT Karya Mandiri · refund", amt:850000, st:"Posted"},
+  {no:"KM-26-10-00003", date:"6 Oct", acct:"Kas HO", from:"Scrap sale", amt:300000, st:"Posted"},
+ ],
+ giros:[
+  {no:"BCA 772128", to:"PT Sinar Garmen", due:"17 Oct", amt:18500000, st:"due"},
+  {no:"BCA 772130", to:"CV Tiga Benang", due:"28 Oct", amt:21000000, st:"waiting"},
+  {no:"BCA 771990", to:"PT Mitra Label", due:"2 Oct", amt:9800000, st:"cleared"},
+ ],
+ lines:[
+  {id:1, acct:"BCA 0456 Penerimaan", date:"30 Sep", desc:"SETORAN TUNAI KARAWACI", amt:7015000, sug:"Deposit Karawaci · 29 Sep", m:"Sep"},
+  {id:2, acct:"BCA 0456 Penerimaan", date:"30 Sep", desc:"BIAYA ADM", amt:-15000, sug:"Bank charges · rule", m:"Sep"},
+  {id:3, acct:"BCA 0123 Operasional", date:"14 Oct", desc:"TRF PT MITRA LABEL", amt:-3150000, sug:"KK-26-10-00011", m:"Oct"},
+  {id:4, acct:"BCA 0456 Penerimaan", date:"15 Oct", desc:"QRIS SETTLEMENT CIKUPA", amt:4210000, sug:"Cikupa · 14 Oct sales", m:"Oct"},
+ ],
+ days:[
+  {shop:"Cikupa", sales:18450000, cash:6120000, card:12330000, dep:6120000, st:"Posted"},
+  {shop:"Cirebon", sales:12980000, cash:4410000, card:8570000, dep:4410000, st:"Posted"},
+  {shop:"Karawaci", sales:21300000, cash:7015000, card:14285000, dep:0, st:"Draft"},
+  {shop:"Bekasi", sales:9870000, cash:3020000, card:6850000, dep:3020000, st:"Posted"},
+ ],
+ counts:[
+  {id:"CC-KRW-151026", shop:"Karawaci", date:"15 Oct", box:"Cash on hand", books:5310000, counted:5125000, by:"Sari Wulandari", st:"review"},
+  {id:"CC-CKP-151026", shop:"Cikupa", date:"15 Oct", box:"Cash on hand", books:4250000, counted:4250000, by:"Andi Pratama", st:"ok"},
+  {id:"CC-BKS-151026", shop:"Bekasi", date:"15 Oct", box:"Cash on hand", books:2440000, counted:2440000, by:"Rudi Hartono", st:"ok"},
+  {id:"CC-CRB-141026", shop:"Cirebon", date:"14 Oct", box:"Petty cash", books:1200000, counted:1200000, by:"Maya Sari", st:"ok"},
+ ],
+ boxes:[["Cikupa",4250000,1500000,500000,"15 Oct"],["Cirebon",3870000,1200000,500000,"14 Oct"],["Karawaci",5310000,980000,500000,"15 Oct"],["Bekasi",2440000,1500000,500000,"15 Oct"]],
+ je:[
+  {no:"JV-26-10-00021", date:"15 Oct", memo:"Reclass courier to selling expense", type:"Journal", by:"Rina Kusuma", amt:1240000, st:"Posted"},
+  {no:"JV-26-10-00020", date:"10 Oct", memo:"Interunit · HO to Karawaci stock", type:"Interunit", by:"Rina Kusuma", amt:24600000, st:"Posted"},
+  {no:"JV-26-09-00118", date:"30 Sep", memo:"Sales day Cikupa · 30 Sep", type:"Sales day", by:"System", amt:17920000, st:"Posted"},
+ ],
+ accr:false, inv:false, dep:false, tax:false, closed:false,
+ seq:{kk:12, km:5, jv:22},
+})
+let S = fresh()
+const open = (b) => b.st === "Posted" && b.total - b.credit - b.paid > 0
+const owed = (b) => b.total - b.credit - b.paid
+const unmatched = (m) => S.lines.filter((l) => !l.done && (!m || l.m === m))
+const steps = () => {
+ const n = unmatched("Sep").length
+ return [
+  {l:"Sales days posted", s:"30 of 30", done:true},
+  {l:"Bills posted", s:"All September bills", done:true},
+  {l:"Accruals booked", s:S.accr ? "3 booked" : "3 to book", done:S.accr, go:["monthend","Accruals"]},
+  {l:"Depreciation", s:S.dep ? "Run" : "Not run", done:S.dep, go:["assets","Register"]},
+  {l:"Stock against the books", s:S.inv ? "Agreed" : "Off 1.240.000", done:S.inv, go:["monthend","Inventory"]},
+  {l:"Tax", s:S.tax ? "Posted" : "PPh 23 not posted", done:S.tax, go:["monthend","Tax"]},
+  {l:"Bank agreed", s:n ? `${n} lines to match` : "Agreed", done:!n, go:["cash","Bank"]},
+ ]
+}
+const BADGE = {
+ stores:() => S.counts.filter((c) => c.st === "review").length,
+ payables:() => S.bills.filter((b) => open(b) && b.days <= 0).length,
+ cash:() => unmatched().length,
+}
+
+// ── shell ──
+function renderMenu() {
+ const row = (d) => { const n = BADGE[d.k]?.() ?? 0; return `<button class="item${S.d === d.k && !S.map ? " on" : ""}" data-go="${d.k}">${svg(d.ic)}<span>${d.l}</span>${n ? `<span class="badge">${n}</span>` : ""}</button>` }
+ $("list").innerHTML = DOORS.filter((d) => !d.foot).map(row).join("")
+ $("foot").innerHTML = DOORS.filter((d) => d.foot).map(row).join("")
+ $("mtitle").textContent = S.map ? "Map" : DOORS.find((d) => d.k === S.d).l
+}
+const tabOf = (d) => S.t[d] ?? DOORS.find((x) => x.k === d).tabs?.[0]
+function tabs(d) {
+ const door = DOORS.find((x) => x.k === d), cur = tabOf(d)
+ const badge = {Counts:BADGE.stores, Due:() => BADGE.payables(), Bank:BADGE.cash}
+ return `<div class="tabs" role="tablist">${door.tabs.map((t) => { const n = door.k !== "monthend" && badge[t]?.(); return `<button role="tab" class="${t === cur ? "on" : ""}" data-tab="${t}">${t}${n ? `<span class="badge">${n}</span>` : ""}</button>` }).join("")}</div>`
+}
+const head = (title, acts = "", crumb = "Finance") => `<div class="crumb">${crumb}</div><div class="head"><h1>${title}</h1><div class="acts">${acts}</div></div>`
+const sel = (key, opts) => `<select class="sel" data-view="${key}">${opts.map((o) => `<option${(S.v[key] ?? opts[0]) === o ? " selected" : ""}>${o}</option>`).join("")}</select>`
+const view = (key, first) => S.v[key] ?? first
+
+// ── pages ──
+const PAGES = {
+ overview() {
+  const q = []
+  for (const b of S.bills.filter((b) => open(b) && b.days <= 0)) q.push({k:"b" + b.id, b:b.sup, s:`${b.id} · ${b.days < 0 ? `${-b.days} days overdue` : "due today"}`, a:rp(owed(b)), btn:["Pay", "pay", b.id]})
+  for (const g of S.giros.filter((g) => g.st === "due")) q.push({k:"g" + g.no, b:`Giro ${g.no} · ${g.to}`, s:`Due ${g.due} · clears from BCA 0123`, a:rp(g.amt), btn:["Open", "goto", "cash|Giro"]})
+  for (const c of S.counts.filter((c) => c.st === "review")) q.push({k:"c" + c.id, b:`${c.shop} counted short`, s:`${c.box} · ${c.date} · ${c.by}`, a:`<span class="bad">${rp(c.counted - c.books)}</span>`, btn:["Review", "count", c.id]})
+  const u = unmatched().length; if (u) q.push({k:"u", b:`${u} bank lines to match`, s:"BCA 0123 · BCA 0456", a:"", btn:["Match", "goto", "cash|Bank"]})
+  const open_ = steps().filter((x) => !x.done).length; if (!S.closed) q.push({k:"m", b:"Close September", s:open_ ? `${open_} steps open` : "Ready to close", a:"", btn:["Open", "goto", "monthend|Checklist"]})
+  const cashBank = 664840000 + S.boxes.reduce((a, b) => a + b[1] + b[2] + b[3], 0)
+  const due7 = S.bills.filter((b) => open(b) && b.days <= 7).reduce((a, b) => a + owed(b), 0) + S.giros.filter((g) => g.st !== "cleared").reduce((a, g) => a + g.amt, 0)
+  return head("Overview") + `<div class="figs"><div class="fi">
+   <div class="fig"><span>Cash and bank</span><b>${rp(cashBank)}</b></div>
+   <div class="fig"><span>Owed to suppliers</span><b>${rp(S.bills.filter(open).reduce((a, b) => a + owed(b), 0))}</b></div>
+   <div class="fig"><span>Going out in 7 days</span><b>${rp(due7)}</b></div>
+   <div class="fig"><span>Stock value</span><b>${rp(1322800000)}</b></div></div></div>
+   <h3>Needs attention</h3>${q.length ? `<ul class="queue">${q.map((x) => `<li><div class="w"><b>${x.b}</b><span>${x.s}</span></div><div class="a num">${x.a}</div><button class="small" data-act="${x.btn[1]}" data-arg="${x.btn[2]}">${x.btn[0]}</button></li>`).join("")}</ul>` : `<div class="empty">Nothing waiting.</div>`}`
+ },
+
+ stores(t) {
+  const bar = `<div class="bar">${sel("sday", ["Thu 15 Oct 2026","Wed 14 Oct 2026"])}${sel("sshop", ["All shops","Cikupa","Cirebon","Karawaci","Bekasi"])}</div>`
+  if (t === "Days") {
+   const rows = S.days.map((d) => {
+    const c = S.counts.find((c) => c.shop === d.shop && c.st === "review")
+    const act = d.st === "Posted" ? pill("ok", "Posted") : c ? `<button class="small" data-act="count" data-arg="${c.id}">Review count</button>` : `<button class="small" data-act="postday" data-arg="${d.shop}">Post</button>`
+    return `<tr class="${S.hl === d.shop ? "hl" : ""}"><td><b style="font-weight:550">${d.shop}</b></td><td class="r">${fmt(d.sales)}</td><td class="r">${fmt(d.cash)}</td><td class="r">${fmt(d.card)}</td><td class="r w">${d.dep ? fmt(d.dep) : `<span class="mute">In the bag</span>`}</td><td>${act}</td></tr>`
+   }).join("")
+   const s = (k) => S.days.reduce((a, d) => a + d[k], 0)
+   return bar + `<div class="tw"><table class="t"><tr><th>Shop</th><th class="r">Sales</th><th class="r">Cash</th><th class="r">Card &amp; QRIS</th><th class="r w">Deposited</th><th>Posted</th></tr>${rows}<tr class="tot"><td>All shops</td><td class="r">${fmt(s("sales"))}</td><td class="r">${fmt(s("cash"))}</td><td class="r">${fmt(s("card"))}</td><td class="r w">${fmt(s("dep"))}</td><td></td></tr></table></div>`
+  }
+  if (t === "Cash") {
+   const cell = (shop, box, n) => `<td class="r"><button data-act="box" data-arg="${shop}|${box}" style="font-variant-numeric:tabular-nums">${fmt(n)}</button></td>`
+   const rows = S.boxes.map(([s, a, b, c, d]) => `<tr><td><b style="font-weight:550">${s}</b></td>${cell(s, "Cash on hand", a)}${cell(s, "Petty cash", b)}${cell(s, "Cashier float", c)}<td class="w">${d}${S.counts.some((x) => x.shop === s && x.st === "review") ? ` · <span class="bad">${rp(-185000)}</span>` : ""}</td></tr>`).join("")
+   return bar + `<div class="tw"><table class="t"><tr><th>Shop</th><th class="r">Cash on hand</th><th class="r">Petty cash</th><th class="r">Cashier float</th><th class="w">Last counted</th></tr>${rows}</table></div>`
+  }
+  const rows = S.counts.map((c) => `<tr><td>${c.date}</td><td>${c.shop}</td><td class="w">${c.box}</td><td class="r">${fmt(c.books)}</td><td class="r">${fmt(c.counted)}</td><td class="r ${c.counted - c.books ? "bad" : "mute"}">${fmt(c.counted - c.books)}</td><td>${c.st === "review" ? `<button class="small" data-act="count" data-arg="${c.id}">Review</button>` : c.st === "booked" ? pill("mute", "Booked") : pill("ok", "Agreed")}</td></tr>`).join("")
+  return bar + `<div class="tw"><table class="t"><tr><th>Counted</th><th>Shop</th><th class="w">Box</th><th class="r">Books</th><th class="r">Counted</th><th class="r">Difference</th><th></th></tr>${rows}</table></div>`
+ },
+
+ payables(t) {
+  if (t === "Bills") {
+   const k = view("bkind", "Merchandise")
+   const bar = `<div class="bar">${sel("bkind", ["Merchandise","Expenses","Unbilled deliveries","Credit notes"])}${sel("bunit", ["All units","Head office","Cikupa"])}</div>`
+   if (k === "Credit notes") return bar + `<div class="tw"><table class="t"><tr><th>Credit note</th><th>Supplier</th><th class="w">Against</th><th class="w">Reason</th><th class="r">Total</th><th>Status</th></tr>${S.credits.map((c) => `<tr><td>${c.id}</td><td>${c.sup}</td><td class="w">${c.against}</td><td class="w">${c.why}</td><td class="r">${fmt(c.total)}</td><td>${pill("ok", c.st)}</td></tr>`).join("")}</table></div>`
+   if (k === "Unbilled deliveries") return bar + `<div class="tw"><table class="t"><tr><th>Delivery</th><th>Supplier</th><th class="w">PO</th><th>Received</th><th class="r">Value</th></tr>${S.unbilled.map((u) => `<tr><td>${u.id}</td><td>${u.sup}</td><td class="w">${u.po}</td><td>${u.date}</td><td class="r">${fmt(u.total)}</td></tr>`).join("")}</table></div>`
+   const list = S.bills.filter((b) => b.kind === k)
+   const rows = list.map((b) => `<tr class="go${S.hl === b.id ? " hl" : ""}" data-act="bill" data-arg="${b.id}"><td>${b.id}<span class="s">${b.what}</span></td><td>${b.sup}</td><td>${b.st === "Paid" ? pill("ok", "Paid") : b.st === "Draft" ? pill("mute", "Draft") : b.days < 0 ? pill("bad", "Overdue") : pill("warn", "Unpaid")}</td><td class="w">${b.due}</td><td class="r">${fmt(b.total)}</td><td class="r">${fmt(Math.max(owed(b), 0))}</td></tr>`).join("")
+   const rep = S.bills.filter((b) => b.rep && b.kind === k)
+   return bar + `<div class="tw"><table class="t"><tr><th>Invoice</th><th>Supplier</th><th>Status</th><th class="w">Due</th><th class="r">Total</th><th class="r">Outstanding</th></tr>${rows || `<tr><td colspan="6" class="mute">No bills.</td></tr>`}</table></div>` +
+    (rep.length ? `<h3>Repeating</h3><div class="tw"><table class="t"><tr><th>Bill</th><th>Supplier</th><th>Every</th><th class="r">Amount</th></tr>${rep.map((b) => `<tr><td>${b.what.replace(" · Oct", "")}</td><td>${b.sup}</td><td>Month, day 20</td><td class="r">${fmt(b.total)}</td></tr>`).join("")}</table></div>` : "")
+  }
+  if (t === "Due") {
+   const v = view("due", "By due date")
+   const bar = `<div class="bar">${sel("due", ["By due date","Aging"])}${sel("dunit", ["All units","Head office"])}</div>`
+   if (v === "Aging") {
+    const sups = [...new Set(S.bills.filter(open).map((b) => b.sup))]
+    const b = (s, f) => S.bills.filter((x) => open(x) && x.sup === s && f(x.days)).reduce((a, x) => a + owed(x), 0)
+    return bar + `<div class="tw"><table class="t"><tr><th>Supplier</th><th class="r">Not due</th><th class="r">1–30</th><th class="r">31–60</th><th class="r">Over 60</th><th class="r">Outstanding</th></tr>${sups.map((s) => `<tr class="go" data-act="supplier" data-arg="${s}"><td>${s}</td><td class="r">${fmt(b(s, (d) => d >= 0))}</td><td class="r">${fmt(b(s, (d) => d < 0 && d >= -30))}</td><td class="r mute">0</td><td class="r mute">0</td><td class="r"><b style="font-weight:600">${fmt(b(s, () => true))}</b></td></tr>`).join("")}</table></div>`
+   }
+   const rows = [
+    ...S.bills.filter(open).map((b) => ({days:b.days, due:b.due, who:b.sup, doc:b.id, src:"Bill", amt:owed(b), pay:b.id})),
+    ...S.giros.filter((g) => g.st !== "cleared").map((g) => ({days:g.st === "due" ? 1 : 12, due:g.due, who:g.to, doc:"Giro " + g.no, src:"Giro", amt:g.amt})),
+   ].sort((a, b) => a.days - b.days)
+   const later = [
+    ...S.bills.filter((b) => b.st === "Draft").map((b) => ({due:b.due, who:b.sup, doc:b.id, src:"Draft", amt:b.total})),
+    ...S.unbilled.map((u) => ({due:"13 Nov", who:u.sup, doc:u.id, src:"Received, not billed", amt:u.total})),
+   ]
+   const tr = (r, m) => `<tr class="${m ? "sub" : ""}"><td class="${r.days < 0 ? "bad" : ""}">${r.due}</td><td>${r.who}</td><td class="w">${r.doc}</td><td class="w">${r.src}</td><td class="r">${fmt(r.amt)}</td><td>${r.pay ? `<button class="small" data-act="pay" data-arg="${r.pay}">Pay</button>` : ""}</td></tr>`
+   return bar + `<div class="tw"><table class="t"><tr><th>Due</th><th>Pay to</th><th class="w">Document</th><th class="w">From</th><th class="r">Amount</th><th></th></tr>${rows.map((r) => tr(r)).join("")}<tr class="tot"><td colspan="2">Payable</td><td class="w" colspan="2"></td><td class="r">${fmt(rows.reduce((a, r) => a + r.amt, 0))}</td><td></td></tr></table></div>
+    <h3>Not payable yet</h3><div class="tw"><table class="t">${later.map((r) => tr(r, true)).join("")}</table></div>`
+  }
+  if (t === "Suppliers") {
+   const sups = [...new Set(S.bills.map((b) => b.sup))]
+   return `<div class="bar">${sel("sunit", ["All units","Head office"])}</div><div class="tw"><table class="t"><tr><th>Supplier</th><th class="r">Open bills</th><th class="r w">Oldest</th><th class="r">Outstanding</th></tr>${sups.map((s) => { const o = S.bills.filter((b) => open(b) && b.sup === s); return `<tr class="go" data-act="supplier" data-arg="${s}"><td>${s}</td><td class="r">${o.length}</td><td class="r w">${o.length ? Math.max(0, -Math.min(...o.map((b) => b.days))) + " days" : "—"}</td><td class="r">${fmt(o.reduce((a, b) => a + owed(b), 0))}</td></tr>` }).join("")}</table></div>`
+  }
+  return `<div class="tw" style="margin-top:12px"><table class="t"><tr><th>Loan</th><th class="w">Lender</th><th class="r">Principal</th><th class="r">Left</th><th>Next instalment</th><th class="r">Amount</th></tr>
+   <tr><td>KMK 2025</td><td class="w">Bank BCA</td><td class="r">500.000.000</td><td class="r">320.000.000</td><td>25 Oct</td><td class="r">12.500.000</td></tr>
+   <tr><td>Owner loan</td><td class="w">Budi Santoso</td><td class="r">150.000.000</td><td class="r">150.000.000</td><td class="mute">No schedule</td><td class="r mute">—</td></tr></table></div>`
+ },
+
+ cash(t) {
+  if (S.doc) return docPage()
+  if (t === "BKK") {
+   const k = view("kkind", "All")
+   const list = S.bkk.filter((x) => k === "All" || x.kind === k)
+   return `<div class="bar">${sel("kkind", ["All","Settle bills","Other","Advance"])}${sel("kacct", ["All accounts","BCA 0123 Operasional","Kas HO"])}</div><div class="tw"><table class="t"><tr><th>BKK</th><th>Date</th><th class="w">Cash / bank</th><th>Paid to</th><th class="r">Amount</th><th>Status</th></tr>${list.map((x) => `<tr class="${S.hl === x.no ? "hl" : ""}"><td>${x.no}<span class="s">${x.kind}</span></td><td>${x.date}</td><td class="w">${x.acct}</td><td>${x.to}</td><td class="r">${fmt(x.amt)}</td><td>${pill("ok", x.st)}</td></tr>`).join("")}</table></div>
+   <h3>Repeating</h3><div class="tw"><table class="t"><tr><th>BKK</th><th>Paid to</th><th>Every</th><th class="r">Amount</th></tr><tr><td>Internet HO</td><td>PT Link Net</td><td>Month, day 5</td><td class="r">1.650.000</td></tr><tr><td>Security Karawaci</td><td>CV Jaga Aman</td><td>Month, day 1</td><td class="r">4.200.000</td></tr></table></div>`
+  }
+  if (t === "BKM") return `<div class="bar">${sel("macct", ["All accounts","BCA 0123 Operasional","Kas HO"])}</div><div class="tw"><table class="t"><tr><th>BKM</th><th>Date</th><th class="w">Into</th><th>Received from</th><th class="r">Amount</th><th>Status</th></tr>${S.bkm.map((x) => `<tr class="${S.hl === x.no ? "hl" : ""}"><td>${x.no}</td><td>${x.date}</td><td class="w">${x.acct}</td><td>${x.from}</td><td class="r">${fmt(x.amt)}</td><td>${pill("ok", x.st)}</td></tr>`).join("")}</table></div>`
+  if (t === "Giro") {
+   const lane = (st, l) => { const g = S.giros.filter((x) => x.st === st); return `<div class="lane"><h4>${l}<span>${g.length}</span></h4>${g.map((x) => `<div class="card${S.hl === x.no ? " hl" : ""}"><b>${x.to}</b><span class="mute">${x.no}</span><div class="m"><span class="num">${fmt(x.amt)}</span>${st === "due" ? `<button class="small" data-act="cleargiro" data-arg="${x.no}">Cleared</button>` : `<span class="mute">${x.due}</span>`}</div></div>`).join("") || `<div class="mute">None</div>`}</div>` }
+   return `<div class="board">${lane("waiting", "Waiting")}${lane("due", "Due in 7 days")}${lane("cleared", "Cleared")}${lane("bounced", "Bounced")}</div>`
+  }
+  const accts = [["BCA 0123 Operasional","15 Oct",412500000],["BCA 0456 Penerimaan","15 Oct",188240000],["Mandiri 1301","15 Oct",64100000]]
+  const rows = accts.map(([a, d, bal]) => { const u = unmatched().filter((l) => l.acct === a), diff = u.reduce((s, l) => s + l.amt, 0); return `<tr><td>${a}</td><td class="w">${d}</td><td class="r">${fmt(bal)}</td><td class="r">${fmt(bal - diff)}</td><td class="r ${diff ? "bad" : "mute"}">${fmt(diff)}</td><td>${u.length ? pill("warn", `${u.length} to match`) : pill("ok", "Agreed")}</td></tr>` }).join("")
+  const lines = unmatched().map((l) => `<tr><td>${l.date}</td><td class="w">${l.acct}</td><td>${l.desc}</td><td class="r ${l.amt < 0 ? "" : "ok"}">${fmt(l.amt)}</td><td class="w mute">${l.sug}</td><td><button class="small" data-act="match" data-arg="${l.id}">Match</button></td></tr>`).join("")
+  return `<div class="bar">${sel("bmonth", ["October 2026","September 2026"])}<button class="ghost">Upload statement</button><button class="ghost">Rules…</button></div>
+   <div class="tw"><table class="t"><tr><th>Account</th><th class="w">Statement to</th><th class="r">Bank</th><th class="r">Books</th><th class="r">Difference</th><th></th></tr>${rows}</table></div>
+   <h3>To match</h3>${lines ? `<div class="tw"><table class="t"><tr><th>Date</th><th class="w">Account</th><th>Bank line</th><th class="r">Amount</th><th class="w">Suggested</th><th></th></tr>${lines}</table></div>` : `<div class="empty">Every line is matched.</div>`}`
+ },
+
+ journal() {
+  return `<div class="bar">${sel("jtype", ["All types","Journal","Interunit","Sales day"])}${sel("junit", ["All units","Head office","Karawaci"])}</div><div class="tw"><table class="t"><tr><th>Entry</th><th>Date</th><th>Memo</th><th class="w">Type</th><th class="w">Posted by</th><th class="r">Debit</th></tr>${S.je.map((j) => `<tr class="${S.hl === j.no ? "hl" : ""}"><td>${j.no}</td><td>${j.date}</td><td>${j.memo}</td><td class="w">${j.type}</td><td class="w">${j.by}</td><td class="r">${fmt(j.amt)}</td></tr>`).join("")}</table></div>
+   <h3>Repeating</h3><div class="tw"><table class="t"><tr><th>Entry</th><th>Every</th><th class="w">Last run</th><th class="r">Amount</th></tr><tr><td>Insurance · prepaid release</td><td>Month end</td><td class="w">30 Sep</td><td class="r">1.200.000</td></tr><tr><td>Head office charge to shops</td><td>Month end</td><td class="w">30 Sep</td><td class="r">18.000.000</td></tr></table></div>`
+ },
+
+ monthend(t) {
+  const bar = `<div class="bar">${sel("period", ["September 2026"])}</div>`
+  if (t === "Checklist") {
+   const st = steps(), all = st.every((x) => x.done)
+   return bar + `<ul class="check">${st.map((x, i) => `<li class="${x.done ? "done" : ""}"><i>${x.done ? "✓" : i + 1}</i><span class="w">${x.l}</span><span class="s">${x.s}</span>${!x.done && x.go ? `<button class="small" data-act="goto" data-arg="${x.go.join("|")}">Open</button>` : ""}</li>`).join("")}
+    <li><i>${S.closed ? "✓" : st.length + 1}</i><span class="w">Closing voucher</span><span class="s">December only</span></li></ul>
+    <div class="bar" style="padding-top:18px">${S.closed ? `<span class="stamp">September closed · Rina Kusuma · 16 Oct</span>` : `<button class="btn" data-act="close" ${all ? "" : "disabled"}>Close September</button>`}</div>`
+  }
+  if (t === "Accruals") return bar + `<div class="tw"><table class="t"><tr><th>Cost</th><th>Unit</th><th class="r">Amount</th><th>Status</th></tr>
+   ${[["Electricity · Sep","Cikupa",2850000],["Rent · Sep","Karawaci",15000000],["Courier · Sep","Head office",1240000]].map(([a, u, n]) => `<tr><td>${a}</td><td>${u}</td><td class="r">${fmt(n)}</td><td>${S.accr ? pill("ok", "Booked") : pill("warn", "To book")}</td></tr>`).join("")}</table></div>
+   <div class="bar">${S.accr ? "" : `<button class="btn" data-act="accr">Book 3 accruals</button>`}</div>
+   <h3>Prepaids</h3><div class="tw"><table class="t"><tr><th>Prepaid</th><th class="w">Period</th><th class="r">Value</th><th class="r">Left</th></tr><tr><td>Store insurance 2026</td><td class="w">Jan – Dec</td><td class="r">14.400.000</td><td class="r">3.600.000</td></tr></table></div>`
+  if (t === "Inventory") {
+   const v = view("iview", "By site")
+   const b2 = `<div class="bar">${sel("period", ["September 2026"])}${sel("iview", ["By site","In transit","Adjustments"])}</div>`
+   if (v === "In transit") return b2 + `<div class="tw"><table class="t"><tr><th>Delivery note</th><th>To</th><th class="r">Pieces</th><th class="r">Value</th><th>Sent</th></tr><tr><td>SJ-26-09-0412</td><td>Karawaci</td><td class="r">148</td><td class="r">8.900.000</td><td>29 Sep</td></tr></table></div>`
+   if (v === "Adjustments") return b2 + `<div class="tw"><table class="t"><tr><th>Date</th><th>Unit</th><th>What</th><th class="r">Pieces</th><th class="r">Value</th><th>Status</th></tr><tr><td>28 Sep</td><td>Karawaci</td><td>Short at count</td><td class="r">−21</td><td class="r">−1.240.000</td><td>${S.inv ? pill("ok", "Booked") : pill("warn", "Waiting")}</td></tr></table></div>`
+   const rows = [["Head office",842000000,61200000,903200000],["Cikupa",212400000,0,212400000],["Karawaci",198300000,8900000,S.inv ? 207200000 : 208440000]]
+   return b2 + `<div class="tw"><table class="t"><tr><th>Site</th><th class="r">On hand</th><th class="r w">In transit</th><th class="r">Stock value</th><th class="r">Ledger</th><th class="r">Difference</th><th></th></tr>${rows.map(([s, a, b, l]) => { const d = a + b - l; return `<tr><td>${s}</td><td class="r">${fmt(a)}</td><td class="r w">${fmt(b)}</td><td class="r">${fmt(a + b)}</td><td class="r">${fmt(l)}</td><td class="r ${d ? "bad" : "mute"}">${fmt(d)}</td><td>${d ? `<button class="small" data-act="inv">Book adjustment</button>` : ""}</td></tr>` }).join("")}</table></div>`
+  }
+  const v = view("tview", "Periods")
+  const b3 = `<div class="bar">${sel("period", ["September 2026"])}${sel("tview", ["Periods","Withheld"])}</div>`
+  if (v === "Withheld") return b3 + `<div class="tw"><table class="t"><tr><th>Date</th><th>Payment</th><th>Supplier</th><th>Tax</th><th class="r">Base</th><th class="r">Withheld</th></tr><tr><td>12 Sep</td><td>KK-26-09-00031</td><td>CV Jaga Aman</td><td>PPh 23</td><td class="r">42.000.000</td><td class="r">840.000</td></tr><tr><td>20 Sep</td><td>KK-26-09-00044</td><td>PT Link Net</td><td>PPh 23</td><td class="r">51.000.000</td><td class="r">1.020.000</td></tr></table></div>`
+  return b3 + `<div class="tw"><table class="t"><tr><th>Tax</th><th class="r">Owed</th><th class="r">Paid</th><th>Due</th><th>Status</th></tr>
+   <tr><td>PPh 21 · Sep</td><td class="r">12.400.000</td><td class="r">12.400.000</td><td>15 Oct</td><td>${pill("ok", "Paid")}</td></tr>
+   <tr><td>PPh 4(2) rent · Sep</td><td class="r">1.500.000</td><td class="r">1.500.000</td><td>15 Oct</td><td>${pill("ok", "Paid")}</td></tr>
+   <tr><td>PPh 23 · Sep</td><td class="r">1.860.000</td><td class="r">0</td><td>15 Oct</td><td>${S.tax ? pill("warn", "Posted, to pay") : `<button class="small" data-act="tax">Post</button>`}</td></tr></table></div>`
+ },
+
+ assets(t) {
+  if (t === "Projects") return `<div class="tw" style="margin-top:12px"><table class="t"><tr><th>Project</th><th>Contractor</th><th>Site</th><th class="r">Paid ahead</th><th class="r">Invoiced</th><th>Status</th></tr>
+   <tr><td>CP-0004<span class="s">Shop fit-out Bekasi</span></td><td>CV Bangun Rapi</td><td>Bekasi</td><td class="r">64.000.000</td><td class="r">38.400.000</td><td>${pill("warn", "Being built")}</td></tr>
+   <tr><td>CP-0003<span class="s">Shop fit-out Cikupa</span></td><td>CV Bangun Rapi</td><td>Cikupa</td><td class="r">186.000.000</td><td class="r">186.000.000</td><td>${pill("ok", "Split into assets")}</td></tr></table></div>`
+   const v = view("aview", "All")
+   const all = [["FA-0031","POS terminal set","Equipment","Karawaci","Capitalised",28500000,S.dep ? 9500000 : 9025000],["FA-0029","Shop fit-out Cikupa","Building improvement","Cikupa","Capitalised",186000000,S.dep ? 31000000 : 29450000],["CP-0004","Shop fit-out Bekasi","Contractor project","Bekasi","Being built",64000000,0],["FA-0012","Delivery van","Vehicle","Head office","Disposed",145000000,145000000]]
+   const list = all.filter((a) => v === "All" || a[4] === v)
+   return `<div class="bar">${sel("aview", ["All","Capitalised","Disposed"])}${S.dep ? pill("ok", "Depreciation run for September") : `<button class="btn" data-act="dep">Run depreciation</button>`}</div>
+    <div class="tw"><table class="t"><tr><th>Asset</th><th class="w">Category</th><th>Site</th><th>Treatment</th><th class="r">Cost</th><th class="r">Book value</th></tr>${list.map((a) => `<tr><td>${a[0]}<span class="s">${a[1]}</span></td><td class="w">${a[2]}</td><td>${a[3]}</td><td>${a[4]}</td><td class="r">${fmt(a[5])}</td><td class="r">${fmt(a[5] - a[6])}</td></tr>`).join("")}</table></div>`
+   },
+
+ reports(t) {
+  const unit = sel("runit", ["All units","Cikupa","Cirebon","Karawaci","Bekasi"])
+  if (t === "Profit and Loss") {
+   const v = view("plv", "Standard")
+   const bar = `<div class="bar">${sel("plv", ["Standard","By unit · 2 years","Expenses by month","By dimension"])}${unit}<button class="ghost">Export</button></div>`
+   if (v === "By unit · 2 years") return bar + table(["Account","Jan–Sep 2026","%","Jan–Sep 2025","%"], [["Net sales","4.820.000.000","100","4.410.000.000","100"],["Cost of goods sold","2.650.000.000","55","2.470.000.000","56"],["Gross profit","2.170.000.000","45","1.940.000.000","44"],["Operating expenses","1.310.000.000","27","1.250.000.000","28"],["Net profit","860.000.000","18","690.000.000","16"]])
+   if (v === "Expenses by month") return bar + table(["Expense","Jul","Aug","Sep","Total"], [["Salaries","98.200.000","98.200.000","101.400.000","297.800.000"],["Rent","45.000.000","45.000.000","45.000.000","135.000.000"],["Electricity","8.120.000","8.640.000","8.910.000","25.670.000"],["Courier","3.410.000","3.950.000","4.120.000","11.480.000"]])
+   if (v === "By dimension") return bar + table(["Division","Revenue","Gross profit","Net profit"], [["Women","2.140.000.000","980.000.000","412.000.000"],["Men","1.620.000.000","702.000.000","268.000.000"],["Kids","1.060.000.000","488.000.000","180.000.000"]])
+   return bar + table(["Account","Jul","Aug","Sep","Total"], [["Net sales","528.000.000","541.000.000","562.000.000","1.631.000.000"],["Cost of goods sold","−290.400.000","−297.500.000","−309.100.000","−897.000.000"],["Gross profit","237.600.000","243.500.000","252.900.000","734.000.000"],["Operating expenses","−152.300.000","−155.100.000","−158.900.000","−466.300.000"],["Net profit","85.300.000","88.400.000","94.000.000","267.700.000"]])
+  }
+  if (t === "Balance Sheet") {
+   const v = view("bsv", "Standard")
+   const bar = `<div class="bar">${sel("bsv", ["Standard","2 years","Changes in equity"])}${unit}<button class="ghost">Export</button></div>`
+   if (v === "2 years") return bar + table(["Account","30 Sep 2026","30 Sep 2025","Change"], [["Assets","3.410.000.000","3.020.000.000","390.000.000"],["Liabilities","1.240.000.000","1.180.000.000","60.000.000"],["Equity","2.170.000.000","1.840.000.000","330.000.000"]])
+   if (v === "Changes in equity") return bar + table(["Equity","Opening","Profit","Other","Closing"], [["Paid-in capital","1.000.000.000","—","—","1.000.000.000"],["Retained earnings","310.000.000","—","—","310.000.000"],["Profit this year","—","860.000.000","—","860.000.000"]])
+   return bar + table(["Account","31 Jul","31 Aug","30 Sep"], [["Cash and bank","702.000.000","688.000.000","676.000.000"],["Stock","1.296.000.000","1.310.000.000","1.322.800.000"],["Fixed assets","412.000.000","409.000.000","406.000.000"],["Owed to suppliers","−214.000.000","−198.000.000","−203.700.000"],["Equity","−2.196.000.000","−2.209.000.000","−2.201.100.000"]])
+  }
+  if (t === "Cash Flow") return `<div class="bar">${sel("cfp", ["Jan – Sep 2026"])}${unit}</div>` + table(["Activity","Jan – Sep 2026"], [["Operating","742.000.000"],["Investing","−214.000.000"],["Financing","−180.000.000"],["Net change","348.000.000"]])
+  if (t === "Ledger" && view("ledv", "General Ledger") === "General Ledger") return `<div class="bar">${sel("ledv", ["General Ledger","Trial Balance"])}${sel("gla", ["1002 Cash on hand","2001 Accounts payable","4001 Sales"])}${unit}</div>` + table(["Date","Entry","Description","Debit","Credit","Balance"], [["14 Oct","JV-26-10-00019","Sales day Cikupa","6.120.000","—","10.370.000"],["15 Oct","KK-26-10-00011","Deposit to BCA 0456","—","6.120.000","4.250.000"]])
+  if (t === "Ledger") return `<div class="bar">${sel("ledv", ["General Ledger","Trial Balance"])}${sel("tbp", ["September 2026"])}${unit}</div>` + table(["Account","Opening","Debit","Credit","Closing"], [["1002 Cash on hand","15.200.000","142.300.000","141.630.000","15.870.000"],["1101 Stock","1.310.000.000","318.000.000","305.200.000","1.322.800.000"],["2001 Accounts payable","−198.000.000","290.100.000","295.800.000","−203.700.000"]])
+  return `<div class="bar">${sel("sdp", ["Jan – Sep 2026"])}${unit}</div>` + table(["Division","Net sales","HPP","Gross profit","Margin"], [["Women","2.140.000.000","1.160.000.000","980.000.000","46%"],["Men","1.620.000.000","918.000.000","702.000.000","43%"],["Kids","1.060.000.000","572.000.000","488.000.000","46%"]])
+ },
+
+ setup() {
+  if (S.v.setupItem) return `<div class="tw" style="margin-top:12px"><table class="t"><tr><th>${S.v.setupItem}</th></tr><tr><td class="mute">Today's screen, unchanged</td></tr></table></div>`
+  return `<div class="cards">${SETUP.map(([g, items]) => `<div class="group"><div class="gl">${g}</div>${items.map((i) => `<button class="item" data-act="setupitem" data-arg="${i}"><span>${i}</span></button>`).join("")}</div>`).join("")}</div>`
+ },
+}
+const isNum = (x) => /^[−\d.,%—\s]+$/.test(x)
+const table = (h, rows) => `<div class="tw"><table class="t"><tr>${h.map((x, i) => `<th class="${i && isNum(rows[0][i]) ? "r" : ""}">${x}</th>`).join("")}</tr>${rows.map((r) => `<tr>${r.map((x, i) => `<td class="${i && isNum(x) ? "r" : ""}">${x}</td>`).join("")}</tr>`).join("")}</table></div>`
+
+// ── the voucher (BKK / BKM), a page of its own ──
+function docPage() {
+ const d = S.doc, kk = d.mode === "bkk"
+ const no = kk ? `KK-26-10-${String(S.seq.kk).padStart(5, "0")}` : `KM-26-10-${String(S.seq.km).padStart(5, "0")}`
+ const sups = [...new Set(S.bills.filter(open).map((b) => b.sup))]
+ const bills = S.bills.filter((b) => open(b) && b.sup === d.sup)
+ const total = kk ? bills.filter((b) => d.tick.includes(b.id)).reduce((a, b) => a + owed(b), 0) : Number(d.amt || 0)
+ const left = `<label>Voucher no<span class="mute">${no}</span></label><label>Date<span>Fri 16 Oct 2026</span></label>
+  <label>${kk ? "Pay from" : "Into"}<select class="sel" data-doc="acct">${["BCA 0123 Operasional","BCA 0456 Penerimaan","Kas HO"].map((a) => `<option${d.acct === a ? " selected" : ""}>${a}</option>`).join("")}</select></label>
+  <label>Reference<input class="inp" data-doc="ref" value="${d.ref ?? ""}"></label>`
+ const right = kk ? `<label>Paid to<select class="sel" data-doc="sup">${sups.map((s) => `<option${d.sup === s ? " selected" : ""}>${s}</option>`).join("")}</select></label>
+  <label>Paid by<select class="sel" data-doc="by">${["Transfer","Giro"].map((s) => `<option${d.by === s ? " selected" : ""}>${s}</option>`).join("")}</select></label>
+  ${d.by === "Giro" ? `<label>Giro no<input class="inp" data-doc="giro" value="${d.giro ?? "BCA 772141"}"></label><label>Giro due<input class="inp" data-doc="gdue" value="${d.gdue ?? "30 Oct"}"></label>` : ""}`
+  : `<label>Received from<input class="inp" data-doc="from" value="${d.from ?? ""}"></label><label>Amount<input class="inp num" data-doc="amt" inputmode="numeric" value="${d.amt ?? ""}"></label>`
+ const grid = kk ? `<div class="tabs"><button class="on">Settle bills</button><button>Other lines</button><button>Advance</button></div>
+  <div class="tw"><table class="t"><tr><th>Invoice</th><th>Due</th><th class="r">Owed</th><th class="r">Pay</th><th>In full</th></tr>${bills.map((b) => `<tr><td>${b.id}<span class="s">${b.what}</span></td><td class="${b.days < 0 ? "bad" : ""}">${b.due}</td><td class="r">${fmt(owed(b))}</td><td class="r">${d.tick.includes(b.id) ? fmt(owed(b)) : "0"}</td><td><input type="checkbox" class="tick" data-tick="${b.id}"${d.tick.includes(b.id) ? " checked" : ""}></td></tr>`).join("")}</table></div>`
+  : `<div class="tabs"><button class="on">Other lines</button><button>Settle receivables</button></div>`
+ return `<div class="crumb">Finance · <button data-act="docback">Cash &amp; Bank</button></div>
+  <div class="head"><h1>New ${kk ? "BKK" : "BKM"}</h1><div class="acts"><button class="btn red" data-act="docback">Cancel</button><button class="btn" data-act="post" ${total > 0 ? "" : "disabled"}>Post</button></div></div>
+  <div class="doc"><div style="display:grid;gap:10px;align-content:start">${left}</div><div style="display:grid;gap:10px;align-content:start">${right}<div class="total"><span>Total</span><b>${rp(total)}</b><i>${terbilang(total)}</i></div></div></div>${grid}`
+}
+
+// ── sheets ──
+function sheet(title, body, foot = "") {
+ $("sheet").innerHTML = `<div class="sh"><h2>${title}</h2><button class="icon" data-act="close" aria-label="Close">${svg("x")}</button></div><div class="sb">${body}</div>${foot ? `<div class="sf">${foot}</div>` : ""}`
+ labelCells($("sheet")); $("sheet").classList.add("on"); $("scrim").classList.add("on")
+}
+function closeSheet() { $("sheet").classList.remove("on"); $("scrim").classList.remove("on"); $("panel").classList.remove("on") }
+const SHEETS = {
+ bill(id) {
+  const b = S.bills.find((x) => x.id === id), cn = S.credits.filter((c) => c.against === id)
+  sheet(b.sup, `<div class="mute">${b.id}</div><div class="big">${rp(Math.max(owed(b), 0))}</div><div class="mute">${b.st === "Paid" ? "Paid" : "Outstanding"}</div>
+   <dl class="props"><dt>Due</dt><dd>${b.due}</dd><dt>For</dt><dd>${b.what}</dd><dt>Total</dt><dd class="num">${fmt(b.total)}</dd>${cn.map((c) => `<dt>Credit note</dt><dd class="num">${c.id} · ${fmt(-c.total)}</dd>`).join("")}</dl>`,
+   open(b) ? `<button class="btn" data-act="pay" data-arg="${b.id}">Pay</button>` : "")
+ },
+ supplier(s) {
+  const bs = S.bills.filter((b) => b.sup === s && b.st !== "Draft")
+  let bal = 0
+  const rows = bs.map((b) => { bal += b.total - b.credit; const r = `<tr><td>${b.due}</td><td>${b.id}</td><td class="r">${fmt(b.total - b.credit)}</td><td class="r">${fmt(bal)}</td></tr>`; if (b.paid) { bal -= b.paid; return r + `<tr><td>${b.due}</td><td>Paid</td><td class="r">${fmt(-b.paid)}</td><td class="r">${fmt(bal)}</td></tr>` } return r }).join("")
+  sheet(s, `<div class="big">${rp(bal)}</div><div class="mute">Owed now</div><h3>Ledger</h3><table class="t"><tr><th>Date</th><th>Entry</th><th class="r">Amount</th><th class="r">Balance</th></tr>${rows}</table>`)
+ },
+ box(arg) {
+  const [shop, box] = arg.split("|"), r = S.boxes.find((b) => b[0] === shop), n = r[{"Cash on hand":1,"Petty cash":2,"Cashier float":3}[box]]
+  sheet(`${box} · ${shop}`, `<div class="big">${rp(n)}</div><div class="mute">Balance now</div><h3>October</h3><table class="t"><tr><th>Date</th><th>Entry</th><th class="r">In</th><th class="r">Out</th></tr><tr><td>14 Oct</td><td>Sales day</td><td class="r">6.120.000</td><td class="r">—</td></tr><tr><td>15 Oct</td><td>Deposit to BCA 0456</td><td class="r">—</td><td class="r">6.120.000</td></tr></table>`)
+ },
+ count(id) {
+  const c = S.counts.find((x) => x.id === id)
+  sheet(`${c.shop} · ${c.box}`, `<div class="mute">${c.id} · ${c.date} · ${c.by}</div><div class="big bad">${rp(c.counted - c.books)}</div>
+   <dl class="props"><dt>Books</dt><dd class="num">${fmt(c.books)}</dd><dt>Counted</dt><dd class="num">${fmt(c.counted)}</dd><dt>Reason</dt><dd><select class="sel"><option>Short at count</option><option>Counting error, recount</option></select></dd></dl>`,
+   `<button class="btn" data-act="bookcount" data-arg="${c.id}">Book difference</button>`)
+ },
+}
+
+// ── render ──
+// phone: each row reads as a card, its header as the label
+function labelCells(root) {
+ for (const t of root.querySelectorAll(".t")) {
+  const hs = [...(t.querySelector("tr:has(th)")?.children ?? [])].map((th) => th.textContent)
+  for (const tr of t.querySelectorAll("tr")) { let i = 0; for (const td of tr.children) { if (td.tagName === "TD") td.dataset.l = hs[i] ?? ""; i += td.colSpan || 1 } }
+ }
+}
+function render(swap) {
+ renderMenu()
+ const pg = $("page"), door = DOORS.find((d) => d.k === S.d), t = tabOf(S.d)
+ let h
+ if (S.map) h = mapPage()
+ else if (S.d === "cash" && S.doc) h = docPage()
+ else if (S.d === "setup" && S.v.setupItem) h = head(S.v.setupItem, "", `Finance · <button data-act="setupback">Setup</button>`) + PAGES.setup()
+ else {
+  const acts = {payables:`<button class="btn">New bill</button>`, cash:t === "BKM" ? `<button class="btn" data-act="newbkm">New BKM</button>` : `<button class="btn" data-act="newbkk">New BKK</button>`, journal:`<button class="btn">New entry</button>`}[S.d] ?? ""
+  h = (S.d === "overview" ? "" : head(door.l, acts)) + (door.tabs ? tabs(S.d) : "") + PAGES[S.d](t)
+ }
+ pg.innerHTML = `<div class="wrap">${h}</div>`
+ labelCells(pg)
+ if (swap) { pg.classList.remove("swap"); void pg.offsetWidth; pg.classList.add("swap"); pg.scrollTop = 0 }
+ $("mapbtn").setAttribute("aria-pressed", S.map)
+ const u = new URL(location); u.search = ""; if (S.map) u.searchParams.set("map", 1); else { u.searchParams.set("d", S.d); if (door.tabs) u.searchParams.set("t", t) }
+ history.replaceState(null, "", u)
+ S.hl = null
+}
+let tt
+function toast(m) { const el = $("toast"); el.textContent = m; el.classList.add("on"); clearTimeout(tt); tt = setTimeout(() => el.classList.remove("on"), 2400) }
+function go(d, t) { S.d = d; if (t) S.t[d] = t; S.doc = null; S.map = false; S.v.setupItem = null; closeSheet(); render(true) }
+
+const ACT = {
+ pal:() => openPal(), palclose:(e) => { if (e.target.id === "pal") closePal() },
+ menu:() => { $("panel").classList.add("on"); $("scrim").classList.add("on") },
+ close:() => closeSheet(),
+ map:() => { S.map = !S.map; render(true) },
+ reset:() => { S = fresh(); render(true); toast("Demo data reset") },
+ goto:(a) => { const [d, t] = a.split("|"); go(d, t) },
+ bill:(a) => SHEETS.bill(a), supplier:(a) => SHEETS.supplier(a), box:(a) => SHEETS.box(a), count:(a) => SHEETS.count(a),
+ pay:(a) => { const b = S.bills.find((x) => x.id === a); closeSheet(); S.map = false; S.d = "cash"; S.t.cash = "BKK"; S.doc = {mode:"bkk", sup:b.sup, tick:[a], by:"Transfer", acct:"BCA 0123 Operasional"}; render(true) },
+ newbkk:() => { const s = S.bills.find(open)?.sup; S.doc = {mode:"bkk", sup:s, tick:[], by:"Transfer", acct:"BCA 0123 Operasional"}; render(true) },
+ newbkm:() => { S.doc = {mode:"bkm", acct:"BCA 0123 Operasional"}; render(true) },
+ docback:() => { S.doc = null; render(true) },
+ post:() => {
+  const d = S.doc
+  if (d.mode === "bkk") {
+   const no = `KK-26-10-${String(S.seq.kk++).padStart(5, "0")}`
+   const bs = S.bills.filter((b) => d.tick.includes(b.id)), amt = bs.reduce((a, b) => a + owed(b), 0)
+   bs.forEach((b) => { b.paid += owed(b); b.st = "Paid" })
+   S.bkk.unshift({no, date:"16 Oct", acct:d.acct, to:d.sup, kind:"Settle bills", amt, st:"Posted"})
+   if (d.by === "Giro") S.giros.unshift({no:d.giro ?? "BCA 772141", to:d.sup, due:d.gdue ?? "30 Oct", amt, st:"waiting"})
+   else S.lines.push({id:Date.now(), acct:d.acct, date:"16 Oct", desc:"TRF " + d.sup.toUpperCase(), amt:-amt, sug:no, m:"Oct"})
+   S.doc = null; S.hl = no; S.t.cash = "BKK"; render(true); toast(`${no} posted · ${bs.length} bill${bs.length > 1 ? "s" : ""} paid`)
+  } else {
+   const no = `KM-26-10-${String(S.seq.km++).padStart(5, "0")}`
+   S.bkm.unshift({no, date:"16 Oct", acct:d.acct, from:d.from || "Other receipt", amt:Number(d.amt), st:"Posted"})
+   S.doc = null; S.hl = no; S.t.cash = "BKM"; render(true); toast(`${no} posted`)
+  }
+ },
+ match:(a) => { const l = S.lines.find((x) => x.id == a); l.done = true; render(); toast(`Matched to ${l.sug}`) },
+ cleargiro:(a) => { S.giros.find((g) => g.no === a).st = "cleared"; S.hl = a; render(); toast(`Giro ${a} cleared`) },
+ bookcount:(a) => { const c = S.counts.find((x) => x.id === a); c.st = "booked"; closeSheet(); S.hl = c.shop; render(); toast(`${rp(c.counted - c.books)} booked to ${c.shop}`) },
+ postday:(a) => { const d = S.days.find((x) => x.shop === a); d.st = "Posted"; d.dep = d.cash; S.hl = a; render(); toast(`${a} · 15 Oct posted`) },
+ accr:() => { S.accr = true; render(); toast("3 accruals booked to September") },
+ inv:() => { S.inv = true; render(); toast("Adjustment booked · Karawaci −1.240.000") },
+ dep:() => { S.dep = true; render(); toast("Depreciation run for September") },
+ tax:() => { S.tax = true; render(); toast("PPh 23 September posted") },
+ close:() => { S.closed = true; render(); toast("September closed") },
+ setupitem:(a) => { S.v.setupItem = a; render(true) },
+ setupback:() => { S.v.setupItem = null; render(true) },
+}
+document.addEventListener("click", (e) => {
+ const el = e.target.closest("[data-go],[data-tab],[data-act],[data-tick]")
+ if (!el) return
+ if (el.dataset.go) { go(el.dataset.go); return }
+ if (el.dataset.tab) { S.t[S.d] = el.dataset.tab; S.doc = null; render(true); return }
+ if (el.dataset.tick !== undefined) return
+ const f = ACT[el.dataset.act]; if (f) f(el.dataset.arg ?? e, e)
+})
+document.addEventListener("change", (e) => {
+ const el = e.target
+ if (el.dataset.view) { S.v[el.dataset.view] = el.value; render() }
+ if (el.dataset.tick) { const t = S.doc.tick, i = t.indexOf(el.dataset.tick); i < 0 ? t.push(el.dataset.tick) : t.splice(i, 1); render() }
+ if (el.dataset.doc && el.tagName === "SELECT") { S.doc[el.dataset.doc] = el.value; if (el.dataset.doc === "sup") S.doc.tick = []; render() }
+})
+document.addEventListener("input", (e) => {
+ const el = e.target
+ if (el.dataset.doc === "amt") { S.doc.amt = el.value.replace(/\D/g, ""); const pos = el.selectionStart; const b = document.querySelector('[data-act="post"]'); if (b) b.disabled = !(Number(S.doc.amt) > 0); const tot = document.querySelector(".total b"); if (tot) { tot.textContent = rp(Number(S.doc.amt || 0)); document.querySelector(".total i").textContent = terbilang(Number(S.doc.amt || 0)) } }
+ else if (el.dataset.doc) S.doc[el.dataset.doc] = el.value
+ if (el.id === "palq") palSearch()
+})
+
+// ── ⌘K: today's page names still find their new home ──
+const MAP = [
+ ["Overview","Overview","","Overview","Overview"],
+ ["Stores","Overview","","Stores › Cash","Uang toko › Saldo toko"],
+ ["Stores","Sales by Day","","Stores › Days","Uang toko › Penjualan"],
+ ["Stores","Cash on Hand","","Stores › Cash · click a box","Uang toko › Saldo toko"],
+ ["Stores","Petty Cash","","Stores › Cash · click a box","Uang toko › Kas kecil"],
+ ["Stores","Cashier Float","","Stores › Cash · click a box","Uang toko › Modal kasir"],
+ ["Stores","Cash Counts","","Stores › Counts","Uang toko › Pemeriksaan kas"],
+ ["Inventory","Inventory Valuation","","Month End › Inventory","Pembukuan › Persediaan"],
+ ["Inventory","Stock vs Ledger","","Month End › Inventory · Ledger and Difference columns","Pembukuan › Persediaan"],
+ ["Inventory","Goods in Transit","","Month End › Inventory · In transit view","Pembukuan › Persediaan"],
+ ["Inventory","Cost of Goods Sold","","Reports › Profit and Loss · COGS line","Pembukuan › Persediaan"],
+ ["Inventory","Stock Adjustments","","Month End › Inventory · Adjustments view","Pembukuan › Persediaan"],
+ ["Payables","Purchase Invoice","","Payables › Bills","Tagihan & utang › Tagihan"],
+ ["Payables","Credit Note","","Payables › Bills · Credit notes view","Tagihan & utang › Credit note"],
+ ["Payables","Recurring Bills","","Payables › Bills · Repeating","Tagihan & utang › Tagihan berulang"],
+ ["Payables","Accruals","","Month End › Accruals","Tagihan & utang › Biaya belum ditagih"],
+ ["Payables","Accounts Payable","","Payables › Due · Aging view","Tagihan & utang › Umur utang"],
+ ["Payables","Supplier Bills","","Payables › Suppliers","Tagihan & utang › Supplier"],
+ ["Payables","Supplier Ledger","hidden","Payables › Suppliers · click a supplier","Tagihan & utang › Supplier"],
+ ["Payables","Payment Projection","","Payables › Due · By due date","Tagihan & utang › Rencana bayar"],
+ ["Payables","Loans","","Payables › Loans","Tagihan & utang › Pinjaman"],
+ ["Receivables","Sales Postings","⌘K","Stores › Days · Posted column","Uang toko › Penjualan"],
+ ["Receivables","Accounts Receivable","⌘K","Off · no debtor book","Uang toko › Piutang lain"],
+ ["Receivables","Card & EDC Settlement","","Stores › Days · Card & QRIS column","Uang toko › Settlement EDC"],
+ ["Receivables","Employee Advances","⌘K","Cash & Bank › BKK · Advance view","Uang toko › Uang muka karyawan"],
+ ["Payments","Payment Entry","hidden","Cash & Bank › BKK · Settle bills view","Kas & bank › Riwayat pembayaran"],
+ ["Payments","BKK","","Cash & Bank › BKK","Kas & bank › Transaksi"],
+ ["Payments","BKM","","Cash & Bank › BKM","Kas & bank › Transaksi"],
+ ["Payments","BKK / BKM documents (4)","hidden","Cash & Bank › BKK / BKM · full page","Kas & bank › Bukti"],
+ ["Payments","Journal Entry","","Journal","Pembukuan › Jurnal"],
+ ["Payments","Recurring Journal","","Journal · Repeating","Pembukuan › Jurnal"],
+ ["Payments","Mode of Payment","","Setup › Money","Pengaturan › Pembayaran"],
+ ["Payments","Cash Transactions","⌘K","Stores › Cash · click a box","Kas & bank › Transaksi"],
+ ["Payments","Petty Cash","⌘K","Stores › Cash","Kas & bank › Kas kecil HO"],
+ ["Payments","Payments Dashboard","⌘K","Overview","Kas & bank › Ringkasan pembayaran"],
+ ["Banking","Bank Account","","Cash & Bank › Bank · accounts on top","Kas & bank › Rekening"],
+ ["Banking","Giro Board","","Cash & Bank › Giro","Kas & bank › Giro"],
+ ["Banking","Bank Clearance","hidden","Cash & Bank › Giro · Cleared on the card","Kas & bank › Giro"],
+ ["Banking","Bank Transactions","","Cash & Bank › Bank · To match","Kas & bank › Rekonsiliasi"],
+ ["Banking","Bank Reconciliation","","Cash & Bank › Bank","Kas & bank › Rekonsiliasi"],
+ ["Banking","Bank Rules","","Cash & Bank › Bank · Rules…","Kas & bank › Rekonsiliasi"],
+ ["Banking","Deposits","⌘K","Stores › Days · Deposited column","Kas & bank › Setoran"],
+ ["Banking","Giro Templates","⌘K","Setup › Money","Pengaturan › Pembayaran"],
+ ["Financial Reports","General Ledger","","Reports › Ledger · General Ledger","Laporan › Buku besar"],
+ ["Financial Reports","Trial Balance","","Reports › Ledger · Trial Balance","Laporan › Neraca saldo"],
+ ["Financial Reports","Profit and Loss","","Reports › Profit and Loss","Laporan › Laba rugi"],
+ ["Financial Reports","Balance Sheet","","Reports › Balance Sheet","Laporan › Neraca"],
+ ["Financial Reports","Cash Flow","","Reports › Cash Flow","Laporan › Arus kas"],
+ ["Financial Reports","Profit and Loss by Unit","","Reports › Profit and Loss · By unit, 2 years","Laporan › Laba rugi"],
+ ["Financial Reports","Balance Sheet 2 Years","","Reports › Balance Sheet · 2 years","Laporan › Neraca"],
+ ["Financial Reports","Dimension Results","⌘K","Reports › Profit and Loss · By dimension","Laporan › Laba rugi"],
+ ["Financial Reports","Cash & Bank","⌘K","Stores › Cash · Last counted","Laporan › Arus kas"],
+ ["Financial Reports","Sales by Division","","Reports › Sales by Division","Laporan › Laba rugi"],
+ ["Financial Reports","Statement of Changes in Equity","","Reports › Balance Sheet · Changes in equity","Laporan › Perubahan ekuitas"],
+ ["Financial Reports","Expenses by Month","","Reports › Profit and Loss · Expenses by month","Laporan › Laba rugi"],
+ ["Financial Reports","Bank Reconciliation Summary","","Cash & Bank › Bank · month picker","Laporan › Rekonsiliasi bank"],
+ ["Assets","Asset","","Assets › Register","Pembukuan › Aset"],
+ ["Assets","Contractor Projects","","Assets › Projects","Pembukuan › Aset"],
+ ["Assets","Asset Category","","Setup › Assets","Pengaturan › Aset"],
+ ["Assets","Fixed Asset Register","","Assets › Register · Capitalised","Pembukuan › Aset"],
+ ["Assets","Asset Disposals","","Assets › Register · Disposed","Pembukuan › Aset"],
+ ["Tax","Tax Withholding","","Setup › Tax","Pengaturan › Pajak"],
+ ["Tax","Tax Withholding Details","","Month End › Tax · Withheld view","Pembukuan › Pajak"],
+ ["Tax","Tax Payables","","Month End › Tax","Pembukuan › Pajak"],
+ ["Tax","Tax Types","","Setup › Tax","Pengaturan › Pajak"],
+ ["Accounting Masters","Chart of Accounts","","Setup › Accounts","Pengaturan › Akuntansi"],
+ ["Accounting Masters","Accounts Settings","","Setup › Accounts","Pengaturan › Akuntansi"],
+ ["Accounting Masters","Accounting Period","","Month End › Checklist · period","Tutup buku › Periode"],
+ ["Accounting Masters","Accounting Dimension","⌘K","Setup › Accounts","Pengaturan › Akuntansi"],
+ ["Accounting Masters","Account Links","⌘K","Setup › Account links","Pengaturan › Akuntansi"],
+ ["Accounting Masters","Posting Readiness","⌘K","Setup › Account links · Gaps","Pengaturan › Akuntansi"],
+ ["Accounting Masters","Shop Payment Methods","⌘K","Setup › Money · Mode of Payment","Pengaturan › Pembayaran"],
+ ["Accounting Masters","EDC & MDR","⌘K","Setup › Money · Mode of Payment","Pengaturan › Pembayaran"],
+ ["Accounting Masters","Expense Categories","⌘K","Setup › Account links","Pengaturan › Akuntansi"],
+ ["Accounting Masters","Line Categories","⌘K","Setup › Account links","Pengaturan › Akuntansi"],
+ ["Accounting Masters","Pay Components","","Setup › Account links","Pengaturan › Akuntansi"],
+ ["Accounting Masters","Posting Policies","⌘K","Setup › Accounts","Pengaturan › Akuntansi"],
+ ["Accounting Masters","Permissions","⌘K","Setup › Accounts","Pengaturan › Akuntansi"],
+ ["Closing","Accruals","⌘K","Month End › Accruals","Tutup buku › Accruals akhir periode"],
+ ["Closing","Prepaids","⌘K","Month End › Accruals · Prepaids","Tutup buku › Prepaids"],
+ ["Closing","Period Close","","Month End › Checklist","Tutup buku › Checklist"],
+ ["Closing","Period Closing Voucher","","Month End › Checklist · December","Tutup buku › Voucher penutupan"],
+]
+const WS_DOOR = {"Pembukuan › Aset":"Assets","Overview":"Overview","Uang toko":"Stores","Tagihan & utang":"Payables","Kas & bank":"Cash & Bank","Pembukuan":"Journal","Laporan":"Reports","Tutup buku":"Month End","Pengaturan":"Setup"}
+const doorOf = (s) => s.split(" › ")[0].split(" · ")[0]
+const moved = (r) => !r[3].startsWith("Off") && doorOf(r[3]) !== (WS_DOOR[r[4]] ?? WS_DOOR[doorOf(r[4])])
+function target(dest) {
+ const door = DOORS.find((d) => d.l === doorOf(dest)); if (!door) return null
+ const m = dest.split(" › ")[1]?.split(" · ")[0]
+ return {d:door.k, t:door.tabs?.includes(m) ? m : null, setup:door.k === "setup" ? null : null}
+}
+function mapPage() {
+ let g = "", body = ""
+ for (const r of MAP) {
+  if (r[0] !== g) { g = r[0]; body += `<tr><td colspan="3" style="padding-top:22px;font-weight:600;border-bottom:1px solid var(--line)">${g}</td></tr>` }
+  const tg = target(r[3])
+  body += `<tr><td>${r[1]}${r[2] ? ` <span class="mute">· ${r[2]}</span>` : ""}</td><td>${tg ? `<button data-act="goto" data-arg="${tg.d}|${tg.t ?? ""}">${r[3]}</button>` : `<span class="bad">${r[3]}</span>`}${moved(r) ? `<span class="mtag">moved</span>` : ""}</td><td class="w mute">${r[4]}</td></tr>`
+ }
+ const n = MAP.filter(moved).length
+ return `<div class="crumb">Prototype</div><div class="head"><h1>Map</h1></div>
+  <div class="figs"><div class="fi"><div class="fig"><span>Menu rows</span><b>57 → ${DOORS.length}</b></div><div class="fig"><span>Only by ⌘K</span><b>21 → 0</b></div><div class="fig"><span>Tabs</span><b>${DOORS.reduce((a, d) => a + (d.tabs?.length ?? 0), 0)}</b></div><div class="fig"><span>Differs from Workspace kerja</span><b>${n}</b></div></div></div>
+  <div class="tw"><table class="t"><tr><th>Today</th><th>Final</th><th class="w">Workspace kerja</th></tr>${body}</table></div>`
+}
+
+let palI = 0, palRes = []
+function openPal() { $("pal").classList.add("on"); $("palq").value = ""; palSearch(); $("palq").focus() }
+function closePal() { $("pal").classList.remove("on") }
+function palSearch() {
+ const q = $("palq").value.trim().toLowerCase()
+ const here = DOORS.flatMap((d) => [{l:d.l, dest:d.l}, ...(d.tabs ?? []).map((t) => ({l:t, dest:`${d.l} › ${t}`}))])
+ const old = MAP.map((r) => ({l:r[1], dest:r[3]}))
+ palRes = [...here, ...old].filter((x) => !q || x.l.toLowerCase().includes(q) || x.dest.toLowerCase().includes(q)).slice(0, 12)
+ palI = 0; drawPal()
+}
+function drawPal() { $("palr").innerHTML = palRes.map((x, i) => `<button class="${i === palI ? "on" : ""}" data-pi="${i}"><span>${x.l}</span><span>${x.dest}</span></button>`).join("") || `<div class="empty" style="padding:14px 12px">No match</div>` }
+function palGo(i) { const x = palRes[i]; if (!x) return; closePal(); const tg = target(x.dest); if (tg) go(tg.d, tg.t); else toast(x.dest) }
+$("palr").addEventListener("click", (e) => { const b = e.target.closest("[data-pi]"); if (b) palGo(Number(b.dataset.pi)) })
+addEventListener("keydown", (e) => {
+ if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); $("pal").classList.contains("on") ? closePal() : openPal(); return }
+ if ($("pal").classList.contains("on")) {
+  if (e.key === "Escape") closePal()
+  if (e.key === "ArrowDown") { palI = Math.min(palI + 1, palRes.length - 1); drawPal(); e.preventDefault() }
+  if (e.key === "ArrowUp") { palI = Math.max(palI - 1, 0); drawPal(); e.preventDefault() }
+  if (e.key === "Enter") palGo(palI)
+  return
+ }
+ if (e.key === "Escape") closeSheet()
+})
+
+$("rail").innerHTML = ["home","cart","tag","box","people","bank"].map((k) => `<span class="ic${k === "bank" ? " on" : ""}">${svg(k)}</span>`).join("")
+const q = new URLSearchParams(location.search)
+if (q.get("map")) S.map = true
+if (DOORS.some((d) => d.k === q.get("d"))) S.d = q.get("d")
+if (q.get("t")) S.t[S.d] = q.get("t")
+render()
+</script>
+</body>
+</html>

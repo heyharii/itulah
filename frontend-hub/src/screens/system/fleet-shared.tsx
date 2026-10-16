@@ -140,7 +140,7 @@ export function FleetStoreStrip({ unitId }: { unitId: string }) {
   return (
     <AppLink
       to="/system/servers"
-      className="flex items-center gap-2.5 rounded-card border border-hairline-2 bg-canvas px-3.5 py-2.5 text-[0.875rem] transition-colors hover:bg-soft"
+      className="flex items-center gap-2.5 rounded-card border border-hairline-2 bg-canvas px-3.5 py-2.5 text-[0.9375rem] transition-colors hover:bg-soft"
     >
       <FleetDot colour={row.colour} />
       <span className="min-w-0 flex-1 truncate text-body">{row.headline}</span>

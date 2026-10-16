@@ -1,22 +1,22 @@
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useSuspenseQuery } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { useMemo, useState } from "react"
+import { Suspense, useDeferredValue, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
-import { DockTools } from "@/components/shell/dock-tools"
+import { DockTools, type DockStatus } from "@/components/shell/dock-tools"
 import { Card } from "@/components/ui/card"
 import { DataTable, dockSortOf } from "@/components/ui/data-table"
-import { Checkbox, Input } from "@/components/ui/field"
+import { Checkbox } from "@/components/ui/field"
 import { DeskFilterButton, DeskFilterChips } from "@/components/ui/desk-filter"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
-import { Meter } from "@/components/ui/meter"
+import { BarSpacer, ExpandingSearch } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill, Status } from "@/components/ui/pill"
 import { MiniCell, MiniRow, MiniTable, SubHead } from "@/components/ui/rows"
-import { Segmented, Toolbar } from "@/components/ui/segmented"
+import { SubTabs } from "@/components/ui/sub-tabs"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import { EmptyState } from "@/components/ui/states"
+import { EmptyState, LoadingState } from "@/components/ui/states"
 import {
   matches,
   useFilterState,
@@ -26,13 +26,12 @@ import {
 import { count, day, money, moment } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import {
-  changeKeys,
   describeChangeKind,
   describeChangeStatus,
   eventKeys,
-  listPriceChanges,
   listPriceEvents,
   needsAttention,
+  priceChangesQuery,
   type ChangeLens,
   type PriceChange,
 } from "@/lib/queries/changes"
@@ -175,6 +174,30 @@ const FIELDS: readonly FilterField[] = [
   },
 ]
 
+/// The number a change is spoken of by: its book's version, three digits wide
+/// ("PC-041"). The Pricelist's Next price names the change that brings it by
+/// the same number.
+export function changeNumber(version: number): string {
+  return `PC-${String(version).padStart(3, "0")}`
+}
+
+/// Where a change stands, as a dot and a word: the period, unless stores are
+/// still to take it — then how many have ("Sending · 5 of 8"), which is what
+/// somebody looking at a live change wants to know first.
+function stateOf(change: PriceChange): {
+  readonly tone: "neutral" | "warn" | "bad" | "ok" | "done"
+  readonly text: string
+} {
+  const { status, rollout } = change
+  if (status === "SCHEDULED") return { tone: "neutral", text: "Scheduled" }
+  const reached = `${count(rollout.activated)} of ${count(rollout.target)}`
+  if (rollout.failed > 0) return { tone: "bad", text: `Failed · ${reached}` }
+  if (rollout.pending > 0) return { tone: "warn", text: `Sending · ${reached}` }
+  return status === "ACTIVE"
+    ? { tone: "ok", text: "Active" }
+    : { tone: "done", text: "Ended" }
+}
+
 /// One value per cell, and nothing stacked under it.
 ///
 /// Every column here used to carry a second line — the version under the name,
@@ -185,19 +208,32 @@ const FIELDS: readonly FilterField[] = [
 /// apart into columns of their own: a table is a grid of single values, and
 /// anything that needs a second line is a different column.
 ///
-/// The version is gone from the display and kept in the accessor, so typing
-/// "v23" still finds the book without printing an ordinal in every row.
+/// The change's number stands in a column of its own (Number), and "v23" is
+/// kept in the name's accessor so typing it still finds the book.
 const columns: ColumnDef<TableSetup, PriceChange>[] = [
   {
+    id: "number",
+    accessorFn: (row) => row.version,
+    header: "Number",
+    size: 110,
+    meta: { card: "hide" },
+    cell: ({ row }) => (
+      <span className="text-ink tabular-nums">
+        {changeNumber(row.original.version)}
+      </span>
+    ),
+  },
+  {
     id: "change",
-    accessorFn: (row) => `${row.name} v${row.version}`,
+    accessorFn: (row) =>
+      `${row.name} ${changeNumber(row.version)} v${row.version}`,
     header: "Change",
     size: 240,
     meta: { grow: 240, card: "hide" },
     // A ceiling in the cell, not a `size` on the column. `DataTable` only
     // applies `size` when it virtualises (past 150 rows); under that the table
     // is `table-auto` and a long book name — "Harga awal · 2-p basic cotton
-    // tights SG" — sets the column's width by itself and pushes Published off
+    // tights SG" — sets the column's width by itself and pushes the rest off
     // the end. The name is the one variable-width thing here, so it is the one
     // that carries the ceiling.
     cell: ({ row }) => (
@@ -210,7 +246,7 @@ const columns: ColumnDef<TableSetup, PriceChange>[] = [
     id: "kind",
     accessorFn: (row) => describeChangeKind(row.kind),
     header: "Kind",
-    size: 150,
+    size: 170,
     meta: { card: "hide" },
     cell: ({ row }) => (
       <span
@@ -223,50 +259,6 @@ const columns: ColumnDef<TableSetup, PriceChange>[] = [
         {describeChangeKind(row.original.kind)}
       </span>
     ),
-  },
-  {
-    id: "status",
-    accessorFn: (row) => describeChangeStatus(row.status),
-    header: "Status",
-    size: 130,
-    meta: { card: "hide" },
-    cell: ({ row }) => {
-      const { status } = row.original
-      return (
-        <Status
-          tone={
-            status === "ACTIVE"
-              ? "ok"
-              : status === "SCHEDULED"
-                ? "info"
-                : undefined
-          }
-          className="w-fit"
-        >
-          {describeChangeStatus(status)}
-        </Status>
-      )
-    },
-  },
-  {
-    id: "period",
-    accessorFn: (row) => row.effective_from,
-    header: "Period",
-    size: 210,
-    meta: { card: "hide" },
-    // "· open-ended" is gone. An absent end date was being announced in words
-    // on every row, and the absence of a second date already says it — a
-    // period written as one date has not ended, which is what open-ended
-    // means.
-    cell: ({ row }) => {
-      const { effective_from, effective_to } = row.original
-      return (
-        <span className="truncate text-body">
-          {day(effective_from)}
-          {effective_to === null ? "" : ` – ${day(effective_to)}`}
-        </span>
-      )
-    },
   },
   {
     id: "articles",
@@ -300,34 +292,45 @@ const columns: ColumnDef<TableSetup, PriceChange>[] = [
       ),
   },
   {
-    id: "rollout",
-    accessorFn: (row) =>
-      row.rollout.target === 0 ? 0 : row.rollout.activated / row.rollout.target,
-    header: "Rollout",
-    size: 190,
-    meta: { align: "right", card: "hide" },
-    // Activated over target, on one line. A failure is not folded into it —
-    // a till that tried and could not is a different thing from one that has
-    // not got round to it, and it is the one worth interrupting the line for.
-    cell: ({ row }) => {
-      const { activated, target, failed } = row.original.rollout
-      const share = target === 0 ? 0 : activated / target
-      return (
-        <span className="flex items-center justify-end gap-2">
-          <Meter
-            value={share}
-            tone={failed > 0 ? "bad" : share === 1 ? "ok" : "warn"}
-            className="w-12"
-          />
-          <span className="w-20 text-right tabular-nums">
-            <span className="text-ink">
-              {count(activated)}/{count(target)}
-            </span>
-            {failed > 0 && (
-              <span className="text-bad"> · {count(failed)}✕</span>
-            )}
-          </span>
+    id: "starts",
+    accessorFn: (row) => row.effective_from,
+    header: "Starts",
+    size: 130,
+    meta: { card: "hide" },
+    cell: ({ row }) => (
+      <span className="truncate text-body">
+        {day(row.original.effective_from)}
+      </span>
+    ),
+  },
+  {
+    // An absent end date is a price with no end, and a dash says so.
+    id: "ends",
+    accessorFn: (row) => row.effective_to ?? "",
+    header: "Ends",
+    size: 130,
+    meta: { card: "hide" },
+    cell: ({ row }) =>
+      row.original.effective_to === null ? (
+        <span className="text-mute">—</span>
+      ) : (
+        <span className="truncate text-body">
+          {day(row.original.effective_to)}
         </span>
+      ),
+  },
+  {
+    id: "status",
+    accessorFn: (row) => stateOf(row).text,
+    header: "Status",
+    size: 190,
+    meta: { card: "hide" },
+    cell: ({ row }) => {
+      const state = stateOf(row.original)
+      return (
+        <Status tone={state.tone} className="w-fit">
+          {state.text}
+        </Status>
       )
     },
   },
@@ -363,7 +366,7 @@ const columns: ColumnDef<TableSetup, PriceChange>[] = [
     cell: ({ row }) => (
       <CardName
         name={row.original.name}
-        line={describeChangeKind(row.original.kind)}
+        line={`${changeNumber(row.original.version)} · ${describeChangeKind(row.original.kind)}`}
         muted={row.original.status === "ENDED"}
       />
     ),
@@ -435,6 +438,33 @@ const columns: ColumnDef<TableSetup, PriceChange>[] = [
 ]
 
 export function Changes() {
+  return (
+    <PageContent>
+      <PageHeader crumb="Marketing" title="Changes" />
+      <ChangesBody />
+    </PageContent>
+  )
+}
+
+/// The list of changes and everything that goes with it, without a page of its
+/// own: the Changes screen draws it under its header, and the Pricelist draws
+/// it as its second tab.
+///
+/// `tabs` is given by a page that already carries its own figures and tabs
+/// (the Pricelist). The body then leaves its own figures and its lens out, and
+/// the phone's status button is that page's, not the lens'.
+export function ChangesBody({ tabs }: { tabs?: DockStatus }) {
+  // The list waits for the changes and streams in with them (the server
+  // starts the read too).
+  return (
+    <Suspense fallback={<LoadingState>Loading…</LoadingState>}>
+      <ChangeList tabs={tabs} />
+    </Suspense>
+  )
+}
+
+function ChangeList({ tabs }: { tabs?: DockStatus }) {
+  const inside = tabs !== undefined
   // A phone draws the rows as cards and keeps the status, the search and the
   // filter in the drawer over the bottom bar (`DockTools`).
   const phone = useLayout() === "phone"
@@ -448,12 +478,12 @@ export function Changes() {
     { id: "published", desc: true },
   ])
 
-  const list = useQuery({
-    queryKey: changeKeys.list(settled),
-    queryFn: ({ signal }) => listPriceChanges(settled, signal),
-  })
+  // Another tab or filter: the rows in hand stay, dimmed (`list-swap`), until
+  // the next are read — the deferred question keeps them on screen.
+  const askedSettled = useDeferredValue(settled)
+  const list = useSuspenseQuery(priceChangesQuery(askedSettled))
 
-  const all = useMemo(() => list.data ?? [], [list.data])
+  const all = list.data
 
   const filters = useFilterState(FIELDS)
 
@@ -507,9 +537,7 @@ export function Changes() {
   ).length
 
   return (
-    <PageContent>
-      <PageHeader crumb="Marketing" title="Changes" />
-
+    <>
       {/* The rail's three figures are a sentence on a phone, where the rail is
           not drawn. */}
       {phone && (
@@ -525,7 +553,7 @@ export function Changes() {
           figure that moved with the filter would say "0 need attention" the
           moment somebody clicked Scheduled, which is the one reading these
           must never give — so each says what it is counting. */}
-      {!phone && (
+      {!phone && !inside && (
         <KpiStrip className="grid-cols-3 xl:grid-cols-3">
           {[
             {
@@ -551,37 +579,38 @@ export function Changes() {
         </KpiStrip>
       )}
 
-      {/* Purchase Orders' shape: the lens, the search and one filter button
-          over the table, the clauses in force under them. */}
+      {/* Purchase Orders' shape: the lens as tabs under the figures, then the
+          search and one filter button over the table, the clauses in force
+          under them. On a phone the lens is the drawer's status button. */}
       <div className="min-w-0">
         <div className="flex min-w-0 flex-col">
+          {!inside && (
+            <SubTabs
+              className="max-md:hidden"
+              tabs={[
+                { value: "ALL", label: "All" },
+                { value: "SCHEDULED", label: "Scheduled" },
+                { value: "ACTIVE", label: "Active" },
+                { value: "ATTENTION", label: "Attention" },
+              ]}
+              value={lens}
+              onChange={(next) => setLens(next as ChangeLens)}
+            />
+          )}
           {!phone && (
-            <Toolbar className="mb-5">
-              <Segmented
-                options={[
-                  { value: "ALL", label: "All" },
-                  { value: "SCHEDULED", label: "Scheduled" },
-                  { value: "ACTIVE", label: "Active" },
-                  { value: "ATTENTION", label: "Attention" },
-                ]}
-                value={lens}
-                onChange={setLens}
-              />
-              <Toolbar.Spacer />
+            <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2">
               {/* In the URL like every search box here, so a filtered list can
                 be sent. The version is in the row's accessor, so "v23"
                 finds it without being printed. */}
-              <Input
+              <ExpandingSearch
                 value={search.value ?? ""}
-                onChange={(event) =>
-                  event.target.value === ""
-                    ? search.close()
-                    : search.open(event.target.value)
+                onChange={(next) =>
+                  next === "" ? search.close() : search.open(next)
                 }
-                aria-label="Search changes"
-                className="h-9 w-56"
+                label="Search changes"
               />
               <DeskFilterButton model={filters} table={table} />
+              <BarSpacer />
               {/* A second question for the SERVER, not a fifth tab and not a
                 clause. The four tabs narrow the work; this asks for the changes
                 that are no longer work at all, which the default list is
@@ -591,38 +620,35 @@ export function Changes() {
                 onChange={setSettled}
                 label="Include settled"
               />
-            </Toolbar>
+            </div>
           )}
-          {!phone && (
-            <DeskFilterChips model={filters} table={table} className="-mt-2" />
-          )}
+          {!phone && <DeskFilterChips model={filters} table={table} />}
 
-          <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-            {queryState(list, {
-              loading: "Loading…",
-              render: () =>
-                rows.length === 0 ? (
-                  <EmptyState>
-                    {lens === "ALL" && filters.filters.length === 0
-                      ? "Nothing outstanding."
-                      : lens === "ATTENTION"
-                        ? "Nothing needs attention."
-                        : "No change matches that."}
-                  </EmptyState>
-                ) : (
-                  <DataTable<PriceChange>
-                    refresh={[list]}
-                    table={table}
-                    onRowClick={(row) => book.open(row.publication_id)}
-                    isSelected={(row) => row.publication_id === book.value}
-                    empty="No change matches that search."
-                    cardSort={false}
-                    cardsApart
-                    cardLead
-                    className={`${ROOMY} max-h-[calc(100dvh-20rem)]`}
-                  />
-                ),
-            })}
+          <Card
+            aria-busy={askedSettled !== settled || undefined}
+            className="list-swap overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none"
+          >
+            {rows.length === 0 ? (
+              <EmptyState>
+                {lens === "ALL" && filters.filters.length === 0
+                  ? "Nothing outstanding."
+                  : lens === "ATTENTION"
+                    ? "Nothing needs attention."
+                    : "No change matches that."}
+              </EmptyState>
+            ) : (
+              <DataTable<PriceChange>
+                refresh={[list]}
+                table={table}
+                onRowClick={(row) => book.open(row.publication_id)}
+                isSelected={(row) => row.publication_id === book.value}
+                empty="No change matches that search."
+                cardSort={false}
+                cardsApart
+                cardLead
+                className={`${ROOMY} max-h-[calc(100dvh-20rem)]`}
+              />
+            )}
           </Card>
         </div>
       </div>
@@ -643,20 +669,22 @@ export function Changes() {
           panel: { model: filters, table },
         }}
         sort={dockSortOf(table)}
-        status={{
-          value: settled ? "SETTLED" : lens,
-          options: [
-            { value: "ALL", label: "All" },
-            { value: "SCHEDULED", label: "Scheduled" },
-            { value: "ACTIVE", label: "Active" },
-            { value: "ATTENTION", label: "Attention" },
-            { value: "SETTLED", label: "All, with settled" },
-          ],
-          onChange: (next) => {
-            setSettled(next === "SETTLED")
-            setLens(next === "SETTLED" ? "ALL" : (next as ChangeLens))
-          },
-        }}
+        status={
+          tabs ?? {
+            value: settled ? "SETTLED" : lens,
+            options: [
+              { value: "ALL", label: "All" },
+              { value: "SCHEDULED", label: "Scheduled" },
+              { value: "ACTIVE", label: "Active" },
+              { value: "ATTENTION", label: "Attention" },
+              { value: "SETTLED", label: "All, with settled" },
+            ],
+            onChange: (next) => {
+              setSettled(next === "SETTLED")
+              setLens(next === "SETTLED" ? "ALL" : (next as ChangeLens))
+            },
+          }
+        }
       />
 
       <ChangeSheet
@@ -664,7 +692,7 @@ export function Changes() {
         change={all.find((one) => one.publication_id === book.value) ?? null}
         onClose={book.close}
       />
-    </PageContent>
+    </>
   )
 }
 
@@ -882,11 +910,11 @@ function ChangeSheet({
                 {shops.map((one) => (
                   <MiniRow key={one.siteId}>
                     <MiniCell>
-                      <span className="block text-[0.875rem] text-ink">
+                      <span className="block text-[0.9375rem] text-ink">
                         {nameOf(one.siteId)}
                       </span>
                       {one.detail !== null && one.state === "FAILED" && (
-                        <span className="block text-[0.875rem] text-bad">
+                        <span className="block text-[0.9375rem] text-bad">
                           {one.detail}
                         </span>
                       )}
@@ -911,7 +939,7 @@ function ChangeSheet({
                       </Status>
                     </MiniCell>
                     <MiniCell align="right">
-                      <span className="text-[0.875rem] text-mute">
+                      <span className="text-[0.9375rem] text-mute">
                         {one.at === null ? "—" : moment(one.at)}
                       </span>
                     </MiniCell>
@@ -945,7 +973,7 @@ function ChangeSheet({
                             />
                           </MiniCell>
                           <MiniCell>
-                            <span className="text-[0.875rem] text-body">
+                            <span className="text-[0.9375rem] text-body">
                               {where(one.site_id, one.site_ids)}
                             </span>
                           </MiniCell>
@@ -976,7 +1004,7 @@ function ChangeSheet({
                             />
                           </MiniCell>
                           <MiniCell>
-                            <span className="text-[0.875rem] text-body">
+                            <span className="text-[0.9375rem] text-body">
                               {where(one.site_id, one.site_ids)}
                             </span>
                           </MiniCell>

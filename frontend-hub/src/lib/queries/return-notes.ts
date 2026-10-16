@@ -11,15 +11,16 @@ export function noteKey(note: PrintableNote): string {
   return note.returns.map((one) => one.number).join(",")
 }
 
-/// Makes the note's link, or finds it. Signed in. The note goes up exactly as
-/// it is printed, minus the link itself.
+/// Makes the note's link, or finds it, with the note's number (0969: "2026-1",
+/// given once). Signed in. The note goes up exactly as it is printed, minus
+/// the link and the number, which are the server's.
 export function createReturnNoteLink(
   key: string,
   note: PrintableNote,
   signal?: AbortSignal
-): Promise<{ token: string }> {
-  const { qrUrl: _link, ...snapshot } = note
-  return node.post<{ token: string }>(
+): Promise<{ token: string; number: string }> {
+  const { qrUrl: _link, number: _number, ...snapshot } = note
+  return node.post<{ token: string; number: string }>(
     "/api/v1/return-notes",
     { key, note: snapshot },
     { signal }

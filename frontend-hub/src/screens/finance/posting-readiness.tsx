@@ -1,26 +1,28 @@
+import { useSuspenseQuery } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { useMemo, useState } from "react"
+import { Suspense, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Card } from "@/components/ui/card"
-import { Checkbox, Input } from "@/components/ui/field"
+import { Checkbox } from "@/components/ui/field"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
+import { BarSpacer, ExpandingSearch } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
-import { Toolbar } from "@/components/ui/segmented"
 import { EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { Button } from "@/components/ui/button"
 import { DockTools } from "@/components/shell/dock-tools"
 import { count, label } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
+import { postingReadinessQuery } from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
 import { cn } from "@/lib/utils"
-import { usePostingReadiness } from "@/screens/finance/badges"
 import {
   encodeLinkSource,
   sourceTypeLabel,
 } from "@/screens/finance/master-data"
 import { PhoneCard, PhoneList } from "@/components/ui/phone-cards"
+import { ScreenPending } from "@/screens/finance/pending"
 import type { ReadinessRow } from "@itulah/contract"
 
 /// "If this happened now in this unit's books, would it post?" — for every
@@ -44,15 +46,29 @@ import type { ReadinessRow } from "@itulah/contract"
 /// Fixing a gap happens on Account links, so a row opens that role's sheet
 /// there rather than growing a second editor here.
 export function PostingReadinessScreen() {
+  return (
+    <Suspense
+      fallback={
+        <ScreenPending crumb="Finance" title="Posting Readiness">
+          Asking every unit…
+        </ScreenPending>
+      }
+    >
+      <PostingReadiness />
+    </Suspense>
+  )
+}
+
+function PostingReadiness() {
   const phone = useLayout() === "phone"
   const navigate = useNavigate()
-  const readiness = usePostingReadiness()
+  const readiness = useSuspenseQuery(postingReadinessQuery())
   const [onlyGaps, setOnlyGaps] = useState(true)
   const [needle, setNeedle] = useState("")
 
   const rows = useMemo<ReadinessRow[]>(() => {
     const text = needle.trim().toLowerCase()
-    return (readiness.data?.rows ?? []).filter(
+    return readiness.data.rows.filter(
       (row) =>
         (!onlyGaps || row.gaps > 0) &&
         (text === "" ||
@@ -77,30 +93,20 @@ export function PostingReadinessScreen() {
       },
     } as never)
 
-  const gaps = readiness.data?.gaps ?? 0
+  const gaps = readiness.data.gaps
   const rolesWithGaps = new Set(
-    (readiness.data?.rows ?? [])
-      .filter((row) => row.gaps > 0)
-      .map((row) => row.role)
+    readiness.data.rows.filter((row) => row.gaps > 0).map((row) => row.role)
   ).size
 
   return (
     <PageContent>
-      <PageHeader
-        crumb="Finance"
-        title="Posting Readiness"
-        sub="Every role the posting rules use, against every unit: the account a posting would land on now, or a gap where it would be refused."
-        // Search and which rows are in the dock on a phone.
-        actions={
-          phone ? undefined : (
-            <Input
-              value={needle}
-              onChange={(event) => setNeedle(event.target.value)}
-              className="h-8 w-56"
-            />
-          )
-        }
-      />
+      <PageHeader crumb="Finance" title="Posting Readiness" />
+
+      <KpiStrip className="md:grid-cols-3 xl:grid-cols-3">
+        <Kpi label="Gaps" value={count(gaps)} />
+        <Kpi label="Roles with a gap" value={count(rolesWithGaps)} />
+        <Kpi label="Units" value={count(readiness.data.locations.length)} />
+      </KpiStrip>
 
       {phone ? (
         <DockTools
@@ -115,45 +121,39 @@ export function PostingReadinessScreen() {
               {
                 value: "gaps",
                 label: "Gaps only",
-                count: (readiness.data?.rows ?? []).filter(
-                  (row) => row.gaps > 0
-                ).length,
+                count: readiness.data.rows.filter((row) => row.gaps > 0).length,
               },
               {
                 value: "all",
                 label: "Every row",
-                count: readiness.data?.rows.length ?? 0,
+                count: readiness.data.rows.length,
               },
             ],
             onChange: (next) => setOnlyGaps(next === "gaps"),
           }}
         />
       ) : (
-        <Toolbar>
+        <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2">
+          <ExpandingSearch
+            value={needle}
+            onChange={setNeedle}
+            label="Search roles and sources"
+          />
           <Checkbox
             label="Only rows with gaps"
             checked={onlyGaps}
             onChange={(next) => setOnlyGaps(next)}
           />
-          <Toolbar.Spacer />
-          <span className="text-[0.875rem] text-mute">
-            {count(rows.length)} of {count(readiness.data?.rows.length ?? 0)}{" "}
+          <BarSpacer />
+          <span className="text-[0.9375rem] text-mute">
+            {count(rows.length)} of {count(readiness.data.rows.length)}{" "}
             role-and-source rows · open one to fix it on Account links
           </span>
-        </Toolbar>
-      )}
-
-      {readiness.data && (
-        <KpiStrip className="md:grid-cols-3 xl:grid-cols-3">
-          <Kpi label="Gaps" value={count(gaps)} />
-          <Kpi label="Roles with a gap" value={count(rolesWithGaps)} />
-          <Kpi label="Units" value={count(readiness.data.locations.length)} />
-        </KpiStrip>
+        </div>
       )}
 
       <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(readiness, {
-          loading: "Asking every unit…",
           render: (data) =>
             rows.length === 0 ? (
               <EmptyState>
@@ -218,7 +218,7 @@ export function PostingReadinessScreen() {
               </PhoneList>
             ) : (
               <div className="max-h-[calc(100dvh-20rem)] overflow-auto">
-                <table className="w-max min-w-full border-collapse text-[0.875rem]">
+                <table className="w-max min-w-full border-collapse text-[0.9375rem]">
                   <thead className="sticky top-0 z-10 bg-canvas">
                     <tr>
                       <th className="sticky left-0 z-20 border-b border-hairline-2 bg-canvas px-3 py-2 text-left font-medium whitespace-nowrap text-mute">

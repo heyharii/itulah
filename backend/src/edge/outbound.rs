@@ -692,6 +692,18 @@ pub fn create_shipment(
                 "koli {koli_id} is not sealed yet"
             )));
         }
+        let held: i64 = tx
+            .query_row(
+                "SELECT COUNT(*) FROM koli_unit WHERE koli_id=?1",
+                params![koli_id],
+                |row| row.get(0),
+            )
+            .map_err(db)?;
+        if held == 0 {
+            return Err(EdgeError::Conflict(format!(
+                "koli {koli_id} was emptied by a move back; it ships nothing"
+            )));
+        }
         if let Some(existing) = existing {
             return Err(EdgeError::Conflict(format!(
                 "koli {koli_id} already belongs to shipment {existing}"
@@ -2165,7 +2177,13 @@ pub struct ListFilter {
 }
 
 pub fn list_koli(connection: &Connection, filter: ListFilter) -> Result<Vec<Koli>, EdgeError> {
-    let mut sql = String::from("SELECT koli_id FROM koli WHERE 1=1");
+    // A sealed carton a move back emptied is no carton any more: its row
+    // stays (its packed fact is append-only), but it is on no list. Sealing
+    // refuses an empty box, so nothing else is sealed and empty.
+    let mut sql = String::from(
+        "SELECT koli_id FROM koli WHERE (sealed_at IS NULL OR EXISTS
+             (SELECT 1 FROM koli_unit WHERE koli_unit.koli_id = koli.koli_id))",
+    );
     if filter.unassigned {
         sql.push_str(" AND shipment_id IS NULL");
     }
@@ -2245,6 +2263,268 @@ fn collect_ids(connection: &Connection, sql: &str) -> Result<Vec<String>, EdgeEr
         .collect::<Result<Vec<_>, _>>()
         .map_err(db)?;
     Ok(ids)
+}
+
+// ---------------------------------------------------------------------------
+// Move back: the Gudang takes its own work back (the edge's `cloud::dc::move_back`)
+// ---------------------------------------------------------------------------
+
+/// Where the pieces are now.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum MoveBackFrom {
+    Picked,
+    Packed,
+}
+
+/// Where they go: the pick area (`picked`) or the racks (`pick`).
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum MoveBackTo {
+    Picked,
+    Pick,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct MoveBackLine {
+    pub sku_code: String,
+    pub quantity: i64,
+}
+
+/// The same wire as the cloud's (`frontend-hub/src/lib/operations/changes.ts`).
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct MoveBackRequest {
+    pub idempotency_key: String,
+    /// The shop the pieces were for.
+    pub destination_id: String,
+    /// Only this allotment's pieces; any of the shop's when absent.
+    #[serde(default)]
+    pub allotment_id: Option<String>,
+    pub from: MoveBackFrom,
+    pub to: MoveBackTo,
+    /// The carton they leave; required when `from` is `packed`.
+    #[serde(default)]
+    pub koli_id: Option<String>,
+    pub lines: Vec<MoveBackLine>,
+    #[serde(default)]
+    pub reason: Option<String>,
+    /// Filled from the session, never from the body, and not part of what a
+    /// retry is compared on.
+    #[serde(skip)]
+    pub actor_id: String,
+}
+
+/// A carton the move back opened, as it is left.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct MoveBackKoli {
+    pub koli_id: String,
+    pub koli_number: String,
+    pub units_left: i64,
+    /// Its label counts pieces it no longer holds: print it again.
+    pub label_reprint: bool,
+    /// Nothing left in it: the carton is gone from every list.
+    pub emptied: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct MoveBackResult {
+    pub moved: i64,
+    /// How many of them their allotment no longer wanted (not asked for again).
+    pub settled: i64,
+    /// How many go back on the picklist to be picked again.
+    pub to_pick_again: i64,
+    pub kolis: Vec<MoveBackKoli>,
+}
+
+/// Why a picker could not finish a line (the cloud's `ShortReason`).
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ShortReason {
+    NotConfirmed,
+    NotFound,
+    Damaged,
+    LabelOrEquipment,
+    Other,
+}
+
+impl ShortReason {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::NotConfirmed => "NOT_CONFIRMED",
+            Self::NotFound => "NOT_FOUND",
+            Self::Damaged => "DAMAGED",
+            Self::LabelOrEquipment => "LABEL_OR_EQUIPMENT",
+            Self::Other => "OTHER",
+        }
+    }
+
+    pub fn parse(text: &str) -> Self {
+        match text {
+            "NOT_CONFIRMED" => Self::NotConfirmed,
+            "NOT_FOUND" => Self::NotFound,
+            "DAMAGED" => Self::Damaged,
+            "LABEL_OR_EQUIPMENT" => Self::LabelOrEquipment,
+            _ => Self::Other,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ReportShortPickRequest {
+    pub idempotency_key: String,
+    pub allotment_id: String,
+    pub destination_id: String,
+    pub sku_code: String,
+    pub pieces: i64,
+    pub reason: ShortReason,
+    #[serde(default)]
+    pub note: Option<String>,
+    #[serde(default)]
+    pub pick_session_id: Option<String>,
+    #[serde(default)]
+    pub count_id: Option<String>,
+    /// Filled from the session, never from the body.
+    #[serde(skip)]
+    pub actor_id: String,
+}
+
+/// One short pick as the board reads it. Its status is read, never stored:
+/// OPEN while the picklist still owes pieces of it, PICKED once it does not.
+/// (The edge has no count review or MD close to say FOUND, LOST or CLOSED.)
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ShortPick {
+    pub id: String,
+    pub allotment_id: String,
+    pub allotment_number: String,
+    pub destination_id: String,
+    pub sku_code: String,
+    pub article_name: String,
+    pub pieces: i64,
+    pub still_short: i64,
+    pub reason: ShortReason,
+    pub note: Option<String>,
+    pub reported_by: String,
+    pub reported_at: String,
+    pub count_id: Option<String>,
+    pub status: String,
+}
+
+/// Where short picks are kept on this node. Created on first use rather than
+/// by a numbered migration: the table is the edge's first copy of a cloud
+/// concept, and nothing else reads it.
+pub(crate) const SHORT_PICK_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS dc_short_pick (
+    id               TEXT PRIMARY KEY,
+    idempotency_key  TEXT NOT NULL UNIQUE,
+    allotment_id     TEXT NOT NULL,
+    destination_id   TEXT NOT NULL,
+    sku_code         TEXT NOT NULL,
+    pieces           INTEGER NOT NULL CHECK (pieces > 0),
+    reason           TEXT NOT NULL,
+    note             TEXT,
+    pick_session_id  TEXT,
+    count_id         TEXT,
+    reported_by      TEXT NOT NULL,
+    reported_at      TEXT NOT NULL
+)";
+
+/// What one allotment × shop × SKU still has to pick: what its lines want
+/// (accepted, not cancelled, not yet in a carton) less what was picked for
+/// it and waits in the pick area. `picklists_to_pick`'s arithmetic, for one
+/// key. `?1` the pick area, `?2` allotment, `?3` shop, `?4` SKU.
+pub(crate) fn still_to_pick(
+    connection: &Connection,
+    site_id: &str,
+    allotment_id: &str,
+    destination_id: &str,
+    sku_code: &str,
+) -> Result<i64, EdgeError> {
+    let wanted: i64 = connection
+        .query_row(
+            "SELECT COALESCE(SUM(accepted_quantity - picked_quantity - cancelled_quantity), 0)
+               FROM dc_allotment_work_line
+              WHERE allotment_id = ?1 AND destination_id = ?2 AND sku_code = ?3",
+            params![allotment_id, destination_id, sku_code],
+            |row| row.get(0),
+        )
+        .map_err(db)?;
+    let waiting: i64 = connection
+        .query_row(
+            &format!(
+                "SELECT COUNT(*) {WAITING_PICK_UNITS}
+                   AND s.allotment_id = ?2 AND s.destination_id = ?3 AND u.sku_code = ?4"
+            ),
+            params![
+                picking_place(site_id),
+                allotment_id,
+                destination_id,
+                sku_code
+            ],
+            |row| row.get(0),
+        )
+        .map_err(db)?;
+    Ok((wanted - waiting).max(0))
+}
+
+/// Every short pick reported here, newest first, with its status read now.
+pub fn list_short_picks(
+    connection: &Connection,
+    site_id: &str,
+) -> Result<Vec<ShortPick>, EdgeError> {
+    connection.execute_batch(SHORT_PICK_SCHEMA).map_err(db)?;
+    let mut statement = connection
+        .prepare(
+            "SELECT sp.id, sp.allotment_id, COALESCE(w.allotment_number, ''), sp.destination_id,
+                    sp.sku_code, COALESCE(c.name, sp.sku_code), sp.pieces, sp.reason, sp.note,
+                    sp.reported_by, sp.reported_at, sp.count_id
+               FROM dc_short_pick sp
+               LEFT JOIN dc_allotment_work w ON w.allotment_id = sp.allotment_id
+               LEFT JOIN catalog_item c ON c.sku_code = sp.sku_code
+              ORDER BY sp.reported_at DESC, sp.id DESC
+              LIMIT 500",
+        )
+        .map_err(db)?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok(ShortPick {
+                id: row.get(0)?,
+                allotment_id: row.get(1)?,
+                allotment_number: row.get(2)?,
+                destination_id: row.get(3)?,
+                sku_code: row.get(4)?,
+                article_name: row.get(5)?,
+                pieces: row.get(6)?,
+                still_short: 0,
+                reason: ShortReason::parse(&row.get::<_, String>(7)?),
+                note: row.get(8)?,
+                reported_by: row.get(9)?,
+                reported_at: row.get(10)?,
+                count_id: row.get(11)?,
+                status: String::new(),
+            })
+        })
+        .map_err(db)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(db)?;
+    drop(statement);
+    let mut items = Vec::with_capacity(rows.len());
+    for mut one in rows {
+        let left = still_to_pick(
+            connection,
+            site_id,
+            &one.allotment_id,
+            &one.destination_id,
+            &one.sku_code,
+        )?;
+        one.still_short = one.pieces.min(left);
+        one.status = if one.still_short > 0 {
+            "OPEN"
+        } else {
+            "PICKED"
+        }
+        .to_owned();
+        items.push(one);
+    }
+    Ok(items)
 }
 
 #[cfg(test)]

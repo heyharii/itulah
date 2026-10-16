@@ -1,30 +1,45 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { useMemo, useState } from "react"
+import {
+  useMutation,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query"
+import type { ColumnDef, SortingState } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
+import { Suspense, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { Checkbox, Field, Input, Money, Select } from "@/components/ui/field"
+import { Fab } from "@/components/ui/fab"
+import { FilterSheet } from "@/components/ui/filter-sheet"
+import {
+  BarSpacer,
+  ColumnsMenu,
+  ExpandingSearch,
+} from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
-import { Toolbar } from "@/components/ui/segmented"
 import { EmptyState, Problem } from "@/components/ui/states"
-import { DockTools } from "@/components/shell/dock-tools"
-import { Fab } from "@/components/ui/fab"
 import { count, label, money, percentBps } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
-import { financeKeys, savePaymentMethod } from "@/lib/queries/finance"
+import {
+  financeKeys,
+  paymentMethodsQuery,
+  savePaymentMethod,
+} from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
-import { Grid, Td, Th } from "@/screens/finance-final/parts"
+import { tableSetup, type TableSetup } from "@/lib/table"
+import { useColumnFit } from "@/screens/finance/column-fit"
 import { parseMinor } from "@/screens/finance/chart"
-import { usePaymentMethods } from "@/screens/finance/master-data"
-import { PhoneCard, PhoneList } from "@/components/ui/phone-cards"
-import { FilterSheet } from "@/components/ui/filter-sheet"
 import {
   EditorCard,
   LinkAccountsButton,
   MasterLayout,
 } from "@/screens/finance/master-parts"
+import { ScreenPending } from "@/screens/finance/pending"
 import type { PaymentMethodSetting } from "@itulah/contract"
 
 /// The tenders the company accepts, through which bank or scheme, how each
@@ -59,22 +74,145 @@ function percentOfBps(bps: number): string {
   return percentBps(bps)
 }
 
+/// One method per row. On a phone the same columns are the card: the name
+/// over its type, bank and way of settling, the rate and the shops under it,
+/// and the accounts button (or "Linked") at the right.
+const columns: ColumnDef<TableSetup, PaymentMethodSetting>[] = [
+  {
+    accessorKey: "name",
+    header: "Mode of Payment",
+    size: 280,
+    meta: { card: "title", grow: 200 },
+    cell: ({ row }) => (
+      <span className="flex items-center gap-2 whitespace-normal">
+        <span className="text-ink">{row.original.name}</span>
+        {!row.original.is_active && <Pill tone="neutral">Inactive</Pill>}
+      </span>
+    ),
+  },
+  {
+    accessorKey: "tender_type",
+    header: "Type",
+    size: 160,
+    meta: { card: "meta" },
+    cell: ({ row }) => label(row.original.tender_type),
+  },
+  {
+    accessorKey: "bank_code",
+    header: "Bank",
+    size: 130,
+    meta: { card: "meta" },
+    cell: ({ row }) =>
+      row.original.bank_code === "" ? (
+        <span className="text-faint">—</span>
+      ) : (
+        row.original.bank_code
+      ),
+  },
+  {
+    accessorKey: "settlement_mode",
+    header: "Settles",
+    size: 170,
+    meta: { card: "meta" },
+    cell: ({ row }) => label(row.original.settlement_mode),
+  },
+  {
+    id: "point",
+    accessorFn: (row) =>
+      row.point_value_minor === null
+        ? null
+        : `One point is ${money(row.point_value_minor)}`,
+    header: "Point value",
+    size: 190,
+    meta: { card: "meta", priority: 3 },
+    cell: ({ row }) =>
+      row.original.point_value_minor === null ? (
+        <span className="text-faint">—</span>
+      ) : (
+        `One point is ${money(row.original.point_value_minor)}`
+      ),
+  },
+  {
+    id: "mdr",
+    accessorFn: (row) => (row.mdr_bps === 0 ? null : row.mdr_bps),
+    header: "MDR",
+    size: 100,
+    meta: { align: "right", card: "metric" },
+    cell: ({ row }) =>
+      row.original.mdr_bps === 0 ? (
+        <span className="text-faint">—</span>
+      ) : (
+        percentOfBps(row.original.mdr_bps)
+      ),
+  },
+  {
+    id: "shops",
+    accessorFn: (row) => row.site_ids.length,
+    header: "Shops",
+    size: 100,
+    meta: { align: "right", card: "metric" },
+    // Which shops take it is set per shop, on Shop payment methods; none
+    // means no till offers it.
+    cell: ({ row }) =>
+      row.original.site_ids.length === 0 ? (
+        <span className="text-faint" title="No shop takes this method yet">
+          0
+        </span>
+      ) : (
+        count(row.original.site_ids.length)
+      ),
+  },
+  {
+    id: "accounts",
+    accessorFn: (row) => row.unlinked_roles.length,
+    header: "Accounts",
+    size: 170,
+    meta: { align: "right", card: "status" },
+    // Only a method that cannot post yet asks for anything here; the rest are
+    // linked, and their accounts are one click away in the form.
+    cell: ({ row }) =>
+      row.original.unlinked_roles.length > 0 ? (
+        <LinkAccountsButton
+          role={row.original.unlinked_roles[0]}
+          sourceType="COMPANY"
+          sourceId={row.original.bank_code}
+        />
+      ) : (
+        <span className="text-mute">Linked</span>
+      ),
+  },
+]
+
 export function PaymentMethods() {
+  return (
+    <Suspense
+      fallback={
+        <ScreenPending crumb="Finance · Payments" title="Mode of Payment">
+          Reading the payment methods…
+        </ScreenPending>
+      }
+    >
+      <PaymentMethodsScreen />
+    </Suspense>
+  )
+}
+
+function PaymentMethodsScreen() {
   const phone = useLayout() === "phone"
   const [filtering, setFiltering] = useState(false)
-  const list = usePaymentMethods()
+  const list = useSuspenseQuery(paymentMethodsQuery())
   const [editing, setEditing] = useState<PaymentMethodSetting | "new" | null>(
     null
   )
   const [inactive, setInactive] = useState(false)
   // ERPNext's own standard filter on Mode of Payment — Type.
   const [tender, setTender] = useState("")
-  // The phone's dock has a search; the desk's toolbar never did.
   const [needle, setNeedle] = useState("")
+  const [sorting, setSorting] = useState<SortingState>([])
 
   const rows = useMemo(() => {
     const text = needle.trim().toLowerCase()
-    return (list.data ?? [])
+    return list.data
       .filter((row) => inactive || row.is_active)
       .filter((row) => tender === "" || row.tender_type === tender)
       .filter(
@@ -85,9 +223,31 @@ export function PaymentMethods() {
           row.bank_code.toLowerCase().includes(text)
       )
   }, [list.data, inactive, tender, needle])
-  const unready = (list.data ?? []).filter(
+  const unready = list.data.filter(
     (row) => row.is_active && row.unlinked_roles.length > 0
   ).length
+
+  const [measure, fit] = useColumnFit(columns, phone)
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: rows,
+        columns,
+        getRowId: (row: PaymentMethodSetting) => row.code,
+        state: {
+          sorting,
+          columnVisibility: fit.visibility,
+        },
+        onSortingChange: setSorting,
+        onColumnVisibilityChange: fit.onChange,
+      }),
+      // `fit` is new each render: the room is measured, and the columns the
+      // card has no room for are given up.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      [rows, sorting, phone, fit]
+    )
+  )
 
   return (
     <PageContent>
@@ -104,211 +264,109 @@ export function PaymentMethods() {
         }
       />
 
-      {phone ? (
-        <>
-          <Fab label="New method" onClick={() => setEditing("new")} />
-          <DockTools
-            search={{
-              value: needle,
-              onChange: setNeedle,
-              label: "Search methods",
-            }}
-            filter={{
-              count: inactive ? 1 : 0,
-              onOpen: () => setFiltering(true),
-            }}
-            status={{
-              value: tender,
-              options: [
-                { value: "", label: "All types" },
-                ...TENDERS.map((one) => ({ value: one, label: label(one) })),
-              ],
-              onChange: setTender,
-            }}
-          />
-          <FilterSheet open={filtering} onOpenChange={setFiltering}>
-            <Checkbox
-              label="Show inactive"
-              checked={inactive}
-              onChange={setInactive}
-            />
-          </FilterSheet>
-        </>
-      ) : (
-        <Toolbar>
-          <Select
-            value={tender}
-            onChange={setTender}
-            className="h-control w-40"
-            aria-label="Type"
-          >
-            <option value="">All types</option>
-            {TENDERS.map((one) => (
-              <option key={one} value={one}>
-                {label(one)}
-              </option>
-            ))}
-          </Select>
-          <Checkbox
-            label="Show inactive"
-            checked={inactive}
-            onChange={setInactive}
-          />
-          <Toolbar.Spacer />
-          <span className="text-[0.875rem] text-mute">
-            {count(rows.length)} methods
-            {unready > 0 && ` · ${count(unready)} cannot post a day yet`}
-          </span>
-        </Toolbar>
-      )}
+      <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2 max-md:hidden">
+        <ExpandingSearch
+          value={needle}
+          onChange={setNeedle}
+          label="Search methods"
+        />
+        <Select
+          value={tender}
+          onChange={setTender}
+          className="h-control w-40"
+          aria-label="Type"
+        >
+          <option value="">All types</option>
+          {TENDERS.map((one) => (
+            <option key={one} value={one}>
+              {label(one)}
+            </option>
+          ))}
+        </Select>
+        <Checkbox
+          label="Show inactive"
+          checked={inactive}
+          onChange={setInactive}
+        />
+        <BarSpacer />
+        <ColumnsMenu table={table} />
+      </div>
+
+      <Fab label="New method" onClick={() => setEditing("new")} />
+      <DockTools
+        search={{
+          value: needle,
+          onChange: setNeedle,
+          label: "Search methods",
+        }}
+        filter={{
+          count: inactive ? 1 : 0,
+          onOpen: () => setFiltering(true),
+        }}
+        sort={dockSortOf(table)}
+        status={{
+          value: tender,
+          options: [
+            { value: "", label: "All types" },
+            ...TENDERS.map((one) => ({ value: one, label: label(one) })),
+          ],
+          onChange: setTender,
+        }}
+      />
+      <FilterSheet open={filtering} onOpenChange={setFiltering}>
+        <Checkbox
+          label="Show inactive"
+          checked={inactive}
+          onChange={setInactive}
+        />
+      </FilterSheet>
 
       <MasterLayout
         list={
-          <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-            {queryState(list, {
-              loading: "Reading the payment methods…",
-              render: () =>
-                rows.length === 0 ? (
-                  <EmptyState>
-                    No payment method yet. A sales day cannot post a tender
-                    nobody declared.
-                  </EmptyState>
-                ) : phone ? (
-                  <PhoneList>
-                    {rows.map((row) => (
-                      <PhoneCard
-                        key={row.code}
-                        title={row.name}
-                        muted={!row.is_active}
-                        line={
-                          <>
-                            <div>
-                              {[
-                                label(row.tender_type),
-                                row.bank_code === "" ? null : row.bank_code,
-                                label(row.settlement_mode),
-                                row.is_active ? null : "Inactive",
-                              ]
-                                .filter(Boolean)
-                                .join(" · ")}
-                            </div>
-                            {row.point_value_minor !== null && (
-                              <div>
-                                One point is {money(row.point_value_minor)}
-                              </div>
-                            )}
-                          </>
-                        }
-                        lead={
-                          row.mdr_bps === 0
-                            ? undefined
-                            : percentOfBps(row.mdr_bps)
-                        }
-                        caption={row.mdr_bps === 0 ? undefined : "MDR"}
-                        foot={
-                          row.site_ids.length === 0
-                            ? "No shop takes it"
-                            : `${count(row.site_ids.length)} ${row.site_ids.length === 1 ? "shop" : "shops"}`
-                        }
-                        action={
-                          row.unlinked_roles.length > 0 ? (
-                            <LinkAccountsButton
-                              role={row.unlinked_roles[0]}
-                              sourceType="COMPANY"
-                              sourceId={row.bank_code}
-                            />
-                          ) : (
-                            <Pill tone="ok">Linked</Pill>
-                          )
-                        }
-                        onOpen={() => setEditing(row)}
-                      />
-                    ))}
-                  </PhoneList>
-                ) : (
-                  <Grid>
-                    <thead>
-                      <tr>
-                        <Th>Mode of Payment</Th>
-                        <Th>Type</Th>
-                        <Th>Bank</Th>
-                        <Th>Settles</Th>
-                        <Th align="right">MDR</Th>
-                        <Th align="right">Shops</Th>
-                        <Th align="right">Accounts</Th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.map((row) => (
-                        <tr
-                          key={row.code}
-                          onClick={() => setEditing(row)}
-                          className="cursor-pointer hover:bg-soft"
-                        >
-                          <Td>
-                            <span className="text-ink">{row.name}</span>
-                            {!row.is_active && (
-                              <Pill tone="neutral" className="ml-2">
-                                Inactive
-                              </Pill>
-                            )}
-                            {row.point_value_minor !== null && (
-                              <div className="text-mute">
-                                One point is {money(row.point_value_minor)}
-                              </div>
-                            )}
-                          </Td>
-                          <Td>{label(row.tender_type)}</Td>
-                          <Td>
-                            {row.bank_code === "" ? (
-                              <span className="text-faint">—</span>
-                            ) : (
-                              row.bank_code
-                            )}
-                          </Td>
-                          <Td>{label(row.settlement_mode)}</Td>
-                          <Td align="right">
-                            {row.mdr_bps === 0 ? (
-                              <span className="text-faint">—</span>
-                            ) : (
-                              percentOfBps(row.mdr_bps)
-                            )}
-                          </Td>
-                          <Td align="right">
-                            {/* Which shops take it is set per shop, on Shop
-                                payment methods; none means no till offers it. */}
-                            {row.site_ids.length === 0 ? (
-                              <span
-                                className="text-faint"
-                                title="No shop takes this method yet"
-                              >
-                                0
-                              </span>
-                            ) : (
-                              count(row.site_ids.length)
-                            )}
-                          </Td>
-                          {/* Only a method that cannot post yet asks for
-                              anything here; the rest are linked, and their
-                              accounts are one click away in the form. */}
-                          <Td align="right">
-                            {row.unlinked_roles.length > 0 ? (
-                              <LinkAccountsButton
-                                role={row.unlinked_roles[0]}
-                                sourceType="COMPANY"
-                                sourceId={row.bank_code}
-                              />
-                            ) : (
-                              <span className="text-mute">Linked</span>
-                            )}
-                          </Td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </Grid>
-                ),
-            })}
-          </Card>
+          <div ref={measure}>
+            <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+              {queryState(list, {
+                render: () =>
+                  rows.length === 0 ? (
+                    <EmptyState>
+                      {needle.trim() === "" && tender === ""
+                        ? "No payment method yet. A sales day cannot post a tender nobody declared."
+                        : "No payment method matches the search and filters."}
+                    </EmptyState>
+                  ) : (
+                    <DataTable<PaymentMethodSetting>
+                      table={table}
+                      refresh={[list]}
+                      onRowClick={(row) => setEditing(row)}
+                      isSelected={(row) =>
+                        editing !== null &&
+                        editing !== "new" &&
+                        editing.code === row.code
+                      }
+                      pageScroll
+                      cardsApart
+                      cardSort={false}
+                      summary={{
+                        name: (
+                          <span>
+                            {count(rows.length)}{" "}
+                            <span className="font-normal text-body">
+                              {rows.length === 1 ? "method" : "methods"}
+                            </span>
+                          </span>
+                        ),
+                        accounts:
+                          unready > 0 ? (
+                            <span className="font-normal text-bad-fg">
+                              {count(unready)} cannot post a day yet
+                            </span>
+                          ) : undefined,
+                      }}
+                    />
+                  ),
+              })}
+            </Card>
+          </div>
         }
         editor={
           editing !== null && (

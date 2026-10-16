@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>HR · Workspace kerja</title>
+  <link rel="stylesheet" href="../finance-navigation/styles.css">
+  <link rel="stylesheet" href="hr.css">
+</head>
+<body>
+  <header class="prototype-bar">
+    <strong>HR <span class="muted">/ workspace kerja</span></strong>
+    <div class="variants" role="group" aria-label="Struktur HR">
+      <button data-scheme="compact" aria-pressed="true">7 workspace</button>
+      <button data-scheme="separate">Cuti & lembur terpisah</button>
+    </div>
+    <button class="button quiet" data-action="rationale">Kenapa struktur ini?</button>
+  </header>
+  <div class="experiment-bar">
+    <span id="structure-summary"></span>
+    <label>Pelaku demo <select id="actor"><option value="maya">HR pusat · Maya</option><option value="budi">Manager Bandung · Budi</option><option value="sarah">HR pusat · Sarah</option></select></label>
+    <label>Coba alur <select id="scenario"><option value="">Jelajah bebas</option><option value="leave">Cuti → jadwal → saldo</option><option value="payroll">Presensi → payroll → Finance</option><option value="claim">Klaim → review → status bayar</option></select></label>
+    <button class="button quiet" data-action="reset">Reset demo</button>
+  </div>
+  <div class="app">
+    <nav class="rail" aria-label="Hub">
+      <button data-action="menu" aria-label="Buka atau tutup menu HR">☰</button>
+      <button data-action="search" aria-label="Cari HR, Command K">⌕</button>
+      <span class="rail-rule"></span>
+      <a class="rail-symbol" href="../finance-navigation/?v=workspace" aria-label="Buka prototype Finance">Rp</a>
+      <button class="selected" data-action="home" aria-label="HR Overview">HR</button>
+      <span class="rail-bottom" id="avatar">MY</span>
+    </nav>
+    <nav class="sidebar" aria-label="HR" id="sidebar"></nav>
+    <main id="main" tabindex="-1"></main>
+  </div>
+  <dialog id="dialog" aria-labelledby="dialog-title"></dialog>
+  <div class="toast" role="status" aria-live="polite" hidden></div>
+  <script src="menu-data.js"></script>
+  <script src="hr.js"></script>
+</body>
+</html>

@@ -1,6 +1,6 @@
-import { Link, type LinkProps } from "@tanstack/react-router"
+import { Link, useHydrated, type LinkProps } from "@tanstack/react-router"
 import { ArrowRight, Check, ChevronDown, Store } from "lucide-react"
-import { useState } from "react"
+import { Suspense, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { DockPortal, useDock } from "@/components/shell/dock"
@@ -80,6 +80,10 @@ export function Figures({ children }: { children: React.ReactNode }) {
 
 /// Title, then the one bar that says what the whole page is about: which
 /// period, which shop, against what.
+///
+/// The bar offers the shops the sales report names, so it waits for that answer
+/// in a boundary of its own: the title and the period stand at once, and the
+/// shop menu fills in beside them.
 export function ReportPage({
   title,
   scope,
@@ -92,13 +96,70 @@ export function ReportPage({
   /// Off for a page whose figures are the company's only.
   storeFilter?: boolean
 }) {
-  const { places, nameOf } = usePlaces(scope)
-  const stores = places.filter((place) => place.kind === "STORE")
-
   return (
     <PageContent>
       <PageHeader crumb="Executive" title={title} className="mb-4" />
 
+      <Suspense
+        fallback={
+          <ScopeBar
+            scope={scope}
+            stores={[]}
+            storeFilter={storeFilter}
+            nameOf={(siteId) => siteId}
+          />
+        }
+      >
+        <NamedScopeBar scope={scope} storeFilter={storeFilter} />
+      </Suspense>
+
+      {children}
+    </PageContent>
+  )
+}
+
+/// The bar with the shops the report knows by name.
+function NamedScopeBar({
+  scope,
+  storeFilter,
+}: {
+  scope: ReportScope
+  storeFilter: boolean
+}) {
+  const { places, nameOf } = usePlaces(scope)
+  const stores = places.filter((place) => place.kind === "STORE")
+  return (
+    <ScopeBar
+      scope={scope}
+      stores={stores}
+      storeFilter={storeFilter}
+      nameOf={nameOf}
+    />
+  )
+}
+
+function ScopeBar({
+  scope,
+  stores,
+  storeFilter,
+  nameOf,
+}: {
+  scope: ReportScope
+  stores: readonly { site_id: string; name: string }[]
+  storeFilter: boolean
+  nameOf: (siteId: string) => string
+}) {
+  const hydrated = useHydrated()
+  // Until the shops are known a narrowed report names its shop by its id, so
+  // the menu is never offered a value it has no row for.
+  const offered =
+    scope.store !== undefined &&
+    !stores.some((place) => place.site_id === scope.store)
+      ? [...stores, { site_id: scope.store, name: nameOf(scope.store) }]
+      : stores
+
+  return (
+    <>
       {/* On a phone the period and the shop are the dock's two buttons, and
           the page opens on its figures. */}
       <div className="mb-5 flex flex-wrap items-center gap-2 max-md:hidden">
@@ -114,7 +175,7 @@ export function ReportPage({
             value={scope.store ?? null}
             options={[
               { value: null, label: "All stores" },
-              ...stores.map((place) => ({
+              ...offered.map((place) => ({
                 value: place.site_id,
                 label: place.name,
               })),
@@ -123,7 +184,7 @@ export function ReportPage({
             className="border border-hairline-2 bg-canvas"
           />
         )}
-        <span className="ml-auto text-[0.875rem] text-mute">
+        <span className="ml-auto text-[0.9375rem] text-mute">
           {scope.label}
           {storeFilter &&
             scope.store !== undefined &&
@@ -133,13 +194,20 @@ export function ReportPage({
         </span>
       </div>
 
-      <ScopeDock
-        scope={scope}
-        stores={stores}
-        storeFilter={storeFilter}
-        storeName={scope.store === undefined ? undefined : nameOf(scope.store)}
-      />
-      <p className="mb-4 text-[0.875rem] text-mute md:hidden">
+      {/* The dock is the browser's: a boundary that streams in after the page
+          has hydrated finds the dock already there and would draw into it, where
+          the server drew nothing. */}
+      {hydrated && (
+        <ScopeDock
+          scope={scope}
+          stores={offered}
+          storeFilter={storeFilter}
+          storeName={
+            scope.store === undefined ? undefined : nameOf(scope.store)
+          }
+        />
+      )}
+      <p className="mb-4 text-[0.9375rem] text-mute md:hidden">
         {scope.label}
         {storeFilter &&
           scope.store !== undefined &&
@@ -147,9 +215,7 @@ export function ReportPage({
         <span className="text-faint"> · vs </span>
         {scope.beforeLabel}
       </p>
-
-      {children}
-    </PageContent>
+    </>
   )
 }
 
@@ -171,7 +237,7 @@ function ScopeDock({
   const [open, setOpen] = useState<"term" | "store" | null>(null)
   const term = TERMS.find((one) => one.value === scope.term)
   const chip =
-    "inline-flex h-9 min-w-0 items-center gap-1 rounded-full bg-soft-2 pr-2.5 pl-3.5 text-[0.875rem] font-medium text-ink transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.97]"
+    "inline-flex h-9 min-w-0 items-center gap-1 rounded-full bg-soft-2 pr-2.5 pl-3.5 text-[0.9375rem] font-medium text-ink transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.97]"
 
   const rows = <T extends string | undefined>(
     options: readonly { value: T; label: string }[],
@@ -284,7 +350,7 @@ export function Head({
       <div className="min-w-0">
         <CardTitle>{title}</CardTitle>
         {sub !== undefined && (
-          <p className="mt-[0.1875rem] text-[0.875rem] text-body">{sub}</p>
+          <p className="mt-[0.1875rem] text-[0.9375rem] text-body">{sub}</p>
         )}
       </div>
       {children}
@@ -299,7 +365,7 @@ export function Head({
               store: prev.store,
             })) as never
           }
-          className="inline-flex shrink-0 items-center gap-1 text-[0.875rem] font-medium whitespace-nowrap text-accent hover:underline"
+          className="inline-flex shrink-0 items-center gap-1 text-[0.9375rem] font-medium whitespace-nowrap text-accent hover:underline"
         >
           {link}
           <ArrowRight className="size-3" />
@@ -327,7 +393,7 @@ export function Line({
   return (
     <div
       className={cn(
-        "flex items-baseline justify-between gap-3 border-t border-hairline py-2 text-[0.875rem] first:border-t-0",
+        "flex items-baseline justify-between gap-3 border-t border-hairline py-2 text-[0.9375rem] first:border-t-0",
         strong ? "font-semibold text-ink" : "text-text",
         className
       )}
@@ -335,7 +401,9 @@ export function Line({
       <span className="min-w-0">{label}</span>
       <span className="flex shrink-0 items-baseline gap-3 tabular-nums">
         {aside !== undefined && (
-          <span className="text-[0.875rem] font-normal text-mute">{aside}</span>
+          <span className="text-[0.9375rem] font-normal text-mute">
+            {aside}
+          </span>
         )}
         {value}
       </span>
@@ -357,7 +425,7 @@ export function Bar({
   tone?: "accent" | "warn" | "bad" | "mute"
 }) {
   return (
-    <div className="grid grid-cols-[7.5rem_minmax(0,1fr)_5.5rem] items-center gap-3 py-1.5 text-[0.875rem]">
+    <div className="grid grid-cols-[7.5rem_minmax(0,1fr)_5.5rem] items-center gap-3 py-1.5 text-[0.9375rem]">
       <span className="truncate text-body">{label}</span>
       <span className="h-2 overflow-hidden rounded-[3px] bg-soft-2">
         <span

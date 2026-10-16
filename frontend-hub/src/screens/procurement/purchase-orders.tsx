@@ -1,7 +1,8 @@
 import { useNameOfLogin } from "@/lib/queries/hr-employees"
-import { Menu } from "@base-ui/react/menu"
 import { AppLink } from "@/components/ui/app-link"
+import { DocStamp } from "@/components/ui/doc-stamp"
 import {
+  keepPreviousData,
   useInfiniteQuery,
   useMutation,
   useQuery,
@@ -15,7 +16,7 @@ import {
   ChevronRight,
   ChevronsDownUp,
   ChevronsUpDown,
-  ClipboardCheck,
+  Plus,
   RotateCcw,
   X,
 } from "lucide-react"
@@ -30,20 +31,19 @@ import { ConfirmButton } from "@/components/ui/dialog"
 import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { DockTools } from "@/components/shell/dock-tools"
 import { Fab } from "@/components/ui/fab"
-import { Switch } from "@/components/ui/form"
+import { SwitchPill } from "@/components/ui/form"
 import { DayRange, type DayWindow } from "@/components/ui/day-range"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import {
   BarSpacer,
   ColumnsMenu,
-  ListOptionsSheet,
   SearchSuggest,
 } from "@/components/ui/list-chrome"
 import { Pill } from "@/components/ui/pill"
 import { Section } from "@/components/ui/rows"
 import { SubTabs } from "@/components/ui/sub-tabs"
-import { Fact, Facts, Sheet } from "@/components/ui/sheet"
+import { Sheet } from "@/components/ui/sheet"
 import { EmptyState } from "@/components/ui/states"
 import {
   useFilterState,
@@ -66,6 +66,7 @@ import {
 } from "@/lib/format"
 import { prefetchOrder } from "@/screens/procurement/prefetch"
 import {
+  createPurchaseOrderLink,
   cancelPurchaseOrder,
   catalogueVocabulary,
   closeLineShort,
@@ -75,6 +76,7 @@ import {
   procurementKeys,
   raisePurchaseReturn,
   supplierDetail,
+  supplierItemDetail,
   supplierNamesQuery,
   // Both hand-written beside their fetchers rather than generated, and
   // `PurchaseOrderPage` deliberately the local one: `@itulah/contract` exports
@@ -110,13 +112,17 @@ import {
 import { PoImportSheet } from "@/screens/procurement/import"
 import { colourKeys, listColours } from "@/lib/queries/colours"
 import {
+  cancellationOf,
   purchaseOrdersHtml,
   titled,
   type PrintableOrder,
 } from "@/screens/procurement/po-print"
+import { orderLink } from "@/screens/procurement/qr"
 import { openPrintWindow, printInto } from "@/screens/procurement/print"
 import { downloadOrdersPdf } from "@/screens/procurement/po-pdf"
 import { PrintMenu, type PrintChoice } from "@/screens/procurement/print-menu"
+import { LineSheet } from "@/screens/procurement/line-sheet"
+import { SupplierSheet } from "@/screens/procurement/suppliers"
 import {
   formatPhones,
   supplierDisplayName,
@@ -124,8 +130,12 @@ import {
 import {
   SupplierName,
   useSupplierName,
+  useSupplierRecordId,
 } from "@/screens/procurement/supplier-name"
-import { returnLineParts } from "@/screens/procurement/return-lines"
+import {
+  NOT_AS_ORDERED,
+  returnLineParts,
+} from "@/screens/procurement/return-lines"
 import {
   isOpenOrder,
   lineValue,
@@ -138,6 +148,7 @@ import {
   useActor,
   useIdempotencyKey,
   STAMP,
+  unitPriceText,
 } from "@/screens/procurement/shared"
 import { useLayout } from "@/lib/layout"
 import { queryState } from "@/lib/query-state"
@@ -457,7 +468,7 @@ const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
           // card (a phone or a tablet) it is the largest and heaviest thing in
           // it: 16px semibold, over the number in regular weight. It may take
           // two lines there rather than lose the end of a long name.
-          className="truncate text-[0.875rem] font-medium text-ink max-lg:line-clamp-2 max-lg:text-[1rem] max-lg:font-semibold max-lg:whitespace-normal"
+          className="truncate text-[0.9375rem] font-medium text-ink max-lg:line-clamp-2 max-lg:text-[1rem] max-lg:font-semibold max-lg:whitespace-normal"
           title={row.original.supplier_name ?? undefined}
         >
           <SupplierName
@@ -467,7 +478,7 @@ const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
         </span>
         {/* How many lines the order is made of stands beside its number: it
             says something about the order, not about the pieces. */}
-        <span className="truncate text-[0.875rem] font-normal text-mute">
+        <span className="truncate text-[0.9375rem] font-normal text-mute">
           <span className="font-mono">{row.original.po_number}</span>
           {` · ${count(row.original.line_count)} ${row.original.line_count === 1 ? "item" : "items"}`}
         </span>
@@ -506,6 +517,53 @@ const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
       </span>
     ),
   },
+  // A finished order is read by when it came in, not when it was due (owner,
+  // 2026-10-16): Completed shows this in place of Delivery Date.
+  {
+    id: "received_date",
+    accessorFn: (row) => row.fulfilled_at,
+    header: "Received Date",
+    size: 132,
+    sortFn: "datetime",
+    meta: { card: "hide" },
+    // "+3 days" under it, in red, when it came in after its delivery date
+    // (owner, 2026-10-16).
+    cell: ({ row }) => {
+      const { fulfilled_at, expected_arrival } = row.original
+      if (fulfilled_at === null) return <span className="tabular-nums">—</span>
+      const late =
+        expected_arrival === null
+          ? 0
+          : Math.round(
+              (Date.parse(fulfilled_at.slice(0, 10)) -
+                Date.parse(expected_arrival.slice(0, 10))) /
+                86_400_000
+            )
+      return (
+        <span className="flex flex-col tabular-nums">
+          <span>{day(fulfilled_at)}</span>
+          {late > 0 && (
+            <span className="text-[0.9375rem] text-bad-fg">
+              {`+${late} ${late === 1 ? "day" : "days"}`}
+            </span>
+          )}
+        </span>
+      )
+    },
+  },
+  // A cancelled order never came in: it is read by when it was cancelled —
+  // the last thing that happened to it (owner, 2026-10-16).
+  {
+    id: "cancelled_date",
+    accessorFn: (row) => row.updated_at,
+    header: "Cancelled Date",
+    size: 132,
+    sortFn: "datetime",
+    meta: { card: "hide" },
+    cell: ({ row }) => (
+      <span className="tabular-nums">{day(row.original.updated_at)}</span>
+    ),
+  },
   // What was ordered and what has arrived, one column each (the owner,
   // 2026-10-05): the pieces on top, what they are worth under them in the
   // quiet colour. The heading's menu sorts by either figure.
@@ -521,7 +579,8 @@ const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
       align: "right",
       // A card says it in its lead figure and foot instead.
       card: "hide",
-      priority: 2,
+      // Never given up for room (the owner, 2026-10-16): a 12-inch laptop
+      // keeps what was ordered beside what has come in.
       sortBy: [
         { id: "qty_ordered", label: "Quantity" },
         { id: "net_minor", label: "Value" },
@@ -633,11 +692,11 @@ const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
       <span className="flex flex-col items-end tabular-nums">
         <span className="text-[1.5rem] leading-tight font-semibold tracking-tight text-ink">
           {count(row.original.expected_stock_units)}
-          <span className="text-[0.875rem] font-normal tracking-normal text-mute">
+          <span className="text-[0.9375rem] font-normal tracking-normal text-mute">
             {row.original.expected_stock_units === 1 ? " pc" : " pcs"}
           </span>
         </span>
-        <span className="mt-0.5 text-[0.875rem] text-mute">
+        <span className="mt-0.5 text-[0.9375rem] text-mute">
           {money(row.original.net_minor)}
         </span>
       </span>
@@ -733,7 +792,7 @@ const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
               owner does not want a chip for it (2026-09-29). Not on a card,
               where the red bracket on its figures already says it. */}
           {pendingExcess > 0 && (
-            <span className="text-[0.875rem] whitespace-nowrap text-warn-fg max-lg:hidden">
+            <span className="text-[0.9375rem] whitespace-nowrap text-warn-fg max-lg:hidden">
               {`+${pcs(pendingExcess)} over`}
             </span>
           )}
@@ -826,21 +885,19 @@ function FilterRow({ filters }: { filters: FilterState }) {
         ? []
         : [{ column, operator: "lte" as const, values: [next.to] }]),
     ])
-  const box = "h-[2.125rem] min-h-0 py-0"
+  const box = "h-control min-h-0 py-0"
   const anySet = filters.filters.length > 0
 
   return (
     <>
       <DayRange
-        quiet
-        label="Issued"
-        placeholder="Issued"
+        label="Created at"
+        placeholder="Created at"
         value={range("issued_at")}
         onChange={(next) => setRange("issued_at", next)}
         className={cn(box, "w-44 shrink-0")}
       />
       <DayRange
-        quiet
         label="Delivery Date"
         placeholder="Delivery date"
         value={range("expected_arrival")}
@@ -1024,7 +1081,7 @@ export function PurchaseOrders() {
       },
       {
         column: "issued_at",
-        label: "Issued",
+        label: "Created at",
         // Two clauses rather than one "is between": they land on two different
         // request parameters and AND on the server exactly as the chips
         // promise.
@@ -1096,6 +1153,9 @@ export function PurchaseOrders() {
     refetchInterval: (query) =>
       (query.state.data?.pages.length ?? 1) > 1 ? false : 30_000,
     refetchOnWindowFocus: true,
+    // Another tab: the rows in hand stay, dimmed (`list-swap`), until the
+    // next tab's land — no blink to the loading state between.
+    placeholderData: keepPreviousData,
   })
   const orders = useMemo(() => {
     const pages = book.data?.pages
@@ -1223,6 +1283,19 @@ export function PurchaseOrders() {
             lead: cards,
             foot: cards,
             ...(tab === "cancelled" ? { received: false } : {}),
+            ...(tab === "active"
+              ? { received_date: false, cancelled_date: false }
+              : tab === "completed"
+                ? {
+                    expected_arrival: false,
+                    received_date: !cards,
+                    cancelled_date: false,
+                  }
+                : {
+                    expected_arrival: false,
+                    received_date: false,
+                    cancelled_date: !cards,
+                  }),
           },
         },
         onColumnVisibilityChange: fit.change,
@@ -1257,12 +1330,6 @@ export function PurchaseOrders() {
     (orders.data?.facets.order_status ?? [])
       .filter((facet) => statuses.includes(facet.value))
       .reduce((sum, facet) => sum + facet.count, 0)
-  const chooseSort = (id: string, desc: boolean) => {
-    setGroupBySupplier(false)
-    setCollapsed(new Set())
-    setSorting([{ id, desc }])
-  }
-
   const chooseGrouping = (on: boolean) => {
     setGroupBySupplier(on)
     setCollapsed(new Set())
@@ -1271,9 +1338,22 @@ export function PurchaseOrders() {
 
   return (
     <PageContent>
-      <PageHeader title="Purchase Orders" small />
-      {/* Cards on a desk and a tablet (owner, 2026-10-06: the desk keeps its
-          four figures); the sentence is the phone's. */}
+      {/* The screen's one action stands in its head, at the right
+          (hub-ui-patterns, 14 Oct); a phone has the + at the thumb instead. */}
+      <PageHeader
+        title="Purchase Orders"
+        small
+        actions={
+          layout === "phone" ? undefined : (
+            <Button variant="primary" onClick={() => composer.open(true)}>
+              <Plus />
+              New order
+            </Button>
+          )
+        }
+      />
+      {/* Cards on a desk and a tablet, the model Articles uses (owner,
+          2026-10-12: back to the four KPI cards); the sentence is the phone's. */}
       <KpiStrip className="grid-cols-2 max-md:hidden md:grid-cols-4 xl:grid-cols-4">
         {(
           bookKpis(orders.data) ??
@@ -1371,7 +1451,7 @@ export function PurchaseOrders() {
           (2026-09-28): it took 256px from a table that needs every one, and
           its figures are the cards above. On a phone: the search, and one
           button for filter and sort — see `ListOptionsSheet`. */}
-      <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2 max-md:hidden">
+      <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2 max-md:hidden lg:flex-nowrap">
         <SearchSuggest
           value={search.value ?? ""}
           onChange={(next) => (next ? search.open(next) : search.close())}
@@ -1406,18 +1486,20 @@ export function PurchaseOrders() {
             )
           }
         />
-        <ListOptionsSheet
-          model={filters}
-          filterModel={{ ...filters, fields: counted }}
-          table={table}
-          sorting={sorting}
-          onSort={chooseSort}
-          className="lg:hidden"
-        />
+        {/* No Filter button over the list (owner, 2026-10-14: "filter di
+            procurement buttonnya hapus"): search and the two date ranges
+            stand here; on a phone filter and sort are in the dock. */}
         <div className="hidden lg:contents">
           <FilterRow filters={filters} />
         </div>
         <div className="hidden md:contents">
+          {/* Out of the Columns menu, beside the search like Suppliers'
+              "Active order" (owner, 2026-10-15): the same bordered switch. */}
+          <SwitchPill
+            on={groupBySupplier}
+            label="Group by supplier"
+            onToggle={() => chooseGrouping(!groupBySupplier)}
+          />
           <BarSpacer />
           {groupBySupplier && groups.size > 0 && (
             <Button
@@ -1434,31 +1516,10 @@ export function PurchaseOrders() {
               {everyGroupShut ? <ChevronsUpDown /> : <ChevronsDownUp />}
             </Button>
           )}
-          <ColumnsMenu
-            table={table}
-            extra={
-              <Menu.Item
-                closeOnClick={false}
-                onClick={() => chooseGrouping(!groupBySupplier)}
-                className="mb-1 flex min-h-8 cursor-default items-center justify-between gap-4 rounded-inner px-2 text-[0.875rem] text-ink outline-none select-none data-[highlighted]:bg-soft-2"
-              >
-                Group by supplier
-                <span className="pointer-events-none">
-                  <Switch
-                    on={groupBySupplier}
-                    label="Group by Supplier"
-                    onToggle={() => {}}
-                  />
-                </span>
-              </Menu.Item>
-            }
-          />
+          <ColumnsMenu table={table} />
           {/* Import is hidden on the owner's instruction (2026-09-25)
               until the import flow is ready for buyers; the sheet and its
-              `?import=` link still work. */}
-          <Button variant="primary" onClick={() => composer.open(true)}>
-            New order
-          </Button>
+              `?import=` link still work. New order is in the page head. */}
         </div>
       </div>
 
@@ -1498,7 +1559,11 @@ export function PurchaseOrders() {
       {/* `overflow-clip`, not `overflow-hidden`: hidden makes the card a
           scroll box, and the table's heading would stick to the card instead
           of the window. */}
-      <div ref={fit.ref}>
+      <div
+        ref={fit.ref}
+        aria-busy={book.isPlaceholderData || undefined}
+        className="list-swap"
+      >
         <Card className="overflow-clip max-lg:overflow-visible max-lg:border-0 max-lg:bg-transparent max-lg:shadow-none">
           {queryState(
             // With no connection and nothing read yet, the list is the orders
@@ -1535,12 +1600,17 @@ export function PurchaseOrders() {
                     cardLead
                     cardTone={cardToneOf}
                     cardsTwoUp
+                    // An order with a count waiting opens the count's review,
+                    // not its detail — the same sheet its Review Count button
+                    // opens (owner, 2026-10-11).
                     onRowClick={(row) =>
                       isHeld(row)
                         ? setHeldOpen(
                             row.purchase_order_id.slice(HELD_PREFIX.length)
                           )
-                        : order.open(row.purchase_order_id)
+                        : row.review === true
+                          ? review.open(row.po_number)
+                          : order.open(row.purchase_order_id)
                     }
                     onRowIntent={(row) => {
                       // A held (offline) order has no sheet to warm.
@@ -1685,7 +1755,7 @@ function GroupHeading({
       type="button"
       aria-expanded={open}
       onClick={onToggle}
-      className="flex w-full items-center gap-2 px-3 pt-8 pb-2 text-left text-[0.875rem] outline-none focus-visible:text-ink"
+      className="flex w-full items-center gap-2 px-3 pt-8 pb-2 text-left text-[0.9375rem] outline-none focus-visible:text-ink"
     >
       <ChevronRight
         className={cn(
@@ -1772,10 +1842,59 @@ async function printOrders(
       ]
         .filter(Boolean)
         .join(" ")
+    // Each item's description, read from the catalogue once per item.
+    const itemIds = [
+      ...new Set(
+        details.flatMap((order) =>
+          order.lines
+            .map((line) => line.supplier_item_id)
+            .filter((id): id is string => id !== null)
+        )
+      ),
+    ]
+    const descriptions = new Map<string, string>()
+    await Promise.all(
+      itemIds.map((id) =>
+        client
+          .fetchQuery({
+            queryKey: procurementKeys.supplierItem(id),
+            queryFn: ({ signal }) => supplierItemDetail(id, signal),
+          })
+          .then((item) => {
+            const text = item.description?.trim()
+            if (text) descriptions.set(id, text)
+          })
+          .catch(() => undefined)
+      )
+    )
+    // Each open order's public page, for its QR (0971): made once, found
+    // after. An order whose link could not be made prints without one.
+    const open = (order: PurchaseOrderDetail) =>
+      order.lifecycle !== "CANCELLED" &&
+      order.lifecycle !== "FULLY_RECEIVED" &&
+      order.lifecycle !== "SHORT_RECEIVED"
+    const links = new Map<string, string>()
+    await Promise.all(
+      details.filter(open).map((order) =>
+        client
+          .fetchQuery({
+            queryKey: ["purchase-order-link", order.purchase_order_id],
+            queryFn: ({ signal }) =>
+              createPurchaseOrderLink(order.purchase_order_id, signal),
+            staleTime: Infinity,
+          })
+          .then((link) =>
+            links.set(order.purchase_order_id, orderLink(link.token))
+          )
+          .catch(() => undefined)
+      )
+    )
     const orders: PrintableOrder[] = details.map((order) => ({
       order,
       supplier:
         suppliers[supplierIds.indexOf(order.supplier_ref_id ?? "")] ?? null,
+      descriptions,
+      qrUrl: links.get(order.purchase_order_id),
     }))
     if (choice.pdf) {
       downloadOrdersPdf({
@@ -1812,7 +1931,7 @@ async function printOrders(
   }
 }
 
-/// Four figures about the book as it currently stands.
+/// Three figures about the book as it currently stands.
 ///
 /// `total` is the server's own count over everything the search and the chips
 /// match, so it is true whatever the page holds. The three sums are not: they
@@ -2049,12 +2168,27 @@ export function OrderSheet({
   id,
   onClose,
   onEdit,
+  onSupplier,
 }: {
   id: string | null
   onClose: () => void
   onEdit: (id: string) => void
+  /// The order was opened from its supplier's record: naming the supplier
+  /// goes back there instead of stacking the same record again.
+  onSupplier?: () => void
 }) {
-  const nameOfLogin = useNameOfLogin()
+  const nameOf = useSupplierName()
+  const recordOf = useSupplierRecordId()
+  // What the order names, followed as layers over it (owner, 14 Oct: "semua
+  // bisa di klik"): a line's item, the supplier in the head.
+  const [lineShown, setLineShown] = useState<
+    PurchaseOrderDetail["lines"][number] | null
+  >(null)
+  const [supplierShown, setSupplierShown] = useState<string | null>(null)
+  useEffect(() => {
+    setLineShown(null)
+    setSupplierShown(null)
+  }, [id])
   const detail = useQuery({
     ...orderDetailQuery(id ?? ""),
     enabled: id !== null,
@@ -2073,6 +2207,8 @@ export function OrderSheet({
   /// prints — see `printOrders`.
   const print = (data: PurchaseOrderDetail, choice: PrintChoice) =>
     printOrders(client, async () => [data], choice)
+
+  const shown = detail.data
 
   const cancel = useMutation({
     mutationFn: ({ orderId, reason }: { orderId: string; reason: string }) =>
@@ -2136,10 +2272,16 @@ export function OrderSheet({
   /// else Edit.
   const actionsOf = (order: PurchaseOrderDetail) => {
     const reviewing = (counts.get(order.po_number)?.length ?? 0) > 0
+    // A count waiting for review settles what the order is: nothing that ends
+    // it is offered until it has been looked at (owner, 2026-10-12) — hidden,
+    // not greyed with a reason in a tooltip.
+    const settled = reviewing || countOpen
+    // A supporting verb on a record (hub-ui-patterns: Print and Edit are
+    // ghosts); the blue is for Review Count when a count waits.
     const edit = order.editable && (
       <Button
         key="edit"
-        variant={reviewing ? "ghost" : "primary"}
+        variant="ghost"
         size="sm"
         title="Edit the items on this order"
         onClick={() => onEdit(order.purchase_order_id)}
@@ -2150,7 +2292,8 @@ export function OrderSheet({
     // Partly received and the rest is not coming: give it up here. It cannot
     // be undone, so it asks.
     const closeShortButton = order.lifecycle === "PARTIALLY_RECEIVED" &&
-      owedPieces > 0 && (
+      owedPieces > 0 &&
+      !settled && (
         <ConfirmButton
           key="short"
           label="Close Short"
@@ -2158,7 +2301,9 @@ export function OrderSheet({
           description={`${pcs(owedPieces)} will be removed from the order, and the PO completes as received. This can't be undone.`}
           confirmLabel="Close Short"
           tone="danger"
-          variant="ghost"
+          // Red, as Cancel is: it ends the order and cannot be undone
+          // (owner, 2026-10-16: "close short selalu merah").
+          variant="destructive"
           size="sm"
           pending={closeShort.isPending}
           reason={{ label: "Reason for Closing", optional: true }}
@@ -2166,43 +2311,39 @@ export function OrderSheet({
         />
       )
     // Only while nothing has been received, billed or advanced; after that an
-    // order is closed short instead.
-    const cancelButton =
-      order.cancellable &&
-      (countOpen ? (
-        <Button
-          key="cancel"
-          variant="ghost"
-          size="sm"
-          disabled
-          title="A count is waiting. Review it first."
-        >
-          Cancel
-        </Button>
-      ) : (
-        <ConfirmButton
-          key="cancel"
-          label="Cancel"
-          title={`Cancel ${order.po_number}?`}
-          description="The warehouse will stop receiving against this order. It stays on record as cancelled."
-          cancelLabel="Keep Order"
-          confirmLabel="Cancel Order"
-          tone="danger"
-          variant="ghost"
-          size="sm"
-          pending={cancel.isPending}
-          reason={{ label: "Reason for Cancelling", optional: true }}
-          onConfirm={(reason) =>
-            cancel.mutateAsync({ orderId: order.purchase_order_id, reason })
-          }
-        />
-      ))
+    // order is closed short instead. Solid red with white text.
+    const cancelButton = order.cancellable && !settled && (
+      <ConfirmButton
+        key="cancel"
+        label="Cancel order"
+        title={`Cancel ${order.po_number}?`}
+        description="The warehouse will stop receiving against this order. It stays on record as cancelled."
+        cancelLabel="Keep Order"
+        confirmLabel="Cancel Order"
+        tone="danger"
+        variant="destructive"
+        size="sm"
+        pending={cancel.isPending}
+        reason={{ label: "Reason for Cancelling", optional: true }}
+        onConfirm={(reason) =>
+          cancel.mutateAsync({ orderId: order.purchase_order_id, reason })
+        }
+      />
+    )
     return (
       <div className="flex items-center gap-2 [&_button]:h-9 [&_button]:px-4">
+        {/* Print at the left of the foot, with its word and not the printer
+            alone (owner, 2026-10-12). Every other button is solid blue, Cancel
+            red; the pieces that came beyond the order go back from here too,
+            at the right. */}
         <span className="ml-auto flex items-center gap-2">
+          {/* Close Short first, at the left of the rest (owner,
+              2026-10-16). */}
           {closeShortButton}
+          <PrintMenu onChoose={(choice) => void print(order, choice)} />
           {cancelButton}
           {edit}
+          {!settled && <ReturnToSupplierButton order={order} />}
           {reviewing && (
             <Button
               key="review"
@@ -2224,35 +2365,53 @@ export function OrderSheet({
         open={id !== null}
         subject={id === null ? undefined : { kind: "purchase_order", id }}
         onOpenChange={(open) => !open && onClose()}
-        // The PO number IS the title. The supplier was, and it is already the
-        // first fact in the body — so the head named the order after something
-        // the document repeats two lines later, and the one string that
-        // identifies it to everybody (the warehouse, the supplier, Finance) was
-        // set in 12px mono above it.
-        title={detail.data?.po_number ?? "Order"}
-        caption={
-          detail.data &&
-          `Created by ${nameOfLogin(detail.data.created_by)} \u00b7 ${day(detail.data.issued_at)}`
+        // The supplier is the title; the PO number, the delivery note and the
+        // delivery date stand on the line under it, and what was ordered and
+        // received in a box at the right (owner, 2026-10-11,
+        // `po-detail-form-options.html`, "Balanced"). A finished or cancelled
+        // order says so with the stamp over its document.
+        title={
+          shown ? (
+            // The supplier is a link to its record, like every name here.
+            <button
+              type="button"
+              className="record-link text-left"
+              onClick={() =>
+                onSupplier !== undefined
+                  ? onSupplier()
+                  : setSupplierShown(
+                      recordOf(
+                        shown.supplier_id,
+                        shown.supplier_name,
+                        shown.supplier_ref_id
+                      )
+                    )
+              }
+            >
+              {nameOf(
+                shown.supplier_id,
+                shown.supplier_name,
+                shown.supplier_ref_id
+              )}
+            </button>
+          ) : (
+            "Order"
+          )
         }
-        // A finished or cancelled order says so with the stamp over its
-        // document; the pill beside the number would say it twice.
+        id={shown?.po_number}
+        // A finished order's state is its stamp; the chip would say it twice
+        // (owner, 2026-10-14).
         badge={
-          detail.data &&
-          !noCountToReview(detail.data.lifecycle) && (
-            <Pill tone={poStatus(detail.data.lifecycle).tone}>
-              {poStatus(detail.data.lifecycle).label}
+          shown &&
+          !noCountToReview(shown.lifecycle) && (
+            <Pill tone={poStatus(shown.lifecycle).tone}>
+              {poStatus(shown.lifecycle).label}
             </Pill>
           )
         }
-        print={
-          detail.data && (
-            // The printer and the word, in the head (owner, 2026-10-10).
-            <PrintMenu
-              onChoose={(choice) => void print(detail.data!, choice)}
-            />
-          )
-        }
-        footer={detail.data ? actionsOf(detail.data) : undefined}
+        // No "n items" under the name: "Order items" already counts them
+        // (owner, 2026-10-14).
+        footer={shown ? actionsOf(shown) : undefined}
         // Wider than a rail, because an order is a DOCUMENT rather than a
         // record: six columns of lines — what, when it is due, at what price,
         // how many ordered, how many arrived, what that came to — do not fit in
@@ -2262,13 +2421,24 @@ export function OrderSheet({
         // `md:` for the reason the composer's note gives: a bare `w-*` loses to
         // the rail's own `md:w-[27.5rem]` everywhere but a phone.
         width="wide"
-        className="md:w-[58rem]"
       >
         {queryState(detail, {
           loading: "Loading the order…",
-          render: (order) => <OrderDocument order={order} />,
+          render: (order) => (
+            <OrderDocument order={order} onItem={setLineShown} />
+          ),
         })}
       </Sheet>
+      <LineSheet
+        line={lineShown}
+        po={shown?.po_number}
+        onClose={() => setLineShown(null)}
+      />
+      <SupplierSheet
+        id={supplierShown}
+        context={shown?.po_number}
+        onClose={() => setSupplierShown(null)}
+      />
     </>
   )
 }
@@ -2309,6 +2479,8 @@ function OrderEditor({
     <OrderComposer
       open={order !== undefined}
       editing={order}
+      // Edit is the order's sheet in its other mode: in its place, not over it.
+      swap
       onClose={onClose}
       onRaised={() => {
         // The composer says the number itself, in the receipt dialog. Saving
@@ -2331,51 +2503,24 @@ function OrderEditor({
   )
 }
 
-/// What one of the line's own unit costs: the price agreed per unit when the
-/// order kept one, else the per-piece price times the pieces in the unit — a
-/// line ordered in kodi reads "Rp 20.000 / kodi", not "Rp 1.000 / pc".
-function unitPriceText(line: PurchaseOrderDetail["lines"][number]): string {
-  const unit = line.order_unit_code?.toLowerCase()
-  if (unit === undefined || unit === "")
-    return `${money(line.unit_price_minor)} / pc`
-  const factor = Number(line.unit_factor ?? "1")
-  const perUnit =
-    line.order_unit_price_minor ??
-    Math.round(line.unit_price_minor * (Number.isFinite(factor) ? factor : 1))
-  return `${money(perUnit)} / ${unit}`
-}
-
-/// The count that waits for the buyer, at the head of the order's sheet — who
-/// counted and when, with the way in to review it — or, when the buyer sent it
-/// back, nothing. Nothing when no count is in play.
+/// What the warehouse did to the order, at the head of its sheet: a recall.
+/// A count that waits for the buyer says nothing here — Review Count in the
+/// foot is how it is reached — and neither does a recount.
 function CountBanner({ po, cancelled }: { po: string; cancelled: boolean }) {
   const waiting = useCountsAwaiting().get(po)
   const recalled = useRecalls().get(po)
   const nameOfLogin = useNameOfLogin()
   if (cancelled) return null
-  if (waiting !== undefined && waiting.length > 0) {
-    const first = waiting[0]
-    return (
-      <div className="flex items-center gap-3 rounded-card bg-info-bg px-4 py-3.5 text-info-fg">
-        <ClipboardCheck className="size-5 shrink-0" aria-hidden />
-        <span className="min-w-0 flex-1">
-          <span className="block font-semibold">Counted at the warehouse</span>
-          <span className="block text-[0.875rem]">
-            {nameOfLogin(first.counted_by)}, {moment(first.counted_at)}
-          </span>
-        </span>
-        {/* No button here: the sheet's foot carries Review Count, as its main
-            action, on every screen. */}
-      </div>
-    )
-  }
+  // No "Counted at the warehouse" banner (owner, 2026-10-10): the sheet's foot
+  // carries Review Count, which already says a count is waiting.
+  if (waiting !== undefined && waiting.length > 0) return null
   if (recalled !== undefined) {
     return (
       <div className="flex items-center gap-3 rounded-card bg-warn-bg px-4 py-3.5 text-warn-fg">
         <RotateCcw className="size-5 shrink-0" aria-hidden />
         <span className="min-w-0 flex-1">
           <span className="block font-semibold">Recalled by the warehouse</span>
-          <span className="block text-[0.875rem]">
+          <span className="block text-[0.9375rem]">
             {`${titled(nameOfLogin(recalled.by))}, ${recentMoment(recalled.at)} · was ${count(recalled.was)} pcs`}
           </span>
         </span>
@@ -2399,7 +2544,7 @@ function LineReceipts({
   return (
     // Every receiving against the line, numbered when there was more than
     // one; the total and its colour stand in the Received column.
-    <div className="text-[0.875rem] text-body tabular-nums">
+    <div className="text-[0.9375rem] text-body tabular-nums">
       <div>Received</div>
       <ul>
         {receipts.map((one) => (
@@ -2421,6 +2566,23 @@ function LineReceipts({
   )
 }
 
+/// Open, and the day it was promised for has gone by.
+function isLateOrder(order: PurchaseOrderDetail): boolean {
+  return (
+    (order.lifecycle === "ACTIVE" ||
+      order.lifecycle === "PARTIALLY_RECEIVED") &&
+    order.expected_arrival !== null &&
+    order.expected_arrival < new Date().toISOString().slice(0, 10)
+  )
+}
+
+/// How the order is paid: the method, and the terms when one was chosen.
+function paymentOf(order: PurchaseOrderDetail): string {
+  return order.payment_terms_code
+    ? `${methodName(order.payment_method)} \u00b7 ${order.payment_terms_name ?? order.payment_terms_code}`
+    : methodName(order.payment_method)
+}
+
 /// The order as the review draws it, because it is the same document.
 ///
 /// The composer shows this shape before the order exists; this shows it
@@ -2432,7 +2594,15 @@ function LineReceipts({
 ///
 /// Payment terms are an optional choice on the order (a template from master
 /// data); the fact is drawn only when one was chosen, never as "None".
-function OrderDocument({ order }: { order: PurchaseOrderDetail }) {
+function OrderDocument({
+  order,
+  onItem,
+}: {
+  order: PurchaseOrderDetail
+  /// Opens a line's record — its catalogue item, or the line itself — over
+  /// the order.
+  onItem?: (line: PurchaseOrderDetail["lines"][number]) => void
+}) {
   const variantRows = useVariantRows()
   const pieces = order.lines.reduce(
     (sum, line) => sum + line.ordered_quantity,
@@ -2442,12 +2612,17 @@ function OrderDocument({ order }: { order: PurchaseOrderDetail }) {
     (sum, line) => sum + line.received_quantity,
     0
   )
-  const open =
-    order.lifecycle === "ACTIVE" || order.lifecycle === "PARTIALLY_RECEIVED"
-  const late =
-    open &&
-    order.expected_arrival !== null &&
-    order.expected_arrival < new Date().toISOString().slice(0, 10)
+  /// What arrived beyond the order (over, or not the article) goes back. A
+  /// line's received quantity is already only what matched the order, so all
+  /// of it was accepted, and is worth what the server expects to be billed.
+  const excessPieces = order.lines.reduce(
+    (sum, line) => sum + line.excess_quantity,
+    0
+  )
+  const acceptedValue = order.lines.reduce(
+    (sum, line) => sum + line.expected_value_minor,
+    0
+  )
   // Why it was called off, as the cancel wrote it into the order's history.
   const cancelReason =
     order.lifecycle !== "CANCELLED"
@@ -2460,7 +2635,6 @@ function OrderDocument({ order }: { order: PurchaseOrderDetail }) {
               : ""
           )
           .find((reason) => reason !== "") ?? null)
-  const nameOf = useSupplierName()
   /// What each line comes to, by the one rounding rule (see `lineValue`), and
   /// the order's lines added up.
   const amounts = order.lines.map((line) =>
@@ -2480,82 +2654,95 @@ function OrderDocument({ order }: { order: PurchaseOrderDetail }) {
       ? Math.max(0, gross - order.discount_minor - order.expected_value_minor)
       : 0
   const grandTotal = gross - order.discount_minor - closedShortValue
-  /// The green stamp once the order is done, the red one once it is called
-  /// off. Laid over the document's corner, not given a row of its own: it takes
-  /// no room, and what is under it still reads through it.
+  /// What the closed-short pieces were worth at their price, and the discount
+  /// left on what stays: the same grand total, said so each line can be checked
+  /// by hand — 40 pcs × Rp 90.000 is Rp 3.600.000, not what is left of it after
+  /// a share of the discount (owner, 2026-10-12).
+  const closedShortGross = order.lines.reduce(
+    (sum, line) => sum + lineValue(line, line.closed_short_units ?? 0),
+    0
+  )
+  const discountLeft =
+    closedShortPieces > 0
+      ? gross - closedShortGross - grandTotal
+      : order.discount_minor
+  const discountLabel = `Discount \u00b7 ${percentBps(order.discount_bps ?? percentFromDiscount(order.discount_minor, gross))}`
+  /// The stamp once the order is done, as the list presses it on the row,
+  /// with the day: the last thing that happened to it — the last receipt, or
+  /// the last change (a close short, a cancel).
   const stamp =
     order.lifecycle === "CANCELLED"
-      ? { word: "CANCELLED", tone: "bad" as const }
+      ? { word: "Cancelled", tone: "mute" as const }
       : order.lifecycle === "FULLY_RECEIVED"
-        ? { word: "FULLY RECEIVED", tone: "ok" as const }
+        ? { word: "Fully received", tone: "ok" as const }
         : order.lifecycle === "SHORT_RECEIVED"
-          ? { word: "CLOSED SHORT", tone: "ok" as const }
+          ? { word: "Closed short", tone: "bad" as const }
           : null
+  const stampedAt =
+    stamp === null
+      ? null
+      : ([
+          ...order.lines.flatMap((line) =>
+            (line.receipts ?? []).map((one) => one.received_at)
+          ),
+          ...(order.revisions ?? []).map((one) => one.revised_at),
+        ]
+          .sort()
+          .at(-1) ?? null)
   return (
-    <div className="relative flex flex-col gap-5">
+    <div className="relative flex flex-col gap-6">
       {stamp !== null && (
-        <span
-          aria-hidden
-          className={cn(
-            "pointer-events-none absolute top-1 right-2 z-10 inline-block -rotate-6 rounded-inner border-2 px-3 py-0.5 text-[1.125rem] font-bold tracking-[0.14em] opacity-40 select-none",
-            stamp.tone === "ok"
-              ? "border-ok-fg text-ok-fg"
-              : "border-bad-fg text-bad-fg"
-          )}
-        >
-          {stamp.word}
-        </span>
+        <DocStamp
+          word={stamp.word}
+          at={stampedAt}
+          // Why it was cancelled, in the stamp's ink (owner, 2026-10-16).
+          note={cancellationOf(order)?.reason}
+          tone={stamp.tone}
+        />
       )}
+      {/* The record's figures, first (hub-ui-patterns, one format): when it
+          is due — red once late — how it is paid, the pieces, the total. */}
+      {/* 32 to the table, as the list has 32 to its tabs (24 gap + 8). */}
+      <KpiStrip className="mb-2!">
+        <Kpi
+          label="Delivery Date"
+          value={
+            <span className={cn(isLateOrder(order) && "text-bad-fg")}>
+              {order.expected_arrival === null
+                ? "—"
+                : day(order.expected_arrival)}
+            </span>
+          }
+        />
+        <Kpi label="Payment" value={paymentOf(order)} />
+        {received > 0 ? (
+          <>
+            <Kpi
+              label="Received"
+              value={`${count(received)} / ${pcs(pieces)}`}
+            />
+            {pieces - received - closedShortPieces > 0 && (
+              <Kpi
+                label="To come"
+                value={pcs(pieces - received - closedShortPieces)}
+              />
+            )}
+          </>
+        ) : (
+          <Kpi label="Ordered" value={pcs(pieces)} />
+        )}
+        <Kpi label="Grand Total" value={money(grandTotal)} />
+      </KpiStrip>
       <CountBanner
         po={order.po_number}
         cancelled={noCountToReview(order.lifecycle)}
       />
-      {/* The same air as the supplier's record: wide gaps between the facts. */}
-      <Facts className="gap-x-10 gap-y-4 [&_dd]:mt-1">
-        <Fact term="Supplier">
-          {nameOf(
-            order.supplier_id,
-            order.supplier_name,
-            order.supplier_ref_id
-          )}
-        </Fact>
-        <Fact term="Delivery Date">
-          <span className={late ? "font-medium text-bad-fg" : undefined}>
-            {order.expected_arrival === null
-              ? "—"
-              : day(order.expected_arrival)}
-          </span>
-        </Fact>
-        {order.payment_terms_code && (
-          <Fact term="Payment Terms">
-            {order.payment_terms_name ?? order.payment_terms_code}
-          </Fact>
-        )}
-        <Fact term="Payment Method">{methodName(order.payment_method)}</Fact>
-        {received > 0 && (
-          // In pieces and in value, no percentage (the owner, 2026-10-05): the
-          // list says "N pcs short", and a percentage by value said another
-          // number for the same thing.
-          <Fact term="Received">
-            {/* Red only once it is short for good: the order is late or was
-                closed short. A part-delivered open order is simply in
-                progress. */}
-            <span
-              className={
-                received < pieces &&
-                (late || order.lifecycle === "SHORT_RECEIVED")
-                  ? "text-bad-fg"
-                  : undefined
-              }
-            >
-              {`${count(received)} of ${quantity(pieces)} \u00b7 ${money(order.expected_value_minor)} of ${money(gross - order.discount_minor)}`}
-            </span>
-          </Fact>
-        )}
-      </Facts>
-
-      <Section title={`Items (${order.lines.length})`} rule={false} quiet>
+      {/* No "Order items n" over the table (owner, 2026-10-15): the table's
+          own head says Item, and the figures above already count it. */}
+      <div>
         <ItemsTable
+          totalsApart
+          quantityLabel="Ordered"
           rows={order.lines.map((line, index) => ({
             key: line.po_line_id,
             image: line.image_url,
@@ -2575,11 +2762,18 @@ function OrderDocument({ order }: { order: PurchaseOrderDetail }) {
             pieces: line.ordered_quantity,
             price: unitPriceText(line),
             amount: amounts[index],
-            received: {
-              pieces: line.received_quantity,
-              tone: receivedTone(line.ordered_quantity, line.received_quantity),
-            },
+            received:
+              received > 0
+                ? {
+                    pieces: line.received_quantity,
+                    tone: receivedTone(
+                      line.ordered_quantity,
+                      line.received_quantity
+                    ),
+                  }
+                : undefined,
             more: <LineReceipts line={line} />,
+            onOpen: onItem === undefined ? undefined : () => onItem(line),
             variants: variantRows(
               (line.variants ?? []).map((one) => ({
                 colour: one.colour_code,
@@ -2591,7 +2785,9 @@ function OrderDocument({ order }: { order: PurchaseOrderDetail }) {
           }))}
           totals={{
             pieces,
-            received: { pieces: received, tone: totalTone },
+            // No Received column while nothing has come in (owner, 2026-10-11).
+            received:
+              received > 0 ? { pieces: received, tone: totalTone } : undefined,
             gross,
             discount:
               order.discount_minor === 0
@@ -2611,16 +2807,100 @@ function OrderDocument({ order }: { order: PurchaseOrderDetail }) {
             grand: grandTotal,
           }}
         />
-      </Section>
+        {/* Under the table, at the right: what came in as bare figures — pieces
+            only — and the money in the one box, so a column never mixes Rp and
+            pcs and Grand Total stands under Amount (owner, 2026-10-12). Received
+            is drawn once something has been received. */}
+        {/* Lark (owner, 2026-10-12): the pieces as compact cards at the left —
+            the first one the figure that matters, Received once anything has
+            come — and the money at the right under Amount, no box around it. */}
+        {/* The figures are at the top; under the table only the ladder that
+            explains a discount or a short close down to the grand total. */}
+        {/* Under the table, at the right (owner, 14 Oct: "total order pcsnya
+            berapa, total order berapa, accepted berapa"): the pieces first —
+            ordered, received, accepted, what goes back — then the money down to
+            the grand total and, once goods were accepted, what they are worth. */}
+        <div className="mt-4 flex justify-end">
+          {/* As po-detail-branches.html draws it (owner, 2026-10-14): what
+              the lines come to, pieces and rupiah on one row; the discount
+              and a short close; the grand total; then, once goods came, what
+              came, what was accepted and what goes back. */}
+          <dl className="order-totals grid w-full grid-cols-[1fr_auto] items-center gap-x-10 gap-y-2.5 text-[0.9375rem] tabular-nums md:w-[19rem]">
+            <dt className="text-body">
+              Total
+              <span className="text-mute"> · {pcs(pieces)}</span>
+            </dt>
+            <dd className="text-right text-ink">{money(gross)}</dd>
+            {order.discount_minor !== 0 && (
+              <>
+                <dt className="text-body">
+                  {discountLabel}
+                  {/* Per piece, under it (po-detail-branches.html). */}
+                  {pieces > 0 && (
+                    <span className="block text-mute">
+                      {money(Math.round(order.discount_minor / pieces))} / pc
+                    </span>
+                  )}
+                </dt>
+                <dd className="text-right text-ink">{money(-discountLeft)}</dd>
+              </>
+            )}
+            {closedShortPieces > 0 && (
+              <>
+                <dt className="text-body">
+                  Closed Short
+                  <span className="text-mute"> · {pcs(closedShortPieces)}</span>
+                </dt>
+                <dd className="text-right text-ink">
+                  {money(-closedShortGross)}
+                </dd>
+              </>
+            )}
+            <div aria-hidden className="col-span-2 border-t border-hairline" />
+            {/* Once goods came there is no Grand Total (owner, 2026-10-16):
+                the order's own sum is the Total Order, what goes back is
+                pieces only, and the last, bold line is what was accepted and
+                what it is worth. No "Total Received": received is only what
+                matched the order, the same figure as Accepted. */}
+            {received > 0 ? (
+              <>
+                <dt className="text-body">Total Order</dt>
+                <dd className="text-right text-ink">{money(grandTotal)}</dd>
+                <dt className="font-semibold text-ink">
+                  Accepted · {pcs(received)}
+                </dt>
+                <dd className="text-right text-base leading-[1.375rem] font-semibold text-ink">
+                  {money(acceptedValue)}
+                </dd>
+                {/* What goes back stands apart, under a space: pieces only,
+                    no price — it is not billed (owner, 2026-10-16). */}
+                {excessPieces > 0 && (
+                  <>
+                    <dt className="mt-3 text-body">To Be Returned</dt>
+                    <dd className="mt-3 text-right text-bad-fg">
+                      {pcs(excessPieces)}
+                    </dd>
+                  </>
+                )}
+              </>
+            ) : (
+              <>
+                <dt className="font-semibold text-ink">Grand Total</dt>
+                <dd className="text-right text-base leading-[1.375rem] font-semibold text-ink">
+                  {money(grandTotal)}
+                </dd>
+              </>
+            )}
+          </dl>
+        </div>
+      </div>
 
       <BeyondTheOrder order={order} />
-
-      {/* Payment terms sit in the facts above, only when chosen. */}
 
       {order.terms_and_conditions != null &&
         order.terms_and_conditions.trim() !== "" && (
           <Section title="Terms and Conditions" rule={false} quiet>
-            <p className="text-[0.875rem] leading-[1.375rem] whitespace-pre-wrap text-ink">
+            <p className="text-[0.9375rem] leading-[1.375rem] whitespace-pre-wrap text-ink">
               {order.terms_and_conditions.trim()}
             </p>
           </Section>
@@ -2628,7 +2908,7 @@ function OrderDocument({ order }: { order: PurchaseOrderDetail }) {
 
       {cancelReason !== null && (
         <Section title="Cancel Reason" rule={false} quiet>
-          <p className="text-[0.875rem] leading-[1.375rem] whitespace-pre-wrap text-ink">
+          <p className="text-[0.9375rem] leading-[1.375rem] whitespace-pre-wrap text-ink">
             {cancelReason}
           </p>
         </Section>
@@ -2638,7 +2918,7 @@ function OrderDocument({ order }: { order: PurchaseOrderDetail }) {
         order.notes !== undefined &&
         order.notes.trim() !== "" && (
           <Section title="Notes" rule={false} quiet>
-            <p className="text-[0.875rem] leading-[1.375rem] whitespace-pre-wrap text-ink">
+            <p className="text-[0.9375rem] leading-[1.375rem] whitespace-pre-wrap text-ink">
               {order.notes.trim()}
             </p>
           </Section>
@@ -2672,13 +2952,49 @@ function receiptLines(
   }))
 }
 
-/// What arrived beyond what was ordered, and where it is going.
-///
-/// Shown only once there is something to say: a line still carrying pending
-/// excess, or a return already raised against one that no longer does. One
-/// action for the whole order — a buyer sending 3 pieces back on Monday and 2
-/// more on Tuesday is not a decision anybody here is asking for.
-function BeyondTheOrder({ order }: { order: PurchaseOrderDetail }) {
+/// Pieces that came beyond the order and wait for a return, by what they are:
+/// those over a line stand under its article, and the ones that matched no
+/// article at all are one row of their own — Not As Ordered, never hung on an
+/// article.
+function pendingReturnRows(order: PurchaseOrderDetail) {
+  const rows: {
+    key: string
+    name: string
+    pieces: number
+    value: number | null
+  }[] = []
+  let notAsOrdered = 0
+  for (const line of order.lines) {
+    const pending = line.excess_pending_quantity
+    if (pending <= 0) continue
+    const wrong = Math.min(
+      pending,
+      (line.receipts ?? []).reduce((sum, one) => sum + one.wrong_quantity, 0)
+    )
+    notAsOrdered += wrong
+    if (pending - wrong > 0)
+      rows.push({
+        key: line.po_line_id,
+        name: line.article_name,
+        pieces: pending - wrong,
+        value: lineValue(line, pending - wrong),
+      })
+  }
+  if (notAsOrdered > 0)
+    rows.push({
+      key: "not-as-ordered",
+      name: NOT_AS_ORDERED,
+      pieces: notAsOrdered,
+      value: null,
+    })
+  return rows
+}
+
+/// The pieces going back, from the foot of the sheet — bottom right, solid blue
+/// (owner, 2026-10-12): the one thing left to do on an order that is complete.
+/// One action for the whole order — a buyer sending 3 pieces back on Monday and
+/// 2 more on Tuesday is not a decision anybody here is asking for.
+function ReturnToSupplierButton({ order }: { order: PurchaseOrderDetail }) {
   const nameOf = useSupplierName()
   const supplier =
     order.supplier_name === null
@@ -2686,16 +3002,10 @@ function BeyondTheOrder({ order }: { order: PurchaseOrderDetail }) {
       : nameOf(order.supplier_id, order.supplier_name, order.supplier_ref_id)
   const client = useQueryClient()
   const idempotency = useIdempotencyKey()
-  const returns = order.returns ?? []
-  const excessLines = order.lines.filter(
-    (line) => line.excess_pending_quantity > 0
-  )
-  const pendingTotal = excessLines.reduce(
+  const pendingTotal = order.lines.reduce(
     (sum, line) => sum + line.excess_pending_quantity,
     0
   )
-  const hasExcess = order.lines.some((line) => line.excess_quantity > 0)
-
   const raise = useMutation({
     mutationFn: () =>
       raisePurchaseReturn(order.purchase_order_id, {}, idempotency.key),
@@ -2715,94 +3025,145 @@ function BeyondTheOrder({ order }: { order: PurchaseOrderDetail }) {
       })
     },
   })
-  if (!hasExcess && returns.length === 0) return null
+  if (pendingTotal <= 0) return null
+  return (
+    <ConfirmButton
+      label={`Return ${pcs(pendingTotal)}`}
+      title="Send the Excess Back"
+      description={`These ${quantity(pendingTotal)} came beyond the order and go back to ${supplier}. The warehouse hands them over.`}
+      confirmLabel="Raise the Return"
+      variant="primary"
+      size="sm"
+      pending={raise.isPending}
+      onConfirm={() => raise.mutateAsync()}
+    />
+  )
+}
 
+/// One return, in the dress of the items table: a head line (the RS number and
+/// where it stands), Item | Pieces | Value, and a Total. A return that has gone
+/// back is stamped RETURNED rather than worded (owner, 2026-10-12).
+function ReturnCard({
+  head,
+  state,
+  stamped = false,
+  rows,
+}: {
+  head: React.ReactNode
+  state: string
+  stamped?: boolean
+  rows: readonly {
+    key: string
+    name: string
+    pieces: number
+    value: number | null
+  }[]
+}) {
+  const total = rows.reduce((sum, one) => sum + one.pieces, 0)
+  const CELL_R = "px-4 py-2.5 text-right whitespace-nowrap tabular-nums"
+  return (
+    <div className="overflow-hidden rounded-inner border border-hairline">
+      <div className="flex items-center justify-between gap-3 border-b border-hairline bg-soft px-4 py-3">
+        <span className="font-medium text-ink">{head}</span>
+        {stamped ? (
+          <span
+            aria-hidden
+            className="inline-block -rotate-[4deg] rounded-inner border-2 border-ink px-2.5 text-[0.9375rem] leading-[1.375rem] font-bold tracking-[0.14em] text-ink opacity-55 select-none"
+          >
+            RETURNED
+          </span>
+        ) : (
+          <span className="text-body">{state}</span>
+        )}
+      </div>
+      <table className="w-full table-fixed border-collapse text-[0.9375rem]">
+        <thead>
+          <tr className="text-[0.9375rem] text-body">
+            <th className="w-1/2 px-4 py-2 text-left font-medium">Item</th>
+            <th className="px-4 py-2 text-right font-medium">Pieces</th>
+            <th className="px-4 py-2 text-right font-medium">Value</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((one) => (
+            <tr key={one.key} className="border-t border-hairline text-ink">
+              <td className="truncate px-4 py-2.5">{one.name}</td>
+              <td className={CELL_R}>{pcs(one.pieces)}</td>
+              <td className={CELL_R}>
+                {one.value === null ? (
+                  <span className="text-faint">—</span>
+                ) : (
+                  money(one.value)
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr className="border-t border-hairline bg-soft font-semibold text-ink">
+            <td className="px-4 py-2.5">Total</td>
+            <td className={CELL_R}>{pcs(total)}</td>
+            <td />
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  )
+}
+
+/// What arrived beyond what was ordered, and where it is going.
+///
+/// Shown only once there is something to say: pieces still waiting for a
+/// return, or a return already raised against them. Words by stage: "To Be
+/// Returned" (raised, the note not made), "Hand Over" (the note is made and the
+/// warehouse hands the goods over), then the RETURNED stamp. The button that
+/// raises it is the foot's, not this card's.
+function BeyondTheOrder({ order }: { order: PurchaseOrderDetail }) {
+  const returns = order.returns ?? []
+  const pending = pendingReturnRows(order)
+  if (pending.length === 0 && returns.length === 0) return null
   return (
     <Section title="Return PO" rule={false} quiet>
       <div className="flex flex-col gap-3">
-        {excessLines.length > 0 && (
-          <>
-            <ul className="flex flex-col gap-1.5">
-              {excessLines.map((line) => (
-                <li
-                  key={line.po_line_id}
-                  className="flex items-center justify-between gap-3 text-[0.875rem]"
-                >
-                  <span className="min-w-0 truncate text-ink">
-                    {line.article_name}
-                    <span className="ml-1.5 font-mono text-mute">
-                      {line.article_code}
-                    </span>
-                  </span>
-                  <span className="shrink-0 font-medium text-warn-fg tabular-nums">
-                    {`+${pcs(line.excess_pending_quantity)}`}
-                  </span>
-                </li>
-              ))}
-            </ul>
-            <ConfirmButton
-              label={`Return ${pcs(pendingTotal)} to supplier`}
-              title="Send the Excess Back"
-              description={`These ${quantity(pendingTotal)} came beyond the order and go back to ${supplier}. The warehouse hands them over.`}
-              confirmLabel="Raise the Return"
-              className="self-start"
-              pending={raise.isPending}
-              onConfirm={() => raise.mutateAsync()}
-            />
-          </>
+        {pending.length > 0 && (
+          <ReturnCard
+            head="Not raised yet"
+            state="To Be Returned"
+            rows={pending}
+          />
         )}
-        {returns.length > 0 && (
-          <ul className="flex flex-col gap-3">
-            {/* Each return with what went back and what it was worth, and a way
-              into the return itself. */}
-            {returns.map((ret) => (
-              <li
-                key={ret.return_id}
-                className="flex flex-col gap-1.5 rounded-inner border border-hairline p-3"
+        {returns.map((ret) => (
+          <ReturnCard
+            key={ret.return_id}
+            head={
+              <AppLink
+                to="/procurement/returns"
+                sheet={{ key: "allotment", value: ret.return_id }}
+                className="text-accent hover:underline"
               >
-                <div className="flex items-baseline justify-between gap-3">
-                  <AppLink
-                    to="/procurement/returns"
-                    sheet={{ key: "allotment", value: ret.return_id }}
-                    className="font-medium text-accent hover:underline"
-                  >
-                    {ret.return_number}
-                  </AppLink>
-                  <span className="text-[0.875rem] text-mute">
-                    {ret.status !== "OPEN"
-                      ? "Confirmed"
-                      : ret.note_generated_at != null
-                        ? "Generated"
-                        : "Not Generated"}
-                  </span>
-                </div>
-                {ret.lines.flatMap((one) => {
-                  const line = order.lines.find(
-                    (l) => l.po_line_id === one.po_line_id
-                  )
-                  return returnLineParts(one).map((part) => (
-                    <div
-                      key={`${one.receipt_line_id}-${part.sku}`}
-                      className="flex items-baseline justify-between gap-3 text-[0.875rem]"
-                    >
-                      <span className="min-w-0 truncate text-ink">
-                        {part.name}
-                        {part.unknown && (
-                          <span className="text-mute"> · Item unknown</span>
-                        )}
-                      </span>
-                      <span className="shrink-0 text-body tabular-nums">
-                        {line === undefined || part.unknown
-                          ? pcs(part.qty)
-                          : `${pcs(part.qty)} \u00b7 ${money(lineValue(line, part.qty))}`}
-                      </span>
-                    </div>
-                  ))
-                })}
-              </li>
-            ))}
-          </ul>
-        )}
+                {ret.return_number}
+              </AppLink>
+            }
+            stamped={ret.status !== "OPEN"}
+            state={
+              ret.note_generated_at != null ? "Hand Over" : "To Be Returned"
+            }
+            rows={ret.lines.flatMap((one) => {
+              const line = order.lines.find(
+                (l) => l.po_line_id === one.po_line_id
+              )
+              return returnLineParts(one).map((part) => ({
+                key: `${one.receipt_line_id}-${part.sku}`,
+                name: part.name,
+                pieces: part.qty,
+                value:
+                  line === undefined || part.unknown
+                    ? null
+                    : lineValue(line, part.qty),
+              }))
+            })}
+          />
+        ))}
       </div>
     </Section>
   )

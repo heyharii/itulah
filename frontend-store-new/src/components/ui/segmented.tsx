@@ -44,7 +44,7 @@ export function Segmented<T extends string>({
       // second row instead, because nothing scrolls sideways there (owner,
       // 2026-10-06) — a pill past the edge is a choice nobody sees.
       className={cn(
-        "inline-flex max-w-full [scrollbar-width:none] overflow-x-auto rounded-inner bg-soft-2 p-0.5 max-md:flex max-md:flex-wrap max-md:overflow-visible [&::-webkit-scrollbar]:hidden",
+        "segmented inline-flex max-w-full [scrollbar-width:none] overflow-x-auto rounded-inner bg-soft-2 p-0.5 max-md:flex max-md:flex-wrap max-md:overflow-visible [&::-webkit-scrollbar]:hidden",
         className,
       )}
     >
@@ -77,7 +77,7 @@ export function ButtonGroup({
   return (
     <div
       className={cn(
-        "inline-flex overflow-hidden rounded-inner border border-hairline-2",
+        "button-group inline-flex overflow-hidden rounded-inner border border-hairline-2",
         "[&>button]:h-8 [&>button]:px-3 [&>button]:text-[0.875rem] [&>button]:font-medium [&>button]:text-text",
         "[&>button:hover]:bg-soft-2",
         "[&>button+button]:border-l [&>button+button]:border-hairline",

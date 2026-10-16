@@ -17,7 +17,7 @@ export function StatStrip({
   return (
     <div
       className={cn(
-        "mb-5 grid grid-cols-2 gap-3 md:grid-cols-3 xl:auto-cols-fr xl:grid-flow-col xl:grid-cols-none",
+        "kpi-strip mb-5 grid grid-cols-2 gap-3 md:grid-cols-3 xl:auto-cols-fr xl:grid-flow-col xl:grid-cols-none",
         "max-md:gap-px max-md:overflow-hidden max-md:rounded-card max-md:border max-md:border-hairline max-md:bg-hairline max-md:shadow-soft max-md:[&_.kpi-card]:rounded-none! max-md:[&_.kpi-card]:border-0! max-md:[&_.kpi-card]:shadow-none! max-md:[&>*:last-child:nth-child(odd)]:col-span-2",
         className,
       )}
@@ -49,10 +49,10 @@ export function Stat({
     // two-line label among one-line ones must not drop its number half a line
     // below the rest of the row.
     <div className="kpi-card flex h-full min-w-0 flex-col rounded-card border border-hairline bg-canvas px-4 py-[0.8125rem] shadow-soft">
-      <div className="text-eyebrow font-medium text-body">{label}</div>
+      <div className="kpi-label text-eyebrow font-medium text-body">{label}</div>
       <div
         className={cn(
-          "mt-auto truncate pt-[0.4375rem] text-[1.125rem] leading-none font-semibold tracking-[-0.02em] tabular-nums",
+          "kpi-value mt-auto truncate pt-[0.4375rem] text-[1.125rem] leading-none font-semibold tracking-[-0.02em] tabular-nums",
           tone === "ok" && "text-ok-fg",
           tone === "warn" && "text-warn-fg",
           tone === "bad" && "text-bad-fg",

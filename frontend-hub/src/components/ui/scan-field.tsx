@@ -91,7 +91,7 @@ export function ScanField({
           aria-describedby={under}
           className={cn(
             "h-tap min-w-0 flex-1 rounded-full border border-transparent bg-soft-2 px-4",
-            "font-mono text-[0.875rem] tracking-[0.02em] text-ink transition-colors outline-none",
+            "font-mono text-[0.9375rem] tracking-[0.02em] text-ink transition-colors outline-none",
             "placeholder:font-sans placeholder:tracking-normal placeholder:text-mute",
             "hover:border-hairline-2 hover:bg-soft-3 disabled:opacity-50",
             "aria-[invalid=true]:border-bad aria-[invalid=true]:bg-bad-bg aria-[invalid=true]:hover:border-bad"
@@ -110,11 +110,11 @@ export function ScanField({
         </Button>
       </div>
       {refused ? (
-        <p id={under} role="alert" className="text-[0.875rem] text-bad">
+        <p id={under} role="alert" className="text-[0.9375rem] text-bad">
           {problem}
         </p>
       ) : hint ? (
-        <p id={under} className="text-[0.875rem] text-mute">
+        <p id={under} className="text-[0.9375rem] text-mute">
           {hint}
         </p>
       ) : null}

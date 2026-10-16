@@ -1,7 +1,10 @@
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
+import {
+  useSuspenseInfiniteQuery,
+  useSuspenseQuery,
+} from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { useMemo, useState } from "react"
+import { Suspense, useDeferredValue, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { DockTools } from "@/components/shell/dock-tools"
@@ -17,21 +20,19 @@ import {
 } from "@/components/ui/list-chrome"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
-import { EmptyState } from "@/components/ui/states"
+import { EmptyState, LoadingState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { useFilterState, type FilterField } from "@/lib/filters"
 import { useLayout, usePanelDock } from "@/lib/layout"
 import { count, label as humanise, moment } from "@/lib/format"
 import {
-  fleetPools,
-  inventoryKeys,
+  fleetPoolsQuery,
   movementScopeFromFilters,
   movementsLedgerQuery,
   MOVEMENTS_LIMIT,
   type Movement,
   type MovementScope,
 } from "@/lib/queries/inventory"
-import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { cn } from "@/lib/utils"
@@ -142,7 +143,7 @@ function readPlace(
 }
 
 const CHIP =
-  "inline-flex min-w-0 max-w-full items-baseline gap-1 rounded-full border px-2 py-px text-[0.875rem] leading-[1.35rem]"
+  "inline-flex min-w-0 max-w-full items-baseline gap-1 rounded-full border px-2 py-px text-[0.9375rem] leading-[1.35rem]"
 
 /// One end of the route, as a chip.
 ///
@@ -310,7 +311,7 @@ const movementColumns = (
         <span className="text-[1rem] font-semibold break-words text-ink">
           {humanise(row.original.cause)}
         </span>
-        <span className="text-[0.875rem] font-normal break-words text-mute">
+        <span className="text-[0.9375rem] font-normal break-words text-mute">
           {`${placeText(readPlace(row.original.from, pools))} → ${placeText(readPlace(row.original.to, pools))}`}
         </span>
       </span>
@@ -328,7 +329,7 @@ const movementColumns = (
         <span className="text-[1.5rem] leading-tight font-semibold tracking-tight text-ink">
           {count(row.original.quantity)}
         </span>
-        <span className="text-[0.875rem] text-mute">
+        <span className="text-[0.9375rem] text-mute">
           {row.original.quantity === 1 ? "pc" : "pcs"}
         </span>
       </span>
@@ -356,7 +357,7 @@ const movementColumns = (
     enableSorting: false,
     meta: { align: "right", card: "status" },
     cell: ({ row }) => (
-      <span className="font-mono text-[0.875rem] text-mute">
+      <span className="font-mono text-[0.9375rem] text-mute">
         {row.original.sku_code ?? "—"}
       </span>
     ),
@@ -369,6 +370,23 @@ function placeText(place: Place): string {
 }
 
 export function Movements() {
+  // The title stands at once; the ledger waits for the fleet and its first
+  // page and streams in with them (the server starts the reads too).
+  return (
+    <PageContent>
+      <PageHeader
+        crumb="Inventory"
+        title="Movements"
+        sub="Every posting that moved a piece. Double-entry: a route, an action, and who posted it."
+      />
+      <Suspense fallback={<LoadingState>Reading the ledger…</LoadingState>}>
+        <MovementLedger />
+      </Suspense>
+    </PageContent>
+  )
+}
+
+function MovementLedger() {
   /// What was typed, in the URL like every other narrowing in the app: a
   /// filtered ledger is a thing people send each other.
   const search = useSheet("q")
@@ -382,10 +400,7 @@ export function Movements() {
     { id: "occurred_at", desc: true },
   ])
 
-  const fleet = useQuery({
-    queryKey: inventoryKeys.fleet(),
-    queryFn: ({ signal }) => fleetPools(signal),
-  })
+  const fleet = useSuspenseQuery(fleetPoolsQuery())
 
   /// Every pool the fleet knows, by id, as the two words a route chip draws
   /// with. Every pool and not only the placements: a rollup cannot be counted
@@ -397,7 +412,7 @@ export function Movements() {
   /// where it does not.
   const poolNames = useMemo(() => {
     const names = new Map<string, { site: string; shelf: string }>()
-    for (const item of fleet.data?.items ?? []) {
+    for (const item of fleet.data.items) {
       names.set(item.id, {
         site: item.site_name ?? item.site_id,
         shelf: item.label,
@@ -412,7 +427,7 @@ export function Movements() {
   /// centre may not post to still has a history worth looking at.
   const poolOptions = useMemo(
     () =>
-      placements(fleet.data?.items ?? []).map((item) => ({
+      placements(fleet.data.items).map((item) => ({
         value: item.id,
         label: `${item.site_name ?? item.site_id} · ${item.label}`,
       })),
@@ -499,13 +514,17 @@ export function Movements() {
 
   // The opening scope is `MOVEMENTS_OPENING_SCOPE` (`lib/queries/inventory.ts`),
   // which the prefetcher asks for: keep the default sort above in step.
-  const ledger = useInfiniteQuery(movementsLedgerQuery(scope))
+  //
+  // The deferred scope keeps the rows in hand on screen while the next question
+  // is read, so a keystroke does not empty the table.
+  const asked = useDeferredValue(scope)
+  const ledger = useSuspenseInfiniteQuery(movementsLedgerQuery(asked))
 
   const rows = useMemo(
-    () => ledger.data?.pages.flatMap((page) => page.rows) ?? [],
+    () => ledger.data.pages.flatMap((page) => page.rows),
     [ledger.data]
   )
-  const head = ledger.data?.pages[0]
+  const head = ledger.data.pages[0]
 
   /// The same fields, carrying the server's own tally.
   ///
@@ -536,7 +555,12 @@ export function Movements() {
         state: {
           sorting,
           // The card's own columns are drawn on a phone and never on a desk.
-          columnVisibility: { head: phone, lead: phone, foot: phone, sku: phone },
+          columnVisibility: {
+            head: phone,
+            lead: phone,
+            foot: phone,
+            sku: phone,
+          },
         },
         // The rows arrive in the order the request asked for. Sorting them
         // again here would sort the pages in hand and call it the ledger.
@@ -548,13 +572,7 @@ export function Movements() {
   )
 
   return (
-    <PageContent>
-      <PageHeader
-        crumb="Inventory"
-        title="Movements"
-        sub="Every posting that moved a piece. Double-entry: a route, an action, and who posted it."
-      />
-
+    <>
       {/* The panel docks where there is room for it — narrower than 1440 it is
           the Filter button in the omnibox, which is the same model drawn as a
           sheet. */}
@@ -605,42 +623,41 @@ export function Movements() {
             sort={dockSortOf(table)}
           />
 
-          <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-            {queryState(ledger, {
-              loading: "Reading the ledger…",
-              render: () =>
-                rows.length === 0 ? (
-                  <EmptyState>
-                    {narrowed
-                      ? "No movement matches what you asked for."
-                      : "Nothing has been posted to this ledger yet."}
-                  </EmptyState>
-                ) : (
-                  <DataTable<Movement>
-                    refresh={[ledger]}
-                    table={table}
-                    /// Always, rather than above the usual 150 rows.
-                    ///
-                    /// It is what makes the declared column widths real: the
-                    /// plain path is a `table-layout: auto` table, where a
-                    /// `size` is a suggestion and the widest place id in view
-                    /// decides the route column — 475px of it, which is wider
-                    /// than the card has to give and is why two columns were
-                    /// being dropped to pay for it. Virtualised, every cell is
-                    /// `flex: 0 0 <size>px` and the truncation inside it
-                    /// happens. Without this the first page would be laid out
-                    /// one way and the second, once the scroll crosses 150
-                    /// rows, another.
-                    virtualizeAbove={0}
-                    more={ledger}
-                    className="max-h-[calc(100dvh-14rem)] max-md:max-h-none"
-                    pageScroll={phone}
-                    cardsApart
-                    cardLead
-                    cardSort={false}
-                  />
-                ),
-            })}
+          <Card
+            aria-busy={asked !== scope || undefined}
+            className="list-swap overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none"
+          >
+            {rows.length === 0 ? (
+              <EmptyState>
+                {narrowed
+                  ? "No movement matches what you asked for."
+                  : "Nothing has been posted to this ledger yet."}
+              </EmptyState>
+            ) : (
+              <DataTable<Movement>
+                refresh={[ledger]}
+                table={table}
+                /// Always, rather than above the usual 150 rows.
+                ///
+                /// It is what makes the declared column widths real: the
+                /// plain path is a `table-layout: auto` table, where a
+                /// `size` is a suggestion and the widest place id in view
+                /// decides the route column — 475px of it, which is wider
+                /// than the card has to give and is why two columns were
+                /// being dropped to pay for it. Virtualised, every cell is
+                /// `flex: 0 0 <size>px` and the truncation inside it
+                /// happens. Without this the first page would be laid out
+                /// one way and the second, once the scroll crosses 150
+                /// rows, another.
+                virtualizeAbove={0}
+                more={ledger}
+                className="max-h-[calc(100dvh-14rem)] max-md:max-h-none"
+                pageScroll={phone}
+                cardsApart
+                cardLead
+                cardSort={false}
+              />
+            )}
           </Card>
         </div>
 
@@ -652,7 +669,7 @@ export function Movements() {
           className="hidden dock:flex"
         />
       </div>
-    </PageContent>
+    </>
   )
 }
 

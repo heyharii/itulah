@@ -5,7 +5,7 @@ import {
   type QueryClient,
 } from "@tanstack/react-query"
 
-import { auth, cacheKey, edge, edgeAuth, node, setEdgeToken } from "@/lib/api"
+import { auth, cacheKey, edge, edgeAuth, setEdgeToken } from "@/lib/api"
 import { forgetPushOnSignOut } from "@/lib/push"
 import type { SectionCode } from "@/lib/queries/invitations"
 import { isTenancySignOut, tenancyQueryKey } from "@/lib/tenancy"
@@ -64,12 +64,26 @@ export function watchIdentity(client: QueryClient): void {
 /// reached at all. So a lapsed session resolves to `null` rather than throwing:
 /// `needsSignIn` is an answer, and dressing it as a failure puts an error
 /// message on the login box about the very thing the box fixes.
-export function useIdentity() {
-  const client = useQueryClient()
-  return useQuery({
+/// Asked once and then believed. A session does not lapse because a screen
+/// remounted, and re-asking would put a sign-in check in front of somebody
+/// half way through writing an order.
+///
+/// Options rather than only a hook, so the SSR pass can `ensureQueryData`
+/// before the first paint (`routes/__root.tsx`): the gate then renders the
+/// door — or the shell — directly in HTML instead of a skeleton that flips.
+export function identityQueryOptions() {
+  return {
     queryKey: cacheKey.me(),
-    queryFn: async ({ signal }): Promise<Identity | null> => {
+    queryFn: async ({
+      signal,
+      client,
+    }: {
+      signal?: AbortSignal
+      client: QueryClient
+    }): Promise<Identity | null> => {
       try {
+        // On the server `auth` carries the request's cookie (`lib/api.ts`);
+        // the 401 a stranger gets is the honest "nobody" below.
         const me = await auth.me(signal)
         fromMemory = false
         return me
@@ -78,12 +92,16 @@ export function useIdentity() {
         // The server could not be reached (`reach()` says so as a 503) and
         // this device knows who was signed in: open the app as them. Their
         // work is held on the device until there is a line, and the first
-        // connection asks properly (`watchIdentity`).
+        // connection asks properly (`watchIdentity`). The browser-only half
+        // (`navigator.onLine`) is guarded: the SSR pass has no navigator and
+        // no remembered identity, so it just reports the failure.
         if (
           error instanceof ApiError &&
           error.status === 503 &&
-          (!navigator.onLine || /reach the server/i.test(error.message))
+          ((typeof navigator !== "undefined" && !navigator.onLine) ||
+            /reach the server/i.test(error.message))
         ) {
+          if (typeof window === "undefined") throw error
           const last = rememberedIdentity()
           if (last !== null) {
             fromMemory = true
@@ -104,11 +122,13 @@ export function useIdentity() {
     },
     // A second attempt with the same cookie cannot answer differently.
     retry: false,
-    // Asked once and then believed. A session does not lapse because a screen
-    // remounted, and re-asking would put a sign-in check in front of somebody
-    // half way through writing an order.
     staleTime: Infinity,
-  })
+  }
+}
+
+export function useIdentity() {
+  const client = useQueryClient()
+  return useQuery(identityQueryOptions())
 }
 
 /// The job role and section grants `/auth/me` carries beyond the rung every
@@ -171,16 +191,10 @@ export function useSections(): {
   }
 }
 
-/// Which node this surface is talking to. Named under the login box as a
-/// courtesy, so failing to fetch it is not a sign-in problem and must not be
-/// reported as one — hence `null` on any failure.
-export function useNodeIdentity() {
-  return useQuery({
-    queryKey: cacheKey.identity(),
-    queryFn: ({ signal }) => node.identity({ signal }).catch(() => null),
-    staleTime: Infinity,
-  })
-}
+/// The node's own identity — the sign-in door's status dot and the tenancy
+/// gate both read it (`lib/node-identity.ts`, where it lives so the two
+/// modules that need it do not import each other).
+export { useNodeIdentity } from "@/lib/node-identity"
 
 /// Ending the session, from wherever the button is.
 ///

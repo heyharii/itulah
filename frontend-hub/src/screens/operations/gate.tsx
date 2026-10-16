@@ -249,7 +249,7 @@ function EdgeGate({ children }: { children: React.ReactNode }) {
                 : "The warehouse node could not be reached."}
             </p>
             {problem && (
-              <p className="mt-3.5 text-[0.875rem] text-bad">{problem}</p>
+              <p className="mt-3.5 text-[0.9375rem] text-bad">{problem}</p>
             )}
             <Button
               variant="primary"

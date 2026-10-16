@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Finance · Pilihan alur navigasi</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="prototype-bar">
+    <strong>Finance <span class="muted">/ eksplorasi navigasi</span></strong>
+    <div class="variants" role="group" aria-label="Versi prototype">
+      <button data-variant="familiar">Grup familiar</button>
+      <button data-variant="workspace" aria-pressed="true">Workspace kerja</button>
+      <button data-variant="queue">Antrean tugas</button>
+    </div>
+    <button class="button quiet" data-action="compare">Bandingkan versi</button>
+  </header>
+  <div class="experiment-bar">
+    <span id="variant-summary"></span>
+    <label>Coba alur <select id="scenario" aria-label="Coba alur"><option value="">Jelajah bebas</option><option value="pay">Bayar tagihan</option><option value="store">Periksa uang toko</option><option value="close">Tutup bulan</option></select></label>
+    <button class="button quiet" data-action="reset">Reset data demo</button>
+  </div>
+  <div class="app">
+    <nav class="rail" aria-label="Hub">
+      <button data-action="menu" aria-label="Buka atau tutup menu Finance">☰</button>
+      <button data-action="search" aria-label="Cari halaman Finance, Command K">⌕</button>
+      <span class="rail-rule"></span>
+      <span class="rail-symbol" aria-label="Procurement" title="Procurement">▱</span>
+      <span class="rail-symbol" aria-label="Inventory" title="Inventory">▦</span>
+      <button class="selected" data-action="home" aria-label="Finance" title="Finance">Rp</button>
+      <a class="rail-symbol" href="../hr-workspace/" aria-label="Buka prototype HR Workspace kerja" title="HR Workspace kerja">HR</a>
+      <span class="rail-bottom">HI</span>
+    </nav>
+    <nav class="sidebar" aria-label="Finance" id="sidebar"></nav>
+    <main id="main" tabindex="-1"></main>
+  </div>
+  <dialog id="dialog" aria-labelledby="dialog-title"></dialog>
+  <div class="toast" role="status" aria-live="polite" hidden></div>
+  <script src="menu-data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

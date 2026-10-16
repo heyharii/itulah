@@ -140,7 +140,33 @@ impl StatusSource {
                 .lock()
                 .ok()
                 .and_then(|guard| crate::edge::ops::recent_reports(&guard)),
+            app_address: self.app_address(&env("INVENTORY_NODE_ID")),
         }
+    }
+
+    /// The address the shop's screens answer at on its network, by the name
+    /// this node advertises (`edge/discovery.rs`); `None` when that name leads
+    /// nowhere. The same bind the node was started with: an installed node
+    /// listens beyond loopback unless told otherwise (`edge/node.rs`).
+    fn app_address(&self, origin_id: &str) -> Option<String> {
+        if origin_id.trim().is_empty() {
+            return None;
+        }
+        let role = self
+            .connection
+            .lock()
+            .map(|connection| crate::edge::node::resident_role(&connection))
+            .unwrap_or(crate::edge::EdgeRole::Store);
+        let port = crate::edge::node::default_port(role);
+        let installed_and_open = self.data_dir.is_some()
+            && std::env::var("BIND_ADDR").is_err()
+            && std::env::var("PORT").is_err();
+        let bind = if installed_and_open {
+            std::net::SocketAddr::from(([0, 0, 0, 0], port))
+        } else {
+            crate::bind_addr(port).ok()?
+        };
+        crate::edge::discovery::app_address(origin_id, bind)
     }
 
     /// Write down an internet outage this process sat through: from the last

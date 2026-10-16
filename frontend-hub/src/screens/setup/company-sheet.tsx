@@ -123,12 +123,12 @@ function CompanyForm({
         <Input value={name} onChange={(event) => setName(event.target.value)} />
       </Field>
       <div className="flex flex-col gap-[0.4375rem]">
-        <span className="text-[0.875rem] font-medium text-text">
+        <span className="text-[0.9375rem] font-medium text-text">
           Legal form<span className="ml-0.5 text-bad">*</span>
         </span>
         <LegalFormPills value={legalForm} onChange={setLegalForm} />
         {formProblem && (
-          <span className="text-[0.875rem] text-bad">{formProblem}</span>
+          <span className="text-[0.9375rem] text-bad">{formProblem}</span>
         )}
       </div>
       <Field label="Head office address" required problem={addressProblem}>
@@ -172,7 +172,7 @@ function CompanyForm({
 
       <Problem error={save.error} />
       <div className="flex justify-end gap-2">
-        <Button variant="quiet" onClick={onDone}>
+        <Button data-cancel variant="quiet" onClick={onDone}>
           Cancel
         </Button>
         <Button

@@ -166,7 +166,7 @@ function ComponentRow({ component }: { component: FleetComponent }) {
       <FleetDot colour={component.colour} className="mt-1.5" />
       <span className="min-w-0 flex-1">
         <span className="flex flex-wrap items-baseline justify-between gap-2">
-          <b className="text-[0.875rem] font-medium text-ink">
+          <b className="text-[0.9375rem] font-medium text-ink">
             {component.label}
           </b>
           {component.days ? (

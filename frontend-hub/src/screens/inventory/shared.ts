@@ -1,9 +1,12 @@
+import { useSuspenseQuery } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
+import { useCallback, useMemo } from "react"
 
 import { EMPTY, percent as sharePercent } from "@/lib/format"
 import { allNavItems } from "@/lib/navigation"
 import { useIdentity } from "@/lib/session"
 import type { FleetPool } from "@/lib/queries/inventory"
+import { siteLabel, unitsQuery } from "@/lib/queries/organisation"
 
 /// The small facts every inventory screen needs and no shared module owns.
 ///
@@ -20,6 +23,32 @@ import type { FleetPool } from "@/lib/queries/inventory"
 export function useActor(): string {
   const identity = useIdentity()
   return identity.data?.username ?? ""
+}
+
+/// Site ids as people read them (`useSiteLabel`), for a screen that waits for
+/// the register under a `<Suspense>`: the names are in the page when it is
+/// drawn, rather than "…" until they land. An id the register does not hold
+/// reads as itself.
+export function useSuspenseSiteLabel(): (
+  siteId: string | null | undefined
+) => string {
+  const units = useSuspenseQuery(unitsQuery())
+  const byId = useMemo(
+    () =>
+      new Map(
+        units.data.flatMap((unit) =>
+          unit.sites.map((site) => [site.id, siteLabel(unit, site)] as const)
+        )
+      ),
+    [units.data]
+  )
+  return useCallback(
+    (siteId) =>
+      siteId === null || siteId === undefined || siteId === ""
+        ? "—"
+        : (byId.get(siteId) ?? siteId),
+    [byId]
+  )
 }
 
 /// `<AppLink>`, for the places a link cannot go.

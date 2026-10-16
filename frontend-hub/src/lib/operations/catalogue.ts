@@ -109,3 +109,12 @@ export function useCatalogue(): {
     pending: fleet.isPending || (pool !== "" && stock.isPending),
   }
 }
+
+/// "ANAK_PEREMPUAN" → "Anak Perempuan": a division code read as words.
+export function divisionName(code: string): string {
+  return code
+    .toLowerCase()
+    .split("_")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ")
+}

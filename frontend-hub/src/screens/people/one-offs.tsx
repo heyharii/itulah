@@ -1,5 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
+import type { ColumnDef } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
+import { useCallback, useMemo, useState } from "react"
 
 import type { PayrollAdjustmentRow } from "@itulah/contract"
 
@@ -8,15 +10,16 @@ import { useLayout } from "@/lib/layout"
 import { Fab } from "@/components/ui/fab"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { DataTable } from "@/components/ui/data-table"
 import { Field, Input, Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { PickOne } from "@/components/ui/pick"
-import { Pill } from "@/components/ui/pill"
-import { MiniCell, MiniRow, MiniTable, SubHead } from "@/components/ui/rows"
+import { Pill, Status } from "@/components/ui/pill"
+import { SubHead } from "@/components/ui/rows"
 import { Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
-import { count, money, moment } from "@/lib/format"
+import { money, moment, monthYear } from "@/lib/format"
 import {
   claimsKeys,
   fileAdjustment,
@@ -26,18 +29,15 @@ import {
   payComponents,
   payKeys,
   peopleKeys,
+  useReachableUnits,
   withdrawAdjustment,
 } from "@/lib/queries/people"
 import { queryState } from "@/lib/query-state"
 import { useCanWrite } from "@/lib/session"
+import { tableSetup, type TableSetup } from "@/lib/table"
 import { OneOffImport } from "@/screens/people/one-off-import-card"
 import { useUnit } from "@/screens/people/parts"
-import {
-  CardButton,
-  CardFigure,
-  CardName,
-  PhoneCards,
-} from "@/components/ui/phone-cards"
+import { CardFigure, CardName } from "@/components/ui/phone-cards"
 
 /// Payroll › One-offs — the figures a place files into a month's batch that
 /// are not part of anyone's standing pay: an incentive, a commission, a
@@ -88,10 +88,136 @@ function useFilingUnits(): {
   }
 }
 
+const NO_ROWS: PayrollAdjustmentRow[] = []
+
+/// Filed, or in the batch the place has sent. A filed figure can still be
+/// taken back; one in the batch cannot.
+function stateOf(row: PayrollAdjustmentRow): {
+  readonly tone: "info" | "ok"
+  readonly label: string
+} {
+  return row.withdrawable
+    ? { tone: "info", label: "Filed" }
+    : { tone: "ok", label: "In the batch" }
+}
+
+/// The component, with the advance it repays said in the same line.
+function componentOf(row: PayrollAdjustmentRow): string {
+  return row.advance_id === null ? row.label : `${row.label} · potong advance`
+}
+
+function columnsFor(
+  unitLabel: (id: string) => string
+): ColumnDef<TableSetup, PayrollAdjustmentRow>[] {
+  return [
+    {
+      id: "who",
+      accessorFn: (row) => row.full_name ?? row.employee_code,
+      header: "Who",
+      size: 260,
+      meta: { card: "hide" },
+    },
+    {
+      id: "component",
+      accessorFn: (row) => componentOf(row),
+      header: "Component",
+      size: 260,
+      meta: { card: "hide" },
+    },
+    {
+      id: "unit",
+      accessorFn: (row) => unitLabel(row.unit_id),
+      header: "Unit",
+      size: 160,
+      meta: { card: "hide" },
+      // Read at render: the table caches a row's values, and the unit names
+      // can arrive after the rows.
+      cell: ({ row }) => unitLabel(row.original.unit_id),
+    },
+    {
+      accessorKey: "amount_minor",
+      header: "Amount",
+      size: 170,
+      meta: { align: "right", card: "hide" },
+      cell: ({ row }) => money(row.original.amount_minor),
+    },
+    {
+      id: "state",
+      accessorFn: (row) => stateOf(row).label,
+      header: "State",
+      size: 170,
+      meta: { card: "hide" },
+      cell: ({ row }) => (
+        <Status tone={stateOf(row.original).tone}>
+          {stateOf(row.original).label}
+        </Status>
+      ),
+    },
+    // Three columns that exist only on a card (`cardLead`; a phone): the person
+    // over the component and unit, the amount as the figure, and where the
+    // figure stands.
+    {
+      id: "head",
+      accessorFn: (row) => row.full_name ?? row.employee_code,
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "title" },
+      cell: ({ row }) => (
+        <CardName
+          name={row.original.full_name ?? row.original.employee_code}
+          line={[componentOf(row.original), unitLabel(row.original.unit_id)]}
+        />
+      ),
+    },
+    {
+      id: "lead",
+      accessorFn: (row) => row.amount_minor,
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "lead" },
+      cell: ({ row }) => (
+        <CardFigure
+          value={money(row.original.amount_minor)}
+          caption={row.original.kind === "DEDUCTION" ? "deduction" : "earning"}
+        />
+      ),
+    },
+    {
+      id: "foot",
+      accessorFn: (row) => row.withdrawable,
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "foot" },
+      cell: ({ row }) => (
+        <Status tone={stateOf(row.original).tone}>
+          {stateOf(row.original).label}
+        </Status>
+      ),
+    },
+  ]
+}
+
 export function OneOffs() {
   const canWrite = useCanWrite()
   const phone = useLayout() === "phone"
   const unit = useUnit()
+  const reachable = useReachableUnits()
+  const reachableUnits = useMemo(() => reachable.data ?? [], [reachable.data])
+  const postedId = unit.unitId
+  const postedName = unit.name
+  /// A unit's name, never its id: the posting stands in for a caller whose
+  /// reach lists nothing.
+  const unitLabel = useCallback(
+    (id: string) =>
+      reachableUnits.find((one) => one.id === id)?.name ??
+      (id === postedId ? postedName : null) ??
+      id,
+    [reachableUnits, postedId, postedName]
+  )
+  const columns = useMemo(() => columnsFor(unitLabel), [unitLabel])
   const [unitId, setUnitId] = useState("")
   const [period, setPeriod] = useState(thisMonth)
   const [filing, setFiling] = useState(false)
@@ -107,15 +233,34 @@ export function OneOffs() {
       ),
     enabled: /^\d{4}-\d{2}$/.test(period),
   })
-  const filed = rows.data ?? []
+  const filed = rows.data ?? NO_ROWS
   const open = filed.find((row) => row.id === openId) ?? null
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: filed,
+        columns,
+        getRowId: (row: PayrollAdjustmentRow) => row.id,
+        // The card's own columns are drawn on a phone and never on a desk;
+        // the unit is a column only where there is more than one to tell apart.
+        state: {
+          columnVisibility: {
+            head: phone,
+            lead: phone,
+            foot: phone,
+            unit: unitId === "" && reachableUnits.length > 1,
+          },
+        },
+      }),
+      [filed, columns, phone, unitId, reachableUnits.length]
+    )
+  )
 
   return (
     <PageContent>
       <PageHeader
-        crumb="People"
         title="One-offs"
-        sub="Incentives, commissions and advance instalments filed into a month's payroll."
         actions={
           !phone &&
           canWrite && (
@@ -150,108 +295,24 @@ export function OneOffs() {
           onChange={(event) => setPeriod(event.target.value)}
           className="h-8 w-44"
         />
-        <Toolbar.Spacer />
-        <span className="text-[0.875rem] text-mute tabular-nums">
-          {count(filed.length)} filed
-        </span>
       </Toolbar>
 
-      <Card className="overflow-hidden px-4 py-2 max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:p-0 max-md:shadow-none">
+      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(rows, {
           loading: "Reading the one-offs…",
           render: () =>
             filed.length === 0 ? (
-              <EmptyState>
-                Nothing filed for {period}. Use File one-off to add an incentive
-                or an advance instalment, or Import CSV to add many at once.
-              </EmptyState>
-            ) : phone ? (
-              <PhoneCards
-                rows={filed}
-                onOpen={(row) => setOpenId(row.id)}
-                rowId={(row) => row.id}
-                spec={{
-                  title: (row) => (
-                    <CardName
-                      name={row.full_name ?? row.employee_code}
-                      line={
-                        <>
-                          <span className="block">
-                            {row.label}
-                            {row.advance_id !== null && " · potong advance"}
-                          </span>
-                          <span className="block">{row.unit_id}</span>
-                        </>
-                      }
-                    />
-                  ),
-                  lead: (row) => (
-                    <CardFigure
-                      value={money(row.amount_minor)}
-                      caption={
-                        row.kind === "DEDUCTION" ? "deduction" : "earning"
-                      }
-                    />
-                  ),
-                  foot: (row) => (
-                    <Pill tone={row.withdrawable ? "warn" : "ok"}>
-                      {row.withdrawable ? "Filed" : "In the batch"}
-                    </Pill>
-                  ),
-                  action: (row) => (
-                    <CardButton
-                      label="Open"
-                      ariaLabel={`Open ${row.label} for ${row.full_name ?? row.employee_code}`}
-                      onClick={() => setOpenId(row.id)}
-                    />
-                  ),
-                }}
-              />
+              <EmptyState>Nothing filed for {monthYear(period)}.</EmptyState>
             ) : (
-              <MiniTable
-                head={[
-                  "Who",
-                  "Component",
-                  "Unit",
-                  { label: "Amount", align: "right" },
-                  { label: "", align: "left" },
-                ]}
-              >
-                {filed.map((row) => (
-                  <MiniRow key={row.id}>
-                    <MiniCell>
-                      <button
-                        type="button"
-                        onClick={() => setOpenId(row.id)}
-                        className="text-left hover:underline"
-                      >
-                        <span className="block text-[0.875rem] text-ink">
-                          {row.full_name ?? row.employee_code}
-                        </span>
-                        <span className="font-mono text-[0.875rem] text-mute">
-                          {row.employee_code}
-                        </span>
-                      </button>
-                    </MiniCell>
-                    <MiniCell>
-                      <span className="block text-[0.875rem] text-ink">
-                        {row.label}
-                      </span>
-                      <span className="font-mono text-[0.875rem] text-mute">
-                        {row.component_code.toLowerCase()}
-                        {row.advance_id !== null && " · potong advance"}
-                      </span>
-                    </MiniCell>
-                    <MiniCell>{row.unit_id}</MiniCell>
-                    <MiniCell align="right">{money(row.amount_minor)}</MiniCell>
-                    <MiniCell>
-                      <Pill tone={row.withdrawable ? "warn" : "ok"}>
-                        {row.withdrawable ? "Filed" : "In the batch"}
-                      </Pill>
-                    </MiniCell>
-                  </MiniRow>
-                ))}
-              </MiniTable>
+              <DataTable<PayrollAdjustmentRow>
+                refresh={[rows]}
+                table={table}
+                onRowClick={(row) => setOpenId(row.id)}
+                isSelected={(row) => row.id === openId}
+                cardsApart
+                cardLead
+                cardSort={false}
+              />
             ),
         })}
       </Card>
@@ -260,11 +321,7 @@ export function OneOffs() {
           the foot of the list on a phone, not at the top. */}
       {canWrite && (
         <div className="mt-4 md:hidden">
-          <Button
-            variant="tint"
-            className="w-full"
-            onClick={() => setImporting(true)}
-          >
+          <Button className="w-full" onClick={() => setImporting(true)}>
             Import CSV
           </Button>
         </div>
@@ -285,7 +342,11 @@ export function OneOffs() {
         />
       )}
       {open !== null && (
-        <OneOffSheet row={open} onClose={() => setOpenId(null)} />
+        <OneOffSheet
+          row={open}
+          unit={unitLabel(open.unit_id)}
+          onClose={() => setOpenId(null)}
+        />
       )}
     </PageContent>
   )
@@ -295,9 +356,12 @@ export function OneOffs() {
 /// is still the place's — the way to take it back.
 function OneOffSheet({
   row,
+  unit,
   onClose,
 }: {
   row: PayrollAdjustmentRow
+  /// The unit's name; the row only carries its id.
+  unit: string
   onClose: () => void
 }) {
   const client = useQueryClient()
@@ -323,17 +387,15 @@ function OneOffSheet({
       id={row.employee_code}
       title={`${row.label} · ${row.full_name ?? row.employee_code}`}
     >
-      <Pill tone={row.withdrawable ? "warn" : "ok"}>
-        {row.withdrawable ? "Filed" : "In the batch"}
-      </Pill>
+      <Pill tone={stateOf(row).tone}>{stateOf(row).label}</Pill>
 
       <Facts className="mt-3">
         <Fact term="Amount">{money(row.amount_minor)}</Fact>
         <Fact term="Kind">
           {row.kind === "DEDUCTION" ? "Deduction" : "Earning"}
         </Fact>
-        <Fact term="Month">{row.period}</Fact>
-        <Fact term="Unit">{row.unit_id}</Fact>
+        <Fact term="Month">{monthYear(row.period)}</Fact>
+        <Fact term="Unit">{unit}</Fact>
         <Fact term="Filed by">{row.filed_by}</Fact>
         <Fact term="Filed">{moment(row.filed_at)}</Fact>
         {row.advance_id !== null && (
@@ -343,7 +405,7 @@ function OneOffSheet({
 
       <div className="mt-4">
         <SubHead>Why</SubHead>
-        <p className="text-[0.875rem] text-body">{row.reason}</p>
+        <p className="text-[0.9375rem] text-body">{row.reason}</p>
       </div>
 
       {row.withdrawable ? (
@@ -351,11 +413,7 @@ function OneOffSheet({
           <div className="mt-5 flex flex-col gap-3 border-t border-hairline pt-4">
             <SubHead>Take it back</SubHead>
             {failed !== null && <Banner tone="bad">{failed}</Banner>}
-            <Field
-              label="Why (taking it back)"
-              hint="Recorded against the withdrawal, and required."
-              required
-            >
+            <Field label="Why (taking it back)" required>
               <Input
                 value={reason}
                 onChange={(event) => setReason(event.target.value)}
@@ -375,8 +433,8 @@ function OneOffSheet({
         )
       ) : (
         <p className="mt-5 text-meta text-mute">
-          This is in the batch the place has sent. It cannot be taken back here:
-          head office reopens the run first.
+          In the batch the place has sent. Head office reopens the run before it
+          can be taken back.
         </p>
       )}
     </Sheet>
@@ -490,7 +548,7 @@ function FileOneOffSheet({
       title="File one-off"
       footer={
         <div className="flex justify-end gap-2">
-          <Button variant="quiet" onClick={onClose}>
+          <Button data-cancel variant="quiet" onClick={onClose}>
             Cancel
           </Button>
           <Button
@@ -551,11 +609,7 @@ function FileOneOffSheet({
             }}
           />
         </Field>
-        <Field
-          label="Component"
-          hint="A one-off files against a PER_OCCASION component."
-          required
-        >
+        <Field label="Component" required>
           <PickOne
             label="Component"
             choices={oneOffs.map((one) => ({
@@ -567,10 +621,7 @@ function FileOneOffSheet({
           />
         </Field>
         {employeeId !== "" && (
-          <Field
-            label="Potong advance"
-            hint="Optional. Links this deduction to the advance it repays."
-          >
+          <Field label="Potong advance">
             <PickOne
               label="Potong advance"
               choices={recoverable.map((one) => ({
@@ -582,7 +633,7 @@ function FileOneOffSheet({
             />
           </Field>
         )}
-        <Field label="Amount" hint="Positive, in rupiah." required>
+        <Field label="Amount" required>
           <Input
             inputMode="numeric"
             value={amount}
@@ -595,16 +646,11 @@ function FileOneOffSheet({
             on what the advance still carries, never on what the form hoped. */}
         {cap !== null && (
           <Banner tone="info">
-            Capped at {money(cap)} — what is still out on{" "}
-            {picked?.advance_number}. The figure is frozen when this is filed,
-            and head office decides it with the batch.
+            Capped at {money(cap)}, what is still out on{" "}
+            {picked?.advance_number}.
           </Banner>
         )}
-        <Field
-          label="Why"
-          hint="Recorded against the figure, and required."
-          required
-        >
+        <Field label="Why" required>
           <Input
             value={reason}
             onChange={(event) => setReason(event.target.value)}
@@ -680,11 +726,7 @@ function ImportSheet({
             onChange={(next) => setChosenUnit(next ?? "")}
           />
         </Field>
-        <Field
-          label="Month"
-          hint="Every row in the file is filed into this unit and month."
-          required
-        >
+        <Field label="Month" required>
           <Input
             type="month"
             value={period}
@@ -692,9 +734,7 @@ function ImportSheet({
           />
         </Field>
         {unitId === "" ? (
-          <p className="text-[0.875rem] text-mute">
-            Choose a unit to read the file against its people.
-          </p>
+          <p className="text-[0.9375rem] text-mute">Choose a unit first.</p>
         ) : (
           <OneOffImport
             // A new unit or month is a new import: rows read for the last

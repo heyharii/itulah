@@ -4,7 +4,12 @@ import { useMemo } from "react"
 import { node } from "@/lib/api"
 import { monthYear } from "@/lib/format"
 import { listEmployees, peopleKeys } from "@/lib/queries/people"
-import type { LeaveBalanceRow, LeaveRequestView } from "@itulah/contract"
+import type {
+  LeaveBalanceRow,
+  LeaveRequestView,
+  OvertimeOrderView,
+  PersonLeaveBalances,
+} from "@itulah/contract"
 
 /// The Time group's own reads and writes — the pieces the leave and
 /// attendance pages need that `people.ts` does not carry yet.
@@ -31,6 +36,42 @@ export function useActiveEmployees() {
   )
   const nameOf = useMemo(() => (id: string) => names.get(id) ?? id, [names])
   return { team, people, nameOf }
+}
+
+/// Everybody's balances inside the caller's reach — the Balances list's days
+/// left and days waiting, in one read (`GET /leave-balances`). Under the
+/// leave prefix, so a decision or a movement that drops `["people", "leave"]`
+/// refreshes it with the rest.
+export const everyoneBalancesKey = () =>
+  ["people", "leave", "everyone-balances"] as const
+
+export function everyoneBalances(
+  signal?: AbortSignal
+): Promise<PersonLeaveBalances[]> {
+  return node.get<PersonLeaveBalances[]>("/api/v1/leave-balances", { signal })
+}
+
+/// Which orders the Overtime list shows: the queue, or what became of them.
+export type OvertimeShow = "WAITING" | "AGREED" | "DECLINED" | "ALL"
+
+export const overtimeOrdersKey = (show: OvertimeShow, from: string) =>
+  ["people", "overtime", "orders", show, from] as const
+
+/// Every order at the caller's places since `from`, in one state or all of
+/// them (`GET /overtime-orders`), bounded by posting like the queue.
+export function overtimeOrdersIn(
+  show: OvertimeShow,
+  from: string,
+  signal?: AbortSignal
+): Promise<OvertimeOrderView[]> {
+  const state =
+    show === "WAITING" ? "AWAITING_CONSENT" : show === "ALL" ? null : show
+  const params = new URLSearchParams({ from })
+  if (state !== null) params.set("state", state)
+  return node.get<OvertimeOrderView[]>(
+    `/api/v1/overtime-orders?${params.toString()}`,
+    { signal }
+  )
 }
 
 /// A client-minted id, so a retried POST cannot file the same thing twice.

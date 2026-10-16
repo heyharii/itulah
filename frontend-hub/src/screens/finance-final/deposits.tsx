@@ -1,14 +1,19 @@
 import { useQueries, useQuery } from "@tanstack/react-query"
-import { useMemo, useState } from "react"
+import type { ColumnDef } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
+import { Suspense, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { AppLink } from "@/components/ui/app-link"
+import { Card } from "@/components/ui/card"
+import { DataTable } from "@/components/ui/data-table"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill, type PillProps } from "@/components/ui/pill"
 import { Toolbar } from "@/components/ui/segmented"
 import { EmptyState } from "@/components/ui/states"
-import { day, money, span } from "@/lib/format"
-import { useLayout } from "@/lib/layout"
+import { SubTabs } from "@/components/ui/sub-tabs"
+import { count, day, money, span } from "@/lib/format"
 import {
   bankStatementLines,
   financeKeys,
@@ -19,24 +24,11 @@ import {
 } from "@/lib/queries/finance"
 import { useUnits } from "@/lib/queries/organisation"
 import { queryState } from "@/lib/query-state"
-import {
-  CardRow,
-  Code,
-  Grid,
-  Note,
-  NumberCard,
-  Td,
-  Th,
-  TotalRow,
-} from "@/screens/finance-final/parts"
-import { CardFigure, PhoneList } from "@/components/ui/phone-cards"
-import {
-  PhoneFigures,
-  UnitName,
-  UnitSelect,
-  WindowControl,
-} from "@/screens/finance/parts"
-import { useWindow } from "@/screens/finance/hooks"
+import { tableSetup, type TableSetup } from "@/lib/table"
+import { Code } from "@/screens/finance-final/parts"
+import { UnitName, UnitSelect, WindowControl } from "@/screens/finance/parts"
+import { useSettledWindow } from "@/screens/finance/hooks"
+import { ScreenPending } from "@/screens/finance/pending"
 import type {
   BankStatementLineRow,
   BankStatementRow,
@@ -101,9 +93,23 @@ import type {
 /// through the bank reconciliation that already exists and with no special case
 /// for deposits anywhere in it.
 export function Deposits() {
-  const phone = useLayout() === "phone"
+  return (
+    <Suspense
+      fallback={
+        <ScreenPending crumb="Finance · Cash & Bank" title="Deposits">
+          Reading the calendar…
+        </ScreenPending>
+      }
+    >
+      <DepositsScreen />
+    </Suspense>
+  )
+}
+
+function DepositsScreen() {
+  const [tab, setTab] = useState<"deposits" | "landed">("deposits")
   const [unit, setUnit] = useState("")
-  const range = useWindow()
+  const range = useSettledWindow()
   const scoped = unit === "" ? null : unit
 
   /// The document. Unpaged and narrowed on the server, like every list in this
@@ -246,16 +252,153 @@ export function Deposits() {
     0
   )
 
+  // The window narrows the table, never the exposure: money banked in August
+  // and still in the air is this unit's problem in September.
+  const page = deposits.data
+  const inWindow = useMemo(
+    () =>
+      (page?.rows ?? []).filter(
+        (row) => row.banked_on >= range.from && row.banked_on <= range.to
+      ),
+    [page, range.from, range.to]
+  )
+  const flying = (page?.rows ?? []).filter((row) => row.status === "IN_TRANSIT")
+  const oldest = flying.reduce(
+    (worst, row) => Math.max(worst, row.days_in_transit),
+    0
+  )
+
+  const depositTable = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: inWindow,
+        columns: DEPOSIT_COLUMNS,
+        getRowId: (row: StoreDeposit) => row.deposit_id,
+      }),
+      [inWindow]
+    )
+  )
+  const arrivalTable = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: arrivals,
+        columns: ARRIVAL_COLUMNS,
+        getRowId: (row: Arrival) => row.line.line_id,
+      }),
+      [arrivals]
+    )
+  )
+
+  const ready = view.data !== undefined && !view.isPending
+
   return (
     <PageContent>
-      <PageHeader
-        className="max-md:hidden"
-        crumb="Finance · Cash & Bank"
-        title="Deposits"
-        sub="Takings on their way from a drawer to a bank account."
-      />
+      <PageHeader crumb="Finance · Cash & Bank" title="Deposits" />
 
-      <Toolbar>
+      {/* The three figures are the server's and the books': what is still in
+          the drawers, what is in a bag, and what the bank credited that
+          nothing claims. */}
+      <KpiStrip className="grid-cols-2 md:grid-cols-3 xl:grid-cols-3">
+        <Kpi
+          label="Still in the drawers"
+          value={overview.data === undefined ? "—" : money(inDrawers)}
+          delta={
+            overview.data === undefined || counts.data === undefined
+              ? undefined
+              : drawers.length === 0
+                ? "no cash account is mapped in scope"
+                : neverCounted === 0
+                  ? `${drawers.length} ${drawers.length === 1 ? "drawer" : "drawers"}, every one counted at least once`
+                  : `${neverCounted} of ${drawers.length} ${drawers.length === 1 ? "drawer has" : "drawers have"} never been counted`
+          }
+          tone={neverCounted === 0 ? "flat" : "down"}
+        />
+        <Kpi
+          label="In a bag, somewhere"
+          value={
+            page === undefined ? (
+              "—"
+            ) : (
+              <span
+                className={
+                  page.in_transit_minor === 0 ? undefined : "text-warn-fg"
+                }
+              >
+                {money(page.in_transit_minor)}
+              </span>
+            )
+          }
+          delta={
+            page === undefined
+              ? undefined
+              : flying.length === 0
+                ? "every deposit has been confirmed by a bank"
+                : `${flying.length} ${flying.length === 1 ? "deposit" : "deposits"}, the oldest ${oldest} ${oldest === 1 ? "day" : "days"} out`
+          }
+          tone="flat"
+        />
+        <Kpi
+          label="Bank credits nothing claims"
+          value={
+            inScope.length === 0 ? (
+              "—"
+            ) : (
+              <span className={unclaimed === 0 ? undefined : "text-bad-fg"}>
+                {money(unclaimed)}
+              </span>
+            )
+          }
+          delta={
+            inScope.length === 0
+              ? "no statement covers this window"
+              : `of ${money(landed)} credited across ${inScope.length} ${inScope.length === 1 ? "statement" : "statements"}`
+          }
+          tone="flat"
+        />
+      </KpiStrip>
+
+      {/* Two datasets, one body: the document, and what the bank says arrived. */}
+
+      <Toolbar
+        lead={
+          <SubTabs
+            tabs={[
+              {
+                value: "deposits",
+                label: (
+                  <span>
+                    Deposits
+                    {ready && (
+                      <span className="ml-1.5 text-body tabular-nums">
+                        {count(inWindow.length)}
+                      </span>
+                    )}
+                  </span>
+                ),
+                short: "Deposits",
+              },
+              {
+                value: "landed",
+                label: (
+                  <span>
+                    Landed at the bank
+                    {ready && (
+                      <span className="ml-1.5 text-body tabular-nums">
+                        {count(arrivals.length)}
+                      </span>
+                    )}
+                  </span>
+                ),
+                short: "Landed",
+              },
+            ]}
+            value={tab}
+            onChange={(next) => setTab(next as typeof tab)}
+          />
+        }
+      >
         <UnitSelect value={unit} onChange={setUnit} className="w-52" />
         <WindowControl range={range} />
       </Toolbar>
@@ -263,345 +406,98 @@ export function Deposits() {
       {queryState(view, {
         loading:
           "Reading the drawers, the slips and what the bank says arrived…",
-        render: (page) => {
-          // The window narrows the table, never the exposure: money banked in
-          // August and still in the air is this unit's problem in September.
-          const inWindow = page.rows.filter(
-            (row) => row.banked_on >= range.from && row.banked_on <= range.to
-          )
-          const flying = page.rows.filter((row) => row.status === "IN_TRANSIT")
-          const oldest = flying.reduce(
-            (worst, row) => Math.max(worst, row.days_in_transit),
-            0
-          )
-          return (
-            <div className="flex flex-col gap-4">
-              <PhoneFigures
-                items={[
-                  { label: "Still in the drawers", value: inDrawers },
-                  {
-                    label: "In a bag, somewhere",
-                    value: page.in_transit_minor,
-                    tone: page.in_transit_minor === 0 ? "ok" : "warn",
-                  },
-                  {
-                    label: "Bank credits nothing claims",
-                    value: inScope.length === 0 ? null : unclaimed,
-                    tone:
-                      inScope.length === 0
-                        ? undefined
-                        : unclaimed === 0
-                          ? "ok"
-                          : "bad",
-                  },
-                ]}
-              />
-              <div className="max-md:hidden">
-                <CardRow>
-                  <NumberCard
-                    label="Still in the drawers"
-                    value={inDrawers}
-                    note={
-                      drawers.length === 0
-                        ? "no cash account is mapped in scope"
-                        : neverCounted === 0
-                          ? `${drawers.length} ${drawers.length === 1 ? "drawer" : "drawers"}, every one counted at least once`
-                          : `${neverCounted} of ${drawers.length} ${drawers.length === 1 ? "drawer has" : "drawers have"} never been counted`
-                    }
-                    tone={neverCounted === 0 ? undefined : "warn"}
-                  />
-                  <NumberCard
-                    label="In a bag, somewhere"
-                    value={page.in_transit_minor}
-                    tone={page.in_transit_minor === 0 ? "ok" : "warn"}
-                    note={
-                      flying.length === 0
-                        ? "every deposit has been confirmed by a bank"
-                        : `${flying.length} ${flying.length === 1 ? "deposit" : "deposits"}, the oldest ${oldest} ${oldest === 1 ? "day" : "days"} out`
-                    }
-                  />
-                  <NumberCard
-                    label="Bank credits nothing claims"
-                    value={inScope.length === 0 ? null : unclaimed}
-                    tone={
-                      inScope.length === 0
-                        ? undefined
-                        : unclaimed === 0
-                          ? "ok"
-                          : "bad"
-                    }
-                    note={
-                      inScope.length === 0
-                        ? "no statement covers this window"
-                        : `of ${money(landed)} credited across ${inScope.length} ${inScope.length === 1 ? "statement" : "statements"}`
-                    }
-                  />
-                </CardRow>
-              </div>
-
-              <section className="flex flex-col gap-2">
-                <Heading
-                  title="Deposits"
-                  sub="A counted bag, a named person, and the two days it belongs to."
-                />
-                {inWindow.length === 0 ? (
-                  <EmptyState>
-                    {page.total === 0 ? (
-                      <>
-                        Nothing has been banked{" "}
-                        {scoped === null ? (
-                          "anywhere"
-                        ) : (
-                          <>
-                            by <UnitName id={unit} />
-                          </>
-                        )}{" "}
-                        yet. The document exists —{" "}
-                        <Code>POST /api/v1/finance/deposits</Code> — and no slip
-                        has been written against it.
-                      </>
-                    ) : (
-                      <>
-                        No deposit left a drawer in this window. Widen it, or
-                        clear the unit filter.
-                      </>
-                    )}
-                  </EmptyState>
-                ) : phone ? (
-                  <PhoneList
-                    rows={inWindow.map((row) => {
-                      const stage = STAGES[row.status]
-                      return {
-                        key: row.deposit_id,
-                        title: <UnitName id={row.unit_id} />,
-                        code: row.deposit_number,
-                        lead: <CardFigure value={money(row.amount_minor)} />,
-                        foot: (
-                          <span className="flex flex-col">
-                            <span>
-                              Left the till {day(row.banked_on)} · carried by{" "}
-                              {row.carried_by}
-                            </span>
-                            <span>
-                              {row.drawer_account_name} →{" "}
-                              {row.bank_account_name}
-                            </span>
-                            {row.status === "IN_TRANSIT" && (
-                              <span>
-                                {row.days_in_transit === 0
-                                  ? "banked today"
-                                  : `${row.days_in_transit} ${row.days_in_transit === 1 ? "day" : "days"} out`}
-                              </span>
-                            )}
-                          </span>
-                        ),
-                        action: (
-                          <Pill tone={stage?.tone ?? "neutral"}>
-                            {stage?.name ?? row.status}
-                          </Pill>
-                        ),
-                      }
-                    })}
-                  />
-                ) : (
-                  <Grid>
-                    <thead>
-                      <tr>
-                        <Th width="8.5rem">Number</Th>
-                        <Th width="7rem">Left the till</Th>
-                        <Th width="8rem">Unit</Th>
-                        <Th>Out of</Th>
-                        <Th>Into</Th>
-                        <Th width="8rem">Carried by</Th>
-                        <Th align="right" width="9.5rem">
-                          Amount
-                        </Th>
-                        <Th width="11rem">Where it is</Th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {inWindow.map((row) => (
-                        <DepositRow key={row.deposit_id} row={row} />
-                      ))}
-                    </tbody>
-                    <tfoot>
-                      <TotalRow>
-                        <Td>
-                          {inWindow.length}{" "}
-                          {inWindow.length === 1 ? "deposit" : "deposits"}
-                        </Td>
-                        <Td />
-                        <Td />
-                        <Td />
-                        <Td />
-                        <Td>In this window</Td>
-                        <Td align="right">
-                          {money(
-                            inWindow.reduce(
-                              (sum, row) => sum + row.amount_minor,
-                              0
-                            )
-                          )}
-                        </Td>
-                        <Td />
-                      </TotalRow>
-                    </tfoot>
-                  </Grid>
-                )}
-                {/* The window is a lens on the table and never on the
-                    exposure, and a reader has to be told which is which. */}
-                {inWindow.length < page.total && (
-                  <p className="text-[0.875rem] text-mute">
-                    {page.total - inWindow.length} more{" "}
-                    {page.total - inWindow.length === 1
-                      ? "deposit"
-                      : "deposits"}{" "}
-                    outside this window. The figure above counts every one that
-                    is still in the air, whenever it was banked.
-                  </p>
-                )}
-              </section>
-
-              <section className="flex flex-col gap-2">
-                <Heading
-                  title="Landed at the bank"
-                  sub="Every credit the bank reported in this window, and how much of each our books account for."
-                />
-                {arrivals.length === 0 ? (
-                  <EmptyState>
-                    {inScope.length === 0
-                      ? "No bank statement covering this window has been imported for the unit in scope."
-                      : "The statements covering this window carry no incoming line — the bank credited nothing in it."}
-                  </EmptyState>
-                ) : phone ? (
-                  <PhoneList
-                    rows={arrivals.map(({ line, statement }) => ({
-                      key: line.line_id,
-                      title: line.description,
-                      code: line.reference ?? undefined,
-                      line:
-                        line.party_name === "" ? undefined : line.party_name,
-                      lead: (
-                        <CardFigure
-                          value={money(line.credit_minor)}
-                          caption="credited"
-                        />
+        render: (page) => (
+          <div className="flex flex-col gap-3">
+            {tab === "deposits" ? (
+              inWindow.length === 0 ? (
+                <EmptyState>
+                  {page.total === 0 ? (
+                    <>
+                      Nothing has been banked{" "}
+                      {scoped === null ? (
+                        "anywhere"
+                      ) : (
+                        <>
+                          by <UnitName id={unit} />
+                        </>
+                      )}{" "}
+                      yet. The document exists —{" "}
+                      <Code>POST /api/v1/finance/deposits</Code> — and no slip
+                      has been written against it.
+                    </>
+                  ) : (
+                    <>
+                      No deposit left a drawer in this window. Widen it, or
+                      clear the unit filter.
+                    </>
+                  )}
+                </EmptyState>
+              ) : (
+                <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+                  <DataTable<StoreDeposit>
+                    table={depositTable}
+                    summary={{
+                      number: `${inWindow.length} ${inWindow.length === 1 ? "deposit" : "deposits"}`,
+                      left: "In this window",
+                      amount: money(
+                        inWindow.reduce((sum, row) => sum + row.amount_minor, 0)
                       ),
-                      foot: (
-                        <span className="flex flex-col tabular-nums">
-                          <span>
-                            {day(line.value_date)} · {statement.account_name}
-                          </span>
-                          {line.unallocated_minor !== 0 && (
-                            <span className="text-bad-fg">
-                              {money(line.unallocated_minor)} not agreed
-                            </span>
-                          )}
-                        </span>
-                      ),
-                      action:
-                        line.unallocated_minor === 0 ? (
-                          <Pill tone="ok">agreed</Pill>
-                        ) : line.allocated_minor === 0 ? (
-                          <Pill tone="bad">unexplained</Pill>
-                        ) : (
-                          <Pill tone="warn">part agreed</Pill>
-                        ),
-                    }))}
+                    }}
+                    pageScroll
+                    cardSort={false}
+                    cardsApart
+                    cardLead
                   />
-                ) : (
-                  <Grid>
-                    <thead>
-                      <tr>
-                        <Th width="7.5rem">Value date</Th>
-                        <Th>Bank account</Th>
-                        <Th width="9rem">Unit</Th>
-                        <Th>Description</Th>
-                        <Th width="8rem">Reference</Th>
-                        <Th align="right" width="9.5rem">
-                          Deposit
-                        </Th>
-                        <Th align="right" width="9.5rem">
-                          Allocated
-                        </Th>
-                        <Th align="right" width="9.5rem">
-                          Unallocated
-                        </Th>
-                        <Th width="8.5rem">Status</Th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {arrivals.map(({ line, statement }) => (
-                        <ArrivalRow
-                          key={line.line_id}
-                          line={line}
-                          statement={statement}
-                        />
-                      ))}
-                    </tbody>
-                    <tfoot>
-                      <TotalRow>
-                        <Td />
-                        <Td />
-                        <Td />
-                        <Td />
-                        <Td>
-                          {arrivals.length}{" "}
-                          {arrivals.length === 1 ? "credit" : "credits"}
-                        </Td>
-                        <Td align="right">{money(landed)}</Td>
-                        <Td align="right">{money(landed - unclaimed)}</Td>
-                        <Td align="right">{money(unclaimed)}</Td>
-                        <Td />
-                      </TotalRow>
-                    </tfoot>
-                  </Grid>
-                )}
-                {inScope.length > 0 && (
-                  <p className="text-[0.875rem] text-mute">
-                    {inScope.length === 1 ? "Statement" : "Statements"}:{" "}
-                    {inScope
-                      .map(
-                        (statement) =>
-                          `${statement.account_name} ${span(statement.period_start, statement.period_end)}`
-                      )
-                      .join(" · ")}
-                  </p>
-                )}
-              </section>
+                </Card>
+              )
+            ) : arrivals.length === 0 ? (
+              <EmptyState>
+                {inScope.length === 0
+                  ? "No bank statement covering this window has been imported for the unit in scope."
+                  : "The statements covering this window carry no incoming line — the bank credited nothing in it."}
+              </EmptyState>
+            ) : (
+              <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+                <DataTable<Arrival>
+                  table={arrivalTable}
+                  summary={{
+                    description: `${arrivals.length} ${arrivals.length === 1 ? "credit" : "credits"}`,
+                    deposit: money(landed),
+                    allocated: money(landed - unclaimed),
+                    unallocated: money(unclaimed),
+                  }}
+                  pageScroll
+                  cardSort={false}
+                  cardsApart
+                />
+              </Card>
+            )}
 
-              <Note>
-                <b>What the two tables are now.</b> The first is the document:
-                every bag that left a till, who carried it, and which of the two
-                postings have been made. The second is the bank&rsquo;s own
-                account of what arrived, from the statements that have been
-                imported. They are no longer two halves of a subtraction — the
-                deposit joins them, and <Code>…/land</Code> writes the journal
-                line on the bank account that a statement credit is matched
-                against, through the reconciliation that already exists.
-                <br />
-                <br />
-                <b>What is not built.</b> Nothing matches a statement credit to
-                a deposit automatically: landing one is somebody&rsquo;s act,
-                and the line it agreed with is recorded on the deposit when they
-                name it. A suggestion — same unit, same account, same amount,
-                within a day or two — is the obvious next thing and is
-                deliberately not guessed at here.
-              </Note>
-            </div>
-          )
-        },
+            {/* The window is a lens on the table and never on the exposure, and
+                a reader has to be told which is which. */}
+            {tab === "deposits" && inWindow.length < page.total && (
+              <p className="text-[0.9375rem] text-mute">
+                {page.total - inWindow.length} more{" "}
+                {page.total - inWindow.length === 1 ? "deposit" : "deposits"}{" "}
+                outside this window. The figure above counts every one that is
+                still in the air, whenever it was banked.
+              </p>
+            )}
+            {tab === "landed" && inScope.length > 0 && (
+              <p className="text-[0.9375rem] text-mute">
+                {inScope.length === 1 ? "Statement" : "Statements"}:{" "}
+                {inScope
+                  .map(
+                    (statement) =>
+                      `${statement.account_name} ${span(statement.period_start, statement.period_end)}`
+                  )
+                  .join(" · ")}
+              </p>
+            )}
+          </div>
+        ),
       })}
     </PageContent>
-  )
-}
-
-function Heading({ title, sub }: { title: string; sub: string }) {
-  return (
-    <div>
-      <h2 className="text-[0.875rem] font-semibold text-ink">{title}</h2>
-      <p className="text-[0.875rem] text-mute">{sub}</p>
-    </div>
   )
 }
 
@@ -614,122 +510,279 @@ const STAGES: Readonly<
   LANDED: { name: "at the bank", tone: "ok" },
 }
 
-function DepositRow({ row }: { row: StoreDeposit }) {
-  const stage = STAGES[row.status]
-  return (
-    <tr>
-      <Td>
-        <span className="font-medium text-ink">{row.deposit_number}</span>
-        {row.slip_reference !== "" && (
-          <span className="block">
-            <Code>{row.slip_reference}</Code>
-          </span>
-        )}
-      </Td>
-      <Td className="whitespace-nowrap">{day(row.banked_on)}</Td>
-      <Td>
-        <UnitName id={row.unit_id} />
-      </Td>
-      <Td>
-        <span className="text-ink">{row.drawer_account_name}</span>
-        <span className="block">
-          <Code>{row.drawer_account_code}</Code>
-        </span>
-      </Td>
-      <Td>
-        <span className="text-ink">{row.bank_account_name}</span>
-        <span className="block">
-          <Code>{row.bank_account_code}</Code>
-        </span>
-      </Td>
-      <Td className="text-body">{row.carried_by}</Td>
-      <Td align="right">
-        <span className="font-medium text-ink">{money(row.amount_minor)}</span>
-      </Td>
-      <Td>
-        <Pill tone={stage?.tone ?? "neutral"}>{stage?.name ?? row.status}</Pill>
-        {/* The two legs, each named by the entry that made it. A deposit that
-            could not point at its own journal would be a status somebody set. */}
-        {row.status === "IN_TRANSIT" && (
-          <span className="mt-0.5 block text-[0.875rem] text-mute">
-            {row.days_in_transit === 0
-              ? "banked today"
-              : `${row.days_in_transit} ${row.days_in_transit === 1 ? "day" : "days"} out`}
-          </span>
-        )}
-        {row.landed_entry_id !== null && row.landed_entry_number !== null && (
-          <span className="mt-0.5 block text-[0.875rem] text-mute">
-            {day(row.landed_on)} ·{" "}
-            <AppLink
-              to="/finance/accounting/journal-entries"
-              sheet={{ key: "entry", value: row.landed_entry_id }}
-              className="font-mono text-accent hover:underline"
-            >
-              {row.landed_entry_number}
-            </AppLink>
-          </span>
-        )}
-      </Td>
-    </tr>
-  )
+/// A credit on a statement, with the statement it came from.
+interface Arrival {
+  readonly line: BankStatementLineRow
+  readonly statement: BankStatementRow
 }
 
-function ArrivalRow({
-  line,
-  statement,
-}: {
-  line: BankStatementLineRow
-  statement: BankStatementRow
-}) {
-  return (
-    <tr>
-      <Td>{day(line.value_date)}</Td>
-      <Td>
-        <span className="font-medium text-ink">{statement.account_name}</span>
-        <span className="block">
-          <Code>{statement.account_code}</Code>
+/// The document: a counted bag, a named person, and the two days it belongs
+/// to. On a card the unit names it, the number sits over it, the route follows
+/// and the amount stands at the right with where it is in the foot.
+const DEPOSIT_COLUMNS: ColumnDef<TableSetup, StoreDeposit>[] = [
+  {
+    id: "number",
+    accessorFn: (row) => row.deposit_number,
+    header: "Number",
+    size: 190,
+    enableSorting: false,
+    meta: { card: "id" },
+    cell: ({ row }) => (
+      <span className="flex min-w-0 flex-col">
+        <span className="truncate font-medium text-ink">
+          {row.original.deposit_number}
         </span>
-      </Td>
-      <Td>
-        <UnitName id={statement.unit_id} />
-      </Td>
-      <Td className="text-body">
-        {line.description}
-        {line.party_name !== "" && (
-          <span className="block text-[0.875rem] text-mute">
-            {line.party_name}
+        {row.original.slip_reference !== "" && (
+          <span
+            className="truncate font-mono text-[0.9375rem] text-mute"
+            title={row.original.slip_reference}
+          >
+            {row.original.slip_reference}
           </span>
         )}
-      </Td>
-      <Td>
-        <Code>{line.reference ?? "—"}</Code>
-      </Td>
-      <Td align="right">
-        <span className="font-medium text-ink">{money(line.credit_minor)}</span>
-      </Td>
-      <Td align="right">
-        {line.allocated_minor === 0 ? (
-          <span className="text-hairline-strong">·</span>
-        ) : (
-          money(line.allocated_minor)
+      </span>
+    ),
+  },
+  {
+    id: "left",
+    accessorFn: (row) => row.banked_on,
+    header: "Left the till",
+    size: 140,
+    enableSorting: false,
+    meta: { card: "foot" },
+    cell: ({ row }) => day(row.original.banked_on),
+  },
+  {
+    id: "unit",
+    accessorFn: (row) => row.unit_id,
+    header: "Unit",
+    size: 130,
+    enableSorting: false,
+    meta: { card: "title", priority: 3 },
+    cell: ({ row }) => <UnitName id={row.original.unit_id} />,
+  },
+  {
+    id: "out_of",
+    accessorFn: (row) => row.drawer_account_name,
+    header: "Out of",
+    size: 190,
+    enableSorting: false,
+    meta: { card: "meta", priority: 2 },
+    cell: ({ row }) => (
+      <span className="flex min-w-0 flex-col">
+        <span className="truncate text-ink">
+          {row.original.drawer_account_name}
+        </span>
+        <Code>{row.original.drawer_account_code}</Code>
+      </span>
+    ),
+  },
+  {
+    id: "into",
+    accessorFn: (row) => row.bank_account_name,
+    header: "Into",
+    size: 190,
+    enableSorting: false,
+    meta: { card: "meta", priority: 2 },
+    cell: ({ row }) => (
+      <span className="flex min-w-0 flex-col">
+        <span className="truncate text-ink">
+          {row.original.bank_account_name}
+        </span>
+        <Code>{row.original.bank_account_code}</Code>
+      </span>
+    ),
+  },
+  {
+    id: "carried_by",
+    accessorFn: (row) => row.carried_by,
+    header: "Carried by",
+    size: 140,
+    enableSorting: false,
+    meta: { card: "foot", priority: 3 },
+    cell: ({ row }) => (
+      <span className="block truncate text-body">
+        {row.original.carried_by}
+      </span>
+    ),
+  },
+  {
+    id: "amount",
+    accessorFn: (row) => row.amount_minor,
+    header: "Amount",
+    size: 150,
+    enableSorting: false,
+    meta: { align: "right", card: "lead" },
+    cell: ({ row }) => (
+      <span className="font-medium text-ink">
+        {money(row.original.amount_minor)}
+      </span>
+    ),
+  },
+  {
+    id: "where",
+    accessorFn: (row) => row.status,
+    header: "Where it is",
+    size: 190,
+    enableSorting: false,
+    meta: { card: "status" },
+    cell: ({ row }) => {
+      const stage = STAGES[row.original.status]
+      return (
+        <span className="flex flex-col items-start">
+          <Pill tone={stage?.tone ?? "neutral"}>
+            {stage?.name ?? row.original.status}
+          </Pill>
+          {/* The two legs, each named by the entry that made it. A deposit
+              that could not point at its own journal would be a status
+              somebody set. */}
+          {row.original.status === "IN_TRANSIT" && (
+            <span className="mt-0.5 text-[0.9375rem] text-mute">
+              {row.original.days_in_transit === 0
+                ? "banked today"
+                : `${row.original.days_in_transit} ${row.original.days_in_transit === 1 ? "day" : "days"} out`}
+            </span>
+          )}
+          {row.original.landed_entry_id !== null &&
+            row.original.landed_entry_number !== null && (
+              <span className="mt-0.5 text-[0.9375rem] text-mute">
+                {day(row.original.landed_on)} ·{" "}
+                <AppLink
+                  to="/finance/accounting/journal-entries"
+                  sheet={{ key: "entry", value: row.original.landed_entry_id }}
+                  className="font-mono text-accent hover:underline"
+                >
+                  {row.original.landed_entry_number}
+                </AppLink>
+              </span>
+            )}
+        </span>
+      )
+    },
+  },
+]
+
+/// The bank's own account of what arrived: every credit the statements
+/// carry, and how much of each our books account for.
+const ARRIVAL_COLUMNS: ColumnDef<TableSetup, Arrival>[] = [
+  {
+    id: "value_date",
+    accessorFn: (row) => row.line.value_date,
+    header: "Value date",
+    size: 130,
+    enableSorting: false,
+    meta: { card: "meta" },
+    cell: ({ row }) => day(row.original.line.value_date),
+  },
+  {
+    id: "account",
+    accessorFn: (row) => row.statement.account_name,
+    header: "Bank account",
+    size: 200,
+    enableSorting: false,
+    meta: { card: "meta" },
+    cell: ({ row }) => (
+      <span className="flex min-w-0 flex-col">
+        <span className="truncate font-medium text-ink">
+          {row.original.statement.account_name}
+        </span>
+        <Code>{row.original.statement.account_code}</Code>
+      </span>
+    ),
+  },
+  {
+    id: "unit",
+    accessorFn: (row) => row.statement.unit_id,
+    header: "Unit",
+    size: 130,
+    enableSorting: false,
+    meta: { card: "hide", priority: 3 },
+    cell: ({ row }) => <UnitName id={row.original.statement.unit_id} />,
+  },
+  {
+    id: "description",
+    accessorFn: (row) => row.line.description,
+    header: "Description",
+    size: 240,
+    enableSorting: false,
+    meta: { card: "title", grow: 200 },
+    cell: ({ row }) => (
+      <span className="flex min-w-0 flex-col whitespace-normal text-body">
+        <span>{row.original.line.description}</span>
+        {row.original.line.party_name !== "" && (
+          <span className="text-[0.9375rem] text-mute">
+            {row.original.line.party_name}
+          </span>
         )}
-      </Td>
-      <Td align="right">
-        {line.unallocated_minor === 0 ? (
-          <span className="text-hairline-strong">·</span>
-        ) : (
-          <span className="text-bad-fg">{money(line.unallocated_minor)}</span>
-        )}
-      </Td>
-      <Td>
-        {line.unallocated_minor === 0 ? (
-          <Pill tone="ok">agreed</Pill>
-        ) : line.allocated_minor === 0 ? (
-          <Pill tone="bad">unexplained</Pill>
-        ) : (
-          <Pill tone="warn">part agreed</Pill>
-        )}
-      </Td>
-    </tr>
-  )
-}
+      </span>
+    ),
+  },
+  {
+    id: "reference",
+    accessorFn: (row) => row.line.reference,
+    header: "Reference",
+    size: 130,
+    enableSorting: false,
+    meta: { card: "id", priority: 3 },
+    cell: ({ row }) => <Code>{row.original.line.reference ?? "—"}</Code>,
+  },
+  {
+    id: "deposit",
+    accessorFn: (row) => row.line.credit_minor,
+    header: "Deposit",
+    size: 150,
+    enableSorting: false,
+    meta: { align: "right", card: "metric" },
+    cell: ({ row }) => (
+      <span className="font-medium text-ink">
+        {money(row.original.line.credit_minor)}
+      </span>
+    ),
+  },
+  {
+    id: "allocated",
+    accessorFn: (row) => row.line.allocated_minor,
+    header: "Allocated",
+    size: 150,
+    enableSorting: false,
+    meta: { align: "right", card: "metric", priority: 2 },
+    cell: ({ row }) =>
+      row.original.line.allocated_minor === 0 ? (
+        <span className="text-hairline-strong">·</span>
+      ) : (
+        money(row.original.line.allocated_minor)
+      ),
+  },
+  {
+    id: "unallocated",
+    accessorFn: (row) => row.line.unallocated_minor,
+    header: "Unallocated",
+    size: 150,
+    enableSorting: false,
+    meta: { align: "right", card: "metric" },
+    cell: ({ row }) =>
+      row.original.line.unallocated_minor === 0 ? (
+        <span className="text-hairline-strong">·</span>
+      ) : (
+        <span className="text-bad-fg">
+          {money(row.original.line.unallocated_minor)}
+        </span>
+      ),
+  },
+  {
+    id: "status",
+    accessorFn: (row) => row.line.unallocated_minor,
+    header: "Status",
+    size: 140,
+    enableSorting: false,
+    meta: { card: "status" },
+    cell: ({ row }) =>
+      row.original.line.unallocated_minor === 0 ? (
+        <Pill tone="ok">agreed</Pill>
+      ) : row.original.line.allocated_minor === 0 ? (
+        <Pill tone="bad">unexplained</Pill>
+      ) : (
+        <Pill tone="warn">part agreed</Pill>
+      ),
+  },
+]

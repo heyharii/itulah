@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Movements · two steps</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* Tokens from frontend-hub/src/styles/white.css (All white, 16 Oct 2026) */
+:root{
+  --ink:#1d1d1f;--mute:#6e6e73;--body:#6e6e73;--faint:#c7c7cc;--ico:#8e8e93;
+  --soft:#fafafb;--soft-2:#f2f2f5;--soft-3:#f5f5f7;
+  --hair:#e8e8ec;--row:#eeeef1;--hair-2:#dcdce1;--hair-3:#c7c7cc;
+  --accent:#2862dc;--accent-bg:#eef3fc;--cta-hover:#2055c7;
+  --ok:#248a3d;--bad:#d70015;--warn:#a66c1f;
+  --ring:0 0 0 1px rgb(0 0 0 / 5%),0 2px 8px rgb(0 0 0 / 5%),0 24px 64px rgb(0 0 0 / 12%);
+  --scrim:rgb(40 30 20 / 10%);
+  --drawer:cubic-bezier(.32,.72,0,1);--out:cubic-bezier(.23,1,.32,1);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font:15px/1.45 Inter,system-ui,sans-serif;color:var(--ink);background:#fff;-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent}
+button,input,select{font:inherit;color:inherit}button{background:none;border:0;cursor:pointer;text-align:left}
+.n{font-variant-numeric:tabular-nums}.m{color:var(--mute)}.b{color:var(--bad)}.ok{color:var(--ok)}
+
+.side{position:fixed;top:0;left:0;bottom:0;width:240px;border-right:1px solid var(--hair);padding:18px 12px}
+.side h4{font-size:17px;font-weight:600;padding:0 10px 12px}
+.side a{display:block;padding:7px 10px;border-radius:8px;color:var(--mute)}
+.side a.on{background:var(--soft-2);color:var(--ink);font-weight:500}
+.page{padding:22px 32px 48px 272px;max-width:1220px}
+@media (max-width:1100px){.side{display:none}.page{padding-left:32px}}
+.head{display:flex;align-items:center;gap:14px;min-height:36px;margin-bottom:18px}
+.head h1{font-size:17px;font-weight:600;flex:1}
+
+.kpi{display:flex;flex-wrap:wrap;margin-bottom:20px}
+.kpi>div{padding:0 22px;border-left:1px solid var(--hair);display:flex;flex-direction:column}
+.kpi>div:first-child{padding-left:0;border-left:0}
+.kpi label{color:var(--mute)}.kpi strong{font-size:16px;font-weight:600}
+
+/* the three big buttons */
+.ways{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;max-width:704px;margin-bottom:16px}
+.way{display:flex;flex-direction:column;align-items:center;gap:8px;padding:14px 12px;border:1px solid var(--hair);border-radius:12px;color:var(--body);transition:transform 160ms var(--out),border-color 150ms ease,background-color 150ms ease,color 150ms ease}
+.way:active{transform:scale(.97)}
+@media (hover:hover){.way:hover{border-color:var(--hair-3);color:var(--ink)}}
+.way[aria-selected=true]{border-color:var(--accent);background:var(--accent-bg);color:var(--accent);font-weight:500}
+.way svg{width:24px;height:24px;stroke-width:1.6}
+
+.bar{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+.search{height:36px;width:300px;max-width:100%;border:1px solid var(--hair-2);border-radius:10px;padding:0 12px 0 34px;outline:none;background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' fill='none' stroke='%238e8e93' stroke-width='2' viewBox='0 0 24 24'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-3.5-3.5'/%3E%3C/svg%3E") no-repeat 12px center}
+.search:focus{border-color:var(--accent)}
+.sel{height:36px;border:1px solid var(--hair-2);border-radius:10px;padding:0 10px;background:#fff}
+.sp{flex:1}
+
+/* PO items frame */
+.box{border:1px solid var(--hair);border-radius:8px;overflow:hidden}
+table{width:100%;border-collapse:collapse;table-layout:fixed}
+th{background:var(--soft);font-weight:500;color:var(--body);text-align:left;padding:10px 16px;white-space:nowrap}
+td{padding:14px 16px;border-top:1px solid var(--hair);vertical-align:middle;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+tbody tr:first-child td{border-top:0}
+.r{text-align:right}
+tr.go{cursor:pointer}
+@media (hover:hover){tr.go:hover td{background:var(--soft)}}
+tr.go td:last-child::after{content:"›";color:var(--ico);margin-left:10px}
+tr.picked td{background:var(--accent-bg)}
+.thumb{display:inline-grid;place-items:center;width:40px;height:40px;border-radius:7px;background:var(--soft-2);color:var(--ico);vertical-align:middle;margin-right:12px;font-size:13px}
+.id{display:flex;align-items:center;min-width:0}.id>span{display:flex;flex-direction:column;min-width:0}
+.id b{font-weight:400;overflow:hidden;text-overflow:ellipsis}.id small{font-size:15px;color:var(--mute)}
+.sub td{background:#fbfbfc;padding:8px 16px;color:var(--body)}
+.chev{display:inline-block;width:16px;color:var(--ico);transition:transform 200ms var(--out)}
+tr.open .chev{transform:rotate(90deg)}
+.foot{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 2px;color:var(--mute)}
+.pager{display:flex;gap:6px}
+.pager button{height:32px;padding:0 12px;border-radius:8px;color:var(--ink)}
+.pager button:hover{background:var(--soft-2)}.pager button:disabled{color:var(--faint);background:none}
+
+/* the second step: a sheet over the first */
+.scrim{position:fixed;inset:0;background:var(--scrim);opacity:0;pointer-events:none;transition:opacity 200ms var(--out);z-index:40}
+.scrim.on{opacity:1;pointer-events:auto;transition-duration:340ms}
+.sheet{position:fixed;top:12px;right:12px;bottom:12px;width:min(1000px,calc(100vw - 24px));background:#fff;border-radius:14px;box-shadow:var(--ring);display:flex;flex-direction:column;z-index:50;transform:translateX(calc(100% + 24px));transition:transform 200ms var(--out)}
+.sheet.on{transform:none;transition:transform 340ms var(--drawer)}
+.sh{padding:16px 28px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--hair)}
+.sh .t{flex:1;min-width:0}.crumb{color:var(--mute)}.sh h2{font-size:18px;font-weight:600}
+.x{width:32px;height:32px;border-radius:8px;display:grid;place-items:center;color:var(--ico);font-size:20px}
+.x:hover{background:var(--soft-2);color:var(--ink)}
+.sb{flex:1;overflow:auto;padding:26px 28px}
+
+.proto{position:fixed;right:16px;bottom:16px;background:#111113;color:#d9dbe0;border-radius:12px;padding:10px 12px;font-size:15px;z-index:80;display:flex;gap:10px;align-items:center}
+.proto select{background:#2c2d31;color:#fff;border:0;border-radius:7px;height:30px;padding:0 6px}
+
+@media (max-width:760px){
+  .side{display:none}.page{padding:16px 16px 90px}
+  .kpi{display:grid;grid-template-columns:1fr 1fr;gap:12px 0}.kpi>div:nth-child(odd){padding-left:0;border-left:0}
+  .ways{max-width:none}
+  .ph{display:none}
+  td,th{padding-left:12px;padding-right:12px}
+  .thumb{display:none}
+  .sheet{top:0;right:0;bottom:0;width:100%;border-radius:14px 14px 0 0}
+  .sh,.sb{padding-left:16px;padding-right:16px}
+  .search{width:100%}
+}
+@media (prefers-reduced-motion:reduce){.sheet,.sheet.on{transition:none}}
+</style>
+</head>
+<body>
+<aside class="side"><h4>Inventory</h4><a>Stock</a><a>Exceptions</a><a>Counts</a><a class="on">Movements</a></aside>
+<main class="page">
+  <div class="head"><h1>Movements</h1></div>
+  <div class="kpi" id="kpi"></div>
+  <div class="ways" role="tablist" id="ways"></div>
+  <div id="list"></div>
+</main>
+<div class="scrim" id="scrim"></div>
+<section class="sheet" id="sheet" aria-modal="true"></section>
+<div class="proto">Period <select id="period"><option value="30">Last 30 days</option><option value="7">Last 7 days</option><option value="90">Last 90 days</option></select></div>
+
+<script>
+const fmt=n=>n.toLocaleString("id-ID");
+const ICON={
+  all:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>',
+  store:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l1.5-5h15L21 9"/><path d="M3 9h18v1a3 3 0 0 1-6 0 3 3 0 0 1-6 0 3 3 0 0 1-6 0z"/><path d="M5 12v8h14v-8"/><path d="M10 20v-5h4v5"/></svg>',
+  article:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M20.4 6.6 16 4a4 4 0 0 1-8 0L3.6 6.6a1 1 0 0 0-.5 1.2l1 3a1 1 0 0 0 1 .7H7V20a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-8.5h1.9a1 1 0 0 0 1-.7l1-3a1 1 0 0 0-.5-1.2z"/></svg>',
+  action:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg>'
+};
+
+/* ---------- deterministic demo data at real scale ---------- */
+let seed=7;const rnd=()=>{seed=(seed*16807)%2147483647;return seed/2147483647};
+const STORES=["Head Office","Muaro Bungo","Cikupa","Bumiayu","Jambi","Purbalingga","Wiramode","Brebes","Pasuruan","WMJB","WMBA","Sipin","Banjaran","Wonosobo"];
+const ARTS=["Blus Rayon Motif Bunga","Celana Chino Slim Fit","Kaos Basic Katun Combed","Kaos Anak Karakter","Loafers Kulit Sintetis","Sandal Slide Karet","Sneakers Kanvas Low","Kemeja Oxford Lengan Panjang","Dress Midi Plisket","Jaket Denim Washed","Rok Lipit Midi","Hoodie Fleece Oversize"];
+const ACTIONS=[
+  ["Sold","Floor → Customer",-1],["Moved","Warehouse → Floor",0],["Received","In transit → Warehouse",1],
+  ["Picked","Warehouse → Pick Area",0],["Packed","Pick Area → Packed",0],["Dispatched","Packed → In transit",0],
+  ["Customer return","Customer → Floor",1],["Back to HO","Warehouse → In transit",-1],["Count short","Floor → Missing",-1],["Found","Missing → Floor",1]];
+const ACT_SHARE=[.62,.13,.08,.04,.04,.04,.025,.015,.008,.002];
+const scale={7:.24,30:1,90:2.9};
+let period=30;
+const TOTAL=()=>Math.round(482913*scale[period]);
+
+function storeRows(){
+  const raw=STORES.map((s,i)=>i===0?3.6:1.6-i/10);
+  const sum=raw.reduce((a,b)=>a+b,0);
+  return STORES.map((s,i)=>{
+    const mv=Math.round(TOTAL()*raw[i]/sum);
+    // Head office receives from suppliers and sends to stores; it sells nothing.
+    const received=Math.round(mv*(i===0?.46:.22));
+    const sentOut=Math.round(mv*(i===0?.44:.03));
+    const sold=i===0?0:Math.round(mv*.62);
+    const missing=Math.round(mv*.004);
+    return {key:"s"+i,name:s,sub:i===0?"HO":"Store · C0"+String(i).padStart(2,"0"),mv,received,sentOut,sold,missing,last:i%5===0?"16 Oct":"15 Oct"};
+  }).sort((a,b)=>b.mv-a.mv);
+}
+function actionRows(){
+  return ACTIONS.map((a,i)=>({key:"a"+i,name:a[0],sub:a[1],mv:Math.round(TOTAL()*ACT_SHARE[i]),pcs:Math.round(TOTAL()*ACT_SHARE[i]*1.04),stores:i===3||i===4?1:Math.max(3,14-i),last:i<6?"16 Oct":"14 Oct"}));
+}
+const ARTICLE_COUNT=12418;
+function articleRows(q,page){
+  // a page of the server's answer: 50 rows, total = matches
+  const total=q?Math.max(0,Math.round(ARTICLE_COUNT/(q.length*7))):ARTICLE_COUNT;
+  const rows=[];
+  for(let i=0;i<Math.min(50,total-page*50);i++){
+    const n=page*50+i;seed=n*97+13;
+    const base=q?ARTS.find(a=>a.toLowerCase().includes(q.toLowerCase()))||ARTS[n%ARTS.length]:ARTS[n%ARTS.length];
+    const mv=Math.round(900/(1+n*.03)*scale[period])+3;
+    rows.push({key:"r"+n,name:base,sub:String(1102+n*7).padStart(11,"0"),mv,received:Math.round(mv*.34),sold:Math.round(mv*.52),missing:Math.round(mv*.006),stores:Math.max(2,13-(n%9)),last:n%3?"15 Oct":"16 Oct"});
+  }
+  return {rows,total};
+}
+/* a page of one group's movements (server-paged), as steps */
+function stepsFor(kind,group,page){
+  seed=(group.key.length*1000+page*31+group.name.length)|1;
+  const steps=[];const total=Math.max(1,Math.round(group.mv/2.6));
+  for(let i=0;i<Math.min(25,total-page*25);i++){
+    const store=kind==="store"?group.name:(kind==="article"&&storeFilter)||STORES[Math.floor(rnd()*14)];
+    // kind "all": the whole log, every place and every action.
+    // What each place does: head office receives, picks, packs and sends out;
+    // a store receives, moves to the floor, sells, takes returns, sends back.
+    const HO_ACTS=[2,3,4,5,9],STORE_ACTS=[0,0,0,1,2,6,7,8];
+    const pool=store==="Head Office"?HO_ACTS:STORE_ACTS;
+    const ai=kind==="action"?+group.key.slice(1):pool[Math.floor(rnd()*pool.length)];
+    const act=ACTIONS[ai];
+    const nArt=kind==="article"?1:1+Math.floor(rnd()*rnd()*6);
+    const arts=[];for(let k=0;k<nArt;k++){arts.push({name:kind==="article"?group.name:ARTS[Math.floor(rnd()*ARTS.length)],sku:String(1102+Math.floor(rnd()*900)).padStart(11,"0"),pcs:1+Math.floor(rnd()*3)})}
+    const d=16-Math.floor((page*25+i)/9);
+    steps.push({id:group.key+page+"-"+i,date:`${String(Math.max(1,d)).padStart(2,"0")} Oct, ${String(21-(i%12)).padStart(2,"0")}:${String((i*13)%60).padStart(2,"0")}`,
+      action:act[0],route:act[1],sign:act[2],store,arts,pcs:arts.reduce((s,a)=>s+a.pcs,0)});
+  }
+  return {steps,total};
+}
+
+/* ---------- state ---------- */
+const q=new URLSearchParams(location.search);
+let way=q.get("by")||"all",lpage=0,search="",apage=0,open=null,spage=0,expanded=new Set(),storeFilter=null;
+
+function kpi(){
+  const t=TOTAL();
+  document.getElementById("kpi").innerHTML=[["Received",Math.round(t*.08)],["Sold",Math.round(t*.62)],["Back to HO",Math.round(t*.015)],["Missing",Math.round(t*.008)]]
+    .map(([l,v])=>`<div><label>${l}</label><strong class="n">${fmt(v)}</strong></div>`).join("");
+}
+function ways(){
+  document.getElementById("ways").innerHTML=[["all","All"],["store","By store"],["article","By article"],["action","By action"]]
+    .map(([k,l])=>`<button class="way" role="tab" aria-selected="${k===way}" data-way="${k}">${ICON[k]}${l}</button>`).join("");
+}
+
+/* step 1: one row per group, the server's totals */
+function list(){
+  const L=document.getElementById("list");
+  if(way==="all"){
+    // The log as it is: newest first, every place, a page at a time.
+    const {steps,total}=stepsFor("all",{key:"all",name:"all",mv:TOTAL()},lpage);
+    L.innerHTML=`<div class="bar"><input class="search" placeholder="Search article, SKU, store or document"></div>
+      <div class="box"><table><colgroup><col style="width:150px" class="ph"><col><col style="width:24%" class="ph"><col style="width:20%" class="ph lg"><col style="width:92px"></colgroup>
+      <tr><th class="ph">Date</th><th>Articles</th><th class="ph">Action · Store</th><th class="ph lg">Route</th><th class="r">Pieces</th></tr>
+      ${stepRows("all",steps)}</table></div>${pager(lpage,total,25,"l")}`;
+    return;
+  }
+  if(way==="store"){
+    const rows=storeRows();
+    L.innerHTML=`<div class="box"><table><colgroup><col><col style="width:13%"><col style="width:13%" class="ph"><col style="width:13%"><col style="width:12%" class="ph"><col style="width:14%" class="ph"></colgroup>
+      <tr><th>Store</th><th class="r">Received</th><th class="r ph">Sent out</th><th class="r">Sold</th><th class="r ph">Missing</th><th class="r ph">Last moved</th></tr>
+      ${rows.map(r=>`<tr class="go" data-open="${r.key}"><td><div class="id"><span><b>${r.name}</b><small>${r.sub}</small></span></div></td><td class="r n">${fmt(r.received)}</td><td class="r n ph">${fmt(r.sentOut)}</td><td class="r n">${r.sold?fmt(r.sold):'<span class="m">—</span>'}</td><td class="r n ph ${r.missing?"b":""}">${fmt(r.missing)}</td><td class="r m ph">${r.last}</td></tr>`).join("")}</table></div>`;
+  } else if(way==="action"){
+    const rows=actionRows();
+    L.innerHTML=`<div class="box"><table><colgroup><col><col style="width:16%"><col style="width:16%" class="ph"><col style="width:16%" class="ph"></colgroup>
+      <tr><th>Action</th><th class="r">Pieces</th><th class="r ph">Stores</th><th class="r ph">Last moved</th></tr>
+      ${rows.map(r=>`<tr class="go" data-open="${r.key}"><td><div class="id"><span><b>${r.name}</b><small>${r.sub}</small></span></div></td><td class="r n">${fmt(r.pcs)}</td><td class="r n ph">${r.stores}</td><td class="r m ph">${r.last}</td></tr>`).join("")}</table></div>`;
+  } else {
+    const {rows,total}=articleRows(search,apage);
+    L.innerHTML=`<div class="bar"><input class="search" id="asearch" placeholder="Search article or SKU" value="${search}"></div>
+      ${total?`<div class="box"><table><colgroup><col><col style="width:12%"><col style="width:12%"><col style="width:11%" class="ph"><col style="width:10%" class="ph"><col style="width:13%" class="ph"></colgroup>
+      <tr><th>Article</th><th class="r">Received</th><th class="r">Sold</th><th class="r ph">Missing</th><th class="r ph">Stores</th><th class="r ph">Last moved</th></tr>
+      ${rows.map(r=>`<tr class="go" data-open="${r.key}"><td><div class="id"><span class="thumb">👕</span><span><b>${r.name}</b><small>${r.sub}</small></span></div></td><td class="r n">${fmt(r.received)}</td><td class="r n">${fmt(r.sold)}</td><td class="r n ph ${r.missing?"b":""}">${fmt(r.missing)}</td><td class="r n ph">${r.stores}</td><td class="r m ph">${r.last}</td></tr>`).join("")}</table></div>
+      ${pager(apage,total,50,"a")}`:`<div class="box"><p style="padding:28px;text-align:center" class="m">No article matches</p></div>`}`;
+    window.__arts=rows;
+  }
+}
+function pager(page,total,size,tag){
+  const from=page*size+1,to=Math.min(total,(page+1)*size);
+  return `<div class="foot"><span class="n">${fmt(from)}–${fmt(to)} of ${fmt(total)}</span><span class="pager"><button data-pg="${tag}-1" ${page===0?"disabled":""}>Previous</button><button data-pg="${tag}+1" ${to>=total?"disabled":""}>Next</button></span></div>`;
+}
+
+/* rows of steps, shared by the log and a group's sheet */
+function stepRows(kind,steps){
+  return steps.map(s=>{
+        const single=kind==="article"||s.arts.length===1;
+        const lead=kind==="article"?s.action:(s.arts.length===1?`${s.arts[0].name} <span class="m">· ${s.arts[0].sku}</span>`:`${s.arts[0].name} <span class="m">+ ${s.arts.length-1} more</span>`);
+        const other=kind==="store"?s.action:kind==="all"?`${s.action} <span class="m">· ${s.store}</span>`:s.store;
+        const on=expanded.has(s.id);
+        return `<tr class="${single?"":"go-x"} ${on?"open":""}" ${single?"":`data-x="${s.id}" style="cursor:pointer"`}>
+          <td class="m n ph">${s.date}</td>
+          <td><span class="chev" style="${single?"visibility:hidden":""}">›</span> ${lead}<div class="m" style="font-size:15px;padding-left:20px" data-phone>${s.date.split(",")[0]} · ${kind==="all"?s.action+" · "+s.store:other} · ${s.route}</div><div class="m" style="font-size:15px;padding-left:20px" data-mid>${s.route}</div></td>
+          <td class="ph">${other}</td><td class="m ph lg">${s.route}</td>
+          <td class="r n" style="font-weight:500">${s.sign<0?"−":s.sign>0?"+":""}${fmt(s.pcs)}</td></tr>`+
+          (on&&!single?s.arts.map(a=>`<tr class="sub"><td class="ph"></td><td colspan="3" style="padding-left:36px">${a.name} <span class="m">· ${a.sku}</span></td><td class="r n">${a.pcs}</td></tr>`).join(""):"");
+      }).join("");
+}
+
+/* step 2: the chosen group's movements, paged by the server */
+function groupOf(key){
+  return way==="store"?storeRows().find(r=>r.key===key):way==="action"?actionRows().find(r=>r.key===key):(window.__arts||[]).find(r=>r.key===key);
+}
+function sheet(anim){
+  const S=document.getElementById("sheet");
+  const g=groupOf(open);if(!g)return;
+  const {steps,total}=stepsFor(way,g,spage);
+  const col2=way==="article"?"Action":"Articles";
+  const col3=way==="store"?"Action":"Store";
+  const kpis=way==="action"
+    ?[["Pieces",fmt(g.pcs)],["Stores",g.stores],["Last moved",g.last]]
+    :way==="store"
+      ?[["Received",fmt(g.received)],["Sent out",fmt(g.sentOut)],["Sold",g.sold?fmt(g.sold):"—"],["Missing",fmt(g.missing)]]
+      :[["Received",fmt(g.received)],["Sold",fmt(g.sold)],["Missing",fmt(g.missing)],["Stores",g.stores]];
+  // By article: where it went, one row per store; a row narrows the list.
+  let perStore="";
+  if(way==="article"){
+    seed=g.name.length*131+7;
+    const list=["Head Office",...STORES.slice(1,g.stores)];
+    const rows=list.map((name,i)=>{const recv=i===0?g.received:Math.round(g.received/(list.length)*(1.4-i/12));return{name,recv,sold:i===0?0:Math.round(g.sold/(list.length-1)*(1.3-i/14)),miss:i%4===1?1:0}});
+    perStore=`<h3 style="font-size:15px;font-weight:600;margin:4px 0 8px">Where it went</h3>
+    <div class="box" style="margin-bottom:24px"><table><colgroup><col><col style="width:16%"><col style="width:16%"><col style="width:16%" class="ph"></colgroup>
+      <tr><th>Store</th><th class="r">Received</th><th class="r">Sold</th><th class="r ph">Missing</th></tr>
+      ${rows.map(r=>`<tr class="go${storeFilter===r.name?" picked":""}" data-store="${r.name}"><td>${r.name}</td><td class="r n">${fmt(r.recv)}</td><td class="r n">${r.sold?fmt(r.sold):'<span class="m">—</span>'}</td><td class="r n ph ${r.miss?"b":""}">${r.miss}</td></tr>`).join("")}
+    </table></div>
+    <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:8px"><h3 style="font-size:15px;font-weight:600">Movements${storeFilter?` · ${storeFilter}`:""}</h3>${storeFilter?`<button class="tint" data-store="" style="color:var(--accent)">All stores</button>`:""}</div>`;
+  }
+  S.innerHTML=`<div class="sh"><div class="t"><div class="crumb">Movements · ${way==="store"?"By store":way==="article"?"By article":"By action"}</div><h2>${g.name}${way==="article"?` <span class="m" style="font-weight:400">· ${g.sub}</span>`:""}</h2></div><button class="x" data-close aria-label="Close">×</button></div>
+  <div class="sb">
+    <div class="kpi">${kpis.map(([l,v])=>`<div><label>${l}</label><strong class="n">${v}</strong></div>`).join("")}</div>
+    ${perStore}
+    ${way==="article"?"":`<div class="bar"><input class="search" placeholder="Search article, SKU or tag"></div>`}
+    <div class="box"><table><colgroup><col style="width:150px" class="ph"><col><col style="width:16%" class="ph"><col style="width:22%" class="ph lg"><col style="width:92px"></colgroup>
+      <tr><th class="ph">Date</th><th>${col2}</th><th class="ph">${col3}</th><th class="ph lg">Route</th><th class="r">Pieces</th></tr>
+      ${stepRows(way,steps)}
+    </table></div>
+    ${pager(spage,total,25,"s")}
+  </div>`;
+  if(anim)requestAnimationFrame(()=>{S.classList.add("on");document.getElementById("scrim").classList.add("on")});
+}
+function close(){document.getElementById("sheet").classList.remove("on");document.getElementById("scrim").classList.remove("on");open=null}
+
+function render(){kpi();ways();list();if(open)sheet(false)}
+document.addEventListener("click",e=>{
+  const t=e.target.closest("[data-way],[data-open],[data-close],[data-pg],[data-x],[data-store]");
+  if(!t){if(e.target.id==="scrim")close();return}
+  if(t.dataset.way){way=t.dataset.way;apage=0;lpage=0;expanded.clear();close();render()}
+  else if(t.dataset.open){open=t.dataset.open;spage=0;expanded.clear();storeFilter=null;sheet(true)}
+  else if(t.dataset.store!==undefined){storeFilter=t.dataset.store||null;spage=0;sheet(false)}
+  else if(t.hasAttribute("data-close"))close();
+  else if(t.dataset.x){const k=t.dataset.x;expanded.has(k)?expanded.delete(k):expanded.add(k);open?sheet(false):list()}
+  else if(t.dataset.pg){const [tag,d]=[t.dataset.pg[0],t.dataset.pg.slice(1)];if(tag==="a"){apage+= +d;list()}else if(tag==="l"){lpage+= +d;expanded.clear();list();scrollTo(0,0)}else{spage+= +d;expanded.clear();sheet(false);document.querySelector(".sb").scrollTop=0}}
+});
+document.addEventListener("input",e=>{if(e.target.id==="asearch"){search=e.target.value;apage=0;list();const s=document.getElementById("asearch");s.focus();s.setSelectionRange(search.length,search.length)}});
+document.getElementById("period").addEventListener("change",e=>{period=+e.target.value;render()});
+document.addEventListener("keydown",e=>{if(e.key==="Escape")close()});
+const style=document.createElement("style");style.textContent="@media (min-width:761px){[data-phone]{display:none}} @media (min-width:1101px){[data-mid]{display:none}} @media (max-width:1100px){.lg{display:none}} @media (max-width:760px){[data-mid]{display:none}}";document.head.appendChild(style);
+render();
+</script>
+</body>
+</html>

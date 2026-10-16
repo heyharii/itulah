@@ -163,7 +163,7 @@ export function SupplyComposer({
                   ?.name ?? "Category")}
           </span>
           <div className="flex items-center gap-2">
-            <Button variant="ghost" onClick={onClose}>
+            <Button data-cancel variant="ghost" onClick={onClose}>
               Cancel
             </Button>
             <Button

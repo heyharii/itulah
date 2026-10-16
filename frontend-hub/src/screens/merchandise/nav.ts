@@ -43,6 +43,9 @@ export const merchandiseArticlesNav: AppModule = {
       ],
     },
     {
+      // Grey chips, as in Sales (`sidebar-labels-prototype.html` A6).
+      label: "Attributes",
+      chip: true,
       items: [
         {
           path: "/merchandise/divisions",

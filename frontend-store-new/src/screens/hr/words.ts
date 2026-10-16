@@ -1,12 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 
 import type { PillProps } from "@/components/ui/pill"
-import {
-  hrKeys,
-  pendingSwapsAt,
-  teamAt,
-  type StoreScope,
-} from "@/lib/queries/hr"
+import { pendingSwapsQuery, teamQuery, type StoreScope } from "@/lib/queries/hr"
 import type { EmployeeList, EmployeeSummary } from "@itulah/contract"
 
 /// The People screens' shared words and reads — everything in the module that
@@ -22,10 +17,7 @@ export type Tone = NonNullable<PillProps["tone"]>
 /// The same key the Directory reads, so opening any People screen after it
 /// costs no second round trip to head office.
 export function useTeam(scope: StoreScope) {
-  return useQuery({
-    queryKey: hrKeys.team(scope.unit_id),
-    queryFn: ({ signal }) => teamAt(scope.unit_id, signal),
-  })
+  return useQuery(teamQuery(scope.unit_id))
 }
 
 /// The people on the books, active or not, as the list gives them.
@@ -131,8 +123,5 @@ export function dayStatus(input: {
 
 /// The swaps this shop is waiting on, fenced to this shop.
 export function usePendingSwaps(scope: StoreScope) {
-  return useQuery({
-    queryKey: hrKeys.swaps(),
-    queryFn: ({ signal }) => pendingSwapsAt(scope.unit_id, signal),
-  })
+  return useQuery(pendingSwapsQuery(scope.unit_id))
 }

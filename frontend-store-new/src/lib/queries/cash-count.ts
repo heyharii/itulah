@@ -1,4 +1,5 @@
 import {
+  queryOptions,
   useMutation,
   useQuery,
   useQueryClient,
@@ -8,11 +9,17 @@ import {
 import { CENTRAL_KEY_PREFIX, cloud } from "@/lib/cloud"
 import type { CashCountRow } from "@itulah/contract"
 
-/// The shop's three boxes of cash, counted note by note.
+/// The shop's boxes of cash, counted note by note.
 ///
 /// Reads and writes go to head office through the relay, like the HR screens:
 /// the books live at the centre, and a count is only worth anything beside
 /// what the books say. Money is whole Rupiah.
+///
+/// The node lists all three boxes and takes a count of any; the store app counts
+/// the petty cash (`petty_cash`) and no other, so the rest is here for the day
+/// it counts more. A count is a list of denominations and a reason — nothing
+/// else — and `screens/money/cash-count-model.ts` says how a kas bon slip, a
+/// 1.000 coin and a second person who held the notes are carried in them.
 
 export type CashMeaning = "cash" | "petty_cash" | "cashier_float"
 
@@ -45,27 +52,34 @@ export const cashCountKeys = {
 }
 
 /// `GET /api/v1/store-cash/boxes`
-export function useCashBoxes() {
-  return useQuery({
+export const cashBoxesQuery = () =>
+  queryOptions({
     queryKey: cashCountKeys.boxes(),
     queryFn: ({ signal }) =>
       cloud.get<StoreCashBox[]>("/api/v1/store-cash/boxes", { signal }),
   })
+
+export function useCashBoxes() {
+  return useQuery(cashBoxesQuery())
 }
 
 /// `GET /api/v1/store-cash/counts`
-export function useCashCounts() {
-  return useQuery({
+export const cashCountsQuery = () =>
+  queryOptions({
     queryKey: cashCountKeys.counts(),
     queryFn: ({ signal }) =>
       cloud.get<CashCountRow[]>("/api/v1/store-cash/counts", { signal }),
   })
+
+export function useCashCounts() {
+  return useQuery(cashCountsQuery())
 }
 
 /// `POST /api/v1/store-cash/counts`
 ///
 /// The server sums the notes and refuses a total that differs from the books
-/// when the reason is empty; its sentence is shown as it comes.
+/// when the reason is empty; its sentence is shown as it comes. It records the
+/// person signed in as the one who counted; `witnessedBy` is free text.
 export function useRecordCashCount(): UseMutationResult<
   CashCountRow,
   Error,

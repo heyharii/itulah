@@ -84,7 +84,7 @@ export function QrBlock({
       />
       <div className="min-w-0">
         <p className="font-mono text-id break-all text-ink">{payload}</p>
-        <p className="mt-1 text-[0.875rem] text-mute">{children}</p>
+        <p className="mt-1 text-[0.9375rem] text-mute">{children}</p>
       </div>
     </div>
   )
@@ -162,7 +162,7 @@ export function QtyInput({
         }}
         onFocus={(event) => event.target.select()}
         className={cn(
-          "h-8 w-full rounded-inner border border-hairline-2 bg-canvas text-center text-[0.875rem] tabular-nums shadow-soft transition-colors outline-none",
+          "h-8 w-full rounded-inner border border-hairline-2 bg-canvas text-center text-[0.9375rem] tabular-nums shadow-soft transition-colors outline-none",
           "hover:border-hairline-strong focus:border-accent",
           phone && "h-10 cursor-pointer text-[0.9375rem]",
           phone && pad && "border-accent",

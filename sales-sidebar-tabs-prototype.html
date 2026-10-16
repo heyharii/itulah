@@ -1,0 +1,533 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sales menu: sidebar and tabs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+/* Sales › the department today is ONE screen (Explorer) whose rows switch on
+   nine group tabs. Here the groups move into the department's own sidebar,
+   in folders, and the page keeps (or loses) a tab row:
+   A Views ★ · B Questions · C Sidebar only · D Questions in the sidebar.
+   Tokens: frontend-hub/src/styles/white.css (All white, 16 Oct 2026). */
+:root{
+  --ink:#1d1d1f; --body:#6e6e73; --mute:#6e6e73; --faint:#c7c7cc; --line-ico:#8e8e93;
+  --canvas:#fff; --soft:#fafafb; --soft-2:#f2f2f5; --soft-3:#f5f5f7;
+  --hairline:#e8e8ec; --hairline-2:#dcdce1; --row-line:#eeeef1; --band:#fafafb;
+  --accent:#2862dc; --accent-bg:#eef3fc; --cta:#2862dc; --cta-hover:#2055c7;
+  --bad-fg:#d70015;
+  --ring:0 0 0 1px rgb(0 0 0 / 5%),0 2px 8px rgb(0 0 0 / 5%),0 12px 32px rgb(0 0 0 / 8%);
+  --r-card:10px; --r-inner:8px;
+  --ease-out:cubic-bezier(.23,1,.32,1); --ease-drawer:cubic-bezier(.32,.72,0,1);
+  --font:"Inter",system-ui,-apple-system,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font-family:var(--font);font-size:15px;color:var(--ink);background:#e9e9ec;letter-spacing:-.006em;-webkit-font-smoothing:antialiased;overflow:hidden}
+button,select{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+.i{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.num{font-variant-numeric:tabular-nums}
+
+/* ── prototype chrome ── */
+.proto{height:50px;background:#141518;color:#fff;display:flex;align-items:center;gap:12px;padding:0 14px 0 18px}
+.proto .t{font-weight:600;white-space:nowrap}
+.seg{display:flex;gap:2px;background:#24262b;border-radius:9px;padding:3px}
+.seg button{height:32px;padding:0 11px;border-radius:7px;font-size:15px;color:#b9bcc3;white-space:nowrap;transition:background-color .15s ease,color .15s ease}
+.seg button b{font-weight:600;color:#fff;margin-right:5px}
+.seg button.on{background:#fff;color:var(--ink)}
+.seg button.on b{color:var(--ink)}
+.seg .star{color:#f4b740;margin-left:4px}
+.proto .sp{flex:1}
+.note{min-height:36px;background:#1c1e22;color:#a7abb3;font-size:15px;display:flex;align-items:center;padding:6px 18px;border-top:1px solid #26282d}
+.note b{color:#fff;font-weight:500;margin-right:6px}
+.stagewrap{height:calc(100vh - 86px);overflow:hidden;position:relative}
+
+/* ── hub shell (All white) ── */
+.app{height:100%;display:grid;grid-template-columns:68px 232px minmax(0,1fr);background:var(--canvas);position:relative;overflow:hidden}
+.rail{background:var(--soft-3);display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:4px}
+.logo{width:28px;height:28px;border-radius:7px;background:var(--ink);color:#fff;display:grid;place-items:center;font-weight:600;margin-bottom:10px}
+.rail .ri{width:40px;height:36px;border-radius:8px;display:grid;place-items:center;color:#3a3a3c}
+.rail .ri.on{background:#fff;box-shadow:0 0 0 1px var(--hairline)}
+.dept{background:var(--soft-3);border-right:1px solid var(--hairline);display:flex;flex-direction:column;min-height:0}
+.dept h2{margin:0;height:52px;flex:none;display:flex;align-items:center;padding:0 18px;font-size:15px;font-weight:600}
+.rows{padding:2px 10px 24px;display:flex;flex-direction:column;gap:2px;overflow-y:auto}
+.row{height:38px;flex:none;display:flex;align-items:center;padding:0 10px;border-radius:8px;color:#3a3a3c;text-align:left;width:100%;transition:background-color .15s ease,transform .16s var(--ease-out)}
+.row.on{background:#fff;color:var(--ink);font-weight:500;box-shadow:0 0 0 1px var(--hairline)}
+.fold{height:38px;flex:none;display:flex;align-items:center;gap:8px;padding:0 10px;border-radius:8px;color:#3a3a3c;width:100%;text-align:left;margin-top:6px;transition:background-color .15s ease,transform .16s var(--ease-out)}
+.fold span{flex:1}
+.fold .chev{width:16px;height:16px;color:var(--line-ico);transition:transform .2s var(--ease-out)}
+.fold[aria-expanded="true"] .chev{transform:rotate(90deg)}
+.fold.inside{color:var(--ink);font-weight:500}
+.fold.inside[aria-expanded="false"]{background:#fff;box-shadow:0 0 0 1px var(--hairline)}
+.foldrows{display:flex;flex-direction:column;gap:2px;padding-left:12px}
+.foldrows.enter{animation:rowsin .18s var(--ease-out)}
+@keyframes rowsin{from{opacity:0;transform:translateY(-4px)}}
+.main{overflow-y:auto;min-width:0;position:relative}
+
+/* ── page: head · figures · tabs · bar · table ── */
+.head{position:sticky;top:0;z-index:3;background:#fff;padding:16px 28px 14px;border-bottom:1px solid var(--hairline)}
+.crumb{color:var(--mute);line-height:18px;margin-bottom:6px}
+.head .t{display:flex;align-items:center;gap:16px}
+.head h1{margin:0;flex:1;font-size:17px;line-height:24px;font-weight:600;letter-spacing:-.3px}
+.body{padding:24px 28px 64px}
+.figs{display:flex;flex-wrap:wrap;row-gap:12px;margin-bottom:28px}
+.fig{padding:0 24px;border-left:1px solid var(--hairline)}
+.fig:first-child{border-left:0;padding-left:0}
+.fig .l{color:var(--mute);line-height:20px;white-space:nowrap}
+.fig .v{font-size:16px;line-height:22px;font-weight:600;padding-top:4px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.tabs{display:flex;gap:6px;border-bottom:1px solid var(--hairline);margin-bottom:16px}
+.tab{height:40px;padding:0 8px;color:var(--body);position:relative;white-space:nowrap;transition:transform .16s var(--ease-out)}
+.tab .c{margin-left:6px;color:var(--mute);font-weight:400;font-variant-numeric:tabular-nums}
+.tab.on{color:var(--ink);font-weight:500}
+.tab.on::after{content:"";position:absolute;left:6px;right:6px;bottom:-1px;height:2px;border-radius:2px;background:var(--ink)}
+.bar{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.bar .l{display:flex;align-items:center;gap:8px;flex:1;min-width:0}
+.search{position:relative;display:flex;align-items:center}
+.search .i{position:absolute;left:11px;color:var(--line-ico);width:16px;height:16px}
+.search input{height:38px;width:220px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);padding:0 10px 0 34px;font:inherit;background:#fff;color:var(--ink);outline:none}
+.search input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
+.pick{height:38px;padding:0 12px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);display:inline-flex;align-items:center;gap:6px;white-space:nowrap;background:#fff;transition:transform .16s var(--ease-out)}
+.pick .i{width:16px;height:16px;color:var(--line-ico)}
+select.pick{appearance:none;padding-right:30px;background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238e8e93' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 10px center/16px}
+.sg{display:inline-flex;gap:2px;background:var(--soft-2);border-radius:var(--r-inner);padding:2px;flex:none}
+.sg button{height:34px;padding:0 12px;border-radius:6px;color:var(--body);white-space:nowrap;transition:background-color .15s ease,color .15s ease,transform .16s var(--ease-out)}
+.sg button.on{background:#fff;color:var(--ink);font-weight:500;box-shadow:0 0 0 1px var(--hairline),0 1px 2px rgb(0 0 0/6%)}
+.btn-t{height:38px;padding:0 8px;color:var(--accent);font-weight:500;white-space:nowrap;border-radius:var(--r-inner);transition:transform .16s var(--ease-out)}
+.btn-t[disabled]{color:var(--faint);cursor:default}
+.btn-t:active,.row:active,.fold:active,.tab:active,.seg button:active,.sg button:active,.pick:active{transform:scale(.97)}
+
+/* ── the table ── */
+.tbox{border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden}
+table{border-collapse:collapse;table-layout:fixed;width:100%}
+th{height:40px;background:var(--band);color:var(--body);font-weight:500;text-align:left;padding:0 14px;white-space:nowrap;border-bottom:1px solid var(--hairline);overflow:hidden;text-overflow:ellipsis}
+td{height:48px;padding:0 14px;border-top:1px solid var(--row-line);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
+tbody tr:first-child td{border-top:0}
+.r{text-align:right}
+.m{color:var(--mute)}
+.bad{color:var(--bad-fg)}
+tbody tr{cursor:pointer}
+tbody tr td{transition:background-color .12s ease}
+.mx th,.mx td{padding:0 8px}
+.mx th:first-child,.mx td:first-child{padding-left:14px}
+.mx td.tot,.mx th.tot{font-weight:600;border-left:1px solid var(--hairline)}
+tfoot td{background:var(--band);font-weight:600;border-top:1px solid var(--hairline);cursor:default}
+@media (hover:hover){tbody tr:hover td{background-color:#f6f7f9}.row:not(.on):hover,.fold:hover{background:rgb(0 0 0 / 4%)}.mx tbody tr:hover td.h{filter:brightness(.97)}}
+.foot{display:flex;align-items:center;gap:8px;margin-top:12px;color:var(--mute)}
+.foot .sp{flex:1}
+.swap{animation:swapin .16s ease-out}
+@keyframes swapin{from{opacity:0}}
+
+/* ── record sheet ── */
+.veil{position:absolute;inset:0;background:rgb(40 30 20 / 10%);opacity:0;pointer-events:none;transition:opacity .2s var(--ease-out);z-index:8}
+.veil.open{opacity:1;pointer-events:auto;transition-duration:.34s}
+.sheet{position:absolute;top:12px;right:12px;bottom:12px;width:560px;background:#fff;border-radius:14px;box-shadow:var(--ring);z-index:9;display:flex;flex-direction:column;transform:translateX(calc(100% + 24px));transition:transform .2s var(--ease-out)}
+.sheet.open{transform:none;transition:transform .34s var(--ease-drawer)}
+.sheet .hd{padding:22px 26px 6px}
+.sheet .hd .crumb{margin-bottom:4px}
+.sheet h3{margin:0;font-size:17px;line-height:24px;font-weight:600;letter-spacing:-.3px}
+.sheet .bd{padding:18px 26px 24px;overflow-y:auto;flex:1}
+.sheet .figs{margin-bottom:22px;flex-wrap:nowrap}
+.sheet .fig{padding:0 18px}
+.facts{margin-bottom:22px}
+.fact{display:grid;grid-template-columns:150px 1fr;gap:12px;padding:11px 0;border-top:1px solid var(--row-line)}
+.fact:first-child{border-top:0}
+.fact .k{color:var(--mute)}
+.sheet h4{margin:0 0 10px;font-size:15px;font-weight:600}
+.sheet .ft{padding:12px 26px;border-top:1px solid var(--hairline);display:flex;justify-content:flex-end}
+
+/* ── tab map ── */
+.map{height:100%;overflow-y:auto;background:#fff;padding:28px 32px 64px}
+.map h1{margin:0 0 4px;font-size:17px;font-weight:600;letter-spacing:-.3px}
+.map .crumb{margin-bottom:18px}
+.map td{height:auto;padding:12px 14px;white-space:normal;vertical-align:top;line-height:21px}
+.map tbody tr{cursor:default}
+.map td.f{color:var(--mute)}
+.map .tg{display:inline-block;margin:0 10px 0 0;white-space:nowrap}
+.map .tg+.tg::before{content:"·";margin-right:10px;color:var(--faint)}
+.map .none{color:var(--faint)}
+.map .bar-ctl{color:var(--mute)}
+.map th.on,.map td.on{background:var(--accent-bg)}
+@media (prefers-reduced-motion:reduce){.sheet,.sheet.open{transition:none}.foldrows.enter,.swap{animation:none}}
+</style>
+</head>
+<body>
+<div class="proto">
+  <div class="t">Sales menu</div>
+  <div class="seg" id="opts"></div>
+  <div class="sp"></div>
+  <div class="seg"><button id="mapbtn">Tab map</button></div>
+</div>
+<div class="note" id="note"></div>
+<div class="stagewrap" id="stage"></div>
+
+<script>
+/* ── tiny deterministic noise, so every reload shows the same shop ── */
+function hash(s){let h=2166136261;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619)}return h>>>0}
+function r01(k){let t=hash(k)+0x6D2B79F5;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296}
+const nf=new Intl.NumberFormat('id-ID');
+const n0=v=>nf.format(Math.round(v));
+const pct=v=>(v*100).toFixed(1).replace('.',',')+'%';
+const rpK=v=>{const a=Math.abs(v),s=v<0?'−':'';return a>=1e9?s+'Rp '+(a/1e9).toFixed(2).replace('.',',')+' M':a>=1e6?s+'Rp '+(a/1e6).toFixed(1).replace('.',',')+' jt':s+'Rp '+n0(a)};
+const rpF=v=>n0(Math.round(v/1000)*1000);
+const jt=v=>{const x=v/1e6;return x>=100?n0(x):x.toFixed(1).replace('.',',')};
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* ── the shop: 13 stores, Jan–16 Oct 2026 ── */
+const T={sales:41.73e9,receipts:296420,sold:323540,disc:3.62e9,ret:.81e9,gp:19.91e9,stock:214380};
+const STORES=[['KGD','Kelapa Gading',1.25],['PIM','Pondok Indah',1.15],['GIN','Grand Indonesia',1.3],['SNC','Senayan City',1],['KOK','Kota Kasablanka',1.05],['CPK','Central Park',1.1],['BSD','BSD City',.95],['BGR','Bogor',.8],['BDG','Bandung',1],['SMG','Semarang',.75],['SBY','Surabaya',1.1],['MDN','Medan',.85],['BAL','Bali',.7]];
+const SW=(()=>{const s=STORES.reduce((a,x)=>a+x[2],0);return STORES.map(x=>x[2]/s)})();
+const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct'];
+const MONTHS_L=['January','February','March','April','May','June','July','August','September','October'];
+const SEASON=[.86,.84,1.48,1.12,.93,1.02,1.14,.97,.92,.52];
+const DIVS=[['Wanita','Wanita',.24],['Pria','Pria',.17],['Anak Perempuan','Anak Pr.',.13],['Anak Laki-laki','Anak Lk.',.12],['Perlengkapan Bayi','Bayi',.08],['Sandal dan Sepatu','Sepatu',.1],['Tas','Tas',.07],['Aksesoris','Aksesoris',.09]];
+const TAGS=[['Basic',.31],['Lebaran 2026',.22],['New arrival',.18],['Denim',.11],['Sale rack',.09],['Batik',.08],['Back to school',.07],['Outerwear',.05],['Sleepwear',.04],['Couple set',.03]];
+const SUPS=[['CV Sinar Garmen',.21],['PT Mitra Tekstil Abadi',.18],['Konveksi Bandung Jaya',.15],['PT Sandang Nusantara',.13],['PT Kids Wear Indonesia',.11],['CV Rajut Indah',.1],['UD Kulit Garut',.07],['PT Langkah Sepatu',.05]];
+const PAYS=[['Cash',.27],['QRIS',.24],['Debit card',.19],['Credit card',.14],['GoPay',.06],['OVO',.04],['Voucher',.03],['Member benefit',.03]];
+const CAMPS=[['Lebaran 2026','14 Mar – 5 Apr',.16,'Ended',[2,3]],['Back to School','1 – 21 Jul',.06,'Ended',[6]],['Payday Sale','25 – 28 monthly',.07,'Running'],['Weekend Denim','Sat – Sun',.04,'Running'],['10.10 Sale','8 – 12 Oct',.025,'Ended',[9]],['Member Day','10 – 20 Oct',.03,'Running',[9]],['No campaign','',.615,'']];
+const ARTS=[['Kemeja Linen Oversize','Pria'],['Dress Midi Floral','Wanita'],['Kaos Polos Cotton Combed','Pria'],['Celana Kulot Highwaist','Wanita'],['Gamis Ceruti Babydoll','Wanita'],['Tunik Batik Parang','Wanita'],['Celana Chino Slim','Pria'],['Jaket Denim Washed','Pria'],['Hoodie Basic Fleece','Pria'],['Blus Katun Renda','Wanita'],['Rok Plisket Panjang','Wanita'],['Kaos Anak Dino','Anak Laki-laki'],['Piyama Anak Motif Bintang','Anak Perempuan'],['Romper Bayi Organik','Perlengkapan Bayi'],['Dress Anak Tutu','Anak Perempuan'],['Celana Pendek Anak Cargo','Anak Laki-laki'],['Tas Selempang Kanvas','Tas'],['Totebag Rajut','Tas'],['Sneakers Kanvas Putih','Sandal dan Sepatu'],['Sandal Slide Karet','Sandal dan Sepatu'],['Topi Bucket Denim','Aksesoris'],['Kerudung Paris Polos','Aksesoris'],['Kemeja Flanel Kotak','Pria'],['Koko Kurta Lengan Panjang','Pria'],['Cardigan Rajut Crop','Wanita'],['Set Lebaran Anak Couple','Anak Perempuan'],['Kaos Kaki Bayi isi 3','Perlengkapan Bayi'],['Jumpsuit Linen','Wanita'],['Polo Shirt Pique','Pria'],['Legging Anak Basic','Anak Perempuan'],['Kemeja Anak Batik','Anak Laki-laki'],['Sepatu Sekolah Hitam','Sandal dan Sepatu'],['Dompet Lipat Kulit','Tas'],['Ikat Pinggang Kulit','Aksesoris'],['Outer Kimono Motif','Wanita'],['Celana Jeans Straight','Pria'],['Bodysuit Bayi Lengan Panjang','Perlengkapan Bayi'],['Tas Ransel Sekolah','Tas'],['Sandal Jepit Anak','Sandal dan Sepatu'],['Bros Mutiara','Aksesoris']];
+const COLS=['Putih','Hitam','Navy','Krem','Sage','Maroon'],SIZES=['S','M','L','XL'];
+const CASHIERS=['Rina Kartika','Dewi Lestari','Budi Santoso','Siti Rahmawati','Agus Wijaya','Putri Ayu Ningsih','Fajar Nugroho','Maya Sari','Andi Pratama','Lina Marlina','Rizky Ramadhan','Nur Aini','Yoga Saputra'];
+
+function mk(id,name,share,o={}){
+  const price=o.price||(108000+42000*r01(id+'p'));
+  const disc=o.disc??(.05+.09*r01(id+'d'));
+  const margin=o.margin??(.42+.11*r01(id+'g'));
+  const sr=o.sr??(.35+.9*r01(id+'s'));
+  const sales=T.sales*share,sold=Math.round(sales/price),stock=Math.round(sold*sr);
+  return {id,name,share,price,disc,margin,sales,sold,discount:sales*disc,gp:sales*margin,stock,st:sold/(sold+stock),receipts:Math.round(T.receipts*share*(.9+.2*r01(id+'r'))),...o};
+}
+const split=(id,total,w)=>{const a=w.map((x,i)=>x*(.68+.64*r01(id+'|'+i)));const s=a.reduce((p,x)=>p+x,0);return a.map(x=>total*x/s)};
+
+const DATA={};
+DATA.division=DIVS.map(([n,,s],i)=>mk('div'+i,n,s,{articles:Math.round(1284*s*(.9+.2*r01('da'+i))),sr:.5+.35*r01('dv'+i)}));
+DATA.tag=TAGS.map(([n,s],i)=>mk('tag'+i,n,s,{articles:Math.round(1284*s*(.9+.3*r01('ta'+i))),disc:n==='Sale rack'?.24:undefined}));
+DATA.supplier=SUPS.map(([n,s],i)=>mk('sup'+i,n,s,{articles:Math.round(1284*s)}));
+DATA.article=ARTS.map(([n,div],i)=>{const sh=.0046/(1+i*.085)*(.85+.3*r01('aw'+i));const sr=i%7===3?2.2+r01('ax'+i):i%5===4?1.4:.25+.8*r01('as'+i);const sup=SUPS[(i*3)%SUPS.length][0];
+  return mk('art'+i,n,sh,{code:'A-'+(24103+i*37),div,sup,sr,disc:i%6===2?.19+.05*r01('ad'+i):undefined,price:69000+Math.round(r01('ap'+i)*28)*10000,po:'PO-26-0'+(3+i%7)+'-000'+(10+i%23)})});
+DATA.sku=ARTS.slice(0,20).flatMap(([n,div],i)=>[0,1].map(j=>{const c=COLS[(i+j*2)%6],z=SIZES[(i+j)%4],id='sku'+i+'-'+j;const sh=.0011/(1+(i*2+j)*.07)*(.8+.4*r01(id));
+  return mk(id,n+' · '+c+' · '+z,sh,{code:'A-'+(24103+i*37)+'-'+c.slice(0,3).toUpperCase()+'-'+z,div,sr:(i*2+j)%9===5?2.4:.2+.9*r01(id+'s'),price:69000+Math.round(r01('ap'+i)*28)*10000})}));
+DATA.po=Array.from({length:16},(_,i)=>{const sup=SUPS[i%SUPS.length][0];return mk('po'+i,'PO-26-0'+(3+(i%7))+'-000'+(12+i*3),.012*(1.4-i*.06)*(.8+.4*r01('pw'+i)),{sup,sr:i%5===3?1.9:.3+.9*r01('ps'+i)})});
+DATA.campaign=CAMPS.map(([n,d,s,st,mo],i)=>mk('cam'+i,n,s,{dates:d,status:st,mo,disc:n==='No campaign'?.03:.14+.08*r01('cd'+i)}));
+DATA.payment=PAYS.map(([n,s],i)=>mk('pay'+i,n,s));
+DATA.store=STORES.map(([c,n],i)=>mk('st'+i,n,SW[i],{code:c,price:124000+12000*r01('sp'+i),change:(r01('sc'+i)-.38)*.3}));
+DATA.months=MONTHS_L.map((m,i)=>{const s=SEASON[i]/SEASON.reduce((a,x)=>a+x,0);return mk('mo'+i,m,s,{price:T.sales/T.sold,returns:T.ret*s*(.8+.4*r01('mr'+i)),disc:.07+.06*(i===2?1:r01('md'+i))})});
+DATA.days=(()=>{const out=[];const end=new Date(2026,9,16);let w=[];for(let k=29;k>=0;k--){const d=new Date(end);d.setDate(end.getDate()-k);const dow=d.getDay(),day=d.getDate();let x=(dow===0||dow===6)?1.45:1;if(day>=25&&day<=28)x*=1.2;if(k===0)x*=.55;w.push([d,x])}
+  const sum=w.reduce((a,x)=>a+x[1],0),share=(SEASON[8]+SEASON[9])/SEASON.reduce((a,x)=>a+x,0)*.8;
+  w.reverse().forEach(([d,x],i)=>out.push(mk('dy'+i,d.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'}),share*x/sum,{price:T.sales/T.sold,returns:T.ret/290*x*(.6+.8*r01('dr'+i))})));return out})();
+DATA.session=(()=>{const out=[];const diffs={2:-25000,5:-50000,9:10000,11:-10000};
+  [15,16].forEach(day=>STORES.forEach(([c,n],i)=>{const id='se'+day+i,open=day===16,rec=Math.round((open?52:96)+44*r01(id)),sales=rec*(128000+20000*r01(id+'a')),exp=sales*.27;const diff=open?null:(diffs[i]||0);
+    out.push({id,name:n+' · '+CASHIERS[(i+(day===16?4:0))%13],store:n,code:c,cashier:CASHIERS[(i+(day===16?4:0))%13],opened:day+' Oct '+'09:'+(48+Math.round(10*r01(id+'o'))),closed:open?'':'21:'+String(5+Math.round(20*r01(id+'c'))).padStart(2,'0'),open,receipts:rec,sales,expected:exp,counted:open?null:exp+diff,diff})}));
+  return out.reverse()})();
+
+/* ── the menu ── */
+const PAGES={
+  summary:{label:'Summary',title:'Sales summary',noun:['month','months']},
+  division:{label:'Division',title:'Sales by Division',folder:'product',noun:['division','divisions']},
+  tag:{label:'Tag',title:'Sales by Tag',folder:'product',noun:['tag','tags']},
+  article:{label:'Article',title:'Sales by Article',folder:'product',noun:['article','articles'],total:1284},
+  sku:{label:'SKU',title:'Sales by SKU',folder:'product',noun:['SKU','SKUs'],total:9870},
+  store:{label:'Store',title:'Sales by Store',folder:'place',noun:['store','stores']},
+  session:{label:'Cashier session',title:'Cashier sessions',folder:'place',noun:['session','sessions']},
+  payment:{label:'Payment method',title:'Sales by Payment method',folder:'place',noun:['method','methods']},
+  supplier:{label:'Supplier',title:'Sales by Supplier',folder:'source',noun:['supplier','suppliers']},
+  po:{label:'Purchase order',title:'Sales by Purchase order',folder:'source',noun:['PO','POs']},
+  campaign:{label:'Campaign',title:'Sales by Campaign',folder:'source',noun:['campaign','campaigns']},
+  'q-best':{label:'Best sellers',title:'Best sellers',folder:'quick',noun:['article','articles'],q:'best'},
+  'q-slow':{label:'Slow movers',title:'Slow movers',folder:'quick',noun:['article','articles'],q:'slow'},
+  'q-disc':{label:'Discount-driven',title:'Discount-driven',folder:'quick',noun:['article','articles'],q:'disc'},
+  'q-high':{label:'High stock',title:'High stock',folder:'quick',noun:['article','articles'],q:'high'},
+};
+const FOLDERS={quick:'Quick looks',product:'By product',place:'By place',source:'By source'};
+const OPTS={
+  a:{k:'A',name:'Views',star:true,note:'Sidebar = what each row is. Tabs = which columns: Totals · Per store · Per month.'},
+  b:{k:'B',name:'Questions',note:'Tabs = quick questions on the same rows. Totals / Per store / Per month sits in the bar.'},
+  c:{k:'C',name:'Sidebar only',note:'No tabs. The columns switch and the quick questions both sit in the bar.'},
+  d:{k:'D',name:'Questions in sidebar',note:'A’s tabs, and the quick questions become their own folder in the sidebar.'},
+};
+const folderOrder=o=>o==='d'?['quick','product','place','source']:['product','place','source'];
+
+const V={totals:'Totals',store:'Per store',month:'Per month',division:'Per division',months:'Months',days:'Days'};
+const Q={all:'All',best:'Best sellers',slow:'Slow movers',disc:'Discount-driven',high:'High stock',open:'Open',short:'Short or over',growing:'Growing',falling:'Falling',running:'Running',ended:'Ended'};
+function viewsOf(p){if(p==='summary')return['months','days'];if(p==='session')return[];if(p==='store')return['totals','division','month'];return['totals','store','month']}
+function questionsOf(p){if(p==='session')return['all','open','short'];if(p==='store')return['all','growing','falling'];if(p==='campaign')return['all','running','ended'];if(p==='summary'||p==='payment'||p.startsWith('q-'))return[];return['all','best','slow','disc','high']}
+/* what the tab row holds, per option */
+function tabsFor(o,p){
+  if(o==='c')return null;
+  if(o==='b'){if(p==='summary')return{kind:'view',keys:viewsOf(p)};const q=questionsOf(p);return q.length?{kind:'q',keys:q}:null}
+  if(p==='session')return{kind:'q',keys:questionsOf(p)};
+  return{kind:'view',keys:viewsOf(p)};
+}
+/* what the bar holds besides search · period · filter */
+function barFor(o,p){
+  const t=tabsFor(o,p),out={};
+  if(!t||t.kind!=='view'){const v=viewsOf(p);if(v.length)out.view=v}
+  if(!t||t.kind!=='q'){const q=questionsOf(p);if(q.length&&o==='c')out.q=q;if(q.length&&o==='d'&&p==='session')out.q=q}
+  return out;
+}
+
+/* ── state ── */
+const sp=new URLSearchParams(location.search);
+const S={o:OPTS[sp.get('o')]?sp.get('o'):'a',p:PAGES[sp.get('p')]?sp.get('p'):'article',view:null,q:'all',metric:'sales',shut:{},map:sp.has('map'),sheet:null,justOpened:null};
+function resetPage(){S.view=viewsOf(S.p)[0]||null;S.q=PAGES[S.p].q||'all';S.metric='sales'}
+if(S.p.startsWith('q-')&&S.o!=='d')S.p='article';
+resetPage();
+function sync(){const u=new URLSearchParams();u.set('o',S.o);u.set('p',S.p);if(S.map)u.set('map','');history.replaceState(null,'','?'+u.toString().replace('map=','map'))}
+
+/* ── rows of the current page ── */
+function baseRows(p){
+  if(p==='summary')return S.view==='days'?DATA.days:DATA.months;
+  if(p.startsWith('q-'))return DATA.article;
+  return DATA[p];
+}
+function applyQ(rows,q,p){
+  const s=[...rows];
+  switch(q){
+    case 'best':return s.sort((a,b)=>b.sold-a.sold).slice(0,15);
+    case 'slow':return s.filter(r=>r.st<.4).sort((a,b)=>a.st-b.st);
+    case 'disc':return s.filter(r=>r.disc>.12).sort((a,b)=>b.discount-a.discount);
+    case 'high':return s.filter(r=>r.stock>r.sold*1.1).sort((a,b)=>b.stock-a.stock);
+    case 'open':return s.filter(r=>r.open);
+    case 'short':return s.filter(r=>r.diff);
+    case 'growing':return s.filter(r=>r.change>0).sort((a,b)=>b.change-a.change);
+    case 'falling':return s.filter(r=>r.change<=0).sort((a,b)=>a.change-b.change);
+    case 'running':return s.filter(r=>r.status==='Running');
+    case 'ended':return s.filter(r=>r.status==='Ended');
+  }
+  if(p==='session'||p==='summary')return s;
+  return s.sort((a,b)=>b.sales-a.sales);
+}
+const rowsNow=()=>applyQ(baseRows(S.p),S.q,S.p);
+
+/* ── columns ── */
+const C={
+  name:(h,w)=>({h,w,f:r=>esc(r.name)}),
+  sold:{h:'Sold',w:100,r:1,f:r=>n0(r.sold)},
+  sales:{h:'Sales',w:150,r:1,f:r=>rpF(r.sales)},
+  disc:{h:'Discount',w:136,r:1,f:r=>rpF(r.discount)},
+  gp:{h:'Gross profit',w:150,r:1,f:r=>rpF(r.gp)},
+  stock:{h:'Stock',w:100,r:1,f:r=>n0(r.stock)},
+  st:{h:'Sell-through',w:116,r:1,f:r=>pct(r.st)},
+  arts:{h:'Articles',w:92,r:1,f:r=>n0(r.articles)},
+  rec:{h:'Receipts',w:104,r:1,f:r=>n0(r.receipts)},
+};
+function columns(p){
+  if(p==='summary')return[C.name(S.view==='days'?'Day':'Month'),C.rec,C.sold,C.sales,C.disc,{h:'Returns',w:130,r:1,f:r=>rpF(r.returns)},C.gp,{h:'Margin',w:90,r:1,f:r=>pct(r.margin)}];
+  if(p==='store')return[C.name('Store'),C.rec,C.sold,C.sales,C.gp,C.stock,{h:'vs last year',w:116,r:1,f:r=>(r.change>0?'+':'−')+pct(Math.abs(r.change))}];
+  if(p==='session')return[{h:'Store',f:r=>esc(r.store)},{h:'Cashier',w:180,f:r=>esc(r.cashier)},{h:'Opened',w:130,f:r=>r.opened},{h:'Closed',w:84,f:r=>r.open?'<span class="m">Open</span>':r.closed},C.rec,C.sales,{h:'Counted',w:130,r:1,f:r=>r.open?'<span class="m">—</span>':rpF(r.counted)},{h:'Difference',w:112,r:1,f:r=>r.open||!r.diff?'<span class="m">—</span>':`<span class="${r.diff<0?'bad':''}">${r.diff<0?'−':'+'}${n0(Math.abs(r.diff))}</span>`}];
+  if(p==='payment')return[C.name('Payment method'),C.rec,C.sales,{h:'Share',w:100,r:1,f:r=>pct(r.share)},{h:'Avg receipt',w:130,r:1,f:r=>rpF(r.sales/r.receipts)}];
+  if(p==='campaign')return[C.name('Campaign'),{h:'Dates',w:150,f:r=>r.dates?esc(r.dates):'<span class="m">—</span>'},{h:'Status',w:96,f:r=>`<span class="m">${r.status||'—'}</span>`},C.sold,C.sales,C.disc,C.gp];
+  if(p==='po')return[C.name('PO'),{h:'Supplier',w:200,f:r=>esc(r.sup)},{h:'Received',w:100,r:1,f:r=>n0(r.sold+r.stock)},C.sold,C.sales,C.stock,C.st];
+  if(p==='division'||p==='tag'||p==='supplier')return[C.name(PAGES[p].label),C.arts,C.sold,C.sales,C.disc,C.gp,C.stock,C.st];
+  return[C.name(p==='sku'?'SKU':'Article'),C.sold,C.sales,C.disc,C.gp,C.stock,C.st];
+}
+
+/* ── matrices: per store / per month / per division ── */
+function matrixCols(){
+  if(S.view==='store')return STORES.map(([c,n],i)=>({h:c,t:n,w:SW[i]}));
+  if(S.view==='month')return MONTHS.map((m,i)=>({h:m,t:MONTHS_L[i],w:SEASON[i]}));
+  return DIVS.map(([n,s,w])=>({h:s,t:n,w}));
+}
+function metricVal(r){return S.metric==='sold'?r.sold:S.metric==='stock'?r.stock:r.sales}
+const fmtM=v=>S.metric==='sales'?jt(v):n0(v);
+function cells(r){const mc=matrixCols();const on=(i)=>S.view!=='month'||!r.mo||r.mo.includes(i);return split(r.id+S.view+S.metric,metricVal(r),mc.map((c,i)=>on(i)?c.w:0))}
+
+/* ── render ── */
+const ICON={
+  chev:'<svg class="i chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>',
+  search:'<svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
+  cal:'<svg class="i" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M8 3v4M16 3v4M3.5 10h17"/></svg>',
+  filter:'<svg class="i" viewBox="0 0 24 24"><path d="M4 6h16M7 12h10M10 18h4"/></svg>',
+};
+const RAIL=['<path d="M4 11.5 12 5l8 6.5V20H4z"/>','<path d="M4 7h16v13H4zM9 7V4h6v3"/>','<path d="M3 10h18M5 10l1-6h12l1 6M5 10v10h14V10M10 20v-5h4v5"/>','<path d="M4 19V9M10 19V5M16 19v-7M21 19H3"/>','<circle cx="12" cy="8" r="3.5"/><path d="M5 20c1.2-3.8 4-5.5 7-5.5s5.8 1.7 7 5.5"/>','<path d="M6 4h12v16H6zM9 8h6M9 12h6M9 16h3"/>'];
+
+function renderChrome(){
+  document.getElementById('opts').innerHTML=Object.entries(OPTS).map(([k,o])=>`<button data-o="${k}" class="${!S.map&&S.o===k?'on':''}"><b>${o.k}</b>${o.name}${o.star?'<span class="star">★</span>':''}</button>`).join('');
+  document.getElementById('mapbtn').className=S.map?'on':'';
+  document.getElementById('note').innerHTML=S.map?'<b>Tab map</b>Every menu row and what its tab row holds in each version.':`<b>${OPTS[S.o].k} · ${OPTS[S.o].name}</b>${OPTS[S.o].note}`;
+}
+
+function sidebar(){
+  const row=p=>`<button class="row ${S.p===p?'on':''}" data-p="${p}">${PAGES[p].label}</button>`;
+  let h=row('summary');
+  for(const f of folderOrder(S.o)){
+    const ps=Object.keys(PAGES).filter(p=>PAGES[p].folder===f);
+    const inside=ps.includes(S.p),open=!S.shut[f];
+    h+=`<button class="fold ${inside?'inside':''}" aria-expanded="${open}" data-f="${f}"><span>${FOLDERS[f]}</span>${ICON.chev}</button>`;
+    if(open)h+=`<div class="foldrows ${S.justOpened===f?'enter':''}">${ps.map(row).join('')}</div>`;
+  }
+  S.justOpened=null;
+  return `<aside class="dept"><h2>Sales</h2><nav class="rows">${h}</nav></aside>`;
+}
+
+function figs(p,rows){
+  const f=(l,v)=>`<div class="fig"><div class="l">${l}</div><div class="v">${v}</div></div>`;
+  if(p==='session'){const all=DATA.session;return f('Sessions',all.length)+f('Open now',all.filter(r=>r.open).length)+f('Short',all.filter(r=>r.diff<0).length)+f('Over',all.filter(r=>r.diff>0).length)+f('Cash difference',rpK(all.reduce((a,r)=>a+(r.diff||0),0)))}
+  if(p==='store')return f('Sales',rpK(T.sales))+f('Receipts',n0(T.receipts))+f('Avg receipt',rpK(T.sales/T.receipts))+f('Gross profit',rpK(T.gp))+f('Stock',n0(T.stock)+' pcs');
+  if(p==='summary')return f('Sales',rpK(T.sales))+f('Receipts',n0(T.receipts))+f('Sold',n0(T.sold)+' pcs')+f('Discount',rpK(T.disc))+f('Returns',rpK(T.ret))+f('Gross profit',rpK(T.gp));
+  if(p.startsWith('q-')){const s=k=>rows.reduce((a,r)=>a+r[k],0);return f('Articles',rows.length)+f('Sales',rpK(s('sales')))+f('Sold',n0(s('sold'))+' pcs')+f('Discount',rpK(s('discount')))+f('Stock',n0(s('stock'))+' pcs')}
+  return f('Sales',rpK(T.sales))+f('Discount',rpK(T.disc))+f('Sold',n0(T.sold)+' pcs')+f('Gross profit',rpK(T.gp))+f('Margin',pct(T.gp/T.sales))+f('Stock',n0(T.stock)+' pcs');
+}
+
+function tabRow(){
+  const t=tabsFor(S.o,S.p);if(!t)return'';
+  return `<div class="tabs" role="tablist">${t.keys.map(k=>{
+    const on=t.kind==='view'?S.view===k:S.q===k;
+    const c=t.kind==='q'&&k!=='all'?`<span class="c">${applyQ(baseRows(S.p),k,S.p).length}</span>`:'';
+    return `<button class="tab ${on?'on':''}" role="tab" data-${t.kind}="${k}">${t.kind==='view'?V[k]:Q[k]}${c}</button>`}).join('')}</div>`;
+}
+
+function barRow(){
+  const b=barFor(S.o,S.p),pg=PAGES[S.p];
+  let l=`<label class="search">${ICON.search}<input placeholder="Search ${pg.noun[1]}" /></label>`;
+  if(S.p!=='session')l+=`<button class="pick">${ICON.cal}This year</button>`;
+  else l+=`<button class="pick">${ICON.cal}15 – 16 Oct</button>`;
+  l+=`<button class="pick">${ICON.filter}Filter</button>`;
+  if(b.view)l+=`<div class="sg">${b.view.map(k=>`<button class="${S.view===k?'on':''}" data-view="${k}">${V[k]}</button>`).join('')}</div>`;
+  if(b.q)l+=`<select class="pick" data-qsel>${b.q.map(k=>`<option value="${k}" ${S.q===k?'selected':''}>${k==='all'?'Show all':Q[k]}</option>`).join('')}</select>`;
+  if(isMatrix()){const ms=['sales','sold'];if(S.view==='store'&&!['payment','campaign','summary'].includes(S.p))ms.push('stock');
+    l+=`<div class="sg">${ms.map(k=>`<button class="${S.metric===k?'on':''}" data-metric="${k}">${k==='sales'?'Sales, Rp jt':k==='sold'?'Sold, pcs':'Stock, pcs'}</button>`).join('')}</div>`}
+  return `<div class="bar"><div class="l">${l}</div><button class="btn-t">Export</button></div>`;
+}
+const isMatrix=()=>['store','month','division'].includes(S.view);
+
+function table(rows){
+  if(isMatrix())return matrix(rows);
+  const cols=columns(S.p);
+  return `<div class="tbox"><table><colgroup>${cols.map(c=>`<col${c.w?` style="width:${c.w}px"`:''}>`).join('')}</colgroup>
+  <thead><tr>${cols.map(c=>`<th class="${c.r?'r':''}">${c.h}</th>`).join('')}</tr></thead>
+  <tbody>${rows.map(r=>`<tr data-row="${r.id}">${cols.map(c=>`<td class="${c.r?'r':''}">${c.f(r)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+}
+function matrix(rows){
+  const mc=matrixCols(),name=S.p==='summary'?'Month':PAGES[S.p].label;
+  const all=rows.map(r=>({r,v:cells(r)}));
+  const colTot=mc.map((_,i)=>all.reduce((a,x)=>a+x.v[i],0));
+  const body=all.map(({r,v})=>{const mx=Math.max(...v),mn=Math.min(...v);
+    return `<tr data-row="${r.id}"><td>${esc(r.name)}</td>${v.map(x=>{const a=mx>mn?(x-mn)/(mx-mn):0;return `<td class="r h" style="background-color:rgb(40 98 220 / ${(.03+a*.2).toFixed(3)})">${fmtM(x)}</td>`}).join('')}<td class="r tot">${fmtM(metricVal(r))}</td></tr>`}).join('');
+  const showFoot=!['article','sku','po'].includes(S.p)&&!S.p.startsWith('q-')&&S.p!=='tag';
+  return `<div class="tbox"><table class="mx"><colgroup><col style="width:${S.view==='division'?232:212}px">${mc.map(()=>'<col>').join('')}<col style="width:92px"></colgroup>
+  <thead><tr><th>${name}</th>${mc.map(c=>`<th class="r" title="${esc(c.t)}">${c.h}</th>`).join('')}<th class="r tot">Total</th></tr></thead>
+  <tbody>${body}</tbody>${showFoot?`<tfoot><tr><td>Total</td>${colTot.map(v=>`<td class="r">${fmtM(v)}</td>`).join('')}<td class="r tot">${fmtM(colTot.reduce((a,x)=>a+x,0))}</td></tr></tfoot>`:''}</table></div>`;
+}
+
+function footRow(rows){
+  const pg=PAGES[S.p],tot=pg.total&&S.q==='all'?pg.total:rows.length;
+  const many=tot>rows.length;
+  return `<div class="foot"><span class="num">${many?`1–${rows.length} of ${n0(tot)}`:n0(rows.length)} ${pg.noun[rows.length===1&&!many?0:1]}</span><span class="sp"></span>${many?'<button class="btn-t" disabled>Previous</button><button class="btn-t">Next</button>':''}</div>`;
+}
+
+function page(){
+  const pg=PAGES[S.p],rows=rowsNow();
+  const crumb='Sales'+(pg.folder?' · '+FOLDERS[pg.folder]:'');
+  return `<main class="main" id="main">
+    <div class="head"><div class="crumb">${crumb}</div><div class="t"><h1>${pg.title}</h1></div></div>
+    <div class="body">
+      <div class="figs">${figs(S.p,rows)}</div>
+      ${tabRow()}
+      ${barRow()}
+      <div id="tablewrap">${table(rows)}${footRow(rows)}</div>
+    </div>
+    <div class="veil" id="veil"></div>
+    <aside class="sheet" id="sheet"></aside>
+  </main>`;
+}
+
+function rail(){return `<nav class="rail"><div class="logo">C</div>${RAIL.map((d,i)=>`<div class="ri ${i===2?'on':''}"><svg class="i" viewBox="0 0 24 24">${d}</svg></div>`).join('')}</nav>`}
+
+function render(keepScroll){
+  renderChrome();sync();
+  const st=document.getElementById('stage');
+  if(S.map){st.innerHTML=mapView();return}
+  const prev=keepScroll&&document.getElementById('main')?document.getElementById('main').scrollTop:0;
+  st.innerHTML=`<div class="app">${rail()}${sidebar()}${page()}</div>`;
+  if(keepScroll)document.getElementById('main').scrollTop=prev;
+}
+function renderTable(){ // tabs / bar / table only — the head and sidebar stay put
+  const main=document.getElementById('main');const y=main.scrollTop;
+  const rows=rowsNow();
+  main.querySelector('.figs').innerHTML=figs(S.p,rows);
+  const tabs=main.querySelector('.tabs'),nt=tabRow();
+  if(tabs)tabs.outerHTML=nt;
+  main.querySelector('.bar').outerHTML=barRow();
+  const w=document.getElementById('tablewrap');w.innerHTML=table(rows)+footRow(rows);w.classList.remove('swap');void w.offsetWidth;w.classList.add('swap');
+  main.scrollTop=y;sync();
+}
+
+/* ── sheet: any row opens its record ── */
+function findRow(id){for(const k in DATA){const r=DATA[k].find(x=>x.id===id);if(r)return r}}
+function openSheet(id){
+  const r=findRow(id);if(!r)return;
+  const f=(l,v)=>`<div class="fig"><div class="l">${l}</div><div class="v">${v}</div></div>`;
+  const fact=(k,v)=>`<div class="fact"><div class="k">${k}</div><div>${v}</div></div>`;
+  let figsH='',facts='',list='';
+  if(S.p==='session'){
+    facts=fact('Store',esc(r.store))+fact('Cashier',esc(r.cashier))+fact('Opened',r.opened)+fact('Closed',r.open?'Still open':r.closed)+fact('Receipts',n0(r.receipts))+fact('Sales','Rp '+rpF(r.sales))+fact('Cash expected','Rp '+rpF(r.expected))+fact('Cash counted',r.open?'—':'Rp '+rpF(r.counted))+fact('Difference',r.open||!r.diff?'—':`<span class="${r.diff<0?'bad':''}">${r.diff<0?'−':'+'}Rp ${n0(Math.abs(r.diff))}</span>`);
+  }else{
+    figsH=f('Sales',rpK(r.sales))+f('Sold',n0(r.sold)+' pcs')+f('Gross profit',rpK(r.gp))+(S.p==='payment'?'':f('Stock',n0(r.stock)+' pcs'));
+    if(r.code&&S.p!=='store')facts+=fact('Code',r.code);
+    if(r.div)facts+=fact('Division',r.div);
+    if(r.sup)facts+=fact('Supplier',esc(r.sup));
+    if(r.po)facts+=fact('Purchase order',r.po);
+    if(r.dates)facts+=fact('Dates',esc(r.dates));
+    if(r.articles)facts+=fact('Articles',n0(r.articles));
+    if(S.p==='article'||S.p==='sku'||S.p.startsWith('q-'))facts+=fact('Price','Rp '+n0(r.price))+fact('Sell-through',pct(r.st));
+    facts+=fact('Discount','Rp '+rpF(r.discount))+fact('Margin',pct(r.margin));
+    const byDiv=S.p==='store',lab=byDiv?DIVS.map(d=>d[0]):STORES.map(s=>s[1]),w=byDiv?DIVS.map(d=>d[2]):SW;
+    const sold=split(r.id+'sh',r.sold,w),sales=split(r.id+'sh',r.sales,w);
+    const items=lab.map((n,i)=>({n,sold:sold[i],sales:sales[i]})).sort((a,b)=>b.sales-a.sales);
+    list=`<h4>${byDiv?'By division':'By store'}</h4><div class="tbox"><table><colgroup><col><col style="width:96px"><col style="width:150px"></colgroup><thead><tr><th>${byDiv?'Division':'Store'}</th><th class="r">Sold</th><th class="r">Sales</th></tr></thead><tbody>${items.map(x=>`<tr style="cursor:default"><td>${x.n}</td><td class="r">${n0(x.sold)}</td><td class="r">${rpF(x.sales)}</td></tr>`).join('')}</tbody></table></div>`;
+  }
+  const sh=document.getElementById('sheet');
+  sh.innerHTML=`<div class="hd"><div class="crumb">${PAGES[S.p].title}</div><h3>${esc(r.name)}</h3></div><div class="bd">${figsH?`<div class="figs">${figsH}</div>`:''}<div class="facts">${facts}</div>${list}</div><div class="ft"><button class="btn-t" data-close>Close</button></div>`;
+  sh.querySelector('.bd').scrollTop=0;
+  requestAnimationFrame(()=>{sh.classList.add('open');document.getElementById('veil').classList.add('open')});
+  S.sheet=id;
+}
+function closeSheet(){const sh=document.getElementById('sheet');if(!sh)return;sh.classList.remove('open');document.getElementById('veil').classList.remove('open');S.sheet=null}
+
+/* ── tab map ── */
+function mapView(){
+  const order=['summary',...['product','place','source'].flatMap(f=>Object.keys(PAGES).filter(p=>PAGES[p].folder===f)),...Object.keys(PAGES).filter(p=>PAGES[p].folder==='quick')];
+  const tags=a=>a.join(" · ");
+  const cell=(o,p)=>{
+    if(p.startsWith('q-')&&o!=='d')return'<span class="none">—</span>';
+    const t=tabsFor(o,p),b=barFor(o,p);
+    let s=t?tags(t.keys.map(k=>t.kind==='view'?V[k]:Q[k])):'<span class="none">No tabs</span>';
+    const extra=[];if(b.view)extra.push(b.view.map(k=>V[k]).join(' / '));if(b.q)extra.push('Show: '+b.q.map(k=>Q[k]).join(', '));
+    if(extra.length)s+=`<div class="bar-ctl">Bar: ${extra.join(' · ')}</div>`;
+    return s;
+  };
+  return `<div class="map"><h1>What the tabs hold</h1><div class="crumb">Sales · every sidebar row × version</div>
+  <div class="tbox"><table><colgroup><col style="width:130px"><col style="width:170px"><col><col><col><col></colgroup>
+  <thead><tr><th>Folder</th><th>Row</th>${Object.entries(OPTS).map(([k,o])=>`<th class="${k===S.o?'on':''}">${o.k} · ${o.name}${o.star?' ★':''}</th>`).join('')}</tr></thead>
+  <tbody>${order.map(p=>`<tr><td class="f">${PAGES[p].folder?FOLDERS[PAGES[p].folder]:'—'}</td><td>${PAGES[p].label}</td>${Object.keys(OPTS).map(o=>`<td class="${o===S.o?'on':''}">${cell(o,p)}</td>`).join('')}</tr>`).join('')}</tbody></table></div></div>`;
+}
+
+/* ── events ── */
+document.addEventListener('click',e=>{
+  const t=e.target.closest('button,tr[data-row],.veil');if(!t)return;
+  if(t.dataset.o){S.o=t.dataset.o;S.map=false;if(S.p.startsWith('q-')&&S.o!=='d')S.p='article';resetPage();render();return}
+  if(t.id==='mapbtn'){S.map=!S.map;render();return}
+  if(t.dataset.p){if(S.p===t.dataset.p)return;S.p=t.dataset.p;resetPage();render();return}
+  if(t.dataset.f){const f=t.dataset.f;S.shut[f]=!S.shut[f];if(!S.shut[f])S.justOpened=f;
+    const st=document.querySelector('.dept');st.outerHTML=sidebar();return}
+  if(t.dataset.view){S.view=t.dataset.view;if(!isMatrix())S.metric='sales';if(S.metric==='stock'&&S.view!=='store')S.metric='sales';renderTable();return}
+  if(t.dataset.q){S.q=t.dataset.q;renderTable();return}
+  if(t.dataset.metric){S.metric=t.dataset.metric;renderTable();return}
+  if(t.dataset.close!==undefined||t.classList.contains('veil')){closeSheet();return}
+  if(t.dataset.row){openSheet(t.dataset.row);return}
+});
+document.addEventListener('change',e=>{if(e.target.matches('[data-qsel]')){S.q=e.target.value;renderTable()}});
+document.addEventListener('keydown',e=>{
+  if(e.target.matches('input,select'))return;
+  if(e.key==='Escape'){closeSheet();return}
+  const k={'1':'a','2':'b','3':'c','4':'d'}[e.key];
+  if(k){S.o=k;S.map=false;if(S.p.startsWith('q-')&&k!=='d')S.p='article';resetPage();render()}
+  if(e.key==='m'){S.map=!S.map;render()}
+});
+render();
+</script>
+</body>
+</html>

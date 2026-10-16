@@ -1,0 +1,8 @@
+/* The shop's own additions to the hub's All white (`white.css`), kept apart
+   so that file can be copied over from the hub as it is. */
+
+/* A People figure's tone (`Stat tone`) is the only colour a strip carries:
+   waiting, wrong or settled. `.kpi-value` paints every figure ink. */
+html[data-look="white"] .kpi-value[class~="text-ok-fg"] { color: var(--ok-fg); }
+html[data-look="white"] .kpi-value[class~="text-warn-fg"] { color: var(--warn-fg); }
+html[data-look="white"] .kpi-value[class~="text-bad-fg"] { color: var(--bad-fg); }

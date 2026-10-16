@@ -403,6 +403,11 @@
   --ease-out: var(--ease-out);
   --ease-in-out: var(--ease-in-out);
   --ease-drawer: var(--ease-drawer);
+  /* What a bare `transition` / `transition-colors` utility runs at. Left to
+     Tailwind it was 150ms on its own weak curve, so a utility hover settled at
+     a different speed from the base layer's `a, button, tr…` rule (as the hub). */
+  --default-transition-duration: var(--t-hover);
+  --default-transition-timing-function: var(--ease-out);
 
   --shadow-soft: var(--shadow-soft);
   --shadow-pop: var(--shadow-pop);
@@ -764,8 +769,8 @@ button,
      screen really has. */
   .pressable {
     transition:
-      background-color var(--t-press) cubic-bezier(0.32, 0.72, 0, 1),
-      transform var(--t-press) cubic-bezier(0.32, 0.72, 0, 1);
+      background-color var(--t-press) var(--ease-out),
+      transform var(--t-press) var(--ease-out);
   }
   .pressable:active {
     background-color: var(--soft-2);

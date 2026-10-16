@@ -1,6 +1,6 @@
 import { TimeTravel } from "@/components/shell/time-travel"
 import { useRouterState } from "@tanstack/react-router"
-import { PanelLeft } from "lucide-react"
+import { ChevronLeft } from "lucide-react"
 
 import { DepartmentScreens } from "@/components/shell/nav-column"
 import {
@@ -99,7 +99,7 @@ export function SubSidebar({
   return (
     <nav
       aria-label={panel.label}
-      className="flex h-full w-[14.5rem] shrink-0 flex-col border-r border-hairline bg-canvas"
+      className="shell-panel flex h-full w-[14.5rem] shrink-0 flex-col border-r border-hairline bg-canvas"
     >
       <div className="flex h-13 shrink-0 items-center gap-1 border-b border-hairline pr-2 pl-4">
         <h2 className="min-w-0 flex-1 truncate text-[0.9375rem] font-semibold tracking-[-0.01em] text-ink">
@@ -113,7 +113,7 @@ export function SubSidebar({
             title="Hide the screens  ⌘B"
             className="grid size-8 shrink-0 place-items-center rounded-inner text-mute transition-colors hover:bg-soft-2 hover:text-ink"
           >
-            <PanelLeft className="size-[1.0625rem] stroke-[1.6]" />
+            <ChevronLeft className="size-[1.125rem] stroke-[1.7]" />
           </button>
         )}
       </div>

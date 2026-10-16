@@ -38,6 +38,35 @@ interface Snapshot {
   readonly unread: number | null
 }
 
+/// A notification as the stream announces it — the fields of the server's
+/// `PushMessage` a screen may act on.
+export interface Arrival {
+  readonly notification_id: string
+  readonly kind: string
+  readonly title: string
+  readonly body: string
+  readonly subject_kind: string | null
+  readonly subject_id: string | null
+}
+const arrivalListeners = new Set<(arrival: Arrival) => void>()
+
+/// Be told of each notification the moment the stream announces it — for the
+/// few kinds that are news worth a toast (`components/shell/store-server-news.tsx`),
+/// not for the bell, which reads the list.
+export function onArrival(listener: (arrival: Arrival) => void): () => void {
+  arrivalListeners.add(listener)
+  return () => arrivalListeners.delete(listener)
+}
+
+function announce(event: Event) {
+  try {
+    const arrival = JSON.parse((event as MessageEvent<string>).data) as Arrival
+    for (const listener of arrivalListeners) listener(arrival)
+  } catch {
+    // A frame this build does not understand is still in the list.
+  }
+}
+
 let snapshot: Snapshot = { state: "idle", unread: null }
 const listeners = new Set<() => void>()
 function publish(next: Partial<Snapshot>) {
@@ -95,6 +124,7 @@ function open() {
   stream.addEventListener("notification", (event) => {
     refresh()
     desktopNotify(event)
+    announce(event)
   })
   stream.addEventListener("signed-out", () => {
     // The session ended. Stop, and let the fallback poll meet the 401 that

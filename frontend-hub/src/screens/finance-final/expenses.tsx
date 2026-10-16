@@ -1,35 +1,27 @@
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
-import { useMemo, useState } from "react"
+import {
+  useInfiniteQuery,
+  useQuery,
+  useSuspenseQuery,
+} from "@tanstack/react-query"
+import type { ColumnDef } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
+import { Suspense, useDeferredValue, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { Card } from "@/components/ui/card"
+import { DataTable } from "@/components/ui/data-table"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { Toolbar } from "@/components/ui/segmented"
-import {
-  EmptyState,
-  ErrorState,
-  LoadMore,
-  LoadingState,
-} from "@/components/ui/states"
+import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states"
 import { edge } from "@/lib/api"
 import { useEdgeNodeIdentity } from "@/lib/edge-session"
 import { money, moment } from "@/lib/format"
-import { useLayout } from "@/lib/layout"
-import { financeKeys, moneyOverview } from "@/lib/queries/finance"
+import { moneyOverviewQuery } from "@/lib/queries/finance"
 import { useUnits } from "@/lib/queries/organisation"
-import {
-  CardRow,
-  Code,
-  DebitCredit,
-  Grid,
-  Note,
-  NumberCard,
-  Td,
-  Th,
-  TotalRow,
-} from "@/screens/finance-final/parts"
-import { useWindow } from "@/screens/finance/hooks"
-import { CardFigure, PhoneList } from "@/components/ui/phone-cards"
+import { tableSetup, type TableSetup } from "@/lib/table"
+import { CardRow, Code, NumberCard } from "@/screens/finance-final/parts"
+import { useSettledWindow } from "@/screens/finance/hooks"
 import {
   PhoneFigures,
   SiteName,
@@ -37,6 +29,7 @@ import {
   UnitSelect,
   WindowControl,
 } from "@/screens/finance/parts"
+import { ScreenPending } from "@/screens/finance/pending"
 import type {
   ExpenseWindow,
   MoneyAccountRow,
@@ -80,8 +73,21 @@ import type {
 /// these has head office ever seen". Today that is all of them. See the note at
 /// the foot of the screen.
 export function Expenses() {
-  const phone = useLayout() === "phone"
-  const range = useWindow()
+  return (
+    <Suspense
+      fallback={
+        <ScreenPending crumb="Finance · Cash & Bank" title="Expenses">
+          Reading the calendar…
+        </ScreenPending>
+      }
+    >
+      <ExpensesScreen />
+    </Suspense>
+  )
+}
+
+function ExpensesScreen() {
+  const range = useSettledWindow()
   const [unit, setUnit] = useState("")
 
   // Which shop's node this hub is actually proxied to. Resolves to `null` for
@@ -103,10 +109,10 @@ export function Expenses() {
   // Where the money sits, per unit, as at today. The centre's own figure and
   // the centre's own `unit` filter: narrowing here is a narrower REQUEST, never
   // a slice of a wider answer held in the browser.
-  const positions = useQuery({
-    queryKey: financeKeys.money(null, unit === "" ? null : unit),
-    queryFn: ({ signal }) => moneyOverview(unit === "" ? {} : { unit }, signal),
-  })
+  const askedUnit = useDeferredValue(unit)
+  const positions = useSuspenseQuery(
+    moneyOverviewQuery(askedUnit === "" ? null : askedUnit)
+  )
 
   const tin = useQuery({
     queryKey: pettyCashKey(nodeSite),
@@ -138,10 +144,7 @@ export function Expenses() {
   })
   const head = book.data?.pages[0]
 
-  const units = useMemo(
-    () => unitsOf(positions.data?.rows ?? []),
-    [positions.data]
-  )
+  const units = useMemo(() => unitsOf(positions.data.rows), [positions.data])
 
   // The rows of one petty cash book, in and out, newest first. The edge answers
   // with both halves of the span on purpose — see `ExpenseWindow.top_ups` — so
@@ -156,14 +159,131 @@ export function Expenses() {
   // actually read. Everything below the position table belongs to ONE node.
   const showingBook = onAShop && (unit === "" || unit === nodeUnit)
 
+  /// The float position, per unit. Only the node this hub is proxied to can be
+  /// asked what is really in its tin. Every other unit is `—` — not zero:
+  /// "nobody has told us" and "there is nothing in it" are different claims
+  /// and a float screen may not render them the same.
+  const positionColumns = useMemo<ColumnDef<TableSetup, UnitFloat>[]>(() => {
+    const counted = (row: UnitFloat): number | null =>
+      row.unit_id === nodeUnit && tin.data !== undefined && tin.data !== null
+        ? tin.data.balance_minor
+        : null
+    return [
+      {
+        id: "unit",
+        accessorFn: (row) => row.unit_id,
+        header: "Unit",
+        size: 200,
+        enableSorting: false,
+        meta: { card: "title", grow: 180 },
+        // The client's code and name, never our id.
+        cell: ({ row }) => (
+          <UnitName id={row.original.unit_id} className="text-ink" />
+        ),
+      },
+      // The two pots a shop may not spend from, drawn quietly on purpose:
+      // they are context for the third column, not an answer to "how much
+      // can I spend".
+      {
+        id: "cash",
+        accessorFn: (row) => row.cash,
+        header: "Cash on hand",
+        size: 160,
+        enableSorting: false,
+        meta: { align: "right", card: "metric", priority: 2 },
+        cell: ({ row }) => (
+          <span className="text-mute">{money(row.original.cash)}</span>
+        ),
+      },
+      {
+        id: "float",
+        accessorFn: (row) => row.float,
+        header: "Cashier float",
+        size: 160,
+        enableSorting: false,
+        meta: { align: "right", card: "metric", priority: 2 },
+        cell: ({ row }) => (
+          <span className="text-mute">{money(row.original.float)}</span>
+        ),
+      },
+      {
+        id: "petty",
+        accessorFn: (row) => row.petty,
+        header: "Petty cash · per books",
+        size: 205,
+        enableSorting: false,
+        meta: { align: "right", card: "metric" },
+        cell: ({ row }) => money(row.original.petty),
+      },
+      {
+        id: "shop",
+        accessorFn: (row) => counted(row),
+        header: "Petty cash · per the shop",
+        size: 235,
+        enableSorting: false,
+        meta: { align: "right", card: "metric" },
+        cell: ({ row }) => {
+          const shop = counted(row.original)
+          return shop === null ? (
+            <span className="text-faint">—</span>
+          ) : (
+            money(shop)
+          )
+        },
+      },
+      {
+        id: "difference",
+        accessorFn: (row) => {
+          const shop = counted(row)
+          return shop === null ? null : shop - row.petty
+        },
+        header: "Difference",
+        size: 150,
+        enableSorting: false,
+        meta: { align: "right", card: "metric" },
+        cell: ({ row }) => {
+          const shop = counted(row.original)
+          const difference = shop === null ? null : shop - row.original.petty
+          return difference === null ? (
+            <span className="text-faint">—</span>
+          ) : difference === 0 ? (
+            <Pill tone="ok">agreed</Pill>
+          ) : (
+            <span className="text-bad-fg">
+              {difference > 0 ? "+" : "−"}
+              {money(Math.abs(difference))}
+            </span>
+          )
+        },
+      },
+    ]
+  }, [nodeUnit, tin.data])
+  const positionTable = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: units,
+        columns: positionColumns,
+        getRowId: (row: UnitFloat) => row.unit_id,
+      }),
+      [units, positionColumns]
+    )
+  )
+  const bookTable = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: entries,
+        columns: BOOK_COLUMNS,
+        getRowId: (row: BookEntry) => row.id,
+      }),
+      [entries]
+    )
+  )
+
   return (
     <PageContent>
-      <PageHeader
-        className="max-md:hidden"
-        crumb="Finance · Cash & Bank"
-        title="Expenses"
-        sub="What a shop spent out of its own hands, what it was for, and how much of the float is left."
-      />
+      <PageHeader crumb="Finance · Cash & Bank" title="Expenses" />
 
       <Toolbar>
         <WindowControl range={range} />
@@ -176,7 +296,7 @@ export function Expenses() {
         <Toolbar.Spacer />
         {/* The effective answer in words, always. A date box filled with today
             and a date box the server defaulted look identical to a reader. */}
-        <span className="text-[0.875rem] text-mute">
+        <span className="text-[0.9375rem] text-mute">
           {range.chip}
           {unit === "" ? (
             " · all units"
@@ -192,7 +312,7 @@ export function Expenses() {
       <div className="flex flex-col gap-5">
         {/* ── How much can I still spend ───────────────────────────────── */}
         <section className="flex flex-col gap-2.5">
-          <h2 className="text-[0.875rem] font-semibold text-ink">
+          <h2 className="text-[0.9375rem] font-semibold text-ink">
             The tin{" "}
             {nodeSite !== null && (
               <span className="font-normal text-mute">
@@ -281,174 +401,45 @@ export function Expenses() {
         </section>
 
         {/* ── The float position, per unit ─────────────────────────────── */}
-        <section className="flex flex-col gap-2.5">
-          <h2 className="text-[0.875rem] font-semibold text-ink">
+        <section
+          className="list-swap flex flex-col gap-2.5"
+          aria-busy={askedUnit !== unit || undefined}
+        >
+          <h2 className="text-[0.9375rem] font-semibold text-ink">
             Float position, per unit
           </h2>
-          {positions.isPending ? (
-            <LoadingState>
-              Reading where each unit&rsquo;s money sits…
-            </LoadingState>
-          ) : positions.error ? (
-            <ErrorState
-              error={positions.error}
-              onRetry={() => void positions.refetch()}
-            />
-          ) : units.length === 0 ? (
+          {units.length === 0 ? (
             <EmptyState>
               No cash account is mapped yet. A pot is a meaning bound to an
               account on the Account map, and until one is bound there is no
               float to be in a position about.
             </EmptyState>
-          ) : phone ? (
-            <PhoneList
-              rows={units.map((unit) => {
-                const counted =
-                  unit.unit_id === nodeUnit &&
-                  tin.data !== undefined &&
-                  tin.data !== null
-                    ? tin.data.balance_minor
-                    : null
-                const difference =
-                  counted === null ? null : counted - unit.petty
-                return {
-                  key: unit.unit_id,
-                  title: <UnitName id={unit.unit_id} />,
-                  lead: (
-                    <CardFigure
-                      value={money(unit.petty)}
-                      caption="petty cash"
-                    />
-                  ),
-                  foot: (
-                    <span className="flex flex-col tabular-nums">
-                      <span>
-                        Cash on hand {money(unit.cash)} · cashier float{" "}
-                        {money(unit.float)}
-                      </span>
-                      {counted !== null && (
-                        <span>per the shop {money(counted)}</span>
-                      )}
-                    </span>
-                  ),
-                  action:
-                    difference === null ? undefined : difference === 0 ? (
-                      <Pill tone="ok">agreed</Pill>
-                    ) : (
-                      <span className="text-bad-fg tabular-nums">
-                        {difference > 0 ? "+" : "−"}
-                        {money(Math.abs(difference))}
-                      </span>
-                    ),
-                }
-              })}
-            />
           ) : (
-            <Grid>
-              <thead>
-                <tr>
-                  <Th width="11rem">Unit</Th>
-                  <Th align="right" width="10rem">
-                    Cash on hand
-                  </Th>
-                  <Th align="right" width="10rem">
-                    Cashier float
-                  </Th>
-                  <Th align="right" width="10rem">
-                    Petty cash · per books
-                  </Th>
-                  <Th align="right" width="10rem">
-                    Petty cash · per the shop
-                  </Th>
-                  <Th align="right" width="9rem">
-                    Difference
-                  </Th>
-                </tr>
-              </thead>
-              <tbody>
-                {units.map((unit) => {
-                  // Only the node this hub is proxied to can be asked what is
-                  // really in its tin. Every other unit is `—` — not zero:
-                  // "nobody has told us" and "there is nothing in it" are
-                  // different claims and a float screen may not render them the
-                  // same.
-                  const counted =
-                    unit.unit_id === nodeUnit &&
-                    tin.data !== undefined &&
-                    tin.data !== null
-                      ? tin.data.balance_minor
-                      : null
-                  const difference =
-                    counted === null ? null : counted - unit.petty
-                  return (
-                    <tr key={unit.unit_id}>
-                      <Td>
-                        {/* The client's code and name, never our id. */}
-                        <UnitName id={unit.unit_id} className="text-ink" />
-                      </Td>
-                      {/* The two pots a shop may not spend from, drawn quietly
-                          on purpose: they are context for the third column, not
-                          an answer to "how much can I spend". */}
-                      <Td align="right" className="text-mute">
-                        {money(unit.cash)}
-                      </Td>
-                      <Td align="right" className="text-mute">
-                        {money(unit.float)}
-                      </Td>
-                      <Td align="right">{money(unit.petty)}</Td>
-                      <Td align="right">
-                        {counted === null ? (
-                          <span className="text-faint">—</span>
-                        ) : (
-                          money(counted)
-                        )}
-                      </Td>
-                      <Td align="right">
-                        {difference === null ? (
-                          <span className="text-faint">—</span>
-                        ) : difference === 0 ? (
-                          <Pill tone="ok">agreed</Pill>
-                        ) : (
-                          <span className="text-bad-fg">
-                            {difference > 0 ? "+" : "−"}
-                            {money(Math.abs(difference))}
-                          </span>
-                        )}
-                      </Td>
-                    </tr>
-                  )
-                })}
-                <TotalRow>
-                  <Td>
-                    {units.length} unit{units.length === 1 ? "" : "s"}
-                  </Td>
-                  <Td align="right">
-                    {money(units.reduce((sum, row) => sum + row.cash, 0))}
-                  </Td>
-                  <Td align="right">
-                    {money(units.reduce((sum, row) => sum + row.float, 0))}
-                  </Td>
-                  <Td align="right">
-                    {money(units.reduce((sum, row) => sum + row.petty, 0))}
-                  </Td>
-                  {/* Deliberately not totalled. One node out of fourteen has
-                      answered, so a figure here would read as what the estate
-                      holds in petty cash while being one shop's tin. */}
-                  <Td align="right">
-                    <span className="text-faint">—</span>
-                  </Td>
-                  <Td align="right">
-                    <span className="text-faint">—</span>
-                  </Td>
-                </TotalRow>
-              </tbody>
-            </Grid>
+            <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+              <DataTable<UnitFloat>
+                table={positionTable}
+                summary={{
+                  unit: `${units.length} unit${units.length === 1 ? "" : "s"}`,
+                  cash: money(units.reduce((sum, row) => sum + row.cash, 0)),
+                  float: money(units.reduce((sum, row) => sum + row.float, 0)),
+                  petty: money(units.reduce((sum, row) => sum + row.petty, 0)),
+                  // Deliberately not totalled. One node out of fourteen has
+                  // answered, so a figure here would read as what the estate
+                  // holds in petty cash while being one shop's tin.
+                  shop: <span className="text-faint">—</span>,
+                  difference: <span className="text-faint">—</span>,
+                }}
+                pageScroll
+                cardSort={false}
+                cardsApart
+              />
+            </Card>
           )}
         </section>
 
         {/* ── The receipts ─────────────────────────────────────────────── */}
         <section className="flex flex-col gap-2.5">
-          <h2 className="text-[0.875rem] font-semibold text-ink">
+          <h2 className="text-[0.9375rem] font-semibold text-ink">
             The petty cash book
             {nodeSite !== null && (
               <span className="font-normal text-mute">
@@ -493,139 +484,26 @@ export function Expenses() {
               the cards above count its whole life.
             </EmptyState>
           ) : (
-            <div className="flex flex-col gap-2.5">
-              {phone ? (
-                <PhoneList
-                  rows={entries.map((entry) => ({
-                    key: entry.id,
-                    title: entry.payee,
-                    line: entry.reason,
-                    lead: (
-                      <CardFigure
-                        value={money(entry.out === 0 ? entry.in : entry.out)}
-                        caption={entry.out === 0 ? "in" : "out"}
-                      />
-                    ),
-                    foot: (
-                      <span className="flex flex-col">
-                        <span>{moment(entry.at)}</span>
-                        <span>
-                          {entry.claimedBy} · signed {entry.approvedBy}
-                          {entry.rung !== null &&
-                            ` (${
-                              entry.rung === "FINANCE"
-                                ? "code"
-                                : entry.rung === "ADMIN"
-                                  ? "head office"
-                                  : "store"
-                            })`}
-                        </span>
-                      </span>
-                    ),
-                    action: (
-                      <Pill tone={entry.out === 0 ? "info" : "neutral"}>
-                        {entry.kind}
-                      </Pill>
-                    ),
-                  }))}
-                />
-              ) : (
-                <Grid>
-                  <thead>
-                    <tr>
-                      <Th width="10rem">When</Th>
-                      <Th width="9rem">Kind</Th>
-                      <Th width="11rem">Payee</Th>
-                      <Th>What it was for</Th>
-                      <Th width="8rem">Claimed by</Th>
-                      <Th width="10rem">Signed by</Th>
-                      <Th align="right" width="8.5rem">
-                        In
-                      </Th>
-                      <Th align="right" width="8.5rem">
-                        Out
-                      </Th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {entries.map((entry) => (
-                      <tr key={entry.id}>
-                        <Td className="whitespace-nowrap">
-                          {moment(entry.at)}
-                        </Td>
-                        <Td>
-                          <Pill tone={entry.out === 0 ? "info" : "neutral"}>
-                            {entry.kind}
-                          </Pill>
-                        </Td>
-                        <Td>{entry.payee}</Td>
-                        <Td className="text-body">{entry.reason}</Td>
-                        <Td>{entry.claimedBy}</Td>
-                        <Td>
-                          {entry.approvedBy}
-                          {/* Which rung said yes. Kept because the ceiling may
-                            move, and an audit six months from now asks who was
-                            allowed to approve this, THEN. */}
-                          {entry.rung !== null && (
-                            <span className="ml-1.5 text-[0.875rem] text-mute">
-                              {entry.rung === "FINANCE"
-                                ? "code"
-                                : entry.rung === "ADMIN"
-                                  ? "head office"
-                                  : "store"}
-                            </span>
-                          )}
-                        </Td>
-                        <DebitCredit debit={entry.in} credit={entry.out} />
-                      </tr>
-                    ))}
-                    <TotalRow>
-                      <Td />
-                      <Td />
-                      <Td />
-                      <Td />
-                      <Td />
-                      <Td className="text-mute">over this span</Td>
-                      {/* The node's own figures for the whole span, not sums of
-                        the rows above: the book pages, and a sum here would
-                        be a figure about how far somebody had scrolled. */}
-                      <Td align="right">{money(head?.top_up_minor)}</Td>
-                      <Td align="right">{money(head?.spent_minor)}</Td>
-                    </TotalRow>
-                  </tbody>
-                </Grid>
-              )}
-              <LoadMore query={book} />
-            </div>
+            <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+              <DataTable<BookEntry>
+                refresh={[book]}
+                table={bookTable}
+                more={book}
+                // The node's own figures for the whole span, not sums of the
+                // rows above: the book pages, and a sum here would be a figure
+                // about how far somebody had scrolled.
+                summary={{
+                  reason: <span className="text-mute">over this span</span>,
+                  in: money(head?.top_up_minor),
+                  out: money(head?.spent_minor),
+                }}
+                pageScroll
+                cardSort={false}
+                cardsApart
+              />
+            </Card>
           )}
         </section>
-
-        <Note>
-          <b>What is real here and what is not.</b> The position table is the
-          centre&rsquo;s ledger, filtered by <Code>unit</Code> on the server.
-          The tin and the book are one shop&rsquo;s own SQLite, read over{" "}
-          <Code>GET /api/v1/store/petty-cash</Code> and{" "}
-          <Code>GET /api/v1/store/expenses</Code> — edge routes, one node per
-          unit, with no <Code>site</Code> parameter because a node only ever
-          holds its own. <b>There is no cross-unit read of either.</b> Head
-          office cannot see thirteen shops&rsquo; receipts from here, and no
-          endpoint exists that would let it.
-          <br />
-          <br />
-          <b>Why petty cash reads Rp 0 per books everywhere.</b> The node
-          captures every receipt as <Code>store.expense.recorded</Code> and
-          every hand-over as <Code>store.petty_cash.topped_up</Code> and uploads
-          them, and <Code>cloud/postgres/sync.rs</Code> has no arm that applies
-          either — an unrecognised fact is kept in the receipt log for a future
-          applier rather than posted. There is no <Code>store_expense</Code>{" "}
-          table in Postgres (it exists only on the unmerged{" "}
-          <Code>feat/finance-control</Code> branch), and the nine categories a
-          shop files against — <Code>expense_electricity</Code> through{" "}
-          <Code>expense_misc</Code> — are in none of the centre&rsquo;s 34
-          required meanings, so even with an applier there would be no account
-          to debit. Three things are missing, in this order: the meanings on the
-          account map, the table, the applier.
-        </Note>
       </div>
     </PageContent>
   )
@@ -748,6 +626,120 @@ const CATEGORY: Readonly<Record<string, string>> = {
   expense_cleaning: "Cleaning",
   expense_misc: "Miscellaneous",
 }
+
+/// Which rung said yes. Kept because the ceiling may move, and an audit six
+/// months from now asks who was allowed to approve this, THEN.
+const rungWord = (rung: string): string =>
+  rung === "FINANCE" ? "code" : rung === "ADMIN" ? "head office" : "store"
+
+/// The petty cash book. On a card the payee names it, what it was for and when
+/// follow, who signed it after, the kind of entry at the right and the amount,
+/// in or out, as its one figure.
+const BOOK_COLUMNS: ColumnDef<TableSetup, BookEntry>[] = [
+  {
+    id: "at",
+    accessorFn: (row) => row.at,
+    header: "When",
+    size: 150,
+    enableSorting: false,
+    meta: { card: "meta", priority: 2 },
+    cell: ({ row }) => moment(row.original.at),
+  },
+  {
+    id: "kind",
+    accessorFn: (row) => row.kind,
+    header: "Kind",
+    size: 140,
+    enableSorting: false,
+    meta: { card: "status" },
+    cell: ({ row }) => (
+      <Pill tone={row.original.out === 0 ? "info" : "neutral"}>
+        {row.original.kind}
+      </Pill>
+    ),
+  },
+  {
+    id: "payee",
+    accessorFn: (row) => row.payee,
+    header: "Payee",
+    size: 170,
+    enableSorting: false,
+    meta: { card: "title" },
+    cell: ({ row }) => (
+      <span className="block truncate">{row.original.payee}</span>
+    ),
+  },
+  {
+    id: "reason",
+    accessorFn: (row) => row.reason,
+    header: "What it was for",
+    size: 220,
+    enableSorting: false,
+    meta: { card: "meta", grow: 180 },
+    cell: ({ row }) => (
+      <span className="block truncate text-body" title={row.original.reason}>
+        {row.original.reason}
+      </span>
+    ),
+  },
+  {
+    id: "claimed",
+    accessorFn: (row) => row.claimedBy,
+    header: "Claimed by",
+    size: 120,
+    enableSorting: false,
+    meta: { card: "hide", priority: 3 },
+    cell: ({ row }) => (
+      <span className="block truncate">{row.original.claimedBy}</span>
+    ),
+  },
+  {
+    id: "signed",
+    accessorFn: (row) => row.approvedBy,
+    header: "Signed by",
+    size: 170,
+    enableSorting: false,
+    meta: { card: "meta", priority: 2 },
+    cell: ({ row }) => (
+      <span className="block truncate">
+        {row.original.approvedBy}
+        {row.original.rung !== null && (
+          <span className="ml-1.5 text-[0.9375rem] text-mute">
+            {rungWord(row.original.rung)}
+          </span>
+        )}
+      </span>
+    ),
+  },
+  {
+    id: "in",
+    accessorFn: (row) => (row.in === 0 ? null : row.in),
+    header: "In",
+    size: 130,
+    enableSorting: false,
+    meta: { align: "right", card: "metric" },
+    cell: ({ row }) =>
+      row.original.in === 0 ? (
+        <span className="text-hairline-strong">·</span>
+      ) : (
+        money(row.original.in)
+      ),
+  },
+  {
+    id: "out",
+    accessorFn: (row) => (row.out === 0 ? null : row.out),
+    header: "Out",
+    size: 130,
+    enableSorting: false,
+    meta: { align: "right", card: "metric" },
+    cell: ({ row }) =>
+      row.original.out === 0 ? (
+        <span className="text-hairline-strong">·</span>
+      ) : (
+        money(row.original.out)
+      ),
+  },
+]
 
 /// Both halves of the span as one book, newest first, across every page
 /// loaded so far.

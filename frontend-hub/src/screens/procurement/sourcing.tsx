@@ -1,11 +1,11 @@
 import {
-  useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
+  useSuspenseInfiniteQuery,
 } from "@tanstack/react-query"
 import { ArrowLeft, Plus, ShoppingBasket, Store } from "lucide-react"
-import { useCallback, useMemo, useState } from "react"
+import { Suspense, useCallback, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { DockPortal } from "@/components/shell/dock"
@@ -15,7 +15,12 @@ import { Fab } from "@/components/ui/fab"
 import { Input } from "@/components/ui/field"
 import { Pill } from "@/components/ui/pill"
 import { Sheet } from "@/components/ui/sheet"
-import { Banner, EmptyState, LoadMore } from "@/components/ui/states"
+import {
+  Banner,
+  EmptyState,
+  LoadingState,
+  LoadMore,
+} from "@/components/ui/states"
 import { FilterOmnibox } from "@/components/ui/filter-omnibox"
 import {
   ChoiceMenu,
@@ -34,8 +39,8 @@ import {
   procurementKeys,
   readBasket,
   scopeFromFilters,
-  searchSupplierItems,
   supplierItemDetail,
+  supplierItemPagesQuery,
   type SourcingScope,
 } from "@/lib/queries/procurement"
 import { queryState } from "@/lib/query-state"
@@ -76,6 +81,24 @@ import type {
 /// buyer sees what else is there.
 
 export function Sourcing() {
+  // The title stands at once; the catalogue waits for its first page and
+  // streams in with it (the server starts the read too). Inside a supplier's
+  // shop the head is that supplier's band, which comes with the page.
+  return (
+    <Suspense
+      fallback={
+        <PageContent>
+          <PageHeader title="Sourcing" />
+          <LoadingState>Reading the catalogue…</LoadingState>
+        </PageContent>
+      }
+    >
+      <SourcingBook />
+    </Suspense>
+  )
+}
+
+function SourcingBook() {
   const client = useQueryClient()
   /// Whose shop is being browsed, or nobody's. In the URL so the back button
   /// leaves the shop rather than the app, and so a buyer can send a colleague
@@ -306,23 +329,17 @@ export function Sourcing() {
     [filters.filters, needle, shop.value, sort.value]
   )
 
-  const catalogue = useInfiniteQuery({
-    queryKey: procurementKeys.sourcing(scope),
-    queryFn: ({ pageParam, signal }) =>
-      searchSupplierItems({ ...scope, cursor: pageParam }, signal),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) => last.next_cursor ?? undefined,
-  })
+  const catalogue = useSuspenseInfiniteQuery(supplierItemPagesQuery(scope))
 
   // Append-only: the list grows as the buyer asks for more, and every row
   // fetched stays in the model. Nothing is sliced away to make it look fast.
   const rows = useMemo(
-    () => catalogue.data?.pages.flatMap((page) => page.items) ?? [],
+    () => catalogue.data.pages.flatMap((page) => page.items),
     [catalogue.data]
   )
   // From the first page. Every page reports the same totals, so taking the
   // first is what stops the counts flickering as more pages arrive.
-  const facets = catalogue.data?.pages[0]?.facets
+  const facets = catalogue.data.pages[0]?.facets
   /// How many items the SEARCH matches — not how many the filters do.
   ///
   /// The server computes this and the facets from the words and the status
@@ -331,7 +348,7 @@ export function Sourcing() {
   /// "what if I looked at menswear instead". So it is the size of the
   /// catalogue being browsed, and saying "120 of 2.810" with three filters on
   /// would claim a number nobody computed.
-  const searchable = catalogue.data?.pages[0]?.total ?? 0
+  const searchable = catalogue.data.pages[0]?.total ?? 0
   /// What this supplier offers, which is a thing the facets DO know.
   const offering = shop.value
     ? (facets?.suppliers.find((one) => one.value === shop.value)?.count ?? 0)
@@ -457,7 +474,7 @@ export function Sourcing() {
               ordered and saved in the middle, what creates and what collects at
               the right. */}
           <div className="mb-[1.125rem] flex flex-wrap items-center gap-1.5">
-            <span className="mr-auto text-[0.875rem] text-body">
+            <span className="mr-auto text-[0.9375rem] text-body">
               <b className="font-medium text-ink">{count(rows.length)}</b>{" "}
               {filtered || standing
                 ? catalogue.hasNextPage
@@ -509,7 +526,7 @@ export function Sourcing() {
               aria-label={
                 picked > 0 ? `Basket, ${count(picked)} picked` : "Basket"
               }
-              className="inline-flex h-9 max-w-full items-center gap-1.5 rounded-full bg-soft-2 pr-3 pl-3 text-[0.875rem] font-medium text-ink transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.97]"
+              className="inline-flex h-9 max-w-full items-center gap-1.5 rounded-full bg-soft-2 pr-3 pl-3 text-[0.9375rem] font-medium text-ink transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.97]"
             >
               <ShoppingBasket className="size-4 shrink-0 text-line-ico" />
               Basket
@@ -544,48 +561,44 @@ export function Sourcing() {
           />
           <Fab label="Add Item" onClick={() => adding.open(true)} />
 
-          {queryState(catalogue, {
-            loading: "Reading the catalogue…",
-            render: () =>
-              rows.length === 0 ? (
-                <EmptyState>
-                  {filtered || standing
-                    ? "Nothing here matches. Widen the filters, or search everything."
-                    : "No supplier has offered anything yet."}
-                </EmptyState>
-              ) : (
-                <>
-                  {/* Container queries, not viewport ones. This column's width
-                      is whatever the module sidebar and the filter column leave
-                      it — roughly 500px inside a 1280px window — so a `md:`
-                      breakpoint reading the viewport puts three cards in a
-                      space that fits two and truncates every name. */}
-                  <div className="grid grid-cols-1 gap-[1.125rem] @sm:grid-cols-2 @2xl:grid-cols-3 @5xl:grid-cols-4">
-                    {rows.map((row) => (
-                      <ProductCard
-                        key={row.item.supplier_item_id}
-                        row={row}
-                        vocabulary={vocabulary.data}
-                        held={held.get(row.item.supplier_item_id) ?? 0}
-                        // Only the card being changed goes quiet. A shared
-                        // flag would grey out forty cards because one of them
-                        // is in flight, and a buyer picking quickly would spend
-                        // the whole page waiting on other people's rows.
-                        busy={
-                          pick.isPending &&
-                          pick.variables === row.item.supplier_item_id
-                        }
-                        onOpen={() => item.open(row.item.supplier_item_id)}
-                        onSupplier={() => shop.open(row.supplier.supplier_id)}
-                        onAdd={() => pick.mutate(row.item.supplier_item_id)}
-                      />
-                    ))}
-                  </div>
+          {rows.length === 0 ? (
+            <EmptyState>
+              {filtered || standing
+                ? "Nothing here matches. Widen the filters, or search everything."
+                : "No supplier has offered anything yet."}
+            </EmptyState>
+          ) : (
+            <>
+              {/* Container queries, not viewport ones. This column's width
+                  is whatever the module sidebar and the filter column leave
+                  it — roughly 500px inside a 1280px window — so a `md:`
+                  breakpoint reading the viewport puts three cards in a
+                  space that fits two and truncates every name. */}
+              <div className="grid grid-cols-1 gap-[1.125rem] @sm:grid-cols-2 @2xl:grid-cols-3 @5xl:grid-cols-4">
+                {rows.map((row) => (
+                  <ProductCard
+                    key={row.item.supplier_item_id}
+                    row={row}
+                    vocabulary={vocabulary.data}
+                    held={held.get(row.item.supplier_item_id) ?? 0}
+                    // Only the card being changed goes quiet. A shared
+                    // flag would grey out forty cards because one of them
+                    // is in flight, and a buyer picking quickly would spend
+                    // the whole page waiting on other people's rows.
+                    busy={
+                      pick.isPending &&
+                      pick.variables === row.item.supplier_item_id
+                    }
+                    onOpen={() => item.open(row.item.supplier_item_id)}
+                    onSupplier={() => shop.open(row.supplier.supplier_id)}
+                    onAdd={() => pick.mutate(row.item.supplier_item_id)}
+                  />
+                ))}
+              </div>
 
-                  <LoadMore query={catalogue} className="mt-6" />
-                </>
-              ),
-          })}
+              <LoadMore query={catalogue} className="mt-6" />
+            </>
+          )}
         </div>
 
         <DockedFilters
@@ -698,7 +711,7 @@ function ProductCard({
               its category badge there: it is what the picture IS, so it belongs
               with the picture rather than in a list of facts under it. */}
           {item.division_code && (
-            <span className="absolute top-2.5 left-2.5 inline-flex items-center rounded-full bg-canvas/95 px-2 py-[0.1875rem] text-[0.875rem] font-semibold text-ink shadow-[0_1px_3px_rgba(20,20,25,.1)] backdrop-blur-[5px]">
+            <span className="absolute top-2.5 left-2.5 inline-flex items-center rounded-full bg-canvas/95 px-2 py-[0.1875rem] text-[0.9375rem] font-semibold text-ink shadow-[0_1px_3px_rgba(20,20,25,.1)] backdrop-blur-[5px]">
               {termLabel(vocabulary?.divisions, item.division_code)}
             </span>
           )}
@@ -707,14 +720,14 @@ function ProductCard({
               buyer has done rather than about what the thing is. Absent at
               zero: a badge every card wears is a badge that says nothing. */}
           {held > 0 && (
-            <span className="absolute top-2.5 right-2.5 inline-flex items-center gap-1 rounded-full bg-ink/90 px-2 py-[0.1875rem] text-[0.875rem] font-semibold text-white tabular-nums backdrop-blur-[5px]">
+            <span className="absolute top-2.5 right-2.5 inline-flex items-center gap-1 rounded-full bg-ink/90 px-2 py-[0.1875rem] text-[0.9375rem] font-semibold text-white tabular-nums backdrop-blur-[5px]">
               <ShoppingBasket className="size-2.5" />
               {count(held)}
             </span>
           )}
         </Thumbnail>
         <div className="px-[0.9375rem] pt-3 pb-1">
-          <div className="truncate text-[0.875rem] font-medium text-ink">
+          <div className="truncate text-[0.9375rem] font-medium text-ink">
             {item.name}
           </div>
 
@@ -739,7 +752,7 @@ function ProductCard({
                 <Swatches colours={item.colours} cap={5} />
               )}
               {item.size_codes.length > 0 && (
-                <span className="min-w-0 truncate text-[0.875rem] text-body">
+                <span className="min-w-0 truncate text-[0.9375rem] text-body">
                   {sizeSpan(vocabulary?.sizes, item.size_codes)}
                 </span>
               )}
@@ -759,7 +772,7 @@ function ProductCard({
         <button
           type="button"
           onClick={onSupplier}
-          className="flex w-full min-w-0 items-center gap-1.5 text-[0.875rem] text-body transition-colors hover:text-ink"
+          className="flex w-full min-w-0 items-center gap-1.5 text-[0.9375rem] text-body transition-colors hover:text-ink"
         >
           <Store className="size-3 shrink-0 text-line-ico" />
           <span className="truncate">{supplierDisplayName(supplier)}</span>
@@ -775,7 +788,7 @@ function ProductCard({
               <Tag key={code}>{termLabel(vocabulary?.tags, code)}</Tag>
             ))}
             {item.tags.length > 3 && (
-              <span className="text-[0.875rem] text-mute tabular-nums">
+              <span className="text-[0.9375rem] text-mute tabular-nums">
                 +{count(item.tags.length - 3)}
               </span>
             )}
@@ -814,7 +827,7 @@ function ProductCard({
               their eyes. Hidden at zero rather than shown as "0 bought" — a
               first order is not a warning. */}
           {row.bought !== undefined && row.bought.units > 0 && (
-            <span className="min-w-0 flex-1 truncate rounded-full bg-info-bg px-2 py-[0.1875rem] text-center text-[0.875rem] font-medium text-info-fg tabular-nums">
+            <span className="min-w-0 flex-1 truncate rounded-full bg-info-bg px-2 py-[0.1875rem] text-center text-[0.9375rem] font-medium text-info-fg tabular-nums">
               {count(row.bought.units)} bought
             </span>
           )}
@@ -872,7 +885,7 @@ function ShopHead({
       <button
         type="button"
         onClick={onBack}
-        className="mb-3 inline-flex items-center gap-1.5 text-[0.875rem] font-medium text-body transition-colors hover:text-ink"
+        className="mb-3 inline-flex items-center gap-1.5 text-[0.9375rem] font-medium text-body transition-colors hover:text-ink"
       >
         <ArrowLeft className="size-3.5" />
         All suppliers
@@ -901,10 +914,10 @@ function ShopHead({
         <dl className="mt-3.5 grid grid-cols-2 gap-x-4 gap-y-2.5 border-t border-hairline pt-3.5 md:grid-cols-3">
           {facts.map(([term, value]) => (
             <div key={term} className="min-w-0">
-              <dt className="text-[0.875rem] font-semibold tracking-[0.04em] text-mute uppercase">
+              <dt className="text-[0.9375rem] font-semibold tracking-[0.04em] text-mute uppercase">
                 {term}
               </dt>
-              <dd className="mt-0.5 truncate text-[0.875rem] text-ink">
+              <dd className="mt-0.5 truncate text-[0.9375rem] text-ink">
                 {value === null || value === "" ? "—" : value}
               </dd>
             </div>

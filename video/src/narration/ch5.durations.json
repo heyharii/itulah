@@ -1,0 +1,10 @@
+{
+  "completed": {
+    "seconds": 5.12,
+    "say": "Order yang sudah selesai pindah ke Completed P O, masing-masing dengan stempelnya."
+  },
+  "done": {
+    "seconds": 5.48575,
+    "say": "Setiap P O menyimpan apa yang dipesan, dihitung, dikembalikan, dan ditutup."
+  }
+}

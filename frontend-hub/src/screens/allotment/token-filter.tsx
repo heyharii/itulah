@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils"
 
 /// What a token narrows by.
 export type TokenKind =
-  "search" | "order" | "division" | "tag" | "colour" | "size"
+  "search" | "order" | "article" | "division" | "tag" | "colour" | "size"
 
 /// One committed filter: a kind and a value, with the words it is shown as.
 export interface FilterToken {
@@ -18,11 +18,15 @@ export interface FilterToken {
 export interface TokenOption extends FilterToken {
   /// How many rows it would keep — shown beside it, muted.
   readonly count?: number
+  /// What typing is matched against when that is more than the label — an
+  /// article's name and its code, though it is shown by its name.
+  readonly match?: string
 }
 
 const KIND_LABEL: Record<TokenKind, string> = {
   search: "Search",
   order: "Delivery",
+  article: "Article",
   division: "Division",
   tag: "Tag",
   colour: "Colour",
@@ -50,11 +54,14 @@ export function TokenFilter({
   tokens,
   options,
   onChange,
+  placeholder,
   className,
 }: {
   tokens: readonly FilterToken[]
   options: readonly TokenOption[]
   onChange: (tokens: readonly FilterToken[]) => void
+  /// What the empty box says it is for, while nothing has been chosen.
+  placeholder?: string
   className?: string
 }) {
   const [text, setText] = useState("")
@@ -72,7 +79,7 @@ export function TokenFilter({
         .filter(
           (one) =>
             !taken.has(`${one.kind}:${one.value}`) &&
-            one.label.toLowerCase().includes(typed)
+            (one.match ?? one.label).toLowerCase().includes(typed)
         )
         // A word that STARTS with what was typed is the likelier meaning.
         .sort(
@@ -117,7 +124,7 @@ export function TokenFilter({
         {tokens.map((token, index) => (
           <span
             key={`${token.kind}:${token.value}`}
-            className="inline-flex h-6 max-w-56 items-center gap-1 rounded-[0.375rem] bg-soft-2 pr-1 pl-2 text-[0.875rem]"
+            className="inline-flex h-6 max-w-56 items-center gap-1 rounded-[0.375rem] bg-soft-2 pr-1 pl-2 text-[0.9375rem]"
           >
             <span className="text-mute">{KIND_LABEL[token.kind]}</span>
             <span className="truncate text-ink">{token.label}</span>
@@ -144,6 +151,7 @@ export function TokenFilter({
             open && rows.length > 0 ? `${list}-${active}` : undefined
           }
           aria-label="Filter the articles"
+          placeholder={tokens.length === 0 ? placeholder : undefined}
           onChange={(event) => {
             setText(event.target.value)
             setActive(0)
@@ -173,7 +181,7 @@ export function TokenFilter({
               remove(tokens.length - 1)
             }
           }}
-          className="h-6 min-w-40 flex-1 bg-transparent text-[0.875rem] text-ink outline-none placeholder:text-body"
+          className="h-6 min-w-40 flex-1 bg-transparent text-[0.9375rem] text-ink outline-none placeholder:text-body"
         />
         {tokens.length > 0 && (
           <button
@@ -183,7 +191,7 @@ export function TokenFilter({
               onChange([])
               setText("")
             }}
-            className="shrink-0 rounded-[0.25rem] px-1.5 text-[0.875rem] text-mute hover:text-ink"
+            className="shrink-0 rounded-[0.25rem] px-1.5 text-[0.9375rem] text-mute hover:text-ink"
           >
             Clear
           </button>
@@ -208,7 +216,7 @@ export function TokenFilter({
                 commit(row)
               }}
               className={cn(
-                "flex cursor-pointer items-center gap-3 px-3 py-1.5 text-[0.875rem]",
+                "flex cursor-pointer items-center gap-3 px-3 py-1.5 text-[0.9375rem]",
                 index === active && "bg-soft"
               )}
             >

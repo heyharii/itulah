@@ -247,7 +247,7 @@ export function Onboarding({
                     />
                   </Field>
                   <div className="flex flex-col gap-[0.4375rem]">
-                    <span className="text-[0.875rem] font-medium text-text">
+                    <span className="text-[0.9375rem] font-medium text-text">
                       Legal form
                     </span>
                     <LegalFormPills value={legalForm} onChange={setLegalForm} />
@@ -297,7 +297,7 @@ export function Onboarding({
                 <Heading
                   eyebrow="Step 2 of 3"
                   title="Your stores"
-                  sub="A name and a city each. One store, or all of them at once."
+                  sub="A name and a manager each. One store, or all of them at once."
                 />
                 <div className="mt-7">
                   <StoreList
@@ -340,10 +340,10 @@ export function Onboarding({
                       onClick={() => saveStep2.mutate()}
                     >
                       {saveStep2.isPending
-                        ? "Opening stores…"
+                        ? "Adding stores…"
                         : toOpen.length > 1
-                          ? `Open ${toOpen.length} stores`
-                          : "Open store"}
+                          ? `Add ${toOpen.length} stores`
+                          : "Add store"}
                     </Button>
                   )}
                 </Footer>

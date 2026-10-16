@@ -1,38 +1,46 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useMemo, useState } from "react"
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query"
+import type { ColumnDef } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
+import { Suspense, useMemo, useState } from "react"
 
 import type {
   CompanyBankAccount,
   DescribeBankAccountRequest,
+  MoneyAccountRow,
 } from "@itulah/contract"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { DataTable } from "@/components/ui/data-table"
 import { Panel } from "@/components/ui/dialog"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { Pill } from "@/components/ui/pill"
 import { Field, Input, Select, Textarea } from "@/components/ui/field"
+import { ExpandingSearch } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Toolbar } from "@/components/ui/segmented"
-import { Banner, EmptyState, LoadingState } from "@/components/ui/states"
+import { Banner, EmptyState } from "@/components/ui/states"
 import { count, money } from "@/lib/format"
 import {
   describeBankAccount,
   financeKeys,
   listAllBills,
-  listCompanyBankAccounts,
   listGiros,
+  moneyOverviewQuery,
+  companyBankAccountsQuery,
 } from "@/lib/queries/finance"
-import { CardRow, NumberCard } from "@/screens/finance-final/parts"
+import { tableSetup, type TableSetup } from "@/lib/table"
 import { isoDay, todayIso } from "@/screens/finance/chart"
 import { useUnitName } from "@/screens/finance/hooks"
 import { UnitSelect } from "@/screens/finance/parts"
-import {
-  BANK_POTS,
-  useMoney,
-  useMoneyRows,
-} from "@/screens/finance-lab-2/hooks"
-import { Grid, Td, Th } from "@/screens/finance-lab-2/parts"
+import { BANK_POTS, useSuspenseMoneyRows } from "@/screens/finance-lab-2/hooks"
+import { ScreenPending } from "@/screens/finance/pending"
 
 /// The company's bank accounts — what they are, not where they post.
 ///
@@ -45,13 +53,94 @@ import { Grid, Td, Th } from "@/screens/finance-lab-2/parts"
 /// Supplier accounts are NOT here. They are a register of their own
 /// (`supplier_bank_account`, 0221) and they live on the supplier record, where
 /// somebody paying a bill is already standing.
+
+/// One line of the list: the ledger account, what has been said about the
+/// account at that place, and the unit's name alone — its code ("HO") is ours,
+/// not what anyone calls it.
+interface AccountLine {
+  readonly row: MoneyAccountRow
+  readonly known: CompanyBankAccount | undefined
+  readonly unit: string
+}
+
+const columns: ColumnDef<TableSetup, AccountLine>[] = [
+  {
+    // The bank and the number are one column, because they are one answer:
+    // "BCA 2233445566" is how somebody says which account, and splitting it
+    // made the eye travel to finish a phrase.
+    id: "account",
+    accessorFn: (line) => line.known?.bank_name ?? (line.row.qualifier || "—"),
+    header: "Account",
+    size: 380,
+    enableSorting: false,
+    meta: { card: "title", grow: 320 },
+    cell: ({ row }) => {
+      const { known, row: account } = row.original
+      return (
+        <span className="flex min-w-0 flex-col whitespace-normal">
+          <span className="font-medium text-ink">
+            {known?.bank_name ?? (account.qualifier || "—")}
+            {known !== undefined && (
+              <span className="ml-2 font-mono text-[0.9375rem] font-normal text-text">
+                {known.account_no}
+              </span>
+            )}
+            {known?.kind === "GIRO" && (
+              <Pill tone="neutral" className="ml-2 align-middle">
+                Giro
+              </Pill>
+            )}
+          </span>
+          {/* Most accounts are not described yet, so the gap is said quietly
+              here, on the account's own line. */}
+          <span className="text-[0.9375rem] font-normal text-mute">
+            {account.account_name}
+            {known === undefined && (
+              <span className="text-faint"> · not described</span>
+            )}
+          </span>
+        </span>
+      )
+    },
+  },
+  {
+    id: "unit",
+    accessorFn: (line) => line.unit,
+    header: "Unit",
+    size: 200,
+    enableSorting: false,
+    meta: { card: "meta", priority: 2 },
+    cell: ({ row }) => row.original.unit,
+  },
+  {
+    id: "balance",
+    accessorFn: (line) => line.row.per_books_minor,
+    header: "Balance",
+    size: 180,
+    enableSorting: false,
+    meta: { align: "right", card: "metric" },
+    cell: ({ row }) => money(row.original.row.per_books_minor),
+  },
+]
+
 export function BankAccounts() {
-  const { rows: ledger, pending } = useMoneyRows(BANK_POTS)
+  return (
+    <Suspense
+      fallback={
+        <ScreenPending crumb="Finance · Banking" title="Bank Account">
+          Reading the account map…
+        </ScreenPending>
+      }
+    >
+      <BankAccountsScreen />
+    </Suspense>
+  )
+}
+
+function BankAccountsScreen() {
+  const ledger = useSuspenseMoneyRows(BANK_POTS)
   const unitName = useUnitName()
-  const described = useQuery({
-    queryKey: financeKeys.companyBankAccounts(null),
-    queryFn: ({ signal }) => listCompanyBankAccounts(signal),
-  })
+  const described = useSuspenseQuery(companyBankAccountsQuery())
   const [editing, setEditing] = useState<{
     ledger_account_code: string
     unit_id: string
@@ -61,7 +150,7 @@ export function BankAccounts() {
 
   const byBinding = useMemo(() => {
     const table = new Map<string, CompanyBankAccount>()
-    for (const account of described.data ?? []) {
+    for (const account of described.data) {
       if (account.retired_at !== null) continue
       table.set(`${account.ledger_account_code}@${account.unit_id}`, account)
     }
@@ -99,13 +188,36 @@ export function BankAccounts() {
     })
   }, [ledger, byBinding, needle, unit])
 
+  const lines = useMemo<AccountLine[]>(
+    () =>
+      shown.map((row) => ({
+        row,
+        known: byBinding.get(`${row.account_code}@${row.unit_id}`),
+        unit: unitName(row.unit_id).replace(/^[^·]*· /, ""),
+      })),
+    [shown, byBinding, unitName]
+  )
+
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: lines,
+        columns,
+        getRowId: (line: AccountLine) =>
+          `${line.row.account_code}-${line.row.unit_id}`,
+      }),
+      [lines]
+    )
+  )
+
   return (
     <PageContent>
       <PageHeader crumb="Finance · Banking" title="Bank Account" />
 
-      <div className="flex flex-col gap-4">
-        <Summary />
+      <Summary />
 
+      <div className="flex flex-col">
         {/* No Suppliers tab.
             
             It held one sentence pointing at the supplier record, which is a
@@ -118,21 +230,15 @@ export function BankAccounts() {
           <Banner tone="bad">{save.error.message}</Banner>
         )}
 
-        {pending ? (
-          <LoadingState>Reading the account map…</LoadingState>
-        ) : ledger.length === 0 ? (
-          <EmptyState>
-            No bank account is mapped yet. Bind a bank meaning to a client
-            account on the Account map and it appears here.
-          </EmptyState>
+        {ledger.length === 0 ? (
+          <EmptyState>No bank account is mapped yet.</EmptyState>
         ) : (
           <>
-            <Toolbar>
-              <Input
+            <Toolbar className="group/bar">
+              <ExpandingSearch
                 value={needle}
-                onChange={(event) => setNeedle(event.target.value)}
-                aria-label="Search"
-                className="h-control w-64"
+                onChange={setNeedle}
+                label="Search accounts"
               />
               <UnitSelect
                 value={unit}
@@ -141,7 +247,7 @@ export function BankAccounts() {
                 aria-label="Unit"
               />
               <Toolbar.Spacer />
-              <span className="text-[0.875rem] text-mute">
+              <span className="text-[0.9375rem] text-mute">
                 {count(shown.length)}{" "}
                 {shown.length === 1 ? "account" : "accounts"}
               </span>
@@ -153,68 +259,13 @@ export function BankAccounts() {
                   : "No bank account in this unit."}
               </EmptyState>
             ) : (
-              <Card className="overflow-hidden">
-                <Grid>
-                  <thead>
-                    <tr>
-                      {/* The bank and the number are one column, because they
-                      are one answer: "BCA 2233445566" is how somebody says
-                      which account, and splitting it made the eye travel to
-                      finish a phrase. */}
-                      <Th>Account</Th>
-                      <Th width="9rem">Unit</Th>
-                      <Th align="right" width="10rem">
-                        Balance
-                      </Th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {shown.map((row) => {
-                      const known = byBinding.get(
-                        `${row.account_code}@${row.unit_id}`
-                      )
-                      return (
-                        <tr key={`${row.account_code}-${row.unit_id}`}>
-                          <Td>
-                            <span className="font-medium text-ink">
-                              {known?.bank_name ?? (row.qualifier || "—")}
-                              {known !== undefined && (
-                                <span className="ml-2 font-mono text-[0.875rem] font-normal text-text">
-                                  {known.account_no}
-                                </span>
-                              )}
-                              {known?.kind === "GIRO" && (
-                                <Pill
-                                  tone="neutral"
-                                  className="ml-2 align-middle"
-                                >
-                                  Giro
-                                </Pill>
-                              )}
-                            </span>
-                            {/* Most accounts are not described yet, so the gap
-                              is said once in the toolbar and quietly here. */}
-                            <span className="block text-[0.875rem] text-mute">
-                              {row.account_name}
-                              {known === undefined && (
-                                <span className="text-faint">
-                                  {" "}
-                                  · not described
-                                </span>
-                              )}
-                            </span>
-                          </Td>
-                          {/* The unit's name alone: its code ("HO") is ours, not
-                            what anyone calls it. */}
-                          <Td>
-                            {unitName(row.unit_id).replace(/^[^·]*· /, "")}
-                          </Td>
-                          <Td align="right">{money(row.per_books_minor)}</Td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </Grid>
+              <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+                <DataTable<AccountLine>
+                  table={table}
+                  pageScroll
+                  cardSort={false}
+                  cardsApart
+                />
               </Card>
             )}
           </>
@@ -268,7 +319,7 @@ export function BankAccounts() {
 /// cannot differ. Only what is payable counts: drafts, recurring templates and
 /// open orders are estimates, and are left on that page.
 function Summary() {
-  const overview = useMoney()
+  const overview = useSuspenseQuery(moneyOverviewQuery())
   const bills = useQuery({
     queryKey: [...financeKeys.bills("POSTED", null), "projection"],
     queryFn: ({ signal }) => listAllBills("POSTED", undefined, signal),
@@ -287,7 +338,6 @@ function Summary() {
   // the bank pot (`giro_outstanding`), and it is counted: it is already
   // promised, which is what makes this the figure that is actually free.
   const held = useMemo(() => {
-    if (overview.data === undefined) return null
     return overview.data.rows
       .filter((row) => row.pot !== "CARD_RECEIVABLE")
       .reduce((sum, row) => sum + row.per_books_minor, 0)
@@ -327,33 +377,35 @@ function Summary() {
   }, [giros.data])
 
   return (
-    <CardRow>
-      <NumberCard label="Cash & bank balance" value={held} />
-      <NumberCard
-        label="Going out · next 30 days"
-        value={out === null ? null : out.ahead}
-        note={
-          out !== null && out.overdue > 0
-            ? `+ ${money(out.overdue)} overdue`
-            : "Bills and giros that fall due"
-        }
-        tone={out !== null && out.overdue > 0 ? "warn" : undefined}
-      />
-      <NumberCard
-        label="Giros not cleared"
-        value={waiting === null ? null : waiting.amount}
-        note={
-          waiting === null
-            ? undefined
-            : waiting.count === 0
-              ? "Every giro we issued has cleared"
+    <KpiStrip className="grid-cols-2 md:grid-cols-3 xl:grid-cols-3">
+      <Kpi label="Cash & bank balance" value={money(held)} />
+      <div title="Bills and giros that fall due">
+        <Kpi
+          label="Going out · next 30 days"
+          value={money(out === null ? null : out.ahead)}
+          delta={
+            out !== null && out.overdue > 0
+              ? `+ ${money(out.overdue)} overdue`
+              : undefined
+          }
+          tone="down"
+        />
+      </div>
+      <div title="Giros written and not yet through the bank">
+        <Kpi
+          label="Giros not cleared"
+          value={money(waiting === null ? null : waiting.amount)}
+          delta={
+            waiting === null || waiting.count === 0
+              ? undefined
               : `${count(waiting.count)} issued${
                   waiting.late > 0 ? ` · ${count(waiting.late)} past due` : ""
                 }`
-        }
-        tone={waiting !== null && waiting.late > 0 ? "warn" : undefined}
-      />
-    </CardRow>
+          }
+          tone={waiting !== null && waiting.late > 0 ? "down" : "flat"}
+        />
+      </div>
+    </KpiStrip>
   )
 }
 

@@ -284,6 +284,55 @@ pub async fn awaiting(
     Ok(Json(records.iter().map(order_view).collect()))
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OrdersQuery {
+    /// `AWAITING_CONSENT`, `AGREED`, `DECLINED` or `WITHDRAWN`; absent for all.
+    #[serde(default)]
+    pub state: Option<String>,
+    /// The window, inclusive at both ends. Absent for unbounded.
+    #[serde(default)]
+    pub from: Option<NaiveDate>,
+    #[serde(default)]
+    pub to: Option<NaiveDate>,
+}
+
+/// Every order at the caller's places in a window, answered or not — the
+/// Overtime list's Agreed, Declined and All beside the queue (owner,
+/// 2026-10-16). Bounded by the caller's posting exactly as [`awaiting`] is.
+pub async fn orders(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Query(query): Query<OrdersQuery>,
+) -> Result<Json<Vec<OvertimeOrderView>>, AppError> {
+    require(&principal, actions::OVERTIME_ORDER)?;
+    let wanted = match query.state.as_deref() {
+        None => None,
+        Some(code @ ("AWAITING_CONSENT" | "AGREED" | "DECLINED" | "WITHDRAWN")) => Some(code),
+        Some(other) => {
+            return Err(AppError::Validation(format!(
+                "{other:?} is not an overtime order state"
+            )));
+        }
+    };
+    let reach = reach_of(&state, &principal).await?;
+    if reach.is_nowhere() {
+        return Err(AppError::Forbidden(format!(
+            "{} has no open posting, so no unit's overtime is theirs to see",
+            principal.username
+        )));
+    }
+    let records = infrastructure::overtime_orders_in(
+        &state.db,
+        reach.sole_unit().map(|unit| unit.as_str()),
+        wanted,
+        query.from,
+        query.to,
+    )
+    .await?;
+    Ok(Json(records.iter().map(order_view).collect()))
+}
+
 /// Issue the employer's written instruction.
 pub async fn issue(
     State(state): State<AppState>,

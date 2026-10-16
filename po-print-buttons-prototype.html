@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PO Print Buttons</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<style>
+:root{
+  --ink:#1d1d1f;--mute:#6e6e73;--faint:#c7c7cc;--hair:#e8e8ec;--row:#eeeef1;
+  --soft:#f5f5f7;--soft2:#f2f2f5;--accent:#2862dc;--accent-h:#2055c7;--accent-bg:#eef3fc;
+  --pdf:#d70015;--pdf-bg:#fdecee;--ok:#248a3d;
+  --ring:0 0 0 1px rgb(0 0 0/5%),0 2px 8px rgb(0 0 0/5%);
+  --pop:0 0 0 1px rgb(0 0 0/6%),0 12px 32px rgb(0 0 0/12%);
+  --ease:cubic-bezier(.23,1,.32,1);--drawer:cubic-bezier(.32,.72,0,1);
+}
+*{box-sizing:border-box;margin:0}
+body{font:15px/1.4 Inter,system-ui,sans-serif;color:var(--ink);background:var(--soft);-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+svg{width:18px;height:18px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+/* option bar */
+.bar{position:sticky;top:0;z-index:30;background:#fff;border-bottom:1px solid var(--hair);padding:12px 16px;display:flex;gap:6px 18px;flex-wrap:wrap;align-items:center}
+.bar h1{font-size:17px;font-weight:700;margin-right:6px}
+.opts{display:flex;gap:4px;flex-wrap:wrap}
+.opt{padding:6px 12px;border-radius:999px;color:var(--mute);font-weight:500;transition:background-color .15s ease,color .15s ease}
+.opt[aria-pressed=true]{background:var(--ink);color:#fff}
+.dev{margin-left:auto;display:flex;gap:4px}
+.note{max-width:980px;margin:18px auto 0;padding:0 16px;color:var(--mute)}
+.note b{color:var(--ink);font-weight:600}
+
+/* stage + sheet */
+.stage{display:flex;justify-content:center;padding:18px 16px 60px}
+.sheet{position:relative;width:min(980px,100%);background:#fff;border-radius:14px;box-shadow:var(--ring);display:flex;flex-direction:column;min-height:620px;overflow:hidden;transition:width .3s var(--ease)}
+.phone .sheet{width:414px;min-height:760px}
+.head{display:flex;align-items:flex-start;gap:12px;padding:20px 22px 14px}
+.head h2{font-size:24px;font-weight:700;letter-spacing:-.01em}
+.head .sub{color:var(--mute);margin-top:2px}
+.x{margin-left:auto;width:32px;height:32px;border-radius:50%;display:grid;place-items:center;color:var(--mute)}
+.pill{display:inline-flex;align-items:center;gap:6px;color:var(--mute);margin-top:8px}
+.pill i{width:7px;height:7px;border-radius:50%;background:var(--accent)}
+.facts{display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--hair);border-bottom:1px solid var(--hair);margin:6px 22px 0}
+.facts div{padding:12px 0 12px 14px;border-left:1px solid var(--hair)}
+.facts div:first-child{border-left:0;padding-left:0}
+.facts span{display:block;color:var(--mute)}
+.facts b{font-size:19px;font-weight:700}
+.phone .facts{grid-template-columns:1fr 1fr}
+.phone .facts div:nth-child(3){border-left:0;padding-left:0;border-top:1px solid var(--hair)}
+.phone .facts div:nth-child(4){border-top:1px solid var(--hair)}
+table{width:calc(100% - 44px);margin:10px 22px;border-collapse:collapse}
+th{text-align:left;font-weight:500;color:var(--mute);padding:10px 0;border-bottom:1px solid var(--hair)}
+td{padding:11px 0;border-bottom:1px solid var(--row)}
+td.n,th.n{text-align:right}
+.phone .hide-ph{display:none}
+.body{flex:1}
+
+/* foot */
+.foot{position:relative;display:flex;align-items:center;gap:8px;padding:12px 16px;border-top:1px solid var(--hair);background:#fff}
+.foot .right{margin-left:auto;display:flex;gap:8px;align-items:center}
+.phone .foot{padding-bottom:30px}
+.btn{height:36px;padding:0 16px;border-radius:999px;display:inline-flex;align-items:center;gap:7px;font-weight:600;transition:transform .16s var(--ease),background-color .15s ease}
+.btn:active{transform:scale(.97)}
+.primary{background:var(--accent);color:#fff}
+@media (hover:hover){.primary:hover{background:var(--accent-h)}}
+.ghost{color:var(--mute);font-weight:500;padding:0 10px}
+.tint{color:var(--accent);font-weight:600;padding:0 10px}
+.tint-ink{color:var(--ink);font-weight:500;padding:0 10px}
+.redword{color:var(--pdf);font-weight:600;padding:0 10px}
+@media (hover:hover){.ghost:hover,.tint:hover,.tint-ink:hover,.redword:hover{background:var(--soft2)}}
+.sep{width:1px;height:20px;background:var(--hair)}
+.chev{width:14px;height:14px}
+
+/* file-type tiles: the colour that says what you get */
+.tile{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;flex:none}
+.tile svg{width:16px;height:16px}
+.t-print{background:var(--accent-bg);color:var(--accent)}
+.t-pdf{background:var(--pdf-bg);color:var(--pdf);font-size:10px;font-weight:800;letter-spacing:.02em}
+.badge{display:inline-grid;place-items:center;height:18px;padding:0 5px;border-radius:4px;background:var(--pdf);color:#fff;font-size:11px;font-weight:800;letter-spacing:.03em}
+
+/* menu */
+.menu{position:absolute;bottom:58px;width:280px;background:#fff;border-radius:12px;box-shadow:var(--pop);padding:6px;z-index:20;
+  opacity:0;transform:scale(.96) translateY(4px);pointer-events:none;transition:opacity .16s var(--ease),transform .16s var(--ease)}
+.menu.open{opacity:1;transform:none;pointer-events:auto}
+.menu .it{width:100%;display:flex;align-items:center;gap:10px;padding:8px;border-radius:8px;text-align:left}
+@media (hover:hover){.menu .it:hover{background:var(--soft2)}}
+.menu .it small{display:block;color:var(--mute);font-size:15px}
+.menu .lbl{padding:8px 8px 4px;color:var(--mute)}
+.menu .chk{width:18px;color:var(--accent)}
+.seg{display:flex;background:var(--soft2);border-radius:9px;padding:2px;margin:4px 6px 6px}
+.seg button{flex:1;height:30px;border-radius:7px;color:var(--mute);font-weight:500;transition:background-color .15s ease,color .15s ease}
+.seg button[aria-pressed=true]{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgb(0 0 0/10%)}
+.hr{height:1px;background:var(--hair);margin:6px 2px}
+
+/* preview drawer */
+.scrim{position:absolute;inset:0;background:rgb(208 208 213/48%);opacity:0;pointer-events:none;transition:opacity .2s ease;z-index:25}
+.scrim.open{opacity:1;pointer-events:auto}
+.drawer{position:absolute;left:12px;right:12px;bottom:12px;background:#fff;border-radius:14px;box-shadow:var(--pop);z-index:26;
+  transform:translateY(calc(100% + 16px));transition:transform .32s var(--drawer);display:flex;flex-direction:column;max-height:calc(100% - 24px)}
+.drawer.open{transform:none}
+.sheet:not(.phone-s) .drawer{left:auto;width:460px}
+.drawer .dh{display:flex;align-items:center;padding:16px 18px 6px}
+.drawer .dh h3{font-size:19px;font-weight:700}
+.paper{margin:10px 18px;background:var(--soft);border-radius:10px;display:grid;place-items:center;padding:18px}
+.page{background:#fff;box-shadow:0 1px 3px rgb(0 0 0/12%);padding:10px;display:flex;flex-direction:column;gap:5px;transition:width .25s var(--ease),height .25s var(--ease)}
+.page i{display:block;height:5px;border-radius:2px;background:var(--hair)}
+.page i.h{height:8px;width:45%;background:#c9c9cf}
+.page i.s{width:70%}
+.drawer .row{display:flex;align-items:center;justify-content:space-between;padding:6px 18px}
+.drawer .row .seg{margin:0;width:230px}
+.drawer .df{display:flex;align-items:center;gap:8px;padding:14px 16px;border-top:1px solid var(--hair);margin-top:10px}
+.drawer .df .primary{margin-left:auto;height:40px;padding:0 22px}
+
+/* toast (bottom-left, Sonner-like) */
+.toasts{position:fixed;left:16px;bottom:16px;z-index:50;display:flex;flex-direction:column;gap:8px}
+.toast{display:flex;align-items:center;gap:10px;background:#fff;border-radius:12px;box-shadow:var(--pop);padding:12px 14px;min-width:280px;
+  transition:opacity .4s ease,transform .4s ease}
+@starting-style{.toast{opacity:0;transform:translateY(100%)}}
+.toast.out{opacity:0;transform:translateY(8px);transition-duration:.2s}
+.toast .open{margin-left:auto;color:var(--accent);font-weight:600}
+
+/* legend */
+.legend{display:flex;gap:18px;flex-wrap:wrap;margin-top:10px}
+.legend span{display:inline-flex;align-items:center;gap:8px}
+@media (prefers-reduced-motion:reduce){.drawer,.menu,.toast{transition:opacity .2s ease!important;transform:none!important}}
+@media (max-width:600px){.dev{margin-left:0}.sheet:not(.phone-s) .drawer{left:12px;width:auto}}
+</style>
+</head>
+<body>
+<div class="bar">
+  <h1>Print on PO</h1>
+  <div class="opts" id="opts"></div>
+  <div class="dev opts"><button class="opt" data-dev="desk" aria-pressed="true">Desk</button><button class="opt" data-dev="phone" aria-pressed="false">Phone</button></div>
+</div>
+<p class="note" id="note"></p>
+<div class="stage" id="stage">
+  <div class="sheet" id="sheet">
+    <div class="head">
+      <div>
+        <h2>PO-2026-0412</h2>
+        <div class="sub">CV Sinar Garmen · 14 Oct 2026</div>
+        <div class="pill"><i></i>Active</div>
+      </div>
+      <button class="x" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="facts">
+      <div><span>Ordered</span><b>1.240 pcs</b></div>
+      <div><span>Received</span><b>0 pcs</b></div>
+      <div><span>Value</span><b>Rp 86,8 jt</b></div>
+      <div><span>Due</span><b>28 Oct 2026</b></div>
+    </div>
+    <div class="body">
+      <table>
+        <tr><th>Article</th><th class="hide-ph">Colour</th><th class="n">Quantity</th><th class="n hide-ph">Price</th></tr>
+        <tr><td>Kemeja Linen Oxford</td><td class="hide-ph">Navy · Sand</td><td class="n">480 pcs</td><td class="n hide-ph">Rp 72.000</td></tr>
+        <tr><td>Celana Chino Slim</td><td class="hide-ph">Khaki · Black</td><td class="n">360 pcs</td><td class="n hide-ph">Rp 68.000</td></tr>
+        <tr><td>Kaos Polos Cotton 30s</td><td class="hide-ph">White · Grey</td><td class="n">400 pcs</td><td class="n hide-ph">Rp 64.000</td></tr>
+      </table>
+    </div>
+    <div class="foot" id="foot"></div>
+    <div class="scrim" id="scrim"></div>
+    <div class="drawer" id="drawer"></div>
+  </div>
+</div>
+<div class="toasts" id="toasts"></div>
+
+<script>
+const I={
+  print:'<svg viewBox="0 0 24 24"><path d="M7 9V3h10v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M7 14h10v7H7z"/></svg>',
+  down:'<svg viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>',
+  chev:'<svg class="chev" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>',
+  up:'<svg class="chev" viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg>',
+  check:'<svg viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></svg>',
+  x:'<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  ok:'<svg viewBox="0 0 24 24" style="color:var(--ok)"><circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/></svg>',
+};
+const pdfTile='<span class="tile t-pdf">PDF</span>';
+const printTile=`<span class="tile t-print">${I.print}</span>`;
+let paper='A5',orient='Landscape',menuOpen=false;
+const paperWord=()=>`${paper} ${orient.toLowerCase()}`;
+
+const OPTIONS={
+  A:{name:'A · Today',note:'<b>Today.</b> Grey "Print ▾"; Print and Download PDF look the same inside the menu.',foot:()=>`
+      <button class="btn ghost" data-act="menu">${I.print}Print${I.chev}</button>`,
+    menu:()=>`
+      <button class="it" data-act="print">${I.print}Print</button>
+      <button class="it" data-act="pdf">${I.down}Download PDF</button>
+      <div class="lbl">Paper</div>
+      ${['A5 landscape','A4 landscape','A5 portrait','A4 portrait'].map(p=>`<button class="it" data-paper-old="${p}"><span class="chk">${p===paperWord()?I.check:''}</span>${p}</button>`).join('')}`},
+  B:{name:'B · Two words',note:'<b>Two words, two colours.</b> Print in blue (it happens now), PDF in red (the file colour). No menu; paper is remembered and changed from the small "A5 ▾".',foot:()=>`
+      <button class="btn tint" data-act="print">${I.print}Print</button>
+      <button class="btn redword" data-act="pdf">${I.down}PDF</button>
+      <span class="sep"></span>
+      <button class="btn ghost" data-act="menu">${paper}${I.chev}</button>`,
+    menu:()=>paperMenu()},
+  C:{name:'C · Coloured menu',note:'<b>Same menu, coloured tiles.</b> Blue printer tile = paper out; red PDF tile = a file in Downloads. Paper as a switch at the top, said under each line.',foot:()=>`
+      <button class="btn tint" data-act="menu">${I.print}Print${I.chev}</button>`,
+    menu:()=>`
+      <div class="seg">${['A5','A4'].map(p=>`<button data-paper="${p}" aria-pressed="${p===paper}">${p}</button>`).join('')}</div>
+      <div class="seg">${['Landscape','Portrait'].map(o=>`<button data-orient="${o}" aria-pressed="${o===orient}">${o}</button>`).join('')}</div>
+      <div class="hr"></div>
+      <button class="it" data-act="print">${printTile}<span>Print<small>${paperWord()}</small></span></button>
+      <button class="it" data-act="pdf">${pdfTile}<span>Download PDF<small>PO-2026-0412.pdf</small></span></button>`},
+  D:{name:'D · Preview ★',note:'<b>Preview first (Apple print sheet).</b> Blue "Print" word opens the page as it will come out; the only solid button is Print. Download PDF stays a red word beside it.',foot:()=>`
+      <button class="btn tint" data-act="sheet">${I.print}Print</button>`},
+  E:{name:'E · PDF first',note:'<b>For a supplier who gets it by WhatsApp.</b> Red "PDF" badge word downloads at once; Print sits behind it in blue.',foot:()=>`
+      <button class="btn tint-ink" data-act="pdf"><span class="badge">PDF</span>Download</button>
+      <button class="btn tint" data-act="sheet">${I.print}Print</button>`},
+};
+function paperMenu(){return `
+  <div class="lbl">Paper</div>
+  <div class="seg">${['A5','A4'].map(p=>`<button data-paper="${p}" aria-pressed="${p===paper}">${p}</button>`).join('')}</div>
+  <div class="seg">${['Landscape','Portrait'].map(o=>`<button data-orient="${o}" aria-pressed="${o===orient}">${o}</button>`).join('')}</div>`}
+
+function drawerHTML(){
+  const land=orient==='Landscape', big=paper==='A4';
+  const w=land?(big?230:190):(big?160:135), h=land?(big?163:134):(big?226:190);
+  return `
+  <div class="dh"><h3>Print PO-2026-0412</h3><button class="x" data-act="close" aria-label="Close">${I.x}</button></div>
+  <div class="paper"><div class="page" style="width:${w}px;height:${h}px"><i class="h"></i><i class="s"></i><i></i><i></i><i></i><i class="s"></i><i></i></div></div>
+  <div class="row"><span>Paper</span><div class="seg">${['A5','A4'].map(p=>`<button data-paper="${p}" aria-pressed="${p===paper}">${p}</button>`).join('')}</div></div>
+  <div class="row"><span>Layout</span><div class="seg">${['Landscape','Portrait'].map(o=>`<button data-orient="${o}" aria-pressed="${o===orient}">${o}</button>`).join('')}</div></div>
+  <div class="df">
+    <button class="btn redword" data-act="pdf">${I.down}Download PDF</button>
+    <button class="btn primary" data-act="print">${I.print}Print</button>
+  </div>`}
+
+let cur=new URLSearchParams(location.search).get('o')||'D';
+const $=s=>document.querySelector(s);
+function render(){
+  const o=OPTIONS[cur];
+  $('#opts').innerHTML=Object.entries(OPTIONS).map(([k,v])=>`<button class="opt" data-opt="${k}" aria-pressed="${k===cur}">${v.name}</button>`).join('');
+  $('#note').innerHTML=o.note+`<div class="legend"><span>${printTile}Blue = goes to the printer</span><span>${pdfTile}Red = a PDF file</span></div>`;
+  $('#foot').innerHTML=`<span class="right">${o.foot()}<button class="btn primary" data-act="noop">Edit</button></span><div class="menu" id="menu"></div>`;
+  drawMenu();
+}
+function drawMenu(){
+  const m=$('#menu'); if(!m)return;
+  const o=OPTIONS[cur]; m.innerHTML=o.menu?o.menu():'';
+  m.classList.toggle('open',menuOpen&&!!o.menu);
+  // anchor the menu over its trigger, opening upward from the foot
+  const t=$('#foot [data-act=menu]');
+  if(t){const f=$('#foot').getBoundingClientRect(),r=t.getBoundingClientRect();
+    const right=Math.max(8,f.right-r.right);m.style.right=right+'px';m.style.transformOrigin='bottom right';}
+}
+function drawDrawer(open){
+  $('#drawer').innerHTML=drawerHTML();
+  $('#drawer').classList.toggle('open',open);$('#scrim').classList.toggle('open',open);
+}
+function toast(html){
+  const t=document.createElement('div');t.className='toast';t.innerHTML=html;$('#toasts').append(t);
+  setTimeout(()=>{t.classList.add('out');setTimeout(()=>t.remove(),220)},3200);
+}
+document.addEventListener('click',e=>{
+  const b=e.target.closest('button');
+  if(!b){if(menuOpen){menuOpen=false;drawMenu()}return}
+  if(b.dataset.opt){cur=b.dataset.opt;menuOpen=false;drawDrawer(false);history.replaceState(null,'','?o='+cur);render();return}
+  if(b.dataset.dev){document.querySelectorAll('[data-dev]').forEach(x=>x.setAttribute('aria-pressed',x===b));
+    $('#stage').classList.toggle('phone',b.dataset.dev==='phone');$('#sheet').classList.toggle('phone-s',b.dataset.dev==='phone');menuOpen=false;render();return}
+  if(b.dataset.paper){paper=b.dataset.paper;refresh();return}
+  if(b.dataset.orient){orient=b.dataset.orient;refresh();return}
+  if(b.dataset.paperOld){[paper,orient]=b.dataset.paperOld.split(' ');orient=orient[0].toUpperCase()+orient.slice(1);refresh();return}
+  const a=b.dataset.act;
+  if(a==='menu'){menuOpen=!menuOpen;drawMenu();return}
+  if(a==='sheet'){drawDrawer(true);return}
+  if(a==='close'){drawDrawer(false);return}
+  if(a==='print'){menuOpen=false;drawMenu();drawDrawer(false);toast(`${printTile}<span>Printing on ${paperWord()}</span>`);return}
+  if(a==='pdf'){menuOpen=false;drawMenu();drawDrawer(false);toast(`${pdfTile}<span>PO-2026-0412.pdf<br><span style="color:var(--mute)">Saved to Downloads</span></span><button class="open">Open</button>`);return}
+  if(menuOpen&&!b.closest('.menu')){menuOpen=false;drawMenu()}
+});
+function refresh(){
+  const keep=$('#drawer').classList.contains('open');
+  if(keep){ // update the page and switches in place so the size change animates
+    const land=orient==='Landscape',big=paper==='A4';
+    const pg=$('#drawer .page');pg.style.width=(land?(big?230:190):(big?160:135))+'px';pg.style.height=(land?(big?163:134):(big?226:190))+'px';
+    document.querySelectorAll('#drawer [data-paper]').forEach(x=>x.setAttribute('aria-pressed',x.dataset.paper===paper));
+    document.querySelectorAll('#drawer [data-orient]').forEach(x=>x.setAttribute('aria-pressed',x.dataset.orient===orient));
+    return}
+  const f=$('#foot .right');f.innerHTML=OPTIONS[cur].foot()+'<button class="btn primary" data-act="noop">Edit</button>';drawMenu();
+}
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){menuOpen=false;drawMenu();drawDrawer(false)}});
+render();drawDrawer(false);
+</script>
+</body>
+</html>

@@ -6,9 +6,9 @@ import { useLayout } from "@/lib/layout"
 import { Fab } from "@/components/ui/fab"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { Select } from "@/components/ui/field"
+import { Field, Input, Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
-import { Pill } from "@/components/ui/pill"
+import { Status } from "@/components/ui/pill"
 import { Toolbar } from "@/components/ui/segmented"
 import { Sheet } from "@/components/ui/sheet"
 import {
@@ -19,12 +19,14 @@ import {
 } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { count, day, moment } from "@/lib/format"
+import { useNameOfLogin } from "@/lib/queries/hr-employees"
 import { unitLabel, useUnits } from "@/lib/queries/organisation"
 import {
   invitationKeys,
   renewInvitation,
   revokeInvitation,
   useInvitations,
+  whatsappNumber,
   type InvitationRow,
   type InvitationStatus,
 } from "@/lib/queries/invitations"
@@ -57,24 +59,24 @@ const TABS: readonly { value: InvitationStatus; label: string }[] = [
   { value: "REVOKED", label: "Revoked" },
 ]
 
-const STATUS_TONE: Readonly<
-  Record<InvitationStatus, "warn" | "ok" | "neutral" | "bad">
-> = {
-  PENDING: "warn",
+/// Nothing here is a fault: a link waiting is in motion, a revoked one was
+/// withdrawn on purpose and is settled.
+type StatusTone = "info" | "ok" | "neutral" | "done"
+
+const STATUS_TONE: Readonly<Record<InvitationStatus, StatusTone>> = {
+  PENDING: "info",
   ACCEPTED: "ok",
   EXPIRED: "neutral",
-  REVOKED: "bad",
+  REVOKED: "done",
 }
 
 /// `InvitationRow.status` arrives as a bare `string` off the wire; both of
 /// these fall back to the raw value for anything this app's own four-way
 /// union does not (yet) name, rather than throwing on an index it does not
 /// recognise.
-function statusTone(status: string): "warn" | "ok" | "neutral" | "bad" {
+function statusTone(status: string): StatusTone {
   return (
-    (
-      STATUS_TONE as Readonly<Record<string, "warn" | "ok" | "neutral" | "bad">>
-    )[status] ?? "neutral"
+    (STATUS_TONE as Readonly<Record<string, StatusTone>>)[status] ?? "neutral"
   )
 }
 
@@ -90,6 +92,7 @@ export function Invitations() {
   const invite = useSheet("invite")
   const client = useQueryClient()
   const units = useUnits()
+  const nameOfLogin = useNameOfLogin()
   const [renewing, setRenewing] = useState<InvitationRow | null>(null)
 
   const invitations = useInvitations(status, unitId || undefined)
@@ -104,29 +107,30 @@ export function Invitations() {
   return (
     <PageContent>
       <PageHeader
-        crumb="People"
         title="Invitations"
-        sub="Everyone who has been sent a link to set up their own sign-in."
         actions={
           !phone &&
           canWrite && (
             <Button variant="primary" onClick={() => invite.open(true)}>
-              Invite people
+              Add account
             </Button>
           )
         }
       />
       {canWrite && (
-        <Fab label="Invite people" onClick={() => invite.open(true)} />
+        <Fab label="Add account" onClick={() => invite.open(true)} />
       )}
 
-      <SubTabs
-        tabs={TABS}
-        value={status}
-        onChange={(next) => setStatus(next as InvitationStatus)}
-      />
-
-      <Toolbar>
+      <Toolbar
+        className="group/bar"
+        lead={
+          <SubTabs
+            tabs={TABS}
+            value={status}
+            onChange={(next) => setStatus(next as InvitationStatus)}
+          />
+        }
+      >
         <Select value={unitId} onChange={setUnitId} className="h-8 w-52">
           <option value="">Every unit</option>
           {(units.data ?? []).map((unit) => (
@@ -136,7 +140,7 @@ export function Invitations() {
           ))}
         </Select>
         <Toolbar.Spacer />
-        <span className="text-[0.875rem] text-mute tabular-nums">
+        <span className="text-[0.9375rem] text-mute tabular-nums">
           {count(rows.length)} {statusLabel(status).toLowerCase()}
         </span>
       </Toolbar>
@@ -185,9 +189,9 @@ export function Invitations() {
                   <CardDate iso={row.created_at} label="sent" tone="quiet" />
                 ),
               foot: (row) => (
-                <Pill tone={statusTone(row.status)}>
+                <Status tone={statusTone(row.status)}>
                   {statusLabel(row.status)}
-                </Pill>
+                </Status>
               ),
               action: (row) =>
                 canWrite && row.status === "PENDING" ? (
@@ -206,13 +210,13 @@ export function Invitations() {
               className="flex flex-wrap items-center gap-3 px-4 py-3"
             >
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-3">
                   <b className="truncate text-cell font-medium text-ink">
                     {row.name}
                   </b>
-                  <Pill tone={statusTone(row.status)}>
+                  <Status tone={statusTone(row.status)}>
                     {statusLabel(row.status)}
-                  </Pill>
+                  </Status>
                 </div>
                 <p className="mt-0.5 truncate text-meta text-mute">
                   {row.role_name} · {row.unit_name}
@@ -224,7 +228,7 @@ export function Invitations() {
                 {row.status === "ACCEPTED" && row.accepted_at
                   ? `Accepted ${day(row.accepted_at)}`
                   : row.status === "REVOKED" && row.revoked_at
-                    ? `Revoked ${day(row.revoked_at)}${row.revoked_by ? ` by ${row.revoked_by}` : ""}`
+                    ? `Revoked ${day(row.revoked_at)}${row.revoked_by ? ` by ${nameOfLogin(row.revoked_by)}` : ""}`
                     : row.status === "PENDING"
                       ? `Expires ${day(row.expires_at)}`
                       : `Sent ${day(row.created_at)}`}
@@ -270,6 +274,10 @@ function RenewSheet({
 }) {
   const client = useQueryClient()
   const phone = useLayout() === "phone"
+  // Where the new link goes — typed here, used here, not sent to the server.
+  const [number, setNumber] = useState("")
+  const [opened, setOpened] = useState(false)
+  const dialable = whatsappNumber(number)
   const renew = useMutation({
     mutationFn: () => renewInvitation(row!.invitation_id),
     onSuccess: () =>
@@ -287,6 +295,8 @@ function RenewSheet({
       onOpenChange={(next) => {
         if (!next) {
           renew.reset()
+          setNumber("")
+          setOpened(false)
           onClose()
         }
       }}
@@ -298,6 +308,8 @@ function RenewSheet({
             <Button
               onClick={() => {
                 renew.reset()
+                setNumber("")
+                setOpened(false)
                 onClose()
               }}
             >
@@ -320,12 +332,13 @@ function RenewSheet({
                 Revoke
               </Button>
             )}
-            <Button variant="quiet" onClick={onClose}>
+            <Button data-cancel variant="quiet" onClick={onClose}>
               Cancel
             </Button>
             <Button
               variant="primary"
               pending={renew.isPending}
+              disabled={dialable === null}
               onClick={() => renew.mutate()}
             >
               {renew.isPending ? "Renewing…" : "Renew link"}
@@ -337,25 +350,49 @@ function RenewSheet({
       {renew.data ? (
         <div className="flex flex-col gap-3.5">
           <Banner tone="warn">
-            This link is shown once. Copy it now and send it to{" "}
-            {row?.name ?? "them"}.
+            This link is shown once. Send it now to {row?.name ?? "them"}.
           </Banner>
           <div className="flex items-center gap-2">
             <code className="min-w-0 flex-1 truncate rounded-inner bg-soft-2 px-2.5 py-2 font-mono text-id text-body">
               {renew.data.link}
             </code>
+            <WhatsAppLinkButton
+              link={renew.data.link}
+              name={row?.name}
+              number={dialable}
+              opened={opened}
+              onOpen={() => setOpened(true)}
+            />
             <CopyLinkButton link={renew.data.link} />
-            <WhatsAppLinkButton link={renew.data.link} name={row?.name} />
           </div>
           <p className="text-meta text-mute">
             Expires {moment(renew.data.expires_at)}.
           </p>
         </div>
       ) : (
-        <p className="text-[0.875rem] text-body">
-          The old link stops working the moment this one is issued, valid for
-          another 72 hours.
-        </p>
+        <div className="flex flex-col gap-3.5">
+          <Field
+            label="WhatsApp number"
+            required
+            problem={
+              number.replace(/\D/g, "").length >= 7 && dialable === null
+                ? "Use a number like 0812 3456 7890."
+                : undefined
+            }
+          >
+            <Input
+              type="tel"
+              keyboard
+              autoComplete="off"
+              placeholder="0812 3456 7890"
+              value={number}
+              onChange={(event) => setNumber(event.target.value)}
+            />
+          </Field>
+          <p className="text-[0.9375rem] text-body">
+            The old link stops working once this one is issued.
+          </p>
+        </div>
       )}
       {renew.isError && <Problem error={renew.error} />}
     </Sheet>

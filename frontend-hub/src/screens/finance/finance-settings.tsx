@@ -1,20 +1,36 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
+import {
+  useMutation,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query"
+import type { ColumnDef, SortingState } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
+import { Suspense, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { Input, Money, Select } from "@/components/ui/field"
+import {
+  BarSpacer,
+  ColumnsMenu,
+  ExpandingSearch,
+} from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { EmptyState, Problem } from "@/components/ui/states"
+import { count } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   financeKeys,
-  listFinanceSettings,
+  financeSettingsQuery,
   setFinanceSetting,
 } from "@/lib/queries/finance"
-import { useLayout } from "@/lib/layout"
 import { queryState } from "@/lib/query-state"
-import { Grid, Td, Th } from "@/screens/finance-final/parts"
+import { tableSetup, type TableSetup } from "@/lib/table"
+import { useColumnFit } from "@/screens/finance/column-fit"
+import { ScreenPending } from "@/screens/finance/pending"
 import type { FinanceSetting } from "@itulah/contract"
 
 /// Accounts Settings: the numbers Finance's rules read — tolerances, windows,
@@ -43,12 +59,101 @@ function tidy(value: string): string {
   return value.replace(/\.?0+$/, "")
 }
 
+/// The note as the owner reads it: without the migration numbers the server's
+/// copy carries for its own reference.
+function noteOf(setting: FinanceSetting): string {
+  return (setting.note ?? "").replace(/\s*\(\d{4}\)/g, "")
+}
+
+function nameOf(setting: FinanceSetting): string {
+  return NAMES[setting.setting_key] ?? setting.setting_key
+}
+
+/// One setting per row: its name, the control that changes it, and what it
+/// does. On a phone the same columns are the card, the control on the card's
+/// whole width under the name and the note.
+const columns: ColumnDef<TableSetup, FinanceSetting>[] = [
+  {
+    id: "setting",
+    accessorFn: (row) => nameOf(row),
+    header: "Setting",
+    size: 260,
+    meta: { card: "title" },
+    cell: ({ row }) => (
+      <span className="font-medium text-ink" title={row.original.setting_key}>
+        {nameOf(row.original)}
+      </span>
+    ),
+  },
+  {
+    id: "value",
+    header: "Value",
+    size: 340,
+    enableSorting: false,
+    enableHiding: false,
+    meta: { card: "metric" },
+    cell: ({ row }) => <SettingControl setting={row.original} />,
+  },
+  {
+    id: "note",
+    accessorFn: (row) => noteOf(row),
+    header: "What it does",
+    size: 420,
+    meta: { card: "meta", grow: 240 },
+    cell: ({ row }) => (
+      <span className="font-normal whitespace-normal text-body">
+        {noteOf(row.original)}
+      </span>
+    ),
+  },
+]
+
 export function FinanceSettings() {
+  return (
+    <Suspense
+      fallback={
+        <ScreenPending
+          crumb="Finance · Accounting Masters"
+          title="Accounts Settings"
+        >
+          Reading the settings…
+        </ScreenPending>
+      }
+    >
+      <FinanceSettingsScreen />
+    </Suspense>
+  )
+}
+
+function FinanceSettingsScreen() {
   const phone = useLayout() === "phone"
-  const list = useQuery({
-    queryKey: financeKeys.settings(),
-    queryFn: ({ signal }) => listFinanceSettings(signal),
-  })
+  const list = useSuspenseQuery(financeSettingsQuery())
+  const [needle, setNeedle] = useState("")
+  const [sorting, setSorting] = useState<SortingState>([])
+
+  const rows = list.data
+  const [measure, fit] = useColumnFit(columns, phone)
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: rows,
+        columns,
+        getRowId: (row: FinanceSetting) => row.setting_key,
+        state: {
+          globalFilter: needle,
+          sorting,
+          columnVisibility: fit.visibility,
+        },
+        onSortingChange: setSorting,
+        onGlobalFilterChange: setNeedle,
+        onColumnVisibilityChange: fit.onChange,
+      }),
+      // `fit` is new each render: the room is measured, and the columns the
+      // card has no room for are given up.
+      [rows, needle, sorting, fit]
+    )
+  )
 
   return (
     <PageContent>
@@ -56,48 +161,60 @@ export function FinanceSettings() {
         crumb="Finance · Accounting Masters"
         title="Accounts Settings"
       />
-      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-        {queryState(list, {
-          loading: "Reading the settings…",
-          render: (rows) =>
-            rows.length === 0 ? (
-              <EmptyState>No setting is kept on this node.</EmptyState>
-            ) : phone ? (
-              <ul className="flex flex-col gap-2.5">
-                {rows.map((row) => (
-                  <SettingRow key={row.setting_key} setting={row} phone />
-                ))}
-              </ul>
-            ) : (
-              <Grid>
-                <thead>
-                  <tr>
-                    <Th width="15rem">Setting</Th>
-                    <Th width="17rem">Value</Th>
-                    <Th>What it does</Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row) => (
-                    <SettingRow key={row.setting_key} setting={row} />
-                  ))}
-                </tbody>
-              </Grid>
-            ),
-        })}
-      </Card>
+
+      <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2 max-md:hidden">
+        <ExpandingSearch
+          value={needle}
+          onChange={setNeedle}
+          label="Search settings"
+        />
+        <BarSpacer />
+        <ColumnsMenu table={table} />
+      </div>
+
+      <DockTools
+        search={{
+          value: needle,
+          onChange: setNeedle,
+          label: "Search settings",
+        }}
+        sort={dockSortOf(table)}
+      />
+
+      <div ref={measure}>
+        <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+          {queryState(list, {
+            render: () =>
+              rows.length === 0 ? (
+                <EmptyState>No setting is kept on this node.</EmptyState>
+              ) : (
+                <DataTable<FinanceSetting>
+                  table={table}
+                  refresh={[list]}
+                  empty="No setting matches the search."
+                  pageScroll
+                  cardsApart
+                  cardFiguresBelow
+                  cardSort={false}
+                  summary={{
+                    setting: (
+                      <span>
+                        {count(table.getRowModel().rows.length)}{" "}
+                        <span className="font-normal text-body">settings</span>
+                      </span>
+                    ),
+                  }}
+                />
+              ),
+          })}
+        </Card>
+      </div>
     </PageContent>
   )
 }
 
-function SettingRow({
-  setting,
-  phone = false,
-}: {
-  setting: FinanceSetting
-  /// A card of its own on a phone: the name, what it does, and the control.
-  phone?: boolean
-}) {
+/// The control that changes one setting: the value, its unit and Submit.
+function SettingControl({ setting }: { setting: FinanceSetting }) {
   const client = useQueryClient()
   const current = tidy(setting.value)
   const [draft, setDraft] = useState(current)
@@ -115,9 +232,8 @@ function SettingRow({
   })
 
   const changed = draft.trim() !== current && draft.trim() !== ""
-  const note = (setting.note ?? "").replace(/\s*\(\d{4}\)/g, "")
 
-  const control = (
+  return (
     <>
       <div className="flex items-center gap-2">
         {setting.unit === "flag" ? (
@@ -162,33 +278,5 @@ function SettingRow({
       </div>
       <Problem error={save.error} className="mt-1.5" />
     </>
-  )
-
-  if (phone) {
-    return (
-      <li className="flex flex-col gap-2 rounded-card border border-hairline bg-canvas p-4 shadow-soft">
-        <div className="text-card-title font-semibold text-ink">
-          {NAMES[setting.setting_key] ?? setting.setting_key}
-        </div>
-        {note !== "" && <p className="text-[0.875rem] text-mute">{note}</p>}
-        <div className="mt-1">{control}</div>
-      </li>
-    )
-  }
-
-  return (
-    <tr>
-      <Td>
-        <div className="font-medium text-ink" title={setting.setting_key}>
-          {NAMES[setting.setting_key] ?? setting.setting_key}
-        </div>
-      </Td>
-      <Td>{control}</Td>
-      <Td className="whitespace-normal">
-        {/* The note as the owner reads it: without the migration numbers the
-            server's copy carries for its own reference. */}
-        <span className="text-body">{note}</span>
-      </Td>
-    </tr>
   )
 }

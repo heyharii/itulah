@@ -1,24 +1,21 @@
-import { useInfiniteQuery } from "@tanstack/react-query"
-import { useMemo } from "react"
+import { useSuspenseInfiniteQuery } from "@tanstack/react-query"
+import { useNavigate } from "@tanstack/react-router"
+import type { ColumnDef } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
+import { Suspense, useMemo } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
-import { AppLink } from "@/components/ui/app-link"
 import { Card } from "@/components/ui/card"
+import { DataTable } from "@/components/ui/data-table"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
-import { MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
-import { Banner, EmptyState, LoadMore } from "@/components/ui/states"
+import { Banner, EmptyState, LoadingState } from "@/components/ui/states"
 import { count, moment } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
-import { listPointsAccounts, pointsKeys } from "@/lib/queries/points"
-import { queryState } from "@/lib/query-state"
-import {
-  CardFigure,
-  CardFoot,
-  CardName,
-  PhoneCard,
-} from "@/components/ui/phone-cards"
+import { pointsAccountsQuery, type PointsAccount } from "@/lib/queries/points"
+import { tableSetup, type TableSetup } from "@/lib/table"
+import { CardFigure, CardFoot, CardName } from "@/components/ui/phone-cards"
 
 /// Points — what the business owes its members.
 ///
@@ -40,30 +37,155 @@ import {
 /// omission: points leave an account in exactly one way, by becoming a voucher,
 /// and that happens at the counter. So this is a register, and the thing that
 /// moves it lives on the Ledger next door.
-const PAGE = 200
+const columns: ColumnDef<TableSetup, PointsAccount>[] = [
+  {
+    id: "member",
+    accessorFn: (row) => `${row.customer_id} ${row.display_name ?? ""}`,
+    header: "Member",
+    size: 260,
+    enableSorting: false,
+    meta: { card: "hide" },
+    cell: ({ row }) => (
+      <>
+        <span className="block truncate text-ink">
+          {row.original.display_name ?? row.original.customer_id}
+        </span>
+        <span className="block font-mono text-[0.9375rem] text-mute">
+          {row.original.customer_id}
+        </span>
+      </>
+    ),
+  },
+  {
+    id: "balance",
+    accessorFn: (row) => row.balance_points,
+    header: "Balance",
+    size: 130,
+    enableSorting: false,
+    meta: { align: "right", card: "hide" },
+    cell: ({ row }) => (
+      <span className="font-medium text-ink tabular-nums">
+        {count(row.original.balance_points)}
+      </span>
+    ),
+  },
+  {
+    id: "ledger",
+    accessorFn: (row) => row.ledger_sum,
+    header: "From Entries",
+    size: 190,
+    enableSorting: false,
+    meta: { align: "right", card: "hide" },
+    cell: ({ row }) =>
+      row.original.reconciles ? (
+        <span className="text-mute tabular-nums">
+          {count(row.original.ledger_sum)}
+        </span>
+      ) : (
+        <span className="flex items-center justify-end gap-1.5">
+          <span className="text-bad tabular-nums">
+            {count(row.original.ledger_sum)}
+          </span>
+          <Pill tone="bad">does not match</Pill>
+        </span>
+      ),
+  },
+  {
+    id: "entries",
+    accessorFn: (row) => row.entries,
+    header: "Entries",
+    size: 110,
+    enableSorting: false,
+    meta: { align: "right", card: "hide" },
+    cell: ({ row }) => (
+      <span className="tabular-nums">{count(row.original.entries)}</span>
+    ),
+  },
+  {
+    id: "moved",
+    accessorFn: (row) => row.last_movement ?? "",
+    header: "Last Movement",
+    size: 170,
+    enableSorting: false,
+    meta: { align: "right", card: "hide" },
+    cell: ({ row }) => (
+      <span className="text-[0.9375rem] text-mute">
+        {row.original.last_movement === null
+          ? "never"
+          : moment(row.original.last_movement)}
+      </span>
+    ),
+  },
+  // Four columns that exist only on a card (`cardLead`; a phone): who, the
+  // balance as the figure, what the entries say, and a flag where the two
+  // disagree.
+  {
+    id: "head",
+    accessorFn: (row) => row.display_name ?? row.customer_id,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "title" },
+    cell: ({ row }) => (
+      <CardName
+        name={row.original.display_name ?? row.original.customer_id}
+        code={
+          row.original.display_name === null
+            ? undefined
+            : row.original.customer_id
+        }
+      />
+    ),
+  },
+  {
+    id: "lead",
+    accessorFn: (row) => row.balance_points,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "lead" },
+    cell: ({ row }) => (
+      <CardFigure
+        value={count(row.original.balance_points)}
+        caption="points"
+        tone={row.original.balance_points === 0 ? "quiet" : undefined}
+      />
+    ),
+  },
+  {
+    id: "foot",
+    accessorFn: (row) => row.entries,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "foot" },
+    cell: ({ row }) => (
+      <CardFoot>
+        {count(row.original.entries)}{" "}
+        {row.original.entries === 1 ? "entry" : "entries"}
+        {row.original.reconciles
+          ? ""
+          : ` · ${count(row.original.ledger_sum)} from entries`}
+        <br />
+        Last movement{" "}
+        {row.original.last_movement === null
+          ? "never"
+          : moment(row.original.last_movement)}
+      </CardFoot>
+    ),
+  },
+  {
+    id: "tag",
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { align: "right", card: "status" },
+    cell: ({ row }) =>
+      row.original.reconciles ? null : <Pill tone="bad">does not match</Pill>,
+  },
+]
 
 export function Points() {
-  // A phone draws a card per account, with the balance as the figure, in place
-  // of a table of five columns.
-  const phone = useLayout() === "phone"
-  /// The account book a page at a time, largest balance first, the next page
-  /// asked for as the foot of the list comes into view.
-  const list = useInfiniteQuery({
-    queryKey: pointsKeys.accounts(),
-    queryFn: ({ pageParam, signal }) =>
-      listPointsAccounts({ cursor: pageParam, limit: PAGE }, signal),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) => last.next_cursor ?? undefined,
-  })
-
-  const accounts = useMemo(
-    () => list.data?.pages.flatMap((page) => page.items) ?? [],
-    [list.data]
-  )
-  /// The book-wide figures ride on every page; the first one is enough.
-  const head = list.data?.pages[0]
-  const drifted = head?.accounts_not_reconciling ?? 0
-
   return (
     <PageContent>
       <PageHeader
@@ -72,6 +194,59 @@ export function Points() {
         sub="What each member holds. A point is money the business owes a shopper, so this is a liability register — not a discount."
       />
 
+      <Suspense
+        fallback={<LoadingState>Reading the points accounts…</LoadingState>}
+      >
+        <PointsBook />
+      </Suspense>
+    </PageContent>
+  )
+}
+
+/// The figures and the accounts, read together: the figures are the server's
+/// counts over the whole book, which ride on every page.
+function PointsBook() {
+  // A phone draws the accounts as cards, with the balance as the figure.
+  const phone = useLayout() === "phone"
+  const navigate = useNavigate()
+  /// The account book a page at a time, largest balance first, the next page
+  /// asked for as the foot of the list comes into view.
+  const list = useSuspenseInfiniteQuery(pointsAccountsQuery())
+
+  const accounts = useMemo(
+    () => list.data.pages.flatMap((page) => page.items),
+    [list.data]
+  )
+  /// The book-wide figures ride on every page; the first one is enough.
+  const head = list.data.pages[0]
+  const drifted = head?.accounts_not_reconciling ?? 0
+
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: accounts,
+        columns,
+        getRowId: (row: PointsAccount) => row.customer_id,
+        // The book arrives largest balance first; sorting the pages in hand
+        // would call a screenful the book.
+        manualSorting: true,
+        // The card's own columns are drawn on a phone and never on a desk.
+        state: {
+          columnVisibility: {
+            head: phone,
+            lead: phone,
+            foot: phone,
+            tag: phone,
+          },
+        },
+      }),
+      [accounts, phone]
+    )
+  )
+
+  return (
+    <>
       <KpiStrip>
         {/* All three are the server's counts over the whole book, not sums
             of the rows loaded so far — they are true before the list below
@@ -100,135 +275,32 @@ export function Points() {
       )}
 
       <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-        {queryState(list, {
-          loading: "Reading the points accounts…",
-          render: () =>
-            accounts.length === 0 ? (
-              <EmptyState>
-                No member holds any points. The account and ledger tables exist
-                and are empty — nothing has been earned, which is not the same
-                as loyalty being switched off.
-              </EmptyState>
-            ) : (
-              <>
-                {phone ? (
-                  <ul className="flex flex-col gap-2.5">
-                    {accounts.map((account) => (
-                      <PhoneCard
-                        key={account.customer_id}
-                        head={
-                          <CardName
-                            name={account.display_name ?? account.customer_id}
-                            code={
-                              account.display_name === null
-                                ? undefined
-                                : account.customer_id
-                            }
-                          />
-                        }
-                        lead={
-                          <CardFigure
-                            value={count(account.balance_points)}
-                            caption="points"
-                            tone={
-                              account.balance_points === 0 ? "quiet" : undefined
-                            }
-                          />
-                        }
-                        foot={
-                          <CardFoot>
-                            {count(account.entries)}{" "}
-                            {account.entries === 1 ? "entry" : "entries"}
-                            {account.reconciles
-                              ? ""
-                              : ` · ${count(account.ledger_sum)} from entries`}
-                            <br />
-                            Last movement{" "}
-                            {account.last_movement === null
-                              ? "never"
-                              : moment(account.last_movement)}
-                          </CardFoot>
-                        }
-                        action={
-                          account.reconciles ? undefined : (
-                            <Pill tone="bad">does not match</Pill>
-                          )
-                        }
-                      />
-                    ))}
-                  </ul>
-                ) : (
-                  <MiniTable
-                    head={[
-                      "Member",
-                      { label: "Balance", align: "right" },
-                      { label: "From Entries", align: "right" },
-                      { label: "Entries", align: "right" },
-                      { label: "Last Movement", align: "right" },
-                    ]}
-                  >
-                    {accounts.map((account) => (
-                      <MiniRow key={account.customer_id}>
-                        <MiniCell>
-                          {/* Straight into that member's own entries. No dead
-                          ends: the balance and the movements behind it are one
-                          click apart in both directions. */}
-                          <AppLink
-                            to="/members/points-ledger"
-                            sheet={{
-                              key: "customer",
-                              value: account.customer_id,
-                            }}
-                            className="text-ink underline-offset-2 hover:underline"
-                          >
-                            {account.display_name ?? account.customer_id}
-                          </AppLink>
-                          <span className="block font-mono text-[0.875rem] text-mute">
-                            {account.customer_id}
-                          </span>
-                        </MiniCell>
-                        <MiniCell align="right">
-                          <span className="font-medium text-ink tabular-nums">
-                            {count(account.balance_points)}
-                          </span>
-                        </MiniCell>
-                        <MiniCell align="right">
-                          {account.reconciles ? (
-                            <span className="text-mute tabular-nums">
-                              {count(account.ledger_sum)}
-                            </span>
-                          ) : (
-                            <span className="flex items-center justify-end gap-1.5">
-                              <span className="text-bad tabular-nums">
-                                {count(account.ledger_sum)}
-                              </span>
-                              <Pill tone="bad">does not match</Pill>
-                            </span>
-                          )}
-                        </MiniCell>
-                        <MiniCell align="right">
-                          <span className="tabular-nums">
-                            {count(account.entries)}
-                          </span>
-                        </MiniCell>
-                        <MiniCell align="right">
-                          <span className="text-[0.875rem] text-mute">
-                            {account.last_movement === null
-                              ? "never"
-                              : moment(account.last_movement)}
-                          </span>
-                        </MiniCell>
-                      </MiniRow>
-                    ))}
-                  </MiniTable>
-                )}
-                {/* Inside the card, which scrolls with the page — see
-                  `<LoadMore>`. */}
-                <LoadMore query={list} className="py-3" />
-              </>
-            ),
-        })}
+        {accounts.length === 0 ? (
+          <EmptyState>
+            No member holds any points. The account and ledger tables exist and
+            are empty — nothing has been earned, which is not the same as
+            loyalty being switched off.
+          </EmptyState>
+        ) : (
+          <DataTable<PointsAccount>
+            refresh={[list]}
+            table={table}
+            // Straight into that member's own entries. No dead ends: the
+            // balance and the movements behind it are one click apart in
+            // both directions.
+            onRowClick={(row) =>
+              void navigate({
+                to: "/members/points-ledger",
+                search: { customer: row.customer_id },
+              } as never)
+            }
+            more={list}
+            cardSort={false}
+            cardsApart
+            cardLead
+          />
+        )}
       </Card>
-    </PageContent>
+    </>
   )
 }

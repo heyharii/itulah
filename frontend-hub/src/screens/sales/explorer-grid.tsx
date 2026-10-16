@@ -18,18 +18,19 @@ import {
   rowTint,
   shareOf,
   type GroupKey,
+  type MatrixColumn,
   type ViewMode,
 } from "@/screens/sales/explorer-model"
 import type { SalesExplorer } from "@itulah/contract"
 
-/// The results: a table of totals, or the same rows with every store beside
-/// them, on a desk; one card to a row on a phone. Both read the same figures
+/// The results: a table of totals, or the same rows with every store — or every
+/// month — beside them, on a desk; one card to a row on a phone. Both read the same figures
 /// the same way — Sales over its pieces, Stock over its acquisition cost,
 /// Gross profit over its margin — so a row says one thing on every device.
 ///
 /// One scroll box holds the table (both ways: the heading stays at the top, the
-/// first column at the left and, per store, the Totals at the right while the
-/// stores scroll between them), because a sticky heading and a sticky column are
+/// first column at the left and, per store or per month, the Totals at the
+/// right while the columns scroll between them), because a sticky heading and a sticky column are
 /// only reliable in the box that scrolls both. The page does not scroll.
 
 export interface GridProps {
@@ -37,7 +38,10 @@ export interface GridProps {
   readonly rows: readonly ExplorerRow[]
   readonly group: GroupKey
   readonly view: ViewMode
-  /// Each store against the others in its row, in the per-store table.
+  /// The stores, or the months, laid beside each row when the view is not
+  /// Totals (`storeColumns`, `monthColumns`).
+  readonly columns: readonly MatrixColumn[]
+  /// Each store (or month) against the others in its row.
   readonly heat: boolean
   /// Cost, profit, margin and stock value are not shown to every reader.
   readonly canCost: boolean
@@ -54,13 +58,9 @@ const COUNTS_ARTICLES: ReadonlySet<GroupKey> = new Set([
   "supplier",
 ])
 
-const byStore = (row: ExplorerRow) =>
+/// A row's cells by their column: the store's id, or the month.
+const byColumn = (row: ExplorerRow) =>
   new Map(row.cells.map((cell) => [cell.site_id, cell.figures]))
-
-/// The store's column head: its code without what every code ends in, and its
-/// name for the tooltip.
-const storeHead = (store: { code: string | null; name: string }) =>
-  (store.code ?? store.name).replace(/-TOKO$/i, "")
 
 /// Compact rupiah, with or without the "Rp" (the narrow per-store columns leave
 /// it off), the exact figure in the tooltip.
@@ -98,7 +98,7 @@ function Two({
         {top}
       </span>
       {under !== undefined && under !== null && under !== "" && (
-        <span className="text-[0.875rem] text-mute">{under}</span>
+        <span className="text-[0.9375rem] text-mute">{under}</span>
       )}
     </span>
   )
@@ -151,9 +151,7 @@ function StockTwo({
       top={quantity(f.stock)}
       under={
         canCost && f.stock_cost_minor !== null ? (
-          <>
-            acq <Rp minor={f.stock_cost_minor} cur={cur} />
-          </>
+          <Rp minor={f.stock_cost_minor} cur={cur} />
         ) : null
       }
       strong={strong}
@@ -196,10 +194,10 @@ export function DeskGrid(props: GridProps) {
   const { rows, view, more } = props
   return (
     <div className="min-h-0 flex-1 overflow-auto overscroll-contain">
-      {view === "stores" && props.group !== "store" ? (
-        <StoresTable {...props} />
-      ) : (
+      {view === "totals" ? (
         <TotalsTable {...props} />
+      ) : (
+        <MatrixTable {...props} />
       )}
       {rows.length > 0 && <LoadMore query={more} />}
     </div>
@@ -209,7 +207,7 @@ export function DeskGrid(props: GridProps) {
 const TABLE = "w-max min-w-full border-separate border-spacing-0 text-cell"
 const ROW = "h-[3.75rem]"
 const TH =
-  "sticky z-[4] h-10 border-b border-hairline bg-soft px-3.5 py-0 text-right text-[0.875rem] font-medium whitespace-nowrap text-mute"
+  "sticky z-[4] h-10 border-b border-hairline bg-soft px-3.5 py-0 text-right text-[0.9375rem] font-medium whitespace-nowrap text-mute"
 const TD =
   "border-b border-hairline px-3.5 py-0 text-right align-middle whitespace-nowrap"
 const EDGE = "border-l border-l-hairline"
@@ -254,7 +252,7 @@ function NameTd({ group, row }: { group: GroupKey; row: ExplorerRow }) {
         {title}
       </span>
       {(code !== null || detail !== null) && (
-        <span className="block text-[0.875rem] leading-5 text-mute">
+        <span className="block text-[0.9375rem] leading-5 text-mute">
           {code !== null && <span className="font-mono">{code}</span>}
           {code !== null && detail !== null && " · "}
           {detail}
@@ -370,7 +368,7 @@ function TotalsTable({ head, rows, group, canCost, onOpen }: GridProps) {
           </th>
           <th className={cn(TH, "top-0")}>Discount</th>
           {canCost && <th className={cn(TH, "top-0")}>Gross profit</th>}
-          {stock && <th className={cn(TH, "top-0")}>Stock · Acq</th>}
+          {stock && <th className={cn(TH, "top-0")}>Stock · Value</th>}
           <th className={cn(TH, "top-0")}>Share</th>
         </tr>
       </thead>
@@ -433,7 +431,7 @@ function TotalsTable({ head, rows, group, canCost, onOpen }: GridProps) {
   )
 }
 
-// -- Per store --------------------------------------------------------------
+// -- Per store, per month ---------------------------------------------------
 
 /// Width of each pinned Totals column, so the second can sit exactly beside
 /// the first.
@@ -441,13 +439,28 @@ const PIN = 132
 const PIN_EDGE =
   "border-l border-l-hairline-2 shadow-[-8px_0_10px_-8px_rgb(16_24_40/16%)]"
 
-function StoresTable({ head, rows, group, heat, canCost, onOpen }: GridProps) {
+/// The rows with a column for every store or every month, the Totals pinned at
+/// the right. A store says its stock beside its sales; a month holds no stock,
+/// so per month a column is its sales alone.
+function MatrixTable({
+  head,
+  rows,
+  group,
+  view,
+  columns,
+  heat,
+  canCost,
+  onOpen,
+}: GridProps) {
   const total = head.total
   const stock = !noStock(group)
   const pay = group === "payment"
-  // The second pinned column: what the stores' own second column says, or for a
-  // payment method its transactions.
+  const cellStock = stock && view === "stores"
+  // The second pinned column: the row's stock, or for a payment method its
+  // transactions.
   const second = stock || pay
+  // The column totals: the stores', or by month the months' (`store_totals`
+  // holds whichever the question was).
   const totals = useMemo(
     () =>
       new Map(head.store_totals.map((cell) => [cell.site_id, cell.figures])),
@@ -459,18 +472,18 @@ function StoresTable({ head, rows, group, heat, canCost, onOpen }: GridProps) {
       <thead>
         <tr>
           <NameTh group={group} rowSpan={2} />
-          {head.stores.map((store) => (
+          {columns.map((column) => (
             <th
-              key={store.site_id}
-              colSpan={stock ? 2 : 1}
-              title={store.name}
+              key={column.id}
+              colSpan={cellStock ? 2 : 1}
+              title={column.title}
               className={cn(
                 TH,
                 "top-0 text-center font-medium text-text",
                 EDGE
               )}
             >
-              {storeHead(store)}
+              {column.head}
             </th>
           ))}
           <th
@@ -486,11 +499,11 @@ function StoresTable({ head, rows, group, heat, canCost, onOpen }: GridProps) {
           </th>
         </tr>
         <tr>
-          {head.stores.map((store) =>
-            stock ? (
-              <StoreSubheads key={store.site_id} />
+          {columns.map((column) =>
+            cellStock ? (
+              <StoreSubheads key={column.id} />
             ) : (
-              <th key={store.site_id} className={cn(TH, "top-10", EDGE)}>
+              <th key={column.id} className={cn(TH, "top-10", EDGE)}>
                 Sales
               </th>
             )
@@ -503,32 +516,28 @@ function StoresTable({ head, rows, group, heat, canCost, onOpen }: GridProps) {
           </th>
           {second && (
             <th style={pinned(0)} className={cn(TH, "top-10 z-[7]")}>
-              {pay ? "Transactions" : "Stock · Acq"}
+              {pay ? "Transactions" : "Stock · Value"}
             </th>
           )}
         </tr>
       </thead>
       <tbody>
         {rows.map((row) => {
-          const cells = byStore(row)
+          const cells = byColumn(row)
           const tint = heat
-            ? rowTint(
-                head.stores.map(
-                  (s) => cells.get(s.site_id)?.sales_minor ?? null
-                )
-              )
+            ? rowTint(columns.map((c) => cells.get(c.id)?.sales_minor ?? null))
             : () => undefined
           return (
             <RowShell key={row.key} row={row} group={group} onOpen={onOpen}>
               <NameTd group={group} row={row} />
-              {head.stores.map((store) => {
-                const f = cells.get(store.site_id)
+              {columns.map((column) => {
+                const f = cells.get(column.id)
                 return (
                   <StoreCells
-                    key={store.site_id}
+                    key={column.id}
                     f={f}
                     group={group}
-                    stock={stock}
+                    stock={cellStock}
                     canCost={canCost}
                     tint={tint(f?.sales_minor ?? null)}
                   />
@@ -577,12 +586,12 @@ function StoresTable({ head, rows, group, heat, canCost, onOpen }: GridProps) {
           >
             Total
           </td>
-          {head.stores.map((store) => (
+          {columns.map((column) => (
             <StoreCells
-              key={store.site_id}
-              f={totals.get(store.site_id)}
+              key={column.id}
+              f={totals.get(column.id)}
               group={group}
-              stock={stock}
+              stock={cellStock}
               canCost={canCost}
               foot
             />
@@ -615,14 +624,15 @@ function StoresTable({ head, rows, group, heat, canCost, onOpen }: GridProps) {
 function StoreSubheads() {
   return (
     <>
-      <th className={cn(TH, "top-10", EDGE)}>Stock · Acq</th>
+      <th className={cn(TH, "top-10", EDGE)}>Stock · Value</th>
       <th className={cn(TH, "top-10")}>Sales</th>
     </>
   )
 }
 
 /// One store's cells in a row: its stock over what that stock cost, then its
-/// sales over their pieces, tinted against the other stores of the row.
+/// sales over their pieces, tinted against the other stores of the row. A
+/// month's cell is its sales alone (`stock` off).
 function StoreCells({
   f,
   group,
@@ -670,13 +680,14 @@ function StoreCells({
 // ---------------------------------------------------------------------------
 
 /// One card to a row: the name and what it sold on the first line, a line of
-/// what it is made of under it, and — per store — a short list of the stores
-/// that sold it. Nothing scrolls sideways.
+/// what it is made of under it, and — per store or per month — a short list of
+/// the stores (or months) that sold it. Nothing scrolls sideways.
 export function PhoneGrid({
   head,
   rows,
   group,
   view,
+  columns,
   heat,
   canCost,
   more,
@@ -685,7 +696,7 @@ export function PhoneGrid({
   const total = head.total
   const stock = !noStock(group)
   const opens = rowOpens(group)
-  const perStore = view === "stores" && group !== "store"
+  const laidOut = view !== "totals"
   return (
     <>
       <PhoneList>
@@ -704,7 +715,7 @@ export function PhoneGrid({
             stock && f.stock !== null
               ? `stock ${count(f.stock)}${
                   canCost && f.stock_cost_minor !== null
-                    ? ` · acq ${moneyCompact(f.stock_cost_minor)}`
+                    ? ` · worth ${moneyCompact(f.stock_cost_minor)}`
                     : ""
                 }`
               : null,
@@ -726,13 +737,15 @@ export function PhoneGrid({
                 </span>
               }
               body={
-                perStore ? (
-                  <StoreList
-                    head={head}
+                laidOut ? (
+                  <ColumnList
                     row={row}
                     group={group}
+                    columns={columns}
+                    cellStock={stock && view === "stores"}
                     heat={heat}
                     canCost={canCost}
+                    word={view === "months" ? "Month" : "Store"}
                   />
                 ) : undefined
               }
@@ -749,56 +762,62 @@ export function PhoneGrid({
   )
 }
 
-/// A row at its stores: store, sales over pieces, stock over acquisition, each
-/// store tinted against the others.
-function StoreList({
-  head,
+/// A row at its stores or its months: the column, sales over pieces, and at a
+/// store its stock over acquisition, each tinted against the others.
+function ColumnList({
   row,
   group,
+  columns,
+  cellStock,
   heat,
   canCost,
+  word,
 }: {
-  head: SalesExplorer
   row: ExplorerRow
   group: GroupKey
+  columns: readonly MatrixColumn[]
+  cellStock: boolean
   heat: boolean
   canCost: boolean
+  /// What the first column's head says: Store, or Month.
+  word: string
 }) {
-  const cells = byStore(row)
-  const stock = !noStock(group)
-  const present = head.stores.filter((store) => cells.has(store.site_id))
+  const cells = byColumn(row)
+  const present = columns.filter((column) => cells.has(column.id))
   const tint = heat
-    ? rowTint(head.stores.map((s) => cells.get(s.site_id)?.sales_minor ?? null))
+    ? rowTint(columns.map((c) => cells.get(c.id)?.sales_minor ?? null))
     : () => undefined
   if (present.length === 0)
-    return <p className="text-[0.875rem] text-mute">No sales</p>
-  const cols = stock ? "grid-cols-[2.75rem_1fr_1fr]" : "grid-cols-[2.75rem_1fr]"
+    return <p className="text-[0.9375rem] text-mute">No sales</p>
+  const cols = cellStock
+    ? "grid-cols-[3.25rem_1fr_1fr]"
+    : "grid-cols-[3.25rem_1fr]"
   return (
-    <div className="flex flex-col text-[0.875rem]">
+    <div className="flex flex-col text-[0.9375rem]">
       <div
         className={cn("grid items-center gap-x-2 px-1.5 py-1 text-mute", cols)}
       >
-        <span>Store</span>
+        <span>{word}</span>
         <span className="text-right">Sales</span>
-        {stock && <span className="text-right">Stock · Acq</span>}
+        {cellStock && <span className="text-right">Stock · Value</span>}
       </div>
-      {present.map((store) => {
-        const f = cells.get(store.site_id)
+      {present.map((column) => {
+        const f = cells.get(column.id)
         if (f === undefined) return null
         return (
           <div
-            key={store.site_id}
+            key={column.id}
             style={{ backgroundColor: tint(f.sales_minor) }}
             className={cn(
               "grid items-center gap-x-2 rounded-inner px-1.5 py-1 transition-[background-color] duration-150 ease-out",
               cols
             )}
           >
-            <span className="text-mute" title={store.name}>
-              {storeHead(store)}
+            <span className="text-mute" title={column.title}>
+              {column.head}
             </span>
             <SalesTwo f={f} group={group} />
-            {stock && <StockTwo f={f} canCost={canCost} />}
+            {cellStock && <StockTwo f={f} canCost={canCost} />}
           </div>
         )
       })}

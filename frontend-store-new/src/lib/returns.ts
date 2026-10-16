@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query"
+import { queryOptions, useQuery } from "@tanstack/react-query"
 
 import { node } from "@/lib/api"
 
@@ -48,12 +48,14 @@ export function sendReturn(
   )
 }
 
-export function useReturns() {
-  return useQuery({
+export const returnsQuery = () =>
+  queryOptions({
     queryKey: returnsKey(),
     queryFn: ({ signal }) => fetchReturns(signal),
-    refetchInterval: 30_000,
   })
+
+export function useReturns() {
+  return useQuery({ ...returnsQuery(), refetchInterval: 30_000 })
 }
 
 /// Open requests, for the sidebar's badge.

@@ -88,7 +88,7 @@ export function DevicesTab({
 
   return (
     <div className="flex max-w-2xl flex-col gap-4">
-      <Card className="flex flex-wrap items-center gap-4 px-4 py-3 text-[0.875rem] text-body">
+      <Card className="flex flex-wrap items-center gap-4 px-4 py-3 text-[0.9375rem] text-body">
         <span>
           <b className="text-ink">{tills.online}</b>/{tills.active} tills online
         </span>
@@ -157,7 +157,7 @@ function SeatsCard({
   })
 
   return (
-    <Card className="flex flex-col gap-3 px-4 py-3 text-[0.875rem] text-body">
+    <Card className="flex flex-col gap-3 px-4 py-3 text-[0.9375rem] text-body">
       <div className="flex flex-wrap items-center gap-3">
         <span className="flex-1">
           Till seats: <b className="text-ink">{seats}</b> — Till 1

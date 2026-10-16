@@ -81,9 +81,9 @@ export function CustomerScreen() {
   // only sentence that stays true through every one of them.
   if (view === null || view.stage === "idle") {
     return (
-      <Frame name={name} foot="Selamat berbelanja">
+      <Frame name={name} foot="Happy shopping">
         <div className="empty" style={{ gap: 16 }}>
-          <h3 style={{ fontSize: 46, color: "var(--ink)" }}>Selamat datang</h3>
+          <h3 style={{ fontSize: 46, color: "var(--ink)" }}>Welcome</h3>
         </div>
       </Frame>
     )
@@ -92,13 +92,13 @@ export function CustomerScreen() {
   if (view.stage === "change") {
     const owed = view.changeMinor > 0
     return (
-      <Frame name={name} foot="Terima kasih sudah berbelanja">
+      <Frame name={name} foot="Thank you for shopping with us">
         <div className="empty" style={{ gap: 14 }}>
-          <h3 style={{ fontSize: 40, color: "var(--ink)" }}>Terima kasih</h3>
+          <h3 style={{ fontSize: 40, color: "var(--ink)" }}>Thank you</h3>
           <p style={{ fontSize: 19, maxWidth: 540 }}>
             {owed
-              ? "Silakan terima kembaliannya."
-              : "Uangnya pas, tidak ada kembalian."}
+              ? "Please take your change."
+              : "Exact amount, no change."}
           </p>
         </div>
         <div className="totals" style={PANEL}>
@@ -107,12 +107,12 @@ export function CustomerScreen() {
               biggest number on the glass should be the one they check. */}
           {owed && (
             <div className="total-line" style={{ fontSize: 19 }}>
-              <span className="muted">Total belanja</span>
+              <span className="muted">Total</span>
               <span className="num">{money(view.totalMinor, view.currency)}</span>
             </div>
           )}
           <div className="grand" style={owed ? undefined : FLUSH}>
-            <span style={LEAD}>{owed ? "KEMBALIAN" : "DIBAYAR"}</span>
+            <span style={LEAD}>{owed ? "CHANGE" : "PAID"}</span>
             <strong
               className="num"
               style={owed ? { ...HUGE, color: "var(--green)" } : HUGE}
@@ -130,7 +130,7 @@ export function CustomerScreen() {
   return (
     <Frame
       name={name}
-      foot={`${view.lines.length} barang di konter`}
+      foot={`${view.lines.length} ${view.lines.length === 1 ? "item" : "items"} at the counter`}
     >
       {/* Lines stack up from the bottom, so the tag just scanned always lands
           in the same place: immediately above the total, where somebody
@@ -148,7 +148,7 @@ export function CustomerScreen() {
       >
         {earlier > 0 && (
           <p className="muted" style={{ fontSize: 16, marginBottom: 12 }}>
-            + {earlier} barang sebelumnya
+            + {earlier} earlier items
           </p>
         )}
         <div className="pay-items" style={{ gap: 13 }}>
@@ -158,7 +158,7 @@ export function CustomerScreen() {
               its own, so position is all a key has to be here. */}
           {shown.map((one, at) => (
             <div key={at} className="pay-item" style={ROW}>
-              <span>{one.name ?? "Barang"}</span>
+              <span>{one.name ?? "Item"}</span>
               <span className="num">
                 {one.priceMinor === null
                   ? "—"
@@ -179,7 +179,7 @@ export function CustomerScreen() {
         {view.provisional && (
           <div className="total-line">
             <span className="muted" style={{ fontSize: 15 }}>
-              Masih dihitung — angka yang berlaku adalah yang tercetak di struk.
+              Still being calculated — the figure that counts is the one printed on the receipt.
             </span>
           </div>
         )}

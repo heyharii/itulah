@@ -437,6 +437,7 @@ export function Nodes({
       <Input
         value={query}
         onChange={(event) => setQuery(event.target.value)}
+        placeholder="Search"
         className="h-8 w-48"
       />
       {/* Typing keys is the fallback now; a code the machine claims is
@@ -510,6 +511,7 @@ export function Nodes({
               </EmptyState>
             ) : (
               <DataTable<NodeRow>
+                refresh={[origins, fleet, health]}
                 table={table}
                 onRowClick={(row) => origin.open(row.origin_id)}
                 isSelected={(row) => row.origin_id === origin.value}
@@ -646,13 +648,13 @@ function NodeSheet({
           <Section title="Command lane">
             <MiniTable head={["Position", "Sequence"]}>
               <tr className="border-t border-hairline">
-                <td className="py-2 pr-2 text-[0.875rem] text-ink">Issued</td>
+                <td className="py-2 pr-2 text-[0.9375rem] text-ink">Issued</td>
                 <td className="py-2 text-right tabular-nums">
                   {count(node.issued_seq)}
                 </td>
               </tr>
               <tr className="border-t border-hairline">
-                <td className="py-2 pr-2 text-[0.875rem] text-ink">
+                <td className="py-2 pr-2 text-[0.9375rem] text-ink">
                   Acknowledged
                 </td>
                 <td className="py-2 text-right tabular-nums">
@@ -660,7 +662,7 @@ function NodeSheet({
                 </td>
               </tr>
               <tr className="border-t border-hairline">
-                <td className="py-2 pr-2 text-[0.875rem] text-ink">
+                <td className="py-2 pr-2 text-[0.9375rem] text-ink">
                   Last acknowledgement
                 </td>
                 <td className="py-2 text-right tabular-nums">
@@ -684,7 +686,7 @@ function NodeSheet({
           </Section>
 
           <Section title="Access policy">
-            <p className="mb-2.5 text-[0.875rem] text-body">
+            <p className="mb-2.5 text-[0.9375rem] text-body">
               Every grant, suspension and reader change publishes one already.
               Send it again when a node has been rebuilt and needs the whole
               picture back.
@@ -702,7 +704,7 @@ function NodeSheet({
           </Section>
 
           <Section title="Initial data">
-            <p className="mb-2.5 text-[0.875rem] text-body">
+            <p className="mb-2.5 text-[0.9375rem] text-body">
               What an enrolled node is sent on approval: the catalogue, every
               published price book, users, promotions and campaign switches.
               Send it again when a node has drifted or its first delivery
@@ -820,7 +822,7 @@ function RegisterSheet({
       title="Register a node"
       footer={
         <div className="flex justify-end gap-2">
-          <Button
+          <Button data-cancel
             variant="quiet"
             onClick={() => {
               clear()

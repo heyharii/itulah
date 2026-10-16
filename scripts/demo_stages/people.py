@@ -21,10 +21,10 @@ What it adds, in the order the domain accepts it:
               month's performance scores; an onboarding checklist; a uniform
   payroll     components and ratified rates, Maya's incentive for Dian, the
               month's attendance closed at both places, then the September run
-              at store-01 (opened and submitted by Maya) and at head office
-              (opened and submitted by Yusuf), each approved by Rina, handed to
-              Finance (the accrual journal), head office's settled from the
-              Giro BCA; the HR scheduler run once
+              at store-01 (opened and submitted by Maya, approved by Rina) and
+              at head office (opened and submitted by Rina, approved by the
+              Owner), each handed to Finance (the accrual journal), head
+              office's settled from the Giro BCA; the HR scheduler run once
 
 ## Who acts
 
@@ -39,10 +39,14 @@ the person whose job it is, through the door that person uses:
          list, so she opens and submits store-01's run at the cloud, signed in
          as herself (a Supervisor, bounded to her posting)
   yusuf  the cloud, as himself: the DC node relays nothing, and his posting
-  nina   (head office) is what bounds what he may order or submit
+  nina   (head office) is what bounds what he may order or answer. Their job
+         role is Operations, which has no People section, so neither can
+         open or submit a payroll run
+  admin  the Owner's login, the second signature on head office's own run
 
-Maker ≠ checker is therefore true on every four-eyes step: Maya or Yusuf
-signs a payroll run, Rina approves it; Maya files, Rina decides.
+Maker ≠ checker is therefore true on every four-eyes step: Maya signs
+store-01's payroll run and Rina approves it; Rina signs head office's and the
+Owner approves it; Maya files, Rina decides.
 
 With sign-in off (no password) every direct call is `development` = Rina and
 the store node refuses to relay (it signs nobody in). The module then falls
@@ -204,6 +208,9 @@ class Cast:
             self.maya = as_user("cloud", "maya")
             self.yusuf = as_user("cloud", "yusuf")
             self.nina = as_user("cloud", "nina")
+            # The Owner's login: the second signature on head office's own run
+            # (see `approver`), the way the finance stage has it check Rina.
+            self.owner = as_user("cloud", "admin")
             self.sync_key = os.environ.get("SYNC_KEY") or env.get("SYNC_KEY") or ""
             self.db = ""
             return
@@ -218,9 +225,20 @@ class Cast:
         self.maya = cloud  # sign-in off: `development`, signer fixed by sign_submission
 
     def payroll_maker(self, place):
-        """Who opens and submits a place's run: its own signatory."""
+        """Who opens and submits a place's run: its own signatory. Head
+        office's is Rina, HR manager at head office: Yusuf (job role
+        Operations) holds no People section since the job roles (0700), so the
+        route refuses him, and no one else posted at head office has one."""
         if self.signed_in:
-            return {"store-01": self.maya, "ho": self.yusuf}[place]
+            return {"store-01": self.maya, "ho": self.rina}[place]
+        return self.rina
+
+    def approver(self, place):
+        """Who approves it: Rina, for a shop's run. For head office's she is
+        the one who submitted, and the same person may not sign both, so the
+        Owner (`admin`) approves it."""
+        if self.signed_in and place == "ho":
+            return self.owner
         return self.rina
 
     def sign(self, run_id, place):
@@ -242,7 +260,8 @@ def run(cloud, dc, store, ctx):
     # DC) is demo-seed's: a relay is believed only for a person assigned there.
     cast = Cast(cloud, ctx, rig_env(cloud.base))
     say("acting: " + ("Rina at the cloud, Maya at store-01's till (node relay) and at the cloud "
-                      "for payroll, Yusuf and Nina at the cloud" if cast.signed_in else
+                      "for payroll, Yusuf and Nina at the cloud, the Owner for head office's payroll "
+                      "approval" if cast.signed_in else
                       "sign-in off — `development` at the cloud, relays sent with the node key"))
 
     ctx.update(people={"rina": rina, "nina": nina, "yusuf": yusuf, "maya": maya, "dian": dian})
@@ -267,8 +286,11 @@ SHIFT_IN, SHIFT_OUT = 8 * 60, 17 * 60
 NORMAL = {"rina": (7 * 60 + 52, 17 * 60 + 5), "nina": (7 * 60 + 48, 17 * 60 + 3),
           "yusuf": (7 * 60 + 45, 17 * 60 + 8), "maya": (7 * 60 + 50, 17 * 60 + 6),
           "dian": (7 * 60 + 55, 17 * 60 + 2)}
-TERMINALS = {"store-01": ("FP-STORE01-1", "Mesin absen kasir Store 01", "store-01"),
-             "ho": ("FP-HO-1", "Mesin absen lobi Head Office", "dc")}
+# unit → (terminal id, name, the node that delivers its punches, the site the
+# machine hangs in). A station is registered at a site, not at a unit: head
+# office's only site is the DC, store-01's is store-01.
+TERMINALS = {"store-01": ("FP-STORE01-1", "Mesin absen kasir Store 01", "store-01", "store-01"),
+             "ho": ("FP-HO-1", "Mesin absen lobi Head Office", "dc", "dc")}
 
 
 def attendance(cloud, sync_key, everyone, place_of, past):
@@ -276,7 +298,7 @@ def attendance(cloud, sync_key, everyone, place_of, past):
     start, end = past[0], past[-1]
     have = set()
     for place in ("ho", "store-01"):
-        for day in rows(cloud.get(f"/api/v1/roster?place={place}&from={start}&to={end}")):
+        for day in rows(cloud.get(f"/api/v1/roster?unit={place}&from={start}&to={end}")):
             have.add((day.get("employee_id"), day.get("on_date")))
     added = 0
     for who, emp in everyone.items():
@@ -291,10 +313,10 @@ def attendance(cloud, sync_key, everyone, place_of, past):
 
     # One fingerprint station per place, everyone enrolled on theirs.
     registered = {t["id"] for t in rows(cloud.get("/api/v1/attendance-terminals"))}
-    for place, (tid, name, _origin) in TERMINALS.items():
+    for place, (tid, name, _origin, site) in TERMINALS.items():
         if tid not in registered:
             cloud.post("/api/v1/attendance-terminals", {
-                "terminal_id": tid, "place_id": place, "name": name,
+                "terminal_id": tid, "site_id": site, "name": name,
                 "reason": "demo: mesin sidik jari terpasang"})
     # No fingerprint enrolment: the rig cloud has no ATTENDANCE_TEMPLATE_KEY,
     # and without it the enrol route refuses (templates are sealed, never
@@ -305,13 +327,13 @@ def attendance(cloud, sync_key, everyone, place_of, past):
     # Rina stays two hours on the Wednesday Yusuf ordered (see requests).
     # A closed month takes no punch, so a re-run after payroll sends nothing.
     closed = {(place, p.get("period")) for place in TERMINALS
-              for p in rows(cloud.get(f"/api/v1/attendance-periods?place={place}"))
+              for p in rows(cloud.get(f"/api/v1/attendance-periods?unit={place}"))
               if p.get("status") == "CLOSED"}
     late_day = [d for d in past if d.weekday() == 1][-1]
     ot_day = overtime_day(past)
     by_origin = {}
     for who, emp in everyone.items():
-        tid, _name, origin = TERMINALS[place_of[who]]
+        tid, _name, origin, _site = TERMINALS[place_of[who]]
         for d in past:
             if (place_of[who], f"{d:%Y-%m}") in closed:
                 continue
@@ -449,11 +471,14 @@ def requests(cast, everyone, past):
 
     # Swap: Rina asks Nina to take her shift next Tuesday.
     swap_day = next_working_day(TODAY, 1)
-    swaps = rows(cloud.get("/api/v1/roster-swaps/pending")) + rows(cloud.call("GET", "/api/v1/roster-swaps", ok=None))
-    if not any(s.get("with_employee_id") == nina or nina in json.dumps(s) for s in swaps):
-        cloud.call("POST", "/api/v1/roster-swaps", {
+    # Her own history, not the pending queue: a swap head office has since
+    # decided leaves the queue, and a re-run would file it again (into a month
+    # that may be closed by then).
+    swaps = rows(cloud.get(f"/api/v1/employees/{rina}/roster-swaps"))
+    if not any(s.get("with_employee_id") == nina for s in swaps):
+        cloud.post("/api/v1/roster-swaps", {
             "with_employee_id": nina, "on_date": swap_day.isoformat(),
-            "reason": "Ada rapat BPJS pagi hari di kantor cabang"}, ok=(200, 201))
+            "reason": "Ada rapat BPJS pagi hari di kantor cabang"})
     say(f"swap: Rina ↔ Nina on {swap_day}, pending")
 
     # Change: Maya proposes Dian's promotion to senior cashier grade.
@@ -478,7 +503,7 @@ def talent(cast, everyone):
     hp = next((p for p in proposals if "Putri Ayu" in json.dumps(p.get("versions"))), None)
     if hp is None:
         hp = as_maya.post("/api/v1/hire-proposals", {
-            "place_id": "store-01", "position": "Kasir", "headcount": 1, "need": "ADDITION",
+            "unit_id": "store-01", "position": "Kasir", "headcount": 1, "need": "ADDITION",
             "candidate_name": "Putri Ayu", "start_on": start.isoformat(), "contract_kind": "PKWT",
             "contract_ends_on": (start + timedelta(days=364)).isoformat(),
             "base_pay_minor": 5400000, "reason": "Jam buka akhir pekan bertambah"})
@@ -489,7 +514,7 @@ def talent(cast, everyone):
     # The year's staffing plan for store-01 the requisition sits inside.
     if not rows(cloud.get("/api/v1/recruitment/plans")):
         cloud.post("/api/v1/recruitment/plans", {
-            "place_id": "store-01", "position": "Kasir", "span": f"{TODAY.year}-Q4",
+            "unit_id": "store-01", "position": "Kasir", "span": f"{TODAY.year}-Q4",
             "headcount": 1, "cost_minor": 5400000 * 3, "reason": "Tambahan kasir akhir pekan Q4"})
     applicants = rows(cloud.get("/api/v1/recruitment/applicants"))
     app = next((a for a in applicants if a.get("name") == "Putri Ayu"), None)
@@ -510,14 +535,19 @@ def talent(cast, everyone):
             "reason": "Sesuai proposal yang disetujui"})
     say("recruitment: Q4 plan; Maya's Kasir requisition approved; Putri Ayu interviewed, offer out")
 
+    title = "Service Excellence untuk Kasir"
     programs = rows(cloud.get("/api/v1/training-programs"))
-    prog = next((p for p in programs if p.get("title") == "Service Excellence untuk Kasir"), None)
+    prog = next((p for p in programs if p.get("title") == title), None)
     if prog is None:
-        created = cloud.post("/api/v1/training-programs", {
-            "title": "Service Excellence untuk Kasir", "on_date": start.isoformat(),
-            "place": "Head Office", "cost_minor": 750000, "reason": "Program triwulan IV"})
-        prog = rows(created)[0] if isinstance(created, list) else created
-        for emp in (dian, maya):
+        # The route answers with the whole calendar, not the one it added.
+        created = rows(cloud.post("/api/v1/training-programs", {
+            "title": title, "on_date": start.isoformat(),
+            "place": "Head Office", "cost_minor": 750000, "reason": "Program triwulan IV"}))
+        prog = next(p for p in created if p.get("title") == title)
+    nominated = {p.get("employee_id")
+                 for p in rows(cloud.get(f"/api/v1/training-programs/{prog['id']}/participants"))}
+    for emp in (dian, maya):
+        if emp not in nominated:
             cloud.post(f"/api/v1/training-programs/{prog['id']}/participants",
                        {"employee_id": emp, "reason": "Nominasi kepala toko"})
     say("training: Service Excellence untuk Kasir, Dian and Maya nominated")
@@ -550,19 +580,34 @@ def talent(cast, everyone):
 
 COMPONENTS = [
     # code, label, kind, basis, base_ref, unit, rate
-    ("LEMBUR", "Upah lembur jam pertama", "EARNING", "FRACTION_OF_BASE_PER_UNIT", "BASE",
+    # Overtime under the codes Settings › Overtime ("Define missing") uses, not
+    # codes of our own: Finance's links for them are seeded (0817, Biaya
+    # Lembur), and a second component on the same unit would value every
+    # overtime minute twice. Only the two a working day uses; Rina's agreed
+    # two hours fall on one.
+    ("LEMBUR_JAM_1", "Overtime, first hour", "EARNING", "FRACTION_OF_BASE_PER_UNIT", "STATUTORY_BASE",
      "OVERTIME_WORKDAY_FIRST_HOUR", {"hours_divisor": 173, "multiplier_bp": 15000}),
-    ("LEMBUR_LANJUT", "Upah lembur jam berikutnya", "EARNING", "FRACTION_OF_BASE_PER_UNIT", "BASE",
+    ("LEMBUR_JAM_LANJUT", "Overtime, later hours", "EARNING", "FRACTION_OF_BASE_PER_UNIT", "STATUTORY_BASE",
      "OVERTIME_WORKDAY_LATER", {"hours_divisor": 173, "multiplier_bp": 20000}),
     ("UANG_MAKAN", "Uang makan harian", "EARNING", "RATE_PER_UNIT", None, "ROSTERED_DAY",
      {"rate_minor": 25000}),
     ("INSENTIF", "Insentif penjualan", "EARNING", "PER_OCCASION", None, None, {}),
-    ("BPJS_KES", "BPJS Kesehatan karyawan 1%", "DEDUCTION", "SHARE_OF_BASE", "BASE", None,
-     {"rate_bp": 100, "cap_minor": 12000000}),
-    ("BPJS_JHT", "BPJS JHT karyawan 2%", "DEDUCTION", "SHARE_OF_BASE", "BASE", None, {"rate_bp": 200}),
-    ("BPJS_JP", "BPJS Jaminan Pensiun karyawan 1%", "DEDUCTION", "SHARE_OF_BASE", "BASE", None,
-     {"rate_bp": 100, "cap_minor": 10547400}),
+    # No BPJS here: since 0800 the BPJS_* deductions are statutory components
+    # the migration seeds, with their rates and wage caps stated in
+    # /payroll/statutory-rates (March 2025 and March 2026 already in force),
+    # so there is nothing to define, and the rates route refuses a rate on a
+    # statutory component ("there is no standing rate to ratify").
 ]
+
+
+# Finance's half of a component (0466): the expense account its pay lands on,
+# at a shop and at head office. A run that pays a component with no link is
+# refused at the handover ("no account is linked for 'payroll_expense' for pay
+# component …"), and only the overtime and BPJS components come with links.
+COMPONENT_ACCOUNTS = {  # code → (shop leaf, head-office leaf)
+    "UANG_MAKAN": ("6014", "6028"),  # Uang Makan
+    "INSENTIF": ("6024", "6038"),    # Komisi / Bonus / Insentif
+}
 
 
 def payroll(cast, everyone):
@@ -581,12 +626,24 @@ def payroll(cast, everyone):
         if rate and not rates:
             cloud.post(f"/api/v1/payroll/components/{code}/rates", {
                 "effective_from": f"{TODAY.year}-01-01", **rate, "reason": "demo: tarif berlaku"})
-    say(f"components: {len(COMPONENTS)} defined, rates ratified")
+    linked = {(l["source_id"], l["scope_key"]) for l in
+              rows(cloud.get("/api/v1/finance/account-links?role=payroll_expense"))
+              if l.get("source_type") == "PAY_COMPONENT"}
+    for code, (store_leaf, head_office_leaf) in COMPONENT_ACCOUNTS.items():
+        # ONLINE as the seeds do: it resolves nowhere today, but leaves no gap
+        # on the posting-readiness screen.
+        for kind, account in (("STORE", store_leaf), ("ONLINE", store_leaf), ("HO", head_office_leaf)):
+            if (code, kind) not in linked:
+                cloud.post("/api/v1/finance/account-links", {
+                    "role": "payroll_expense", "source_type": "PAY_COMPONENT", "source_id": code,
+                    "scope_type": "UNIT_KIND", "scope_key": kind, "account_code": account,
+                    "note": "demo: komponen gaji masuk akun biaya"})
+    say(f"components: {len(COMPONENTS)} defined, rates ratified, accounts linked")
 
-    adjustments = rows(cloud.get(f"/api/v1/payroll/adjustments?place=store-01&period={PERIOD}"))
+    adjustments = rows(cloud.get(f"/api/v1/payroll/adjustments?unit=store-01&period={PERIOD}"))
     if not any(a.get("employee_id") == dian for a in adjustments):
         as_maya.post("/api/v1/payroll/adjustments", {
-            "place_id": "store-01", "period": PERIOD, "employee_id": dian,
+            "unit_id": "store-01", "period": PERIOD, "employee_id": dian,
             "component_code": "INSENTIF", "amount_minor": 300000,
             "reason": "Penjualan tertinggi minggu ketiga"})
     say("adjustment: Maya files Rp 300.000 incentive for Dian")
@@ -599,27 +656,28 @@ def payroll(cast, everyone):
     previous = f"{year - (month == 1)}-{(month - 2) % 12 + 1:02d}"
     for place, actor in (("store-01", as_maya), ("ho", cloud)):
         for period in (previous, PERIOD):
-            periods = rows(cloud.get(f"/api/v1/attendance-periods?place={place}"))
+            periods = rows(cloud.get(f"/api/v1/attendance-periods?unit={place}"))
             if not any(p.get("period") == period and p.get("status") == "CLOSED" for p in periods):
                 actor.post(f"/api/v1/attendance-periods/{place}/{period}/closure",
                            {"reason": "Tutup absensi untuk payroll"})
     say(f"attendance {previous} and {PERIOD} closed at store-01 (Maya) and head office (Rina)")
 
     # The run is the place's: its own signatory opens it and submits it
-    # (Maya for store-01, Yusuf for head office), and Rina — who works at
-    # neither desk's signature — approves. Handover and payment are hers too.
-    runs = {r["place_id"]: r for r in rows(cloud.get("/api/v1/payroll/runs")) if r.get("period") == PERIOD}
+    # (Maya for store-01, Rina for head office), and somebody else approves:
+    # Rina for store-01, the Owner for head office. Handover and payment are
+    # Rina's.
+    runs = {r["unit_id"]: r for r in rows(cloud.get("/api/v1/payroll/runs")) if r.get("period") == PERIOD}
     for place in ("store-01", "ho"):
         maker = cast.payroll_maker(place)
         run = runs.get(place) or maker.post("/api/v1/payroll/runs", {
-            "place_id": place, "period": PERIOD, "reason": f"Payroll {PERIOD}"})
+            "unit_id": place, "period": PERIOD, "reason": f"Payroll {PERIOD}"})
         rid = run["id"]
         if run.get("state") == "DRAFT":
             run = maker.post(f"/api/v1/payroll/runs/{rid}/submission",
                              {"reason": "Data absensi dan insentif sudah dicek"})
             cast.sign(rid, place)
         if run.get("state") == "SUBMITTED":
-            run = cloud.post(f"/api/v1/payroll/runs/{rid}/approve", {"reason": "Disetujui HO"})
+            run = cast.approver(place).post(f"/api/v1/payroll/runs/{rid}/approve", {"reason": "Disetujui HO"})
         handover = cloud.call("GET", f"/api/v1/payroll/runs/{rid}/finance-handover", ok=None)
         if not isinstance(handover, dict) or "error" in handover:
             handover = cloud.post(f"/api/v1/payroll/runs/{rid}/finance-handover",

@@ -66,7 +66,7 @@ export function ComparisonPicker({
       <Popover.Trigger
         className={cn(
           "inline-flex h-8 items-center gap-1.5 rounded-full border border-hairline-2 bg-canvas px-3",
-          "text-[0.875rem] text-text transition-colors hover:bg-soft-2"
+          "text-[0.9375rem] text-text transition-colors hover:bg-soft-2"
         )}
       >
         <span className="text-mute">Compare</span>
@@ -97,7 +97,7 @@ export function ComparisonPicker({
               hint="365 days back — right for a calendar month, wrong for a moving feast"
             />
             <div className="mt-2 border-t border-hairline pt-2">
-              <p className="px-1 pb-1.5 text-[0.875rem] text-mute">
+              <p className="px-1 pb-1.5 text-[0.9375rem] text-mute">
                 Or name the span — last Ramadan, last year's sale.
               </p>
               <div className="flex items-center gap-1.5">
@@ -106,15 +106,15 @@ export function ComparisonPicker({
                   value={from}
                   notAfter={to === "" ? undefined : to}
                   onChange={setFrom}
-                  className="h-8 min-w-0 flex-1 px-2.5 text-[0.875rem]"
+                  className="h-8 min-w-0 flex-1 px-2.5 text-[0.9375rem]"
                 />
-                <span className="shrink-0 text-[0.875rem] text-mute">to</span>
+                <span className="shrink-0 text-[0.9375rem] text-mute">to</span>
                 <Day
                   label="Compare to"
                   value={to}
                   notBefore={from === "" ? undefined : from}
                   onChange={setTo}
-                  className="h-8 min-w-0 flex-1 px-2.5 text-[0.875rem]"
+                  className="h-8 min-w-0 flex-1 px-2.5 text-[0.9375rem]"
                 />
               </div>
               <button
@@ -128,7 +128,7 @@ export function ComparisonPicker({
                   onChange({ mode: "custom", from, to })
                   setOpen(false)
                 }}
-                className="mt-2 h-8 w-full rounded-full bg-accent text-[0.875rem] font-medium text-white transition-colors hover:brightness-95 disabled:opacity-40"
+                className="mt-2 h-8 w-full rounded-full bg-accent text-[0.9375rem] font-medium text-white transition-colors hover:brightness-95 disabled:opacity-40"
               >
                 Compare against that
               </button>
@@ -158,7 +158,7 @@ function Shortcut({
       title={hint}
       aria-pressed={active}
       className={cn(
-        "block w-full rounded-inner px-2.5 py-1.5 text-left text-[0.875rem] transition-colors",
+        "block w-full rounded-inner px-2.5 py-1.5 text-left text-[0.9375rem] transition-colors",
         active ? "bg-soft-2 font-medium text-ink" : "text-text hover:bg-soft"
       )}
     >

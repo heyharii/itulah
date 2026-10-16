@@ -1,4 +1,4 @@
-import { queryOptions, useQuery, useQueryClient } from "@tanstack/react-query"
+import { queryOptions, useQuery } from "@tanstack/react-query"
 
 import { CENTRAL_KEY_PREFIX, cloud } from "@/lib/cloud"
 import { ApiError } from "@itulah/contract/client"
@@ -149,8 +149,8 @@ export function useGaPlace(site: string) {
 /// register, whole. One page of up to a thousand rather than a search per
 /// keystroke: a shop holds tens of things, not thousands, and filtering the
 /// rows it already has is what lets the class counts be this shop's own.
-export function useGaAssets(site: string) {
-  return useQuery({
+export function assetsQuery(site: string) {
+  return queryOptions({
     queryKey: gaKeys.assets(site),
     queryFn: ({ signal }) =>
       cloud.get<GaAssetPage>(
@@ -162,6 +162,12 @@ export function useGaAssets(site: string) {
         })}`,
         { signal },
       ),
+  })
+}
+
+export function useGaAssets(site: string) {
+  return useQuery({
+    ...assetsQuery(site),
     // The server narrowed by site; this keeps a row from anywhere else off a
     // shop's screen even if a relay in between ever answered wider.
     select: (page): GaAssetPage => ({
@@ -202,8 +208,8 @@ export function noteGaAsset(
 
 /// `GET /api/v1/ga/contract-types?site=…` — the seventeen types, in the
 /// client's order, with the group each sits on.
-export function useGaContractTypes(site: string) {
-  return useQuery({
+export function contractTypesQuery(site: string) {
+  return queryOptions({
     queryKey: gaKeys.contractTypes(site),
     queryFn: ({ signal }) =>
       cloud.get<GaContractType[]>(
@@ -212,6 +218,10 @@ export function useGaContractTypes(site: string) {
       ),
     staleTime: 10 * 60_000,
   })
+}
+
+export function useGaContractTypes(site: string) {
+  return useQuery(contractTypesQuery(site))
 }
 
 /// `GET /api/v1/ga/contracts/{id}` — one contract, its papers and its meter
@@ -236,11 +246,10 @@ export function useGaContract(contractId: string | null) {
 /// `GET /api/v1/ga/repairs?site=…`, newest failure first — or the location
 /// hub's repairs when the centre refuses the site parameter (see the head of
 /// this file).
-export function useGaRepairs(site: string) {
-  const client = useQueryClient()
-  return useQuery({
+export function repairsQuery(site: string) {
+  return queryOptions({
     queryKey: gaKeys.repairs(site),
-    queryFn: async ({ signal }): Promise<GaRepairRow[]> => {
+    queryFn: async ({ signal, client }): Promise<GaRepairRow[]> => {
       try {
         const page = await cloud.get<GaRepairPage>(
           `/api/v1/ga/repairs?${query({ site, limit: "500" })}`,
@@ -254,6 +263,10 @@ export function useGaRepairs(site: string) {
     },
     staleTime: 60_000,
   })
+}
+
+export function useGaRepairs(site: string) {
+  return useQuery(repairsQuery(site))
 }
 
 /// `GET /api/v1/ga/repair-objects` — the eleven objects a repair can be
@@ -282,11 +295,10 @@ export function recordGaRepair(
 /// same fallback as the repairs. The hub's answer carries only the tasks that
 /// name the PLACE; a task on one of the shop's machines (a vehicle's KIR) is
 /// only in the list's own answer, once the list takes a site.
-export function useGaTasks(site: string) {
-  const client = useQueryClient()
-  return useQuery({
+export function tasksQuery(site: string) {
+  return queryOptions({
     queryKey: gaKeys.tasks(site),
-    queryFn: async ({ signal }): Promise<GaMaintenanceTaskRow[]> => {
+    queryFn: async ({ signal, client }): Promise<GaMaintenanceTaskRow[]> => {
       try {
         const page = await cloud.get<GaMaintenanceTaskPage>(
           `/api/v1/ga/maintenance-tasks?${query({ site, limit: "500" })}`,
@@ -307,6 +319,10 @@ export function useGaTasks(site: string) {
   })
 }
 
+export function useGaTasks(site: string) {
+  return useQuery(tasksQuery(site))
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Supplies
 
@@ -325,16 +341,22 @@ export function useGaSupplyCategories(enabled = true) {
 
 /// `GET /api/v1/ga/supplies?site=…` — what this shop has asked for, newest
 /// first. This list does take a site, so there is no fallback.
-export function useGaSupplies(site: string) {
-  return useQuery({
+export function suppliesQuery(site: string) {
+  return queryOptions({
     queryKey: gaKeys.supplies(site),
     queryFn: ({ signal }) =>
       cloud.get<GaSupplyRequestRow[]>(
         `/api/v1/ga/supplies?${query({ site, limit: "500" })}`,
         { signal },
       ),
-    select: (rows) => rows.filter((row) => row.site_id === site),
     staleTime: 60_000,
+  })
+}
+
+export function useGaSupplies(site: string) {
+  return useQuery({
+    ...suppliesQuery(site),
+    select: (rows) => rows.filter((row) => row.site_id === site),
   })
 }
 

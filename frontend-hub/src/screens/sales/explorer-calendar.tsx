@@ -80,7 +80,7 @@ function Month({
         {WEEKDAYS.map((name) => (
           <span
             key={name}
-            className="grid h-7 place-items-center text-[0.875rem] text-mute"
+            className="grid h-7 place-items-center text-[0.9375rem] text-mute"
           >
             {name.slice(0, 2)}
           </span>
@@ -99,7 +99,7 @@ function Month({
               disabled={dead}
               onClick={() => onPick(iso)}
               className={cn(
-                "h-9 text-[0.875rem] tabular-nums transition-colors duration-100 ease-out",
+                "h-9 text-[0.9375rem] tabular-nums transition-colors duration-100 ease-out",
                 dead
                   ? "cursor-default text-faint"
                   : end
@@ -186,7 +186,7 @@ function RangeCalendar({
                 setLeft(leftOf(range.to, months))
               }}
               className={cn(
-                "h-9 rounded-inner px-2.5 text-left text-[0.875rem] transition-[background-color,scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.97]",
+                "h-9 rounded-inner px-2.5 text-left text-[0.9375rem] transition-[background-color,scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.97]",
                 on
                   ? "bg-soft-2 font-medium text-ink"
                   : "text-text hover:bg-soft"
@@ -235,14 +235,14 @@ function RangeCalendar({
           })}
         </div>
         <div className="-mx-4 mt-3 flex items-center gap-2.5 border-t border-hairline px-4 py-3 max-md:-mx-3 max-md:px-3">
-          <span className="min-w-0 flex-1 truncate text-[0.875rem] text-mute tabular-nums">
+          <span className="min-w-0 flex-1 truncate text-[0.9375rem] text-mute tabular-nums">
             {low !== null && high !== null
               ? `${dateRange(low, high)} · ${span} ${span === 1 ? "day" : "days"}`
               : first !== null
                 ? "Pick the last day"
                 : "Pick the first day"}
           </span>
-          <Button variant="ghost" onClick={onCancel}>
+          <Button data-cancel variant="ghost" onClick={onCancel}>
             Cancel
           </Button>
           <Button

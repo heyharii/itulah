@@ -30,6 +30,7 @@ use crate::cloud::domain::{
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::Serialize;
 use sqlx::{PgPool, Postgres, Row, Transaction};
+use std::collections::HashMap;
 
 /// A stored row that cannot be true. See `postgres::employment` for why this is
 /// not a validation error.
@@ -356,6 +357,98 @@ pub async fn balances_of(
         });
     }
     Ok(rows)
+}
+
+/// What each of many people has left, per kind, on a date — the Balances
+/// list's figures in two reads rather than two per person and kind.
+///
+/// The same arithmetic as [`balances_of`], from the same ledger: every entry
+/// is read once, grouped by person and kind, and each ledger is folded by the
+/// domain exactly as one person's is. A person with no entry for a kind has an
+/// empty ledger, which is a zero balance — the same answer `balances_of` gives.
+/// In the order `employee_ids` names them.
+pub async fn balances_of_many(
+    pool: &PgPool,
+    employee_ids: &[String],
+    catalogue: &LeaveTypeCatalogue,
+    on: NaiveDate,
+) -> Result<Vec<(String, Vec<LeaveBalanceRow>)>, AppError> {
+    let kinds: Vec<&LeaveType> = catalogue.balance_backed().collect();
+    if employee_ids.is_empty() || kinds.is_empty() {
+        return Ok(employee_ids
+            .iter()
+            .map(|employee_id| (employee_id.clone(), Vec::new()))
+            .collect());
+    }
+    let codes: Vec<String> = kinds
+        .iter()
+        .map(|kind| kind.code().as_str().to_owned())
+        .collect();
+
+    let entries = sqlx::query(
+        "SELECT employee_id, leave_type, id, on_date, event, centidays, by_actor, expires_on
+           FROM leave_ledger_entry
+          WHERE employee_id = ANY($1) AND leave_type = ANY($2)
+          ORDER BY employee_id, leave_type, on_date, id",
+    )
+    .bind(employee_ids)
+    .bind(&codes)
+    .fetch_all(pool)
+    .await?;
+    let mut ledgers: HashMap<(String, String), LeaveLedger> = HashMap::new();
+    for row in &entries {
+        let key = (
+            row.try_get::<String, _>("employee_id")?,
+            row.try_get::<String, _>("leave_type")?,
+        );
+        ledgers
+            .entry(key)
+            .or_default()
+            .append(decode_entry(row)?)
+            .map_err(|error| corrupt("leave ledger", error.to_string()))?;
+    }
+
+    let waiting = sqlx::query(
+        "SELECT employee_id, leave_type, sum(jsonb_array_length(chargeable)) AS days
+           FROM leave_request
+          WHERE employee_id = ANY($1) AND state = 'PENDING'
+          GROUP BY employee_id, leave_type",
+    )
+    .bind(employee_ids)
+    .fetch_all(pool)
+    .await?;
+    let mut pending: HashMap<(String, String), i64> = HashMap::new();
+    for row in &waiting {
+        let key = (
+            row.try_get::<String, _>("employee_id")?,
+            row.try_get::<String, _>("leave_type")?,
+        );
+        let days: Option<i64> = row.try_get("days")?;
+        pending.insert(key, days.unwrap_or(0));
+    }
+
+    let none = LeaveLedger::new();
+    let mut out = Vec::with_capacity(employee_ids.len());
+    for employee_id in employee_ids {
+        let mut rows = Vec::with_capacity(kinds.len());
+        for leave_type in &kinds {
+            let key = (employee_id.clone(), leave_type.code().as_str().to_owned());
+            let balance = ledgers
+                .get(&key)
+                .unwrap_or(&none)
+                .balance_on(on)
+                .map_err(|error| corrupt("leave balance", error.to_string()))?;
+            let days = pending.get(&key).copied().unwrap_or(0);
+            rows.push(LeaveBalanceRow {
+                leave_type: leave_type.code().to_string(),
+                name: leave_type.name().to_owned(),
+                centidays: balance.centidays(),
+                pending_centidays: i32::try_from(days.saturating_mul(100)).unwrap_or(i32::MAX),
+            });
+        }
+        out.push((employee_id.clone(), rows));
+    }
+    Ok(out)
 }
 
 // ── requests ─────────────────────────────────────────────────────────────

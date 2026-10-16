@@ -1,0 +1,30 @@
+{
+  "cancel": {
+    "seconds": 5.59025,
+    "say": "Allotment bisa dibatalkan kapan saja sebelum dikirim. MD menekan Cancel allotment."
+  },
+  "costs": {
+    "seconds": 5.17225,
+    "say": "Dialognya menyebut akibat di tiap tahap. Yang sudah dikirim tetap jalan."
+  },
+  "ack": {
+    "seconds": 5.48575,
+    "say": "Karena gudang sudah bekerja, MD harus mencentang pengakuannya dan memilih alasan."
+  },
+  "cancelled": {
+    "seconds": 3.1085,
+    "say": "MD langsung melihat statusnya Cancelled."
+  },
+  "remove": {
+    "seconds": 4.3885,
+    "say": "Di papan, kartu To pick cukup dihapus: Remove picklist."
+  },
+  "stamp": {
+    "seconds": 8.8295,
+    "say": "Kartu Picked dan Packed diberi stempel CANCELLED. Kartu itu tidak bisa di-pick, di-pack, atau dikirim."
+  },
+  "moveback": {
+    "seconds": 4.51925,
+    "say": "Gudang mengembalikannya lewat Move back, dan barangnya kembali menjadi stok."
+  }
+}

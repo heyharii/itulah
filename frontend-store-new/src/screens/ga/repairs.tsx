@@ -2,11 +2,13 @@ import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { CardList } from "@/components/ui/card-list"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { LeadCard } from "@/components/ui/lead-card"
 import { SheetSection } from "@/components/ui/people-sheet"
 import { Pill, Status } from "@/components/ui/pill"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
+import { count } from "@/lib/format"
 import { useGaRepairs } from "@/lib/queries/ga"
 import {
   dateLead,
@@ -17,6 +19,7 @@ import {
   repairRungWords,
   repairStageTone,
   repairStageWords,
+  today,
 } from "@/screens/ga/format"
 import {
   Facts,
@@ -96,9 +99,44 @@ function RepairList({
   const [openId, setOpenId] = useState<string | null>(null)
   const [showing, setShowing] = useState(false)
   const needle = typed.trim().toLowerCase()
+  const all = repairs.data
+  const month = today().slice(0, 7)
 
   return (
     <>
+      <KpiStrip>
+        <Kpi
+          label="Open"
+          value={
+            all === undefined
+              ? "—"
+              : count(all.filter((row) => repairIsOpen(row.status)).length)
+          }
+        />
+        <Kpi
+          label="Waiting for approval"
+          value={
+            all === undefined
+              ? "—"
+              : count(all.filter((row) => row.status === "OPEN").length)
+          }
+        />
+        <Kpi
+          label="Fixed this month"
+          value={
+            all === undefined
+              ? "—"
+              : count(
+                  all.filter(
+                    (row) =>
+                      row.completed_at !== null &&
+                      row.completed_at.slice(0, 7) === month,
+                  ).length,
+                )
+          }
+        />
+      </KpiStrip>
+
       {gaState(repairs, {
         loading: "Reading the repairs…",
         render: (rows) => {

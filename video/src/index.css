@@ -1,0 +1,21 @@
+@import "tailwindcss";
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/jetbrains-mono";
+@import "./hub.css";
+
+/* A video frame is drawn once per frame from the frame number. Anything the
+   browser animates on its own clock — the hub's hover transitions, its
+   keyframes — would land at a different moment in every render, so none of it
+   runs here. */
+*,
+*::before,
+*::after {
+  transition: none !important;
+  animation: none !important;
+}
+
+html,
+body {
+  height: auto;
+  background: var(--soft-3);
+}

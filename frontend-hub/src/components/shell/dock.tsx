@@ -10,6 +10,7 @@ import { createPortal } from "react-dom"
 import { useRouterState } from "@tanstack/react-router"
 
 import type { AppTile } from "@/lib/apps"
+import { useMounted } from "@/lib/use-mounted"
 import { domainForPath, modulesOfDomain } from "@/lib/navigation"
 
 /// The phone's context row: a strip over the bottom bar that carries what the
@@ -151,7 +152,10 @@ export function DockProvider({
 
 /// The dock, or null outside the shell.
 export function useDock(): DockValue | null {
-  return useContext(DockContext)
+  // Null for a component's first render, which is the one a streamed section
+  // hydrates with: the server drew no dock (`lib/use-mounted.ts`).
+  const dock = useContext(DockContext)
+  return useMounted() ? dock : null
 }
 
 /// Whether the row is showing: something holds a slot. The shell pads the page
@@ -180,7 +184,11 @@ export function DockPortal({
   children: React.ReactNode
 }) {
   const dock = useContext(DockContext)
-  const element = dock?.available ? dock[slot] : null
+  // The server draws no dock contents, so neither does the hydrating render:
+  // a section that streams in after hydration would otherwise find the dock
+  // already there and portal into a place the server left empty.
+  const mounted = useMounted()
+  const element = mounted && dock?.available ? dock[slot] : null
   const claim = dock?.claim
   useEffect(() => {
     if (element === null || claim === undefined) return

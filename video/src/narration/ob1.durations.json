@@ -1,0 +1,30 @@
+{
+  "intro": {
+    "seconds": 4.64975,
+    "say": "Ini alur Outbound di Central: dari allotment sampai barang diterima toko."
+  },
+  "unallotted": {
+    "seconds": 6.7135,
+    "say": "Barang dari P O yang sudah diterima menunggu di Allotments, tab Unallotted, dikelompokkan per supplier."
+  },
+  "select": {
+    "seconds": 4.049,
+    "say": "MD mencentang artikelnya, lalu menekan Make new allotment."
+  },
+  "matrix": {
+    "seconds": 8.04575,
+    "say": "Layarnya berbentuk matriks: SKU ke bawah, toko ke samping. Stock dan Left menunjukkan sisa yang belum dibagi."
+  },
+  "fill": {
+    "seconds": 7.027,
+    "say": "Bisa diisi cepat: dibagi rata ke semua toko, semua ke satu toko, atau ke toko yang dipilih."
+  },
+  "tweak": {
+    "seconds": 2.71675,
+    "say": "Angkanya tetap bisa diubah satu per satu."
+  },
+  "submit": {
+    "seconds": 5.17225,
+    "say": "Submit all. Allotment langsung jadi, dan picklist tiap toko muncul di gudang."
+  }
+}

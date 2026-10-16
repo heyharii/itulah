@@ -1,15 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import type { ColumnDef } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { useLayout } from "@/lib/layout"
 import { Fab } from "@/components/ui/fab"
 import { Button } from "@/components/ui/button"
+import { Card } from "@/components/ui/card"
+import { DataTable } from "@/components/ui/data-table"
 import { Day } from "@/components/ui/day"
 import { Field, Input, Textarea } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
-import { MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
 import { Toolbar } from "@/components/ui/segmented"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState, Problem } from "@/components/ui/states"
@@ -24,9 +27,123 @@ import {
 } from "@/lib/queries/people"
 import { queryState } from "@/lib/query-state"
 import { useCanWrite } from "@/lib/session"
+import { CardName } from "@/components/ui/phone-cards"
+import { tableSetup, type TableSetup } from "@/lib/table"
 import { useOpener } from "@/screens/people/settings-lib"
-import { ListCard, SheetFooter } from "@/screens/people/settings-kit"
+import { SheetFooter } from "@/screens/people/settings-kit"
 import type { PolicyVersionView } from "@itulah/contract"
+
+const NO_VERSIONS: PolicyVersionView[] = []
+
+const stateOf = (row: PolicyVersionView) =>
+  row.in_force ? (
+    <Pill tone="ok">In force</Pill>
+  ) : (
+    <span className="text-mute">Superseded</span>
+  )
+
+const untilOf = (row: PolicyVersionView) =>
+  row.effective_to ? (
+    day(row.effective_to)
+  ) : (
+    <span className="text-mute">Still open</span>
+  )
+
+const columns: ColumnDef<TableSetup, PolicyVersionView>[] = [
+  {
+    id: "version",
+    accessorFn: (row) => row.version,
+    header: "Version",
+    size: 110,
+    meta: { mono: true, card: "hide" },
+    cell: ({ row }) => (
+      <span className="font-mono text-id text-body">v{row.original.version}</span>
+    ),
+  },
+  {
+    id: "from",
+    accessorFn: (row) => row.effective_from,
+    header: "From",
+    size: 150,
+    meta: { card: "hide" },
+    cell: ({ row }) => day(row.original.effective_from),
+  },
+  {
+    id: "until",
+    accessorFn: (row) => row.effective_to ?? "",
+    header: "Until",
+    size: 150,
+    meta: { card: "hide" },
+    cell: ({ row }) => untilOf(row.original),
+  },
+  {
+    id: "state",
+    accessorFn: (row) => row.in_force,
+    header: "State",
+    size: 140,
+    meta: { card: "hide" },
+    cell: ({ row }) => stateOf(row.original),
+  },
+  {
+    accessorKey: "late_grace_minutes",
+    header: "Late Grace",
+    size: 130,
+    meta: { align: "right", card: "hide" },
+    cell: ({ row }) => readMinutes(row.original.late_grace_minutes),
+  },
+  {
+    accessorKey: "early_leave_grace_minutes",
+    header: "Early Leave",
+    size: 130,
+    meta: { align: "right", card: "hide" },
+    cell: ({ row }) => readMinutes(row.original.early_leave_grace_minutes),
+  },
+  {
+    accessorKey: "overtime_minimum_minutes",
+    header: "Overtime from",
+    size: 150,
+    meta: { align: "right", card: "hide" },
+    cell: ({ row }) => readMinutes(row.original.overtime_minimum_minutes),
+  },
+  {
+    accessorKey: "duplicate_punch_window_minutes",
+    header: "Duplicate Punch",
+    size: 160,
+    meta: { align: "right", card: "hide" },
+    cell: ({ row }) => readMinutes(row.original.duplicate_punch_window_minutes),
+  },
+  // Two columns that exist only on a card (`cardLead`; a phone): the version
+  // over its span and its four tolerances, and where it stands.
+  {
+    id: "head",
+    accessorFn: (row) => row.version,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "title" },
+    cell: ({ row }) => (
+      <CardName
+        name={`Version ${row.original.version}`}
+        line={[
+          <>
+            {day(row.original.effective_from)} – {untilOf(row.original)}
+          </>,
+          `Late grace ${readMinutes(row.original.late_grace_minutes)} · Early leave ${readMinutes(row.original.early_leave_grace_minutes)}`,
+          `Overtime from ${readMinutes(row.original.overtime_minimum_minutes)} · Duplicate punch ${readMinutes(row.original.duplicate_punch_window_minutes)}`,
+        ]}
+      />
+    ),
+  },
+  {
+    id: "foot",
+    accessorFn: (row) => row.in_force,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "foot" },
+    cell: ({ row }) => stateOf(row.original),
+  },
+]
 
 /// Settings › Attendance rules — what "late" means, and who gets to say so.
 ///
@@ -54,6 +171,19 @@ export function AttendanceRuleSettings() {
         b.effective_from.localeCompare(a.effective_from)
       ),
     [schedule.data]
+  )
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: rows.length === 0 ? NO_VERSIONS : rows,
+        columns,
+        getRowId: (row: PolicyVersionView) => `${row.policy_id}-${row.version}`,
+        // The card's own columns are drawn on a phone and never on a desk.
+        state: { columnVisibility: { head: phone, foot: phone } },
+      }),
+      [rows, phone]
+    )
   )
   const inForce = rows.find((one) => one.in_force) ?? null
   const openFrom =
@@ -88,7 +218,7 @@ export function AttendanceRuleSettings() {
         </Field>
         <Toolbar.Spacer />
         {inForce && (
-          <span className="text-[0.875rem] text-mute">
+          <span className="text-[0.9375rem] text-mute">
             In force: v{inForce.version}, since {day(inForce.effective_from)}
           </span>
         )}
@@ -108,7 +238,7 @@ export function AttendanceRuleSettings() {
         </Banner>
       )}
 
-      <ListCard>
+      <Card className="mb-4 overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(schedule, {
           loading: "Reading the schedule…",
           render: () =>
@@ -119,58 +249,16 @@ export function AttendanceRuleSettings() {
                 against.
               </EmptyState>
             ) : (
-              <MiniTable
-                head={[
-                  "Version",
-                  "From",
-                  "Until",
-                  "State",
-                  { label: "Late Grace", align: "right" },
-                  { label: "Early Leave", align: "right" },
-                  { label: "Overtime from", align: "right" },
-                  { label: "Duplicate Punch", align: "right" },
-                ]}
-              >
-                {rows.map((row) => (
-                  <MiniRow key={`${row.policy_id}-${row.version}`}>
-                    <MiniCell>
-                      <span className="font-mono text-id text-body">
-                        v{row.version}
-                      </span>
-                    </MiniCell>
-                    <MiniCell>{day(row.effective_from)}</MiniCell>
-                    <MiniCell>
-                      {row.effective_to ? (
-                        day(row.effective_to)
-                      ) : (
-                        <span className="text-mute">Still open</span>
-                      )}
-                    </MiniCell>
-                    <MiniCell>
-                      {row.in_force ? (
-                        <Pill tone="ok">In force</Pill>
-                      ) : (
-                        <span className="text-mute">Superseded</span>
-                      )}
-                    </MiniCell>
-                    <MiniCell align="right">
-                      {readMinutes(row.late_grace_minutes)}
-                    </MiniCell>
-                    <MiniCell align="right">
-                      {readMinutes(row.early_leave_grace_minutes)}
-                    </MiniCell>
-                    <MiniCell align="right">
-                      {readMinutes(row.overtime_minimum_minutes)}
-                    </MiniCell>
-                    <MiniCell align="right">
-                      {readMinutes(row.duplicate_punch_window_minutes)}
-                    </MiniCell>
-                  </MiniRow>
-                ))}
-              </MiniTable>
+              <DataTable<PolicyVersionView>
+                refresh={[schedule]}
+                table={table}
+                cardsApart
+                cardLead
+                cardSort={false}
+              />
             ),
         })}
-      </ListCard>
+      </Card>
 
       <NewVersionSheet
         key={sheet.n}

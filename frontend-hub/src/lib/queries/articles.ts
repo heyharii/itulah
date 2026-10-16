@@ -54,6 +54,9 @@ export interface ArticleRow {
   readonly active: boolean
   readonly division_code: string | null
   readonly image_url: string | null
+  /// Filed when the article was set up (owner, 2026-10-16); absent or null
+  /// when it has none.
+  readonly description?: string | null
   /// Tag codes, not labels. The label is what a person reads and can be
   /// edited; the code is what a filter must be written against.
   readonly tags: readonly string[]
@@ -62,6 +65,8 @@ export interface ArticleRow {
   readonly colours: readonly ArticleColourway[]
   readonly size_codes: readonly string[]
   readonly sku_count: number
+  /// Pieces on hand everywhere, on the list (absent from an older server).
+  readonly stock_qty?: number
   /// The floor price set at setup, as a range across this article's SKUs. Null
   /// where nothing has been priced — absent rather than zero, because no price
   /// is not a price of nothing.
@@ -227,6 +232,8 @@ export interface ArticleScope {
   readonly sizeCodes?: readonly string[]
   readonly colourCodes?: readonly string[]
   readonly active?: boolean
+  /// false: sold out (nothing on hand anywhere); true: something on hand.
+  readonly inStock?: boolean
   /// Which way the master is read. `oldest` is the default and the order this
   /// endpoint has always answered in — the catalogue in the order it was built
   /// up. `newest` is `created_at` descending, which is what somebody asking
@@ -317,6 +324,7 @@ export function searchArticles(scope: ArticleScope, signal?: AbortSignal) {
   for (const code of scope.sizeCodes ?? []) params.append("size_code", code)
   for (const code of scope.colourCodes ?? []) params.append("colour_code", code)
   if (scope.active !== undefined) params.set("active", String(scope.active))
+  if (scope.inStock !== undefined) params.set("in_stock", String(scope.inStock))
   // Only when it is not the default. The plain URL is the plain catalogue, and
   // one spelling of "no order chosen" is what stops two query keys standing
   // for the same page.
@@ -330,6 +338,10 @@ export function searchArticles(scope: ArticleScope, signal?: AbortSignal) {
     { signal }
   )
 }
+
+/// What the Articles catalogue opens on: the Active tab, nothing searched or
+/// filtered. Shared by the screen's tabs and the prefetcher.
+export const ACTIVE_ARTICLES = { active: true } as const
 
 /// The Articles catalogue, a page at a time. Shared by the screen and its
 /// prefetcher (`screens/master/prefetch.ts`) so the key and the request cannot

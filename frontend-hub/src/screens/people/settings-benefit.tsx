@@ -1,4 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { ActivityFold } from "@/components/ui/activity-fold"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -9,44 +10,37 @@ import { Day } from "@/components/ui/day"
 import { Field, Input } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { PickOne } from "@/components/ui/pick"
-import { Pill } from "@/components/ui/pill"
 import { KeyValue, MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
 import { Sheet } from "@/components/ui/sheet"
 import { EmptyState, Problem } from "@/components/ui/states"
 import { day } from "@/lib/format"
 import {
   benefitKeys,
-  benefitSettings,
   stateBenefitSetting,
+  benefitSettingsQuery,
 } from "@/lib/queries/hr-benefit"
-import { queryState } from "@/lib/query-state"
 import { useCanWrite } from "@/lib/session"
-import { ListCard, PageFoot, SheetFooter } from "@/screens/people/settings-kit"
+import { PageFoot, SheetFooter } from "@/screens/people/settings-kit"
 import { digits, useOpener } from "@/screens/people/settings-lib"
 import type { BenefitSettingView } from "@itulah/contract"
+import { awaiting } from "@/screens/people/awaiting"
 
 const STATES = [
   { value: "on", label: "On" },
   { value: "off", label: "Off" },
 ]
 
-/// Settings › Benefit — whether the employee benefit is on, and how long a
-/// code from the employee's app stays good.
+/// Whether the employee benefit is on, and how long a code from the
+/// employee's app stays good. Reached from Change on Pay › Benefit.
 export function BenefitSettings() {
   const canWrite = useCanWrite()
   const phone = useLayout() === "phone"
-  const settings = useQuery({
-    queryKey: benefitKeys.settings(),
-    queryFn: ({ signal }) => benefitSettings(signal),
-  })
   const sheet = useOpener()
 
   return (
     <PageContent>
       <PageHeader
-        crumb="People"
         title="Benefit"
-        sub="Turn the employee benefit on or off, and set how long a code stays good."
         actions={
           !phone &&
           canWrite && (
@@ -57,7 +51,7 @@ export function BenefitSettings() {
         }
       />
 
-      {queryState(settings, {
+      {awaiting(benefitSettingsQuery(), {
         loading: "Reading the setting…",
         render: (rows) => (
           <>
@@ -70,12 +64,6 @@ export function BenefitSettings() {
                   {rows[0].code_minutes} minutes
                 </KeyValue>
               )}
-              <KeyValue term="Promotions">
-                Does not combine with promotions
-              </KeyValue>
-              <KeyValue term="Booking">
-                Spent part is booked by Finance as a sales discount
-              </KeyValue>
               {rows.length > 0 && (
                 <>
                   <KeyValue term="Since">
@@ -85,24 +73,16 @@ export function BenefitSettings() {
                 </>
               )}
             </Card>
-            <ListCard title="History">
+            <ActivityFold count={rows.length}>
               {rows.length === 0 ? (
                 <EmptyState>
-                  Nothing has been set, so the benefit is off. Edit turns it on
-                  from a date.
+                  Nothing has been set, so the benefit is off.
                 </EmptyState>
               ) : (
                 <MiniTable head={["From", "State", "Code", "By", "Why"]}>
                   {rows.map((row, index) => (
                     <MiniRow key={`${row.effective_from}-${index}`}>
-                      <MiniCell>
-                        {day(row.effective_from)}
-                        {index === 0 && (
-                          <Pill tone="ok" className="ml-2">
-                            In force
-                          </Pill>
-                        )}
-                      </MiniCell>
+                      <MiniCell>{day(row.effective_from)}</MiniCell>
                       <MiniCell>{row.enabled ? "On" : "Off"}</MiniCell>
                       <MiniCell>{row.code_minutes} min</MiniCell>
                       <MiniCell>{row.set_by}</MiniCell>
@@ -111,7 +91,7 @@ export function BenefitSettings() {
                   ))}
                 </MiniTable>
               )}
-            </ListCard>
+            </ActivityFold>
             <EditSheet
               key={sheet.n}
               open={sheet.isOpen}

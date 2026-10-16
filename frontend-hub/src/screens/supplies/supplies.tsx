@@ -1,11 +1,11 @@
 import {
-  useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
+  useSuspenseInfiniteQuery,
 } from "@tanstack/react-query"
 import { Check, Plus, X } from "lucide-react"
-import { useMemo, useState } from "react"
+import { Suspense, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
@@ -25,13 +25,7 @@ import {
 } from "@/components/ui/states"
 import { count, day, money, moneyCompact } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
-import {
-  gaKeys,
-  gaSupply,
-  gaSupplyBook,
-  moveGaSupplyRequest,
-} from "@/lib/queries/ga"
-import { queryState } from "@/lib/query-state"
+import { gaKeys, gaSupply, moveGaSupplyRequest } from "@/lib/queries/ga"
 import { useSheet } from "@/lib/sheets"
 import { useUnits } from "@/lib/queries/units"
 import { FinanceMark } from "@/screens/contracts/parts"
@@ -41,6 +35,7 @@ import {
   type CardSpec,
   PhoneCards,
 } from "@/components/ui/phone-cards"
+import { supplyBookQuery } from "@/screens/supplies/book-data"
 import { SupplyComposer } from "@/screens/supplies/composer"
 import type { GaMaintenanceFacet, GaSupplyRequestRow } from "@itulah/contract"
 
@@ -82,30 +77,10 @@ function gaQuantity(
 /// stage has a different owner: GA approves, Procurement orders and receives,
 /// Finance records the bill. The words name who has it now, and the move
 /// button offers only the step the server itself would accept.
-/// How many requests one page of the register asks for.
-const PAGE = 100
-
 export function Supplies() {
   const open = useSheet("supply")
   const [adding, setAdding] = useState(false)
   const phone = useLayout() === "phone"
-
-  /// The register, a page at a time as its foot nears view — the paged
-  /// reading of the list, which used to stop at the two-hundredth request.
-  const requests = useInfiniteQuery({
-    queryKey: [...gaKeys.supplies({}), "pages"] as const,
-    queryFn: ({ pageParam, signal }) =>
-      gaSupplyBook({ limit: PAGE, cursor: pageParam }, signal),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) => last.next_cursor ?? undefined,
-    placeholderData: (previous) => previous,
-  })
-
-  const rows = useMemo(
-    () => requests.data?.pages.flatMap((page) => page.rows) ?? [],
-    [requests.data]
-  )
-  const head = requests.data?.pages[0]
 
   return (
     <PageContent>
@@ -133,29 +108,13 @@ export function Supplies() {
         yet. The order number is recorded on this request.
       </Banner>
 
-      {head !== undefined && <SummaryStrip statuses={head.statuses} />}
-
-      {queryState(requests, {
-        loading: "Opening supply requests…",
-        render: () =>
-          rows.length === 0 ? (
-            <Card>
-              <EmptyState
-                action={
-                  <Button variant="ghost" onClick={() => setAdding(true)}>
-                    Request the first one
-                  </Button>
-                }
-              >
-                No supply requests yet. Consumables — stationery, household
-                supplies, store fittings — are requested here by the place that
-                needs them, not ordered as merchandise.
-              </EmptyState>
-            </Card>
-          ) : (
-            <SupplyTable rows={rows} onOpen={open.open} more={requests} />
-          ),
-      })}
+      {/* The register waits for its first page and streams in with it (the
+          server starts the read too). */}
+      <Suspense
+        fallback={<LoadingState>Opening supply requests…</LoadingState>}
+      >
+        <SupplyRegister onOpen={open.open} onRequest={() => setAdding(true)} />
+      </Suspense>
 
       <Banner tone="info" className="mt-4 md:hidden">
         Non-merchandise purchase orders aren't connected to a Procurement module
@@ -178,6 +137,46 @@ export function Supplies() {
         onClose={open.close}
       />
     </PageContent>
+  )
+}
+
+function SupplyRegister({
+  onOpen,
+  onRequest,
+}: {
+  onOpen: (id: string) => void
+  onRequest: () => void
+}) {
+  const requests = useSuspenseInfiniteQuery(supplyBookQuery())
+
+  const rows = useMemo(
+    () => requests.data.pages.flatMap((page) => page.rows),
+    [requests.data]
+  )
+  const head = requests.data.pages[0]
+
+  return (
+    <>
+      {head !== undefined && <SummaryStrip statuses={head.statuses} />}
+
+      {rows.length === 0 ? (
+        <Card>
+          <EmptyState
+            action={
+              <Button variant="ghost" onClick={onRequest}>
+                Request the first one
+              </Button>
+            }
+          >
+            No supply requests yet. Consumables — stationery, household
+            supplies, store fittings — are requested here by the place that
+            needs them, not ordered as merchandise.
+          </EmptyState>
+        </Card>
+      ) : (
+        <SupplyTable rows={rows} onOpen={onOpen} more={requests} />
+      )}
+    </>
   )
 }
 
@@ -682,7 +681,7 @@ function AdvanceForm({
         >
           {move.isPending ? "Moving…" : `Next: ${supplyStageWords(to)}`}
         </Button>
-        <Button variant="ghost" onClick={onCancel}>
+        <Button data-cancel variant="ghost" onClick={onCancel}>
           Cancel
         </Button>
       </div>
@@ -753,7 +752,7 @@ function RejectForm({
         <Button variant="primary" pending={move.isPending} onClick={submit}>
           {move.isPending ? "Rejecting…" : "Reject request"}
         </Button>
-        <Button variant="ghost" onClick={onCancel}>
+        <Button data-cancel variant="ghost" onClick={onCancel}>
           Cancel
         </Button>
       </div>

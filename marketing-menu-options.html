@@ -1,0 +1,673 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Marketing menu options</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+/* ─────────────────────────────────────────────────────────────────────────
+   Marketing menu: today + five options (A–E) + Compare.
+   Shell measured on the running hub (:5480, 11 Oct 2026): 68px rail #242526,
+   232px white department column, soft-3 page, white cards r10, title 15/600,
+   figures box like Purchase Orders, table header band 40px #f8f8f9, 20px
+   cells, status as a coloured word. Nothing below 14px.
+   ───────────────────────────────────────────────────────────────────────── */
+:root{
+  --ink:#20242c; --text:#394150; --body:#565f6d; --mute:#666f7d; --faint:#b9c0c9; --line-ico:#89919d;
+  --canvas:#fff; --soft:#f8f8f9; --soft-2:#f0f0f2; --soft-3:#f6f6f7;
+  --hairline:#e6e6e9; --hairline-2:#dadade; --hairline-strong:#c6c6cc;
+  --rail:#242526; --rail-2:#303234; --rail-3:#393b3d; --rail-text:#c3c4c7; --rail-mute:#a1a3a8; --rail-hair:#343638;
+  --accent:#2563eb; --accent-bg:#eff5ff; --cta:#2563eb; --cta-hover:#1d4ed8;
+  --ok-fg:#137a37; --warn:#c9892e; --warn-fg:#a64a08; --warn-bg:#faeacd; --bad:#d05151; --bad-fg:#be123c; --bad-bg:#fbeaea; --info-fg:#2c57bf;
+  --md-bg:#fdeaf1; --md-line:#f1bcd0; --pr-bg:#e4f3ef; --pr-line:#a9d6ca;
+  --r-card:10px; --r-inner:8px;
+  --ease-out:cubic-bezier(.23,1,.32,1); --ease-drawer:cubic-bezier(.32,.72,0,1);
+  --font:"Inter","Inter Variable",system-ui,-apple-system,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,monospace;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font-family:var(--font);font-size:15px;color:var(--ink);background:var(--soft-3);letter-spacing:-.006em;-webkit-font-smoothing:antialiased;overflow:hidden}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+.i{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.num{font-variant-numeric:tabular-nums}
+.mono{font-family:var(--mono);font-size:14px;letter-spacing:0}
+
+/* ── prototype chrome (not part of the hub) ── */
+.proto{height:48px;background:#141518;color:#fff;display:flex;align-items:center;gap:14px;padding:0 14px 0 18px}
+.proto .t{font-weight:600;font-size:15px;white-space:nowrap}
+.proto .t span{color:#8b8f97;font-weight:400}
+.seg{display:flex;gap:2px;background:#24262b;border-radius:9px;padding:3px;overflow-x:auto}
+.seg button{height:30px;padding:0 11px;border-radius:7px;font-size:14px;color:#b9bcc3;white-space:nowrap;transition:background-color .15s ease,color .15s ease}
+.seg button b{font-weight:600;color:#fff;margin-right:5px}
+.seg button.on{background:#fff;color:var(--ink)}
+.seg button.on b{color:var(--ink)}
+.seg .star{color:#f4b740;margin-left:4px}
+.proto .sp{flex:1}
+.pbtn{height:30px;padding:0 12px;border-radius:7px;border:1px solid #393c43;color:#e7e8ea;font-size:14px;display:flex;align-items:center;gap:7px;white-space:nowrap}
+.note{height:34px;background:#1c1e22;color:#a7abb3;font-size:14px;display:flex;align-items:center;gap:10px;padding:0 18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-top:1px solid #26282d}
+.note b{color:#fff;font-weight:500}
+.note .dotsep{color:#5b5f67}
+
+/* ── hub shell ── */
+.app{height:calc(100vh - 82px);display:grid;grid-template-columns:68px 232px minmax(0,1fr)}
+.app.wide{grid-template-columns:68px minmax(0,1fr)}
+.app.wide .dept{display:none}
+.rail{background:var(--rail);color:var(--rail-text);display:flex;flex-direction:column;align-items:center;padding:12px 0}
+.logo{width:28px;height:28px;border-radius:7px;background:#0b0b0c;position:relative;display:grid;place-items:center;color:#fff;font-weight:600;font-size:15px;margin-bottom:14px;box-shadow:inset 0 0 0 1px #3a3c40}
+.logo::after{content:"";position:absolute;right:5px;top:5px;width:5px;height:5px;border-radius:50%;background:var(--accent)}
+.rail .ri{width:40px;height:36px;border-radius:8px;display:grid;place-items:center;position:relative;margin:2px 0;color:var(--rail-text)}
+.rail .ri.on{background:var(--rail-3);color:#fff}
+.rail .ri .bd{position:absolute;right:8px;top:7px;width:6px;height:6px;border-radius:50%;background:#e0823c}
+.rail .gap{flex:1}
+.rail .av{width:28px;height:28px;border-radius:50%;background:var(--rail-3);color:#fff;display:grid;place-items:center;font-size:14px;font-weight:500;margin:6px 0}
+
+.dept{background:var(--canvas);border-right:1px solid var(--hairline);display:flex;flex-direction:column;min-height:0}
+.dept .dh{height:52px;display:flex;align-items:center;padding:0 12px 0 16px;gap:8px;flex:none}
+.dept .dh h2{margin:0;font-size:15px;font-weight:600;letter-spacing:-.01em;flex:1}
+.dept .dh .i{color:var(--line-ico)}
+.rows{padding:2px 10px;display:flex;flex-direction:column;gap:2px;overflow-y:auto;flex:1}
+.row{height:36px;display:flex;align-items:center;gap:8px;padding:0 10px;border-radius:8px;font-size:14px;color:var(--body);text-align:left;width:100%;transition:background-color .15s ease,color .15s ease}
+.row .lb{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row.on{background:var(--accent-bg);color:var(--accent);font-weight:500}
+.row .ct{font-size:14px;font-weight:500;padding:0 6px;color:var(--warn-fg)}
+.row .ct.bad{color:var(--bad-fg)}
+.fold{color:var(--body)}
+.fold.in{color:var(--ink);font-weight:500}
+.fold .chev{transition:transform .2s var(--ease-out);color:var(--line-ico);width:16px;height:16px}
+.fold[aria-expanded="true"] .chev{transform:rotate(90deg)}
+.kids{display:grid;grid-template-rows:0fr;transition:grid-template-rows .2s var(--ease-out)}
+.kids.open{grid-template-rows:1fr}
+.kids>div{overflow:hidden;display:flex;flex-direction:column;gap:2px;padding-left:12px}
+.kids.open>div{padding-bottom:4px}
+.navsep{height:1px;background:var(--hairline);margin:8px 10px}
+.navcap{font-size:14px;color:var(--mute);padding:4px 10px 2px}
+.dept .clock{height:48px;border-top:1px solid var(--hairline);display:flex;align-items:center;gap:8px;padding:0 16px;font-size:14px;color:var(--text);flex:none}
+.dept .clock .i{color:var(--line-ico);width:16px;height:16px}
+@media (hover:hover) and (pointer:fine){
+  .row:not(.on):hover{background:var(--soft-2);color:var(--ink)}
+  .seg button:not(.on):hover{color:#fff}
+  .tab:not(.on):hover{color:var(--ink)}
+  .btn-p:hover{background:var(--cta-hover)}
+  .btn-g:hover{background:var(--soft-2)}
+  tr.link:hover td{background:#fafafb}
+  .need:hover{background:var(--soft)}
+}
+
+/* ── page ── */
+.main{overflow-y:auto;min-width:0}
+.page{padding:24px 32px 48px;max-width:1240px}
+.ph{display:flex;align-items:flex-start;gap:24px;margin-bottom:18px;min-height:62px}
+.ph.bare{min-height:0;margin-bottom:14px}
+.ph .pt{flex:1;min-width:0}
+.ph h1{margin:0;font-size:15px;font-weight:600;line-height:20px;letter-spacing:-.006em}
+.ph .sub{font-size:14px;color:var(--mute);margin-top:12px;display:flex;align-items:center;gap:6px}
+.figs{display:flex;background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-card);flex:none}
+.fig{padding:9px 18px 10px 16px;border-left:1px solid var(--hairline);min-width:92px}
+.fig:first-child{border-left:0}
+.fig .l{font-size:14px;color:var(--body);line-height:20px;white-space:nowrap}
+.fig .v{font-size:15px;font-weight:600;line-height:22px;margin-top:2px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.fig .v.bad{color:var(--bad-fg)} .fig .v.warn{color:var(--warn-fg)}
+
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--hairline);margin-bottom:16px}
+.tab{height:38px;padding:0 8px;font-size:14px;color:var(--body);position:relative;white-space:nowrap}
+.tab .c{color:var(--mute);margin-left:4px;font-variant-numeric:tabular-nums}
+.tab.on{color:var(--ink);font-weight:500}
+.tab.on::after{content:"";position:absolute;left:6px;right:6px;bottom:-1px;height:2px;border-radius:2px;background:var(--ink)}
+
+.bar{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+.bar .l{display:flex;gap:8px;flex:1;min-width:0;flex-wrap:wrap}
+.bar .r{display:flex;gap:8px;align-items:center}
+.search{position:relative;display:flex;align-items:center}
+.search .i{position:absolute;left:10px;color:var(--line-ico);width:16px;height:16px}
+.search input{height:34px;width:200px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);padding:0 10px 0 32px;font:inherit;font-size:14px;background:var(--canvas);color:var(--ink);outline:none}
+.search input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
+.search input::placeholder{color:var(--mute)}
+.sel{position:relative;display:flex;align-items:center}
+.sel select{appearance:none;height:34px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);padding:0 30px 0 11px;font:inherit;font-size:14px;background:var(--canvas);color:var(--text);cursor:pointer}
+.sel .i{position:absolute;right:9px;width:15px;height:15px;color:var(--line-ico);pointer-events:none}
+.btn{height:36px;padding:0 12px;border-radius:var(--r-inner);font-size:15px;font-weight:500;display:inline-flex;align-items:center;gap:7px;white-space:nowrap;transition:transform .16s var(--ease-out),background-color .15s ease}
+.btn:active,.row:active,.tab:active,.seg button:active,.pbtn:active,.need:active{transform:scale(.97)}
+.btn .i{width:17px;height:17px}
+.btn-p{background:var(--cta);color:#fff}
+.btn-g{background:var(--canvas);border:1px solid var(--hairline-2);color:var(--text);font-size:14px;height:34px}
+.segm{display:flex;border:1px solid var(--hairline-2);border-radius:var(--r-inner);padding:2px;background:var(--canvas);height:34px}
+.segm button{padding:0 10px;font-size:14px;border-radius:6px;color:var(--body)}
+.segm button.on{background:var(--soft-2);color:var(--ink);font-weight:500}
+
+.card{background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden}
+.ch{height:52px;display:flex;align-items:center;gap:10px;padding:0 20px;border-bottom:1px solid var(--hairline)}
+.ch h2{margin:0;font-size:15px;font-weight:600;flex:1}
+.ch a,.lnk{font-size:14px;color:var(--accent);cursor:pointer;text-decoration:none}
+.tw{overflow-x:auto}
+table{width:100%;border-collapse:separate;border-spacing:0;table-layout:fixed}
+th{height:40px;background:var(--soft);font-size:14px;font-weight:500;color:var(--body);letter-spacing:.04em;text-align:left;padding:0 20px;border-bottom:1px solid var(--hairline-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+td{padding:18px 20px;border-bottom:1px solid var(--hairline);color:var(--text);vertical-align:top;font-size:15px}
+tbody tr:last-child td{border-bottom:0}
+th.n,td.n{text-align:right}
+td.n{font-variant-numeric:tabular-nums}
+tr.link{cursor:pointer}
+.m1{font-size:14px;font-weight:500;color:var(--ink);line-height:20px}
+.m2{font-size:14px;color:var(--mute);line-height:20px;margin-top:3px}
+.m2.warn{color:var(--warn-fg)} .m2.bad{color:var(--bad-fg)}
+.fig1{font-weight:500;color:var(--ink)}
+.st{font-size:15px}
+.st.live{color:var(--ok-fg)} .st.paused{color:var(--warn-fg)} .st.att{color:var(--bad-fg)} .st.ended{color:var(--mute)} .st.sched{color:var(--text)}
+.t2{color:var(--mute)}
+tfoot td{border-top:1px solid var(--hairline);border-bottom:0;padding:16px 20px;font-size:14px;font-weight:500;color:var(--ink);background:var(--canvas)}
+tfoot td .t2{font-weight:400}
+.caret{display:inline-grid;place-items:center;width:18px;height:18px;margin:0 6px 0 -4px;color:var(--line-ico);transition:transform .2s var(--ease-out);vertical-align:-3px}
+.caret.open{transform:rotate(90deg)}
+tr.grp td{background:var(--canvas)}
+tr.kid td{padding-top:14px;padding-bottom:14px}
+tr.kid td:first-child{padding-left:52px;position:relative}
+tr.kid td:first-child::before{content:"";position:absolute;left:31px;top:0;bottom:0;width:1px;background:var(--hairline-2)}
+tr.kid.last td:first-child::before{bottom:50%}
+tr.kid td:first-child::after{content:"";position:absolute;left:31px;top:50%;width:12px;height:1px;background:var(--hairline-2)}
+tr.pin td{background:#fbfbfc}
+
+/* pricelist grid */
+.legend{display:flex;gap:18px;align-items:center;font-size:14px;color:var(--body);margin-left:4px}
+.legend span{display:flex;align-items:center;gap:7px}
+.legend i{width:18px;height:12px;border-radius:3px;border:1px solid var(--hairline-strong);display:block}
+.legend i.store{background:var(--ink);border-color:var(--ink)} .legend i.md{background:var(--md-bg);border-color:var(--md-line)} .legend i.pr{background:var(--pr-bg);border-color:var(--pr-line)}
+.pg{table-layout:fixed;min-width:1642px}
+.pg th{letter-spacing:0;padding:0 14px}
+.pg td{padding:14px;border-right:1px solid var(--hairline)}
+.pg td:last-child,.pg th:last-child{border-right:0}
+.pg .stick{position:sticky;left:0;background:var(--canvas);z-index:1;box-shadow:1px 0 0 var(--hairline)}
+.pg th.stick{background:var(--soft);z-index:2}
+.pc{font-variant-numeric:tabular-nums;text-align:right;color:var(--mute)}
+.pc.base{color:var(--ink);font-weight:600}
+.pc.store{color:var(--ink);font-weight:600}
+.pc.md{background:var(--md-bg);color:var(--ink)} .pc.pr{background:var(--pr-bg);color:var(--ink)}
+.pc .tg{display:block;font-size:14px;color:var(--mute);font-weight:400;margin-top:2px}
+.pc.bad .tg{color:var(--bad-fg)}
+
+/* overview */
+.ovg{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:16px;margin-bottom:16px;align-items:start}
+.need{display:flex;gap:12px;padding:14px 18px;border-bottom:1px solid var(--hairline);cursor:pointer;align-items:flex-start;transition:background-color .15s ease}
+.need:last-child{border-bottom:0}
+.need .d{width:8px;height:8px;border-radius:50%;margin-top:6px;flex:none;background:var(--faint)}
+.need .d.bad{background:var(--bad)} .need .d.warn{background:var(--warn)}
+.need .tx{flex:1;min-width:0}
+.need .i{color:var(--line-ico);margin-top:1px;width:16px;height:16px}
+
+/* compare */
+.cmp td{padding:14px 20px;font-size:14px}
+.cmp th{white-space:normal;height:auto;padding:10px 20px;line-height:20px;vertical-align:bottom}
+.cmp td:first-child{font-weight:500;color:var(--ink)}
+.cmp th.star{color:var(--ink)}
+.cmp .no{color:var(--faint)}
+.cmp .k{color:var(--mute)}
+.cmp tr.tot td{background:var(--soft);font-weight:500;color:var(--ink)}
+
+/* phone menu overlay */
+.ph-wrap{position:fixed;inset:82px 0 0 0;background:rgba(20,21,24,.42);display:grid;place-items:center;z-index:50;opacity:0;pointer-events:none;transition:opacity .2s ease}
+.ph-wrap.on{opacity:1;pointer-events:auto}
+.phone{width:414px;height:min(896px,calc(100vh - 110px));background:var(--soft-3);border-radius:34px;box-shadow:0 0 0 10px #0d0e10,0 30px 60px rgba(0,0,0,.35);overflow:hidden;position:relative;display:flex;flex-direction:column}
+.phone .tb{height:52px;background:var(--soft-3);display:flex;align-items:center;gap:6px;padding:0 16px;border-bottom:1px solid var(--hairline);margin-top:28px;flex:none}
+.phone .tb .dp{color:var(--mute);font-size:15px}
+.phone .tb .sc{font-weight:600;font-size:15px;display:flex;align-items:center;gap:4px}
+.phone .sk{padding:16px;display:flex;flex-direction:column;gap:10px}
+.phone .sk div{height:86px;border-radius:10px;background:var(--canvas);border:1px solid var(--hairline)}
+.phone .scrim{position:absolute;inset:0;background:rgba(20,21,24,.3)}
+.sheet{position:absolute;left:0;right:0;bottom:0;background:var(--canvas);border-radius:16px 16px 0 0;padding:8px 12px calc(34px + 8px);transform:translateY(100%);transition:transform .32s var(--ease-drawer);max-height:80%;overflow-y:auto}
+.ph-wrap.on .sheet{transform:translateY(0)}
+.sheet .hd{width:36px;height:5px;border-radius:3px;background:var(--hairline-2);margin:0 auto 10px}
+.sheet .sh{display:flex;align-items:center;padding:4px 8px 10px}
+.sheet .sh h3{margin:0;font-size:18px;font-weight:600;flex:1}
+.sheet .x{width:44px;height:44px;display:grid;place-items:center;color:var(--line-ico);margin-right:-10px}
+.sheet .row{height:44px;font-size:15px}
+.sheet .kids>div{padding-left:14px}
+.sheet .navsep{margin:8px 10px}
+@media (prefers-reduced-motion:reduce){
+  .sheet,.kids,.fold .chev,.caret,.btn,.row,.tab,.need{transition:none}
+  .btn:active,.row:active,.tab:active,.seg button:active,.pbtn:active,.need:active{transform:none}
+}
+</style>
+</head>
+<body>
+<header class="proto">
+  <div class="t">Marketing menu <span>· prototype</span></div>
+  <div class="seg" id="seg" role="tablist" aria-label="Option"></div>
+  <div class="sp"></div>
+  <button class="pbtn" id="phoneBtn" type="button"><svg class="i" viewBox="0 0 24 24"><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/></svg>Phone menu</button>
+</header>
+<div class="note" id="note"></div>
+<div class="app" id="app">
+  <nav class="rail" id="rail"></nav>
+  <aside class="dept" id="dept"></aside>
+  <main class="main" id="main"></main>
+</div>
+<div class="ph-wrap" id="phw" aria-hidden="true"></div>
+
+<script>
+/* ───────────────────────── icons ───────────────────────── */
+const P={
+  cart:'<circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M2 3h3l2.6 12.2a1.5 1.5 0 0 0 1.5 1.3h8.6a1.5 1.5 0 0 0 1.5-1.2L21 8H6"/>',
+  shirt:'<path d="M8 3 3 6l2 5 2-1v11h10V10l2 1 2-5-5-3a4 4 0 0 1-8 0z"/>',
+  truck:'<path d="M2 6h12v10H2zM14 9h4l4 4v3h-8"/><circle cx="6.5" cy="17.5" r="1.8"/><circle cx="17.5" cy="17.5" r="1.8"/>',
+  boxes:'<path d="M7 3h10v7H7zM2 13h9v8H2zM13 13h9v8h-9z"/>',
+  mega:'<path d="M3 11v2a1 1 0 0 0 1 1h3l6 4V6L7 10H4a1 1 0 0 0-1 1zM17 9a4 4 0 0 1 0 6"/>',
+  store:'<path d="M3 9l1.5-5h15L21 9M3 9v11h18V9M3 9h18M9 20v-6h6v6"/>',
+  bank:'<path d="M3 10h18L12 4zM5 10v8M9.5 10v8M14.5 10v8M19 10v8M3 20h18"/>',
+  users:'<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14c2 .8 3.5 3 3.5 6"/>',
+  chat:'<path d="M4 5h16v11H9l-5 4z"/>',
+  book:'<path d="M12 6c-2-1.5-5-2-8-2v14c3 0 6 .5 8 2 2-1.5 5-2 8-2V4c-3 0-6 .5-8 2zM12 6v14"/>',
+  bell:'<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15zM10 20a2 2 0 0 0 4 0"/>',
+  out:'<path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10"/>',
+  clock:'<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+  panel:'<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M9 4.5v15"/>',
+  search:'<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  chev:'<path d="m6 9 6 6 6-6"/>',
+  right:'<path d="m9 6 6 6-6 6"/>',
+  plus:'<path d="M12 5v14M5 12h14"/>',
+  sync:'<path d="M20 11a8 8 0 0 0-14.5-4.5L4 8M4 4v4h4M4 13a8 8 0 0 0 14.5 4.5L20 16M20 20v-4h-4"/>',
+  sliders:'<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>',
+  ticket:'<path d="M3 8a2 2 0 0 0 2-2h14a2 2 0 0 0 2 2v8a2 2 0 0 0-2 2H5a2 2 0 0 0-2-2z"/>',
+  x:'<path d="M6 6l12 12M18 6 6 18"/>',
+}
+const ic=(n,c='i')=>`<svg class="${c}" viewBox="0 0 24 24" aria-hidden="true">${P[n]||''}</svg>`
+const nf=new Intl.NumberFormat('id-ID')
+const n=v=>nf.format(v)
+const rp=v=>v==null?'<span class="t2">—</span>':'Rp '+nf.format(v)
+const st=s=>{const c={Live:'live',Active:'live',Enabled:'live',Yes:'live',Paused:'paused',Scheduled:'sched',Draft:'ended',Ended:'ended',Spent:'ended',Cancelled:'ended',Disabled:'ended',Attention:'att',Archived:'ended'}[s]||'sched';return `<span class="st ${c}">${s}</span>`}
+const two=(a,b,cls='')=>`<div class="m1">${a}</div>${b?`<div class="m2 ${cls}">${b}</div>`:''}`
+
+/* ───────────────────────── demo data (11 Oct 2026) ───────────────────────── */
+const STORES=['Senayan City','Grand Indonesia','Kemang','PIM 2','Tunjungan Plaza','Paris Van Java','Pakuwon Mall','Beachwalk Bali']
+// id, name, code, benefit, applies to, who, period, stores, baskets, given, status, campaign
+const PROMOS=[
+  ['p1','Member 10%','PR-0004','10% off','Everything','Members only','Since 1 Sep 2026',8,1284,38520000,'Live',null],
+  ['p2','Beli 2 Gratis 1 Kaos','PR-0009','Buy 2 get 1','Kaos','Everyone','1 – 31 Oct 2026',6,412,20188000,'Live','c1'],
+  ['p3','Weekend Kemeja Linen 20%','PR-0011','20% off','Kemeja Linen Bara','Everyone','10 – 26 Oct 2026 · Sat, Sun',4,96,6720000,'Live','c1'],
+  ['p4','Sneaker Rp 100.000 off','PR-0010','Rp 100.000 off','Sneaker Arka Low','Everyone','5 – 19 Oct 2026',3,37,3700000,'Paused','c4'],
+  ['p5','Payday 25%','PR-0012','25% off','Kemeja, Kaos','Everyone','25 – 31 Oct 2026',8,0,0,'Scheduled','c2'],
+  ['p6','11.11 Flash 30%','PR-0013','30% off','Everything','Code FLASH1111','11 Nov 2026',8,0,0,'Scheduled','c3'],
+  ['p7','Tote Rp 99.000','PR-0007','Price Rp 99.000','Tote Kanvas Rupa','Everyone','1 – 30 Sep 2026',8,388,19012000,'Ended','c5'],
+]
+// id, name, objective, period, when, offers, stores, target, so far, used, budget, status
+const CAMPS=[
+  ['c1','Back to Campus','Drive sales','1 – 31 Oct 2026','20 days left',2,6,'Promo sales Rp 450 jt','Rp 212,4 jt so far',26908000,40000000,'Live'],
+  ['c2','Payday Oktober','Increase basket size','25 – 31 Oct 2026','Starts in 14 days',1,8,'Basket Rp 450.000','',0,25000000,'Scheduled'],
+  ['c3','11.11','Drive sales','11 Nov 2026','Starts in 31 days',2,8,'Promo sales Rp 1,2 M','',0,60000000,'Scheduled'],
+  ['c4','Cuci Gudang Sneaker','Clear inventory','5 – 19 Oct 2026','Paused 9 Oct 2026',2,3,'Sell-through 60%','41% so far',3700000,15000000,'Paused'],
+  ['c5','Tote Season','Clear inventory','1 – 30 Sep 2026','Ended',1,8,'Sell-through 50%','44%, 6 points short',19012000,20000000,'Ended'],
+]
+// offers inside campaigns that are not promotions
+const EXTRA_OFFERS={
+  c3:[['Voucher Rp 50.000 next visit','Voucher','11 – 30 Nov 2026',8,null,'Scheduled']],
+  c4:[['Cuci Gudang Sneaker −30%','Markdown','5 – 19 Oct 2026',3,11340000,'Live']],
+}
+// code, kind, member, issued, store, face, left, valid until, status
+const VOUCHERS=[
+  ['VC-7Q2K-9MXA','Gift card','Ayu Lestari','2 Oct 2026','Senayan City',500000,500000,'2 Oct 2027','Live'],
+  ['VC-2CJF-6VHN','Refund','Eka Putri','9 Oct 2026','Paris Van Java',749000,749000,'9 Jan 2027','Live'],
+  ['VC-8NWE-2KQS','Goodwill','Citra Maharani','5 Oct 2026','Grand Indonesia',100000,100000,'5 Jan 2027','Live'],
+  ['VC-5RBM-7ZYU','Gift card','Dimas Pratama','14 Aug 2026','PIM 2',1000000,350000,'14 Aug 2027','Live'],
+  ['VC-4XKS-8DMB','Gift card',null,'30 Sep 2026','Beachwalk Bali',250000,250000,'30 Sep 2027','Live'],
+  ['VC-3HTD-41PL','Refund','Budi Santoso','27 Sep 2026','Kemang',459000,0,'27 Dec 2026','Spent'],
+  ['VC-9LPA-3TGE','Goodwill','Fajar Nugroho','1 Sep 2026','Tunjungan Plaza',150000,150000,'1 Dec 2026','Cancelled'],
+]
+// title, code, kind, articles, period, published, by, done, of, behind, status
+const CHANGES=[
+  ['Celana Chino Laras clearance','CH-0110-03','Clearance',1,'From 1 Oct 2026','30 Sep 2026','Rina Wulandari',7,8,'Beachwalk Bali failed','Attention'],
+  ['New price Kaos Oversize Nara','CH-0810-02','Regular price change',1,'From 15 Oct 2026','8 Oct 2026','Rina Wulandari',6,8,'Pakuwon Mall, Beachwalk Bali behind','Scheduled'],
+  ['Kemeja Oxford corrected','CH-0710-01','Correction',1,'From 7 Oct 2026','7 Oct 2026','Andi Saputra',8,8,'','Active'],
+  ['Cuci Gudang Sneaker −30%','CH-0410-01','Markdown',2,'5 – 19 Oct 2026','4 Oct 2026','Rina Wulandari',3,3,'','Active'],
+  ['Sandal Rinjani new season price','CH-2809-01','Regular price change',3,'From 1 Oct 2026','28 Sep 2026','Maya Kusuma',8,8,'','Active'],
+  ['Tote Kanvas Rupa back to base','CH-3009-02','Regular price change',1,'From 1 Oct 2026','30 Sep 2026','Rina Wulandari',8,8,'','Active'],
+]
+// when, time, article, code, where, from, to, kind, by, trouble
+const HIST=[
+  ['10 Oct 2026','21:04','Celana Chino Laras','21050019','Beachwalk Bali',449000,299000,'Clearance','Not applied by the store',true],
+  ['7 Oct 2026','09:12','Kemeja Oxford','00000002','All stores',85000,58000,'Correction','Andi Saputra'],
+  ['5 Oct 2026','06:00','Sneaker Arka Low','11020341','3 stores',749000,524300,'Markdown','Rina Wulandari'],
+  ['1 Oct 2026','06:00','Celana Chino Laras','21050019','7 stores',449000,299000,'Clearance','Rina Wulandari'],
+  ['1 Oct 2026','06:00','Sandal Rinjani','11040112','All stores',229000,249000,'Regular price change','Maya Kusuma'],
+  ['1 Oct 2026','06:00','Tote Kanvas Rupa','31010007','All stores',99000,199000,'Regular price change','Rina Wulandari'],
+  ['28 Sep 2026','14:31','Sandal Rinjani','11040112','Beachwalk Bali',229000,269000,'Store price','Komang Adi'],
+]
+// article, code, skus, division, base, per-store [set, final, tag, cls]
+const PL=(()=>{
+  const same=(v)=>STORES.map(()=>[v,v,'',''])
+  const rows=[
+    ['Kemeja Linen Bara','21010208',6,'Pria',349000,same(349000)],
+    ['Kaos Oversize Nara','21030044',8,'Unisex',150000,same(150000)],
+    ['Sneaker Arka Low','11020341',10,'Footwear',749000,same(749000)],
+    ['Sandal Rinjani','11040112',7,'Footwear',249000,same(249000)],
+    ['Celana Chino Laras','21050019',6,'Pria',449000,same(449000)],
+    ['Kaos Polos Basic','21030051',9,'Unisex',89000,same(89000)],
+    ['Tote Kanvas Rupa','31010007',1,'Accessories',199000,same(199000)],
+    ['Kemeja Oxford','00000002',12,'Pria',58000,same(58000)],
+  ]
+  ;[0,1,2,5].forEach(s=>rows[0][5][s]=[349000,279200,'20% off · weekend','pr'])
+  ;[0,1,2].forEach(s=>rows[2][5][s]=[524300,524300,'Markdown −30%','md'])
+  rows[3][5][7]=[269000,269000,'Store price','store']
+  ;[0,1,2,3,4,5,6].forEach(s=>rows[4][5][s]=[299000,299000,'Clearance','md'])
+  rows[4][5][7]=[449000,449000,'Clearance not applied','bad']
+  ;[0,1,2,3,5,6].forEach(s=>rows[5][5][s]=[89000,59333,'Buy 2 get 1','pr'])
+  rows[1][5][6]=[150000,150000,'159.000 not received','bad']
+  rows[1][5][7]=[150000,150000,'159.000 not received','bad']
+  return rows
+})()
+
+/* ───────────────────────── building blocks ───────────────────────── */
+const head=(title,figs=[],sub='')=>`<div class="ph ${figs.length?'':'bare'}"><div class="pt"><h1>${title}</h1>${sub?`<div class="sub">${sub}</div>`:''}</div>${figs.length?`<div class="figs">${figs.map(f=>`<div class="fig"><div class="l">${f[0]}</div><div class="v ${f[2]||''}">${f[1]}</div></div>`).join('')}</div>`:''}</div>`
+const tabs=(key,list)=>{const a=S.tab[key]||list[0][0];return `<div class="tabs">${list.map(([k,l,c])=>`<button class="tab ${k===a?'on':''}" data-tab="${key}:${k}">${l}${c!=null?`<span class="c">${c}</span>`:''}</button>`).join('')}</div>`}
+const tabOf=(key,def)=>S.tab[key]||def
+const search=ph=>`<label class="search">${ic('search')}<input placeholder="${ph}"></label>`
+const sel=opts=>`<label class="sel"><select>${opts.map(o=>`<option>${o}</option>`).join('')}</select>${ic('chev')}</label>`
+const btnP=(l,icon='plus')=>`<button class="btn btn-p" type="button">${icon?ic(icon):''}${l}</button>`
+const btnG=(l,icon)=>`<button class="btn btn-g" type="button">${icon?ic(icon):''}${l}</button>`
+const bar=(l,r)=>`<div class="bar"><div class="l">${l}</div><div class="r">${r}</div></div>`
+const tbl=(cols,rows,foot='')=>`<div class="tw"><table><colgroup>${cols.map(c=>`<col${c[1]?` style="width:${c[1]}"`:''}>`).join('')}</colgroup><thead><tr>${cols.map(c=>`<th class="${c[2]||''}">${c[0]}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody>${foot?`<tfoot><tr>${foot}</tr></tfoot>`:''}</table></div>`
+const card=(inner,h)=>`<section class="card">${h||''}${inner}</section>`
+const statusTabs=(key,items,col,order)=>tabs(key,[['all','All',items.length],...order.map(s=>[s,s,items.filter(x=>x[col]===s).length])])
+const byTab=(key,items,col)=>{const t=tabOf(key,'all');return t==='all'?items:items.filter(x=>x[col]===t)}
+
+/* ───────────────────────── screens ───────────────────────── */
+const SCREENS={
+overview:(label)=>{
+  const live=[
+    ['Member 10%','Promotion · Members only',8,'No end',512,14880000,'promotions'],
+    ['Beli 2 Gratis 1 Kaos','Promotion · Back to Campus',6,'31 Oct 2026',412,20188000,'promotions'],
+    ['Cuci Gudang Sneaker −30%','Markdown · CH-0410-01',3,'19 Oct 2026',189,11340000,'changes'],
+    ['Weekend Kemeja Linen 20%','Promotion · Back to Campus',4,'26 Oct 2026',96,6720000,'promotions'],
+  ]
+  const needs=[
+    ['bad','Beachwalk Bali didn’t take a price change','Celana Chino Laras clearance · 1 Oct 2026','changes'],
+    ['warn','2 stores behind on a new price','Kaos Oversize Nara · starts 15 Oct 2026','changes'],
+    ['warn','Sneaker Rp 100.000 off is paused','Cuci Gudang Sneaker · since 9 Oct 2026','promotions'],
+    ['warn','Back to Campus used 67% of its budget','Rp 26.908.000 of Rp 40.000.000 · 20 days left','campaigns'],
+    ['','3 vouchers expire this week','Rp 1.250.000 left on them','vouchers'],
+  ]
+  const soon=[
+    ['15 Oct 2026','New price Kaos Oversize Nara','Price change · CH-0810-02','8 stores','2 behind','changes'],
+    ['25 Oct 2026','Payday 25%','Promotion · Payday Oktober','8 stores','','promotions'],
+    ['11 Nov 2026','11.11 Flash 30%','Promotion · code FLASH1111','8 stores','','promotions'],
+  ]
+  return head(label,[['Given away · Oct','Rp 56,8 jt'],['Baskets','1.246'],['Live offers','4'],['Vouchers owed','Rp 14,4 jt'],['Stores behind','2','warn']])+
+  `<div class="ovg">`+
+  card(tbl([['Offer'],['Stores','92px','n'],['Ends','144px'],['Given away','164px','n']],
+    live.map(r=>`<tr class="link" data-go="${r[6]}"><td>${two(r[0],r[1])}</td><td class="n">${r[2]}</td><td>${r[3]}</td><td class="n fig1">${n(r[5])}</td></tr>`),
+    `<td>4 live</td><td></td><td></td><td class="n">Rp 53.128.000</td>`),
+    `<div class="ch"><h2>Live now</h2></div>`)+
+  card(needs.map(x=>`<div class="need" data-go="${x[3]}"><span class="d ${x[0]}"></span><div class="tx"><div class="m1">${x[1]}</div><div class="m2">${x[2]}</div></div>${ic('right')}</div>`).join(''),`<div class="ch"><h2>Needs someone</h2><span class="t2 num">5</span></div>`)+
+  `</div>`+
+  card(tbl([['Starts','150px'],['What'],['Stores','160px']],soon.map(r=>`<tr class="link" data-go="${r[5]}"><td>${r[0]}</td><td>${two(r[1],r[2])}</td><td>${two(r[3],r[4],'warn')}</td></tr>`)),`<div class="ch"><h2>Coming up</h2></div>`)
+},
+
+pricelist:(label)=>{
+  const fin=S.price==='final'
+  const shown=[0,1,2,3,4,5,6,7]
+  return head(label,[['Articles','12.480'],['On markdown','14'],['On promotion','38'],['Stores behind','2','warn']])+
+  bar(`${search('Article name or code')}${sel(['All divisions','Pria','Wanita','Unisex','Footwear','Accessories'])}${sel(['All tags','Kaos','Kemeja','Blus'])}<div class="segm"><button data-price="list" class="${fin?'':'on'}">Pricelist</button><button data-price="final" class="${fin?'on':''}">Final price</button></div>`,btnG('Columns')+btnP('Change price',''))+
+  `<div class="bar" style="margin-top:-2px"><div class="legend"><span><i></i>Base price</span><span><i class="store"></i>Store price</span><span><i class="md"></i>Markdown</span><span><i class="pr"></i>Promotion</span></div></div>`+
+  card(`<div class="tw"><table class="pg"><colgroup><col style="width:270px"><col style="width:120px"><col style="width:132px">${shown.map(()=>'<col style="width:140px">').join('')}</colgroup>
+  <thead><tr><th class="stick">Article</th><th>Division</th><th class="n">Base price</th>${shown.map(s=>`<th class="n">${STORES[s]}</th>`).join('')}</tr></thead><tbody>
+  ${PL.map(r=>`<tr class="link"><td class="stick">${two(r[0],`<span class="mono">${r[1]}</span> · ${r[2]} SKU`)}</td><td>${r[3]}</td><td class="pc base">${n(r[4])}</td>${shown.map(s=>{const c=r[5][s];const show=fin?c[1]:c[0];const cls=c[3]==='pr'?(fin?'pr':''):c[3];const same=!c[3]&&show===r[4];const tag=(c[3]==='pr'&&!fin)?'':c[2];return `<td class="pc ${cls} ${same?'':''}">${same?`<span>${n(show)}</span>`:n(show)}${tag?`<span class="tg">${tag}</span>`:''}</td>`}).join('')}</tr>`).join('')}
+  </tbody><tfoot><tr><td class="stick">8 of 12.480 articles</td><td colspan="${2+shown.length}"></td></tr></tfoot></table></div>`)
+},
+
+changes:(label)=>{
+  const k='chg',rows=byTab(k,CHANGES,10)
+  return head(label,[['On the list','6'],['Outstanding','2','warn'],['Attention','1','bad']])+
+  statusTabs(k,CHANGES,10,['Scheduled','Active','Attention'])+
+  bar(`${search('Change, article or code')}${sel(['All kinds','Regular price change','Markdown','Clearance','Correction'])}${sel(['All stores',...STORES])}`,btnG('Include settled')+btnP('Change price',''))+
+  card(tbl([['Change'],['Articles','96px','n'],['Period','170px'],['Published','170px'],['Rollout','230px'],['Status','112px']],
+    rows.map(r=>`<tr class="link"><td>${two(r[0],`<span class="mono">${r[1]}</span> · ${r[2]}`)}</td><td class="n">${r[3]}</td><td>${r[4]}</td><td>${two(r[5],r[6])}</td><td>${two(`${r[7]} of ${r[8]} stores`,r[9],r[10]==='Attention'?'bad':'warn')}</td><td>${st(r[10])}</td></tr>`),
+    `<td>${rows.length} changes</td><td></td><td></td><td></td><td></td><td></td>`))
+},
+
+history:(label)=>{
+  const t=tabOf('his','all'),rows=t==='trouble'?HIST.filter(h=>h[9]):HIST
+  return head(label)+tabs('his',[['all','Everything',HIST.length],['pub','Published',HIST.length-1],['trouble','Trouble',1]])+
+  bar(`${search('Article name or code')}${sel(['All stores',...STORES])}${sel(['Last 30 days','This season','Custom…'])}`,btnG('Export'))+
+  card(tbl([['When','140px'],['Article'],['Where','150px'],['Price','200px','n'],['Kind','180px'],['By','180px']],
+    rows.map(h=>{const d=h[6]-h[5];return `<tr class="link"><td>${two(h[0],h[1])}</td><td>${two(h[2],`<span class="mono">${h[3]}</span>`)}</td><td>${h[4]}</td><td class="n">${two(`${n(h[5])} → ${n(h[6])}`,`${d<0?'−':'+'}Rp ${n(Math.abs(d))}`)}</td><td>${h[7]}</td><td>${h[9]?`<span class="st att">${h[8]}</span>`:h[8]}</td></tr>`})))
+},
+
+promotions:(label)=>{
+  const k='pro',rows=byTab(k,PROMOS,10)
+  return head(label,[['Live','3'],['Given away · Oct','Rp 45,5 jt'],['Baskets · Oct','1.057']])+
+  statusTabs(k,PROMOS,10,['Live','Paused','Scheduled','Ended'])+
+  bar(`${search('Promotion or code')}${sel(['All stores',...STORES])}${sel(['Everyone and members','Everyone','Members only'])}`,btnG('Sync usage','sync')+btnP('New promotion'))+
+  card(tbl([['Promotion'],['Benefit','150px'],['Applies to','160px'],['Period','184px'],['Stores','92px','n'],['Usage','156px','n'],['Status','106px']],
+    rows.map(p=>`<tr class="link"><td>${two(p[1],`<span class="mono">${p[2]}</span> · ${p[5]}`)}</td><td>${p[3]}</td><td>${p[4]}</td><td>${p[6]}</td><td class="n">${p[7]}</td><td class="n">${p[8]?two(`${n(p[8])} baskets`,rp(p[9])):'<span class="t2">—</span>'}</td><td>${st(p[10])}</td></tr>`),
+    `<td>${rows.length} promotions</td><td></td><td></td><td></td><td></td><td class="n">${rp(rows.reduce((a,p)=>a+p[9],0))}</td><td></td>`))
+},
+
+campaigns:(label)=>{
+  const k='cam',rows=byTab(k,CAMPS,11)
+  return head(label,[['Live','1'],['Budget','Rp 160 jt'],['Used','Rp 49,6 jt']])+
+  statusTabs(k,CAMPS,11,['Live','Scheduled','Paused','Ended'])+
+  bar(`${search('Campaign')}${sel(['All objectives','Drive sales','Increase basket size','Clear inventory','Acquire customers'])}${sel(['All stores',...STORES])}`,btnP('New campaign'))+
+  card(tbl([['Campaign'],['Runs','172px'],['Offers','84px','n'],['Stores','92px','n'],['Target','212px'],['Budget used','180px','n'],['Status','104px']],
+    rows.map(c=>`<tr class="link"><td>${two(c[1],c[2])}</td><td>${two(c[3],c[4])}</td><td class="n">${c[5]}</td><td class="n">${c[6]}</td><td>${two(c[7],c[8])}</td><td class="n">${two(rp(c[9]),`of ${rp(c[10])} · ${Math.round(c[9]/c[10]*100)}%`)}</td><td>${st(c[11])}</td></tr>`),
+    `<td>${rows.length} campaigns</td><td></td><td></td><td></td><td></td><td class="n">${rp(rows.reduce((a,c)=>a+c[9],0))}</td><td></td>`))
+},
+
+// C · campaigns hold their offers
+tree:(label)=>{
+  const k='tre',t=tabOf(k,'all')
+  const ok=s=>t==='all'||s===t
+  const kidRows=(cid)=>[...PROMOS.filter(p=>p[11]===cid).map(p=>[p[1],'Promotion',p[6],p[7],p[9],p[10]]),...(EXTRA_OFFERS[cid]||[])]
+  const grp=(id,name,sub,runs,stores,given,budget,status,pin)=>{
+    const open=S.exp[id]!==undefined?S.exp[id]:(id==='always'||id==='c1')
+    const kids=kidRows(id==='always'?null:id)
+    return `<tr class="link grp ${pin?'pin':''}" data-exp="${id}"><td>${`<div class="m1"><span class="caret ${open?'open':''}">${ic('right')}</span>${name}</div><div class="m2" style="padding-left:20px">${sub}</div>`}</td><td>${runs}</td><td class="n">${stores}</td><td class="n">${given}</td><td class="n">${budget}</td><td>${status?st(status):''}</td></tr>`+
+      (open?kids.map((o,i)=>`<tr class="link kid ${i===kids.length-1?'last':''}"><td>${two(o[0],o[1])}</td><td>${o[2]}</td><td class="n">${o[3]}</td><td class="n">${o[4]?rp(o[4]):'<span class="t2">—</span>'}</td><td></td><td>${st(o[5])}</td></tr>`).join(''):'')
+  }
+  const rows=[]
+  if(t==='all'||t==='Live') rows.push(grp('always','Always on','No campaign · 1 promotion','No end',8,rp(38520000),'<span class="t2">—</span>','',true))
+  CAMPS.filter(c=>ok(c[11])).forEach(c=>rows.push(grp(c[0],c[1],`${c[2]} · ${c[5]} offers`,two(c[3],c[4]),c[6],c[9]?rp(c[9]):'<span class="t2">—</span>',two(`${Math.round(c[9]/c[10]*100)}%`,`of ${rp(c[10])}`),c[11])))
+  return head(label,[['Live offers','4'],['Given away · Oct','Rp 56,8 jt'],['Budget used','Rp 49,6 jt']])+
+  statusTabs(k,CAMPS,11,['Live','Scheduled','Paused','Ended'])+
+  bar(`${search('Campaign, promotion or code')}${sel(['All stores',...STORES])}${sel(['All kinds','Promotion','Markdown','Voucher'])}`,btnG('Sync usage','sync')+btnG('New promotion','plus')+btnP('New campaign'))+
+  card(tbl([['Campaign · offer'],['Runs','200px'],['Stores','90px','n'],['Given away','160px','n'],['Budget','170px','n'],['Status','106px']],rows))
+},
+
+vouchers:(label)=>{
+  const k='vou',rows=byTab(k,VOUCHERS,8)
+  return head(label,[['Outstanding','Rp 14.350.000'],['Live','61'],['Issued · Oct','Rp 22.800.000'],['Spent · Oct','Rp 7.200.000'],['Expired','Rp 800.000']])+
+  statusTabs(k,VOUCHERS,8,['Live','Spent','Cancelled'])+
+  bar(`${search('Code or member')}${sel(['All kinds','Gift card','Refund','Goodwill'])}${sel(['All stores',...STORES])}`,btnG('Coupons','ticket')+btnP('New voucher'))+
+  card(tbl([['Voucher'],['Member','190px'],['Issued','190px'],['Face value','140px','n'],['Left on it','140px','n'],['Valid until','140px'],['Status','100px']],
+    rows.map(v=>`<tr class="link"><td>${two(`<span class="mono" style="color:var(--ink);font-weight:500">${v[0]}</span>`,v[1])}</td><td>${v[2]||'<span class="t2">No member</span>'}</td><td>${two(v[3],v[4])}</td><td class="n">${rp(v[5])}</td><td class="n fig1">${v[6]?rp(v[6]):'<span class="t2">0</span>'}</td><td>${v[7]}</td><td>${st(v[8])}</td></tr>`),
+    `<td>${rows.length} of 84 vouchers</td><td></td><td></td><td class="n">${rp(rows.reduce((a,v)=>a+v[5],0))}</td><td class="n">${rp(rows.reduce((a,v)=>a+(v[8]==='Live'?v[6]:0),0))}</td><td></td><td></td>`))
+},
+
+/* ── D · Odoo 17 (Sales › Products) ── */
+odPricelists:(label)=>head(label)+
+  bar(`${search('Search…')}${sel(['Filters','Active','Archived'])}${sel(['Group by','Store','Currency'])}`,btnP('New',''))+
+  card(tbl([['Pricelist Name'],['Stores','200px'],['Price Rules','150px','n'],['Valid','200px'],['Currency','120px']],[
+    ['Harga Dasar','All stores',12480,'Always','IDR'],['Senayan City','1 store',36,'Always','IDR'],['Beachwalk Bali','1 store',210,'Always','IDR'],
+    ['Markdown Cuci Gudang Sneaker','3 stores',2,'5 – 19 Oct 2026','IDR'],['Clearance Celana Chino','7 stores',1,'From 1 Oct 2026','IDR']]
+    .map(r=>`<tr class="link"><td class="m1">${r[0]}</td><td>${r[1]}</td><td class="n">${n(r[2])}</td><td>${r[3]}</td><td>${r[4]}</td></tr>`))),
+odLoyalty:(label)=>{
+  const map={p1:'Promotions',p2:'Buy X Get Y',p3:'Promotions',p4:'Promotions',p5:'Promotions',p6:'Discount Code',p7:'Promotions'}
+  return head(label)+tabs('odl',[['all','Active',6],['arc','Archived',1]])+
+  bar(`${search('Search…')}${sel(['Program Type','Promotions','Buy X Get Y','Discount Code','Coupons','Next Order Coupons','Loyalty Cards'])}${sel(['Group by','Program Type','Store'])}`,btnP('New',''))+
+  card(tbl([['Program Name'],['Program Type','170px'],['Start Date','140px'],['End Date','140px'],['Stores','90px','n'],['Uses','110px','n'],['Status','110px']],
+    PROMOS.filter(p=>tabOf('odl','all')==='arc'?p[10]==='Ended':p[10]!=='Ended').map(p=>{const pr=p[6].split(' – ');return `<tr class="link"><td class="m1">${p[1]}</td><td>${map[p[0]]}</td><td>${p[0]==='p1'?'1 Sep 2026':pr.length>1?pr[0]+' '+pr[1].split(' ').slice(1,3).join(' ').replace(/ ·.*/,''):p[6]}</td><td>${p[0]==='p1'?'<span class="t2">—</span>':pr.length>1?pr[1].replace(/ ·.*/,''):p[6]}</td><td class="n">${p[7]}</td><td class="n">${p[8]?n(p[8]):'<span class="t2">0</span>'}</td><td>${st(p[10]==='Ended'?'Archived':p[10])}</td></tr>`})))
+},
+odGift:(label)=>head(label)+
+  bar(`${search('Search…')}${sel(['Program','Gift Cards','eWallet'])}${sel(['Group by','Program','Customer'])}`,btnG('Generate cards','')+btnP('New',''))+
+  card(tbl([['Code'],['Program','150px'],['Customer','200px'],['Balance','150px','n'],['Expiration Date','160px']],
+    VOUCHERS.map(v=>`<tr class="link"><td><span class="mono" style="color:var(--ink);font-weight:500">${v[0]}</span></td><td>${v[1]==='Refund'?'eWallet':'Gift Cards'}</td><td>${v[2]||'<span class="t2">—</span>'}</td><td class="n">${rp(v[8]==='Cancelled'?0:v[6])}</td><td>${v[7]}</td></tr>`))),
+
+/* ── E · ERPNext v15 (Selling › Items and Pricing, CRM › Campaign) ── */
+erPriceList:(label)=>head(label)+bar(`${search('ID')}${sel(['Enabled','Disabled'])}${sel(['Selling','Buying'])}`,btnP('Add Price List',''))+
+  card(tbl([['Price List Name'],['Currency','120px'],['Buying','110px'],['Selling','110px'],['Status','120px'],['Last edited','140px']],[
+    ['Standard Selling','IDR','','Yes','Enabled','3 d'],['Standard Buying','IDR','Yes','','Enabled','12 d'],['Harga Senayan City','IDR','','Yes','Enabled','6 d'],
+    ['Harga Beachwalk Bali','IDR','','Yes','Enabled','13 d'],['Markdown Oktober','IDR','','Yes','Enabled','7 d']]
+    .map(r=>`<tr class="link"><td class="m1">${r[0]}</td><td>${r[1]}</td><td>${r[2]||'<span class="t2">—</span>'}</td><td>${r[3]||'<span class="t2">—</span>'}</td><td>${st(r[4])}</td><td class="t2">${r[5]}</td></tr>`))),
+erItemPrice:(label)=>head(label)+bar(`${search('Item Code')}${sel(['Price List','Standard Selling','Harga Senayan City','Markdown Oktober'])}${sel(['UOM','Pcs'])}`,btnP('Add Item Price',''))+
+  card(tbl([['Item Code'],['Item Name','240px'],['Price List','200px'],['Rate','140px','n'],['Valid From','140px'],['UOM','90px']],
+    PL.map(r=>`<tr class="link"><td><span class="mono" style="color:var(--ink);font-weight:500">${r[1]}</span></td><td>${r[0]}</td><td>Standard Selling</td><td class="n">${rp(r[4])}</td><td>${r[0]==='Sandal Rinjani'?'1 Oct 2026':'1 Jul 2026'}</td><td>Pcs</td></tr>`)
+    .concat([`<tr class="link"><td><span class="mono" style="color:var(--ink);font-weight:500">11020341</span></td><td>Sneaker Arka Low</td><td>Markdown Oktober</td><td class="n">${rp(524300)}</td><td>5 Oct 2026</td><td>Pcs</td></tr>`]))),
+erPricingRule:(label)=>head(label)+bar(`${search('ID')}${sel(['Apply On','Item Code','Item Group','Brand','Transaction'])}${sel(['Enabled','Disabled'])}`,btnP('Add Pricing Rule',''))+
+  card(tbl([['Title'],['Apply On','150px'],['Discount Type','190px'],['Discount','130px','n'],['Valid From','144px'],['Valid Upto','144px'],['Status','110px']],[
+    ['Member 10%','Item Group','Discount Percentage','10%','1 Sep 2026','','Enabled'],['Weekend Kemeja Linen 20%','Item Code','Discount Percentage','20%','10 Oct 2026','26 Oct 2026','Enabled'],
+    ['Sneaker Rp 100.000 off','Item Code','Discount Amount','Rp 100.000','5 Oct 2026','19 Oct 2026','Disabled'],['Payday 25%','Item Group','Discount Percentage','25%','25 Oct 2026','31 Oct 2026','Enabled'],
+    ['11.11 Flash 30%','Transaction','Discount Percentage','30%','11 Nov 2026','11 Nov 2026','Enabled'],['Tote Rp 99.000','Item Code','Rate','Rp 99.000','1 Sep 2026','30 Sep 2026','Disabled']]
+    .map(r=>`<tr class="link"><td class="m1">${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td><td class="n">${r[3]}</td><td>${r[4]}</td><td>${r[5]||'<span class="t2">—</span>'}</td><td>${st(r[6])}</td></tr>`))),
+erPromo:(label)=>head(label)+bar(`${search('ID')}${sel(['Apply On','Item Code','Item Group'])}${sel(['Selling','Buying'])}`,btnP('Add Promotional Scheme',''))+
+  card(tbl([['Title'],['Apply On','150px'],['Slabs','220px'],['Valid From','144px'],['Valid Upto','144px'],['Status','110px']],[
+    ['Beli 2 Gratis 1 Kaos','Item Group','Product discount · buy 2, free 1','1 Oct 2026','31 Oct 2026','Enabled'],
+    ['Back to Campus Kemeja','Item Code','Price discount · 20% from 1 pcs','10 Oct 2026','26 Oct 2026','Enabled']]
+    .map(r=>`<tr class="link"><td class="m1">${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td><td>${r[3]}</td><td>${r[4]}</td><td>${st(r[5])}</td></tr>`))),
+erCoupon:(label)=>head(label)+bar(`${search('ID')}${sel(['Coupon Type','Promotional','Gift Card'])}`,btnP('Add Coupon Code',''))+
+  card(tbl([['Coupon Name'],['Coupon Code','170px'],['Coupon Type','140px'],['Pricing Rule','200px'],['Used','120px','n'],['Valid Upto','144px']],[
+    ['11.11 Flash','FLASH1111','Promotional','11.11 Flash 30%','0 of 5.000','11 Nov 2026'],['Voucher next visit 11.11','NEXT50K','Promotional','Voucher Rp 50.000','0 of 2.000','30 Nov 2026'],
+    ['Gift card Ayu Lestari','VC-7Q2K-9MXA','Gift Card','Gift card Rp 500.000','0 of 1','2 Oct 2027']]
+    .map(r=>`<tr class="link"><td class="m1">${r[0]}</td><td><span class="mono">${r[1]}</span></td><td>${r[2]}</td><td>${r[3]}</td><td class="n">${r[4]}</td><td>${r[5]}</td></tr>`))),
+erCampaign:(label)=>head(label)+bar(`${search('ID')}`,btnP('Add Campaign',''))+
+  card(tbl([['Campaign Name'],['Schedules','160px','n'],['Last edited','140px']],CAMPS.map(c=>`<tr class="link"><td class="m1">${c[1]}</td><td class="n">${c[5]}</td><td class="t2">${c[0]==='c1'?'1 d':c[0]==='c5'?'41 d':'5 d'}</td></tr>`))),
+}
+
+/* ───────────────────────── options ───────────────────────── */
+const R=(id,label,s,extra={})=>({id,label,s:s||id,...extra})
+const OPTS=[
+  {k:'today',key:'Today',name:'',note:['<b>4 rows</b>','Owner’s menu of 28 Sep','Overview, Changes and History only through ⌘K'],
+   nav:[R('pricelist','Pricelist'),R('promotions','Promotions'),R('campaigns','Campaigns'),R('vouchers','Vouchers')],
+   hidden:[R('overview','Overview'),R('changes','Changes'),R('history','History')]},
+  {k:'a',key:'A',name:'Overview on top',note:['<b>5 rows</b>','Overview opens the department: live now, needs someone, coming up','Changes and History stay in ⌘K'],
+   nav:[R('overview','Overview'),R('pricelist','Pricelist'),R('promotions','Promotions'),R('campaigns','Campaigns'),R('vouchers','Vouchers')],
+   hidden:[R('changes','Changes'),R('history','History')]},
+  {k:'b',key:'B',name:'Prices + Offers',star:true,note:['<b>Overview + 2 folds</b>','Prices: Pricelist · Price changes · Price history','Offers: Campaigns · Promotions · Vouchers'],
+   nav:[R('overview','Overview'),{fold:'Prices',rows:[R('pricelist','Pricelist'),R('changes','Price changes','changes',{count:1,tone:'bad'}),R('history','Price history')]},
+        {fold:'Offers',rows:[R('campaigns','Campaigns'),R('promotions','Promotions'),R('vouchers','Vouchers')]}]},
+  {k:'c',key:'C',name:'Campaign first',note:['<b>3 rows</b>','Every promotion and markdown sits inside its campaign','Always on holds the rest','Changes and History stay in ⌘K'],
+   nav:[R('campaigns','Campaigns','tree'),R('pricelist','Pricelist'),R('vouchers','Vouchers')],
+   hidden:[R('changes','Changes'),R('history','History')]},
+  {k:'d',key:'D',name:'Odoo',note:['<b>Odoo 17, Sales › Products</b>','Pricelists · Discount & Loyalty · Gift cards & eWallet, copied as is','Campaigns filed after, ours','From product knowledge'],
+   nav:[R('odp','Pricelists','odPricelists'),R('odl','Discount & Loyalty','odLoyalty'),R('odg','Gift cards & eWallet','odGift'),{sep:true},R('campaigns','Campaigns')]},
+  {k:'e',key:'E',name:'ERPNext',note:['<b>ERPNext v15, Selling › Items and Pricing + CRM</b>','six doctypes copied as is','Vouchers filed after, ours'],
+   nav:[R('erl','Price List','erPriceList'),R('eri','Item Price','erItemPrice'),R('err','Pricing Rule','erPricingRule'),R('ers','Promotional Scheme','erPromo'),R('erc','Coupon Code','erCoupon'),R('erk','Campaign','erCampaign'),{sep:true},R('vouchers','Vouchers')]},
+  {k:'cmp',key:'Compare',name:'',note:['<b>Where each screen lives</b>','in every option'],nav:[]},
+]
+const flat=o=>o.nav.flatMap(x=>x.fold?x.rows:x.sep?[]:[x])
+
+/* ───────────────────────── state ───────────────────────── */
+const S={opt:'b',at:{},tab:{},exp:{},open:{},price:'list',phone:false}
+try{Object.assign(S,JSON.parse(localStorage.getItem('mkt-menu-proto')||'{}'));S.phone=false}catch(e){}
+const save=()=>{try{localStorage.setItem('mkt-menu-proto',JSON.stringify({opt:S.opt,at:S.at,price:S.price}))}catch(e){}}
+const opt=()=>OPTS.find(o=>o.k===S.opt)||OPTS[2]
+const current=()=>{const o=opt();const all=[...flat(o),...(o.hidden||[])];return all.find(r=>r.id===S.at[o.k])||flat(o)[0]}
+
+/* ───────────────────────── render ───────────────────────── */
+function renderSeg(){
+  document.getElementById('seg').innerHTML=OPTS.map(o=>`<button role="tab" aria-selected="${o.k===S.opt}" class="${o.k===S.opt?'on':''}" data-opt="${o.k}"><b>${o.key}</b>${o.name}${o.star?'<span class="star">★</span>':''}</button>`).join('')
+}
+function renderNote(){
+  const o=opt()
+  document.getElementById('note').innerHTML=o.note.join('<span class="dotsep">·</span>')
+}
+function renderRail(){
+  const items=[['cart',1],['shirt',1],['truck',1],['boxes',0],['mega',0,1],['store',0],['bank',1],['users',0],['chat',0],['book',1]]
+  document.getElementById('rail').innerHTML=`<div class="logo">C</div>${items.map(([i,b,on])=>`<div class="ri ${on?'on':''}">${ic(i)}${b?'<span class="bd"></span>':''}</div>`).join('')}<div class="gap"></div><div class="ri">${ic('chat')}</div><div class="ri">${ic('bell')}</div><div class="av">R</div><div class="ri">${ic('out')}</div>`
+}
+function navRows(o,cur,big){
+  const row=r=>`<button class="row ${cur&&r.id===cur.id?'on':''}" data-go="${r.id}"><span class="lb">${r.label}</span>${r.count?`<span class="ct ${r.tone||''}">${r.count}</span>`:''}</button>`
+  return o.nav.map(x=>{
+    if(x.sep) return '<div class="navsep"></div>'
+    if(!x.fold) return row(x)
+    const inside=x.rows.some(r=>cur&&r.id===cur.id)
+    const key=o.k+':'+x.fold
+    const open=S.open[key]!==undefined?S.open[key]:inside
+    const badges=!open?x.rows.filter(r=>r.count).map(r=>`<span class="ct ${r.tone||''}">${r.count}</span>`).join(''):''
+    return `<button class="row fold ${inside&&!open?'in':''}" aria-expanded="${open}" data-fold="${key}"><span class="lb">${x.fold}</span>${badges}${ic('right','i chev')}</button><div class="kids ${open?'open':''}"><div>${x.rows.map(row).join('')}</div></div>`
+  }).join('')
+}
+function renderDept(){
+  const o=opt(),cur=current()
+  document.getElementById('app').classList.toggle('wide',o.k==='cmp')
+  document.getElementById('dept').innerHTML=`<div class="dh"><h2>Marketing</h2>${ic('panel')}</div><div class="rows">${navRows(o,cur)}</div><div class="clock">${ic('clock')}Sun 11 Oct 2026 · 06:35</div>`
+}
+function renderMain(){
+  const o=opt(),m=document.getElementById('main')
+  if(o.k==='cmp'){m.innerHTML=`<div class="page">${compare()}</div>`;return}
+  const cur=current()
+  m.innerHTML=`<div class="page">${SCREENS[cur.s](cur.label)}</div>`
+}
+function compare(){
+  // screen → where it lives per option
+  const W=[
+    ['Overview','⌘K only','Overview','Overview','—','—','—'],
+    ['Pricelist','Pricelist','Pricelist','Prices › Pricelist','Pricelist','Pricelists','Price List + Item Price'],
+    ['Price changes','⌘K only','⌘K only','Prices › Price changes','⌘K only','A pricelist per markdown','A Price List per markdown'],
+    ['Price history','⌘K only','⌘K only','Prices › Price history','⌘K only','—','—'],
+    ['Promotions','Promotions','Promotions','Offers › Promotions','Inside its campaign','Discount & Loyalty','Pricing Rule + Promotional Scheme'],
+    ['Coupons','Inside a promotion','Inside a promotion','Inside a promotion','Inside a promotion','Discount & Loyalty','Coupon Code'],
+    ['Campaigns','Campaigns','Campaigns','Offers › Campaigns','Campaigns','Campaigns, ours','Campaign'],
+    ['Vouchers','Vouchers','Vouchers','Offers › Vouchers','Vouchers','Gift cards & eWallet','Vouchers, ours'],
+  ]
+  const cols=['Today','A · Overview on top','B · Prices + Offers ★','C · Campaign first','D · Odoo','E · ERPNext']
+  const tot=['Rows in the menu','4','5','7 in 2 folds','3','4','7']
+  const cell=v=>v==='—'?'<span class="no">—</span>':v==='⌘K only'?'<span class="k">⌘K only</span>':v
+  return head('Compare')+card(`<div class="tw"><table class="cmp"><colgroup><col style="width:170px">${cols.map(()=>'<col>').join('')}</colgroup><thead><tr><th>Screen</th>${cols.map((c,i)=>`<th class="${i===2?'star':''}">${c}</th>`).join('')}</tr></thead><tbody>
+    <tr class="tot">${tot.map(t=>`<td>${t}</td>`).join('')}</tr>
+    ${W.map(r=>`<tr>${r.map((v,i)=>`<td>${i?cell(v):v}</td>`).join('')}</tr>`).join('')}
+  </tbody></table></div>`)
+}
+function renderPhone(){
+  const w=document.getElementById('phw'),o=opt(),cur=current()
+  if(o.k==='cmp'){S.phone=false}
+  w.setAttribute('aria-hidden',!S.phone)
+  if(!S.phone){w.classList.remove('on');return}
+  w.classList.remove('on')
+  w.innerHTML=`<div class="phone"><div class="tb"><span class="dp">Marketing /</span><span class="sc">${cur?cur.label:''}${ic('chev','i')}</span></div><div class="sk"><div></div><div></div><div></div><div></div></div><div class="scrim" data-close></div>
+    <div class="sheet" role="dialog" aria-label="Marketing menu"><div class="hd"></div><div class="sh"><h3>Marketing</h3><button class="x" data-close aria-label="Close">${ic('x')}</button></div>${navRows(o,cur,true)}</div></div>`
+  void w.offsetHeight
+  w.classList.add('on')
+}
+function render(){renderSeg();renderNote();renderDept();renderMain();renderPhone();save()}
+
+/* ───────────────────────── events ───────────────────────── */
+document.addEventListener('click',e=>{
+  const t=e.target.closest('[data-opt],[data-go],[data-fold],[data-tab],[data-exp],[data-price],[data-close],#phoneBtn')
+  if(!t) return
+  if(t.dataset.opt){S.opt=t.dataset.opt;render();document.getElementById('main').scrollTop=0;return}
+  if(t.dataset.go){
+    const o=opt()
+    // a link to a screen the option has under another id (e.g. C's campaigns tree)
+    const all=[...flat(o),...(o.hidden||[])]
+    const hit=all.find(r=>r.id===t.dataset.go)
+    S.at[o.k]=hit?hit.id:t.dataset.go
+    if(!hit){ (o.hidden=o.hidden||[]).push(R(t.dataset.go,t.dataset.go[0].toUpperCase()+t.dataset.go.slice(1))) }
+    const inPhone=!!t.closest('.sheet')
+    if(inPhone){S.phone=false}
+    render();document.getElementById('main').scrollTop=0;return
+  }
+  if(t.dataset.fold){const k=t.dataset.fold;const cur=t.getAttribute('aria-expanded')==='true';S.open[k]=!cur;
+    // animate instead of re-render so the fold slides
+    t.setAttribute('aria-expanded',!cur);t.nextElementSibling.classList.toggle('open',!cur);
+    const f=opt().nav.find(x=>x.fold&&k.endsWith(':'+x.fold));const inside=f&&f.rows.some(r=>r.id===current().id)
+    t.classList.toggle('in',cur&&inside);t.querySelectorAll('.ct').forEach(x=>x.remove())
+    if(cur&&f) t.querySelector('.chev').insertAdjacentHTML('beforebegin',f.rows.filter(r=>r.count).map(r=>`<span class="ct ${r.tone||''}">${r.count}</span>`).join(''))
+    return}
+  if(t.dataset.tab){const [k,v]=t.dataset.tab.split(':');S.tab[k]=v;renderMain();return}
+  if(t.dataset.exp){const id=t.dataset.exp;const open=S.exp[id]!==undefined?S.exp[id]:(id==='always'||id==='c1');S.exp[id]=!open;renderMain();return}
+  if(t.dataset.price){S.price=t.dataset.price;renderMain();save();return}
+  if(t.id==='phoneBtn'){S.phone=!S.phone;renderPhone();return}
+  if(t.hasAttribute('data-close')){S.phone=false;renderPhone();return}
+})
+document.addEventListener('keydown',e=>{
+  if(e.target.closest('input,select')) return
+  if(e.key==='Escape'&&S.phone){S.phone=false;renderPhone();return}
+  if(e.key==='ArrowRight'||e.key==='ArrowLeft'){
+    const i=OPTS.findIndex(o=>o.k===S.opt);const j=(i+(e.key==='ArrowRight'?1:-1)+OPTS.length)%OPTS.length
+    S.opt=OPTS[j].k;render()
+  }
+})
+renderRail();render()
+</script>
+</body>
+</html>

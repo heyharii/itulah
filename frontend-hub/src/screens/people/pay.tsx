@@ -163,7 +163,7 @@ function ResetPayslipPassword({ employeeId }: { employeeId: string }) {
           Reset payslip password
         </Button>
         {reset.data !== undefined && (
-          <span className="text-[0.875rem] text-mute">
+          <span className="text-[0.9375rem] text-mute">
             {reset.data.reset
               ? "Reset. They choose a new one when they next open their payslips."
               : "None was set."}

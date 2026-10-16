@@ -165,7 +165,7 @@ export function LabAccruals() {
                             : "open"}
                     </Pill>
                   </Cell>
-                  <Cell right className="font-mono text-[0.875rem] text-mute">
+                  <Cell right className="font-mono text-[0.9375rem] text-mute">
                     {pays[0]?.payment_number ?? "—"}
                   </Cell>
                 </Row>
@@ -236,7 +236,7 @@ export function LabAccruals() {
                         {p.status.toLowerCase()}
                       </Pill>
                     </Cell>
-                    <Cell right className="font-mono text-[0.875rem] text-mute">
+                    <Cell right className="font-mono text-[0.9375rem] text-mute">
                       {p.entry_id
                         ? b.ledger.entry(p.entry_id)?.entry_number
                         : "—"}
@@ -320,7 +320,7 @@ function NewAccrual({ open, onClose }: { open: boolean; onClose: () => void }) {
           >
             Recognise
           </Button>
-          <Button onClick={onClose}>Cancel</Button>
+          <Button data-cancel onClick={onClose}>Cancel</Button>
         </div>
       </div>
     </Sheet>

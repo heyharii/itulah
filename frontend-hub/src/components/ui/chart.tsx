@@ -15,6 +15,9 @@ import {
 import { compactFormat } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
+/// Room for a figure on the value axis: "10,5 M" lost its leading 1 at 46.
+const Y_AXIS_WIDTH = 56
+
 /// The bar chart, in this app's grammar.
 ///
 /// Promoted here from `src/screens/analytics/chart.tsx`, where it was inlined
@@ -118,7 +121,7 @@ export function BarSeries({
             tick={{ fill: "var(--mute)" }}
             tickLine={false}
             axisLine={false}
-            width={46}
+            width={Y_AXIS_WIDTH}
           />
           <Tooltip
             cursor={{ fill: "var(--soft)" }}
@@ -132,13 +135,13 @@ export function BarSeries({
               }
               return (
                 <div className="rounded-inner border border-hairline bg-canvas px-2.5 py-2 shadow-pop">
-                  <div className="mb-1 text-[0.875rem] font-medium text-ink">
+                  <div className="mb-1 text-[0.9375rem] font-medium text-ink">
                     {titleOf(String(info.label ?? ""))}
                   </div>
                   {info.payload.map((entry, index) => (
                     <div
                       key={index}
-                      className="flex items-center gap-1.5 text-[0.875rem] text-body"
+                      className="flex items-center gap-1.5 text-[0.9375rem] text-body"
                     >
                       <span
                         aria-hidden
@@ -235,7 +238,7 @@ export function ComboSeries({
             tick={{ fill: "var(--mute)" }}
             tickLine={false}
             axisLine={false}
-            width={46}
+            width={Y_AXIS_WIDTH}
           />
           <Tooltip
             cursor={{ fill: "var(--soft)" }}
@@ -249,13 +252,13 @@ export function ComboSeries({
               }
               return (
                 <div className="rounded-inner border border-hairline bg-canvas px-2.5 py-2 shadow-pop">
-                  <div className="mb-1 text-[0.875rem] font-medium text-ink">
+                  <div className="mb-1 text-[0.9375rem] font-medium text-ink">
                     {titleOf(String(info.label ?? ""))}
                   </div>
                   {info.payload.map((entry, index) => (
                     <div
                       key={index}
-                      className="flex items-center gap-1.5 text-[0.875rem] text-body"
+                      className="flex items-center gap-1.5 text-[0.9375rem] text-body"
                     >
                       <span
                         aria-hidden
@@ -390,7 +393,7 @@ export function LineSeries({
             tick={{ fill: "var(--mute)" }}
             tickLine={false}
             axisLine={false}
-            width={46}
+            width={Y_AXIS_WIDTH}
           />
           <Tooltip
             cursor={{ stroke: "var(--hairline-2)" }}
@@ -414,10 +417,10 @@ export function LineSeries({
                     )
               return (
                 <div className="rounded-inner border border-hairline bg-canvas px-2.5 py-2 shadow-pop">
-                  <div className="mb-1 text-[0.875rem] font-medium text-ink">
+                  <div className="mb-1 text-[0.9375rem] font-medium text-ink">
                     {titleOf(String(info.label ?? ""))}
                   </div>
-                  <div className="flex items-center gap-1.5 text-[0.875rem] text-body">
+                  <div className="flex items-center gap-1.5 text-[0.9375rem] text-body">
                     <span
                       aria-hidden
                       className="size-[5px] shrink-0 rounded-full"
@@ -433,7 +436,7 @@ export function LineSeries({
                       that let it borrow the heading would be the chart's one
                       chance to mislead. */}
                   {ghost !== undefined && past !== undefined && (
-                    <div className="mt-0.5 flex items-center gap-1.5 text-[0.875rem] text-mute">
+                    <div className="mt-0.5 flex items-center gap-1.5 text-[0.9375rem] text-mute">
                       <span
                         aria-hidden
                         className="size-[5px] shrink-0 rounded-full"
@@ -576,7 +579,7 @@ export function BandStack({
             tick={{ fill: "var(--mute)" }}
             tickLine={false}
             axisLine={false}
-            width={46}
+            width={Y_AXIS_WIDTH}
           />
           <Tooltip
             cursor={{ fill: "var(--soft)" }}
@@ -601,11 +604,11 @@ export function BandStack({
               const total = shown.reduce((sum, entry) => sum + entry.value, 0)
               return (
                 <div className="min-w-[11rem] rounded-inner border border-hairline bg-canvas px-2.5 py-2 shadow-pop">
-                  <div className="mb-1 text-[0.875rem] font-medium text-ink">
+                  <div className="mb-1 text-[0.9375rem] font-medium text-ink">
                     {titleOf(String(info.label ?? ""))}
                   </div>
                   {shown.length === 0 ? (
-                    <span className="text-[0.875rem] text-mute">
+                    <span className="text-[0.9375rem] text-mute">
                       Nothing sold.
                     </span>
                   ) : (
@@ -613,7 +616,7 @@ export function BandStack({
                       {shown.map((entry) => (
                         <div
                           key={entry.key}
-                          className="flex items-center gap-1.5 text-[0.875rem] text-body"
+                          className="flex items-center gap-1.5 text-[0.9375rem] text-body"
                         >
                           <span
                             aria-hidden
@@ -631,7 +634,7 @@ export function BandStack({
                       {/* A stacked column has one thing the stock tooltip
                           cannot say: the height. Adding five numbers in your
                           head is not reading a chart. */}
-                      <div className="mt-1 flex items-center gap-1.5 border-t border-hairline pt-1 text-[0.875rem] text-body">
+                      <div className="mt-1 flex items-center gap-1.5 border-t border-hairline pt-1 text-[0.9375rem] text-body">
                         <span>{totalLabel}</span>
                         <span className="ml-auto pl-4 font-semibold text-ink tabular-nums">
                           {format(total)}
@@ -710,7 +713,7 @@ function Band({
 /// stops identity being carried by hue alone.
 export function BandLegend({ bands }: { bands: readonly ChartBand[] }) {
   return (
-    <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.875rem] text-body">
+    <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.9375rem] text-body">
       {[...bands].reverse().map((band) => (
         <span key={band.key} className="flex items-center gap-1.5">
           <span
@@ -729,7 +732,7 @@ export function BandLegend({ bands }: { bands: readonly ChartBand[] }) {
 /// above the plot in reading order and wraps instead of overflowing.
 export function ChartLegend({ series }: { series: readonly ChartSeries[] }) {
   return (
-    <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.875rem] text-body">
+    <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.9375rem] text-body">
       {series.map((band) => (
         <span key={band.key} className="flex items-center gap-1.5">
           <span

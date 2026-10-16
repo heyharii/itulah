@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import type { ColumnDef } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { useMemo, useState } from "react"
+import { Suspense, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { DockTools } from "@/components/shell/dock-tools"
@@ -18,7 +18,6 @@ import { Banner, EmptyState, LoadingState } from "@/components/ui/states"
 import { ago, count, label as humanise, moment } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import { tableSetup, type TableSetup } from "@/lib/table"
-import { useSiteLabel } from "@/lib/queries/organisation"
 import {
   activateCount,
   createCount,
@@ -34,13 +33,17 @@ import { queryState } from "@/lib/query-state"
 
 import { cn } from "@/lib/utils"
 import {
-  useExceptionCases,
+  useSuspenseExceptionCases,
   type ExceptionCase,
   type ExceptionKind,
   type ReceivedShipmentRow,
 } from "@/screens/inventory/exceptions-data"
 import { Choice, Metric, MetricRow } from "@/screens/inventory/parts"
-import { signed, useActor } from "@/screens/inventory/shared"
+import {
+  signed,
+  useActor,
+  useSuspenseSiteLabel,
+} from "@/screens/inventory/shared"
 
 /// The Exceptions inbox: every case the live feeds hold — the ledger's own
 /// missing balances, tags the readers saw somewhere else, and surat jalan the
@@ -117,7 +120,7 @@ function caseColumns(
               {one.article ?? one.sku ?? one.doc ?? one.id}
             </span>
             {one.article !== null && one.sku !== null && (
-              <span className="font-mono text-[0.875rem] font-normal text-mute">
+              <span className="font-mono text-[0.9375rem] font-normal text-mute">
                 {one.sku}
               </span>
             )}
@@ -141,7 +144,7 @@ function caseColumns(
           >
             {signed(row.original.qty)}
           </span>
-          <span className="text-[0.875rem] text-mute">pcs</span>
+          <span className="text-[0.9375rem] text-mute">pcs</span>
         </span>
       ),
     },
@@ -191,11 +194,28 @@ function caseColumns(
 }
 
 export function Exceptions() {
-  const { cases, feeds } = useExceptionCases()
+  // The title stands at once; the cases wait for the feeds and the register of
+  // places and stream in with them (the server starts the reads too).
+  return (
+    <PageContent>
+      <PageHeader
+        crumb="Inventory"
+        title="Exceptions"
+        sub="What the books and the floor disagree about, waiting on a person."
+      />
+      <Suspense fallback={<LoadingState>Reading the exceptions…</LoadingState>}>
+        <ExceptionInbox />
+      </Suspense>
+    </PageContent>
+  )
+}
+
+function ExceptionInbox() {
+  const { cases, feeds } = useSuspenseExceptionCases()
   const [kind, setKind] = useState<string>("")
   const [needle, setNeedle] = useState("")
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const placeName = useSiteLabel()
+  const placeName = useSuspenseSiteLabel()
   const phone = useLayout() === "phone"
   /// A phone opens a case in a sheet; a desk keeps it beside the list.
   const [sheetOpen, setSheetOpen] = useState(false)
@@ -204,7 +224,6 @@ export function Exceptions() {
   /// these rows are the server's, and re-asking them per keystroke would only
   /// change which rows are hidden, not which rows exist.
   const filtered = useMemo(() => {
-    if (cases === null) return []
     const q = needle.trim().toLowerCase()
     if (kind === "" && q === "") return cases
     return cases.filter((one) => {
@@ -240,18 +259,11 @@ export function Exceptions() {
     )
   )
   const kindCount = (value: string) =>
-    (cases ?? []).filter((one) => value === "" || one.kind === value).length
+    cases.filter((one) => value === "" || one.kind === value).length
 
   return (
-    <PageContent>
-      <PageHeader
-        crumb="Inventory"
-        title="Exceptions"
-        sub="What the books and the floor disagree about, waiting on a person."
-      />
-      {cases === null ? (
-        <LoadingState>Reading the exceptions…</LoadingState>
-      ) : phone ? (
+    <>
+      {phone ? (
         <>
           {/* The kind is the status button and the search the field, in the
           dock, as on every list (owner, 2026-10-06). */}
@@ -309,10 +321,10 @@ export function Exceptions() {
               <Input
                 value={needle}
                 onChange={(event) => setNeedle(event.target.value)}
-                className="h-8 w-full max-w-56 text-[0.875rem] sm:w-56"
+                className="h-8 w-full max-w-56 text-[0.9375rem] sm:w-56"
               />
               <RefreshStamp queries={feeds} className="ml-auto" />
-              <span className="text-[0.875rem] text-mute">
+              <span className="text-[0.9375rem] text-mute">
                 {count(filtered.length)} cases
               </span>
             </div>
@@ -333,7 +345,7 @@ export function Exceptions() {
                     <span className="min-w-0 truncate font-medium text-ink">
                       {one.article ?? one.sku ?? one.doc ?? one.id}
                       {one.article !== null && one.sku !== null && (
-                        <span className="ml-1.5 font-mono text-[0.875rem] font-normal text-mute">
+                        <span className="ml-1.5 font-mono text-[0.9375rem] font-normal text-mute">
                           · {one.sku}
                         </span>
                       )}
@@ -347,7 +359,7 @@ export function Exceptions() {
                       {signed(one.qty)}
                     </span>
                   </span>
-                  <span className="flex min-w-0 items-center gap-2 text-[0.875rem] text-mute">
+                  <span className="flex min-w-0 items-center gap-2 text-[0.9375rem] text-mute">
                     <KindDot kind={one.kind} />
                     <span className="shrink-0">{one.kind}</span>
                     <span className="min-w-0 truncate">
@@ -382,7 +394,7 @@ export function Exceptions() {
           )}
         </div>
       )}
-    </PageContent>
+    </>
   )
 }
 
@@ -530,7 +542,7 @@ function CasePanel({
   return (
     <Card className="flex flex-col overflow-hidden">
       <div className="flex flex-col gap-3 border-b border-hairline px-5 py-4">
-        <div className="flex min-w-0 items-center gap-2 text-[0.875rem]">
+        <div className="flex min-w-0 items-center gap-2 text-[0.9375rem]">
           <span className="truncate font-mono text-id text-mute">{one.id}</span>
           <KindDot kind={one.kind} />
           <span
@@ -552,7 +564,7 @@ function CasePanel({
         <h2 className="text-card-title font-semibold text-ink">
           {one.article ?? one.doc ?? one.id}
           {(one.sku !== null || one.doc !== null) && (
-            <span className="ml-1.5 font-mono text-[0.875rem] font-normal text-mute">
+            <span className="ml-1.5 font-mono text-[0.9375rem] font-normal text-mute">
               · {one.sku ?? one.doc}
             </span>
           )}
@@ -622,7 +634,7 @@ function CasePanel({
               />
             </ol>
           ) : one.sku === null ? (
-            <p className="text-[0.875rem] text-mute">
+            <p className="text-[0.9375rem] text-mute">
               No SKU on this row — nothing to trace through the ledger.
             </p>
           ) : (
@@ -630,7 +642,7 @@ function CasePanel({
               loading: "Reading the movements…",
               render: (page) =>
                 page.rows.length === 0 ? (
-                  <p className="text-[0.875rem] text-mute">
+                  <p className="text-[0.9375rem] text-mute">
                     Nothing has been posted for this SKU at this pool.
                   </p>
                 ) : (
@@ -667,7 +679,7 @@ function CasePanel({
           </Banner>
         )}
         {gapRow !== null && one.pool === "" && (
-          <p className="text-[0.875rem] text-mute">
+          <p className="text-[0.9375rem] text-mute">
             The store&rsquo;s stockroom is not in the fleet read — ask for the
             count from the store&rsquo;s own page.
           </p>
@@ -741,10 +753,10 @@ function TimelineRow({
         aria-hidden
         className="absolute top-[0.9rem] size-[5px] -translate-x-1/2 rounded-full bg-mute"
       />
-      <span className="w-24 shrink-0 text-[0.875rem] text-mute tabular-nums">
+      <span className="w-24 shrink-0 text-[0.9375rem] text-mute tabular-nums">
         {when}
       </span>
-      <span className="min-w-0 flex-1 text-[0.875rem] text-ink">
+      <span className="min-w-0 flex-1 text-[0.9375rem] text-ink">
         {title}
         {sub !== undefined && (
           <span className="block truncate font-mono text-id text-mute">

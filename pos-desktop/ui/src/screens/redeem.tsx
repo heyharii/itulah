@@ -36,20 +36,20 @@ import { money } from "@itulah/contract/money"
 function refusal(reply: { readonly problem: string | null; readonly status: number }): string {
   return (
     reply.problem ??
-    `Node toko menolak dengan status ${reply.status} dan tidak menyebut alasannya.`
+    `The store node refused with status ${reply.status} and gave no reason.`
   )
 }
 
 function statusLabel(status: string | undefined): string {
   switch (status) {
     case "PENDING":
-      return "Menunggu"
+      return "Waiting"
     case "CONFIRMED":
-      return "Sudah ditukar"
+      return "Redeemed"
     case "EXPIRED":
-      return "Kedaluwarsa"
+      return "Expired"
     case "CANCELLED":
-      return "Dibatalkan"
+      return "Cancelled"
     default:
       return status ?? "—"
   }
@@ -75,7 +75,7 @@ export function RedeemScreen({
     const typed = code.trim()
     if (member === "" || typed.length !== 6) {
       setProblem(
-        "Nomor member dan kode enam digitnya harus diisi — kode itu yang ditunjukkan pelanggan di layar aplikasinya.",
+        "Enter the member number and the six-digit code — the code is what the customer shows on their app screen.",
       )
       return
     }
@@ -112,19 +112,19 @@ export function RedeemScreen({
           <div className="page-inner">
             <div className="page-head">
               <div>
-                <span className="label">Poin ditukar</span>
+                <span className="label">Points redeemed</span>
                 <h1 className="num">
                   {done.voucher_code ?? "—"}
                 </h1>
-                <p>Pakai kode ini di pembayaran → Voucher.</p>
+                <p>Use this code at payment → Voucher.</p>
               </div>
               <button className="btn primary" onClick={onBack}>
-                Selesai
+                Done
               </button>
             </div>
             <div>
               <div className="kv">
-                <span className="muted">Poin terpakai</span>
+                <span className="muted">Points used</span>
                 <span className="num">{done.points_spent ?? "—"}</span>
               </div>
               <div className="kv">
@@ -136,12 +136,12 @@ export function RedeemScreen({
                 </strong>
               </div>
               <div className="kv">
-                <span className="muted">Sisa poin member</span>
+                <span className="muted">Member points left</span>
                 <span className="num">{done.balance_points ?? "—"}</span>
               </div>
             </div>
             {done.replayed === true && (
-              <div className="notice">Voucher yang sama (sudah pernah dikonfirmasi).</div>
+              <div className="notice">The same voucher (already confirmed before).</div>
             )}
           </div>
         </div>
@@ -156,18 +156,18 @@ export function RedeemScreen({
         <div className="page-inner">
           <div className="page-head">
             <div>
-              <span className="label">Tukar poin</span>
-              <h1>Tukar poin jadi voucher</h1>
+              <span className="label">Redeem points</span>
+              <h1>Redeem points for a voucher</h1>
             </div>
             <button className="btn ghost" onClick={onBack}>
               <Icon name="back" />
-              Kembali ke konter
+              Back to counter
             </button>
           </div>
 
           <div className="steps">
             <span className={found === null ? "active" : undefined}>
-              1 · Cari permintaan
+              1 · Find the request
             </span>
             <span className={found !== null ? "active" : undefined}>
               2 · Konfirmasi
@@ -182,31 +182,31 @@ export function RedeemScreen({
             }}
           >
             <label className="field">
-              Nomor member
+              Member number
               <input
                 value={memberId}
                 onChange={(event) => setMemberId(event.target.value)}
-                placeholder="Nomor pada kartu…"
+                placeholder="Number on the card…"
                 autoComplete="off"
                 spellCheck={false}
                 autoFocus
               />
             </label>
             <label className="field">
-              Kode enam digit
+              Six-digit code
               <input
                 value={code}
                 onChange={(event) =>
                   setCode(event.target.value.replace(/\D/g, "").slice(0, 6))
                 }
-                placeholder="Dibacakan dari layar pelanggan…"
+                placeholder="Read from the customer's screen…"
                 autoComplete="off"
                 spellCheck={false}
                 inputMode="numeric"
               />
             </label>
             <button className="btn" type="submit" disabled={looking}>
-              {looking ? "Mencari…" : "Cari permintaan"}
+              {looking ? "Looking…" : "Find request"}
             </button>
           </form>
           {problem !== null && found === null && (
@@ -219,7 +219,7 @@ export function RedeemScreen({
               <span className="label">Permintaan ditemukan</span>
               <div>
                 <div className="kv">
-                  <span className="muted">Poin diminta</span>
+                  <span className="muted">Points requested</span>
                   <strong className="num">{found.points ?? "—"}</strong>
                 </div>
                 <div className="kv">
@@ -234,7 +234,7 @@ export function RedeemScreen({
                 disabled={busy}
                 onClick={() => void confirm()}
               >
-                {busy ? "Mengirim ke node…" : "Konfirmasi penukaran"}
+                {busy ? "Sending to the node…" : "Confirm redemption"}
               </button>
             </>
           )}

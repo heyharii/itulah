@@ -1,17 +1,21 @@
-import { useQuery } from "@tanstack/react-query"
-import { useMemo } from "react"
+import { useSuspenseQuery } from "@tanstack/react-query"
+import { Suspense, useMemo } from "react"
 
 import { Card } from "@/components/ui/card"
-import { MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
-import { EmptyState } from "@/components/ui/states"
+import { EmptyState, LoadingState } from "@/components/ui/states"
 import { count, day, money, quantity } from "@/lib/format"
-import { fleetPools, inventoryKeys } from "@/lib/queries/inventory"
-import { listPurchaseOrders, procurementKeys } from "@/lib/queries/procurement"
-import { queryState } from "@/lib/query-state"
+import { fleetPoolsQuery } from "@/lib/queries/inventory"
+import { type PurchaseOrderRow } from "@/lib/queries/procurement"
+import {
+  CardTable,
+  field,
+  type CardShape,
+} from "@/screens/executive/card-table"
 import { rupiah } from "@/screens/executive/format"
 import { Figure, Figures, Head, ReportPage } from "@/screens/executive/parts"
 import { usePlaces } from "@/screens/executive/places"
-import { useReportScope } from "@/screens/executive/scope"
+import { ordersQuery } from "@/screens/executive/data"
+import { useReportScope, type ReportScope } from "@/screens/executive/scope"
 import { useTrade } from "@/screens/executive/sales"
 import { SupplierName } from "@/screens/procurement/supplier-name"
 import { spanDays } from "@itulah/contract/reporting"
@@ -34,23 +38,74 @@ interface Shelf {
   readonly coming: number
 }
 
-export function ExecutiveStock() {
-  const scope = useReportScope()
+const shelfKey = (row: Shelf) => row.site_id
+const poKey = (row: PurchaseOrderRow) => row.purchase_order_id
+
+const SHELF_COLUMNS = [
+  field<Shelf>(
+    "store",
+    "Store",
+    (shelf) => <span className="font-medium text-ink">{shelf.name}</span>,
+    { by: (shelf) => shelf.name }
+  ),
+  field<Shelf>("stock", "Stock", (shelf) => count(shelf.stock), {
+    right: true,
+    by: (shelf) => shelf.stock,
+  }),
+  field<Shelf>("sold", "Sold", (shelf) => count(shelf.sold), {
+    right: true,
+    by: (shelf) => shelf.sold,
+    priority: 3,
+  }),
+  field<Shelf>(
+    "cover",
+    "Cover",
+    (shelf) =>
+      shelf.cover === null ? "—" : `${count(Math.round(shelf.cover))} days`,
+    { right: true, by: (shelf) => shelf.cover, priority: 2 }
+  ),
+  field<Shelf>(
+    "coming",
+    "On the Way",
+    (shelf) =>
+      shelf.coming === 0 ? (
+        <span className="text-mute">—</span>
+      ) : (
+        count(shelf.coming)
+      ),
+    { right: true, by: (shelf) => shelf.coming, priority: 2 }
+  ),
+]
+
+/// A phone's card: the shop, what its shelves hold, and how long that lasts.
+const SHELF_CARD: CardShape<Shelf> = {
+  lead: (shelf) => ({
+    value: count(shelf.stock),
+    caption: "pcs in stock",
+    tone: shelf.stock === 0 ? "quiet" : undefined,
+  }),
+  foot: (shelf) =>
+    [
+      `${count(shelf.sold)} sold`,
+      shelf.cover === null
+        ? null
+        : `cover ${count(Math.round(shelf.cover))} days`,
+      shelf.coming === 0 ? null : `${count(shelf.coming)} on the way`,
+    ]
+      .filter((part) => part !== null)
+      .join(" · "),
+}
+
+/// What the shops hold, how long it lasts and what is on its way, from the
+/// fleet read and this period's trade. Read inside a `<Suspense>`.
+function useShelves(scope: ReportScope) {
   const trade = useTrade(scope)
   const { nameOf } = usePlaces(scope)
-  const fleet = useQuery({
-    queryKey: inventoryKeys.fleet(),
-    queryFn: ({ signal }) => fleetPools(signal),
-  })
-  const orders = useQuery({
-    queryKey: procurementKeys.orders(),
-    queryFn: ({ signal }) => listPurchaseOrders(undefined, signal),
-  })
+  const fleet = useSuspenseQuery(fleetPoolsQuery())
 
   const days = spanDays(scope.current.from, scope.current.to)
 
   const shelves = useMemo<Shelf[]>(() => {
-    if (!fleet.data) return []
     const stock = new Map<string, number>()
     const coming = new Map<string, number>()
     // The head office site, by kind (`HO`, 0603), read from the same rows.
@@ -74,10 +129,7 @@ export function ExecutiveStock() {
       }
     }
     const sold = new Map(
-      (trade.query.data?.stores ?? []).map((store) => [
-        store.site_id,
-        store.units,
-      ])
+      trade.data.stores.map((store) => [store.site_id, store.units])
     )
     const sites = new Set([...stock.keys(), ...coming.keys(), ...sold.keys()])
     return [...sites]
@@ -95,19 +147,30 @@ export function ExecutiveStock() {
         }
       })
       .sort((a, b) => a.name.localeCompare(b.name, "id"))
-  }, [fleet.data, trade.query.data, nameOf, days])
+  }, [fleet.data, trade.data, nameOf, days])
 
   const mine =
     scope.store === undefined
       ? shelves
       : shelves.filter((shelf) => shelf.site_id === scope.store)
-  const held = mine.reduce((sum, shelf) => sum + shelf.stock, 0)
-  const sold = mine.reduce((sum, shelf) => sum + shelf.sold, 0)
-  const coming = mine.reduce((sum, shelf) => sum + shelf.coming, 0)
+  return {
+    asOf: fleet.data.as_of,
+    days,
+    mine,
+    held: mine.reduce((sum, shelf) => sum + shelf.stock, 0),
+    sold: mine.reduce((sum, shelf) => sum + shelf.sold, 0),
+    coming: mine.reduce((sum, shelf) => sum + shelf.coming, 0),
+  }
+}
+
+/// The purchase orders still waiting for goods, soonest arrival first, and how
+/// many pieces they owe. Read inside a `<Suspense>`.
+function useOpenOrders(scope: ReportScope) {
+  const orders = useSuspenseQuery(ordersQuery())
 
   const open = useMemo(
     () =>
-      (orders.data ?? [])
+      orders.data
         .filter(
           (order) =>
             OPEN.has(order.lifecycle) &&
@@ -126,137 +189,172 @@ export function ExecutiveStock() {
     (sum, order) => sum + order.outstanding_stock_units,
     0
   )
+  return { open, owed }
+}
+
+export function ExecutiveStock() {
+  const scope = useReportScope()
 
   return (
     <ReportPage title="Stock & Purchasing" scope={scope}>
       <Figures>
-        <Figure
-          label="Store stock"
-          value={fleet.data ? `${quantity(held)}` : "…"}
-          note={`As of ${fleet.data ? day(fleet.data.as_of) : "—"}`}
-        />
-        <Figure
-          label="Stock cover"
-          value={
-            fleet.data && trade.query.data
-              ? sold === 0
-                ? "—"
-                : `${count(Math.round(held / (sold / days)))} days`
-              : "…"
+        <Suspense
+          fallback={
+            <>
+              <Figure label="Store stock" value="…" />
+              <Figure label="Stock cover" value="…" />
+              <Figure label="On the way to the stores" value="…" />
+            </>
           }
-          note={`${quantity(sold)} sold this period`}
-        />
-        <Figure
-          label="On the way to the stores"
-          value={fleet.data ? `${quantity(coming)}` : "…"}
-          note="Already left the warehouse"
-        />
-        <Figure
-          label="POs not yet received"
-          value={orders.data ? `${quantity(owed)}` : "…"}
-          note={`${count(open.length)} open ${open.length === 1 ? "PO" : "POs"}`}
-        />
+        >
+          <ShelfFigures scope={scope} />
+        </Suspense>
+        <Suspense fallback={<Figure label="POs not yet received" value="…" />}>
+          <OrderFigure scope={scope} />
+        </Suspense>
       </Figures>
 
       <div className="grid gap-3 xl:grid-cols-2">
-        <Card className="overflow-hidden">
+        <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
           <Head title="Stock by store" />
-          <div className="overflow-x-auto px-[1.125rem] pb-3">
-            {queryState(fleet, {
-              loading: "Reading the stock…",
-              render: () =>
-                mine.length === 0 ? (
-                  <EmptyState>No store stock has been recorded yet.</EmptyState>
-                ) : (
-                  <MiniTable
-                    head={["Store", "Stock", "Sold", "Cover", "On the Way"]}
-                    style={{ minWidth: "28rem" }}
-                  >
-                    {mine.map((shelf) => (
-                      <MiniRow key={shelf.site_id}>
-                        <MiniCell className="font-medium text-ink">
-                          {shelf.name}
-                        </MiniCell>
-                        <MiniCell align="right">{count(shelf.stock)}</MiniCell>
-                        <MiniCell align="right">{count(shelf.sold)}</MiniCell>
-                        <MiniCell align="right">
-                          {shelf.cover === null
-                            ? "—"
-                            : `${count(Math.round(shelf.cover))} days`}
-                        </MiniCell>
-                        <MiniCell align="right">
-                          {shelf.coming === 0 ? (
-                            <span className="text-mute">—</span>
-                          ) : (
-                            count(shelf.coming)
-                          )}
-                        </MiniCell>
-                      </MiniRow>
-                    ))}
-                  </MiniTable>
-                ),
-            })}
-          </div>
+          <Suspense fallback={<LoadingState>Reading the stock…</LoadingState>}>
+            <ShelfTable scope={scope} />
+          </Suspense>
         </Card>
 
-        <Card className="overflow-hidden">
+        <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
           <Head
             title="Open POs"
             to="/procurement/outstanding"
             link="Open Procurement"
           />
-          <div className="overflow-x-auto px-[1.125rem] pb-3">
-            {queryState(orders, {
-              loading: "Reading the POs…",
-              render: () =>
-                open.length === 0 ? (
-                  <EmptyState>No PO is still waiting for goods.</EmptyState>
-                ) : (
-                  <MiniTable
-                    head={[
-                      "PO",
-                      "Destination",
-                      "Not Received",
-                      "PO Value",
-                      "Arrival",
-                    ]}
-                    style={{ minWidth: "30rem" }}
-                  >
-                    {open.map((order) => (
-                      <MiniRow key={order.purchase_order_id}>
-                        <MiniCell>
-                          <span className="block font-medium text-ink">
-                            {order.po_number}
-                          </span>
-                          <span className="block text-[0.875rem] text-mute">
-                            <SupplierName
-                              code={order.supplier_id}
-                              name={order.supplier_name}
-                            />
-                          </span>
-                        </MiniCell>
-                        <MiniCell align="right">
-                          {nameOf(order.destination_site_id)}
-                        </MiniCell>
-                        <MiniCell align="right">
-                          {count(order.outstanding_stock_units)}
-                        </MiniCell>
-                        <MiniCell align="right">
-                          <span title={money(order.net_minor)}>
-                            {rupiah(order.net_minor)}
-                          </span>
-                        </MiniCell>
-                        <MiniCell align="right">
-                          {day(order.expected_arrival)}
-                        </MiniCell>
-                      </MiniRow>
-                    ))}
-                  </MiniTable>
-                ),
-            })}
-          </div>
+          <Suspense fallback={<LoadingState>Reading the POs…</LoadingState>}>
+            <OrderTable scope={scope} />
+          </Suspense>
         </Card>
       </div>
     </ReportPage>
+  )
+}
+
+/// What the shelves hold, how long that lasts and what is on its way.
+function ShelfFigures({ scope }: { scope: ReportScope }) {
+  const { asOf, days, held, sold, coming } = useShelves(scope)
+  return (
+    <>
+      <Figure
+        label="Store stock"
+        value={`${quantity(held)}`}
+        note={`As of ${day(asOf)}`}
+      />
+      <Figure
+        label="Stock cover"
+        value={
+          sold === 0 ? "—" : `${count(Math.round(held / (sold / days)))} days`
+        }
+        note={`${quantity(sold)} sold this period`}
+      />
+      <Figure
+        label="On the way to the stores"
+        value={`${quantity(coming)}`}
+        note="Already left the warehouse"
+      />
+    </>
+  )
+}
+
+/// What the suppliers still owe.
+function OrderFigure({ scope }: { scope: ReportScope }) {
+  const { open, owed } = useOpenOrders(scope)
+  return (
+    <Figure
+      label="POs not yet received"
+      value={`${quantity(owed)}`}
+      note={`${count(open.length)} open ${open.length === 1 ? "PO" : "POs"}`}
+    />
+  )
+}
+
+/// One row per shop: its shelves, its pace and what is on the way.
+function ShelfTable({ scope }: { scope: ReportScope }) {
+  const { mine } = useShelves(scope)
+  return mine.length === 0 ? (
+    <EmptyState>No store stock has been recorded yet.</EmptyState>
+  ) : (
+    <CardTable<Shelf>
+      columns={SHELF_COLUMNS}
+      rows={mine}
+      getRowId={shelfKey}
+      card={SHELF_CARD}
+    />
+  )
+}
+
+/// The open purchase orders, with where each one goes and when it is due.
+function OrderTable({ scope }: { scope: ReportScope }) {
+  const { nameOf } = usePlaces(scope)
+  const { open } = useOpenOrders(scope)
+
+  const poColumns = [
+    field<PurchaseOrderRow>(
+      "po",
+      "PO",
+      (order) => (
+        <>
+          <span className="block font-medium text-ink">{order.po_number}</span>
+          <span className="block text-[0.9375rem] text-mute">
+            <SupplierName code={order.supplier_id} name={order.supplier_name} />
+          </span>
+        </>
+      ),
+      { by: (order) => order.po_number }
+    ),
+    field<PurchaseOrderRow>(
+      "destination",
+      "Destination",
+      (order) => nameOf(order.destination_site_id),
+      { right: true, priority: 3 }
+    ),
+    field<PurchaseOrderRow>(
+      "outstanding",
+      "Not Received",
+      (order) => count(order.outstanding_stock_units),
+      { right: true, by: (order) => order.outstanding_stock_units }
+    ),
+    field<PurchaseOrderRow>(
+      "value",
+      "PO Value",
+      (order) => (
+        <span title={money(order.net_minor)}>{rupiah(order.net_minor)}</span>
+      ),
+      { right: true, by: (order) => order.net_minor, priority: 2 }
+    ),
+    field<PurchaseOrderRow>(
+      "arrival",
+      "Arrival",
+      (order) => day(order.expected_arrival),
+      { right: true, by: (order) => order.expected_arrival ?? "9999" }
+    ),
+  ]
+  /// A phone's card: the PO and what it still owes, with where it goes and
+  /// when it is due.
+  const poCard: CardShape<PurchaseOrderRow> = {
+    lead: (order) => ({
+      value: count(order.outstanding_stock_units),
+      caption: "pcs not received",
+    }),
+    foot: (order) =>
+      `${nameOf(order.destination_site_id)} · ${rupiah(order.net_minor)} · arrives ${day(order.expected_arrival)}`,
+  }
+
+  return open.length === 0 ? (
+    <EmptyState>No PO is still waiting for goods.</EmptyState>
+  ) : (
+    <CardTable<PurchaseOrderRow>
+      columns={poColumns}
+      rows={open}
+      getRowId={poKey}
+      card={poCard}
+    />
   )
 }

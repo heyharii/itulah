@@ -19,6 +19,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -297,10 +298,7 @@ export function Chat() {
 
       {conversation.value === undefined && (
         <>
-          <Fab
-            label="New conversation"
-            onClick={() => setStarting(true)}
-          />
+          <Fab label="New conversation" onClick={() => setStarting(true)} />
           <DockTools
             search={{
               value: search,
@@ -342,6 +340,7 @@ export function Chat() {
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 aria-label="Search people and messages"
+                placeholder="Search people and messages"
                 className="h-8 w-full pl-8"
               />
             </div>
@@ -503,18 +502,28 @@ function useUnreadTitle(unread: number) {
 /// only when somebody presses the button — a permission prompt on page load
 /// is the one every browser has taught people to refuse.
 function useAlertPermission() {
-  const supported = typeof window !== "undefined" && "Notification" in window
-  const [permission, setPermission] = useState<NotificationPermission>(
-    supported ? Notification.permission : "denied"
+  // The browser's own answer, read once the page is in the browser: the server
+  // has no `Notification`, so the first render is "not askable" on both sides
+  // and the button appears after hydration instead of as a mismatch.
+  const current = useSyncExternalStore(
+    noSubscribe,
+    () => ("Notification" in window ? Notification.permission : "denied"),
+    () => "denied" as NotificationPermission
   )
+  const [answered, setAnswered] = useState<NotificationPermission | null>(null)
+  const permission = answered ?? current
   return {
-    askable: supported && permission === "default",
+    askable: permission === "default",
     ask: () => {
-      if (!supported) return
-      void Notification.requestPermission().then(setPermission)
+      if (!("Notification" in window)) return
+      void Notification.requestPermission().then(setAnswered)
     },
   }
 }
+
+/// The permission only changes when the person answers the prompt, which this
+/// hook hears of itself, so there is nothing to subscribe to.
+const noSubscribe = () => () => {}
 
 /// A desktop alert for a message that arrives while nobody is looking at it:
 /// the tab is in the background, or a different room is open. Never for your
@@ -638,7 +647,7 @@ function MessageHits({
                 {ago(hit.sent_at)}
               </span>
             </span>
-            <span className="line-clamp-2 text-[0.875rem] text-body">
+            <span className="line-clamp-2 text-[0.9375rem] text-body">
               <span className="text-mute">{hit.author_name}: </span>
               <Highlighted text={plainText(hit.body)} query={query} />
             </span>
@@ -770,7 +779,7 @@ function RoomRow({
             {room.mention_count > 0 && (
               <span
                 title={`${room.mention_count} mention${room.mention_count === 1 ? "" : "s"}`}
-                className="grid h-5 min-w-5 shrink-0 place-items-center rounded-full bg-accent px-1 text-[0.875rem] leading-none font-semibold text-white"
+                className="grid h-5 min-w-5 shrink-0 place-items-center rounded-full bg-accent px-1 text-[0.9375rem] leading-none font-semibold text-white"
               >
                 @
               </span>
@@ -778,7 +787,7 @@ function RoomRow({
             {unread && (
               <span
                 className={cn(
-                  "grid h-5 min-w-5 shrink-0 place-items-center rounded-full px-1.5 text-[0.875rem] leading-none font-semibold tabular-nums",
+                  "grid h-5 min-w-5 shrink-0 place-items-center rounded-full px-1.5 text-[0.9375rem] leading-none font-semibold tabular-nums",
                   quiet ? "bg-soft-2 text-body" : "bg-accent text-white"
                 )}
               >
@@ -1767,7 +1776,7 @@ function RoomSearch({
             if (event.key === "Escape") onClose()
           }}
           aria-label="Search in this conversation"
-          className="h-8 min-w-0 flex-1 bg-transparent text-[0.875rem] text-ink outline-none placeholder:text-mute"
+          className="h-8 min-w-0 flex-1 bg-transparent text-[0.9375rem] text-ink outline-none placeholder:text-mute"
         />
         <button
           type="button"
@@ -1806,7 +1815,7 @@ function RoomSearch({
                     {dayOf(hit.sent_at)} {clock(hit.sent_at)}
                   </span>
                 </span>
-                <span className="line-clamp-2 text-[0.875rem] text-text">
+                <span className="line-clamp-2 text-[0.9375rem] text-text">
                   <Highlighted text={plainText(hit.body)} query={query} />
                 </span>
               </button>
@@ -1938,7 +1947,7 @@ function StartSheet({
       }
     >
       <div className="flex flex-col gap-5">
-        <p className="text-[0.875rem] leading-relaxed text-body">
+        <p className="text-[0.9375rem] leading-relaxed text-body">
           Correspondence, and nothing more. An argument about a purchase order
           belongs in a discussion instead — that one hangs off the record, and
           everybody who comes to the order later can read it.

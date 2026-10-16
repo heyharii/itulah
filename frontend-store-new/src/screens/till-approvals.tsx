@@ -4,6 +4,7 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { CardList } from "@/components/ui/card-list"
 import { Field, Input } from "@/components/ui/field"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { LeadCard } from "@/components/ui/lead-card"
 import { Pill } from "@/components/ui/pill"
 import { Screen } from "@/components/ui/screen"
@@ -119,12 +120,15 @@ export function TillApprovals() {
         <EmptyState>No tills waiting.</EmptyState>
       ) : (
         <>
-          <p className="mb-3 text-meta text-body">
-            <b className="font-medium text-ink tabular-nums">
-              {count(rows.length)}
-            </b>{" "}
-            waiting
-          </p>
+          <KpiStrip>
+            <Kpi label="Waiting" value={count(rows.length)} />
+            <Kpi
+              label="Oldest request"
+              value={moment(
+                rows.map((row) => row.issued_at).sort()[0] ?? null,
+              )}
+            />
+          </KpiStrip>
           <CardList grid>
             {rows.map((row) => (
               <JoinCard

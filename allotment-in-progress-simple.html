@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Allotments In progress</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --ink: #20242c; --text: #394150; --body: #565f6d; --mute: #666f7d; --faint: #89919d;
+  --hairline: #e6e6e9; --edge: #dadade; --soft: #f8f8f9; --soft-2: #f0f0f2;
+  --accent: #2563eb; --tint: #eff5ff;
+  --warn-fg: #a64a08; --warn-bg: #faeacd; --ok-fg: #137a37; --ok-bg: #d9f4d2;
+  --c-topick: #d4d5da; --c-picked: #ecc98d; --c-packed: #c98a2c; --c-dispatched: #2f7fdc; --c-received: #3aa556;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  --ease-out: cubic-bezier(.23, 1, .32, 1);
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: var(--ink); font: 15px/1.45 Inter, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+.bar { position: sticky; top: 0; z-index: 5; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 10px 16px; background: #fff; border-bottom: 1px solid var(--hairline); }
+.bar b { font-weight: 600; margin-right: 4px; }
+.seg { display: inline-flex; background: var(--soft-2); border-radius: 8px; padding: 2px; flex-wrap: wrap; }
+.seg button { border: 0; background: none; font: inherit; color: var(--body); padding: 6px 12px; border-radius: 6px; cursor: pointer; }
+.seg button.on { background: #fff; color: var(--ink); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+main { max-width: 1080px; margin: 0 auto; padding: 24px 16px 64px; }
+h1 { font-size: 22px; margin: 0 0 16px; font-weight: 600; }
+.tabs { display: flex; gap: 24px; border-bottom: 1px solid var(--hairline); margin-bottom: 16px; }
+.tabs span { padding: 8px 0; color: var(--mute); }
+.tabs span.on { color: var(--ink); font-weight: 600; box-shadow: inset 0 -2px 0 var(--ink); }
+.list { display: grid; gap: 12px; }
+.card { border: 1px solid var(--hairline); border-radius: 10px; padding: 16px 20px; background: #fff; cursor: pointer; transition: border-color .15s; }
+.card:hover { border-color: var(--edge); }
+.head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.name { font-weight: 600; font-size: 17px; }
+.sub { color: var(--mute); display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 2px; }
+.code { font-family: var(--mono); font-size: 15px; color: var(--text); }
+.pcs { font-weight: 700; font-size: 20px; white-space: nowrap; text-align: right; }
+.short { display: block; font-size: 15px; font-weight: 500; color: var(--warn-fg); }
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; }
+.new { background: var(--accent); }
+.mute { color: var(--mute); }
+
+/* A · Numbers */
+.nums { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 14px; }
+.num { background: var(--soft); border-radius: 8px; padding: 10px 12px; }
+.num .k { color: var(--mute); }
+.num .v { font-weight: 700; font-size: 18px; }
+.num .v small { font-weight: 400; font-size: 15px; color: var(--mute); }
+.num.now { background: var(--tint); }
+.num.now .k { color: var(--accent); font-weight: 500; }
+
+/* B · One bar */
+.track { display: flex; height: 10px; border-radius: 99px; overflow: hidden; background: var(--c-topick); margin: 16px 0 10px; }
+.track i { display: block; height: 100%; transition: width .5s var(--ease-out); }
+.legend { display: flex; gap: 16px; flex-wrap: wrap; color: var(--body); }
+.legend span { display: inline-flex; gap: 6px; align-items: center; }
+.legend b { color: var(--ink); font-weight: 600; }
+
+/* C · Stores */
+.stores { margin-top: 12px; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; }
+.store { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; background: var(--soft); }
+.store .sn { font-weight: 600; font-family: var(--mono); font-size: 15px; }
+.store .st { color: var(--body); margin-left: auto; white-space: nowrap; }
+
+/* D · Rows */
+.table { border: 1px solid var(--hairline); border-radius: 10px; overflow: hidden; }
+.row { display: grid; grid-template-columns: 1.6fr 1fr 1fr 1fr 0.8fr; gap: 12px; align-items: center; padding: 12px 16px; border-top: 1px solid var(--hairline); cursor: pointer; }
+.row:hover { background: var(--soft); }
+.row.th { border-top: 0; color: var(--mute); background: var(--soft); cursor: default; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border-radius: 99px; background: var(--soft-2); color: var(--text); white-space: nowrap; }
+.r { text-align: right; }
+
+/* E · Stage line */
+.stage { display: flex; align-items: baseline; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+.stage .big { font-size: 26px; font-weight: 700; }
+.steps { display: flex; gap: 6px; margin-top: 10px; }
+.steps i { flex: 1; height: 4px; border-radius: 4px; background: var(--soft-2); }
+.steps i.done { background: var(--ink); }
+.steps i.half { background: linear-gradient(90deg, var(--ink) var(--p), var(--soft-2) var(--p)); }
+.steplbl { display: flex; gap: 6px; margin-top: 6px; color: var(--mute); }
+.steplbl span { flex: 1; }
+.steplbl span.on { color: var(--ink); font-weight: 600; }
+
+
+/* F · Simple (accordion like To allot) */
+.acc { border: 1px solid var(--hairline); border-radius: 10px; background: #fff; }
+.acc > button { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 12px; width: 100%; min-height: 56px; padding: 12px 20px; border-radius: 10px; cursor: pointer; }
+@media (hover: hover) { .acc > button:hover { background: var(--soft); } }
+.acc .chev { width: 16px; height: 16px; color: var(--mute); flex: none; transition: transform .2s var(--ease-out); transform: rotate(-90deg); }
+.acc.open .chev { transform: none; }
+.acc h2 { margin: 0; font-size: 17px; font-weight: 600; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.acc h2 .code { font-weight: 400; color: var(--mute); margin-left: 8px; }
+.acc .meta { color: var(--mute); white-space: nowrap; }
+.acc .body { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .2s var(--ease-out); }
+.acc.open .body { grid-template-rows: 1fr; }
+.acc .body > div { min-height: 0; overflow: hidden; }
+.acc .rows { display: flex; flex-direction: column; gap: 8px; padding: 0 16px 16px; }
+.srow { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border: 1px solid var(--hairline); border-radius: 8px; }
+.srow .sn { font-weight: 500; flex: 1; }
+.srow .st { display: inline-flex; align-items: center; gap: 6px; color: var(--body); white-space: nowrap; }
+.srow .q { min-width: 70px; text-align: right; color: var(--mute); white-space: nowrap; }
+
+
+/* C · Stores — hub card tokens */
+.hc { border: 1px solid var(--hairline); border-radius: 10px; background: #fff; box-shadow: 0 1px 3px rgb(24 39 60 / 4%); padding: 16px 20px 18px; display: flex; flex-direction: column; gap: 14px; cursor: pointer; transition: border-color .15s var(--ease-out); }
+.hc:hover { border-color: #c6c6cc; }
+.hc .top { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
+.hc .t { font-size: 17px; line-height: 24px; font-weight: 600; }
+.hc .m { color: var(--body); }
+.hc .m .code { font-size: 15px; color: var(--body); }
+.hc .fig { font-weight: 600; white-space: nowrap; text-align: right; }
+.hc .fig .short { font-weight: 400; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; }
+.tile { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; border-radius: 8px; background: var(--soft); }
+.tile .n { font-weight: 500; color: var(--ink); }
+.tile .s { display: inline-flex; align-items: center; gap: 6px; color: var(--mute); white-space: nowrap; }
+.foot { display: flex; justify-content: flex-end; gap: 8px; border-top: 1px solid var(--hairline); padding-top: 14px; }
+.btn { height: 32px; padding: 0 14px; border: 0; border-radius: 8px; font: 500 15px/1 Inter, system-ui, sans-serif; cursor: pointer; transition: background-color .15s var(--ease-out), scale .1s var(--ease-out); }
+.btn:active { scale: .97; }
+.btn.pri { background: #2563eb; color: #fff; } .btn.pri:hover { background: #1d4ed8; }
+.btn.red { background: #dc2626; color: #fff; } .btn.red:hover { background: #b91c1c; }
+@media (max-width: 640px) { .hc { padding: 14px; } .hc .top { flex-direction: column; gap: 4px; } .hc .fig { text-align: left; } .tiles { grid-template-columns: 1fr 1fr; } .foot .btn { flex: 1; height: 44px; } }
+
+@media (max-width: 640px) {
+  .nums { grid-template-columns: repeat(2, 1fr); }
+  .row { grid-template-columns: 1fr auto; }
+  .row .hide-s { display: none; }
+  .row.th { display: none; }
+}
+</style>
+</head>
+<body>
+<div class="bar"><b>In progress</b><div class="seg" id="seg"></div></div>
+<main>
+  <h1>Allotments</h1>
+  <div class="tabs"><span class="on">In progress 3</span><span>Completed 1</span><span>Cancelled 0</span></div>
+  <div id="out"></div>
+</main>
+<script>
+// cumulative per store: [qty, picked, packed, dispatched, received]
+const DATA = [
+  { no: "ALT-00000041", sup: "Garmen Nusantara, PT", arts: 2, date: "09 Oct 2026", stores: {
+    C001: [53, 0, 0, 0, 0], C002: [53, 33, 0, 0, 0], C003: [53, 53, 45, 0, 0],
+    C004: [53, 53, 53, 30, 0], C005: [53, 27, 0, 0, 0], C006: [53, 0, 0, 0, 0] } },
+  { no: "ALT-00000042", sup: "Indorama, PT", arts: 1, date: "10 Oct 2026", short: 6, stores: {
+    C001: [66, 66, 66, 66, 66], C002: [66, 66, 66, 66, 0], C003: [66, 60, 60, 0, 0], C004: [66, 66, 30, 0, 0] } },
+  { no: "ALT-00000043", sup: "Sinar Tekstil, CV", arts: 3, date: "16 Oct 2026", fresh: true, stores: {
+    C001: [40, 0, 0, 0, 0], C002: [40, 0, 0, 0, 0], C005: [40, 0, 0, 0, 0] } },
+];
+const STAGES = ["To pick", "Picked", "Packed", "Dispatched", "Received"];
+const COL = ["--c-topick", "--c-picked", "--c-packed", "--c-dispatched", "--c-received"].map(v => `var(${v})`);
+
+function sum(a) {
+  const t = [0, 0, 0, 0, 0];
+  Object.values(a.stores).forEach(s => s.forEach((v, i) => t[i] += v));
+  const nStores = Object.keys(a.stores).length;
+  const recv = Object.values(a.stores).filter(s => s[4] > 0 && s[4] >= s[1] && s[1] > 0).length;
+  const want = t[0] - (a.short || 0);
+  return { want, qty: t[0], picked: t[1], packed: t[2], disp: t[3], rec: t[4], nStores, recv };
+}
+// where most of the work stands now
+function stageOf(t) {
+  if (t.recv === t.nStores) return "Received";
+  if (t.picked === 0) return "To pick";
+  if (t.picked < t.want) return "Picking";
+  if (t.packed < t.picked) return "Packing";
+  return "Dispatching";
+}
+function storeStage(s) {
+  const [q, pk, pa, d, r] = s;
+  if (r > 0 && r >= pk) return [4, "Received"];
+  if (d > 0) return [3, d === pk ? "Dispatched" : `Dispatched ${d}`];
+  if (pa > 0) return [2, pa === pk ? "Packed" : `Packed ${pa}`];
+  if (pk > 0) return [1, pk === q ? "Picked" : `Picked ${pk}`];
+  return [0, `To pick ${q}`];
+}
+const pct = (a, b) => b ? Math.round(a / b * 100) : 0;
+const fmt = n => n.toLocaleString("en-US");
+const head = (a, t) => `<div class="head"><div>
+  <div class="name">${a.fresh ? '<span class="dot new" style="margin-right:6px;vertical-align:middle"></span>' : ""}${a.sup}</div>
+  <div class="sub"><span class="code">${a.no}</span><span>${a.arts} article${a.arts > 1 ? "s" : ""} · ${a.date}</span></div></div>
+  <div class="pcs">${fmt(t.qty)} pcs${a.short ? `<span class="short">Short ${a.short}</span>` : ""}</div></div>`;
+
+const V = {
+  simple: { label: "F · Simple", list(all) {
+    const chev = '<svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 6l4 4 4-4"/></svg>';
+    return `<div class="list">${all.map((a, k) => { const t = sum(a);
+      const rows = Object.entries(a.stores).map(([n, st]) => { const [i] = storeStage(st);
+        return `<div class="srow"><span class="sn">${n}</span><span class="st"><i class="dot" style="background:${COL[i]}"></i>${STAGES[i]}</span><span class="q">${fmt(st[0])} pcs</span></div>`; }).join("");
+      return `<section class="acc${k === 0 ? " open" : ""}"><button aria-expanded="${k === 0}">${chev}
+        <h2>${a.fresh ? '<span class="dot new" style="margin-right:6px;vertical-align:middle"></span>' : ""}${a.sup}<span class="code">${a.no}</span></h2>
+        <span class="meta">${t.recv} of ${t.nStores} stores received · ${fmt(t.qty)} pcs</span></button>
+        <div class="body"><div><div class="rows">${rows}</div></div></div></section>`; }).join("")}</div>`; } },
+  numbers: { label: "A · Numbers", render(a) {
+    const t = sum(a); const st = stageOf(t);
+    const cell = (k, v, of, now) => `<div class="num${now ? " now" : ""}"><div class="k">${k}</div><div class="v">${v} <small>${of}</small></div></div>`;
+    return `<div class="card">${head(a, t)}<div class="nums">
+      ${cell("Picked", fmt(t.picked), `of ${fmt(t.qty)}`, st === "Picking" || st === "To pick")}
+      ${cell("Packed", fmt(t.packed), `of ${fmt(t.qty)}`, st === "Packing")}
+      ${cell("Dispatched", fmt(t.disp), `of ${fmt(t.qty)}`, st === "Dispatching")}
+      ${cell("Received", t.recv, `of ${t.nStores} stores`, st === "Received")}
+    </div></div>`; } },
+  bar: { label: "B · One bar", render(a) {
+    const t = sum(a);
+    const seg = [t.qty - t.picked, t.picked - t.packed, t.packed - t.disp, t.disp - t.rec, t.rec];
+    const order = [4, 3, 2, 1];
+    return `<div class="card">${head(a, t)}
+      <div class="track">${order.map(i => `<i style="width:${pct(seg[i], t.qty)}%;background:${COL[i]}"></i>`).join("")}</div>
+      <div class="legend">${[0, 1, 2, 3, 4].map(i => `<span><i class="dot" style="background:${COL[i]}"></i>${STAGES[i]} <b>${fmt(seg[i])}</b></span>`).join("")}</div>
+    </div>`; } },
+  stores: { label: "C · Stores", render(a) {
+    const t = sum(a);
+    return `<article class="hc">
+      <div class="top"><div><div class="t">${a.fresh ? '<span class="dot new" style="margin-right:6px;vertical-align:middle"></span>' : ""}${a.sup}</div>
+        <div class="m"><span class="code">${a.no}</span> · ${a.arts} article${a.arts > 1 ? "s" : ""} · ${a.date}</div></div>
+        <div class="fig">${fmt(t.qty)} pcs${a.short ? `<span class="short">Short ${a.short}</span>` : ""}</div></div>
+      <div class="tiles">${Object.entries(a.stores).map(([n, st]) => { const [i] = storeStage(st);
+        return `<div class="tile"><span class="n">${n}</span><span class="s"><i class="dot" style="background:${COL[i]}"></i>${STAGES[i]}</span></div>`; }).join("")}</div>
+      <div class="foot"><button class="btn red">Cancel</button><button class="btn pri">Edit</button></div>
+    </article>`; } },
+  stage: { label: "D · Stage", render(a) {
+    const t = sum(a);
+    const steps = [["Pick", t.picked], ["Pack", t.packed], ["Dispatch", t.disp], ["Receive", t.rec]];
+    const cur = steps.findIndex(s => s[1] < t.want); const c = cur < 0 ? 3 : cur;
+    return `<div class="card">${head(a, t)}
+      <div class="stage"><span class="big">${pct(steps[c][1], t.qty)}%</span><span class="mute">${["picked", "packed", "dispatched", "received"][c]} · ${t.recv} of ${t.nStores} stores received</span></div>
+      <div class="steps">${steps.map((s, i) => `<i class="${i < c ? "done" : i === c ? "half" : ""}" style="--p:${pct(s[1], t.qty)}%"></i>`).join("")}</div>
+      <div class="steplbl">${steps.map((s, i) => `<span class="${i === c ? "on" : ""}">${s[0]}</span>`).join("")}</div>
+    </div>`; } },
+  rows: { label: "E · Rows", list(all) {
+    return `<div class="table"><div class="row th"><span>Supplier</span><span class="hide-s">Picked</span><span class="hide-s">Dispatched</span><span class="hide-s">Stores received</span><span class="r">Pieces</span></div>
+      ${all.map(a => { const t = sum(a);
+        return `<div class="row"><div><div class="name" style="font-size:15px">${a.fresh ? '<span class="dot new" style="margin-right:6px"></span>' : ""}${a.sup}</div><div class="sub"><span class="code">${a.no}</span></div></div>
+          <span class="hide-s">${fmt(t.picked)} <span class="mute">of ${fmt(t.qty)}</span></span>
+          <span class="hide-s">${fmt(t.disp)} <span class="mute">of ${fmt(t.qty)}</span></span>
+          <span class="hide-s">${t.recv} <span class="mute">of ${t.nStores}</span></span>
+          <span class="r" style="font-weight:600">${fmt(t.qty)}${a.short ? `<span class="short">Short ${a.short}</span>` : ""}</span></div>`; }).join("")}</div>`; } },
+};
+
+let cur = new URLSearchParams(location.search).get("v") || "stores";
+if (!V[cur]) cur = "stores";
+function draw() {
+  document.getElementById("seg").innerHTML = Object.entries(V).map(([k, v]) => `<button data-k="${k}" class="${k === cur ? "on" : ""}">${v.label}</button>`).join("");
+  const v = V[cur];
+  document.getElementById("out").innerHTML = v.list ? v.list(DATA) : `<div class="list">${DATA.map(v.render).join("")}</div>`;
+}
+document.getElementById("seg").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  cur = b.dataset.k; history.replaceState(null, "", "?v=" + cur); draw();
+});
+document.getElementById("out").addEventListener("click", e => {
+  const b = e.target.closest(".acc > button"); if (!b) return;
+  const open = b.parentElement.classList.toggle("open"); b.setAttribute("aria-expanded", open);
+});
+draw();
+</script>
+</body>
+</html>

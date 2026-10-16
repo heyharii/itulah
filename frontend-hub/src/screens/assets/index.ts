@@ -1,5 +1,4 @@
-import type { ScreenMap } from "@/screens/registry"
-import { Assets } from "@/screens/assets/assets"
+import { lazyScreen, type ScreenMap } from "@/screens/registry"
 
 /// Screens this module has written. Keys must be paths declared in
 /// `lib/navigation.ts`.
@@ -8,5 +7,9 @@ import { Assets } from "@/screens/assets/assets"
 /// Projects — is a chip whose value rides in `?asset-view=`, so a new reading
 /// is an entry in `BUILD_VIEWS`, not a route.
 export const screens: ScreenMap = {
-  "/assets": Assets,
+  "/assets": lazyScreen(
+    "assets/assets",
+    () => import("@/screens/assets/assets"),
+    (m) => m.Assets
+  ),
 }

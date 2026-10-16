@@ -1,0 +1,490 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Inventory detail · options</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* Tokens from frontend-hub/src/styles/white.css (All white, 16 Oct 2026) */
+:root{
+  --ink:#1d1d1f;--mute:#6e6e73;--faint:#c7c7cc;--ico:#8e8e93;
+  --canvas:#fff;--soft:#fafafb;--soft-2:#f2f2f5;--soft-3:#f5f5f7;
+  --hair:#e8e8ec;--row:#eeeef1;--hair-2:#dcdce1;
+  --accent:#2862dc;--accent-bg:#eef3fc;--cta-hover:#2055c7;
+  --ok:#248a3d;--bad:#d70015;--warn:#a66c1f;--info:#496b9c;
+  --ring:0 0 0 1px rgb(0 0 0 / 5%),0 2px 8px rgb(0 0 0 / 5%),0 24px 64px rgb(0 0 0 / 12%);
+  --scrim:rgb(40 30 20 / 10%);
+  --drawer:cubic-bezier(.32,.72,0,1);--out:cubic-bezier(.23,1,.32,1);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font:15px/1.45 Inter,system-ui,sans-serif;color:var(--ink);background:#fff;-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent}
+button,input,select{font:inherit;color:inherit}
+button{background:none;border:0;cursor:pointer}
+.n{font-variant-numeric:tabular-nums}
+.m{color:var(--mute)}.w{color:var(--warn)}.b{color:var(--bad)}.ok{color:var(--ok)}
+
+/* prototype bar — not part of the app */
+.proto{position:fixed;left:0;right:0;top:0;height:46px;background:#111113;color:#d9dbe0;display:flex;align-items:center;gap:14px;padding:0 14px;z-index:90;font-size:15px}
+.proto b{color:#fff;font-weight:600;white-space:nowrap}
+.proto .opts{display:flex;gap:2px;overflow-x:auto;scrollbar-width:none;min-width:0}
+.proto .opts button{height:32px;padding:0 12px;border-radius:8px;color:#a9adb6;white-space:nowrap}
+.proto .opts button:hover{color:#fff}
+.proto .opts button[aria-pressed=true]{background:#2c2d31;color:#fff;font-weight:500}
+.proto select{margin-left:auto;height:32px;background:#2c2d31;color:#e4e6ea;border:0;border-radius:8px;padding:0 8px}
+
+/* the Stock page behind, dimmed */
+.page{padding:70px 32px 32px 332px;min-height:100vh}
+.side{position:fixed;top:46px;left:0;bottom:0;width:300px;border-right:1px solid var(--hair);background:#fff;padding:18px 12px}
+.side h4{font-size:17px;font-weight:600;padding:0 10px 12px}
+.side a{display:block;padding:7px 10px;border-radius:8px;color:var(--mute)}
+.side a.on{background:var(--soft-2);color:var(--ink);font-weight:500}
+.page h1{font-size:17px;font-weight:600;margin-bottom:18px}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
+.card{border:1px solid var(--hair);border-radius:12px;padding:16px 18px;text-align:left;transition:transform 160ms var(--out)}
+.card:active{transform:scale(.98)}
+.card b{display:block;font-weight:600}.card span{color:var(--mute)}
+.card .f{display:flex;gap:28px;margin-top:14px}.card .f div{display:flex;flex-direction:column}
+.card .f strong{font-size:16px;font-weight:600}
+
+/* sheet — 12px off the edge, ring shadow, slides in from the right */
+.scrim{position:fixed;inset:46px 0 0 0;background:var(--scrim);opacity:0;pointer-events:none;transition:opacity 200ms var(--out);z-index:40}
+.scrim.on{opacity:1;pointer-events:auto;transition-duration:340ms}
+.sheet{position:fixed;top:58px;right:12px;bottom:12px;width:min(928px,calc(100vw - 24px));background:#fff;border-radius:14px;box-shadow:var(--ring);display:flex;flex-direction:column;z-index:50;transform:translateX(calc(100% + 24px));transition:transform 200ms var(--out)}
+.sheet.on{transform:none;transition:transform 340ms var(--drawer)}
+.sheet.wide{width:min(1160px,calc(100vw - 24px))}
+.sheet.layer{z-index:70;right:24px;top:70px;bottom:24px;width:min(760px,calc(100vw - 48px))}
+.sheet.layer.on{transform:none}
+.sh{padding:22px 32px 0;display:flex;align-items:flex-start;gap:12px}
+.sh .t{flex:1;min-width:0}
+.crumb{color:var(--mute);margin-bottom:4px}
+.crumb a{color:var(--mute)}
+.sh h2{font-size:17px;font-weight:600}
+.sh .sub{color:var(--mute)}
+.x{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;color:var(--mute);font-size:20px;line-height:1}
+.x:hover{background:var(--soft-2)}
+.sb{flex:1;overflow:auto;padding:20px 32px 28px}
+.sf{border-top:1px solid var(--hair);padding:14px 32px;display:flex;align-items:center;gap:16px}
+.sf .sp{flex:1}
+.tint{color:var(--accent)}.tint:hover{text-decoration:underline;text-underline-offset:3px}
+.btn{height:36px;padding:0 16px;border-radius:999px;background:var(--accent);color:#fff;font-weight:500;transition:transform 160ms var(--out),background 150ms ease}
+.btn:hover{background:var(--cta-hover)}.btn:active{transform:scale(.97)}
+.status{display:inline-flex;align-items:center;gap:6px}
+.status::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+
+/* KPI strip — one row, label over figure, hairline dividers */
+.kpi{display:flex;flex-wrap:wrap;margin-bottom:22px}
+.kpi>div{padding:0 22px;border-left:1px solid var(--hair);display:flex;flex-direction:column;min-width:0}
+.kpi>div:first-child{padding-left:0;border-left:0}
+.kpi label{color:var(--mute)}
+.kpi strong{font-size:16px;font-weight:600}
+.kpi small{font-size:15px;color:var(--mute);font-weight:400}
+
+/* sections + calm tables */
+.sec{margin-top:26px}
+.sec:first-child{margin-top:0}
+.sec-h{display:flex;align-items:baseline;gap:10px;margin-bottom:6px}
+.sec-h h3{font-size:15px;font-weight:600}
+.sec-h .sp{flex:1}
+table{width:100%;border-collapse:collapse;table-layout:fixed}
+th{font-weight:400;color:var(--mute);text-align:left;padding:8px 12px;border-bottom:1px solid var(--hair);white-space:nowrap}
+td{padding:11px 12px;border-bottom:1px solid var(--row);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+th:first-child,td:first-child{padding-left:0}th:last-child,td:last-child{padding-right:0}
+.r{text-align:right}
+tr.go{cursor:pointer}
+@media (hover:hover){tr.go:hover td{background:var(--soft)}}
+tr.tot td{border-bottom:0;font-weight:600}
+tr.sub td{color:var(--mute)}
+tr.sub td:first-child{padding-left:26px}
+.lnk{color:inherit;text-align:left}
+@media (hover:hover){.lnk:hover{color:var(--accent);text-decoration:underline;text-underline-offset:3px}}
+.chev{display:inline-block;width:16px;color:var(--ico);transition:transform 200ms var(--out)}
+tr.open .chev{transform:rotate(90deg)}
+.bar{display:flex;gap:14px;align-items:center;margin-bottom:6px}
+.search{flex:1;max-width:320px;height:36px;border:1px solid var(--hair-2);border-radius:10px;padding:0 12px;outline:none}
+.search:focus{border-color:var(--accent)}
+.sel{flex:none;width:auto;height:36px;border:0;background:none;color:var(--accent);padding:0 4px}
+.empty{color:var(--mute);padding:12px 0}
+.more{margin-top:10px}
+
+/* Today — copy of the live PlaceSheet */
+.ring{width:96px;height:96px;border-radius:50%;border:4px dotted var(--faint);display:grid;place-items:center;color:var(--mute);flex-shrink:0}
+.facts{display:grid;grid-template-columns:1fr 1fr;gap:14px 24px}
+.facts dt{color:var(--mute)}.facts dd{margin-bottom:2px}
+
+/* E — two panes */
+.split{display:grid;grid-template-columns:260px 1fr;gap:0;height:100%}
+.panes{border-right:1px solid var(--hair);padding:14px 12px;overflow:auto}
+.panes button{display:flex;width:100%;justify-content:space-between;padding:9px 12px;border-radius:9px;text-align:left}
+.panes button[aria-pressed=true]{background:var(--soft-2);font-weight:500}
+.panes button span:last-child{color:var(--mute)}
+.panes .g{color:var(--mute);padding:14px 12px 4px}
+.pane{padding:20px 28px;overflow:auto}
+.sb.flush{padding:0;overflow:hidden}
+
+@media (max-width:700px){
+  .page{padding:64px 16px 24px}.side{display:none}
+  .sheet,.sheet.wide,.sheet.layer{top:46px;right:0;bottom:0;width:100%;border-radius:14px 14px 0 0}
+  .sh,.sb,.sf{padding-left:16px;padding-right:16px}
+  .kpi{display:grid;grid-template-columns:1fr 1fr;gap:14px 0}
+  .kpi>div:nth-child(odd){padding-left:0;border-left:0}
+  .ph{display:none}
+  .split{grid-template-columns:1fr;grid-template-rows:auto 1fr}
+  .panes{border-right:0;border-bottom:1px solid var(--hair);display:flex;flex-wrap:wrap;gap:4px;padding:10px 16px}
+  .panes button{width:auto}.panes .g{display:none}
+  .pane{padding:16px}
+  table{table-layout:auto}td:first-child{white-space:normal}td.m:first-child,tr.sub td:first-child{white-space:nowrap}
+  .sel{flex:none}
+  .facts{grid-template-columns:1fr}
+}
+
+/* version bar for A — prototype only */
+.vbar{position:fixed;left:0;right:0;top:46px;height:40px;background:#1c1c1f;display:none;align-items:center;gap:2px;padding:0 14px;z-index:89;overflow-x:auto;scrollbar-width:none}
+.hasv .vbar{display:flex}
+.vbar button{height:30px;padding:0 11px;border-radius:7px;color:#a9adb6;white-space:nowrap}
+.vbar button:hover{color:#fff}
+.vbar button[aria-pressed=true]{background:#38383d;color:#fff;font-weight:500}
+.hasv .sheet{top:98px}.hasv .sheet.layer{top:110px}.hasv .scrim{inset:86px 0 0 0}.hasv .page{padding-top:110px}
+/* underline tabs */
+.tabs{display:flex;gap:24px;border-bottom:1px solid var(--hair);margin:0 0 14px}
+.tabs button{padding:8px 0 10px;color:var(--mute);border-bottom:2px solid transparent;margin-bottom:-1px;transition:color 150ms ease}
+.tabs button[aria-selected=true]{color:var(--ink);font-weight:500;border-bottom-color:var(--ink)}
+/* two columns */
+.cols{display:grid;grid-template-columns:5fr 6fr;gap:36px}
+.cols .sec:first-child{margin-top:0}
+.narrow .ph{display:none}
+.kpi.many{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:14px 22px}
+.kpi.many>div{padding:0;border:0}
+/* folds */
+.fold{border-bottom:1px solid var(--hair)}
+.fold-h{display:flex;align-items:center;gap:8px;width:100%;padding:14px 0;text-align:left}
+.fold-h h3{font-size:15px;font-weight:600}.fold-h .sp{flex:1}
+.fold.open .chev{transform:rotate(90deg)}
+.fold-b{padding-bottom:16px}
+/* exceptions-first line */
+.alert{display:flex;align-items:baseline;gap:6px;padding:12px 0;border-top:1px solid var(--hair);border-bottom:1px solid var(--hair);color:var(--warn);margin-bottom:6px}
+.alert b{font-weight:600}.alert .sp{flex:1}
+@media (max-width:700px){.cols{grid-template-columns:1fr;gap:0}.cols .narrow .sec:first-child{margin-top:26px}.hasv .sheet,.hasv .sheet.layer{top:86px}.alert{flex-wrap:wrap}}
+@media (prefers-reduced-motion:reduce){.sheet,.sheet.on{transition:none}}
+</style>
+</head>
+<body>
+<div class="proto">
+  <b>Inventory detail</b>
+  <div class="opts" id="opts"></div>
+  <select id="place"></select>
+</div>
+
+<aside class="side">
+  <h4>Inventory</h4>
+  <a class="on">Stock</a><a>Exceptions</a><a>Counts</a><a>Movements</a>
+</aside>
+<main class="page">
+  <h1>Stock</h1>
+  <div class="cards" id="cards"></div>
+</main>
+
+<div class="vbar" id="vers"></div>
+<div class="scrim" id="scrim"></div>
+<section class="sheet" id="sheet"></section>
+<div class="scrim" id="scrim2" style="z-index:60"></div>
+<section class="sheet layer" id="layer"></section>
+
+<script>
+const OPTS=[["today","Today"],["a","A · Pools table"],["b","B · Pools open"],["c","C · Articles"],["d","D · Stock card"],["e","E · Two panes"]];
+const fmt=n=>n==null?"—":n.toLocaleString("id-ID");
+const sg=n=>n==null?"—":(n>0?"+":n<0?"−":"")+Math.abs(n).toLocaleString("id-ID");
+
+/* ---------- data ---------- */
+const A=(name,sku,pools,seen)=>({name,sku,pools,seen});
+const PLACES={
+  ho:{name:"Head Office",sub:"HO",kind:"HO",lastCount:null,days:null,counting:"CC-0091 · 38 of 100 read",onRoad:null,
+    pools:[["Unidentified",72,null],["Warehouse",23,null],["Pick Area",1,null],["Packed · Store 03",4,null],
+           ["Packed · Store 01",0],["Packed · Store 02",0],["Packed · Store 04",0],["Packed · Store 05",0],["Packed · Store 06",0],["Packed · Store 07",0],["Reject",0],["Return stock",0]],
+    articles:[
+      A("Not set up · PO-0412","PO-0412",{"Unidentified":48}),
+      A("Not set up · PO-0415","PO-0415",{"Unidentified":24}),
+      A("Linen Shirt Relaxed","LSR-2401",{"Warehouse":9,"Pick Area":1}),
+      A("Denim Jacket Washed","DJW-1188",{"Warehouse":6,"Packed · Store 03":4}),
+      A("Pleated Midi Skirt","PMS-0720",{"Warehouse":5}),
+      A("Cotton Tee Boxy","CTB-0033",{"Warehouse":3}),
+    ],
+    cases:[],
+    moves:[
+      ["16 Oct","Received","GR-0218","Unidentified",24,null],
+      ["15 Oct","Picked","PL-0533","Warehouse → Pick Area",null,1],
+      ["15 Oct","Packed","KOLI-0091","Pick Area → Packed · Store 03",null,4],
+      ["14 Oct","Received","GR-0214","Unidentified",48,null],
+      ["13 Oct","Set up","GR-0209","Unidentified → Warehouse",null,null,"23 pcs"],
+      ["10 Oct","Dispatched","SJ-0311","Packed · Store 05",null,18],
+    ],
+    open:0,in:72+18,out:18},
+  cikupa:{name:"Cikupa",sub:"Store · C001",kind:"store",lastCount:"31 Aug",days:46,counting:null,onRoad:32,
+    pools:[["Floor",312,306],["Stockroom",128,125],["Reject",0,0]],
+    articles:[
+      A("Linen Shirt Relaxed","LSR-2401",{"Floor":64,"Stockroom":22},84),
+      A("Denim Jacket Washed","DJW-1188",{"Floor":38,"Stockroom":30},68),
+      A("Pleated Midi Skirt","PMS-0720",{"Floor":52,"Stockroom":12},61),
+      A("Cotton Tee Boxy","CTB-0033",{"Floor":71,"Stockroom":40},111),
+      A("Chino Trouser Slim","CTS-0451",{"Floor":45,"Stockroom":14},57),
+      A("Knit Cardigan Cropped","KCC-0902",{"Floor":24,"Stockroom":10},33),
+      A("Wide Leg Pant","WLP-0310",{"Floor":18,"Stockroom":0},17),
+    ],
+    cases:[
+      ["Linen Shirt Relaxed","Not observed","Floor",-2,"12 d"],
+      ["Wide Leg Pant","Negative stock","Floor",-1,"3 d"],
+      ["Denim Jacket Washed","Transfer short","Stockroom",-2,"34 d"],
+    ],
+    moves:[
+      ["16 Oct","Sold","12 receipts","Floor",null,14],
+      ["15 Oct","Sold","19 receipts","Floor",null,21],
+      ["15 Oct","Moved","MV-0088","Stockroom → Floor",null,null,"30 pcs"],
+      ["14 Oct","Received","SJ-0307","Stockroom",60,null],
+      ["14 Oct","Sold","16 receipts","Floor",null,17],
+      ["12 Oct","Customer return","RT-0041","Floor",1,null],
+      ["09 Oct","Back to HO","RET-0022","Stockroom",null,6],
+    ],
+    open:437,in:61,out:58},
+  banjaran:{name:"Banjaran",sub:"Store · C012",kind:"store",lastCount:null,days:null,counting:null,onRoad:null,
+    pools:[["Floor",0,null],["Stockroom",0,null],["Reject",0,null]],articles:[],cases:[],moves:[],open:0,in:0,out:0},
+};
+for(const p of Object.values(PLACES)){
+  p.book=p.pools.reduce((s,x)=>s+x[1],0);
+  p.seen=p.pools.filter(x=>x[1]>0).every(x=>x[2]!=null)&&p.book>0?p.pools.reduce((s,x)=>s+(x[2]||0),0):null;
+  p.gap=p.seen==null?null:p.seen-p.book;
+}
+
+/* ---------- state ---------- */
+const q=new URLSearchParams(location.search);
+let av=q.get("v")||"1", tab="", folds=new Set(["pools"]), opt=q.get("o")||"a", place=q.get("p")||"cikupa", openPools=new Set(), poolE="All", search="", showEmpty=false, cpool="All";
+function save(){const u=new URL(location);u.searchParams.set("o",opt);u.searchParams.set("p",place);opt==="a"?u.searchParams.set("v",av):u.searchParams.delete("v");history.replaceState(null,"",u)}
+
+/* ---------- shared pieces ---------- */
+const P=()=>PLACES[place];
+const stale=p=>p.days==null||p.days>30;
+function kpi(p){
+  return `<div class="kpi">
+    <div><label>Inventory</label><strong class="n">${fmt(p.book)}</strong></div>
+    <div><label>Observed</label><strong class="n">${fmt(p.seen)}</strong></div>
+    <div><label>Gap</label><strong class="n ${p.gap&&Math.abs(p.gap)/p.book>.015?'w':''}">${sg(p.gap)}</strong></div>
+    <div><label>Last count</label><strong class="${stale(p)?'w':''}">${p.lastCount??"Never"}${p.days!=null?` <small>· ${p.days} d</small>`:""}</strong></div>
+    ${p.onRoad?`<div><label>On the road here</label><strong class="n">+${fmt(p.onRoad)}</strong></div>`:""}
+  </div>`;
+}
+const live=p=>p.pools.filter(x=>x[1]>0);
+const empties=p=>p.pools.filter(x=>x[1]===0);
+const art=a=>a.sku.startsWith("PO-")?`<button class="lnk" data-po="${a.sku}">${a.name}</button>`:`<button class="lnk" data-art="${a.sku}">${a.name}</button>`;
+function casesTable(p){
+  if(!p.cases.length) return `<p class="empty">No exceptions</p>`;
+  return `<table><colgroup><col><col style="width:30%" class="ph"><col style="width:16%" class="ph"><col style="width:12%"><col style="width:10%"></colgroup>
+  <tr><th>Article</th><th class="ph">Exception</th><th class="ph">Pool</th><th class="r">Pieces</th><th class="r">Age</th></tr>
+  ${p.cases.map(c=>`<tr class="go" data-case><td><button class="lnk" data-art="${c[0]}">${c[0]}</button></td><td class="ph">${c[1]}</td><td class="ph m">${c[2]}</td><td class="r n">${sg(c[3])}</td><td class="r ${parseInt(c[4])>30?'b':'m'}">${c[4]}</td></tr>`).join("")}</table>`;
+}
+function movesTable(p,limit,pool){
+  let ms=p.moves; if(pool&&pool!=="All") ms=ms.filter(m=>m[3].includes(pool));
+  if(limit) ms=ms.slice(0,limit);
+  if(!ms.length) return `<p class="empty">No movements</p>`;
+  return `<table><colgroup><col style="width:13%"><col style="width:20%"><col style="width:18%" class="ph"><col class="ph"><col style="width:14%"></colgroup>
+  <tr><th>Date</th><th>What</th><th class="ph">Document</th><th class="ph">Pool</th><th class="r">Pieces</th></tr>
+  ${ms.map(m=>`<tr><td class="m">${m[0]}</td><td>${m[1]}</td><td class="ph">${/receipts/.test(m[2])?`<span class="m">${m[2]}</span>`:`<button class="lnk" data-doc="${m[2]}">${m[2]}</button>`}</td><td class="ph m">${m[3]}</td><td class="r n">${m[4]!=null?"+"+m[4]:m[5]!=null?"−"+m[5]:`<span class="m">${m[6]||""}</span>`}</td></tr>`).join("")}</table>`;
+}
+function foot(p){
+  return `<div class="sf"><button class="tint">Print</button><span class="sp"></span>
+    ${p.counting?`<span class="status" style="color:var(--info)">${p.counting}</span>`:`<button class="btn">Count ${p.kind==="HO"?"HO":"store"}</button>`}</div>`;
+}
+function head(p){
+  return `<div class="sh"><div class="t"><div class="crumb">Stock</div><h2>${p.name}</h2><div class="sub">${p.sub}</div></div><button class="x" data-close aria-label="Close">×</button></div>`;
+}
+function sec(title,aside,body,link){
+  return `<section class="sec"><div class="sec-h"><h3>${title}</h3>${aside!=null?`<span class="m n">${aside}</span>`:""}<span class="sp"></span>${link?`<button class="tint">${link}</button>`:""}</div>${body}</section>`;
+}
+
+/* ---------- options ---------- */
+const V={};
+V.today=p=>`<div style="display:flex;align-items:center;gap:16px;margin-bottom:18px"><div class="ring">—</div>
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);flex:1">${[["Inventory",fmt(p.book)],["Observed",fmt(p.seen)],["Gap",sg(p.gap)]].map(f=>`<div><div style="font-size:17px;font-weight:600">${f[1]}</div><div class="m">${f[0]}</div></div>`).join("")}</div></div>
+  <div style="display:flex;justify-content:space-between;border-bottom:1px solid var(--hair);padding-bottom:12px;margin-bottom:16px"><span class="${stale(p)?'w':''}">Last count <b>${p.lastCount??"never"}</b></span>${p.counting?`<span class="status" style="color:var(--info)">Count active</span>`:`<button class="tint">Count store</button>`}</div>
+  ${sec("Exceptions",p.cases.length,p.cases.length?p.cases.map(c=>`<div style="padding:9px 0;border-top:1px solid var(--hair);display:flex;justify-content:space-between"><div>${c[0]}<div class="m">${c[1]} · ${c[2]} · ${c[4]}</div></div><span class="n">${sg(c[3])} <span class="tint">Open ↗</span></span></div>`).join(""):`<p class="m">No exceptions</p>`)}
+  ${sec("Where",null,`<dl class="facts">${p.pools.flatMap(x=>[[x[0],0],[x[0],x[1]]]).map(f=>`<div><dt>${f[0]}</dt><dd>${f[1]}</dd></div>`).join("")}${p.onRoad?`<div><dt>On the road here</dt><dd>+${p.onRoad}</dd></div>`:""}</dl>`)}`;
+
+const AV=[["1","One scroll"],["2","Tabs"],["3","Summary + tabs"],["4","Two columns"],["5","Pools in strip"],["6","Folds"],["7","Exceptions first"]];
+function poolsTable(p,narrow){
+  const rows=(showEmpty?p.pools:live(p));
+  if(!p.book&&!showEmpty) return `<p class="empty">No stock here</p>`+(empties(p).length?`<button class="tint more" data-empty>Show ${empties(p).length} empty pool${empties(p).length>1?"s":""}</button>`:"");
+  return `<table><colgroup><col><col style="width:${narrow?22:16}%"><col style="width:${narrow?22:16}%" class="ph"><col style="width:${narrow?16:14}%"></colgroup>
+    <tr><th>Pool</th><th class="r">Inventory</th><th class="r ph">Observed</th><th class="r">Gap</th></tr>
+    ${rows.map(x=>`<tr class="go"><td>${x[0]}</td><td class="r n">${fmt(x[1])}</td><td class="r n ph">${fmt(x[2])}</td><td class="r n">${x[2]==null?"—":sg(x[2]-x[1])}</td></tr>`).join("")}
+    <tr class="tot"><td>Total</td><td class="r n">${fmt(p.book)}</td><td class="r n ph">${fmt(p.seen)}</td><td class="r n">${sg(p.gap)}</td></tr></table>
+    ${empties(p).length?`<button class="tint more" data-empty>${showEmpty?"Hide":"Show"} ${empties(p).length} empty pool${empties(p).length>1?"s":""}</button>`:""}`;
+}
+const exSec=p=>sec("Exceptions",p.cases.length||null,casesTable(p),p.cases.length?"Open in Exceptions":null);
+const mvSec=(p,n)=>sec("Movements",null,movesTable(p,n),p.moves.length&&n?"All movements":null);
+function tabs(list){
+  return `<div class="tabs" role="tablist">${list.map(([k,l,c])=>`<button role="tab" aria-selected="${k===tab}" data-tab="${k}">${l}${c?` <span class="m n">${c}</span>`:""}</button>`).join("")}</div>`;
+}
+V.a=p=>{
+  if(av==="2"){
+    if(!["pools","ex","mv"].includes(tab)) tab="pools";
+    const body=tab==="pools"?poolsTable(p):tab==="ex"?casesTable(p):movesTable(p);
+    return kpi(p)+tabs([["pools","Pools"],["ex","Exceptions",p.cases.length||null],["mv","Movements",p.moves.length||null]])+body;
+  }
+  if(av==="3"){
+    if(!["sum","ex","mv"].includes(tab)) tab="sum";
+    const body=tab==="sum"
+      ? sec("Pools",null,poolsTable(p))+sec("Exceptions",p.cases.length||null,casesTable({...p,cases:p.cases.slice(0,2)}),p.cases.length>2?`All ${p.cases.length}`:null)+sec("Movements",null,movesTable(p,3),p.moves.length>3?`All ${p.moves.length}`:null)
+      : tab==="ex"?casesTable(p):movesTable(p);
+    return kpi(p)+tabs([["sum","Summary"],["ex","Exceptions",p.cases.length||null],["mv","Movements",p.moves.length||null]])+body;
+  }
+  if(av==="4"){
+    return kpi(p)+`<div class="cols"><div>${sec("Pools",null,poolsTable(p,true))}</div><div class="narrow">${exSec(p)}${mvSec(p,5)}</div></div>`;
+  }
+  if(av==="5"){
+    const strip=`<div class="kpi many">
+      <div><label>Inventory</label><strong class="n">${fmt(p.book)}</strong></div>
+      ${live(p).map(x=>`<div><label>${x[0]}</label><strong class="n">${fmt(x[1])}</strong></div>`).join("")}
+      <div><label>Observed</label><strong class="n">${fmt(p.seen)}</strong></div>
+      <div><label>Gap</label><strong class="n ${p.gap&&Math.abs(p.gap)/p.book>.015?'w':''}">${sg(p.gap)}</strong></div>
+      <div><label>Last count</label><strong class="${stale(p)?'w':''}">${p.lastCount??"Never"}</strong></div>
+      ${p.onRoad?`<div><label>On the road here</label><strong class="n">+${fmt(p.onRoad)}</strong></div>`:""}</div>`;
+    return strip+exSec(p)+mvSec(p,5);
+  }
+  if(av==="6"){
+    const fold=(k,title,aside,body)=>`<section class="fold ${folds.has(k)?'open':''}"><button class="fold-h" data-fold="${k}"><span class="chev">›</span><h3>${title}</h3><span class="sp"></span>${aside!=null?`<span class="m n">${aside}</span>`:""}</button>${folds.has(k)?`<div class="fold-b">${body}</div>`:""}</section>`;
+    return kpi(p)+fold("pools","Pools",fmt(p.book),poolsTable(p))+fold("ex","Exceptions",p.cases.length,casesTable(p))+fold("mv","Movements",p.moves.length,movesTable(p));
+  }
+  if(av==="7"){
+    const warn=p.cases.length?`<div class="alert"><b>${p.cases.length} exceptions</b> <span class="m">· ${sg(p.cases.reduce((s,c)=>s+c[3],0))} pcs · oldest ${p.cases.map(c=>parseInt(c[4])).sort((a,b)=>b-a)[0]} d</span><span class="sp"></span><button class="tint">Open in Exceptions</button></div>`:"";
+    return kpi(p)+warn+(p.cases.length?sec("Exceptions",null,casesTable(p)):"")+sec("Pools",null,poolsTable(p))+mvSec(p,5);
+  }
+  return kpi(p)+sec("Pools",null,poolsTable(p))+exSec(p)+mvSec(p,5);
+};
+
+V.b=p=>{
+  const rows=live(p).map(x=>{
+    const arts=p.articles.filter(a=>a.pools[x[0]]);
+    const ex=p.cases.filter(c=>c[2]===x[0]).length;
+    const on=openPools.has(x[0]);
+    return `<tr class="go ${on?'open':''}" data-pool="${x[0]}"><td><span class="chev">›</span> ${x[0]}</td><td class="r ph ${ex?'w':'m'}">${ex?ex+" exception"+(ex>1?"s":""):""}</td><td class="r n">${fmt(x[1])}</td><td class="r n ph">${fmt(x[2])}</td></tr>`+
+      (on?arts.map(a=>`<tr class="sub"><td>${art(a)}</td><td class="ph"></td><td class="r n">${fmt(a.pools[x[0]])}</td><td class="r n ph"></td></tr>`).join(""):"");
+  }).join("");
+  const t=live(p).length?`<table><colgroup><col><col style="width:22%" class="ph"><col style="width:16%"><col style="width:16%" class="ph"></colgroup>
+    <tr><th>Pool</th><th class="ph"></th><th class="r">Inventory</th><th class="r ph">Observed</th></tr>${rows}
+    <tr class="tot"><td>Total</td><td class="ph"></td><td class="r n">${fmt(p.book)}</td><td class="r n ph">${fmt(p.seen)}</td></tr></table>`:`<p class="empty">No stock here</p>`;
+  return kpi(p)+sec("Stock",null,t)+sec("Movements",null,movesTable(p,5),p.moves.length?"All movements":null);
+};
+
+V.c=p=>{
+  const cols=live(p).map(x=>x[0]);
+  const list=p.articles.filter(a=>(cpool==="All"||a.pools[cpool])&&a.name.toLowerCase().includes(search.toLowerCase()));
+  const ex=name=>p.cases.find(c=>c[0]===name);
+  const t=p.articles.length?`<div class="bar"><input class="search" id="srch" placeholder="Search articles" value="${search}"><span class="sp" style="flex:1"></span>
+      <select class="sel" id="cpool"><option>All</option>${cols.map(c=>`<option ${c===cpool?"selected":""}>${c}</option>`).join("")}</select></div>
+    <table><colgroup><col>${cols.map(()=>`<col style="width:${Math.max(11,40/cols.length)}%" class="ph">`).join("")}<col style="width:12%"><col style="width:12%" class="ph"></colgroup>
+    <tr><th>Article</th>${cols.map(c=>`<th class="r ph">${c}</th>`).join("")}<th class="r">Total</th><th class="r ph">Observed</th></tr>
+    ${list.map(a=>{const tot=Object.values(a.pools).reduce((s,v)=>s+v,0);const e=ex(a.name);
+      return `<tr class="go" data-art="${a.sku}"><td>${art(a)}${e?` <span class="w">· ${e[1]}</span>`:""}</td>${cols.map(c=>`<td class="r n ph ${a.pools[c]?'':'m'}">${a.pools[c]?fmt(a.pools[c]):"—"}</td>`).join("")}<td class="r n">${fmt(tot)}</td><td class="r n ph ${a.seen!=null&&a.seen<tot?'w':''}">${fmt(a.seen)}</td></tr>`}).join("")}
+    <tr class="tot"><td>Total</td>${cols.map(c=>`<td class="r n ph">${fmt(p.pools.find(x=>x[0]===c)[1])}</td>`).join("")}<td class="r n">${fmt(p.book)}</td><td class="r n ph">${fmt(p.seen)}</td></tr></table>`
+    :`<p class="empty">No stock here</p>`;
+  return kpi(p)+sec("Articles",p.articles.length||null,t)+(p.cases.length?sec("Exceptions",p.cases.length,casesTable(p)):"");
+};
+
+V.d=p=>{
+  let bal=p.open;
+  const ms=[...p.moves].reverse().filter(m=>cpool==="All"||m[3].includes(cpool));
+  const rows=ms.map(m=>{bal+= (m[4]||0)-(m[5]||0); return [m,bal]});
+  const cols=live(p).map(x=>x[0]);
+  return `<div class="kpi">
+      <div><label>Opening · 1 Oct</label><strong class="n">${fmt(p.open)}</strong></div>
+      <div><label>In</label><strong class="n">+${fmt(p.in)}</strong></div>
+      <div><label>Out</label><strong class="n">−${fmt(p.out)}</strong></div>
+      <div><label>Now</label><strong class="n">${fmt(p.book)}</strong></div>
+      <div><label>Last count</label><strong class="${stale(p)?'w':''}">${p.lastCount??"Never"}</strong></div></div>
+    <div class="bar"><select class="sel" id="period" style="padding-left:0"><option>October</option><option>September</option><option>This week</option></select><span style="flex:1"></span>
+      <select class="sel" id="cpool"><option>All</option>${cols.map(c=>`<option ${c===cpool?"selected":""}>${c}</option>`).join("")}</select></div>
+    ${rows.length?`<table><colgroup><col style="width:12%"><col style="width:18%"><col class="ph"><col style="width:11%"><col style="width:11%"><col style="width:13%"></colgroup>
+      <tr><th>Date</th><th>What</th><th class="ph">Document · pool</th><th class="r">In</th><th class="r">Out</th><th class="r">Balance</th></tr>
+      <tr class="sub"><td style="padding-left:0">1 Oct</td><td>Opening</td><td class="ph"></td><td></td><td></td><td class="r n">${fmt(p.open)}</td></tr>
+      ${rows.map(([m,b])=>`<tr><td class="m">${m[0]}</td><td>${m[1]}</td><td class="ph"><span class="m">${/receipts/.test(m[2])?m[2]:`<button class="lnk" data-doc="${m[2]}">${m[2]}</button>`} · ${m[3]}</span></td><td class="r n">${m[4]!=null?fmt(m[4]):""}</td><td class="r n">${m[5]!=null?fmt(m[5]):""}</td><td class="r n">${fmt(b)}</td></tr>`).join("")}
+      </table>`:`<p class="empty">No movements</p>`}
+    ${p.cases.length?sec("Exceptions",p.cases.length,casesTable(p)):""}`;
+};
+
+V.e=p=>{
+  const pools=live(p);
+  const pick=poolE==="All"?null:pools.find(x=>x[0]===poolE);
+  const book=pick?pick[1]:p.book, seen=pick?pick[2]:p.seen;
+  const arts=p.articles.filter(a=>!pick||a.pools[pick[0]]).map(a=>[a,pick?a.pools[pick[0]]:Object.values(a.pools).reduce((s,v)=>s+v,0)]);
+  const cases=p.cases.filter(c=>!pick||c[2]===pick[0]);
+  return `<div class="split"><nav class="panes">
+      <button aria-pressed="${!pick}" data-pe="All"><span>All</span><span class="n">${fmt(p.book)}</span></button>
+      <div class="g">Pools</div>
+      ${pools.map(x=>`<button aria-pressed="${pick&&pick[0]===x[0]}" data-pe="${x[0]}"><span>${x[0]}</span><span class="n">${fmt(x[1])}</span></button>`).join("")}
+      ${empties(p).length?`<div class="g">${empties(p).length} empty</div>`:""}
+    </nav><div class="pane">
+      <div class="kpi"><div><label>Inventory</label><strong class="n">${fmt(book)}</strong></div><div><label>Observed</label><strong class="n">${fmt(seen)}</strong></div>
+        <div><label>Gap</label><strong class="n">${seen==null?"—":sg(seen-book)}</strong></div><div><label>Last count</label><strong class="${stale(p)?'w':''}">${p.lastCount??"Never"}</strong></div></div>
+      ${sec("Articles",arts.length||null,arts.length?`<table><colgroup><col><col style="width:18%"></colgroup><tr><th>Article</th><th class="r">Inventory</th></tr>${arts.map(([a,n])=>`<tr class="go" data-art="${a.sku}"><td>${art(a)}</td><td class="r n">${fmt(n)}</td></tr>`).join("")}</table>`:`<p class="empty">No stock here</p>`)}
+      ${cases.length?sec("Exceptions",cases.length,casesTable({...p,cases})):""}
+      ${sec("Movements",null,movesTable(p,5,pick&&pick[0]))}
+    </div></div>`;
+};
+
+/* ---------- article layer (everything clickable) ---------- */
+function openLayer(title,sub,body){
+  const L=document.getElementById("layer");
+  L.innerHTML=`<div class="sh"><div class="t"><div class="crumb">${P().name}</div><h2>${title}</h2><div class="sub">${sub}</div></div><button class="x" data-close-layer aria-label="Close">×</button></div><div class="sb">${body}</div>`;
+  requestAnimationFrame(()=>{L.classList.add("on");document.getElementById("scrim2").classList.add("on")});
+}
+function closeLayer(){document.getElementById("layer").classList.remove("on");document.getElementById("scrim2").classList.remove("on")}
+function articleLayer(key){
+  const p=P();const a=p.articles.find(x=>x.sku===key||x.name===key);if(!a)return;
+  const tot=Object.values(a.pools).reduce((s,v)=>s+v,0);
+  const sizes=["S","M","L","XL"],cols=["Ecru","Navy"];
+  let left=tot;const v=[];cols.forEach((c,i)=>sizes.forEach((s,j)=>{const n=(i===1&&j===3)?left:Math.min(left,Math.round(tot/8+(j-1.5)));left-=n;v.push([c,s,n])}));
+  openLayer(a.name,a.sku,`<div class="kpi"><div><label>Here</label><strong class="n">${fmt(tot)}</strong></div><div><label>Observed</label><strong class="n">${fmt(a.seen)}</strong></div><div><label>Everywhere</label><strong class="n">${fmt(tot*9)}</strong></div></div>
+    ${sec("Colours and sizes",null,`<table><colgroup><col><col style="width:20%"><col style="width:20%"></colgroup><tr><th>Colour</th><th>Size</th><th class="r">Inventory</th></tr>${v.map(r=>`<tr><td>${r[0]}</td><td>${r[1]}</td><td class="r n">${fmt(r[2])}</td></tr>`).join("")}</table>`)}`);
+}
+
+/* ---------- render ---------- */
+function render(anim){
+  const p=P();
+  document.getElementById("opts").innerHTML=OPTS.map(([k,l])=>`<button aria-pressed="${k===opt}" data-o="${k}">${l}</button>`).join("");
+  document.getElementById("place").innerHTML=Object.entries(PLACES).map(([k,v])=>`<option value="${k}" ${k===place?"selected":""}>${v.name}${v.book?"":" (empty)"}</option>`).join("");
+  document.getElementById("cards").innerHTML=Object.entries(PLACES).map(([k,v])=>`<button class="card" data-p="${k}"><b>${v.name}</b><span>${v.sub}</span><div class="f"><div><strong class="n">${fmt(v.book)}</strong><span>Inventory</span></div><div><strong class="n">${fmt(v.seen)}</strong><span>Observed</span></div></div></button>`).join("");
+  document.body.classList.toggle("hasv",opt==="a");
+  document.getElementById("vers").innerHTML=AV.map(([k,l])=>`<button aria-pressed="${k===av}" data-v="${k}">${k} · ${l}</button>`).join("");
+  const S=document.getElementById("sheet");
+  S.classList.toggle("wide",opt==="e");
+  S.innerHTML=head(p)+`<div class="sb ${opt==="e"?"flush":""}">${V[opt](p)}</div>`+foot(p);
+  if(anim){requestAnimationFrame(()=>{S.classList.add("on");document.getElementById("scrim").classList.add("on")})}
+  save();
+}
+function closeSheet(){document.getElementById("sheet").classList.remove("on");document.getElementById("scrim").classList.remove("on");closeLayer()}
+
+document.addEventListener("click",e=>{
+  const t=e.target.closest("[data-o],[data-p],[data-close],[data-close-layer],[data-empty],[data-pool],[data-pe],[data-art],[data-po],[data-doc],[data-v],[data-tab],[data-fold]");
+  if(!t){ if(e.target.id==="scrim")closeSheet(); if(e.target.id==="scrim2")closeLayer(); return }
+  if(t.dataset.v){av=t.dataset.v;tab="";render(false);return}
+  if(t.dataset.tab){tab=t.dataset.tab;render(false);return}
+  if(t.dataset.fold){const k=t.dataset.fold;folds.has(k)?folds.delete(k):folds.add(k);render(false);return}
+  if(t.dataset.o){opt=t.dataset.o;cpool="All";search="";render(false)}
+  else if(t.dataset.p){place=t.dataset.p;openPools.clear();poolE="All";render(true)}
+  else if(t.hasAttribute("data-close"))closeSheet();
+  else if(t.hasAttribute("data-close-layer"))closeLayer();
+  else if(t.hasAttribute("data-empty")){showEmpty=!showEmpty;render(false)}
+  else if(t.dataset.art){e.stopPropagation();articleLayer(t.dataset.art)}
+  else if(t.dataset.po){openLayer(t.dataset.po,"Unidentified · not set up yet",`<div class="kpi"><div><label>Received</label><strong class="n">48</strong></div><div><label>Not set up</label><strong class="n w">48</strong></div></div>`)}
+  else if(t.dataset.doc){openLayer(t.dataset.doc,"Document",`<p class="m">Opens the document's own sheet.</p>`)}
+  else if(t.dataset.pool){const k=t.dataset.pool;openPools.has(k)?openPools.delete(k):openPools.add(k);render(false)}
+  else if(t.dataset.pe){poolE=t.dataset.pe;render(false)}
+});
+document.addEventListener("change",e=>{
+  if(e.target.id==="place"){place=e.target.value;openPools.clear();poolE="All";render(false)}
+  if(e.target.id==="cpool"){cpool=e.target.value;render(false)}
+});
+document.addEventListener("input",e=>{if(e.target.id==="srch"){search=e.target.value;render(false);const s=document.getElementById("srch");s.focus();s.setSelectionRange(search.length,search.length)}});
+document.addEventListener("keydown",e=>{if(e.key==="Escape"){document.getElementById("layer").classList.contains("on")?closeLayer():closeSheet()}});
+render(true);
+</script>
+</body>
+</html>

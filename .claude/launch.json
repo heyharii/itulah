@@ -2014,7 +2014,9 @@
       "port": 5484,
       "cwd": "pos-desktop/ui",
       "env": {
-        "VITE_API_TARGET": "http://127.0.0.1:8482"
+        "VITE_API_TARGET": "http://127.0.0.1:8482",
+        "VITE_SIM_FINGERS": "dian,maya",
+        "VITE_SIM_PASSWORD": "Password01"
       }
     },
     {
@@ -2445,10 +2447,199 @@
       "port": 5880,
       "env": {
         "VITE_API_TARGET": "http://127.0.0.1:8880",
-        "VITE_EDGE_TARGET": "http://127.0.0.1:8881",
+        "VITE_EDGE_TARGET": "http://127.0.0.1:8880",
         "NODE_OPTIONS": "--max-old-space-size=768"
       },
       "url": "http://127.0.0.1:5880"
+    },
+    {
+      "name": "newstore-hub",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5690",
+        "--strictPort"
+      ],
+      "cwd": "frontend-hub",
+      "port": 5690,
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8680",
+        "VITE_EDGE_TARGET": "http://127.0.0.1:8681",
+        "NODE_OPTIONS": "--max-old-space-size=768"
+      }
+    },
+    {
+      "name": "demo-white-hub",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5352",
+        "--strictPort"
+      ],
+      "port": 5352,
+      "cwd": "frontend-hub",
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8180",
+        "VITE_EDGE_TARGET": "http://127.0.0.1:8182"
+      }
+    },
+    {
+      "name": "finance-simplify-static",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8791",
+        "--bind",
+        "127.0.0.1"
+      ],
+      "port": 8791
+    },
+    {
+      "name": "hub-ssr-preview",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "scripts/preview.mjs"
+      ],
+      "port": 4390,
+      "cwd": "frontend-hub",
+      "env": {
+        "PORT": "4390",
+        "VITE_API_TARGET": "http://127.0.0.1:8180",
+        "VITE_EDGE_TARGET": "http://127.0.0.1:8181",
+        "ITULAH_CLOUD_URL": "http://127.0.0.1:8180",
+        "TZ": "Asia/Jakarta"
+      }
+    },
+    {
+      "name": "noscroll-hub",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5353",
+        "--strictPort"
+      ],
+      "cwd": "frontend-hub",
+      "port": 5353,
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8180"
+      }
+    },
+    {
+      "name": "store-measure-before",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "preview",
+        "--config",
+        "/private/tmp/claude-501/-Users-hari-Documents-itulah/3b688bae-304b-4568-b5e3-f76bc83a816c/scratchpad/measure.config.mjs"
+      ],
+      "cwd": "frontend-store-new",
+      "port": 5491,
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8181",
+        "OUT": "/private/tmp/claude-501/-Users-hari-Documents-itulah/3b688bae-304b-4568-b5e3-f76bc83a816c/scratchpad/before",
+        "PORT": "5491",
+        "DELAY": "60"
+      }
+    },
+    {
+      "name": "store-measure-after",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "preview",
+        "--config",
+        "/private/tmp/claude-501/-Users-hari-Documents-itulah/3b688bae-304b-4568-b5e3-f76bc83a816c/scratchpad/measure.config.mjs"
+      ],
+      "cwd": "frontend-store-new",
+      "port": 5492,
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8181",
+        "OUT": "/private/tmp/claude-501/-Users-hari-Documents-itulah/3b688bae-304b-4568-b5e3-f76bc83a816c/scratchpad/after",
+        "PORT": "5492",
+        "DELAY": "60"
+      }
+    },
+    {
+      "name": "hub-8180",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5274"
+      ],
+      "cwd": "frontend-hub",
+      "port": 5274,
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8180",
+        "VITE_EDGE_TARGET": "http://127.0.0.1:8099"
+      }
+    },
+    {
+      "name": "finance-doors-hub",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5377",
+        "--strictPort"
+      ],
+      "cwd": "frontend-hub",
+      "port": 5377,
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8180",
+        "VITE_EDGE_TARGET": "http://127.0.0.1:8182"
+      }
+    },
+    {
+      "name": "demo-store-new",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5384",
+        "--strictPort"
+      ],
+      "port": 5384,
+      "cwd": "frontend-store-new",
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8182",
+        "VITE_CLOUD_TARGET": "http://127.0.0.1:8180"
+      }
+    },
+    {
+      "name": "hr-doors-hub",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5378",
+        "--strictPort"
+      ],
+      "cwd": "frontend-hub",
+      "port": 5378,
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8180",
+        "VITE_EDGE_TARGET": "http://127.0.0.1:8182"
+      }
     }
   ]
 }

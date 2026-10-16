@@ -8,7 +8,7 @@ use crate::edge::{
     CreateKoliShipmentRequest, CreatePicklistRequest, EdgeError, EdgeInventory,
     EdgeOfficialCountDetail, EdgeOfficialCountLine, EdgeOfficialCountSummary, EdgeRole,
     FulfillmentProgressResult, GoodsReceiptView, IntakeRequest, InventoryState, InvoiceDocument,
-    InvoiceDocumentView, MoveRequest, MovementCause, MovementCommand, MovementGroupId, MovementId,
+    InvoiceDocumentView, MoveBySkuRequest, MoveRequest, MovementCause, MovementCommand, MovementGroupId, MovementId,
     MovementLine, MovementView, NodeContext, OfficialCountEntriesRequest,
     OfficialCountSubmitRequest, OfficialCountSubmitResult, OpenGoodsReceiptRequest,
     OperationalPool, PackKoliRequest, PackRequest, PickRequest, PickResult, PicklistRefusal,
@@ -292,6 +292,14 @@ pub(crate) const PICK_FOR_A_SHOP_SCHEMA: &str = include_str!(concat!(
 pub(crate) const TILL_SEAT_SCHEMA: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/migrations/sqlite/0070_a_till_is_a_seat_and_a_shift_belongs_to_one_person.sql"
+));
+
+/// A cash drop names who took the cash and the handful it was counted from
+/// (`0079`). An ALTER, so probed: applied while `cash_movement.received_by`
+/// is absent.
+pub(crate) const CASH_DROP_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0079_a_cash_drop_says_who_took_it_and_what_was_counted.sql"
 ));
 
 /// A label job knows its delivery line, so labels list by purchase order
@@ -804,10 +812,52 @@ impl SqliteEdge {
             .optional()
             .map_err(db)?
             .unwrap_or(0);
-        if next_seq > durable_seq {
+        let mut unacknowledged = next_seq - durable_seq;
+        if unacknowledged > 0 {
+            // A machine that replaces another is told its generation only
+            // after it has started, so it has already written the pool
+            // snapshot of the generation it began as (`enqueue_bootstrap_if_missing`)
+            // and never sent it. A snapshot is the node's own claim about
+            // where its stock stands, not history: when that is all the old
+            // generation holds, it is dropped with its marker and the new
+            // generation starts with a snapshot of its own. Any other
+            // unacknowledged fact is somebody's work and still refuses the
+            // rollover.
+            let history: i64 = tx
+                .prepare_cached(
+                    "SELECT COUNT(*) FROM sync_fact_log
+                      WHERE origin_id=?1 AND generation=?2 AND seq>=?3 AND event_type<>?4",
+                )
+                .map_err(db)?
+                .query_row(
+                    params![
+                        origin_id,
+                        current_generation,
+                        durable_seq,
+                        INVENTORY_POOL_SNAPSHOT_V1
+                    ],
+                    |row| row.get(0),
+                )
+                .map_err(db)?;
+            if history == 0 {
+                tx.prepare_cached(
+                    "DELETE FROM sync_fact_log WHERE origin_id=?1 AND generation=?2 AND seq>=?3",
+                )
+                .map_err(db)?
+                .execute(params![origin_id, current_generation, durable_seq])
+                .map_err(db)?;
+                tx.prepare_cached(
+                    "DELETE FROM sync_generation_bootstrap WHERE origin_id=?1 AND generation=?2",
+                )
+                .map_err(db)?
+                .execute(params![origin_id, current_generation])
+                .map_err(db)?;
+                unacknowledged = 0;
+            }
+        }
+        if unacknowledged > 0 {
             return Err(EdgeError::Conflict(format!(
-                "cannot advance sync generation: generation {current_generation} has {} unacknowledged fact(s)",
-                next_seq - durable_seq
+                "cannot advance sync generation: generation {current_generation} has {unacknowledged} unacknowledged fact(s)"
             )));
         }
 
@@ -1557,6 +1607,18 @@ impl SqliteEdge {
             .map_err(db)?;
         if a_shift_knows_its_day == 0 {
             connection.execute_batch(TILL_SEAT_SCHEMA).map_err(db)?;
+        }
+        // Who took a cash drop, and what it was counted from (`0079`): an
+        // ALTER on table 0024's `cash_movement`, probed by its column.
+        let a_drop_knows_who_took_it: i64 = connection
+            .prepare_cached(
+                "SELECT COUNT(*) FROM pragma_table_info('cash_movement') WHERE name='received_by'",
+            )
+            .map_err(db)?
+            .query_row([], |row| row.get(0))
+            .map_err(db)?;
+        if a_drop_knows_who_took_it == 0 {
+            connection.execute_batch(CASH_DROP_SCHEMA).map_err(db)?;
         }
         // A label job's delivery line (`0071`).
         let a_label_job_knows_its_line: i64 = connection.prepare_cached("SELECT COUNT(*) FROM pragma_table_info('tagging_job') WHERE name='receipt_line_id'"
@@ -4236,6 +4298,697 @@ impl EdgeInventory for SqliteEdge {
         crate::edge::outbound::picklists_to_pick(&connection, &self.node.site_id.to_string())
     }
 
+    /// The Gudang takes its own work back (`cloud::dc::move_back` on this
+    /// node's ledger).
+    ///
+    /// - **Packed → Picked**: pieces leave an unsent carton for the pick area.
+    ///   Their lines' picked and packed counters fall together (they rose
+    ///   together when the piece went in), the `koli_unit` rows go, and the
+    ///   pieces stand waiting again on the picklist they were picked on (its
+    ///   `dc_pick_unit` row was never removed). A sealed carton left empty is
+    ///   on no list any more.
+    /// - **Picked → To pick**: pieces waiting in the pick area go back to the
+    ///   room they were picked from; the picklist asks for them again, since
+    ///   what it owes is what the lines want less what waits.
+    /// - **Packed → To pick**: both, in one transaction.
+    ///
+    /// Never from a carton on a shipment, a lorry or the road.
+    fn move_back(
+        &self,
+        mut request: crate::edge::outbound::MoveBackRequest,
+    ) -> Result<crate::edge::outbound::MoveBackResult, EdgeError> {
+        use crate::edge::outbound::{
+            picking_place, MoveBackFrom, MoveBackKoli, MoveBackResult, MoveBackTo,
+            WAITING_PICK_UNITS,
+        };
+        use std::collections::BTreeMap;
+        self.require_outbound_origin()?;
+        if request.actor_id.trim().is_empty() {
+            request.actor_id = "api".to_owned();
+        }
+        Self::validate_command_identity(&request.idempotency_key, &request.actor_id)?;
+        request.idempotency_key = request.idempotency_key.trim().to_owned();
+        request.actor_id = request.actor_id.trim().to_owned();
+        if request.from == MoveBackFrom::Picked && request.to == MoveBackTo::Picked {
+            return Err(EdgeError::Validation(
+                "these pieces are in the pick area already; move them back to the racks (to: pick)"
+                    .into(),
+            ));
+        }
+        let trimmed = |value: Option<String>| {
+            value
+                .map(|text| text.trim().to_owned())
+                .filter(|text| !text.is_empty())
+        };
+        request.allotment_id = trimmed(request.allotment_id.take());
+        request.koli_id = trimmed(request.koli_id.take());
+        request.reason = trimmed(request.reason.take());
+        match (request.from, request.koli_id.is_some()) {
+            (MoveBackFrom::Packed, false) => {
+                return Err(EdgeError::Validation(
+                    "name the carton the pieces leave (koli_id)".into(),
+                ))
+            }
+            (MoveBackFrom::Picked, true) => {
+                return Err(EdgeError::Validation(
+                    "pieces in the pick area are in no carton; leave koli_id out".into(),
+                ))
+            }
+            _ => {}
+        }
+        if request.destination_id.trim().is_empty() {
+            return Err(EdgeError::Validation(
+                "name the shop the pieces were for".into(),
+            ));
+        }
+        request.destination_id =
+            self.normalized_destination(&*self.lock()?, &request.destination_id)?;
+        for line in &mut request.lines {
+            line.sku_code = line.sku_code.trim().to_ascii_uppercase();
+            if line.sku_code.is_empty() {
+                return Err(EdgeError::Validation("sku_code is required".into()));
+            }
+            if line.quantity <= 0 {
+                return Err(EdgeError::Validation(format!(
+                    "quantity for {} must be positive",
+                    line.sku_code
+                )));
+            }
+        }
+        request
+            .lines
+            .sort_by(|left, right| left.sku_code.cmp(&right.sku_code));
+        if request.lines.is_empty() {
+            return Err(EdgeError::Validation(
+                "a move back needs at least one line".into(),
+            ));
+        }
+        if request
+            .lines
+            .windows(2)
+            .any(|pair| pair[0].sku_code == pair[1].sku_code)
+        {
+            return Err(EdgeError::Validation(
+                "one SKU cannot appear on two lines of the same move back".into(),
+            ));
+        }
+        let request_json = Self::encode_idempotent_request(&request)?;
+
+        let site = self.node.site_id.to_string();
+        let picking = Self::normal_place(OperationalPool::DcOutboundPicking {
+            dc_id: self.node.site_id.clone(),
+        });
+        let packed_place = Self::normal_place(Self::fulfillment_pool(
+            &self.node.site_id,
+            FulfillmentStage::Packed,
+        ));
+        // The room a pick came off, as `pick_stock` chose it: the pool named
+        // when goods rest there, else the stockroom.
+        let shelf_of = |source_pool: Option<String>| -> Place {
+            let pool = source_pool
+                .and_then(|id| OperationalPool::from_str(id.trim()).ok())
+                .filter(|pool| {
+                    pool.site_id() == &self.node.site_id
+                        && matches!(
+                            pool.role(),
+                            crate::pool_role::PoolRole::Stockroom
+                                | crate::pool_role::PoolRole::Floor
+                                | crate::pool_role::PoolRole::Reject
+                                | crate::pool_role::PoolRole::Return
+                        )
+                        && !pool.is_legacy_leaf()
+                })
+                .unwrap_or_else(|| OperationalPool::Stockroom {
+                    site_id: self.node.site_id.clone(),
+                });
+            Self::normal_place(pool)
+        };
+
+        let mut connection = self.lock()?;
+        let tx = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db)?;
+        if let Some(response) =
+            Self::load_idempotent(&tx, &request.idempotency_key, "DC_MOVE_BACK", &request_json)?
+        {
+            tx.commit().map_err(db)?;
+            return Ok(response);
+        }
+        let occurred_at = self.clock.now();
+        let updated_at = time_text(occurred_at);
+        let destination = request.destination_id.clone();
+        let mut touched: BTreeSet<Uuid> = BTreeSet::new();
+        let mut kolis = Vec::new();
+
+        /// One piece on its way back to the racks.
+        struct RackPiece {
+            subject_id: String,
+            allotment_id: Option<String>,
+            sku_code: String,
+            shelf: Place,
+        }
+        let mut to_rack: Vec<RackPiece> = Vec::new();
+        let moved: i64;
+
+        match request.from {
+            MoveBackFrom::Packed => {
+                let koli_id = request.koli_id.clone().unwrap_or_default();
+                let (number, shop, shipment): (String, String, Option<String>) = tx
+                    .query_row(
+                        "SELECT koli_number,destination_store_id,shipment_id
+                           FROM koli WHERE koli_id=?1",
+                        params![koli_id],
+                        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                    )
+                    .optional()
+                    .map_err(db)?
+                    .ok_or_else(|| EdgeError::NotFound(format!("koli {koli_id}")))?;
+                if shop != destination {
+                    return Err(EdgeError::Validation(format!(
+                        "carton {number} is for {shop}, not {destination}"
+                    )));
+                }
+                if shipment.is_some() {
+                    return Err(EdgeError::Conflict(format!(
+                        "carton {number} is already on a trip; what has left the bench is not moved back"
+                    )));
+                }
+                // (subject, epc, sku, allotment, line, pick source pool)
+                let mut pieces: Vec<(String, String, String, String, String, Option<String>)> =
+                    Vec::new();
+                {
+                    let mut statement = tx
+                        .prepare(
+                            // Per SKU, the pieces of an allotment MD cancelled
+                            // leave first, then the oldest allotment's.
+                            "SELECT u.subject_id,u.epc,u.sku_code,u.allotment_id,
+                                    u.allotment_line_id,
+                                    (SELECT e.source_pool_id
+                                       FROM dc_pick_unit p
+                                       JOIN dc_pick_event e ON e.pick_id=p.pick_id
+                                      WHERE p.subject_id=u.subject_id
+                                      ORDER BY p.rowid DESC LIMIT 1)
+                               FROM koli_unit u
+                               JOIN dc_allotment_work w ON w.allotment_id=u.allotment_id
+                              WHERE u.koli_id=?1 AND u.sku_code=?2
+                                AND (?3 IS NULL OR u.allotment_id=?3)
+                                AND u.released_at IS NULL AND u.current_stage='PACKED'
+                              ORDER BY (w.fulfillment_status IN ('CANCELLED','REJECTED')) DESC,
+                                       w.created_at,u.allotment_id,u.allotment_line_id,u.epc
+                              LIMIT ?4",
+                        )
+                        .map_err(db)?;
+                    for asked in &request.lines {
+                        let found = statement
+                            .query_map(
+                                params![
+                                    koli_id,
+                                    asked.sku_code,
+                                    request.allotment_id,
+                                    asked.quantity
+                                ],
+                                |row| {
+                                    Ok((
+                                        row.get(0)?,
+                                        row.get(1)?,
+                                        row.get(2)?,
+                                        row.get(3)?,
+                                        row.get(4)?,
+                                        row.get(5)?,
+                                    ))
+                                },
+                            )
+                            .map_err(db)?
+                            .collect::<Result<Vec<_>, _>>()
+                            .map_err(db)?;
+                        if i64::try_from(found.len()).unwrap_or(0) < asked.quantity {
+                            return Err(EdgeError::Conflict(format!(
+                                "carton {number} holds {} of {}{}; {} was asked for",
+                                found.len(),
+                                asked.sku_code,
+                                if request.allotment_id.is_some() {
+                                    " for this allotment"
+                                } else {
+                                    ""
+                                },
+                                asked.quantity
+                            )));
+                        }
+                        pieces.extend(found);
+                    }
+                }
+
+                // Out of the carton into the pick area: one movement group,
+                // referenced to the carton.
+                let mut lines = Vec::with_capacity(pieces.len());
+                for (subject_id, epc, ..) in &pieces {
+                    let at: Option<String> = tx
+                        .query_row(
+                            "SELECT place_id FROM inventory_projection
+                              WHERE subject_id=?1 AND quantity>0",
+                            params![subject_id],
+                            |row| row.get(0),
+                        )
+                        .optional()
+                        .map_err(db)?;
+                    if at.as_deref() != Some(packed_place.id().as_str()) {
+                        return Err(EdgeError::Conflict(format!(
+                            "EPC {epc} of carton {number} is not in {}; it cannot be moved back",
+                            packed_place.id()
+                        )));
+                    }
+                    lines.push(MovementLine {
+                        subject_id: SubjectId(parse_uuid(subject_id)?),
+                        quantity: 1,
+                        from: packed_place.clone(),
+                        to: picking.clone(),
+                    });
+                }
+                let command = MovementCommand {
+                    movement_group_id: MovementGroupId::new(),
+                    lines,
+                    cause: MovementCause::NormalMove,
+                    reference_type: Some("DC_MOVE_BACK".into()),
+                    reference_id: Some(koli_id.clone()),
+                    reason: format!("Koli {number} opened again; back to the pick area"),
+                    actor_id: request.actor_id.clone(),
+                    occurred_at,
+                };
+                self.append_command(
+                    &tx,
+                    &format!("{}:unpack", request.idempotency_key),
+                    &command,
+                )?;
+
+                // Picked and packed rose together when each piece went in;
+                // they fall together as it comes out.
+                let mut per_line: BTreeMap<String, i64> = BTreeMap::new();
+                for (_, _, _, allotment_id, line_id, _) in &pieces {
+                    *per_line.entry(line_id.clone()).or_insert(0) += 1;
+                    touched.insert(parse_uuid(allotment_id)?);
+                }
+                for (line_id, n) in &per_line {
+                    let changed = tx
+                        .prepare_cached(
+                            "UPDATE dc_allotment_work_line
+                                SET picked_quantity=picked_quantity-?2,
+                                    packed_quantity=packed_quantity-?2,updated_at=?3
+                              WHERE allotment_line_id=?1
+                                AND packed_quantity-shipment_quantity>=?2
+                                AND picked_quantity>=?2",
+                        )
+                        .map_err(db)?
+                        .execute(params![line_id, n, updated_at])
+                        .map_err(db)?;
+                    if changed != 1 {
+                        return Err(EdgeError::Conflict(format!(
+                            "allotment line {line_id} counts fewer packed pieces than carton \
+                             {number} holds; nothing was moved"
+                        )));
+                    }
+                }
+                for (_, epc, ..) in &pieces {
+                    tx.prepare_cached("DELETE FROM koli_unit WHERE koli_id=?1 AND epc=?2")
+                        .map_err(db)?
+                        .execute(params![koli_id, epc])
+                        .map_err(db)?;
+                }
+                let units_left: i64 = tx
+                    .query_row(
+                        "SELECT COUNT(*) FROM koli_unit WHERE koli_id=?1",
+                        params![koli_id],
+                        |row| row.get(0),
+                    )
+                    .map_err(db)?;
+                tx.execute(
+                    "UPDATE koli SET updated_at=?2 WHERE koli_id=?1",
+                    params![koli_id, updated_at],
+                )
+                .map_err(db)?;
+                kolis.push(MoveBackKoli {
+                    koli_id: koli_id.clone(),
+                    koli_number: number,
+                    units_left,
+                    label_reprint: units_left > 0,
+                    emptied: units_left == 0,
+                });
+                moved = i64::try_from(pieces.len()).unwrap_or(i64::MAX);
+                if request.to == MoveBackTo::Pick {
+                    to_rack = pieces
+                        .into_iter()
+                        .map(
+                            |(subject_id, _, sku_code, allotment_id, _, source)| RackPiece {
+                                subject_id,
+                                allotment_id: Some(allotment_id),
+                                sku_code,
+                                shelf: shelf_of(source),
+                            },
+                        )
+                        .collect();
+                }
+            }
+            MoveBackFrom::Picked => {
+                let mut statement = tx
+                    .prepare(&format!(
+                        "SELECT u.subject_id, s.allotment_id,
+                                (SELECT e.source_pool_id FROM dc_pick_event e
+                                  WHERE e.pick_id = u.pick_id)
+                           {WAITING_PICK_UNITS}
+                            AND s.destination_id = ?2 AND u.sku_code = ?3
+                            AND (?4 IS NULL OR s.allotment_id = ?4)
+                          ORDER BY (SELECT w.created_at FROM dc_allotment_work w
+                                     WHERE w.allotment_id = s.allotment_id),
+                                   s.allotment_id, u.subject_id"
+                    ))
+                    .map_err(db)?;
+                let mut chosen_count = 0_i64;
+                for asked in &request.lines {
+                    let waiting: Vec<(String, Option<String>, Option<String>)> = statement
+                        .query_map(
+                            params![
+                                picking_place(&site),
+                                destination,
+                                asked.sku_code,
+                                request.allotment_id
+                            ],
+                            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                        )
+                        .map_err(db)?
+                        .collect::<Result<Vec<_>, _>>()
+                        .map_err(db)?;
+                    let available = i64::try_from(waiting.len()).unwrap_or(0);
+                    if available < asked.quantity {
+                        return Err(EdgeError::Conflict(format!(
+                            "only {available} of {} for {destination} {} in the pick area{}; {} was asked for",
+                            asked.sku_code,
+                            if available == 1 { "is" } else { "are" },
+                            if request.allotment_id.is_some() {
+                                " for this allotment"
+                            } else {
+                                ""
+                            },
+                            asked.quantity
+                        )));
+                    }
+                    // Pieces an allotment no longer wants (it waits for more
+                    // than its lines still want) go first, then the oldest
+                    // allotment's.
+                    let mut surplus: BTreeMap<Option<String>, i64> = BTreeMap::new();
+                    for (_, allotment, _) in &waiting {
+                        *surplus.entry(allotment.clone()).or_insert(0) += 1;
+                    }
+                    for (allotment, waits) in surplus.iter_mut() {
+                        let wants: i64 = match allotment {
+                            Some(allotment) => tx
+                                .query_row(
+                                    "SELECT COALESCE(SUM(accepted_quantity - picked_quantity
+                                                         - cancelled_quantity), 0)
+                                       FROM dc_allotment_work_line
+                                      WHERE allotment_id=?1 AND destination_id=?2
+                                        AND sku_code=?3",
+                                    params![allotment, destination, asked.sku_code],
+                                    |row| row.get(0),
+                                )
+                                .map_err(db)?,
+                            None => 0,
+                        };
+                        *waits = (*waits - wants.max(0)).max(0);
+                    }
+                    let mut taken = vec![false; waiting.len()];
+                    let mut left = asked.quantity;
+                    for (index, (_, allotment, _)) in waiting.iter().enumerate() {
+                        if left == 0 {
+                            break;
+                        }
+                        if let Some(extra) = surplus.get_mut(allotment) {
+                            if *extra > 0 {
+                                *extra -= 1;
+                                taken[index] = true;
+                                left -= 1;
+                            }
+                        }
+                    }
+                    for flag in taken.iter_mut() {
+                        if left == 0 {
+                            break;
+                        }
+                        if !*flag {
+                            *flag = true;
+                            left -= 1;
+                        }
+                    }
+                    for (piece, flag) in waiting.into_iter().zip(taken) {
+                        if flag {
+                            let (subject_id, allotment_id, source) = piece;
+                            to_rack.push(RackPiece {
+                                subject_id,
+                                allotment_id,
+                                sku_code: asked.sku_code.clone(),
+                                shelf: shelf_of(source),
+                            });
+                            chosen_count += 1;
+                        }
+                    }
+                }
+                moved = chosen_count;
+            }
+        }
+
+        // Onto the racks: how many of them their allotment no longer wanted
+        // (settled, not asked for again), read before they leave.
+        let mut settled = 0_i64;
+        let mut to_pick_again = 0_i64;
+        if !to_rack.is_empty() {
+            let mut groups: BTreeMap<(String, String), i64> = BTreeMap::new();
+            for piece in &to_rack {
+                if let Some(allotment) = &piece.allotment_id {
+                    *groups
+                        .entry((allotment.clone(), piece.sku_code.clone()))
+                        .or_insert(0) += 1;
+                }
+            }
+            for ((allotment, sku), n) in &groups {
+                let wants: i64 = tx
+                    .query_row(
+                        "SELECT COALESCE(SUM(accepted_quantity - picked_quantity
+                                             - cancelled_quantity), 0)
+                           FROM dc_allotment_work_line
+                          WHERE allotment_id=?1 AND destination_id=?2 AND sku_code=?3",
+                        params![allotment, destination, sku],
+                        |row| row.get(0),
+                    )
+                    .map_err(db)?;
+                let waits: i64 = tx
+                    .query_row(
+                        &format!(
+                            "SELECT COUNT(*) {WAITING_PICK_UNITS}
+                               AND s.allotment_id = ?2 AND s.destination_id = ?3
+                               AND u.sku_code = ?4"
+                        ),
+                        params![picking_place(&site), allotment, destination, sku],
+                        |row| row.get(0),
+                    )
+                    .map_err(db)?;
+                settled += (*n).min((waits - wants.max(0)).max(0));
+                touched.insert(parse_uuid(allotment)?);
+            }
+            let mut lines = Vec::with_capacity(to_rack.len());
+            for piece in &to_rack {
+                lines.push(MovementLine {
+                    subject_id: SubjectId(parse_uuid(&piece.subject_id)?),
+                    quantity: 1,
+                    from: picking.clone(),
+                    to: piece.shelf.clone(),
+                });
+            }
+            let command = MovementCommand {
+                movement_group_id: MovementGroupId::new(),
+                lines,
+                cause: MovementCause::NormalMove,
+                reference_type: Some("DC_MOVE_BACK".into()),
+                reference_id: Some(
+                    request
+                        .koli_id
+                        .clone()
+                        .unwrap_or_else(|| destination.clone()),
+                ),
+                reason: format!("Moved back from the pick area for {destination}"),
+                actor_id: request.actor_id.clone(),
+                occurred_at,
+            };
+            self.append_command(&tx, &format!("{}:rack", request.idempotency_key), &command)?;
+            to_pick_again = i64::try_from(to_rack.len()).unwrap_or(i64::MAX) - settled;
+        }
+
+        // An allotment a carton was opened for is no longer complete at the
+        // DC; one whose last pieces were taken back follows its lines.
+        let active: BTreeSet<Uuid> = {
+            let mut keep = BTreeSet::new();
+            for allotment in &touched {
+                let open: i64 = tx
+                    .query_row(
+                        "SELECT COUNT(*) FROM dc_allotment_work
+                          WHERE allotment_id=?1 AND application_status='ACCEPTED'",
+                        params![allotment.to_string()],
+                        |row| row.get(0),
+                    )
+                    .map_err(db)?;
+                if open == 1 {
+                    keep.insert(*allotment);
+                }
+            }
+            keep
+        };
+        Self::refresh_allotment_statuses(&tx, &active, &updated_at)?;
+        Self::enqueue_pool_snapshot(&tx, &self.node, Uuid::new_v4())?;
+
+        let result = MoveBackResult {
+            moved,
+            settled,
+            to_pick_again,
+            kolis,
+        };
+        Self::save_idempotent(
+            &tx,
+            &request.idempotency_key,
+            "DC_MOVE_BACK",
+            &request_json,
+            &result,
+        )?;
+        tx.commit().map_err(db)?;
+        Ok(result)
+    }
+
+    fn report_short_pick(
+        &self,
+        mut request: crate::edge::outbound::ReportShortPickRequest,
+    ) -> Result<crate::edge::outbound::ShortPick, EdgeError> {
+        use crate::edge::outbound::{still_to_pick, ShortPick, SHORT_PICK_SCHEMA};
+        if request.actor_id.trim().is_empty() {
+            request.actor_id = "api".to_owned();
+        }
+        Self::validate_command_identity(&request.idempotency_key, &request.actor_id)?;
+        request.idempotency_key = request.idempotency_key.trim().to_owned();
+        request.actor_id = request.actor_id.trim().to_owned();
+        request.allotment_id = request.allotment_id.trim().to_owned();
+        request.sku_code = request.sku_code.trim().to_ascii_uppercase();
+        if request.allotment_id.is_empty() || request.sku_code.is_empty() {
+            return Err(EdgeError::Validation(
+                "a short pick names its allotment and SKU".into(),
+            ));
+        }
+        if request.pieces <= 0 {
+            return Err(EdgeError::Validation(
+                "a short pick is of at least one piece".into(),
+            ));
+        }
+        request.destination_id =
+            self.normalized_destination(&*self.lock()?, &request.destination_id)?;
+        let tidy = |value: Option<String>| {
+            value
+                .map(|text| text.trim().to_owned())
+                .filter(|text| !text.is_empty())
+        };
+        request.note = tidy(request.note.take());
+        request.pick_session_id = tidy(request.pick_session_id.take());
+        request.count_id = tidy(request.count_id.take());
+        let site = self.node.site_id.to_string();
+
+        let mut connection = self.lock()?;
+        connection.execute_batch(SHORT_PICK_SCHEMA).map_err(db)?;
+        let tx = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db)?;
+        let existing: Option<String> = tx
+            .query_row(
+                "SELECT id FROM dc_short_pick WHERE idempotency_key=?1",
+                params![request.idempotency_key],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(db)?;
+        let id = match existing {
+            Some(id) => id,
+            None => {
+                let id = Uuid::new_v4().to_string();
+                tx.execute(
+                    "INSERT INTO dc_short_pick
+                         (id,idempotency_key,allotment_id,destination_id,sku_code,pieces,reason,
+                          note,pick_session_id,count_id,reported_by,reported_at)
+                     VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
+                    params![
+                        id,
+                        request.idempotency_key,
+                        request.allotment_id,
+                        request.destination_id,
+                        request.sku_code,
+                        request.pieces,
+                        request.reason.as_str(),
+                        request.note,
+                        request.pick_session_id,
+                        request.count_id,
+                        request.actor_id,
+                        time_text(self.clock.now())
+                    ],
+                )
+                .map_err(db)?;
+                id
+            }
+        };
+        let row: ShortPick = tx
+            .query_row(
+                "SELECT sp.id, sp.allotment_id, COALESCE(w.allotment_number, ''),
+                        sp.destination_id, sp.sku_code, COALESCE(c.name, sp.sku_code),
+                        sp.pieces, sp.reason, sp.note, sp.reported_by, sp.reported_at,
+                        sp.count_id
+                   FROM dc_short_pick sp
+                   LEFT JOIN dc_allotment_work w ON w.allotment_id = sp.allotment_id
+                   LEFT JOIN catalog_item c ON c.sku_code = sp.sku_code
+                  WHERE sp.id = ?1",
+                params![id],
+                |row| {
+                    Ok(ShortPick {
+                        id: row.get(0)?,
+                        allotment_id: row.get(1)?,
+                        allotment_number: row.get(2)?,
+                        destination_id: row.get(3)?,
+                        sku_code: row.get(4)?,
+                        article_name: row.get(5)?,
+                        pieces: row.get(6)?,
+                        still_short: 0,
+                        reason: crate::edge::outbound::ShortReason::parse(
+                            &row.get::<_, String>(7)?,
+                        ),
+                        note: row.get(8)?,
+                        reported_by: row.get(9)?,
+                        reported_at: row.get(10)?,
+                        count_id: row.get(11)?,
+                        status: String::new(),
+                    })
+                },
+            )
+            .map_err(db)?;
+        let left = still_to_pick(
+            &tx,
+            &site,
+            &row.allotment_id,
+            &row.destination_id,
+            &row.sku_code,
+        )?;
+        tx.commit().map_err(db)?;
+        let still_short = row.pieces.min(left);
+        Ok(ShortPick {
+            still_short,
+            status: if still_short > 0 { "OPEN" } else { "PICKED" }.to_owned(),
+            ..row
+        })
+    }
+
+    fn short_picks(&self) -> Result<Vec<crate::edge::outbound::ShortPick>, EdgeError> {
+        let connection = self.lock()?;
+        crate::edge::outbound::list_short_picks(&connection, &self.node.site_id.to_string())
+    }
+
     /// Sealed cartons onto one trip, in one act. See
     /// [`crate::edge::contracts::DispatchTripRequest`].
     ///
@@ -6627,6 +7380,126 @@ impl EdgeInventory for SqliteEdge {
         Ok(response)
     }
 
+    fn move_stock_by_sku(&self, request: MoveBySkuRequest) -> Result<CommandResult, EdgeError> {
+        Self::validate_command_identity(&request.idempotency_key, &request.actor_id)?;
+        let sku_code = request.sku_code.trim().to_owned();
+        if sku_code.is_empty() {
+            return Err(EdgeError::Validation("sku_code is required".into()));
+        }
+        if request.quantity < 1 {
+            return Err(EdgeError::Validation("quantity must be at least 1".into()));
+        }
+        // The screen names a room — `floor`, `warehouse`, `reject` — and may
+        // leave the site out, because the only rooms it can mean are this
+        // node's own. A full place id is taken as the one-piece move takes it.
+        let site_id = &self.node.site_id;
+        let place = |value: &str| -> Result<Place, EdgeError> {
+            let value = value.trim();
+            let spelled = match value {
+                "floor" | "warehouse" | "reject" => format!("{site_id}.{value}:on_hand"),
+                _ => value.to_owned(),
+            };
+            Place::from_str(&spelled).map_err(|error| EdgeError::Validation(error.to_string()))
+        };
+        let from = place(&request.from)?;
+        let to = place(&request.to)?;
+        if from == to {
+            return Err(EdgeError::Validation(
+                "from and to are the same place; nothing would move".into(),
+            ));
+        }
+        let is_fulfillment_pool = |place: &Place| {
+            place
+                .pool()
+                .is_some_and(|pool| pool.role().is_outbound_stage() || pool.is_legacy_leaf())
+        };
+        if is_fulfillment_pool(&from) || is_fulfillment_pool(&to) {
+            return Err(EdgeError::Validation(
+                "outbound fulfillment pools may only be changed through Pick/Pack/package lifecycle endpoints".into(),
+            ));
+        }
+        let request_json = Self::encode_idempotent_request(&request)?;
+        let mut connection = self.lock()?;
+        let tx = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db)?;
+        if let Some(response) =
+            Self::load_idempotent(&tx, &request.idempotency_key, "MOVE_SKU", &request_json)?
+        {
+            tx.commit().map_err(db)?;
+            return Ok(response);
+        }
+        // Oldest in the room first: the piece that has stood there longest is
+        // the one a person would reach for, and a fixed order means the same
+        // stock and the same request always choose the same pieces. Tagged
+        // pieces hold one each; an untagged quantity subject holds a count and
+        // gives up only as much of it as is still needed.
+        let rows: Vec<(String, i64)> = tx
+            .prepare_cached(
+                "SELECT projection.subject_id,projection.quantity
+                 FROM inventory_projection projection
+                 JOIN inventory_subject subject ON subject.id=projection.subject_id
+                 WHERE projection.place_id=?1 AND subject.sku_code=?2
+                 ORDER BY projection.updated_at,subject.created_at,subject.id",
+            )
+            .map_err(db)?
+            .query_map(params![from.id(), sku_code], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            })
+            .map_err(db)?
+            .collect::<Result<_, _>>()
+            .map_err(db)?;
+        let available: i64 = rows.iter().map(|(_, quantity)| (*quantity).max(0)).sum();
+        if available < request.quantity {
+            return Err(EdgeError::Conflict(format!(
+                "only {available} of {sku_code} available at {}, cannot move {}",
+                from.id(),
+                request.quantity
+            )));
+        }
+        let mut lines = Vec::new();
+        let mut remaining = request.quantity;
+        for (subject_id, quantity) in rows {
+            if remaining == 0 {
+                break;
+            }
+            let take = quantity.min(remaining);
+            if take <= 0 {
+                continue;
+            }
+            let subject_id = Uuid::parse_str(&subject_id)
+                .map_err(|error| EdgeError::Persistence(error.to_string()))?;
+            lines.push(MovementLine {
+                subject_id: SubjectId(subject_id),
+                quantity: take,
+                from: from.clone(),
+                to: to.clone(),
+            });
+            remaining -= take;
+        }
+        let occurred_at = self.clock.now();
+        let command = MovementCommand {
+            movement_group_id: MovementGroupId::new(),
+            lines,
+            cause: MovementCause::NormalMove,
+            reference_type: None,
+            reference_id: None,
+            reason: request.reason,
+            actor_id: request.actor_id,
+            occurred_at,
+        };
+        let response = self.append_command(&tx, &request.idempotency_key, &command)?;
+        Self::save_idempotent(
+            &tx,
+            &request.idempotency_key,
+            "MOVE_SKU",
+            &request_json,
+            &response,
+        )?;
+        tx.commit().map_err(db)?;
+        Ok(response)
+    }
+
     fn begin_checkout(&self, request: BeginCheckoutRequest) -> Result<CheckoutResult, EdgeError> {
         if self.node.role != EdgeRole::Store {
             return Err(EdgeError::Forbidden(
@@ -7642,6 +8515,17 @@ impl EdgeInventory for SqliteEdge {
     fn sku_stock(&self) -> Result<Vec<SkuStockRow>, EdgeError> {
         let (floor, warehouse) = sku_stock_pools(&self.node.site_id);
         let (floor, warehouse) = (floor.id(), warehouse.id());
+        // The reject room, by its canonical spelling and the first Gudang's
+        // (`{site}.reject.dc`, still read). Counted beside the two rooms, never
+        // spent from: nothing is promised out of it and it is not in `total`.
+        let reject = OperationalPool::Reject {
+            site_id: self.node.site_id.clone(),
+        }
+        .id();
+        let legacy_reject = OperationalPool::DcRejectDc {
+            dc_id: self.node.site_id.clone(),
+        }
+        .id();
         let connection = self.read_lock()?;
         // What this site still owes out of these two rooms: the open part of
         // every accepted allotment line sourced from either. Charged to the
@@ -7653,10 +8537,11 @@ impl EdgeInventory for SqliteEdge {
                 r#"WITH supply AS (
                        SELECT subject.sku_code,
                               SUM(CASE WHEN projection.place_id=?1 THEN projection.quantity ELSE 0 END) floor,
-                              SUM(CASE WHEN projection.place_id=?2 THEN projection.quantity ELSE 0 END) warehouse
+                              SUM(CASE WHEN projection.place_id=?2 THEN projection.quantity ELSE 0 END) warehouse,
+                              SUM(CASE WHEN projection.place_id IN (?5,?6) THEN projection.quantity ELSE 0 END) reject
                        FROM inventory_projection projection
                        JOIN inventory_subject subject ON subject.id=projection.subject_id
-                       WHERE projection.place_id IN (?1,?2)
+                       WHERE projection.place_id IN (?1,?2,?5,?6)
                          AND subject.sku_code IS NOT NULL
                        GROUP BY subject.sku_code
                    ), promised AS (
@@ -7669,7 +8554,7 @@ impl EdgeInventory for SqliteEdge {
                        GROUP BY line.sku_code
                    )
                    SELECT supply.sku_code,supply.floor,supply.warehouse,
-                          COALESCE(promised.quantity,0)
+                          COALESCE(promised.quantity,0),supply.reject
                    FROM supply
                    LEFT JOIN promised ON promised.sku_code=supply.sku_code
                    ORDER BY supply.sku_code"#,
@@ -7681,7 +8566,9 @@ impl EdgeInventory for SqliteEdge {
                     format!("{floor}:on_hand"),
                     format!("{warehouse}:on_hand"),
                     floor,
-                    warehouse
+                    warehouse,
+                    format!("{reject}:on_hand"),
+                    format!("{legacy_reject}:on_hand")
                 ],
                 |row| {
                     Ok((
@@ -7689,18 +8576,22 @@ impl EdgeInventory for SqliteEdge {
                         row.get::<_, i64>(1)?,
                         row.get::<_, i64>(2)?,
                         row.get::<_, i64>(3)?,
+                        row.get::<_, i64>(4)?,
                     ))
                 },
             )
             .map_err(db)?;
         let mut items = Vec::new();
         for row in rows {
-            let (sku_code, floor, warehouse, promised) = row.map_err(db)?;
+            let (sku_code, floor, warehouse, promised, reject) = row.map_err(db)?;
             let (floor, warehouse, promised) = (floor.max(0), warehouse.max(0), promised.max(0));
+            let reject = reject.max(0);
             let from_warehouse = promised.min(warehouse);
             let warehouse = warehouse - from_warehouse;
             let floor = (floor - (promised - from_warehouse)).max(0);
-            if floor + warehouse == 0 {
+            // A SKU whose only pieces are rejects still answers, so the Move
+            // stock screen can show them set aside.
+            if floor + warehouse + reject == 0 {
                 continue;
             }
             items.push(SkuStockRow {
@@ -7708,6 +8599,7 @@ impl EdgeInventory for SqliteEdge {
                 floor,
                 warehouse,
                 total: floor + warehouse,
+                reject,
             });
         }
         Ok(items)
@@ -7992,6 +8884,21 @@ impl EdgeInventory for SqliteEdge {
         }
         let connection = self.read_lock()?;
         pricing::store_offers(
+            &connection,
+            self.node.site_id.as_str(),
+            pricing::STORE_CHANNEL,
+            self.clock.now(),
+        )
+    }
+
+    fn store_final_prices(&self) -> Result<pricing::FinalUnitPrices, EdgeError> {
+        if self.node.role != EdgeRole::Store {
+            return Err(EdgeError::Forbidden(
+                "a final price is what a shopper pays, and a DC has none".into(),
+            ));
+        }
+        let connection = self.read_lock()?;
+        pricing::store_final_prices(
             &connection,
             self.node.site_id.as_str(),
             pricing::STORE_CHANNEL,
@@ -8475,6 +9382,19 @@ impl EdgeInventory for SqliteEdge {
     fn open_shifts(&self) -> Result<Vec<crate::edge::till::ShiftReport>, EdgeError> {
         let connection = self.lock()?;
         crate::edge::till::open_shifts(&connection)
+    }
+
+    fn shifts_on(
+        &self,
+        business_date: &str,
+    ) -> Result<Vec<crate::edge::till::ShiftReport>, EdgeError> {
+        let connection = self.read_lock()?;
+        crate::edge::till::shifts_on(&connection, business_date)
+    }
+
+    fn shift_sales(&self, shift_id: &str) -> Result<Vec<crate::edge::till::ShiftSale>, EdgeError> {
+        let connection = self.read_lock()?;
+        crate::edge::till::shift_sales(&connection, self.node.site_id.as_str(), shift_id)
     }
 
     // ── The shop's small money ──────────────────────────────────────────
@@ -9971,6 +10891,8 @@ mod tests {
                     actor_id: "siti".into(),
                     supervisor: None,
                     idempotency_key: "drop-1".into(),
+                    received_by: None,
+                    counted: Vec::new(),
                     supervising: false,
                 },
             )
@@ -9986,6 +10908,8 @@ mod tests {
                     actor_id: "siti".into(),
                     supervisor: None,
                     idempotency_key: "payout-unsigned".into(),
+                    received_by: None,
+                    counted: Vec::new(),
                     supervising: false,
                 },
             )
@@ -10002,6 +10926,8 @@ mod tests {
                     actor_id: "siti".into(),
                     supervisor: Some(supervisor("budi", "salah")),
                     idempotency_key: "payout-wrong".into(),
+                    received_by: None,
+                    counted: Vec::new(),
                     supervising: false,
                 },
             )
@@ -10017,6 +10943,8 @@ mod tests {
                     actor_id: "siti".into(),
                     supervisor: Some(supervisor("budi", "rahasia-panjang")),
                     idempotency_key: "payout-signed".into(),
+                    received_by: None,
+                    counted: Vec::new(),
                     supervising: false,
                 },
             )
@@ -10030,6 +10958,236 @@ mod tests {
                 .and_then(|movement| movement.approved_by.clone()),
             Some("budi".to_string())
         );
+    }
+
+    fn drop_request(
+        key: &str,
+        amount_minor: i64,
+        counted: Vec<crate::edge::till::CashCount>,
+    ) -> crate::edge::till::CashMovementRequest {
+        crate::edge::till::CashMovementRequest {
+            kind: "DROP".into(),
+            amount_minor,
+            reason: "Setor ke admin".into(),
+            actor_id: "siti".into(),
+            supervisor: None,
+            received_by: Some("  Nesya  ".into()),
+            counted,
+            idempotency_key: key.into(),
+            supervising: false,
+        }
+    }
+
+    /// A drop written note by note says who took it, and the sheet has to add
+    /// up to the drop. Only cash handled by hand has a sheet.
+    #[test]
+    fn a_drop_carries_the_notes_it_was_counted_from_and_who_took_it() {
+        use crate::edge::till::CashCount;
+        let store = SqliteEdge::open_in_memory(node(EdgeRole::Store, "store-07"))
+            .unwrap_or_else(|error| panic!("store: {error}"));
+        let shift = store
+            .open_shift(crate::edge::till::OpenShiftRequest {
+                terminal_id: "TILL-1".into(),
+                opening_float_minor: 500_000,
+                actor_id: "siti".into(),
+                idempotency_key: "drop-count-shift".into(),
+            })
+            .unwrap_or_else(|error| panic!("shift: {error}"));
+        let sheet = vec![
+            CashCount {
+                value_minor: 50_000,
+                pieces: 2,
+            },
+            CashCount {
+                value_minor: 100_000,
+                pieces: 1,
+            },
+        ];
+
+        // A sheet that does not add up to the drop is refused, and so is a
+        // denomination written twice.
+        assert!(store
+            .record_cash_movement(&shift.shift_id, drop_request("drop-short", -250_000, sheet.clone()))
+            .is_err());
+        let twice = vec![
+            CashCount {
+                value_minor: 100_000,
+                pieces: 1,
+            },
+            CashCount {
+                value_minor: 100_000,
+                pieces: 1,
+            },
+        ];
+        assert!(store
+            .record_cash_movement(&shift.shift_id, drop_request("drop-twice", -200_000, twice))
+            .is_err());
+
+        // A payout is an amount and a reason, never a handful of notes.
+        let payout = crate::edge::till::CashMovementRequest {
+            kind: "PAYOUT".into(),
+            amount_minor: -100_000,
+            reason: "Beli galon".into(),
+            actor_id: "siti".into(),
+            supervisor: None,
+            received_by: None,
+            counted: vec![CashCount {
+                value_minor: 100_000,
+                pieces: 1,
+            }],
+            idempotency_key: "payout-counted".into(),
+            supervising: false,
+        };
+        let refused = store
+            .record_cash_movement(&shift.shift_id, payout)
+            .err()
+            .unwrap_or_else(|| panic!("a counted payout was accepted"));
+        assert!(refused.to_string().contains("note by note"));
+
+        let report = store
+            .record_cash_movement(&shift.shift_id, drop_request("drop-ok", -200_000, sheet))
+            .unwrap_or_else(|error| panic!("drop: {error}"));
+        assert_eq!(report.expected_cash_minor, 300_000);
+        let drop = report
+            .movements
+            .iter()
+            .find(|movement| movement.kind == "DROP")
+            .unwrap_or_else(|| panic!("the drop is on the report"));
+        assert_eq!(drop.received_by.as_deref(), Some("Nesya"));
+        assert_eq!(
+            drop.counted,
+            vec![
+                CashCount {
+                    value_minor: 100_000,
+                    pieces: 1
+                },
+                CashCount {
+                    value_minor: 50_000,
+                    pieces: 2
+                },
+            ]
+        );
+
+        // A drop by amount alone is still a drop, with no name and no sheet.
+        let report = store
+            .record_cash_movement(&shift.shift_id, {
+                let mut request = drop_request("drop-plain", -100_000, Vec::new());
+                request.received_by = None;
+                request
+            })
+            .unwrap_or_else(|error| panic!("plain drop: {error}"));
+        let plain = report
+            .movements
+            .iter()
+            .find(|movement| movement.kind == "DROP" && movement.amount_minor == -100_000)
+            .unwrap_or_else(|| panic!("the plain drop is on the report"));
+        assert!(plain.received_by.is_none());
+        assert!(plain.counted.is_empty());
+    }
+
+    /// A session sheet lists the sales of its drawer with how each was paid,
+    /// and the drawers of a business day are found by that day.
+    #[test]
+    fn a_drawers_sales_and_a_days_drawers_can_be_listed() {
+        let store = SqliteEdge::open_in_memory(node(EdgeRole::Store, "store-07"))
+            .unwrap_or_else(|error| panic!("store: {error}"));
+        store
+            .receive_store(ReceiveRequest {
+                epc: "EPC-TILL-001".into(),
+                sku_code: "SKU-001".into(),
+                unit_price_minor: 150_000,
+                source_dc_id: Some(
+                    SiteId::new("dc-01").unwrap_or_else(|error| panic!("source DC: {error}")),
+                ),
+                shipment_reference: None,
+                actor_id: "store-receiver".into(),
+                idempotency_key: "listing-receive".into(),
+            })
+            .unwrap_or_else(|error| panic!("receive: {error}"));
+        move_epc(
+            &store,
+            "EPC-TILL-001",
+            "store-07.warehouse:on_hand",
+            "store-07.floor:on_hand",
+            "listing-floor",
+        );
+        let shift = store
+            .open_shift(crate::edge::till::OpenShiftRequest {
+                terminal_id: "TILL-1".into(),
+                opening_float_minor: 500_000,
+                actor_id: "siti".into(),
+                idempotency_key: "listing-shift".into(),
+            })
+            .unwrap_or_else(|error| panic!("shift: {error}"));
+        store
+            .complete_sale(SaleRequest {
+                coupon_codes: Vec::new(),
+                customer_id: None,
+                charges: Vec::new(),
+                epcs: vec!["EPC-TILL-001".into()],
+                tenders: vec![
+                    crate::tender::SaleTender {
+                        method: crate::tender::PaymentMethod::Cash,
+                        amount_minor: 100_000,
+                        reference: None,
+                        voucher_authorization_id: None,
+                        acquirer: None,
+                        card_kind: None,
+                    },
+                    crate::tender::SaleTender {
+                        method: crate::tender::PaymentMethod::Card,
+                        amount_minor: 50_000,
+                        reference: None,
+                        voucher_authorization_id: None,
+                        acquirer: Some("bca".into()),
+                        card_kind: Some("debit".into()),
+                    },
+                ],
+                actor_id: "siti".into(),
+                idempotency_key: "listing-sale".into(),
+                coupon_authorizations: Vec::new(),
+            })
+            .unwrap_or_else(|error| panic!("sale: {error}"));
+
+        let day = shift
+            .business_date
+            .clone()
+            .unwrap_or_else(|| panic!("a shift knows the day it trades for"));
+        let shifts = store
+            .shifts_on(&day)
+            .unwrap_or_else(|error| panic!("day: {error}"));
+        assert_eq!(shifts.len(), 1);
+        assert_eq!(shifts[0].shift_id, shift.shift_id);
+        assert!(store
+            .shifts_on("1999-01-01")
+            .unwrap_or_else(|error| panic!("other day: {error}"))
+            .is_empty());
+
+        let sales = store
+            .shift_sales(&shift.shift_id)
+            .unwrap_or_else(|error| panic!("sales: {error}"));
+        assert_eq!(sales.len(), 1);
+        let sale = &sales[0];
+        assert_eq!(sale.status, "COMPLETED");
+        assert_eq!(sale.cashier, "siti");
+        assert_eq!(sale.total_minor, 150_000);
+        assert_eq!(sale.returned_minor, 0);
+        assert!(!sale.receipt_no.is_empty());
+        assert_eq!(sale.tenders.len(), 2);
+        let card = sale
+            .tenders
+            .iter()
+            .find(|tender| tender.method == "CARD")
+            .unwrap_or_else(|| panic!("the card tender is listed"));
+        assert_eq!(card.amount_minor, 50_000);
+        assert_eq!(card.card_kind.as_deref(), Some("DEBIT"));
+        assert_eq!(card.acquirer.as_deref(), Some("BCA"));
+        let cash = sale
+            .tenders
+            .iter()
+            .find(|tender| tender.method == "CASH")
+            .unwrap_or_else(|| panic!("the cash tender is listed"));
+        assert!(cash.card_kind.is_none() && cash.acquirer.is_none());
     }
 
     /// A void is a reversal, not a delete: the sale keeps its total and the
@@ -11003,7 +12161,22 @@ impl SqliteEdge {
                         COALESCE((SELECT SUM(a.matched_quantity) FROM receiving_count a
                                   WHERE a.po_line_id = c.po_line_id AND a.status='ACCEPTED'), 0),
                         o.created_by, l.order_unit_code, l.order_unit_quantity, l.unit_factor,
-                        c.counted_unit_code, c.counted_unit_quantity, l.count_units
+                        c.counted_unit_code, c.counted_unit_quantity, l.count_units,
+                        -- After a recount: the count it replaced (its matching
+                        -- pieces), why it was sent back, and when the first
+                        -- count of the line was taken. A recount leaves the old
+                        -- count as RECOUNT_REQUESTED and counts afresh.
+                        (SELECT p.counted_quantity - p.wrong_quantity FROM receiving_count p
+                          WHERE p.po_line_id = c.po_line_id AND p.status='RECOUNT_REQUESTED'
+                            AND p.counted_at < c.counted_at
+                          ORDER BY p.counted_at DESC LIMIT 1),
+                        (SELECT NULLIF(trim(p.verifier_note), '') FROM receiving_count p
+                          WHERE p.po_line_id = c.po_line_id AND p.status='RECOUNT_REQUESTED'
+                            AND p.counted_at < c.counted_at
+                          ORDER BY p.counted_at DESC LIMIT 1),
+                        (SELECT MIN(p.counted_at) FROM receiving_count p
+                          WHERE p.po_line_id = c.po_line_id AND p.status='RECOUNT_REQUESTED'
+                            AND p.counted_at < c.counted_at)
                  FROM receiving_count c
                  JOIN purchase_order_line l ON l.po_line_id = c.po_line_id
                  JOIN purchase_order o ON o.purchase_order_id = l.purchase_order_id
@@ -11052,6 +12225,12 @@ impl SqliteEdge {
                     // A DC server counts the line as a whole (0963 is the
                     // cloud-run Gudang's).
                     variants: Vec::new(),
+                    previous_counted_quantity: row.get(22)?,
+                    recount_reason: row.get(23)?,
+                    first_counted_at: match row.get::<_, Option<String>>(24)? {
+                        Some(text) => Some(parse_time_row(text)?),
+                        None => None,
+                    },
                 })
             })
             .map_err(db)?;
@@ -12732,6 +13911,7 @@ impl SqliteEdge {
                     // server's SQLite has not learned it.
                     note_pic: None,
                     note_generated_at: None,
+                    line_notes: Default::default(),
                     quantity: 0,
                     lines: Vec::new(),
                 })

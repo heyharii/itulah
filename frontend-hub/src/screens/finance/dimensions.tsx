@@ -1,32 +1,104 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
+import {
+  useMutation,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query"
+import type { ColumnDef, SortingState } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
+import { Suspense, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { Checkbox, Field, Input } from "@/components/ui/field"
+import { Fab } from "@/components/ui/fab"
+import {
+  BarSpacer,
+  ColumnsMenu,
+  ExpandingSearch,
+} from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { EmptyState, Problem } from "@/components/ui/states"
-import { Fab } from "@/components/ui/fab"
 import { count } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import {
+  dimensionsQuery,
   financeKeys,
   saveDimension,
   saveDimensionValue,
 } from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
-import { Code, Grid, Td, Th } from "@/screens/finance-final/parts"
-import { useDimensions } from "@/screens/finance/master-data"
-import { PhoneCard, PhoneList } from "@/components/ui/phone-cards"
+import { tableSetup, type TableSetup } from "@/lib/table"
+import { Code } from "@/screens/finance-final/parts"
+import { useColumnFit } from "@/screens/finance/column-fit"
 import {
   EditorCard,
   LinkAccountsButton,
   MasterLayout,
   YesNo,
 } from "@/screens/finance/master-parts"
+import { ScreenPending } from "@/screens/finance/pending"
 import type { AccountingDimension, DimensionValue } from "@itulah/contract"
+
+/// How many values of a dimension are in use.
+function activeValues(row: AccountingDimension): number {
+  return row.values.filter((value) => value.is_active).length
+}
+
+/// One dimension per row. On a phone the same columns are the card: the name
+/// over its code, the two switches and the value count under it.
+const columns: ColumnDef<TableSetup, AccountingDimension>[] = [
+  {
+    accessorKey: "code",
+    header: "Code",
+    size: 160,
+    meta: { card: "meta" },
+    cell: ({ row }) => <Code>{row.original.code}</Code>,
+  },
+  {
+    accessorKey: "name",
+    header: "Name",
+    size: 320,
+    meta: { card: "title", grow: 200 },
+    cell: ({ row }) => (
+      <span className="flex items-center gap-2 whitespace-normal">
+        <span className="text-ink">{row.original.name}</span>
+        {!row.original.is_active && <Pill tone="neutral">Inactive</Pill>}
+      </span>
+    ),
+  },
+  {
+    id: "pl",
+    accessorFn: (row) => (row.mandatory_for_pl ? "Required" : ""),
+    header: "Required on P&L",
+    size: 180,
+    meta: { align: "center", card: "metric" },
+    cell: ({ row }) => (
+      <YesNo on={row.original.mandatory_for_pl} yes="Required" />
+    ),
+  },
+  {
+    id: "bs",
+    accessorFn: (row) => (row.mandatory_for_bs ? "Required" : ""),
+    header: "Required on balance sheet",
+    size: 230,
+    meta: { align: "center", card: "metric" },
+    cell: ({ row }) => (
+      <YesNo on={row.original.mandatory_for_bs} yes="Required" />
+    ),
+  },
+  {
+    id: "values",
+    accessorFn: (row) => activeValues(row),
+    header: "Values",
+    size: 110,
+    meta: { align: "right", card: "metric" },
+    cell: ({ row }) => count(activeValues(row.original)),
+  },
+]
 
 /// The accounting dimensions a journal line can carry beside its unit —
 /// division, cost center, project (ERPNext Accounting Dimension).
@@ -37,21 +109,61 @@ import type { AccountingDimension, DimensionValue } from "@itulah/contract"
 /// automatic flow that writes such a line — the Dimension results report shows
 /// what the values are carrying before somebody makes it.
 export function Dimensions() {
+  return (
+    <Suspense
+      fallback={
+        <ScreenPending crumb="Finance · Setup" title="Accounting Dimensions">
+          Reading the dimensions…
+        </ScreenPending>
+      }
+    >
+      <DimensionsScreen />
+    </Suspense>
+  )
+}
+
+function DimensionsScreen() {
   const phone = useLayout() === "phone"
-  const list = useDimensions()
+  const list = useSuspenseQuery(dimensionsQuery())
   const [editing, setEditing] = useState<string | "new" | null>(null)
+  const [query, setQuery] = useState("")
+  const [sorting, setSorting] = useState<SortingState>([])
 
   const current =
     editing === null || editing === "new"
       ? null
-      : ((list.data ?? []).find((one) => one.code === editing) ?? null)
+      : (list.data.find((one) => one.code === editing) ?? null)
+
+  const rows = list.data
+  const [measure, fit] = useColumnFit(columns, phone)
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: rows,
+        columns,
+        getRowId: (row: AccountingDimension) => row.code,
+        state: {
+          globalFilter: query,
+          sorting,
+          columnVisibility: fit.visibility,
+        },
+        onSortingChange: setSorting,
+        onGlobalFilterChange: setQuery,
+        onColumnVisibilityChange: fit.onChange,
+      }),
+      // `fit` is new each render: the room is measured, and the columns the
+      // card has no room for are given up.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      [rows, query, sorting, phone, fit]
+    )
+  )
 
   return (
     <PageContent>
       <PageHeader
         crumb="Finance · Setup"
         title="Accounting Dimensions"
-        sub="What a journal line can be cut by besides its unit, which values it takes, and where naming one is required."
         // The new dimension is the dock's + on a phone.
         actions={
           phone ? undefined : (
@@ -61,92 +173,50 @@ export function Dimensions() {
           )
         }
       />
-      {phone && <Fab label="New dimension" onClick={() => setEditing("new")} />}
+
+      <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2 max-md:hidden">
+        <ExpandingSearch
+          value={query}
+          onChange={setQuery}
+          label="Search dimensions"
+        />
+        <BarSpacer />
+        <ColumnsMenu table={table} />
+      </div>
+
+      <Fab label="New dimension" onClick={() => setEditing("new")} />
+      <DockTools
+        search={{
+          value: query,
+          onChange: setQuery,
+          label: "Search dimensions",
+        }}
+        sort={dockSortOf(table)}
+      />
+
       <MasterLayout
         list={
-          <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-            {queryState(list, {
-              loading: "Reading the dimensions…",
-              render: (rows) =>
-                rows.length === 0 ? (
-                  <EmptyState>No accounting dimension yet.</EmptyState>
-                ) : phone ? (
-                  <PhoneList>
-                    {rows.map((row) => {
-                      const required = [
-                        row.mandatory_for_pl ? "P&L required" : null,
-                        row.mandatory_for_bs ? "Balance sheet required" : null,
-                      ].filter(Boolean)
-                      const values = row.values.filter(
-                        (value) => value.is_active
-                      ).length
-                      return (
-                        <PhoneCard
-                          key={row.code}
-                          title={row.name}
-                          muted={!row.is_active}
-                          line={`${row.code}${row.is_active ? "" : " · inactive"}`}
-                          lead={count(values)}
-                          caption={values === 1 ? "value" : "values"}
-                          tone={values === 0 ? "quiet" : undefined}
-                          foot={
-                            required.length === 0
-                              ? "Not required"
-                              : required.join(" · ")
-                          }
-                          onOpen={() => setEditing(row.code)}
-                        />
-                      )
-                    })}
-                  </PhoneList>
-                ) : (
-                  <Grid>
-                    <thead>
-                      <tr>
-                        <Th>Code</Th>
-                        <Th>Name</Th>
-                        <Th align="center">Required on P&amp;L</Th>
-                        <Th align="center">Required on balance sheet</Th>
-                        <Th align="right">Values</Th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.map((row) => (
-                        <tr
-                          key={row.code}
-                          onClick={() => setEditing(row.code)}
-                          className="cursor-pointer hover:bg-soft"
-                        >
-                          <Td>
-                            <Code>{row.code}</Code>
-                          </Td>
-                          <Td>
-                            <span className="text-ink">{row.name}</span>
-                            {!row.is_active && (
-                              <Pill tone="neutral" className="ml-2">
-                                Inactive
-                              </Pill>
-                            )}
-                          </Td>
-                          <Td align="center">
-                            <YesNo on={row.mandatory_for_pl} yes="Required" />
-                          </Td>
-                          <Td align="center">
-                            <YesNo on={row.mandatory_for_bs} yes="Required" />
-                          </Td>
-                          <Td align="right">
-                            {count(
-                              row.values.filter((value) => value.is_active)
-                                .length
-                            )}
-                          </Td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </Grid>
-                ),
-            })}
-          </Card>
+          <div ref={measure}>
+            <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+              {queryState(list, {
+                render: () =>
+                  rows.length === 0 ? (
+                    <EmptyState>No accounting dimension yet.</EmptyState>
+                  ) : (
+                    <DataTable<AccountingDimension>
+                      table={table}
+                      refresh={[list]}
+                      onRowClick={(row) => setEditing(row.code)}
+                      isSelected={(row) => row.code === editing}
+                      empty="No dimension matches the search."
+                      pageScroll
+                      cardsApart
+                      cardSort={false}
+                    />
+                  ),
+              })}
+            </Card>
+          </div>
         }
         editor={
           editing !== null &&
@@ -263,13 +333,13 @@ function Values({ dimension }: { dimension: AccountingDimension }) {
       <h4 className="text-card-title font-semibold text-ink">Values</h4>
       <Problem error={save.error} />
       {dimension.values.length === 0 ? (
-        <p className="text-[0.875rem] text-mute">No value yet.</p>
+        <p className="text-[0.9375rem] text-mute">No value yet.</p>
       ) : (
         <div className="flex flex-col divide-y divide-hairline">
           {dimension.values.map((value) => (
             <div
               key={value.value_code}
-              className="flex items-center gap-2 py-1.5 text-[0.875rem]"
+              className="flex items-center gap-2 py-1.5 text-[0.9375rem]"
             >
               <Code>{value.value_code}</Code>
               <span

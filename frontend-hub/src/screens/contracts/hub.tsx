@@ -617,7 +617,7 @@ function ReadingForm({
         <Button variant="primary" pending={save.isPending} onClick={submit}>
           {save.isPending ? "Submitting…" : "Submit"}
         </Button>
-        <Button variant="ghost" onClick={onCancel}>
+        <Button data-cancel variant="ghost" onClick={onCancel}>
           Cancel
         </Button>
       </div>
@@ -855,7 +855,7 @@ function AttachForm({
         >
           {save.isPending ? "Submitting…" : "Submit"}
         </Button>
-        <Button variant="ghost" onClick={onCancel}>
+        <Button data-cancel variant="ghost" onClick={onCancel}>
           Cancel
         </Button>
       </div>
@@ -923,7 +923,7 @@ function ArchiveForm({
       <Button variant="primary" pending={archive.isPending} onClick={submit}>
         {archive.isPending ? "Archiving…" : "Archive"}
       </Button>
-      <Button variant="ghost" onClick={onCancel}>
+      <Button data-cancel variant="ghost" onClick={onCancel}>
         Cancel
       </Button>
     </div>

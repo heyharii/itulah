@@ -72,26 +72,86 @@ import type { AppModule } from "@/lib/navigation"
 /// carrying its search parameters — see `moved` below and `routes.tsx`. Those
 /// paths are in bookmarks, in notifications and in links people have sent each
 /// other, and a 404 is a worse answer than the screen they wanted.
+///
+/// **A sidebar, not a row of tabs (owner, 16 Oct 2026).** The Explorer's
+/// groupings left its pill row for the department's own sidebar
+/// (`sales-sidebar-tabs-prototype.html`, A · Views): three groups under grey
+/// chips (`sidebar-labels-prototype.html` A6) — By place, which opens on
+/// Store, By product, By source — each row one grouping on its own
+/// page, read through the tabs Totals · Per store · Per month. The rows took
+/// the "Sales by …" paths, so a link to an older report lands on the same
+/// rows; Campaign, which the Explorer cannot group by, keeps its report under
+/// More, and `/sales/explorer` lands on Store (an old link naming its rows is
+/// sent on to their page by `explorer-state.ts`).
+///
 export const salesNav: AppModule = {
   id: "sales",
   label: "Sales",
   icon: TrendingUp,
-  home: "/sales/explorer",
+  // By place leads and opens on Store (owner, 2026-10-16: "hapus saja summary
+  // dan buat paling atas by place dan defaultnya store").
+  home: "/sales/by-store",
+  // Every Sales page sits under `/sales/…`, and the panel finds the department
+  // by this prefix (`moduleForPath`), not by `home`.
+  base: "/sales",
   sections: [
     {
-      // Owner's menu of 2026-09-28: the department leads on the estate-wide
-      // reading and its cuts (division, tag, article, SKU, PO, supplier,
-      // campaign, payment), rather than on the
-      // single trading-day list — see the module doc above, written for the
-      // shape this replaces. Sales, Returns, Member and Shop floor moved
-      // under More; none of the four lost anything but their row.
+      label: "By place",
+      chip: true,
       items: [
         {
-          // The department's one menu (owner, 8 Oct 2026).
-          path: "/sales/explorer",
-          label: "Sales",
-          icon: TrendingUp,
+          path: "/sales/by-store",
+          label: "Store",
+          icon: Store,
+          // The Explorer's old address, and Summary's while it stood.
+          moved: ["/sales/explorer", "/sales/summary"],
         },
+        {
+          // One cashier at one seat, drawer open to drawer counted (owner,
+          // 2026-10-01: "sales by session kasir harusnya ada").
+          path: "/sales/by-session",
+          label: "Cashier session",
+          short: "Session",
+          icon: Clock,
+        },
+        {
+          path: "/sales/by-payment",
+          label: "Payment method",
+          short: "Payment",
+          icon: CreditCard,
+        },
+      ],
+    },
+    {
+      label: "By product",
+      chip: true,
+      items: [
+        {
+          path: "/sales/by-division",
+          label: "Division",
+          icon: FolderTree,
+        },
+        { path: "/sales/by-tag", label: "Tag", icon: Tags },
+        { path: "/sales/by-article", label: "Article", icon: Shirt },
+        { path: "/sales/by-sku", label: "SKU", icon: Barcode },
+      ],
+    },
+    {
+      label: "By source",
+      chip: true,
+      items: [
+        { path: "/sales/by-supplier", label: "Supplier", icon: Truck },
+        {
+          path: "/sales/by-po",
+          label: "Purchase order",
+          short: "PO",
+          icon: ClipboardList,
+        },
+      ],
+    },
+    {
+      // Routed and in ⌘K, not in the sidebar.
+      items: [
         {
           path: "/sales",
           label: "Sales",
@@ -99,69 +159,10 @@ export const salesNav: AppModule = {
           more: true,
         },
         {
-          path: "/sales/by-store",
-          label: "Sales by Store",
-          // The bottom bar's word: a 14px label has a fifth of the width.
-          short: "By Store",
-          icon: Store,
-          more: true,
-        },
-        {
-          path: "/sales/by-division",
-          label: "Sales by Division",
-          short: "By Division",
-          icon: FolderTree,
-          more: true,
-        },
-        {
-          path: "/sales/by-tag",
-          label: "Sales by Tag",
-          short: "By Tag",
-          icon: Tags,
-          more: true,
-        },
-        {
-          path: "/sales/by-article",
-          label: "Sales by Article",
-          icon: Shirt,
-          more: true,
-        },
-        {
-          path: "/sales/by-sku",
-          label: "Sales by SKU",
-          icon: Barcode,
-          more: true,
-        },
-        {
-          path: "/sales/by-po",
-          label: "Sales by PO",
-          icon: ClipboardList,
-          more: true,
-        },
-        {
-          path: "/sales/by-supplier",
-          label: "Sales by Supplier",
-          icon: Truck,
-          more: true,
-        },
-        {
+          // The Explorer cannot group by campaign: the older report stays.
           path: "/sales/by-campaign",
           label: "Sales by Campaign",
           icon: Megaphone,
-          more: true,
-        },
-        {
-          path: "/sales/by-payment",
-          label: "Sales by Payment",
-          icon: CreditCard,
-          more: true,
-        },
-        {
-          // One cashier at one seat, drawer open to drawer counted (owner,
-          // 2026-10-01: "sales by session kasir harusnya ada").
-          path: "/sales/by-session",
-          label: "Sales by Cashier Session",
-          icon: Clock,
           more: true,
         },
         {

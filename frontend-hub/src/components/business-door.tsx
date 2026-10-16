@@ -55,7 +55,7 @@ export function BusinessEyebrow({ business }: { business: TenancyBusiness }) {
   return (
     <span className="flex flex-wrap items-baseline gap-x-2">
       <span>{business.name}</span>
-      <SwitchBusinessAction className="text-[0.875rem]" />
+      <SwitchBusinessAction className="text-[0.9375rem]" />
     </span>
   )
 }
@@ -158,7 +158,7 @@ function ChooserOption({
       </span>
       <span className="min-w-0 flex-1">
         <b className="block text-[0.9375rem] font-medium text-ink">{label}</b>
-        <span className="block text-[0.875rem] text-body">{note}</span>
+        <span className="block text-[0.9375rem] text-body">{note}</span>
       </span>
     </button>
   )

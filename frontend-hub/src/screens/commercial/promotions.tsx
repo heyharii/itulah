@@ -1,8 +1,8 @@
 import {
-  useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
+  useSuspenseInfiniteQuery,
 } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
@@ -10,11 +10,18 @@ import {
   ChartNoAxesColumn,
   ListChecks,
   Percent,
+  Plus,
   Store,
   X,
   type LucideIcon,
 } from "lucide-react"
-import { useCallback, useMemo, useState } from "react"
+import {
+  Suspense,
+  useCallback,
+  useDeferredValue,
+  useMemo,
+  useState,
+} from "react"
 import type { RuleStatus } from "@itulah/contract"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -26,19 +33,26 @@ import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { Fab } from "@/components/ui/fab"
 import { ConfirmButton, Dialog, SavedDialog } from "@/components/ui/dialog"
 import { RecordPanel } from "@/components/ui/record-panel"
-import { Input } from "@/components/ui/field"
 import { Meter } from "@/components/ui/meter"
 import { PageHeader } from "@/components/ui/page-header"
 import { Status } from "@/components/ui/pill"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
+import { cn } from "@/lib/utils"
 import { MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
 import { DeskFilterButton, DeskFilterChips } from "@/components/ui/desk-filter"
-import { Segmented, Toolbar } from "@/components/ui/segmented"
+import { ExpandingSearch } from "@/components/ui/list-chrome"
+import { SubTabs } from "@/components/ui/sub-tabs"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import { Banner, EmptyState, ErrorState } from "@/components/ui/states"
+import {
+  Banner,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+} from "@/components/ui/states"
 import { useFilters, type Filter, type Operator } from "@/lib/filters"
 import { useLayout } from "@/lib/layout"
 import { useDebounced } from "@/lib/use-debounced"
-import { count, moment, money } from "@/lib/format"
+import { count, day, moment, money } from "@/lib/format"
 import { listTerms, vocabularyKeys } from "@/lib/queries/vocabulary"
 import {
   changeKeys,
@@ -56,7 +70,6 @@ import {
   nextBookVersion,
   promotionById,
   promotionPagesQuery,
-  publishUsageToFleet,
   setRuleStatus,
   type Band,
   type CampaignInput,
@@ -68,7 +81,6 @@ import {
   type PublishReceipt,
   type ShopActivation,
 } from "@/lib/queries/commercial"
-import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { ROOMY } from "@/screens/operations/roomy"
 import { PerformanceHeader } from "@/screens/commercial/performance-header"
@@ -110,7 +122,7 @@ import {
 ///     all.
 ///  3. **A budget is a brake, not a gate.** Every shop enforces from the last
 ///     count it received, so the figure that must not be exceeded is the one on
-///     this screen, and "Sync usage counts to shops" is what keeps the brake
+///     this screen, and the automatic usage sync every 5 minutes keeps the brake
 ///     close to the truth.
 
 /// The two things a column needs from the screen around it.
@@ -148,76 +160,6 @@ interface PromotionLine {
   /// from the rollout, which is the shop's own account — a failure is never a
   /// subtraction.
   readonly failed: number
-}
-
-/// What a promotion has actually been taken up on: how often, and what that
-/// gave away.
-///
-/// One column because it is one answer. `Used` and `Spent` sat apart, which
-/// meant reading across the table to learn that five baskets cost Rp 234.000 —
-/// and the pair is never read singly. The budget they used to be measured
-/// against is in the panel now; a meter is a question about a limit, and most
-/// promotions here have none.
-function Usage({ usage }: { usage: PromotionUsage | null }) {
-  // "Never used" rather than a dash. The dash is this app\'s word for "no
-  // value here", and a promotion that has fired nought times HAS a value: the
-  // one this screen was built to be able to show.
-  if (usage === null || usage.uses === 0)
-    return <span className="text-mute">Never used</span>
-  return (
-    <span className="text-text tabular-nums">
-      {count(usage.uses)} use{usage.uses === 1 ? "" : "s"}{" "}
-      <span className="text-mute">· {money(usage.spent_minor)}</span>
-    </span>
-  )
-}
-
-/// How many shops are charging the book this promotion arrived in, against how
-/// many shops there are.
-///
-/// The denominator is the point. "10 shops" is a figure you have to already
-/// know the size of the estate to read, and it looked the same whether three
-/// were missing or none. Zero keeps its warning rather than becoming "0 / 13"
-/// in the ordinary type: a published promotion reaching nobody costs nothing
-/// and sells nothing, and in a list of live offers it reads as success.
-function Reached({
-  shops,
-  failed,
-  of,
-}: {
-  shops: number
-  failed: number
-  of: number | null
-}) {
-  const total = of === null ? null : ` / ${count(of)}`
-  // Every shop that has neither applied the book nor said it could not. The
-  // fleet is the denominator because a promotion book goes to every shop; a
-  // shop that has not reported yet is outstanding whether or not it was told.
-  const pending = of === null ? 0 : Math.max(of - shops - failed, 0)
-  return (
-    <span className="inline-flex items-center justify-end gap-1.5 whitespace-nowrap tabular-nums">
-      {shops === 0 ? (
-        <span className="text-warn-fg">0{total ?? " stores"}</span>
-      ) : (
-        <span className="text-text">
-          {count(shops)}
-          {total === null ? (
-            " stores"
-          ) : (
-            <span className="text-mute">{total}</span>
-          )}
-        </span>
-      )}
-      {pending > 0 && (
-        <span className="text-warn-fg">· {count(pending)} pending</span>
-      )}
-      {failed > 0 && (
-        <span className="font-medium text-bad-fg">
-          · {count(failed)} failed
-        </span>
-      )}
-    </span>
-  )
 }
 
 /// The number questions the server can carry as an inclusive band
@@ -289,69 +231,13 @@ const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
     ),
   },
   {
-    id: "live",
-    accessorFn: (row) => row.row.status,
-    header: "Status",
-    size: 170,
-    enableSorting: false,
-    // The PHASE, the same word the tabs use — not the stored status, which
-    // says "on" for a promotion whose end date has passed. The switch is
-    // offered only where flipping it changes something: Live and Paused.
-    // An ended or scheduled offer is moved by its dates, not by a switch.
-    //
-    // No clause: the tabs above the table ask this question already.
-    meta: { card: "hide", priority: 1 },
-    cell: ({ row, table }) => {
-      const meta = actionsOf<PromotionLine>(table)
-      const phase = phaseOf(row.original, meta?.at ?? 0)
-      return (
-        <span className="inline-flex items-center gap-3">
-          {(phase === "ACTIVE" || phase === "PAUSED") && (
-            <Switch
-              on={phase === "ACTIVE"}
-              busy={meta?.busy === row.original.row.rule_id}
-              label={`${phase === "ACTIVE" ? "Pause" : "Resume"} ${row.original.row.name}`}
-              onToggle={() => meta?.onToggle?.(row.original)}
-            />
-          )}
-          <Status tone={PHASE_TONE[phase]}>{PHASE_WORD[phase]}</Status>
-        </span>
-      )
-    },
-  },
-  {
-    id: "scope",
-    accessorFn: (row) => describeScope(row.row.definition),
-    header: "Applies to",
-    size: 190,
-    enableSorting: false,
-    // **Not a facet.** The accessor is a sentence `describeScope` composes —
-    // "3 products", "Division PRIA", "The whole basket" — so a picker over
-    // it would offer one option per rule rather than one per kind of scope,
-    // and ticking "2 articles" would narrow to the two unrelated rules that
-    // happen to name two articles each. The kind is not on the row to ask
-    // about; it is inside `definition.applicability`.
-    meta: { card: "hide", priority: 3 },
-    cell: ({ row, table }) => (
-      <span className="text-text">
-        {describeScope(
-          row.original.row.definition,
-          actionsOf<PromotionLine>(table)?.named
-        )}
-        {describeCustomers(row.original.row.definition) === "Members" && (
-          <span className="text-mute"> · members only</span>
-        )}
-      </span>
-    ),
-  },
-  {
     id: "effect",
     accessorFn: (row) => describeEffect(row.row.definition.effect),
     // "Benefit" rather than "What it does": every other column on this row
     // also says what it does, and this is the one that says what the shopper
     // gets.
     header: "Benefit",
-    size: 180,
+    size: 220,
     enableSorting: false,
     meta: { card: "hide", priority: 1 },
     cell: ({ row }) => (
@@ -361,10 +247,31 @@ const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
     ),
   },
   {
+    id: "live",
+    accessorFn: (row) => row.row.status,
+    header: "Status",
+    size: 130,
+    enableSorting: false,
+    // The PHASE, the same word the tabs use — not the stored status, which
+    // says "on" for a promotion whose end date has passed. The word only:
+    // Pause and Resume are in the row's sheet (owner, 16 Oct: the list fits
+    // its page, it does not scroll sideways).
+    //
+    // No clause: the tabs above the table ask this question already.
+    meta: { card: "hide", priority: 1 },
+    cell: ({ row, table }) => {
+      const phase = phaseOf(
+        row.original,
+        actionsOf<PromotionLine>(table)?.at ?? 0
+      )
+      return <Status tone={PHASE_TONE[phase]}>{PHASE_WORD[phase]}</Status>
+    },
+  },
+  {
     id: "reached",
     accessorFn: (row) => row.reached,
     header: "Stores",
-    size: 220,
+    size: 110,
     // Sorted and filtered by the SERVER (`stores`, `stores_min`/`stores_max`),
     // which counts the same `activated_by` this cell counts.
     //
@@ -384,19 +291,35 @@ const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
       card: "hide",
       priority: 2,
     },
-    cell: ({ row, table }) => (
-      <Reached
-        shops={row.original.reached}
-        failed={row.original.failed}
-        of={actionsOf<PromotionLine>(table)?.shops ?? null}
-      />
-    ),
+    // One figure: reached of the estate, amber while some are still to
+    // apply it, red once one has said it could not. The sheet's Stores tab
+    // names them.
+    cell: ({ row, table }) => {
+      const of = actionsOf<PromotionLine>(table)?.shops ?? null
+      const { reached: shops, failed } = row.original
+      const pending = of === null ? 0 : Math.max(of - shops - failed, 0)
+      return (
+        <span
+          className={
+            failed > 0
+              ? "font-medium text-bad-fg tabular-nums"
+              : shops === 0 || pending > 0
+                ? "text-warn-fg tabular-nums"
+                : "text-text tabular-nums"
+          }
+        >
+          {count(shops)}
+          {of === null ? " stores" : ` / ${count(of)}`}
+        </span>
+      )
+    },
   },
   {
     id: "usage",
     accessorFn: (row) => row.usage?.uses ?? 0,
-    header: "Usage",
-    size: 200,
+    // Named as the sheet names it (owner, 16 Oct): one word per figure.
+    header: "Transactions",
+    size: 140,
     // Sorted and filtered by the SERVER (`usage`, `used_min`/`used_max`),
     // which joins the same usage counter this cell reads. The overspend
     // banner, which reads the counter whole, is what finds the row that has
@@ -414,15 +337,24 @@ const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
     meta: {
       filter: {
         kind: "number",
-        label: "Used",
+        label: "Transactions",
         unit: "times",
         operators: BAND_OPERATORS,
         single: true,
       },
+      align: "right",
       card: "hide",
       priority: 2,
     },
-    cell: ({ row }) => <Usage usage={row.original.usage} />,
+    // Times used, one figure; what it gave away is in the sheet.
+    cell: ({ row }) =>
+      (row.original.usage?.uses ?? 0) === 0 ? (
+        <span className="text-mute">None</span>
+      ) : (
+        <span className="text-text tabular-nums">
+          {count(row.original.usage!.uses)}
+        </span>
+      ),
   },
   {
     id: "period",
@@ -436,8 +368,8 @@ const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
       // trap the old `Budget` column documented.
       return Number.isNaN(at) ? Number.POSITIVE_INFINITY : at
     },
-    header: "Period",
-    size: 180,
+    header: "Ends",
+    size: 140,
     // Sorted by the server's `ends` — the rule's own end date, with no end
     // sorting as infinity, which is this accessor's rule too.
     // The first column to go when the table is in a narrow card. Every other
@@ -445,13 +377,14 @@ const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
     // which is the question somebody asks after they have picked a row — and
     // the panel behind the row answers it. On a phone card it is the meta
     // line under the benefit.
-    meta: { priority: 2, card: "hide" },
+    meta: { priority: 2, card: "hide", align: "right" },
+    // The end only; the start is in the sheet's Period.
     cell: ({ row }) => {
-      const period = describePeriod(row.original.row.definition)
-      return period === null ? (
-        <span className="text-mute">—</span>
+      const to = conditionsOf(row.original.row.definition).effective_to
+      return to === null ? (
+        <span className="text-mute">No end</span>
       ) : (
-        <span className="text-text">{period}</span>
+        <span className="text-text tabular-nums">{day(to)}</span>
       )
     },
   },
@@ -580,12 +513,13 @@ const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
 /// and stops when somebody stops it.
 type Phase = "ACTIVE" | "PAUSED" | "ENDED" | "SCHEDULED"
 
+// Live first — the tab the list opens on (owner, 16 Oct); All last.
 const PHASES = [
-  { value: "ALL", label: "All" },
   { value: "ACTIVE", label: "Live" },
   { value: "PAUSED", label: "Paused" },
   { value: "SCHEDULED", label: "Scheduled" },
   { value: "ENDED", label: "Ended" },
+  { value: "ALL", label: "All" },
 ] as const
 
 /// One word per phase, the same on the tabs, the row and the sheet.
@@ -663,6 +597,24 @@ const DEFAULT_SORT: SortingState = [{ id: "usage", desc: true }]
 const SHOW_PERFORMANCE = false
 
 export function Promotions() {
+  // The title stands at once; the list waits for its first page and streams in
+  // with it (the server starts the read too). The head's button and the rest of
+  // the page come with the list.
+  return (
+    <Suspense
+      fallback={
+        <PageContent>
+          <PageHeader crumb="Marketing" title="Promotions" />
+          <LoadingState>Loading promotions…</LoadingState>
+        </PageContent>
+      }
+    >
+      <PromotionBook />
+    </Suspense>
+  )
+}
+
+function PromotionBook() {
   const client = useQueryClient()
   const actor = useActor()
   // A phone draws the rows as cards and keeps the search, the status, the
@@ -678,7 +630,7 @@ export function Promotions() {
   const campaignFilter = useSheet("campaign")
   /// The form, open — `?new-rule=1`, with `?campaign=` preselected.
   const newRule = useSheet("new-rule")
-  const [phase, setPhase] = useState<(typeof PHASES)[number]["value"]>("ALL")
+  const [phase, setPhase] = useState<(typeof PHASES)[number]["value"]>("ACTIVE")
   /// A published promotion the form was opened from: Change or Duplicate.
   const [seed, setSeed] = useState<RuleSeed | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
@@ -730,8 +682,12 @@ export function Promotions() {
 
   /// The promotions, a page at a time, the next one fetched as the last rows
   /// come into view.
-  const list = useInfiniteQuery(promotionPagesQuery(scope))
-  const first = list.data?.pages[0]
+  ///
+  /// The deferred scope keeps the rows in hand on screen while the next
+  /// question is read, so a keystroke does not empty the table.
+  const asked = useDeferredValue(scope)
+  const list = useSuspenseInfiniteQuery(promotionPagesQuery(asked))
+  const first = list.data.pages[0]
 
   /// Every campaign, for the form's picker and for restating a rule's campaign
   /// when it is paused. A menu, not the list being browsed: one capped read,
@@ -820,6 +776,26 @@ export function Promotions() {
     return map
   }, [usage.data])
 
+  /// The KPI figures, over every promotion the usage counter knows — not only
+  /// the pages loaded (owner, 16 Oct: KPIs like Vouchers').
+  const totals = useMemo(() => {
+    let uses = 0
+    let spent = 0
+    let near = 0
+    for (const one of usage.data ?? []) {
+      if (one.kind !== "RULE") continue
+      uses += one.uses
+      spent += one.spent_minor
+      if (
+        one.budget_minor !== null &&
+        one.budget_minor > 0 &&
+        one.spent_minor >= one.budget_minor * 1
+      )
+        near += 1
+    }
+    return { uses, spent, near }
+  }, [usage.data])
+
   const lineOf = useCallback(
     (row: PromotionRow): PromotionLine => ({
       row,
@@ -832,7 +808,7 @@ export function Promotions() {
 
   /// The pages loaded so far — never "every promotion".
   const promotions: PromotionLine[] = useMemo(
-    () => (list.data?.pages ?? []).flatMap((page) => page.rows.map(lineOf)),
+    () => list.data.pages.flatMap((page) => page.rows.map(lineOf)),
     [list.data, lineOf]
   )
 
@@ -927,23 +903,25 @@ export function Promotions() {
     return (code: string) => words.get(code) ?? code
   }, [divisionTerms.data, tagTerms.data])
 
-  const idempotencyKey = useMemo(() => crypto.randomUUID(), [])
-
-  const send = useMutation({
-    mutationFn: () => publishUsageToFleet(actor, idempotencyKey),
-    onSuccess: () => {
-      // Sending does not change what has been given away — these counts come
-      // from sales, not from dispatches. The read is refreshed only so the
-      // receipt describes the figures now on screen rather than a list somebody
-      // has been looking at for an hour.
-      client.invalidateQueries({ queryKey: commercialKeys.usage() })
-    },
-  })
-
   // `mutate` is stable for the life of the mutation; `toggle` itself is a new
   // object on every status change of the mutation, and depending on it would
   // rebuild the whole table each time somebody flipped a switch.
   const flip = toggle.mutate
+
+  /// Pause or resume one promotion — the phone card's switch and the sheet's
+  /// button. Pausing stops the discount at every till, so it is asked;
+  /// resuming is what somebody pressed to do.
+  const requestToggle = useCallback(
+    (line: PromotionLine) => {
+      if (line.row.status === "ACTIVE") {
+        setPausing(line)
+        return
+      }
+      setBusy(line.row.rule_id)
+      flip(line)
+    },
+    [flip]
+  )
 
   /// The instant each row's pill is read at. The TAB is the server's — it
   /// filters and counts by `PROMOTION_PHASE`, the SQL copy of `phaseOf`, at its
@@ -1020,8 +998,7 @@ export function Promotions() {
   const openRule = useQuery({
     queryKey: commercialKeys.rule(sheet.value ?? ""),
     queryFn: ({ signal }) => promotionById(sheet.value ?? "", signal),
-    enabled:
-      sheet.value !== undefined && list.isSuccess && loadedLine === undefined,
+    enabled: sheet.value !== undefined && loadedLine === undefined,
   })
   const sheetLine =
     loadedLine ??
@@ -1067,16 +1044,7 @@ export function Promotions() {
           shops,
           at,
           named,
-          onToggle: (line: PromotionLine) => {
-            // Pausing stops the discount at every till, so it is asked;
-            // resuming is what somebody pressed the switch to do.
-            if (line.row.status === "ACTIVE") {
-              setPausing(line)
-              return
-            }
-            setBusy(line.row.rule_id)
-            flip(line)
-          },
+          onToggle: requestToggle,
         },
       }),
       [
@@ -1088,7 +1056,7 @@ export function Promotions() {
         shops,
         at,
         named,
-        flip,
+        requestToggle,
         phone,
       ]
     )
@@ -1108,28 +1076,14 @@ export function Promotions() {
       <PageHeader
         crumb="Marketing"
         title="Promotions"
-        // Search and New promotion sit on the table\'s own toolbar now: they
-        // act on the list, and the list is no longer the first thing under this
-        // header. What stays is the one action that is about all shops rather
-        // than about the rows — sending the counts the shops enforce from.
-        // On a phone it is the last thing under the list instead — nothing
-        // sits at the top but the title and what narrows the list is in the
-        // drawer.
+        // New promotion is the screen's one action, at the right of the head
+        // (hub-ui-patterns, 14 Oct); a phone has the + at the thumb instead.
         actions={
           phone ? undefined : (
-            <div className="flex flex-col items-end gap-2">
-              <Button
-                variant="soft"
-                pending={send.isPending}
-                disabled={actor === ""}
-                onClick={() => send.mutate()}
-              >
-                {send.isPending ? "Syncing…" : "Sync usage to stores"}
-              </Button>
-              <span className="text-[0.875rem] text-mute">
-                Sent automatically every 5 minutes
-              </span>
-            </div>
+            <Button variant="primary" onClick={() => newRule.open(true)}>
+              <Plus />
+              New promotion
+            </Button>
           )
         }
       />
@@ -1138,15 +1092,38 @@ export function Promotions() {
           exist and what they may spend; this says what they spent. */}
       {SHOW_PERFORMANCE && <PerformanceHeader of="rules" />}
 
+      {!phone && (
+        <KpiStrip className="xl:grid-cols-5">
+          <Kpi
+            label="Live"
+            value={
+              phaseCounts === null ? "—" : count(phaseCounts.get("ACTIVE") ?? 0)
+            }
+          />
+          <Kpi
+            label="Scheduled"
+            value={
+              phaseCounts === null
+                ? "—"
+                : count(phaseCounts.get("SCHEDULED") ?? 0)
+            }
+          />
+          <Kpi label="Transactions" value={count(totals.uses)} />
+          <Kpi label="Given away" value={money(totals.spent)} />
+          <Kpi
+            label="Over budget"
+            value={
+              <span className={cn(totals.near > 0 && "text-bad-fg")}>
+                {count(totals.near)}
+              </span>
+            }
+          />
+        </KpiStrip>
+      )}
+
       {toggle.isError && (
         <div className="mb-5">
           <ErrorState error={toggle.error} />
-        </div>
-      )}
-
-      {send.isError && (
-        <div className="mb-5">
-          <ErrorState error={send.error} />
         </div>
       )}
 
@@ -1159,23 +1136,34 @@ export function Promotions() {
       {overspent.length > 0 && (
         <Banner tone="bad" className="mb-5">
           {count(overspent.length)} promotion
-          {overspent.length === 1 ? " has" : "s have"} reached the budget. Sync
-          usage to stores.
+          {overspent.length === 1 ? " has" : "s have"} reached the budget.
         </Banner>
       )}
 
-      {/* The phase tabs, the search and one filter button over the table, the
-          clauses in force under them — Purchase Orders' shape, with no column
-          beside the rows. */}
+      {/* The phase tabs under the figures, then the search and one filter
+          button over the table, the clauses in force under them — Purchase
+          Orders' shape, with no column beside the rows. On a phone the phase
+          is the drawer's status button. */}
       <div className="min-w-0">
         <div className="flex min-w-0 flex-col">
+          <SubTabs
+            className="max-md:hidden"
+            tabs={tabs}
+            value={phase}
+            onChange={(next) => setPhase(next as typeof phase)}
+          />
           {!phone && (
-            <Toolbar className="mb-5">
-              <Segmented options={tabs} value={phase} onChange={setPhase} />
+            <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2">
+              <ExpandingSearch
+                value={query}
+                onChange={setQuery}
+                label="Search promotions"
+              />
+              <DeskFilterButton model={filters} table={promotionTable} />
               {/* The campaign the Campaign screen narrowed this to, said and
                 removable — a filter nobody can see is a list that lies. */}
               {campaignName !== null && (
-                <span className="inline-flex items-center gap-2 text-[0.875rem] text-body">
+                <span className="inline-flex items-center gap-2 text-[0.9375rem] text-body">
                   <span className="max-w-[14rem] truncate">
                     Campaign: <span className="text-ink">{campaignName}</span>
                   </span>
@@ -1189,32 +1177,15 @@ export function Promotions() {
                   </button>
                 </span>
               )}
-              <div className="ml-auto flex items-center gap-3">
-                <Input
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  className="h-9 w-64"
-                />
-                <DeskFilterButton model={filters} table={promotionTable} />
-                <Button variant="primary" onClick={() => newRule.open(true)}>
-                  New promotion
-                </Button>
-              </div>
-            </Toolbar>
+            </div>
           )}
-          {!phone && (
-            <DeskFilterChips
-              model={filters}
-              table={promotionTable}
-              className="-mt-2"
-            />
-          )}
+          {!phone && <DeskFilterChips model={filters} table={promotionTable} />}
 
           {/* A phone's one line of what the list is narrowed to when it came
               from a campaign — the status, the search and New are in the
               drawer, but this has no home there. */}
           {phone && campaignName !== null && (
-            <p className="mb-3 flex items-center gap-1 text-[0.875rem] text-body">
+            <p className="mb-3 flex items-center gap-1 text-[0.9375rem] text-body">
               <span className="min-w-0 truncate">
                 Campaign: <span className="text-ink">{campaignName}</span>
               </span>
@@ -1229,61 +1200,52 @@ export function Promotions() {
             </p>
           )}
 
-          <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-            {queryState(list, {
-              loading: "Loading promotions…",
-              render: () =>
-                campaignName !== null && needle === "" && everyCount === 0 ? (
-                  <EmptyState
-                    action={
-                      <Button
-                        variant="primary"
-                        onClick={() => newRule.open(true)}
-                      >
-                        New promotion
-                      </Button>
-                    }
-                  >
-                    No promotions in {campaignName}.
-                  </EmptyState>
-                ) : campaignName === null &&
-                  needle === "" &&
-                  everyCount === 0 ? (
-                  <EmptyState>No promotions.</EmptyState>
-                ) : promotions.length === 0 &&
-                  phase !== "ALL" &&
-                  needle === "" &&
-                  filters.filters.length === 0 ? (
-                  // The server filtered by the phase, so an empty first page is
-                  // an empty tab. Not when a clause is set: then the clause is
-                  // the reason, and the table's own empty line says so.
-                  <EmptyState>
-                    No{" "}
-                    {PHASES.find(
-                      (one) => one.value === phase
-                    )?.label.toLowerCase()}{" "}
-                    promotions.
-                  </EmptyState>
-                ) : (
-                  <DataTable<PromotionLine>
-                    refresh={[list]}
-                    table={promotionTable}
-                    onRowClick={(row) => sheet.open(row.row.rule_id)}
-                    isSelected={(row) => row.row.rule_id === sheet.value}
-                    more={list}
-                    empty={
-                      filters.filters.length > 0 ? "No matches." : "No matches."
-                    }
-                    cardSort={false}
-                    cardsApart
-                    cardLead
-                    className={`${ROOMY} max-h-[calc(100dvh-19rem)]`}
-                  />
-                ),
-            })}
+          <Card
+            aria-busy={asked !== scope || undefined}
+            className="list-swap overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none"
+          >
+            {campaignName !== null && needle === "" && everyCount === 0 ? (
+              <EmptyState
+                action={
+                  <Button variant="primary" onClick={() => newRule.open(true)}>
+                    New promotion
+                  </Button>
+                }
+              >
+                No promotions in {campaignName}.
+              </EmptyState>
+            ) : campaignName === null && needle === "" && everyCount === 0 ? (
+              <EmptyState>No promotions.</EmptyState>
+            ) : promotions.length === 0 &&
+              phase !== "ALL" &&
+              needle === "" &&
+              filters.filters.length === 0 ? (
+              // The server filtered by the phase, so an empty first page is
+              // an empty tab. Not when a clause is set: then the clause is
+              // the reason, and the table's own empty line says so.
+              <EmptyState>
+                No{" "}
+                {PHASES.find((one) => one.value === phase)?.label.toLowerCase()}{" "}
+                promotions.
+              </EmptyState>
+            ) : (
+              <DataTable<PromotionLine>
+                refresh={[list]}
+                table={promotionTable}
+                onRowClick={(row) => sheet.open(row.row.rule_id)}
+                isSelected={(row) => row.row.rule_id === sheet.value}
+                more={list}
+                empty={
+                  filters.filters.length > 0 ? "No matches." : "No matches."
+                }
+                cardSort={false}
+                cardsApart
+                cardLead
+                className={`${ROOMY} max-h-[calc(100dvh-19rem)]`}
+              />
+            )}
           </Card>
         </div>
-
       </div>
 
       <Fab label="New promotion" onClick={() => newRule.open(true)} />
@@ -1300,16 +1262,6 @@ export function Promotions() {
           panel: { model: filters, table: promotionTable },
         }}
         sort={dockSortOf(promotionTable)}
-        // The one act about all the stores rather than about a row, which a desk
-        // keeps in the header: the last row of the ⚙ sheet on a phone.
-        actions={[
-          {
-            label: send.isPending ? "Syncing…" : "Sync usage to stores",
-            onClick: () => {
-              if (actor !== "" && !send.isPending) send.mutate()
-            },
-          },
-        ]}
         status={{
           value: phase,
           options: PHASES.map((one) => ({
@@ -1336,6 +1288,8 @@ export function Promotions() {
           setSeed({ mode: "duplicate", rule: line.row.definition })
         }
         onEnd={(line) => end.mutate(line)}
+        onToggle={requestToggle}
+        toggling={busy}
         ending={end.isPending}
         endError={end.isError ? end.error : null}
         canWrite={actor !== ""}
@@ -1483,6 +1437,8 @@ function PromotionSheet({
   onChange,
   onDuplicate,
   onEnd,
+  onToggle,
+  toggling,
   ending,
   endError,
   canWrite,
@@ -1503,6 +1459,11 @@ function PromotionSheet({
   /// Open the form on a copy of it.
   onDuplicate: (line: PromotionLine) => void
   onEnd: (line: PromotionLine) => void
+  /// Pause a live one, resume a paused one — the list's switch, moved here
+  /// so the list fits its page.
+  onToggle: (line: PromotionLine) => void
+  /// The rule id a pause or resume is on its way for.
+  toggling: string | null
   ending: boolean
   endError: Error | null
   canWrite: boolean
@@ -1699,6 +1660,16 @@ function PromotionSheet({
             >
               Duplicate
             </Button>
+            {(phase === "ACTIVE" || phase === "PAUSED") && (
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={!canWrite || toggling === line.row.rule_id}
+                onClick={() => onToggle(line)}
+              >
+                {phase === "ACTIVE" ? "Pause" : "Resume"}
+              </Button>
+            )}
             {/* Ending is not a pause: it is for good, and the only way back is
                 Change with new dates. Offered while it still runs or waits
                 to. */}
@@ -1730,7 +1701,7 @@ function PromotionSheet({
             {/* Only the gate, never its absence. "Open to all" is not a
                 property a promotion has — it is the ordinary case. */}
             {coupon !== null && (
-              <span className="text-[0.875rem] text-body">
+              <span className="text-[0.9375rem] text-body">
                 Needs code <span className="font-mono text-ink">{coupon}</span>
               </span>
             )}
@@ -1764,7 +1735,7 @@ function Block({
           {title}
         </h4>
         {aside !== undefined && aside !== "" && (
-          <span className="text-[0.875rem] text-mute">{aside}</span>
+          <span className="text-[0.9375rem] text-mute">{aside}</span>
         )}
       </div>
       {children}
@@ -1803,7 +1774,7 @@ function Gauge({
 }) {
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-baseline gap-4 text-[0.875rem] text-body tabular-nums">
+      <div className="flex items-baseline gap-4 text-[0.9375rem] text-body tabular-nums">
         <span className="flex-1">{label}</span>
         <span>{figures}</span>
         <span className="w-12 text-right text-ink">
@@ -1963,7 +1934,7 @@ function Rollout({ events, standings }: Standings) {
               <MiniCell className="py-4">
                 <span className="block truncate text-ink">{shop.name}</span>
                 {shop.error !== null && (
-                  <span className="mt-1 block text-[0.875rem] leading-relaxed whitespace-normal text-bad-fg">
+                  <span className="mt-1 block text-[0.9375rem] leading-relaxed whitespace-normal text-bad-fg">
                     {shop.error}
                   </span>
                 )}
@@ -1974,7 +1945,7 @@ function Rollout({ events, standings }: Standings) {
                 </Status>
               </MiniCell>
               <MiniCell className="py-4">
-                <span className="text-[0.875rem] text-body tabular-nums">
+                <span className="text-[0.9375rem] text-body tabular-nums">
                   {shop.at === null ? "—" : moment(shop.at)}
                 </span>
               </MiniCell>

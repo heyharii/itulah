@@ -1,0 +1,30 @@
+[
+  {
+    "id": "board",
+    "text": "Gudang bekerja di satu papan: **To pick**, **Picked**, **Packed**, **In transit**, dan **Received**."
+  },
+  {
+    "id": "card",
+    "text": "Satu kartu adalah satu allotment untuk satu toko."
+  },
+  {
+    "id": "pick",
+    "text": "Barang diambil dari rak sesuai picklist, lalu ditandai **Picked**."
+  },
+  {
+    "id": "pack",
+    "text": "Di **Pack**, barang dimasukkan ke koli. Setiap **Close koli** mencetak labelnya."
+  },
+  {
+    "id": "dispatch",
+    "text": "Kartu Packed dicentang, lalu **Dispatch**. Surat jalan dicetak, dan kartunya pindah ke **In transit**."
+  },
+  {
+    "id": "received",
+    "text": "Toko menghitung barang yang datang. Kalau kurang, statusnya **Received short**, bukan Completed."
+  },
+  {
+    "id": "md",
+    "text": "MD melihat angka yang sama di allotment-nya: To pick, Picked, Packed, On the road, Received."
+  }
+]

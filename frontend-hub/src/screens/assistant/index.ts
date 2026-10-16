@@ -1,6 +1,4 @@
-import type { ScreenMap } from "@/screens/registry"
-import { AssistantChat } from "@/screens/assistant/chat"
-import { AssistantGlossary } from "@/screens/assistant/glossary"
+import { lazyScreen, type ScreenMap } from "@/screens/registry"
 
 /// The chat is one route with two states. Which conversation is open is a URL
 /// parameter rather than a path segment — the same arrangement Reports uses,
@@ -8,6 +6,14 @@ import { AssistantGlossary } from "@/screens/assistant/glossary"
 /// to a chat is a link somebody can paste. The glossary is the words the chat
 /// reads every question with, kept on a page of its own.
 export const screens: ScreenMap = {
-  "/assistant": AssistantChat,
-  "/assistant/glossary": AssistantGlossary,
+  "/assistant": lazyScreen(
+    "assistant/chat",
+    () => import("@/screens/assistant/chat"),
+    (m) => m.AssistantChat
+  ),
+  "/assistant/glossary": lazyScreen(
+    "assistant/glossary",
+    () => import("@/screens/assistant/glossary"),
+    (m) => m.AssistantGlossary
+  ),
 }

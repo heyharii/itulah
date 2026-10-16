@@ -86,10 +86,9 @@ export function FileCorrectionSheet({
         }
       }}
       title="File a correction"
-      caption="Waits for a second person to approve it."
       footer={
         <div className="flex justify-end gap-2">
-          <Button variant="quiet" onClick={onClose}>
+          <Button data-cancel variant="quiet" onClick={onClose}>
             Cancel
           </Button>
           <Button
@@ -149,11 +148,7 @@ export function FileCorrectionSheet({
             label="They left after midnight, on the same shift"
           />
         )}
-        <Field
-          label="Why"
-          hint="Recorded against the correction, and required."
-          required
-        >
+        <Field label="Why" required>
           <Input
             value={reason}
             onChange={(event) => setReason(event.target.value)}

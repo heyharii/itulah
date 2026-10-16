@@ -1,8 +1,13 @@
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
+import {
+  useQuery,
+  useSuspenseInfiniteQuery,
+  useSuspenseQuery,
+} from "@tanstack/react-query"
+import { useHydrated } from "@tanstack/react-router"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { X } from "lucide-react"
-import { useMemo, useState } from "react"
+import { Suspense, useDeferredValue, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { DockTools } from "@/components/shell/dock-tools"
@@ -15,15 +20,15 @@ import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import { EmptyState, NoMatch } from "@/components/ui/states"
+import { EmptyState, LoadingState, NoMatch } from "@/components/ui/states"
 import { isComplete, useFilters } from "@/lib/filters"
 import { count, day, money } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import {
   describeSegment,
-  listMembers,
-  memberKeys,
-  memberSegments,
+  memberDirectoryQuery,
+  MEMBERS_PAGE,
+  memberSegmentsQuery,
   savedSegmentKeys,
   savedSegments,
   SEGMENT_ORDER,
@@ -33,7 +38,6 @@ import {
   type SegmentKey,
 } from "@/lib/queries/members"
 import { toServerFilters } from "@/lib/queries/reports"
-import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { useDebounced } from "@/lib/use-debounced"
@@ -75,10 +79,6 @@ import { IssueCode } from "@/screens/members/counter"
 /// already loaded and would quietly miss everybody below them. The segment
 /// strip, the search box, the filter chips and the column sorts are all
 /// parameters of the one request; the table only draws what came back.
-
-/// Rows per request. Small enough that the first page is quick, and the table
-/// asks for the next as it nears the bottom.
-const PAGE = 200
 
 /// Table column → the `member` dataset dimension the server filters it by.
 ///
@@ -190,7 +190,7 @@ function columnsFor(
       // Segment column beside this one already says it, and two "Stopped"
       // chips on one row read as two different facts.
       cell: ({ row }) => (
-        <span className="block truncate text-[0.875rem] text-ink">
+        <span className="block truncate text-[0.9375rem] text-ink">
           {row.original.display_name ?? row.original.member_id}
         </span>
       ),
@@ -460,6 +460,47 @@ export function Members() {
   /// filtered directory is a thing people send each other, and a `useState`
   /// box cannot be sent.
   const search = useSheet("q")
+
+  return (
+    <PageContent>
+      <PageHeader
+        crumb="Members"
+        title="Members"
+        sub="Everybody holding a card, and what they buy."
+        actions={
+          phone ? undefined : (
+            <Input
+              value={search.value ?? ""}
+              onChange={(event) =>
+                event.target.value === ""
+                  ? search.close()
+                  : search.open(event.target.value)
+              }
+              placeholder="Search"
+              className="h-8 w-56"
+            />
+          )
+        }
+      />
+
+      <Suspense fallback={<LoadingState>Reading the directory…</LoadingState>}>
+        <MemberBook />
+      </Suspense>
+    </PageContent>
+  )
+}
+
+/// The directory with everything drawn from it: the segment strip and the
+/// filter chips on the segment windows the server names, the counts, the
+/// table, and the drawer over the bottom bar on a phone. The page's head and
+/// its search stand outside, so they paint before the directory arrives.
+function MemberBook() {
+  const phone = useLayout() === "phone"
+  // The dock is the browser's: a boundary that streams in after the page has
+  // hydrated finds the dock already there and would draw into it, where the
+  // server drew nothing.
+  const hydrated = useHydrated()
+  const search = useSheet("q")
   /// Which segment is being read. Also in the URL, and that is the whole
   /// mechanism behind the Segments screen: every count there is a link to a
   /// directory narrowed to it, so the arithmetic can be checked rather than
@@ -490,20 +531,14 @@ export function Members() {
   /// Only for the two window lengths, which the segment names are written in
   /// terms of. The server owns the definition — 90 days and 180 today — and a
   /// screen that hard-coded them would be the second copy that drifts.
-  const book = useQuery({
-    queryKey: memberKeys.segments(),
-    queryFn: ({ signal }) => memberSegments(signal),
-  })
+  const { data: book } = useSuspenseQuery(memberSegmentsQuery())
 
   const windows = useMemo(
-    () =>
-      book.data
-        ? {
-            active_days: book.data.active_days,
-            lapsing_days: book.data.lapsing_days,
-          }
-        : null,
-    [book.data]
+    () => ({
+      active_days: book.active_days,
+      lapsing_days: book.lapsing_days,
+    }),
+    [book.active_days, book.lapsing_days]
   )
 
   const columns = useMemo(() => columnsFor(windows), [windows])
@@ -545,26 +580,20 @@ export function Members() {
       sort,
       dir: sort === undefined ? undefined : desc ? "desc" : "asc",
       filters: serverFilters,
-      limit: PAGE,
+      limit: MEMBERS_PAGE,
     }
   }, [segment.value, written.value, needle, sorting, serverFilters])
 
-  const directory = useInfiniteQuery({
-    queryKey: memberKeys.directory(scope),
-    queryFn: ({ pageParam, signal }) =>
-      listMembers({ ...scope, cursor: pageParam }, signal),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) => last.next_cursor ?? undefined,
-    // The previous answer stays on screen while the next is fetched, so a
-    // keystroke or a chip does not blank the table to a loading line.
-    placeholderData: (previous) => previous,
-  })
+  /// Read for the question as it was a moment ago while a new one is on its
+  /// way, so a keystroke or a chip does not blank the table to a loading line.
+  const asked = useDeferredValue(scope)
+  const directory = useSuspenseInfiniteQuery(memberDirectoryQuery(asked))
 
   const rows = useMemo(
-    () => directory.data?.pages.flatMap((page) => page.members) ?? [],
+    () => directory.data.pages.flatMap((page) => page.members),
     [directory.data]
   )
-  const head = directory.data?.pages[0]
+  const head = directory.data.pages[0]
   const narrowed = needle !== "" || serverFilters.length > 0
 
   const table = useTable(
@@ -596,26 +625,7 @@ export function Members() {
   const selected = rows.find((row) => row.member_id === open.value) ?? null
 
   return (
-    <PageContent>
-      <PageHeader
-        crumb="Members"
-        title="Members"
-        sub="Everybody holding a card, and what they buy."
-        actions={
-          phone ? undefined : (
-            <Input
-              value={search.value ?? ""}
-              onChange={(event) =>
-                event.target.value === ""
-                  ? search.close()
-                  : search.open(event.target.value)
-              }
-              className="h-8 w-56"
-            />
-          )
-        }
-      />
-
+    <>
       {/* A phone's one line of what the list holds, and the written segment it
           is narrowed by, which has no home in the drawer. */}
       {phone && (
@@ -665,7 +675,7 @@ export function Members() {
             <button
               type="button"
               onClick={() => written.close()}
-              className="ml-2 inline-flex h-8 items-center gap-1.5 rounded-full bg-soft-2 px-3 text-[0.875rem] text-ink transition-colors hover:bg-soft-3"
+              className="ml-2 inline-flex h-8 items-center gap-1.5 rounded-full bg-soft-2 px-3 text-[0.9375rem] text-ink transition-colors hover:bg-soft-3"
             >
               <span className="text-mute">Segment</span>
               {narrowedBy?.name ?? "…"}
@@ -677,7 +687,7 @@ export function Members() {
             question is two answers to reconcile. */}
           <FilterPanel model={filters} />
           <Toolbar.Spacer />
-          <span className="text-[0.875rem] text-mute tabular-nums">
+          <span className="text-[0.9375rem] text-mute tabular-nums">
             {/* Two different numbers, and the difference is the point: the first
               is everybody the search, segment and chips match — the server's
               count, not the rows loaded so far — and the second is everybody
@@ -688,88 +698,92 @@ export function Members() {
         </Toolbar>
       )}
 
-      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-        {queryState(directory, {
-          // No refusal state, and the absence is the finding: `required_role`
-          // sends every GET outside `/finance` and the admin prefixes to
-          // CASHIER, the lowest role there is, so `GET /members` cannot answer
-          // 403 to anybody holding a session at all. A state nobody can reach
-          // would be a claim that somebody can.
-          loading: "Reading the directory…",
-          render: () =>
-            rows.length === 0 && narrowed ? (
-              // Held only when nothing else narrows: with a segment applied
-              // too, the whole scheme is not what the search was run over.
-              <NoMatch
-                what="members"
-                held={
-                  segment.value === undefined && written.value === undefined
-                    ? head?.member_count
-                    : undefined
-                }
-                onClear={() => {
-                  search.close()
-                  filters.clear()
-                }}
-              />
-            ) : rows.length === 0 ? (
-              <EmptyState>
-                {written.value !== undefined
-                  ? "Nobody matches that segment's conditions today. It is worked out on every read, so it empties and fills on its own."
-                  : segment.value === undefined
-                    ? "Nobody has been enrolled yet. Cards are enrolled at a till, against a number the shopper is already holding."
-                    : "No member is in that segment today. It is a statement about behaviour, so it empties and fills on its own."}
-              </EmptyState>
-            ) : (
-              <DataTable<MemberRow>
-                table={table}
-                onRowClick={(row) => open.open(row.member_id)}
-                isSelected={(row) => row.member_id === open.value}
-                more={directory}
-                cardSort={false}
-                cardsApart
-                cardLead
-                className="max-h-[calc(100dvh-17rem)]"
-              />
-            ),
-        })}
+      <Card
+        aria-busy={asked !== scope || undefined}
+        className="list-swap overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none"
+      >
+        {/* No refusal state, and the absence is the finding: `required_role`
+            sends every GET outside `/finance` and the admin prefixes to
+            CASHIER, the lowest role there is, so `GET /members` cannot answer
+            403 to anybody holding a session at all. A state nobody can reach
+            would be a claim that somebody can. */}
+        {rows.length === 0 && narrowed ? (
+          // Held only when nothing else narrows: with a segment applied
+          // too, the whole scheme is not what the search was run over.
+          <NoMatch
+            what="members"
+            held={
+              segment.value === undefined && written.value === undefined
+                ? head?.member_count
+                : undefined
+            }
+            onClear={() => {
+              search.close()
+              filters.clear()
+            }}
+          />
+        ) : rows.length === 0 ? (
+          <EmptyState>
+            {written.value !== undefined
+              ? "Nobody matches that segment's conditions today. It is worked out on every read, so it empties and fills on its own."
+              : segment.value === undefined
+                ? "Nobody has been enrolled yet. Cards are enrolled at a till, against a number the shopper is already holding."
+                : "No member is in that segment today. It is a statement about behaviour, so it empties and fills on its own."}
+          </EmptyState>
+        ) : (
+          <DataTable<MemberRow>
+            refresh={[directory]}
+            table={table}
+            onRowClick={(row) => open.open(row.member_id)}
+            isSelected={(row) => row.member_id === open.value}
+            more={directory}
+            cardSort={false}
+            cardsApart
+            cardLead
+            className="max-h-[calc(100dvh-17rem)]"
+          />
+        )}
       </Card>
 
       {/* On a phone the segment is the status button of the drawer over the
           bottom bar, beside the search, the filters and the sort. */}
-      <DockTools
-        search={{
-          value: search.value ?? "",
-          onChange: (next) =>
-            next === "" ? search.close() : search.replace(next),
-          label: "Search Members",
-        }}
-        filter={{
-          count: filters.filters.length,
-          panel: { model: filters, table },
-        }}
-        sort={dockSortOf(table)}
-        status={{
-          value: segment.value ?? "ALL",
-          options: [
-            { value: "ALL", label: "Everyone" },
-            ...SEGMENT_ORDER.map((key) => ({
-              value: key,
-              label:
-                windows === null ? key : describeSegment(key, windows).label,
-            })),
-          ],
-          onChange: (next) =>
-            next === "ALL" ? segment.close() : segment.open(next as SegmentKey),
-        }}
-      />
+      {hydrated && (
+        <DockTools
+          search={{
+            value: search.value ?? "",
+            onChange: (next) =>
+              next === "" ? search.close() : search.replace(next),
+            label: "Search Members",
+          }}
+          filter={{
+            count: filters.filters.length,
+            panel: { model: filters, table },
+          }}
+          sort={dockSortOf(table)}
+          status={{
+            value: segment.value ?? "ALL",
+            options: [
+              { value: "ALL", label: "Everyone" },
+              ...SEGMENT_ORDER.map((key) => ({
+                value: key,
+                label:
+                  windows === null ? key : describeSegment(key, windows).label,
+              })),
+            ],
+            onChange: (next) =>
+              next === "ALL"
+                ? segment.close()
+                : segment.open(next as SegmentKey),
+          }}
+        />
+      )}
 
       <MemberSheet
         member={selected}
         windows={windows}
         onClose={() => open.close()}
       />
-    </PageContent>
+    </>
   )
 }
 
@@ -816,7 +830,7 @@ function MemberSheet({
               {segment?.label ?? member.segment}
             </Pill>
             {segment && (
-              <p className="text-[0.875rem] leading-relaxed text-body">
+              <p className="text-[0.9375rem] leading-relaxed text-body">
                 {segment.meaning}
               </p>
             )}
@@ -855,7 +869,7 @@ function MemberSheet({
               ordinary reason somebody asks. */}
           <div className="flex flex-col gap-2">
             {member.paired && (
-              <p className="text-[0.875rem] leading-relaxed text-body">
+              <p className="text-[0.9375rem] leading-relaxed text-body">
                 A phone is already paired to this card. Issuing a code pairs
                 another — which is what a replaced handset needs, and is also
                 what somebody else's phone would need, so ask for the card.
@@ -876,7 +890,7 @@ function MemberSheet({
             // Blocked, not deleted, and the sheet has to say which: the sales
             // stay attributed to this row, and deleting it would leave them
             // pointing at a member nobody can look up.
-            <p className="text-[0.875rem] leading-relaxed text-bad">
+            <p className="text-[0.9375rem] leading-relaxed text-bad">
               Membership stopped on {day(member.blocked_at)}. Their sales stay
               attributed to this card, which is why the row is blocked rather
               than removed.

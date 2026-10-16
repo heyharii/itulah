@@ -114,7 +114,7 @@ export function AllotmentItems({ id }: { id: string }) {
         render: (data) => {
           const groups = groupsOf(data.lines)
           return groups.length === 0 ? (
-            <p className="py-2 text-[0.875rem] text-body">No items.</p>
+            <p className="py-2 text-[0.9375rem] text-body">No items.</p>
           ) : (
             groups.map((article) => (
               <div key={article.id} className="py-1.5">
@@ -129,7 +129,7 @@ export function AllotmentItems({ id }: { id: string }) {
                     <span className="block truncate text-[0.9375rem] text-ink">
                       {article.name}
                     </span>
-                    <span className="block truncate font-mono text-[0.875rem] text-mute">
+                    <span className="block truncate font-mono text-[0.9375rem] text-mute">
                       {article.code}
                     </span>
                   </span>
@@ -140,7 +140,7 @@ export function AllotmentItems({ id }: { id: string }) {
                 {article.skus.map((sku) => (
                   <div
                     key={sku.id}
-                    className="flex min-h-9 items-center gap-3 pl-[3.25rem] text-[0.875rem]"
+                    className="flex min-h-9 items-center gap-3 pl-[3.25rem] text-[0.9375rem]"
                   >
                     <span className="min-w-0 flex-1 truncate text-body">
                       {sku.variant}{" "}

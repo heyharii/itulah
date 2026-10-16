@@ -6,7 +6,7 @@ import { Field, Input } from "@/components/ui/field"
 import { Pill } from "@/components/ui/pill"
 import { KeyValue, SubHead } from "@/components/ui/rows"
 import { Banner, EmptyState } from "@/components/ui/states"
-import { day, money } from "@/lib/format"
+import { day, money, monthYear } from "@/lib/format"
 import {
   employeeLoans,
   grantLoan,
@@ -34,10 +34,7 @@ export function LoansPanel({ employeeId }: { employeeId: string }) {
         loading: "Reading the loans…",
         render: (rows) =>
           rows.length === 0 ? (
-            <EmptyState>
-              No loan. A loan is repaid from pay in fixed monthly instalments;
-              grant one below.
-            </EmptyState>
+            <EmptyState>No loan.</EmptyState>
           ) : (
             <div className="flex flex-col gap-4">
               {rows.map((loan) => (
@@ -101,7 +98,8 @@ export function LoanCard({
         {loan.paid_at !== null && ` · paid out ${day(loan.paid_at)}`}
       </KeyValue>
       <KeyValue term="Instalment">
-        {money(loan.instalment_minor)} a month from {loan.first_period}
+        {money(loan.instalment_minor)} a month from{" "}
+        {monthYear(loan.first_period)}
       </KeyValue>
       <KeyValue term="Repaid">{money(loan.repaid_minor)}</KeyValue>
       {loan.pending_minor > 0 && (
@@ -125,7 +123,7 @@ export function LoanCard({
               key={`${repayment.at}-${index}`}
               term={
                 repayment.kind === "PAYROLL"
-                  ? `Payroll ${repayment.period ?? ""}`
+                  ? `Payroll ${monthYear(repayment.period)}`
                   : repayment.kind === "REFUND"
                     ? `Cash ${day(repayment.at)}`
                     : `Receipts ${day(repayment.at)}`
@@ -260,10 +258,6 @@ export function GrantLoan({
           />
         </Field>
       </div>
-      <p className="mt-2 text-[0.875rem] text-mute">
-        Granting approves the advance; Finance pays it out from Advances, and
-        nothing comes off pay until it has.
-      </p>
       {grant.error !== null && (
         <Banner tone="bad" className="mt-2">
           {grant.error.message}

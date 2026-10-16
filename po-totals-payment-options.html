@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PO totals · where payment sits</title>
+<style>
+/* Hub tokens, as po-detail-clear.html */
+:root{--ink:#20242c;--text:#394150;--body:#565f6d;--mute:#666f7d;--faint:#b9c0c9;--line-ico:#89919d;
+  --canvas:#fff;--soft:#f8f8f9;--soft-2:#f0f0f2;--soft-3:#f6f6f7;--hairline:#e6e6e9;--hairline-2:#dadade;
+  --accent:#2563eb;--accent-bg:#eff5ff;--ok-fg:#137a37;--warn-fg:#a64a08;--warn-bg:#faeacd;--bad-fg:#be123c;
+  --r-card:10px;--r-inner:8px;--shadow-soft:0 1px 3px rgb(24 39 60/4%);--shadow-pop:0 4px 8px rgb(24 39 60/4%),0 12px 32px rgb(24 39 60/8%);
+  --ease-out:cubic-bezier(.23,1,.32,1)}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font:14px/20px Inter,system-ui,sans-serif;color:var(--text);background:var(--soft-3);-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;cursor:pointer;background:none;border:0}
+.num{font-variant-numeric:tabular-nums}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:14px;letter-spacing:-.02em}
+svg.i{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+/* chrome */
+.top{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 20px;background:var(--canvas);border-bottom:1px solid var(--hairline);position:sticky;top:0;z-index:20}
+.top h1{font-size:15px;font-weight:600;color:var(--ink);margin-right:auto}
+.lbl{color:var(--mute)}
+.grp{display:flex;align-items:center;gap:8px}
+.seg{display:flex;gap:2px;background:var(--soft-2);padding:3px;border-radius:999px}
+.seg button{border-radius:999px;padding:4px 14px;color:var(--body);transition:background-color 120ms var(--ease-out),color 120ms var(--ease-out),scale 120ms var(--ease-out)}
+.seg button:active{scale:.97}
+.seg button.on{background:var(--ink);color:#fff;font-weight:500}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(600px,1fr));gap:24px;padding:20px}
+.grid.phone{grid-template-columns:repeat(auto-fill,minmax(440px,1fr))}
+.opt h2{font-size:15px;line-height:22px;font-weight:600;color:var(--ink);margin-bottom:10px;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+.opt h2 b{display:inline-grid;place-items:center;width:26px;height:26px;border-radius:7px;background:var(--ink);color:#fff;font-size:14px;font-weight:600}
+.opt h2 .note{font-size:14px;font-weight:400;color:var(--body)}
+.opt h2 .star{color:var(--warn-fg);font-weight:500;font-size:14px}
+
+/* the sheet, static, as po-detail-clear.html draws it */
+.frame{background:var(--canvas);border-radius:16px;box-shadow:var(--shadow-pop),0 0 0 1px var(--hairline);display:flex;flex-direction:column;overflow:hidden}
+.frame.phone{width:414px;margin:0 auto;border-radius:16px 16px 0 0}
+.shd{display:flex;align-items:center;gap:16px;padding:12px 24px;border-bottom:1px solid var(--hairline)}
+.phone .shd{flex-wrap:wrap;align-items:flex-start;padding:16px 16px 12px;gap:10px 8px}
+.who{min-width:0;flex:1}
+.who h2{font-size:18px;line-height:24px;font-weight:600;letter-spacing:-.01em;color:var(--ink);margin:0;display:block}
+.meta{display:flex;flex-wrap:wrap;gap:0 14px;margin-top:2px;color:var(--mute)}
+.meta b{font-weight:500;color:var(--ink)}
+.meta .mono{color:var(--mute)}
+.st{font-weight:500}.st.ok{color:var(--ok-fg)}.st.info{color:var(--accent)}.st.done{color:var(--ink)}
+.kbox{display:flex;flex:none;border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden;background:var(--canvas);box-shadow:var(--shadow-soft)}
+.kbox div{padding:8px 18px;min-width:0}
+.kbox div+div{border-left:1px solid var(--hairline)}
+.kbox dt{color:var(--body);white-space:nowrap}
+.kbox dd{font-size:18px;line-height:24px;font-weight:600;letter-spacing:-.02em;color:var(--ink);white-space:nowrap}
+.kbox dd small{font-size:14px;font-weight:400;letter-spacing:0;color:var(--body);margin-left:4px}
+.kbox dd.bad{color:var(--bad-fg)}
+.kbox dd.txt{font-size:15px;font-weight:500;letter-spacing:0}
+.phone .kbox{order:3;width:100%}
+.phone .kbox div{flex:1;padding:8px 12px}
+.tools{display:flex;align-items:center;gap:4px;flex:none}
+.ibtn{width:32px;height:32px;display:grid;place-items:center;border-radius:var(--r-inner);color:var(--line-ico)}
+.sbd{padding:20px 24px;display:flex;flex-direction:column;gap:18px;position:relative}
+.phone .sbd{padding:16px}
+.sft{display:flex;align-items:center;gap:8px;padding:12px 24px;border-top:1px solid var(--hairline)}
+.phone .sft{padding:12px 16px}
+.sft .sp{flex:1}
+.sft .quiet{margin-left:8px}
+.btn{height:36px;display:inline-flex;align-items:center;padding:0 16px;border-radius:var(--r-inner);font-weight:500;white-space:nowrap;color:var(--text);border:1px solid transparent}
+.btn.pri{background:var(--accent);color:#fff}
+.phone .btn{height:44px;padding:0 18px}
+.phone .ibtn{width:44px;height:44px}
+.sect>h3{font-size:14px;font-weight:500;color:var(--body);margin-bottom:8px}
+.prose{color:var(--ink);line-height:22px}
+.quiet{color:var(--body)}
+.quiet b{font-weight:500;color:var(--ink)}
+details.fold{border-top:1px solid var(--hairline);padding-top:12px;color:var(--body)}
+details.fold summary{list-style:none;display:flex;gap:6px;align-items:center;cursor:pointer}
+details.fold summary::-webkit-details-marker{display:none}
+details.fold summary:before{content:"›"}
+
+/* items */
+.itw{border:1px solid var(--hairline);border-radius:var(--r-inner);overflow:hidden}
+table.items{width:100%;border-collapse:collapse;table-layout:fixed}
+.items th{height:40px;padding:0 14px;text-align:right;font-weight:500;color:var(--body);background:var(--canvas);border-bottom:1px solid var(--hairline);white-space:nowrap}
+.items th:first-child,.items td:first-child{text-align:left}
+.items td{padding:12px 14px;text-align:right;color:var(--ink);border-top:1px solid var(--hairline);vertical-align:top;font-variant-numeric:tabular-nums;white-space:nowrap}
+.items tbody tr:first-child td{border-top:0}
+.it{display:flex;gap:12px;align-items:flex-start;white-space:normal}
+.th{width:36px;height:36px;border-radius:8px;background:var(--soft-2);display:grid;place-items:center;color:#a0a6af;flex:none}
+.th svg{width:22px;height:22px;fill:currentColor}
+.it small{display:block;color:var(--body);font-size:14px;line-height:20px}
+.under{color:var(--body);font-size:14px;display:block;font-weight:400}
+.bad{color:var(--bad-fg)}
+.dash{color:var(--faint)}
+.phone .itw{display:none}
+.cards{display:none;flex-direction:column;border:1px solid var(--hairline);border-radius:var(--r-inner);overflow:hidden}
+.phone .cards{display:flex}
+.cards li{list-style:none;border-top:1px solid var(--hairline);padding:12px 14px}
+.cards li:first-child{border-top:0}
+.cards dl{display:grid;grid-template-columns:1fr 1fr;gap:8px 16px;margin-top:10px}
+.cards dt{color:var(--body)}
+.cards dd{color:var(--ink);font-variant-numeric:tabular-nums}
+
+/* totals: one box, two halves */
+.two{display:flex;justify-content:flex-end;align-items:center;gap:40px}
+.two .facts{margin-right:auto}
+.tbox{display:flex;align-items:stretch;background:var(--soft);border:1px solid var(--hairline);border-radius:var(--r-card);font-size:15px;font-variant-numeric:tabular-nums}
+.tbox dl{display:grid;grid-template-columns:auto auto;gap:8px 36px;align-content:start;padding:10px 16px}
+.tbox dl+dl{border-left:1px solid var(--hairline-2)}
+.phone .two{flex-direction:column;align-items:stretch;gap:12px}
+.phone .tbox{flex-direction:column;width:100%}
+.phone .tbox dl{grid-template-columns:1fr auto}
+.phone .tbox dl+dl{border-left:0;border-top:1px solid var(--hairline-2)}
+.tbox dt{color:var(--ink)}
+.tbox dd{text-align:right;font-weight:600;color:var(--ink)}
+.tbox dt.l{color:var(--body);font-weight:400}
+.tbox dd.l{font-weight:400;color:var(--ink)}
+.tbox dt small{color:var(--mute);font-size:14px;margin-left:6px}
+.tbox dt .sub{display:block;color:var(--body);font-size:14px;font-weight:400;margin-top:2px}
+.tbox hr{grid-column:1/-1;border:0;border-top:1px solid var(--hairline-2)}
+.facts{display:grid;grid-template-columns:auto auto;gap:14px 28px;justify-content:start}
+.facts.right{justify-content:end}
+.facts dt{color:var(--body)}
+.facts dd{color:var(--ink);margin-top:2px}
+.phone .facts{grid-template-columns:1fr 1fr}
+.after{display:flex;justify-content:flex-end;color:var(--body);margin-top:-8px}
+.after b{font-weight:500;color:var(--ink)}
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>PO totals · where payment sits</h1>
+  <div class="grp"><span class="lbl">State</span><div class="seg" id="state"><button data-v="new">New order</button><button data-v="part" class="on">Part received</button><button data-v="short">Closed short</button></div></div>
+  <div class="seg" id="dev"><button data-v="desk" class="on">Desk</button><button data-v="phone">Phone</button></div>
+</header>
+<div class="grid" id="grid"></div>
+
+<script>
+const rp = n => 'Rp ' + Math.round(n).toLocaleString('id-ID')
+const money = n => n < 0 ? '–' + rp(-n) : rp(n)
+const num = n => Math.round(n).toLocaleString('id-ID')
+const pcs = n => num(n) + ' pcs'
+const ICON = {
+  print:'<svg class="i" viewBox="0 0 24 24"><path d="M6 9V3h12v6M6 18H4a1 1 0 0 1-1-1v-6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v6a1 1 0 0 1-1 1h-2"/><path d="M6 14h12v7H6z"/></svg>',
+  x:'<svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>',
+  shirt:'<svg viewBox="0 0 24 24"><path d="M8 3 3 6l2 5 3-1v11h8V10l3 1 2-5-5-3a4 4 0 0 1-8 0z"/></svg>'
+}
+const TERMS = '30 days', METHOD = 'Giro'
+const LINES = [
+  {name:'Kemeja Gelambir', filed:'Pria · Kemeja', q:200, price:40000},
+  {name:'Kaos Uji UJI3', filed:'Pria · Kaos', q:120, price:35000},
+  {name:'Celana Chino Slim', filed:'Pria · Celana', q:80, price:90000}
+]
+const STATES = {
+  new:  {status:['Active', 'ok'], rec:[0, 0, 0], short:0, life:'ACTIVE', foot:{left:[], right:['Cancel', 'Edit|pri']}},
+  part: {status:['Partially received', 'info'], rec:[200, 60, 0], short:0, life:'PART', foot:{left:['Close Short'], right:[]}},
+  short:{status:['Closed short', 'done'], rec:[200, 120, 40], short:40, life:'SHORT', foot:{left:[], right:[]}}
+}
+function figures(st) {
+  const pieces = LINES.reduce((s, l) => s + l.q, 0)
+  const gross = LINES.reduce((s, l) => s + l.q * l.price, 0)
+  const recd = st.rec.reduce((s, n) => s + n, 0)
+  const shortGross = st.short * LINES[2].price
+  const discount = Math.round((gross - shortGross) * .025)
+  return {pieces, gross, recd, shortGross, discount, grand: gross - shortGross - discount, owed: pieces - recd - st.short}
+}
+
+/* ── the ten places payment can sit ── */
+const OPTS = [
+ {id:'A', n:'Under Grand Total, two rows', note:'Where it is now in po-detail-clear.html: after a hairline, Payment Terms and Payment Method as two quiet rows.', place:'under'},
+ {id:'B', n:'At the top of the money half', note:'The two rows first, then a hairline, then Total … Grand Total — so the bold figure closes the box, as on a printed document.', place:'top'},
+ {id:'C', n:'One row: Payment · Giro · 30 days', note:'Same place as A, half the height: one row, both facts on it.', place:'row'},
+ {id:'D', n:'A footnote under the box', note:'Nothing inside the box. One quiet line flush with its right edge: "Giro · 30 days". No labels; the position says what it is.', place:'footnote'},
+ {id:'E', n:'In the meta line', note:'Beside the PO number, status and delivery date: payment is a fact about the order, not about the arithmetic.', place:'meta'},
+ {id:'F', n:'A third cell in the head box', note:'Ordered · Received · Payment: the head box carries the three facts someone asks first.', place:'headcell'},
+ {id:'G', n:'Facts at the left of the box', note:'The box stays at the right; the two label/value facts stand in the empty space to its left, on the same row.', place:'left'},
+ {id:'H', n:'Facts under the box, right-aligned', note:'Today\'s two facts, but anchored to the box\'s right edge instead of the page\'s left.', place:'underright'},
+ {id:'I', n:'Its own section, like Notes', note:'A "Payment" heading with "Giro · 30 days" under it, in the row of sections the sheet already has.', place:'section'},
+ {id:'J', n:'Grand Total carries it', note:'No extra rows: "Giro · 30 days" sits small under the Grand Total label. The terms stay with the figure they govern.', place:'grand', star:true}
+]
+
+function frame(opt, key, phone) {
+  const st = STATES[key], f = figures(st), p = opt.place
+  const pay = `<b>${METHOD}</b> · ${TERMS}`
+  // head
+  const meta = `<span class="mono">PO-041026-012</span><span class="st ${st.status[1]}">${st.status[0]}</span><span>Delivery <b>14 Oct 2026</b></span>${p === 'meta' ? `<span>Payment ${pay}</span>` : ''}`
+  const cell = (t, v, cls = '') => `<div><dt>${t}</dt><dd class="num ${cls}">${v}</dd></div>`
+  let cells = cell('Ordered', `${num(f.pieces)}<small>pcs</small>`)
+  if (f.recd > 0) cells += cell('Received', `${num(f.recd)}<small>pcs</small>`, st.life === 'SHORT' ? 'bad' : '')
+  if (p === 'headcell') cells += cell('Payment', `<span class="txt">${METHOD}</span><small>${TERMS}</small>`)
+  const head = `<div class="shd"><div class="who"><h2>Indorama, PT</h2><div class="meta">${meta}</div></div><dl class="kbox">${cells}</dl><div class="tools"><span class="ibtn">${ICON.x}</span></div></div>`
+  // items
+  const rec = f.recd > 0
+  const recCell = i => { const r = st.rec[i], l = LINES[i]; if (r <= 0) return '<span class="dash">—</span>'; let u = ''; if (st.life === 'SHORT' && i === 2) u = `<span class="under bad">${num(st.short)} short</span>`; else if (st.life === 'PART' && l.q > r) u = `<span class="under">${num(l.q - r)} still expected</span>`; return pcs(r) + u }
+  const rows = LINES.map((l, i) => `<tr><td><div class="it"><span class="th">${ICON.shirt}</span><div>${l.name}<small>${l.filed}</small></div></div></td><td>${pcs(l.q)}</td>${rec ? `<td>${recCell(i)}</td>` : ''}<td style="font-weight:500">${rp(l.q * l.price)}</td></tr>`).join('')
+  const table = `<div class="itw"><table class="items"><colgroup><col><col style="width:7.5rem">${rec ? '<col style="width:9rem">' : ''}<col style="width:9rem"></colgroup><thead><tr><th>Item</th><th>Quantity</th>${rec ? '<th>Received</th>' : ''}<th>Amount</th></tr></thead><tbody>${rows}</tbody></table></div>`
+  const cards = `<ul class="cards">${LINES.map((l, i) => `<li><div class="it"><span class="th">${ICON.shirt}</span><div>${l.name}<small>${l.filed}</small></div></div><dl><div><dt>Quantity</dt><dd>${pcs(l.q)}</dd></div>${rec ? `<div><dt>Received</dt><dd>${recCell(i)}</dd></div>` : ''}<div><dt>Amount</dt><dd style="font-weight:500">${rp(l.q * l.price)}</dd></div></dl></li>`).join('')}</ul>`
+  // totals
+  const r = (t, v, c = '') => `<dt class="${c}">${t}</dt><dd class="${c}">${v}</dd>`
+  const payRows = r('Payment Terms', TERMS, 'l') + r('Payment Method', METHOD, 'l')
+  let m = ''
+  if (p === 'top') m += payRows + '<hr>'
+  m += r('Total', money(f.gross), 'l')
+  if (st.short) m += r(`Closed Short<small>${pcs(st.short)}</small>`, money(-f.shortGross), 'l')
+  m += r('Discount · 2,5%', money(-f.discount), 'l') + '<hr>'
+  m += r(p === 'grand' ? `Grand Total<span class="sub">${METHOD} · ${TERMS}</span>` : 'Grand Total', money(f.grand))
+  if (p === 'under') m += '<hr>' + payRows
+  if (p === 'row') m += '<hr>' + r(`Payment<small>${METHOD} · ${TERMS}</small>`, '', 'l')
+  let pieces = ''
+  if (f.recd > 0) {
+    pieces = r('Total Received', pcs(f.recd))
+    pieces += st.life === 'SHORT' ? r('Short', pcs(st.short), 'bad') : r('Still Expected', pcs(f.owed))
+    pieces = `<dl>${pieces}</dl>`
+  }
+  const facts = `<dl class="facts ${p === 'underright' ? 'right' : ''}"><div><dt>Payment Terms</dt><dd>${TERMS}</dd></div><div><dt>Payment Method</dt><dd>${METHOD}</dd></div></dl>`
+  const totals = `<div class="two">${p === 'left' ? facts : ''}<div class="tbox">${pieces}<dl>${m}</dl></div></div>`
+  const after = p === 'footnote' ? `<div class="after"><span>${pay}</span></div>` : p === 'underright' ? facts : ''
+  const section = p === 'section' ? `<div class="sect"><h3>Payment</h3><p class="prose">${METHOD} · ${TERMS}</p></div>` : ''
+  // foot
+  const btn = s => { const [t, k] = s.split('|'); return `<span class="btn ${k === 'pri' ? 'pri' : ''}">${t}</span>` }
+  const foot = `<div class="sft"><span class="ibtn">${ICON.print}</span>${st.foot.left.map(btn).join('')}<span class="sp"></span>${st.foot.right.map(btn).join('')}</div>`
+  return `<div class="frame ${phone ? 'phone' : ''}">${head}<div class="sbd"><div class="sect"><h3>Items (3)</h3>${table}${cards}</div>${totals}${after}${section}<details class="fold"><summary>Activity (2)</summary></details><details class="fold"><summary>Terms and Conditions</summary></details></div>${foot}</div>`
+}
+
+const S = {state:'part', dev:'desk'}
+function render() {
+  document.querySelectorAll('#state button').forEach(x => x.classList.toggle('on', x.dataset.v === S.state))
+  document.querySelectorAll('#dev button').forEach(x => x.classList.toggle('on', x.dataset.v === S.dev))
+  const g = document.getElementById('grid')
+  g.classList.toggle('phone', S.dev === 'phone')
+  g.innerHTML = OPTS.map(o => `<section class="opt"><h2><b>${o.id}</b>${o.n}${o.star ? '<span class="star">★ my pick</span>' : ''}<span class="note">${o.note}</span></h2>${frame(o, S.state, S.dev === 'phone')}</section>`).join('')
+}
+document.addEventListener('click', e => {
+  const t = e.target.closest('button'); if (!t) return
+  if (t.closest('#state')) S.state = t.dataset.v
+  else if (t.closest('#dev')) S.dev = t.dataset.v
+  else return
+  render()
+})
+render()
+</script>
+</body>
+</html>

@@ -1,8 +1,11 @@
-import type { ScreenMap } from "@/screens/registry"
-import { Morning } from "@/screens/home/morning"
+import { lazyScreen, type ScreenMap } from "@/screens/registry"
 
 /// Screens this module has written. Keys must be paths declared in
 /// `lib/navigation.ts`; anything not listed here renders `Placeholder`.
 export const screens: ScreenMap = {
-  "/home": Morning,
+  "/home": lazyScreen(
+    "home/morning",
+    () => import("@/screens/home/morning"),
+    (m) => m.Morning
+  ),
 }

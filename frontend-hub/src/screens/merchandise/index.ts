@@ -1,20 +1,46 @@
-import type { ScreenMap } from "@/screens/registry"
-import { Articles } from "@/screens/master/articles"
-import { Colours } from "@/screens/master/colours"
-import { NameSuggestions } from "@/screens/master/name-suggestions"
-import { NewArticles } from "@/screens/master/new-articles"
-import { Divisions, Sizes, Tags } from "@/screens/master/vocabulary"
-import { Units } from "@/screens/inventory/units"
+import { lazyScreen, type ScreenMap } from "@/screens/registry"
 
 /// Master's article screens, reached from Merchandise. The same components:
 /// only the path (and so the department the sidebar lights) differs.
 export const screens: ScreenMap = {
-  "/merchandise": Articles,
-  "/merchandise/new-articles": NewArticles,
-  "/merchandise/divisions": Divisions,
-  "/merchandise/tags": Tags,
-  "/merchandise/sizes": Sizes,
-  "/merchandise/colours": Colours,
-  "/merchandise/name-suggestions": NameSuggestions,
-  "/merchandise/units": Units,
+  "/merchandise": lazyScreen(
+    "master/articles",
+    () => import("@/screens/master/articles"),
+    (m) => m.Articles
+  ),
+  "/merchandise/new-articles": lazyScreen(
+    "master/new-articles",
+    () => import("@/screens/master/new-articles"),
+    (m) => m.NewArticles
+  ),
+  "/merchandise/divisions": lazyScreen(
+    "master/vocabulary",
+    () => import("@/screens/master/vocabulary"),
+    (m) => m.Divisions
+  ),
+  "/merchandise/tags": lazyScreen(
+    "master/vocabulary",
+    () => import("@/screens/master/vocabulary"),
+    (m) => m.Tags
+  ),
+  "/merchandise/sizes": lazyScreen(
+    "master/vocabulary",
+    () => import("@/screens/master/vocabulary"),
+    (m) => m.Sizes
+  ),
+  "/merchandise/colours": lazyScreen(
+    "master/colours",
+    () => import("@/screens/master/colours"),
+    (m) => m.Colours
+  ),
+  "/merchandise/name-suggestions": lazyScreen(
+    "master/name-suggestions",
+    () => import("@/screens/master/name-suggestions"),
+    (m) => m.NameSuggestions
+  ),
+  "/merchandise/units": lazyScreen(
+    "inventory/units",
+    () => import("@/screens/inventory/units"),
+    (m) => m.Units
+  ),
 }

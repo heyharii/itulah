@@ -1,8 +1,9 @@
 import { Link, useRouterState } from "@tanstack/react-router"
-import { ArrowUpRight, LogOut, PanelLeft } from "lucide-react"
+import { ArrowUpRight, LogOut, PanelLeft, RefreshCw } from "lucide-react"
 
 import { BrandMark } from "@/components/brand-mark"
 import { useGuardedSignOut, useSite } from "@/components/shell/sidebar"
+import { SYNC_DOT, SYNC_WORD, useSyncHealth } from "@/components/shell/top-bar"
 import { RailTip } from "@/components/ui/rail-tip"
 import { useIdentity } from "@/lib/session"
 import {
@@ -44,7 +45,7 @@ export function Rail({
   return (
     <nav
       aria-label="Navigation"
-      className="flex h-full w-[4.25rem] shrink-0 flex-col bg-rail text-rail-text"
+      className="shell-rail flex h-full w-[4.25rem] shrink-0 flex-col bg-rail text-rail-text"
     >
       {/* The mark, at the desk bar's height so the three lower edges — rail,
           panel, page — are one line across the window. It is the way home. */}
@@ -83,6 +84,7 @@ export function Rail({
             </button>
           </RailTip>
         )}
+        <RailSync lit={pathname === "/node/sync"} />
         <CashierLink />
         <RailLink module={newsModule} lit={current.id === newsModule.id} />
         <Account />
@@ -113,6 +115,46 @@ function RailLink({ module, lit }: { module: AppModule; lit: boolean }) {
             lit ? "text-rail-ink" : "text-rail-mute group-hover:text-rail-text",
           )}
         />
+      </Link>
+    </RailTip>
+  )
+}
+
+/// Whether this node is reaching head office — the desk bar's sync chip, as a
+/// rail icon now that a docked shell has no bar: the glyph, and a dot on it in
+/// the state's colour.
+function RailSync({ lit }: { lit: boolean }) {
+  const health = useSyncHealth()
+  const word =
+    health === null ? "Sync with head office" : `Sync: ${SYNC_WORD[health]}`
+  return (
+    <RailTip label={word}>
+      <Link
+        to={"/node/sync" as never}
+        aria-label={word}
+        aria-current={lit ? "page" : undefined}
+        className={cn(
+          "group relative flex size-10 shrink-0 items-center justify-center rounded-inner transition-colors",
+          lit
+            ? "bg-rail-3 text-rail-ink"
+            : "text-rail-text hover:bg-rail-2 hover:text-rail-ink",
+        )}
+      >
+        <RefreshCw
+          className={cn(
+            "size-[1.0625rem] shrink-0 stroke-[1.6] transition-colors",
+            lit ? "text-rail-ink" : "text-rail-mute group-hover:text-rail-text",
+          )}
+        />
+        {health !== null && (
+          <span
+            aria-hidden
+            className={cn(
+              "absolute top-2 right-2 size-2 rounded-full ring-2 ring-rail",
+              SYNC_DOT[health],
+            )}
+          />
+        )}
       </Link>
     </RailTip>
   )

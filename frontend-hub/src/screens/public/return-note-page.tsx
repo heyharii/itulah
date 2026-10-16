@@ -6,7 +6,10 @@ import { Button } from "@/components/ui/button"
 import { count, day } from "@/lib/format"
 import { getPublicReturnNote } from "@/lib/queries/return-notes"
 import { COMPANY } from "@/screens/finance-lab/print"
-import { NOT_AS_ORDERED_ROW } from "@/screens/procurement/return-lines"
+import {
+  NOT_AS_ORDERED_PAPER_ROW,
+  UNKNOWN_NOTE,
+} from "@/screens/procurement/return-lines"
 import {
   noteFigures,
   type PrintableNote,
@@ -93,13 +96,15 @@ function Paper({ note }: { note: PrintableNote }) {
     ...figures.items.map((one) => ({
       name: one.name,
       sub: null as string | null,
+      note: figures.notes[one.sku] ?? "",
       qty: one.qty,
     })),
     ...(figures.unknown > 0
       ? [
           {
-            name: NOT_AS_ORDERED_ROW.title,
-            sub: NOT_AS_ORDERED_ROW.sub as string | null,
+            name: NOT_AS_ORDERED_PAPER_ROW.title,
+            sub: NOT_AS_ORDERED_PAPER_ROW.sub as string | null,
+            note: figures.notes[UNKNOWN_NOTE] ?? "",
             qty: figures.unknown,
           },
         ]
@@ -140,6 +145,12 @@ function Paper({ note }: { note: PrintableNote }) {
             {COMPANY.phone && <p className="text-body">{COMPANY.phone}</p>}
           </div>
           <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 sm:max-w-[16rem]">
+            {note.number && (
+              <>
+                <dt className="text-body">No</dt>
+                <dd className="font-semibold">: {note.number}</dd>
+              </>
+            )}
             <dt className="text-body">Tgl</dt>
             <dd className="font-semibold">: {day(note.date)}</dd>
             <dt className="text-body">No PO</dt>
@@ -162,6 +173,9 @@ function Paper({ note }: { note: PrintableNote }) {
           <thead>
             <tr className="text-left text-[0.875rem] font-medium text-body">
               <th className="border border-ink px-3 py-2 font-medium">Item</th>
+              <th className="border border-ink px-3 py-2 font-medium">
+                Keterangan
+              </th>
               <th className="w-28 border border-ink px-3 py-2 text-right font-medium">
                 Quantity
               </th>
@@ -183,34 +197,43 @@ function Paper({ note }: { note: PrintableNote }) {
                     </div>
                   </div>
                 </td>
+                <td className="border border-ink px-3 py-2.5 align-top break-words">
+                  {line.note}
+                </td>
                 <td className="border border-ink px-3 py-2.5 text-right align-top tabular-nums">
-                  {count(line.qty)}
+                  {count(line.qty)} pcs
                 </td>
               </tr>
             ))}
             <tr className="font-semibold">
-              <td className="border border-ink px-3 py-2.5 text-right">
+              <td
+                colSpan={2}
+                className="border border-ink px-3 py-2.5 text-right"
+              >
                 Total
               </td>
               <td className="border border-ink px-3 py-2.5 text-right tabular-nums">
-                {count(figures.total)}
+                {count(figures.total)} pcs
               </td>
             </tr>
           </tbody>
         </table>
 
-        <footer className="mt-8 flex items-end justify-between gap-6">
+        <p className="mt-3">
+          <span className="text-body">PIC :</span>{" "}
+          <strong>{figures.pic}</strong>
+        </p>
+
+        <footer className="mt-8 flex flex-wrap items-end gap-x-14 gap-y-6">
           <div>
             <p>Hormat kami,</p>
             <div className="h-14" />
             <p className="font-semibold">( {figures.sender} )</p>
           </div>
-          <div className="text-right">
-            <p className="text-body">Notes :</p>
-            <p>
-              Pengirim ({" "}
-              <strong>{figures.pic || " ".repeat(12)}</strong> )
-            </p>
+          <div>
+            <p>Penerima,</p>
+            <div className="h-14" />
+            <p className="font-semibold">( {note.supplier} )</p>
           </div>
         </footer>
       </article>

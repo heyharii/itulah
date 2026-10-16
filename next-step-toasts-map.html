@@ -1,0 +1,541 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Next-step toasts</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet" />
+<style>
+/* After a save: the saved toast, then a second one for the next step, bottom
+   left; clicking it opens the next menu with the record open (owner, 16 Oct).
+   Map = every save in the goods flow and where its next step goes; Try = the
+   PO chain end to end. Tokens: frontend-hub/src/styles/white.css (All white). */
+:root{
+  --ink:#1d1d1f; --body:#6e6e73; --mute:#6e6e73; --faint:#c7c7cc; --line-ico:#8e8e93;
+  --canvas:#fff; --soft:#fafafb; --soft-2:#f2f2f5; --soft-3:#f5f5f7;
+  --hairline:#e8e8ec; --hairline-2:#dcdce1; --row-line:#eeeef1; --band:#fafafb;
+  --accent:#2862dc; --accent-bg:#eef3fc;
+  --ok-fg:#248a3d; --ok-bg:#e9f6ec; --bad-fg:#d70015; --warn-fg:#a66c1f; --warn-bg:#fbf3e6;
+  --r-card:10px; --r-inner:8px;
+  --shadow-pop:0 4px 8px rgb(24 39 60/4%),0 12px 32px rgb(24 39 60/8%);
+  --scrim:rgb(208 208 213/48%);
+  --ease-out:cubic-bezier(.23,1,.32,1);
+  --font:"Inter",system-ui,-apple-system,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font-family:var(--font);font-size:15px;color:var(--ink);background:#e9e9ec;letter-spacing:-.006em;-webkit-font-smoothing:antialiased;overflow:hidden}
+[hidden]{display:none!important}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+.i{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.mono{font-family:var(--mono);font-size:15px;letter-spacing:0}
+
+/* prototype chrome */
+.proto{height:50px;background:#141518;color:#fff;display:flex;align-items:center;gap:12px;padding:0 14px 0 18px}
+.proto .t{font-weight:600;white-space:nowrap}
+.seg{display:flex;gap:2px;background:#24262b;border-radius:9px;padding:3px}
+.seg button{height:32px;padding:0 11px;border-radius:7px;font-size:15px;color:#b9bcc3;white-space:nowrap;transition:background-color .15s ease,color .15s ease}
+.seg button.on{background:#fff;color:var(--ink)}
+.proto .lbl{color:#8b8f97;white-space:nowrap}
+.proto .sp{flex:1}
+.note{min-height:36px;background:#1c1e22;color:#a7abb3;font-size:15px;display:flex;align-items:center;padding:6px 18px;border-top:1px solid #26282d}
+.note b{color:#fff;font-weight:500}
+.stage{position:relative;height:calc(100vh - 86px);overflow:hidden}
+
+/* ---------- Map ---------- */
+.mapview{height:100%;overflow-y:auto;padding:8px}
+.sheetpage{background:#fff;border-radius:12px;min-height:100%;padding:22px 28px 56px}
+h1{margin:0 0 4px;font-size:17px;font-weight:600}
+.lead{color:var(--body);margin:0 0 22px}
+.grp{margin:26px 0 10px;font-weight:600}
+.tbox{border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden}
+table{border-collapse:collapse;width:100%;table-layout:fixed}
+th{height:40px;background:var(--band);color:var(--body);font-weight:500;text-align:left;padding:0 14px;border-bottom:1px solid var(--hairline);white-space:nowrap}
+td{padding:12px 14px;border-top:1px solid var(--row-line);vertical-align:top;line-height:21px}
+tbody tr:first-child td{border-top:0}
+tbody tr{transition:opacity .2s ease}
+tbody tr.off{opacity:.38}
+.m{color:var(--body)}
+.where b{font-weight:500}
+.today{display:inline-block;margin-top:4px;color:var(--mute)}
+.none{color:var(--mute)}
+.chip{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px;border-radius:999px;border:1px solid var(--hairline-2);color:var(--body);white-space:nowrap}
+.chip::before{content:"";width:6px;height:6px;border-radius:999px;background:var(--faint)}
+.chip.ok{color:var(--ok-fg);border-color:#cfe8d6}.chip.ok::before{background:var(--ok-fg)}
+.chip.warn{color:var(--warn-fg);border-color:#efdcbc}.chip.warn::before{background:var(--warn-fg)}
+.flag{display:block;margin-top:4px;color:var(--warn-fg)}
+.play{width:32px;height:32px;border-radius:8px;display:grid;place-items:center;color:var(--ink);transition:background-color .15s ease,transform .16s var(--ease-out)}
+.play:active{transform:scale(.94)}
+@media (hover:hover){.play:hover{background:var(--soft-2)}}
+.play svg{width:14px;height:14px;fill:currentColor;stroke:none}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:28px;margin-top:30px}
+.two h3{margin:0 0 10px;font-size:15px;font-weight:600}
+ol{margin:0;padding-left:20px}
+ol li{margin:0 0 8px;line-height:22px}
+ol li .m{display:block}
+
+/* mini toasts inside the table */
+.mt{display:flex;gap:8px;align-items:flex-start}
+.mt .ic{width:16px;height:16px;margin-top:2.5px;flex:none}
+.mt .tt{font-weight:500}
+.mt.ok .ic{color:var(--ok-fg)} .mt.nx .ic{color:var(--accent)}
+
+/* ---------- Try: hub shell mock ---------- */
+.app{height:100%;display:grid;grid-template-columns:68px 232px minmax(0,1fr);background:var(--soft-3)}
+.rail{display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:4px}
+.logo{width:28px;height:28px;border-radius:7px;background:var(--ink);color:#fff;display:grid;place-items:center;font-weight:600;margin-bottom:10px}
+.ri{width:40px;height:36px;border-radius:8px;display:grid;place-items:center;color:#3a3a3c}
+.ri.on{background:#fff;box-shadow:0 0 0 1px var(--hairline)}
+.dept{background:#fff;margin:8px 0;border-radius:12px}
+.dept h2{margin:0;height:52px;display:flex;align-items:center;padding:0 18px;font-size:17px;font-weight:600}
+.rows{padding:2px 10px;display:flex;flex-direction:column;gap:2px}
+.row{height:38px;display:flex;align-items:center;padding:0 10px;border-radius:8px;color:#3a3a3c}
+.row.on{background:var(--accent-bg);color:var(--accent);font-weight:500}
+.main{margin:8px;background:#fff;border-radius:12px;overflow-y:auto;min-width:0;position:relative}
+.page{padding:20px 28px 48px}
+.head{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
+.head h1{margin:0}
+.btn{height:38px;padding:0 14px;border-radius:var(--r-inner);display:inline-flex;align-items:center;gap:8px;font-weight:500;white-space:nowrap;transition:transform .16s var(--ease-out),background-color .15s ease}
+.btn:active{transform:scale(.97)}
+.btn.pri{background:var(--accent);color:#fff}
+.btn.ghost{border:1px solid var(--hairline-2);background:#fff}
+.btn[disabled]{cursor:default}
+.spin{width:14px;height:14px;border-radius:999px;border:2px solid rgb(255 255 255/.35);border-top-color:#fff;animation:spin .6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.list td{padding:0 14px;height:64px;vertical-align:middle;line-height:20px}
+.list tbody tr{cursor:pointer}
+@media (hover:hover){.list tbody tr:hover td{background:var(--soft)}}
+.nm{font-weight:500}
+.fig{text-align:right;font-variant-numeric:tabular-nums}
+.pill{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px;border-radius:999px;border:1px solid var(--hairline-2);color:var(--body);white-space:nowrap}
+.pill::before{content:"";width:6px;height:6px;border-radius:999px;background:currentColor}
+.pill.ok{color:var(--ok-fg)} .pill.info{color:var(--accent)} .pill.warn{color:var(--warn-fg)} .pill.done{color:var(--body)}
+tr.fresh td{animation:fresh 3.2s var(--ease-out) both}
+@keyframes fresh{0%,30%{background:var(--accent-bg)}100%{background:transparent}}
+
+/* board */
+.lanes{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.lane{background:var(--soft-3);border-radius:12px;padding:10px;min-height:340px}
+.lane h3{margin:2px 4px 10px;font-size:15px;font-weight:600;display:flex;justify-content:space-between}
+.lane h3 span{color:var(--body);font-weight:400}
+.card{background:#fff;border:1px solid var(--hairline);border-radius:var(--r-card);padding:12px 14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;cursor:pointer}
+.card .fig b{font-size:17px;font-weight:600}
+
+/* sheet */
+.scrim{position:absolute;inset:0;background:var(--scrim);opacity:0;pointer-events:none;transition:opacity .2s ease;z-index:5}
+.scrim.on{opacity:1;pointer-events:auto}
+.sheet{position:absolute;top:8px;right:8px;bottom:8px;width:min(640px,calc(100% - 16px));background:#fff;border-radius:12px;box-shadow:var(--shadow-pop);display:flex;flex-direction:column;z-index:6;opacity:0;transform:translateX(24px);pointer-events:none;transition:opacity .16s ease,transform .16s ease}
+.sheet.on{opacity:1;transform:none;pointer-events:auto;transition:opacity .24s var(--ease-out),transform .24s var(--ease-out)}
+.sh{padding:18px 22px 14px;border-bottom:1px solid var(--hairline)}
+.sh .crumb{color:var(--body);margin-bottom:4px}
+.sh h2{margin:0;font-size:17px;font-weight:600}
+.sb{flex:1;overflow-y:auto;padding:18px 22px}
+.sf{padding:12px 22px;border-top:1px solid var(--hairline);display:flex;justify-content:flex-end;gap:8px}
+.facts{display:grid;grid-template-columns:150px 1fr;gap:10px 16px;margin:0 0 20px}
+.facts dt{color:var(--body)} .facts dd{margin:0}
+.lines td{padding:0 12px;height:52px;vertical-align:middle}
+.lines th{padding:0 12px}
+.end{margin-top:16px;color:var(--body)}
+
+/* ---------- toasts (hub Toaster, bottom left) ---------- */
+.toasts{position:fixed;left:20px;bottom:20px;width:356px;display:flex;flex-direction:column;gap:10px;z-index:50}
+.toast{width:100%;display:flex;align-items:flex-start;gap:10px;text-align:left;border:1px solid var(--hairline);background:var(--canvas);border-radius:var(--r-card);padding:12px 14px;box-shadow:var(--shadow-pop)}
+.toast .ic{width:16px;height:16px;margin-top:2.5px;flex:none}
+.toast.ok .ic{color:var(--ok-fg)}
+.toast .tc{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
+.toast .tt{font-weight:500}
+.toast .td{color:var(--body)}
+.toast .act{margin-left:auto;flex:none;border-radius:999px;background:var(--ink);color:#fff;padding:3px 10px;font-weight:500;align-self:center}
+/* The next step: the whole card is the way in. */
+.toast.next{cursor:pointer;transition:background-color .15s ease,transform .16s var(--ease-out)}
+.toast.next .ic{color:var(--accent)}
+.toast.next .go{margin-left:auto;align-self:center;display:flex;align-items:center;gap:2px;color:var(--accent);font-weight:500;white-space:nowrap}
+.toast.next .go .i{width:16px;height:16px}
+.toast.next:active{transform:scale(.98)}
+@media (hover:hover){.toast.next:hover{background:var(--soft)}}
+@media (prefers-reduced-motion:reduce){.sheet,.sheet.on{transform:none}}
+</style>
+</head>
+<body>
+<div class="proto">
+  <span class="t">Next-step toasts</span>
+  <div class="seg" id="view"></div>
+  <span class="lbl">As</span>
+  <div class="seg" id="role"></div>
+  <span class="sp"></span>
+  <span class="lbl" id="steplbl" hidden>Step</span>
+  <div class="seg" id="step" hidden></div>
+</div>
+<div class="note" id="note"></div>
+<div class="stage" id="stage"></div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<script>
+const I = {
+  check:'<path d="M5 12.5l4.2 4L19 7"/>',
+  arrow:'<path d="M5 12h14M13 6l6 6-6 6"/>',
+  chev:'<path d="M9 6l6 6-6 6"/>',
+  home:'<path d="M4 11l8-6 8 6v8a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1z"/>',
+  procurement:'<path d="M3 4h2l2.2 10.5a1 1 0 0 0 1 .8h8.9a1 1 0 0 0 1-.8L20 8H6"/><circle cx="9" cy="19" r="1.3"/><circle cx="17" cy="19" r="1.3"/>',
+  operations:'<path d="M3.5 7.5L12 3l8.5 4.5v9L12 21l-8.5-4.5z"/><path d="M3.5 7.5L12 12l8.5-4.5M12 12v9"/>',
+  merchandise:'<path d="M8 4l-4.5 2.5L5 11l2-.8V20h10v-9.8l2 .8 1.5-4.5L16 4c-.6 1.4-2.2 2.4-4 2.4S8.6 5.4 8 4z"/>',
+  allotment:'<path d="M4 7h5l6 10h5M4 17h5l1.6-2.7M15 7h5M17.5 4.5L20 7l-2.5 2.5M17.5 14.5L20 17l-2.5 2.5"/>',
+  inventory:'<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/>',
+}
+const svg = (k, cls = "i") => `<svg class="${cls}" viewBox="0 0 24 24">${I[k]}</svg>`
+const play = '<svg viewBox="0 0 24 24"><path d="M8 5.5v13l10-6.5z"/></svg>'
+
+/* Job roles as migration 0633 seeds them: the sections each one holds. */
+const ROLES = {
+  Owner: null,
+  Procurement: ["procurement", "inventory", "reports"],
+  Operations: ["operations", "inventory"],
+  Merchandise: ["merchandise", "sales", "reports"],
+  Inventory: ["inventory", "operations", "reports"],
+}
+const holds = (role, sec) => ROLES[role] === null || ROLES[role].includes(sec)
+
+/* Every save in the goods flow, and where its next step goes. */
+const GROUPS = ["PO in", "Out to stores", "Returns"]
+const ROWS = [
+  { g:0, id:"r1", sec:"procurement", where:["Procurement","Purchase Orders"], act:"Submit · New PO",
+    saved:["PO-161026-001 created","CV Sinar Jaya · Rp 9.600.000"], view:true, today:"Toast",
+    next:{ t:"New PO to receive", d:"PO-161026-001", sec:"operations", to:["Operations","Receiving PO"], opens:"the PO's count sheet", path:"/operations/intake?delivery=PO-161026-001", by:"Operations" }, step:1 },
+  { g:0, id:"r2", sec:"operations", where:["Operations","Receiving PO"], act:"Send count",
+    saved:["Count sent · 3 lines","PO-161026-001"], today:"Toast",
+    next:{ t:"Count to review", d:"PO-161026-001", sec:"procurement", to:["Procurement","Purchase Orders"], opens:"Review Count", path:"/procurement/orders?verify=PO-161026-001", by:"Procurement · who made the PO" }, step:2 },
+  { g:0, id:"r3", sec:"procurement", where:["Procurement","Review Count"], act:"Accept · with new items",
+    saved:["3 lines received","PO-161026-001"], today:"Toast",
+    next:{ t:"2 new articles to set up", d:"CV Sinar Jaya", sec:"merchandise", to:["Articles","New Articles"], opens:"that supplier's lines", path:"/merchandise/new-articles?setupFor=SNJ", by:"Merchandise", flag:"The Procurement role does not hold Articles" }, step:3 },
+  { g:0, id:"r4", sec:"procurement", where:["Procurement","Review Count"], act:"Accept · known articles only",
+    saved:["3 lines received","PO-161026-001"], today:"Toast",
+    next:{ t:"Ready to allot", d:"CV Sinar Jaya · 118 pcs", sec:"merchandise", to:["Allotment","Allotments"], opens:"To allot, on that delivery", path:"/allotment?supplier=SNJ", by:"Merchandise" } },
+  { g:0, id:"r5", sec:"procurement", where:["Procurement","Review Count"], act:"Recount",
+    saved:["3 lines sent back to count","PO-161026-001"], today:"Toast",
+    next:{ t:"PO back to count", d:"PO-161026-001", sec:"operations", to:["Operations","Receiving PO"], opens:"the PO's count sheet", path:"/operations/intake?delivery=PO-161026-001", by:"Operations" } },
+  { g:0, id:"r6", sec:"merchandise", where:["Articles","New Articles"], act:"Request Quantity Check",
+    saved:null, today:"The button says Requested",
+    next:{ t:"Quantity check to count", d:"Gamis Ceruti · CV Sinar Jaya", sec:"operations", to:["Operations","Quantity Checks"], opens:"the list, request on top", path:"/operations/quantity-checks", by:"Operations" } },
+  { g:0, id:"r7", sec:"operations", where:["Operations","Quantity Checks"], act:"Send count",
+    saved:["Quantity check sent","Gamis Ceruti · 36 pcs"], today:"In place, no toast",
+    next:{ t:"Quantity check answered", d:"Gamis Ceruti", sec:"merchandise", to:["Articles","New Articles"], opens:"that line's form", path:"/merchandise/new-articles?receipt=…", by:"Merchandise" } },
+  { g:0, id:"r8", sec:"merchandise", where:["Articles","New Articles"], act:"Submit",
+    saved:["2 setups saved · 10024561 · 10024562","CV Sinar Jaya"], today:"Centre receipt",
+    next:{ t:"Ready to allot", d:"CV Sinar Jaya · 2 articles", sec:"merchandise", to:["Allotment","Allotments"], opens:"To allot, on that delivery", path:"/allotment?supplier=SNJ", by:"Merchandise" }, step:4 },
+  { g:1, id:"r9", sec:"merchandise", where:["Allotment","Allotments"], act:"Create allotment",
+    saved:["ALT-00000042 created","3 stores · 118 pcs"], today:"Centre receipt",
+    next:{ t:"3 picklists to pick", d:"ALT-00000042", sec:"operations", to:["Operations","Allotment"], opens:"the board, Pick lane", path:"/operations/board", by:"Operations" }, step:5 },
+  { g:1, id:"r10", sec:"operations", where:["Operations","Allotment"], act:"Save pick · Pack koli",
+    saved:["Picklist saved · Kemang","ALT-00000042 · 40 pcs"], today:"Centre receipt", none:"Same board: Pack and Dispatch are lanes beside it", step:6 },
+  { g:1, id:"r11", sec:"operations", where:["Operations","Allotment"], act:"Dispatch",
+    saved:["Trip dispatched · 3 stores","ALT-00000042"], today:"Centre receipt", none:"Store app: the store receives" },
+  { g:1, id:"r12", sec:"operations", where:["Operations","Allotment"], act:"Cannot pick the rest",
+    saved:["Kemang · 4 pcs not picked","ALT-00000042"], today:"Toast",
+    next:{ t:"Unfilled to settle", d:"ALT-00000042 · Kemang", sec:"merchandise", to:["Allotment","Allotments"], opens:"Unfilled", path:"to confirm", by:"Merchandise" } },
+  { g:2, id:"r13", sec:"procurement", where:["Procurement","Purchase Orders"], act:"Return to supplier",
+    saved:["RS-00000012 raised","CV Sinar Jaya · 6 pcs"], today:"Toast",
+    next:{ t:"Return to hand over", d:"RS-00000012", sec:"operations", to:["Operations","Return PO"], opens:"the return board", path:"/operations/board/suppliers", by:"Operations", flag:"That menu is hidden today" } },
+  { g:2, id:"r14", sec:"merchandise", where:["Allotment","Return HO"], act:"Create return",
+    saved:["Return created","Kemang · 24 pcs"], today:"Centre receipt", none:"Store app: the store packs and sends" },
+  { g:2, id:"r15", sec:"operations", where:["Operations","Receiving Return"], act:"Send count",
+    saved:["Count sent · Kemang return","24 pcs"], today:"Toast", none:"To decide: where head office's return stock goes" },
+]
+const byId = Object.fromEntries(ROWS.map((r) => [r.id, r]))
+
+const S = { view:"map", role:"Owner", step:1, done:{} }
+
+/* ---------- toasts: saved, then the next step under it ---------- */
+const box = document.getElementById("toasts")
+const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches
+let paused = false
+box.addEventListener("pointerenter", () => { paused = true })
+box.addEventListener("pointerleave", () => { paused = false })
+
+function flip(mutate) {
+  const before = new Map([...box.children].map((el) => [el, el.getBoundingClientRect().top]))
+  mutate()
+  if (reduce) return
+  for (const [el, top] of before) {
+    if (!el.isConnected) continue
+    const dy = top - el.getBoundingClientRect().top
+    if (dy !== 0) el.animate([{ transform:`translateY(${dy}px)` }, { transform:"none" }], { duration:400, easing:"ease" })
+  }
+}
+function dismiss(el) {
+  if (!el.isConnected || el.dataset.gone) return
+  el.dataset.gone = "1"
+  const out = reduce
+    ? el.animate([{ opacity:1 }, { opacity:0 }], { duration:150, fill:"forwards" })
+    : el.animate([{ opacity:1, transform:"none" }, { opacity:0, transform:"translateY(6px)" }], { duration:200, easing:"cubic-bezier(.23,1,.32,1)", fill:"forwards" })
+  // A hidden page never finishes an animation; the toast must still go.
+  Promise.race([out.finished, new Promise((r) => setTimeout(r, 260))]).then(() => el.isConnected && flip(() => el.remove()))
+}
+function toast(html, cls, ms, onClick) {
+  const el = document.createElement(onClick ? "button" : "div")
+  el.className = `toast ${cls}`
+  el.innerHTML = html
+  if (onClick) el.addEventListener("click", () => { dismiss(el); onClick() })
+  flip(() => box.appendChild(el))
+  const live = [...box.children].filter((one) => !one.dataset.gone)
+  while (live.length > 3) dismiss(live.shift())
+  el.animate(reduce ? [{ opacity:0 }, { opacity:1 }] : [{ opacity:0, transform:"translateY(100%)" }, { opacity:1, transform:"none" }], { duration:400, easing:"ease" })
+  let left = ms, last = performance.now()
+  const tick = (now) => {
+    if (!el.isConnected || el.dataset.gone) return
+    if (!paused && !document.hidden) left -= now - last
+    last = now
+    if (left <= 0) dismiss(el); else requestAnimationFrame(tick)
+  }
+  requestAnimationFrame(tick)
+  return el
+}
+const savedHtml = (row) =>
+  `${svg("check","i ic")}<span class="tc"><span class="tt">${row.saved[0]}</span><span class="td">${row.saved[1]}</span></span>${row.view ? '<span class="act">View</span>' : ""}`
+const nextHtml = (n) =>
+  `${svg("arrow","i ic")}<span class="tc"><span class="tt">${n.t}</span><span class="td">${n.d} · ${n.to[1]}</span></span><span class="go">Open${svg("chev")}</span>`
+
+/* The save lands: its own toast, and — when the next step is somebody's
+   menu this person holds — the way there, a beat later. */
+function landed(row, onNext) {
+  if (row.saved) toast(savedHtml(row), "ok", 5000)
+  const n = row.next
+  if (!n) return note(row.none ? `<b>No next-step toast</b> · ${row.none}.` : null)
+  if (!holds(S.role, n.sec))
+    return note(`<b>As ${S.role}: no next-step toast</b> · ${n.to[1]} is in ${n.to[0]}, which this role does not hold. ${n.by} does it.`)
+  setTimeout(() => toast(nextHtml(n), "next", 8000, onNext), row.saved ? 320 : 0)
+}
+
+/* ---------- proto bar ---------- */
+function seg(id, items, value, set) {
+  const el = document.getElementById(id)
+  el.innerHTML = items.map(([v, l]) => `<button class="${v === value ? "on" : ""}" data-v="${v}">${l}</button>`).join("")
+  el.onclick = (e) => { const b = e.target.closest("button"); if (b) set(b.dataset.v) }
+}
+const STEPS = [1, 2, 3, 4, 5, 6].map((n) => [n, String(n)])
+function bar() {
+  seg("view", [["map","Map"],["try","Try"]], S.view, (v) => { S.view = v; S.sheet = S.view === "try"; render() })
+  seg("role", Object.keys(ROLES).map((r) => [r, r]), S.role, (v) => { S.role = v; render(false) })
+  const st = document.getElementById("step")
+  st.hidden = S.view !== "try"
+  document.getElementById("steplbl").hidden = st.hidden
+  seg("step", STEPS.map(([n, l]) => [String(n), l]), String(S.step), (v) => go(Number(v)))
+}
+function note(html) {
+  document.getElementById("note").innerHTML = `<span>${html ?? baseNote()}</span>`
+}
+function baseNote() {
+  if (S.view === "map") return `<b>Map</b> · every save in the goods flow, and where its next step goes. ▶ plays the toasts. <b>As</b> greys out the saves a role never makes.`
+  const s = TRY[S.step - 1]
+  return `<b>${S.step} of 6 · ${s.dept} › ${s.menu}</b> · ${s.ask}`
+}
+
+/* ---------- Map ---------- */
+function mapView() {
+  const shown = (r) => {
+    if (!holds(S.role, r.sec)) return { off:true, cell:'<span class="none">—</span>' }
+    if (!r.next) return { off:false, cell:'<span class="none">—</span>' }
+    return holds(S.role, r.next.sec)
+      ? { off:false, cell:'<span class="chip ok">Shown</span>' }
+      : { off:false, cell:`<span class="chip">Not shown</span><span class="m" style="display:block;margin-top:4px">${r.next.to[0]} not held</span>` }
+  }
+  const rows = (g) => ROWS.filter((r) => r.g === g).map((r) => {
+    const s = shown(r)
+    const saved = r.saved
+      ? `<div class="mt ok">${svg("check","i ic")}<div><div class="tt">${r.saved[0]}</div><div class="m">${r.saved[1]}</div></div></div>`
+      : '<span class="none">—</span>'
+    const next = r.next
+      ? `<div class="mt nx">${svg("arrow","i ic")}<div><div class="tt">${r.next.t}</div><div class="m">${r.next.d}</div></div></div>`
+      : `<span class="none">${r.none}</span>`
+    const opens = r.next
+      ? `<div class="where"><b>${r.next.to[0]} › ${r.next.to[1]}</b></div><div class="m">${r.next.opens}</div><div class="mono m" style="margin-top:4px;overflow-wrap:anywhere">${r.next.path}</div>${r.next.flag ? `<span class="flag">${r.next.flag}</span>` : ""}`
+      : '<span class="none">—</span>'
+    return `<tr class="${s.off ? "off" : ""}">
+      <td><button class="play" data-play="${r.id}" aria-label="Play">${play}</button></td>
+      <td><div class="where"><b>${r.where[0]} › ${r.where[1]}</b></div><div class="m">${r.act}</div></td>
+      <td>${saved}<span class="today">Today: ${r.today}</span></td>
+      <td>${next}</td>
+      <td>${opens}</td>
+      <td>${r.next ? r.next.by : '<span class="none">—</span>'}</td>
+      <td>${s.cell}</td></tr>`
+  }).join("")
+  const table = (g) => `<div class="grp">${GROUPS[g]}</div><div class="tbox"><table>
+    <colgroup><col style="width:52px"><col style="width:17%"><col style="width:19%"><col style="width:19%"><col><col style="width:13%"><col style="width:132px"></colgroup>
+    <thead><tr><th></th><th>Saved in</th><th>Saved toast</th><th>Next-step toast</th><th>Click opens</th><th>Done by</th><th>As ${S.role}</th></tr></thead>
+    <tbody>${rows(g)}</tbody></table></div>`
+  return `<div class="mapview"><div class="sheetpage">
+    <h1>Next-step toasts</h1>
+    ${GROUPS.map((_, g) => table(g)).join("")}
+    <div class="two">
+      <div><h3>Rules</h3><ol>
+        <li>The saved toast first; the next step under it a beat later, both bottom left.</li>
+        <li>The next step shows only to someone who holds its menu. Owner and Admin hold all.</li>
+        <li>None when the next step is on the same screen, or happens outside the hub.</li>
+        <li>Clicking it opens that menu with the record's sheet open.</li>
+        <li>Saved 5 s, next step 8 s; the pointer on either holds both.</li>
+      </ol></div>
+      <div><h3>To decide</h3><ol>
+        <li>A buyer after New PO holds no Operations: nothing, or a count on Receiving PO for the people who do?</li>
+        <li>New Articles is in Articles, which the Procurement role does not hold. Who sets up new articles?</li>
+        <li>New Articles, Allotment, Picklist, Dispatch and Return HO end in a centre receipt today. Move them to the bottom-left toast too?</li>
+        <li>Return PO is hidden in the Operations menu. Show it, so its toast has somewhere to open?</li>
+      </ol></div>
+    </div>
+  </div></div>`
+}
+
+/* ---------- Try: the PO chain ---------- */
+const TRY = [
+  { dept:"Procurement", key:"procurement", menu:"Purchase Orders", menus:["Purchase Orders","Suppliers","Return PO"],
+    ask:"submit the new order.", row:"r1", primary:"New order",
+    list:() => poList(S.done.r1), sheet:() => ({ crumb:"Purchase Orders", title:"New purchase order",
+      facts:[["Supplier","CV Sinar Jaya"],["Delivery Date","20 Oct 2026"],["Payment","Transfer · 30 days"]],
+      lines:{ cols:["Item","Quantity","Value"], rows:[["Kemeja Linen Pria","48 pcs","Rp 4.080.000"],["Gamis Ceruti","36 pcs","Rp 3.240.000"],["Celana Chino","36 pcs","Rp 2.280.000"]], total:["120 pcs","Rp 9.600.000"] },
+      action:"Submit", busy:"Submitting…" }) },
+  { dept:"Operations", key:"operations", menu:"Receiving PO", menus:["Receiving PO","Receiving Return","Quantity Checks","Allotment","Return from Store","Printing","Stock","Count"],
+    ask:"count the delivery and send it.", row:"r2",
+    list:() => table(["PO","Ordered","Status"], [
+      ["CV Sinar Jaya",  "PO-161026-001", "120 pcs", S.done.r2 ? '<span class="pill info">Counted</span>' : '<span class="pill warn">To count</span>', true],
+      ["PT Mega Tekstil","PO-151026-004", "240 pcs", '<span class="pill warn">To count</span>'],
+      ["Toko Rina Collection","PO-141026-002","96 pcs",'<span class="pill info">Counted</span>'],
+    ]), sheet:() => ({ crumb:"Receiving PO", title:"PO-161026-001", sub:"CV Sinar Jaya",
+      lines:{ cols:["Item","Ordered","Counted"], rows:[["Kemeja Linen Pria","48","48"],["Gamis Ceruti","36","36"],["Celana Chino","36","34"]], total:["120","118"] },
+      action:"Send count", busy:"Sending…" }) },
+  { dept:"Procurement", key:"procurement", menu:"Purchase Orders", menus:["Purchase Orders","Suppliers","Return PO"],
+    ask:"accept the count. Two of its items are not articles yet.", row:"r3",
+    list:() => poList(true, S.done.r3 ? "received" : "review"), sheet:() => ({ crumb:"Purchase Orders / PO-161026-001", title:"Review Count", sub:"CV Sinar Jaya",
+      lines:{ cols:["Item","Ordered","Counted"], rows:[["Kemeja Linen Pria","48","48"],["Gamis Ceruti · new item","36","36"],["Celana Chino · new item","36","34"]], total:["120","118"] },
+      action:"Accept", busy:"Accepting…" }) },
+  { dept:"Articles", key:"merchandise", menu:"New Articles", menus:["Articles","New Articles","Divisions","Tags","Sizes","Colors"],
+    ask:"name the two new items and submit.", row:"r8",
+    list:() => table(["Delivery line","Counted","Status"], [
+      ["Gamis Ceruti","CV Sinar Jaya · PO-161026-001","36 pcs", S.done.r8 ? '<span class="pill ok">Set up</span>' : '<span class="pill warn">To set up</span>', true],
+      ["Celana Chino","CV Sinar Jaya · PO-161026-001","34 pcs", S.done.r8 ? '<span class="pill ok">Set up</span>' : '<span class="pill warn">To set up</span>', true],
+    ]), sheet:() => ({ crumb:"New Articles / CV Sinar Jaya", title:"Gamis Ceruti", sub:"2 lines from PO-161026-001",
+      facts:[["Name","Gamis Ceruti Lebaran"],["Division","Gamis"],["Tags","Ceruti · Lebaran"],["Base price","Rp 90.000"],["Colours","Navy · Maroon · Sage"]],
+      action:"Submit", busy:"Submitting…" }) },
+  { dept:"Allotment", key:"allotment", menu:"Allotments", menus:["Allotments","Return HO"],
+    ask:"split the delivery over the stores and create the allotment.", row:"r9",
+    list:() => table(["To allot","Pieces","Status"], [
+      ["CV Sinar Jaya","PO-161026-001 · 3 articles","118 pcs", S.done.r9 ? '<span class="pill info">Allotted</span>' : '<span class="pill warn">To allot</span>', true],
+      ["PT Mega Tekstil","PO-121026-003 · 5 articles","300 pcs",'<span class="pill info">Allotted</span>'],
+    ]), sheet:() => ({ crumb:"Allotments", title:"New allotment", sub:"CV Sinar Jaya · PO-161026-001",
+      lines:{ cols:["Store","Pieces",""], rows:[["Kemang","40",""],["Bintaro","38",""],["Bekasi","40",""]], total:["118",""] },
+      action:"Create allotment", busy:"Creating…" }) },
+  { dept:"Operations", key:"operations", menu:"Allotment", menus:["Receiving PO","Receiving Return","Quantity Checks","Allotment","Return from Store","Printing","Stock","Count"],
+    ask:"pick Kemang's list. Pack and Dispatch are lanes on this same board, so no next-step toast.", row:"r10", board:true,
+    sheet:() => ({ crumb:"Allotment / Pick", title:"Kemang", sub:"ALT-00000042 · CV Sinar Jaya",
+      lines:{ cols:["Item","To pick","Picked"], rows:[["Kemeja Linen Pria","16","16"],["Gamis Ceruti Lebaran","12","12"],["Celana Chino Slim","12","12"]], total:["40","40"] },
+      action:"Save pick", busy:"Saving…" }) },
+]
+
+function table(cols, rows) {
+  return `<div class="tbox"><table class="list"><colgroup><col><col style="width:22%"><col style="width:22%"></colgroup>
+    <thead><tr><th>${cols[0]}</th><th class="fig">${cols[1]}</th><th>${cols[2]}</th></tr></thead><tbody>
+    ${rows.map(([a, b, c, d, mine]) => `<tr ${mine ? 'data-mine="1"' : ""}><td><div class="nm">${a}</div><div class="m">${b}</div></td><td class="fig">${c}</td><td>${d}</td></tr>`).join("")}
+    </tbody></table></div>`
+}
+function poList(withNew, state) {
+  const rows = [
+    ["PT Mega Tekstil","PO-151026-004 · 4 items","240 pcs",'<span class="pill ok">Active</span>'],
+    ["Toko Rina Collection","PO-141026-002 · 2 items","96 pcs",'<span class="pill info">Partially received</span>'],
+    ["CV Batik Kencana","PO-131026-007 · 5 items","180 pcs",'<span class="pill done">Fully received</span>'],
+  ]
+  if (withNew) rows.unshift(["CV Sinar Jaya","PO-161026-001 · 3 items","120 pcs",
+    state === "review" ? '<span class="pill warn">Review Count</span>' : state === "received" ? '<span class="pill done">Fully received</span>' : '<span class="pill ok">Active</span>', true])
+  return table(["Supplier","Quantity","Status"], rows)
+}
+function board() {
+  const picked = !!S.done.r10
+  const card = (s, n) => `<div class="card" data-mine="${s === "Kemang" ? 1 : ""}"><div><div class="nm">${s}</div><div class="m">ALT-00000042</div></div><div class="fig"><b>${n}</b> <span class="m">pcs</span></div></div>`
+  const pick = [["Kemang",40],["Bintaro",38],["Bekasi",40]].filter(([s]) => !(picked && s === "Kemang"))
+  return `<div class="lanes">
+    <div class="lane"><h3>Pick <span>${pick.length}</span></h3>${pick.map(([s, n]) => card(s, n)).join("")}</div>
+    <div class="lane"><h3>Pack <span>${picked ? 1 : 0}</span></h3>${picked ? card("Kemang", 40) : ""}</div>
+    <div class="lane"><h3>Dispatch <span>0</span></h3></div></div>`
+}
+
+function tryView() {
+  const s = TRY[S.step - 1]
+  const sh = s.sheet()
+  const rail = ["home","procurement","operations","merchandise","allotment","inventory"]
+    .map((k) => `<div class="ri ${k === s.key ? "on" : ""}">${svg(k)}</div>`).join("")
+  const facts = sh.facts ? `<dl class="facts">${sh.facts.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>` : ""
+  const lines = sh.lines ? `<div class="tbox"><table class="lines"><colgroup><col><col style="width:22%"><col style="width:22%"></colgroup>
+      <thead><tr><th>${sh.lines.cols[0]}</th><th class="fig">${sh.lines.cols[1]}</th><th class="fig">${sh.lines.cols[2]}</th></tr></thead><tbody>
+      ${sh.lines.rows.map(([a, b, c]) => `<tr><td>${a}</td><td class="fig">${b}</td><td class="fig">${c}</td></tr>`).join("")}
+      <tr><td style="font-weight:600">Total</td><td class="fig" style="font-weight:600">${sh.lines.total[0]}</td><td class="fig" style="font-weight:600">${sh.lines.total[1]}</td></tr>
+      </tbody></table></div>` : ""
+  const done = !!S.done[s.row]
+  return `<div class="app">
+    <div class="rail"><div class="logo">C</div>${rail}</div>
+    <div class="dept"><h2>${s.dept}</h2><div class="rows">${s.menus.map((m) => `<div class="row ${m === s.menu ? "on" : ""}">${m}</div>`).join("")}</div></div>
+    <div class="main" id="main">
+      <div class="page">
+        <div class="head"><h1>${s.menu}</h1>${s.primary ? `<button class="btn pri" data-open>${s.primary}</button>` : ""}</div>
+        ${s.board ? board() : s.list()}
+        ${S.step === 6 && done ? '<p class="end">End of the hub chain: the store receives in the store app.</p>' : ""}
+      </div>
+      <div class="scrim" data-close></div>
+      <aside class="sheet" aria-hidden="${!S.sheet}">
+        <div class="sh"><div class="crumb">${sh.crumb}</div><h2>${sh.title}</h2>${sh.sub ? `<div class="m">${sh.sub}</div>` : ""}</div>
+        <div class="sb">${facts}${lines}</div>
+        <div class="sf"><button class="btn ghost" data-close>Close</button>
+          <button class="btn pri" data-save ${done ? "disabled" : ""}>${done ? "Saved" : sh.action}</button></div>
+      </aside>
+    </div></div>`
+}
+
+function go(step) {
+  S.view = "try"; S.step = step; S.sheet = true
+  render()
+}
+/* The sheet leaves on its own exit, then the page is drawn without it. */
+function closeSheet(then) {
+  S.sheet = false
+  document.querySelectorAll(".sheet,.scrim").forEach((el) => el.classList.remove("on"))
+  setTimeout(() => { render(false); then?.() }, 170)
+}
+function save(btn) {
+  const s = TRY[S.step - 1]
+  const sh = s.sheet()
+  btn.disabled = true
+  btn.innerHTML = `<span class="spin"></span>${sh.busy}`
+  setTimeout(() => {
+    S.done[s.row] = true
+    closeSheet(() => {
+      document.querySelector('[data-mine="1"]')?.classList.add("fresh")
+      landed(byId[s.row], () => S.step < 6 && go(S.step + 1))
+    })
+  }, 850)
+}
+
+function render(resetNote = true) {
+  bar()
+  const stage = document.getElementById("stage")
+  stage.innerHTML = S.view === "map" ? mapView() : tryView()
+  if (resetNote) note()
+  if (S.view === "try" && S.sheet) {
+    const drawn = [...stage.querySelectorAll(".sheet,.scrim")]
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (S.sheet) drawn.forEach((el) => el.classList.add("on"))
+    }))
+  }
+  stage.onclick = (e) => {
+    const p = e.target.closest("[data-play]")
+    if (p) {
+      const row = byId[p.dataset.play]
+      note()
+      return landed(row, () => row.step && row.step < 6 && go(row.step + 1))
+    }
+    if (e.target.closest("[data-save]")) return save(e.target.closest("[data-save]"))
+    if (e.target.closest("[data-close]")) return closeSheet()
+    if (e.target.closest("[data-open]") || e.target.closest('[data-mine="1"]')) { S.sheet = true; return render(false) }
+  }
+}
+render()
+</script>
+</body>
+</html>

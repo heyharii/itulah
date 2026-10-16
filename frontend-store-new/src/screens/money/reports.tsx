@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query"
+import { keepPreviousData, useQuery } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { DockTools } from "@/components/shell/dock-tools"
@@ -84,9 +84,12 @@ export function Reports() {
   const takings = useQuery({
     queryKey: windowKey(range.from, range.to),
     queryFn: ({ signal }) => fetchWindow(range, signal),
+    // A new range or grouping keeps the old figures up until its own arrive.
+    placeholderData: keepPreviousData,
   })
   const series = useQuery({
     queryKey: seriesKey(range.from, range.to, grouping),
+    placeholderData: keepPreviousData,
     queryFn: ({ signal }) =>
       fetchSeries({ ...range, bucket: grouping }, signal),
     // A single day has one bar and nothing to compare it against.

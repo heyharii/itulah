@@ -9,7 +9,7 @@ import { toast } from "@/lib/toast"
 ///     `useSaid` below, read by `<Button said>`;
 ///  2. the sheet closes and a small pill is pulled from that button into the
 ///     row the save changed, which glows as it lands — `pullIn`;
-///  3. a toast at the bottom right keeps the number on screen for a few
+///  3. a toast at the bottom left keeps the number on screen for a few
 ///     seconds, held while the pointer rests on it.
 ///
 /// It replaces the centred `SavedDialog` for PO, supplier and count actions:
@@ -149,7 +149,7 @@ export async function pullIn({
           opacity: 1,
         },
         {
-          transform: `translate(${window.innerWidth - 160}px, ${window.innerHeight - 64}px) scale(0.9)`,
+          transform: `translate(20px, ${window.innerHeight - 64}px) scale(0.9)`,
           opacity: 0,
         },
       ],

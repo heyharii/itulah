@@ -23,8 +23,8 @@ import {
   poolAvailability,
 } from "@/lib/queries/inventory"
 import { queryState } from "@/lib/query-state"
-import { cn } from "@/lib/utils"
 import { Allotments } from "@/screens/allotment/allotments"
+import { Choice } from "@/screens/inventory/parts"
 import { sitesOf, sourcePoolsFor, useActor } from "@/screens/inventory/shared"
 
 /// Merchandise's "Return to HO": the allotment book narrowed to
@@ -57,7 +57,7 @@ export function ReturnsToHo() {
   return (
     <>
       <Allotments
-        title="Return to HO"
+        title="Return HO"
         type="RETURN_TO_DC"
         actions={
           <span className="max-md:hidden">
@@ -178,98 +178,96 @@ function NewReturn({
 
       <Problem error={ask.error} className="mb-3" />
 
-      <div className="grid items-start gap-4 lg:grid-cols-[17rem_minmax(0,1fr)]">
-        <Card className="flex flex-col gap-1 p-1.5">
-          {stores.map((one) => (
-            <button
-              key={one.site_id}
-              type="button"
-              onClick={() => {
-                setStore(one.site_id)
-                setQuantities({})
-              }}
-              className={cn(
-                "rounded-inner px-3 py-3 text-left font-medium transition-colors",
-                one.site_id === store
-                  ? "bg-accent-bg text-accent"
-                  : "text-ink hover:bg-soft"
-              )}
-            >
-              {one.site_name}
-            </button>
-          ))}
-        </Card>
-
-        {store === "" ? null : (
-          <Card className="overflow-hidden">
-            {queryState(
-              {
-                isPending: stock.some((q) => q.isPending),
-                isError: stock.some((q) => q.isError),
-                error: stock.find((q) => q.isError)?.error,
-                data: rows,
-                refetch: () => stock.forEach((q) => void q.refetch()),
-              },
-              {
-                loading: "Reading the store's stock…",
-                render: (list) =>
-                  list.length === 0 ? (
-                    <EmptyState>Nothing in its return stock.</EmptyState>
-                  ) : (
-                    <table className="w-full border-collapse text-body">
-                      <thead>
-                        <tr className="h-12 border-b border-hairline bg-soft text-left text-[0.875rem] font-medium text-body">
-                          <th className="pl-4">SKU</th>
-                          {sources.length > 1 && <th>From</th>}
-                          <th className="text-right">In Return Stock</th>
-                          <th className="pr-4 text-right">To Send</th>
-                        </tr>
-                      </thead>
-                      <tbody className="[&_td]:py-3.5">
-                        {list.map(({ key, pool, item }) => (
-                          <tr
-                            key={key}
-                            className="h-16 border-b border-hairline last:border-b-0"
-                          >
-                            <td className="pl-4">
-                              <span className="block leading-snug font-medium text-ink">
-                                {item.article_name}
-                              </span>
-                              <span className="mt-1 block font-mono text-[0.875rem] text-mute">
-                                {item.sku_code}
-                              </span>
-                            </td>
-                            {sources.length > 1 && <td>{pool.label}</td>}
-                            <td className="text-right tabular-nums">
-                              {count(item.on_hand_qty)}
-                            </td>
-                            <td className="w-36 pr-4">
-                              <Input
-                                inputMode="numeric"
-                                className="text-right"
-                                aria-label={`Return ${item.sku_code}`}
-                                value={quantities[key] ?? ""}
-                                onChange={(event) =>
-                                  setQuantities((was) => ({
-                                    ...was,
-                                    [key]: event.target.value.replace(
-                                      /\D/g,
-                                      ""
-                                    ),
-                                  }))
-                                }
-                              />
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  ),
-              }
-            )}
-          </Card>
-        )}
+      {/* The store is the page's scope, so it stands in the bar under the
+          head, as every list's pickers do — not as a column of its own. */}
+      <div className="mb-3.5 flex flex-wrap items-center gap-[0.4375rem]">
+        <Choice
+          value={store}
+          onChange={(next) => {
+            setStore(next)
+            setQuantities({})
+          }}
+          options={[
+            { value: "", label: "Choose a store" },
+            ...stores.map((one) => ({
+              value: one.site_id,
+              label: one.site_name,
+            })),
+          ]}
+          className="max-w-72"
+        />
       </div>
+
+      {store === "" ? (
+        <Card>
+          <EmptyState>Choose the store that should send goods back.</EmptyState>
+        </Card>
+      ) : (
+        <Card className="overflow-hidden">
+          {queryState(
+            {
+              isPending: stock.some((q) => q.isPending),
+              isError: stock.some((q) => q.isError),
+              error: stock.find((q) => q.isError)?.error,
+              data: rows,
+              refetch: () => stock.forEach((q) => void q.refetch()),
+            },
+            {
+              loading: "Reading the store's stock…",
+              render: (list) =>
+                list.length === 0 ? (
+                  <EmptyState>Nothing in its return stock.</EmptyState>
+                ) : (
+                  <table className="w-full border-collapse text-body">
+                    <thead>
+                      <tr className="h-12 border-b border-hairline bg-soft text-left text-[0.9375rem] font-medium text-body">
+                        <th className="pl-4">SKU</th>
+                        {sources.length > 1 && <th>From</th>}
+                        <th className="text-right">In Return Stock</th>
+                        <th className="pr-4 text-right">To Send</th>
+                      </tr>
+                    </thead>
+                    <tbody className="[&_td]:py-3.5">
+                      {list.map(({ key, pool, item }) => (
+                        <tr
+                          key={key}
+                          className="h-16 border-b border-hairline last:border-b-0"
+                        >
+                          <td className="pl-4">
+                            <span className="block leading-snug font-medium text-ink">
+                              {item.article_name}
+                            </span>
+                            <span className="mt-1 block font-mono text-[0.9375rem] text-mute">
+                              {item.sku_code}
+                            </span>
+                          </td>
+                          {sources.length > 1 && <td>{pool.label}</td>}
+                          <td className="text-right tabular-nums">
+                            {count(item.on_hand_qty)}
+                          </td>
+                          <td className="w-36 pr-4">
+                            <Input
+                              inputMode="numeric"
+                              className="text-right"
+                              aria-label={`Return ${item.sku_code}`}
+                              value={quantities[key] ?? ""}
+                              onChange={(event) =>
+                                setQuantities((was) => ({
+                                  ...was,
+                                  [key]: event.target.value.replace(/\D/g, ""),
+                                }))
+                              }
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ),
+            }
+          )}
+        </Card>
+      )}
 
       <div className="mt-5 flex items-center justify-between gap-4">
         <span className="text-body tabular-nums">{quantity(total)}</span>

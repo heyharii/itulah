@@ -92,7 +92,7 @@ export function FilterPanel({
     <>
       <div
         className={cn(
-          "flex min-w-0 flex-wrap items-center gap-[0.4375rem]",
+          "filter-panel flex min-w-0 flex-wrap items-center gap-[0.4375rem]",
           className
         )}
       >
@@ -104,7 +104,7 @@ export function FilterPanel({
           aria-expanded={panel.isOpen}
           className={cn(
             CHIP,
-            "items-center gap-1.5 border border-dashed border-hairline-strong px-2.5 text-body transition-colors hover:bg-soft-2 hover:text-ink",
+            "filter-button items-center gap-1.5 border border-dashed border-hairline-strong px-2.5 text-body transition-colors hover:bg-soft-2 hover:text-ink",
             // Pressed-looking while the panel stands, so the docked column has
             // a visible origin on the screen it belongs to rather than reading
             // as a second thing that happens to be open.

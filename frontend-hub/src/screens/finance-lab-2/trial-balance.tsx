@@ -118,7 +118,7 @@ export function TrialBalance() {
               value={needle}
               onChange={(event) => setNeedle(event.target.value)}
               aria-label="Search accounts"
-              className="h-8 w-56 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.875rem] text-ink outline-none placeholder:text-body focus:border-accent"
+              className="h-8 w-56 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.9375rem] text-ink outline-none placeholder:text-body focus:border-accent"
             />
           </span>
         </Toolbar>
@@ -176,7 +176,7 @@ export function TrialBalance() {
                   <tr key={`${row.account_code}@${row.unit_id ?? "-"}`}>
                     <Td>
                       <span className="text-ink">{row.name}</span>
-                      <span className="ml-2 font-mono text-[0.875rem] text-mute">
+                      <span className="ml-2 font-mono text-[0.9375rem] text-mute">
                         {row.account_code}
                       </span>
                     </Td>

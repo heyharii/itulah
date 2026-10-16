@@ -75,8 +75,8 @@ export function WaitingTillsScreen({ onBack }: { onBack: () => void }) {
   async function refuse(join: api.PendingJoin) {
     if (
       !window.confirm(
-        `Tolak kasir dengan kode ${join.code}? Kasir itu membuang kuncinya dan ` +
-          "harus meminta lagi.",
+        `Refuse the till with code ${join.code}? It discards its key and ` +
+          "has to ask again.",
       )
     ) {
       return
@@ -84,8 +84,8 @@ export function WaitingTillsScreen({ onBack }: { onBack: () => void }) {
     const reply = await api.refuseJoin(join.join_id)
     setNote(
       reply.ok
-        ? { bad: false, text: `Kasir dengan kode ${join.code} ditolak.` }
-        : { bad: true, text: reply.problem ?? "Node tidak menerima penolakan ini." },
+        ? { bad: false, text: `The till with code ${join.code} was refused.` }
+        : { bad: true, text: reply.problem ?? "The node did not accept this refusal." },
     )
     void load()
   }
@@ -97,30 +97,30 @@ export function WaitingTillsScreen({ onBack }: { onBack: () => void }) {
         <div className="page-inner" style={{ maxWidth: 720 }}>
           <div className="page-head">
             <div>
-              <h1>Kasir menunggu persetujuan</h1>
+              <h1>Tills waiting for approval</h1>
               <p>
-                Kasir baru di toko ini yang meminta bergabung. Cocokkan kode dan
-                nomor verifikasi dengan layar kasir itu sebelum menyetujui.
+                New tills in this store asking to join. Match the code and the
+                verification number with that till's screen before approving.
               </p>
             </div>
             <button className="btn ghost" type="button" onClick={onBack}>
               <Icon name="back" />
-              Kembali
+              Back
             </button>
           </div>
 
           {problem !== null && <div className="notice warn">{problem}</div>}
           {note !== null && <p className={note.bad ? "error" : "muted"}>{note.text}</p>}
 
-          {items === null && <p className="muted">Memuat…</p>}
+          {items === null && <p className="muted">Loading…</p>}
 
           {items !== null && items.length === 0 && (
             <div className="empty">
               <Icon name="plug" />
-              <h3>Tidak ada kasir yang menunggu</h3>
+              <h3>No tills waiting</h3>
               <p>
-                Di kasir baru, buka Setelan lalu Gabungkan ke node. Permintaannya
-                muncul di sini dalam beberapa detik.
+                On the new till, open Settings and choose Join the node. The
+                request shows up here within a few seconds.
               </p>
             </div>
           )}
@@ -139,22 +139,22 @@ export function WaitingTillsScreen({ onBack }: { onBack: () => void }) {
                       <h3 className="num" style={{ fontSize: 18, letterSpacing: 2 }}>
                         {join.code}
                         <span className="muted" style={{ fontSize: 13, letterSpacing: 1, marginLeft: 12 }}>
-                          nomor {spaced(join.verification)}
+                          number {spaced(join.verification)}
                         </span>
                       </h3>
                       <p>
                         {machine?.hostname !== undefined && machine.hostname !== ""
                           ? machine.hostname
-                          : "Komputer tanpa nama"}
+                          : "Unnamed computer"}
                         {machine?.os !== undefined && machine.os !== "" ? ` · ${machine.os}` : ""}
                         {machine?.version !== undefined && machine.version !== ""
-                          ? ` · aplikasi ${machine.version}`
+                          ? ` · app ${machine.version}`
                           : ""}
-                        {left !== null ? ` · berlaku ${left} lagi` : " · kedaluwarsa"}
+                        {left !== null ? ` · valid for ${left} more` : " · expired"}
                       </p>
                     </span>
                     <button className="btn" type="button" onClick={() => void refuse(join)}>
-                      Tolak
+                      Refuse
                     </button>
                     <button
                       className="btn primary"
@@ -165,7 +165,7 @@ export function WaitingTillsScreen({ onBack }: { onBack: () => void }) {
                         setOpen(join)
                       }}
                     >
-                      Periksa & setujui
+                      Check and approve
                     </button>
                   </div>
                 )
@@ -184,11 +184,11 @@ export function WaitingTillsScreen({ onBack }: { onBack: () => void }) {
             setNote({
               bad: false,
               text:
-                `Kode ${open.code} tergabung sebagai ${approved.label}` +
+                `Code ${open.code} joined as ${approved.label}` +
                 (approved.replaced_terminal_id !== null
-                  ? ", menggantikan kasir lama (kasir lama dicabut)."
+                  ? ", replacing the old till (the old till is revoked)."
                   : ".") +
-                ` Disetujui oleh ${approved.approved_by}.`,
+                ` Approved by ${approved.approved_by}.`,
             })
             void load()
           }}
@@ -223,7 +223,7 @@ function whenOpened(openedAt: string | null): string {
   const at = new Date(openedAt)
   return Number.isNaN(at.getTime())
     ? openedAt
-    : at.toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" })
+    : at.toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })
 }
 
 function ApproveSheet({
@@ -306,7 +306,7 @@ function ApproveSheet({
       replaces_terminal_id: joinAs === "replace" ? replaces : null,
     })
     if (!reply.ok) {
-      setProblem(reply.problem ?? "Node menolak persetujuan ini.")
+      setProblem(reply.problem ?? "The node refused this approval.")
       return
     }
     onApproved(reply.body)
@@ -324,7 +324,7 @@ function ApproveSheet({
       const answer = await supervisorByFinger()
       if (answer.authorization === null) {
         setBusy(false)
-        setProblem(answer.problem ?? "Sidik jari ditolak.")
+        setProblem(answer.problem ?? "Fingerprint refused.")
         return
       }
       await approveWith(answer.authorization)
@@ -333,14 +333,14 @@ function ApproveSheet({
     }
     if (username.trim() === "" || pin.current === "") {
       setBusy(false)
-      setProblem("Isi kode supervisor dan PIN.")
+      setProblem("Enter the supervisor code and PIN.")
       return
     }
     const answer = await supervisorByPin(username.trim(), pin.current)
     setPin("")
     if (answer.authorization === null) {
       setBusy(false)
-      setProblem(answer.problem ?? "PIN ditolak.")
+      setProblem(answer.problem ?? "PIN refused.")
       return
     }
     await approveWith(answer.authorization)
@@ -358,12 +358,12 @@ function ApproveSheet({
 
   return (
     <Sheet
-      title="Setujui kasir baru"
+      title="Approve new till"
       onClose={onClose}
       foot={
         <>
           <button className="btn" type="button" onClick={onClose} disabled={busy}>
-            Batal
+            Cancel
           </button>
           <button
             className="btn primary"
@@ -373,10 +373,10 @@ function ApproveSheet({
           >
             {quick && stepUp === "FINGERPRINT" && <Icon name="finger" />}
             {busy
-              ? "Memeriksa…"
+              ? "Checking…"
               : quick && stepUp === "FINGERPRINT"
-                ? "Pindai sidik jari & setujui"
-                : "Setujui"}
+                ? "Scan fingerprint and approve"
+                : "Approve"}
           </button>
         </>
       }
@@ -390,7 +390,7 @@ function ApproveSheet({
             {join.code}
           </strong>
           <p>
-            Nomor verifikasi{" "}
+            Verification number{" "}
             <strong className="num" style={{ display: "inline", fontSize: 18, letterSpacing: 1 }}>
               {spaced(join.verification)}
             </strong>
@@ -404,13 +404,13 @@ function ApproveSheet({
           checked={compared}
           onChange={(event) => setCompared(event.target.checked)}
         />
-        Nomor ini sama persis dengan yang tampil di layar kasir baru
+        This number is exactly the one shown on the new till's screen
       </label>
       <p className="muted" style={{ fontSize: 12, marginTop: -6 }}>
-        Kalau berbeda, jangan setujui: permintaan itu datang dari komputer lain.
+        If it differs, do not approve: the request came from another computer.
       </p>
 
-      <div className="segmented" role="radiogroup" aria-label="Kasir baru ini sebagai">
+      <div className="segmented" role="radiogroup" aria-label="This new till joins as">
         <button
           type="button"
           role="radio"
@@ -418,7 +418,7 @@ function ApproveSheet({
           aria-pressed={joinAs === "new"}
           onClick={() => setJoinAs("new")}
         >
-          Kasir baru
+          New till
         </button>
         <button
           type="button"
@@ -428,25 +428,25 @@ function ApproveSheet({
           disabled={tills !== null && tills.length === 0}
           onClick={() => setJoinAs("replace")}
         >
-          Menggantikan kasir lama
+          Replaces an old till
         </button>
       </div>
 
       {joinAs === "new" ? (
         <label className="field">
-          Nama kasir
+          Till name
           <input
             value={label}
             onChange={(event) => setLabel(event.target.value)}
-            placeholder="Kosongkan untuk nomor berikutnya (Kasir N)"
+            placeholder="Leave empty for the next number (Kasir N)"
             autoComplete="off"
           />
         </label>
       ) : (
         <label className="field">
-          Kasir yang digantikan — kasir baru memakai namanya, kasir lama dicabut
+          Till being replaced — the new till takes its name, the old one is revoked
           <select value={replaces} onChange={(event) => setReplaces(event.target.value)}>
-            <option value="">Pilih kasir…</option>
+            <option value="">Choose a till…</option>
             {(tills ?? []).map((till) => (
               <option key={till.id} value={till.id}>
                 {till.label}
@@ -459,19 +459,19 @@ function ApproveSheet({
 
       {blocked && replaced !== null && (
         <div className="notice warn">
-          <strong>{replaced.label}</strong> masih punya shift kas yang terbuka
-          {openShift?.openedAt ? ` sejak ${whenOpened(openShift.openedAt)}` : ""}
-          {openShift?.openedBy ? ` (dibuka oleh ${openShift.openedBy})` : ""}.
-          Kasir pengganti memakai nama yang sama, jadi shift itu harus ditutup
-          dulu — di {replaced.label}, atau dari menu Shift di kasir ini bila{" "}
-          {replaced.label} sudah tidak bisa dipakai. Setelah itu setujui lagi.
+          <strong>{replaced.label}</strong> still has an open cash shift
+          {openShift?.openedAt ? ` since ${whenOpened(openShift.openedAt)}` : ""}
+          {openShift?.openedBy ? ` (opened by ${openShift.openedBy})` : ""}.
+          The replacement takes the same name, so that shift has to be finished
+          first — on {replaced.label}, or from the Shift menu on this till if{" "}
+          {replaced.label} can no longer be used. Then approve again.
         </div>
       )}
 
-      {stepUp === null && <p className="muted">Memuat…</p>}
+      {stepUp === null && <p className="muted">Loading…</p>}
 
       {!isWeb && stepUp !== null && (
-        <div className="segmented" role="radiogroup" aria-label="Cara menyetujui">
+        <div className="segmented" role="radiogroup" aria-label="How to approve">
           {stepUp !== "NONE" && (
             <button
               type="button"
@@ -480,7 +480,7 @@ function ApproveSheet({
               aria-pressed={how === "quick"}
               onClick={() => setHow("quick")}
             >
-              {stepUp === "FINGERPRINT" ? "Sidik jari supervisor" : "PIN supervisor"}
+              {stepUp === "FINGERPRINT" ? "Supervisor fingerprint" : "Supervisor PIN"}
             </button>
           )}
           <button
@@ -490,15 +490,15 @@ function ApproveSheet({
             aria-pressed={how === "session"}
             onClick={() => setHow("session")}
           >
-            Akun yang sedang masuk
+            The signed-in account
           </button>
         </div>
       )}
 
       {how === "session" && (
         <p className="muted" style={{ fontSize: 12 }}>
-          Node menerima persetujuan tanpa sidik jari atau PIN hanya dari akun
-          Admin (atau supervisor, untuk kasir pertama toko).
+          The node accepts an approval without a fingerprint or PIN only from an
+          Admin account (or a supervisor, for the store's first till).
         </p>
       )}
 
@@ -511,7 +511,7 @@ function ApproveSheet({
           }}
         >
           <label className="field">
-            Kode supervisor
+            Supervisor code
             <input
               value={username}
               onChange={(event) => setUsername(event.target.value)}

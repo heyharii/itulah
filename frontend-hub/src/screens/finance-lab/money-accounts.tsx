@@ -246,7 +246,7 @@ export function MoneyAccounts() {
                 setStore(null)
                 setOpen(null)
               }}
-              className="text-[0.875rem] font-medium whitespace-nowrap text-accent hover:underline"
+              className="text-[0.9375rem] font-medium whitespace-nowrap text-accent hover:underline"
             >
               Show all units
             </button>
@@ -277,7 +277,7 @@ export function MoneyAccounts() {
             <button
               type="button"
               onClick={() => setOpen(null)}
-              className="text-[0.875rem] font-medium whitespace-nowrap text-accent hover:underline"
+              className="text-[0.9375rem] font-medium whitespace-nowrap text-accent hover:underline"
             >
               Back to accounts
             </button>

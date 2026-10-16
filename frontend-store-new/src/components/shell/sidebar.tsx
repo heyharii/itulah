@@ -115,7 +115,7 @@ export function SubSidebar({
   return (
     <nav
       aria-label={module.label}
-      className="flex h-full w-[14.5rem] shrink-0 flex-col border-r border-hairline bg-canvas"
+      className="shell-panel flex h-full w-[14.5rem] shrink-0 flex-col border-r border-hairline bg-canvas"
     >
       <div className="flex h-13 shrink-0 items-center gap-1 border-b border-hairline pr-2 pl-4">
         <h2 className="min-w-0 flex-1 truncate text-[0.9375rem] font-semibold tracking-[-0.01em] text-ink">

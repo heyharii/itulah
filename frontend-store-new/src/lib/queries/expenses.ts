@@ -1,4 +1,6 @@
 import {
+  keepPreviousData,
+  queryOptions,
   useMutation,
   useQuery,
   useQueryClient,
@@ -6,6 +8,7 @@ import {
 } from "@tanstack/react-query"
 
 import { cacheKey, node } from "@/lib/api"
+import { describe } from "@/lib/errors"
 import { commandKey } from "@/lib/till"
 import type { Identity } from "@itulah/contract/client"
 import type {
@@ -42,6 +45,12 @@ export const pettyCashKey = () => ["petty", "position"] as const
 export const expenseKey = (from: string, to: string) =>
   ["petty", "expenses", from, to] as const
 
+/// The merged book — receipts and hand-overs as one list, newest first — is a
+/// span of its own and shares the `["petty", "expenses"]` prefix, so a write
+/// that invalidates that prefix refreshes it too.
+export const bookKey = (from: string, to: string) =>
+  ["petty", "expenses", "book", from, to] as const
+
 /// Who is doing this, from the session the app already holds.
 ///
 /// The node overwrites `actor_id` from the authenticated principal whenever
@@ -60,12 +69,15 @@ function actorFrom(client: ReturnType<typeof useQueryClient>): string {
 /// What is in the tin: handed over, spent, left, and the line above which an
 /// expense needs Finance's code. The line arrives with the position (Finance's
 /// setting), never spelled here.
-export function usePettyCash() {
-  return useQuery({
+export const pettyCashQuery = () =>
+  queryOptions({
     queryKey: pettyCashKey(),
     queryFn: ({ signal }) =>
       node.get<PettyCashPosition>("/api/v1/store/petty-cash", { signal }),
   })
+
+export function usePettyCash() {
+  return useQuery(pettyCashQuery())
 }
 
 /// The shop's petty cash book over a span, in the shop's own wall clock.
@@ -76,6 +88,8 @@ export function usePettyCash() {
 export function useExpenses(from: string, to: string) {
   return useQuery({
     queryKey: expenseKey(from, to),
+    // A new range keeps the old rows up until its own arrive — no skeleton blink.
+    placeholderData: keepPreviousData,
     queryFn: ({ signal }) =>
       node.get<ExpenseWindow>(
         `/api/v1/store/expenses?from=${from}&to=${to}` +
@@ -160,6 +174,184 @@ export function useRecordTopUp(): UseMutationResult<
     },
     onSuccess: (recorded) => {
       client.setQueryData(pettyCashKey(), recorded.position)
+      void client.invalidateQueries({ queryKey: ["petty", "expenses"] })
+    },
+  })
+}
+
+/// The passbook's lines: receipts and hand-overs of one span as ONE book,
+/// newest first (`paged=true`), so a running balance can be worked out from the
+/// tin's balance without the two halves reaching back different distances.
+///
+/// 500 is the node's ceiling for a page. A shop's petty cash is a few dozen
+/// vouchers a month, and when the span does hold more `next_cursor` says so —
+/// the screen then says it shows the latest only, rather than a balance that is
+/// quietly wrong at the old end.
+export const bookQuery = (from: string, to: string) =>
+  queryOptions({
+    queryKey: bookKey(from, to),
+    queryFn: ({ signal }) =>
+      node.get<ExpenseWindow>(
+        `/api/v1/store/expenses?from=${from}&to=${to}` +
+          `&utc_offset_minutes=${-new Date().getTimezoneOffset()}` +
+          `&limit=500&paged=true`,
+        { signal },
+      ),
+  })
+
+export function useBook(from: string, to: string) {
+  return useQuery({
+    ...bookQuery(from, to),
+    placeholderData: keepPreviousData,
+  })
+}
+
+/// One line of a BKK, as the node takes it: an expense of its own.
+///
+/// There is no voucher on the node — a BKK with three lines is three expenses
+/// saved one after the other — so every line carries the idempotency key the
+/// caller minted when the line was added, and holds it across retries.
+export interface ExpenseLineDraft {
+  readonly key: string
+  readonly category: string
+  readonly amountMinor: number
+  readonly reason: string
+  /// Finance's one-time code, for a line above the line.
+  readonly approvalCode: string | null
+}
+
+export interface ExpensesDraft {
+  readonly payee: string
+  readonly lines: readonly ExpenseLineDraft[]
+}
+
+/// One line of a BKM: a float head office handed over.
+export interface TopUpLineDraft {
+  readonly key: string
+  readonly amountMinor: number
+  readonly note: string
+}
+
+export interface TopUpsDraft {
+  readonly reference: string
+  readonly supervisor: Supervisor
+  readonly lines: readonly TopUpLineDraft[]
+}
+
+/// What a voucher left in the book: the record each line became, first line
+/// first, and the tin after the last of them.
+export interface VoucherSaved {
+  readonly ids: readonly string[]
+  readonly position: PettyCashPosition
+}
+
+/// Some of a voucher's lines are in the book and one was refused.
+///
+/// The ones before it stay: each is a record of its own, and the node has no
+/// way to take them back. Pressing Save again sends every line under the same
+/// key it had, so the saved ones are answered as they were and only the rest is
+/// tried.
+class PartialVoucher extends Error {
+  constructor(line: number, saved: number, cause: unknown) {
+    const said = describe(cause)
+    // The node's sentence, closed with a full stop if it has none.
+    const closed = /[.!?]$/.test(said) ? said : `${said}.`
+    super(
+      saved === 0
+        ? said
+        : `Line ${line} was refused: ${closed} The ${
+            saved === 1 ? "line" : `${saved} lines`
+          } before it ${saved === 1 ? "is" : "are"} saved. Fix it and save again.`,
+    )
+    this.name = "PartialVoucher"
+  }
+}
+
+/// Save each line in turn, stopping at the first the node refuses.
+async function saveInTurn<T, R>(
+  lines: readonly T[],
+  send: (line: T) => Promise<R>,
+): Promise<[R, ...R[]]> {
+  if (lines.length === 0) throw new Error("A voucher needs a line.")
+  const answers: R[] = []
+  for (const [index, line] of lines.entries()) {
+    try {
+      answers.push(await send(line))
+    } catch (error) {
+      throw new PartialVoucher(index + 1, answers.length, error)
+    }
+  }
+  return answers as [R, ...R[]]
+}
+
+/// A BKK: one expense per line, for the one payee.
+export function useRecordExpenses(): UseMutationResult<
+  VoucherSaved,
+  Error,
+  ExpensesDraft
+> {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: async (draft) => {
+      const actor = actorFrom(client)
+      const answers = await saveInTurn(draft.lines, (line) => {
+        const request: RecordExpenseRequest = {
+          category: line.category,
+          amount_minor: line.amountMinor,
+          payee: draft.payee,
+          reason: line.reason,
+          actor_id: actor,
+          approval_code: line.approvalCode,
+          idempotency_key: line.key,
+        }
+        return node.post<ExpenseRecorded>("/api/v1/store/expenses", request)
+      })
+      return {
+        ids: answers.map((one) => one.expense.id),
+        position: answers[answers.length - 1].position,
+      }
+    },
+    onSettled: () => {
+      // Settled, not succeeded: a refusal half way leaves the lines before it
+      // in the book, and the tin has moved with them.
+      void client.invalidateQueries({ queryKey: pettyCashKey() })
+      void client.invalidateQueries({ queryKey: ["petty", "expenses"] })
+    },
+  })
+}
+
+/// A BKM: one hand-over per line, counted with the same second person.
+export function useRecordTopUps(): UseMutationResult<
+  VoucherSaved,
+  Error,
+  TopUpsDraft
+> {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: async (draft) => {
+      const actor = actorFrom(client)
+      const answers = await saveInTurn(draft.lines, (line) => {
+        const request: PettyCashTopUpRequest = {
+          amount_minor: line.amountMinor,
+          reference:
+            draft.reference.trim() === "" ? null : draft.reference.trim(),
+          note: line.note.trim() === "" ? null : line.note.trim(),
+          actor_id: actor,
+          supervisor: draft.supervisor,
+          idempotency_key: line.key,
+        }
+        return node.post<PettyCashTopUpRecorded>(
+          "/api/v1/store/petty-cash/top-ups",
+          request,
+        )
+      })
+      return {
+        ids: answers.map((one) => one.top_up.id),
+        position: answers[answers.length - 1].position,
+      }
+    },
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: pettyCashKey() })
       void client.invalidateQueries({ queryKey: ["petty", "expenses"] })
     },
   })

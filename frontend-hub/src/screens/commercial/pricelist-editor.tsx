@@ -393,7 +393,7 @@ export function SalePriceSheet({
       footer={
         // Held in the bar until published; nothing reaches a till from here.
         <div className="flex items-center justify-between gap-3">
-          <span className="min-w-0 truncate text-[0.875rem] text-warn-fg">
+          <span className="min-w-0 truncate text-[0.9375rem] text-warn-fg">
             {caution}
           </span>
           <Button
@@ -510,7 +510,7 @@ export function SalePriceSheet({
           })}
         </MiniTable>
         {cells.length > PREVIEW && (
-          <p className="text-[0.875rem] text-mute">
+          <p className="text-[0.9375rem] text-mute">
             and {count(cells.length - PREVIEW)} more
           </p>
         )}
@@ -879,7 +879,7 @@ export function PublishSheet({
         <div className="flex items-center justify-between gap-3">
           <span
             className={cn(
-              "min-w-0 truncate text-[0.875rem]",
+              "min-w-0 truncate text-[0.9375rem]",
               problem !== undefined ? "text-bad" : "text-text"
             )}
           >
@@ -1013,7 +1013,7 @@ export function PublishSheet({
                 value={slotFrom}
                 onChange={(event) => setSlotFrom(event.target.value)}
               />
-              <span className="text-[0.875rem] text-mute">to</span>
+              <span className="text-[0.9375rem] text-mute">to</span>
               <Input
                 type="time"
                 value={slotTo}
@@ -1037,7 +1037,7 @@ export function PublishSheet({
                       )
                     }
                     className={cn(
-                      "h-8 rounded-full px-3 text-[0.875rem] font-medium transition-colors",
+                      "h-8 rounded-full px-3 text-[0.9375rem] font-medium transition-colors",
                       on
                         ? "bg-ink text-white"
                         : "border border-hairline-2 bg-canvas text-body"
@@ -1066,7 +1066,7 @@ export function PublishSheet({
                     />
                   </MiniCell>
                   <MiniCell className="py-3.5">
-                    <span className="text-[0.875rem] text-body">
+                    <span className="text-[0.9375rem] text-body">
                       {edit.until === null ? "No end date" : day(edit.until)}
                     </span>
                   </MiniCell>
@@ -1096,14 +1096,14 @@ export function PublishSheet({
                     />
                   </MiniCell>
                   <MiniCell className="py-3.5">
-                    <span className="block text-[0.875rem] text-body">
+                    <span className="block text-[0.9375rem] text-body">
                       {price.where}
                     </span>
                     {/* Only where it differs from the book's, because a date
                         printed on every row would read as a per-row window,
                         which is the one thing a price rule does not have. */}
                     {price.from !== null && (
-                      <span className="block text-[0.875rem] text-mute">
+                      <span className="block text-[0.9375rem] text-mute">
                         from {day(instantOf(price.from) ?? price.from)}
                       </span>
                     )}

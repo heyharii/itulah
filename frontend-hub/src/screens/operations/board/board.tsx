@@ -9,12 +9,10 @@ import { useLayout } from "@/lib/layout"
 import { PageContent } from "@/components/shell/app-shell"
 import { useShopName } from "@/components/operations/outbound-papers"
 import { Button } from "@/components/ui/button"
-import { Checkbox, Input, Select } from "@/components/ui/field"
-import { Pill } from "@/components/ui/pill"
+import { Input, Select } from "@/components/ui/field"
 import { ErrorState, LoadingState } from "@/components/ui/states"
 import { dc } from "@/lib/api"
-import { SHOW_MISSING } from "@/lib/features"
-import { ago, count } from "@/lib/format"
+import { count } from "@/lib/format"
 import { useAcknowledgeChanges } from "@/lib/operations/acknowledge"
 import {
   dcChanges,
@@ -22,24 +20,25 @@ import {
   shortPicks,
   type DcChange,
 } from "@/lib/operations/changes"
+import { articlePickKey, useArticlePicks } from "@/lib/operations/article-picks"
 import { keys } from "@/lib/operations/keys"
-import { useBusinessNow } from "@/lib/queries/clock"
 import { toast } from "@/lib/toast"
-import { tripDocumentNumber } from "@/lib/operations/trip-number"
-import type {
-  Dispatch,
-  PicklistSummary,
-  ReceivedShipment,
-} from "@itulah/contract"
+import type { PicklistSummary } from "@itulah/contract"
 
 import {
   BoardHeader,
   Lane,
   Lanes,
   Tile,
-  type DraggedCard,
 } from "@/screens/operations/board/parts"
+import type { DraggedCard } from "@/screens/operations/board/drag-state"
 import { useSheet } from "@/lib/sheets"
+import { cn } from "@/lib/utils"
+import { BoardDnd } from "@/screens/operations/board/drag"
+import {
+  useDropRef,
+  useDropTarget,
+} from "@/screens/operations/board/drag-state"
 import {
   DispatchSheet,
   ShipmentSheets,
@@ -65,6 +64,13 @@ import {
 import { sum } from "@/screens/operations/board/sum"
 import { many } from "@/screens/operations/board/words"
 import { receivedShipments } from "@/screens/operations/board/received"
+import { DispatchedSheet } from "@/screens/operations/board/dispatched"
+import {
+  ArticlePhotos,
+  KoliPhotos,
+  PilePhotos,
+} from "@/screens/operations/board/photos"
+import { onTheRoad, tripsOf } from "@/screens/operations/board/trips"
 
 /// Same interval as the rail's badges (`lib/operations/waiting.ts`), so a lane
 /// and the badge beside it never disagree for longer than one poll.
@@ -74,27 +80,22 @@ const POLL_MS = 30_000
 /// stays until it is not, however old.
 const RECEIVED_DAYS = 7
 
-/// A lorry out longer than this is somebody's question.
-const LATE_DAYS = 3
-
 /// **Board: every outbound piece of work in the building, in one view.**
 ///
-/// The three stations each list their own queue. This screen lays those same
-/// queues side by side, in the order the goods move, so a supervisor can see
-/// where work is piling up without opening three screens:
+/// Three lanes, each named by the next thing done (owner, 15 Oct 2026, from
+/// allotment-ops-prototype.html):
 ///
-/// **To pick** (a picklist per allotment × shop) → **To pack** (a shop's
-/// accepted picks still standing in the pick area) → **Packed** (sealed
-/// cartons on no trip yet) → **In transit** (a card per shop, on the
-/// road) → **Received** (what the shop counted at its door).
+/// **Pick** (a picklist per allotment × store) → **Pack** (a store's picked
+/// pieces still standing in the pick area) → **Dispatch** (a card per store
+/// listing every koli it has sealed and not sent). What has left sits behind
+/// one **Dispatched** button: every trip by day with what the stores
+/// received, since receiving is the store's step, not a lane.
 ///
-/// It moves nothing. Every card opens the station that owns it, on the sheet
-/// that does the work — the board is a map of the stations, not a fourth one.
-/// These are the warehouse's queues, not an allotment's stages: an allotment
-/// is read on its own screen, and "to pack" here is a place in the building,
-/// never a stage an allotment is said to be in (allotment-v1 §14 #13).
+/// A card's one button is its next physical step; red only where pieces have
+/// to be put back. It moves nothing by itself: every card opens the sheet
+/// that does the work.
 ///
-/// A lane with nothing in it folds to a strip.
+/// The three lanes never fold and share the width: nothing written sideways.
 export function Board() {
   const accepting = useSheet("accept")
   const dispatchSheet = useSheet("new-dispatch")
@@ -123,70 +124,67 @@ export function Board() {
     owed,
     shorts,
     changes,
-  ] = useQueries(
-    {
-      queries: [
-        {
-          queryKey: keys.picklistsToPick(),
-          queryFn: ({ signal }: { signal: AbortSignal }) =>
-            dc.picklistsToPick(signal),
-          refetchInterval: POLL_MS,
-        },
-        {
-          queryKey: keys.picklists(),
-          queryFn: ({ signal }: { signal: AbortSignal }) =>
-            dc.picklists(signal),
-          refetchInterval: POLL_MS,
-        },
-        {
-          queryKey: keys.koli({ ready: true }),
-          queryFn: ({ signal }: { signal: AbortSignal }) =>
-            dc.koli({ ready: true }, signal),
-          refetchInterval: POLL_MS,
-        },
-        {
-          queryKey: keys.shipments(),
-          queryFn: ({ signal }: { signal: AbortSignal }) =>
-            dc.shipments({}, signal),
-          refetchInterval: POLL_MS,
-        },
-        {
-          queryKey: keys.dispatches(),
-          queryFn: ({ signal }: { signal: AbortSignal }) =>
-            dc.dispatches({}, signal),
-          refetchInterval: POLL_MS,
-        },
-        {
-          queryKey: keys.receivedShipments(since),
-          queryFn: ({ signal }: { signal: AbortSignal }) =>
-            receivedShipments(since, signal),
-          refetchInterval: POLL_MS,
-        },
-        // What MD took out that the Gudang still has to move back, and the
-        // pickers' short picks: they mark cards, they never block the board,
-        // so a failed read of either leaves the board as it was.
-        {
-          queryKey: keys.owed(),
-          queryFn: ({ signal }: { signal: AbortSignal }) => owedWork(signal),
-          refetchInterval: POLL_MS,
-        },
-        {
-          queryKey: keys.shortPicks(),
-          queryFn: ({ signal }: { signal: AbortSignal }) => shortPicks(signal),
-          refetchInterval: POLL_MS,
-        },
-        // What MD changed that the Gudang has not acknowledged: tags and a
-        // "Got it" on the cards, so it marks cards and never blocks the board.
-        {
-          queryKey: keys.changes(),
-          queryFn: ({ signal }: { signal: AbortSignal }) => dcChanges(signal),
-          refetchInterval: POLL_MS,
-        },
-      ],
-    }
-  )
+  ] = useQueries({
+    queries: [
+      {
+        queryKey: keys.picklistsToPick(),
+        queryFn: ({ signal }: { signal: AbortSignal }) =>
+          dc.picklistsToPick(signal),
+        refetchInterval: POLL_MS,
+      },
+      {
+        queryKey: keys.picklists(),
+        queryFn: ({ signal }: { signal: AbortSignal }) => dc.picklists(signal),
+        refetchInterval: POLL_MS,
+      },
+      {
+        queryKey: keys.koli({ ready: true }),
+        queryFn: ({ signal }: { signal: AbortSignal }) =>
+          dc.koli({ ready: true }, signal),
+        refetchInterval: POLL_MS,
+      },
+      {
+        queryKey: keys.shipments(),
+        queryFn: ({ signal }: { signal: AbortSignal }) =>
+          dc.shipments({}, signal),
+        refetchInterval: POLL_MS,
+      },
+      {
+        queryKey: keys.dispatches(),
+        queryFn: ({ signal }: { signal: AbortSignal }) =>
+          dc.dispatches({}, signal),
+        refetchInterval: POLL_MS,
+      },
+      {
+        queryKey: keys.receivedShipments(since),
+        queryFn: ({ signal }: { signal: AbortSignal }) =>
+          receivedShipments(since, signal),
+        refetchInterval: POLL_MS,
+      },
+      // What MD took out that the Gudang still has to move back, and the
+      // pickers' short picks: they mark cards, they never block the board,
+      // so a failed read of either leaves the board as it was.
+      {
+        queryKey: keys.owed(),
+        queryFn: ({ signal }: { signal: AbortSignal }) => owedWork(signal),
+        refetchInterval: POLL_MS,
+      },
+      {
+        queryKey: keys.shortPicks(),
+        queryFn: ({ signal }: { signal: AbortSignal }) => shortPicks(signal),
+        refetchInterval: POLL_MS,
+      },
+      // What MD changed that the Gudang has not acknowledged: tags and a
+      // "Got it" on the cards, so it marks cards and never blocks the board.
+      {
+        queryKey: keys.changes(),
+        queryFn: ({ signal }: { signal: AbortSignal }) => dcChanges(signal),
+        refetchInterval: POLL_MS,
+      },
+    ],
+  })
 
-  /// Where the Move back dialog stands, when it is open.
+  /// Where the Put back dialog stands, when it is open.
   const [moving, setMoving] = useState<MoveBackTarget | null>(null)
   const owedIndex = useMemo(() => indexOwed(owed.data ?? []), [owed.data])
   const shortMarks = useMemo(
@@ -194,8 +192,6 @@ export function Board() {
     [shorts.data]
   )
 
-  /// Cartons ticked on the board, by koli id, to go on the next trip.
-  const [picked, setPicked] = useState<ReadonlySet<string>>(() => new Set())
   /// What the Dispatch sheet was opened with; dropped when it closes.
   const [handoff, setHandoff] = useState<ReadonlySet<string> | null>(null)
   const sheetOpen = dispatchSheet.value === true
@@ -204,6 +200,11 @@ export function Board() {
     setWasSheetOpen(sheetOpen)
     if (!sheetOpen) setHandoff(null)
   }
+  /// The Dispatched history, folded behind its button.
+  const [history, setHistory] = useState(false)
+  /// Only the cards someone has to look at: a short pick, something to put
+  /// back, something MD changed.
+  const [attention, setAttention] = useState(false)
 
   const [typed, setTyped] = useState("")
   const [store, setStore] = useState("")
@@ -217,10 +218,8 @@ export function Board() {
         (text ?? "").toLowerCase().includes(needle)
       ))
 
-  // "Late" is judged at the business clock's now, read when the trips were.
-  const shipmentsNow = useBusinessNow(shipments.dataUpdatedAt)
-
-  const allPicks = toPick.data ?? []
+  // One card per article per store (owner, 16 Oct 2026).
+  const allPicks = useArticlePicks(toPick.data)
   const allToPack = useMemo(
     () => waitingByShop(picklists.data ?? []),
     [picklists.data]
@@ -228,7 +227,7 @@ export function Board() {
   const allSealed = (koli.data ?? []).filter(
     (one) => one.position === "PACKED" || one.position === "SHIPMENT"
   )
-  /// A carton holding pieces MD took out cannot go on a trip: the server
+  /// A koli holding pieces MD took out cannot go on a trip: the server
   /// refuses it, so the board never offers it.
   const held = (id: string) => owedIndex.koli.has(id)
 
@@ -248,8 +247,16 @@ export function Board() {
   const acknowledge = useAcknowledgeChanges()
   const changeId = (one: DcChange) =>
     `${one.allotment_id}~${one.destination_id}`
-  /// The "Got it" of a card carrying these changes; absent when it carries none.
-  const ackOf = (items: readonly DcChange[] | undefined, label = "Got it") =>
+  /// A store MD took to nothing is a cancel for the Gudang, whichever way MD
+  /// did it (a whole cancel, or the store's lines edited down to 0).
+  const isCancel = (one: DcChange) => one.cancelled || one.now_total === 0
+  /// The band over a card MD changed and nobody opened yet (owner, 16 Oct
+  /// 2026: a marker on top of the card, not a corner ribbon).
+  const EDITED = { tone: "info" as const, label: "Edited by MD" }
+  /// The "OK" of a leftover card carrying these changes: the only button
+  /// left from the old "Got it" — every other card's change is seen by
+  /// opening its work (allotment-ops-prototype, 15 Oct 2026).
+  const ackOf = (items: readonly DcChange[] | undefined, label = "OK") =>
     items === undefined || items.length === 0
       ? undefined
       : {
@@ -261,198 +268,161 @@ export function Board() {
             ),
           onClick: () => acknowledge.mutate(items),
         }
-  // A ticked carton that left on a trip (or was unsealed, or has just had
-  // pieces taken out by MD) is no longer one to pick.
+
+  /// Opens the Dispatch sheet with these koli going; `null` = every ready
+  /// store ticked (allotment-ops-prototype: "Dispatch opens with every ready
+  /// store ticked").
+  const dispatchOf = (ids: ReadonlySet<string> | null) => {
+    setHandoff(ids)
+    void dispatchSheet.open(true)
+  }
   const readyIds = new Set(
     allSealed.filter((one) => !held(one.koli_id)).map((one) => one.koli_id)
   )
-  if (koli.data !== undefined && [...picked].some((id) => !readyIds.has(id))) {
-    setPicked(new Set([...picked].filter((id) => readyIds.has(id))))
-  }
-  const pickedCount = [...picked].filter((id) => readyIds.has(id)).length
-  const togglePick = (id: string, on: boolean) =>
-    setPicked((current) => {
-      const next = new Set(current)
-      if (on) next.add(id)
-      else next.delete(id)
-      return next
-    })
-  /// Ticked → only those go on the trip; nothing ticked → everything does,
-  /// except a carton holding pieces MD took out.
-  const dispatchPicked = () => {
-    if (pickedCount > 0) {
-      setHandoff(new Set(picked))
-    } else if (readyIds.size < allSealed.length) {
-      if (readyIds.size === 0) {
-        toast("Move back what MD took out before a carton can go")
-        return
-      }
-      setHandoff(new Set(readyIds))
-    } else {
-      setHandoff(null)
+  const dispatchAll = () => {
+    if (readyIds.size === 0) {
+      toast("Put back what MD took out before a koli can go")
+      return
     }
-    void dispatchSheet.open(true)
+    dispatchOf(readyIds.size < allSealed.length ? readyIds : null)
   }
-  const dispatchLabel =
-    pickedCount > 0 ? `Dispatch (${count(pickedCount)})` : "Dispatch"
 
   /// Where a dropped card may go, and what the drop opens — never a write:
-  /// the sheet that owns the step asks first (the pick's counts, the carton's
-  /// quantities, the trip's cartons). Going backwards opens the same work
-  /// from its own lane, so "back" is a look before anything moves.
-  ///
-  /// Going back asks the same question from every door: **Move back**, with
-  /// the lines prefilled. Nothing moves back from a trip, so a card in
-  /// transit has no drop at all.
-  const koliShop = (id: string) =>
-    allSealed.find((one) => one.koli_id === id)?.destination_store_id
-  const backFromKoli =
+  /// the sheet that owns the step asks first. Going back asks the same
+  /// question from every door: **Put back**, with the lines prefilled.
+  const backFromStore =
     (to: "picked" | "pick") =>
     (card: string): void => {
-      const destinationId = koliShop(card)
-      if (destinationId !== undefined)
-        setMoving({ from: "packed", to, destinationId, koliId: card })
+      const first = allSealed.find((one) => one.destination_store_id === card)
+      if (first !== undefined)
+        setMoving({
+          from: "packed",
+          to,
+          destinationId: card,
+          koliId: first.koli_id,
+        })
     }
+  /// Opens the Dispatch sheet with this store's free koli; a store whose koli
+  /// all owe pieces opens Put back instead (prototype: "Put back first").
+  const dispatchStore = (card: string) => {
+    const mine = allSealed.filter((one) => one.destination_store_id === card)
+    const free = mine.filter((one) => !held(one.koli_id))
+    if (free.length > 0) {
+      dispatchOf(new Set(free.map((one) => one.koli_id)))
+      return
+    }
+    const owing = mine.find((one) => held(one.koli_id))
+    if (owing !== undefined)
+      setMoving({ from: "packed", destinationId: card, koliId: owing.koli_id })
+  }
+  /// The drops of allotment-ops-prototype: forward opens the step's sheet,
+  /// back opens Put back (Pack → Pick) or the store's koli (Dispatch → Pack).
   const DROPS: Record<string, (card: string) => void> = {
-    "to-pick>to-pack": (card) => accepting.open(card),
-    "to-pack>packed": (card) => packing.open(card),
-    "packed>in-transit": (card) => {
-      setHandoff(new Set([card]))
-      void dispatchSheet.open(true)
-    },
-    "to-pack>to-pick": (card) =>
+    "pick>pack": (card) => accepting.open(card),
+    "pack>dispatch": (card) => packing.open(card),
+    "pack>pick": (card) =>
       setMoving({ from: "picked", to: "pick", destinationId: card }),
-    "packed>to-pack": backFromKoli("picked"),
-    "packed>to-pick": backFromKoli("pick"),
+    "dispatch>pack": backFromStore("picked"),
+    "dispatch>dispatched": dispatchStore,
   }
   const LANE_ORDER: Record<string, number> = {
-    "to-pick": 0,
-    "to-pack": 1,
-    packed: 2,
-    "in-transit": 3,
-    received: 4,
+    pick: 0,
+    pack: 1,
+    dispatch: 2,
+    dispatched: 3,
   }
 
-  /// A card dropped on a lane. A desk's drag only: a phone has no lanes and a
-  /// finger never starts one.
+  /// A card dropped on a lane. A phone has no lanes, so no drag.
   function moveCard(moved: DraggedCard, lane: string) {
     if (phone || moved.lane === lane) return
     if ((LANE_ORDER[lane] ?? 0) > (LANE_ORDER[moved.lane] ?? 0)) {
-      // A carton MD changed goes back before it goes on. A Picked card MD
-      // reduced still packs what is wanted of it (owner, 10 Oct 2026; the
-      // server caps the pack at that): it is stopped only when nothing is
-      // wanted any more.
+      // A Pack card MD reduced still packs what is wanted of it (owner, 10 Oct
+      // 2026; the server caps the pack at that): it is stopped only when
+      // nothing is wanted any more.
       const owedHere =
-        moved.lane === "to-pack"
-          ? owedIndex.shop.get(moved.card)
-          : moved.lane === "packed"
-            ? owedIndex.koli.get(moved.card)
-            : undefined
+        moved.lane === "pack" ? owedIndex.shop.get(moved.card) : undefined
       const wanted =
-        moved.lane === "to-pack"
-          ? (allToPack.find((row) => row.shopId === moved.card)?.pieces ?? 0) -
-            (owedHere?.pieces ?? 0)
-          : 0
+        (allToPack.find((row) => row.shopId === moved.card)?.pieces ?? 0) -
+        (owedHere?.pieces ?? 0)
       if (owedHere !== undefined && owedHere.pieces > 0 && wanted <= 0) {
-        toast(`Move back ${count(owedHere.pieces)} pcs first`)
+        toast(`Put back ${count(owedHere.pieces)} pcs first`)
+        setMoving({ from: "picked", destinationId: moved.card })
         return
       }
     }
     DROPS[`${moved.lane}>${lane}`]?.(moved.card)
   }
 
-  const departedAt = useMemo(
-    () => departures(dispatches.data ?? []),
-    [dispatches.data]
-  )
-  const allOnRoad = (shipments.data ?? [])
-    .filter((one) => one.position === "IN_TRANSIT")
-    .sort((left, right) =>
-      (departedAt.get(left.dispatch_id ?? "") ?? "").localeCompare(
-        departedAt.get(right.dispatch_id ?? "") ?? ""
-      )
-    )
-  // The centre keys a delivery note by its number; the DC's sheet by its id.
-  const shipmentIdByNumber = useMemo(
+  const trips = useMemo(
     () =>
-      new Map(
-        (shipments.data ?? []).map((one) => [
-          one.shipment_number,
-          one.shipment_id,
-        ])
+      tripsOf(
+        dispatches.data ?? [],
+        shipments.data ?? [],
+        received.data?.items ?? []
       ),
-    [shipments.data]
+    [dispatches.data, shipments.data, received.data]
   )
-  const allArrived = received.data?.items ?? []
-  /// One trip, one delivery note (owner, 2 Oct 2026): a per-store card shows
-  /// its trip's number, so cards of one trip share it. The centre's received
-  /// list only knows the shipment number, so it goes through the shipment.
-  const tripNumberOf = useMemo(() => {
-    const trips = new Map(
-      (dispatches.data ?? []).map((trip) => [trip.dispatch_id, trip])
-    )
-    const byShipment = new Map(
-      (shipments.data ?? []).map((one) => [
-        one.shipment_number,
-        tripDocumentNumber(
-          one.dispatch_id === null ? null : trips.get(one.dispatch_id),
-          [one]
-        ),
-      ])
-    )
-    return (shipmentNumber: string) =>
-      byShipment.get(shipmentNumber) ?? shipmentNumber
-  }, [dispatches.data, shipments.data])
+  const historyTrips = trips.filter(
+    (one) =>
+      (store === "" ||
+        one.stops.some(
+          (stop) => stop.shipment.destination_store_id === store
+        )) &&
+      (needle === "" ||
+        [
+          one.number,
+          ...one.stops.map((stop) => shop(stop.shipment.destination_store_id)),
+        ].some((text) => text.toLowerCase().includes(needle)))
+  )
+  const roadCount = trips.filter(onTheRoad).length
 
+  /// One Dispatch card per store: every koli it has sealed and not sent,
+  /// numbered from 1 for that store (prototype: "Koli 1 · KOLI-0003").
+  const allByStore = (() => {
+    const by = new Map<string, typeof allSealed>()
+    for (const one of [...allSealed].sort((left, right) =>
+      (left.sealed_at ?? "").localeCompare(right.sealed_at ?? "")
+    )) {
+      const list = by.get(one.destination_store_id) ?? []
+      list.push(one)
+      by.set(one.destination_store_id, list)
+    }
+    return [...by.entries()].map(([shopId, list]) => ({ shopId, koli: list }))
+  })()
+
+  const pickNeeds = (pick: (typeof allPicks)[number]) => {
+    const key = pickCardKey(pick.allotment_id, pick.destination_id)
+    return shortMarks.has(key) || (placement.pick.get(key)?.length ?? 0) > 0
+  }
   const picks = [...allPicks]
     .filter((one) => keep(one.destination_id, one.allotment_number))
+    .filter((one) => !attention || pickNeeds(one))
     .sort((left, right) => left.created_at.localeCompare(right.created_at))
   const aloneChanges = placement.alone.filter((one) =>
     keep(one.destination_id, one.allotment_number)
   )
-  const toPack = allToPack.filter((row) => keep(row.shopId, ...row.allotments))
-  const sealed = allSealed.filter((one) =>
-    keep(one.destination_store_id, one.koli_number)
-  )
-  const sealedPicked = sealed.filter((one) => picked.has(one.koli_id)).length
-  const sealedReady = sealed.filter((one) => !held(one.koli_id)).length
-  const pickAll = (on: boolean) =>
-    setPicked((current) => {
-      const next = new Set(current)
-      for (const one of sealed) {
-        if (held(one.koli_id)) continue
-        if (on) next.add(one.koli_id)
-        else next.delete(one.koli_id)
-      }
-      return next
-    })
-  const pickOf = (one: { koli_id: string; koli_number: string }) => {
-    const away = held(one.koli_id)
-    return {
-      checked: !away && picked.has(one.koli_id),
-      onChange: (on: boolean) => togglePick(one.koli_id, on),
-      label: `Select ${one.koli_number}`,
-      disabled: away,
-      title: away
-        ? "Holds pieces MD took out. Move them back before it can go."
-        : undefined,
-    }
-  }
-  const onRoad = allOnRoad.filter((one) =>
-    keep(
-      one.destination_store_id,
-      one.shipment_number,
-      tripNumberOf(one.shipment_number)
+  const toPack = allToPack
+    .filter((row) => keep(row.shopId, ...row.allotments))
+    .filter(
+      (row) =>
+        !attention ||
+        owedIndex.shop.has(row.shopId) ||
+        (placement.shop.get(row.shopId)?.length ?? 0) > 0
     )
-  )
-  const arrived = allArrived.filter((one) =>
-    keep(
-      one.destination_store_id,
-      one.shipment_number,
-      tripNumberOf(one.shipment_number),
-      one.destination_name
+  const byStore = allByStore
+    .filter((row) =>
+      keep(row.shopId, ...row.koli.map((one) => one.koli_number))
     )
-  )
+    .filter(
+      (row) =>
+        !attention ||
+        row.koli.some(
+          (one) =>
+            held(one.koli_id) ||
+            (placement.koli.get(one.koli_id)?.length ?? 0) > 0
+        )
+    )
+  const koliShown = sum(byStore, (row) => row.koli.length)
 
   /// Every store with a card anywhere on the board, for the filter.
   const stores = [
@@ -460,13 +430,28 @@ export function Board() {
       ...allPicks.map((one) => one.destination_id),
       ...allToPack.map((one) => one.shopId),
       ...allSealed.map((one) => one.destination_store_id),
-      ...allOnRoad.map((one) => one.destination_store_id),
-      ...allArrived.map((one) => one.destination_store_id),
     ]),
   ]
     .map((id) => ({ id, name: shop(id) || id }))
     .sort((left, right) => left.name.localeCompare(right.name))
 
+  const attentionButton = (
+    <Button
+      variant={attention ? "tint" : "ghost"}
+      className="h-11"
+      aria-pressed={attention}
+      onClick={() => setAttention(!attention)}
+    >
+      Needs attention
+    </Button>
+  )
+  const historyButton = (
+    <DispatchedButton
+      trips={roadCount}
+      onOpen={() => setHistory(true)}
+      onDropCard={moveCard}
+    />
+  )
   const filters = (
     <>
       <label className="relative">
@@ -474,7 +459,8 @@ export function Board() {
         <Input
           value={typed}
           onChange={(event) => setTyped(event.target.value)}
-          aria-label="Search the board"
+          aria-label="Search article or store"
+          placeholder="Search article or store"
           className="h-11 w-80 pl-9"
         />
       </label>
@@ -491,14 +477,61 @@ export function Board() {
           </option>
         ))}
       </Select>
-      {view === "table" && pickedCount > 0 && (
-        <Button variant="primary" className="h-11" onClick={dispatchPicked}>
-          <Truck />
-          {dispatchLabel}
-        </Button>
-      )}
+      {attentionButton}
+      {historyButton}
     </>
   )
+
+  /// A store's Dispatch card: what it holds, what MD wants out of it, and
+  /// the koli that may go now.
+  const storeCard = (row: (typeof byStore)[number]) => {
+    const owedPieces = sum(
+      row.koli,
+      (one) => owedIndex.koli.get(one.koli_id)?.pieces ?? 0
+    )
+    const firstOwed = row.koli.find((one) => held(one.koli_id))
+    const free = new Set(
+      row.koli.filter((one) => !held(one.koli_id)).map((one) => one.koli_id)
+    )
+    const here = row.koli.flatMap(
+      (one) => placement.koli.get(one.koli_id) ?? []
+    )
+    /// Opening the store's work is seeing MD's change on it.
+    const seen = () => {
+      if (here.length > 0) acknowledge.mutate(here)
+    }
+    return {
+      pieces: sum(row.koli, (one) => one.unit_count),
+      owedPieces,
+      putBack:
+        firstOwed === undefined
+          ? undefined
+          : () => {
+              seen()
+              setMoving({
+                from: "packed",
+                destinationId: row.shopId,
+                koliId: firstOwed.koli_id,
+              })
+            },
+      dispatch:
+        free.size === 0
+          ? undefined
+          : () => {
+              seen()
+              // Every ready store ticked, this one among them.
+              dispatchAll()
+            },
+      here,
+      lines: row.koli.map((one, index) => ({
+        key: one.koli_id,
+        label: `Koli ${index + 1}`,
+        code: one.koli_number,
+        pieces: one.unit_count,
+        owed: owedIndex.koli.get(one.koli_id)?.pieces,
+      })),
+    }
+  }
 
   const stage = (id: string, label: string, tone: string, order: number) => ({
     id,
@@ -511,52 +544,51 @@ export function Board() {
       const key = pickCardKey(pick.allotment_id, pick.destination_id)
       const short = shortMarks.get(key)
       return {
-        key: `pick~${pick.allotment_id}~${pick.destination_id}`,
-        stage: stage("to-pick", "Pick list", "bg-mute", 0),
-        title: shop(pick.destination_id),
-        doc: pick.allotment_number,
+        key: `pick~${articlePickKey(pick)}`,
+        stage: stage("pick", "Pick", "bg-mute", 0),
+        title: pick.article_name ?? pick.article_code,
+        doc: `${shop(pick.destination_id)} · ${pick.allotment_number}`,
         detail: many(pick.lines.length, "SKU"),
         pieces: pick.pieces,
         at: pick.created_at,
         act: "Pick",
         mark: short === undefined ? undefined : shortCard(short).row,
         tags: changeTags(placement.pick.get(key) ?? []),
-        ack: ackOf(placement.pick.get(key)),
-        onOpen: () =>
-          accepting.open(`${pick.allotment_id}~${pick.destination_id}`),
+        dot: (placement.pick.get(key)?.length ?? 0) > 0,
+        onOpen: () => accepting.open(articlePickKey(pick)),
       }
     }),
     // A picklist MD cancelled while it was still to pick has no card of its
     // own any more: it stays as one until the Gudang acknowledges it.
     ...aloneChanges.map((one) => ({
       key: `change~${changeId(one)}`,
-      stage: stage("to-pick", "Pick list", "bg-mute", 0),
+      stage: stage("pick", "Pick", "bg-mute", 0),
       title: shop(one.destination_id),
       doc: one.allotment_number,
       pieces: 0,
       at: one.at,
       tags: changeTags([one]),
-      stamp: one.cancelled ? "CANCELLED" : undefined,
-      off: one.cancelled,
-      ack: ackOf([one], one.cancelled ? "Remove" : "Got it"),
+      stamp: isCancel(one) ? "CANCELLED" : undefined,
+      off: isCancel(one),
+      ack: ackOf([one]),
     })),
     ...toPack.map((row) => {
       const mark = markOf(owedIndex.shop.get(row.shopId), row.pieces)
       return {
         key: `pack~${row.shopId}`,
-        stage: stage("to-pack", "Picked", "bg-warn", 1),
+        stage: stage("pack", "Pack", "bg-warn", 1),
         title: shop(row.shopId),
         doc:
           row.allotments.length === 1
             ? row.allotments[0]
             : `${row.allotments.length} allotments`,
-        detail: many(row.picklists, "picklist"),
+        detail: many(row.allotments.length, "allotment"),
         pieces: row.pieces,
         at: row.lastPickedAt,
-        act: mark === null ? "Pack" : "Move back",
+        act: mark === null ? "Pack" : "Put back",
         mark: mark?.row,
         tags: changeTags(placement.shop.get(row.shopId) ?? []),
-        ack: ackOf(placement.shop.get(row.shopId)),
+        dot: (placement.shop.get(row.shopId)?.length ?? 0) > 0,
         change: mark?.change,
         stamp: mark?.stamp,
         off: mark?.switchedOff,
@@ -570,87 +602,33 @@ export function Board() {
         },
       }
     }),
-    ...sealed.map((one) => {
-      const mark = markOf(owedIndex.koli.get(one.koli_id), one.unit_count)
+    ...byStore.map((row) => {
+      const card = storeCard(row)
       return {
-        key: `packed~${one.koli_id}`,
-        stage: stage("packed", "Pack", "bg-body", 2),
-        title: shop(one.destination_store_id),
-        doc: one.koli_number,
-        detail: one.position === "SHIPMENT" ? "On a delivery note" : undefined,
-        pieces: one.unit_count,
-        at: one.sealed_at,
-        act: mark === null ? undefined : "Move back",
-        mark: mark?.row,
-        tags: changeTags(placement.koli.get(one.koli_id) ?? []),
-        ack: ackOf(placement.koli.get(one.koli_id)),
-        change: mark?.change,
-        stamp: mark?.stamp,
-        off: mark?.switchedOff,
-        moveBack:
-          mark === null
-            ? undefined
-            : () =>
-                setMoving({
-                  from: "packed",
-                  destinationId: one.destination_store_id,
-                  koliId: one.koli_id,
-                }),
-        pick: pickOf(one),
-        open: {
-          to: "/operations/packing",
-          sheet: { key: "koli" as const, value: one.koli_id },
-        },
-      }
-    }),
-    ...onRoad.map((one) => {
-      const left = departedAt.get(one.dispatch_id ?? "") ?? null
-      return {
-        key: `road~${one.shipment_id}`,
-        stage: stage("in-transit", "Dispatch", "bg-info", 3),
-        title: shop(one.destination_store_id),
-        doc: tripNumberOf(one.shipment_number),
-        detail: `${count(one.koli_count)} ${one.koli_count === 1 ? "carton" : "cartons"}`,
-        pieces: one.unit_count,
-        at: left,
-        late:
-          left !== null &&
-          shipmentsNow - Date.parse(left) > LATE_DAYS * 86_400_000,
-        open: {
-          to: "/operations/despatch",
-          sheet: { key: "shipment" as const, value: one.shipment_id },
-        },
-      }
-    }),
-    ...arrived.map((one) => {
-      const short = one.open_gap_qty > 0
-      const shipmentId = shipmentIdByNumber.get(one.shipment_number)
-      return {
-        key: `received~${one.delivery_id}`,
-        stage: stage("received", "Received", "bg-ok", 4),
-        title: shop(one.destination_store_id) || one.destination_name,
-        doc: tripNumberOf(one.shipment_number),
-        detail: `${count(one.koli_count)} ${one.koli_count === 1 ? "carton" : "cartons"}`,
-        pieces: one.received_qty + one.found_qty,
-        of: short ? one.sent_qty : undefined,
-        flag:
-          SHOW_MISSING && short
-            ? `${count(one.open_gap_qty)} missing`
+        key: `dispatch~${row.shopId}`,
+        stage: stage("dispatch", "Dispatch", "bg-info", 2),
+        title: shop(row.shopId),
+        doc: `${count(row.koli.length)} koli`,
+        pieces: card.pieces,
+        at: row.koli[0]?.sealed_at,
+        act: card.putBack !== undefined ? "Put back" : "Dispatch",
+        mark:
+          card.owedPieces > 0
+            ? {
+                tone: "bad" as const,
+                text: `Take out ${count(card.owedPieces)}`,
+                detail: "MD took these out; put them back before the koli goes",
+              }
             : undefined,
-        open: {
-          to: "/operations/despatch",
-          sheet:
-            shipmentId === undefined
-              ? undefined
-              : { key: "shipment" as const, value: shipmentId },
-        },
+        tags: changeTags(card.here),
+        dot: card.here.length > 0,
+        moveBack: card.putBack,
+        onOpen: card.dispatch,
       }
     }),
   ]
 
-  const edgeFailed = [toPick, picklists, koli, shipments, dispatches].find(
-    (query) => query.isError
-  )
+  const edgeFailed = [toPick, picklists, koli].find((query) => query.isError)
   if (toPick.isPending || picklists.isPending || koli.isPending) {
     return (
       <PageContent fill>
@@ -672,17 +650,22 @@ export function Board() {
   }
 
   return (
-    <PageContent fill>
-      {/* On a phone the search and the store are the dock's, as on every
+    <BoardDnd>
+      <PageContent fill>
+        {/* On a phone the search and the store are the dock's, as on every
       list; the desk keeps them in its header. */}
-      <Header actions={phone ? undefined : filters} />
-      {phone && (
-        <>
+        <Header actions={phone ? undefined : filters} />
+        {phone && (
           <DockTools
             search={{
               value: typed,
               onChange: setTyped,
-              label: "Search the board",
+              label: "Search article or store",
+            }}
+            // Needs attention is the phone's one filter: on or off.
+            filter={{
+              count: attention ? 1 : 0,
+              onOpen: () => setAttention(!attention),
             }}
             status={{
               value: store,
@@ -693,310 +676,277 @@ export function Board() {
               onChange: setStore,
             }}
           />
-          {pickedCount > 0 && (
-            <DockPortal slot="action">
-              <button
-                type="button"
-                aria-label={dispatchLabel}
-                title={dispatchLabel}
-                onClick={dispatchPicked}
-                className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-cta text-cta-fg shadow-soft transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.96]"
-              >
-                <Truck className="size-5" />
-              </button>
-            </DockPortal>
-          )}
-        </>
-      )}
-      {view === "table" ? (
-        <StageTable rows={rows} empty="Nothing matches." />
-      ) : (
-        <Lanes board="outbound">
-          <Lane
-            id="to-pick"
-            tone="bg-mute"
-            title="Pick List"
-            pieces={sum(picks, (pick) => pick.pieces)}
-            cards={picks.length + aloneChanges.length}
-            onDropCard={moveCard}
-          >
-            {picks.map((pick) => {
-              const key = pickCardKey(pick.allotment_id, pick.destination_id)
-              const short = shortMarks.get(key)
-              const here = placement.pick.get(key)
-              return (
+        )}
+        {/* On a phone each Dispatch row has its own button; the dock's one
+      button is the Dispatched history. */}
+        {phone && (
+          <DockPortal slot="action">
+            <button
+              type="button"
+              aria-label={`Dispatched ${count(roadCount)}`}
+              title="Dispatched"
+              onClick={() => setHistory(true)}
+              className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-cta text-cta-fg shadow-soft transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.96]"
+            >
+              <Truck className="size-5" />
+            </button>
+          </DockPortal>
+        )}
+        {view === "table" ? (
+          <StageTable
+            rows={rows}
+            empty="Nothing matches."
+            refresh={[toPick, picklists, koli, shipments, dispatches, received]}
+          />
+        ) : (
+          <Lanes board="outbound">
+            <Lane
+              id="pick"
+              tone="bg-mute"
+              title="Pick"
+              empty="Nothing to pick"
+              pieces={sum(picks, (pick) => pick.pieces)}
+              cards={picks.length + aloneChanges.length}
+              onDropCard={moveCard}
+              folds={false}
+              total={false}
+              accepts={{ pack: "Put back" }}
+            >
+              {picks.map((pick) => {
+                const key = pickCardKey(pick.allotment_id, pick.destination_id)
+                const short = shortMarks.get(key)
+                const here = placement.pick.get(key)
+                return (
+                  <Tile
+                    key={articlePickKey(pick)}
+                    to="/operations/picking"
+                    onOpen={() => accepting.open(articlePickKey(pick))}
+                    // The article and its pieces lead; the store and the
+                    // allotment are the second line (owner, 16 Oct 2026).
+                    title={pick.article_name ?? pick.article_code}
+                    sub={`${shop(pick.destination_id)} · ${pick.allotment_number}`}
+                    photos={
+                      <ArticlePhotos
+                        skus={pick.lines.map((line) => line.sku_code)}
+                      />
+                    }
+                    meta={many(pick.lines.length, "SKU")}
+                    pieces={pick.pieces}
+                    act="Pick"
+                    strip={
+                      short !== undefined
+                        ? shortCard(short).strip
+                        : (here?.length ?? 0) > 0
+                          ? EDITED
+                          : undefined
+                    }
+                    tags={changeTags(here ?? [])}
+                    drag={{
+                      lane: "pick",
+                      card: articlePickKey(pick),
+                    }}
+                  />
+                )
+              })}
+              {aloneChanges.map((one) => (
                 <Tile
-                  key={`${pick.allotment_id}~${pick.destination_id}`}
+                  key={`change~${changeId(one)}`}
                   to="/operations/picking"
-                  onOpen={() =>
-                    accepting.open(
-                      `${pick.allotment_id}~${pick.destination_id}`
-                    )
-                  }
-                  title={shop(pick.destination_id)}
-                  sub={pick.allotment_number}
-                  meta={many(pick.lines.length, "SKU")}
-                  pieces={pick.pieces}
-                  act="Pick"
+                  // Nothing left to open: a press on it is its OK, never a
+                  // trip to another screen.
+                  onOpen={() => acknowledge.mutate([one])}
+                  title={shop(one.destination_id)}
+                  sub={one.allotment_number}
+                  pieces={0}
                   strip={
-                    short === undefined ? undefined : shortCard(short).strip
+                    isCancel(one)
+                      ? { tone: "bad", label: "Cancelled by MD" }
+                      : EDITED
                   }
-                  tags={changeTags(here ?? [])}
-                  ack={ackOf(here)}
-                  drag={{
-                    lane: "to-pick",
-                    card: `${pick.allotment_id}~${pick.destination_id}`,
-                  }}
+                  stamp={isCancel(one) ? "CANCELLED" : undefined}
+                  switchedOff={isCancel(one)}
+                  tags={changeTags([one])}
+                  ack={ackOf([one])}
                 />
-              )
-            })}
-            {aloneChanges.map((one) => (
-              <Tile
-                key={`change~${changeId(one)}`}
-                to="/operations/picking"
-                title={shop(one.destination_id)}
-                sub={one.allotment_number}
-                pieces={0}
-                stamp={one.cancelled ? "CANCELLED" : undefined}
-                switchedOff={one.cancelled}
-                tags={changeTags([one])}
-                ack={ackOf([one], one.cancelled ? "Remove" : "Got it")}
-              />
-            ))}
-          </Lane>
+              ))}
+            </Lane>
 
-          <Lane
-            id="to-pack"
-            tone="bg-warn"
-            title="Picked"
-            pieces={sum(toPack, (row) => row.pieces)}
-            cards={toPack.length}
-            onDropCard={moveCard}
-          >
-            {toPack.map((row) => {
-              const mark = markOf(owedIndex.shop.get(row.shopId), row.pieces)
-              return (
-                <Tile
-                  key={row.shopId}
-                  to="/operations/packing"
-                  sheet={{ key: "pack", value: row.shopId }}
-                  title={shop(row.shopId)}
-                  sub={
-                    row.allotments.length === 1
-                      ? row.allotments[0]
-                      : `${row.allotments.length} allotments`
-                  }
-                  meta={many(row.picklists, "picklist")}
-                  pieces={row.pieces}
-                  // MD reduced it: what is still wanted can be packed, so the
-                  // hint stays beside Move back; nothing wanted, no hint.
-                  act={
-                    mark !== null && mark.owed >= row.pieces ? undefined : "Pack"
-                  }
-                  strip={mark?.strip}
-                  change={mark?.change}
-                  stamp={mark?.stamp}
-                  switchedOff={mark?.switchedOff}
-                  actionLabel={mark === null ? undefined : "Move back"}
-                  onAction={
-                    mark === null
-                      ? undefined
-                      : () =>
-                          setMoving({ from: "picked", destinationId: row.shopId })
-                  }
-                  tags={changeTags(placement.shop.get(row.shopId) ?? [])}
-                  ack={ackOf(placement.shop.get(row.shopId))}
-                  drag={{ lane: "to-pack", card: row.shopId }}
-                />
-              )
-            })}
-          </Lane>
+            <Lane
+              id="pack"
+              tone="bg-warn"
+              title="Pack"
+              empty="Nothing to pack"
+              pieces={sum(toPack, (row) => row.pieces)}
+              cards={toPack.length}
+              onDropCard={moveCard}
+              folds={false}
+              total={false}
+              accepts={{ pick: "Pick", dispatch: "Unpack" }}
+            >
+              {toPack.map((row) => {
+                const mark = markOf(owedIndex.shop.get(row.shopId), row.pieces)
+                return (
+                  <Tile
+                    key={row.shopId}
+                    to="/operations/packing"
+                    sheet={{ key: "pack", value: row.shopId }}
+                    title={shop(row.shopId)}
+                    sub={
+                      row.allotments.length === 1
+                        ? row.allotments[0]
+                        : `${row.allotments.length} allotments`
+                    }
+                    photos={<PilePhotos sessions={row.sessions} />}
+                    meta={many(row.allotments.length, "allotment")}
+                    pieces={row.pieces}
+                    unit={row.pieces === 1 ? "pc picked" : "pcs picked"}
+                    // MD reduced it: what is still wanted can be packed, so the
+                    // hint stays beside Put back; nothing wanted, no hint.
+                    act={
+                      mark !== null && mark.owed >= row.pieces
+                        ? undefined
+                        : "Pack"
+                    }
+                    strip={
+                      mark?.strip ??
+                      ((placement.shop.get(row.shopId)?.length ?? 0) > 0
+                        ? EDITED
+                        : undefined)
+                    }
+                    change={mark?.change}
+                    stamp={mark?.stamp}
+                    switchedOff={mark?.switchedOff}
+                    actionLabel={mark === null ? undefined : "Put back"}
+                    onAction={
+                      mark === null
+                        ? undefined
+                        : () =>
+                            setMoving({
+                              from: "picked",
+                              destinationId: row.shopId,
+                            })
+                    }
+                    tags={changeTags(placement.shop.get(row.shopId) ?? [])}
+                    drag={{
+                      lane: "pack",
+                      card: row.shopId,
+                      owed: mark !== null && mark.owed >= row.pieces,
+                    }}
+                  />
+                )
+              })}
+            </Lane>
 
-          <Lane
-            id="packed"
-            tone="bg-body"
-            title="Pack"
-            pieces={sum(sealed, (one) => one.unit_count)}
-            cards={sealed.length}
-            onDropCard={moveCard}
-            summary={
-              <div className="flex items-center justify-between gap-3">
-                <span>
-                  {count(sealed.length)}{" "}
-                  {sealed.length === 1 ? "carton" : "cartons"}
-                </span>
-                <Checkbox
-                  label="Select All"
-                  checked={sealedReady > 0 && sealedPicked === sealedReady}
-                  indeterminate={sealedPicked > 0 && sealedPicked < sealedReady}
-                  disabled={sealedReady === 0}
-                  onChange={pickAll}
-                  className="-my-3 [&>label]:min-h-11 [&>label]:pl-2"
-                />
-              </div>
-            }
-            footer={
-              <Button
-                variant={pickedCount > 0 ? "primary" : "ghost"}
-                className="h-10 w-full"
-                onClick={dispatchPicked}
-              >
-                <Truck />
-                {dispatchLabel}
-              </Button>
-            }
-          >
-            {sealed.map((one) => {
-              const mark = markOf(
-                owedIndex.koli.get(one.koli_id),
-                one.unit_count
-              )
-              return (
-                <Tile
-                  key={one.koli_id}
-                  to="/operations/packing"
-                  sheet={{ key: "koli", value: one.koli_id }}
-                  title={shop(one.destination_store_id)}
-                  sub={one.koli_number}
-                  meta={
-                    one.position === "SHIPMENT"
-                      ? "On a delivery note"
-                      : undefined
-                  }
-                  pieces={one.unit_count}
-                  pick={pickOf(one)}
-                  strip={mark?.strip}
-                  change={mark?.change}
-                  stamp={mark?.stamp}
-                  switchedOff={mark?.switchedOff}
-                  actionLabel={mark === null ? undefined : "Move back"}
-                  onAction={
-                    mark === null
-                      ? undefined
-                      : () =>
-                          setMoving({
-                            from: "packed",
-                            destinationId: one.destination_store_id,
-                            koliId: one.koli_id,
-                          })
-                  }
-                  tags={changeTags(placement.koli.get(one.koli_id) ?? [])}
-                  ack={ackOf(placement.koli.get(one.koli_id))}
-                  drag={{ lane: "packed", card: one.koli_id }}
-                />
-              )
-            })}
-          </Lane>
-
-          <Lane
-            id="in-transit"
-            tone="bg-info"
-            title="Dispatch"
-            pieces={sum(onRoad, (one) => one.unit_count)}
-            cards={onRoad.length}
-            problem={shipments.isError ? shipments.error : undefined}
-            onDropCard={moveCard}
-          >
-            {onRoad.map((one) => {
-              const left = departedAt.get(one.dispatch_id ?? "") ?? null
-              const late =
-                left !== null &&
-                // "Now" is when the list was last read, not the render.
-                shipmentsNow - Date.parse(left) > LATE_DAYS * 86_400_000
-              return (
-                <Tile
-                  key={one.shipment_id}
-                  to="/operations/despatch"
-                  sheet={{ key: "shipment", value: one.shipment_id }}
-                  title={shop(one.destination_store_id)}
-                  sub={tripNumberOf(one.shipment_number)}
-                  meta={`${count(one.koli_count)} ${one.koli_count === 1 ? "carton" : "cartons"}`}
-                  pieces={one.unit_count}
-                  pill={
-                    late ? undefined : (
-                      <Pill tone="neutral">
-                        {left === null ? "Departed" : ago(left)}
-                      </Pill>
-                    )
-                  }
-                  flag={late ? `Late · left ${ago(left)}` : undefined}
-                />
-              )
-            })}
-          </Lane>
-
-          <Lane
-            id="received"
-            tone="bg-ok"
-            title="Received"
-            pieces={sum(arrived, (one) => one.received_qty + one.found_qty)}
-            cards={arrived.length}
-            problem={received.isError ? received.error : undefined}
-            loading={received.isPending}
-          >
-            {arrived.map((one) => (
-              <ReceivedTile
-                key={one.delivery_id}
-                one={one}
-                shop={shop}
-                shipmentId={shipmentIdByNumber.get(one.shipment_number)}
-                doc={tripNumberOf(one.shipment_number)}
-              />
-            ))}
-          </Lane>
-        </Lanes>
-      )}
-      <PickSheets />
-      <PackSheets />
-      <ShipmentSheets />
-      <DispatchSheet only={handoff} onDispatched={() => setPicked(new Set())} />
-      <MoveBackDialog target={moving} onClose={() => setMoving(null)} />
-    </PageContent>
+            <Lane
+              id="dispatch"
+              tone="bg-info"
+              title="Dispatch"
+              empty="Nothing to dispatch"
+              pieces={sum(byStore, (row) =>
+                sum(row.koli, (one) => one.unit_count)
+              )}
+              cards={byStore.length}
+              onDropCard={moveCard}
+              folds={false}
+              total={false}
+              accepts={{ pack: "Pack" }}
+              foot={`${count(koliShown)} koli · ${count(
+                sum(byStore, (row) => sum(row.koli, (one) => one.unit_count))
+              )} pcs`}
+            >
+              {byStore.map((row) => {
+                const card = storeCard(row)
+                return (
+                  <Tile
+                    key={row.shopId}
+                    to="/operations/despatch"
+                    onOpen={card.dispatch ?? card.putBack}
+                    title={shop(row.shopId)}
+                    photos={
+                      <KoliPhotos koli={row.koli.map((one) => one.koli_id)} />
+                    }
+                    meta={`${count(card.pieces)} pcs`}
+                    pieces={row.koli.length}
+                    unit="koli"
+                    lines={card.lines}
+                    act={card.dispatch === undefined ? undefined : "Dispatch"}
+                    actionLabel={
+                      card.putBack === undefined
+                        ? undefined
+                        : `Put back ${count(card.owedPieces)}`
+                    }
+                    onAction={card.putBack}
+                    tags={changeTags(card.here)}
+                    strip={card.here.length > 0 ? EDITED : undefined}
+                    drag={{
+                      lane: "dispatch",
+                      card: row.shopId,
+                      owed: card.dispatch === undefined,
+                    }}
+                  />
+                )
+              })}
+            </Lane>
+          </Lanes>
+        )}
+        <PickSheets />
+        <PackSheets />
+        <ShipmentSheets />
+        <DispatchSheet only={handoff} />
+        <MoveBackDialog target={moving} onClose={() => setMoving(null)} />
+        <DispatchedSheet
+          open={history}
+          onClose={() => setHistory(false)}
+          trips={historyTrips}
+          shop={shop}
+        />
+      </PageContent>
+    </BoardDnd>
   )
 }
 
-function Header({ actions }: { actions?: React.ReactNode }) {
-  return (
-    <BoardHeader
-      board="stores"
-      actions={actions}
-      closeTo="/operations/intake"
-    />
-  )
-}
-
-function ReceivedTile({
-  one,
-  shop,
-  shipmentId,
-  doc,
+/// The Dispatched history behind its button; a Dispatch card dropped on it
+/// opens that store's trip (the prototype's "Dispatched" fold, upright: the
+/// board is three lanes and nothing on it is written sideways).
+function DispatchedButton({
+  trips,
+  onOpen,
+  onDropCard,
 }: {
-  one: ReceivedShipment
-  shop: (id: string) => string
-  shipmentId: string | undefined
-  doc: string
+  trips: number
+  onOpen: () => void
+  onDropCard: (card: DraggedCard, lane: string) => void
 }) {
-  const short = one.open_gap_qty > 0
+  const target = { accepts: { dispatch: "Dispatch" }, onDrop: onDropCard }
+  const dropRef = useDropRef("dispatched", target)
+  const drop = useDropTarget("dispatched", target)
   return (
-    <Tile
-      to="/operations/despatch"
-      sheet={
-        shipmentId === undefined
-          ? undefined
-          : { key: "shipment", value: shipmentId }
-      }
-      title={shop(one.destination_store_id) || one.destination_name}
-      sub={doc}
-      meta={`${count(one.koli_count)} ${one.koli_count === 1 ? "carton" : "cartons"}`}
-      pieces={one.received_qty + one.found_qty}
-      of={short ? one.sent_qty : undefined}
-      flag={
-        SHOW_MISSING && short ? `${count(one.open_gap_qty)} missing` : undefined
-      }
-      // Done work recedes, so what is still short is what the eye finds.
-      className={short ? undefined : "bg-soft"}
-    />
+    <span ref={dropRef} className="relative">
+      <Button
+        variant={drop.mode === "over" ? "tint" : "ghost"}
+        className={cn(
+          "h-11",
+          drop.mode === "can" &&
+            "outline-[1.5px] outline-hairline-strong outline-dashed",
+          drop.mode === "over" &&
+            "outline-[1.5px] outline-accent outline-dashed",
+          drop.mode === "no" && "opacity-45"
+        )}
+        onClick={onOpen}
+      >
+        <Truck />
+        {drop.mode === "can" || drop.mode === "over"
+          ? drop.hint
+          : `Dispatched ${count(trips)}`}
+      </Button>
+    </span>
   )
+}
+
+/// The board's head is the page head, in the shell like every other page
+/// (owner, 14 Oct: "tetap ada sidebarnya"); the lanes below are unchanged.
+function Header({ actions }: { actions?: React.ReactNode }) {
+  return <BoardHeader board="stores" actions={actions} />
 }
 
 interface ShopToPack {
@@ -1005,6 +955,8 @@ interface ShopToPack {
   readonly picklists: number
   readonly allotments: readonly string[]
   readonly lastPickedAt: string | null
+  /// The picklists holding the pile, for its pictures.
+  readonly sessions: readonly string[]
 }
 
 /// What each shop has accepted and not yet put in a carton — Packing's unit
@@ -1017,6 +969,7 @@ function waitingByShop(rounds: readonly PicklistSummary[]): ShopToPack[] {
       picklists: number
       allotments: Set<string>
       last: string | null
+      sessions: string[]
     }
   >()
   for (const round of rounds) {
@@ -1026,9 +979,11 @@ function waitingByShop(rounds: readonly PicklistSummary[]): ShopToPack[] {
       picklists: 0,
       allotments: new Set<string>(),
       last: null,
+      sessions: [],
     }
     row.pieces += round.waiting
     row.picklists += 1
+    row.sessions.push(round.session.session_id)
     if (round.allotment_number !== null)
       row.allotments.add(round.allotment_number)
     const at = round.session.closed_at ?? round.session.started_at
@@ -1042,17 +997,9 @@ function waitingByShop(rounds: readonly PicklistSummary[]): ShopToPack[] {
       picklists: row.picklists,
       allotments: [...row.allotments].sort(),
       lastPickedAt: row.last,
+      sessions: row.sessions,
     }))
     .sort((left, right) =>
       (left.lastPickedAt ?? "").localeCompare(right.lastPickedAt ?? "")
     )
-}
-
-/// When each trip left, by its id. A delivery note carries no time of its own.
-function departures(trips: readonly Dispatch[]): Map<string, string> {
-  const map = new Map<string, string>()
-  for (const trip of trips) {
-    if (trip.departed_at !== null) map.set(trip.dispatch_id, trip.departed_at)
-  }
-  return map
 }

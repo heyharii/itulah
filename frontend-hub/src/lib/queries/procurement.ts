@@ -27,7 +27,7 @@ import type {
 } from "@itulah/contract"
 
 import { node } from "@/lib/api"
-import { thumbJpeg } from "@/lib/image"
+import { photoForModel, thumbJpeg } from "@/lib/image"
 import { arity, type Filter } from "@/lib/filters"
 
 /// Purchasing reads and writes, and the keys they are held under.
@@ -270,6 +270,7 @@ export interface PurchaseReturn {
   /// null until it is (0917).
   readonly note_pic?: string | null
   readonly note_generated_at?: string | null
+  readonly line_notes?: Readonly<Record<string, string>>
   readonly quantity: number
   readonly lines: readonly {
     readonly receipt_line_id: string
@@ -394,6 +395,9 @@ export interface UnidentifiedReceipt {
   readonly division_code: string | null
   readonly tags: readonly string[]
   readonly image_url: string | null
+  /// The supplier item's description on the PO line: the New articles form's
+  /// starting Description (owner, 2026-10-16).
+  readonly description?: string | null
   readonly site_id: string
   readonly po_number: string
   /// What the piece cost, per the PO line. Always present — a session cannot
@@ -954,6 +958,53 @@ export function reviseCatalogPurchaseOrder(
     request,
     { signal, headers: { "Idempotency-Key": idempotencyKey } }
   )
+}
+
+/// A printed order's public link (0971): made the first time, found every
+/// time after. Its QR opens `/p/{token}`, the order as it stands now.
+export function createPurchaseOrderLink(id: string, signal?: AbortSignal) {
+  return node.post<{ readonly token: string }>(
+    `/api/v1/purchase-orders/${id}/link`,
+    {},
+    { signal }
+  )
+}
+
+/// What the public page of a printed order shows: the paper's facts, as the
+/// order stands now — no prices, no people.
+export interface PublicPurchaseOrder {
+  readonly po_number: string
+  readonly supplier_name: string | null
+  readonly lifecycle: string
+  readonly issued_at: string | null
+  readonly created_at: string
+  readonly expected_arrival: string | null
+  readonly lines: readonly {
+    readonly line_number: number
+    readonly article_name: string | null
+    readonly tags?: readonly string[] | null
+    readonly ordered_quantity: number
+    readonly cancelled_quantity?: number
+    readonly received_quantity: number
+    readonly closed_short_units?: number | null
+  }[]
+}
+
+/// The order behind a printed PO's link, for anybody holding it: no session.
+/// `null` when no such link exists.
+export async function getPublicPurchaseOrder(
+  token: string,
+  signal?: AbortSignal
+): Promise<PublicPurchaseOrder | null> {
+  const response = await fetch(
+    `/api/v1/public/purchase-orders/${encodeURIComponent(token)}`,
+    { headers: { Accept: "application/json" }, signal, cache: "no-store" }
+  )
+  if (response.status === 404) return null
+  if (!response.ok)
+    throw new Error(`could not read the purchase order (${response.status})`)
+  const body = (await response.json()) as { order?: PublicPurchaseOrder }
+  return body.order ?? null
 }
 
 /// Call off an order nothing has been received against. The DC is told, and
@@ -1598,6 +1649,17 @@ export function catalogueVocabulary(signal?: AbortSignal) {
   })
 }
 
+/// The words the catalogue may be described with, as a query. They change when
+/// somebody edits the vocabulary tables, which is roughly never, so a screen
+/// that reads them for its labels holds them for half an hour. Shared by the
+/// screens and the prefetcher (`screens/master/prefetch.ts`).
+export const catalogueVocabularyQuery = () =>
+  queryOptions({
+    queryKey: procurementKeys.vocabulary(),
+    queryFn: ({ signal }) => catalogueVocabulary(signal),
+    staleTime: 30 * 60 * 1000,
+  })
+
 /// The arrangements a buyer may agree, and what each instalment counts from.
 ///
 /// The composer carried four of these in a `const` until migration 0201 gave
@@ -1705,6 +1767,7 @@ export interface NewSetupSession {
   readonly article_name: string
   readonly division_code: string
   readonly tags: readonly string[]
+  readonly description?: string | null
   readonly image_url?: string | null
   readonly currency: string
   readonly colours: readonly {
@@ -1767,6 +1830,7 @@ export interface NewSplitSetup {
   readonly article_name: string
   readonly division_code: string
   readonly tags: readonly string[]
+  readonly description?: string | null
   readonly image_url?: string | null
   readonly currency: string
   readonly articles: readonly NewSetupPart[]
@@ -2077,6 +2141,12 @@ async function putPhoto(
 // options are written once, here, and used both by the screens' hooks and by
 // `screens/procurement/prefetch.ts`, so a prefetched page is exactly the one
 // the screen asks for (same key, same request) and cannot drift from it.
+//
+// Read with `useSuspenseInfiniteQuery`, which takes no `placeholderData`: the
+// previous answer stays on screen while the next is fetched because the
+// screen reads the book through a deferred scope (`useDeferredValue`). Without
+// it every keystroke would empty the table to a loading line and the screen
+// would flash its way through a word.
 
 /// Rows a page of the supplier book holds.
 export const SUPPLIER_PAGE = 200
@@ -2095,8 +2165,6 @@ export const supplierBookQuery = (scope: SupplierScope) =>
       ),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.next_cursor ?? undefined,
-    // The previous answer stays on screen while the next is fetched.
-    placeholderData: (previous) => previous,
   })
 
 export const orderBookQuery = (scope: PurchaseOrderScope) =>
@@ -2106,10 +2174,40 @@ export const orderBookQuery = (scope: PurchaseOrderScope) =>
       purchaseOrderPage(scope, signal, pageParam),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.next_cursor ?? undefined,
-    // The previous answer stays on screen while the next is fetched. Without
-    // it every keystroke empties the table to a loading line and the screen
-    // flashes its way through a word.
-    placeholderData: (previous) => previous,
+  })
+
+/// Where a purchase order can be delivered, and the first page of the whole
+/// book to count what is on its way to each (Master › Destinations).
+export const purchaseDestinationsQuery = () =>
+  queryOptions({
+    queryKey: procurementKeys.destinations(),
+    queryFn: ({ signal }) => purchaseDestinations(signal),
+  })
+
+export const orderListQuery = () =>
+  queryOptions({
+    queryKey: procurementKeys.orders(),
+    queryFn: ({ signal }) => listPurchaseOrders(undefined, signal),
+  })
+
+/// The deliveries billed at a price the order does not carry, waiting on an
+/// answer (Procurement › Amendments).
+export const priceAmendmentsQuery = () =>
+  queryOptions({
+    queryKey: procurementKeys.amendments(),
+    queryFn: ({ signal }) => pendingPriceAmendments(signal),
+  })
+
+/// The supplier items a search finds, a page at a time (Procurement ›
+/// Catalogue). Read with `useSuspenseInfiniteQuery`: the screen asks through a
+/// deferred scope so the rows in hand stay on screen while the next are read.
+export const supplierItemPagesQuery = (scope: SourcingScope) =>
+  infiniteQueryOptions({
+    queryKey: procurementKeys.sourcing(scope),
+    queryFn: ({ pageParam, signal }) =>
+      searchSupplierItems({ ...scope, cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
   })
 
 /// The suppliers for a picker: names and codes, the whole book. Small, cached
@@ -2140,3 +2238,75 @@ export const supplierPeopleQuery = (id: string) =>
     queryKey: procurementKeys.supplierContacts(id),
     queryFn: ({ signal }) => supplierContacts(id, false, signal),
   })
+
+/// What Jev read from a new item's photo: the division, the main colour, the
+/// size run and the tags it thinks fit, each with how sure it is (owner,
+/// 15 Oct 2026). Codes from our own masters, never new words. The form fills
+/// only what the buyer has not touched and only above its own lines.
+export interface PhotoReading {
+  readonly model: string
+  readonly division: {
+    readonly code: string
+    readonly confidence: number
+  } | null
+  readonly colour: { readonly code: string; readonly confidence: number } | null
+  /// Jev reads only the KIND of sizes (letters, shoe, one, none); the run is
+  /// the one the catalogue uses most for that kind.
+  readonly sizes: {
+    readonly kind: string
+    readonly codes: readonly string[]
+    readonly confidence: number
+  } | null
+  readonly tags: readonly {
+    readonly code: string
+    readonly probability: number
+  }[]
+}
+
+/// Ask the cloud to read a photo (it asks Jev; the key never reaches here).
+/// A node that is not set up for it answers 500 "not configured", which the
+/// form takes as "nothing to suggest".
+export async function readItemPhoto(
+  photo: Blob,
+  name: string,
+  signal?: AbortSignal
+): Promise<PhotoReading> {
+  const image = await photoForModel(photo)
+  return node.post<PhotoReading>(
+    "/api/v1/supplier-items-from-photo",
+    { image_base64: image, format: "jpg", name: name.trim() || null },
+    { signal }
+  )
+}
+
+/// What Jev read from a new article's photo: a name from the Name suggestions
+/// master, and existing articles it may be the same product as — said, never
+/// blocking (owner, 15 Oct 2026: "cuma kasih tau saja").
+export interface ArticlePhotoReading {
+  readonly model: string
+  readonly name: { readonly name: string; readonly confidence: number } | null
+  readonly similar: readonly {
+    readonly article_code: string
+    readonly name: string
+    readonly probability: number
+  }[]
+}
+
+export async function readArticlePhoto(
+  photo: Blob,
+  name: string,
+  division: string | null,
+  signal?: AbortSignal
+): Promise<ArticlePhotoReading> {
+  const image = await photoForModel(photo)
+  return node.post<ArticlePhotoReading>(
+    "/api/v1/article-setups-from-photo",
+    {
+      image_base64: image,
+      format: "jpg",
+      name: name.trim() || null,
+      division_code: division,
+    },
+    { signal }
+  )
+}

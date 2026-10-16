@@ -1,25 +1,40 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useMemo, useState } from "react"
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query"
+import type { ColumnDef, SortingState } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
+import { Suspense, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
+import { DataTable } from "@/components/ui/data-table"
 import { ConfirmButton } from "@/components/ui/dialog"
 import { Checkbox, Field, Input, Select } from "@/components/ui/field"
+import { Fab } from "@/components/ui/fab"
+import {
+  BarSpacer,
+  ColumnsMenu,
+  ExpandingSearch,
+} from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
-import { EmptyState, Problem } from "@/components/ui/states"
+import { Sheet } from "@/components/ui/sheet"
+import { SheetFooter } from "@/components/ui/sheet-footer"
+import { EmptyState, LoadingState, Problem } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { Tag } from "@/components/ui/tag"
-import { Fab } from "@/components/ui/fab"
-import { Sheet } from "@/components/ui/sheet"
-import { label, moment } from "@/lib/format"
+import { count, label, moment } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import {
   financeKeys,
   listHeadOfficeAccounts,
   listSourceRules,
-  postingSwitches,
+  postingSwitchesQuery,
   removeHeadOfficeAccount,
   removeSourceRule,
   setAutomaticPosting,
@@ -28,10 +43,15 @@ import {
   setSourceRule,
 } from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
-import { Code, Grid, Td, Th } from "@/screens/finance-final/parts"
-import { PhoneCard, PhoneList } from "@/components/ui/phone-cards"
+import { tableSetup, type TableSetup } from "@/lib/table"
+import { Code } from "@/screens/finance-final/parts"
+import { useColumnFit } from "@/screens/finance/column-fit"
 import { AccountPicker, type PickedAccount } from "@/screens/finance/parts"
-import type { PostingSwitch } from "@itulah/contract"
+import type {
+  AccountSourceRule,
+  HeadOfficeAccount,
+  PostingSwitch,
+} from "@itulah/contract"
 
 /// The owner's rules about posting, kept as data rather than code.
 ///
@@ -61,28 +81,112 @@ const HO_KINDS = [
 
 type Tab = "switches" | "rules" | "head-office"
 
+const TABS: { value: Tab; label: string; add: string }[] = [
+  { value: "switches", label: "Automatic posting", add: "Add a switch" },
+  { value: "rules", label: "Account source rules", add: "Add a rule" },
+  {
+    value: "head-office",
+    label: "Head-office accounts",
+    add: "Keep an account",
+  },
+]
+
 export function PostingPolicies() {
+  const phone = useLayout() === "phone"
   const [tab, setTab] = useState<Tab>("switches")
+  /// The tab's add form, a sheet from the head's action (the dock's + on a
+  /// phone).
+  const [adding, setAdding] = useState(false)
+  const current = TABS.find((one) => one.value === tab) ?? TABS[0]
+  const change = (next: Tab) => {
+    setTab(next)
+    setAdding(false)
+  }
   return (
     <PageContent>
       <PageHeader
         crumb="Finance · Settings"
         title="Posting Policies"
-        sub="Whether automatic posting runs, which documents may reach which account, and which accounts belong to head office alone."
+        actions={
+          phone ? undefined : (
+            <Button variant="primary" onClick={() => setAdding(true)}>
+              {current.add}
+            </Button>
+          )
+        }
       />
       <SubTabs
-        tabs={[
-          { value: "switches", label: "Automatic posting" },
-          { value: "rules", label: "Account source rules" },
-          { value: "head-office", label: "Head-office accounts" },
-        ]}
+        // The three views are the status button in the dock on a phone.
+        className="max-md:hidden"
+        tabs={TABS.map((one) => ({ value: one.value, label: one.label }))}
         value={tab}
-        onChange={(next) => setTab(next as Tab)}
+        onChange={(next) => change(next as Tab)}
       />
-      {tab === "switches" && <Switches />}
-      {tab === "rules" && <SourceRules />}
-      {tab === "head-office" && <HeadOfficeAccounts />}
+      <Fab label={current.add} onClick={() => setAdding(true)} />
+      <DockTools
+        status={{
+          value: tab,
+          options: TABS.map((one) => ({ value: one.value, label: one.label })),
+          onChange: (next) => change(next as Tab),
+        }}
+      />
+      {tab === "switches" && (
+        <Suspense fallback={<LoadingState>Reading the switches…</LoadingState>}>
+          <Switches adding={adding} setAdding={setAdding} />
+        </Suspense>
+      )}
+      {tab === "rules" && <SourceRules adding={adding} setAdding={setAdding} />}
+      {tab === "head-office" && (
+        <HeadOfficeAccounts adding={adding} setAdding={setAdding} />
+      )}
     </PageContent>
+  )
+}
+
+/// The bar over a tab's table: its search and its columns.
+function TabBar({
+  needle,
+  setNeedle,
+  label: name,
+  table,
+}: {
+  needle: string
+  setNeedle: (value: string) => void
+  label: string
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  table: any
+}) {
+  return (
+    <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2 max-md:hidden">
+      <ExpandingSearch value={needle} onChange={setNeedle} label={name} />
+      <BarSpacer />
+      <ColumnsMenu table={table} />
+    </div>
+  )
+}
+
+/// The Remove button of a row: a quiet word on a desk, the tint button of a
+/// card on a phone.
+function RemoveButton({
+  pending,
+  onClick,
+}: {
+  pending: boolean
+  onClick: () => void
+}) {
+  const phone = useLayout() === "phone"
+  return (
+    <Button
+      size={phone ? "card" : "sm"}
+      variant={phone ? "tint" : "quiet"}
+      pending={pending}
+      onClick={(event) => {
+        event.stopPropagation()
+        onClick()
+      }}
+    >
+      Remove
+    </Button>
   )
 }
 
@@ -90,15 +194,19 @@ export function PostingPolicies() {
 // Automatic posting
 // ---------------------------------------------------------------------------
 
-function Switches() {
-  const phone = useLayout() === "phone"
+function Switches({
+  adding,
+  setAdding,
+}: {
+  adding: boolean
+  setAdding: (open: boolean) => void
+}) {
   const client = useQueryClient()
-  const switches = useQuery({
-    queryKey: financeKeys.postingSwitches(),
-    queryFn: ({ signal }) => postingSwitches(signal),
-  })
+  const switches = useSuspenseQuery(postingSwitchesQuery())
   const [kind, setKind] = useState("")
   const [module, setModule] = useState<string>("FINANCE")
+  const [needle, setNeedle] = useState("")
+  const [sorting, setSorting] = useState<SortingState>([])
 
   const master = useMutation({
     mutationFn: (enabled: boolean) => setAutomaticPosting({ enabled }),
@@ -110,177 +218,207 @@ function Switches() {
     onSuccess: (next) => {
       client.setQueryData(financeKeys.postingSwitches(), next)
       setKind("")
+      setAdding(false)
     },
   })
 
-  return queryState(switches, {
-    loading: "Reading the switches…",
-    render: (data) => {
-      const byModule = new Map<string, PostingSwitch[]>()
-      for (const row of data.sources) {
-        const held = byModule.get(row.module)
-        if (held === undefined) byModule.set(row.module, [row])
-        else held.push(row)
-      }
-      return (
-        <div className="flex flex-col gap-4">
-          <Card className="flex flex-wrap items-center gap-3 p-4">
-            <div className="min-w-0 flex-1">
-              <div className="text-card-title font-semibold text-ink">
-                Automatic posting is{" "}
-                {data.automatic_posting_enabled ? "on" : "off"}
-              </div>
-              <div className="text-[0.875rem] text-mute">
-                Every automatic flow at once. Last changed by {data.changed_by}{" "}
-                · {moment(data.changed_at)}
-              </div>
-            </div>
-            <ConfirmButton
-              label={
-                data.automatic_posting_enabled
-                  ? "Turn everything off"
-                  : "Turn automatic posting on"
-              }
-              title={
-                data.automatic_posting_enabled
-                  ? "Stop every automatic posting?"
-                  : "Start automatic posting?"
-              }
-              description={
-                data.automatic_posting_enabled
-                  ? "Sales days, stock movements, payroll, depreciation and every other flow stop writing to the books until this is turned back on. Nothing already posted changes."
-                  : "Every flow whose own switch is on starts posting again."
-              }
-              confirmLabel={
-                data.automatic_posting_enabled ? "Turn off" : "Turn on"
-              }
-              tone={data.automatic_posting_enabled ? "danger" : "primary"}
-              variant={data.automatic_posting_enabled ? "danger" : "primary"}
-              pending={master.isPending}
-              onConfirm={() => master.mutate(!data.automatic_posting_enabled)}
-            />
-          </Card>
-          <Problem error={master.error ?? one.error} />
+  const rows = switches.data.sources
+  const automatic = switches.data.automatic_posting_enabled
+  const columns = useMemo<ColumnDef<TableSetup, PostingSwitch>[]>(
+    () => [
+      {
+        accessorKey: "source_kind",
+        header: "Document kind",
+        size: 280,
+        meta: { card: "title" },
+        cell: ({ row }) => <Code>{row.original.source_kind}</Code>,
+      },
+      {
+        id: "module",
+        accessorFn: (row) => label(row.module),
+        header: "Module",
+        size: 150,
+        meta: { card: "meta" },
+        cell: ({ row }) => label(row.original.module),
+      },
+      {
+        id: "enabled",
+        accessorFn: (row) => (row.enabled ? "On" : "Off"),
+        header: "Posts",
+        size: 130,
+        meta: { card: "status" },
+        cell: ({ row }) => (
+          <Checkbox
+            label={row.original.enabled ? "On" : "Off"}
+            checked={row.original.enabled}
+            disabled={one.isPending || !automatic}
+            onChange={(enabled) => one.mutate({ ...row.original, enabled })}
+          />
+        ),
+      },
+      {
+        id: "note",
+        accessorFn: (row) => row.note ?? "",
+        header: "Note",
+        size: 360,
+        meta: { card: "meta", grow: 240 },
+        cell: ({ row }) => (
+          <span className="font-normal whitespace-normal text-mute">
+            {row.original.note ?? ""}
+          </span>
+        ),
+      },
+    ],
+    // `one.mutate` is stable; the pending flag and the master switch are
+    // what the checkboxes read.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [one.isPending, automatic]
+  )
+  const phone = useLayout() === "phone"
+  const [measure, fit] = useColumnFit(columns, phone)
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: rows,
+        columns,
+        getRowId: (row: PostingSwitch) => row.source_kind,
+        state: {
+          globalFilter: needle,
+          sorting,
+          columnVisibility: fit.visibility,
+        },
+        onSortingChange: setSorting,
+        onGlobalFilterChange: setNeedle,
+        onColumnVisibilityChange: fit.onChange,
+      }),
+      // `fit` is new each render: the room is measured, and the columns the
+      // card has no room for are given up.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      [rows, columns, needle, sorting, phone, fit]
+    )
+  )
 
-          <Card className="overflow-hidden">
-            <CardHeader>
+  return queryState(switches, {
+    render: (data) => (
+      <>
+        <Card className="mb-4 flex flex-wrap items-center gap-3 p-4">
+          <div className="min-w-0 flex-1">
+            <div className="text-card-title font-semibold text-ink">
+              Automatic posting is{" "}
+              {data.automatic_posting_enabled ? "on" : "off"}
+            </div>
+            <div className="text-[0.9375rem] text-mute">
+              Every automatic flow at once. Last changed by {data.changed_by} ·{" "}
+              {moment(data.changed_at)}
+            </div>
+          </div>
+          <ConfirmButton
+            label={
+              data.automatic_posting_enabled
+                ? "Turn everything off"
+                : "Turn automatic posting on"
+            }
+            title={
+              data.automatic_posting_enabled
+                ? "Stop every automatic posting?"
+                : "Start automatic posting?"
+            }
+            description={
+              data.automatic_posting_enabled
+                ? "Sales days, stock movements, payroll, depreciation and every other flow stop writing to the books until this is turned back on. Nothing already posted changes."
+                : "Every flow whose own switch is on starts posting again."
+            }
+            confirmLabel={
+              data.automatic_posting_enabled ? "Turn off" : "Turn on"
+            }
+            tone={data.automatic_posting_enabled ? "danger" : "primary"}
+            variant={data.automatic_posting_enabled ? "danger" : "primary"}
+            pending={master.isPending}
+            onConfirm={() => master.mutate(!data.automatic_posting_enabled)}
+          />
+        </Card>
+        <Problem error={master.error ?? one.error} />
+
+        <TabBar
+          needle={needle}
+          setNeedle={setNeedle}
+          label="Search switches"
+          table={table}
+        />
+
+        <div ref={measure}>
+          <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+            <CardHeader className="max-md:px-0">
               <CardTitle>Per document kind</CardTitle>
             </CardHeader>
             {data.sources.length === 0 ? (
               <EmptyState>No document kind has a switch of its own.</EmptyState>
-            ) : phone ? (
-              <ul className="flex flex-col">
-                {[...byModule.entries()].map(([group, rows]) => (
-                  <li key={group}>
-                    <div className="border-y border-hairline bg-soft px-4 py-2 text-[0.875rem] font-semibold text-ink first:border-t-0">
-                      {label(group)}
-                    </div>
-                    <ul>
-                      {rows.map((row) => (
-                        <li
-                          key={row.source_kind}
-                          className="flex items-center justify-between gap-3 border-b border-hairline px-4 py-3 last:border-b-0"
-                        >
-                          <div className="min-w-0">
-                            <Code>{row.source_kind}</Code>
-                            {row.note && (
-                              <div className="text-[0.875rem] break-words text-mute">
-                                {row.note}
-                              </div>
-                            )}
-                          </div>
-                          <Checkbox
-                            label={row.enabled ? "On" : "Off"}
-                            checked={row.enabled}
-                            disabled={
-                              one.isPending || !data.automatic_posting_enabled
-                            }
-                            onChange={(enabled) =>
-                              one.mutate({ ...row, enabled })
-                            }
-                          />
-                        </li>
-                      ))}
-                    </ul>
-                  </li>
-                ))}
-              </ul>
             ) : (
-              <Grid>
-                <thead>
-                  <tr>
-                    <Th>Module</Th>
-                    <Th>Document kind</Th>
-                    <Th>Posts</Th>
-                    <Th>Note</Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[...byModule.entries()].map(([group, rows]) =>
-                    rows.map((row, index) => (
-                      <tr key={row.source_kind}>
-                        <Td>{index === 0 ? label(group) : ""}</Td>
-                        <Td>
-                          <Code>{row.source_kind}</Code>
-                        </Td>
-                        <Td>
-                          <Checkbox
-                            label={row.enabled ? "On" : "Off"}
-                            checked={row.enabled}
-                            disabled={
-                              one.isPending || !data.automatic_posting_enabled
-                            }
-                            onChange={(enabled) =>
-                              one.mutate({ ...row, enabled })
-                            }
-                          />
-                        </Td>
-                        <Td>
-                          <span className="text-mute">{row.note ?? ""}</span>
-                        </Td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </Grid>
+              <DataTable<PostingSwitch>
+                table={table}
+                refresh={[switches]}
+                empty="No switch matches the search."
+                pageScroll
+                cardsApart
+                cardSort={false}
+                summary={{
+                  source_kind: (
+                    <span>
+                      {count(table.getRowModel().rows.length)}{" "}
+                      <span className="font-normal text-body">switches</span>
+                    </span>
+                  ),
+                }}
+              />
             )}
-            <div className="flex flex-wrap items-end gap-2 border-t border-hairline p-4 max-md:[&>*]:w-full">
-              <Field label="Document kind" required className="w-56">
-                <Input
-                  value={kind}
-                  onChange={(event) =>
-                    setKind(event.target.value.toUpperCase())
-                  }
-                />
-              </Field>
-              <Field label="Module" className="w-44">
-                <Select value={module} onChange={setModule}>
-                  {MODULES.map((one) => (
-                    <option key={one} value={one}>
-                      {label(one)}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-              <Button
-                pending={one.isPending}
-                disabled={kind.trim() === ""}
-                onClick={() =>
+          </Card>
+        </div>
+
+        <Sheet
+          open={adding}
+          onOpenChange={setAdding}
+          title="Add a switch"
+          size="rail"
+          footer={
+            <SheetFooter
+              onCancel={() => setAdding(false)}
+              error={one.error}
+              primary={{
+                label: "Submit",
+                pending: one.isPending,
+                disabled: kind.trim() === "",
+                onClick: () =>
                   one.mutate({
                     source_kind: kind.trim(),
                     module,
                     enabled: true,
                     note: null,
-                  })
-                }
-              >
-                Add a switch
-              </Button>
-            </div>
-          </Card>
-        </div>
-      )
-    },
+                  }),
+              }}
+            />
+          }
+        >
+          <div className="flex flex-col gap-3">
+            <Field label="Document kind" required>
+              <Input
+                value={kind}
+                onChange={(event) => setKind(event.target.value.toUpperCase())}
+              />
+            </Field>
+            <Field label="Module">
+              <Select value={module} onChange={setModule}>
+                {MODULES.map((one) => (
+                  <option key={one} value={one}>
+                    {label(one)}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          </div>
+        </Sheet>
+      </>
+    ),
   })
 }
 
@@ -299,7 +437,7 @@ function ChosenAccount({
   return (
     <span className="flex min-w-0 items-center gap-2">
       <Tag>{value.account_code}</Tag>
-      <span className="min-w-0 flex-1 truncate text-[0.875rem] text-ink">
+      <span className="min-w-0 flex-1 truncate text-[0.9375rem] text-ink">
         {value.name}
       </span>
       <Button size="sm" variant="quiet" onClick={() => onChange(null)}>
@@ -309,10 +447,16 @@ function ChosenAccount({
   )
 }
 
-function SourceRules() {
-  const phone = useLayout() === "phone"
-  /// The phone's form is a sheet the dock's + opens.
-  const [adding, setAdding] = useState(false)
+const ruleKey = (rule: AccountSourceRule) =>
+  `${rule.account_code}\t${rule.source_kind}\t${rule.category_code ?? ""}`
+
+function SourceRules({
+  adding,
+  setAdding,
+}: {
+  adding: boolean
+  setAdding: (open: boolean) => void
+}) {
   const client = useQueryClient()
   const rules = useQuery({
     queryKey: financeKeys.sourceRules(),
@@ -323,6 +467,8 @@ function SourceRules() {
   const [effect, setEffect] = useState("ALLOW")
   const [category, setCategory] = useState("")
   const [note, setNote] = useState("")
+  const [needle, setNeedle] = useState("")
+  const [sorting, setSorting] = useState<SortingState>([])
 
   const add = useMutation({
     mutationFn: () =>
@@ -357,174 +503,196 @@ function SourceRules() {
     [rules.data]
   )
 
-  /// The form's fields, once: in a card beside the list on a desk, in a sheet
-  /// on a phone.
-  const fields = (
-    <>
-      <p className="text-[0.875rem] text-body">
-        An account with any ALLOW takes only the kinds allowed. A DENY keeps a
-        kind out, and wins over an ALLOW.
-      </p>
-      <Problem error={add.error} />
-      <Field label="Account" required>
-        <ChosenAccount value={account} onChange={setAccount} />
-      </Field>
-      <Field
-        label="Document kind"
-        required
-        hint="journal_entry.source_kind, e.g. CASH_SHIFT"
-      >
-        <Input value={kind} onChange={(event) => setKind(event.target.value)} />
-      </Field>
-      <Field label="Effect">
-        <Select value={effect} onChange={setEffect}>
-          <option value="ALLOW">Allow — only the kinds allowed</option>
-          <option value="DENY">Deny — never this kind</option>
-        </Select>
-      </Field>
-      <Field label="Category">
-        <Input
-          value={category}
-          onChange={(event) => setCategory(event.target.value)}
-        />
-      </Field>
-      <Field label="Note">
-        <Input value={note} onChange={(event) => setNote(event.target.value)} />
-      </Field>
-    </>
+  const columns = useMemo<ColumnDef<TableSetup, AccountSourceRule>[]>(
+    () => [
+      {
+        accessorKey: "account_code",
+        header: "Account",
+        size: 150,
+        meta: { card: "title" },
+        cell: ({ row }) => <Code>{row.original.account_code}</Code>,
+      },
+      {
+        accessorKey: "source_kind",
+        header: "Document kind",
+        size: 230,
+        meta: { card: "meta" },
+        cell: ({ row }) => <Code>{row.original.source_kind}</Code>,
+      },
+      {
+        accessorKey: "effect",
+        header: "Effect",
+        size: 130,
+        meta: { card: "lead" },
+        cell: ({ row }) => (
+          <Pill tone={row.original.effect === "DENY" ? "bad" : "ok"}>
+            {label(row.original.effect)}
+          </Pill>
+        ),
+      },
+      {
+        id: "category",
+        accessorFn: (row) => row.category_code ?? "",
+        header: "Category",
+        size: 160,
+        meta: { card: "meta", priority: 2 },
+        cell: ({ row }) =>
+          row.original.category_code ?? <span className="text-faint">Any</span>,
+      },
+      {
+        id: "note",
+        accessorFn: (row) => row.note ?? "",
+        header: "Note",
+        size: 280,
+        meta: { card: "meta", grow: 200, priority: 2 },
+        cell: ({ row }) => (
+          <span className="font-normal whitespace-normal text-mute">
+            {row.original.note ?? ""}
+          </span>
+        ),
+      },
+      {
+        id: "remove",
+        header: "",
+        size: 110,
+        enableSorting: false,
+        enableHiding: false,
+        meta: { align: "right", card: "status" },
+        cell: ({ row }) => (
+          <RemoveButton
+            pending={remove.isPending}
+            onClick={() => remove.mutate(row.original)}
+          />
+        ),
+      },
+    ],
+    // `remove.mutate` is stable; the pending flag is what the button shows.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [remove.isPending]
   )
-  const submit = (
-    <Button
-      variant="primary"
-      pending={add.isPending}
-      disabled={account === null || kind.trim() === ""}
-      onClick={() => add.mutate()}
-    >
-      {add.isPending ? "Submitting…" : "Submit"}
-    </Button>
+  const phone = useLayout() === "phone"
+  const [measure, fit] = useColumnFit(columns, phone)
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: sorted,
+        columns,
+        getRowId: ruleKey,
+        state: {
+          globalFilter: needle,
+          sorting,
+          columnVisibility: fit.visibility,
+        },
+        onSortingChange: setSorting,
+        onGlobalFilterChange: setNeedle,
+        onColumnVisibilityChange: fit.onChange,
+      }),
+      // `fit` is new each render: the room is measured, and the columns the
+      // card has no room for are given up.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      [sorted, columns, needle, sorting, phone, fit]
+    )
   )
 
   return (
-    <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
-      {phone && (
-        <>
-          <Fab label="Add a rule" onClick={() => setAdding(true)} />
-          <Sheet
-            open={adding}
-            onOpenChange={setAdding}
-            title="Add a rule"
-            footer={<div className="flex justify-end">{submit}</div>}
-          >
-            <div className="flex flex-col gap-3">{fields}</div>
-          </Sheet>
-        </>
-      )}
-      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-        {queryState(rules, {
-          loading: "Reading the rules…",
-          render: () =>
-            sorted.length === 0 ? (
-              <EmptyState>
-                No rule: every document kind may reach every account.
-              </EmptyState>
-            ) : phone ? (
-              <PhoneList>
-                {sorted.map((rule) => (
-                  <PhoneCard
-                    key={`${rule.account_code}\t${rule.source_kind}\t${rule.category_code ?? ""}`}
-                    title={
-                      <span className="font-mono">{rule.account_code}</span>
-                    }
-                    line={[
-                      rule.source_kind,
-                      rule.category_code === null
-                        ? null
-                        : `Category ${rule.category_code}`,
-                      rule.note,
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")}
-                    lead={
-                      <Pill tone={rule.effect === "DENY" ? "bad" : "ok"}>
-                        {label(rule.effect)}
-                      </Pill>
-                    }
-                    action={
-                      <Button
-                        size="card"
-                        variant="tint"
-                        pending={remove.isPending}
-                        onClick={() => remove.mutate(rule)}
-                      >
-                        Remove
-                      </Button>
-                    }
-                  />
-                ))}
-              </PhoneList>
-            ) : (
-              <Grid>
-                <thead>
-                  <tr>
-                    <Th>Account</Th>
-                    <Th>Document kind</Th>
-                    <Th>Effect</Th>
-                    <Th>Category</Th>
-                    <Th>Note</Th>
-                    <Th />
-                  </tr>
-                </thead>
-                <tbody>
-                  {sorted.map((rule) => (
-                    <tr
-                      key={`${rule.account_code}\t${rule.source_kind}\t${rule.category_code ?? ""}`}
-                    >
-                      <Td>
-                        <Code>{rule.account_code}</Code>
-                      </Td>
-                      <Td>
-                        <Code>{rule.source_kind}</Code>
-                      </Td>
-                      <Td>
-                        <Pill tone={rule.effect === "DENY" ? "bad" : "ok"}>
-                          {label(rule.effect)}
-                        </Pill>
-                      </Td>
-                      <Td>
-                        {rule.category_code ?? (
-                          <span className="text-faint">Any</span>
-                        )}
-                      </Td>
-                      <Td>
-                        <span className="text-mute">{rule.note ?? ""}</span>
-                      </Td>
-                      <Td align="right">
-                        <Button
-                          size="sm"
-                          variant="quiet"
-                          pending={remove.isPending}
-                          onClick={() => remove.mutate(rule)}
-                        >
-                          Remove
-                        </Button>
-                      </Td>
-                    </tr>
-                  ))}
-                </tbody>
-              </Grid>
-            ),
-        })}
-        <Problem error={remove.error} className="m-3" />
-      </Card>
-
-      {!phone && (
-        <Card className="flex flex-col gap-3 p-4">
-          <h3 className="text-card-title font-semibold text-ink">Add a rule</h3>
-          {fields}
-          <div className="flex justify-end">{submit}</div>
+    <>
+      <TabBar
+        needle={needle}
+        setNeedle={setNeedle}
+        label="Search rules"
+        table={table}
+      />
+      <div ref={measure}>
+        <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+          {queryState(rules, {
+            loading: "Reading the rules…",
+            render: () =>
+              sorted.length === 0 ? (
+                <EmptyState>
+                  No rule: every document kind may reach every account.
+                </EmptyState>
+              ) : (
+                <DataTable<AccountSourceRule>
+                  table={table}
+                  refresh={[rules]}
+                  empty="No rule matches the search."
+                  pageScroll
+                  cardsApart
+                  cardLead
+                  cardSort={false}
+                  summary={{
+                    account_code: (
+                      <span>
+                        {count(table.getRowModel().rows.length)}{" "}
+                        <span className="font-normal text-body">rules</span>
+                      </span>
+                    ),
+                  }}
+                />
+              ),
+          })}
+          <Problem error={remove.error} className="m-3" />
         </Card>
-      )}
-    </div>
+      </div>
+
+      <Sheet
+        open={adding}
+        onOpenChange={setAdding}
+        title="Add a rule"
+        size="rail"
+        footer={
+          <SheetFooter
+            onCancel={() => setAdding(false)}
+            error={add.error}
+            primary={{
+              label: "Submit",
+              pending: add.isPending,
+              disabled: account === null || kind.trim() === "",
+              onClick: () => add.mutate(),
+            }}
+          />
+        }
+      >
+        <div className="flex flex-col gap-3">
+          <p className="text-[0.9375rem] text-body">
+            An account with any ALLOW takes only the kinds allowed. A DENY keeps
+            a kind out, and wins over an ALLOW.
+          </p>
+          <Field label="Account" required>
+            <ChosenAccount value={account} onChange={setAccount} />
+          </Field>
+          <Field
+            label="Document kind"
+            required
+            hint="journal_entry.source_kind, e.g. CASH_SHIFT"
+          >
+            <Input
+              value={kind}
+              onChange={(event) => setKind(event.target.value)}
+            />
+          </Field>
+          <Field label="Effect">
+            <Select value={effect} onChange={setEffect}>
+              <option value="ALLOW">Allow — only the kinds allowed</option>
+              <option value="DENY">Deny — never this kind</option>
+            </Select>
+          </Field>
+          <Field label="Category">
+            <Input
+              value={category}
+              onChange={(event) => setCategory(event.target.value)}
+            />
+          </Field>
+          <Field label="Note">
+            <Input
+              value={note}
+              onChange={(event) => setNote(event.target.value)}
+            />
+          </Field>
+        </div>
+      </Sheet>
+    </>
   )
 }
 
@@ -532,9 +700,13 @@ function SourceRules() {
 // Head-office accounts
 // ---------------------------------------------------------------------------
 
-function HeadOfficeAccounts() {
-  const phone = useLayout() === "phone"
-  const [adding, setAdding] = useState(false)
+function HeadOfficeAccounts({
+  adding,
+  setAdding,
+}: {
+  adding: boolean
+  setAdding: (open: boolean) => void
+}) {
   const client = useQueryClient()
   const accounts = useQuery({
     queryKey: financeKeys.headOfficeAccounts(),
@@ -543,6 +715,8 @@ function HeadOfficeAccounts() {
   const [account, setAccount] = useState<PickedAccount | null>(null)
   const [kind, setKind] = useState<string>("SUPPLIER")
   const [note, setNote] = useState("")
+  const [needle, setNeedle] = useState("")
+  const [sorting, setSorting] = useState<SortingState>([])
 
   const add = useMutation({
     mutationFn: () =>
@@ -564,136 +738,163 @@ function HeadOfficeAccounts() {
       client.setQueryData(financeKeys.headOfficeAccounts(), rows),
   })
 
-  const fields = (
-    <>
-      <p className="text-[0.875rem] text-body">
-        A store's document that lands on it is refused: suppliers, banks, tax
-        and lenders are head office's to settle.
-      </p>
-      <Problem error={add.error} />
-      <Field label="Account" required>
-        <ChosenAccount value={account} onChange={setAccount} />
-      </Field>
-      <Field label="Kind">
-        <Select value={kind} onChange={setKind}>
-          {HO_KINDS.map((one) => (
-            <option key={one} value={one}>
-              {label(one)}
-            </option>
-          ))}
-        </Select>
-      </Field>
-      <Field label="Why" required>
-        <Input value={note} onChange={(event) => setNote(event.target.value)} />
-      </Field>
-    </>
+  const rows = useMemo(() => accounts.data ?? [], [accounts.data])
+  const columns = useMemo<ColumnDef<TableSetup, HeadOfficeAccount>[]>(
+    () => [
+      {
+        accessorKey: "account_code",
+        header: "Account",
+        size: 170,
+        meta: { card: "title" },
+        cell: ({ row }) => <Code>{row.original.account_code}</Code>,
+      },
+      {
+        id: "kind",
+        accessorFn: (row) => label(row.kind),
+        header: "Kind",
+        size: 160,
+        meta: { card: "meta" },
+        cell: ({ row }) => label(row.original.kind),
+      },
+      {
+        accessorKey: "note",
+        header: "Why",
+        size: 420,
+        meta: { card: "meta", grow: 240 },
+        cell: ({ row }) => (
+          <span className="font-normal whitespace-normal text-body">
+            {row.original.note}
+          </span>
+        ),
+      },
+      {
+        id: "remove",
+        header: "",
+        size: 110,
+        enableSorting: false,
+        enableHiding: false,
+        meta: { align: "right", card: "status" },
+        cell: ({ row }) => (
+          <RemoveButton
+            pending={remove.isPending}
+            onClick={() => remove.mutate(row.original.account_code)}
+          />
+        ),
+      },
+    ],
+    // `remove.mutate` is stable; the pending flag is what the button shows.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [remove.isPending]
   )
-  const submit = (
-    <Button
-      variant="primary"
-      pending={add.isPending}
-      disabled={account === null || note.trim() === ""}
-      onClick={() => add.mutate()}
-    >
-      {add.isPending ? "Submitting…" : "Submit"}
-    </Button>
+  const phone = useLayout() === "phone"
+  const [measure, fit] = useColumnFit(columns, phone)
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: rows,
+        columns,
+        getRowId: (row: HeadOfficeAccount) => row.account_code,
+        state: {
+          globalFilter: needle,
+          sorting,
+          columnVisibility: fit.visibility,
+        },
+        onSortingChange: setSorting,
+        onGlobalFilterChange: setNeedle,
+        onColumnVisibilityChange: fit.onChange,
+      }),
+      // `fit` is new each render: the room is measured, and the columns the
+      // card has no room for are given up.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      [rows, columns, needle, sorting, phone, fit]
+    )
   )
 
   return (
-    <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
-      {phone && (
-        <>
-          <Fab label="Keep an account" onClick={() => setAdding(true)} />
-          <Sheet
-            open={adding}
-            onOpenChange={setAdding}
-            title="Keep an account for head office"
-            footer={<div className="flex justify-end">{submit}</div>}
-          >
-            <div className="flex flex-col gap-3">{fields}</div>
-          </Sheet>
-        </>
-      )}
-      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-        {queryState(accounts, {
-          loading: "Reading the head-office accounts…",
-          render: (rows) =>
-            rows.length === 0 ? (
-              <EmptyState>
-                No account is kept for head office alone: a store's document may
-                post to any account.
-              </EmptyState>
-            ) : phone ? (
-              <PhoneList>
-                {rows.map((row) => (
-                  <PhoneCard
-                    key={row.account_code}
-                    title={
-                      <span className="font-mono">{row.account_code}</span>
-                    }
-                    line={row.note}
-                    foot={label(row.kind)}
-                    action={
-                      <Button
-                        size="card"
-                        variant="tint"
-                        pending={remove.isPending}
-                        onClick={() => remove.mutate(row.account_code)}
-                      >
-                        Remove
-                      </Button>
-                    }
-                  />
-                ))}
-              </PhoneList>
-            ) : (
-              <Grid>
-                <thead>
-                  <tr>
-                    <Th>Account</Th>
-                    <Th>Kind</Th>
-                    <Th>Why</Th>
-                    <Th />
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row) => (
-                    <tr key={row.account_code}>
-                      <Td>
-                        <Code>{row.account_code}</Code>
-                      </Td>
-                      <Td>{label(row.kind)}</Td>
-                      <Td>
-                        <span className="text-body">{row.note}</span>
-                      </Td>
-                      <Td align="right">
-                        <Button
-                          size="sm"
-                          variant="quiet"
-                          pending={remove.isPending}
-                          onClick={() => remove.mutate(row.account_code)}
-                        >
-                          Remove
-                        </Button>
-                      </Td>
-                    </tr>
-                  ))}
-                </tbody>
-              </Grid>
-            ),
-        })}
-        <Problem error={remove.error} className="m-3" />
-      </Card>
-
-      {!phone && (
-        <Card className="flex flex-col gap-3 p-4">
-          <h3 className="text-card-title font-semibold text-ink">
-            Keep an account for head office
-          </h3>
-          {fields}
-          <div className="flex justify-end">{submit}</div>
+    <>
+      <TabBar
+        needle={needle}
+        setNeedle={setNeedle}
+        label="Search accounts"
+        table={table}
+      />
+      <div ref={measure}>
+        <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+          {queryState(accounts, {
+            loading: "Reading the head-office accounts…",
+            render: () =>
+              rows.length === 0 ? (
+                <EmptyState>
+                  No account is kept for head office alone: a store's document
+                  may post to any account.
+                </EmptyState>
+              ) : (
+                <DataTable<HeadOfficeAccount>
+                  table={table}
+                  refresh={[accounts]}
+                  empty="No account matches the search."
+                  pageScroll
+                  cardsApart
+                  cardSort={false}
+                  summary={{
+                    account_code: (
+                      <span>
+                        {count(table.getRowModel().rows.length)}{" "}
+                        <span className="font-normal text-body">accounts</span>
+                      </span>
+                    ),
+                  }}
+                />
+              ),
+          })}
+          <Problem error={remove.error} className="m-3" />
         </Card>
-      )}
-    </div>
+      </div>
+
+      <Sheet
+        open={adding}
+        onOpenChange={setAdding}
+        title="Keep an account for head office"
+        size="rail"
+        footer={
+          <SheetFooter
+            onCancel={() => setAdding(false)}
+            error={add.error}
+            primary={{
+              label: "Submit",
+              pending: add.isPending,
+              disabled: account === null || note.trim() === "",
+              onClick: () => add.mutate(),
+            }}
+          />
+        }
+      >
+        <div className="flex flex-col gap-3">
+          <p className="text-[0.9375rem] text-body">
+            A store's document that lands on it is refused: suppliers, banks,
+            tax and lenders are head office's to settle.
+          </p>
+          <Field label="Account" required>
+            <ChosenAccount value={account} onChange={setAccount} />
+          </Field>
+          <Field label="Kind">
+            <Select value={kind} onChange={setKind}>
+              {HO_KINDS.map((one) => (
+                <option key={one} value={one}>
+                  {label(one)}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Why" required>
+            <Input
+              value={note}
+              onChange={(event) => setNote(event.target.value)}
+            />
+          </Field>
+        </div>
+      </Sheet>
+    </>
   )
 }

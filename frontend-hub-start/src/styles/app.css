@@ -1,0 +1,186 @@
+:root {
+  --ink: #1c1917;
+  --body: #44403c;
+  --mute: #78716c;
+  --line: #e7e5e4;
+  --paper: #fafaf9;
+  --card: #ffffff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--paper);
+}
+
+body {
+  margin: 0;
+  font-family:
+    InterVariable, Inter, system-ui, -apple-system, "Segoe UI", Roboto,
+    sans-serif;
+  color: var(--body);
+  -webkit-font-smoothing: antialiased;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.875rem 1.5rem;
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
+}
+
+.topbar-mark {
+  font-weight: 650;
+  color: var(--ink);
+  letter-spacing: -0.02em;
+}
+
+.topbar-surface {
+  font-size: 0.8125rem;
+  color: var(--mute);
+}
+
+.page {
+  max-width: 52rem;
+  margin: 0 auto;
+  padding: 1.5rem 1.5rem 4rem;
+}
+
+.page-narrow {
+  max-width: 22rem;
+}
+
+.greeting {
+  margin: 1.5rem 0 0;
+  font-size: 1.75rem;
+  font-weight: 600;
+  letter-spacing: -0.024em;
+  color: var(--ink);
+  line-height: 1.1;
+}
+
+.mute {
+  color: var(--mute);
+  font-weight: 500;
+}
+
+.sub {
+  margin: 0.5rem 0 0;
+  color: var(--body);
+}
+
+.cards {
+  margin-top: 1.5rem;
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 1rem 1.125rem;
+}
+
+.card h2 {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--mute);
+}
+
+.card p {
+  margin: 0.5rem 0 0;
+  line-height: 1.55;
+}
+
+.figure {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.prompts {
+  margin: 1.25rem 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.prompts li {
+  font-size: 0.875rem;
+  color: var(--mute);
+}
+
+.prompts li::before {
+  content: "? ";
+  color: var(--line);
+}
+
+.loading {
+  padding: 2rem 0;
+  color: var(--mute);
+}
+
+.login {
+  margin-top: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+}
+
+.login label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  font-size: 0.875rem;
+  font-weight: 550;
+  color: var(--ink);
+}
+
+.login input {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.5625rem 0.75rem;
+  font: inherit;
+  background: var(--paper);
+}
+
+.login input:focus {
+  outline: 2px solid var(--ink);
+  outline-offset: 0;
+}
+
+.login button {
+  border: 0;
+  border-radius: 8px;
+  padding: 0.625rem 0.875rem;
+  font: inherit;
+  font-weight: 600;
+  color: var(--paper);
+  background: var(--ink);
+  cursor: pointer;
+}
+
+.login button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.error {
+  margin: 0;
+  font-size: 0.875rem;
+  color: #b91c1c;
+}

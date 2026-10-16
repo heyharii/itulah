@@ -13,6 +13,7 @@ export interface SetupDraft {
   readonly nextTabId: number
   readonly name: string
   readonly division: string
+  readonly description?: string
   readonly tags: readonly string[]
   readonly pricing: Pricing
 }

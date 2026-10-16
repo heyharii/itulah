@@ -1,5 +1,6 @@
 import {
   ArrowLeftRight,
+  BookOpenCheck,
   Boxes,
   CalendarClock,
   ClipboardCheck,
@@ -84,10 +85,19 @@ export const inventoryNav: AppModule = {
         },
         { path: "/inventory/pools", label: "Pools", icon: Boxes, hidden: true },
         { path: "/inventory/counts", label: "Counts", icon: ClipboardCheck },
+        // The stock card took Movements' row (owner, 16 Oct 2026): Inventory
+        // reads the period's equation and the balance after every line; the
+        // raw ledger stays routed and in ⌘K for whoever checks a posting.
+        {
+          path: "/inventory/stock-card",
+          label: "Stock card",
+          icon: BookOpenCheck,
+        },
         {
           path: "/inventory/movements",
           label: "Movements",
           icon: ArrowLeftRight,
+          hidden: true,
         },
         {
           path: "/inventory/observations",

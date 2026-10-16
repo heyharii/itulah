@@ -344,7 +344,7 @@ export function Journal() {
         <Toolbar.Spacer />
         {/* The window is stated rather than implied, and so is everything else
             narrowing the list, and how many entries the server found. */}
-        <span className="text-[0.875rem] text-mute">
+        <span className="text-[0.9375rem] text-mute">
           {range.chip}
           {kind !== "" &&
             ` · ${SOURCE_KINDS.find((row) => row.value === kind)?.label}`}
@@ -381,6 +381,7 @@ export function Journal() {
               </EmptyState>
             ) : (
               <DataTable<JournalEntryRow>
+                refresh={[entries]}
                 table={table}
                 onRowClick={(row) => entry.open(row.entry_id)}
                 isSelected={(row) => row.entry_id === entry.value}
@@ -451,7 +452,7 @@ function EntrySheet({
               onChange={(event) => setReason(event.target.value)}
             />
             <div className="flex items-center justify-between gap-2">
-              <span className="text-[0.875rem] text-mute">
+              <span className="text-[0.9375rem] text-mute">
                 The reason is the only record of why.
               </span>
               <Button
@@ -525,7 +526,7 @@ function EntrySheet({
                     className="border-t border-hairline"
                   >
                     <td className="py-2 pr-2">
-                      <span className="block text-[0.875rem] text-ink">
+                      <span className="block text-[0.9375rem] text-ink">
                         {line.account_name}
                         {/* The category is what the account code used to say
                             on its own. Without it an expense entry is eight
@@ -547,17 +548,17 @@ function EntrySheet({
                       <AppLink
                         to="/finance/ledger"
                         sheet={{ key: "account", value: line.account_code }}
-                        className="font-mono text-[0.875rem] text-mute hover:text-accent hover:underline"
+                        className="font-mono text-[0.9375rem] text-mute hover:text-accent hover:underline"
                       >
                         {line.account_code}
                       </AppLink>
                       {line.memo && (
-                        <span className="block text-[0.875rem] text-mute">
+                        <span className="block text-[0.9375rem] text-mute">
                           {line.memo}
                         </span>
                       )}
                     </td>
-                    <td className="py-2 text-right text-[0.875rem] text-body">
+                    <td className="py-2 text-right text-[0.9375rem] text-body">
                       <UnitName id={line.unit_id} />
                     </td>
                     <td className="py-2 text-right tabular-nums">
@@ -775,7 +776,7 @@ function ComposerSheet({
         <form.Subscribe selector={(state) => entryTotals(state.values)}>
           {(totals) => (
             <div className="flex items-center justify-between gap-3">
-              <span className="text-[0.875rem] text-mute tabular-nums">
+              <span className="text-[0.9375rem] text-mute tabular-nums">
                 {totals.balanced
                   ? `Balanced at ${money(totals.debits)}`
                   : totals.usable.length === 0

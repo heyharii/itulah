@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query"
-import { useState } from "react"
+import { useQuery, useSuspenseQuery } from "@tanstack/react-query"
+import { useState, Suspense } from "react"
 
 import type { LoanView } from "@itulah/contract"
 
@@ -11,18 +11,12 @@ import { Card } from "@/components/ui/card"
 import { Field } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { PickOne } from "@/components/ui/pick"
-import { Pill } from "@/components/ui/pill"
+import { Status } from "@/components/ui/pill"
 import { MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
 import { Sheet } from "@/components/ui/sheet"
 import { EmptyState } from "@/components/ui/states"
 import { money } from "@/lib/format"
-import {
-  allLoans,
-  listEmployees,
-  payKeys,
-  peopleKeys,
-} from "@/lib/queries/people"
-import { queryState } from "@/lib/query-state"
+import { listEmployees, peopleKeys, allLoansQuery } from "@/lib/queries/people"
 import { useCanWrite } from "@/lib/session"
 import { GrantLoan, LoanCard } from "@/screens/people/loans"
 import {
@@ -31,16 +25,18 @@ import {
   CardName,
   PhoneCards,
 } from "@/components/ui/phone-cards"
+import { awaiting } from "@/screens/people/awaiting"
 
-/// Claims & loans › Loans — every loan in the company, one row each, as
-/// Talenta's Loan lays them out: an amount lent, repaid by a fixed deduction
-/// every month until nothing is owed. A row opens the loan, where the
-/// instalments can be stopped; Grant loan opens the grant form.
-function loanPill(loan: LoanView) {
-  if (loan.outstanding_minor === 0) return <Pill tone="ok">Repaid</Pill>
-  if (loan.stopped) return <Pill tone="warn">Stopped</Pill>
-  if (loan.status === "APPROVED") return <Pill tone="info">Not paid out</Pill>
-  return <Pill tone="info">Repaying</Pill>
+/// Pay › Loans — every loan in the company, one row each, as Talenta's Loan
+/// lays them out: an amount lent, repaid by a fixed deduction every month
+/// until nothing is owed. A row opens the loan, where the instalments can be
+/// stopped; Grant loan opens the grant form.
+function loanStatus(loan: LoanView) {
+  if (loan.outstanding_minor === 0) return <Status tone="done">Repaid</Status>
+  if (loan.stopped) return <Status tone="warn">Stopped</Status>
+  if (loan.status === "APPROVED")
+    return <Status tone="info">Not paid out</Status>
+  return <Status tone="info">Repaying</Status>
 }
 
 export function Loans() {
@@ -49,20 +45,11 @@ export function Loans() {
   const [granting, setGranting] = useState(false)
   const [openId, setOpenId] = useState<string | null>(null)
 
-  const loans = useQuery({
-    queryKey: payKeys.allLoans(),
-    queryFn: ({ signal }) => allLoans(signal),
-  })
-  const rows = loans.data ?? []
-  const open = rows.find((row) => row.advance_id === openId) ?? null
-
   return (
     <PageContent>
       {canWrite && <Fab label="Grant loan" onClick={() => setGranting(true)} />}
       <PageHeader
-        crumb="People"
         title="Loans"
-        sub="Every loan: what was lent, what has come back from pay, and what is still owed."
         actions={
           !phone &&
           canWrite && (
@@ -74,14 +61,11 @@ export function Loans() {
       />
 
       <Card className="overflow-hidden px-4 py-2 max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:p-0 max-md:shadow-none">
-        {queryState(loans, {
+        {awaiting(allLoansQuery(), {
           loading: "Reading the loans…",
-          render: () =>
+          render: (rows) =>
             rows.length === 0 ? (
-              <EmptyState>
-                No loan has been granted. Use Grant loan to lend someone money
-                that is repaid from pay in fixed monthly instalments.
-              </EmptyState>
+              <EmptyState>No loan has been granted.</EmptyState>
             ) : phone ? (
               <PhoneCards
                 rows={rows}
@@ -111,7 +95,7 @@ export function Loans() {
                       tone={loan.outstanding_minor === 0 ? "quiet" : undefined}
                     />
                   ),
-                  foot: (loan) => loanPill(loan),
+                  foot: (loan) => loanStatus(loan),
                   action: (loan) => (
                     <CardButton
                       label="Open"
@@ -138,14 +122,9 @@ export function Loans() {
                       <button
                         type="button"
                         onClick={() => setOpenId(loan.advance_id)}
-                        className="text-left hover:underline"
+                        className="text-left text-[0.9375rem] text-ink hover:underline"
                       >
-                        <span className="block text-[0.875rem] text-ink">
-                          {loan.full_name ?? loan.employee_code}
-                        </span>
-                        <span className="font-mono text-[0.875rem] text-mute">
-                          {loan.advance_number}
-                        </span>
+                        {loan.full_name ?? loan.employee_code}
                       </button>
                     </MiniCell>
                     <MiniCell>{loan.purpose}</MiniCell>
@@ -158,7 +137,7 @@ export function Loans() {
                     <MiniCell align="right">
                       {money(loan.outstanding_minor)}
                     </MiniCell>
-                    <MiniCell>{loanPill(loan)}</MiniCell>
+                    <MiniCell>{loanStatus(loan)}</MiniCell>
                   </MiniRow>
                 ))}
               </MiniTable>
@@ -167,19 +146,37 @@ export function Loans() {
       </Card>
 
       {granting && <GrantSheet onClose={() => setGranting(false)} />}
-      {open !== null && (
-        <Sheet
-          open
-          onOpenChange={(next) => {
-            if (!next) setOpenId(null)
-          }}
-          id={open.advance_number}
-          title={open.full_name ?? open.employee_code}
-        >
-          <LoanCard loan={open} employeeId={open.employee_id} />
-        </Sheet>
+      {/* The sheet finds its loan in the list, so it reads the list itself. */}
+      {openId !== null && (
+        <Suspense fallback={null}>
+          <LoanSheet openId={openId} onClose={() => setOpenId(null)} />
+        </Suspense>
       )}
     </PageContent>
+  )
+}
+
+function LoanSheet({
+  openId,
+  onClose,
+}: {
+  openId: string
+  onClose: () => void
+}) {
+  const loans = useSuspenseQuery(allLoansQuery())
+  const open = loans.data.find((row) => row.advance_id === openId) ?? null
+  if (open === null) return null
+  return (
+    <Sheet
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose()
+      }}
+      id={open.advance_number}
+      title={open.full_name ?? open.employee_code}
+    >
+      <LoanCard loan={open} employeeId={open.employee_id} />
+    </Sheet>
   )
 }
 

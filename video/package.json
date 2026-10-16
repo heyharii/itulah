@@ -1,0 +1,35 @@
+{
+  "name": "central-video",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Central product films, made with Remotion. The PO guide first.",
+  "license": "UNLICENSED",
+  "scripts": {
+    "sync-css": "node scripts/sync-hub-css.mjs",
+    "dev": "npm run sync-css && remotion studio",
+    "still": "npm run sync-css && remotion still",
+    "render": "npm run sync-css && remotion render",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@fontsource-variable/inter": "5.3.0",
+    "@fontsource-variable/jetbrains-mono": "5.3.0",
+    "@remotion/cli": "4.0.534",
+    "@remotion/media": "4.0.534",
+    "@remotion/sfx": "4.0.534",
+    "@remotion/tailwind-v4": "4.0.534",
+    "@remotion/transitions": "4.0.534",
+    "lucide-react": "0.469.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "remotion": "4.0.534",
+    "tailwindcss": "4.3.3"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.7",
+    "typescript": "5.9.3"
+  },
+  "sideEffects": [
+    "*.css"
+  ]
+}

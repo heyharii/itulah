@@ -145,6 +145,8 @@ fn config() -> AppConfig {
         assistant_api_key: None,
         assistant_base_url: "https://openrouter.ai/api/v1".into(),
         assistant_model: "anthropic/claude-opus-5".into(),
+        assistant_vertex: false,
+        assistant_price_per_mtok: None,
     }
 }
 

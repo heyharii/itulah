@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query"
+import { useSuspenseQuery } from "@tanstack/react-query"
 import {
   Boxes,
   CalendarDays,
@@ -10,25 +10,20 @@ import {
   Wrench,
   type LucideIcon,
 } from "lucide-react"
+import { Suspense } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { AppLink } from "@/components/ui/app-link"
 import { Card } from "@/components/ui/card"
 import { PageHeader } from "@/components/ui/page-header"
-import { EmptyState } from "@/components/ui/states"
+import { EmptyState, LoadingState } from "@/components/ui/states"
 import { day } from "@/lib/format"
-import { gaKeys, gaOverview } from "@/lib/queries/ga"
-import { queryState } from "@/lib/query-state"
+import { gaOverviewQuery } from "@/lib/queries/ga"
 import type { SheetKey } from "@/lib/sheets"
 import type { GaAttention } from "@itulah/contract"
 
 /// One place to see what needs a GA decision or follow-up.
 export function GaOverviewScreen() {
-  const overview = useQuery({
-    queryKey: gaKeys.overview(),
-    queryFn: ({ signal }) => gaOverview(signal),
-  })
-
   return (
     <PageContent>
       <PageHeader
@@ -37,102 +32,104 @@ export function GaOverviewScreen() {
         sub="Things that need review or follow-up."
       />
 
-      {queryState(overview, {
-        loading: "Loading GA overview…",
-        render: (page) => {
-          const sections: AttentionSection[] = [
-            {
-              key: "expiring_contracts",
-              title: "Contract renewals",
-              note: "Renew or close contracts that need attention.",
-              icon: CalendarDays,
-              rows: page.expiring_contracts ?? [],
-            },
-            {
-              key: "expiring_documents",
-              title: "Document renewals",
-              note: "Prepare documents that need renewing.",
-              icon: FileText,
-              rows: page.expiring_documents,
-            },
-            {
-              key: "draft_assets",
-              title: "Assets needing details",
-              note: "Fill in the asset's area and holder.",
-              icon: Boxes,
-              rows: page.draft_assets,
-            },
-            {
-              key: "due_maintenance",
-              title: "Service schedule",
-              note: "Service that's due soon or overdue.",
-              icon: Wrench,
-              rows: page.due_maintenance,
-            },
-            {
-              key: "open_repairs",
-              title: "Repairs in progress",
-              note: "Follow through until the repair is done.",
-              icon: Hammer,
-              rows: page.open_repairs,
-            },
-            {
-              key: "replacements",
-              title: "Asset replacements",
-              note: "Track the asset replacement process.",
-              icon: Repeat,
-              rows: page.replacements,
-            },
-            {
-              key: "supply_requests",
-              title: "New supply requests",
-              note: "Review newly submitted requests.",
-              icon: Package,
-              rows: page.supply_requests ?? [],
-            },
-          ].filter((section) => section.rows.length > 0)
-
-          const total = sections.reduce(
-            (count, section) => count + section.rows.length,
-            0
-          )
-
-          return (
-            <div className="flex flex-col gap-4">
-              <Card className="overflow-hidden">
-                <div className="flex flex-wrap items-center justify-between gap-3 bg-soft px-4 py-3">
-                  <div>
-                    <p className="text-card-title font-semibold text-ink">
-                      Needs attention
-                    </p>
-                    <p className="mt-0.5 text-pill text-mute">
-                      Data as of {day(page.generated_on)}
-                    </p>
-                  </div>
-                  <span className="rounded-full border border-hairline bg-canvas px-3 py-1 text-meta font-semibold text-ink tabular-nums">
-                    {total} {total === 1 ? "item" : "items"} shown
-                  </span>
-                </div>
-              </Card>
-
-              {sections.length === 0 ? (
-                <Card>
-                  <EmptyState>
-                    {`Nothing needs attention as of ${day(page.generated_on)}.`}
-                  </EmptyState>
-                </Card>
-              ) : (
-                <div className="flex flex-col gap-3">
-                  {sections.map((section) => (
-                    <AttentionCard key={section.key} section={section} />
-                  ))}
-                </div>
-              )}
-            </div>
-          )
-        },
-      })}
+      <Suspense fallback={<LoadingState>Loading GA overview…</LoadingState>}>
+        <GaAttentionList />
+      </Suspense>
     </PageContent>
+  )
+}
+
+function GaAttentionList() {
+  const { data: page } = useSuspenseQuery(gaOverviewQuery())
+  const sections: AttentionSection[] = [
+    {
+      key: "expiring_contracts",
+      title: "Contract renewals",
+      note: "Renew or close contracts that need attention.",
+      icon: CalendarDays,
+      rows: page.expiring_contracts ?? [],
+    },
+    {
+      key: "expiring_documents",
+      title: "Document renewals",
+      note: "Prepare documents that need renewing.",
+      icon: FileText,
+      rows: page.expiring_documents,
+    },
+    {
+      key: "draft_assets",
+      title: "Assets needing details",
+      note: "Fill in the asset's area and holder.",
+      icon: Boxes,
+      rows: page.draft_assets,
+    },
+    {
+      key: "due_maintenance",
+      title: "Service schedule",
+      note: "Service that's due soon or overdue.",
+      icon: Wrench,
+      rows: page.due_maintenance,
+    },
+    {
+      key: "open_repairs",
+      title: "Repairs in progress",
+      note: "Follow through until the repair is done.",
+      icon: Hammer,
+      rows: page.open_repairs,
+    },
+    {
+      key: "replacements",
+      title: "Asset replacements",
+      note: "Track the asset replacement process.",
+      icon: Repeat,
+      rows: page.replacements,
+    },
+    {
+      key: "supply_requests",
+      title: "New supply requests",
+      note: "Review newly submitted requests.",
+      icon: Package,
+      rows: page.supply_requests ?? [],
+    },
+  ].filter((section) => section.rows.length > 0)
+
+  const total = sections.reduce(
+    (count, section) => count + section.rows.length,
+    0
+  )
+
+  return (
+    <div className="flex flex-col gap-4">
+      <Card className="overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-3 bg-soft px-4 py-3">
+          <div>
+            <p className="text-card-title font-semibold text-ink">
+              Needs attention
+            </p>
+            <p className="mt-0.5 text-pill text-mute">
+              Data as of {day(page.generated_on)}
+            </p>
+          </div>
+          <span className="rounded-full border border-hairline bg-canvas px-3 py-1 text-meta font-semibold text-ink tabular-nums">
+            {total} {total === 1 ? "item" : "items"} shown
+          </span>
+        </div>
+      </Card>
+
+      {sections.length === 0 ? (
+        <Card>
+          <EmptyState>
+            {`Nothing needs attention as of ${day(page.generated_on)}.`}
+          </EmptyState>
+        </Card>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {sections.map((section) => (
+            <AttentionCard key={section.key} section={section} />
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 

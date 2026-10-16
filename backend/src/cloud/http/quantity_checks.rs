@@ -275,6 +275,13 @@ pub async fn ask(
 ) -> Result<(StatusCode, Json<QuantityCheck>), AppError> {
     let name = word(&request.article_name, "the article name")?;
     let expected = tidy_expected(&request.expected)?;
+    // The warehouse counts colour by size: with none picked there is nothing
+    // to ask for, and the answer would have to invent the variants itself.
+    if expected.as_array().is_some_and(Vec::is_empty) {
+        return Err(AppError::Validation(
+            "pick at least one colour and one size before asking for a count".into(),
+        ));
+    }
     let division = tidy_division(request.division.as_deref())?;
     let tags = tidy_tags(&request.tags)?;
     let mut tx = state.db.begin().await?;

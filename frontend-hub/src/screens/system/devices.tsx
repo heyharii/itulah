@@ -1,5 +1,11 @@
+import { ActivityFold } from "@/components/ui/activity-fold"
 import { useForm } from "@tanstack/react-form"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
@@ -330,6 +336,7 @@ function DevicesTab() {
         <Input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search"
           className="h-8 w-48"
         />
         <FilterPanel model={filters} table={table} />
@@ -356,6 +363,7 @@ function DevicesTab() {
               </EmptyState>
             ) : (
               <DataTable<RegistryDevice>
+                refresh={[devices]}
                 table={table}
                 onRowClick={(row) => device.open(row.device_id)}
                 isSelected={(row) => row.device_id === device.value}
@@ -565,7 +573,7 @@ function readerColumns(on: {
       cell: ({ row }) => (
         <span className="flex min-w-0 flex-col gap-0.5">
           <span className="min-w-0 break-words">{row.original.label}</span>
-          <span className="truncate font-mono text-[0.875rem] font-normal text-mute">
+          <span className="truncate font-mono text-[0.9375rem] font-normal text-mute">
             {row.original.device_id}
           </span>
         </span>
@@ -645,6 +653,9 @@ function ReadersTab({
   const devices = useQuery({
     queryKey: systemKeys.rfidDevices(scope),
     queryFn: ({ signal }) => rfidDevicesPage({ ...scope }, signal),
+    // Another filter or search: the readers in hand stay, dimmed
+    // (`list-swap`), until the next are read.
+    placeholderData: keepPreviousData,
   })
   const rows = devices.data?.rows ?? []
 
@@ -716,6 +727,7 @@ function ReadersTab({
         <Input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search"
           className="h-8 w-48"
         />
         <FilterPanel model={{ ...filters, fields: READER_FIELDS }} />
@@ -730,7 +742,10 @@ function ReadersTab({
         sort={dockSortOf(table)}
       />
 
-      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+      <Card
+        aria-busy={devices.isPlaceholderData || undefined}
+        className="list-swap overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none"
+      >
         {queryState(devices, {
           loading: "Loading the readers…",
           render: () =>
@@ -742,6 +757,7 @@ function ReadersTab({
               </EmptyState>
             ) : (
               <DataTable<RfidDevice>
+                refresh={[devices]}
                 table={table}
                 className="max-h-[calc(100dvh-18rem)]"
                 onRowClick={phone ? setActing : undefined}
@@ -886,6 +902,7 @@ function RegisterReaderSheet({
       footer={
         <div className="flex justify-end gap-2">
           <Button
+            data-cancel
             variant="quiet"
             onClick={() => {
               clear()
@@ -1065,7 +1082,7 @@ function RotateReaderSheet({
       title="Cancel this reader's key"
       footer={
         <div className="flex justify-end gap-2">
-          <Button variant="quiet" onClick={onClose}>
+          <Button data-cancel variant="quiet" onClick={onClose}>
             Cancel
           </Button>
           <Button
@@ -1085,7 +1102,7 @@ function RotateReaderSheet({
           has to be at {device?.origin_id ?? "the store server"} to provision it
           again.
         </Banner>
-        <p className="text-[0.875rem] text-body">
+        <p className="text-[0.9375rem] text-body">
           {device?.label} · last seen{" "}
           {device?.last_seen_at ? moment(device.last_seen_at) : "never"}.
         </p>
@@ -1264,7 +1281,7 @@ function DeviceSheet({
 
           {device.switchable ? (
             <Section title="Switch it">
-              <p className="mb-2.5 text-[0.875rem] text-body">
+              <p className="mb-2.5 text-[0.9375rem] text-body">
                 A suspended till cannot sign anybody in or authorise anything
                 until it is reactivated. A revoked one never can again — a
                 replacement joins as a new till and takes its name.
@@ -1312,12 +1329,12 @@ function DeviceSheet({
             )
           )}
 
-          <Section title="History">
+          <ActivityFold>
             {queryState(history, {
               loading: "Loading…",
               render: (items) =>
                 items.length === 0 ? (
-                  <p className="text-[0.875rem] text-body">
+                  <p className="text-[0.9375rem] text-body">
                     Nothing recorded yet.
                   </p>
                 ) : (
@@ -1349,7 +1366,7 @@ function DeviceSheet({
                   </MiniTable>
                 ),
             })}
-          </Section>
+          </ActivityFold>
         </div>
       )}
     </Sheet>

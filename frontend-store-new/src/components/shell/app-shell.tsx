@@ -86,7 +86,7 @@ export function AppShell() {
 
   return (
     <DockProvider phone={phone}>
-      <div className="app-shell flex h-full w-full overflow-hidden bg-soft-3">
+      <div className="app-shell flex h-full w-full overflow-hidden bg-canvas">
         {docked && (
           <Rail
             panelOpen={sub === null || sidebarOpen}
@@ -96,11 +96,17 @@ export function AppShell() {
         {docked && sub !== null && sidebarOpen && (
           <SubSidebar module={sub} onFold={toggleSidebar} />
         )}
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <TopBar
-            onOpenNav={docked || phone ? undefined : () => setDrawerOpen(true)}
-            onOpenAccount={phone ? () => setDrawerOpen(true) : undefined}
-          />
+        <div className="shell-page flex min-h-0 min-w-0 flex-1 flex-col">
+          {/* Docked there is no bar, as in the hub: the rail and the panel say
+              where you are, the page opens with its own sticky head, and the
+              bar's tools (sync, Discuss) stand in the rail's foot. Tablet and
+              phone keep it — the drawer's button and the screen's name. */}
+          {!docked && (
+            <TopBar
+              onOpenNav={phone ? undefined : () => setDrawerOpen(true)}
+              onOpenAccount={phone ? () => setDrawerOpen(true) : undefined}
+            />
+          )}
           {/* `isolate`: a screen's z-index — a sticky footer, a frozen column —
               is a statement about that screen and never read against the
               shell's. Portalled layers are unaffected. */}

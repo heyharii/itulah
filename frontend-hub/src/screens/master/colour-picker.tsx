@@ -69,11 +69,11 @@ export function ColourSwatch({
       />
       {label !== undefined && (
         <span className="min-w-0">
-          <span className="block truncate text-[0.875rem] text-ink">
+          <span className="block truncate text-[0.9375rem] text-ink">
             {label}
           </span>
           {code !== undefined && (
-            <span className="block truncate font-mono text-[0.875rem] text-mute">
+            <span className="block truncate font-mono text-[0.9375rem] text-mute">
               {code}
             </span>
           )}
@@ -171,10 +171,10 @@ export function ColourPicker({
     render: () => (
       <div className="flex flex-col gap-2.5">
         <div className="flex items-baseline justify-between gap-2">
-          <span className="text-[0.875rem] font-medium text-text">
+          <span className="text-[0.9375rem] font-medium text-text">
             Colourways
           </span>
-          <span className="text-[0.875rem] text-mute tabular-nums">
+          <span className="text-[0.9375rem] text-mute tabular-nums">
             {value.length} of {DIGITS.length} digits used
           </span>
         </div>
@@ -198,7 +198,7 @@ export function ColourPicker({
                   </span>
 
                   {code === undefined ? (
-                    <span className="min-w-0 flex-1 text-[0.875rem] text-mute">
+                    <span className="min-w-0 flex-1 text-[0.9375rem] text-mute">
                       Not used
                     </span>
                   ) : (
@@ -212,7 +212,7 @@ export function ColourPicker({
 
                   {fixed ? (
                     <span
-                      className="flex shrink-0 items-center gap-1.5 text-[0.875rem] text-mute"
+                      className="flex shrink-0 items-center gap-1.5 text-[0.9375rem] text-mute"
                       title="Goods carrying this digit are already tagged and on a shelf. Repointing it would rename them without touching them."
                     >
                       <Lock className="size-3.5 text-line-ico" />
@@ -266,7 +266,7 @@ export function ColourPicker({
                     />
                     <div className="mt-2 max-h-56 overflow-y-auto">
                       {matches.length === 0 ? (
-                        <p className="px-1 py-3 text-[0.875rem] text-mute">
+                        <p className="px-1 py-3 text-[0.9375rem] text-mute">
                           Nothing in the master reads like that. Colours are
                           picked and never typed, so a new one is added on the
                           Colours screen first — that is what keeps the whole
@@ -304,12 +304,12 @@ export function ColourPicker({
                               {mine ? (
                                 <Check className="size-3.5 shrink-0 text-accent" />
                               ) : elsewhere ? (
-                                <span className="shrink-0 text-[0.875rem] text-mute">
+                                <span className="shrink-0 text-[0.9375rem] text-mute">
                                   digit {holder}
                                 </span>
                               ) : (
                                 colour.in_use > 0 && (
-                                  <span className="shrink-0 text-[0.875rem] text-mute tabular-nums">
+                                  <span className="shrink-0 text-[0.9375rem] text-mute tabular-nums">
                                     {count(colour.in_use)} articles
                                   </span>
                                 )
@@ -337,7 +337,7 @@ export function ColourPicker({
         )}
 
         {locked.length > 0 && (
-          <p className="text-[0.875rem] leading-relaxed text-mute">
+          <p className="text-[0.9375rem] leading-relaxed text-mute">
             {locked.length === 1
               ? `Digit ${locked[0]} is locked.`
               : `Digits ${locked.slice(0, -1).join(", ")} and ${locked[locked.length - 1]} are locked.`}{" "}

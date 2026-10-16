@@ -1,7 +1,8 @@
+import { useSuspenseQuery } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { ArrowLeft, Download, ListFilter, Share2, Sparkles } from "lucide-react"
-import { useMemo, useState } from "react"
+import { Suspense, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { DockPortal } from "@/components/shell/dock"
@@ -21,7 +22,8 @@ import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
-import { Banner, EmptyState } from "@/components/ui/states"
+import type { Refreshable } from "@/components/ui/refresh-stamp"
+import { Banner, EmptyState, LoadingState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import {
   useFilterState,
@@ -40,7 +42,7 @@ import {
   useReportRun,
   useReviseReport,
   useCatalogue,
-  useSavedReports,
+  savedReportsQuery,
   type ResultColumn,
   type ResultRow,
   type ReportResult,
@@ -72,7 +74,6 @@ export function Reports() {
 // ---- The list ----------------------------------------------------------
 
 function SavedList({ onOpen }: { onOpen: (id: string) => void }) {
-  const saved = useSavedReports()
   const assistant = useAssistant()
   const phone = useLayout() === "phone"
 
@@ -99,60 +100,65 @@ function SavedList({ onOpen }: { onOpen: (id: string) => void }) {
 
       <Fab label="Compose one" onClick={() => assistant.setOpen(true)} />
 
-      {queryState(saved, {
-        loading: "Reading what has been kept…",
-        render: (page) =>
-          page.items.length === 0 ? (
-            <EmptyState
-              action={
-                <Button
-                  variant="primary"
-                  onClick={() => assistant.setOpen(true)}
-                >
-                  Ask the assistant
-                </Button>
-              }
-            >
-              Nothing kept yet. Describe the report you want — “sales by colour
-              this month, by store” — and save the answer. It becomes a report
-              anybody can open, and it never has to be asked for again.
-            </EmptyState>
-          ) : (
-            <div className="grid gap-2.5 md:grid-cols-2 xl:grid-cols-3">
-              {page.items.map((report) => (
-                <button
-                  key={report.report_id}
-                  type="button"
-                  onClick={() => onOpen(report.report_id)}
-                  className="rounded-card border border-hairline bg-canvas p-4 text-left shadow-soft transition-colors hover:border-hairline-strong hover:bg-soft"
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <span className="text-card-title font-semibold text-ink">
-                      {report.name}
-                    </span>
-                    {report.shared && <Tag tone="info">Shared</Tag>}
-                  </div>
-                  {report.prompt && (
-                    // The sentence it came from, kept as the description. It
-                    // is the best account of what the report is *for* that
-                    // anybody will ever write down.
-                    <p className="mt-1.5 line-clamp-2 text-meta text-body">
-                      “{report.prompt}”
-                    </p>
-                  )}
-                  <div className="mt-3 flex items-center gap-2 text-[0.875rem] text-mute">
-                    <span className="font-mono">{report.dataset}</span>
-                    <span aria-hidden>·</span>
-                    <span>v{report.version}</span>
-                    <span aria-hidden>·</span>
-                    <span>{moment(report.updated_at)}</span>
-                  </div>
-                </button>
-              ))}
-            </div>
-          ),
-      })}
+      <Suspense
+        fallback={<LoadingState>Reading what has been kept…</LoadingState>}
+      >
+        <SavedReports onOpen={onOpen} />
+      </Suspense>
     </PageContent>
+  )
+}
+
+/// The reports somebody kept, as cards.
+function SavedReports({ onOpen }: { onOpen: (id: string) => void }) {
+  const assistant = useAssistant()
+  const { data: page } = useSuspenseQuery(savedReportsQuery())
+
+  return page.items.length === 0 ? (
+    <EmptyState
+      action={
+        <Button variant="primary" onClick={() => assistant.setOpen(true)}>
+          Ask the assistant
+        </Button>
+      }
+    >
+      Nothing kept yet. Describe the report you want — “sales by colour this
+      month, by store” — and save the answer. It becomes a report anybody can
+      open, and it never has to be asked for again.
+    </EmptyState>
+  ) : (
+    <div className="grid gap-2.5 md:grid-cols-2 xl:grid-cols-3">
+      {page.items.map((report) => (
+        <button
+          key={report.report_id}
+          type="button"
+          onClick={() => onOpen(report.report_id)}
+          className="rounded-card border border-hairline bg-canvas p-4 text-left shadow-soft transition-colors hover:border-hairline-strong hover:bg-soft"
+        >
+          <div className="flex items-start justify-between gap-2">
+            <span className="text-card-title font-semibold text-ink">
+              {report.name}
+            </span>
+            {report.shared && <Tag tone="info">Shared</Tag>}
+          </div>
+          {report.prompt && (
+            // The sentence it came from, kept as the description. It
+            // is the best account of what the report is *for* that
+            // anybody will ever write down.
+            <p className="mt-1.5 line-clamp-2 text-meta text-body">
+              “{report.prompt}”
+            </p>
+          )}
+          <div className="mt-3 flex items-center gap-2 text-[0.9375rem] text-mute">
+            <span className="font-mono">{report.dataset}</span>
+            <span aria-hidden>·</span>
+            <span>v{report.version}</span>
+            <span aria-hidden>·</span>
+            <span>{moment(report.updated_at)}</span>
+          </div>
+        </button>
+      ))}
+    </div>
   )
 }
 
@@ -267,18 +273,24 @@ function OneReport({ id, onBack }: { id: string; onBack: () => void }) {
               actions={phone ? undefined : actions(saved)}
             />
 
-            {queryState(result, {
-              loading: "Running…",
-              render: (answer) => (
-                <Answer
-                  saved={saved}
-                  answer={answer}
-                  state={state}
-                  overlay={filters}
-                  untranslated={untranslated}
-                />
-              ),
-            })}
+            <div
+              aria-busy={result.isPlaceholderData || undefined}
+              className="list-swap"
+            >
+              {queryState(result, {
+                loading: "Running…",
+                render: (answer) => (
+                  <Answer
+                    saved={saved}
+                    answer={answer}
+                    state={state}
+                    overlay={filters}
+                    untranslated={untranslated}
+                    refresh={[result]}
+                  />
+                ),
+              })}
+            </div>
 
             {phone && (
               <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -298,6 +310,7 @@ function Answer({
   state,
   overlay,
   untranslated,
+  refresh,
 }: {
   saved: SavedReport
   answer: ReportResult
@@ -308,6 +321,8 @@ function Answer({
   /// operator a report column offers has a server equivalent — and drawn
   /// anyway, because the failure it guards against is silent.
   untranslated: readonly Filter[]
+  /// The run behind `answer`, for the stamp over the table.
+  refresh?: readonly Refreshable[]
 }) {
   const [sorting, setSorting] = useState<SortingState>([])
   const revise = useReviseReport(saved.report_id)
@@ -389,7 +404,7 @@ function Answer({
             setShowAt(sortChoices === undefined ? "filter" : "menu")
           }
           aria-haspopup="dialog"
-          className="inline-flex h-9 max-w-full items-center gap-1.5 rounded-full bg-soft-2 pr-3.5 pl-3 text-[0.875rem] font-medium text-ink transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.97]"
+          className="inline-flex h-9 max-w-full items-center gap-1.5 rounded-full bg-soft-2 pr-3.5 pl-3 text-[0.9375rem] font-medium text-ink transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.97]"
         >
           <ListFilter className="size-4 shrink-0 text-line-ico" />
           {state.filters.length > 0
@@ -441,7 +456,7 @@ function Answer({
           <CardTitle>
             {count(answer.row_count)} row{answer.row_count === 1 ? "" : "s"}
           </CardTitle>
-          <span className="text-[0.875rem] text-mute">
+          <span className="text-[0.9375rem] text-mute">
             {answer.period
               ? `${day(answer.period.from)} – ${day(answer.period.to)}`
               : "All time"}
@@ -481,6 +496,7 @@ function Answer({
         )}
 
         <DataTable
+          refresh={refresh}
           table={table}
           cardSort={false}
           cardsApart

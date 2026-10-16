@@ -11,13 +11,13 @@ import { Sheet } from "@/components/ui/sheet"
 import { EmptyState, Problem } from "@/components/ui/states"
 import { useLayout } from "@/lib/layout"
 import {
-  useGlossary,
+  glossaryQuery,
   useRemoveGlossaryEntry,
   useSaveGlossaryEntry,
   type GlossaryEntry,
 } from "@/lib/queries/assistant"
-import { queryState } from "@/lib/query-state"
 import { useIdentity } from "@/lib/session"
+import { Suspended } from "@/screens/people/suspended"
 import { Grid, Td, Th } from "@/screens/finance-final/parts"
 import { type CardSpec, PhoneCards } from "@/components/ui/phone-cards"
 
@@ -32,7 +32,6 @@ import { type CardSpec, PhoneCards } from "@/components/ui/phone-cards"
 /// word the way it did should be able to see why — and kept by head office,
 /// whose writes the node alone decides (`role_permission`).
 export function AssistantGlossary() {
-  const list = useGlossary()
   const identity = useIdentity()
   const keeper = identity.data?.role === "ADMIN"
   const phone = useLayout() === "phone"
@@ -56,9 +55,8 @@ export function AssistantGlossary() {
             : "overflow-hidden"
         }
       >
-        {queryState(list, {
-          loading: "Reading the glossary…",
-          render: (entries) =>
+        <Suspended query={glossaryQuery()} loading="Reading the glossary…">
+          {(entries) =>
             entries.length === 0 ? (
               <EmptyState>
                 No words yet. Start with the ones an outsider would read
@@ -87,8 +85,9 @@ export function AssistantGlossary() {
                   ))}
                 </tbody>
               </Grid>
-            ),
-        })}
+            )
+          }
+        </Suspended>
       </Card>
 
       <WordSheet
@@ -301,7 +300,12 @@ function EntryRow({
         </Td>
         <Td align="right">
           <div className="flex justify-end gap-1">
-            <Button size="sm" variant="quiet" onClick={() => setEditing(false)}>
+            <Button
+              data-cancel
+              size="sm"
+              variant="quiet"
+              onClick={() => setEditing(false)}
+            >
               Cancel
             </Button>
             <Button

@@ -1,0 +1,445 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Discussion detail</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+<style>
+:root{
+  --ink:#1d1d1f; --mute:#6e6e73; --faint:#c7c7cc; --ico:#8e8e93;
+  --canvas:#fff; --soft:#f5f5f7; --soft-2:#f2f2f5; --hair:#e8e8ec; --hair-2:#dcdce1;
+  --accent:#2862dc; --accent-bg:#eef3fc; --ok:#248a3d; --ok-bg:#effaf2; --warn:#a66c1f;
+  --ease-out:cubic-bezier(.23,1,.32,1);
+  --r-card:10px; --r-ctl:8px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--canvas);color:var(--ink);font:400 15px/1.5 Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+button:active{transform:scale(.97)}
+button{transition:transform 160ms var(--ease-out),background-color 150ms ease,color 150ms ease}
+a{color:var(--accent);text-decoration:none}
+.mute{color:var(--mute)}
+
+/* prototype switch */
+.proto{position:sticky;top:0;z-index:30;display:flex;gap:18px;align-items:center;flex-wrap:wrap;padding:10px 32px;background:var(--soft);border-bottom:1px solid var(--hair)}
+.proto .seg{display:flex;gap:2px;background:var(--soft-2);border-radius:var(--r-ctl);padding:2px}
+.proto .seg button{padding:4px 12px;border-radius:6px;color:var(--mute)}
+.proto .seg button[aria-pressed=true]{background:#fff;color:var(--ink);box-shadow:0 0 0 1px var(--hair)}
+
+.page{max-width:1180px;margin:0 auto;padding:26px 32px 120px}
+.back{display:inline-flex;align-items:center;gap:6px;color:var(--accent)}
+.back svg{width:16px;height:16px}
+
+/* head */
+.head{display:flex;gap:24px;align-items:flex-start;margin-top:14px}
+.head .main{flex:1;min-width:0}
+h1{font-size:17px;font-weight:600;line-height:1.35;margin:0;text-wrap:balance}
+.sub{margin-top:4px;color:var(--mute);display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center}
+.sub .rec{color:var(--ink)}
+.sub .rec:hover{color:var(--accent)}
+.dot{display:inline-flex;align-items:center;gap:6px;color:var(--ink)}
+.dot::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--accent)}
+.dot.answered::before{background:var(--ok)}
+.dot.locked::before{background:var(--ico)}
+.head-acts{display:flex;gap:18px;align-items:center;flex:none;padding-top:1px}
+.tint{color:var(--accent);font-weight:500;white-space:nowrap}
+.tint:hover{color:#2055c7}
+.icon-btn{width:32px;height:32px;display:grid;place-items:center;border-radius:var(--r-ctl);color:var(--ico)}
+.icon-btn:hover{background:var(--soft)}
+.icon-btn svg{width:18px;height:18px}
+
+/* figures */
+.figs{display:flex;margin-top:18px;overflow:hidden}
+.fig{padding:0 22px;border-left:1px solid var(--hair);margin-left:-1px}
+.fig:first-child{padding-left:0}
+.fig .l{color:var(--mute)}
+.fig .v{font-weight:600;font-size:16px;font-variant-numeric:tabular-nums;display:flex;align-items:center;gap:8px}
+.stack{display:flex}
+.stack .av{width:22px;height:22px;font-size:0;margin-left:-6px;box-shadow:0 0 0 2px #fff}
+.stack .av:first-child{margin-left:0}
+
+/* body */
+.body{display:grid;grid-template-columns:minmax(0,1fr) 260px;gap:48px;margin-top:26px}
+[data-layout=one] .page{max-width:824px}
+[data-layout=one] .body{grid-template-columns:minmax(0,1fr)}
+[data-layout=one] .rail{display:none}
+[data-layout=rail] .only-one{display:none}
+
+/* answer box */
+.answer{display:none;border:1px solid var(--hair);border-radius:var(--r-card);padding:14px 16px;margin-bottom:22px}
+[data-state=answered] .answer{display:block}
+.answer .t{display:flex;gap:8px;align-items:center;color:var(--ok);font-weight:500}
+.answer .t svg{width:16px;height:16px}
+.answer p{margin:6px 0 0}
+.answer .by{margin-top:6px;color:var(--mute)}
+
+/* posts */
+.day{display:flex;align-items:center;gap:12px;color:var(--mute);margin:0 0 6px}
+.day::after{content:"";flex:1;height:1px;background:var(--hair)}
+.post{position:relative;display:grid;grid-template-columns:36px minmax(0,1fr);gap:12px;padding:14px 0}
+.post + .post{border-top:1px solid var(--hair)}
+.av{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;font-weight:600;font-size:15px;color:#fff;flex:none}
+.who{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.who b{font-weight:600}
+.who .seq{opacity:0;transition:opacity 150ms ease}
+.post:hover .who .seq,.post:focus-within .who .seq{opacity:1}
+.post p{margin:2px 0 0}
+.is-answer{display:none;align-items:center;gap:4px;color:var(--ok);font-weight:500}
+.is-answer svg{width:15px;height:15px}
+[data-state=answered] .post[data-answer] .is-answer{display:inline-flex}
+.reacts{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+.react{display:inline-flex;gap:6px;align-items:center;height:28px;padding:0 10px;border-radius:14px;background:var(--soft);font-variant-numeric:tabular-nums}
+.react.mine{background:var(--accent-bg);color:var(--accent)}
+.acts{position:absolute;top:8px;right:0;display:flex;gap:14px;align-items:center;padding:0 0 0 16px;background:#fff;opacity:0;pointer-events:none;transition:opacity 150ms ease}
+.post:hover .acts,.post:focus-within .acts{opacity:1;pointer-events:auto}
+@media (hover:none){.acts{position:static;opacity:1;pointer-events:auto;margin-top:6px;padding:0}.who .seq{opacity:1}}
+.acts button{color:var(--mute);display:inline-flex;align-items:center;gap:5px;min-height:28px}
+.acts button:hover{color:var(--accent)}
+.acts svg{width:16px;height:16px}
+.acts .more{margin-left:2px}
+[data-state=answered] .acts .mark{display:none}
+.post.new{animation:rise 220ms var(--ease-out)}
+@keyframes rise{from{opacity:0;transform:translateY(8px)}}
+
+/* composer */
+.composer{margin-top:14px;display:grid;grid-template-columns:36px minmax(0,1fr);gap:12px}
+.box{border:1px solid var(--hair-2);border-radius:var(--r-card);transition:border-color 150ms ease,box-shadow 150ms ease}
+.box:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
+.box textarea{display:block;width:100%;border:0;outline:0;resize:none;font:inherit;color:inherit;padding:10px 12px;min-height:44px;height:44px;background:transparent;border-radius:var(--r-card)}
+.box.open textarea{height:110px}
+.tools{display:none;align-items:center;gap:2px;padding:6px 8px;border-top:1px solid var(--hair)}
+.box.open .tools{display:flex}
+.tools .icon-btn{width:30px;height:30px}
+.tools .icon-btn svg{width:16px;height:16px}
+.tools .gap{flex:1}
+.btn{height:36px;padding:0 16px;border-radius:var(--r-ctl);background:var(--accent);color:#fff;font-weight:500}
+.btn:hover{background:#2055c7}
+.btn:disabled{opacity:.4;cursor:default;transform:none}
+.locked-note{display:none;color:var(--mute);margin-top:14px;padding-left:48px}
+[data-state=locked] .composer{display:none}
+[data-state=locked] .locked-note{display:block}
+[data-state=locked] .acts .reply,[data-state=locked] .acts .mark{display:none}
+
+/* rail */
+.rail{display:flex;flex-direction:column;gap:22px}
+.props{display:grid;grid-template-columns:104px minmax(0,1fr);gap:10px 12px;align-items:center}
+.props .l{color:var(--mute)}
+.pick{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 10px;margin-left:-10px;border-radius:var(--r-ctl)}
+.pick:hover{background:var(--soft)}
+.pick svg{width:14px;height:14px;color:var(--ico)}
+.people{display:flex;flex-direction:column;gap:8px}
+.person{display:flex;align-items:center;gap:10px}
+.person .av{width:26px;height:26px;font-size:0}
+.rail h3{font-size:15px;font-weight:600;margin:0 0 10px}
+.rail .links{display:flex;flex-direction:column;align-items:flex-start;gap:10px;padding-top:18px;border-top:1px solid var(--hair)}
+details summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px;font-weight:600}
+details summary::-webkit-details-marker{display:none}
+details summary svg{width:14px;height:14px;color:var(--ico);transition:transform 160ms var(--ease-out)}
+details[open] summary svg{transform:rotate(90deg)}
+.log{margin:10px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px;color:var(--mute)}
+.log b{color:var(--ink);font-weight:500}
+
+/* menu */
+.menu{position:fixed;z-index:50;min-width:220px;background:#fff;border-radius:var(--r-card);padding:5px;box-shadow:0 0 0 1px var(--hair),0 10px 30px rgb(0 0 0/10%);transform-origin:var(--o,top left);opacity:0;transform:scale(.97);pointer-events:none;transition:opacity 150ms var(--ease-out),transform 150ms var(--ease-out)}
+.menu.show{opacity:1;transform:none;pointer-events:auto}
+.menu button{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:7px 10px;border-radius:6px}
+.menu button:hover{background:var(--soft)}
+.menu button:active{transform:none}
+.menu .chk{width:16px;color:var(--accent);visibility:hidden}
+.menu button[aria-checked=true] .chk{visibility:visible}
+.menu .sep{height:1px;background:var(--hair);margin:5px 4px}
+.menu .hint{color:var(--mute)}
+
+.toast{position:fixed;left:50%;bottom:28px;transform:translate(-50%,12px);opacity:0;background:var(--ink);color:#fff;padding:9px 16px;border-radius:var(--r-ctl);transition:opacity 200ms var(--ease-out),transform 200ms var(--ease-out);pointer-events:none;z-index:60}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+
+@media (max-width:820px){
+  .page{padding:18px 16px 140px}
+  .proto{padding:10px 16px}
+  .body{grid-template-columns:minmax(0,1fr);gap:28px}
+  .rail{order:2}
+  .head{flex-direction:column;gap:10px}
+  .figs{display:grid;grid-template-columns:1fr 1fr;row-gap:12px}
+  .fig{padding:0 0 0 16px}
+  .figs .fig:not(.hide):nth-child(odd){padding-left:0;border-left:0}
+  [data-layout=rail] .figs .fig:nth-child(n){padding-left:16px;border-left:1px solid var(--hair)}
+  [data-layout=rail] .figs .fig:nth-child(1),[data-layout=rail] .figs .fig:nth-child(4){padding-left:0;border-left:0}
+  .composer{position:fixed;left:0;right:0;bottom:0;margin:0;padding:10px 16px calc(10px + env(safe-area-inset-bottom));background:#fff;border-top:1px solid var(--hair);grid-template-columns:minmax(0,1fr);z-index:20}
+  .composer > .av{display:none}
+}
+@media (prefers-reduced-motion:reduce){.post.new{animation:fade 200ms ease}@keyframes fade{from{opacity:0}}}
+</style>
+</head>
+<body>
+<div class="proto">
+  <div class="seg" id="layoutSeg">
+    <button data-v="one" aria-pressed="true">A · One column</button>
+    <button data-v="rail" aria-pressed="false">B · Quiet rail</button>
+  </div>
+  <div class="seg" id="stateSeg">
+    <button data-v="open" aria-pressed="true">Open</button>
+    <button data-v="answered" aria-pressed="false">Answered</button>
+    <button data-v="locked" aria-pressed="false">Locked</button>
+  </div>
+</div>
+
+<div id="app" data-layout="one" data-state="open">
+<div class="page">
+  <a class="back" href="#"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3 5 8l5 5"/></svg>Discussions</a>
+
+  <div class="head">
+    <div class="main">
+      <h1>Sneakers kanvas: ukuran 07 perlu ditambah untuk store-01?</h1>
+      <div class="sub">
+        <span class="dot" id="statusWord">Open</span>
+        <span>·</span>
+        <a class="rec" href="#">SS-SNK-01 Sneakers Kanvas Low</a>
+        <span>·</span>
+        <span>CV Sepatu Sejahtera</span>
+        <span>·</span>
+        <span>assortment, toko</span>
+      </div>
+    </div>
+    <div class="head-acts">
+      <button class="tint only-one" data-menu="status" id="statusBtn">Mark answered</button>
+      <button class="tint" id="bookmark">Bookmark</button>
+      <button class="icon-btn only-one" data-menu="more" aria-label="More"><svg viewBox="0 0 18 18" fill="currentColor"><circle cx="4" cy="9" r="1.4"/><circle cx="9" cy="9" r="1.4"/><circle cx="14" cy="9" r="1.4"/></svg></button>
+    </div>
+  </div>
+
+  <div class="figs">
+    <div class="fig"><div class="l">Replies</div><div class="v" id="nReplies">2</div></div>
+    <div class="fig only-one"><div class="l">People</div><div class="v"><span class="stack"><span class="av" style="background:#c2410c">M</span><span class="av" style="background:#7c3aed">D</span><span class="av" style="background:#0f766e">Y</span></span>3</div></div>
+    <div class="fig"><div class="l">Read</div><div class="v">5</div></div>
+    <div class="fig"><div class="l">Last activity</div><div class="v" id="lastAct">13 Oct 2026, 23:18</div></div>
+  </div>
+
+  <div class="body">
+    <div class="thread">
+      <div class="answer">
+        <div class="t"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 8.5 3 3 7-7"/></svg>Answer</div>
+        <p>Di DC tersisa sedikit. Saya usulkan pesanan berikutnya ke CV Sepatu Sejahtera ditambah untuk ukuran 07.</p>
+        <div class="by">Yusuf Ramadhan · <a href="#p3">Go to #3</a></div>
+      </div>
+
+      <div class="day">13 Oct 2026</div>
+      <div id="posts">
+        <article class="post" id="p1">
+          <span class="av" style="background:#c2410c">MA</span>
+          <div>
+            <div class="who"><b>Maya Anggraini</b><span class="mute">17:18</span><a class="seq mute" href="#p1">#1</a></div>
+            <p>Pelanggan store-01 banyak tanya ukuran 07. Minggu ini sudah lima orang pulang tanpa beli.</p>
+            <div class="reacts"><button class="react mine">👍 2</button><button class="react">👀 1</button></div>
+            <div class="acts"></div>
+          </div>
+        </article>
+        <article class="post" id="p2">
+          <span class="av" style="background:#7c3aed">DP</span>
+          <div>
+            <div class="who"><b>Dian Pertiwi</b><span class="mute">19:18</span><a class="seq mute" href="#p2">#2</a></div>
+            <p>Dari catatan kasir, permintaan ukuran 07 memang paling sering tidak terlayani.</p>
+            <div class="acts"></div>
+          </div>
+        </article>
+        <article class="post" id="p3" data-answer>
+          <span class="av" style="background:#0f766e">YR</span>
+          <div>
+            <div class="who"><b>Yusuf Ramadhan</b><span class="mute">23:18</span><a class="seq mute" href="#p3">#3</a><span class="is-answer"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 8.5 3 3 7-7"/></svg>Answer</span></div>
+            <p>Di DC tersisa sedikit. Saya usulkan pesanan berikutnya ke CV Sepatu Sejahtera ditambah untuk ukuran 07.</p>
+            <div class="acts"></div>
+          </div>
+        </article>
+      </div>
+
+      <div class="composer">
+        <span class="av" style="background:#2862dc">R</span>
+        <div class="box" id="box">
+          <textarea id="ta" placeholder="Reply" rows="1"></textarea>
+          <div class="tools">
+            <button class="icon-btn" aria-label="Bold"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4.5 3h4a2.5 2.5 0 0 1 0 5h-4zM4.5 8h5a2.5 2.5 0 0 1 0 5h-5z"/></svg></button>
+            <button class="icon-btn" aria-label="Italic"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M10 3H6.5M9.5 13H6M9 3l-2 10"/></svg></button>
+            <button class="icon-btn" aria-label="List"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 4h7M6 8h7M6 12h7M3 4h0M3 8h0M3 12h0"/></svg></button>
+            <button class="icon-btn" aria-label="Mention"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="2.6"/><path d="M10.6 8v1a1.9 1.9 0 0 0 3.8 0V8A6.4 6.4 0 1 0 12 13"/></svg></button>
+            <button class="icon-btn" aria-label="Attach"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="m13 7.5-5 5a3.2 3.2 0 0 1-4.5-4.5l5.3-5.3a2.1 2.1 0 0 1 3 3L6.6 11a1 1 0 0 1-1.5-1.5L10 4.6"/></svg></button>
+            <span class="gap"></span>
+            <button class="btn" id="post" disabled>Post reply</button>
+          </div>
+        </div>
+      </div>
+      <div class="locked-note">Locked — no new replies.</div>
+    </div>
+
+    <aside class="rail">
+      <div class="props">
+        <span class="l">Status</span><span><button class="pick" data-menu="status"><span class="dot" id="statusWord2">Open</span><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="m4 5.5 3 3 3-3"/></svg></button></span>
+        <span class="l">Notify me</span><span><button class="pick" data-menu="notify"><span id="notifyWord">Normal</span><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="m4 5.5 3 3 3-3"/></svg></button></span>
+        <span class="l">Opened</span><span>13 Oct 2026</span>
+      </div>
+      <div>
+        <h3>People</h3>
+        <div class="people">
+          <div class="person"><span class="av" style="background:#c2410c">M</span>Maya Anggraini</div>
+          <div class="person"><span class="av" style="background:#7c3aed">D</span>Dian Pertiwi</div>
+          <div class="person"><span class="av" style="background:#0f766e">Y</span>Yusuf Ramadhan</div>
+        </div>
+      </div>
+      <div class="links">
+        <button class="tint" data-copy>Copy link</button>
+        <button class="tint" data-pin>Pin to top of the board</button>
+      </div>
+      <details>
+        <summary><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="m5.5 3.5 3.5 3.5-3.5 3.5"/></svg>Activity</summary>
+        <ul class="log">
+          <li><b>Maya Anggraini</b> opened it · 17:18</li>
+          <li><b>Dian Pertiwi</b> replied · 19:18</li>
+          <li><b>Yusuf Ramadhan</b> replied · 23:18</li>
+        </ul>
+      </details>
+    </aside>
+  </div>
+</div>
+</div>
+
+<div class="menu" id="menu" role="menu"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (s, r = document) => r.querySelector(s);
+const app = $('#app');
+const ICON = {
+  react: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="8" cy="8" r="6"/><path d="M5.6 9.6a3 3 0 0 0 4.8 0M6 6.3h0M10 6.3h0"/></svg>',
+  reply: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 4 3 7.5 6.5 11M3 7.5h6.5A3.5 3.5 0 0 1 13 11v1"/></svg>',
+  mark: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m3 8.5 3 3 7-7"/></svg>',
+  more: '<svg viewBox="0 0 16 16" fill="currentColor"><circle cx="3.5" cy="8" r="1.3"/><circle cx="8" cy="8" r="1.3"/><circle cx="12.5" cy="8" r="1.3"/></svg>'
+};
+function fillActs(post) {
+  const first = post.id === 'p1';
+  post.querySelector('.acts').innerHTML =
+    `<button>${ICON.react}React</button><button class="reply">${ICON.reply}Reply</button>` +
+    (first ? '' : `<button class="mark">${ICON.mark}Mark as answer</button>`) +
+    `<button class="more" data-menu="post" aria-label="More">${ICON.more}</button>`;
+}
+document.querySelectorAll('.post').forEach(fillActs);
+
+/* switches */
+function seg(id, attr) {
+  $(id).addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    $(id).querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x === b));
+    if (attr === 'state') setState(b.dataset.v); else app.dataset[attr] = b.dataset.v;
+    try { localStorage.setItem('disc.' + attr, b.dataset.v); } catch {}
+  });
+}
+seg('#layoutSeg', 'layout'); seg('#stateSeg', 'state');
+
+const WORD = { open: 'Open', answered: 'Answered', locked: 'Locked' };
+function setState(s) {
+  app.dataset.state = s;
+  for (const el of [$('#statusWord'), $('#statusWord2')]) { el.textContent = WORD[s]; el.className = 'dot ' + s; }
+  $('#statusBtn').textContent = s === 'open' ? 'Mark answered' : s === 'answered' ? 'Reopen' : 'Unlock';
+  $('#stateSeg').querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x.dataset.v === s));
+}
+try {
+  const l = localStorage.getItem('disc.layout');
+  if (l) $('#layoutSeg').querySelector(`[data-v=${l}]`)?.click();
+} catch {}
+
+/* menus */
+const menu = $('#menu');
+let notify = 'Normal';
+function check(on, label, act) { return `<button role="menuitemradio" aria-checked="${on}" data-act="${act}"><span class="chk">✓</span>${label}</button>`; }
+const MENUS = {
+  status: () => ['open', 'answered', 'locked'].map(s => check(app.dataset.state === s, WORD[s], 'state:' + s)).join(''),
+  notify: () => ['Normal', 'Every reply', 'Muted'].map(n => check(notify === n, n, 'notify:' + n)).join(''),
+  more: () => ['open', 'answered', 'locked'].map(s => check(app.dataset.state === s, WORD[s], 'state:' + s)).join('') +
+    '<div class="sep"></div>' + ['Normal', 'Every reply', 'Muted'].map(n => check(notify === n, 'Notify: ' + n, 'notify:' + n)).join('') +
+    '<div class="sep"></div><button data-act="copy">Copy link</button><button data-act="pin">Pin to top of the board</button><button data-act="edit">Edit title</button><button data-act="log">Activity</button>',
+  post: () => '<button data-act="copy">Copy link to post</button><button data-act="quote">Quote</button><button data-act="edit">Edit</button>'
+};
+let menuFor = null;
+document.addEventListener('click', e => {
+  const t = e.target.closest('[data-menu]');
+  if (t) {
+    e.stopPropagation();
+    if (menuFor === t && menu.classList.contains('show')) return closeMenu();
+    menuFor = t;
+    menu.innerHTML = MENUS[t.dataset.menu]();
+    const r = t.getBoundingClientRect();
+    menu.classList.add('show');
+    const w = menu.offsetWidth, right = r.left + w > innerWidth - 12;
+    menu.style.left = (right ? r.right - w : r.left) + 'px';
+    menu.style.top = (r.bottom + 6) + 'px';
+    menu.style.setProperty('--o', right ? 'top right' : 'top left');
+    return;
+  }
+  const a = e.target.closest('[data-act]');
+  if (a && menu.contains(a)) {
+    const [k, v] = a.dataset.act.split(':');
+    if (k === 'state') setState(v);
+    if (k === 'notify') { notify = v; $('#notifyWord').textContent = v; }
+    if (k === 'copy') toast('Link copied');
+    if (k === 'pin') toast('Pinned to the top of the board');
+    if (k === 'quote') { const p = menuFor.closest('.post').querySelector('p').textContent; ta.value = '> ' + p + '\n\n'; openBox(); ta.focus(); }
+  }
+  if (!menu.contains(e.target)) closeMenu();
+});
+function closeMenu() { menu.classList.remove('show'); menuFor = null; }
+addEventListener('keydown', e => { if (e.key === 'Escape') closeMenu(); });
+$('[data-copy]').onclick = () => toast('Link copied');
+$('[data-pin]').onclick = () => toast('Pinned to the top of the board');
+$('#bookmark').onclick = e => { const on = e.target.textContent === 'Bookmark'; e.target.textContent = on ? 'Bookmarked' : 'Bookmark'; };
+
+/* post actions */
+$('#posts').addEventListener('click', e => {
+  const b = e.target.closest('.acts button'); if (!b || b.dataset.menu) return;
+  const post = b.closest('.post');
+  if (b.classList.contains('mark')) {
+    document.querySelectorAll('.post').forEach(p => p.toggleAttribute('data-answer', p === post));
+    $('.answer p').textContent = post.querySelector('p').textContent;
+    $('.answer .by').innerHTML = `${post.querySelector('b').textContent} · <a href="#${post.id}">Go to #${post.id.slice(1)}</a>`;
+    setState('answered');
+  } else if (b.classList.contains('reply')) {
+    ta.value = '@' + post.querySelector('b').textContent.split(' ')[0].toLowerCase() + ' '; openBox(); ta.focus();
+  } else {
+    let r = post.querySelector('.reacts');
+    if (!r) { r = document.createElement('div'); r.className = 'reacts'; post.querySelector('p').after(r); }
+    if (!r.querySelector('.mine')) r.insertAdjacentHTML('afterbegin', '<button class="react mine">👍 1</button>');
+  }
+});
+$('#posts').addEventListener('click', e => {
+  const r = e.target.closest('.react'); if (!r) return;
+  const [emo, n] = r.textContent.split(' '); const mine = r.classList.toggle('mine');
+  const c = +n + (mine ? 1 : -1);
+  if (c === 0) r.remove(); else r.textContent = emo + ' ' + c;
+});
+
+/* composer */
+const ta = $('#ta'), box = $('#box'), post = $('#post');
+function openBox() { box.classList.add('open'); post.disabled = !ta.value.trim(); }
+ta.addEventListener('focus', openBox);
+ta.addEventListener('input', () => post.disabled = !ta.value.trim());
+ta.addEventListener('blur', () => setTimeout(() => { if (!ta.value.trim() && !box.contains(document.activeElement)) box.classList.remove('open'); }, 120));
+ta.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) send(); });
+post.onclick = send;
+let seq = 3;
+function send() {
+  const text = ta.value.trim(); if (!text) return;
+  seq++;
+  const now = new Date(), hh = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+  const a = document.createElement('article');
+  a.className = 'post new'; a.id = 'p' + seq;
+  a.innerHTML = `<span class="av" style="background:#2862dc">RS</span><div><div class="who"><b>Rina Susanti</b><span class="mute">${hh}</span><a class="seq mute" href="#p${seq}">#${seq}</a><span class="is-answer">${ICON.mark}Answer</span></div><p></p><div class="acts"></div></div>`;
+  a.querySelector('p').textContent = text;
+  fillActs(a);
+  $('#posts').append(a);
+  $('#nReplies').textContent = seq - 1;
+  $('#lastAct').textContent = '15 Oct 2026, ' + hh;
+  ta.value = ''; post.disabled = true; ta.blur(); box.classList.remove('open');
+}
+
+let tt;
+function toast(t) { const el = $('#toast'); el.textContent = t; el.classList.add('show'); clearTimeout(tt); tt = setTimeout(() => el.classList.remove('show'), 1600); }
+</script>
+</body>
+</html>

@@ -1,14 +1,16 @@
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useSuspenseQuery } from "@tanstack/react-query"
 import { useCallback, useMemo } from "react"
 
 import { count } from "@/lib/format"
 import {
   financeKeys,
-  goodsInTransit,
-  openDeliveries,
-  payablesAging,
-  stockVsLedger,
+  goodsInTransitQuery,
+  openDeliveriesQuery,
+  payablesAgingQuery,
+  stockVsLedgerQuery,
   unbilledReceipts,
+  type GoodsInTransitRow,
+  type StockLedgerUnitRow,
 } from "@/lib/queries/finance"
 import { todayIso } from "@/screens/finance/chart"
 import type { AgingBuckets } from "@itulah/contract"
@@ -81,11 +83,7 @@ export function openItemsText(n: number): string {
 export function usePayables(options: { unit?: string; asOf?: string } = {}) {
   const asOf = options.asOf ?? todayIso()
   const unit = options.unit ?? ""
-  return useQuery({
-    queryKey: financeKeys.payablesAging(asOf, unit || null),
-    queryFn: ({ signal }) =>
-      payablesAging({ as_of: asOf, unit: unit || undefined }, signal),
-  })
+  return useQuery(payablesAgingQuery(asOf, unit || null))
 }
 
 /// The deliveries inside Total payables, one row each — the open goods
@@ -97,9 +95,7 @@ export function useOpenDeliveries(
   const asOf = options.asOf ?? todayIso()
   const unit = options.unit ?? ""
   return useQuery({
-    queryKey: financeKeys.openDeliveries(asOf, unit || null),
-    queryFn: ({ signal }) =>
-      openDeliveries({ as_of: asOf, unit: unit || undefined }, signal),
+    ...openDeliveriesQuery(asOf, unit || null),
     enabled: options.enabled ?? true,
   })
 }
@@ -142,14 +138,31 @@ export function useDeliveryNumber(): (
 /// because the sender and the receiver of a box each carry it until it is
 /// counted in, and adding the units would count every box twice.
 export function useInventoryValue() {
-  const stock = useQuery({
-    queryKey: financeKeys.stockVsLedger(),
-    queryFn: ({ signal }) => stockVsLedger(signal),
-  })
-  const road = useQuery({
-    queryKey: financeKeys.goodsInTransit(),
-    queryFn: ({ signal }) => goodsInTransit(signal),
-  })
+  const stock = useQuery(stockVsLedgerQuery())
+  const road = useQuery(goodsInTransitQuery())
+  return inventoryValueOf(stock, road)
+}
+
+/// The same measure for a screen that reads the two inside a `<Suspense>`
+/// (the Overview): the figure is always there, never pending.
+export function useInventoryValueNow() {
+  const stock = useSuspenseQuery(stockVsLedgerQuery())
+  const road = useSuspenseQuery(goodsInTransitQuery())
+  return inventoryValueOf(stock, road)
+}
+
+function inventoryValueOf(
+  stock: {
+    data: StockLedgerUnitRow[] | undefined
+    isPending: boolean
+    isError: boolean
+  },
+  road: {
+    data: GoodsInTransitRow[] | undefined
+    isPending: boolean
+    isError: boolean
+  }
+) {
   const pending = stock.isPending || road.isPending
   const failed = stock.isError || road.isError
   if (stock.data === undefined || road.data === undefined)
@@ -176,3 +189,23 @@ export function useInventoryValue() {
     value: onHand + awaiting + inTransit,
   }
 }
+
+// ── number cards ─────────────────────────────────────────────────────────
+
+/// One number card. `change` is the percentage since last month, when the
+/// card has one.
+export interface NumberCard {
+  readonly label: string
+  readonly value: number | undefined
+  readonly change: number | null
+  readonly pending: boolean
+}
+
+/// The four cards with nothing in them yet: what a boundary draws while the
+/// figures are read, so the row is already the size it will be.
+export const PENDING_CARDS: readonly NumberCard[] = [
+  "Money in the bank",
+  "Total payables",
+  "Cash flow this month",
+  "Expenses this month",
+].map((label) => ({ label, value: undefined, change: null, pending: true }))

@@ -8,23 +8,26 @@ import { PageContent } from "@/components/shell/app-shell"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Button } from "@/components/ui/button"
-import { Pill } from "@/components/ui/pill"
 import {
   IntakeHeader,
   useIntakeSearch,
   type ReturnsStatus,
 } from "@/screens/operations/intake/header"
 import { DeliverySheet } from "@/screens/operations/intake/receive-return-sheet"
-import { Segmented, Toolbar } from "@/components/ui/segmented"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
+import { SubTabs } from "@/components/ui/sub-tabs"
 import { EmptyState } from "@/components/ui/states"
 import { dc } from "@/lib/api"
 import { SHOW_MISSING } from "@/lib/features"
-import { count, day, quantity } from "@/lib/format"
+import { count, day, dayMonth, quantity } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import { keys } from "@/lib/operations/keys"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
+import { cn } from "@/lib/utils"
+import { STAMP } from "@/screens/procurement/shared"
+import { sum } from "@/screens/operations/board/sum"
 import { ROOMY } from "@/screens/operations/roomy"
 import type { StoreInboundDelivery } from "@itulah/contract"
 
@@ -38,11 +41,6 @@ import type { StoreInboundDelivery } from "@itulah/contract"
 /// count taken while looking at the number it is supposed to produce confirms
 /// the paperwork and proves nothing. The comparison — expected, received,
 /// missing, extra — exists only after it is received, on the same record.
-const STATUSES = [
-  { value: "IN_TRANSIT", label: "In transit" },
-  { value: "RECEIVED", label: "Received" },
-] as const
-
 type StatusFilter = ReturnsStatus
 
 /// Columns after the prototype: No. · Return · Store · Sent on · Koli · Count.
@@ -105,7 +103,7 @@ const columns: ColumnDef<TableSetup, StoreInboundDelivery>[] = [
     cell: ({ row }) => (
       <span className="flex min-w-0 flex-col gap-0.5">
         <StoreName id={row.original.source_site_id} />
-        <span className="truncate font-mono text-[0.875rem] font-normal text-mute">
+        <span className="truncate font-mono text-[0.9375rem] font-normal text-mute">
           {row.original.shipment_reference ?? "—"}
         </span>
       </span>
@@ -123,7 +121,7 @@ const columns: ColumnDef<TableSetup, StoreInboundDelivery>[] = [
         <span className="text-[1.5rem] leading-tight font-semibold tracking-tight text-ink">
           {count(row.original.koli_count)}
         </span>
-        <span className="text-[0.875rem] text-mute">cartons</span>
+        <span className="text-[0.9375rem] text-mute">cartons</span>
       </span>
     ),
   },
@@ -146,7 +144,17 @@ const columns: ColumnDef<TableSetup, StoreInboundDelivery>[] = [
       const card = useLayout() === "phone"
       if (delivery.status === "IN_TRANSIT")
         return <CountButton id={delivery.delivery_id} />
-      if (card) return <Pill tone="ok">Received</Pill>
+      if (card)
+        return (
+          <span className={cn(STAMP, "text-ok-fg")}>
+            Received
+            {delivery.received_at !== null && (
+              <span className="block tabular-nums">
+                {dayMonth(delivery.received_at)}
+              </span>
+            )}
+          </span>
+        )
       const result = delivery.result
       if (result === null) return <span className="text-mute">—</span>
       const off = isOff(result)
@@ -237,12 +245,19 @@ export function ReceiveStoreReturn() {
     { id: "departed_at", desc: true },
   ])
 
+  // Both stages are read at once: the strip and the tab counts need them.
   const list = useQuery({
-    queryKey: keys.storeInbound(status),
-    queryFn: ({ signal }) => dc.storeInboundList(status, signal),
+    queryKey: keys.storeInbound("ALL"),
+    queryFn: ({ signal }) => dc.storeInboundList("ALL", signal),
   })
 
-  const all = useMemo(() => list.data ?? [], [list.data])
+  const everything = useMemo(() => list.data ?? [], [list.data])
+  const all = useMemo(
+    () => everything.filter((row) => row.status === status),
+    [everything, status]
+  )
+  const onWay = everything.filter((row) => row.status === "IN_TRANSIT")
+  const counted = everything.filter((row) => row.status === "RECEIVED")
   // A return by its reference or the store it came from.
   const rows = useMemo(
     () =>
@@ -283,9 +298,35 @@ export function ReceiveStoreReturn() {
         returns={{ value: status, onChange: setStatus }}
       />
 
-      <Toolbar className="max-md:hidden">
-        <Segmented options={STATUSES} value={status} onChange={setStatus} />
-      </Toolbar>
+      <KpiStrip className="grid-cols-2 md:grid-cols-2 xl:grid-cols-2">
+        <Kpi
+          label="To receive"
+          value={`${count(sum(onWay, (row) => row.koli_count))} cartons`}
+        />
+        <Kpi
+          label="Received"
+          value={quantity(
+            sum(counted, (row) => row.result?.received_units ?? 0)
+          )}
+        />
+      </KpiStrip>
+      {/* A phone's are the dock's status (IntakeHeader). */}
+      <SubTabs
+        dock={false}
+        className="max-md:hidden"
+        value={status}
+        onChange={(next) => setStatus(next as StatusFilter)}
+        tabs={[
+          {
+            value: "IN_TRANSIT",
+            label: `To receive ${count(onWay.length)}`,
+          },
+          {
+            value: "RECEIVED",
+            label: `Received ${count(counted.length)}`,
+          },
+        ]}
+      />
 
       <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(list, {
@@ -293,7 +334,11 @@ export function ReceiveStoreReturn() {
           render: () =>
             rows.length === 0 ? (
               <EmptyState>
-                {all.length === 0 ? "Nothing to count." : "No returns match."}
+                {all.length === 0
+                  ? status === "RECEIVED"
+                    ? "Nothing received yet."
+                    : "Nothing to receive."
+                  : "No returns match."}
               </EmptyState>
             ) : (
               <DataTable<StoreInboundDelivery>

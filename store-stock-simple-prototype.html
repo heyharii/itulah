@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f8f9fb">
+  <title>Pindahkan barang · Toko Cikupa</title>
+  <style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;450;500;550;600;650;700&display=swap');
+:root{font-family:'DM Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#202a35;background:#f8f9fb;font-synthesis:none;--blue:#245de6;--blue-soft:#edf3ff;--muted:#647180;--line:#e5e9ef;--green:#16704d;--orange:#9b5b12;--radius:16px}
+*{box-sizing:border-box}body{margin:0;font-size:15px;line-height:1.5}button,input,a{-webkit-tap-highlight-color:transparent}button,input{font:inherit}button,a{touch-action:manipulation}button{cursor:pointer}button{color:inherit}button:disabled{cursor:default}button:focus-visible,a:focus-visible{outline:3px solid #9ab9ff;outline-offset:3px}input:focus{outline:3px solid #d8e4ff;border-color:var(--blue)}button{border:0;background:none}a{color:inherit}svg{width:20px;height:20px;flex-shrink:0;stroke-width:1.8}h1,h2,h3,p{margin:0}button,a,input{font-family:inherit}button{font-weight:600}small{font-size:12px}.hidden,[hidden]{display:none!important}
+.prototype{background:#18232e;color:#dce4ed;padding:7px 24px;display:flex;align-items:center;justify-content:space-between;gap:16px;font-size:12px}.prototype strong{font-weight:550}.prototype button{color:#dce4ed;text-decoration:underline;font-size:12px;min-height:28px}.prototype .demo-dot{display:inline-block;width:6px;height:6px;background:#9bc6ff;border-radius:100%;margin-right:7px}
+.appbar{background:#fff;border-bottom:1px solid var(--line)}.bar-inner{max-width:1140px;padding:0 28px;margin:auto;display:flex;align-items:center;gap:30px;min-height:76px}.brand{display:flex;gap:10px;align-items:center;flex-shrink:0}.mark{background:#172633;border-radius:11px;width:36px;height:36px;color:#fff;display:grid;place-items:center;font-size:21px;font-weight:650}.brand strong{display:block;font-size:14px}.brand small{display:block;color:var(--muted)}.nav{display:flex;gap:6px;align-self:stretch}.nav a{display:flex;gap:8px;align-items:center;text-decoration:none;padding:0 16px;color:var(--muted);position:relative;font-size:14px;font-weight:550}.nav a.active{color:var(--blue)}.nav a.active:after{position:absolute;content:'';bottom:0;left:16px;right:16px;height:3px;background:var(--blue);border-radius:3px 3px 0 0}.user{margin-left:auto;display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px}.avatar{width:32px;height:32px;display:grid;place-items:center;border-radius:50%;background:#f0eae0;color:#786747;font-weight:700}
+.main{max-width:1140px;margin:auto;padding:34px 28px 144px}.eyebrow{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:12px;font-weight:650;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px}.heading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:24px}.heading h1{font-size:30px;letter-spacing:-1px;line-height:1.2;font-weight:650}.heading p{color:var(--muted);margin-top:8px}.button{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:46px;padding:10px 18px;border:1px solid var(--line);border-radius:11px;background:#fff;font-size:14px;text-decoration:none;white-space:nowrap}.button:hover{background:#f2f5fa}.button.primary{background:var(--blue);border-color:var(--blue);color:#fff}.button.primary:hover{background:#194dcc}.button:disabled{opacity:.42}.button.subtle{background:transparent;border-color:transparent;color:var(--muted)}.button.small{min-height:38px;padding:7px 11px;font-size:13px}.button.danger{color:#a53e36}.step-label{font-size:14px;font-weight:650;display:flex;align-items:center;gap:9px;margin-bottom:12px}.step-num{width:23px;height:23px;border-radius:50%;background:#e9edf3;display:grid;place-items:center;font-size:12px;color:#526174}.route-options{display:grid;grid-template-columns:1fr 1fr;gap:12px}.route-option{display:flex;align-items:center;gap:14px;background:#fff;border:1px solid #dce2ea;border-radius:14px;padding:17px 18px;text-align:left;position:relative;min-height:86px}.route-option.active{border-color:var(--blue);box-shadow:0 0 0 1px var(--blue);background:#f5f8ff}.route-icon{width:43px;height:43px;border-radius:12px;background:#f0f3f7;display:grid;place-items:center;color:#59697c}.active .route-icon{color:var(--blue);background:#e5edff}.route-option strong{font-size:16px;font-weight:650;display:block}.route-option small{display:block;color:var(--muted);font-size:13px;margin-top:2px}.route-option .radio{width:19px;height:19px;border:1.5px solid #c5cdd7;border-radius:50%;margin-left:auto;flex-shrink:0}.route-option.active .radio{border:5px solid var(--blue)}
+.direction{display:flex;align-items:center;gap:10px;margin-top:12px;color:#526174;font-size:13px}.direction strong{color:#334254;font-weight:550}.direction svg{width:16px;height:16px}.section-top{margin-top:30px;display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:13px}.section-top .step-label{margin:0}.section-top .hint{font-size:13px;color:var(--muted)}.toolbar{display:flex;align-items:center;gap:12px;margin-bottom:18px}.search{position:relative;flex:1}.search svg{position:absolute;top:15px;left:14px;color:#7e8a99;width:18px;height:18px}.search input{height:48px;width:100%;border:1px solid var(--line);border-radius:11px;background:#fff;padding:0 42px;font-size:14px;color:#202a35}.search input::placeholder{color:#87929e}.search-clear{position:absolute;right:6px;top:5px;width:38px;height:38px;display:grid;place-items:center}.search-clear svg{position:static;width:16px;height:16px}.filter-toggle{font-size:13px;display:flex;align-items:center;gap:7px;min-height:44px;padding:0 4px;white-space:nowrap;color:var(--muted)}.filter-toggle input{accent-color:var(--blue);width:17px;height:17px}.product-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;align-items:start}.product{background:#fff;border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}.product-head{display:flex;align-items:center;gap:13px;padding:18px 18px 15px}.thumb{width:46px;height:46px;border-radius:12px;background:#f2f4f6;display:grid;place-items:center;flex-shrink:0}.thumb svg{width:37px;height:37px}.product-head h2{font-size:16px;font-weight:650;letter-spacing:-.25px}.product-head p{font-size:12px;color:#7c8997;margin-top:2px}.product-head .variant-count{margin-left:auto;font-size:12px;color:var(--muted)}.col-labels{display:grid;grid-template-columns:1fr 76px 130px;padding:8px 18px;background:#fafbfc;border-top:1px solid #f2f4f7;border-bottom:1px solid #f2f4f7;font-size:11px;color:#728093;font-weight:550}.col-labels span:nth-child(2){text-align:center}.col-labels span:last-child{text-align:right}.variant{padding:13px 18px;border-bottom:1px solid #edf0f4}.variant:last-child{border-bottom:0}.variant.selected{background:#f7faff}.variant-line{display:grid;grid-template-columns:1fr 76px 130px;align-items:center;gap:0}.variant-name{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:550;min-width:0}.swatch{width:12px;height:12px;display:inline-block;border-radius:50%;border:1px solid #00000014;flex-shrink:0}.variant-name .size{font-weight:700}.stock-count{text-align:center;font-size:15px;font-variant-numeric:tabular-nums;color:#586779}.stock-count.zero{color:#99a2af;font-size:12px}.stepper{display:flex;align-items:center;justify-self:end;border:1px solid #dce2ea;border-radius:10px;overflow:hidden;height:42px;background:#fff}.stepper button{width:36px;height:40px;font-size:22px;font-weight:450;display:grid;place-items:center;padding:0}.stepper button:hover:not(:disabled){background:#edf3ff;color:var(--blue)}.stepper button:disabled{color:#c7cdd6}.stepper input{border:0;border-left:1px solid #edf0f4;border-right:1px solid #edf0f4;width:44px;min-width:0;text-align:center;height:40px;background:#fff;font-size:16px;font-weight:650;color:#273a51;-moz-appearance:textfield;border-radius:0}.stepper input::-webkit-inner-spin-button{display:none}.selected .stepper{border-color:#99b7ff}.selected .stepper input{color:var(--blue);background:#f3f7ff}.preview-line{display:flex;flex-wrap:wrap;gap:4px 12px;margin:9px 0 0 20px;color:#59718f;font-size:11px}.preview-line b{font-weight:650;color:#245de6}.inline-error{font-size:12px;color:#a64622;margin-top:8px}.empty{grid-column:1/-1;text-align:center;padding:52px 20px;background:#fff;border:1px dashed #dce2ea;border-radius:16px;color:var(--muted)}.empty svg{width:30px;height:30px;margin-bottom:8px;color:#8d9aad}.empty h3{font-size:16px;color:#445468;font-weight:550;margin-bottom:5px}.result-count{font-size:12px;color:#8793a1;text-align:center;margin-top:18px}
+.bottom-bar{position:fixed;z-index:20;bottom:0;left:0;right:0;background:#ffffffed;backdrop-filter:blur(16px);border-top:1px solid var(--line);padding:16px 28px calc(16px + env(safe-area-inset-bottom))}.bottom-inner{max-width:1084px;margin:auto;display:flex;align-items:center;gap:18px}.bottom-copy{margin-right:auto}.bottom-copy strong{display:block;font-size:16px;font-weight:650}.bottom-copy p{font-size:13px;color:var(--muted);margin-top:2px}.bottom-bar .primary{min-width:180px;min-height:48px}.bottom-bar .subtle{font-size:13px}.bottom-copy .mini{display:none}
+.notice{display:flex;gap:10px;align-items:flex-start;padding:13px 16px;border-radius:11px;background:#eef3f8;color:#587086;font-size:13px;line-height:1.6}.notice svg{width:18px;height:18px;margin-top:2px}.notice strong{color:#3e536a;font-weight:600}.location-row{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:18px}.location-switch{display:flex;padding:4px;background:#e9edf2;border-radius:12px;gap:4px}.location-switch button{padding:9px 18px;border-radius:9px;min-height:42px;color:#667383;display:flex;gap:8px;align-items:center;font-size:14px}.location-switch button.active{background:#fff;color:#273b54;box-shadow:0 1px 4px #1c2c4610}.location-switch svg{width:18px;height:18px}.location-note{font-size:13px;color:var(--muted)}.status-tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:20px 0}.status-tab{border:1px solid var(--line);border-radius:12px;padding:12px 15px;background:#fff;text-align:left;display:flex;flex-direction:column;gap:5px;min-height:87px}.status-tab.active{border-color:#91abe2;box-shadow:0 0 0 1px #91abe2;background:#f5f8ff}.status-tab .label{font-size:12px;display:flex;align-items:center;gap:6px;color:#667586}.status-tab b{font-size:24px;line-height:1.15;font-weight:600;letter-spacing:-.7px}.status-tab .dot{width:6px;height:6px;border-radius:50%;background:#8d9cad}.status-tab.match .dot{background:#268563}.status-tab.gap .dot{background:#c07c29}.status-tab.stale .dot{background:#597ebb}.status-tab.gap b{color:#a3651d}.status-tab.match b{color:#28735a}.all-results{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:10px}.all-results h2{font-size:16px;font-weight:600}.text-button{font-size:13px;color:var(--blue);padding:9px 0;min-height:38px}.check-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;align-items:start}.check-card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px}.check-card.editing{border-color:#a5bdf4}.check-head{display:flex;gap:11px;align-items:flex-start}.check-head .thumb{width:41px;height:41px;border-radius:10px}.check-head .thumb svg{width:33px;height:33px}.check-title{min-width:0}.check-title h3{font-size:15px;font-weight:600}.check-title p{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:5px;margin-top:2px}.badge{font-size:11px;padding:4px 7px;border-radius:6px;background:#f0f3f6;color:#687789;white-space:nowrap;margin-left:auto;display:inline-flex;align-items:center;gap:4px;font-weight:550}.badge.match{background:#eaf6ef;color:#20714e}.badge.gap{background:#fff2df;color:#966019}.badge.stale{background:#edf2fb;color:#55749e}.badge svg{width:12px;height:12px}.check-numbers{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:17px}.check-number span{font-size:12px;color:#788695;display:block}.check-number strong{font-size:22px;font-weight:550;color:#344558;letter-spacing:-.4px}.check-number strong em{font-style:normal;font-size:12px;font-weight:450;color:#7a8796;margin-left:3px}.check-number .missing{font-size:14px;color:#9aa5b2;line-height:33px}.check-meta{font-size:11px;color:#8793a0;margin-top:5px;min-height:17px}.check-message{font-size:12px;line-height:1.5;margin-top:10px;color:#728297}.check-message.gap{color:#95611e}.check-message.stale{color:#59789c}.count-entry{display:flex;align-items:center;gap:12px;margin-top:15px;padding-top:13px;border-top:1px solid #edf0f4}.count-entry label{font-size:13px;font-weight:550;margin-right:auto}.count-entry label small{display:block;font-weight:400;color:#8a96a4;font-size:11px;margin-top:1px}.count-entry .stepper input{width:48px}.clear-count{width:30px;height:36px;color:#7f8d9c;padding:0;display:grid;place-items:center}.clear-count svg{width:15px;height:15px}.count-tools{display:flex;align-items:center;gap:4px}.pending-line{margin-top:8px;color:var(--blue);font-size:11px;text-align:right}.pending-line.error{color:#a64622}.zero-tip{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:7px}.zero-tip svg{width:16px;height:16px}
+dialog{border:0;border-radius:20px;box-shadow:0 24px 90px #17293a35;padding:0;width:min(600px,calc(100% - 32px));max-height:calc(100dvh - 48px);color:#253548;background:#fff}dialog::backdrop{background:#15263c63;backdrop-filter:blur(3px)}.dialog-head{display:flex;align-items:flex-start;gap:14px;padding:24px 24px 18px}.dialog-head h2{font-size:23px;letter-spacing:-.6px;font-weight:650;line-height:1.25}.dialog-head p{color:var(--muted);font-size:13px;margin-top:6px}.close-button{margin-left:auto;width:34px;height:34px;display:grid;place-items:center;flex-shrink:0;border-radius:9px;background:#f1f4f7}.close-button svg{width:18px;height:18px}.dialog-body{padding:0 24px 22px}.dialog-route{display:flex;align-items:center;justify-content:space-between;gap:15px;background:#f3f6fb;border-radius:12px;padding:16px 20px;margin-bottom:18px}.dialog-route span{font-size:11px;color:#7b8a9d;display:block;margin-bottom:3px}.dialog-route strong{font-size:15px;font-weight:600}.dialog-route>svg{color:var(--blue)}.review-item{padding:14px 0;border-bottom:1px solid var(--line)}.review-item:last-child{border-bottom:0}.review-item .top{display:flex;justify-content:space-between;gap:12px;font-size:14px}.review-item .top strong{font-weight:600}.review-item .top b{white-space:nowrap;color:var(--blue);font-weight:650}.review-item .detail{font-size:12px;color:var(--muted);margin-top:3px;display:flex;align-items:center;gap:6px}.review-after{margin-top:8px;display:flex;gap:16px;font-size:12px;color:#708095;flex-wrap:wrap}.review-after b{color:#3f5775;font-weight:600}.dialog-summary{display:flex;justify-content:space-between;gap:15px;border-top:1px solid var(--line);padding:16px 0;font-size:15px;margin-top:8px}.dialog-summary strong{font-size:18px;color:#263e5d}.dialog-footer{border-top:1px solid var(--line);padding:16px 24px;display:flex;gap:12px;background:#fcfdff}.dialog-footer .primary{flex:1}.dialog-error{font-size:13px;color:#a83c2d;padding:12px 14px;background:#fff0eb;border-radius:8px;margin-top:12px}.success-panel{background:#fff;border:1px solid var(--line);border-radius:20px;margin:30px auto;max-width:650px;padding:35px}.success-icon{width:60px;height:60px;border-radius:50%;background:#e5f5ec;color:#1c8454;display:grid;place-items:center;margin-bottom:20px}.success-icon svg{width:30px;height:30px}.success-panel h1{font-size:29px;line-height:1.25;letter-spacing:-.8px;margin-bottom:10px}.success-panel>p{color:var(--muted);font-size:15px}.success-panel .success-list{margin:20px 0}.success-panel .actions{display:flex;gap:10px;margin-top:24px;flex-wrap:wrap}.success-panel .notice{margin-top:20px}.history-item{padding:16px 0;border-bottom:1px solid var(--line)}.history-item:first-child{padding-top:0}.history-item h3{font-size:14px;font-weight:600}.history-item p{font-size:12px;color:var(--muted);margin-top:4px}.history-item .detail-lines{margin-top:8px;font-size:13px;color:#52667e}.history-item.undone{opacity:.55}.history-item.undone h3{text-decoration:line-through}#toast{position:fixed;z-index:60;left:50%;bottom:112px;transform:translateX(-50%) translateY(15px);background:#223345;color:#fff;padding:12px 18px;border-radius:11px;font-size:13px;box-shadow:0 8px 30px #17283f25;max-width:calc(100vw - 32px);opacity:0;pointer-events:none;transition:opacity .2s,transform .2s}#toast.visible{opacity:1;transform:translateX(-50%) translateY(0)}
+@media(min-width:1100px){.check-card{padding:20px}.check-grid{gap:18px}}
+@media(max-width:800px){.bar-inner{gap:16px;padding:0 20px}.nav a{padding:0 10px;font-size:13px}.user span:not(.avatar){display:none}.main{padding:26px 20px 146px}.product-grid{gap:12px}.col-labels{grid-template-columns:1fr 55px 117px;padding:8px 13px}.variant{padding:13px}.variant-line{grid-template-columns:1fr 55px 117px}.stepper button{width:34px}.stepper input{width:40px}.variant-name{font-size:13px;gap:5px}.product-head{padding:16px 13px}.product-head .variant-count{display:none}.check-card{padding:15px}.check-head{flex-wrap:wrap}.check-head .badge{margin-left:52px;margin-top:-3px}.check-title h3{font-size:15px}.count-entry{gap:6px}}
+@media(max-width:620px){.prototype{padding:5px 16px;font-size:11px}.prototype .proto-extra{display:none}.bar-inner{padding:13px 16px 0;gap:0;flex-wrap:wrap}.brand{margin-right:auto}.brand strong{font-size:13px}.brand small{font-size:11px}.mark{height:32px;width:32px;font-size:18px}.user{margin-left:0}.nav{order:3;width:100%;margin-top:12px;justify-content:stretch;gap:0}.nav a{flex:1;justify-content:center;padding:13px 4px;font-size:13px}.nav a.active:after{left:8px;right:8px}.nav svg{width:17px;height:17px}.main{padding:24px 16px 161px}.heading{margin-bottom:22px;align-items:flex-start}.heading h1{font-size:27px}.heading p{font-size:13px;max-width:270px;margin-top:7px}.heading .history-button{padding:8px;min-height:40px}.history-button span{display:none}.eyebrow{font-size:10px;margin-bottom:7px}.route-options{gap:9px}.route-option{padding:12px;gap:10px;min-height:92px;align-items:flex-start;flex-wrap:wrap}.route-icon{width:29px;height:29px;border-radius:8px;order:0}.route-icon svg{width:17px;height:17px}.route-option .radio{order:1;margin-top:5px;width:17px;height:17px}.route-option .route-copy{order:2;width:100%}.route-option strong{font-size:14px}.route-option small{font-size:11px}.route-option.active .radio{border-width:4px}.direction{font-size:12px;gap:6px;margin-top:11px}.direction svg{width:14px;height:14px}.section-top{margin-top:24px;align-items:flex-start}.section-top .hint{display:none}.step-label{font-size:14px}.toolbar{gap:8px;flex-wrap:wrap;margin-bottom:13px}.search{flex-basis:100%}.search input{height:46px;font-size:14px}.search svg{top:14px}.filter-toggle{min-height:32px;font-size:12px}.product-grid,.check-grid{grid-template-columns:1fr;gap:14px}.product-head{padding:16px}.product-head .variant-count{display:block}.col-labels{grid-template-columns:1fr 65px 132px;padding:8px 16px;font-size:11px}.variant{padding:13px 16px}.variant-line{grid-template-columns:1fr 65px 132px}.variant-name{font-size:14px;gap:7px}.stepper{height:46px}.stepper button{height:44px;width:40px}.stepper input{height:44px;width:44px;font-size:16px}.preview-line{font-size:11px;margin-top:8px;gap:5px 12px}.bottom-bar{padding:13px 16px calc(13px + env(safe-area-inset-bottom))}.bottom-inner{gap:10px;flex-wrap:wrap}.bottom-copy{flex:1;min-width:0}.bottom-copy strong{font-size:14px}.bottom-copy p{font-size:11px;margin-top:0}.bottom-bar .primary{width:100%;min-height:47px;order:3;font-size:14px}.bottom-bar .subtle{font-size:12px;min-height:32px;padding:4px}.location-row{display:block}.location-switch{width:100%}.location-switch button{flex:1;justify-content:center;padding:9px 10px;font-size:13px}.location-note{font-size:12px;margin-top:9px}.notice{font-size:12px;padding:11px 12px}.status-tabs{gap:6px;margin:17px 0}.status-tab{padding:10px 9px;min-height:83px}.status-tab .label{font-size:10px;gap:4px;line-height:1.3}.status-tab b{font-size:22px;margin-top:auto}.status-tab .dot{display:none}.check-card{padding:16px}.check-head{flex-wrap:nowrap}.check-head .badge{margin:0 0 0 auto;font-size:10px;padding:4px 6px}.check-title h3{font-size:14px}.check-title p{font-size:12px}.check-numbers{margin-top:15px}.check-number strong{font-size:23px}.check-meta{font-size:11px}.count-entry label{font-size:13px}.count-entry label small{font-size:11px}.count-entry .stepper button{width:36px}.count-entry .stepper input{width:43px}.zero-tip{font-size:11px}.all-results h2{font-size:14px}.all-results .text-button{font-size:12px}.dialog-head{padding:22px 18px 16px}.dialog-head h2{font-size:22px}.dialog-body{padding:0 18px 18px}.dialog-route{padding:14px;gap:10px}.dialog-route strong{font-size:14px}.dialog-footer{padding:14px 18px;gap:8px}.dialog-footer .button{font-size:13px;padding:10px 13px}.success-panel{padding:25px 22px;margin:5px auto}.success-panel h1{font-size:26px}.success-panel .actions .button{width:100%}#toast{bottom:145px;width:max-content;max-width:calc(100vw - 32px)}}
+@media(max-width:360px){.main{padding-left:12px;padding-right:12px}.variant,.product-head{padding-left:12px;padding-right:12px}.col-labels{padding-left:12px;padding-right:12px;grid-template-columns:1fr 53px 128px}.variant-line{grid-template-columns:1fr 53px 128px}.check-head .thumb{display:none}.check-head{gap:5px}.check-head .badge{font-size:10px}.variant-name{font-size:13px}}
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
+/* Keep the first items close to the task controls on shorter screens. */
+.main{padding-top:24px}.heading{margin-bottom:20px}.section-top{margin-top:22px}.route-option{min-height:78px;padding-top:14px;padding-bottom:14px}.status-tabs{margin:14px 0}.status-tab{min-height:74px;padding-top:10px;padding-bottom:10px}.location-row{margin-bottom:14px}.all-results{margin-bottom:8px}
+@media(max-width:620px){.main{padding-top:20px}.heading{margin-bottom:18px}.route-option{min-height:90px;padding-top:12px;padding-bottom:12px}.status-tab{min-height:75px}.location-note{font-size:11px}.section-top{margin-top:20px}}
+@media(max-width:620px){
+  .prototype button{min-height:18px;font-size:11px}.nav{margin-top:9px}.nav a{padding-top:11px;padding-bottom:11px}
+  .route-option{min-height:76px;align-items:center;flex-wrap:nowrap;padding:12px}.route-icon{display:none}.route-option .route-copy{order:0;width:auto}.route-option .radio{margin-top:0;order:1}.route-option strong{font-size:13px}.route-option small{font-size:10px}.direction{display:none}
+  .filter-toggle{display:none}.location-note{display:none}.status-tab{min-height:65px}.all-results .text-button{min-height:32px;padding:5px 0}
+}
+
+</style>
+</head>
+<body data-page="movement">
+  <div id="app"></div>
+  <dialog id="dialog"></dialog>
+  <div id="toast" role="status" aria-live="polite"></div>
+<script>
+/* Local demo data. A physical observation never changes the stock ledger. */
+(() => {
+  'use strict';
+  const KEY = 'cikupa-stock-simple-v1';
+  const catalog = [
+    {id:'ox-n-m',name:'Kemeja Oxford',code:'00000002',color:'Navy',hex:'#344768',size:'M',shape:'shirt',warehouse:2,floor:0},
+    {id:'ox-n-l',name:'Kemeja Oxford',code:'00000002',color:'Navy',hex:'#344768',size:'L',shape:'shirt',warehouse:3,floor:1},
+    {id:'ox-w-m',name:'Kemeja Oxford',code:'00000002',color:'Putih',hex:'#e8e7e2',size:'M',shape:'shirt',warehouse:1,floor:1},
+    {id:'tee-c-s',name:'Kaos Oblong',code:'00000003',color:'Abu tua',hex:'#54565b',size:'S',shape:'tee',warehouse:2,floor:1},
+    {id:'tee-c-m',name:'Kaos Oblong',code:'00000003',color:'Abu tua',hex:'#54565b',size:'M',shape:'tee',warehouse:4,floor:1},
+    {id:'tee-b-l',name:'Kaos Oblong',code:'00000003',color:'Hitam',hex:'#292a30',size:'L',shape:'tee',warehouse:2,floor:0},
+    {id:'bl-s-s',name:'Blus Linen',code:'00000008',color:'Sage',hex:'#a0b29a',size:'S',shape:'shirt',warehouse:1,floor:0},
+    {id:'bl-s-m',name:'Blus Linen',code:'00000008',color:'Sage',hex:'#a0b29a',size:'M',shape:'shirt',warehouse:2,floor:0},
+    {id:'bl-s-l',name:'Blus Linen',code:'00000008',color:'Sage',hex:'#a0b29a',size:'L',shape:'shirt',warehouse:0,floor:1},
+    {id:'ch-k-30',name:'Celana Chino',code:'00000009',color:'Khaki',hex:'#beaa83',size:'30',shape:'pants',warehouse:2,floor:1},
+    {id:'ch-k-32',name:'Celana Chino',code:'00000009',color:'Khaki',hex:'#beaa83',size:'32',shape:'pants',warehouse:2,floor:0},
+    {id:'ch-n-34',name:'Celana Chino',code:'00000009',color:'Navy',hex:'#344768',size:'34',shape:'pants',warehouse:1,floor:0}
+  ];
+  const places = {warehouse:'Gudang toko',floor:'Area jual'};
+  const key = (id,place) => `${id}:${place}`;
+  function fresh() {
+    const now = Date.now();
+    const stock = Object.fromEntries(catalog.map(p=>[p.id,{warehouse:p.warehouse,floor:p.floor}]));
+    const revision = {};
+    const observations = {};
+    const seed = (id,place,qty,minutes,rev=0) => {
+      observations[key(id,place)] = {id,place,qty,at:now-minutes*60000,who:'Dewi',revision:rev,expected:stock[id][place]};
+    };
+    seed('ox-n-m','warehouse',2,22);
+    seed('ox-n-l','warehouse',2,25);
+    seed('ox-w-m','warehouse',2,80);
+    revision[key('ox-w-m','warehouse')] = 1;
+    seed('tee-c-s','warehouse',2,35);
+    seed('tee-c-m','floor',0,30);
+    seed('ox-n-l','floor',1,15);
+    return {version:1,stock,revision,observations,history:[],checks:[],serial:0};
+  }
+  let storageAvailable = true;
+  function read() {
+    try {
+      const raw = localStorage.getItem(KEY);
+      if (raw) { const value=JSON.parse(raw); if(value.version===1 && catalog.every(p=>value.stock?.[p.id])) return value; }
+    } catch { storageAvailable=false; }
+    return fresh();
+  }
+  let state = read();
+  const persist = () => { try { localStorage.setItem(KEY,JSON.stringify(state)); } catch { storageAvailable=false; } };
+  const product = id => catalog.find(p=>p.id===id);
+  const revision = (id,place) => state.revision[key(id,place)] || 0;
+  function status(id,place) {
+    const seen=state.observations[key(id,place)];
+    if(!seen) return {kind:'unchecked',label:'Belum dicek',seen:null};
+    if(seen.revision!==revision(id,place)) return {kind:'stale',label:'Perlu cek ulang',seen};
+    const diff=seen.qty-state.stock[id][place];
+    return {kind:diff===0?'match':'gap',label:diff===0?'Sesuai':`Selisih ${Math.abs(diff)} pcs`,diff,seen};
+  }
+  function validate(lines,from,to) {
+    if(!places[from] || !places[to] || from===to) throw new Error('Pilih lokasi asal dan tujuan yang berbeda.');
+    if(!lines.length) throw new Error('Pilih barang yang akan dipindahkan.');
+    const ids=new Set();
+    for(const l of lines) {
+      if(!product(l.id)||ids.has(l.id)||!Number.isInteger(l.qty)||l.qty<=0) throw new Error('Periksa kembali jumlah barang.');
+      if(l.qty>state.stock[l.id][from]) throw new Error(`Stok ${product(l.id).name} ${product(l.id).size} tidak mencukupi. Periksa jumlahnya.`);
+      ids.add(l.id);
+    }
+  }
+  function move(lines,from,to) {
+    validate(lines,from,to);
+    const record={id:++state.serial,from,to,at:Date.now(),who:'Maya',undone:false,lines:lines.map(l=>({...l,before:{...state.stock[l.id]}}))};
+    for(const l of lines) {
+      state.stock[l.id][from]-=l.qty; state.stock[l.id][to]+=l.qty;
+      for(const place of [from,to]) state.revision[key(l.id,place)]=revision(l.id,place)+1;
+    }
+    state.history.unshift(record); persist(); return record;
+  }
+  function undo(recordId) {
+    const record=state.history.find(r=>r.id===recordId);
+    if(!record || record.undone) throw new Error('Perpindahan ini sudah dibatalkan.');
+    if(record.lines.some(l=>state.stock[l.id][record.to]<l.qty)) throw new Error('Stok tujuan sudah berkurang. Periksa barang sebelum membatalkan.');
+    for(const l of record.lines) {
+      state.stock[l.id][record.to]-=l.qty; state.stock[l.id][record.from]+=l.qty;
+      for(const place of [record.from,record.to]) state.revision[key(l.id,place)]=revision(l.id,place)+1;
+    }
+    record.undone=true; persist();
+  }
+  function observe(lines,place) {
+    if(!places[place]||!lines.length) throw new Error('Isi hasil hitung terlebih dahulu.');
+    const ids=new Set();
+    for(const l of lines) {
+      if(!product(l.id)||ids.has(l.id)||!Number.isInteger(l.qty)||l.qty<0||l.qty>9999||l.revision!==revision(l.id,place)) throw new Error('Stok berubah selama pengecekan. Tutup ringkasan, lalu hitung dan isi kembali barang yang ditandai.');
+      ids.add(l.id);
+    }
+    const at=Date.now();
+    const saved=lines.map(l=>({id:l.id,place,qty:l.qty,at,who:'Maya',revision:revision(l.id,place),expected:state.stock[l.id][place]}));
+    for(const item of saved) state.observations[key(item.id,place)]=item;
+    state.checks.unshift({at,place,lines:saved}); persist(); return saved;
+  }
+  globalThis.StockDemo={catalog,places,product,status,revision,move,undo,observe,
+    get state(){return state},get storageAvailable(){return storageAvailable},
+    reload(){state=read()}, reset(){state=fresh();persist()},key:KEY};
+})();
+
+(() => {
+  'use strict';
+  const D=StockDemo;
+  let isMove=location.hash==='#check'?false:location.hash==='#movement'?true:document.body.dataset.page==='movement';
+  const $=s=>document.querySelector(s), esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const icons={
+    arrow:'<path d="M4 12h16m-6-6 6 6-6 6"/>', move:'<path d="M4 7h16m-4-4 4 4-4 4M20 17H4m4-4-4 4 4 4"/>',
+    warehouse:'<path d="m3 10 9-6 9 6v11H3V10Z"/><path d="M8 21V11h8v10M8 15h8M8 18h8"/>',
+    shop:'<path d="M4 10v11h16V10M3 4h18l1 6a3 3 0 0 1-5 2 3 3 0 0 1-5 0 3 3 0 0 1-5 0 3 3 0 0 1-5-2l1-6ZM8 21v-6h8v6"/>',
+    clipboard:'<rect x="5" y="5" width="14" height="17" rx="2"/><rect x="9" y="2" width="6" height="5" rx="1"/><path d="m8 14 3 3 5-6"/>',
+    check:'<path d="m5 12 4 4L19 6"/>', search:'<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>',
+    history:'<path d="M3 11a9 9 0 1 1 2 7M3 4v7h7m2-4v6l4 2"/>', close:'<path d="m6 6 12 12M6 18 18 6"/>',
+    info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v1"/>', box:'<path d="m3 7 9-4 9 4v10l-9 4-9-4V7Zm0 0 9 4 9-4M12 11v10M7 5l10 5"/>',
+    clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v6l4 2"/>', warning:'<path d="M10.3 3.6 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.6a2 2 0 0 0-3.4 0Z"/><path d="M12 9v5m0 3v1"/>',
+    undo:'<path d="M3 10h11a7 7 0 0 1 0 14M3 10l5-5M3 10l5 5"/>'
+  };
+  const icon=n=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[n]||icons.box}</svg>`;
+  const paths={shirt:'M31 12 42 8 50 16 58 8 69 12 86 26 91 70 79 72 73 39 73 91 27 91 27 39 21 72 9 70 14 26Z',tee:'M31 14 41 10Q50 18 59 10L69 14 88 29 80 41 72 36 72 90 28 90 28 36 20 41 12 29Z',pants:'M29 8H71L76 93H58L50 34 42 93H24Z'};
+  const thumb=p=>`<span class="thumb"><svg viewBox="0 0 100 100" aria-hidden="true"><path d="${paths[p.shape]}" fill="${p.hex}" stroke="#00000018" stroke-width="1.5" stroke-linejoin="round"/></svg></span>`;
+  const swatch=p=>`<i class="swatch" style="background:${p.hex}"></i>`;
+  const time=at=>new Intl.DateTimeFormat('id-ID',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit',timeZone:'Asia/Jakarta'}).format(at).replace('pukul','·');
+  const fullName=p=>`${p.name}, ${p.color}, ukuran ${p.size}`;
+  const signed=n=>n>0?`+${n}`:String(n);
+  const state={from:'warehouse',to:'floor',place:'warehouse',draft:new Map(),query:'',onlySelected:false,filter:'all',success:null};
+  let modalAction=null,toastTimer=null;
+  function entries(){return [...state.draft].map(([id,d])=>({id,qty:Number(d.raw),revision:d.revision,raw:d.raw})).filter(l=>l.raw!=='' && (!isMove||l.qty!==0||!Number.isFinite(l.qty)));}
+  function errorFor(id){
+    const draft=state.draft.get(id); if(!draft||draft.raw==='') return '';
+    const q=Number(draft.raw);
+    if(!/^\d+$/.test(draft.raw)||!Number.isSafeInteger(q)) return 'Masukkan jumlah bulat, mulai dari 0.';
+    if(isMove&&q>D.state.stock[id][state.from]) return `Tersedia ${D.state.stock[id][state.from]} pcs. Kurangi jumlahnya.`;
+    if(!isMove&&q>9999) return 'Periksa jumlahnya. Maksimal 9.999 pcs.';
+    if(!isMove&&draft.revision!==D.revision(id,state.place)) return 'Ada perpindahan baru. Hitung ulang, lalu isi kembali.';
+    return '';
+  }
+  function stats(){const list=entries();return {list,count:list.length,total:list.reduce((sum,l)=>sum+(Number.isFinite(l.qty)?l.qty:0),0),valid:list.length>0&&list.every(l=>!errorFor(l.id))};}
+  function shell(){
+    $('#app').innerHTML=`<div class="prototype"><strong><i class="demo-dot"></i>Prototipe interaktif <span class="proto-extra">· data contoh, tersimpan di browser ini</span></strong><button data-action="reset">Ulangi demo</button></div>
+      <header class="appbar"><div class="bar-inner"><div class="brand"><div class="mark">c.</div><div><strong>Toko Cikupa</strong><small>Pengelolaan stok</small></div></div>
+      <nav class="nav" aria-label="Prototipe stok"><a href="#movement" data-view="movement" class="${isMove?'active':''}" ${isMove?'aria-current="page"':''}>${icon('move')}Pindahkan barang</a><a href="#check" data-view="check" class="${!isMove?'active':''}" ${!isMove?'aria-current="page"':''}>${icon('clipboard')}Cek stok fisik</a></nav>
+      <div class="user"><span>Maya</span><span class="avatar">M</span></div></div></header><main class="main" id="main"></main><footer class="bottom-bar" id="bottom"></footer>`;
+    render();
+  }
+  function render(){
+    if(state.success) return renderSuccess();
+    $('#bottom').hidden=false;
+    const title=isMove?'Pindahkan barang':'Cek stok fisik';
+    $('#main').innerHTML=`<div class="heading"><div><h1>${title}</h1><p>${isMove?'Pilih tujuan, lalu isi jumlah barang.':'Hitung barang. Stok tercatat tetap.'}</p></div><button class="button history-button" data-action="history" aria-label="${isMove?'Riwayat perpindahan':'Riwayat pengecekan'}">${icon('history')}<span>Riwayat</span></button></div>
+      ${isMove?movementTop():checkTop()}
+      ${isMove?`<div class="section-top"><div class="step-label"><span class="step-num">2</span>Berapa barang yang dipindahkan?</div><span class="hint">Isi jumlah per warna dan ukuran.</span></div>`:''}
+      <div class="toolbar"><div class="search">${icon('search')}<input type="search" id="search" aria-label="Cari nama, kode, warna, atau ukuran barang" placeholder="Cari nama, kode, warna, atau ukuran…" value="${esc(state.query)}" autocomplete="off"><button class="search-clear" data-action="clear-search" aria-label="Hapus pencarian" ${state.query?'':'hidden'}>${icon('close')}</button></div>${isMove?`<label class="filter-toggle"><input type="checkbox" id="selected-only" ${state.onlySelected?'checked':''}>Yang dipilih saja</label>`:''}</div>
+      ${!isMove?`<div class="all-results"><h2 id="list-heading">${filterLabel()}</h2><button class="text-button" data-action="all">Tampilkan semua barang</button></div>`:''}<div id="results" class="${isMove?'product-grid':'check-grid'}"></div><div id="result-count" class="result-count"></div>`;
+    renderResults();renderBottom();
+  }
+  function movementTop(){
+    return `<div class="step-label"><span class="step-num">1</span>Barang mau dipindahkan ke mana?</div><div class="route-options" role="group" aria-label="Arah perpindahan">${[['warehouse','floor','Ke area jual','Ambil dari gudang toko','shop'],['floor','warehouse','Ke gudang toko','Ambil dari area jual','warehouse']].map(([from,to,label,sub,ico])=>`<button class="route-option ${state.to===to?'active':''}" data-route="${to}" aria-pressed="${state.to===to}"><span class="route-icon">${icon(ico)}</span><span class="route-copy"><strong>${label}</strong><small>${sub}</small></span><span class="radio" aria-hidden="true"></span></button>`).join('')}</div><div class="direction">${icon('box')}<span>Dari <strong>${D.places[state.from]}</strong></span>${icon('arrow')}<span>ke <strong>${D.places[state.to]}</strong></span></div>`;
+  }
+  function filterLabel(){return {all:'Semua barang',unchecked:'Barang yang belum dicek',match:'Hasil hitung sesuai',gap:'Barang dengan selisih',stale:'Barang yang perlu dicek ulang'}[state.filter];}
+  function checkTop(){
+    const counts={unchecked:0,match:0,gap:0,stale:0};D.catalog.forEach(p=>counts[D.status(p.id,state.place).kind]++);
+    return `<div class="location-row"><div class="location-switch" role="group" aria-label="Lokasi yang dicek">${['warehouse','floor'].map(k=>`<button class="${state.place===k?'active':''}" data-place="${k}" aria-pressed="${state.place===k}">${icon(k==='warehouse'?'warehouse':'shop')}${D.places[k]}</button>`).join('')}</div><span class="location-note">Pastikan kamu menghitung di <strong>${D.places[state.place].toLowerCase()}</strong>.</span></div>
+    <div class="status-tabs" role="group" aria-label="Saring berdasarkan hasil pengecekan">${[['unchecked','Belum dicek'],['match','Sesuai'],['gap','Selisih'],['stale','Perlu cek ulang']].map(([kind,label])=>`<button class="status-tab ${kind} ${state.filter===kind?'active':''}" data-filter="${kind}" aria-pressed="${state.filter===kind}"><span class="label"><i class="dot"></i>${label}</span><b>${counts[kind]}</b></button>`).join('')}</div>`;
+  }
+  function filtered(){
+    const q=state.query.trim().toLocaleLowerCase('id');
+    return D.catalog.filter(p=>(!q||`${p.name} ${p.code} ${p.color} ${p.size}`.toLocaleLowerCase('id').includes(q))&&(!isMove||!state.onlySelected||state.draft.has(p.id))&&(isMove||state.filter==='all'||D.status(p.id,state.place).kind===state.filter));
+  }
+  function renderResults(){
+    const products=filtered();
+    if(isMove){
+      const groups=new Map();for(const p of products){if(!groups.has(p.code))groups.set(p.code,[]);groups.get(p.code).push(p);}
+      $('#results').innerHTML=[...groups.values()].map(list=>`<section class="product"><div class="product-head">${thumb(list[0])}<div><h2>${list[0].name}</h2><p>${list[0].code}</p></div><span class="variant-count">${list.length} varian</span></div><div class="col-labels"><span>Warna · ukuran</span><span>Tersedia</span><span>Pindah (pcs)</span></div>${list.map(moveRow).join('')}</section>`).join('');
+    } else $('#results').innerHTML=products.map(checkCard).join('');
+    if(!products.length) $('#results').innerHTML=`<div class="empty">${icon(isMove?'box':'clipboard')}<h3>${state.query?'Barang tidak ditemukan':isMove?'Belum ada barang dipilih':'Tidak ada barang di kategori ini'}</h3><p>${state.query?'Coba nama, kode, warna, atau ukuran lain.':isMove?'Matikan filter ini, lalu isi jumlah barang.':'Pilih kategori lain atau tampilkan semua barang.'}</p><button class="text-button" data-action="clear-filters">Tampilkan semua barang</button></div>`;
+    $('#result-count').textContent=`${products.length} dari ${D.catalog.length} varian barang`;
+  }
+  function stepper(p,blank=false){
+    const raw=state.draft.get(p.id)?.raw??(blank?'':'0'), qty=Number(raw)||0;
+    const max=isMove?D.state.stock[p.id][state.from]:9999;
+    return `<div class="stepper"><button data-adjust="${p.id}" data-delta="-1" aria-label="Kurangi jumlah ${esc(fullName(p))}" ${qty<=0?'disabled':''}>−</button><input id="qty-${p.id}" data-qty="${p.id}" inputmode="numeric" pattern="[0-9]*" value="${esc(raw)}" placeholder="—" aria-label="${isMove?'Jumlah yang dipindahkan':'Hasil hitung fisik'} ${esc(fullName(p))}" aria-describedby="feedback-${p.id}" ${max===0&&isMove?'disabled':''}><button data-adjust="${p.id}" data-delta="1" aria-label="Tambah jumlah ${esc(fullName(p))}" ${qty>=max?'disabled':''}>+</button></div>`;
+  }
+  function moveRow(p){
+    const q=Number(state.draft.get(p.id)?.raw)||0,b=D.state.stock[p.id];
+    return `<div class="variant ${q>0?'selected':''}" data-row="${p.id}"><div class="variant-line"><div class="variant-name">${swatch(p)}<span>${p.color} <span class="size">${p.size}</span></span></div><div class="stock-count ${b[state.from]===0?'zero':''}">${b[state.from]||'Habis'}</div>${stepper(p)}</div><div id="feedback-${p.id}">${feedback(p)}</div></div>`;
+  }
+  function feedback(p){
+    const draft=state.draft.get(p.id),error=errorFor(p.id),q=Number(draft?.raw)||0,b=D.state.stock[p.id];
+    if(error) return `<div class="inline-error" role="alert">${error}</div>`;
+    if(isMove&&q>0) return `<div class="preview-line"><span>${D.places[state.from]} ${b[state.from]} → <b>${b[state.from]-q}</b></span><span>${D.places[state.to]} ${b[state.to]} → <b>${b[state.to]+q}</b></span></div>`;
+    if(!isMove&&draft&&draft.raw!=='') return `<div class="pending-line">${q===0?'Dicatat: tidak ada barang (0 pcs)':'Hasil hitung sudah diisi'} · belum disimpan</div>`;
+    return '';
+  }
+  function checkCard(p){
+    const status=D.status(p.id,state.place), seen=status.seen;
+    let message='Hitung barang di lokasi ini untuk membuat catatan pertama.';
+    if(status.kind==='match') message='Hasil hitung sama dengan stok tercatat.';
+    if(status.kind==='gap') message=`Ditemukan ${Math.abs(status.diff)} pcs ${status.diff<0?'lebih sedikit':'lebih banyak'}. Hitung ulang untuk memastikan.`;
+    if(status.kind==='stale') message='Ada perpindahan setelah cek terakhir. Hitung ulang untuk mengetahui kondisi terbaru.';
+    return `<article class="check-card ${state.draft.has(p.id)?'editing':''}" data-row="${p.id}"><div class="check-head">${thumb(p)}<div class="check-title"><h3>${p.name}</h3><p>${swatch(p)}${p.color} · ${p.size}</p></div><span class="badge ${status.kind}">${status.kind==='match'?icon('check'):status.kind==='stale'?icon('clock'):''}${status.label}</span></div>
+      <div class="check-numbers"><div class="check-number"><span>Stok tercatat sekarang</span><strong>${D.state.stock[p.id][state.place]}<em>pcs</em></strong></div><div class="check-number"><span>Hasil hitung terakhir</span>${seen?`<strong>${seen.qty}<em>pcs</em></strong>`:'<div class="missing">Belum ada catatan</div>'}</div></div>
+      <p class="check-meta">${seen?`Dicek ${time(seen.at)} WIB · ${seen.who}`:'Belum pernah dicek'}</p><p class="check-message ${status.kind}">${message}</p>
+      <div class="count-entry"><label for="qty-${p.id}">Hasil hitung baru<small>Isi 0 jika tidak ada barang.</small></label><div class="count-tools"><button class="clear-count" data-clear="${p.id}" aria-label="Kosongkan hasil hitung ${esc(fullName(p))}" ${state.draft.has(p.id)?'':'hidden'}>${icon('close')}</button>${stepper(p,true)}</div></div><div id="feedback-${p.id}">${feedback(p)}</div></article>`;
+  }
+  function renderBottom(){
+    const s=stats();
+    $('#bottom').innerHTML=`<div class="bottom-inner"><div class="bottom-copy"><strong>${isMove?(s.count?`${s.total} pcs dari ${s.count} varian`:'Belum ada barang dipilih'):(s.count?`${s.count} hasil hitung siap disimpan`:'Belum ada hasil hitung baru')}</strong><p>${isMove?`${D.places[state.from]} → ${D.places[state.to]}`:s.count?`Lokasi: ${D.places[state.place]} · stok tercatat tetap`:'Kolom kosong berarti belum dihitung.'}</p></div>${s.count?'<button class="button subtle" data-action="clear-draft">Kosongkan</button>':''}<button class="button primary" data-action="review" ${s.valid?'':'disabled'}>${isMove?'Cek perpindahan':'Cek hasil hitung'}${icon('arrow')}</button></div>`;
+  }
+  function setDraft(id,raw,rerender=false){
+    if(raw==='' || (isMove && raw==='0')) state.draft.delete(id);
+    else state.draft.set(id,{raw,revision:D.revision(id,state.place)});
+    if(rerender){const row=$(`[data-row="${id}"]`);if(row)row.outerHTML=isMove?moveRow(D.product(id)):checkCard(D.product(id));}
+    else {
+      const row=$(`[data-row="${id}"]`), p=D.product(id);if(row){
+        row.classList.toggle(isMove?'selected':'editing',state.draft.has(id));
+        $(`#feedback-${id}`).innerHTML=feedback(p);
+        const q=Number(raw)||0,max=isMove?D.state.stock[id][state.from]:9999;
+        row.querySelector('[data-delta="-1"]').disabled=q<=0;
+        row.querySelector('[data-delta="1"]').disabled=q>=max;
+        row.querySelector('input').setAttribute('aria-invalid',Boolean(errorFor(id)));
+        const clear=row.querySelector('[data-clear]');if(clear)clear.hidden=!state.draft.has(id);
+      }
+    }
+    renderBottom();
+  }
+  function toast(message){$('#toast').textContent=message;$('#toast').classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').classList.remove('visible'),4500);}
+  function closeDialog(){if($('#dialog').open)$('#dialog').close();modalAction=null;}
+  function dialog(title,subtitle,body,footer,action){
+    const el=$('#dialog');if(el.open)el.close();modalAction=action;
+    el.innerHTML=`<div class="dialog-head"><div><h2 id="dialog-title">${title}</h2>${subtitle?`<p>${subtitle}</p>`:''}</div><button class="close-button" data-action="close-dialog" aria-label="Tutup">${icon('close')}</button></div><div class="dialog-body">${body}<div id="dialog-error" class="dialog-error" role="alert" hidden></div></div>${footer?`<div class="dialog-footer">${footer}</div>`:''}`;
+    el.setAttribute('aria-labelledby','dialog-title');el.showModal();
+  }
+  function confirmDiscard(next,title='Kosongkan isian?'){
+    if(!state.draft.size){next();return;}
+    dialog(title,'Isian saat ini belum disimpan.',`<p>Kalau dilanjutkan, ${isMove?'pilihan barang':'hasil hitung yang baru diisi'} akan dikosongkan.</p>`,`<button class="button" data-action="close-dialog">Tetap di sini</button><button class="button primary" data-action="modal-confirm">Kosongkan & lanjut</button>`,()=>{state.draft.clear();closeDialog();next();});
+  }
+  function reviewItem(l,record=null){
+    const p=D.product(l.id),b=record?.before||D.state.stock[l.id];
+    return `<div class="review-item"><div class="top"><strong>${p.name}</strong><b>${l.qty} pcs</b></div><div class="detail">${swatch(p)}${p.color} · Ukuran ${p.size}</div>${isMove?`<div class="review-after"><span>${D.places[state.from]}: ${b[state.from]} → <b>${b[state.from]-l.qty}</b></span><span>${D.places[state.to]}: ${b[state.to]} → <b>${b[state.to]+l.qty}</b></span></div>`:`<div class="review-after"><span>Tercatat: ${b[state.place]} pcs</span><b>${l.qty===b[state.place]?'Sesuai':`Selisih ${signed(l.qty-b[state.place])} pcs`}</b></div>`}</div>`;
+  }
+  function review(){
+    const s=stats();if(!s.valid)return;
+    const lines=s.list.map(l=>({...l}));
+    const route=isMove?`<div class="dialog-route"><div><span>DARI</span><strong>${D.places[state.from]}</strong></div>${icon('arrow')}<div><span>KE</span><strong>${D.places[state.to]}</strong></div></div>`:`<div class="notice">${icon('warehouse')}<span>Hasil penghitungan di <strong>${D.places[state.place]}</strong>.</span></div>`;
+    dialog(isMove?'Cek perpindahannya':'Cek hasil hitungnya',isMove?'Pastikan barang dan jumlahnya sudah benar.':'Simpan jumlah yang benar-benar ditemukan.',`${route}${lines.map(l=>reviewItem(l)).join('')}<div class="dialog-summary"><span>${isMove?'Total dipindahkan':'Hasil hitung baru'}</span><strong>${isMove?`${s.total} pcs`:`${s.count} varian`}</strong></div><div class="notice">${icon('info')}<span>${isMove?'Simpan setelah barang selesai dipindahkan ke lokasi tujuan.':'Catatan pengecekan diperbarui. <strong>Stok tercatat tidak berubah.</strong>'}</span></div>`,`<button class="button" data-action="close-dialog">Ubah jumlah</button><button class="button primary" data-action="modal-confirm">${icon('check')}${isMove?'Simpan perpindahan':'Simpan hasil hitung'}</button>`,()=>{
+      try {
+        if(isMove){const result=D.move(lines,state.from,state.to);state.success={kind:'move',result};}
+        else {const result=D.observe(lines,state.place);state.success={kind:'check',result};}
+        state.draft.clear();closeDialog();render();window.scrollTo({top:0});
+        if(!D.storageAvailable)toast('Browser tidak mengizinkan penyimpanan. Data hanya tersedia selama halaman terbuka.');
+      }catch(error){$('#dialog-error').hidden=false;$('#dialog-error').textContent=error.message;}
+    });
+  }
+  function renderSuccess(){
+    $('#bottom').hidden=true;
+    const s=state.success;
+    if(s.kind==='move'){
+      const r=s.result,total=r.lines.reduce((n,l)=>n+l.qty,0);
+      $('#main').innerHTML=`<section class="success-panel"><div class="success-icon">${icon('check')}</div><div class="eyebrow">Perpindahan tersimpan</div><h1>${total} pcs sudah dicatat<br>ke ${D.places[r.to].toLowerCase()}.</h1><p>${D.places[r.from]} → ${D.places[r.to]} · ${time(r.at)} WIB</p><div class="success-list">${r.lines.map(l=>`<div class="review-item"><div class="top"><strong>${D.product(l.id).name}</strong><b>${l.qty} pcs</b></div><div class="detail">${D.product(l.id).color} · Ukuran ${D.product(l.id).size}</div></div>`).join('')}</div><div class="notice">${icon('clipboard')}<span>Hasil cek fisik sebelumnya ditandai <strong>perlu cek ulang</strong> untuk barang dan lokasi yang berubah.</span></div><div class="actions"><button class="button primary" data-action="new">Pindahkan barang lagi${icon('arrow')}</button><button class="button" data-action="undo-last">Batalkan perpindahan</button></div></section>`;
+    } else {
+      const list=s.result, gaps=list.filter(x=>x.qty!==x.expected).length;
+      $('#main').innerHTML=`<section class="success-panel"><div class="success-icon">${icon('check')}</div><div class="eyebrow">Pengecekan tersimpan</div><h1>${list.length} hasil hitung<br>berhasil dicatat.</h1><p>${D.places[state.place]} · ${time(list[0].at)} WIB · Maya</p><div class="success-list"><div class="dialog-summary"><span>Sesuai dengan stok tercatat</span><strong>${list.length-gaps} varian</strong></div><div class="dialog-summary"><span>Perlu diperiksa karena selisih</span><strong>${gaps} varian</strong></div></div><div class="notice">${icon('info')}<span><strong>Stok tercatat tetap.</strong> ${gaps?'Hitung ulang barang yang selisih. Jika tetap berbeda, sampaikan kepada penanggung jawab toko.':'Waktu dan hasil hitung terbaru sudah tersedia di daftar barang.'}</span></div><div class="actions"><button class="button primary" data-action="new">${gaps?'Lihat barang selisih':'Lanjut cek barang'}${icon('arrow')}</button><button class="button" data-action="show-all-after-save">Lihat semua barang</button></div></section>`;
+    }
+  }
+  function history(){
+    const content=isMove?D.state.history.map(r=>`<div class="history-item ${r.undone?'undone':''}"><h3>${r.lines.reduce((n,l)=>n+l.qty,0)} pcs · ${D.places[r.from]} → ${D.places[r.to]}</h3><p>${time(r.at)} WIB · ${r.who}${r.undone?' · Dibatalkan':''}</p><div class="detail-lines">${r.lines.map(l=>`${D.product(l.id).name} · ${D.product(l.id).color} ${D.product(l.id).size} — ${l.qty} pcs`).join('<br>')}</div></div>`).join(''):D.state.checks.map(r=>`<div class="history-item"><h3>${r.lines.length} hasil hitung · ${D.places[r.place]}</h3><p>${time(r.at)} WIB · Maya</p><div class="detail-lines">${r.lines.map(l=>`${D.product(l.id).name} · ${D.product(l.id).color} ${D.product(l.id).size} — ditemukan ${l.qty} pcs (tercatat saat cek: ${l.expected})`).join('<br>')}</div></div>`).join('');
+    dialog(isMove?'Riwayat perpindahan':'Riwayat pengecekan','Aktivitas yang kamu simpan dalam demo ini.',content||'<div class="empty"><h3>Belum ada aktivitas baru</h3><p>Aktivitas yang disimpan akan muncul di sini.</p></div>','',null);
+  }
+  document.addEventListener('input',e=>{
+    if(e.target.matches('[data-qty]')){setDraft(e.target.dataset.qty,e.target.value);return;}
+    if(e.target.id==='search'){state.query=e.target.value;renderResults();$('.search-clear').hidden=!state.query;}
+  });
+  document.addEventListener('change',e=>{if(e.target.id==='selected-only'){state.onlySelected=e.target.checked;renderResults();}});
+  document.addEventListener('focusin',e=>{if(e.target.matches('[data-qty]'))e.target.select();});
+  document.addEventListener('keydown',e=>{if(e.target.matches('[data-qty]')&&e.key==='Enter'){e.preventDefault();e.target.blur();if(stats().valid)review();}});
+  document.addEventListener('click',e=>{
+    const link=e.target.closest('.nav a');
+    if(link){e.preventDefault();const next=()=>{isMove=link.dataset.view==='movement';state.success=null;state.query='';state.onlySelected=false;state.filter='all';document.body.dataset.page=isMove?'movement':'check';document.title=`${isMove?'Pindahkan barang':'Cek stok fisik'} · Toko Cikupa`;window.history.replaceState(null,'',link.href);shell();window.scrollTo({top:0});};if(state.draft.size)confirmDiscard(next,'Buka halaman lain?');else next();return;}
+    const b=e.target.closest('button');if(!b||b.disabled)return;
+    if(b.dataset.adjust){const id=b.dataset.adjust,delta=b.dataset.delta,q=Math.max(0,Math.min(isMove?D.state.stock[id][state.from]:9999,(Number(state.draft.get(id)?.raw)||0)+Number(delta)));setDraft(id,String(q),true);const next=$(`[data-row="${id}"] [data-delta="${delta}"]`);(next&&!next.disabled?next:$(`#qty-${id}`))?.focus({preventScroll:true});return;}
+    if(b.dataset.clear){setDraft(b.dataset.clear,'',true);return;}
+    if(b.dataset.route){const to=b.dataset.route;if(to===state.to)return;confirmDiscard(()=>{state.to=to;state.from=to==='floor'?'warehouse':'floor';state.onlySelected=false;render();},'Ganti tujuan perpindahan?');return;}
+    if(b.dataset.place){const place=b.dataset.place;if(place===state.place)return;confirmDiscard(()=>{state.place=place;state.filter='all';render();},'Pindah lokasi pengecekan?');return;}
+    if(b.dataset.filter){state.filter=state.filter===b.dataset.filter?'all':b.dataset.filter;render();return;}
+    switch(b.dataset.action){
+      case 'close-dialog':closeDialog();break;
+      case 'modal-confirm':if(modalAction)modalAction();break;
+      case 'review':review();break;
+      case 'history':history();break;
+      case 'clear-search':state.query='';$('#search').value='';$('.search-clear').hidden=true;renderResults();$('#search').focus();break;
+      case 'clear-filters':state.query='';state.onlySelected=false;state.filter='all';render();break;
+      case 'all':state.filter='all';render();break;
+      case 'clear-draft':confirmDiscard(()=>render());break;
+      case 'new':{
+        if(!isMove){state.filter=state.success.result.some(x=>x.qty!==x.expected)?'gap':'unchecked';}
+        state.success=null;state.query='';state.onlySelected=false;render();window.scrollTo({top:0});break;
+      }
+      case 'show-all-after-save':state.success=null;state.filter='all';state.query='';render();window.scrollTo({top:0});break;
+      case 'undo-last':{
+        const r=state.success.result;
+        dialog('Batalkan perpindahan ini?','Pastikan barang dikembalikan ke lokasi asal.',`<div class="notice">${icon('undo')}<span>${r.lines.reduce((n,l)=>n+l.qty,0)} pcs akan dicatat kembali dari <strong>${D.places[r.to]}</strong> ke <strong>${D.places[r.from]}</strong>.</span></div>`,`<button class="button" data-action="close-dialog">Kembali</button><button class="button primary" data-action="modal-confirm">Ya, batalkan</button>`,()=>{try{D.undo(r.id);state.success=null;closeDialog();render();toast('Perpindahan dibatalkan. Stok dikembalikan.');}catch(error){$('#dialog-error').hidden=false;$('#dialog-error').textContent=error.message;}});break;
+      }
+      case 'reset':dialog('Ulangi demo dari awal?','Berlaku untuk kedua prototipe.',`<p>Perpindahan dan hasil hitung yang kamu buat dalam demo ini akan dihapus. Data contoh awal akan ditampilkan lagi.</p>`,`<button class="button" data-action="close-dialog">Kembali</button><button class="button primary" data-action="modal-confirm">Ulangi demo</button>`,()=>{D.reset();state.draft.clear();state.success=null;state.query='';state.filter='all';state.onlySelected=false;state.from='warehouse';state.to='floor';state.place='warehouse';closeDialog();render();toast('Data contoh sudah dikembalikan.');});break;
+    }
+  });
+  window.addEventListener('storage',e=>{
+    if(e.key!==D.key)return;D.reload();const hadDialog=$('#dialog').open;closeDialog();
+    if(state.success)state.success=null;render();
+    toast(hadDialog?'Data berubah dari halaman lain. Periksa kembali sebelum menyimpan.':'Data diperbarui dari halaman lain.');
+  });
+  window.addEventListener('beforeunload',e=>{if(state.draft.size){e.preventDefault();e.returnValue='';}});
+  shell();
+})();
+
+</script>
+</body>
+</html>

@@ -1,5 +1,5 @@
-import { useQueries, useQuery } from "@tanstack/react-query"
-import { useMemo } from "react"
+import { useSuspenseQueries, useSuspenseQuery } from "@tanstack/react-query"
+import { Suspense, useMemo } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { AppLink } from "@/components/ui/app-link"
@@ -8,17 +8,23 @@ import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { count, day, money, moneyCompact } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
-import { financeKeys, listAllBills, listGiros } from "@/lib/queries/finance"
-import { domainKeys, profitAndLoss } from "@/lib/queries/finance-domains"
+import {
+  openDeliveriesQuery,
+  payablesAgingQuery,
+  projectionBillsQuery,
+  projectionGirosQuery,
+} from "@/lib/queries/finance"
+import { profitAndLossQuery } from "@/lib/queries/finance-domains"
+import { supplierNamesQuery } from "@/lib/queries/procurement"
 import { isoDay, todayIso } from "@/screens/finance/chart"
 import { useSupplierName } from "@/screens/finance/hooks"
+import { NeedsAttention } from "@/screens/finance/needs-attention"
 import {
   AGEING_BUCKETS,
   overdueMinor,
   useDeliveryNumber,
-  useInventoryValue,
-  useOpenDeliveries,
-  usePayables,
+  PENDING_CARDS,
+  useInventoryValueNow,
 } from "@/screens/finance/measures"
 import { CardFigure, PhoneList } from "@/components/ui/phone-cards"
 import {
@@ -41,39 +47,373 @@ import {
 /// opening Finance in the morning asks "what do I pay this week", not "what is
 /// wrong".
 export function FinanceDashboard() {
+  // The head stands at once; every section below it reads its own figures
+  // inside its own boundary, so the ones that are ready are drawn while the
+  // slower ones are still on their way (and the chart's twelve reads do not
+  // hold up the four figures).
+  return (
+    <PageContent>
+      <PageHeader className="max-md:hidden" crumb="Finance" title="Overview" />
+
+      {/* Four figures (owner, 2026-10-01): the money we hold, what we owe,
+          what cash did this month, and what the stock on the shelves is
+          worth. */}
+      <Suspense fallback={<Figures />}>
+        <LiveFigures />
+      </Suspense>
+
+      <NeedsAttention />
+
+      {/* Two charts as wide as the two lists below them (owner, 2026-10-01:
+          no page-wide charts, no cards smaller than their neighbours). */}
+      <div className="mb-8 grid grid-cols-1 gap-6 xl:grid-cols-2">
+        <Suspense
+          fallback={
+            <SmallChart
+              title="Cash and bank"
+              meta="Month end · 12 months"
+              pending
+              failed={false}
+            >
+              {null}
+            </SmallChart>
+          }
+        >
+          <CashChart />
+        </Suspense>
+        <Suspense
+          fallback={
+            <SmallChart
+              title="Income and expenses"
+              meta="Monthly · 6 months"
+              pending
+              failed={false}
+            >
+              {null}
+            </SmallChart>
+          }
+        >
+          <IncomeChart />
+        </Suspense>
+      </div>
+      <Suspense fallback={<Payments />}>
+        <LivePayments />
+      </Suspense>
+
+      {/* Below the payments, the two that explain them (owner, 2026-10-01):
+          what the months cost by kind, and how old what we owe is. */}
+      <div className="mt-8 grid grid-cols-1 gap-6 xl:grid-cols-2">
+        <Suspense
+          fallback={
+            <SmallChart
+              title="Expenses per month"
+              meta="By expense group · 6 months"
+              pending
+              failed={false}
+            >
+              {null}
+            </SmallChart>
+          }
+        >
+          <ExpenseChart />
+        </Suspense>
+        <Suspense
+          fallback={
+            <SmallChart
+              title="Payables ageing"
+              meta="Total payables, as at today"
+              pending
+              failed={false}
+            >
+              {null}
+            </SmallChart>
+          }
+        >
+          <AgeingChart />
+        </Suspense>
+      </div>
+    </PageContent>
+  )
+}
+
+/// The Overview's four figures, read: the bank, what is owed and what of it is
+/// late, what cash did, and what the stock is worth.
+function LiveFigures() {
+  const months = useLastMonths(12)
+  const bank = useBankBalance(months)
+  // Total payables is ONE read, the server's ageing (`measures.ts` says what
+  // it counts).
+  const payables = useSuspenseQuery(payablesAgingQuery(todayIso()))
+  // What the stock is worth: set-up stock, stock waiting to be set up, and
+  // stock in transit, each counted once.
+  const inventory = useInventoryValueNow()
+
+  const owedTotal = payables.data.total.total_minor
+  const overdueTotal = overdueMinor(payables.data.total)
+  const balances = bank.rows.map((row) => row.balance)
+  const bankNow = balances[balances.length - 1]
+  // What the accounts gained or lost: today against the last month end, and
+  // the month before that against its own.
+  const flowThisMonth =
+    balances.length >= 2
+      ? balances[balances.length - 1] - balances[balances.length - 2]
+      : undefined
+  const flowLastMonth =
+    balances.length >= 3
+      ? balances[balances.length - 2] - balances[balances.length - 3]
+      : undefined
+  return (
+    <Figures
+      bankNow={bankNow}
+      owedTotal={owedTotal}
+      overdueTotal={overdueTotal}
+      flowThisMonth={flowThisMonth}
+      flowLastMonth={flowLastMonth}
+      inventoryValue={inventory.value}
+    />
+  )
+}
+
+/// The four figures. Every one reads "—" until it is given a value, which is
+/// also what the boundary shows while they are being read.
+function Figures({
+  bankNow,
+  owedTotal,
+  overdueTotal,
+  flowThisMonth,
+  flowLastMonth,
+  inventoryValue,
+}: {
+  bankNow?: number
+  owedTotal?: number
+  overdueTotal?: number
+  flowThisMonth?: number
+  flowLastMonth?: number
+  inventoryValue?: number
+}) {
+  return (
+    <>
+      {/* A phone: the four figures are one card, two to a row — the desk's
+          four cards would each leave a rupiah figure 145px to stand in. */}
+      <KpiStrip className="md:hidden">
+        <Kpi
+          label="Cash and bank"
+          value={bankNow === undefined ? "—" : money(bankNow)}
+        />
+        <Kpi
+          label="Total payables"
+          value={owedTotal === undefined ? "—" : money(owedTotal)}
+          delta={
+            overdueTotal !== undefined && overdueTotal > 0
+              ? `${money(overdueTotal)} overdue`
+              : undefined
+          }
+          tone="down"
+        />
+        <Kpi
+          label="Cash flow this month"
+          value={flowThisMonth === undefined ? "—" : money(flowThisMonth)}
+        />
+        <Kpi
+          label="Inventory value"
+          value={inventoryValue === undefined ? "—" : money(inventoryValue)}
+        />
+      </KpiStrip>
+      <div className="mb-8 grid grid-cols-2 gap-3 max-md:hidden lg:grid-cols-4">
+        <Headline label="Cash and bank" value={bankNow} />
+        <Headline
+          label="Total payables"
+          value={owedTotal}
+          note={
+            overdueTotal !== undefined && overdueTotal > 0
+              ? `${money(overdueTotal)} of it overdue`
+              : undefined
+          }
+        />
+        <Headline
+          label="Cash flow this month"
+          value={flowThisMonth}
+          note={
+            flowThisMonth === undefined || flowLastMonth === undefined
+              ? undefined
+              : `Last month ${money(flowLastMonth)}`
+          }
+          delta={percentChange(flowThisMonth, flowLastMonth)}
+          tone={(flowThisMonth ?? 0) < 0 ? "bad" : undefined}
+        />
+        <Headline label="Inventory value" value={inventoryValue} />
+      </div>
+    </>
+  )
+}
+
+function CashChart() {
+  const months = useLastMonths(12)
+  const bank = useBankBalance(months)
+  return (
+    <SmallChart
+      title="Cash and bank"
+      meta="Month end · 12 months"
+      pending={false}
+      failed={false}
+    >
+      {bank.rows.every((row) => row.balance === 0) ? (
+        <ChartEmpty>No bank balance in these months.</ChartEmpty>
+      ) : (
+        <LineSeries
+          rows={bank.rows}
+          dataKey="balance"
+          label="Bank balance"
+          format={money}
+          titleOf={monthTitle}
+          labelOf={monthTick}
+          className="h-[13rem]"
+        />
+      )}
+    </SmallChart>
+  )
+}
+
+function IncomeChart() {
   const months = useLastMonths(12)
   const pnl = useMonthlyPnl(months)
-  const bank = useBankBalance(months)
-  const supplierName = useSupplierName()
+  return (
+    <SmallChart
+      title="Income and expenses"
+      meta="Monthly · 6 months"
+      pending={false}
+      failed={false}
+    >
+      {pnl.rows
+        .slice(-6)
+        .every((row) => row.income === 0 && row.expense === 0) ? (
+        <ChartEmpty>No income or expense in these months.</ChartEmpty>
+      ) : (
+        <BarSeries
+          rows={pnl.rows.slice(-6).map((row) => ({
+            bucket: row.bucket,
+            income: row.income,
+            expense: row.expense,
+          }))}
+          series={[
+            { key: "expense", label: "Expenses", tone: "ghost" },
+            { key: "income", label: "Income", tone: "accent" },
+          ]}
+          format={money}
+          titleOf={monthTitle}
+          labelOf={monthTick}
+          className="h-[13rem]"
+        />
+      )}
+    </SmallChart>
+  )
+}
 
-  // Total payables is ONE read, the server's ageing (`measures.ts` says what
-  // it counts). The lists below are the same population written out: the
-  // posted bills, then the deliveries no bill covers yet, then — for what is
-  // about to leave the bank — the giros issued and not cleared.
-  const payables = usePayables()
-  const bills = useQuery({
-    queryKey: [...financeKeys.bills("POSTED", null), "projection"],
-    queryFn: ({ signal }) => listAllBills("POSTED", undefined, signal),
-    staleTime: 30_000,
+/// Six months of expense, by the client's own expense groups.
+function ExpenseChart() {
+  const months = useLastMonths(12)
+  const recent = months.slice(-6)
+  const statements = useSuspenseQueries({
+    queries: recent.map((bucket) => profitAndLossQuery(bucket.from, bucket.to)),
   })
-  const deliveries = useOpenDeliveries()
-  const deliveryNumber = useDeliveryNumber()
-  const giros = useQuery({
-    queryKey: ["finance", "giros", "projection", "OUT"] as const,
-    queryFn: ({ signal }) =>
-      listGiros({ direction: "OUT", limit: 1000 }, signal),
-    staleTime: 30_000,
+  const expenseMonths = recent.map((bucket, index) => {
+    const groups = new Map<string, number>()
+    for (const line of statements[index]?.data?.lines ?? []) {
+      if (!EXPENSE_SECTIONS.has(line.section)) continue
+      const group = line.group_name ?? line.account_name
+      groups.set(group, (groups.get(group) ?? 0) + line.amount_minor)
+    }
+    return { bucket: bucket.key, groups }
   })
+  return (
+    <SmallChart
+      title="Expenses per month"
+      meta="By expense group · 6 months"
+      pending={false}
+      failed={false}
+    >
+      <ExpenseGroups months={expenseMonths} />
+    </SmallChart>
+  )
+}
 
+function AgeingChart() {
+  const payables = useSuspenseQuery(payablesAgingQuery(todayIso()))
+  return (
+    <SmallChart
+      title="Payables ageing"
+      meta="Total payables, as at today"
+      pending={false}
+      failed={false}
+    >
+      <AgeingColumns buckets={payables.data.total} />
+    </SmallChart>
+  )
+}
+
+/// The two lists of what is about to leave the bank and what is late, with
+/// their rows still being read.
+function Payments({ owed }: { owed?: readonly Owed[] }) {
   const today = todayIso()
   const fortnight = isoDay(addDays(new Date(), 14))
+  const upcoming = (owed ?? [])
+    .filter((row) => row.late <= 0 && row.due <= fortnight && row.due >= today)
+    .sort((a, b) => a.due.localeCompare(b.due))
+  // Overdue is supplier debt past its due date and nothing else — a giro
+  // already holds the debt, and one the bank has not cleared yet is the Giro
+  // Board's matter, so the list and the "overdue" under Total payables are
+  // one number.
+  const overdue = (owed ?? [])
+    .filter((row) => row.how !== "Giro" && row.late > 0)
+    .sort((a, b) => b.late - a.late)
+  return (
+    <div className="mb-8 grid grid-cols-1 gap-6 xl:grid-cols-2">
+      <PaymentList
+        title="Upcoming payments"
+        note="Due in the next 14 days"
+        to="/finance/payables/projection"
+        rows={upcoming}
+        pending={owed === undefined}
+        failed={false}
+        empty="Nothing falls due in the next two weeks."
+        when={(row) => day(row.due)}
+      />
+      <PaymentList
+        title="Overdue payments"
+        note="Past their due date, still unpaid"
+        to="/finance/payables/aging"
+        rows={overdue}
+        pending={owed === undefined}
+        failed={false}
+        empty="Nothing is late."
+        when={(row) => (
+          <span className="text-bad-fg">
+            {count(row.late)} {row.late === 1 ? "day" : "days"} late
+          </span>
+        )}
+      />
+    </div>
+  )
+}
+
+function LivePayments() {
+  const today = todayIso()
+  // Every open item behind the payables figure: the posted bills, then the
+  // deliveries no bill covers yet, then — for what is about to leave the bank
+  // — the giros issued and not cleared.
+  useSuspenseQuery(supplierNamesQuery())
+  const supplierName = useSupplierName()
+  const bills = useSuspenseQuery(projectionBillsQuery("POSTED"))
+  const deliveries = useSuspenseQuery(openDeliveriesQuery(today))
+  const deliveryNumber = useDeliveryNumber()
+  const giros = useSuspenseQuery(projectionGirosQuery())
 
   // Every open item behind the figure, as one shape. `late` is the server's
   // own days past due (negative until the day), so "overdue" is the same
   // question the ageing asked and not a second date comparison made here.
   const owed = useMemo<Owed[]>(() => {
     const rows: Owed[] = []
-    for (const bill of bills.data ?? []) {
+    for (const bill of bills.data) {
       // A held bill is owed but not ageing: the figure leaves it out, so the
       // list does too.
       if (bill.on_hold || bill.outstanding_minor <= 0) continue
@@ -89,7 +429,7 @@ export function FinanceDashboard() {
         amount: bill.outstanding_minor,
       })
     }
-    for (const item of deliveries.data?.items ?? []) {
+    for (const item of deliveries.data.items) {
       if (item.outstanding_minor <= 0) continue
       rows.push({
         key: `d-${item.entry_id}`,
@@ -101,7 +441,7 @@ export function FinanceDashboard() {
         amount: item.outstanding_minor,
       })
     }
-    for (const giro of giros.data ?? []) {
+    for (const giro of giros.data) {
       if (!["ISSUED", "DELIVERED", "DUE"].includes(giro.status)) continue
       rows.push({
         key: `g-${giro.giro_id}`,
@@ -120,238 +460,7 @@ export function FinanceDashboard() {
     return rows
   }, [bills.data, deliveries.data, giros.data, supplierName, deliveryNumber])
 
-  // About to leave: due in the next fortnight, giros included. Overdue is
-  // supplier debt past its due date and nothing else — a giro already holds
-  // the debt, and one the bank has not cleared yet is the Giro Board's matter,
-  // so the list and the "overdue" under Total payables are one number.
-  const upcoming = owed
-    .filter((row) => row.late <= 0 && row.due <= fortnight && row.due >= today)
-    .sort((a, b) => a.due.localeCompare(b.due))
-  const overdue = owed
-    .filter((row) => row.how !== "Giro" && row.late > 0)
-    .sort((a, b) => b.late - a.late)
-
-  // The figures: the ageing's, never a sum of the lists above.
-  const owedTotal = payables.data?.total.total_minor
-  const overdueTotal =
-    payables.data === undefined ? undefined : overdueMinor(payables.data.total)
-
-  // What the stock is worth: set-up stock, stock waiting to be set up, and
-  // stock in transit, each counted once.
-  const inventory = useInventoryValue()
-
-  // Six months of expense, by the client's own expense groups.
-  const recent = months.slice(-6)
-  const statements = useQueries({
-    queries: recent.map((bucket) => ({
-      queryKey: domainKeys.profitAndLoss(bucket.from, bucket.to),
-      queryFn: ({ signal }: { signal: AbortSignal }) =>
-        profitAndLoss(bucket.from, bucket.to, signal),
-    })),
-  })
-  const expenseMonths = recent.map((bucket, index) => {
-    const groups = new Map<string, number>()
-    for (const line of statements[index]?.data?.lines ?? []) {
-      if (!EXPENSE_SECTIONS.has(line.section)) continue
-      const group = line.group_name ?? line.account_name
-      groups.set(group, (groups.get(group) ?? 0) + line.amount_minor)
-    }
-    return { bucket: bucket.key, groups }
-  })
-  const expensesPending = statements.some((read) => read.isPending)
-
-  const balances = bank.rows.map((row) => row.balance)
-  const bankNow = balances[balances.length - 1]
-  // What the accounts gained or lost: today against the last month end, and
-  // the month before that against its own.
-  const flowThisMonth =
-    balances.length >= 2
-      ? balances[balances.length - 1] - balances[balances.length - 2]
-      : undefined
-  const flowLastMonth =
-    balances.length >= 3
-      ? balances[balances.length - 2] - balances[balances.length - 3]
-      : undefined
-  const listsPending =
-    bills.isPending || deliveries.isPending || giros.isPending
-  const listsFailed = bills.isError || deliveries.isError || giros.isError
-  // A read that failed is not a balance of nothing: the figures say "—" for
-  // both, never Rp 0.
-  const bankKnown = !bank.pending && !bank.failed
-
-  return (
-    <PageContent>
-      <PageHeader className="max-md:hidden" crumb="Finance" title="Overview" />
-
-      {/* Four figures (owner, 2026-10-01): the money we hold, what we owe,
-          what cash did this month, and what the stock on the shelves is
-          worth. */}
-      {/* A phone: the four figures are one card, two to a row — the desk's
-          four cards would each leave a rupiah figure 145px to stand in. */}
-      <KpiStrip className="md:hidden">
-        <Kpi
-          label="Cash and bank"
-          value={!bankKnown || bankNow === undefined ? "—" : money(bankNow)}
-        />
-        <Kpi
-          label="Total payables"
-          value={owedTotal === undefined ? "—" : money(owedTotal)}
-          delta={
-            overdueTotal !== undefined && overdueTotal > 0
-              ? `${money(overdueTotal)} overdue`
-              : undefined
-          }
-          tone="down"
-        />
-        <Kpi
-          label="Cash flow this month"
-          value={
-            !bankKnown || flowThisMonth === undefined
-              ? "—"
-              : money(flowThisMonth)
-          }
-        />
-        <Kpi
-          label="Inventory value"
-          value={inventory.value === undefined ? "—" : money(inventory.value)}
-        />
-      </KpiStrip>
-      <div className="mb-8 grid grid-cols-2 gap-3 max-md:hidden lg:grid-cols-4">
-        <Headline
-          label="Cash and bank"
-          value={bankKnown ? bankNow : undefined}
-          note="Every bank account, today"
-        />
-        <Headline
-          label="Total payables"
-          value={owedTotal}
-          note={
-            overdueTotal !== undefined && overdueTotal > 0
-              ? `${money(overdueTotal)} of it overdue`
-              : "Owed to suppliers, as at today"
-          }
-        />
-        <Headline
-          label="Cash flow this month"
-          value={bankKnown ? flowThisMonth : undefined}
-          note={
-            !bankKnown || flowLastMonth === undefined
-              ? "Change in the bank since month end"
-              : `Last month ${money(flowLastMonth)}`
-          }
-          delta={
-            bankKnown ? percentChange(flowThisMonth, flowLastMonth) : undefined
-          }
-          tone={(flowThisMonth ?? 0) < 0 ? "bad" : undefined}
-        />
-        <Headline
-          label="Inventory value"
-          value={inventory.value}
-          note="On hand, in transit and awaiting setup, at cost"
-        />
-      </div>
-
-      {/* Two charts as wide as the two lists below them (owner, 2026-10-01:
-          no page-wide charts, no cards smaller than their neighbours). */}
-      <div className="mb-8 grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <SmallChart
-          title="Cash and bank"
-          meta="Month end · 12 months"
-          pending={bank.pending}
-          failed={bank.failed}
-        >
-          {bank.rows.every((row) => row.balance === 0) ? (
-            <ChartEmpty>No bank balance in these months.</ChartEmpty>
-          ) : (
-            <LineSeries
-              rows={bank.rows}
-              dataKey="balance"
-              label="Bank balance"
-              format={money}
-              titleOf={monthTitle}
-              labelOf={monthTick}
-              className="h-[13rem]"
-            />
-          )}
-        </SmallChart>
-        <SmallChart
-          title="Income and expenses"
-          meta="Monthly · 6 months"
-          pending={pnl.pending}
-          failed={pnl.failed}
-        >
-          {pnl.rows
-            .slice(-6)
-            .every((row) => row.income === 0 && row.expense === 0) ? (
-            <ChartEmpty>No income or expense in these months.</ChartEmpty>
-          ) : (
-            <BarSeries
-              rows={pnl.rows.slice(-6).map((row) => ({
-                bucket: row.bucket,
-                income: row.income,
-                expense: row.expense,
-              }))}
-              series={[
-                { key: "expense", label: "Expenses", tone: "ghost" },
-                { key: "income", label: "Income", tone: "accent" },
-              ]}
-              format={money}
-              titleOf={monthTitle}
-              labelOf={monthTick}
-              className="h-[13rem]"
-            />
-          )}
-        </SmallChart>
-      </div>
-      <div className="mb-8 grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <PaymentList
-          title="Upcoming payments"
-          note="Due in the next 14 days"
-          to="/finance/payables/projection"
-          rows={upcoming}
-          pending={listsPending}
-          failed={listsFailed}
-          empty="Nothing falls due in the next two weeks."
-          when={(row) => day(row.due)}
-        />
-        <PaymentList
-          title="Overdue payments"
-          note="Past their due date, still unpaid"
-          to="/finance/payables/aging"
-          rows={overdue}
-          pending={listsPending}
-          failed={listsFailed}
-          empty="Nothing is late."
-          when={(row) => (
-            <span className="text-bad-fg">
-              {count(row.late)} {row.late === 1 ? "day" : "days"} late
-            </span>
-          )}
-        />
-      </div>
-
-      {/* Below the payments, the two that explain them (owner, 2026-10-01):
-          what the months cost by kind, and how old what we owe is. */}
-      <div className="mt-8 grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <SmallChart
-          title="Expenses per month"
-          meta="By expense group · 6 months"
-          pending={expensesPending}
-          failed={statements.some((read) => read.isError)}
-        >
-          <ExpenseGroups months={expenseMonths} />
-        </SmallChart>
-        <SmallChart
-          title="Payables ageing"
-          meta="Total payables, as at today"
-          pending={payables.isPending}
-          failed={payables.isError}
-        >
-          {payables.data && <AgeingColumns buckets={payables.data.total} />}
-        </SmallChart>
-      </div>
-    </PageContent>
-  )
+  return <Payments owed={owed} />
 }
 
 const EXPENSE_SECTIONS: ReadonlySet<string> = new Set([
@@ -410,7 +519,7 @@ function ExpenseGroups({
   const top = Math.max(1, ...stacks.map((stack) => stack.sum))
   if (legend.length === 0)
     return (
-      <p className="py-10 text-center text-[0.875rem] text-mute">
+      <p className="py-10 text-center text-[0.9375rem] text-mute">
         No expense in these months.
       </p>
     )
@@ -437,7 +546,7 @@ function ExpenseGroups({
                 />
               ))}
             </div>
-            <span className="text-center text-[0.875rem] text-mute">
+            <span className="text-center text-[0.9375rem] text-mute">
               {monthTick(stack.bucket)}
             </span>
           </div>
@@ -447,7 +556,7 @@ function ExpenseGroups({
         {legend.map((row, index) => (
           <li
             key={row.group}
-            className="flex items-center gap-2 text-[0.875rem]"
+            className="flex items-center gap-2 text-[0.9375rem]"
           >
             <span
               aria-hidden
@@ -522,7 +631,7 @@ function AgeingColumns({
           key={column.label}
           className="flex h-full min-w-0 flex-1 flex-col justify-end gap-1.5"
         >
-          <span className="text-center text-[0.875rem] font-medium text-ink tabular-nums">
+          <span className="text-center text-[0.9375rem] font-medium text-ink tabular-nums">
             {moneyCompact(column.value)}
           </span>
           <div
@@ -532,7 +641,7 @@ function AgeingColumns({
               background: column.fill,
             }}
           />
-          <span className="text-center text-[0.875rem] text-body">
+          <span className="text-center text-[0.9375rem] text-body">
             {column.label}
           </span>
         </div>
@@ -574,7 +683,7 @@ function SmallChart({
     <div className="rounded-card border border-hairline-2 bg-canvas px-5 py-4 shadow-soft">
       <div className="mb-3 flex items-baseline justify-between gap-2">
         <span className="font-medium text-ink">{title}</span>
-        <span className="text-[0.875rem] text-mute">{meta}</span>
+        <span className="text-[0.9375rem] text-mute">{meta}</span>
       </div>
       <ChartState pending={pending} failed={failed}>
         {children}
@@ -587,7 +696,7 @@ function SmallChart({
 /// place of an axis labelled 0 to 4.
 function ChartEmpty({ children }: { children: React.ReactNode }) {
   return (
-    <p className="flex h-[13rem] items-center justify-center text-[0.875rem] text-mute">
+    <p className="flex h-[13rem] items-center justify-center text-[0.9375rem] text-mute">
       {children}
     </p>
   )
@@ -619,14 +728,15 @@ function Headline({
 }: {
   label: string
   value: number | undefined
-  note: string
+  /// A fact beside the figure ("… of it overdue"), never a definition.
+  note?: string
   tone?: "bad"
   /// Percent against last month: up is green, down is red.
   delta?: number
 }) {
   return (
-    <div className="rounded-card border border-hairline-2 bg-canvas px-5 py-4 shadow-soft">
-      <div className="text-[0.875rem] text-body">{label}</div>
+    <div className="number-card rounded-card border border-hairline-2 bg-canvas px-5 py-4 shadow-soft">
+      <div className="text-[0.9375rem] text-body">{label}</div>
       <div
         className={
           tone === "bad"
@@ -640,8 +750,8 @@ function Headline({
         <div
           className={
             delta >= 0
-              ? "mt-0.5 text-[0.875rem] font-medium text-ok-fg tabular-nums"
-              : "mt-0.5 text-[0.875rem] font-medium text-bad-fg tabular-nums"
+              ? "mt-0.5 text-[0.9375rem] font-medium text-ok-fg tabular-nums"
+              : "mt-0.5 text-[0.9375rem] font-medium text-bad-fg tabular-nums"
           }
         >
           {delta >= 0 ? "↑" : "↓"}{" "}
@@ -651,7 +761,7 @@ function Headline({
           %<span className="font-normal text-mute"> vs last month</span>
         </div>
       )}
-      <div className="mt-0.5 text-[0.875rem] text-mute">{note}</div>
+      {note && <div className="mt-0.5 text-[0.9375rem] text-mute">{note}</div>}
     </div>
   )
 }
@@ -686,7 +796,7 @@ function PaymentList({
       <div className="mb-3 flex items-baseline justify-between gap-3">
         <div>
           <h2 className="text-[1rem] font-medium text-ink">{title}</h2>
-          <p className="text-[0.875rem] text-mute">{note}</p>
+          <p className="text-[0.9375rem] text-mute">{note}</p>
         </div>
         <AppLink to={to} variant="ghost" size="sm">
           {rows.length > shown.length
@@ -707,15 +817,15 @@ function PaymentList({
       ) : (
         <div className="overflow-hidden rounded-card border border-hairline-2 bg-canvas shadow-soft">
           {pending ? (
-            <p className="px-5 py-8 text-center text-[0.875rem] text-mute">
+            <p className="px-5 py-8 text-center text-[0.9375rem] text-mute">
               Reading…
             </p>
           ) : failed ? (
-            <p className="px-5 py-8 text-center text-[0.875rem] text-mute">
+            <p className="px-5 py-8 text-center text-[0.9375rem] text-mute">
               These payments could not be read.
             </p>
           ) : shown.length === 0 ? (
-            <p className="px-5 py-8 text-center text-[0.875rem] text-mute">
+            <p className="px-5 py-8 text-center text-[0.9375rem] text-mute">
               {empty}
             </p>
           ) : (
@@ -726,11 +836,11 @@ function PaymentList({
               >
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-ink">{row.who}</div>
-                  <div className="truncate text-[0.875rem] text-mute">
+                  <div className="truncate text-[0.9375rem] text-mute">
                     {row.how} · <span className="font-mono">{row.what}</span>
                   </div>
                 </div>
-                <div className="w-28 shrink-0 text-[0.875rem] text-body">
+                <div className="w-28 shrink-0 text-[0.9375rem] text-body">
                   {when(row)}
                 </div>
                 <div className="w-36 shrink-0 text-right font-medium text-ink tabular-nums">
@@ -750,11 +860,6 @@ function PaymentList({
 /// is owed and how late, and the bank. Of its five charts, three are drawn,
 /// for the reasons `FinanceDashboard` gives.
 export function PaymentsDashboard() {
-  const months = useLastMonths(12)
-  const bank = useBankBalance(months)
-  const cards = useNumberCards()
-  const ageing = usePayables()
-
   return (
     <PageContent>
       <PageHeader
@@ -763,28 +868,65 @@ export function PaymentsDashboard() {
         title="Payments Dashboard"
       />
 
-      <NumberCards cards={cards} />
+      <Suspense fallback={<NumberCards cards={PENDING_CARDS} />}>
+        <LiveNumberCards />
+      </Suspense>
 
       <div className="grid grid-cols-1 gap-x-3 xl:grid-cols-2">
-        <ChartCard title="Accounts Payable Ageing" meta="As at today">
-          <ChartState pending={ageing.isPending} failed={ageing.isError}>
-            {ageing.data && <AgeingBar buckets={ageing.data.total} />}
-          </ChartState>
-        </ChartCard>
+        <Suspense
+          fallback={
+            <ChartCard title="Accounts Payable Ageing" meta="As at today">
+              <ChartState pending failed={false}>
+                {null}
+              </ChartState>
+            </ChartCard>
+          }
+        >
+          <AgeingCard />
+        </Suspense>
 
-        <ChartCard title="Bank Balance" meta="Month end · Last 12 months">
-          <ChartState pending={bank.pending} failed={bank.failed}>
-            <LineSeries
-              rows={bank.rows}
-              dataKey="balance"
-              label="Bank balance"
-              format={money}
-              titleOf={monthTitle}
-              labelOf={monthTick}
-            />
-          </ChartState>
-        </ChartCard>
+        <Suspense
+          fallback={
+            <ChartCard title="Bank Balance" meta="Month end · Last 12 months">
+              <ChartState pending failed={false}>
+                {null}
+              </ChartState>
+            </ChartCard>
+          }
+        >
+          <BankCard />
+        </Suspense>
       </div>
     </PageContent>
+  )
+}
+
+function LiveNumberCards() {
+  return <NumberCards cards={useNumberCards()} />
+}
+
+function AgeingCard() {
+  const ageing = useSuspenseQuery(payablesAgingQuery(todayIso()))
+  return (
+    <ChartCard title="Accounts Payable Ageing" meta="As at today">
+      <AgeingBar buckets={ageing.data.total} />
+    </ChartCard>
+  )
+}
+
+function BankCard() {
+  const months = useLastMonths(12)
+  const bank = useBankBalance(months)
+  return (
+    <ChartCard title="Bank Balance" meta="Month end · Last 12 months">
+      <LineSeries
+        rows={bank.rows}
+        dataKey="balance"
+        label="Bank balance"
+        format={money}
+        titleOf={monthTitle}
+        labelOf={monthTick}
+      />
+    </ChartCard>
   )
 }

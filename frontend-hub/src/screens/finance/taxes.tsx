@@ -1,34 +1,49 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
+import {
+  useMutation,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query"
+import type { ColumnDef, SortingState } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
+import { Suspense, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { Checkbox, Field, Input, Select } from "@/components/ui/field"
+import { Fab } from "@/components/ui/fab"
+import {
+  BarSpacer,
+  ColumnsMenu,
+  ExpandingSearch,
+} from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { EmptyState, Problem } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
-import { Fab } from "@/components/ui/fab"
-import { label, percentBps } from "@/lib/format"
+import { count, label, percentBps } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import {
   financeKeys,
-  listTaxTypeSettings,
   saveTaxTemplate,
   saveTaxType,
+  taxTemplatesQuery,
+  taxTypesQuery,
 } from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
-import { Grid, Td, Th } from "@/screens/finance-final/parts"
+import { tableSetup, type TableSetup } from "@/lib/table"
+import { useColumnFit } from "@/screens/finance/column-fit"
+import { Code } from "@/screens/finance-final/parts"
 import { useLocations } from "@/screens/finance/hooks"
-import { useTaxTemplates } from "@/screens/finance/master-data"
-import { PhoneCard, PhoneList } from "@/components/ui/phone-cards"
 import {
   EditorCard,
   LinkAccountsButton,
   MasterLayout,
   YesNo,
 } from "@/screens/finance/master-parts"
+import { ScreenPending } from "@/screens/finance/pending"
 import type { TaxTemplate, TaxType } from "@itulah/contract"
 
 /// Basis points as a rate: 200 → "2%", 250 → "2,5%".
@@ -49,13 +64,118 @@ function bpsOf(text: string): number | null {
 // Tax Withholding Category
 // ---------------------------------------------------------------------------
 
+/// One category per row. On a phone the same columns are the card: the name
+/// over its code and note, the rate and whether it is final under them, and
+/// the Link accounts button at the right.
+const templateColumns: ColumnDef<TableSetup, TaxTemplate>[] = [
+  {
+    accessorKey: "name",
+    header: "Name",
+    size: 300,
+    meta: { card: "title", grow: 200 },
+    cell: ({ row }) => (
+      <span className="flex items-center gap-2 whitespace-normal">
+        <span className="text-ink">{row.original.name}</span>
+        {!row.original.is_active && <Pill tone="neutral">Inactive</Pill>}
+      </span>
+    ),
+  },
+  {
+    accessorKey: "code",
+    header: "Code",
+    size: 180,
+    meta: { card: "meta" },
+    cell: ({ row }) => <Code>{row.original.code}</Code>,
+  },
+  {
+    accessorKey: "rate_bps",
+    header: "Rate",
+    size: 110,
+    meta: { align: "right", card: "metric" },
+    cell: ({ row }) => rateOf(row.original.rate_bps),
+  },
+  {
+    id: "is_final",
+    accessorFn: (row) => (row.is_final ? "Yes" : ""),
+    header: "Final",
+    size: 110,
+    meta: { align: "center", card: "metric" },
+    cell: ({ row }) => <YesNo on={row.original.is_final} />,
+  },
+  {
+    accessorKey: "note",
+    header: "Note",
+    size: 260,
+    meta: { card: "meta", priority: 3 },
+    cell: ({ row }) => <span className="text-mute">{row.original.note}</span>,
+  },
+  {
+    id: "link",
+    header: "",
+    size: 150,
+    enableSorting: false,
+    enableHiding: false,
+    meta: { align: "right", card: "status" },
+    cell: ({ row }) => (
+      <LinkAccountsButton
+        role="withholding_payable"
+        sourceType="TAX_TEMPLATE"
+        sourceId={row.original.code}
+      />
+    ),
+  },
+]
+
 /// What a supplier payment keeps back, and at what rate (ERPNext Tax
 /// Withholding Category). The amount kept back is owed to the tax office on
 /// an account link — role `withholding_payable`, source the template.
 export function TaxWithholding() {
+  return (
+    <Suspense
+      fallback={
+        <ScreenPending
+          crumb="Finance · Tax Masters"
+          title="Tax Withholding Category"
+        >
+          Reading the withholding categories…
+        </ScreenPending>
+      }
+    >
+      <TaxWithholdingScreen />
+    </Suspense>
+  )
+}
+
+function TaxWithholdingScreen() {
   const phone = useLayout() === "phone"
-  const list = useTaxTemplates()
+  const list = useSuspenseQuery(taxTemplatesQuery())
   const [editing, setEditing] = useState<TaxTemplate | "new" | null>(null)
+  const [needle, setNeedle] = useState("")
+  const [sorting, setSorting] = useState<SortingState>([])
+
+  const rows = list.data
+  const [measure, fit] = useColumnFit(templateColumns, phone)
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: rows,
+        columns: templateColumns,
+        getRowId: (row: TaxTemplate) => row.code,
+        state: {
+          globalFilter: needle,
+          sorting,
+          columnVisibility: fit.visibility,
+        },
+        onSortingChange: setSorting,
+        onGlobalFilterChange: setNeedle,
+        onColumnVisibilityChange: fit.onChange,
+      }),
+      // `fit` is new each render: the room is measured, and the columns the
+      // card has no room for are given up.
+      [rows, needle, sorting, fit]
+    )
+  )
 
   return (
     <PageContent>
@@ -71,99 +191,64 @@ export function TaxWithholding() {
           )
         }
       />
-      {phone && <Fab label="New category" onClick={() => setEditing("new")} />}
+
+      <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2 max-md:hidden">
+        <ExpandingSearch
+          value={needle}
+          onChange={setNeedle}
+          label="Search categories"
+        />
+        <BarSpacer />
+        <ColumnsMenu table={table} />
+      </div>
+
+      <Fab label="New category" onClick={() => setEditing("new")} />
+      <DockTools
+        search={{
+          value: needle,
+          onChange: setNeedle,
+          label: "Search categories",
+        }}
+        sort={dockSortOf(table)}
+      />
+
       <MasterLayout
         list={
-          <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-            {queryState(list, {
-              loading: "Reading the withholding categories…",
-              render: (rows) =>
-                rows.length === 0 ? (
-                  <EmptyState>
-                    No withholding category yet. A payment that should keep tax
-                    back has nothing to keep it under.
-                  </EmptyState>
-                ) : phone ? (
-                  <PhoneList>
-                    {rows.map((row) => (
-                      <PhoneCard
-                        key={row.code}
-                        title={row.name}
-                        muted={!row.is_active}
-                        line={
-                          <>
-                            <div>
-                              {row.code}
-                              {row.is_final ? " · Final" : ""}
-                              {row.is_active ? "" : " · inactive"}
-                            </div>
-                            {row.note && <div>{row.note}</div>}
-                          </>
-                        }
-                        lead={rateOf(row.rate_bps)}
-                        caption="rate"
-                        action={
-                          <LinkAccountsButton
-                            role="withholding_payable"
-                            sourceType="TAX_TEMPLATE"
-                            sourceId={row.code}
-                          />
-                        }
-                        foot={row.is_final ? "Final tax" : "Creditable"}
-                        onOpen={() => setEditing(row)}
-                      />
-                    ))}
-                  </PhoneList>
-                ) : (
-                  <Grid>
-                    <thead>
-                      <tr>
-                        <Th>Name</Th>
-                        <Th>Code</Th>
-                        <Th align="right">Rate</Th>
-                        <Th align="center">Final</Th>
-                        <Th />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.map((row) => (
-                        <tr
-                          key={row.code}
-                          onClick={() => setEditing(row)}
-                          className="cursor-pointer hover:bg-soft"
-                        >
-                          <Td>
-                            <span className="text-ink">{row.name}</span>
-                            {!row.is_active && (
-                              <Pill tone="neutral" className="ml-2">
-                                Inactive
-                              </Pill>
-                            )}
-                            {row.note && (
-                              <div className="text-mute">{row.note}</div>
-                            )}
-                          </Td>
-                          <Td className="font-mono text-[0.875rem] text-mute">
-                            {row.code}
-                          </Td>
-                          <Td align="right">{rateOf(row.rate_bps)}</Td>
-                          <Td align="center">
-                            <YesNo on={row.is_final} />
-                          </Td>
-                          <Td align="right">
-                            <LinkAccountsButton
-                              role="withholding_payable"
-                              sourceType="TAX_TEMPLATE"
-                              sourceId={row.code}
-                            />
-                          </Td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </Grid>
-                ),
-            })}
-          </Card>
+          <div ref={measure}>
+            <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+              {queryState(list, {
+                render: () =>
+                  rows.length === 0 ? (
+                    <EmptyState>No withholding category yet.</EmptyState>
+                  ) : (
+                    <DataTable<TaxTemplate>
+                      table={table}
+                      refresh={[list]}
+                      onRowClick={(row) => setEditing(row)}
+                      isSelected={(row) =>
+                        editing !== null &&
+                        editing !== "new" &&
+                        editing.code === row.code
+                      }
+                      empty="No category matches the search."
+                      pageScroll
+                      cardsApart
+                      cardSort={false}
+                      summary={{
+                        name: (
+                          <span>
+                            {count(rows.length)}{" "}
+                            <span className="font-normal text-body">
+                              {rows.length === 1 ? "category" : "categories"}
+                            </span>
+                          </span>
+                        ),
+                      }}
+                    />
+                  ),
+              })}
+            </Card>
+          </div>
         }
         editor={
           editing !== null && (
@@ -287,16 +372,113 @@ function TemplateForm({
 // Tax types
 // ---------------------------------------------------------------------------
 
+/// One tax per row. On a phone the same columns are the card: the name over
+/// its code, what it is under them, and the Link accounts button at the right.
+const typeColumns: ColumnDef<TableSetup, TaxType>[] = [
+  {
+    accessorKey: "name",
+    header: "Name",
+    size: 300,
+    meta: { card: "title", grow: 200 },
+    cell: ({ row }) => (
+      <span className="flex items-center gap-2 whitespace-normal">
+        <span className="text-ink">{row.original.name}</span>
+        {!row.original.active && <Pill tone="neutral">Inactive</Pill>}
+      </span>
+    ),
+  },
+  {
+    accessorKey: "code",
+    header: "Code",
+    size: 160,
+    meta: { card: "meta" },
+    cell: ({ row }) => <Code>{row.original.code}</Code>,
+  },
+  {
+    accessorKey: "nature",
+    header: "Nature",
+    size: 150,
+    meta: { card: "metric" },
+    cell: ({ row }) => label(row.original.nature),
+  },
+  {
+    accessorKey: "semantic_key",
+    header: "Role",
+    size: 240,
+    meta: { card: "metric" },
+    cell: ({ row }) => <Tag>{row.original.semantic_key}</Tag>,
+  },
+  {
+    accessorKey: "authority",
+    header: "Authority",
+    size: 150,
+    meta: { card: "metric" },
+    cell: ({ row }) => row.original.authority,
+  },
+  {
+    id: "link",
+    header: "",
+    size: 150,
+    enableSorting: false,
+    enableHiding: false,
+    meta: { align: "right", card: "status" },
+    cell: ({ row }) => (
+      <LinkAccountsButton
+        role={row.original.semantic_key}
+        sourceType="COMPANY"
+        sourceId=""
+      />
+    ),
+  },
+]
+
 /// The taxes the company owes or claims per period — PPh 21, 23, 25, 29, PPN,
 /// PBB — each named by the role its account answers to. Adding one used to
 /// take a migration.
 export function TaxTypes() {
-  const list = useQuery({
-    queryKey: financeKeys.taxTypes(),
-    queryFn: ({ signal }) => listTaxTypeSettings(signal),
-  })
+  return (
+    <Suspense
+      fallback={
+        <ScreenPending crumb="Finance · Tax Masters" title="Tax Types">
+          Reading the tax types…
+        </ScreenPending>
+      }
+    >
+      <TaxTypesScreen />
+    </Suspense>
+  )
+}
+
+function TaxTypesScreen() {
+  const list = useSuspenseQuery(taxTypesQuery())
   const [editing, setEditing] = useState<TaxType | "new" | null>(null)
   const phone = useLayout() === "phone"
+  const [needle, setNeedle] = useState("")
+  const [sorting, setSorting] = useState<SortingState>([])
+
+  const rows = list.data
+  const [measure, fit] = useColumnFit(typeColumns, phone)
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: rows,
+        columns: typeColumns,
+        getRowId: (row: TaxType) => row.code,
+        state: {
+          globalFilter: needle,
+          sorting,
+          columnVisibility: fit.visibility,
+        },
+        onSortingChange: setSorting,
+        onGlobalFilterChange: setNeedle,
+        onColumnVisibilityChange: fit.onChange,
+      }),
+      // `fit` is new each render: the room is measured, and the columns the
+      // card has no room for are given up.
+      [rows, needle, sorting, fit]
+    )
+  )
 
   return (
     <PageContent>
@@ -312,84 +494,64 @@ export function TaxTypes() {
           )
         }
       />
-      {phone && <Fab label="New tax type" onClick={() => setEditing("new")} />}
+
+      <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2 max-md:hidden">
+        <ExpandingSearch
+          value={needle}
+          onChange={setNeedle}
+          label="Search tax types"
+        />
+        <BarSpacer />
+        <ColumnsMenu table={table} />
+      </div>
+
+      <Fab label="New tax type" onClick={() => setEditing("new")} />
+      <DockTools
+        search={{
+          value: needle,
+          onChange: setNeedle,
+          label: "Search tax types",
+        }}
+        sort={dockSortOf(table)}
+      />
+
       <MasterLayout
         list={
-          <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-            {queryState(list, {
-              loading: "Reading the tax types…",
-              render: (rows) =>
-                rows.length === 0 ? (
-                  <EmptyState>No tax type yet.</EmptyState>
-                ) : phone ? (
-                  <PhoneList>
-                    {rows.map((row) => (
-                      <PhoneCard
-                        key={row.code}
-                        title={row.name}
-                        muted={!row.active}
-                        line={`${row.code}${row.active ? "" : " · inactive"}`}
-                        foot={`${label(row.nature)} · ${row.semantic_key}${row.authority === "" ? "" : ` · ${row.authority}`}`}
-                        action={
-                          <LinkAccountsButton
-                            role={row.semantic_key}
-                            sourceType="COMPANY"
-                            sourceId=""
-                          />
-                        }
-                        onOpen={() => setEditing(row)}
-                      />
-                    ))}
-                  </PhoneList>
-                ) : (
-                  <Grid>
-                    <thead>
-                      <tr>
-                        <Th>Name</Th>
-                        <Th>Code</Th>
-                        <Th>Nature</Th>
-                        <Th>Role</Th>
-                        <Th>Authority</Th>
-                        <Th />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.map((row) => (
-                        <tr
-                          key={row.code}
-                          onClick={() => setEditing(row)}
-                          className="cursor-pointer hover:bg-soft"
-                        >
-                          <Td>
-                            <span className="text-ink">{row.name}</span>
-                            {!row.active && (
-                              <Pill tone="neutral" className="ml-2">
-                                Inactive
-                              </Pill>
-                            )}
-                          </Td>
-                          <Td className="font-mono text-[0.875rem] text-mute">
-                            {row.code}
-                          </Td>
-                          <Td>{label(row.nature)}</Td>
-                          <Td>
-                            <Tag>{row.semantic_key}</Tag>
-                          </Td>
-                          <Td>{row.authority}</Td>
-                          <Td align="right">
-                            <LinkAccountsButton
-                              role={row.semantic_key}
-                              sourceType="COMPANY"
-                              sourceId=""
-                            />
-                          </Td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </Grid>
-                ),
-            })}
-          </Card>
+          <div ref={measure}>
+            <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+              {queryState(list, {
+                render: () =>
+                  rows.length === 0 ? (
+                    <EmptyState>No tax type yet.</EmptyState>
+                  ) : (
+                    <DataTable<TaxType>
+                      table={table}
+                      refresh={[list]}
+                      onRowClick={(row) => setEditing(row)}
+                      isSelected={(row) =>
+                        editing !== null &&
+                        editing !== "new" &&
+                        editing.code === row.code
+                      }
+                      empty="No tax type matches the search."
+                      pageScroll
+                      cardsApart
+                      cardSort={false}
+                      summary={{
+                        name: (
+                          <span>
+                            {count(rows.length)}{" "}
+                            <span className="font-normal text-body">
+                              {rows.length === 1 ? "tax type" : "tax types"}
+                            </span>
+                          </span>
+                        ),
+                      }}
+                    />
+                  ),
+              })}
+            </Card>
+          </div>
         }
         editor={
           editing !== null && (

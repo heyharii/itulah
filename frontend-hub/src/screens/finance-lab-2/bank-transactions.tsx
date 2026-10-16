@@ -212,7 +212,7 @@ export function BankTransactions() {
               value={needle}
               onChange={(event) => setNeedle(event.target.value)}
               aria-label="Search bank transactions"
-              className="h-8 w-64 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.875rem] text-ink outline-none placeholder:text-body focus:border-accent"
+              className="h-8 w-64 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.9375rem] text-ink outline-none placeholder:text-body focus:border-accent"
             />
           </span>
           {/* A range is two days, so it is two controls. Each draws the
@@ -281,7 +281,7 @@ export function BankTransactions() {
                       <Td>{day(line.value_date)}</Td>
                       <Td>
                         <span className="text-ink">{bank ?? "—"}</span>
-                        <span className="block text-[0.875rem] text-mute">
+                        <span className="block text-[0.9375rem] text-mute">
                           {place}
                         </span>
                       </Td>
@@ -290,7 +290,7 @@ export function BankTransactions() {
                         {(line.party_name || line.bank_said) !== "" &&
                           (line.party_name || line.bank_said) !==
                             line.description && (
-                            <span className="block text-[0.875rem] text-mute">
+                            <span className="block text-[0.9375rem] text-mute">
                               {line.party_name || line.bank_said}
                             </span>
                           )}
@@ -311,7 +311,7 @@ export function BankTransactions() {
                         {line.matched_entry_number === null ? (
                           <span className="text-mute">—</span>
                         ) : (
-                          <span className="font-mono text-[0.875rem] text-text">
+                          <span className="font-mono text-[0.9375rem] text-text">
                             {line.matched_entry_number}
                           </span>
                         )}

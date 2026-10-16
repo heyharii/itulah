@@ -1,4 +1,8 @@
-import { useQuery } from "@tanstack/react-query"
+import {
+  infiniteQueryOptions,
+  queryOptions,
+  useQuery,
+} from "@tanstack/react-query"
 
 import { node } from "@/lib/api"
 import type {
@@ -882,3 +886,121 @@ export function recordGaBillRequest(
     signal,
   })
 }
+
+// ── the reads a screen opens with ───────────────────────────────────────────
+//
+// One options function per read, shared by the screen (which reads it with
+// `useSuspenseQuery`) and by its prefetcher (`screens/{ga,maintenance,assets,
+// contracts,executive}/prefetch.ts`), so the key and the request cannot drift
+// apart and the server's answer is the one the first paint reads.
+
+/// How many rows one page of a GA book asks for. A step, not a ceiling: the
+/// rest arrive as the list is scrolled.
+export const GA_PAGE = 100
+
+/// What wants a GA decision today.
+export const gaOverviewQuery = () =>
+  queryOptions({
+    queryKey: gaKeys.overview(),
+    queryFn: ({ signal }) => gaOverview(signal),
+  })
+
+/// The repair book, a page at a time. Its own key under the book's prefix: the
+/// replacement form reads the same scope as one plain page, and an infinite
+/// answer cannot share its cache entry. `gaKeys.all` still reaches it.
+export const gaRepairBookQuery = () =>
+  infiniteQueryOptions({
+    queryKey: [...gaKeys.repairs({}), "pages"] as const,
+    queryFn: ({ pageParam, signal }) =>
+      gaRepairs({ limit: GA_PAGE, cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+  })
+
+/// The recurring maintenance tasks, soonest due first (undated last).
+export const gaTaskBookQuery = () =>
+  infiniteQueryOptions({
+    queryKey: [...gaKeys.maintenanceTasks({}), "pages"] as const,
+    queryFn: ({ pageParam, signal }) =>
+      gaMaintenanceTasks({ limit: GA_PAGE, cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+  })
+
+/// The inspections, newest first.
+export const gaInspectionBookQuery = () =>
+  infiniteQueryOptions({
+    queryKey: [...gaKeys.inspections({}), "pages"] as const,
+    queryFn: ({ pageParam, signal }) =>
+      gaInspections({ limit: GA_PAGE, cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+  })
+
+/// The replacement book.
+export const gaReplacementBookQuery = () =>
+  infiniteQueryOptions({
+    queryKey: [...gaKeys.replacements({}), "pages"] as const,
+    queryFn: ({ pageParam, signal }) =>
+      gaReplacements({ limit: GA_PAGE, cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+  })
+
+/// The asset register for one scope. Its own key under the register's prefix:
+/// the pickers read the same scope as one plain page, and an infinite answer
+/// and a plain one cannot share a cache entry.
+export const gaAssetBookQuery = (scope: Parameters<typeof gaKeys.assets>[0]) =>
+  infiniteQueryOptions({
+    queryKey: [...gaKeys.assets(scope), "pages"] as const,
+    queryFn: ({ pageParam, signal }) =>
+      gaAssets({ ...scope, limit: GA_PAGE, cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+  })
+
+/// The contract register for one scope. Subscriptions are read by PLACE ("what
+/// is connected there"), and a register order would scatter one site's
+/// connections across the table, so they sort by site on the server and carry
+/// their own key.
+export const gaContractBookQuery = (
+  scope: Parameters<typeof gaKeys.contracts>[0],
+  kind: "register" | "utilities" = "register"
+) =>
+  infiniteQueryOptions({
+    queryKey: [
+      ...gaKeys.contracts(scope),
+      "pages",
+      kind === "utilities" ? "site" : "register",
+    ] as const,
+    queryFn: ({ pageParam, signal }) =>
+      gaContracts(
+        {
+          ...scope,
+          sort: kind === "utilities" ? "site" : undefined,
+          limit: GA_PAGE,
+          cursor: pageParam,
+        },
+        signal
+      ),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+  })
+
+/// Every place GA keeps, whole.
+export const gaLocationsQuery = () =>
+  queryOptions({
+    queryKey: gaKeys.locations({}),
+    queryFn: ({ signal }) => gaLocations({}, signal),
+    retry: false,
+  })
+
+/// The running agreements the Executive's Team & Assets page counts down:
+/// not archived, up to a thousand, under their own key beside the register's.
+export const gaExecutiveContractsQuery = () =>
+  queryOptions({
+    queryKey: [...gaKeys.contracts({ archived: false }), "executive"] as const,
+    queryFn: ({ signal }) =>
+      gaContracts({ archived: false, limit: 1000 }, signal),
+    retry: false,
+  })

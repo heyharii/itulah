@@ -508,7 +508,7 @@ export function Payments() {
         {/* The window is stated rather than implied, and so is how many
             payments the server found in it — its count, not the pages loaded
             so far. */}
-        <span className="text-[0.875rem] text-mute">
+        <span className="text-[0.9375rem] text-mute">
           {range.chip}
           {payments.data !== undefined &&
             ` · ${count(matched)} ${matched === 1 ? "payment" : "payments"}`}
@@ -523,7 +523,7 @@ export function Payments() {
         <Card className="mb-3">
           <CardHeader>
             <CardTitle>Outflow</CardTitle>
-            <span className="text-[0.875rem] text-mute">
+            <span className="text-[0.9375rem] text-mute">
               {count(outflow.payments)} posted payments ·{" "}
               <span className="font-medium text-ink tabular-nums">
                 {money(outflow.paid)}
@@ -579,6 +579,7 @@ export function Payments() {
               </EmptyState>
             ) : (
               <DataTable<SupplierPayment>
+                refresh={[payments]}
                 table={table}
                 onRowClick={(row) => payment.open(row.payment_id)}
                 isSelected={(row) => row.payment_id === payment.value}
@@ -697,7 +698,7 @@ function PaymentSheet({
       footer={
         payment && !posted ? (
           <div className="flex items-center justify-between gap-3">
-            <span className="text-[0.875rem] text-mute">
+            <span className="text-[0.9375rem] text-mute">
               Posts on the payment date unless the month is closed.
             </span>
             <Button
@@ -779,7 +780,7 @@ function PaymentSheet({
               </Facts>
 
               {payment.note && (
-                <p className="text-[0.875rem] text-body">{payment.note}</p>
+                <p className="text-[0.9375rem] text-body">{payment.note}</p>
               )}
 
               <div>
@@ -791,7 +792,7 @@ function PaymentSheet({
                   What it paid
                 </SubHead>
                 {payment.allocations.length === 0 ? (
-                  <p className="text-[0.875rem] text-mute">
+                  <p className="text-[0.9375rem] text-mute">
                     Nothing is allocated, so this payment answers no debt. The
                     server refuses one like this, which means it was written
                     before that rule and is worth asking about.
@@ -807,14 +808,14 @@ function PaymentSheet({
                               key: "bill",
                               value: allocation.invoice_id,
                             }}
-                            className="block font-mono text-[0.875rem] text-accent hover:underline"
+                            className="block font-mono text-[0.9375rem] text-accent hover:underline"
                           >
                             {allocation.invoice_number}
                           </AppLink>
                           <SupplierName
                             id={allocation.supplier_id}
                             name={allocation.supplier_name}
-                            className="block truncate text-[0.875rem] text-mute"
+                            className="block truncate text-[0.9375rem] text-mute"
                           />
                         </MiniCell>
                         <MiniCell align="right">
@@ -832,7 +833,7 @@ function PaymentSheet({
                     allocations' sum above it. They agree because the database
                     refuses a payment where they do not — showing both is how
                     a reader can see that rather than take it on trust. */}
-                <div className="mt-3 flex flex-col gap-1 border-t border-hairline pt-2.5 text-[0.875rem]">
+                <div className="mt-3 flex flex-col gap-1 border-t border-hairline pt-2.5 text-[0.9375rem]">
                   <div className="flex justify-between gap-3 text-body">
                     <span>Allocated</span>
                     <span className="tabular-nums">
@@ -1089,7 +1090,7 @@ function ComposerSheet({
                 {/* The same sentence the journal composer writes, for the
                     same reason: a disabled button with nothing beside it
                     reads as broken, and "what is still wrong" is one line. */}
-                <span className="text-[0.875rem] text-mute tabular-nums">
+                <span className="text-[0.9375rem] text-mute tabular-nums">
                   {totals.ready
                     ? `Balanced at ${money(totals.allocated)}`
                     : draft.allocations.length === 0
@@ -1484,14 +1485,14 @@ function AllocationPicker({
       </SubHead>
 
       {loading || units.isPending ? (
-        <p className="text-[0.875rem] text-mute">Loading the bills…</p>
+        <p className="text-[0.9375rem] text-mute">Loading the bills…</p>
       ) : unitId === "" ? (
-        <p className="text-[0.875rem] text-mute">
+        <p className="text-[0.9375rem] text-mute">
           Choose a unit first — a payment answers the bills received at its
           sites.
         </p>
       ) : candidates.length === 0 ? (
-        <p className="text-[0.875rem] text-mute">
+        <p className="text-[0.9375rem] text-mute">
           Nothing received at this unit's sites is still outstanding. A bill
           that has only been recorded is not in the books yet and cannot be
           paid.
@@ -1517,7 +1518,7 @@ function AllocationPicker({
                     onChange={(next) => toggle(bill, next)}
                     label={
                       <span className="min-w-0">
-                        <span className="font-mono text-[0.875rem] text-body">
+                        <span className="font-mono text-[0.9375rem] text-body">
                           {bill.invoice_number}
                         </span>{" "}
                         <SupplierName
@@ -1528,13 +1529,13 @@ function AllocationPicker({
                       </span>
                     }
                   />
-                  <span className="shrink-0 text-right text-[0.875rem] text-mute tabular-nums">
+                  <span className="shrink-0 text-right text-[0.9375rem] text-mute tabular-nums">
                     {money(bill.outstanding_minor)} out
                   </span>
                 </div>
 
                 {room <= 0 ? (
-                  <p className="mt-1.5 text-[0.875rem] text-warn-fg">
+                  <p className="mt-1.5 text-[0.9375rem] text-warn-fg">
                     A draft payment already has all of this bill. Post or change
                     that one first.
                   </p>
@@ -1552,8 +1553,8 @@ function AllocationPicker({
                       <span
                         className={
                           over
-                            ? "text-[0.875rem] text-bad"
-                            : "text-[0.875rem] text-mute"
+                            ? "text-[0.9375rem] text-bad"
+                            : "text-[0.9375rem] text-mute"
                         }
                       >
                         {over

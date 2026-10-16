@@ -59,11 +59,11 @@ const noShell = (what: string): EdgeReply<never> => ({
   body: undefined as never,
   problem:
     isWeb
-      ? `Ini kasir versi web, jadi ${what} tidak tersedia — ` +
-        `hanya bisa lewat aplikasi kasir di mesin kasir.`
-      : `Jendela ini dibuka di browser biasa, bukan di aplikasi kasir, ` +
-        `jadi ${what} tidak bisa dijangkau. Jalankan lewat “npm run tauri dev”, ` +
-        `atau pakai versi web: “npm run dev:web”.`,
+      ? `This is the web till, so ${what} is not available — ` +
+        `it only works in the till app on the counter machine.`
+      : `This window was opened in an ordinary browser, not in the till app, ` +
+        `so ${what} cannot be reached. Run it with “npm run tauri dev”, ` +
+        `or use the web version: “npm run dev:web”.`,
 })
 
 /// Ask the node for something. `path` is a path — the shell decides which
@@ -96,7 +96,7 @@ export async function signedEdge<T>(
   if (invoke === null) {
     // The pairing secret lives only in the shell. A browser tab has none to
     // sign with, so fingerprint and PIN sign-in are not offered here.
-    return noShell("sidik jari dan PIN")
+    return noShell("fingerprint and PIN sign-in")
   }
   return heard(
     await invoke<EdgeReply<T>>("edge_signed_call", { method, path, body }),
@@ -132,7 +132,7 @@ export async function identifyFinger(
       bound: false,
       actor_id: null,
       score: null,
-      detail: "Pemindai sidik jari hanya bisa dijangkau dari aplikasi kasir.",
+      detail: "The fingerprint scanner can only be reached from the till app.",
     }
   }
   return invoke<Identified>("fingerprint_identify", { enrolled })
@@ -146,7 +146,7 @@ export async function identifyFinger(
 export async function openCustomerDisplay(): Promise<string | null> {
   const invoke = bridge()
   if (invoke === null) {
-    return "Layar pelanggan hanya bisa dibuka dari aplikasi kasir."
+    return "The customer display can only be opened from the till app."
   }
   try {
     await invoke<null>("open_customer_display")
@@ -165,7 +165,7 @@ export async function device(
   if (invoke === null) {
     return {
       bound: false,
-      detail: "Perangkat hanya bisa dijangkau dari aplikasi kasir.",
+      detail: "The device can only be reached from the till app.",
     }
   }
   return invoke<DeviceState>(which)
@@ -176,7 +176,7 @@ export async function device(
 export async function readRfidSingle(): Promise<string> {
   const invoke = bridge()
   if (invoke === null) {
-    throw new Error("Chainway R3 hanya bisa dibaca dari aplikasi kasir Windows.")
+    throw new Error("The Chainway R3 can only be read from the Windows till app.")
   }
   return invoke<string>("rfid_read_single")
 }

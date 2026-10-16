@@ -33,6 +33,7 @@ import * as api from "@/api"
 import { Icon } from "@/icons"
 import { PinPad } from "@/pinpad"
 import { useSession } from "@/session"
+import { SIMULATED, SIM_SECRET } from "@/simulation"
 
 /// How much notice the counter gets. Long enough to reach the mouse from the
 /// far end of a counter, short enough that it is not a second timeout in its
@@ -289,7 +290,7 @@ export function LockScreen({
   async function unlockWithPin() {
     if (onUnlockPin === undefined) return
     if (username.trim() === "" || pin === "") {
-      setPinNote("Isi nama pengguna dan PIN.")
+      setPinNote("Enter your username and PIN.")
       return
     }
     setPinBusy(true)
@@ -298,6 +299,51 @@ export function LockScreen({
     setPinBusy(false)
     setPin("")
     if (!accepted) field.current?.focus()
+  }
+
+  // No scanner here, only the simulated one: the person who walked away puts
+  // their finger back, and that is the whole card.
+  if (SIMULATED && !pinOffered) {
+    return (
+      <div className="overlay">
+        <form
+          ref={card}
+          className="overlay-card"
+          onSubmit={(event) => event.preventDefault()}
+        >
+          <span className="seal brand">
+            <Icon name="lock" />
+          </span>
+          <h3>Counter locked</h3>
+          <p className="muted">
+            Session <strong>{actorId}</strong>
+          </p>
+          <button
+            className="btn primary lg"
+            style={{ width: "100%" }}
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              void (async () => {
+                setBusy(true)
+                setTried(true)
+                await new Promise((done) => window.setTimeout(done, 500))
+                await onUnlock(actorId, SIM_SECRET)
+                setBusy(false)
+              })()
+            }}
+          >
+            <Icon name="finger" />
+            {busy ? "Reading…" : "Touch to unlock"}
+          </button>
+          {tried && problem !== null && (
+            <p className="error" style={{ width: "100%", textAlign: "left" }}>
+              {problem}
+            </p>
+          )}
+        </form>
+      </div>
+    )
   }
 
   return (
@@ -310,9 +356,9 @@ export function LockScreen({
         <span className="seal brand">
           <Icon name="lock" />
         </span>
-        <h3>Konter terkunci</h3>
+        <h3>Counter locked</h3>
         <p className="muted">
-          Sesi <strong>{actorId}</strong>
+          Session <strong>{actorId}</strong>
         </p>
 
         {pinOffered && (
@@ -322,7 +368,7 @@ export function LockScreen({
               aria-pressed={mode === "password"}
               onClick={() => setMode("password")}
             >
-              Kata sandi
+              Password
             </button>
             <button
               type="button"
@@ -335,25 +381,25 @@ export function LockScreen({
         )}
 
         <label className="field" style={{ width: "100%", textAlign: "left" }}>
-          Nama pengguna
+          Username
           <input
             value={username}
             onChange={(event) => setUsername(event.target.value)}
             autoComplete="off"
-            aria-label="Nama pengguna"
+            aria-label="Username"
           />
         </label>
 
         {mode === "password" || !pinOffered ? (
         <label className="field" style={{ width: "100%", textAlign: "left" }}>
-          Kata sandi
+          Password
           <input
             ref={field}
             type="password"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             autoComplete="off"
-            aria-label="Kata sandi"
+            aria-label="Password"
           />
         </label>
 
@@ -392,7 +438,7 @@ export function LockScreen({
               : busy || username === "" || password === ""
           }
         >
-          {busy || pinBusy ? "Memeriksa…" : "Buka konter"}
+          {busy || pinBusy ? "Checking…" : "Unlock counter"}
         </button>
       </form>
     </div>

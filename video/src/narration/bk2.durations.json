@@ -1,0 +1,58 @@
+{
+  "intro": {
+    "seconds": 3.99675,
+    "say": "Barang dari P O tiba di DC, dan gudang mulai menghitung."
+  },
+  "form": {
+    "seconds": 5.79925,
+    "say": "Selama count belum di-Submit, angkanya masih bisa diubah. Kedatangannya tetap tercatat."
+  },
+  "submit": {
+    "seconds": 4.049,
+    "say": "Setelah Submit, count menunggu diterima oleh pembuat P O."
+  },
+  "recall": {
+    "seconds": 4.3885,
+    "say": "Selama belum diterima, penghitung bisa menariknya kembali dengan Recall."
+  },
+  "notyet": {
+    "seconds": 6.2695,
+    "say": "Tombol Recall belum dibangun di aplikasi. Yang ditunjukkan di sini adalah aturannya."
+  },
+  "recalled": {
+    "seconds": 5.2505,
+    "say": "Count lama tidak dihapus, tapi tersimpan sebagai Recalled. Stok tidak berubah."
+  },
+  "same": {
+    "seconds": 4.72825,
+    "say": "Hitungan barunya tetap untuk kedatangan yang sama, bukan kiriman kedua."
+  },
+  "recount": {
+    "seconds": 4.83275,
+    "say": "Pembuat P O juga bisa meminta Recount. Count lama tetap tersimpan."
+  },
+  "accept": {
+    "seconds": 4.75425,
+    "say": "Lalu pembuat P O menerima count-nya, dengan Partial receive atau Close short."
+  },
+  "stock": {
+    "seconds": 3.2915,
+    "say": "Begitu diterima, receipt dan stok tercatat."
+  },
+  "line": {
+    "seconds": 4.75425,
+    "say": "Di sinilah garis merahnya. Setelah diterima, Recall terkunci."
+  },
+  "instead": {
+    "seconds": 6.11275,
+    "say": "Kalau ternyata ada yang beda, jalannya lewat bukti baru, atau pemeriksaan oleh Inventory."
+  },
+  "return": {
+    "seconds": 5.51175,
+    "say": "Barang yang salah atau berlebih dikembalikan lewat Return P O. Tidak ada yang dibuka ulang."
+  },
+  "rest": {
+    "seconds": 7.60175,
+    "say": "Dengan Partial receive, sisa 15 di P O tetap terbuka untuk kedatangan berikutnya. Close short menutupnya."
+  }
+}

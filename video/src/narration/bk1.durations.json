@@ -1,0 +1,30 @@
+{
+  "intro": {
+    "seconds": 3.36975,
+    "say": "Setiap langkah barang di Central punya batas mundur."
+  },
+  "back": {
+    "seconds": 6.79175,
+    "say": "Back artinya meninggalkan layar yang belum disimpan. Dokumen yang sudah tersimpan tidak ikut batal."
+  },
+  "recall": {
+    "seconds": 3.396,
+    "say": "Recall menarik count yang belum diterima reviewer."
+  },
+  "cancel": {
+    "seconds": 4.51925,
+    "say": "Cancel atau Close remaining menghentikan permintaan yang belum terjadi."
+  },
+  "moveback": {
+    "seconds": 4.64975,
+    "say": "Move back: gudang membalik kerja fisik, selama barang belum berangkat."
+  },
+  "others": {
+    "seconds": 7.62775,
+    "say": "Di sampingnya ada Edit, Recount, dan koreksi: revisi yang tercatat, hitung ulang, dan dokumen baru."
+  },
+  "rule": {
+    "seconds": 8.8295,
+    "say": "Aturannya satu. Setelah receipt, stok, atau pengiriman tercatat, perbaikannya selalu catatan atau dokumen baru."
+  }
+}

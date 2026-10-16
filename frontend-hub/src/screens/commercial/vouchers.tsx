@@ -1,9 +1,9 @@
 import { useForm } from "@tanstack/react-form"
 import {
-  useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
+  useSuspenseInfiniteQuery,
 } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
@@ -12,6 +12,7 @@ import {
   CreditCard,
   HandCoins,
   HeartHandshake,
+  Plus,
   RotateCcw,
   StickyNote,
   Ticket,
@@ -19,7 +20,13 @@ import {
   Wallet,
   type LucideIcon,
 } from "lucide-react"
-import { useCallback, useMemo, useState } from "react"
+import {
+  Suspense,
+  useCallback,
+  useDeferredValue,
+  useMemo,
+  useState,
+} from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { DockTools } from "@/components/shell/dock-tools"
@@ -31,6 +38,8 @@ import { Card } from "@/components/ui/card"
 import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { Fab } from "@/components/ui/fab"
 import { Field, Input, Money, Textarea } from "@/components/ui/field"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
+import { BarSpacer, ExpandingSearch } from "@/components/ui/list-chrome"
 import { ConfirmButton } from "@/components/ui/dialog"
 import { Choices, Section, type Tile } from "@/components/ui/form"
 import { RecordPanel } from "@/components/ui/record-panel"
@@ -39,9 +48,9 @@ import { DeskFilterButton, DeskFilterChips } from "@/components/ui/desk-filter"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill, Status } from "@/components/ui/pill"
 import { MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
-import { Segmented, Toolbar } from "@/components/ui/segmented"
+import { SubTabs } from "@/components/ui/sub-tabs"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import { Banner, EmptyState } from "@/components/ui/states"
+import { Banner, EmptyState, LoadingState } from "@/components/ui/states"
 import { commercialKeys, promotionCatalogue } from "@/lib/queries/commercial"
 import { listMembers } from "@/lib/queries/members"
 import { useFilters } from "@/lib/filters"
@@ -161,15 +170,24 @@ const columns: ColumnDef<TableSetup, VoucherRow>[] = [
     accessorFn: (row) =>
       `${row.code} ${row.member_name ?? ""} ${row.member_id ?? ""}`,
     header: "Voucher",
-    size: 260,
-    meta: { grow: 260, card: "hide" },
+    size: 200,
+    meta: { grow: 200, card: "hide" },
+    // One line, one font (calm tables); the kind has its own column.
     cell: ({ row }) => (
-      <span className="flex min-w-0 flex-col gap-1">
-        <span className="truncate font-mono text-ink">{row.original.code}</span>
-        <span className="truncate text-[0.875rem] text-mute">
-          {describeKind(row.original.kind)}
-        </span>
+      <span className="block truncate font-medium text-ink">
+        {row.original.code}
       </span>
+    ),
+  },
+  {
+    id: "kind",
+    accessorFn: (row) => describeKind(row.kind),
+    header: "Kind",
+    size: 130,
+    enableSorting: false,
+    meta: { priority: 2, card: "hide" },
+    cell: ({ row }) => (
+      <span className="text-text">{describeKind(row.original.kind)}</span>
     ),
   },
   {
@@ -194,39 +212,10 @@ const columns: ColumnDef<TableSetup, VoucherRow>[] = [
       ),
   },
   {
-    id: "face",
-    accessorFn: (row) => row.issued_minor,
-    header: "Face Value",
-    size: 150,
-    // **No scale.** `issued_minor` holds whole rupiah despite its name — see
-    // `lib/format`'s `money` — so a bound is compared exactly as it is typed.
-    // Multiplying by a hundred here is what makes a filter for cards over
-    // 500.000 match nothing at all.
-    //
-    // Narrowed by the SERVER, so the operators are the ones the request can
-    // carry, and one clause per column — see `voucherScopeFromFilters`.
-    meta: {
-      align: "right",
-      card: "hide",
-      filter: {
-        kind: "number",
-        label: "Face value",
-        unit: "Rp",
-        operators: VOUCHER_NUMBER_OPERATORS,
-        single: true,
-      },
-    },
-    cell: ({ row }) => (
-      <span className="text-body tabular-nums">
-        {money(row.original.issued_minor)}
-      </span>
-    ),
-  },
-  {
     id: "balance",
     accessorFn: (row) => row.balance_minor,
-    header: "Left on It",
-    size: 240,
+    header: "Balance",
+    size: 150,
     // The liability, card by card. "At least 100.000" is how somebody finds
     // what the shop is actually holding against the figure in the strip, and
     // "is 0" is a spent card that has not been marked SPENT.
@@ -235,7 +224,7 @@ const columns: ColumnDef<TableSetup, VoucherRow>[] = [
       card: "hide",
       filter: {
         kind: "number",
-        label: "Left on it",
+        label: "Balance",
         unit: "Rp",
         operators: VOUCHER_NUMBER_OPERATORS,
         single: true,
@@ -245,20 +234,21 @@ const columns: ColumnDef<TableSetup, VoucherRow>[] = [
     // does not say whether 50,000 is most of a card or the last of one, and
     // that is the difference between a customer who will be back and one who
     // will not.
+    // One figure, the rupiah left; amber under a quarter of the face value,
+    // grey once spent. The face value is in the sheet.
     cell: ({ row }) => {
-      const left = row.original.issued_minor
-        ? row.original.balance_minor / row.original.issued_minor
-        : 0
+      const { balance_minor: left, issued_minor: face } = row.original
       return (
-        <span className="flex items-center justify-end gap-2">
-          <Meter
-            value={left}
-            tone={left === 0 ? "bad" : left < 0.25 ? "warn" : "ok"}
-            className="w-16"
-          />
-          <span className="w-28 text-right text-ink tabular-nums">
-            {money(row.original.balance_minor)}
-          </span>
+        <span
+          className={
+            left === 0
+              ? "text-mute tabular-nums"
+              : face > 0 && left / face < 0.25
+                ? "text-warn-fg tabular-nums"
+                : "text-ink tabular-nums"
+          }
+        >
+          {money(left)}
         </span>
       )
     },
@@ -315,6 +305,7 @@ const columns: ColumnDef<TableSetup, VoucherRow>[] = [
     meta: {
       align: "right",
       card: "hide",
+      priority: 2,
       filter: {
         kind: "date",
         label: "Issued",
@@ -400,55 +391,71 @@ const SORTS: Record<string, string> = {
   issued: "issued",
 }
 
-/// One figure of the strip: label above, the amount at 24px, a quiet line
-/// under it. Local rather than `Kpi` — the shared one is 16px of padding and an
-/// 18px figure, which is cramped for rupiah amounts in the millions.
-function Figure({
-  label,
-  value,
-  note,
-  warn,
-  className,
-}: {
-  label: string
-  value: string
-  note?: string
-  warn?: boolean
-  className?: string
-}) {
+export function Vouchers() {
+  // A phone keeps New in the drawer over the bottom bar (`Fab`).
+  const phone = useLayout() === "phone"
+  const open = useSheet("voucher")
+  const [issuing, setIssuing] = useState(false)
+  const [coupons, setCoupons] = useState(false)
+
+  // The head, the + and the sheets stand at once; the ledger and the list wait
+  // for the first page of vouchers and stream in with it (the server starts
+  // the read too).
   return (
-    <div
-      className={cn(
-        "flex min-w-0 flex-col gap-2 rounded-card border border-hairline bg-canvas p-6 shadow-soft",
-        className
-      )}
-    >
-      <div className="text-[0.9375rem] text-body">{label}</div>
-      <div className="text-[1.5rem] leading-none font-semibold tracking-[-0.02em] text-ink tabular-nums">
-        {value}
-      </div>
-      <div
-        className={cn(
-          "min-h-5 text-[0.875rem]",
-          warn ? "text-warn-fg" : "text-mute"
-        )}
-      >
-        {note}
-      </div>
-    </div>
+    <PageContent>
+      <PageHeader
+        crumb="Marketing"
+        title="Vouchers"
+        actions={
+          phone ? undefined : (
+            <>
+              {/* Coupons live here as a READER only — no list screen, no menu
+                  row. A coupon is a gate on a promotion and cannot exist
+                  without one, so it is authored on the promotion form; what it
+                  lacks is a place to answer "which codes are out there", and a
+                  sheet on the screen people already associate with codes
+                  answers it without implying a coupon is a thing of its own. */}
+              <Button variant="soft" onClick={() => setCoupons(true)}>
+                Coupons
+              </Button>
+              <Button variant="primary" onClick={() => setIssuing(true)}>
+                <Plus />
+                New voucher
+              </Button>
+            </>
+          )
+        }
+      />
+
+      <Fab label="New voucher" onClick={() => setIssuing(true)} />
+
+      <Suspense fallback={<LoadingState>Loading vouchers…</LoadingState>}>
+        <VoucherBook onCoupons={() => setCoupons(true)} />
+      </Suspense>
+
+      <CouponSheet open={coupons} onClose={() => setCoupons(false)} />
+
+      <VoucherSheet code={open.value ?? null} onClose={() => open.close()} />
+      <IssueSheet
+        open={issuing}
+        onClose={() => setIssuing(false)}
+        onIssued={(code) => {
+          setIssuing(false)
+          open.open(code)
+        }}
+      />
+    </PageContent>
   )
 }
 
-export function Vouchers() {
+function VoucherBook({ onCoupons }: { onCoupons: () => void }) {
   // A phone draws the rows as cards and keeps the search, the status, the
-  // filter and New in the drawer over the bottom bar (`DockTools`, `Fab`).
+  // filter and New in the drawer over the bottom bar (`DockTools`).
   const phone = useLayout() === "phone"
   const search = useSheet("q")
   const open = useSheet("voucher")
-  const [shown, setShown] = useState<Shown>("ALL")
+  const [shown, setShown] = useState<Shown>("ACTIVE")
   const [sorting, setSorting] = useState<SortingState>([])
-  const [issuing, setIssuing] = useState(false)
-  const [coupons, setCoupons] = useState(false)
 
   const filters = useFilters(columns)
 
@@ -478,14 +485,18 @@ export function Vouchers() {
   /// A page at a time, on the server's cursor — the book is not capped, it is
   /// paged, and the table fetches the next one as its foot nears view. Its own
   /// key beside the plain list's: the Overview reads that one as a single page.
-  const list = useInfiniteQuery(voucherPagesQuery(scope))
+  ///
+  /// The deferred scope keeps the rows in hand on screen while the next
+  /// question is read, so a keystroke does not empty the table.
+  const asked = useDeferredValue(scope)
+  const list = useSuspenseInfiniteQuery(voucherPagesQuery(asked))
 
   const rows = useMemo(
-    () => list.data?.pages.flatMap((page) => page.rows) ?? [],
+    () => list.data.pages.flatMap((page) => page.rows),
     [list.data]
   )
   /// Every voucher the search and filters match, not just the pages loaded.
-  const total = list.data?.pages[0]?.total ?? rows.length
+  const total = list.data.pages[0]?.total ?? rows.length
 
   /// Search, chips and segment off in one navigation — two `close()`s would be
   /// two history entries racing over one search.
@@ -531,28 +542,10 @@ export function Vouchers() {
     )
   )
 
-  const ledger = list.data?.pages[0]?.ledger
+  const ledger = list.data.pages[0]?.ledger
 
   return (
-    <PageContent>
-      <PageHeader
-        crumb="Marketing"
-        title="Vouchers"
-        actions={
-          phone ? undefined : (
-            // Coupons live here as a READER only — no list screen, no menu
-            // row. A coupon is a gate on a promotion and cannot exist without
-            // one, so it is authored on the promotion form; what it lacks is a
-            // place to answer "which codes are out there", and a sheet on the
-            // screen people already associate with codes answers it without
-            // implying a coupon is a thing of its own.
-            <Button variant="soft" onClick={() => setCoupons(true)}>
-              Coupons
-            </Button>
-          )
-        }
-      />
-
+    <>
       {/* The five tiles are one sentence on a phone. */}
       {ledger && phone && (
         <Sentence>
@@ -570,117 +563,111 @@ export function Vouchers() {
       )}
 
       {ledger && !phone && (
-        <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-3 2xl:grid-cols-5">
+        <KpiStrip className="xl:grid-cols-5">
           {/* Outstanding leads, because it is the only figure here that is a
               number on the balance sheet: money taken for vouchers nobody has
               spent yet. */}
-          <Figure
+          <Kpi
             label="Outstanding"
             value={money(ledger.outstanding_minor)}
-            note={`${count(ledger.outstanding_count)} live`}
-            className="col-span-2 2xl:col-span-1"
+            delta={`${count(ledger.outstanding_count)} live`}
           />
-          <Figure label="Issued" value={money(ledger.issued_minor)} />
-          <Figure label="Spent" value={money(ledger.redeemed_minor)} />
-          <Figure label="Cancelled" value={money(ledger.voided_minor)} />
-          <Figure
+          <Kpi label="Issued" value={money(ledger.issued_minor)} />
+          <Kpi label="Spent" value={money(ledger.redeemed_minor)} />
+          <Kpi label="Cancelled" value={money(ledger.voided_minor)} />
+          <Kpi
             label="Expired"
             value={money(ledger.expired_minor)}
-            note={`${count(ledger.expired_count)} vouchers`}
-            warn={ledger.expired_count > 0}
+            delta={
+              <span
+                className={cn(
+                  "font-normal",
+                  ledger.expired_count > 0 && "text-warn-fg"
+                )}
+              >{`${count(ledger.expired_count)} vouchers`}</span>
+            }
           />
-        </div>
+        </KpiStrip>
       )}
 
-      {/* Purchase Orders' shape: the tabs, the search and one filter button
-          over the table, the clauses in force under them. */}
+      {/* Purchase Orders' shape: the tabs under the figures, then the search
+          and one filter button over the table, the clauses in force under
+          them. On a phone the tabs are the drawer's status button. */}
       <div className="min-w-0">
         <div className="flex min-w-0 flex-col">
-          {/* Tabs, then search and the one CTA — the same toolbar as
-              Promotions. */}
+          <SubTabs
+            className="max-md:hidden"
+            tabs={[
+              { value: "ACTIVE", label: "Live" },
+              { value: "SPENT", label: "Spent" },
+              { value: "VOIDED", label: "Cancelled" },
+              { value: "ALL", label: "All" },
+            ]}
+            value={shown}
+            onChange={(next) => setShown(next as Shown)}
+          />
           {!phone && (
-            <Toolbar className="mb-5">
-              <Segmented
-                options={[
-                  { value: "ALL", label: "All" },
-                  { value: "ACTIVE", label: "Live" },
-                  { value: "SPENT", label: "Spent" },
-                  { value: "VOIDED", label: "Cancelled" },
-                ]}
-                value={shown}
-                onChange={setShown}
+            <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2">
+              <ExpandingSearch
+                value={search.value ?? ""}
+                onChange={(next) =>
+                  next === "" ? search.close() : search.replace(next)
+                }
+                label="Search vouchers"
               />
-              <div className="ml-auto flex items-center gap-4">
-                {/* The server's count of every voucher the list matches — the
+              <DeskFilterButton model={filters} table={table} />
+              <BarSpacer />
+              {/* The server's count of every voucher the list matches — the
                   rest arrive as the table scrolls, so the loaded share is not
                   a number anybody needs. */}
-                <span className="text-[0.875rem] text-mute tabular-nums">
-                  {`${count(total)} vouchers`}
-                </span>
-                <Input
-                  value={search.value ?? ""}
-                  onChange={(event) =>
-                    event.target.value === ""
-                      ? search.close()
-                      : search.replace(event.target.value)
-                  }
-                  className="h-9 w-64"
-                />
-                <DeskFilterButton model={filters} table={table} />
-                <Button variant="primary" onClick={() => setIssuing(true)}>
-                  New voucher
-                </Button>
-              </div>
-            </Toolbar>
+              <span className="text-[0.9375rem] text-mute tabular-nums">
+                {`${count(total)} vouchers`}
+              </span>
+            </div>
           )}
-          {!phone && (
-            <DeskFilterChips model={filters} table={table} className="-mt-2" />
-          )}
+          {!phone && <DeskFilterChips model={filters} table={table} />}
 
           {/* The strip above is the liability over every voucher ever issued and
               does not move with any of this; what moves is the list. The
               search, the segment and the docked filters are all asked of the
               server, so the list below is always the whole answer, paged. */}
-          <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-            {queryState(list, {
-              loading: "Loading vouchers…",
+          <Card
+            aria-busy={asked !== scope || undefined}
+            className="list-swap overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none"
+          >
+            {rows.length === 0 ? (
+              narrowed ? (
+                <EmptyState
+                  action={
+                    <Button variant="ghost" onClick={clearFilters}>
+                      Clear filters
+                    </Button>
+                  }
+                >
+                  No vouchers match.
+                </EmptyState>
+              ) : (
+                <EmptyState>No vouchers.</EmptyState>
+              )
+            ) : (
               // No second New voucher here: the toolbar's is the one CTA.
-              render: () =>
-                rows.length === 0 ? (
-                  narrowed ? (
-                    <EmptyState
-                      action={
-                        <Button variant="ghost" onClick={clearFilters}>
-                          Clear filters
-                        </Button>
-                      }
-                    >
-                      No vouchers match.
-                    </EmptyState>
-                  ) : (
-                    <EmptyState>No vouchers.</EmptyState>
-                  )
-                ) : (
-                  <DataTable<VoucherRow>
-                    refresh={[list]}
-                    table={table}
-                    onRowClick={(row) => open.open(row.code)}
-                    isSelected={(row) => row.code === open.value}
-                    empty="No vouchers match."
-                    more={list}
-                    cardSort={false}
-                    cardsApart
-                    cardLead
-                    className={`${ROOMY} max-h-[calc(100dvh-24rem)]`}
-                  />
-                ),
-            })}
+              <DataTable<VoucherRow>
+                refresh={[list]}
+                table={table}
+                onRowClick={(row) => open.open(row.code)}
+                isSelected={(row) => row.code === open.value}
+                empty="No vouchers match."
+                more={list}
+                cardSort={false}
+                cardsApart
+                cardLead
+                className={`${ROOMY} max-h-[calc(100dvh-24rem)]`}
+              />
+            )}
           </Card>
         </div>
-
       </div>
 
-      <Fab label="New voucher" onClick={() => setIssuing(true)} />
       {/* On a phone the status, the search, the filter and the sort live in
           the drawer over the bottom bar, not at the top of the list. */}
       <DockTools
@@ -697,31 +684,19 @@ export function Vouchers() {
         sort={dockSortOf(table)}
         // Coupons, which a desk keeps in the header: the last row of the ⚙ sheet
         // on a phone.
-        actions={[{ label: "Coupons", onClick: () => setCoupons(true) }]}
+        actions={[{ label: "Coupons", onClick: onCoupons }]}
         status={{
           value: shown,
           options: [
-            { value: "ALL", label: "All" },
             { value: "ACTIVE", label: "Live" },
             { value: "SPENT", label: "Spent" },
             { value: "VOIDED", label: "Cancelled" },
+            { value: "ALL", label: "All" },
           ],
           onChange: (next) => setShown(next as Shown),
         }}
       />
-
-      <CouponSheet open={coupons} onClose={() => setCoupons(false)} />
-
-      <VoucherSheet code={open.value ?? null} onClose={() => open.close()} />
-      <IssueSheet
-        open={issuing}
-        onClose={() => setIssuing(false)}
-        onIssued={(code) => {
-          setIssuing(false)
-          open.open(code)
-        }}
-      />
-    </PageContent>
+    </>
   )
 }
 
@@ -1480,7 +1455,7 @@ function CouponSheet({
       width="table"
       badge={
         catalogue.data === undefined ? undefined : (
-          <span className="text-[0.875rem] text-mute">
+          <span className="text-[0.9375rem] text-mute">
             {count(rows.length)} codes
           </span>
         )
@@ -1519,7 +1494,7 @@ function CouponSheet({
                         {/* Off is worth saying; running is the ordinary
                             case and wears no badge. */}
                         {!coupon.active && (
-                          <span className="text-[0.875rem] text-mute">
+                          <span className="text-[0.9375rem] text-mute">
                             Inactive
                           </span>
                         )}

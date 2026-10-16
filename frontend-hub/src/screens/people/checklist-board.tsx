@@ -1,5 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
+import type { ColumnDef } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
+import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { useLayout } from "@/lib/layout"
@@ -7,10 +9,10 @@ import { Fab } from "@/components/ui/fab"
 import { DockChoice } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { DataTable } from "@/components/ui/data-table"
 import { Field } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
-import { Pill } from "@/components/ui/pill"
-import { MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
+import { Status } from "@/components/ui/pill"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { Sheet } from "@/components/ui/sheet"
 import { EmptyState, LoadingState, Problem } from "@/components/ui/states"
@@ -21,40 +23,105 @@ import {
   progressByEmployee,
   useEveryEmployee,
   useLifecycleTasks,
+  type ChecklistProgress,
 } from "@/lib/queries/hr-employees"
 import { openChecklist } from "@/lib/queries/people"
 import { useCanWrite } from "@/lib/session"
+import { tableSetup, type TableSetup } from "@/lib/table"
 import { ChecklistPanel } from "@/screens/people/checklist"
 import { EmployeePick } from "@/screens/people/employee-pick"
-import {
-  CardButton,
-  CardFigure,
-  CardName,
-  PhoneCards,
-} from "@/components/ui/phone-cards"
+import { CardFigure, CardName } from "@/components/ui/phone-cards"
 
 type Slice = "OPEN" | "DONE"
 
 const COPY = {
   ONBOARDING: {
     title: "Onboarding",
-    sub: "Each new hire's first-days checklist, and how far along it is.",
     start: "Start onboarding",
-    startSheet: "Start onboarding",
-    startHint:
-      "A hire opens the checklist by itself. Use this for somebody hired before it existed.",
     noun: "onboarding",
   },
   SEPARATION: {
     title: "Offboarding",
-    sub: "Each leaver's exit checklist — handover, return of things, access closed.",
     start: "Start offboarding",
-    startSheet: "Start offboarding",
-    startHint:
-      "Opens the separation checklist for somebody who is leaving, so each task has an owner.",
     noun: "offboarding",
   },
 } as const
+
+const NO_PEOPLE: ChecklistProgress[] = []
+
+function columnsFor(
+  nameFor: (employeeId: string) => string
+): ColumnDef<TableSetup, ChecklistProgress>[] {
+  const state = (row: ChecklistProgress) =>
+    row.done === row.total ? (
+      <Status tone="done">Completed</Status>
+    ) : (
+      <Status tone="info">In progress</Status>
+    )
+  return [
+    {
+      id: "who",
+      accessorFn: (row) => nameFor(row.employeeId),
+      header: "Who",
+      size: 360,
+      meta: { card: "hide" },
+      // Read at render: the table caches a row's values, and the names can
+      // arrive after the checklists.
+      cell: ({ row }) => nameFor(row.original.employeeId),
+    },
+    {
+      id: "done",
+      accessorFn: (row) => (row.total === 0 ? 0 : row.done / row.total),
+      header: "Done",
+      size: 160,
+      meta: { align: "right", card: "hide" },
+      cell: ({ row }) => `${row.original.done} of ${row.original.total}`,
+    },
+    {
+      id: "state",
+      accessorFn: (row) => row.done === row.total,
+      header: "State",
+      size: 180,
+      meta: { align: "right", card: "hide" },
+      cell: ({ row }) => state(row.original),
+    },
+    // Three columns that exist only on a card (`cardLead`; a phone): the
+    // person, how many tasks are done as the figure, and where it stands.
+    {
+      id: "head",
+      accessorFn: (row) => nameFor(row.employeeId),
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "title" },
+      cell: ({ row }) => <CardName name={nameFor(row.original.employeeId)} />,
+    },
+    {
+      id: "lead",
+      accessorFn: (row) => row.done,
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "lead" },
+      cell: ({ row }) => (
+        <CardFigure
+          value={`${row.original.done}/${row.original.total}`}
+          caption="tasks done"
+          tone={row.original.done === row.original.total ? "quiet" : undefined}
+        />
+      ),
+    },
+    {
+      id: "foot",
+      accessorFn: (row) => row.done === row.total,
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "foot" },
+      cell: ({ row }) => state(row.original),
+    },
+  ]
+}
 
 /// People with an onboarding or an offboarding checklist, one row each, with
 /// how many of their tasks are done. The two pages differ only in the kind of
@@ -73,24 +140,50 @@ export function ChecklistBoard({
   const [openId, setOpenId] = useState<string | null>(null)
   const [starting, setStarting] = useState(false)
 
-  const everyone = progressByEmployee(tasks.data ?? [])
-  const rows = everyone
-    .filter((row) =>
-      slice === "DONE" ? row.done === row.total : row.done < row.total
+  const everyone = useMemo(
+    () =>
+      tasks.data === undefined ? NO_PEOPLE : progressByEmployee(tasks.data),
+    [tasks.data]
+  )
+  const rows = useMemo(
+    () =>
+      everyone
+        .filter((row) =>
+          slice === "DONE" ? row.done === row.total : row.done < row.total
+        )
+        .sort((a, b) =>
+          nameOf(people.data, a.employeeId).localeCompare(
+            nameOf(people.data, b.employeeId)
+          )
+        ),
+    [everyone, slice, people.data]
+  )
+  const has = useMemo(
+    () => new Set(everyone.map((row) => row.employeeId)),
+    [everyone]
+  )
+  const columns = useMemo(
+    () => columnsFor((employeeId) => nameOf(people.data, employeeId)),
+    [people.data]
+  )
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: rows,
+        columns,
+        getRowId: (row: ChecklistProgress) => row.employeeId,
+        // The card's own columns are drawn on a phone and never on a desk.
+        state: { columnVisibility: { head: phone, lead: phone, foot: phone } },
+      }),
+      [rows, columns, phone]
     )
-    .sort((a, b) =>
-      nameOf(people.data, a.employeeId).localeCompare(
-        nameOf(people.data, b.employeeId)
-      )
-    )
-  const has = new Set(everyone.map((row) => row.employeeId))
+  )
 
   return (
     <PageContent>
       <PageHeader
-        crumb="People"
         title={copy.title}
-        sub={copy.sub}
         actions={
           !phone &&
           canWrite && (
@@ -128,13 +221,13 @@ export function ChecklistBoard({
             onChange={setSlice}
           />
           <Toolbar.Spacer />
-          <span className="text-[0.875rem] text-mute tabular-nums">
+          <span className="text-[0.9375rem] text-mute tabular-nums">
             {count(rows.length)} {rows.length === 1 ? "person" : "people"}
           </span>
         </Toolbar>
       )}
 
-      <Card className="overflow-hidden px-4 py-3 max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:p-0 max-md:shadow-none">
+      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {tasks.isPending ? (
           <LoadingState>Loading checklists…</LoadingState>
         ) : tasks.isError ? (
@@ -142,66 +235,19 @@ export function ChecklistBoard({
         ) : rows.length === 0 ? (
           <EmptyState>
             {slice === "OPEN"
-              ? `Nobody has an ${copy.noun} checklist in progress. “${copy.start}” in the header opens one.`
-              : `No ${copy.noun} checklist has been completed yet.`}
+              ? `No ${copy.noun} in progress.`
+              : `No ${copy.noun} has been completed yet.`}
           </EmptyState>
-        ) : phone ? (
-          <PhoneCards
-            rows={rows}
-            onOpen={(row) => setOpenId(row.employeeId)}
-            rowId={(row) => row.employeeId}
-            spec={{
-              title: (row) => (
-                <CardName name={nameOf(people.data, row.employeeId)} />
-              ),
-              lead: (row) => (
-                <CardFigure
-                  value={`${row.done}/${row.total}`}
-                  caption="tasks done"
-                  tone={row.done === row.total ? "quiet" : undefined}
-                />
-              ),
-              foot: (row) => (
-                <Pill tone={row.done === row.total ? "ok" : "warn"}>
-                  {row.done === row.total ? "Completed" : "In progress"}
-                </Pill>
-              ),
-              action: (row) => (
-                <CardButton
-                  label="Open"
-                  ariaLabel={`Open ${nameOf(people.data, row.employeeId)}'s checklist`}
-                  onClick={() => setOpenId(row.employeeId)}
-                />
-              ),
-            }}
-          />
         ) : (
-          <MiniTable head={["Who", "Progress", "Done", ""]}>
-            {rows.map((row) => (
-              <MiniRow key={row.employeeId}>
-                <MiniCell>
-                  <button
-                    type="button"
-                    onClick={() => setOpenId(row.employeeId)}
-                    className="font-medium text-ink hover:underline"
-                  >
-                    {nameOf(people.data, row.employeeId)}
-                  </button>
-                </MiniCell>
-                <MiniCell align="right">
-                  <ProgressBar done={row.done} total={row.total} />
-                </MiniCell>
-                <MiniCell align="right">
-                  {row.done} of {row.total}
-                </MiniCell>
-                <MiniCell align="right">
-                  <Pill tone={row.done === row.total ? "ok" : "warn"}>
-                    {row.done === row.total ? "Completed" : "In progress"}
-                  </Pill>
-                </MiniCell>
-              </MiniRow>
-            ))}
-          </MiniTable>
+          <DataTable<ChecklistProgress>
+            refresh={[tasks]}
+            table={table}
+            onRowClick={(row) => setOpenId(row.employeeId)}
+            isSelected={(row) => row.employeeId === openId}
+            cardsApart
+            cardLead
+            cardSort={false}
+          />
         )}
       </Card>
 
@@ -225,24 +271,6 @@ export function ChecklistBoard({
         }}
       />
     </PageContent>
-  )
-}
-
-function ProgressBar({ done, total }: { done: number; total: number }) {
-  const share = total === 0 ? 0 : Math.round((done / total) * 100)
-  return (
-    <span
-      role="progressbar"
-      aria-valuenow={share}
-      aria-valuemin={0}
-      aria-valuemax={100}
-      className="ml-auto inline-block h-1.5 w-28 overflow-hidden rounded-full bg-soft-2 align-middle"
-    >
-      <span
-        className="block h-full rounded-full bg-ink"
-        style={{ width: `${share}%` }}
-      />
-    </span>
   )
 }
 
@@ -280,10 +308,10 @@ function StartSheet({
     <Sheet
       open={open}
       onOpenChange={(next) => !next && close()}
-      title={copy.startSheet}
+      title={copy.start}
       footer={
         <div className="flex justify-end gap-2">
-          <Button variant="quiet" onClick={close}>
+          <Button data-cancel variant="quiet" onClick={close}>
             Cancel
           </Button>
           <Button
@@ -298,7 +326,6 @@ function StartSheet({
       }
     >
       <div className="flex flex-col gap-3.5">
-        <p className="text-[0.875rem] text-body">{copy.startHint}</p>
         <Field label="Employee" required>
           <EmployeePick
             value={who}

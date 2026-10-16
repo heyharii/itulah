@@ -333,7 +333,7 @@ function HistoryRow({ entry }: { entry: StoreActionEntry }) {
         )}
       </div>
       {entry.result_sentence && (
-        <p className="text-[0.875rem] text-body">{entry.result_sentence}</p>
+        <p className="text-[0.9375rem] text-body">{entry.result_sentence}</p>
       )}
       {entry.note && <p className="text-meta text-mute">Note: {entry.note}</p>}
       {hasDetail && (

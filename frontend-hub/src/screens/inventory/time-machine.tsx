@@ -304,6 +304,7 @@ function StateTab() {
         <Input
           value={seq}
           onChange={(event) => setSeq(event.target.value)}
+          placeholder="Fact number"
           className="h-8 w-64"
         />
         <Choice
@@ -368,11 +369,11 @@ function StateTab() {
                       >
                         <td className="py-2 pr-2">
                           <Tag tone="bad">{violation.invariant}</Tag>
-                          <span className="mt-0.5 block text-[0.875rem] text-mute">
+                          <span className="mt-0.5 block text-[0.9375rem] text-mute">
                             {violation.detail}
                           </span>
                         </td>
-                        <td className="py-2 text-right font-mono text-[0.875rem] text-body">
+                        <td className="py-2 text-right font-mono text-[0.9375rem] text-body">
                           {violation.place_id}
                         </td>
                         <td className="py-2 text-right tabular-nums">
@@ -394,6 +395,7 @@ function StateTab() {
                 </EmptyState>
               ) : (
                 <DataTable
+                  refresh={[world]}
                   table={table}
                   empty="Nothing in this fold matches the filters in force."
                   className="max-h-[calc(100dvh-28rem)]"
@@ -425,7 +427,7 @@ function Deltas({ deltas }: { deltas: readonly TimeMachineDelta[] }) {
             <CardTitle className="font-mono text-id">
               {delta.place_id}
             </CardTitle>
-            <span className="font-mono text-[0.875rem] text-mute">
+            <span className="font-mono text-[0.9375rem] text-mute">
               {delta.subject_id}
             </span>
           </CardHeader>
@@ -433,7 +435,7 @@ function Deltas({ deltas }: { deltas: readonly TimeMachineDelta[] }) {
             <MiniTable head={["Field", "Ledger", "Projection"]}>
               {delta.diffs.map((diff) => (
                 <tr key={diff.field} className="border-t border-hairline">
-                  <td className="py-2 pr-2 text-[0.875rem] text-ink">
+                  <td className="py-2 pr-2 text-[0.9375rem] text-ink">
                     {diff.field}
                   </td>
                   <td className="py-2 text-right tabular-nums">
@@ -574,6 +576,7 @@ function SyncTab() {
         <Input
           value={generation}
           onChange={(event) => setGeneration(event.target.value)}
+          placeholder="Generation"
           className="h-8 w-44"
         />
       </Toolbar>

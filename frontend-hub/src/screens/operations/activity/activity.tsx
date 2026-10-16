@@ -228,7 +228,7 @@ const columns: ColumnDef<TableSetup, AuditEntry>[] = [
             {readAction(row.original)}
           </span>
           {(flow !== "Other" || doc !== null) && (
-            <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-[0.875rem] font-normal text-mute">
+            <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-[0.9375rem] font-normal text-mute">
               {flow !== "Other" && <span>{flow}</span>}
               {flow !== "Other" && doc !== null && (
                 <span className="text-faint">·</span>
@@ -499,11 +499,15 @@ export function OpsActivityLog() {
         <Input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search"
           className="h-8 w-56"
         />
       </Toolbar>
 
-      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+      <Card
+        aria-busy={feed.isPlaceholderData || undefined}
+        className="list-swap overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none"
+      >
         {queryState(feed, {
           loading: "Reading the log…",
           render: () =>

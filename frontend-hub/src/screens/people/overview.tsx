@@ -1,63 +1,39 @@
 import { useQuery } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { Clock4, FileWarning, Receipt, ReceiptText } from "lucide-react"
+import { Clock4, FileWarning } from "lucide-react"
 import { useCallback, useMemo } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
-import { AppLink } from "@/components/ui/app-link"
 import { ExceptionQueue, type Exception } from "@/components/ui/exception-queue"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
-import { Banner, ErrorState } from "@/components/ui/states"
-import { count, day, money } from "@/lib/format"
-import { queryState } from "@/lib/query-state"
+import { ErrorState } from "@/components/ui/states"
+import { count, weekday } from "@/lib/format"
+import { useNameOfLogin } from "@/lib/queries/hr-employees"
 import {
   awaitingOvertime,
-  claimsKeys,
   expiringContracts,
-  listClaims,
   listEmployees,
-  listRuns,
   listWorkforce,
-  payKeys,
   peopleKeys,
-  pendingLeave,
   readMinutesSpan,
-  leaveKeys,
   overtimeKeys,
 } from "@/lib/queries/people"
+import { usePeopleWaitingCount } from "@/screens/people/badges"
 import { DelegationsCard } from "@/screens/people/employee-app"
-import { UnitChoice, useUnit } from "@/screens/people/parts"
+import { useUnit } from "@/screens/people/parts"
 import { RequestQueues } from "@/screens/people/requests"
 
-/// The front door, and the one queue: what is waiting on this person, and what
-/// is about to go wrong if nobody looks.
+/// HR's front door, Overview › Requests: what is waiting on this person, and
+/// what is about to go wrong if nobody looks.
 ///
-/// # One screen where there were two
+/// The figures first, then the one inbox (`RequestQueues`) — every decision
+/// the reader owes, in one table — then what nobody here can decide but
+/// somebody should see: a contract running out, an overtime order the worker
+/// has not answered. That list is drawn only when it holds something, and
+/// only once all of its sources have answered; partial data is not evidence
+/// that nothing needs attention.
 ///
-/// This screen listed what was waiting and sent people to Requests to decide
-/// it — two front doors onto one queue, the second holding the same leave
-/// again. The owner asked for a shorter menu on 2026-09-27, so the decisions
-/// are made here: the attention list first, then the leave, corrections and
-/// swaps the reader decides (`RequestQueues`), then the counters as context.
-///
-/// # Exceptions first, and no vanity numbers above them
-///
-/// `DESIGN.md` is blunt about what an overview is for, and `ExceptionQueue`
-/// exists because of it: a screen of green counters tells somebody their day
-/// is fine, and a queue of problems tells them what their day *is*. So the
-/// queue is at the top, each row carries a severity and exactly one action,
-/// and the counters sit underneath as context rather than as the point.
-///
-/// Leave is not a row in it: the leave table below is where leave is decided,
-/// and a row pointing at a table on the same page is the same request twice.
-/// What the list carries is everything decided on another screen — a claim,
-/// a payroll run — and what nobody here can decide at all:
-/// a contract running out, an overtime order the worker has not answered.
-///
-/// The queue stays empty until all of its sources have answered; partial data
-/// is not evidence that nothing needs attention.
-
 /// # Names, not uuids
 ///
 /// The overtime queue carries `employee_id` and no name — it is a view of a
@@ -72,11 +48,9 @@ export function PeopleOverview() {
     [navigate]
   )
   const unit = useUnit()
+  const waiting = usePeopleWaitingCount()
+  const nameOfLogin = useNameOfLogin()
 
-  const leave = useQuery({
-    queryKey: leaveKeys.pending(),
-    queryFn: ({ signal }) => pendingLeave(signal),
-  })
   const overtime = useQuery({
     queryKey: overtimeKeys.awaiting(),
     queryFn: ({ signal }) => awaitingOvertime(signal),
@@ -84,19 +58,6 @@ export function PeopleOverview() {
   const expiring = useQuery({
     queryKey: peopleKeys.expiring(30),
     queryFn: ({ signal }) => expiringContracts({ withinDays: 30 }, signal),
-  })
-  /// Claims waiting on a sanction — bounded by the caller's posting on the
-  /// server, the same read the Claims screen's queue makes.
-  const claims = useQuery({
-    queryKey: claimsKeys.queue(),
-    queryFn: ({ signal }) => listClaims({ state: "SUBMITTED" }, signal),
-  })
-  /// A run waits on head office alone — a unit's part is sending it, which
-  /// it does from Payroll — so a unit never asks.
-  const runs = useQuery({
-    queryKey: payKeys.runs(),
-    queryFn: ({ signal }) => listRuns(signal),
-    enabled: unit.employer,
   })
   /// The envelope rather than the rows: `total` is every person the caller may
   /// read, not the size of one page, and that distinction is the whole point
@@ -121,10 +82,6 @@ export function PeopleOverview() {
   }, [team.data])
 
   const who = useCallback((id: string) => named.get(id) ?? id, [named])
-  const unitName = useCallback(
-    (id: string) => unit.units.find((one) => one.id === id)?.name ?? id,
-    [unit.units]
-  )
 
   const exceptions = useMemo<Exception[]>(() => {
     const found: Exception[] = []
@@ -134,60 +91,29 @@ export function PeopleOverview() {
     // outrank everything else on the screen.
     for (const contract of expiring.data ?? []) {
       const days = Number(contract.days_remaining)
+      const name = contract.full_name ?? contract.employee_code
       found.push({
         id: `contract-${contract.employee_id}`,
         title:
           days < 0
-            ? `${contract.full_name ?? contract.employee_code}'s contract ended and nobody noticed`
-            : `${contract.full_name ?? contract.employee_code}'s contract runs out`,
-        detail: `${contract.position} · ends ${day(contract.ends_on)}`,
+            ? `${name}'s contract has ended`
+            : `${name}'s contract runs out`,
+        detail: `${contract.position} · ends ${weekday(contract.ends_on, true)}`,
         amount: days < 0 ? `${Math.abs(days)}d ago` : `${days}d`,
-        severity: days < 0 ? "high" : days <= 7 ? "high" : "medium",
+        severity: days <= 7 ? "high" : "medium",
         icon: <FileWarning className="size-4" />,
         onOpen: go("/people", { employee: contract.employee_id }),
       })
     }
 
-    // Money somebody spent for the company, waiting on the one sanction the
-    // person who filed it may not give. Decided on the claim's own sheet,
-    // where the receipt and the per-line amounts are.
-    for (const claim of claims.data ?? []) {
-      found.push({
-        id: `claim-${claim.claim_id}`,
-        title: `${claim.employee_name ?? claim.employee_code ?? "A claim"} is waiting on a decision`,
-        detail: `${claim.claim_number} · ${claim.unit_name ?? claim.unit_id} · filed ${day(claim.posted_on)}`,
-        amount: money(claim.claimed_minor),
-        severity: "high",
-        icon: <ReceiptText className="size-4" />,
-        onOpen: go("/people/claims", { claim: claim.claim_id }),
-      })
-    }
-
-    // A run a unit has sent is waiting on the second signature, and nothing
-    // reaches Finance until it has one.
-    for (const run of runs.data ?? []) {
-      if (run.state !== "SUBMITTED") continue
-      found.push({
-        id: `run-${run.id}`,
-        title: `${unitName(run.unit_id)}'s payroll for ${run.period} is waiting on approval`,
-        detail: run.complete
-          ? "Sent by the place"
-          : (run.incomplete_because ?? "Sent by the place, incomplete"),
-        severity: "high",
-        icon: <Receipt className="size-4" />,
-        onOpen: go("/people/payroll", { payrollRun: run.id }),
-      })
-    }
-
-    // Medium, and not actionable from here: the answer belongs to the person
-    // it was ordered for. An order nobody answers authorizes nothing, which is
-    // overtime worked unpaid or not worked at all — so it is worth seeing
-    // without being worth a button.
+    // Not decided here: the answer belongs to the person it was ordered for.
+    // An order nobody answers authorizes nothing, which is overtime worked
+    // unpaid or not worked at all — worth seeing without being worth a button.
     for (const order of overtime.data ?? []) {
       found.push({
         id: `overtime-${order.id}`,
         title: `${who(order.employee_id)} has not answered an overtime order`,
-        detail: `${day(order.on_date)} · ordered by ${order.ordered_by}`,
+        detail: `${weekday(order.on_date, true)} · ordered by ${nameOfLogin(order.ordered_by)}`,
         amount: readMinutesSpan(order.planned_minutes),
         severity: "medium",
         icon: <Clock4 className="size-4" />,
@@ -196,95 +122,41 @@ export function PeopleOverview() {
     }
 
     return found
-  }, [expiring.data, claims.data, runs.data, overtime.data, go, who, unitName])
+  }, [expiring.data, overtime.data, go, who, nameOfLogin])
 
-  /// The empty sentence is meaningful only after every source that can put
-  /// something in the queue has answered. Keep the sources together so a
-  /// slow or refused read can never look like an all-clear. The runs count
-  /// only for head office, the one caller who asks for them.
-  const runsPending = unit.employer && runs.isPending
-  const queueRead = {
-    isPending:
-      overtime.isPending ||
-      expiring.isPending ||
-      claims.isPending ||
-      runsPending ||
-      team.isPending,
-    isError:
-      overtime.isError ||
-      expiring.isError ||
-      claims.isError ||
-      (unit.employer && runs.isError) ||
-      team.isError,
-    error:
-      overtime.error ??
-      expiring.error ??
-      claims.error ??
-      (unit.employer ? runs.error : null) ??
-      team.error,
-    data: exceptions,
-    refetch: () => {
-      void Promise.all([
-        overtime.refetch(),
-        expiring.refetch(),
-        claims.refetch(),
-        ...(unit.employer ? [runs.refetch()] : []),
-        team.refetch(),
-      ])
-    },
-  }
+  /// Drawn only once every source has answered and something is in it: an
+  /// empty "needs attention" card under an inbox is a card people learn to
+  /// scroll past.
+  const watched =
+    overtime.isSuccess &&
+    expiring.isSuccess &&
+    team.isSuccess &&
+    exceptions.length > 0
 
-  const workforceValue = workforce.isPending
-    ? "Loading…"
-    : workforce.isError
-      ? "Unavailable"
-      : count(Number(workforce.data.total))
-  const leaveValue = leave.isPending
-    ? "Loading…"
-    : leave.isError
-      ? "Unavailable"
-      : count(leave.data.length)
-  const overtimeValue = overtime.isPending
-    ? "Loading…"
-    : overtime.isError
-      ? "Unavailable"
-      : count(overtime.data.length)
+  const figure = (
+    query: { isPending: boolean; isError: boolean },
+    value: () => string
+  ) => (query.isPending ? "…" : query.isError ? "—" : value())
+
   return (
     <PageContent>
-      <PageHeader
-        crumb="People"
-        title="Overview"
-        sub={
-          unit.employer
-            ? "What is waiting on you across the company, and what is about to go wrong."
-            : `What is waiting on you at ${unit.name ?? "your place"}.`
-        }
-        actions={
-          <UnitChoice
-            unitId={unit.unitId}
-            units={unit.units}
-            onChange={unit.setUnitId}
-          />
-        }
-      />
-
-      {queryState(queueRead, {
-        loading:
-          "Checking contracts, claims, payroll runs and overtime orders…",
-        render: (rows) => (
-          <ExceptionQueue
-            exceptions={rows}
-            empty="No contract is past due or ending in the next 30 days, and no claim, payroll run or overtime order is waiting."
-          />
-        ),
-      })}
-
-      <RequestQueues />
+      <PageHeader title="Overview" />
 
       <KpiStrip className="md:grid-cols-3 xl:grid-cols-3">
-        <Kpi label="Working here" value={workforceValue} />
-        <Kpi label="Leave waiting on a decision" value={leaveValue} />
-        <Kpi label="Overtime unanswered" value={overtimeValue} />
+        <Kpi
+          label="Working here"
+          value={figure(workforce, () =>
+            count(Number(workforce.data?.total ?? 0))
+          )}
+        />
+        <Kpi
+          label="Waiting on you"
+          value={waiting === null ? "…" : count(waiting)}
+        />
+        <Kpi
+          label="Contracts ending in 30 days"
+          value={figure(expiring, () => count(expiring.data?.length ?? 0))}
+        />
       </KpiStrip>
 
       {workforce.isError && (
@@ -294,13 +166,12 @@ export function PeopleOverview() {
         />
       )}
 
-      <Banner tone="info">
-        For today’s attendance and worked hours, open{" "}
-        <AppLink to="/people/attendance-days">Attendance</AppLink>.
-      </Banner>
+      <RequestQueues />
+
+      {watched && <ExceptionQueue className="mt-4" exceptions={exceptions} />}
 
       {/* A manager's own hand-over (0812); head office sets them for anybody
-          in Settings › Employee app. */}
+          in Setup › Approval Delegation. */}
       {!unit.employer && (
         <div className="mt-4">
           <DelegationsCard administrator={false} />

@@ -158,7 +158,7 @@ export function DeliverySheet({
                       key={line.sku_code}
                       className="h-16 border-t border-hairline"
                     >
-                      <td className="py-3.5 pr-2 font-mono text-[0.875rem] text-ink">
+                      <td className="py-3.5 pr-2 font-mono text-[0.9375rem] text-ink">
                         {line.name ?? line.sku_code}
                       </td>
                       <td className="py-3.5 text-right">
@@ -278,7 +278,7 @@ function CountReceive({
         <MiniTable head={["SKU", "Quantity", ""]}>
           {lines.map(([sku, qty]) => (
             <tr key={sku} className="h-16 border-t border-hairline">
-              <td className="py-3.5 pr-2 font-mono text-[0.875rem] text-ink">
+              <td className="py-3.5 pr-2 font-mono text-[0.9375rem] text-ink">
                 {sku}
               </td>
               <td className="py-3.5 pr-2 text-right">

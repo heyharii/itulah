@@ -5,11 +5,13 @@ import { useMemo, useState } from "react"
 import { useShopName } from "@/components/operations/outbound-papers"
 import { PageContent } from "@/components/shell/app-shell"
 import { Input } from "@/components/ui/field"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
+import { SubTabs } from "@/components/ui/sub-tabs"
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states"
 import type { ReturnToInspect, StoreInboundDelivery } from "@itulah/contract"
 import { dc } from "@/lib/api"
 import { SHOW_MISSING } from "@/lib/features"
-import { ago, count } from "@/lib/format"
+import { ago, count, quantity } from "@/lib/format"
 import { keys } from "@/lib/operations/keys"
 import { useSheet } from "@/lib/sheets"
 import { useBoardView } from "@/screens/operations/board/board-view"
@@ -50,6 +52,8 @@ export function StoreReturnsBoard() {
   const viewState = useBoardView("store-returns")
   const [view] = viewState
   const [typed, setTyped] = useState("")
+  /// The table's stage (owner, 16 Oct 2026); the lanes already show all four.
+  const [tab, setTab] = useState("on-way")
   const needle = typed.trim().toLowerCase()
 
   const deliveries = useQuery({
@@ -137,7 +141,7 @@ export function StoreReturnsBoard() {
       stage: stage("on-way", "On the way", "bg-info", 0),
       title: shop(one.source_site_id) || one.source_site_id,
       doc: one.shipment_reference ?? undefined,
-      detail: `${count(one.koli_count)} ${one.koli_count === 1 ? "carton" : "cartons"}`,
+      detail: `${count(one.koli_count)} ${one.koli_count === 1 ? "koli" : "koli"}`,
       pieces: one.koli_count,
       at: one.departed_at,
       act: "Count receive",
@@ -148,7 +152,7 @@ export function StoreReturnsBoard() {
       stage: stage("receive-count", "Receive count", "bg-warn", 1),
       title: shop(one.source_site_id) || one.source_site_id,
       doc: one.shipment_reference ?? undefined,
-      detail: `${count(one.koli_count)} ${one.koli_count === 1 ? "carton" : "cartons"}`,
+      detail: `${count(one.koli_count)} ${one.koli_count === 1 ? "koli" : "koli"}`,
       pieces: one.koli_count,
       at: one.received_at,
       flag: discrepancy(one),
@@ -183,6 +187,7 @@ export function StoreReturnsBoard() {
         value={typed}
         onChange={(event) => setTyped(event.target.value)}
         aria-label="Search returns"
+        placeholder="Search returns"
         className="h-11 w-80 pl-9"
       />
     </label>
@@ -191,7 +196,7 @@ export function StoreReturnsBoard() {
   const header = (actions?: React.ReactNode) => (
     <BoardHeader
       board="store-returns"
-      title="Return from Store"
+      title="Return Store"
       actions={actions}
       view={viewState}
     />
@@ -217,12 +222,37 @@ export function StoreReturnsBoard() {
     )
   }
 
+  // The strip stands on an empty board too: zeros say "nothing coming back".
+  const strip = (
+    <KpiStrip className="shrink-0 grid-cols-2 md:grid-cols-4 xl:grid-cols-4">
+      <Kpi
+        label="On the way"
+        value={`${count(sum(way, (one) => one.koli_count))} koli`}
+      />
+      <Kpi
+        label="Receive count"
+        value={quantity(
+          sum(counting, (one) => one.result?.received_units ?? 0)
+        )}
+      />
+      <Kpi
+        label="In review"
+        value={quantity(sum(review, (row) => row.waiting_units))}
+      />
+      <Kpi
+        label="Received"
+        value={quantity(sum(done, (row) => row.inspected_units))}
+      />
+    </KpiStrip>
+  )
+
   if (
     [onWay, toCount, reviewing, inspected].every((list) => list.length === 0)
   ) {
     return (
       <PageContent fill>
         {header()}
+        {strip}
         <EmptyState>Nothing coming back.</EmptyState>
       </PageContent>
     )
@@ -231,8 +261,40 @@ export function StoreReturnsBoard() {
   return (
     <PageContent fill>
       {header(filters)}
+      {strip}
+      {view === "table" && (
+        <SubTabs
+          className="shrink-0"
+          value={tab}
+          onChange={setTab}
+          tabs={[
+            { value: "on-way", label: `On the way ${count(way.length)}` },
+            {
+              value: "receive-count",
+              label: `Receive count ${count(counting.length)}`,
+            },
+            { value: "in-review", label: `In review ${count(review.length)}` },
+            { value: "received", label: `Received ${count(done.length)}` },
+          ]}
+        />
+      )}
       {view === "table" ? (
-        <StageTable rows={rows} first="Store" empty="Nothing matches." />
+        <StageTable
+          rows={rows.filter((row) => row.stage.id === tab)}
+          first="Store"
+          empty={
+            needle !== ""
+              ? "Nothing matches."
+              : tab === "received"
+                ? "Nothing received yet."
+                : tab === "in-review"
+                  ? "Nothing in review."
+                  : tab === "receive-count"
+                    ? "Nothing to count."
+                    : "Nothing on the way."
+          }
+          refresh={[deliveries, inspections]}
+        />
       ) : (
         <Lanes board="store-returns">
           <Lane
@@ -240,7 +302,7 @@ export function StoreReturnsBoard() {
             tone="bg-info"
             title="On the Way"
             pieces={sum(way, (one) => one.koli_count)}
-            unit="cartons"
+            unit="koli"
             cards={way.length}
           >
             {way.map((one) => (
@@ -252,7 +314,7 @@ export function StoreReturnsBoard() {
                 sub={one.shipment_reference ?? undefined}
                 meta={`Left ${ago(one.departed_at)}`}
                 pieces={one.koli_count}
-                unit="cartons"
+                unit="koli"
                 act="Count receive"
               />
             ))}

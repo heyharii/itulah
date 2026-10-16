@@ -220,7 +220,7 @@ export function LeaveNew() {
           {apply.error !== null && <Failure error={apply.error} />}
 
           <div className="flex flex-col-reverse gap-2 md:flex-row md:justify-end">
-            <Button
+            <Button data-cancel
               type="button"
               variant="quiet"
               size="tap"

@@ -1,4 +1,4 @@
-import { useQueries } from "@tanstack/react-query"
+import { useSuspenseQueries, useSuspenseQuery } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import { useMemo } from "react"
 import {
@@ -14,11 +14,16 @@ import {
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { Kpi } from "@/components/ui/kpi"
 import { dateText, money, compactFormat } from "@/lib/format"
-import { financeKeys, moneyOverview } from "@/lib/queries/finance"
-import { domainKeys, profitAndLoss } from "@/lib/queries/finance-domains"
+import { bankTotalQuery, payablesAgingQuery } from "@/lib/queries/finance"
+import { profitAndLossQuery } from "@/lib/queries/finance-domains"
 import { cn } from "@/lib/utils"
-import { monthLabel } from "@/screens/finance/chart"
-import { AGEING_BUCKETS, usePayables } from "@/screens/finance/measures"
+import {
+  lastMonths,
+  monthLabel,
+  todayIso,
+  type MonthBucket,
+} from "@/screens/finance/chart"
+import { AGEING_BUCKETS, type NumberCard } from "@/screens/finance/measures"
 
 import type { AgingBuckets } from "@itulah/contract"
 
@@ -36,42 +41,13 @@ import type { AgingBuckets } from "@itulah/contract"
 
 // ── months ───────────────────────────────────────────────────────────────
 
-export interface MonthBucket {
-  /// `YYYY-MM`, the chart's category.
-  readonly key: string
-  readonly year: number
-  readonly month: number
-  readonly from: string
-  /// The month's last day, or today for the month in progress.
-  readonly to: string
-}
-
-function iso(date: Date): string {
-  const month = String(date.getMonth() + 1).padStart(2, "0")
-  const day = String(date.getDate()).padStart(2, "0")
-  return `${date.getFullYear()}-${month}-${day}`
-}
+export type { MonthBucket }
 
 /// The last `count` months, oldest first, ending with this one — ERPNext's
 /// "Last Year, Monthly" timespan.
 export function useLastMonths(count = 12): readonly MonthBucket[] {
-  const today = iso(new Date())
-  return useMemo(() => {
-    const now = new Date(`${today}T00:00:00`)
-    const out: MonthBucket[] = []
-    for (let back = count - 1; back >= 0; back--) {
-      const first = new Date(now.getFullYear(), now.getMonth() - back, 1)
-      const last = new Date(first.getFullYear(), first.getMonth() + 1, 0)
-      out.push({
-        key: iso(first).slice(0, 7),
-        year: first.getFullYear(),
-        month: first.getMonth() + 1,
-        from: iso(first),
-        to: back === 0 ? today : iso(last),
-      })
-    }
-    return out
-  }, [today, count])
+  const today = todayIso()
+  return useMemo(() => lastMonths(count, today), [today, count])
 }
 
 const shortMonth = (key: string) =>
@@ -93,15 +69,14 @@ export interface PnlMonth {
 /// by month. One read per month under the key the Profit and Loss report
 /// owns, so the chart warms that screen.
 ///
+/// Read inside a `<Suspense>`: the months are all there or the boundary waits,
+/// so `pending` and `failed` are only here for the callers that still ask.
+///
 /// Expense is income less net profit — everything between the top line and
 /// the bottom one — so the three always agree, as they do in ERPNext.
 export function useMonthlyPnl(months: readonly MonthBucket[]) {
-  const reads = useQueries({
-    queries: months.map((bucket) => ({
-      queryKey: domainKeys.profitAndLoss(bucket.from, bucket.to),
-      queryFn: ({ signal }: { signal: AbortSignal }) =>
-        profitAndLoss(bucket.from, bucket.to, signal),
-    })),
+  const reads = useSuspenseQueries({
+    queries: months.map((bucket) => profitAndLossQuery(bucket.from, bucket.to)),
   })
   const rows: PnlMonth[] = months.map((bucket, index) => {
     const pnl = reads[index]?.data
@@ -109,34 +84,20 @@ export function useMonthlyPnl(months: readonly MonthBucket[]) {
     const net = pnl?.net_profit_minor ?? 0
     return { bucket: bucket.key, income, expense: income - net, net }
   })
-  return {
-    rows,
-    pending: reads.some((read) => read.isPending),
-    failed: reads.some((read) => read.isError),
-  }
+  return { rows, pending: false, failed: false }
 }
 
 /// ERPNext's "Bank Balance" chart: what the bank accounts held at each
 /// month's end, in the books.
 export function useBankBalance(months: readonly MonthBucket[]) {
-  const reads = useQueries({
-    queries: months.map((bucket) => ({
-      queryKey: financeKeys.money(bucket.to, null),
-      queryFn: ({ signal }: { signal: AbortSignal }) =>
-        moneyOverview({ as_of: bucket.to }, signal),
-    })),
+  const reads = useSuspenseQueries({
+    queries: months.map((bucket) => bankTotalQuery(bucket.to)),
   })
   const rows = months.map((bucket, index) => ({
     bucket: bucket.key,
-    balance: (reads[index]?.data?.rows ?? [])
-      .filter((row) => row.pot === "BANK")
-      .reduce((sum, row) => sum + row.per_books_minor, 0),
+    balance: reads[index]?.data ?? 0,
   }))
-  return {
-    rows,
-    pending: reads.some((read) => read.isPending),
-    failed: reads.some((read) => read.isError),
-  }
+  return { rows, pending: false, failed: false }
 }
 
 /// The four questions the Finance Overview answers (owner, 2026-10-01): how
@@ -155,7 +116,7 @@ export function useNumberCards() {
   const months = useLastMonths(2)
   const bank = useBankBalance(months)
   const pnl = useMonthlyPnl(months)
-  const ageing = usePayables()
+  const ageing = useSuspenseQuery(payablesAgingQuery(todayIso()))
 
   const [before, now] = bank.rows
   return [
@@ -169,7 +130,7 @@ export function useNumberCards() {
       label: "Total payables",
       value: ageing.data?.total.total_minor,
       change: null,
-      pending: ageing.isPending,
+      pending: false,
     },
     {
       label: "Cash flow this month",
@@ -190,11 +151,7 @@ export function useNumberCards() {
 
 /// The number cards, in a row. A figure still being read shows a dash
 /// rather than a zero: "nothing" and "not asked yet" are different answers.
-export function NumberCards({
-  cards,
-}: {
-  cards: ReturnType<typeof useNumberCards>
-}) {
+export function NumberCards({ cards }: { cards: readonly NumberCard[] }) {
   return (
     // `group/kpis`, as `KpiStrip` sets it, so a card with no delta keeps the
     // line a sibling's delta takes and the figures stand level.
@@ -253,7 +210,7 @@ export function FigureCard({
             {pending || figure === undefined ? "—" : money(figure)}
           </div>
           {note && (
-            <div className="mt-0.5 text-[0.875rem] text-mute">{note}</div>
+            <div className="mt-0.5 text-[0.9375rem] text-mute">{note}</div>
           )}
         </div>
         {children}
@@ -281,7 +238,7 @@ export function ChartCard({
     <Card className={cn("mb-3", half ? "xl:col-span-1" : "xl:col-span-2")}>
       <CardHeader>
         <CardTitle>{title}</CardTitle>
-        {meta && <span className="text-[0.875rem] text-mute">{meta}</span>}
+        {meta && <span className="text-[0.9375rem] text-mute">{meta}</span>}
       </CardHeader>
       <div className="px-4 pb-4">
         {children}
@@ -303,14 +260,14 @@ export function ChartState({
 }) {
   if (pending) {
     return (
-      <p className="flex h-[13.75rem] items-center justify-center text-[0.875rem] text-mute">
+      <p className="flex h-[13.75rem] items-center justify-center text-[0.9375rem] text-mute">
         Reading the books…
       </p>
     )
   }
   if (failed) {
     return (
-      <p className="flex h-[13.75rem] items-center justify-center text-[0.875rem] text-mute">
+      <p className="flex h-[13.75rem] items-center justify-center text-[0.9375rem] text-mute">
         Some months could not be read.
       </p>
     )
@@ -371,7 +328,7 @@ export function ProfitAndLossChart({ rows }: { rows: readonly PnlMonth[] }) {
                 if (info.active !== true || !info.payload?.length) return null
                 return (
                   <div className="rounded-inner border border-hairline bg-canvas px-2.5 py-2 shadow-pop">
-                    <div className="mb-1 text-[0.875rem] font-medium text-ink">
+                    <div className="mb-1 text-[0.9375rem] font-medium text-ink">
                       {longMonth(String(info.label ?? ""))}
                     </div>
                     {PNL_SERIES.map((series) => {
@@ -381,7 +338,7 @@ export function ProfitAndLossChart({ rows }: { rows: readonly PnlMonth[] }) {
                       return (
                         <div
                           key={series.key}
-                          className="flex items-center gap-1.5 text-[0.875rem] text-body"
+                          className="flex items-center gap-1.5 text-[0.9375rem] text-body"
                         >
                           <span
                             aria-hidden
@@ -433,7 +390,7 @@ export function Legend({
   items: readonly { label: string; colour: string; line?: boolean }[]
 }) {
   return (
-    <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-[0.875rem] text-body">
+    <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-[0.9375rem] text-body">
       {items.map((item) => (
         <span key={item.label} className="inline-flex items-center gap-1.5">
           <span
@@ -474,7 +431,7 @@ export function AgeingBar({ buckets }: { buckets: AgingBuckets }) {
   const total = buckets.total_minor
   if (total <= 0) {
     return (
-      <p className="py-6 text-center text-[0.875rem] text-mute">
+      <p className="py-6 text-center text-[0.9375rem] text-mute">
         Nothing is owed.
       </p>
     )
@@ -504,7 +461,7 @@ export function AgeingBar({ buckets }: { buckets: AgingBuckets }) {
         {AGE_BUCKETS.map((bucket) => (
           <div
             key={bucket.key}
-            className="flex flex-col gap-0.5 text-[0.875rem]"
+            className="flex flex-col gap-0.5 text-[0.9375rem]"
           >
             <dt className="flex items-center gap-2 text-mute">
               <span
@@ -552,7 +509,7 @@ export function LinkCards({ cards }: { cards: readonly LinkCardSpec[] }) {
               <li key={link.to + link.label}>
                 <Link
                   to={link.to}
-                  className="flex h-9 items-center rounded-inner px-2 text-[0.875rem] text-body transition-colors hover:bg-soft hover:text-ink"
+                  className="flex h-9 items-center rounded-inner px-2 text-[0.9375rem] text-body transition-colors hover:bg-soft hover:text-ink"
                 >
                   {link.label}
                 </Link>

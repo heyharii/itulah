@@ -1,3 +1,4 @@
+import { infiniteQueryOptions } from "@tanstack/react-query"
 import type { AuditEntry, AuditFeed } from "@itulah/contract"
 
 import { node } from "@/lib/api"
@@ -83,6 +84,22 @@ export function auditPage(
     signal,
   })
 }
+
+/// The activity feed for one question, a page at a time on the server's
+/// cursor. Shared by the screen (which reads it with
+/// `useSuspenseInfiniteQuery`) and by its prefetcher
+/// (`screens/system/prefetch.ts`) so the key and the request cannot drift
+/// apart. Short stale time, because this is the one screen somebody watches
+/// while something is happening.
+export const auditFeedQuery = (scope: AuditScope) =>
+  infiniteQueryOptions({
+    queryKey: auditKeys.feed(scope),
+    queryFn: ({ pageParam, signal }) =>
+      auditPage({ ...scope, cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    staleTime: 5_000,
+  })
 
 /// `POST /api/v1/suppliers/{id}/activate` → "Activate".
 ///

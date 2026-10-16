@@ -8,6 +8,7 @@ import { useState } from "react"
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Field } from "@/components/ui/field"
+import { PageHeader } from "@/components/ui/page-header"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner } from "@/components/ui/states"
 import { cacheKey } from "@/lib/api"
@@ -59,9 +60,10 @@ export function Profile() {
 
   return (
     <PageContent>
+      <PageHeader title="Profile" />
       <div className="mx-auto flex max-w-2xl flex-col gap-6">
         {unbound ? (
-          <div className="rounded-2xl border border-dashed border-hairline-strong px-5 py-6 text-[0.875rem] leading-relaxed text-body">
+          <div className="rounded-2xl border border-dashed border-hairline-strong px-5 py-6 text-[0.9375rem] leading-relaxed text-body">
             <b className="block text-[1.0625rem] font-semibold text-ink">
               {me?.display_name ?? me?.username}
             </b>
@@ -95,7 +97,7 @@ export function Profile() {
           </h2>
           <div className={GROUP}>
             <div className={`${ROW} pointer-events-none`}>
-              <span className="grid size-9 shrink-0 place-items-center rounded-full bg-linear-to-br from-avatar-from to-avatar-to text-[0.875rem] font-semibold text-ink">
+              <span className="grid size-9 shrink-0 place-items-center rounded-full bg-linear-to-br from-avatar-from to-avatar-to text-[0.9375rem] font-semibold text-ink">
                 {(me?.display_name ?? me?.username ?? "?")
                   .trim()
                   .charAt(0)
@@ -218,7 +220,7 @@ function PasswordSheet({
           </div>
         ) : (
           <div className="flex justify-end gap-2">
-            <Button variant="quiet" onClick={onClose}>
+            <Button data-cancel variant="quiet" onClick={onClose}>
               Cancel
             </Button>
             <form.Subscribe selector={(state) => passwordReady(state.values)}>
@@ -254,7 +256,7 @@ function PasswordSheet({
           }}
           className="flex flex-col gap-3.5"
         >
-          <p className="text-[0.875rem] text-body">
+          <p className="text-[0.9375rem] text-body">
             You will be signed out when this succeeds. Every other session of
             yours ends too.
           </p>

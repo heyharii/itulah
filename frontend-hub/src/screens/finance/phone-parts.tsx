@@ -90,7 +90,7 @@ export function PhoneRows({ rows }: { rows: readonly PhoneRow[] }) {
               {row.title}
             </div>
             {row.sub !== undefined && (
-              <div className="text-[0.875rem] break-words text-mute">
+              <div className="text-[0.9375rem] break-words text-mute">
                 {row.sub}
               </div>
             )}
@@ -100,7 +100,7 @@ export function PhoneRows({ rows }: { rows: readonly PhoneRow[] }) {
               {row.figure}
             </div>
             {row.note !== undefined && (
-              <div className="text-[0.875rem] text-mute">{row.note}</div>
+              <div className="text-[0.9375rem] text-mute">{row.note}</div>
             )}
           </div>
         </li>
@@ -162,7 +162,7 @@ export function PhoneStatement({ lines }: { lines: readonly StatementLine[] }) {
                 style={{ paddingLeft: `${(line.level ?? 0) * 0.75}rem` }}
               >
                 {line.code !== undefined && (
-                  <span className="mr-1.5 font-mono text-[0.875rem] font-normal text-mute">
+                  <span className="mr-1.5 font-mono text-[0.9375rem] font-normal text-mute">
                     {line.code}
                   </span>
                 )}

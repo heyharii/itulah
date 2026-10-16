@@ -3,8 +3,6 @@ import { Link, useRouterState } from "@tanstack/react-router"
 import {
   ChevronRight,
   House,
-  LogOut,
-  PanelLeft,
   Search,
   X,
   type LucideIcon,
@@ -19,7 +17,7 @@ import {
 } from "react"
 
 import { BrandMark } from "@/components/brand-mark"
-import { NotificationBell } from "@/components/shell/notification-bell"
+import { AccountOrb } from "@/components/shell/account-orb"
 import { RailTip } from "@/components/ui/rail-tip"
 import { officeFor } from "@/lib/apps"
 import { count } from "@/lib/format"
@@ -33,17 +31,15 @@ import {
   moreSections,
   primaryItems,
   shown,
-  topBarAsides,
   type AppDomain,
   type AppModule,
   type Audience,
   type NavItem,
   type NavSection,
 } from "@/lib/navigation"
-import { useIdentity, useSections, useSignOut } from "@/lib/session"
+import { useIdentity, useSections } from "@/lib/session"
 import { cn } from "@/lib/utils"
 import { homeNav } from "@/screens/home/nav"
-import { meNav } from "@/screens/me/nav"
 
 /// The dark rail: every department as an icon, the one you are in lit.
 ///
@@ -125,7 +121,7 @@ export function NavColumn({
     <nav
       aria-label="Navigation"
       className={cn(
-        "flex h-full shrink-0 flex-col bg-rail text-rail-text",
+        "shell-rail flex h-full shrink-0 flex-col bg-rail text-rail-text",
         folded ? "w-[4.25rem]" : "w-[15.5rem]",
         drawer && "max-w-[85vw]"
       )}
@@ -135,57 +131,82 @@ export function NavColumn({
           the way home. With the panel folded away the mark gives its place
           to the button that brings the panel back: the rail itself does not
           fold any more, so the rail's only switch is the panel's. */}
-      <div
-        className={cn(
-          "flex h-13 shrink-0 items-center border-b border-rail-hair",
-          folded ? "justify-center px-2" : "gap-1 px-3"
-        )}
-      >
-        {!unfold && (
-          <Link
-            to="/"
-            aria-label="Central — home"
-            title={folded ? "Central" : undefined}
-            className={cn(
-              "flex min-w-0 items-center gap-2.5 rounded-inner p-1 transition-colors hover:bg-rail-2",
-              !folded && "flex-1"
-            )}
-          >
-            <BrandMark className="size-7" />
-            {!folded && (
-              <b className="truncate text-[0.9375rem] font-semibold tracking-[-0.01em] text-rail-ink">
-                Central
-              </b>
-            )}
-          </Link>
-        )}
-        {unfold && onToggleNav && (
-          <button
-            type="button"
-            onClick={onToggleNav}
-            aria-label="Show the screens"
-            title="Show the screens  ⌘B"
-            className="grid size-8 shrink-0 place-items-center rounded-inner text-rail-mute transition-colors hover:bg-rail-2 hover:text-rail-ink"
-          >
-            <PanelLeft className="size-[1.0625rem] stroke-[1.6]" />
-          </button>
-        )}
-        {drawer && onClose && (
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close navigation"
-            className="grid size-tap shrink-0 place-items-center rounded-inner text-rail-mute transition-colors hover:bg-rail-2 hover:text-rail-ink"
-          >
-            <X className="size-[1.125rem] stroke-[1.7]" />
-          </button>
-        )}
-      </div>
+      {/* The folded rail on a desk has no mark (owner, 14 Oct: "hapus logo c
+          icon karna di laptop menunya ketutup"): the departments and the tools
+          under them need the height on a laptop, and Home is a row of its
+          own. Only the › that brings the panel back stands at its top, while
+          the panel is folded away. The drawer keeps the mark and the name: it
+          is the full column, with the room. */}
+      {folded && onToggleNav ? (
+        unfold && (
+          <div className="flex shrink-0 justify-center px-2 pt-3">
+            <button
+              type="button"
+              onClick={onToggleNav}
+              aria-label="Show the screens"
+              title="Show the screens  ⌘B"
+              className="grid size-10 shrink-0 place-items-center rounded-[0.625rem] text-rail-mute transition-colors hover:bg-rail-2 hover:text-rail-ink"
+            >
+              <ChevronRight className="size-[1.125rem] stroke-[1.7]" />
+            </button>
+          </div>
+        )
+      ) : (
+        <div
+          className={cn(
+            "flex h-13 shrink-0 items-center border-b border-rail-hair",
+            folded ? "justify-center px-2" : "gap-1 px-3"
+          )}
+        >
+          {!unfold && (
+            <Link
+              to="/"
+              aria-label="Central — home"
+              title={folded ? "Central" : undefined}
+              className={cn(
+                "flex min-w-0 items-center gap-2.5 rounded-inner p-1 transition-colors hover:bg-rail-2",
+                !folded && "flex-1"
+              )}
+            >
+              <BrandMark className="size-7" />
+              {!folded && (
+                <b className="truncate text-[0.9375rem] font-semibold tracking-[-0.01em] text-rail-ink">
+                  Central
+                </b>
+              )}
+            </Link>
+          )}
+          {unfold && onToggleNav && (
+            <button
+              type="button"
+              onClick={onToggleNav}
+              aria-label="Show the screens"
+              title="Show the screens  ⌘B"
+              className="grid size-8 shrink-0 place-items-center rounded-inner text-rail-mute transition-colors hover:bg-rail-2 hover:text-rail-ink"
+            >
+              <ChevronRight className="size-[1.125rem] stroke-[1.7]" />
+            </button>
+          )}
+          {drawer && onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close navigation"
+              className="grid size-tap shrink-0 place-items-center rounded-inner text-rail-mute transition-colors hover:bg-rail-2 hover:text-rail-ink"
+            >
+              <X className="size-[1.125rem] stroke-[1.7]" />
+            </button>
+          )}
+        </div>
+      )}
 
       {/* The palette, given a place to be found. ⌘K was the only way in, and
           since the owner's menu of 2026-09-28 moved most screens under More,
           "type where you want to go" is the shortest road to any of them.
           On a desk it is the top bar's "Find anything" instead. */}
+      {/* Folded on a desk: Search stands at the top of the rail, the way to
+          anywhere (hub-ui-patterns, 14 Oct) — ⌘K opens it too. */}
+      {folded && onToggleNav && <RailFinders onSearch={onSearch} />}
       <div
         className={cn(
           "shrink-0 pt-3",
@@ -206,10 +227,10 @@ export function NavColumn({
           <Search className="size-4 shrink-0 stroke-[1.7]" />
           {!folded && (
             <>
-              <span className="min-w-0 flex-1 truncate text-left text-[0.875rem]">
+              <span className="min-w-0 flex-1 truncate text-left text-[0.9375rem]">
                 Search or jump to…
               </span>
-              <kbd className="font-sans text-[0.875rem] text-rail-mute">⌘K</kbd>
+              <kbd className="font-sans text-[0.9375rem] text-rail-mute">⌘K</kbd>
             </>
           )}
         </button>
@@ -254,15 +275,14 @@ export function NavColumn({
         ))}
       </div>
 
-      <div
-        className={cn(
-          "flex shrink-0 flex-col gap-0.5 border-t border-rail-hair pt-2 pb-2.5",
-          folded ? "items-center px-2" : "px-3"
-        )}
-      >
-        {onToggleNav && <RailTools folded={folded} activeId={active.id} />}
-        <Account folded={folded} lit={active.id === meNav.id} />
-      </div>
+      {/* The rail's foot held chat, discussions, the bell, the profile and
+          Sign out. They are the account orb now (`account-orb.tsx`, owner,
+          2026-10-16), pinned here on a desk; undocked it floats. */}
+      {!drawer && onSearch && (
+        <div className="flex shrink-0 justify-center pt-2 pb-4">
+          <AccountOrb pinned onSearch={onSearch} />
+        </div>
+      )}
     </nav>
   )
 }
@@ -317,7 +337,9 @@ function Department({
         folded={folded}
         openDepartment={open}
         onPick={pick !== null && !single ? () => pick(domain) : undefined}
-        badge={folded ? <DomainCount domain={domain} dot /> : undefined}
+        // Not on the department you are in: its count is on the screens in
+        // the panel beside it (owner, 14 Oct).
+        badge={folded && !open ? <DomainCount domain={domain} dot /> : undefined}
       />
     )
   }
@@ -334,7 +356,7 @@ function Department({
           setShut(!shut)
         }}
         className={cn(
-          "group flex h-9 shrink-0 items-center gap-3 rounded-inner px-2.5 text-[0.875rem] transition-colors",
+          "group flex h-9 shrink-0 items-center gap-3 rounded-inner px-2.5 text-[0.9375rem] transition-colors",
           open
             ? "font-medium text-rail-ink"
             : "text-rail-text hover:bg-rail-2 hover:text-rail-ink"
@@ -522,6 +544,30 @@ function SectionRows({
       {sections.map((section, index) => {
         const rows = section.items.filter((item) => show(item) && !item.more)
         if (rows.length === 0) return null
+        if (section.chip && section.label) {
+          // A6 "Chip": the label as a grey chip, the rows always under it,
+          // and a breath between groups.
+          return (
+            <div
+              key={section.label}
+              className="mt-[1.375rem] flex flex-col gap-px first:mt-0"
+            >
+              <span className="mb-1 ml-1.5 h-[1.375rem] self-start rounded-[0.375rem] bg-soft-2 px-2 text-[0.75rem] leading-[1.375rem] font-semibold whitespace-nowrap text-mute">
+                {section.label}
+              </span>
+              {rows.map((item) => (
+                <ScreenRow
+                  key={item.path}
+                  item={item}
+                  module={module}
+                  pathname={pathname}
+                  touch={touch}
+                  tone={tone}
+                />
+              ))}
+            </div>
+          )
+        }
         if (section.fold && section.label) {
           return (
             <FoldGroup
@@ -601,7 +647,7 @@ function FoldGroup({
         aria-expanded={expanded}
         onClick={() => setChoice({ open: !expanded, at: pathname })}
         className={cn(
-          "flex shrink-0 items-center gap-2 px-2.5 text-[0.875rem] transition-colors pointer-coarse:min-h-tap",
+          "flex shrink-0 items-center gap-2 px-2.5 text-[0.9375rem] transition-colors pointer-coarse:min-h-tap",
           t.fold,
           // Folded over the screen you are on: the heading stands in for the
           // row it hides.
@@ -687,7 +733,7 @@ function MoreFold({
         aria-expanded={expanded}
         onClick={() => setChoice(!expanded)}
         className={cn(
-          "mt-1 flex h-[2.125rem] shrink-0 items-center gap-2 rounded-[0.4375rem] px-2.5 text-[0.875rem] text-rail-mute transition-colors hover:bg-rail-2 hover:text-rail-text pointer-coarse:min-h-tap",
+          "mt-1 flex h-[2.125rem] shrink-0 items-center gap-2 rounded-[0.4375rem] px-2.5 text-[0.9375rem] text-rail-mute transition-colors hover:bg-rail-2 hover:text-rail-text pointer-coarse:min-h-tap",
           touch && ROW_TOUCH
         )}
       >
@@ -746,7 +792,7 @@ function ModuleMore({
         return (
           <div key={section.label ?? index} className="flex flex-col gap-px">
             {label && !echo && (
-              <span className="px-2.5 pt-2.5 pb-1 text-[0.875rem] text-rail-mute">
+              <span className="px-2.5 pt-2.5 pb-1 text-[0.9375rem] text-rail-mute">
                 {label}
               </span>
             )}
@@ -793,7 +839,7 @@ function ScreenRow({
         aria-disabled="true"
         title={`${item.label} — not built yet`}
         className={cn(
-          "flex shrink-0 cursor-default items-center gap-2 px-2.5 text-[0.875rem] pointer-coarse:min-h-tap",
+          "flex shrink-0 cursor-default items-center gap-2 px-2.5 text-[0.9375rem] pointer-coarse:min-h-tap",
           t.soon,
           touch && ROW_TOUCH
         )}
@@ -819,7 +865,7 @@ function ScreenRow({
       activeOptions={{ exact }}
       aria-current={lit ? "page" : undefined}
       className={cn(
-        "flex shrink-0 items-center gap-2 px-2.5 text-[0.875rem] transition-colors pointer-coarse:min-h-tap",
+        "flex shrink-0 items-center gap-2 px-2.5 text-[0.9375rem] transition-colors pointer-coarse:min-h-tap",
         t.row,
         t.on,
         lit && t.lit,
@@ -873,7 +919,7 @@ function DepartmentLink({
       aria-current={lit ? "page" : undefined}
       data-open-department={openDepartment ? "" : undefined}
       className={cn(
-        "group relative flex shrink-0 items-center rounded-inner text-[0.875rem] transition-colors",
+        "group relative flex shrink-0 items-center rounded-inner text-[0.9375rem] transition-colors",
         folded ? "size-10 justify-center" : "h-9 gap-3 px-2.5",
         lit
           ? "bg-rail-3 font-medium text-rail-ink"
@@ -893,118 +939,22 @@ function DepartmentLink({
   return folded ? <RailTip label={label}>{link}</RailTip> : link
 }
 
-/// What the top bar used to carry on a desk: the message asides and the bell
-/// — a row of icons over the account, a stack of them when the column is
-/// folded.
-function RailTools({
-  folded,
-  activeId,
-}: {
-  folded: boolean
-  activeId: string
-}) {
+/// Search, at the top of the folded rail: a glass, a 40px square like the
+/// departments under it. Ask AI stood under it and was taken off for now
+/// (owner, 14 Oct: "ai jg hapus dulu deh"); ⌘J still opens the assistant.
+function RailFinders({ onSearch }: { onSearch?: () => void }) {
   return (
-    <div
-      className={cn(
-        "mb-1.5 flex items-center gap-2.5",
-        folded ? "flex-col" : "flex-wrap px-1"
-      )}
-    >
-      {topBarAsides.map((aside) => (
-        <RailAside key={aside.id} aside={aside} here={activeId === aside.id} />
-      ))}
-      <NotificationBell tone="rail" />
-    </div>
-  )
-}
-
-/// One message aside as a rail icon, with its unread count. Its own
-/// component so `useCount` is a hook at the top of one, not inside a map.
-function RailAside({ aside, here }: { aside: AppModule; here: boolean }) {
-  const useCount = aside.useCount ?? noAsideCount
-  const waiting = useCount()
-  const label =
-    typeof waiting === "number" && waiting > 0
-      ? `${aside.label}, ${waiting} unread`
-      : aside.label
-  return (
-    <RailTip label={label}>
-      <Link
-        to={aside.home}
-        aria-label={label}
-        aria-current={here ? "page" : undefined}
-        className={cn(
-          "relative grid size-8 shrink-0 place-items-center rounded-inner transition-colors",
-          here
-            ? "bg-rail-3 text-rail-ink"
-            : "text-rail-mute hover:bg-rail-2 hover:text-rail-ink"
-        )}
-      >
-        <aside.icon className="size-4 stroke-[1.55]" />
-        {typeof waiting === "number" && waiting > 0 && (
-          <span className="absolute -top-0.5 -right-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-accent px-1 text-[0.875rem] leading-none font-semibold text-white tabular-nums ring-2 ring-rail">
-            {waiting > 99 ? "99+" : waiting}
-          </span>
-        )}
-      </Link>
-    </RailTip>
-  )
-}
-
-function noAsideCount(): null {
-  return null
-}
-
-/// The person: their own records (`/me`), and the way out — a row of its own,
-/// there in the folded rail too, so signing out is never a hunt.
-function Account({ folded, lit }: { folded: boolean; lit: boolean }) {
-  const identity = useIdentity()
-  const signOut = useSignOut()
-  const name = identity.data?.display_name ?? identity.data?.username ?? "—"
-  const initial = name.trim().charAt(0).toUpperCase() || "?"
-  const out = (
-    <button
-      type="button"
-      aria-label="Sign out"
-      onClick={() => signOut.mutate()}
-      disabled={signOut.isPending}
-      className={cn(
-        "group flex shrink-0 items-center rounded-inner text-[0.875rem] text-rail-text transition-colors hover:bg-rail-2 hover:text-rail-ink disabled:opacity-50",
-        folded ? "size-10 self-center justify-center" : "h-9 gap-3 px-2.5"
-      )}
-    >
-      <LogOut className="size-[1.125rem] shrink-0 stroke-[1.6] text-rail-mute transition-colors group-hover:text-rail-text" />
-      {!folded && <span>Sign out</span>}
-    </button>
-  )
-  return (
-    <div className="mt-1 flex flex-col gap-0.5">
-      <Link
-        to={"/me" as string}
-        title={folded ? `${name} — profile` : "Profile"}
-        aria-label={`${name} — Profile`}
-        aria-current={lit ? "page" : undefined}
-        className={cn(
-          "flex min-w-0 items-center gap-2.5 rounded-inner transition-colors hover:bg-rail-2",
-          folded ? "size-10 self-center justify-center" : "h-10 px-1.5",
-          lit && "bg-rail-3"
-        )}
-      >
-        <span className="grid size-7 shrink-0 place-items-center rounded-full bg-rail-3 text-[0.875rem] font-semibold text-rail-ink shadow-[inset_0_0_0_1px_var(--rail-hair)]">
-          {initial}
-        </span>
-        {!folded && (
-          <span className="min-w-0 flex-1 leading-tight">
-            <span className="block truncate text-[0.875rem] font-medium text-rail-ink">
-              {name}
-            </span>
-            <span className="block text-[0.875rem] text-rail-mute">
-              Profile
-            </span>
-          </span>
-        )}
-      </Link>
-      {folded ? <RailTip label="Sign out">{out}</RailTip> : out}
+    <div className="flex shrink-0 flex-col items-center gap-2 px-2 pt-3">
+      <RailTip label="Search  ⌘K">
+        <button
+          type="button"
+          onClick={onSearch}
+          aria-label="Search or jump to a screen"
+          className="grid size-10 place-items-center rounded-[0.625rem] text-rail-text transition-[color,background-color,scale] duration-(--t-press) ease-(--ease-out) hover:bg-rail-2 hover:text-rail-ink active:scale-[0.97]"
+        >
+          <Search className="size-[1.125rem] stroke-[1.6]" />
+        </button>
+      </RailTip>
     </div>
   )
 }
@@ -1023,25 +973,25 @@ function Count({
   tone?: Tone
 }) {
   if (typeof value !== "number" || value <= 0) return null
+  // What is waiting for somebody, said the same everywhere (UI-PATTERNS.md:
+  // a strong red pill, a white number, 14px, none at zero, 99+ at most) —
+  // at the corner of a rail icon, at the end of a screen's row.
   if (dot) {
     return (
-      <span
-        className={cn(
-          "absolute top-1.5 right-1.5 size-[7px] rounded-full",
-          tint === "bad" ? "bg-bad" : tint === "warn" ? "bg-warn" : "bg-accent"
-        )}
-      />
+      <span className="nav-badge nav-dot absolute -top-1 -right-1">
+        {value > 99 ? "99+" : value}
+      </span>
     )
   }
   const t = TONE[tone]
   return (
     <span
       className={cn(
-        "shrink-0 rounded-full px-1.5 text-[0.875rem] leading-5 font-medium tabular-nums",
+        "nav-count shrink-0 rounded-full px-1.5 text-[0.9375rem] leading-5 font-medium tabular-nums",
         tint === "bad" ? t.countBad : tint === "warn" ? t.countWarn : t.count
       )}
     >
-      {count(value)}
+      {value > 99 ? "99+" : count(value)}
     </span>
   )
 }

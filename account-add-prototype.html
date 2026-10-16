@@ -1,0 +1,1237 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Central add account</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400..700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* Central: System › Users › Add account. One door for adding somebody else's
+   account (replaces "Invite people" + "Add user directly"), with the Clerk set:
+   link or password, bulk paste, one-person-one-account guard, role preview,
+   expiry, QR, live join status, the invitee's side, and a Clerk-style account
+   sheet (sign-in, devices, two-step, block, sign in as, activity).
+   Hub tokens from frontend-hub/src/styles/index.css. Nothing below 14px. */
+:root{
+  font-size:16px;
+  --ink:#20242c;--text:#394150;--body:#565f6d;--mute:#666f7d;--faint:#b9c0c9;--line-ico:#89919d;
+  --canvas:#fff;--soft:#f8f8f9;--soft-2:#f0f0f2;--soft-3:#f6f6f7;
+  --hairline:#e6e6e9;--hairline-2:#dadade;--hairline-strong:#c6c6cc;
+  --rail:#242526;--rail-2:#303234;--rail-3:#393b3d;--rail-ink:#fff;--rail-text:#c3c4c7;--rail-mute:#a1a3a8;--rail-hair:#343638;
+  --scrim:rgba(246,246,247,.72);
+  --accent:#2563eb;--accent-bg:#eff5ff;--cta:#2563eb;--cta-hover:#1d4ed8;--info:#2f86d8;--info-bg:#ddebfa;
+  --ok:#36b827;--ok-bg:#d9f4d2;--ok-fg:#137a37;--warn:#c9892e;--warn-bg:#faeacd;--warn-fg:#a64a08;
+  --bad:#d05151;--bad-bg:#fbeaea;--bad-fg:#be123c;
+  --avatar-from:#e8def4;--avatar-to:#f8dde8;
+  --r-card:10px;--r-inner:8px;
+  --ease-out:cubic-bezier(.23,1,.32,1);--ease-in-out:cubic-bezier(.77,0,.175,1);--ease-drawer:cubic-bezier(.32,.72,0,1);
+  --shadow-soft:0 1px 3px rgb(24 39 60/5%);
+  --shadow-pop:0 4px 8px rgb(24 39 60/4%),0 12px 32px rgb(24 39 60/10%);
+  --shadow-win:0 0 0 1px rgb(0 0 0/8%),0 8px 24px rgb(0 0 0/12%),0 32px 64px -16px rgb(0 0 0/22%);
+  --sans:"Inter",system-ui,sans-serif;--mono:"JetBrains Mono",ui-monospace,monospace;
+  --safe-top:0px;--safe-bottom:0px;
+}
+*{box-sizing:border-box;margin:0}
+html,body{background:var(--soft-3);color:var(--ink);font:400 15px/1.5 var(--sans);-webkit-font-smoothing:antialiased}
+button,input,select,textarea{font:inherit;color:inherit}
+button{background:none;border:0;cursor:pointer;text-align:left}
+input,select,textarea{outline:none}
+svg.i{width:18px;height:18px;flex:none;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.mono{font-family:var(--mono)}
+
+/* ── demo controls (not part of the product) ─────────────────────────── */
+.top{max-width:1380px;margin:0 auto;padding:16px 16px 0;display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center}
+.brand{display:flex;align-items:center;gap:10px;font-weight:600;font-size:17px;margin-right:auto}
+.brand svg{width:28px;height:28px}
+.grp{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--body)}
+.segd{display:flex;gap:2px;background:var(--soft-2);border-radius:9px;padding:3px}
+.segd button{height:32px;padding:0 12px;border-radius:7px;font-size:14px;color:var(--body);white-space:nowrap;transition:background-color 160ms var(--ease-out),color 160ms var(--ease-out)}
+.segd button.on{background:#fff;color:var(--ink);box-shadow:var(--shadow-soft)}
+.dsel{height:32px;border-radius:8px;border:1px solid var(--hairline-2);background:#fff;padding:0 8px;font-size:14px}
+.dbtn{height:32px;padding:0 12px;border-radius:8px;background:#fff;border:1px solid var(--hairline-2);font-size:14px;color:var(--text);transition:transform 120ms var(--ease-out)}
+.dbtn:active{transform:scale(.97)}
+.try{max-width:1380px;margin:-10px auto 28px;padding:0 16px;font-size:14px;color:var(--body);display:flex;flex-wrap:wrap;gap:4px 18px}
+.try code{font:400 14px var(--mono);color:var(--ink);background:var(--soft-2);padding:1px 6px;border-radius:5px}
+.stage{position:relative;max-width:1380px;margin:12px auto 16px;border-radius:16px;overflow:hidden;display:flex;align-items:center;justify-content:center;gap:20px;padding:16px;
+  background:radial-gradient(70rem 40rem at 15% 0%,#eef1f6,transparent 60%),radial-gradient(50rem 30rem at 100% 100%,#e6eaf1,transparent 60%),#f1f2f5;
+  height:min(800px,calc(100vh - 118px));min-height:540px}
+
+/* ── frames: the admin hub, and the invitee's phone ──────────────────── */
+.frame{position:relative;background:var(--canvas);border-radius:10px;overflow:hidden;box-shadow:var(--shadow-win);container:app/inline-size;isolation:isolate;display:flex;height:100%}
+.frame.admin{flex:1;min-width:0}
+.frame.phone{flex:none;width:414px;height:896px;border-radius:44px;box-shadow:0 0 0 10px #15161a,0 0 0 11px #3a3c42,var(--shadow-win);zoom:var(--s,1);--safe-top:44px;--safe-bottom:28px}
+.frame.phone::after{content:"";position:absolute;left:50%;top:10px;width:118px;height:30px;margin-left:-59px;border-radius:20px;background:#15161a;z-index:99;pointer-events:none}
+.frame.phone.admin{flex:none}
+.frame.invitee{display:none}
+.frame.invitee.on{display:flex;animation:pane 360ms var(--ease-out) both}
+@keyframes pane{from{opacity:0;transform:translateX(24px)}}
+.tag{position:absolute;left:50%;top:-1px}
+
+/* ── the shell ────────────────────────────────────────────────────────── */
+.shell{flex:1;display:flex;min-width:0;min-height:0}
+.rail{width:248px;flex:none;background:var(--rail);color:var(--rail-text);display:flex;flex-direction:column;padding:14px 10px 10px}
+.rail .mk{width:32px;height:32px;margin:2px 6px 14px}
+.rnav{flex:1;display:flex;flex-direction:column;gap:2px;overflow:hidden}
+.rnav a{display:flex;align-items:center;gap:12px;height:36px;padding:0 10px;border-radius:var(--r-inner);font-size:14px;color:var(--rail-text);user-select:none;white-space:nowrap}
+.rnav a svg{color:var(--rail-mute)}
+.acc{margin-top:6px;display:flex;align-items:center;gap:10px;height:46px;padding:0 8px;border-radius:var(--r-inner);color:var(--rail-ink)}
+.acc .tx{min-width:0;flex:1;line-height:1.25}
+.acc .tx b{display:block;font-weight:500;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.acc .tx span{display:block;font-size:14px;color:var(--rail-mute)}
+.rail .av{box-shadow:inset 0 0 0 1px rgb(255 255 255/10%)}
+.main{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--canvas);position:relative}
+.vabar{display:none;align-items:center;gap:12px;padding:8px 20px;background:var(--warn-bg);color:var(--warn-fg);font-size:14px}
+.vabar.on{display:flex}
+.vabar span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.page{flex:1;min-height:0;overflow:auto;padding:24px 32px 32px}
+.page.swap{animation:rise 260ms var(--ease-out) both}
+.ph{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:16px}
+.ph .crumb{font-size:14px;font-weight:500;color:var(--mute);margin-bottom:5px}
+.ph h1{font-size:15px;line-height:20px;font-weight:600}
+.toolbar{display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap}
+.search{position:relative;width:260px}
+.search svg{position:absolute;left:11px;top:50%;margin-top:-9px;color:var(--line-ico)}
+.search input{height:36px;width:100%;border:1px solid var(--hairline-2);border-radius:var(--r-inner);padding:0 12px 0 34px;font-size:15px;background:#fff;transition:border-color 160ms var(--ease-out),box-shadow 160ms var(--ease-out)}
+.search input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
+.seg2{display:inline-flex;border-radius:var(--r-inner);background:var(--soft-2);padding:2px}
+.seg2 button{height:28px;padding:0 10px;border-radius:6px;font-size:14px;font-weight:500;color:var(--body);white-space:nowrap;transition:background-color 140ms var(--ease-out),color 140ms}
+.seg2 button.on{background:#fff;color:var(--ink);box-shadow:var(--shadow-soft)}
+@media (hover:hover) and (pointer:fine){.seg2 button:not(.on):hover{color:var(--ink)}}
+.sp{flex:1}.cnt{font-size:14px;color:var(--mute);font-variant-numeric:tabular-nums}
+.tbl{border:1px solid var(--hairline);border-radius:var(--r-card);overflow:clip;background:#fff}
+.th,.tr{display:grid;grid-template-columns:minmax(200px,2.2fr) minmax(140px,1.4fr) 170px 130px 120px;gap:12px;align-items:center;padding:0 16px}
+.th{height:40px;font-size:14px;font-weight:500;color:var(--body);background:var(--soft);border-bottom:1px solid var(--hairline)}
+.th .r,.tr .r{text-align:right}
+.tr{width:100%;min-height:56px;border-top:1px solid var(--hairline);transition:background-color 140ms var(--ease-out)}
+.tr:first-of-type{border-top:0}
+.tr.on{background:var(--accent-bg)}
+.tr.flash{animation:flash 1600ms var(--ease-out) both}
+@keyframes flash{from{background:var(--info-bg)}}
+@media (hover:hover) and (pointer:fine){.tr:hover{background:var(--soft)}.tr.on:hover{background:var(--accent-bg)}}
+.tr:active{background:var(--soft-2)}
+.cell{min-width:0;line-height:1.3}
+.cell b{display:block;font-weight:500;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cell span{display:block;font-size:14px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cell span.warn{color:var(--warn-fg)}
+.cell span>span{display:inline}
+.lb .tb{height:24px;padding:0 6px;margin:-4px -6px -4px 0}
+.cell.plain{font-size:14px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.st{display:inline-flex;align-items:center;gap:8px;font-size:14px;white-space:nowrap}
+.st i{width:6px;height:6px;border-radius:50%;background:var(--faint);flex:none;transition:background-color 300ms var(--ease-out)}
+.st.ok i{background:var(--ok)}.st.warn i{background:var(--warn)}.st.warn{color:var(--warn-fg)}.st.bad i{background:var(--bad)}.st.bad{color:var(--bad-fg)}.st.info i{background:var(--info)}
+.empty{padding:48px 16px;text-align:center;color:var(--mute);font-size:15px}
+.cards,.dock,.phonebar,.fab{display:none}
+
+/* ── avatars ─────────────────────────────────────────────────────────── */
+.av{width:var(--sz,36px);height:var(--sz,36px);border-radius:50%;flex:none;display:grid;place-items:center;font-weight:600;font-size:max(14px,calc(var(--sz,36px)*.4));line-height:1;color:var(--ink);
+  background:linear-gradient(135deg,var(--avatar-from),var(--avatar-to));user-select:none;overflow:hidden}
+.av[data-c="1"]{background:linear-gradient(135deg,#d6e6f8,#dff3e6)}
+.av[data-c="2"]{background:linear-gradient(135deg,#f9e4cc,#f8dde8)}
+.av[data-c="3"]{background:linear-gradient(135deg,#d9f0ec,#dde6fa)}
+.av[data-c="4"]{background:linear-gradient(135deg,#ecdff7,#d6e6f8)}
+
+/* ── buttons, fields ─────────────────────────────────────────────────── */
+.btn{height:36px;padding:0 14px;border-radius:var(--r-inner);font-size:14px;font-weight:500;display:inline-flex;align-items:center;justify-content:center;gap:8px;white-space:nowrap;flex:none;color:var(--text);box-shadow:inset 0 0 0 1px var(--hairline-2);background:#fff;transition:transform 120ms var(--ease-out),background-color 160ms var(--ease-out),opacity 200ms var(--ease-out)}
+.btn svg.i{width:16px;height:16px;color:var(--line-ico)}
+.btn:active{transform:scale(.97)}
+.btn.primary{color:#fff;background:linear-gradient(180deg,rgb(255 255 255/14%),rgb(255 255 255/0) 55%),var(--cta);box-shadow:inset 0 1px 0 rgb(255 255 255/22%),0 1px 2px rgb(37 99 235/30%)}
+.btn.primary svg.i{color:#fff}
+.btn.quiet{box-shadow:none;background:none;color:var(--body)}
+.btn.danger{box-shadow:none;background:var(--bad-bg);color:var(--bad-fg)}
+.btn.danger svg.i{color:var(--bad-fg)}
+.btn.sm{height:28px;padding:0 10px}
+.btn.lg{height:44px;padding:0 16px;font-size:15px}
+.btn[aria-disabled=true]{opacity:.45;cursor:default}
+.btn[aria-disabled=true]:active{transform:none}
+@media (hover:hover) and (pointer:fine){.btn:not(.primary):not(.danger):not([aria-disabled=true]):hover{background-color:var(--soft)}.btn.primary:not([aria-disabled=true]):hover{background:linear-gradient(180deg,rgb(255 255 255/14%),rgb(255 255 255/0) 55%),var(--cta-hover)}.btn.quiet:hover{background:var(--soft-2);color:var(--ink)}.btn.danger:hover{filter:brightness(.97)}}
+.spin{width:16px;height:16px;border-radius:50%;border:2px solid rgb(255 255 255/40%);border-top-color:#fff;animation:spin .6s linear infinite}
+.spin.dk{border-color:var(--hairline-2);border-top-color:var(--body)}
+@keyframes spin{to{transform:rotate(360deg)}}
+.tb{height:36px;padding:0 10px;border-radius:var(--r-inner);font-size:14px;font-weight:500;color:var(--accent);display:inline-flex;align-items:center;gap:6px;flex:none;white-space:nowrap;transition:background-color 140ms var(--ease-out),transform 120ms var(--ease-out)}
+.tb:active{transform:scale(.97)}.tb.mute{color:var(--body)}.tb.bad{color:var(--bad-fg)}.tb.sq{width:36px;padding:0;justify-content:center;color:var(--line-ico)}
+@media (hover:hover) and (pointer:fine){.tb:hover{background:var(--accent-bg)}.tb.mute:hover,.tb.sq:hover{background:var(--soft-2);color:var(--ink)}.tb.bad:hover{background:var(--bad-bg)}}
+.f{display:flex;flex-direction:column;gap:6px;min-width:0}
+.f .lb{font-size:15px;font-weight:500;color:var(--text);display:flex;justify-content:flex-start;gap:0;align-items:baseline}.f .lb .tb{margin-left:auto}
+.f .lb em{font-style:normal;color:var(--bad);margin-left:2px}
+.f .hint{font-size:14px;color:var(--mute)}.f .hint:empty{display:none}
+.f .hint.bad{color:var(--bad-fg)}.f .hint.ok{color:var(--ok-fg)}.f .hint.warn{color:var(--warn-fg)}
+.in{position:relative}
+.in input,.in select,.in textarea{width:100%;height:40px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);padding:0 12px;background:#fff;font-size:15px;color:var(--ink);transition:border-color 160ms var(--ease-out),box-shadow 160ms var(--ease-out)}
+.in textarea{height:auto;min-height:120px;padding:10px 12px;line-height:1.45;resize:vertical;font-family:var(--mono);font-size:14px}
+.in input:focus,.in select:focus,.in textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
+.in select{appearance:none;padding-right:34px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2389919d' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center}
+.in select:invalid,.in select.ph{color:var(--mute)}
+.in.bad input,.in.bad select{border-color:var(--bad)}
+.in.ok input{padding-right:40px}
+.in .tick{position:absolute;right:12px;top:50%;margin-top:-9px;color:var(--ok);pointer-events:none}
+.in .eye{position:absolute;right:4px;top:50%;margin-top:-16px;width:32px;height:32px;border-radius:7px;display:grid;place-items:center;color:var(--line-ico)}
+.in input.pwi{padding-right:44px}
+.in.mono input{font-family:var(--mono);font-size:14px}
+.chk{display:flex;align-items:center;gap:10px;font-size:15px;cursor:pointer;user-select:none;min-height:36px}
+.chk input{width:18px;height:18px;accent-color:var(--accent);flex:none}
+.banner{display:flex;gap:10px;align-items:flex-start;border-radius:var(--r-inner);padding:10px 14px;font-size:14px;line-height:1.45;background:var(--soft-2);color:var(--text)}
+.banner svg.i{width:16px;height:16px;margin-top:2px}
+.banner.warn{background:var(--warn-bg);color:var(--warn-fg)}.banner.bad{background:var(--bad-bg);color:var(--bad-fg)}.banner.info{background:var(--info-bg);color:#1f4f93}.banner.ok{background:var(--ok-bg);color:var(--ok-fg)}
+.banner .sp{flex:1}.banner .btn{margin:-4px -6px -4px 0}
+.edit{display:grid;grid-template-rows:0fr;transition:grid-template-rows 260ms var(--ease-out),opacity 200ms var(--ease-out);opacity:0}
+.edit.on{grid-template-rows:1fr;opacity:1}
+.edit>div{overflow:hidden;min-height:0;visibility:hidden;transition:visibility 0s linear 260ms}
+.edit.on>div{visibility:visible;transition-delay:0s}
+.edit .inner{padding:4px 2px 2px;display:flex;flex-direction:column;gap:12px}
+.edit .btns{display:flex;gap:8px;justify-content:flex-end}
+
+/* ── overlay: veil, sheets (right drawers; bottom sheets on a phone) ─── */
+.veil{position:absolute;inset:0;background:var(--scrim);z-index:50;opacity:0;pointer-events:none;transition:opacity 200ms var(--ease-out)}
+.veil.on{opacity:1;pointer-events:auto}
+.sheet{position:absolute;top:0;right:0;bottom:0;width:min(var(--w,480px),100%);background:#fff;border-left:1px solid var(--hairline);z-index:60;display:flex;flex-direction:column;
+  transform:translateX(100%);visibility:hidden;transition:transform 220ms var(--ease-drawer),visibility 0s linear 220ms}
+.sheet.on{transform:none;visibility:visible;transition:transform 320ms var(--ease-drawer),visibility 0s}
+.sheet.b{z-index:70}
+.sheet.under::after{content:"";position:absolute;inset:0;background:var(--scrim);z-index:9;pointer-events:none}
+.sh-head{display:flex;align-items:flex-start;gap:12px;padding:18px 16px 12px 20px;flex:none}
+.sh-head .tt{min-width:0;flex:1}
+.sh-head .id{font:400 15px var(--mono);color:var(--body);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:2px}
+.sh-head h2{font-size:18px;line-height:24px;font-weight:600;letter-spacing:-.01em;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.sh-head .cap{font-size:14px;color:var(--mute);margin-top:2px;overflow-wrap:anywhere}
+.sh-head .back{display:inline-flex;align-items:center;gap:2px;margin:0 0 4px -4px;padding:2px 8px 2px 2px;border-radius:var(--r-inner);font-size:14px;color:var(--mute)}
+.sh-head .back svg{width:16px;height:16px}
+.sh-head .bd{margin-top:4px}
+.x{width:32px;height:32px;border-radius:var(--r-inner);display:grid;place-items:center;color:var(--line-ico);flex:none;transition:background-color 140ms var(--ease-out),transform 120ms var(--ease-out)}
+.x:active{transform:scale(.94)}
+@media (hover:hover) and (pointer:fine){.x:hover{background:var(--soft-2);color:var(--ink)}.sh-head .back:hover{color:var(--ink);background:var(--soft-2)}}
+.sh-tabs{display:flex;gap:4px;padding:0 20px;border-bottom:1px solid var(--hairline);flex:none}
+.sh-tabs button{height:48px;padding:0 12px;margin-bottom:-1px;border-bottom:2px solid transparent;font-size:15px;font-weight:500;color:var(--body);transition:color 140ms,border-color 140ms}
+.sh-tabs button.on{border-color:var(--accent);color:var(--accent);font-weight:600}
+.sh-body{flex:1;min-height:0;overflow:auto;padding:20px;display:flex;flex-direction:column;gap:20px}
+.sh-body.swap>*{animation:rise 240ms var(--ease-out) both}
+.sh-foot{flex:none;display:flex;align-items:center;gap:8px;padding:12px 20px;border-top:1px solid var(--hairline);padding-bottom:calc(12px + var(--safe-bottom))}
+.sh-foot .sp{flex:1}
+@keyframes rise{from{opacity:0;transform:translateY(8px)}}
+.facts{display:grid;grid-template-columns:1fr 1fr;gap:16px 32px}
+.fact{min-width:0}.fact.wide{grid-column:1/-1}
+.fact dt{font-size:14px;line-height:18px;color:var(--body)}
+.fact dd{margin-top:4px;font-size:14px;line-height:22px;color:var(--ink);overflow-wrap:anywhere;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.fact dd .mute{color:var(--mute)}
+.h4{font-size:15px;font-weight:600;color:var(--ink);margin-bottom:8px}
+.line{display:flex;align-items:center;gap:12px;min-height:48px}
+.line+.line{border-top:1px solid var(--hairline)}
+.line .tx{min-width:0;flex:1;line-height:1.35}
+.line .tx b{display:block;font-weight:500;font-size:15px}
+.line .tx span{display:block;color:var(--mute);font-size:14px;overflow-wrap:anywhere}
+.line .tx span.ok{color:var(--ok-fg)}.line .tx span.warn{color:var(--warn-fg)}.line .tx span.bad{color:var(--bad-fg)}
+.line .ico{width:36px;height:36px;border-radius:9px;background:var(--soft-2);display:grid;place-items:center;color:var(--body);flex:none}
+.grp2{border:1px solid var(--hairline);border-radius:var(--r-card);padding:0 14px}
+.tl{display:flex;flex-direction:column}
+.tl .ev{display:flex;gap:12px;padding:0 0 18px;position:relative}
+.tl .ev::before{content:"";position:absolute;left:3px;top:14px;bottom:-4px;width:1px;background:var(--hairline)}
+.tl .ev:last-child::before{display:none}
+.tl .ev i{width:7px;height:7px;border-radius:50%;background:var(--hairline-strong);margin-top:7px;flex:none}
+.tl .ev.new i{background:var(--accent)}
+.tl .ev div{min-width:0;font-size:15px;line-height:1.4}
+.tl .ev span{display:block;font-size:14px;color:var(--mute)}
+.tl .ev.new{animation:rise 300ms var(--ease-out) both}
+
+/* menu */
+.menu{position:absolute;z-index:80;min-width:210px;background:#fff;border:1px solid var(--hairline);border-radius:10px;box-shadow:var(--shadow-pop);padding:5px;opacity:0;transform:scale(.96);transform-origin:var(--ox,100% 0);visibility:hidden;transition:opacity 110ms var(--ease-out),transform 110ms var(--ease-out),visibility 0s linear 110ms}
+.menu.on{opacity:1;transform:none;visibility:visible;transition:opacity 150ms var(--ease-out),transform 150ms var(--ease-out),visibility 0s}
+.menu button{display:flex;align-items:center;gap:10px;width:100%;height:38px;padding:0 10px;border-radius:7px;font-size:14px;white-space:nowrap}
+.menu button.bad{color:var(--bad-fg)}.menu button svg.i{color:var(--line-ico);width:16px;height:16px}
+@media (hover:hover) and (pointer:fine){.menu button:hover{background:var(--soft-2)}}
+
+/* small dialog (confirm, reason) */
+.dlg{position:absolute;inset:0;z-index:90;display:grid;place-items:center;padding:24px;pointer-events:none}
+.dlg .card{pointer-events:none;width:100%;max-width:400px;background:#fff;border:1px solid var(--hairline);border-radius:16px;box-shadow:var(--shadow-pop);padding:22px 22px 18px;display:flex;flex-direction:column;gap:14px;opacity:0;transform:translateY(8px) scale(.985);transition:opacity 160ms var(--ease-out),transform 160ms var(--ease-out)}
+.dlg.on{background:var(--scrim);pointer-events:auto;transition:none}
+.dlg.on .card{pointer-events:auto;opacity:1;transform:none;transition:opacity 220ms var(--ease-out),transform 220ms var(--ease-out)}
+.dlg h3{font-size:18px;font-weight:600;letter-spacing:-.01em;line-height:24px}
+.dlg p{font-size:15px;color:var(--body)}
+.dlg .btns{display:flex;gap:8px;justify-content:flex-end;margin-top:2px}
+
+/* ── Add account composer ────────────────────────────────────────────── */
+.how{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.how .lbl{font-size:15px;font-weight:500;color:var(--text)}
+.pc{border:1px solid var(--hairline-2);border-radius:var(--r-card);padding:14px;display:flex;flex-direction:column;gap:10px;background:#fff;transition:border-color 160ms var(--ease-out)}
+.pc.bad{border-color:var(--bad)}
+.pc-wrap{display:grid;grid-template-rows:1fr;transition:grid-template-rows 220ms var(--ease-out),opacity 180ms var(--ease-out)}
+.pc-wrap>div{overflow:hidden;min-height:0}
+.pc-wrap.gone{grid-template-rows:0fr;opacity:0}
+.pc-wrap.pop{animation:growin 240ms var(--ease-out) both}
+@keyframes growin{from{grid-template-rows:0fr;opacity:0}}
+.pc-wrap.instant,.pc-wrap.instant.pop{animation:none}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.g2 .c2{grid-column:1/-1}
+.pc-top{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:-4px -6px -2px 0;min-height:0}
+.pc-top .n{font-size:14px;color:var(--mute)}
+.note{font-size:14px;color:var(--mute);line-height:1.4}
+.note.warn{color:var(--warn-fg)}.note.bad{color:var(--bad-fg)}
+.dupline{display:flex;gap:8px 12px;align-items:center;flex-wrap:wrap;font-size:14px;line-height:1.4;border-radius:var(--r-inner);padding:8px 12px;background:var(--soft-2);color:var(--text)}
+.dupline.bad{background:var(--bad-bg);color:var(--bad-fg)}.dupline.info{background:var(--info-bg);color:#1f4f93}
+.dupline .sp{flex:1;min-width:120px}
+.dupline .tb{height:28px;padding:0 8px;margin:-2px 0}
+.addrow{display:flex;align-items:center;justify-content:center;gap:8px;height:44px;width:100%;border:1px dashed var(--hairline-strong);border-radius:var(--r-card);font-size:15px;font-weight:500;color:var(--body);transition:background-color 140ms var(--ease-out),transform 120ms var(--ease-out)}
+.addrow:active{transform:scale(.99)}
+@media (hover:hover) and (pointer:fine){.addrow:hover{background:var(--soft)}}
+.moreb{display:flex;align-items:center;gap:6px;font-size:14px;font-weight:500;color:var(--accent);padding:4px 0;width:fit-content;border-radius:4px}
+.moreb svg.i{width:16px;height:16px;transition:transform 200ms var(--ease-out)}
+.moreb[aria-expanded=true] svg.i{transform:rotate(180deg)}
+.res{display:flex;flex-direction:column;gap:10px;border:1px solid var(--hairline-2);border-radius:var(--r-card);padding:14px;background:#fff}
+.res.rise{animation:rise 360ms var(--ease-out) both;animation-delay:calc(var(--i,0)*50ms)}
+.res .hd{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.res .hd .who{min-width:0;line-height:1.3}
+.res .hd .who b{display:block;font-weight:600;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.res .hd .who span{display:block;font-size:14px;color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lrow{display:flex;align-items:center;gap:8px}
+.lrow code{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font:400 14px var(--mono);background:var(--soft-2);border-radius:var(--r-inner);padding:8px 10px;color:var(--body)}
+.lrow a{cursor:pointer;color:var(--accent)}
+.cred{display:grid;grid-template-columns:auto 1fr auto;gap:6px 12px;align-items:center;font-size:14px}
+.cred span{color:var(--mute)}.cred code{font:500 15px var(--mono);color:var(--ink);overflow-wrap:anywhere}
+.qrp{display:grid;grid-template-rows:0fr;transition:grid-template-rows 240ms var(--ease-out),opacity 200ms;opacity:0}
+.qrp.on{grid-template-rows:1fr;opacity:1}
+.qrp>div{overflow:hidden;min-height:0}
+.qrp .box{display:flex;gap:16px;align-items:center;padding:6px 0 2px}
+.qr{width:132px;height:132px;border:1px solid var(--hairline);border-radius:10px;padding:8px;background:#fff;flex:none}
+.exp{font-size:14px;color:var(--mute)}
+
+/* ── the invitee's phone ─────────────────────────────────────────────── */
+.join{flex:1;display:flex;flex-direction:column;background:var(--canvas);padding:calc(var(--safe-top) + 28px) 22px calc(var(--safe-bottom) + 20px);overflow:auto}
+.join .mk{width:44px;height:44px;margin:0 auto}
+.join h1{text-align:center;font-size:22px;font-weight:600;letter-spacing:-.02em;margin-top:14px;overflow-wrap:anywhere}
+.jcard{margin-top:22px;border:1px solid var(--hairline);border-radius:var(--r-card);padding:18px;box-shadow:var(--shadow-soft);display:flex;flex-direction:column;gap:14px}
+.jcard p b{font-weight:500}
+.jcard .m{font-size:14px;color:var(--mute)}
+.join.rise>*{animation:rise 360ms var(--ease-out) both}
+.join .qr{margin:4px auto 0;display:block}
+.key{font:500 15px var(--mono);letter-spacing:.06em;text-align:center;word-break:break-all}
+.otp{position:relative;display:flex;gap:6px;justify-content:space-between}
+.otp .c{flex:1;height:50px;max-width:50px;border:1px solid var(--hairline-2);border-radius:9px;display:grid;place-items:center;font-size:20px;font-weight:600;background:#fff;font-variant-numeric:tabular-nums;transition:border-color 140ms var(--ease-out),box-shadow 140ms var(--ease-out)}
+.otp .c.cur{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
+.otp.bad .c{border-color:var(--bad);background:var(--bad-bg)}.otp.ok .c{border-color:var(--ok);background:#f2fbef}
+.otp input{position:absolute;inset:0;width:100%;height:100%;opacity:0;font-size:16px;border:0;background:transparent}
+.otp:not(:focus-within) .c.cur{border-color:var(--hairline-2);box-shadow:none}
+.ring{width:72px;height:72px;border-radius:50%;margin:0 auto;display:grid;place-items:center;background:var(--ok-bg);color:var(--ok-fg)}
+.ring svg{width:34px;height:34px;stroke-width:1.6}
+.ring .ck path{stroke-dasharray:30;stroke-dashoffset:30;animation:draw 420ms var(--ease-out) 120ms forwards}
+@keyframes draw{to{stroke-dashoffset:0}}
+.jhome h2{font-size:22px;font-weight:600;letter-spacing:-.02em}
+.jhome .sub{color:var(--body);margin-top:2px}
+.jhome .list{margin-top:18px;border:1px solid var(--hairline);border-radius:var(--r-card)}
+.jhome .list div{display:flex;justify-content:space-between;min-height:48px;align-items:center;padding:0 14px;font-size:15px}
+.jhome .list div+div{border-top:1px solid var(--hairline)}
+.jhome .list span{color:var(--mute)}
+
+/* toast */
+.toast{position:absolute;left:50%;bottom:24px;z-index:99;transform:translate(-50%,10px);opacity:0;pointer-events:none;background:var(--rail);color:#fff;padding:10px 16px;border-radius:10px;font-size:14px;box-shadow:var(--shadow-pop);display:flex;align-items:center;gap:10px;max-width:calc(100% - 32px);transition:opacity 180ms var(--ease-out),transform 180ms var(--ease-out)}
+.toast.on{opacity:1;transform:translate(-50%,0)}
+.toast span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.toast svg{color:#7fdc72}
+
+/* ── narrower than a monitor: rail folds, columns drop ───────────────── */
+@container app (max-width:1099px){
+  .rail{width:68px;align-items:center}.rnav a{width:44px;justify-content:center;padding:0}.rnav a span{display:none}.acc{padding:0}.acc .tx{display:none}
+  .th,.tr{grid-template-columns:minmax(200px,2.2fr) minmax(130px,1.4fr) 160px 120px}
+  .th>:nth-child(5),.tr>:nth-child(5){display:none}
+}
+@container app (max-width:860px){
+  .th,.tr{grid-template-columns:minmax(180px,2fr) minmax(120px,1.3fr) 150px}
+  .th>:nth-child(4),.tr>:nth-child(4){display:none}
+  .page{padding:20px}
+}
+/* ── phone: cards, a dock, the sheet from the bottom ─────────────────── */
+@container app (max-width:640px){
+  .rail{display:none}
+  .phonebar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:calc(var(--safe-top) + 8px) 16px 4px;min-height:calc(var(--safe-top) + 52px)}
+  .phonebar h1{font-size:20px;font-weight:600;letter-spacing:-.02em}
+  .phonebar .sub{font-size:14px;color:var(--mute)}
+  .page{padding:8px 16px 120px}
+  .ph,.toolbar,.tbl{display:none}
+  .cards{display:flex;flex-direction:column;border:1px solid var(--hairline);border-radius:var(--r-card);overflow:clip}
+  .crd{width:100%;display:flex;gap:12px;padding:14px;border-top:1px solid var(--hairline);align-items:flex-start;transition:background-color 140ms}
+  .crd:first-child{border-top:0}
+  .crd:active{background:var(--soft-2)}
+  .crd .cell{flex:1}.crd .meta{font-size:14px;color:var(--text)}
+  .dock{display:flex;position:absolute;left:0;right:0;bottom:0;z-index:20;padding:10px 16px calc(var(--safe-bottom) + 10px);gap:10px;align-items:center;background:linear-gradient(180deg,rgb(255 255 255/0),#fff 28%)}
+  .dock .search{flex:1;width:auto}.dock .search input{height:48px;border-radius:24px;padding-left:40px;box-shadow:var(--shadow-pop)}.dock .search svg{left:14px}
+  .dock .dst{height:48px;border-radius:24px;padding:0 16px;background:#fff;box-shadow:var(--shadow-pop);font-size:14px;font-weight:500;display:flex;align-items:center;gap:6px;white-space:nowrap}
+  .fab{display:grid;place-items:center;width:52px;height:52px;border-radius:50%;flex:none;color:#fff;background:linear-gradient(180deg,rgb(255 255 255/14%),rgb(255 255 255/0) 55%),var(--cta);box-shadow:var(--shadow-pop);transition:transform 120ms var(--ease-out)}
+  .fab:active{transform:scale(.94)}
+  .fab svg.i{width:22px;height:22px}
+  .sheet{top:calc(var(--safe-top) + 8px);left:0;right:0;width:auto;border-radius:16px 16px 0 0;border-left:0;border-top:1px solid var(--hairline);transform:translateY(100%);transition:transform 200ms var(--ease-drawer),visibility 0s linear 200ms;box-shadow:0 -8px 32px rgb(24 39 60/10%)}
+  .sheet.on{transform:none;transition:transform 320ms var(--ease-drawer),visibility 0s}
+  .sheet.b{top:calc(var(--safe-top) + 24px)}
+  .sh-head{padding-top:22px}
+  .sh-head::before{content:"";position:absolute;left:50%;top:8px;width:36px;height:5px;margin-left:-18px;border-radius:3px;background:var(--hairline-2)}
+  .sh-body{padding:16px}
+  .sh-foot{padding:12px 16px calc(12px + var(--safe-bottom))}
+  .sh-foot .btn,.edit .btns .btn,.dlg .btns .btn{height:44px}
+  .btn.sm{height:36px}
+  .tb{height:44px}.tb.sq{width:44px}
+  .facts{grid-template-columns:1fr 1fr;gap:14px 20px}
+  .g2{grid-template-columns:1fr}
+  .in input,.in select{height:44px}
+  .toast{bottom:calc(86px + var(--safe-bottom))}
+  .res .lrow{flex-wrap:wrap}.res .lrow code{flex-basis:100%}
+  .vabar{padding-top:calc(var(--safe-top) + 6px)}
+  .sh-tabs button{height:44px}
+}
+@media (prefers-reduced-motion:reduce){
+  .sheet,.menu,.toast,.dlg .card,.frame.invitee.on{transition:opacity 120ms linear!important;animation:none!important}
+  .sheet,.sheet.on{transform:none!important}
+  .toast,.toast.on{transform:translateX(-50%)!important}
+  .page.swap,.sh-body.swap>*,.res.rise,.join.rise>*,.tl .ev.new,.pc-wrap.pop,.tr.flash{animation:fadeonly 160ms linear both!important}
+  @keyframes fadeonly{from{opacity:0}}
+  .edit,.pc-wrap,.qrp{transition:opacity 120ms linear!important}
+}
+</style>
+</head>
+<body>
+<div class="top">
+  <div class="brand">
+    <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7.5" fill="#111214"/><path d="M18.2 11.6A6.5 6.5 0 1 0 18.2 20.4" fill="none" stroke="#fff" stroke-width="3.6" stroke-linecap="round"/><circle cx="23.4" cy="16" r="2.2" fill="#2563eb"/></svg>
+    Central · System › Users › Add account
+  </div>
+  <div class="grp">Admin <div class="segd" id="dDevice"><button data-v="desktop" class="on">Desktop</button><button data-v="phone">Phone</button></div></div>
+  <div class="grp">Data <div class="segd" id="dData"><button data-v="normal" class="on">Normal</button><button data-v="worst">Worst case</button></div></div>
+</div>
+<div class="top" style="padding-top:8px">
+  <div class="grp">Invitee's phone
+    <select class="dsel" id="dOpen" aria-label="Open a link as the invitee"></select>
+    <button class="dbtn" id="dCloseInv">Close</button>
+  </div>
+  <button class="dbtn" id="dSample" style="margin-left:auto">Add account with a sample sheet</button>
+  <button class="dbtn" id="dReset">Reset</button>
+</div>
+
+<div class="stage" id="stage">
+  <div class="frame admin" id="admin">
+    <div id="app" style="display:flex;flex:1;min-width:0"></div>
+    <div class="veil" id="veil" data-act="veil"></div>
+    <div class="sheet" id="shA" role="dialog" aria-modal="true"></div>
+    <div class="sheet b" id="shB" role="dialog" aria-modal="true"></div>
+    <div class="menu" id="menu" role="menu"></div>
+    <div class="dlg" id="dlg" data-act="dlg-bg"><div class="card" id="dlgCard" role="dialog" aria-modal="true"></div></div>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  </div>
+  <div class="frame phone invitee" id="invitee"><div id="joinApp" style="display:flex;flex:1;flex-direction:column;min-width:0"></div></div>
+</div>
+<div class="try">
+  <span>Type <b>Dewi Anggraini</b> (has a login) or <b>Putri Handayani</b> / <b>Rizky Maulana</b> (HR record, no login) as a name.</span>
+  <span>In a result, click the link text to open it on the invitee's phone. Two-step code <code>123456</code>.</span>
+</div>
+<script>
+(()=>{'use strict';
+const $=(s,r=document)=>r.querySelector(s),$$=(s,r=document)=>[...r.querySelectorAll(s)];
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const reduce=()=>matchMedia('(prefers-reduced-motion: reduce)').matches;
+const ADMIN=$('#admin');
+
+/* ── icons (Lucide, the set the hub uses) ─────────────────────────────── */
+const IC={
+ x:'<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+ check:'<path d="M20 6 9 17l-5-5"/>',
+ plus:'<path d="M5 12h14"/><path d="M12 5v14"/>',
+ chevd:'<path d="m6 9 6 6 6-6"/>',
+ chevl:'<path d="m15 18-6-6 6-6"/>',
+ search:'<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+ dots:'<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
+ copy:'<rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
+ download:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/>',
+ upload:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/>',
+ qr:'<rect width="5" height="5" x="3" y="3" rx="1"/><rect width="5" height="5" x="16" y="3" rx="1"/><rect width="5" height="5" x="3" y="16" rx="1"/><path d="M21 16h-3a2 2 0 0 0-2 2v3"/><path d="M21 21v.01"/><path d="M12 7v3a2 2 0 0 1-2 2H7"/><path d="M3 12h.01"/><path d="M12 3h.01"/><path d="M12 16v.01"/><path d="M16 12h1"/><path d="M21 12v.01"/><path d="M12 21v-1"/>',
+ msg:'<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+ eye:'<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/>',
+ eyeoff:'<path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"/><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"/><path d="m2 2 20 20"/>',
+ alert:'<circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/>',
+ info:'<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
+ refresh:'<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>',
+ user:'<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+ logout:'<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/>',
+ finger:'<path d="M12 10a2 2 0 0 0-2 2c0 1.02-.1 2.51-.26 4"/><path d="M14 13.12c0 2.38 0 6.38-1 8.88"/><path d="M17.29 21.02c.12-.6.43-2.3.5-3.02"/><path d="M2 12a10 10 0 0 1 18-6"/><path d="M2 16h.01"/><path d="M21.8 16c.2-2 .131-5.354 0-6"/><path d="M5 19.5C5.5 18 6 15 6 12a6 6 0 0 1 .34-2"/><path d="M8.65 22c.21-.66.45-1.32.57-2"/><path d="M9 6.8a6 6 0 0 1 9 5.2v2"/>',
+ monitor:'<rect width="20" height="14" x="2" y="3" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/>',
+ phone:'<rect width="14" height="20" x="5" y="2" rx="2"/><path d="M12 18h.01"/>',
+ home:'<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+ tag:'<path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/>',
+ box:'<path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"/><path d="M12 22V12"/><path d="m3.3 7 8.7 5 8.7-5"/>',
+ truck:'<path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/>',
+ mega:'<path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/>',
+ cart:'<circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/>',
+ wallet:'<path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/>',
+ users:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+ gear:'<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
+ key:'<path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/>',
+};
+const ic=n=>`<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${IC[n]}</svg>`;
+
+/* ── time, as the hub writes it (dates with the year) ─────────────────── */
+const NOW=new Date(2026,9,11,10,30);
+const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const p2=n=>String(n).padStart(2,'0');
+const day=d=>`${p2(d.getDate())} ${MON[d.getMonth()]} ${d.getFullYear()}`;
+const hm=d=>`${p2(d.getHours())}:${p2(d.getMinutes())}`;
+const moment=d=>`${day(d)}, ${hm(d)}`;
+const plus=h=>new Date(NOW.getTime()+h*3600e3);
+function rel(d){
+  const h=Math.round((d-NOW)/3600e3),a=Math.abs(h),w=a<1?'under an hour':a<48?`${a} hours`:`${Math.round(a/24)} days`;
+  return h>=0?`in ${w}`:`${w} ago`;
+}
+
+/* ── the company's roles, units, accounts (seed; Reset restores it) ───── */
+const ROLES=[
+ {code:'OWNER',name:'Owner',kind:'any',all:true},
+ {code:'ADMIN',name:'Admin',kind:'any',all:true},
+ {code:'FINANCE',name:'Finance',kind:'ho',sections:['Finance','Reports']},
+ {code:'MERCHANDISE',name:'Merchandise',kind:'ho',sections:['Merchandise','Sales','Reports']},
+ {code:'PROCUREMENT',name:'Procurement',kind:'ho',sections:['Procurement','Inventory']},
+ {code:'OPERATIONS',name:'Operations',kind:'ho',sections:['Operations','Inventory']},
+ {code:'INVENTORY',name:'Inventory',kind:'ho',sections:['Inventory','Reports']},
+ {code:'STORE_MANAGER',name:'Store manager',kind:'store',sections:['Stores','Sales','People'],servers:'unit'},
+ {code:'STORE_SUPERVISOR',name:'Store supervisor',kind:'store',sections:['Stores'],servers:'unit'},
+ {code:'CASHIER',name:'Cashier',kind:'store',sections:[],servers:'unit'},
+ {code:'STORE_STAFF',name:'Store staff',kind:'store',sections:[],servers:'unit'},
+ {code:'MARKETING',name:'Marketing',kind:'ho',sections:['Marketing','Sales']},
+ {code:'HR',name:'HR',kind:'ho',sections:['People']},
+ {code:'GA',name:'GA',kind:'ho',sections:['GA']},
+ {code:'AUDITOR',name:'Auditor',kind:'ho',sections:['Finance','Reports','Sales'],readOnly:true},
+ {code:'IT',name:'IT / Support',kind:'ho',sections:['System'],servers:'every'},
+];
+const UNITS=[
+ {id:'ho',name:'Head office',kind:'ho'},{id:'dc',name:'Warehouse',kind:'ho'},
+ {id:'s03',name:'Store 03',kind:'store'},{id:'s07',name:'Store 07',kind:'store'},{id:'s12',name:'Store 12',kind:'store'},{id:'s15',name:'Store 15',kind:'store'},{id:'s21',name:'Store 21',kind:'store'},
+];
+const roleOf=c=>ROLES.find(r=>r.code===c),unitOf=i=>UNITS.find(u=>u.id===i);
+const unitsFor=c=>{const r=roleOf(c);return !r||r.kind==='any'?UNITS:UNITS.filter(u=>u.kind===r.kind)};
+const accessText=r=>r.all?'everything':r.sections.length?r.sections.join(', ')+(r.readOnly?' (read only)':''):'the store app and POS';
+const serversText=(r,u)=>r.servers==='every'?'Every store and warehouse server':r.servers==='unit'?(u&&u.kind==='store'?`${u.name} server`:'The server of their unit'):'None';
+const NAMES={rina:'Rina Wijaya'};
+const WORST={
+ a1:{name:'Muhammad Alexander Wijayakusuma-Hendrawan Santoso',user:'muhammad.alexander.wijayakusuma.hendrawan',role:'Regional Operations and Logistics Manager (acting)'},
+ a2:{name:'李小龍',user:'xiaolong'},a3:{name:'Q',user:'q'},a4:{name:'🚀 Dewi 🎉 Anggraini',user:'dewi'},
+};
+let ACC=[],HR=[],SEQ=0,TOKEN=0;
+const mkDev=(n)=>[
+ {id:1,name:'Chrome on Windows',place:'Surabaya, ID',when:n?'Active now':'3 hours ago'},
+ {id:2,name:'Safari on iPhone',place:'Surabaya, ID',when:'Yesterday'}];
+function seed(){
+  const A=(o)=>Object.assign({position:'',emp:null,empStatus:'ACTIVE',active:true,last:null,created:plus(-24*60),by:'Rina Wijaya',two:false,needTwo:false,ends:null,lockedUntil:null,pwChanged:plus(-24*21),mustChange:false,passkeys:[],devices:mkDev(),inv:null,events:[],c:0},o);
+  ACC=[
+   A({id:'a1',user:'rina',name:'Rina Wijaya',role:'ADMIN',unit:'ho',position:'Finance director',emp:'E-0001',last:plus(-1),created:plus(-24*300),by:'Setup',two:true,passkeys:[{id:1,name:'MacBook Pro',added:'12 Sep 2026'}],c:0,events:[['Signed in',plus(-1)],['Account created by Setup',plus(-24*300)]]}),
+   A({id:'a2',user:'maya',name:'Maya Putri',role:'STORE_MANAGER',unit:'s07',position:'Store manager',emp:'E-0042',last:plus(-3),created:plus(-24*180),c:1,events:[['Signed in',plus(-3)],['Joined from an invitation link',plus(-24*180)]]}),
+   A({id:'a3',user:'bimo',name:'Bimo Santoso',role:'CASHIER',unit:'s07',emp:'E-0128',last:plus(-26),created:plus(-24*90),c:2,events:[['Signed in',plus(-26)],['Joined from an invitation link',plus(-24*90)]]}),
+   A({id:'a4',user:'dewi',name:'Dewi Anggraini',role:'CASHIER',unit:'s12',emp:'E-0231',last:plus(-50),created:plus(-24*60),lockedUntil:plus(.4),c:3,events:[['Locked after too many wrong passwords',plus(-.1)],['Signed in',plus(-50)],['Joined from an invitation link',plus(-24*60)]]}),
+   A({id:'a5',user:'sari',name:'Sari Handayani',role:'STORE_SUPERVISOR',unit:'s03',emp:'E-0077',active:false,last:plus(-24*14),created:plus(-24*120),c:4,events:[['Blocked by Rina Wijaya',plus(-24*13)],['Signed in',plus(-24*14)]]}),
+   A({id:'a6',user:'andi',name:'Andi Pratama',role:'FINANCE',unit:'ho',emp:'E-0019',empStatus:'TERMINATED',last:plus(-24*9),created:plus(-24*400),c:0,events:[['Employment ended in HR',plus(-24*8)],['Signed in',plus(-24*9)]]}),
+   A({id:'a7',user:'dc-sync',name:'DC sync',role:'OPERATIONS',unit:'dc',emp:null,last:plus(-.05),created:plus(-24*250),c:1,events:[['Signed in',plus(-.05)]],devices:[{id:1,name:'Warehouse server',place:'Surabaya, ID',when:'Active now'}]}),
+   A({id:'a8',user:'tono',name:'Tono Prasetyo',role:'CASHIER',unit:'s03',emp:'E-0150',last:plus(-5),created:plus(-24*45),c:2,events:[['Signed in',plus(-5)]]}),
+   A({id:'a9',user:'lina',name:'Lina Marlina',role:'MARKETING',unit:'ho',position:'Campaign lead',emp:'E-0063',last:plus(-30),created:plus(-24*210),c:3,events:[['Signed in',plus(-30)]]}),
+   A({id:'a10',user:'yusuf',name:'Yusuf Ibrahim',role:'OPERATIONS',unit:'dc',position:'Picker lead',emp:'E-0099',last:plus(-2),created:plus(-24*150),c:4,events:[['Signed in',plus(-2)]]}),
+   A({id:'i1',user:'',name:'Ayu Lestari',role:'CASHIER',unit:'s12',emp:'E-0412x',created:plus(-26),inv:{token:'ayuK7QpR2mXz9TfLw3NbVd',expires:plus(46),status:'pending'},c:2,events:[['Invitation link created',plus(-26)]]}),
+   A({id:'i2',user:'',name:'Hendra Wijaya',role:'MERCHANDISE',unit:'ho',position:'Buyer',emp:'E-0413x',created:plus(-52),inv:{token:'hndQ4WvC8sJe1ZyUa6Mtrg',expires:plus(20),status:'pending'},c:0,events:[['Invitation link created',plus(-52)]]}),
+   A({id:'i3',user:'',name:'Rizal Hakim',role:'STORE_STAFF',unit:'s15',emp:'E-0398x',created:plus(-24*5),inv:{token:'rzlB3HnX7kPd5GcEo2Yfuj',expires:plus(-30),status:'pending'},c:1,events:[['Invitation link created',plus(-24*5)]]}),
+  ];
+  HR=[
+   {code:'E-0412',name:'Putri Handayani',role:'CASHIER',unit:'s07'},
+   {code:'E-0388',name:'Rizky Maulana',role:'PROCUREMENT',unit:'ho'},
+  ];
+  SEQ=20;TOKEN=0;
+}
+const view=(a,k)=>S.data==='worst'&&WORST[a.id]&&WORST[a.id][k]!==undefined?WORST[a.id][k]:a[k];
+const nm=a=>view(a,'name'),usr=a=>view(a,'user');
+const roleName=a=>WORST[a.id]&&S.data==='worst'&&WORST[a.id].role?WORST[a.id].role:roleOf(a.role).name;
+const first=a=>nm(a).trim().split(/\s+/)[0];
+const initial=a=>Array.from(nm(a).trim())[0]||'?';
+const avatar=(a,sz=36)=>`<span class="av" data-c="${a.c%5}" style="--sz:${sz}px">${esc(initial(a))}</span>`;
+function stOf(a){
+  if(a.inv&&a.inv.status==='revoked')return 'revoked';
+  if(a.inv&&a.inv.status==='pending')return a.inv.expires<NOW?'expired':'invited';
+  if(!a.active)return 'blocked';
+  if(a.empStatus==='TERMINATED')return 'left';
+  if(a.lockedUntil&&a.lockedUntil>NOW)return 'locked';
+  return 'active';
+}
+const STAT={revoked:['','Revoked'],active:['ok','Active'],invited:['info','Invited'],expired:['','Invite expired'],locked:['warn','Locked'],blocked:['bad','Blocked'],left:['bad','Left, still open']};
+const stHTML=k=>`<span class="st ${STAT[k][0]}"><i></i>${STAT[k][1]}</span>`;
+
+/* ── state ────────────────────────────────────────────────────────────── */
+const S={device:'desktop',data:'normal',filter:'all',q:'',A:null,B:null,viewAs:null,scale:1,flash:null};
+const sh={A:$('#shA'),B:$('#shB')};
+let tt;function toast(msg){const t=$('#toast');t.innerHTML=ic('check')+`<span>${esc(msg)}</span>`;t.classList.add('on');clearTimeout(tt);tt=setTimeout(()=>t.classList.remove('on'),3000)}
+function shake(el){if(reduce()||!el)return;el.animate([{transform:'none'},{transform:'translateX(-6px)'},{transform:'translateX(5px)'},{transform:'translateX(-3px)'},{transform:'translateX(2px)'},{transform:'none'}],{duration:360,easing:'cubic-bezier(.23,1,.32,1)'})}
+const later=(fn,ms)=>setTimeout(fn,ms);
+
+/* ── the shell and the list ───────────────────────────────────────────── */
+const RAIL=[['home','Home'],['tag','Merchandise'],['box','Inventory'],['truck','Operations'],['mega','Marketing'],['cart','Buying'],['wallet','Finance'],['users','People']];
+const me=()=>ACC.find(a=>a.id==='a1');
+const logo=(w)=>`<svg class="mk" viewBox="0 0 32 32" aria-hidden="true" style="${w||''}"><rect width="32" height="32" rx="7.5" fill="#111214"/><rect x=".5" y=".5" width="31" height="31" rx="7" fill="none" stroke="rgb(255 255 255/10%)"/><path d="M18.2 11.6A6.5 6.5 0 1 0 18.2 20.4" fill="none" stroke="#fff" stroke-width="3.6" stroke-linecap="round"/><circle cx="23.4" cy="16" r="2.2" fill="#2563eb"/></svg>`;
+function railHTML(a,role){
+  return `<aside class="rail">${logo()}<nav class="rnav" aria-label="Departments">${RAIL.map(r=>`<a>${ic(r[0])}<span>${r[1]}</span></a>`).join('')}<a>${ic('gear')}<span>System</span></a></nav>
+  <div class="acc">${avatar(a,30)}<span class="tx"><b>${esc(nm(a))}</b><span>${esc(role)}</span></span></div></aside>`;
+}
+const FILTERS=[['all','All'],['active','Active'],['invited','Invited'],['blocked','Blocked']];
+function appHTML(){
+  if(S.viewAs){
+    const a=ACC.find(x=>x.id===S.viewAs),r=roleOf(a.role);
+    return `<div class="shell">${railHTML(a,r.name)}<div class="main"><div class="vabar on" id="vabar">${ic('alert')}<span>Signed in as ${esc(nm(a))}. Everything you do here is recorded as ${esc(nm(me()))}.</span><button class="btn sm" data-act="exit-viewas">Exit</button></div>
+      <header class="phonebar"><h1>Home</h1></header>
+      <div class="page"><div class="jhome"><h2>Good morning, ${esc(first(a))}</h2><p class="sub">${esc(r.name)} · ${esc(unitOf(a.unit).name)}</p>
+      <div class="list">${(r.all?['Everything']:r.sections.length?r.sections:['Store app and POS']).map(s=>`<div>${s}<span>Open</span></div>`).join('')}</div></div></div></div></div>`;
+  }
+  const m=me();
+  return `<div class="shell">${railHTML(m,'Admin')}<div class="main">
+   <header class="phonebar"><h1>Users</h1></header>
+   <div class="page" id="page">
+    <div class="ph"><div><div class="crumb">System</div><h1>Users</h1></div><button class="btn primary" data-act="add">${ic('plus')}Add account</button></div>
+    <div class="toolbar"><div class="search">${ic('search')}<input id="q" data-in="q" placeholder="Search accounts" aria-label="Search accounts" value="${esc(S.q)}"></div>
+      <div class="seg2" id="segf">${FILTERS.map(f=>`<button data-act="filter" data-v="${f[0]}" class="${S.filter===f[0]?'on':''}">${f[1]}</button>`).join('')}</div><span class="sp"></span><span class="cnt" id="cnt"></span></div>
+    <div class="tbl" id="tbl"></div><div class="cards" id="cards"></div>
+   </div>
+   <div class="dock"><div class="search">${ic('search')}<input data-in="q" placeholder="Search accounts" aria-label="Search accounts" value="${esc(S.q)}"></div>
+     <button class="dst" data-act="dock-state" id="dst">${FILTERS.find(f=>f[0]===S.filter)[1]}${ic('chevd')}</button>
+     <button class="fab" data-act="add" aria-label="Add account">${ic('plus')}</button></div>
+  </div></div>`;
+}
+function visible(){
+  const q=S.q.trim().toLowerCase();
+  return ACC.filter(a=>{
+    const k=stOf(a);
+    if(k==='revoked')return false;
+    if(S.filter==='active'&&!['active','locked','left'].includes(k))return false;
+    if(S.filter==='invited'&&!['invited','expired'].includes(k))return false;
+    if(S.filter==='blocked'&&k!=='blocked')return false;
+    if(q&&![nm(a),usr(a),roleName(a),unitOf(a.unit).name].join(' ').toLowerCase().includes(q))return false;
+    return true;
+  }).sort((x,y)=>y.created-x.created);
+}
+function personCell(a,k){
+  const sub=k==='invited'?'Not joined yet':k==='expired'?`Link expired ${rel(a.inv.expires)}`:`<span class="mono">${esc(usr(a))}</span>${a.emp===null?' · no employee record':''}`;
+  return `<b>${esc(nm(a))}</b><span class="${k==='expired'?'warn':''}">${sub}</span>`;
+}
+function renderList(){
+  const rows=visible(),sel=S.A&&S.A.kind==='account'?S.A.id:S.B&&S.B.kind==='account'?S.B.id:null;
+  const cnt=$('#cnt');if(!cnt)return;cnt.textContent=`${rows.length} account${rows.length===1?'':'s'}`;
+  const dst=$('#dst');if(dst)dst.innerHTML=FILTERS.find(f=>f[0]===S.filter)[1]+ic('chevd');
+  $$('#segf button').forEach(b=>b.classList.toggle('on',b.dataset.v===S.filter));
+  $('#tbl').innerHTML=rows.length?`<div class="th"><span>Person</span><span>Job role</span><span>State</span><span class="r">Last sign-in</span><span class="r">Created</span></div>`+
+    rows.map(a=>{const k=stOf(a);return `<button class="tr${sel===a.id?' on':''}${S.flash===a.id?' flash':''}" data-act="open" data-id="${a.id}"><span class="cell">${personCell(a,k)}</span><span class="cell plain">${esc(roleName(a))}</span>${stHTML(k)}<span class="cell plain r">${a.last?day(a.last):'Never'}</span><span class="cell plain r">${day(a.created)}</span></button>`}).join(''):`<div class="empty">No accounts match.</div>`;
+  $('#cards').innerHTML=rows.length?rows.map(a=>{const k=stOf(a);return `<button class="crd${S.flash===a.id?' flash':''}" data-act="open" data-id="${a.id}"><span class="cell">${personCell(a,k)}<span class="meta">${esc(roleName(a))}</span><span>${a.last?`Signed in ${day(a.last)}`:'Never signed in'}</span></span>${stHTML(k)}</button>`}).join(''):`<div class="empty">No accounts match.</div>`;
+  S.flash=null;
+}
+function renderApp(){$('#app').innerHTML=appHTML();if(!S.viewAs)renderList()}
+
+/* ── sheets: right drawers on a desk, bottom sheets on a phone ────────── */
+function paint(which,spec,swap){
+  const el=sh[which];el.dataset.kind=spec.kind;
+  el.style.setProperty('--w',(spec.size==='wide'?900:480)+'px');
+  const tabs=spec.tabs?`<div class="sh-tabs" role="tablist">${spec.tabs.map(t=>`<button role="tab" class="${spec.tab===t.k?'on':''}" data-act="tab" data-t="${t.k}" aria-selected="${spec.tab===t.k}">${t.t}</button>`).join('')}</div>`:'';
+  const head=`<div class="sh-head"><div class="tt">${spec.back?`<button class="back" data-act="sheet-back">${ic('chevl')}${esc(spec.back)}</button>`:''}${spec.idText?`<div class="id">${esc(spec.idText)}</div>`:''}<h2>${esc(spec.title)}</h2>${spec.badge?`<div class="bd">${spec.badge}</div>`:''}${spec.caption?`<div class="cap">${esc(spec.caption)}</div>`:''}</div>${spec.more?`<button class="x" data-act="menu" data-menu="${spec.more}" aria-label="More">${ic('dots')}</button>`:''}<button class="x" data-act="close-sheet" aria-label="Close">${ic('x')}</button></div>`;
+  const keep=el.querySelector('.sh-body');const st=keep&&!swap?keep.scrollTop:0;
+  el.innerHTML=head+tabs+`<div class="sh-body${swap&&!reduce()?' swap':''}" id="body-${which}">${spec.body}</div>${spec.foot?`<div class="sh-foot">${spec.foot}</div>`:''}`;
+  if(st)el.querySelector('.sh-body').scrollTop=st;
+}
+const syncVeil=()=>$('#veil').classList.toggle('on',!!(S.A||S.B));
+function showSheet(which){const el=sh[which];void el.offsetWidth;el.classList.add('on');if(which==='B')sh.A.classList.add('under');syncVeil()}
+function hideSheet(which){
+  S[which]=null;sh[which].classList.remove('on');if(which==='B')sh.A.classList.remove('under');syncVeil();closeMenu();
+  later(()=>{if(!S[which])sh[which].innerHTML=''},340);
+  renderList();
+}
+function closeTop(){if(S.B)hideSheet('B');else if(S.A)hideSheet('A')}
+
+/* menu and small dialog */
+function closeMenu(){const m=$('#menu');if(m.classList.contains('on')){m.classList.remove('on')}}
+function openMenu(trigger,items){
+  const m=$('#menu');m.innerHTML=items.map(i=>`<button role="menuitem" class="${i.bad?'bad':''}" data-act="${i.act}" ${i.data||''}>${ic(i.ic)}${i.t}</button>`).join('');
+  const fr=ADMIN.getBoundingClientRect(),tr=trigger.getBoundingClientRect(),k=S.device==='phone'?S.scale:1,h=items.length*38+10;
+  let top=(tr.bottom-fr.top)/k+4,oy='0';if(top+h>fr.height/k-8){top=(tr.top-fr.top)/k-h-4;oy='100%'}
+  m.style.left=Math.max(8,Math.min((tr.right-fr.left)/k-210,fr.width/k-218))+'px';m.style.top=top+'px';m.style.setProperty('--ox','100% '+oy);
+  void m.offsetWidth;m.classList.add('on');
+}
+let dlgOk=null;
+function openDlg(o){
+  $('#dlgCard').innerHTML=`<h3>${esc(o.title)}</h3>${o.body||''}<div class="btns"><button class="btn quiet" data-act="dlg-cancel">Cancel</button><button class="btn ${o.tone||'primary'}" id="dlgOk" data-act="dlg-ok" ${o.disabled?'aria-disabled="true"':''}>${esc(o.ok)}</button></div>`;
+  dlgOk=o.onOk;const d=$('#dlg');void d.offsetWidth;d.classList.add('on');const i=$('#dlgCard input,#dlgCard textarea');if(i)i.focus({preventScroll:true});
+}
+function closeDlg(){$('#dlg').classList.remove('on');dlgOk=null}
+
+/* ── Add account: one door, a link or a password ──────────────────────── */
+const ACT={},IN={},DO={};
+let A=null,KEY=0;
+const LINKBASE='https://central.example/join/';
+const norm=s=>s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
+const newRow=p=>Object.assign({k:++KEY,name:'',role:'',unit:'',position:'',phone:'',ends:'',two:false,user:'',userTouched:false,userOk:false,pw:'',change:true,machine:false,more:false,link:null,dup:null,ignore:false,problem:''},p||{});
+const rowOf=el=>A.rows.find(r=>r.k===+el.dataset.k);
+function newToken(){const c='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';return Array.from({length:22},()=>c[Math.random()*c.length|0]).join('')}
+const genPw=()=>{const c='abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';return Array.from({length:12},()=>c[Math.random()*c.length|0]).join('')};
+const waNum=t=>{const d=t.replace(/\D/g,''),f=d.startsWith('62')?d:d.startsWith('0')?'62'+d.slice(1):d.startsWith('8')?'62'+d:d;return f.length>=10&&f.length<=15?f:null};
+const suggestUser=n=>norm(n).split(' ').filter(Boolean).slice(0,2).join('.');
+const userTaken=(u,r)=>ACC.some(a=>a.user===u)||(A&&A.rows.some(o=>o!==r&&o.user===u));
+const roleOpts=v=>`<option value="">Select…</option>`+ROLES.map(r=>`<option value="${r.code}"${v===r.code?' selected':''}>${esc(r.name)}</option>`).join('');
+const unitOpts=(role,v)=>`<option value="">Select…</option>`+unitsFor(role).map(u=>`<option value="${u.id}"${v===u.id?' selected':''}>${esc(u.name)}</option>`).join('');
+
+/* one person, one account: the name is checked against accounts, pending
+   invitations, HR records without a login, and the other rows */
+function findDup(r){
+  if(r.machine||r.link)return null;
+  const n=norm(r.name);if(n.length<3)return null;
+  if(A.rows.some(o=>o!==r&&norm(o.name)===n))return{kind:'row'};
+  const acc=ACC.find(a=>norm(a.name)===n);
+  if(acc){const k=stOf(acc);return{kind:k==='invited'||k==='expired'?'invited':'account',id:acc.id}}
+  const hr=HR.find(h=>norm(h.name)===n);if(hr)return{kind:'employee',hr};
+  if(n.length>=4){
+    const p=ACC.find(a=>norm(a.name).startsWith(n));if(p)return{kind:'maybe',id:p.id};
+    const h2=HR.find(h=>norm(h.name).startsWith(n));if(h2)return{kind:'employee',hr:h2};
+  }
+  return null;
+}
+const blocking=r=>!!r.dup&&!r.ignore&&['account','invited','row'].includes(r.dup.kind);
+function dupHTML(r){
+  if(r.link){const h=r.link;return `<div class="dupline info"><span class="sp">Linked to HR record ${h.code}, ${esc(roleOf(h.role).name)} at ${esc(unitOf(h.unit).name)}.</span><button class="tb" data-act="unlink" data-k="${r.k}">Unlink</button></div>`}
+  const d=r.dup;if(!d||r.ignore)return '';
+  if(d.kind==='row')return `<div class="dupline bad"><span class="sp">This name is in another row.</span></div>`;
+  if(d.kind==='account'||d.kind==='invited'||d.kind==='maybe'){
+    const a=ACC.find(x=>x.id===d.id);
+    const msg=d.kind==='account'?`${esc(nm(a))} already has the login <b class="mono">${esc(usr(a))}</b>.`:d.kind==='invited'?`${esc(nm(a))} was invited ${rel(a.created)}.`:`Is this ${esc(nm(a))}? Login <b class="mono">${esc(usr(a))}</b>.`;
+    return `<div class="dupline ${d.kind==='maybe'?'info':'bad'}"><span class="sp">${msg}</span><button class="tb" data-act="open-from-add" data-id="${a.id}">Open account</button>${d.kind==='maybe'?`<button class="tb mute" data-act="not-them" data-k="${r.k}">Not them</button>`:''}</div>`;
+  }
+  if(d.kind==='employee'){
+    const h=d.hr;
+    return `<div class="dupline info"><span class="sp">${esc(h.name)} is in HR as ${esc(roleOf(h.role).name)} at ${esc(unitOf(h.unit).name)}, with no login.</span><button class="tb" data-act="use-hr" data-k="${r.k}">Use this record</button><button class="tb mute" data-act="not-them" data-k="${r.k}">Not them</button></div>`;
+  }
+  return '';
+}
+function prevHTML(r){
+  if(r.problem)return `<div class="note bad">${esc(r.problem)}</div>`;
+  const role=roleOf(r.role);if(!role)return '';
+  if(role.all)return `<div class="note warn">Can change everything, including other accounts.</div>`;
+  return `<div class="note">Sees ${esc(accessText(role))}${role.servers==='unit'?' · signs in at the server of their store':role.servers==='every'?' · signs in at every server':''}</div>`;
+}
+function rowHTML(r,idx,o={}){
+  const pw=A.mode==='password';
+  return `<div class="pc-wrap${o.pop?' pop':''}${o.instant?' instant':''}" data-wrap="${r.k}"><div>
+  <div class="pc${blocking(r)?' bad':''}" data-pc="${r.k}">
+   ${A.rows.length>1?`<div class="pc-top"><span class="n">Person ${idx+1}</span><button class="tb sq" data-act="rm-row" data-k="${r.k}" aria-label="Remove person ${idx+1}">${ic('x')}</button></div>`:''}
+   <div class="g2">
+    <div class="f c2"><div class="lb">${r.machine?'Account name':'Name'}<em>*</em></div><div class="in"><input data-in="name" data-k="${r.k}" aria-label="Name" value="${esc(r.name)}" ${r.link?'readonly':''} autocomplete="off"></div></div>
+    <div class="c2" data-dup="${r.k}">${dupHTML(r)}</div>
+    <div class="f"><div class="lb">Job role<em>*</em></div><div class="in"><select required data-in="role" data-k="${r.k}" aria-label="Job role">${roleOpts(r.role)}</select></div></div>
+    <div class="f"><div class="lb">Unit<em>*</em></div><div class="in"><select required data-in="unit" data-k="${r.k}" aria-label="Unit">${unitOpts(r.role,r.unit)}</select></div></div>
+    <div class="c2" data-prev="${r.k}">${prevHTML(r)}</div>
+    ${pw?'':`<div class="f c2"><div class="lb">WhatsApp number<em>*</em></div><div class="in"><input data-in="phone" data-k="${r.k}" type="tel" aria-label="WhatsApp number" placeholder="0812 3456 7890" value="${esc(r.phone)}" autocomplete="off"></div><div class="hint bad" data-phh="${r.k}"></div></div>`}
+    ${pw?`<div class="f"><div class="lb">Username<em>*</em></div><div class="in mono${r.userOk?' ok':''}" data-uin="${r.k}"><input data-in="user" data-k="${r.k}" aria-label="Username" value="${esc(r.user)}" autocomplete="off" autocapitalize="none" spellcheck="false"><span class="tick" ${r.userOk?'':'hidden'}>${ic('check')}</span></div><div class="hint ${r.uhint?'bad':''}" data-uh="${r.k}">${esc(r.uhint||'')}</div></div>
+    <div class="f"><div class="lb">Password<em>*</em><button class="tb" data-act="gen" data-k="${r.k}">Generate</button></div><div class="in"><input class="pwi" data-in="pw" data-k="${r.k}" aria-label="Password" type="password" value="${esc(r.pw)}" autocomplete="new-password"><button class="eye" data-act="reveal" aria-label="Show password">${ic('eye')}</button></div><div class="hint" data-ph="${r.k}">8 or more characters.</div></div>`:''}
+    <div class="c2"><button class="moreb" data-act="more" data-k="${r.k}" aria-expanded="${r.more}">More options${ic('chevd')}</button>
+     <div class="edit${r.more?' on':''}" data-more="${r.k}"><div><div class="inner">
+      <div class="g2"><div class="f"><div class="lb">Position</div><div class="in"><input data-in="pos" data-k="${r.k}" aria-label="Position" value="${esc(r.position)}" autocomplete="off"></div></div>
+      <div class="f"><div class="lb">Access ends</div><div class="in"><input type="date" data-in="ends" data-k="${r.k}" aria-label="Access ends" value="${esc(r.ends)}"></div></div></div>
+      <label class="chk"><input type="checkbox" data-in="two" data-k="${r.k}" ${r.two?'checked':''}>Require two-step sign-in</label>
+      ${pw?`<label class="chk"><input type="checkbox" data-in="change" data-k="${r.k}" ${r.change?'checked':''}>Ask for a new password at first sign-in</label>
+      <label class="chk"><input type="checkbox" data-in="machine" data-k="${r.k}" ${r.machine?'checked':''}>Machine account, no person</label>`:''}
+     </div></div></div></div>
+   </div>
+  </div></div></div>`;
+}
+function composerBody(){
+  const pw=A.mode==='password';
+  return `<div class="how"><span class="lbl">How</span><div class="seg2" id="segm"><button data-act="mode" data-m="link" class="${pw?'':'on'}">Send a link</button><button data-act="mode" data-m="password" class="${pw?'on':''}">Set a password</button></div></div>
+  <div id="rows" style="display:flex;flex-direction:column;gap:12px">${A.rows.map((r,i)=>rowHTML(r,i)).join('')}</div>
+  <button class="addrow" data-act="add-row">${ic('plus')}Add another person</button>
+  <div><button class="moreb" data-act="paste-toggle" aria-expanded="${A.paste}">Paste from a spreadsheet${ic('chevd')}</button>
+   <div class="edit${A.paste?' on':''}" id="pasteE"><div><div class="inner"><div class="f"><div class="in"><textarea id="pasteTa" data-in="paste" aria-label="Rows to paste" placeholder="Name, Job role, Unit, WhatsApp number — one person per line">${esc(A.pasteText)}</textarea></div></div><div class="btns"><button class="btn sm primary" data-act="paste-add">Add these rows</button></div></div></div></div></div>
+  <div class="f" id="expiryF" ${pw?'hidden':''} style="max-width:260px"><div class="lb">Link valid for</div><div class="in"><select data-in="expiry" aria-label="Link valid for"><option value="24"${A.expiry==='24'?' selected':''}>24 hours</option><option value="72"${A.expiry==='72'?' selected':''}>72 hours</option><option value="168"${A.expiry==='168'?' selected':''}>7 days</option></select></div></div>`;
+}
+const addFoot=()=>`<span class="sp"></span><button class="btn quiet" data-act="close-sheet">Cancel</button><button class="btn primary" id="submitBtn" data-act="submit-add" aria-disabled="true">Submit</button>`;
+function rowReady(r){
+  if(!r.name.trim()||!r.role||!r.unit||blocking(r))return false;
+  if(A.mode==='password'&&(!r.userOk||r.pw.length<8))return false;
+  if(A.mode==='link'&&waNum(r.phone)===null)return false;
+  return true;
+}
+function refreshSubmit(){const b=$('#submitBtn');if(b&&A&&!A.result)b.setAttribute('aria-disabled',String(!A.rows.every(rowReady)||A.busy))}
+function paintAdd(swap){paint('A',{kind:'add',size:'wide',title:'Add account',body:composerBody(),foot:addFoot()},swap);refreshSubmit()}
+function openAdd(opts={}){
+  A={mode:'link',rows:[newRow()],expiry:'72',paste:!!opts.paste,pasteText:opts.text||'',result:null,busy:false};
+  S.A={kind:'add'};paintAdd();showSheet('A');
+  if(opts.text)later(()=>ACT['paste-add'](),380);
+  else later(()=>{const i=$('#shA input[data-in=name]');if(i)i.focus({preventScroll:true})},340);
+}
+ACT.add=()=>{closeMenu();if(S.A&&S.A.kind==='add'&&!(A&&A.result)){return}openAdd()};
+ACT.mode=t=>{
+  const m=t.dataset.m;if(A.mode===m)return;A.mode=m;
+  $$('#segm button').forEach(b=>b.classList.toggle('on',b.dataset.m===m));
+  $('#expiryF').hidden=m==='password';
+  const wrap=$('#rows');const h0=wrap.offsetHeight;
+  wrap.innerHTML=A.rows.map((r,i)=>rowHTML(r,i,{instant:true})).join('');
+  if(m==='password')A.rows.forEach(r=>{if(!r.userTouched&&!r.machine&&r.name&&!r.user){r.user=suggestUser(r.name);checkUser(r,true)}});
+  refreshSubmit();
+};
+ACT['add-row']=(t,e)=>{
+  const r=newRow();
+  A.rows.push(r);const kb=e&&e.detail===0;
+  const box=document.createElement('div');box.innerHTML=rowHTML(r,A.rows.length-1,{pop:!kb,instant:kb});
+  $('#rows').appendChild(box.firstElementChild);renumber();refreshSubmit();
+  const i=$(`[data-wrap="${r.k}"] input[data-in=name]`);if(i){i.focus({preventScroll:true});i.scrollIntoView({block:'nearest',behavior:kb||reduce()?'auto':'smooth'})}
+};
+function renumber(){
+  $$('#rows .pc-wrap').forEach((w,i)=>{
+    const pc=$('.pc',w),top=$('.pc-top',pc);
+    if(A.rows.length>1&&!top){const k=w.dataset.wrap;pc.insertAdjacentHTML('afterbegin',`<div class="pc-top"><span class="n"></span><button class="tb sq" data-act="rm-row" data-k="${k}">${ic('x')}</button></div>`)}
+    if(A.rows.length===1&&top)top.remove();
+    const n=$('.pc-top .n',pc);if(n)n.textContent=`Person ${i+1}`;
+    const b=$('.pc-top .tb',pc);if(b)b.setAttribute('aria-label',`Remove person ${i+1}`);
+  });
+}
+ACT['rm-row']=t=>{
+  const r=rowOf(t);if(!r)return;if(A.rows.length===1){return}
+  const w=$(`[data-wrap="${r.k}"]`);A.rows=A.rows.filter(x=>x!==r);
+  A.rows.forEach(o=>{if(o.dup&&o.dup.kind==='row'){o.dup=findDup(o);paintDup(o)}});
+  const done=()=>{w.remove();renumber();refreshSubmit()};
+  if(reduce()){done();return}
+  w.classList.add('gone');later(done,230);
+};
+ACT.more=t=>{const r=rowOf(t);r.more=!r.more;t.setAttribute('aria-expanded',r.more);$(`[data-more="${r.k}"]`).classList.toggle('on',r.more)};
+ACT['paste-toggle']=t=>{A.paste=!A.paste;t.setAttribute('aria-expanded',A.paste);$('#pasteE').classList.toggle('on',A.paste);if(A.paste)later(()=>$('#pasteTa').focus({preventScroll:true}),120)};
+ACT.reveal=t=>{const i=$('input',t.parentElement),on=i.type==='password';i.type=on?'text':'password';t.innerHTML=ic(on?'eyeoff':'eye');t.setAttribute('aria-label',on?'Hide password':'Show password')};
+ACT.gen=t=>{const r=rowOf(t),i=$(`[data-wrap="${r.k}"] input[data-in=pw]`);r.pw=genPw();i.value=r.pw;i.type='text';const eye=$('.eye',i.parentElement);eye.innerHTML=ic('eyeoff');pwHint(r);refreshSubmit()};
+ACT['use-hr']=t=>{
+  const r=rowOf(t),h=r.dup.hr;r.link=h;r.name=h.name;r.role=h.role;r.unit=h.unit;r.dup=null;r.problem='';
+  const w=$(`[data-wrap="${r.k}"]`);const i=$('input[data-in=name]',w);i.value=h.name;i.readOnly=true;
+  $('select[data-in=role]',w).innerHTML=roleOpts(r.role);$('select[data-in=unit]',w).innerHTML=unitOpts(r.role,r.unit);
+  paintDup(r);$(`[data-prev="${r.k}"]`).innerHTML=prevHTML(r);refreshSubmit();
+};
+ACT.unlink=t=>{const r=rowOf(t);r.link=null;r.dup=findDup(r);const w=$(`[data-wrap="${r.k}"]`);$('input[data-in=name]',w).readOnly=false;paintDup(r);refreshSubmit()};
+ACT['not-them']=t=>{const r=rowOf(t);r.ignore=true;paintDup(r);refreshSubmit()};
+ACT['open-from-add']=t=>openAccount(t.dataset.id,'B',{back:'Back to Add account'});
+function paintDup(r){const d=$(`[data-dup="${r.k}"]`);if(!d)return;d.innerHTML=dupHTML(r);const pc=$(`[data-pc="${r.k}"]`);if(pc)pc.classList.toggle('bad',blocking(r))}
+function pwHint(r){const h=$(`[data-ph="${r.k}"]`);if(!h)return;h.className='hint'+(r.pw.length>=8?' ok':'');h.textContent=r.pw.length>=8?'Looks good.':'8 or more characters.'}
+let unT={};
+function checkUser(r,now){
+  const set=()=>{
+    const h=$(`[data-uh="${r.k}"]`),box=$(`[data-uin="${r.k}"]`);if(!h||!box)return;
+    const u=r.user;r.userOk=false;h.className='hint';h.textContent='';box.classList.remove('bad','ok');$('.tick',box).hidden=true;
+    const inp=$('input',box);if(inp.value!==u)inp.value=u;
+    if(!u)return;
+    if(u.length<3){h.textContent='3 or more characters.';return}
+    if(userTaken(u,r)){h.className='hint bad';h.textContent='That username is taken.';box.classList.add('bad');return}
+    r.userOk=true;box.classList.add('ok');$('.tick',box).hidden=false;refreshSubmit();
+  };
+  clearTimeout(unT[r.k]);if(now)set();else{const h=$(`[data-uh="${r.k}"]`);if(h&&r.user){h.className='hint';h.textContent='Checking…'}unT[r.k]=setTimeout(()=>{set();refreshSubmit()},320)}
+  refreshSubmit();
+}
+IN.name=el=>{
+  const r=rowOf(el);r.name=el.value;r.problem='';clearTimeout(r.t);
+  r.t=setTimeout(()=>{
+    r.dup=findDup(r);r.ignore=false;paintDup(r);$(`[data-prev="${r.k}"]`).innerHTML=prevHTML(r);
+    A.rows.forEach(o=>{if(o!==r&&(o.dup&&o.dup.kind==='row'||norm(o.name)===norm(r.name))){o.dup=findDup(o);paintDup(o)}});
+    if(A.mode==='password'&&!r.userTouched&&!r.machine){r.user=suggestUser(r.name);checkUser(r)}
+    refreshSubmit();
+  },220);refreshSubmit();
+};
+IN.role=el=>{
+  const r=rowOf(el);r.role=el.value;r.problem='';
+  const us=unitsFor(r.role);if(!us.some(u=>u.id===r.unit))r.unit='';if(r.role&&us.length===1)r.unit=us[0].id;
+  const w=$(`[data-wrap="${r.k}"]`);$('select[data-in=unit]',w).innerHTML=unitOpts(r.role,r.unit);
+  $(`[data-prev="${r.k}"]`).innerHTML=prevHTML(r);refreshSubmit();
+};
+IN.unit=el=>{const r=rowOf(el);r.unit=el.value;r.problem='';$(`[data-prev="${r.k}"]`).innerHTML=prevHTML(r);refreshSubmit()};
+IN.pos=el=>{rowOf(el).position=el.value};
+IN.phone=el=>{const r=rowOf(el);r.phone=el.value;const h=$(`[data-phh="${r.k}"]`);const bad=r.phone.replace(/\D/g,'').length>=7&&waNum(r.phone)===null;if(h)h.textContent=bad?'Use a number like 0812 3456 7890.':'';$('.in',h.parentElement).classList.toggle('bad',bad);refreshSubmit()};
+IN.ends=el=>{rowOf(el).ends=el.value};
+IN.two=el=>{rowOf(el).two=el.checked};
+IN.change=el=>{rowOf(el).change=el.checked};
+IN.machine=el=>{
+  const r=rowOf(el);r.machine=el.checked;
+  if(r.machine){r.dup=null;r.link=null}else r.dup=findDup(r);
+  const w=$(`[data-wrap="${r.k}"]`);$('.f.c2 .lb',w).firstChild.textContent=r.machine?'Account name':'Name';
+  paintDup(r);refreshSubmit();
+};
+IN.user=el=>{const r=rowOf(el);r.userTouched=true;r.user=el.value.toLowerCase().replace(/[^a-z0-9._-]/g,'');el.value=r.user;checkUser(r)};
+IN.pw=el=>{const r=rowOf(el);r.pw=el.value;pwHint(r);refreshSubmit()};
+IN.expiry=el=>{A.expiry=el.value};
+IN.paste=el=>{A.pasteText=el.value};
+IN.q=el=>{S.q=el.value;$$('[data-in=q]').forEach(o=>{if(o!==el)o.value=el.value});clearTimeout(IN.qt);IN.qt=setTimeout(renderList,150)};
+
+/* paste from a spreadsheet: name, job role, unit — problems said in place */
+function parsePaste(text){
+  const out=[];
+  text.split(/\r?\n/).map(l=>l.trim()).filter(Boolean).forEach(line=>{
+    const p=line.split(/\t|;|,/).map(x=>x.trim());if(/^name$/i.test(p[0]))return;
+    const role=ROLES.find(r=>norm(r.name)===norm(p[1]||'')||r.code.toLowerCase()===(p[1]||'').toLowerCase());
+    const unit=UNITS.find(u=>norm(u.name)===norm(p[2]||''));
+    const bad=[];if(p[1]&&!role)bad.push(`Job role “${p[1]}” was not found`);if(p[2]&&!unit)bad.push(`unit “${p[2]}” was not found`);
+    out.push({name:p[0]||'',phone:p[3]||'',role:role?role.code:'',unit:unit&&(!role||unitsFor(role.code).some(u=>u.id===unit.id))?unit.id:'',problem:bad.length?bad.join(', ')+'. Pick from the lists.':(unit&&role&&!unitsFor(role.code).some(u=>u.id===unit.id)?`${roleOf(role.code).name} is not posted to ${unit.name}. Pick a unit.`:''),position:p[3]||''});
+  });
+  return out;
+}
+ACT['paste-add']=()=>{
+  const rows=parsePaste($('#pasteTa').value);if(!rows.length)return shake($('#pasteTa'));
+  if(A.rows.length===1&&!A.rows[0].name&&!A.rows[0].role)A.rows=[];
+  rows.forEach(p=>{const r=newRow(p);r.dup=findDup(r);A.rows.push(r)});
+  A.rows.forEach(r=>{if(r.dup&&r.dup.kind!=='row')return;r.dup=findDup(r)});
+  A.pasteText='';A.paste=false;
+  $('#rows').innerHTML=A.rows.map((r,i)=>rowHTML(r,i,{instant:true})).join('');
+  $('#pasteTa').value='';$('#pasteE').classList.remove('on');$('[data-act=paste-toggle]').setAttribute('aria-expanded','false');
+  if(A.mode==='password')A.rows.forEach(r=>{if(!r.user&&r.name){r.user=suggestUser(r.name);checkUser(r,true)}});
+  refreshSubmit();toast(`${rows.length} row${rows.length===1?'':'s'} added`);
+};
+
+/* submit → a link (or a username and password) for each, shown once */
+ACT['submit-add']=t=>{
+  if(A.busy)return;
+  if(t.getAttribute('aria-disabled')==='true'){shake(t);return}
+  A.busy=true;t.innerHTML='<span class="spin"></span>';
+  later(()=>{
+    const items=[];
+    A.rows.forEach(r=>{
+      const a={id:'n'+(++SEQ),user:A.mode==='password'?r.user:'',name:r.name.trim(),role:r.role,unit:r.unit,position:r.position.trim(),emp:r.machine?null:(r.link?r.link.code:'E-'+(4000+SEQ)),empStatus:'ACTIVE',active:true,last:null,created:NOW,by:'Rina Wijaya',two:false,needTwo:r.two,ends:r.ends?new Date(r.ends+'T23:59:00'):null,lockedUntil:null,pwChanged:NOW,mustChange:A.mode==='password'&&r.change,passkeys:[],devices:[],inv:null,events:[],c:ACC.length%5};
+      if(r.link)HR=HR.filter(h=>h.code!==r.link.code);
+      if(A.mode==='link'){a.inv={token:newToken(),expires:plus(+A.expiry),status:'pending'};a.events.unshift(['Invitation link created by Rina Wijaya',NOW])}
+      else a.events.unshift([`Account created by Rina Wijaya${a.mustChange?'. A new password is asked at first sign-in':''}`,NOW]);
+      a.phone=waNum(r.phone);ACC.push(a);items.push({a,pw:r.pw});
+    });
+    A.result={mode:A.mode,items,hours:+A.expiry};A.busy=false;
+    S.flash=items[0].a.id;
+    paintResult(true);renderList();rebuildInviteeSelect();
+  },650);
+};
+const linkOf=a=>LINKBASE+a.inv.token;
+function resHTML(it,i){
+  const a=it.a,r=roleOf(a.role),u=unitOf(a.unit);
+  if(A.result.mode==='link')return `<div class="res rise" style="--i:${i}" data-res="${a.id}">
+   <div class="hd"><div class="who"><b>${esc(nm(a))}</b><span>${esc(roleName(a))} · ${esc(u.name)}${a.phone?' · +'+a.phone:''}</span></div><span class="st" data-rs="${a.id}"><i></i>Not joined yet</span></div>
+   <div class="lrow"><code><a data-act="open-link" data-id="${a.id}" title="Open as the invitee">${esc(linkOf(a))}</a></code><button class="btn sm primary" data-act="wa" data-id="${a.id}">${ic('msg')}Send on WhatsApp</button><button class="btn sm" data-act="copy" data-id="${a.id}">${ic('copy')}Copy</button><button class="btn sm" data-act="qr" data-id="${a.id}" aria-expanded="false">${ic('qr')}QR</button></div>
+   <div class="qrp" id="qr-${a.id}"><div><div class="box">${qrSVG(a.inv.token)}</div></div></div>
+   <div class="exp">Expires ${moment(a.inv.expires)} · ${A.result.hours===168?'7 days':A.result.hours+' h'}</div></div>`;
+  return `<div class="res rise" style="--i:${i}" data-res="${a.id}">
+   <div class="hd"><div class="who"><b>${esc(nm(a))}</b><span>${esc(roleName(a))} · ${esc(u.name)}</span></div><span class="st ok"><i></i>Ready</span></div>
+   <div class="cred"><span>Username</span><code>${esc(a.user)}</code><span></span><span>Password</span><code>${esc(it.pw)}</code><button class="btn sm primary" data-act="copy" data-id="${a.id}" data-pw="1">${ic('copy')}Copy</button></div>
+   <div class="exp">${a.mustChange?'A new password is asked at first sign-in.':'The password stays as set.'}</div></div>`;
+}
+function paintResult(swap){
+  const link=A.result.mode==='link';
+  paint('A',{kind:'add',size:'wide',title:link?'Send these links':'Accounts created',
+    body:`<div class="banner warn">${ic('alert')}<span>${link?'Each link is shown only once. Send it now.':'Passwords are shown only once.'}</span></div>`+A.result.items.map(resHTML).join(''),
+    foot:`<button class="btn" data-act="copy-all">${ic('copy')}Copy all</button><button class="btn" data-act="dl-csv">${ic('download')}Download CSV</button><span class="sp"></span><button class="btn primary" data-act="close-sheet">Done</button>`},swap);
+  showSheetIfNeeded();
+}
+const showSheetIfNeeded=()=>{};
+const flashBtn=(t,txt)=>{const old=t.innerHTML;t.innerHTML=ic('check')+txt;t.classList.add('quiet');later(()=>{t.innerHTML=old;t.classList.remove('quiet')},2400)};
+ACT.copy=t=>{
+  const a=ACC.find(x=>x.id===t.dataset.id),it=A&&A.result&&A.result.items.find(i=>i.a.id===a.id);
+  const text=t.dataset.pw?`Username: ${a.user}\nPassword: ${it?it.pw:''}`:t.dataset.tok?LINKBASE+t.dataset.tok:linkOf(a);
+  try{navigator.clipboard.writeText(text)}catch(e){}flashBtn(t,'Copied');
+};
+ACT.wa=t=>{const a=ACC.find(x=>x.id===t.dataset.id);if(t.classList.contains('quiet'))return;t.innerHTML=ic('check')+'Opened in WhatsApp';t.classList.remove('primary');t.classList.add('quiet');toast(a&&a.phone?'WhatsApp opens to +'+a.phone+' with the message ready':'WhatsApp opens with the message ready')};
+ACT.qr=t=>{const p=$('#qr-'+t.dataset.id),on=!p.classList.contains('on');p.classList.toggle('on',on);t.setAttribute('aria-expanded',on)};
+ACT['copy-all']=t=>{
+  const text=A.result.items.map(i=>A.result.mode==='link'?`${i.a.name} — ${linkOf(i.a)}`:`${i.a.name} — ${i.a.user} / ${i.pw}`).join('\n');
+  try{navigator.clipboard.writeText(text)}catch(e){}flashBtn(t,'Copied');
+};
+ACT['dl-csv']=()=>{
+  const rows=[['name','job role','unit',A.result.mode==='link'?'link':'username',A.result.mode==='link'?'expires':'password']].concat(A.result.items.map(i=>[i.a.name,roleOf(i.a.role).name,unitOf(i.a.unit).name,A.result.mode==='link'?linkOf(i.a):i.a.user,A.result.mode==='link'?moment(i.a.inv.expires):i.pw]));
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n')],{type:'text/csv'}));a.download='central-accounts.csv';a.click();later(()=>URL.revokeObjectURL(a.href),500);
+};
+
+/* the QR: a stand-in drawn from the token */
+function qrSVG(seedStr){
+  let s=0;for(const ch of seedStr)s=(s*31+ch.charCodeAt(0))%2147483647||7;
+  const r=()=>(s=(s*16807)%2147483647)/2147483647,n=25;let g='';
+  const fin=(x,y)=>{g+=`<rect x="${x}" y="${y}" width="7" height="7" fill="#20242c"/><rect x="${x+1}" y="${y+1}" width="5" height="5" fill="#fff"/><rect x="${x+2}" y="${y+2}" width="3" height="3" fill="#20242c"/>`};
+  for(let y=0;y<n;y++)for(let x=0;x<n;x++){const inF=(x<8&&y<8)||(x>n-9&&y<8)||(x<8&&y>n-9);if(!inF&&r()>.52)g+=`<rect x="${x}" y="${y}" width="1" height="1" fill="#20242c"/>`}
+  fin(0,0);fin(n-7,0);fin(0,n-7);
+  return `<svg class="qr" viewBox="0 0 ${n} ${n}" shape-rendering="crispEdges" role="img" aria-label="QR code of the link">${g}</svg>`;
+}
+
+/* ── an account's sheet: Details · Sign-in · Activity ─────────────────── */
+const acct=w=>ACC.find(x=>x.id===S[w].id);
+function openAccount(id,which='A',o={}){
+  S[which]={kind:'account',id,tab:'details',back:o.back||null};
+  paintAccount(which);showSheet(which);renderList();
+}
+const lineH=(o)=>`<div class="line">${o.ico?`<span class="ico">${ic(o.ico)}</span>`:''}<div class="tx"><b>${o.b}</b>${o.s?`<span class="${o.sc||''}">${o.s}</span>`:''}</div>${o.btn||''}</div>`;
+const tbH=(t,act,d='',c='')=>`<button class="tb ${c}" data-act="${act}" ${d}>${t}</button>`;
+const editH=(k,inner,ok='Submit',okAct='')=>`<div class="edit" id="E-${k}"><div><div class="inner">${inner}<div class="btns"><button class="btn quiet" data-act="ed" data-k="${k}">Cancel</button><button class="btn primary" data-act="${okAct}">${ok}</button></div></div></div></div>`;
+/* a link shown once: a new invitation link, or a password reset link */
+function linkCardHTML(a,o){
+  const url=LINKBASE+o.token,id=a.id+(o.reset?'-r':'');
+  return `<div class="res rise" data-res="${a.id}"><div class="hd"><div class="who"><b>${o.reset?'Reset link for':'New link for'} ${esc(nm(a))}</b><span>${o.reset?'Opens a page to choose a new password':'The old link no longer works'}</span></div>${o.reset?'':`<span class="st" data-rs="${a.id}"><i></i>Not joined yet</span>`}</div>
+   <div class="lrow"><code><a data-act="${o.reset?'noop':'open-link'}" data-id="${a.id}" title="${o.reset?'':'Open as the invitee'}">${esc(url)}</a></code><button class="btn sm primary" data-act="copy" data-id="${a.id}" data-tok="${o.token}">${ic('copy')}Copy</button><button class="btn sm" data-act="wa" data-id="${a.id}">${ic('msg')}WhatsApp</button><button class="btn sm" data-act="qr" data-id="${id}" aria-expanded="false">${ic('qr')}QR</button></div>
+   <div class="qrp" id="qr-${id}"><div><div class="box">${qrSVG(o.token)}</div></div></div><div class="exp">Expires ${moment(o.expires)} · ${o.hours===168?'7 days':o.hours+' h'}</div></div>`;
+}
+function invitedBody(a,k,st){
+  const u=unitOf(a.unit);
+  return (st.newLink?`<div class="banner warn">${ic('alert')}<span>This link is shown only once. Send it now.</span></div>${linkCardHTML(a,{token:a.inv.token,expires:a.inv.expires,hours:72})}`:
+    `<div class="banner ${k==='expired'?'warn':'info'}">${ic(k==='expired'?'alert':'info')}<span>${k==='expired'?`The link expired ${rel(a.inv.expires)}.`:`The link expires ${rel(a.inv.expires)}. Not joined yet.`}</span></div>`)+
+  `<dl class="facts"><div class="fact"><dt>Job role</dt><dd>${esc(roleName(a))}</dd></div><div class="fact"><dt>Unit</dt><dd>${esc(u.name)}</dd></div>
+   <div class="fact"><dt>Position</dt><dd>${a.position?esc(a.position):'<span class="mute">—</span>'}</dd></div><div class="fact"><dt>HR record</dt><dd class="mono">${esc(a.emp)}</dd></div>
+   <div class="fact"><dt>Invited by</dt><dd>${esc(a.by)}</dd></div><div class="fact"><dt>Invited</dt><dd>${moment(a.created)}</dd></div>
+   <div class="fact wide"><dt>Link expires</dt><dd>${moment(a.inv.expires)}</dd></div></dl>`;
+}
+function detailsBody(a,k){
+  const role=roleOf(a.role),u=unitOf(a.unit);
+  const banner=k==='locked'?`<div class="banner warn">${ic('alert')}<span class="sp">Locked after too many wrong passwords, until ${moment(a.lockedUntil)}.</span><button class="btn sm" data-act="unlock">Unlock now</button></div>`
+    :k==='blocked'?`<div class="banner bad">${ic('alert')}<span>Blocked. Signed out here and at every store server.</span></div>`
+    :k==='left'?`<div class="banner bad">${ic('alert')}<span class="sp">Employment ended. This login still signs in.</span><button class="btn sm danger" data-act="block">Block now</button></div>`:'';
+  return banner+`<dl class="facts">
+   <div class="fact"><dt>Belongs to</dt><dd>${a.emp?`<span style="color:var(--accent)">${esc(nm(a))}</span><span class="mono mute">${esc(a.emp)}</span>`:'<span class="mute">Nobody. A machine account.</span>'}</dd></div>
+   <div class="fact"><dt>Employment</dt><dd>${a.emp===null?'<span class="mute">—</span>':a.empStatus==='TERMINATED'?'Left on 03 Oct 2026':'Employed'}</dd></div>
+   <div class="fact"><dt>Job role</dt><dd>${esc(roleName(a))}${tbH('Change','ed','data-k="role"')}</dd></div>
+   <div class="fact"><dt>Unit</dt><dd>${esc(u.name)}</dd></div>
+   <div class="fact"><dt>Position</dt><dd>${a.position?esc(a.position):'<span class="mute">—</span>'}</dd></div>
+   <div class="fact"><dt>Access ends</dt><dd>${a.ends?day(a.ends):'<span class="mute">No end date</span>'}${tbH(a.ends?'Change':'Set','ed','data-k="ends"')}${a.ends?tbH('Clear','clear-ends','','mute'):''}</dd></div>
+   <div class="fact wide"><dt>Sees</dt><dd>${esc(accessText(role))}${role.readOnly?'':''}</dd></div>
+   <div class="fact wide"><dt>Signs in at</dt><dd>${esc(serversText(role,u))}</dd></div>
+   <div class="fact"><dt>Last sign-in</dt><dd>${a.last?moment(a.last):'Never'}</dd></div>
+   <div class="fact"><dt>Created</dt><dd>${day(a.created)} · ${esc(a.by)}</dd></div></dl>`+
+  editH('role',`<div class="g2"><div class="f"><div class="lb">Job role</div><div class="in"><select required data-in="er" aria-label="Job role">${roleOpts(a.role)}</select></div></div>
+     <div class="f"><div class="lb">Unit</div><div class="in"><select required data-in="eu" aria-label="Unit">${unitOpts(a.role,a.unit)}</select></div></div></div><div class="note" id="eNote"></div>`,'Submit','save-role')+
+  editH('ends',`<div class="f" style="max-width:260px"><div class="lb">Access ends</div><div class="in"><input type="date" id="endsIn" aria-label="Access ends" value="${a.ends?a.ends.toISOString().slice(0,10):''}"></div></div>`,'Submit','save-ends');
+}
+function signinBody(a,st){
+  const two=a.two?{s:'On',sc:'ok',b:tbH('Reset','two-reset','','mute')}:a.needTwo?{s:'Required. Not set up yet',sc:'warn',b:tbH('Don’t require','two-off','','mute')}:{s:'Off',sc:'',b:tbH('Require','two-on')};
+  return `<div><div class="h4">Password</div><div class="grp2">${lineH({b:'Password',s:a.mustChange?'Must be changed at first sign-in':`Changed ${rel(a.pwChanged)}`,btn:tbH('Send reset link','reset-link')+tbH('Set password','ed','data-k="pw"')})}</div>
+    ${editH('pw',`<div class="f"><div class="lb">New password<button class="tb" data-act="gen2">Generate</button></div><div class="in"><input class="pwi" id="newPw" data-in="np" type="password" autocomplete="new-password" aria-label="New password"><button class="eye" data-act="reveal" aria-label="Show password">${ic('eye')}</button></div><div class="hint" id="npHint">8 or more characters.</div></div>
+      <label class="chk"><input type="checkbox" id="outAll" checked>Sign out of all devices</label>`,'Submit','save-pw')}
+    <div id="resetOut">${st.resetCard||''}</div></div>
+  <div><div class="h4">Two-step verification</div><div class="grp2">${lineH({ico:'key',b:'Authenticator app',s:two.s,sc:two.sc,btn:two.b})}</div></div>
+  <div><div class="h4">Passkeys</div><div class="grp2">${a.passkeys.length?a.passkeys.map(p=>lineH({ico:'finger',b:esc(p.name),s:`Added ${p.added}`,btn:tbH('Remove','pk-remove',`data-id="${p.id}"`,'bad')})).join(''):`<div class="line"><div class="tx"><span>None</span></div></div>`}</div></div>
+  <div><div class="h4" style="display:flex;justify-content:space-between;align-items:center">Devices${a.devices.length>1?tbH('Sign out everywhere','dev-all','','mute'):''}</div><div class="grp2">${a.devices.length?a.devices.map(d=>lineH({ico:/iPhone|Android/.test(d.name)?'phone':'monitor',b:esc(d.name),s:`${esc(d.place)} · ${esc(d.when)}`,btn:tbH('Sign out','dev-out',`data-id="${d.id}"`,'mute')})).join(''):`<div class="line"><div class="tx"><span>Not signed in anywhere</span></div></div>`}</div></div>`;
+}
+const activityBody=a=>`<div class="tl">${a.events.map(e=>`<div class="ev${e[2]?' new':''}"><i></i><div>${esc(e[0])}<span>${typeof e[1]==='string'?e[1]:moment(e[1])}</span></div></div>`).join('')}</div>`;
+function acctSpec(w){
+  const st=S[w],a=acct(w),k=stOf(a),inv=k==='invited'||k==='expired';
+  const spec={kind:'account',size:'rail',idText:inv?'':usr(a),title:nm(a),badge:stHTML(k),caption:`Created by ${a.by} · ${day(a.created)}`,more:inv?'':w,back:st.back};
+  if(inv){
+    spec.body=invitedBody(a,k,st);
+    spec.foot=`<button class="btn danger" data-act="revoke">Revoke link</button><span class="sp"></span><button class="btn primary" data-act="new-link">${ic('refresh')}Send a new link</button>`;
+    return spec;
+  }
+  spec.tabs=[{k:'details',t:'Details'},{k:'signin',t:'Sign-in'},{k:'activity',t:'Activity'}];spec.tab=st.tab;
+  spec.body=st.tab==='details'?detailsBody(a,k):st.tab==='signin'?signinBody(a,st):activityBody(a);
+  const self=a.id==='a1';
+  spec.foot=(self?'':k==='blocked'?`<button class="btn primary" data-act="allow">Allow sign-in again</button>`:`<button class="btn danger" data-act="block">Block sign-in</button>`)+`<span class="sp"></span><button class="btn" data-act="close-sheet">Close</button>`;
+  return spec;
+}
+function paintAccount(w,swap){paint(w,acctSpec(w),swap)}
+const repaintAccounts=()=>{['A','B'].forEach(w=>{if(S[w]&&S[w].kind==='account')paintAccount(w)})};
+ACT.open=t=>{if(S.A&&S.A.kind==='add'&&!(A&&A.result))return;openAccount(t.dataset.id,'A')};
+ACT.tab=t=>{const w=S.B?'B':'A';S[w].tab=t.dataset.t;paintAccount(w,true)};
+const topW=()=>S.B?'B':'A';
+const event=(a,text)=>{a.events.unshift([text,NOW,true])};
+ACT.ed=t=>{
+  const el=$('#E-'+t.dataset.k,sh[topW()]);if(!el)return;const was=el.classList.contains('on');
+  $$('.edit.on',sh[topW()]).forEach(x=>x.classList.remove('on'));
+  if(!was){el.classList.add('on');later(()=>{const i=$('input:not([type=checkbox]),select',el);if(i)i.focus({preventScroll:true})},80)}
+};
+IN.er=el=>{
+  const w=topW(),a=acct(w),us=unitsFor(el.value),eu=$('select[data-in=eu]',sh[w]);
+  const keep=us.some(u=>u.id===a.unit)?a.unit:us.length===1?us[0].id:'';
+  eu.innerHTML=unitOpts(el.value,keep);const r=roleOf(el.value);
+  $('#eNote').innerHTML=r?`Sees ${esc(accessText(r))}`:'';
+};
+ACT['save-role']=()=>{
+  const w=topW(),a=acct(w),r=$('select[data-in=er]',sh[w]).value,u=$('select[data-in=eu]',sh[w]).value;
+  if(!r||!u)return shake($('#E-role .btns',sh[w]));
+  const was=roleName(a);a.role=r;a.unit=u;event(a,`Job role changed from ${was} to ${roleOf(r).name} by Rina Wijaya`);
+  S.flash=a.id;paintAccount(w);renderList();toast('Job role changed');
+};
+ACT['save-ends']=()=>{const w=topW(),a=acct(w),v=$('#endsIn').value;if(!v)return shake($('#endsIn'));a.ends=new Date(v+'T23:59:00');event(a,`Access end set to ${day(a.ends)} by Rina Wijaya`);paintAccount(w);toast('Access end saved')};
+ACT['clear-ends']=()=>{const w=topW(),a=acct(w);a.ends=null;event(a,'Access end removed by Rina Wijaya');paintAccount(w);toast('Access end removed')};
+IN.np=el=>{const h=$('#npHint');const ok=el.value.length>=8;h.className='hint'+(ok?' ok':'');h.textContent=ok?'Looks good.':'8 or more characters.'};
+ACT.gen2=()=>{const i=$('#newPw');i.value=genPw();i.type='text';$('.eye',i.parentElement).innerHTML=ic('eyeoff');IN.np(i)};
+ACT['save-pw']=()=>{
+  const w=topW(),a=acct(w),i=$('#newPw');if(i.value.length<8)return shake(i);
+  if($('#outAll').checked)a.devices=[];a.pwChanged=NOW;a.mustChange=false;event(a,`Password set by Rina Wijaya${$('#outAll').checked?'. Signed out of all devices':''}`);
+  paintAccount(w);toast('Password set');
+};
+ACT['reset-link']=()=>{
+  const w=topW(),a=acct(w),st=S[w];
+  st.resetCard=`<div class="banner warn" style="margin-top:12px">${ic('alert')}<span>This link is shown only once. Valid 24 hours.</span></div><div style="margin-top:10px">${linkCardHTML(a,{token:newToken(),expires:plus(24),hours:24,reset:true})}</div>`;
+  event(a,'Password reset link created by Rina Wijaya');
+  paintAccount(w);
+};
+ACT.noop=()=>toast('Opens the reset page');
+ACT['two-reset']=()=>{const w=topW(),a=acct(w);a.two=false;event(a,'Two-step reset by Rina Wijaya. Set up again at next sign-in');a.needTwo=true;paintAccount(w);toast('Two-step reset')};
+ACT['two-on']=()=>{const w=topW(),a=acct(w);a.needTwo=true;event(a,'Two-step required by Rina Wijaya');paintAccount(w);toast('Two-step required at next sign-in')};
+ACT['two-off']=()=>{const w=topW(),a=acct(w);a.needTwo=false;event(a,'Two-step no longer required');paintAccount(w)};
+ACT['pk-remove']=t=>{const w=topW(),a=acct(w);a.passkeys=a.passkeys.filter(p=>p.id!==+t.dataset.id);event(a,'Passkey removed by Rina Wijaya');paintAccount(w);toast('Passkey removed')};
+ACT['dev-out']=t=>{const w=topW(),a=acct(w);a.devices=a.devices.filter(d=>d.id!==+t.dataset.id);event(a,'Signed out of a device by Rina Wijaya');paintAccount(w);toast('Signed out of that device')};
+ACT['dev-all']=()=>{const w=topW(),a=acct(w);a.devices=[];event(a,'Signed out of every device by Rina Wijaya');paintAccount(w);toast('Signed out everywhere')};
+ACT.block=()=>{const w=topW(),a=acct(w);a.active=false;a.devices=[];event(a,'Blocked by Rina Wijaya');S.flash=a.id;paintAccount(w);renderList();toast('Blocked. Signed out here and at every store server')};
+ACT.allow=()=>{const w=topW(),a=acct(w);a.active=true;a.lockedUntil=null;event(a,'Allowed to sign in again by Rina Wijaya');S.flash=a.id;paintAccount(w);renderList();toast('Allowed to sign in again')};
+ACT.unlock=()=>{const w=topW(),a=acct(w);a.lockedUntil=null;event(a,'Unlocked by Rina Wijaya');S.flash=a.id;paintAccount(w);renderList();toast('Unlocked')};
+ACT['new-link']=()=>{
+  const w=topW(),a=acct(w),st=S[w];a.inv={token:newToken(),expires:plus(72),status:'pending'};event(a,'New invitation link created by Rina Wijaya');st.newLink=true;S.flash=a.id;paintAccount(w);renderList();rebuildInviteeSelect();
+};
+ACT.revoke=()=>{
+  const w=topW(),a=acct(w);
+  openDlg({title:`Revoke the link for ${nm(a)}?`,body:'<p>The link stops working. The person can be invited again.</p>',ok:'Revoke link',tone:'danger',onOk:()=>{a.inv.status='revoked';closeDlg();hideSheet(w);renderList();rebuildInviteeSelect();toast('Link revoked')}});
+};
+ACT['view-as']=()=>{
+  closeMenu();const w=topW(),a=acct(w);
+  openDlg({title:`Sign in as ${first(a)}`,ok:`Sign in as ${first(a)}`,disabled:true,
+    body:`<div class="f"><div class="lb">Reason<em>*</em></div><div class="in"><textarea id="reason" data-in="reason" aria-label="Reason" style="min-height:84px;font-family:var(--sans);font-size:15px" placeholder="Why do you need to see their screen?"></textarea></div><div class="hint">Recorded in Activity under your name.</div></div>`,
+    onOk:()=>{const why=$('#reason').value.trim();event(a,`Rina Wijaya signed in as this account. Reason: ${why}`);closeDlg();S.viewAs=a.id;['A','B'].forEach(x=>{if(S[x])hideSheet(x)});renderApp();toast(`Signed in as ${nm(a)}`)}});
+};
+IN.reason=el=>{$('#dlgOk').setAttribute('aria-disabled',String(el.value.trim().length<8))};
+ACT['exit-viewas']=()=>{S.viewAs=null;renderApp();toast('Back to your own account')};
+ACT['copy-user']=()=>{closeMenu();const a=acct(topW());try{navigator.clipboard.writeText(a.user)}catch(e){}toast('Username copied')};
+ACT['hr-record']=()=>{closeMenu();toast('Opens the HR record')};
+ACT.menu=t=>{
+  const m=$('#menu');if(m.classList.contains('on')){closeMenu();return}
+  const w=t.dataset.menu==='A'||t.dataset.menu==='B'?t.dataset.menu:null;
+  const a=acct(w),self=a.id==='a1',k=stOf(a);
+  const items=[{t:'Copy username',ic:'copy',act:'copy-user'}];
+  if(a.emp)items.push({t:'Open HR record',ic:'users',act:'hr-record'});
+  if(!self&&(k==='active'||k==='locked'||k==='left'))items.push({t:`Sign in as ${esc(first(a))}`,ic:'user',act:'view-as'});
+  openMenu(t,items);
+};
+
+/* ── generic: sheets, filters, dialogs ────────────────────────────────── */
+ACT['dock-state']=t=>{const m=$('#menu');if(m.classList.contains('on')){closeMenu();return}openMenu(t,FILTERS.map(f=>({t:f[1],ic:S.filter===f[0]?'check':'chevd',act:'filter',data:`data-v="${f[0]}"`})))};
+ACT.filter=t=>{S.filter=t.dataset.v;closeMenu();renderList()};
+ACT.veil=()=>{if($('#dlg').classList.contains('on')){closeDlg();return}if($('#menu').classList.contains('on')){closeMenu();return}ACT['close-sheet']()};
+ACT['close-sheet']=()=>{
+  const w=topW();
+  if(w==='A'&&S.A&&S.A.kind==='add'&&!(A&&A.result)&&A.rows.some(r=>r.name.trim())){
+    openDlg({title:'Discard these rows?',body:'<p>The people you typed are not added yet.</p>',ok:'Discard',tone:'danger',onOk:()=>{closeDlg();hideSheet('A')}});return;
+  }
+  if(S[w])hideSheet(w);
+};
+ACT['sheet-back']=()=>hideSheet('B');
+ACT['dlg-cancel']=()=>closeDlg();
+ACT['dlg-bg']=(t,e)=>{if(e.target===t)closeDlg()};
+ACT['dlg-ok']=t=>{if(t.getAttribute('aria-disabled')==='true')return shake(t);if(dlgOk)dlgOk()};
+
+/* ── the invitee's phone: /join/{token} ───────────────────────────────── */
+let J=null;
+const COMPANY='Sunrise Retail';
+function rebuildInviteeSelect(){
+  const sel=$('#dOpen');
+  sel.innerHTML=`<option value="">Open a link…</option>`+ACC.filter(a=>stOf(a)==='invited').map(a=>`<option value="${a.id}">${esc(nm(a))} (valid)</option>`).join('')+`<option value="expired">An expired link</option><option value="used">A used link</option><option value="revoked">A revoked link</option>`;
+}
+function openInvitee(sel){
+  if(!sel)return;const a=ACC.find(x=>x.id===sel);
+  if(a&&stOf(a)==='invited')J={step:'form',id:a.id};
+  else if(a&&a.inv&&a.inv.status==='accepted')J={step:'dead',why:'used'};
+  else if(a&&stOf(a)==='expired')J={step:'dead',why:'expired'};
+  else J={step:'dead',why:a?'revoked':sel};
+  $('#invitee').classList.add('on');paintJoin();fit();
+}
+const jhead=t=>`${logo()}<h1>${t}</h1>`;
+function paintJoin(){
+  const el=$('#joinApp');if(!J){el.innerHTML='';return}
+  let html='';
+  if(J.step==='dead'){
+    const why={expired:'This link has expired.',used:'This link has already been used.',revoked:'This link was revoked.'}[J.why]||'This link could not be checked.';
+    html=`${jhead('You’ve been invited')}<div class="jcard" style="text-align:center;align-items:center"><p>${why}</p><p class="m">Ask your admin for a new link.</p></div>`;
+  }else if(J.step==='form'){
+    const a=ACC.find(x=>x.id===J.id),r=roleOf(a.role),u=unitOf(a.unit);
+    html=`${jhead('Welcome to '+COMPANY)}<div class="jcard"><div><p><b>${esc(nm(a))}</b>, invited as <b>${esc(roleName(a))}</b> at <b>${esc(u.name)}</b>.</p><p class="m" style="margin-top:4px">This link expires ${moment(a.inv.expires)}.</p></div>
+    <form data-form="join" novalidate style="display:flex;flex-direction:column;gap:14px">
+     <div class="f"><div class="lb">Username<em>*</em></div><div class="in mono" id="juBox"><input id="ju" name="ju" data-in="ju" value="${esc(suggestUser(a.name))}" autocomplete="username" autocapitalize="none" spellcheck="false"><span class="tick" hidden>${ic('check')}</span></div><div class="hint" id="juH"></div></div>
+     <div class="f"><div class="lb">Password<em>*</em></div><div class="in"><input class="pwi" id="jp" name="jp" data-in="jp" type="password" autocomplete="new-password"><button type="button" class="eye" data-act="reveal" aria-label="Show password">${ic('eye')}</button></div><div class="hint" id="jpH">At least 8 characters.</div></div>
+     <div class="f"><div class="lb">Confirm password<em>*</em></div><div class="in"><input id="jc" name="jc" data-in="jc" type="password" autocomplete="new-password"></div><div class="hint" id="jcH"></div></div>
+     <button class="btn primary lg" type="submit" id="jgo" aria-disabled="true">Set password and sign in</button></form></div>`;
+  }else if(J.step==='two'){
+    const a=ACC.find(x=>x.id===J.id);
+    html=`${jhead('Set up two-step verification')}<div class="jcard"><p>Scan the code with an authenticator app, then enter the 6 digits.</p>${qrSVG(a.inv.token+'2')}<p class="key">JBSW Y3DP EHPK 3PXP</p>
+     <div class="otp" id="jotp"><input inputmode="numeric" maxlength="6" autocomplete="one-time-code" aria-label="6-digit code" data-in="jotp">${'<div class="c"></div>'.repeat(6)}</div><div class="hint bad" id="joH" role="alert"></div></div>`;
+  }else{
+    const a=ACC.find(x=>x.id===J.id),r=roleOf(a.role),u=unitOf(a.unit);
+    html=`<div class="jhome"><div class="ring" style="margin-bottom:18px"><svg class="i ck" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg></div><h2>Welcome, ${esc(first(a))}</h2><p class="sub">${esc(roleName(a))} · ${esc(u.name)}</p>
+     <div class="list">${(r.all?['Everything']:r.sections.length?r.sections:['Store app and POS']).map(s=>`<div>${s}<span>Open</span></div>`).join('')}</div></div>`;
+  }
+  el.className=J.step==='done'?'join rise':'join';el.innerHTML=html;
+  if(!reduce()){el.classList.remove('rise');void el.offsetWidth;el.classList.add('rise')}
+  const f=$('#ju',el);if(f&&J.step==='form')ju(f,true);
+}
+let juT;
+IN.ju=el=>ju(el,false);
+function ju(el,now){
+  const v=el.value.toLowerCase().replace(/[^a-z0-9._-]/g,'');el.value=v;const box=$('#juBox'),h=$('#juH');
+  const set=()=>{box.classList.remove('bad','ok');$('.tick',box).hidden=true;h.className='hint';h.textContent='';J.userOk=false;
+    if(!v)return;if(v.length<3){h.textContent='3 or more characters.';return}
+    if(ACC.some(a=>a.user===v)){h.className='hint bad';h.textContent='That username is taken.';box.classList.add('bad');return}
+    J.userOk=true;box.classList.add('ok');$('.tick',box).hidden=false;joinReady()};
+  clearTimeout(juT);if(now)set();else{h.className='hint';h.textContent=v?'Checking…':'';juT=setTimeout(()=>{set();joinReady()},300)}joinReady();
+};
+IN.jp=el=>{const h=$('#jpH');const ok=el.value.length>=8;h.className='hint'+(ok?' ok':'');h.textContent=ok?'Looks good.':'At least 8 characters.';jc();joinReady()};
+IN.jc=()=>{jc();joinReady()};
+function jc(){const p=$('#jp').value,c=$('#jc').value,h=$('#jcH');h.className='hint bad';h.textContent=c&&c!==p?'The two do not match.':''}
+function joinReady(){const b=$('#jgo');if(!b)return;const ok=J.userOk&&$('#jp').value.length>=8&&$('#jc').value===$('#jp').value&&$('#jc').value!=='';b.setAttribute('aria-disabled',String(!ok))}
+const FORM={
+  join:f=>{
+    const b=$('#jgo');if(b.getAttribute('aria-disabled')==='true')return shake(b);
+    const a=ACC.find(x=>x.id===J.id),u=$('#ju').value;b.innerHTML='<span class="spin"></span>';
+    later(()=>{
+      joined(a,u);
+      if(a.needTwo){J={step:'two',id:a.id,user:u};paintJoin()}else{J={step:'done',id:a.id};paintJoin()}
+    },700);
+  },
+};
+IN.jotp=inp=>{
+  const el=$('#jotp');inp.value=inp.value.replace(/\D/g,'').slice(0,6);const v=inp.value;
+  $$('.c',el).forEach((c,i)=>{c.textContent=v[i]||'';c.classList.toggle('cur',i===Math.min(v.length,5))});$('#joH').textContent='';el.classList.remove('bad');
+  if(v.length===6){
+    if(v==='123456'){el.classList.add('ok');inp.blur();const a=ACC.find(x=>x.id===J.id);a.two=true;a.needTwo=false;event(a,'Two-step set up');later(()=>{J={step:'done',id:a.id};paintJoin();repaintAccounts()},380)}
+    else{el.classList.add('bad');shake(el);$('#joH').textContent='That code is incorrect.';later(()=>{inp.value='';IN.jotp(inp)},550)}
+  }
+};
+function joined(a,u){
+  a.user=u;a.inv.status='accepted';a.last=NOW;a.active=true;a.pwChanged=NOW;
+  a.devices=[{id:1,name:'Safari on iPhone',place:'Surabaya, ID',when:'Active now'}];event(a,'Joined from the invitation link');
+  S.flash=a.id;renderList();
+  $$(`[data-rs="${a.id}"]`).forEach(rs=>{rs.className='st ok';rs.innerHTML='<i></i>Joined'});
+  ['A','B'].forEach(w=>{if(S[w]&&S[w].kind==='account'&&S[w].id===a.id)paintAccount(w)});
+  toast(`${nm(a)} joined`);rebuildInviteeSelect();
+}
+ACT['open-link']=t=>{const a=ACC.find(x=>x.id===t.dataset.id);openInvitee(a&&a.inv&&a.inv.status==='accepted'?a.id:t.dataset.id)};
+
+/* ── stage, demo bar, keys ────────────────────────────────────────────── */
+function fit(){
+  const st=$('#stage'),H=st.clientHeight-32,W=st.clientWidth-32,inv=$('#invitee').classList.contains('on'),ap=S.device==='phone';
+  let s=Math.min(1,H/918);const phones=(inv?1:0)+(ap?1:0);
+  if(phones){const reserve=ap?0:Math.min(780,W*.55);s=Math.min(s,(W-reserve-(phones>1||!ap?20:0))/(phones*436))}
+  s=Math.max(.3,s);S.scale=s;
+  $$('.frame.phone').forEach(f=>f.style.setProperty('--s',s.toFixed(3)));
+  ADMIN.classList.toggle('phone',ap);
+}
+function wire(root){
+  root.addEventListener('click',e=>{
+    const t=e.target.closest('[data-act]'),m=$('#menu');
+    if(m.classList.contains('on')&&!e.target.closest('#menu')&&!(t&&t.dataset.act==='menu'))closeMenu();
+    if(!t)return;const f=ACT[t.dataset.act];if(f){if(t.tagName==='A')e.preventDefault();f(t,e)}
+  });
+  root.addEventListener('input',e=>{const k=e.target.dataset&&e.target.dataset.in;if(k&&IN[k])IN[k](e.target,e)});
+  root.addEventListener('submit',e=>{e.preventDefault();const f=e.target.dataset.form;if(f&&FORM[f])FORM[f](e.target)});
+}
+wire(ADMIN);wire($('#invitee'));
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'){if($('#dlg').classList.contains('on'))closeDlg();else if($('#menu').classList.contains('on'))closeMenu();else if(S.A||S.B)ACT['close-sheet']()}
+  if(e.key==='Enter'&&e.target.matches&&e.target.matches('input[data-in=name]')&&A&&S.A&&S.A.kind==='add'&&!A.result){e.preventDefault();ACT['add-row'](null,{detail:0})}
+  if(e.key==='Backspace'&&e.target.matches&&e.target.matches('input[data-in=name]')&&e.target.value===''&&A&&A.rows.length>1&&S.A&&S.A.kind==='add'&&!A.result){e.preventDefault();const r=rowOf(e.target);const prev=A.rows[A.rows.indexOf(r)-1];ACT['rm-row'](e.target);const p=$(`[data-wrap="${(prev||A.rows[0]).k}"] input[data-in=name]`);if(p)p.focus()}
+  if(e.key==='Tab'&&(S.A||S.B)){
+    const root=$('#dlg').classList.contains('on')?$('#dlgCard'):sh[S.B?'B':'A'];
+    const f=$$('button,input,select,textarea,[tabindex="0"]',root).filter(x=>!x.disabled&&x.offsetParent&&!x.closest('.edit:not(.on)')&&!x.closest('.pc-wrap.gone')&&getComputedStyle(x).visibility!=='hidden');
+    if(!f.length)return;const a=f[0],z=f[f.length-1];
+    if(e.shiftKey&&document.activeElement===a){e.preventDefault();z.focus()}else if(!e.shiftKey&&document.activeElement===z){e.preventDefault();a.focus()}
+  }
+});
+function seg(id,fn){$('#'+id).addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;$$('button',e.currentTarget).forEach(x=>x.classList.toggle('on',x===b));fn(b.dataset.v)})}
+seg('dDevice',v=>{S.device=v;closeMenu();fit()});
+seg('dData',v=>{S.data=v;renderApp();repaintAccounts();if(S.A&&S.A.kind==='add'&&!A.result){const t=$('#shA .sh-body');const st=t?t.scrollTop:0;paintAdd();$('#shA .sh-body').scrollTop=st}});
+$('#dOpen').addEventListener('change',e=>{openInvitee(e.target.value);e.target.value=''});
+$('#dCloseInv').addEventListener('click',()=>{$('#invitee').classList.remove('on');J=null;paintJoin();fit()});
+$('#dSample').addEventListener('click',()=>{
+  if(S.A||S.B){['A','B'].forEach(w=>{if(S[w]){S[w]=null;sh[w].classList.remove('on')}})}
+  openAdd({paste:true,text:'Name\tJob role\tUnit\tWhatsApp\nPutri Handayani\tCashier\tStore 07\t0812 3456 7890\nDimas Aryo\tStore staff\tStore 21\t+62 821-5550-1122\nWulan Sari\tKasir\tStore 12\t0857 1234 5678\nDewi Anggraini\tCashier\tStore 12\t0813 9000 1111\nNando Prakoso\tProcurement\tHead office\t0878 4400 9900'});
+});
+function reset(){
+  ['A','B'].forEach(w=>{S[w]=null;sh[w].classList.remove('on');sh[w].innerHTML=''});sh.A.classList.remove('under');
+  closeDlg();closeMenu();syncVeil();A=null;S.q='';S.filter='all';S.viewAs=null;seed();$('#invitee').classList.remove('on');J=null;paintJoin();renderApp();rebuildInviteeSelect();fit();
+}
+$('#dReset').addEventListener('click',reset);
+addEventListener('resize',fit);
+seed();renderApp();rebuildInviteeSelect();fit();
+})();
+</script>
+</body>
+</html>

@@ -1,3 +1,5 @@
+import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query"
+
 import { node } from "@/lib/api"
 import type {
   CustomerSummary,
@@ -349,6 +351,30 @@ export function listReturns(filter: ReturnScope, signal?: AbortSignal) {
     { signal }
   )
 }
+
+/// The refund desk's walked list for one question: the screen's reads and the
+/// prefetcher's (`screens/sales/prefetch.ts`) go through here.
+export const returnsPageQuery = (scope: ReturnScope) =>
+  infiniteQueryOptions({
+    queryKey: storeopsKeys.returnsPage(scope),
+    queryFn: ({ pageParam, signal }) =>
+      listReturns({ ...scope, cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+  })
+
+/// The last 500 sales and returns the centre holds, as Shop Floor reads them.
+export const recentSalesQuery = () =>
+  queryOptions({
+    queryKey: storeopsKeys.sales("any"),
+    queryFn: ({ signal }) => listSales({ limit: 500 }, signal),
+  })
+
+export const recentReturnsQuery = () =>
+  queryOptions({
+    queryKey: storeopsKeys.returns(),
+    queryFn: ({ signal }) => listReturns({ limit: 500 }, signal),
+  })
 
 export function returnDetail(id: string, signal?: AbortSignal) {
   return node.get<ReturnDetail>(`/api/v1/returns/${id}`, { signal })

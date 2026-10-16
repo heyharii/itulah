@@ -1,0 +1,566 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Properties options</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#1d1d1f; --body:#6e6e73; --faint:#c7c7cc; --ico:#8e8e93;
+  --canvas:#fff; --soft:#fafafb; --soft-2:#f2f2f5; --soft-3:#f5f5f7;
+  --hairline:#e8e8ec; --hairline-2:#dcdce1;
+  --stone:#ececee; --accent:#2862dc; --accent-bg:#eef3fc;
+  --ok:#248a3d; --bad:#d70015; --warn:#a66c1f; --info:#496b9c;
+  --ease-out:cubic-bezier(.23,1,.32,1); --ease-drawer:cubic-bezier(.32,.72,0,1);
+  --panel:#f5f5f7; --scrim:rgb(208 208 213/48%);
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--stone);color:var(--ink);font:15px/1.4 Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+
+/* shell: rail · page · veil · floating sheet */
+.app{display:flex;min-height:100vh}
+.rail{width:64px;flex:none;display:flex;flex-direction:column;align-items:center;gap:6px;padding:16px 0;background:var(--panel);position:sticky;top:0;height:100vh}
+.rail .ic{width:40px;height:40px;border-radius:10px;display:grid;place-items:center;color:var(--body)}
+.rail .ic.on{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgb(0 0 0/7%)}
+.rail .ic svg{width:20px;height:20px}
+.page{flex:1;min-width:0;background:#fff;padding:28px 32px 120px}
+.page h1{font-size:28px;font-weight:700;letter-spacing:-.015em;margin:0 0 20px}
+.tbl{width:100%;border-collapse:collapse}
+.tbl th{text-align:left;font-weight:500;color:var(--body);padding:10px 12px;border-bottom:1px solid var(--hairline);white-space:nowrap}
+.tbl td{padding:12px;border-bottom:1px solid var(--hairline);white-space:nowrap}
+.tbl td.r,.tbl th.r{text-align:right;font-variant-numeric:tabular-nums}
+.tbl tbody tr{cursor:pointer}
+.tbl tbody tr:hover td{background:var(--soft)}
+.tbl tbody tr.sel td{background:var(--accent-bg)}
+.tbl .sub{color:var(--body)}
+.veil{position:fixed;inset:0;z-index:4;background:var(--scrim);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);opacity:0;pointer-events:none;transition:opacity 200ms ease}
+.open .veil{opacity:1;pointer-events:auto;transition-duration:280ms}
+.sheet{position:fixed;top:12px;right:12px;bottom:12px;z-index:5;width:min(560px,calc(100vw - 104px));background:var(--canvas);border-radius:16px;box-shadow:0 0 0 1px rgb(0 0 0/.06),0 18px 50px rgb(0 0 0/.14);display:flex;flex-direction:column;overflow:hidden;
+  transform:translateX(calc(100% + 24px));visibility:hidden;transition:transform 220ms var(--ease-out),visibility 0s 220ms}
+.sheet.wide{width:min(760px,calc(100vw - 104px))}
+.sheet.xwide{width:min(960px,calc(100vw - 104px))}
+.open .sheet{transform:none;visibility:visible;transition:transform 380ms var(--ease-drawer),visibility 0s}
+.sheet .body{flex:1;overflow:auto}
+.head{padding:20px 24px 12px;border-bottom:1px solid var(--hairline);display:flex;gap:12px;align-items:flex-start}
+.head .who{flex:1;min-width:0}
+.x{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;background:var(--soft-2);color:var(--body);flex:none}
+.x:active{transform:scale(.94)}
+@media (prefers-reduced-motion:reduce){.sheet,.open .sheet{transition:opacity 160ms ease,visibility 0s;transform:none;opacity:0}.open .sheet{opacity:1}}
+.code{color:var(--body)}
+.title{font-size:22px;font-weight:700;letter-spacing:-.01em;margin:2px 0 0}
+.body{padding:8px 24px 20px}
+.sec{margin-top:18px}
+.sec h3{font-size:15px;font-weight:600;margin:0 0 8px}
+.foot{border-top:1px solid var(--hairline);padding:12px 24px;display:flex;justify-content:flex-end;gap:16px;align-items:center}
+.tint{color:var(--accent);font-weight:500}
+.primary{background:var(--accent);color:#fff;border-radius:8px;height:36px;padding:0 16px;font-weight:600}
+.primary:active,.chip:active,.val:active{transform:scale(.97)}
+
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block;flex:none}
+.ico{width:16px;height:16px;flex:none;color:var(--ico)}
+.empty{color:var(--faint)}
+
+/* lines */
+.lines{border-top:1px solid var(--hairline)}
+.line{display:flex;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--hairline)}
+.tile{width:36px;height:36px;border-radius:8px;background:var(--soft-3);flex:none}
+.line .n{flex:1;min-width:0}
+.line .s{color:var(--body)}
+.line .q{text-align:right;font-variant-numeric:tabular-nums}
+
+/* ── Today: label over value, 2 columns ── */
+.facts{display:grid;grid-template-columns:1fr 1fr;gap:16px 32px;margin:0}
+.facts dt{color:var(--body)}
+.facts dd{margin:4px 0 0;overflow-wrap:anywhere}
+.facts .wide{grid-column:span 2}
+
+/* ── A · Linear: one Properties row of chips ── */
+.lin{display:grid;grid-template-columns:116px 1fr;column-gap:12px;row-gap:6px;align-items:start}
+.lin .lab{color:var(--body);padding-top:6px}
+.chips{display:flex;flex-wrap:wrap;gap:2px 4px;margin-left:-8px}
+.chip{display:inline-flex;align-items:center;gap:7px;height:32px;padding:0 8px;border-radius:7px;white-space:nowrap;transition:background-color 120ms ease,transform 120ms var(--ease-out)}
+.chip .ico{width:16px;height:16px}
+.chip.add{color:var(--body)}
+.chip.more{color:var(--ico);padding:0 6px}
+.av{width:22px;height:22px;border-radius:50%;display:inline-grid;place-items:center;font-size:11px;font-weight:600;color:#fff;flex:none}
+.arrow{color:var(--ico)}
+
+/* ── B · Notion: label column, value beside, row hover ── */
+.not{margin:0 -8px}
+.prow{display:grid;grid-template-columns:148px 1fr;align-items:start;border-radius:7px;min-height:36px}
+.prow .k{display:flex;gap:8px;align-items:center;color:var(--body);padding:8px}
+.val{display:flex;align-items:center;gap:7px;min-height:36px;padding:7px 8px;border-radius:7px;text-align:left;width:100%;overflow-wrap:anywhere;transition:background-color 120ms ease,transform 120ms var(--ease-out)}
+.val[contenteditable]{cursor:text;outline:none;display:block}
+.val[contenteditable]:focus{background:var(--canvas);box-shadow:0 0 0 1px var(--hairline-2),0 4px 14px rgb(0 0 0/.06)}
+
+/* ── C · Hybrid: Notion rows, Linear values, no icons on labels ── */
+.hyb{margin:0 -8px}
+.hyb .prow{grid-template-columns:140px 1fr}
+.hyb .k{padding-left:8px}
+.hyb .val{width:auto;display:inline-flex}
+
+
+/* ── D · Two columns: label|value pairs, two per line ── */
+.two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);column-gap:24px;margin:0 -8px}
+.two .prow{grid-template-columns:132px minmax(0,1fr)}
+.two .k,.side .k{white-space:nowrap}
+.two .prow .k{padding-left:8px}
+.two .full{grid-column:span 2}
+/* ── F · Side column: the record's content left, its properties in a column at the right (Linear's issue page) ── */
+.split{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:28px;align-items:start}
+.side{border-left:1px solid var(--hairline);padding-left:20px;margin-top:18px}
+.side .prow{grid-template-columns:124px minmax(0,1fr)}
+.side .k{padding-left:0}
+.side .val{width:auto}
+.side .full{display:block}
+.side .full .k{padding-bottom:0}
+.side .val{margin-left:-8px}
+@media (max-width:860px){.split{grid-template-columns:1fr;gap:0}.side{border-left:0;padding-left:0;order:-1}}
+
+/* ── G · Bento: who + properties in a column at the left, the record's content as tiles at the right (bento.me) ── */
+.sheet.bento-w{width:min(1120px,calc(100vw - 104px));background:var(--soft-3)}
+.sheet.bento-w .head{border:0;background:transparent;padding:14px 16px 0;justify-content:flex-end}
+.sheet.bento-w .head .who{display:none}
+.sheet.bento-w .x{background:#fff}
+.sheet.bento-w .body{padding:0 28px 28px}
+.sheet.bento-w .foot{background:#fff}
+.bento{display:grid;grid-template-columns:300px minmax(0,1fr);gap:32px;align-items:start}
+.bl{position:sticky;top:0;padding-top:4px}
+.bl .big{width:72px;height:72px;border-radius:50%;display:grid;place-items:center;color:#fff;font-size:26px;font-weight:600;margin-bottom:14px}
+.bl .name{font-size:26px;font-weight:700;letter-spacing:-.015em;margin:0;line-height:1.15}
+.bl .code{margin:4px 0 18px}
+.bl .prow{grid-template-columns:116px minmax(0,1fr)}
+.bl .k{padding-left:0;white-space:nowrap}
+.bl .val{margin-left:-8px;width:auto}
+.bl .full{display:block}
+.br{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}
+.tile-b{background:#fff;border-radius:20px;box-shadow:0 0 0 1px rgb(0 0 0/.05),0 2px 8px rgb(0 0 0/.04);padding:18px 20px;min-width:0;transition:transform 160ms var(--ease-out)}
+.tile-b.s1{grid-column:span 1}.tile-b.s2{grid-column:span 2}.tile-b.s4{grid-column:span 4}
+.tile-b .t{color:var(--body);display:flex;gap:8px;align-items:center}
+.tile-b .fig{font-size:28px;font-weight:700;letter-spacing:-.02em;margin-top:10px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.tile-b .fig small{font-size:15px;font-weight:500;color:var(--body);letter-spacing:0}
+.tile-b .lines{border-top:0;margin-top:6px}
+.tile-b .line:last-child{border-bottom:0}
+.tile-b .txt{margin-top:8px}
+.tile-b.ok .fig{color:var(--ok)}
+/* ── H · Calm: G's split, without the tiles — white, one figure row with hairlines, sections not boxes ── */
+.sheet.calm-w{width:min(1040px,calc(100vw - 104px))}
+.sheet.calm-w .head{border:0;padding:14px 16px 0;justify-content:flex-end}
+.sheet.calm-w .head .who{display:none}
+.sheet.calm-w .body{padding:0 28px 28px}
+.calm{display:grid;grid-template-columns:340px minmax(0,1fr);gap:0;align-items:start}
+.calm .bl{padding-right:28px}
+.calm .bl .prow{grid-template-columns:120px minmax(0,1fr)}
+.calm .bl .big{width:48px;height:48px;font-size:18px;margin-bottom:12px}
+.calm .bl .name{font-size:22px}
+.calm .cr{border-left:1px solid var(--hairline);padding-left:28px;min-width:0}
+.figs{display:flex;padding-bottom:18px;border-bottom:1px solid var(--hairline)}
+.figs > div{flex:1;min-width:0;padding:0 20px;border-left:1px solid var(--hairline)}
+.figs > div:first-child{padding-left:0;border-left:0}
+.figs .t{color:var(--body)}
+.figs .fig{font-size:22px;font-weight:700;letter-spacing:-.015em;margin-top:4px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.figs .fig small{font-size:15px;font-weight:500;color:var(--body);letter-spacing:0}
+.calm .cr .sec:first-of-type{margin-top:20px}
+@media (max-width:1000px){
+  .calm{grid-template-columns:1fr}
+  .calm .bl{padding-right:0;padding-bottom:16px}
+  .calm .cr{border-left:0;padding-left:0;border-top:1px solid var(--hairline);padding-top:18px}
+}
+@media (max-width:520px){
+  .sheet.calm-w .body{padding:0 16px 20px}
+  .figs{flex-wrap:wrap;row-gap:14px}
+  .figs > div{padding:0 12px}
+  .figs > div:first-child{flex-basis:100%;padding:0;border-left:0}
+  .figs > div:nth-child(2){padding-left:0;border-left:0}
+}
+
+/* ── I · Hybrid + More: the few facts that matter, the rest one tap away ── */
+.more{color:var(--accent);font-weight:500;padding:7px 8px;border-radius:7px;margin-top:2px}
+@media (hover:hover) and (pointer:fine){.more:hover{background:var(--soft-2)}}
+.extra{display:grid;grid-template-rows:0fr;transition:grid-template-rows 240ms var(--ease-out)}
+.extra > div{overflow:hidden;min-height:0}
+.extra.on{grid-template-rows:1fr}
+/* ── J · Hybrid in two calm columns: no icons, tighter rows, empty facts left out ── */
+.cal2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);column-gap:40px;margin:0 -8px}
+.cal2 .prow{grid-template-columns:120px minmax(0,1fr);min-height:32px}
+.cal2 .k{padding:6px 8px;white-space:nowrap}
+.cal2 .val{min-height:32px;padding:5px 8px}
+.cal2 .full{grid-column:span 2}
+@media (max-width:520px){.cal2{grid-template-columns:1fr}.cal2 .full{grid-column:auto}}
+
+@media (hover:hover) and (pointer:fine){.tile-b.click:hover{transform:translateY(-2px)}}
+@media (max-width:1000px){
+  .bento{grid-template-columns:1fr;gap:20px}
+  .bl{position:static}
+  .br{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .tile-b.s4{grid-column:span 2}
+}
+@media (max-width:520px){
+  .sheet.bento-w .body{padding:0 16px 20px}
+  .br{gap:12px}
+  .tile-b{padding:16px}
+  .tile-b .fig{font-size:24px}
+}
+
+@media (hover:hover) and (pointer:fine){
+  .chip:hover,.val:hover{background:var(--soft-2)}
+  .val[contenteditable]:hover{background:var(--soft-2)}
+}
+
+/* popover */
+.pop{position:fixed;z-index:20;min-width:220px;background:#fff;border-radius:10px;padding:4px;box-shadow:0 0 0 1px rgb(0 0 0/.08),0 10px 30px rgb(0 0 0/.12);transform-origin:top left;
+  opacity:1;transform:scale(1);transition:opacity 150ms var(--ease-out),transform 150ms var(--ease-out)}
+@starting-style{.pop{opacity:0;transform:scale(.96)}}
+.pop .opt{display:flex;align-items:center;gap:8px;width:100%;height:36px;padding:0 10px;border-radius:7px;text-align:left}
+.pop .opt:hover,.pop .opt.on{background:var(--soft-2)}
+.pop .opt .chk{margin-left:auto;color:var(--accent)}
+.pop input{width:100%;height:36px;border:0;border-bottom:1px solid var(--hairline);outline:none;font:inherit;padding:0 10px;margin-bottom:4px}
+
+/* picker */
+.picker{position:fixed;left:16px;bottom:16px;z-index:30;display:flex;gap:4px;flex-wrap:wrap;background:#fff;border-radius:12px;padding:4px;box-shadow:0 0 0 1px rgb(0 0 0/.08),0 8px 24px rgb(0 0 0/.1);max-width:calc(100vw - 32px)}
+.picker button{height:36px;padding:0 12px;border-radius:8px;color:var(--body)}
+.picker button.on{background:var(--ink);color:#fff}
+.picker .sep{width:1px;background:var(--hairline);margin:6px 4px}
+
+@media (max-width:520px){
+  .rail{display:none}
+  .page{padding:20px 16px 120px}
+  .tbl .hide-s{display:none}
+  .sheet,.sheet.wide,.sheet.xwide,.sheet.bento-w,.sheet.calm-w{top:0;right:0;bottom:0;width:100%;border-radius:0}
+  .foot{padding-bottom:max(12px,env(safe-area-inset-bottom));margin-bottom:64px}
+  .head,.body,.foot{padding-left:16px;padding-right:16px}
+  .lin{grid-template-columns:1fr}
+  .lin .lab{padding-top:10px}
+  .prow{grid-template-columns:120px 1fr}
+  .hyb .prow{grid-template-columns:120px 1fr}
+  .two{grid-template-columns:1fr}.two .full{grid-column:auto}
+  .pop{left:8px!important;right:8px;top:auto!important;bottom:8px;min-width:0;border-radius:16px;padding:8px;transform-origin:bottom center;
+    padding-bottom:max(8px,env(safe-area-inset-bottom))}
+  @starting-style{.pop{opacity:0;transform:translateY(24px)}}
+  .pop .opt{height:48px;font-size:17px}
+  .pop input{height:44px;font-size:17px}
+  .pop{z-index:41}
+  .pop-veil{position:fixed;inset:0;z-index:40;background:rgb(0 0 0/.2)}
+  .picker{flex-wrap:nowrap;overflow-x:auto;left:8px;right:8px;bottom:8px;scrollbar-width:none}
+  .picker button{flex:none}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <nav class="rail" id="rail"></nav>
+  <main class="page" id="page"></main>
+</div>
+<div class="veil" id="veil"></div>
+<aside class="sheet" id="sheet"></aside>
+
+<div class="picker" id="picker"></div>
+
+<script>
+const I = {
+  status:'<circle cx="8" cy="8" r="6"/><path d="M8 4.5V8l2.2 1.4"/>',
+  user:'<circle cx="8" cy="5.5" r="2.7"/><path d="M2.8 14c.6-2.6 2.7-4 5.2-4s4.6 1.4 5.2 4"/>',
+  cal:'<rect x="2.5" y="3.5" width="11" height="10" rx="2"/><path d="M2.5 6.5h11M5.5 2v3M10.5 2v3"/>',
+  card:'<rect x="2" y="4" width="12" height="9" rx="2"/><path d="M2 7h12"/>',
+  clock:'<circle cx="8" cy="8" r="6"/><path d="M8 5v3h2.5"/>',
+  store:'<path d="M3 6.5V13h10V6.5M2 6.5l1.4-3.5h9.2L14 6.5z"/>',
+  pin:'<path d="M8 14s4.5-4.2 4.5-7.5a4.5 4.5 0 0 0-9 0C3.5 9.8 8 14 8 14z"/><circle cx="8" cy="6.5" r="1.6"/>',
+  phone:'<path d="M4 2.5h2l1 3-1.5 1a7 7 0 0 0 3.9 3.9l1-1.5 3 1v2a1.5 1.5 0 0 1-1.6 1.5A11 11 0 0 1 2.5 4.1 1.5 1.5 0 0 1 4 2.5z"/>',
+  mail:'<rect x="2" y="3.5" width="12" height="9" rx="2"/><path d="m2.5 4.5 5.5 4 5.5-4"/>',
+  doc:'<path d="M4 2h5l3 3v9H4z"/><path d="M9 2v3h3M6 9h4M6 11.5h4"/>',
+  check:'<circle cx="8" cy="8" r="6"/><path d="m5.5 8 1.8 1.8L10.7 6.5"/>',
+  tag:'<path d="M2.5 8.5V3h5.5L14 9l-5 5z"/><circle cx="5.5" cy="5.8" r=".9"/>',
+  plus:'<path d="M8 3.5v9M3.5 8h9"/>',
+  more:'<circle cx="4" cy="8" r=".9"/><circle cx="8" cy="8" r=".9"/><circle cx="12" cy="8" r=".9"/>',
+  ok:'<path d="m3.5 8.5 3 3 6-7"/>',
+  x:'<path d="m4.5 4.5 7 7M11.5 4.5l-7 7"/>',
+};
+const ico = (k,c='') => `<svg class="ico ${c}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">${I[k]}</svg>`;
+
+const STATUS = {Draft:'#c7c7cc', Active:'#2862dc', 'Partly received':'#a66c1f', Completed:'#248a3d', Cancelled:'#d70015'};
+const PAY = ['Cash before delivery','Net 14 days','Net 30 days','Net 45 days'];
+const PEOPLE = [['Rina Wulandari','#c2410c'],['Budi Santoso','#2862dc'],['Dewi Lestari','#248a3d']];
+const DIVS = ['Footwear','Apparel','Bags','Accessories'];
+const DATES = ['16 Oct 2026','18 Oct 2026','25 Oct 2026','1 Nov 2026'];
+const ini = n => n.split(' ').map(w=>w[0]).join('').slice(0,2);
+const av = ([n,c]) => `<span class="av" style="background:${c}">${ini(n)}</span>`;
+
+const state = {
+  ver: new URLSearchParams(location.hash.slice(1)).get('v') || 'B',
+  rec: new URLSearchParams(location.hash.slice(1)).get('r') || 'po',
+  open: true, row: 0, more: false,
+  po:{status:'Active', supplier:'Sepatu Sejahtera', ordered:'14 Oct 2026', delivery:'18 Oct 2026', pay:'Net 30 days', buyer:0, div:'Footwear', note:'Deliver before 3 pm to the Cikupa warehouse. Pack sizes 39–44 in separate koli and call Rina on arrival.'},
+  sup:{status:'Active', contact:'Hendra Wijaya', phone:'0812 8890 1123', email:'order@sepatusejahtera.co.id', address:'Jl. Raya Cibaduyut No. 118, Kec. Bojongloa Kidul, Bandung, Jawa Barat 40236', npwp:'01.234.567.8-421.000', pkp:'PKP', pay:'Net 30 days'},
+};
+
+const PO_LINES = [['Runner Knit 02','Black · 39–44','120 pcs','Rp 18.600.000'],['Slip-on Canvas','White · 38–43','96 pcs','Rp 9.120.000'],['Kids Velcro','Navy · 28–33','60 pcs','Rp 4.500.000']];
+const lines = () => `<div class="sec"><h3>Items</h3><div class="lines">${PO_LINES.map(l=>`<div class="line"><span class="tile"></span><div class="n">${l[0]}<div class="s">${l[1]}</div></div><div class="q">${l[2]}<div class="s">${l[3]}</div></div></div>`).join('')}</div></div>`;
+const statusVal = s => `<span class="dot" style="background:${STATUS[s]}"></span>${s}`;
+const person = i => `${av(PEOPLE[i])}${PEOPLE[i][0]}`;
+
+/* each property: key, label, icon, how it shows, which picker */
+function props(){
+  if(state.rec==='po'){ const p=state.po; return [
+    {k:'status', l:'Status', i:'status', v:statusVal(p.status), pick:'status'},
+    {k:'supplier', l:'Supplier', i:'store', v:`${av(['Sepatu Sejahtera','#7c3aed'])}${p.supplier}`, pick:'supplier'},
+    {k:'delivery', l:'Delivery date', i:'cal', v:p.delivery, pick:'date', range:p.ordered},
+    {k:'pay', l:'Payment', i:'card', v:p.pay, pick:'pay'},
+    {k:'buyer', l:'Buyer', i:'user', v:person(p.buyer), pick:'buyer'},
+    {k:'div', l:'Division', i:'tag', v:p.div, pick:'div'},
+    {k:'note', l:'Notes', i:'doc', v:p.note, text:true, wide:true},
+  ];}
+  const s=state.sup; return [
+    {k:'status', l:'Status', i:'status', v:statusVal(s.status), pick:'supstatus'},
+    {k:'contact', l:'Contact person', i:'user', v:s.contact, text:true},
+    {k:'phone', l:'Phone number', i:'phone', v:s.phone, text:true},
+    {k:'email', l:'Email', i:'mail', v:s.email, text:true},
+    {k:'address', l:'Address', i:'pin', v:s.address, text:true, wide:true},
+    {k:'npwp', l:'NPWP', i:'doc', v:s.npwp, text:true},
+    {k:'pkp', l:'Tax', i:'check', v:s.pkp, pick:'pkp'},
+    {k:'pay', l:'Payment', i:'card', v:s.pay, pick:'pay'},
+  ];
+}
+const emptyWord = p => `<span class="empty">${p.k==='note'?'Add a note':'Empty'}</span>`;
+
+const PO_ROWS = [['PO-0002-OPE6','Sepatu Sejahtera','Active','18 Oct 2026','276 pcs','Rp 32.220.000'],['PO-0003-OPE6','Kain Nusantara','Active','21 Oct 2026','540 pcs','Rp 48.600.000'],['PO-0004-OPE6','Tas Mandiri','Partly received','12 Oct 2026','180 pcs','Rp 21.900.000'],['PO-0005-OPE6','Aksesori Jaya','Draft','28 Oct 2026','90 pcs','Rp 4.050.000'],['PO-0001-OPE6','Sepatu Sejahtera','Completed','2 Oct 2026','300 pcs','Rp 35.400.000']];
+const SUP_ROWS = [['SUP-0014','Sepatu Sejahtera','Bandung','Hendra Wijaya','Net 30 days'],['SUP-0009','Kain Nusantara','Pekalongan','Siti Rahma','Net 45 days'],['SUP-0011','Tas Mandiri','Tangerang','Agus Prasetyo','Net 14 days'],['SUP-0016','Aksesori Jaya','Jakarta Barat','Lina Kurnia','Cash before delivery']];
+const RAIL = ['<path d="M3 10.5 10 4l7 6.5V17H3z"/>','<rect x="3.5" y="3" width="13" height="14" rx="2"/><path d="M7 7h6M7 10h6M7 13h4"/>','<path d="M4 7h12l-1 10H5zM7 7V5.5a3 3 0 0 1 6 0V7"/>','<path d="M3 15V9M8 15V5M13 15v-4M17 15V7"/>','<circle cx="10" cy="7" r="3"/><path d="M4 17c.8-3 3.2-4.5 6-4.5s5.2 1.5 6 4.5"/>'];
+
+function head(){
+  const r = state.rec==='po' ? PO_ROWS[state.row] : SUP_ROWS[state.row];
+  return `<div class="head"><div class="who"><div class="code">${r[0]}</div><h2 class="title">${r[1]}</h2></div><button class="x" data-close aria-label="Close">${ico('x')}</button></div>`;
+}
+
+function page(){
+  if(state.rec==='po') return `<h1>Purchase Orders</h1><table class="tbl"><thead><tr><th>PO</th><th>Supplier</th><th class="hide-s">Status</th><th class="hide-s">Delivery date</th><th class="r">Ordered</th><th class="r hide-s">Grand total</th></tr></thead><tbody>${
+    PO_ROWS.map((r,i)=>`<tr data-row="${i}" class="${state.open&&state.row===i?'sel':''}"><td>${r[0]}</td><td>${r[1]}</td><td class="hide-s"><span style="display:inline-flex;gap:7px;align-items:center">${statusVal(r[2])}</span></td><td class="hide-s">${r[3]}</td><td class="r">${r[4]}</td><td class="r hide-s">${r[5]}</td></tr>`).join('')}</tbody></table>`;
+  return `<h1>Suppliers</h1><table class="tbl"><thead><tr><th>Supplier</th><th class="hide-s">City</th><th class="hide-s">Contact person</th><th>Payment</th></tr></thead><tbody>${
+    SUP_ROWS.map((r,i)=>`<tr data-row="${i}" class="${state.open&&state.row===i?'sel':''}"><td>${r[1]}<div class="sub">${r[0]}</div></td><td class="hide-s">${r[2]}</td><td class="hide-s">${r[3]}</td><td>${r[4]}</td></tr>`).join('')}</tbody></table>`;
+}
+
+function today(){
+  return `<div class="sec"><dl class="facts">${props().map(p=>`<div class="${p.wide?'wide':''}"><dt>${p.l}</dt><dd>${p.v||'—'}</dd></div>`).join('')}</dl></div>`;
+}
+
+/* A · Linear — the pickable facts as one row of chips, the text facts as label rows */
+function linear(){
+  const ps=props(), chips=ps.filter(p=>p.pick), texts=ps.filter(p=>p.text);
+  const chip = p => {
+    let inner = p.k==='delivery' ? `${ico('cal')}${p.range}<span class="arrow">→</span>${p.v}` : `${p.k==='status'||p.k==='buyer'||p.k==='supplier'?'':ico(p.i)}${p.v}`;
+    return `<button class="chip" data-pick="${p.pick}" data-k="${p.k}" title="${p.l}">${inner}</button>`;
+  };
+  const rows = texts.map(p=>`<div class="lab">${p.l}</div><div class="chips">${p.v
+      ? `<span class="val" contenteditable data-k="${p.k}" spellcheck="false">${p.v}</span>`
+      : `<button class="chip add" data-edit="${p.k}">${ico('plus')}${p.k==='note'?'Add a note':'Add'}</button>`}</div>`).join('');
+  return `<div class="sec lin">
+    <div class="lab">Properties</div><div class="chips">${chips.map(chip).join('')}</div>
+    ${rows}</div>`;
+}
+
+/* B · Notion — every property a row: icon + label | value, click the value to change it */
+function notion(){
+  return `<div class="sec not">${props().map(p=>`<div class="prow"><div class="k">${ico(p.i)}${p.l}</div>${
+    p.text ? `<div class="val" contenteditable data-k="${p.k}" data-ph="${p.k==='note'?'Add a note':'Empty'}" spellcheck="false">${p.v}</div>`
+           : `<button class="val" data-pick="${p.pick}" data-k="${p.k}">${p.v||emptyWord(p)}</button>`
+  }</div>`).join('')}</div>`;
+}
+
+/* C · Hybrid — Notion's rows without the label icons; values hug like Linear chips */
+function hybrid(){
+  return `<div class="sec hyb">${props().map(p=>`<div class="prow"><div class="k">${p.l}</div><div>${
+    p.text ? `<div class="val" contenteditable data-k="${p.k}" data-ph="${p.k==='note'?'Add a note':'Empty'}" spellcheck="false" style="display:block">${p.v}</div>`
+           : `<button class="val" data-pick="${p.pick}" data-k="${p.k}">${p.k==='status'||p.k==='buyer'||p.k==='supplier'?'':ico(p.i)}${p.v||emptyWord(p)}</button>`
+  }</div></div>`).join('')}</div>`;
+}
+
+
+/* one property row — label | value; the value is a picker button or editable text */
+function prow(p, opt={}){
+  const lab = `<div class="k">${opt.icons?ico(p.i):''}${p.l}</div>`;
+  const val = p.text
+    ? `<div class="val" contenteditable data-k="${p.k}" data-ph="${p.k==='note'?'Add a note':'Empty'}" spellcheck="false" style="display:block">${p.v}</div>`
+    : `<div><button class="val" style="width:auto;display:inline-flex" data-pick="${p.pick}" data-k="${p.k}">${p.v||emptyWord(p)}</button></div>`;
+  return `<div class="prow ${opt.full?'full':''}">${lab}${val}</div>`;
+}
+const LONG = ['address','email','note'];
+
+/* D · Two columns — every fact half width, two per line */
+function twoAll(){ return `<div class="sec two">${props().map(p=>prow(p)).join('')}</div>`; }
+
+/* E · Two columns + long facts full width — short facts pair up, an address, an email or a note takes the whole line */
+function twoMixed(){
+  const ps=props(), short=ps.filter(p=>!LONG.includes(p.k)), long=ps.filter(p=>LONG.includes(p.k));
+  return `<div class="sec two">${short.map(p=>prow(p)).join('')}${long.map(p=>prow(p,{full:true})).join('')}</div>`;
+}
+
+/* F · Side column — content on the left, properties stacked in a column on the right */
+const SUP_ORDERS = PO_ROWS.filter(r=>r[1]==='Sepatu Sejahtera');
+function side(){
+  const main = state.rec==='po' ? lines()
+    : `<div class="sec"><h3>Purchase orders</h3><div class="lines">${SUP_ORDERS.map(r=>`<div class="line"><div class="n">${r[0]}<div class="s"><span style="display:inline-flex;gap:7px;align-items:center">${statusVal(r[2])}</span></div></div><div class="q">${r[4]}<div class="s">${r[5]}</div></div></div>`).join('')}</div></div>`;
+  return `<div class="split"><div>${main}</div><aside class="side">${props().map(p=>prow(p,{full:LONG.includes(p.k)})).join('')}</aside></div>`;
+}
+
+/* G · Bento — the left column says who it is and its properties; the right is tiles of different sizes */
+function bento(){
+  const isPo = state.rec==='po', r = isPo ? PO_ROWS[state.row] : SUP_ROWS[state.row];
+  const ps = props().filter(p=>!['note','supplier','delivery'].includes(p.k));
+  const left = `<aside class="bl"><div class="big" style="background:#7c3aed">${ini(r[1])}</div>
+    <h2 class="name">${r[1]}</h2><div class="code">${r[0]}</div>
+    ${ps.map(p=>prow(p,{full:LONG.includes(p.k)})).join('')}</aside>`;
+  const tile = (cls,t,inner) => `<div class="tile-b ${cls}"><div class="t">${t}</div>${inner}</div>`;
+  let tiles;
+  if(isPo){
+    tiles = tile('s2','Grand total',`<div class="fig">Rp 32.220.000</div>`)
+      + tile('s1','Ordered',`<div class="fig">276 <small>pcs</small></div>`)
+      + tile('s1','Received',`<div class="fig">0 <small>pcs</small></div>`)
+      + tile('s4','Items',`<div class="lines">${PO_LINES.map(l=>`<div class="line"><span class="tile"></span><div class="n">${l[0]}<div class="s">${l[1]}</div></div><div class="q">${l[2]}<div class="s">${l[3]}</div></div></div>`).join('')}</div>`)
+      + tile('s2','Notes',`<div class="val txt" contenteditable data-k="note" data-ph="Add a note" spellcheck="false" style="display:block;margin:4px -8px 0">${state.po.note}</div>`)
+      + tile('s2','Delivery date',`<div class="fig">${state.po.delivery.replace(' 2026','')} <small>2026</small></div>`);
+  } else {
+    tiles = tile('s2','Ordered this year',`<div class="fig">Rp 67.620.000</div>`)
+      + tile('s1','Open orders',`<div class="fig">1</div>`)
+      + tile('s1','Returns',`<div class="fig">0</div>`)
+      + tile('s4 click','Purchase orders',`<div class="lines">${SUP_ORDERS.map(o=>`<div class="line"><div class="n">${o[0]}<div class="s"><span style="display:inline-flex;gap:7px;align-items:center">${statusVal(o[2])}</span></div></div><div class="q">${o[4]}<div class="s">${o[5]}</div></div></div>`).join('')}</div>`);
+  }
+  return `<div class="bento">${left}<div class="br">${tiles}</div></div>`;
+}
+
+/* H · Calm — who + properties left, content right; no tiles: one figure row, then sections */
+function calm(){
+  const isPo = state.rec==='po', r = isPo ? PO_ROWS[state.row] : SUP_ROWS[state.row];
+  const ps = props().filter(p=>!['note','supplier'].includes(p.k));
+  const left = `<aside class="bl"><div class="big" style="background:#7c3aed">${ini(r[1])}</div>
+    <h2 class="name">${r[1]}</h2><div class="code">${r[0]}</div>
+    ${ps.map(p=>prow(p,{full:LONG.includes(p.k)})).join('')}</aside>`;
+  const fig = (t,v) => `<div><div class="t">${t}</div><div class="fig">${v}</div></div>`;
+  const right = isPo
+    ? `<div class="figs">${fig('Grand total','Rp 32.220.000')}${fig('Ordered','276 <small>pcs</small>')}${fig('Received','0 <small>pcs</small>')}</div>`
+      + lines()
+      + `<div class="sec"><h3>Notes</h3><div class="val" contenteditable data-k="note" data-ph="Add a note" spellcheck="false" style="display:block;margin:0 -8px">${state.po.note}</div></div>`
+    : `<div class="figs">${fig('Ordered this year','Rp 67.620.000')}${fig('Open orders','1')}${fig('Returns','0')}</div>`
+      + `<div class="sec"><h3>Purchase orders</h3><div class="lines">${SUP_ORDERS.map(o=>`<div class="line"><div class="n">${o[0]}<div class="s"><span style="display:inline-flex;gap:7px;align-items:center">${statusVal(o[2])}</span></div></div><div class="q">${o[4]}<div class="s">${o[5]}</div></div></div>`).join('')}</div></div>`;
+  return `<div class="calm">${left}<div class="cr">${right}</div></div>`;
+}
+
+/* hybrid row: label, then a hugging value without a label icon (C's look) */
+function hrow(p, full){
+  return `<div class="prow ${full?'full':''}"><div class="k">${p.l}</div><div>${
+    p.text ? `<div class="val" contenteditable data-k="${p.k}" data-ph="${p.k==='note'?'Add a note':'Empty'}" spellcheck="false" style="display:block">${p.v}</div>`
+           : `<button class="val" style="width:auto;display:inline-flex" data-pick="${p.pick}" data-k="${p.k}">${['status','buyer','supplier'].includes(p.k)?'':ico(p.i)}${p.v||emptyWord(p)}</button>`
+  }</div></div>`;
+}
+const KEY = {po:['status','delivery','pay','buyer'], sup:['status','contact','phone','pay']};
+
+/* I · Hybrid + More */
+function hybMore(){
+  const ps=props().filter(p=>p.k!=='supplier'), key=KEY[state.rec];
+  const top=ps.filter(p=>key.includes(p.k)), rest=ps.filter(p=>!key.includes(p.k));
+  return `<div class="sec hyb">${top.map(p=>hrow(p)).join('')}
+    <div class="extra ${state.more?'on':''}"><div>${rest.map(p=>hrow(p)).join('')}</div></div>
+    <button class="more" data-more>${state.more?'Show less':`Show ${rest.length} more`}</button></div>`;
+}
+
+/* J · Hybrid in two calm columns */
+function hybTwo(){
+  const ps=props().filter(p=>p.k!=='supplier' && (p.v||'').toString().trim());
+  const short=ps.filter(p=>!LONG.includes(p.k)), long=ps.filter(p=>LONG.includes(p.k));
+  return `<div class="sec cal2">${short.map(p=>hrow(p)).join('')}${long.map(p=>hrow(p,true)).join('')}</div>`;
+}
+
+const VERS = {T:['Today',today], A:['A · Linear',linear], B:['B · Notion',notion], C:['C · Hybrid',hybrid], D:['D · 2 columns',twoAll], E:['E · 2 col + long',twoMixed], F:['F · Side column',side], G:['G · Bento',bento], H:['H · Calm',calm], I:['I · Hybrid + More',hybMore], J:['J · Hybrid 2 col',hybTwo]};
+
+function render(){
+  const [,fn] = VERS[state.ver];
+  document.body.classList.toggle('open', state.open);
+  document.getElementById('rail').innerHTML = RAIL.map((d,i)=>`<span class="ic ${i===(state.rec==='po'?2:4)?'on':''}"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">${d}</svg></span>`).join('');
+  document.getElementById('page').innerHTML = page();
+  const sh=document.getElementById('sheet'); sh.classList.toggle('wide', state.rec==='po' || 'DEJ'.includes(state.ver));
+  sh.classList.toggle('xwide', state.ver==='F');
+  sh.classList.toggle('bento-w', state.ver==='G');
+  sh.classList.toggle('calm-w', state.ver==='H');
+  sh.innerHTML = head()
+    + `<div class="body">${fn()}${state.rec==='po'&&!'FGH'.includes(state.ver)?lines():''}</div>`
+    + `<div class="foot"><button class="tint">Print</button><button class="primary">Edit</button></div>`;
+  document.getElementById('picker').innerHTML =
+    Object.entries(VERS).map(([k,[n]])=>`<button data-v="${k}" class="${state.ver===k?'on':''}">${n}</button>`).join('')
+    + `<span class="sep"></span>`
+    + [['po','PO'],['sup','Supplier']].map(([k,n])=>`<button data-r="${k}" class="${state.rec===k?'on':''}">${n}</button>`).join('');
+  history.replaceState(null,'',`#v=${state.ver}&r=${state.rec}`);
+  // placeholder for empty editable text
+  document.querySelectorAll('[contenteditable][data-ph]').forEach(el=>{ if(!el.textContent.trim()) el.innerHTML=`<span class="empty">${el.dataset.ph}</span>`; });
+}
+
+/* popovers */
+let pop=null;
+function closePop(){ pop?.remove(); pop=null; document.querySelector('.pop-veil')?.remove(); }
+function options(kind){
+  const rec = state.rec==='po'?state.po:state.sup;
+  switch(kind){
+    case 'status': return Object.keys(STATUS).map(s=>[s,statusVal(s),rec.status===s]);
+    case 'supstatus': return ['Active','Cancelled'].map(s=>[s, statusVal(s).replace('Cancelled','Non-active'), rec.status===s]);
+    case 'pay': return PAY.map(s=>[s,s,rec.pay===s]);
+    case 'buyer': return PEOPLE.map((p,i)=>[i,person(i),rec.buyer===i]);
+    case 'div': return DIVS.map(s=>[s,s,rec.div===s]);
+    case 'date': return DATES.map(s=>[s,s,rec.delivery===s]);
+    case 'pkp': return ['PKP','Non-PKP'].map(s=>[s,s,rec.pkp===s]);
+    case 'supplier': return ['Sepatu Sejahtera'].map(s=>[s,`${av([s,'#7c3aed'])}${s}`,true]);
+  }
+}
+function openPop(btn){
+  closePop();
+  const kind=btn.dataset.pick, key=btn.dataset.k, r=btn.getBoundingClientRect();
+  pop=document.createElement('div'); pop.className='pop';
+  const opts=options(kind), searchable=opts.length>3, label=(props().find(x=>x.k===key)||{}).l||key;
+  pop.innerHTML=(searchable?`<input placeholder="Change ${label.toLowerCase()}…">`:'')
+    + opts.map(([v,h,on])=>`<button class="opt ${on?'on':''}" data-val="${v}">${h}${on?`<span class="chk">${ico('ok')}</span>`:''}</button>`).join('');
+  if(matchMedia('(max-width:520px)').matches){ const v=document.createElement('div'); v.className='pop-veil'; v.onclick=closePop; document.body.appendChild(v); }
+  document.body.appendChild(pop);
+  const w=pop.offsetWidth, left=Math.min(r.left, innerWidth-w-8);
+  pop.style.left=left+'px'; pop.style.top=(r.bottom+4)+'px';
+  if(!matchMedia('(max-width:520px)').matches) pop.querySelector('input')?.focus();
+  pop.querySelector('input')?.addEventListener('input',e=>{
+    const q=e.target.value.toLowerCase();
+    pop.querySelectorAll('.opt').forEach(o=>o.style.display=o.textContent.toLowerCase().includes(q)?'':'none');
+  });
+  pop.addEventListener('click',e=>{
+    const o=e.target.closest('.opt'); if(!o) return;
+    const rec=state.rec==='po'?state.po:state.sup;
+    rec[key = key==='status'?'status':key] = key==='buyer'?+o.dataset.val:o.dataset.val;
+    closePop(); render();
+  });
+}
+
+document.addEventListener('click',e=>{
+  const v=e.target.closest('[data-v]'), r=e.target.closest('[data-r]'), p=e.target.closest('[data-pick]'), ed=e.target.closest('[data-edit]');
+  if(v){state.ver=v.dataset.v;closePop();render();return}
+  if(r){state.rec=r.dataset.r;state.row=0;closePop();render();return}
+  if(e.target.closest('[data-more]')){state.more=!state.more;const x=document.querySelector('.extra');x.classList.toggle('on',state.more);e.target.closest('[data-more]').textContent=state.more?'Show less':`Show ${x.querySelectorAll('.prow').length} more`;return}
+  const row=e.target.closest('[data-row]'); if(row){state.row=+row.dataset.row;state.open=true;closePop();render();return}
+  if(e.target.closest('[data-close]')||e.target.id==='veil'){state.open=false;closePop();render();return}
+  if(p){ pop && pop._from===p ? closePop() : (openPop(p), pop._from=p); return }
+  if(ed){ state.ver==='A' && (state.po.note=' '); render(); const el=document.querySelector(`[contenteditable][data-k="${ed.dataset.edit}"]`); if(el){el.textContent='';el.focus()} return }
+  if(pop && !e.target.closest('.pop')) closePop();
+});
+document.addEventListener('focusin',e=>{
+  const el=e.target.closest('[contenteditable]'); if(el && el.querySelector('.empty')) el.textContent='';
+});
+document.addEventListener('focusout',e=>{
+  const el=e.target.closest('[contenteditable]'); if(!el) return;
+  const rec=state.rec==='po'?state.po:state.sup; rec[el.dataset.k]=el.textContent.trim();
+  setTimeout(render,0);
+});
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'){ if(pop) closePop(); else if(document.activeElement?.matches('[contenteditable]')) document.activeElement.blur(); else if(state.open){state.open=false;render();} }
+  if(e.key==='Enter' && e.target.matches('[contenteditable]') && e.target.dataset.k!=='address' && e.target.dataset.k!=='note'){ e.preventDefault(); e.target.blur(); }
+  if(!e.target.matches('input,[contenteditable]')){
+    const map={'0':'T','1':'A','2':'B','3':'C','4':'D','5':'E','6':'F','7':'G','8':'H','9':'I'}; if(map[e.key]){state.ver=map[e.key];closePop();render();}
+  }
+});
+render();
+</script>
+</body>
+</html>

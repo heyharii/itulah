@@ -40,7 +40,7 @@ function Mark({
   return (
     <span
       className={cn(
-        "inline-flex shrink-0 items-center rounded-inner bg-soft-2 px-[0.375rem] text-[0.875rem] font-medium text-body",
+        "inline-flex shrink-0 items-center rounded-inner bg-soft-2 px-[0.375rem] text-[0.9375rem] font-medium text-body",
         className
       )}
     >

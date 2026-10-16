@@ -43,6 +43,7 @@ export function ArticleThumb({
   colour,
   articleCode,
   digit,
+  bare = false,
   className,
 }: {
   url: string | null | undefined
@@ -53,6 +54,10 @@ export function ArticleThumb({
   /// The colourway's digit, for a row that is one colourway; leave out for the
   /// article's own row.
   digit?: string | null
+  /// Nothing at all when there is no photograph: no painted silhouette and no
+  /// empty box. For the allotment grid, where a stand-in on every row said
+  /// nothing the row did not (owner, 2026-10-10).
+  bare?: boolean
   /// The size; `size-8` unless the row is taller than its neighbours.
   className?: string
 }) {
@@ -71,10 +76,23 @@ export function ArticleThumb({
   })
   const shown = own.data?.url ?? url ?? main.data?.url ?? null
 
+  if (bare && shown === null) return null
+
   return (
     <ZoomPhoto
       url={shown}
       name={name}
+      placeholder={
+        bare ? undefined : (
+        <Thumbnail
+          url={null}
+          name={name}
+          division={division}
+          colours={fill(colour)}
+          className="size-[min(20rem,70vw)] rounded-card"
+        />
+        )
+      }
       className={cn("block size-8 shrink-0", className)}
     >
       <Thumbnail

@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query"
+import { queryOptions, useQuery } from "@tanstack/react-query"
 
 import { node } from "@/lib/api"
 
@@ -72,13 +72,15 @@ export function submitCount(
   )
 }
 
-export function useCounts() {
-  return useQuery({
+export const countsQuery = () =>
+  queryOptions({
     queryKey: countsKey(),
     queryFn: ({ signal }) => fetchCounts(signal),
-    refetchInterval: COUNT_POLL_MS,
     staleTime: COUNT_POLL_MS,
   })
+
+export function useCounts() {
+  return useQuery({ ...countsQuery(), refetchInterval: COUNT_POLL_MS })
 }
 
 export function useCount(countId: string, live = false) {

@@ -35,7 +35,7 @@ export function Timeline({
           )}
           <span
             className={cn(
-              "z-10 grid size-[1.5625rem] shrink-0 place-items-center rounded-[7px] font-mono text-[0.875rem] font-semibold",
+              "z-10 grid size-[1.5625rem] shrink-0 place-items-center rounded-[7px] font-mono text-[0.9375rem] font-semibold",
               event.state === "done" && "bg-ok-bg text-ok-fg",
               event.state === "current" && "bg-info text-white",
               event.state === "todo" && "bg-soft-2 text-body"
@@ -46,20 +46,20 @@ export function Timeline({
           <span className="min-w-0 flex-1">
             <span
               className={cn(
-                "block text-[0.875rem] font-medium",
+                "block text-[0.9375rem] font-medium",
                 event.state === "todo" ? "text-mute" : "text-ink"
               )}
             >
               {event.title}
             </span>
             {event.detail && (
-              <span className="block text-[0.875rem] text-mute">
+              <span className="block text-[0.9375rem] text-mute">
                 {event.detail}
               </span>
             )}
           </span>
           {event.at && (
-            <span className="shrink-0 text-[0.875rem] text-body tabular-nums">
+            <span className="shrink-0 text-[0.9375rem] text-body tabular-nums">
               {event.at}
             </span>
           )}
@@ -96,7 +96,7 @@ export function Lifecycle({
         <div key={step.label} className="flex flex-1 items-center">
           <span
             className={cn(
-              "flex shrink-0 items-center gap-1.5 text-[0.875rem] font-semibold whitespace-nowrap",
+              "flex shrink-0 items-center gap-1.5 text-[0.9375rem] font-semibold whitespace-nowrap",
               step.state === "done" && "text-text",
               step.state === "current" && "text-ink",
               step.state === "todo" && "text-mute"
@@ -104,7 +104,7 @@ export function Lifecycle({
           >
             <span
               className={cn(
-                "grid size-[1.0625rem] shrink-0 place-items-center rounded-full text-[0.875rem]",
+                "grid size-[1.0625rem] shrink-0 place-items-center rounded-full text-[0.9375rem]",
                 step.state === "done" && "bg-ok-bg text-ok-fg",
                 step.state === "current" && "bg-ink text-white",
                 step.state === "todo" && "bg-soft-2 text-faint"

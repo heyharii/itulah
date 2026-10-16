@@ -1,15 +1,19 @@
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
+import {
+  useSuspenseInfiniteQuery,
+  useSuspenseQuery,
+} from "@tanstack/react-query"
 import type { ColumnDef } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { useMemo, useState } from "react"
+import { Suspense, useDeferredValue, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
-import { Card, CardStrip } from "@/components/ui/card"
+import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Input } from "@/components/ui/field"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
-import { EmptyState } from "@/components/ui/states"
+import { EmptyState, LoadingState } from "@/components/ui/states"
 import { Pill } from "@/components/ui/pill"
 import { Tag } from "@/components/ui/tag"
 import { SHOW_MISSING, withoutMissing } from "@/lib/features"
@@ -21,10 +25,9 @@ import {
   fleetPoolsQuery,
   type AvailabilityItem,
 } from "@/lib/queries/inventory"
-import { queryState } from "@/lib/query-state"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { useDebounced } from "@/lib/use-debounced"
-import { Choice, Metric, MetricRow } from "@/screens/inventory/parts"
+import { Choice } from "@/screens/inventory/parts"
 import { placements } from "@/screens/inventory/shared"
 import { CardFigure, CardName } from "@/components/ui/phone-cards"
 import {
@@ -260,6 +263,23 @@ function availabilityColumns(
 }
 
 export function Availability() {
+  // The title stands at once; the pool waits for the fleet and its first page
+  // and streams in with them (the server starts the reads too).
+  return (
+    <PageContent>
+      <PageHeader
+        crumb="Inventory"
+        title="On Hand & Shortfall"
+        sub="What one pool can still promise, SKU by SKU."
+      />
+      <Suspense fallback={<LoadingState>Reading the pool…</LoadingState>}>
+        <AvailabilityPool />
+      </Suspense>
+    </PageContent>
+  )
+}
+
+function AvailabilityPool() {
   const phone = useLayout() === "phone"
   const [pool, setPool] = useState(AVAILABILITY_OPENING_POOL)
   const [text, setText] = useState("")
@@ -269,17 +289,23 @@ export function Availability() {
   const needle = useDebounced(text.trim(), 400)
   const shortfall = view === "short"
 
-  const pools = useQuery(fleetPoolsQuery())
+  const pools = useSuspenseQuery(fleetPoolsQuery())
 
-  // Shared with the prefetcher (`screens/inventory/prefetch.ts`).
-  const page = useInfiniteQuery(availabilityQuery(pool, needle, shortfall))
+  // Shared with the prefetcher (`screens/inventory/prefetch.ts`). The deferred
+  // question keeps the rows in hand on screen while the next one is read.
+  const askedPool = useDeferredValue(pool)
+  const askedNeedle = useDeferredValue(needle)
+  const askedShortfall = useDeferredValue(shortfall)
+  const page = useSuspenseInfiniteQuery(
+    availabilityQuery(askedPool, askedNeedle, askedShortfall)
+  )
 
   const rows = useMemo(
-    () =>
-      (page.data?.pages.flatMap((one) => one.items) ??
-        []) as AvailabilityItem[],
+    () => page.data.pages.flatMap((one) => one.items) as AvailabilityItem[],
     [page.data]
   )
+
+  const total = page.data.pages[0]
 
   const display = useDisplayUnit()
   const columns = useMemo(
@@ -312,7 +338,7 @@ export function Availability() {
 
   const poolOptions = useMemo(
     () =>
-      placements(pools.data?.items ?? []).map((item) => ({
+      placements(pools.data.items).map((item) => ({
         value: item.id,
         label: `${item.site_id} · ${item.label}`,
       })),
@@ -320,12 +346,48 @@ export function Availability() {
   )
 
   return (
-    <PageContent>
-      <PageHeader
-        crumb="Inventory"
-        title="On Hand & Shortfall"
-        sub="What one pool can still promise, SKU by SKU."
-      />
+    <>
+      {/* The pool's own figures are over the whole matching set and arrive on
+          every page; the first page's are the ones to show. A phone draws them
+          as the one card of two to a row, as every list's figures. */}
+      <KpiStrip
+        className={
+          SHOW_MISSING
+            ? "grid-cols-2 md:grid-cols-4 xl:grid-cols-4"
+            : "grid-cols-2 md:grid-cols-3 xl:grid-cols-3"
+        }
+      >
+        <Kpi
+          label="Stock"
+          value={total === undefined ? "—" : display.format(total.stock_qty)}
+        />
+        <Kpi
+          label="Allotted"
+          value={total === undefined ? "—" : display.format(total.allotted_qty)}
+        />
+        <Kpi
+          label="On hand"
+          value={
+            total === undefined ? (
+              "—"
+            ) : (
+              <span
+                className={total.on_hand_qty < 0 ? "text-bad-fg" : undefined}
+              >
+                {display.format(total.on_hand_qty)}
+              </span>
+            )
+          }
+        />
+        {SHOW_MISSING && (
+          <Kpi
+            label="Missing"
+            value={
+              total === undefined ? "—" : display.format(total.missing_qty)
+            }
+          />
+        )}
+      </KpiStrip>
 
       <Toolbar>
         <Choice
@@ -337,6 +399,7 @@ export function Availability() {
         <Input
           value={text}
           onChange={(event) => setText(event.target.value)}
+          placeholder="Search"
           className="h-8 w-64"
         />
         <Toolbar.Spacer />
@@ -351,85 +414,41 @@ export function Availability() {
         />
       </Toolbar>
 
-      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-        {queryState(page, {
-          loading: "Reading the pool…",
-          render: (answer) => {
-            // The pool's own figures are over the whole matching set and
-            // arrive on every page; the first page's are the ones to show.
-            const data = answer.pages[0]
-            return (
-              <>
-                {/* A phone keeps the pool and its figures as a card of their
-                    own, over the cards of its SKUs. */}
-                <div className="max-md:mb-3 max-md:overflow-hidden max-md:rounded-card max-md:border max-md:border-hairline max-md:bg-canvas max-md:shadow-soft">
-                  <CardStrip className="justify-between max-md:flex-wrap">
-                    <span className="text-meta font-medium text-ink">
-                      {data.source_pool_label}
-                      <span className="ml-2 font-mono text-id text-mute">
-                        {data.source_place_id}
-                      </span>
-                    </span>
-                    <span className="text-[0.875rem] text-mute">
-                      {data.inventory_equation}
-                    </span>
-                  </CardStrip>
-
-                  <div className="border-b border-hairline px-4 py-3.5 max-md:border-b-0">
-                    <MetricRow>
-                      <Metric
-                        label="Stock"
-                        value={display.format(data.stock_qty)}
-                      />
-                      <Metric
-                        label="Allotted"
-                        value={display.format(data.allotted_qty)}
-                      />
-                      <Metric
-                        label="On hand"
-                        value={display.format(data.on_hand_qty)}
-                        tone={data.on_hand_qty < 0 ? "bad" : "ink"}
-                      />
-                      {SHOW_MISSING && (
-                        <Metric
-                          label="Missing"
-                          value={display.format(data.missing_qty)}
-                          tone={data.missing_qty > 0 ? "warn" : "ink"}
-                        />
-                      )}
-                    </MetricRow>
-                  </div>
-                </div>
-
-                {rows.length === 0 ? (
-                  <EmptyState>
-                    {needle !== ""
-                      ? `Nothing in this pool matches “${needle}”.`
-                      : shortfall
-                        ? "Nothing in this pool is promised beyond what it holds."
-                        : "This pool holds no SKU the catalogue still lists as active."}
-                  </EmptyState>
-                ) : (
-                  <>
-                    <DataTable<AvailabilityItem>
-                      refresh={[page]}
-                      table={table}
-                      more={page}
-                      className="max-h-[calc(100dvh-26rem)]"
-                      cardSort={false}
-                      cardsApart
-                      cardLead
-                    />
-                    <div className="border-t border-hairline px-4 py-2.5 text-[0.875rem] text-mute tabular-nums max-md:border-t-0 max-md:px-1">
-                      {count(data.total_items)} SKUs
-                    </div>
-                  </>
-                )}
-              </>
-            )
-          },
-        })}
+      <Card
+        aria-busy={
+          askedPool !== pool ||
+          askedNeedle !== needle ||
+          askedShortfall !== shortfall ||
+          undefined
+        }
+        className="list-swap overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none"
+      >
+        {rows.length === 0 ? (
+          <EmptyState>
+            {needle !== ""
+              ? `Nothing in this pool matches “${needle}”.`
+              : shortfall
+                ? "Nothing in this pool is promised beyond what it holds."
+                : "This pool holds no SKU the catalogue still lists as active."}
+          </EmptyState>
+        ) : (
+          <>
+            <DataTable<AvailabilityItem>
+              refresh={[page]}
+              table={table}
+              more={page}
+              className="max-h-[calc(100dvh-21rem)]"
+              cardSort={false}
+              cardsApart
+              cardLead
+            />
+            <div className="border-t border-hairline px-4 py-2.5 text-[0.9375rem] text-mute tabular-nums max-md:border-t-0 max-md:px-1">
+              {count(total.total_items)} SKUs
+              <span className="ml-3">{total.inventory_equation}</span>
+            </div>
+          </>
+        )}
       </Card>
-    </PageContent>
+    </>
   )
 }

@@ -136,7 +136,7 @@ function columnsFor(phone: boolean): ColumnDef<TableSetup, Row>[] {
       meta: { card: "hide" },
       accessorFn: (row) => row.koli.koli_number,
       cell: ({ row }) => (
-        <span className="font-mono text-[0.875rem] text-ink">
+        <span className="font-mono text-[0.9375rem] text-ink">
           {row.original.koli.koli_number}
         </span>
       ),
@@ -300,6 +300,7 @@ export function PackingLists() {
             value={typed}
             onChange={(event) => setTyped(event.target.value)}
             aria-label="Search packing lists"
+            placeholder="Search packing lists"
             className="h-11 w-80 pl-9"
           />
         </label>

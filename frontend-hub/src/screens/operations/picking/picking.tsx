@@ -3,25 +3,28 @@ import { RadioGroup } from "@base-ui/react/radio-group"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { Minus, Plus } from "lucide-react"
+import { Printer } from "lucide-react"
 import { useEffect, useId, useMemo, useRef, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
-import { useShopName } from "@/components/operations/outbound-papers"
+import {
+  PicklistPrint,
+  useShopName,
+} from "@/components/operations/outbound-papers"
 import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
-import { Card, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card } from "@/components/ui/card"
 import { SavedDialog } from "@/components/ui/dialog"
 import { DataTable } from "@/components/ui/data-table"
-import { Field, Input, Select } from "@/components/ui/field"
-import { Kpi, KpiStrip } from "@/components/ui/kpi"
-import { NumberPad } from "@/components/ui/number-pad"
+import { Field, Select } from "@/components/ui/field"
+import { Kpi, KpiBox, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
 import { Segmented } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { SheetFooter } from "@/components/ui/sheet-footer"
+import { SubTabs } from "@/components/ui/sub-tabs"
 import {
   Banner,
   EmptyState,
@@ -31,7 +34,6 @@ import {
 } from "@/components/ui/states"
 import { dc } from "@/lib/api"
 import { ago, clock, count, dayTime, quantity } from "@/lib/format"
-import { useLayout } from "@/lib/layout"
 import { keys } from "@/lib/operations/keys"
 import {
   dcChangesQuery,
@@ -49,6 +51,7 @@ import {
   shortReasonLabel,
   type ShortPick,
   type ShortReason,
+  type DcChange,
 } from "@/lib/operations/changes"
 import {
   activateCount,
@@ -64,6 +67,9 @@ import { tableSetup, type TableSetup } from "@/lib/table"
 import { toast } from "@/lib/toast"
 import { cn } from "@/lib/utils"
 import { useActor } from "@/screens/inventory/shared"
+import { useSeenOnOpen } from "@/lib/operations/acknowledge"
+import { skuSuppliers } from "@/lib/queries/supplier-returns"
+import { PickLines } from "@/screens/operations/picking/pick-lines"
 import { prefetchPicklistDetail } from "@/screens/operations/prefetch"
 import {
   pickCardKey,
@@ -73,8 +79,12 @@ import {
   type ShortMark,
 } from "@/screens/operations/board/owed"
 import { idempotencyKey } from "@itulah/contract/client"
+import {
+  articlePickKey,
+  useArticlePicks,
+  type ArticlePick,
+} from "@/lib/operations/article-picks"
 import type {
-  AllotmentPick,
   ClosedShortLine,
   PickedLine,
   PicklistLine,
@@ -103,7 +113,7 @@ export function Picking() {
   const client = useQueryClient()
   const opened = useSheet("pick")
   const accepting = useSheet("accept")
-  const rack = useSheet("rack")
+  const pool = useSheet("rack")
   const [sorting, setSorting] = useState<SortingState>([])
 
   const toPick = useQuery(picklistsToPickQuery())
@@ -115,18 +125,18 @@ export function Picking() {
   // Stock comes off a rack, and a rack is a pool this node owns. Offered as a
   // choice rather than guessed from the site id: composing a pool id in the
   // browser would be inventing a wire format nobody asked it to know.
-  const racks = (answer.data?.items ?? []).filter(
+  const pools = (answer.data?.items ?? []).filter(
     (pool) => !pool.is_rollup && pool.group === "WAREHOUSE"
   )
-  const source = rack.value ?? racks[0]?.id ?? null
+  const source = pool.value ?? pools[0]?.id ?? null
 
-  const picks = toPick.data ?? []
+  const picks = useArticlePicks(toPick.data)
   const pieces = picks.reduce((total, pick) => total + pick.pieces, 0)
 
   /// The shops with something still to pick, in the order the node already
   /// sorted them — busiest shop's oldest allotment first.
   const byShop = useMemo(() => {
-    const map = new Map<string, AllotmentPick[]>()
+    const map = new Map<string, ArticlePick[]>()
     for (const pick of picks) {
       const list = map.get(pick.destination_id)
       if (list) list.push(pick)
@@ -157,6 +167,9 @@ export function Picking() {
   // so a failed read leaves everything as it was.
   const shorts = useShortPicks()
   const [view, setView] = useState<StatusView>("all")
+  /// The two lists are two tabs: what is waiting to be picked, and the
+  /// picklists already accepted.
+  const [tab, setTab] = useState<"pick" | "lists">("pick")
   const statused = useMemo<Round[]>(() => {
     const seen = new Set<string>()
     return rounds.map((round) => {
@@ -204,7 +217,7 @@ export function Picking() {
       ? null
       : (picks.find((pick) => acceptKey(pick) === accepting.value) ?? null)
 
-  const canAccept = racks.length > 0
+  const canAccept = pools.length > 0
 
   return (
     <PageContent>
@@ -221,69 +234,96 @@ export function Picking() {
         <Kpi label="To pack" value={count(stillToPack.length)} />
       </KpiStrip>
 
-      {racks.length === 0 && !answer.isPending && (
+      {pools.length === 0 && !answer.isPending && (
         <Banner tone="bad" className="mb-5">
           This node owns no warehouse pool, so there is nothing to pick from.
         </Banner>
       )}
 
-      <Card className="mb-5 overflow-clip">
-        <CardHeader>
-          <CardTitle>To pick</CardTitle>
-        </CardHeader>
-        {toPick.isPending ? (
-          <LoadingState>Reading what is owed…</LoadingState>
-        ) : toPick.isError ? (
-          <ErrorState error={toPick.error} onRetry={() => toPick.refetch()} />
-        ) : picks.length === 0 ? (
-          <EmptyState>Nothing is waiting to be picked right now.</EmptyState>
-        ) : (
-          <div className="flex flex-col">
-            {shopIds.map((shopId) => (
-              <ShopGroup
-                key={shopId}
-                shopId={shopId}
-                picks={byShop.get(shopId) ?? []}
-                marks={shorts.marks}
-                onOpen={(pick) => accepting.open(acceptKey(pick))}
-              />
-            ))}
-          </div>
-        )}
-      </Card>
+      <SubTabs
+        tabs={[
+          {
+            value: "pick",
+            label: (
+              <span>
+                To pick
+                <span className="ml-1.5 text-body tabular-nums">
+                  {count(picks.length)}
+                </span>
+              </span>
+            ),
+          },
+          {
+            value: "lists",
+            label: (
+              <span>
+                Picklists
+                <span className="ml-1.5 text-body tabular-nums">
+                  {count(rounds.length)}
+                </span>
+              </span>
+            ),
+          },
+        ]}
+        value={tab}
+        onChange={(next) => setTab(next as "pick" | "lists")}
+      />
 
-      {/* `overflow-clip`, not `overflow-hidden`: hidden makes the card a
-          scroll box, and the table's heading would stick to the card instead
-          of the window. */}
-      <Card className="overflow-clip">
-        <CardHeader>
-          <CardTitle>Picklists</CardTitle>
-        </CardHeader>
-        {queryState(picklists, {
-          loading: "Reading the picklists…",
-          render: () =>
-            rounds.length === 0 ? (
-              <EmptyState>Nothing has been accepted yet.</EmptyState>
-            ) : (
-              <>
-                <div className="px-4 pb-3.5">
-                  <Segmented
-                    options={[
-                      { value: "all", label: `All ${count(rounds.length)}` },
-                      {
-                        value: "completed",
-                        label: `Completed ${count(completedCount)}`,
-                      },
-                      {
-                        value: "short",
-                        label: `Closed short ${count(shortCount)}`,
-                      },
-                    ]}
-                    value={view}
-                    onChange={setView}
-                  />
-                </div>
-                {shown.length === 0 ? (
+      {tab === "pick" ? (
+        <Card className="overflow-clip">
+          {toPick.isPending ? (
+            <LoadingState>Reading what is owed…</LoadingState>
+          ) : toPick.isError ? (
+            <ErrorState error={toPick.error} onRetry={() => toPick.refetch()} />
+          ) : picks.length === 0 ? (
+            <EmptyState>Nothing is waiting to be picked right now.</EmptyState>
+          ) : (
+            <div className="flex flex-col">
+              {shopIds.map((shopId) => (
+                <ShopGroup
+                  key={shopId}
+                  shopId={shopId}
+                  picks={byShop.get(shopId) ?? []}
+                  marks={shorts.marks}
+                  onOpen={(pick) => accepting.open(acceptKey(pick))}
+                />
+              ))}
+            </div>
+          )}
+        </Card>
+      ) : (
+        <>
+          {/* One bar: the status the picklists are read by. */}
+          {rounds.length > 0 && (
+            <div className="mb-3.5 flex min-h-[2.25rem] flex-wrap items-center gap-2">
+              <Segmented
+                options={[
+                  { value: "all", label: `All ${count(rounds.length)}` },
+                  {
+                    value: "completed",
+                    label: `Completed ${count(completedCount)}`,
+                  },
+                  {
+                    value: "short",
+                    label: `Closed short ${count(shortCount)}`,
+                  },
+                ]}
+                value={view}
+                onChange={setView}
+              />
+            </div>
+          )}
+
+          {/* `overflow-clip`, not `overflow-hidden`: hidden makes the card a
+              scroll box, and the table's heading would stick to the card
+              instead of the window. */}
+          <Card className="overflow-clip">
+            {queryState(picklists, {
+              loading: "Reading the picklists…",
+              render: () =>
+                rounds.length === 0 ? (
+                  <EmptyState>Nothing has been accepted yet.</EmptyState>
+                ) : shown.length === 0 ? (
                   <EmptyState>
                     {view === "short"
                       ? "No picklist was closed short."
@@ -321,18 +361,18 @@ export function Picking() {
                     }}
                     pageScroll
                   />
-                )}
-              </>
-            ),
-        })}
-      </Card>
+                ),
+            })}
+          </Card>
+        </>
+      )}
 
       <AcceptSheet
         pick={focused}
         onClose={() => accepting.close()}
         source={source}
-        racks={racks}
-        onRack={(id) => rack.replace(id)}
+        pools={pools}
+        onPool={(id) => pool.replace(id)}
         canAccept={canAccept}
       />
 
@@ -346,28 +386,27 @@ export function Picking() {
 export function PickSheets() {
   const opened = useSheet("pick")
   const accepting = useSheet("accept")
-  const rack = useSheet("rack")
+  const pool = useSheet("rack")
   const toPick = useQuery(picklistsToPickQuery())
+  const picks = useArticlePicks(toPick.data)
   const answer = useQuery(poolsQuery())
-  const racks = (answer.data?.items ?? []).filter(
+  const pools = (answer.data?.items ?? []).filter(
     (pool) => !pool.is_rollup && pool.group === "WAREHOUSE"
   )
-  const source = rack.value ?? racks[0]?.id ?? null
+  const source = pool.value ?? pools[0]?.id ?? null
   const focused =
     accepting.value === undefined
       ? null
-      : ((toPick.data ?? []).find(
-          (pick) => acceptKey(pick) === accepting.value
-        ) ?? null)
+      : (picks.find((pick) => acceptKey(pick) === accepting.value) ?? null)
   return (
     <>
       <AcceptSheet
         pick={focused}
         onClose={() => accepting.close()}
         source={source}
-        racks={racks}
-        onRack={(id) => rack.replace(id)}
-        canAccept={racks.length > 0}
+        pools={pools}
+        onPool={(id) => pool.replace(id)}
+        canAccept={pools.length > 0}
       />
       <Picklist id={opened.value ?? null} onClose={() => opened.close()} />
     </>
@@ -491,11 +530,10 @@ function isToday(iso: string | null): boolean {
   )
 }
 
-/// The key a picklist not yet accepted is opened by — there is no id for one
-/// until `createPicklist` mints a session, so the allotment and the shop
-/// together are the identity.
-function acceptKey(pick: AllotmentPick): string {
-  return `${pick.allotment_id}~${pick.destination_id}`
+/// The key a picklist not yet accepted is opened by: allotment, store and
+/// article (`articlePickKey`).
+function acceptKey(pick: ArticlePick): string {
+  return articlePickKey(pick)
 }
 
 /// A shop the way this list reads it: the register's own name, or a dash for
@@ -521,9 +559,9 @@ function ShopGroup({
   onOpen,
 }: {
   shopId: string
-  picks: readonly AllotmentPick[]
+  picks: readonly ArticlePick[]
   marks: ReadonlyMap<string, ShortMark>
-  onOpen: (pick: AllotmentPick) => void
+  onOpen: (pick: ArticlePick) => void
 }) {
   const shopName = useShopName()
   const pieces = picks.reduce((total, pick) => total + pick.pieces, 0)
@@ -533,7 +571,7 @@ function ShopGroup({
         <span className="min-w-0 flex-1 truncate text-[0.9375rem] font-semibold text-ink">
           {shopName(shopId)}
         </span>
-        <span className="shrink-0 text-[0.875rem] text-mute tabular-nums">
+        <span className="shrink-0 text-[0.9375rem] text-mute tabular-nums">
           {count(picks.length)} {picks.length === 1 ? "picklist" : "picklists"}{" "}
           · {count(pieces)}
         </span>
@@ -557,7 +595,7 @@ function ShopGroup({
                 {strip !== undefined && (
                   <span
                     title={strip.title}
-                    className="flex h-7 w-full items-center bg-warn-fg px-3.5 text-[0.875rem] font-semibold text-white"
+                    className="flex h-7 w-full items-center bg-warn-fg px-3.5 text-[0.9375rem] font-semibold text-white"
                   >
                     {strip.label}
                   </span>
@@ -567,7 +605,7 @@ function ShopGroup({
                     <span className="block truncate text-[0.9375rem] text-ink">
                       {pick.allotment_number}
                     </span>
-                    <span className="block truncate text-[0.875rem] text-mute">
+                    <span className="block truncate text-[0.9375rem] text-mute">
                       {ago(pick.created_at)} · {count(pick.lines.length)}{" "}
                       {pick.lines.length === 1 ? "SKU" : "SKUs"}
                     </span>
@@ -665,8 +703,7 @@ const columns: ColumnDef<TableSetup, Round>[] = [
 /// "Navy · M": the colour and size of a SKU, when the catalogue knows them.
 function variantOf(
   identity:
-    | { readonly colour: string | null; readonly size: string | null }
-    | undefined
+    { readonly colour: string | null; readonly size: string | null } | undefined
 ): string {
   return [identity?.colour, identity?.size]
     .filter((part) => part !== null && part !== undefined && part !== "")
@@ -795,15 +832,15 @@ function AcceptSheet({
   pick,
   onClose,
   source,
-  racks,
-  onRack,
+  pools,
+  onPool,
   canAccept,
 }: {
-  pick: AllotmentPick | null
+  pick: ArticlePick | null
   onClose: () => void
   source: string | null
-  racks: readonly { id: string; label: string; stock: number }[]
-  onRack: (id: string) => void
+  pools: readonly { id: string; label: string; stock: number }[]
+  onPool: (id: string) => void
   canAccept: boolean
 }) {
   const actor = useEdgeActor()
@@ -838,6 +875,10 @@ function AcceptSheet({
     value: ShortReason | null
   }>({ key: "", value: null })
   const why = chosen.key === openKey ? chosen.value : null
+  // "Cannot pick the rest" tapped: the reason is asked, and the shortfall is
+  // filed. Tagged with its picklist like the reason.
+  const [cannotKey, setCannotKey] = useState("")
+  const cannot = cannotKey === openKey
 
   // The report that did not get through, held for a retry. Tagged with its
   // picklist: the sheet stays mounted between openings.
@@ -851,18 +892,38 @@ function AcceptSheet({
   // What MD changed on this picklist that the Gudang has not acknowledged:
   // the banner on top, and the reason a refused line is not a short pick.
   const changes = useQuery(dcChangesQuery())
-  const changed = (changes.data ?? []).filter(
+  const changedNow = (changes.data ?? []).filter(
     (one) =>
       pick !== null &&
       one.allotment_id === pick.allotment_id &&
       one.destination_id === pick.destination_id
   )
+  // Opening the picklist is seeing the change (no "Got it", 15 Oct 2026), so
+  // the server forgets it at once; the sheet keeps what it opened with, for
+  // the banner and for what a refused line means.
+  const [kept, setKept] = useState<{
+    key: string
+    items: readonly DcChange[]
+  }>({ key: "", items: [] })
+  if (openKey !== "" && changes.data !== undefined && kept.key !== openKey)
+    setKept({ key: openKey, items: changedNow })
+  const keptHere = kept.key === openKey ? kept.items : []
+  const changed = [
+    ...keptHere,
+    ...changedNow.filter(
+      (one) =>
+        !keptHere.some(
+          (k) => k.at === one.at && k.allotment_id === one.allotment_id
+        )
+    ),
+  ]
+  useSeenOnOpen(changedNow, pick !== null)
   const cancelled = changed.some((one) => one.cancelled)
 
   // Lowering a line brings the question in under the lines; on a phone that
   // can be below the fold, so it is scrolled to (calmly, or not at all under
   // reduced motion).
-  const asking = shortPieces > 0 && plan === null
+  const asking = shortPieces > 0 && cannot && plan === null
   const whyRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!asking) return
@@ -952,7 +1013,7 @@ function AcceptSheet({
   }
 
   const accept = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (later: boolean) => {
       if (pick === null) throw new Error("Nothing to accept.")
       const lines = pick.lines
         .map((line) => ({ sku_code: line.sku_code, quantity: pickedOf(line) }))
@@ -990,6 +1051,24 @@ function AcceptSheet({
       // himself is reported there.
       const stale = staleSkus(changed)
       let byMd = 0
+      // Continue later: what was found is saved and nothing is reported; the
+      // rest stays on the picklist.
+      if (later) {
+        const poolLabel = pools.find((one) => one.id === source)?.label
+        const notThere = [...refused.values()].reduce((a, b) => a + b, 0)
+        if (notThere > 0)
+          toast(
+            `${quantity(notThere)} not in ${poolLabel ?? "this pool"} · nothing saved for them`
+          )
+        return {
+          sessionId: result?.summary.session.session_id ?? null,
+          plan: null,
+          sent: true,
+          pieces: 0,
+          byMd,
+          later,
+        }
+      }
       const rows = pick.lines.flatMap((line): ShortPlan["rows"] => {
         const refusedHere = refused.get(line.sku_code) ?? 0
         const took = Math.max(0, pickedOf(line) - refusedHere)
@@ -1004,7 +1083,7 @@ function AcceptSheet({
       })
       const sessionId = result?.summary.session.session_id ?? null
       if (rows.length === 0)
-        return { sessionId, plan: null, sent: true, pieces: 0, byMd }
+        return { sessionId, plan: null, sent: true, pieces: 0, byMd, later }
       const made: ShortPlan = {
         key: acceptKey(pick),
         allotmentId: pick.allotment_id,
@@ -1023,9 +1102,10 @@ function AcceptSheet({
         sent: await send(made),
         pieces: rows.reduce((total, row) => total + row.pieces, 0),
         byMd,
+        later,
       }
     },
-    onSuccess: ({ plan: made, sent, pieces, byMd }) => {
+    onSuccess: ({ plan: made, sent, pieces, byMd, later }) => {
       // The round just walked is a picklist, and what it left behind is still
       // on the to-pick list; the stock it took is off the rack.
       void client.invalidateQueries({ queryKey: keys.picklists() })
@@ -1036,6 +1116,12 @@ function AcceptSheet({
       // What was typed is spent: the remainder opens at what is still to pick.
       setFound_({ key: "", values: {} })
       setChosen({ key: "", value: null })
+      setCannotKey("")
+      if (later) {
+        toast("Pick saved · the rest stays on the picklist")
+        onClose()
+        return
+      }
       if (made !== null && !sent) {
         // The pick is in and the report is not: stay, the retry is here.
         setUnsent(made)
@@ -1080,7 +1166,23 @@ function AcceptSheet({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pick === null ? null : acceptKey(pick)])
 
-  const phone = useLayout() === "phone"
+  const [printing, setPrinting] = useState(false)
+  // Where the goods were bought, for the article head and the paper.
+  const skus = (pick?.lines ?? []).map((line) => line.sku_code)
+  const suppliers = useQuery({
+    queryKey: keys.skuSuppliers(skus),
+    queryFn: ({ signal }) => skuSuppliers(skus, signal),
+    enabled: skus.length > 0,
+    staleTime: 5 * 60 * 1000,
+  })
+  const supplier =
+    [
+      ...new Set(
+        skus
+          .map((sku) => suppliers.data?.get(sku)?.name)
+          .filter((name): name is string => name !== undefined)
+      ),
+    ].join(", ") || null
 
   return (
     <Sheet
@@ -1088,11 +1190,18 @@ function AcceptSheet({
       onOpenChange={(next) => {
         if (!next) onClose()
       }}
-      title="Picklist"
+      title={pick ? `Pick · ${shopName(pick.destination_id)}` : "Pick"}
       caption={
-        pick
-          ? `${shopName(pick.destination_id)} · ${pick.allotment_number}`
-          : undefined
+        pick ? (
+          <span className="font-mono">{pick.allotment_number}</span>
+        ) : undefined
+      }
+      figures={
+        pick && (
+          <KpiBox
+            items={[{ label: "To pick", value: quantity(wanted ?? 0) }]}
+          />
+        )
       }
       footer={
         pick === null ? undefined : plan !== null ? (
@@ -1108,14 +1217,14 @@ function AcceptSheet({
           />
         ) : (
           <div className="flex flex-col gap-3">
-            {racks.length > 1 && (
-              <Field label="From">
+            {pools.length > 1 && (
+              <Field label="From pool">
                 <Select
-                  aria-label="Rack"
+                  aria-label="Pool"
                   value={source ?? ""}
-                  onChange={(next) => onRack(next)}
+                  onChange={(next) => onPool(next)}
                 >
-                  {racks.map((pool) => (
+                  {pools.map((pool) => (
                     <option key={pool.id} value={pool.id}>
                       {pool.label} · {count(pool.stock)}
                     </option>
@@ -1123,30 +1232,68 @@ function AcceptSheet({
                 </Select>
               </Field>
             )}
-            {shortPieces > 0 && (
-              <p
-                role="status"
-                className="text-[0.9375rem] font-medium text-bad-fg tabular-nums"
-              >
-                {quantity(shortPieces)} short
-                {why === null && (
-                  <span className="font-normal text-mute"> · choose why</span>
-                )}
-              </p>
-            )}
-            <Button
-              variant="primary"
-              className="w-full"
-              disabled={
-                !canAccept ||
-                source === null ||
-                (shortPieces > 0 && why === null)
-              }
-              pending={accept.isPending}
-              onClick={() => accept.mutate()}
-            >
-              {accept.isPending ? "Submitting…" : "Submit"}
-            </Button>
+            {/* One row: what is left on the left, the act small at the right. */}
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {shortPieces > 0 && (
+                <p
+                  role="status"
+                  className="mr-auto text-[0.9375rem] font-medium text-bad-fg tabular-nums"
+                >
+                  {cannot ? (
+                    <>
+                      {quantity(shortPieces)} short
+                      {why === null && (
+                        <span className="font-normal text-mute">
+                          {" "}
+                          · choose why
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    <span className="text-body">
+                      {quantity(shortPieces)} left on the picklist
+                    </span>
+                  )}
+                </p>
+              )}
+              {/* Print sits beside Submit (owner, 16 Oct 2026). */}
+              <Button variant="ghost" onClick={() => setPrinting(true)}>
+                <Printer />
+                Print
+              </Button>
+              {shortPieces > 0 && !cannot && (
+                <Button
+                  variant="ghost"
+                  disabled={accept.isPending}
+                  onClick={() => setCannotKey(openKey)}
+                >
+                  Cannot pick the rest
+                </Button>
+              )}
+              {shortPieces > 0 && !cannot ? (
+                <Button
+                  variant="primary"
+                  disabled={!canAccept || source === null || (got ?? 0) <= 0}
+                  pending={accept.isPending}
+                  onClick={() => accept.mutate(true)}
+                >
+                  {accept.isPending ? "Submitting…" : "Continue later"}
+                </Button>
+              ) : (
+                <Button
+                  variant="primary"
+                  disabled={
+                    !canAccept ||
+                    source === null ||
+                    (shortPieces > 0 && why === null)
+                  }
+                  pending={accept.isPending}
+                  onClick={() => accept.mutate(false)}
+                >
+                  {accept.isPending ? "Submitting…" : "Submit"}
+                </Button>
+              )}
+            </div>
           </div>
         )
       }
@@ -1174,24 +1321,22 @@ function AcceptSheet({
               )}
             </Banner>
           )}
-          <Facts>
-            <Fact term="Shop">{shopName(pick.destination_id)}</Fact>
-            <Fact term="Allotment">{pick.allotment_number}</Fact>
-            <Fact term="Request at">{ago(pick.created_at)}</Fact>
-            <Fact term="Pcs">{count(pick.pieces)}</Fact>
-            {plan !== null ? (
-              <Fact term="Short pick" wide>
-                {shortReasonLabel(plan.reason)}
-              </Fact>
-            ) : (
-              openReport !== undefined && (
+          {(plan !== null || openReport !== undefined) && (
+            <Facts>
+              {plan !== null ? (
                 <Fact term="Short pick" wide>
-                  {shortReasonLabel(openReport.reason)} ·{" "}
-                  {openReport.reported_by} · {dayTime(openReport.reported_at)}
+                  {shortReasonLabel(plan.reason)}
                 </Fact>
-              )
-            )}
-          </Facts>
+              ) : (
+                openReport !== undefined && (
+                  <Fact term="Short pick" wide>
+                    {shortReasonLabel(openReport.reason)} ·{" "}
+                    {openReport.reported_by} · {dayTime(openReport.reported_at)}
+                  </Fact>
+                )
+              )}
+            </Facts>
+          )}
 
           {plan !== null ? (
             <>
@@ -1227,62 +1372,22 @@ function AcceptSheet({
             </>
           ) : (
             <>
-              {phone ? (
-                <ul className="divide-y divide-hairline border-y border-hairline">
-                  {pick.lines.map((line) => {
-                    const identity = catalogue.get(line.sku_code)
-                    const variant = variantOf(identity)
-                    return (
-                      <PickLineRow
-                        key={line.sku_code}
-                        title={identity?.article_name ?? line.sku_code}
-                        variant={variant}
-                        sku={line.sku_code}
-                        outstanding={line.outstanding}
-                        value={pickedOf(line)}
-                        onChange={(next) =>
-                          setFound((now) => ({ ...now, [line.sku_code]: next }))
-                        }
-                      />
-                    )
-                  })}
-                </ul>
-              ) : (
-                <MiniTable head={["Article", "Request Quantity", "Picked"]}>
-                  {pick.lines.map((line) => {
-                    const identity = catalogue.get(line.sku_code)
-                    const variant = variantOf(identity)
-                    const name = identity?.article_name ?? line.sku_code
-                    return (
-                      <MiniRow key={line.sku_code}>
-                        <MiniCell className="py-3.5">
-                          <div className="text-ink">{name}</div>
-                          <div className="mt-1 text-mute">
-                            {variant !== "" && <>{variant} · </>}
-                            <span className="font-mono">{line.sku_code}</span>
-                          </div>
-                        </MiniCell>
-                        <MiniCell align="right" className="py-3.5">
-                          {count(line.outstanding)}
-                        </MiniCell>
-                        <MiniCell align="right" className="py-3.5">
-                          <PickedStepper
-                            label={variant === "" ? name : `${name} · ${variant}`}
-                            value={pickedOf(line)}
-                            max={line.outstanding}
-                            onChange={(next) =>
-                              setFound((now) => ({
-                                ...now,
-                                [line.sku_code]: next,
-                              }))
-                            }
-                          />
-                        </MiniCell>
-                      </MiniRow>
-                    )
-                  })}
-                </MiniTable>
-              )}
+              <PickLines
+                lines={pick.lines}
+                was={
+                  new Map(
+                    changed
+                      .flatMap((one) => one.lines)
+                      .filter((line) => line.was !== line.now)
+                      .map((line) => [line.sku_code, line.was])
+                  )
+                }
+                supplier={supplier}
+                pickedOf={pickedOf}
+                onPicked={(sku, next) =>
+                  setFound((now) => ({ ...now, [sku]: next }))
+                }
+              />
 
               {asking && (
                 <div ref={whyRef}>
@@ -1300,6 +1405,16 @@ function AcceptSheet({
           )}
         </div>
       )}
+      {pick && (
+        <PicklistPrint
+          open={printing}
+          onClose={() => setPrinting(false)}
+          allotmentNumber={pick.allotment_number}
+          destinationId={pick.destination_id}
+          lines={pick.lines}
+          supplier={supplier}
+        />
+      )}
       <SavedDialog
         open={accepted}
         onOpenChange={(next) => {
@@ -1308,130 +1423,6 @@ function AcceptSheet({
         title="Picklist accepted"
       />
     </Sheet>
-  )
-}
-
-/// One line of a picklist on a phone: the article and what it is on the left,
-/// what the picker found on the right and, under it, what was asked for. The
-/// whole line is the button: a tap opens the number pad on it, so there is no
-/// keyboard rising over the very row being counted and no pair of minus and
-/// plus to hit by mistake (owner, 2026-10-06). Most lines are picked in full
-/// and are never touched; one that came back short is one tap and the figure.
-/// Never above what was wanted; red once it is under.
-function PickLineRow({
-  title,
-  variant,
-  sku,
-  outstanding,
-  value,
-  onChange,
-}: {
-  title: string
-  variant: string
-  sku: string
-  outstanding: number
-  value: number
-  onChange: (next: number) => void
-}) {
-  const [pad, setPad] = useState(false)
-  return (
-    <li>
-      <button
-        type="button"
-        aria-haspopup="dialog"
-        aria-label={`${title}, picked ${value} of ${outstanding}`}
-        onClick={() => setPad(true)}
-        className="flex w-full items-center gap-3 py-3.5 text-left transition-[background-color] duration-(--t-press) ease-(--ease-out) active:bg-soft-2"
-      >
-        <span className="min-w-0 flex-1">
-          <span className="block text-[0.9375rem] leading-5 font-medium text-ink">
-            {title}
-          </span>
-          {variant !== "" && (
-            <span className="block text-[0.875rem] leading-5 text-body">
-              {variant}
-            </span>
-          )}
-          <span className="block font-mono text-[0.875rem] leading-5 text-mute">
-            {sku}
-          </span>
-        </span>
-        <span className="flex shrink-0 flex-col items-end gap-1">
-          <span
-            className={cn(
-              "grid h-10 min-w-14 place-items-center rounded-inner border bg-canvas px-3 text-[0.9375rem] font-medium tabular-nums transition-[border-color] duration-(--t-press) ease-(--ease-out)",
-              pad ? "border-accent" : "border-hairline-2",
-              value < outstanding ? "text-bad-fg" : "text-ink"
-            )}
-          >
-            {count(value)}
-          </span>
-          <span className="text-[0.875rem] text-mute tabular-nums">
-            {`of ${count(outstanding)}`}
-          </span>
-        </span>
-      </button>
-      <NumberPad
-        open={pad}
-        onOpenChange={setPad}
-        title={variant === "" ? title : `${title} · ${variant}`}
-        value={String(value)}
-        decimal={false}
-        maxLength={String(outstanding).length}
-        onChange={(text) =>
-          onChange(
-            Math.max(0, Math.min(outstanding, Number(text === "" ? "0" : text)))
-          )
-        }
-      />
-    </li>
-  )
-}
-
-/// What the picker found for one line: minus, the figure, plus. Never above
-/// what was wanted, never below nothing; red once it is under.
-function PickedStepper({
-  label,
-  value,
-  max,
-  onChange,
-}: {
-  /// The article and variant being counted: what the number pad is titled
-  /// with, should this box ever be opened on a phone.
-  label: string
-  value: number
-  max: number
-  onChange: (next: number) => void
-}) {
-  const set = (next: number) => onChange(Math.max(0, Math.min(max, next)))
-  return (
-    <span className="inline-flex items-center gap-2">
-      <Button
-        variant="ghost"
-        aria-label="One less"
-        disabled={value <= 0}
-        onClick={() => set(value - 1)}
-      >
-        <Minus />
-      </Button>
-      <Input
-        aria-label="Picked"
-        inputMode="numeric"
-        padLabel={label}
-        value={String(value)}
-        onChange={(event) => set(Number(event.target.value.replace(/\D/g, "")))}
-        onFocus={(event) => event.target.select()}
-        className={`w-16 text-center tabular-nums ${value < max ? "text-bad-fg" : ""}`}
-      />
-      <Button
-        variant="ghost"
-        aria-label="One more"
-        disabled={value >= max}
-        onClick={() => set(value + 1)}
-      >
-        <Plus />
-      </Button>
-    </span>
   )
 }
 
@@ -1513,9 +1504,7 @@ function Picklist({ id, onClose }: { id: string | null; onClose: () => void }) {
               </Facts>
 
               {found.lines.length === 0 && shorts.length === 0 ? (
-                <EmptyState>
-                  Nothing came off the racks on this picklist.
-                </EmptyState>
+                <EmptyState>Nothing was picked on this picklist.</EmptyState>
               ) : (
                 <PickedLines lines={found.lines} shorts={shorts} />
               )}

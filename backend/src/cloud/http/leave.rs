@@ -299,6 +299,53 @@ pub async fn balances(
     ))
 }
 
+/// One person's balances, as the Balances list reads everybody's.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PersonLeaveBalances {
+    pub employee_id: String,
+    pub balances: Vec<LeaveBalanceRow>,
+}
+
+/// What everybody inside the caller's reach has left, per kind — the Balances
+/// list's days left and days waiting, in one request rather than one per
+/// person (owner, 2026-10-16: the figures in the list, not only in the sheet).
+///
+/// The people are the workforce list's own active ones, behind the same fence:
+/// head office reads every place, a manager their own. Reading a balance is
+/// reading the workforce, the per-person route's own key.
+pub async fn everyone_balances(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Query(query): Query<BalanceQuery>,
+) -> Result<Json<Vec<PersonLeaveBalances>>, AppError> {
+    require(&principal, actions::EMPLOYEE_READ)?;
+    let (_, reach) = caller_and_reach(&state, &principal).await?;
+    if reach.is_nowhere() {
+        return Err(AppError::Forbidden(format!(
+            "{} has no open posting, so no unit's balances are theirs to read",
+            principal.username
+        )));
+    }
+    let people = infrastructure::active_employee_ids_within(
+        &state.db,
+        reach.sole_unit().map(|unit| unit.as_str()),
+    )
+    .await?;
+    let catalogue = infrastructure::load_catalogue(&state.db).await?;
+    let on = query.on.unwrap_or_else(crate::reporting::local_today);
+    Ok(Json(
+        infrastructure::balances_of_many(&state.db, &people, &catalogue, on)
+            .await?
+            .into_iter()
+            .map(|(employee_id, balances)| PersonLeaveBalances {
+                employee_id,
+                balances,
+            })
+            .collect(),
+    ))
+}
+
 /// Put days into a balance, or correct one.
 ///
 /// Head office's: an allocation is the entitlement, and a manager who could hand

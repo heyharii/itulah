@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pricelist article options</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet" />
+<style>
+/* Marketing › Pricelist, By store — how the Article cell reads.
+   Every option keeps name, division, tags and article id (owner, 16 Oct).
+   Tokens: frontend-hub/src/styles/white.css (All white). */
+:root{
+  --ink:#1d1d1f; --body:#6e6e73; --mute:#6e6e73; --faint:#c7c7cc; --line-ico:#8e8e93;
+  --canvas:#fff; --soft:#fafafb; --soft-2:#f2f2f5; --soft-3:#f5f5f7;
+  --hairline:#e8e8ec; --hairline-2:#dcdce1; --row-line:#eeeef1; --band:#fafafb;
+  --accent:#2862dc; --accent-bg:#eef3fc; --cta:#2862dc;
+  --ok-fg:#248a3d; --ok-bg:#e9f6ec; --bad-fg:#d70015; --warn-fg:#a66c1f; --info-fg:#2862dc; --info-bg:#eef3fc;
+  --r-card:10px; --r-inner:8px;
+  --ease-out:cubic-bezier(.23,1,.32,1);
+  --font:"Inter",system-ui,-apple-system,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font-family:var(--font);font-size:15px;color:var(--ink);background:#e9e9ec;letter-spacing:-.006em;-webkit-font-smoothing:antialiased;overflow:hidden}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+.i{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+
+/* prototype chrome */
+.proto{height:50px;background:#141518;color:#fff;display:flex;align-items:center;gap:12px;padding:0 14px 0 18px}
+.proto .t{font-weight:600;white-space:nowrap}
+.seg{display:flex;gap:2px;background:#24262b;border-radius:9px;padding:3px}
+.seg button{height:32px;padding:0 11px;border-radius:7px;font-size:15px;color:#b9bcc3;white-space:nowrap;transition:background-color .15s ease,color .15s ease}
+.seg button b{font-weight:600;color:#fff;margin-right:5px}
+.seg button.on{background:#fff;color:var(--ink)} .seg button.on b{color:var(--ink)}
+.seg .star{color:#f4b740;margin-left:4px}
+.proto .sp{flex:1}
+.note{min-height:36px;background:#1c1e22;color:#a7abb3;font-size:15px;display:flex;align-items:center;padding:6px 18px;border-top:1px solid #26282d}
+.note b{color:#fff;font-weight:500}
+.stagewrap{height:calc(100vh - 86px);overflow:hidden;display:flex;justify-content:center}
+
+/* hub shell */
+.app{height:100%;display:grid;grid-template-columns:68px 232px minmax(0,1fr);background:var(--soft-3);flex:none}
+.rail{display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:4px}
+.logo{width:28px;height:28px;border-radius:7px;background:var(--ink);color:#fff;display:grid;place-items:center;font-weight:600;margin-bottom:10px}
+.rail .ri{width:40px;height:36px;border-radius:8px;display:grid;place-items:center;color:#3a3a3c}
+.rail .ri.on{background:#fff;box-shadow:0 0 0 1px var(--hairline)}
+.dept{background:#fff;margin:8px 0 8px;border-radius:12px;display:flex;flex-direction:column}
+.dept h2{margin:0;height:52px;display:flex;align-items:center;padding:0 18px;font-size:17px;font-weight:600}
+.rows{padding:2px 10px;display:flex;flex-direction:column;gap:2px}
+.row{height:38px;display:flex;align-items:center;padding:0 10px;border-radius:8px;color:#3a3a3c;width:100%}
+.row.on{background:var(--accent-bg);color:var(--accent);font-weight:500}
+.main{margin:8px;background:#fff;border-radius:12px;overflow-y:auto;min-width:0}
+.page{padding:20px 28px 48px}
+h1{margin:0 0 20px;font-size:17px;font-weight:600}
+.figs{display:flex;margin-bottom:22px}
+.fig{padding:0 26px 0 20px;border-left:1px solid var(--hairline)}
+.fig:first-child{border-left:0;padding-left:0}
+.fig .l{color:var(--body);white-space:nowrap}
+.fig .v{font-size:17px;font-weight:600;margin-top:4px;font-variant-numeric:tabular-nums}
+.tabs{display:flex;gap:14px;border-bottom:1px solid var(--hairline);margin-bottom:14px}
+.tab{height:38px;color:var(--body);position:relative}
+.tab .c{margin-left:5px;color:var(--mute)}
+.tab.on{color:var(--ink);font-weight:500}
+.tab.on::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--ink);border-radius:2px}
+.bar{display:flex;gap:10px;align-items:center;margin-bottom:12px}
+.segm{display:flex;background:var(--soft-2);border-radius:var(--r-inner);padding:2px;height:38px}
+.segm button{padding:0 12px;border-radius:6px;color:var(--body)}
+.segm button.on{background:#fff;color:var(--ink);font-weight:500;box-shadow:0 1px 2px rgb(0 0 0/.08)}
+.search{flex:1;height:38px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);display:flex;align-items:center;gap:8px;padding:0 12px;color:var(--mute)}
+
+/* table */
+.tbox{border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden}
+table{border-collapse:collapse;width:100%;table-layout:fixed}
+th{height:40px;background:var(--band);color:var(--body);font-weight:500;text-align:left;padding:0 14px;border-bottom:1px solid var(--hairline);white-space:nowrap}
+td{padding:0 14px;border-top:1px solid var(--row-line);vertical-align:middle}
+tbody tr:first-child td{border-top:0}
+tbody tr{transition:background-color .12s ease}
+@media (hover:hover){tbody tr:hover td{background:#fafafb}}
+.r{text-align:right}
+.sep{border-left:1px solid var(--hairline)}
+.cb{width:16px;height:16px;border:1.5px solid var(--hairline-2);border-radius:4px;display:inline-block;vertical-align:middle}
+.chev{width:24px;height:24px;display:inline-grid;place-items:center;color:var(--mute);border-radius:6px}
+.thumb{border-radius:8px;background:var(--soft-2);display:grid;place-items:center;color:#a1a1a6;flex:none}
+.thumb svg{width:60%;height:60%;fill:currentColor;stroke:none}
+.nm{font-weight:500;color:var(--ink)}
+.m{color:var(--mute)}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:15px;letter-spacing:0}
+.trunc{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block;min-width:0}
+.art{display:flex;align-items:center;gap:12px;min-width:0}
+.art .tx{min-width:0;flex:1}
+.pill{display:inline-flex;align-items:center;height:24px;padding:0 8px;border-radius:6px;background:var(--soft-2);color:var(--body);margin:0 4px 0 0;white-space:nowrap}
+.chip{display:inline-block;padding:1px 7px;border-radius:5px;margin-top:4px}
+.chip.promo{background:var(--ok-bg);color:var(--ok-fg)} .chip.chg{background:var(--info-bg);color:var(--info-fg)}
+.w-promo{color:var(--ok-fg)} .w-md{color:var(--bad-fg)} .w-chg{color:var(--info-fg)}
+.price .p{font-variant-numeric:tabular-nums;white-space:nowrap}
+.price .p.base{color:var(--mute)}
+.price .s{color:var(--mute);white-space:nowrap;margin-top:3px;font-variant-numeric:tabular-nums}
+.today td{padding-top:14px;padding-bottom:14px;vertical-align:top}
+.idcell{font-variant-numeric:tabular-nums;color:var(--body)}
+</style>
+</head>
+<body>
+<div class="proto">
+  <div class="t">Pricelist · Article</div>
+  <div class="seg" id="opts"></div>
+  <div class="sp"></div>
+  <div class="seg" id="widths"></div>
+</div>
+<div class="note" id="note"></div>
+<div class="stagewrap" id="stagewrap">
+  <div class="app" id="app">
+    <nav class="rail">
+      <div class="logo">C</div>
+      <div class="ri"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></div>
+      <div class="ri"><svg class="i" viewBox="0 0 24 24"><path d="M6 6h15l-2 8H8z"/><circle cx="9" cy="20" r="1"/><circle cx="18" cy="20" r="1"/></svg></div>
+      <div class="ri on"><svg class="i" viewBox="0 0 24 24"><path d="M3 11v2a1 1 0 0 0 1 1h3l6 5V5L7 10H4a1 1 0 0 0-1 1z"/><path d="M17 9a4 4 0 0 1 0 6"/></svg></div>
+      <div class="ri"><svg class="i" viewBox="0 0 24 24"><path d="M4 21V9l8-6 8 6v12"/></svg></div>
+    </nav>
+    <aside class="dept">
+      <h2>Marketing</h2>
+      <div class="rows">
+        <button class="row on">Pricelist</button><button class="row">Promotions</button><button class="row">Campaigns</button><button class="row">Vouchers</button>
+      </div>
+    </aside>
+    <main class="main"><div class="page" id="page"></div></main>
+  </div>
+</div>
+
+<script>
+const $ = (s) => document.querySelector(s)
+const SHIRT = '<svg viewBox="0 0 24 24"><path d="M8 3 3 6l2 4 2-1v12h10V9l2 1 2-4-5-3c-.5 1.5-2 2.5-4 2.5S8.5 4.5 8 3z"/></svg>'
+const PANTS = '<svg viewBox="0 0 24 24"><path d="M6 3h12l1 18h-5l-2-11-2 11H5z"/></svg>'
+const SHOE  = '<svg viewBox="0 0 24 24"><path d="M3 15c3 0 5-2 6-6l4 3c2 1 5 2 8 2v4H3z"/></svg>'
+const STORES = ["Dago", "Depok", "Medan"]
+const rp = (n) => "Rp " + n.toLocaleString("id-ID")
+
+// the demo rig's articles, plus a few with more tags (12k articles in real life)
+const ARTS = [
+  {id:"00000001", name:"Blus Rayon Motif Bunga", div:"Wanita", tags:["Blus"], icon:SHIRT, base:159000, now:143100, pct:-10, src:"promo", pcs:[2,0,1]},
+  {id:"00000002", name:"Celana Chino Slim Fit", div:"Pria", tags:["Celana"], icon:PANTS, base:249000, pcs:[1,3,0]},
+  {id:"00000003", name:"Kaos Basic Katun Combed", div:"Pria", tags:["Basic","Kaos","Lengan Pendek"], icon:SHIRT, base:89000, chg:"01 Nov", pcs:[1,4,2]},
+  {id:"00000004", name:"Kaos Anak Karakter", div:"Anak Laki-laki", tags:["Kaos","Lengan Pendek"], icon:SHIRT, base:69000, pcs:[1,0,5]},
+  {id:"00000005", name:"Kemeja Oxford Lengan Panjang", div:"Pria", tags:["Kemeja","Lengan Panjang"], icon:SHIRT, base:199000, pcs:[1,2,2]},
+  {id:"00000006", name:"Flat Shoes Wanita", div:"Sandal dan Sepatu", tags:["Sepatu"], icon:SHOE, base:279000, now:237150, pct:-15, src:"promo", pcs:[3,1,0]},
+  {id:"00000007", name:"Dress Midi Linen Premium Edisi Lebaran Kolaborasi", div:"Wanita", tags:["Dress","Lebaran","Linen","Premium"], icon:SHIRT, base:459000, now:367200, pct:-20, src:"md", pcs:[6,2,4]},
+  {id:"00000008", name:"Jaket Denim Oversize", div:"Pria", tags:["Jaket","Denim","Oversize"], icon:SHIRT, base:399000, chg:"05 Nov", pcs:[0,1,1]},
+]
+
+const priceCell = (a, today, store) => {
+  const off = a.now !== undefined
+  const p = off ? `<div class="p">${rp(a.now)} <span class="m">${a.pct}%</span></div>` : `<div class="p base">${rp(a.base)}</div>`
+  const pcs = store === undefined ? a.pcs.reduce((x,y)=>x+y,0) : a.pcs[store]
+  if (today) {
+    const chip = store !== undefined ? "" : a.src==="promo" ? `<span class="chip promo">Promo</span>` : a.src==="md" ? `<span class="chip promo" style="background:#fdecee;color:var(--bad-fg)">Markdown</span>` : a.chg ? `<span class="chip chg">Changes ${a.chg}</span>` : ""
+    return `<div class="price">${p}<div class="s">${pcs} pcs</div>${chip}</div>`
+  }
+  // one shape for every cell: price, then pcs with the source as a word
+  const word = store !== undefined ? "" : a.src==="promo" ? ` · <span class="w-promo">Promo</span>` : a.src==="md" ? ` · <span class="w-md">Markdown</span>` : a.chg ? ` · <span class="w-chg">Changes ${a.chg}</span>` : ""
+  return `<div class="price">${p}<div class="s">${pcs} pcs${word}</div></div>`
+}
+const thumb = (a, px) => `<span class="thumb" style="width:${px}px;height:${px}px">${a.icon}</span>`
+const lead = `<td style="width:44px"><span class="cb"></span></td>`
+const chev = `<span class="chev"><svg class="i" style="width:16px;height:16px" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></span>`
+
+// each option: the Article columns (head + cell) and the row height
+const OPTIONS = [
+  {id:"today", label:"Today", today:true,
+   note:"<b>Today</b> · checkbox, chevron, photo, name with the id in mono right after it, “Division · tags” under; the Promo / Changes chip under the price makes rows 64–96px tall.",
+   cols:[{h:"Article", w:"auto", c:a=>`<div class="art">${chev}${thumb(a,44)}<div class="tx"><div><span class="nm">${a.name}</span>&nbsp; <span class="mono m">${a.id}</span></div><div class="m trunc" style="margin-top:2px">${a.div} · ${a.tags.join(", ")}</div></div></div>`}]},
+  {id:"A", label:"Id under name", star:true,
+   note:"<b>A · Id under name</b> · name alone on line 1; id · division · tags in grey on line 2, one font. The source moves into the pcs line as a coloured word, so every row is the same 64px.",
+   cols:[{h:"Article", w:"auto", c:a=>`<div class="art">${chev}${thumb(a,40)}<div class="tx"><span class="nm trunc">${a.name}</span><span class="m trunc" style="margin-top:3px">${a.id} · ${a.div} · ${a.tags.join(", ")}</span></div></div>`}]},
+  {id:"B", label:"Own columns",
+   note:"<b>B · Own columns</b> · Article (photo, name over id) · Division · Tags each get a column, so the eye can run down a division or a tag. Costs 240px: at 1440 with 3 stores the name already cuts with …, and every extra store makes it worse.",
+   cols:[
+     {h:"Article", w:"auto", c:a=>`<div class="art">${chev}${thumb(a,40)}<div class="tx"><span class="nm trunc">${a.name}</span><span class="m trunc" style="margin-top:3px">${a.id}</span></div></div>`},
+     {h:"Division", w:"110px", c:a=>`<span class="trunc">${a.div}</span>`},
+     {h:"Tags", w:"130px", c:a=>`<span class="trunc m">${a.tags.join(", ")}</span>`}]},
+  {id:"C", label:"Tags as pills",
+   note:"<b>C · Tags as pills</b> · name, then id · division in grey; tags as quiet grey pills on their own line. Easiest to read tags, but rows grow to 94px.",
+   cols:[{h:"Article", w:"auto", c:a=>`<div class="art" style="padding:12px 0">${chev}${thumb(a,44)}<div class="tx"><span class="nm trunc">${a.name}</span><span class="m trunc" style="margin-top:3px">${a.id} · ${a.div}</span><div style="margin-top:6px;white-space:nowrap;overflow:hidden">${a.tags.map(t=>`<span class="pill">${t}</span>`).join("")}</div></div></div>`}]},
+  {id:"D", label:"Id first",
+   note:"<b>D · Id first</b> · the article id gets its own first column like a PO number; then photo, name over “Division · tags”. Good when the team searches and talks by id.",
+   cols:[
+     {h:"Article id", w:"120px", c:a=>`<span class="idcell">${a.id}</span>`},
+     {h:"Article", w:"auto", c:a=>`<div class="art">${chev}${thumb(a,40)}<div class="tx"><span class="nm trunc">${a.name}</span><span class="m trunc" style="margin-top:3px">${a.div} · ${a.tags.join(", ")}</span></div></div>`}]},
+  {id:"F", label:"Three lines",
+   note:"<b>F · Three lines</b> · name on line 1, article id · division on line 2, tags on line 3, all grey under the name, one font. Rows are 84px; only a very long name or tag list ends in …",
+   cols:[{h:"Article", w:"auto", c:a=>`<div class="art">${chev}${thumb(a,48)}<div class="tx"><span class="nm trunc">${a.name}</span><span class="m trunc" style="margin-top:3px">${a.id} · ${a.div}</span><span class="m trunc" style="margin-top:2px">${a.tags.join(", ")}</span></div></div>`}]},
+  {id:"E", label:"One line",
+   note:"<b>E · One line</b> · 52px rows: small photo, name, then id · division · tags in grey on the same line (cut with … when long). Most articles per screen; tags show only while there is room.",
+   one:true,
+   cols:[{h:"Article", w:"auto", c:a=>`<div class="art">${chev}${thumb(a,32)}<span class="trunc"><span class="nm">${a.name}</span><span class="m"> &nbsp;${a.id} · ${a.div} · ${a.tags.join(", ")}</span></span></div>`}]},
+]
+
+const S = {opt:"A", width:1440}
+try{ Object.assign(S, JSON.parse(localStorage.getItem("pl-art") || "{}")) }catch{}
+const save = () => { try{ localStorage.setItem("pl-art", JSON.stringify(S)) }catch{} }
+
+function draw(){
+  const o = OPTIONS.find(x => x.id === S.opt)
+  $("#opts").innerHTML = OPTIONS.map(x => `<button data-o="${x.id}" class="${x.id===S.opt?"on":""}">${x.id==="today"?"":`<b>${x.id}</b>`}${x.label}${x.star?'<span class="star">★</span>':""}</button>`).join("")
+  $("#widths").innerHTML = [1440,1280].map(w => `<button data-w="${w}" class="${w===S.width?"on":""}">${w}</button>`).join("")
+  $("#note").innerHTML = o.note
+  const h = o.today ? null : o.one ? 52 : o.id==="C" ? 84 : o.id==="F" ? 84 : 64
+  const storeW = "150px", allW = "200px"
+  $("#page").innerHTML = `
+    <h1>Pricelist</h1>
+    <div class="figs">${[["Articles","10"],["On promotion","4"],["Markdown","1"],["Store price","0"],["Upcoming","2"],["Stock at a discount","11 pcs"],["Below cost","0"]].map(f=>`<div class="fig"><div class="l">${f[0]}</div><div class="v">${f[1]}</div></div>`).join("")}</div>
+    <div class="tabs"><button class="tab on">Prices<span class="c">10</span></button><button class="tab">Price changes<span class="c">1</span></button></div>
+    <div class="bar"><div class="segm"><button>By article</button><button class="on">By store</button></div><div class="search"><svg class="i" style="width:16px;height:16px" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>Search or filter</div></div>
+    <div class="tbox">
+      <table class="${o.today?"today":""}">
+        <colgroup><col style="width:44px">${o.cols.map(c=>`<col style="width:${c.w==="auto"?"":c.w}">`).join("")}<col style="width:${allW}">${STORES.map(()=>`<col style="width:${storeW}">`).join("")}</colgroup>
+        <thead><tr><th><span class="cb"></span></th>${o.cols.map(c=>`<th>${c.h}</th>`).join("")}<th class="r">All stores</th>${STORES.map((s,i)=>`<th class="r ${i===0?"sep":""}">${s}</th>`).join("")}</tr></thead>
+        <tbody>${ARTS.map(a=>`<tr style="${h?`height:${h}px`:""}"><td><span class="cb"></span></td>${o.cols.map(c=>`<td style="overflow:hidden">${c.c(a)}</td>`).join("")}<td class="r">${o.one?oneLine(a):priceCell(a,o.today)}</td>${STORES.map((s,i)=>`<td class="r ${i===0?"sep":""}">${o.one?oneLine(a,i):priceCell(a,o.today,i)}</td>`).join("")}</tr>`).join("")}</tbody>
+      </table>
+    </div>`
+  fit()
+}
+// E's cells: price and pcs on one line
+function oneLine(a, store){
+  const pcs = store === undefined ? a.pcs.reduce((x,y)=>x+y,0) : a.pcs[store]
+  const p = a.now !== undefined ? `${rp(a.now)}` : `<span class="m">${rp(a.base)}</span>`
+  const w = store === undefined && a.src ? ` <span class="${a.src==="md"?"w-md":"w-promo"}">${a.pct}%</span>` : store === undefined && a.chg ? ` <span class="w-chg">${a.chg}</span>` : ""
+  return `<span style="white-space:nowrap;font-variant-numeric:tabular-nums">${p}${w} <span class="m">· ${pcs}</span></span>`
+}
+function fit(){
+  const app = $("#app"), wrap = $("#stagewrap")
+  app.style.width = S.width + "px"
+  const z = Math.min(1, wrap.clientWidth / S.width)
+  app.style.zoom = z
+  app.style.height = (wrap.clientHeight / z) + "px"
+}
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("[data-o],[data-w]")
+  if (!t) return
+  if (t.dataset.o) S.opt = t.dataset.o
+  if (t.dataset.w) S.width = +t.dataset.w
+  save(); draw()
+})
+addEventListener("resize", fit)
+draw()
+</script>
+</body>
+</html>

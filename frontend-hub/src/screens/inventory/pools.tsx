@@ -4,6 +4,7 @@ import {
   useMutation,
   useQuery,
   useQueryClient,
+  useSuspenseQuery,
 } from "@tanstack/react-query"
 import type {
   ColumnDef,
@@ -12,7 +13,7 @@ import type {
 } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { ChevronRight } from "lucide-react"
-import { useMemo, useState } from "react"
+import { Suspense, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { DockTools } from "@/components/shell/dock-tools"
@@ -34,7 +35,12 @@ import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { MiniTable } from "@/components/ui/rows"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import { Banner, EmptyState, LoadMore } from "@/components/ui/states"
+import {
+  Banner,
+  EmptyState,
+  LoadingState,
+  LoadMore,
+} from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { SHOW_MISSING, withoutMissing } from "@/lib/features"
 import { useFilters } from "@/lib/filters"
@@ -269,11 +275,11 @@ function poolColumns(
               and calling that a sum said something false about a number that
               was merely stale. */}
             {row.original.pool?.is_rollup === true && (
-              <span className="shrink-0 text-[0.875rem] text-mute">sum</span>
+              <span className="shrink-0 text-[0.9375rem] text-mute">sum</span>
             )}
             {row.original.disputed !== null && (
               <span
-                className="shrink-0 text-[0.875rem] font-medium text-warn-fg"
+                className="shrink-0 text-[0.9375rem] font-medium text-warn-fg"
                 title={`${row.original.disputed.source} reports ${row.original.disputed.stock}`}
               >
                 disputed
@@ -555,7 +561,7 @@ export function PoolsBody({ display: given }: { display?: DisplayUnit } = {}) {
   /// belas pool terbuka adalah daftar yang tak seorang pun minta.
   const [expanded, setExpanded] = useState<ExpandedState>({})
 
-  const fleet = useQuery(fleetPoolsQuery())
+  const fleet = useSuspenseQuery(fleetPoolsQuery())
 
   /// The count board, for one column of this table.
   ///
@@ -622,7 +628,7 @@ export function PoolsBody({ display: given }: { display?: DisplayUnit } = {}) {
   /// origin in `shadowed_by_origin_id` is telling us which site that origin is
   /// standing in, which is the whole of the mapping.
   const tree = useMemo<PoolRow[]>(() => {
-    const items = fleet.data?.items ?? []
+    const items = fleet.data.items
 
     /// `dc-01-edge` → `ho`: the site the centre files this origin's rows
     /// under. Empty for every store, where the two spellings already agree.
@@ -898,57 +904,48 @@ export function PoolsBody({ display: given }: { display?: DisplayUnit } = {}) {
               onChange={setQuery}
               label="Search pools"
             />
-            <BarSpacer />
             {/* The same model as the panel, as the chips over the table and
                 a Filter button beside them — for every width the panel cannot
                 dock at. Rendered only there: the panel unmounts below the dock
                 width rather than hiding, because both of these carry a sheet
                 on the same `?filters=` key. */}
-            {!docked && (
-              <FilterPanel model={filters} table={table} className="mr-auto" />
-            )}
+            {!docked && <FilterPanel model={filters} table={table} />}
             {given === undefined && <DisplayUnitPicker display={display} />}
+            <BarSpacer />
             <SortMenu
               table={table}
               sorting={sorting}
               onSort={(id, desc) => setSorting([{ id, desc }])}
             />
             <ColumnsMenu table={table} />
-            <span aria-hidden className="mx-1 h-5 w-px bg-hairline" />
           </div>
 
           <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-            {queryState(fleet, {
-              loading: "Reading every node…",
-              render: () =>
-                tree.length === 0 ? (
-                  <EmptyState>
-                    This node has no active operational pool.
-                  </EmptyState>
-                ) : (
-                  <DataTable<PoolRow>
-                    refresh={[fleet, counts]}
-                    table={table}
-                    // A pool row opens its own page; a site row has none, so
-                    // the whole row is the chevron's click target rather than a
-                    // dead strip beside a 14-pixel control.
-                    onRowClick={(row) => {
-                      if (row.pool) pool.open(row.poolId)
-                      else table.getRow(row.key).toggleExpanded()
-                    }}
-                    // `row.pool?.id === pool.value` was `undefined ===
-                    // undefined` on every site row with no sheet open, which
-                    // tinted all fourteen of them as selected.
-                    isSelected={(row) =>
-                      row.pool !== null && row.pool.id === pool.value
-                    }
-                    className="max-h-[calc(100dvh-16rem)]"
-                    cardSort={false}
-                    cardsApart
-                    cardLead
-                  />
-                ),
-            })}
+            {tree.length === 0 ? (
+              <EmptyState>This node has no active operational pool.</EmptyState>
+            ) : (
+              <DataTable<PoolRow>
+                refresh={[fleet, counts]}
+                table={table}
+                // A pool row opens its own page; a site row has none, so
+                // the whole row is the chevron's click target rather than a
+                // dead strip beside a 14-pixel control.
+                onRowClick={(row) => {
+                  if (row.pool) pool.open(row.poolId)
+                  else table.getRow(row.key).toggleExpanded()
+                }}
+                // `row.pool?.id === pool.value` was `undefined ===
+                // undefined` on every site row with no sheet open, which
+                // tinted all fourteen of them as selected.
+                isSelected={(row) =>
+                  row.pool !== null && row.pool.id === pool.value
+                }
+                className="max-h-[calc(100dvh-16rem)]"
+                cardSort={false}
+                cardsApart
+                cardLead
+              />
+            )}
           </Card>
 
           {/* The unit the quantities are read in: a desk has it in the bar
@@ -962,13 +959,11 @@ export function PoolsBody({ display: given }: { display?: DisplayUnit } = {}) {
           {/* The two windows the Observed and Missing columns are measured
               over. Under the table rather than over it: it explains two
               columns, and it is not a thing anybody acts on. */}
-          {fleet.data && (
-            <p className="mt-2 text-[0.875rem] text-mute tabular-nums">
-              Observations counted over the last{" "}
-              {fleet.data.observed_window_hours}h · confirmed lost measured over{" "}
-              {fleet.data.lost_risk_window_days} days
-            </p>
-          )}
+          <p className="mt-2 text-[0.9375rem] text-mute tabular-nums">
+            Observations counted over the last{" "}
+            {fleet.data.observed_window_hours}h · confirmed lost measured over{" "}
+            {fleet.data.lost_risk_window_days} days
+          </p>
         </div>
 
         {/* The table is what the panel narrows, and it is handed over because
@@ -1035,6 +1030,8 @@ function fleetKpis(tree: readonly PoolRow[]) {
 }
 
 export function Pools() {
+  // The title stands at once; the pools wait for the fleet and stream in with
+  // it (the server starts the read too).
   return (
     <PageContent>
       <PageHeader
@@ -1042,7 +1039,9 @@ export function Pools() {
         title="Pools"
         sub="Where the stock is standing, on this node and on every node that reports to it."
       />
-      <PoolsBody />
+      <Suspense fallback={<LoadingState>Reading every node…</LoadingState>}>
+        <PoolsBody />
+      </Suspense>
     </PageContent>
   )
 }
@@ -1211,14 +1210,14 @@ function PoolSheet({
                           }`}
                         >
                           <td className="py-2 pr-2">
-                            <span className="block text-[0.875rem] text-ink">
+                            <span className="block text-[0.9375rem] text-ink">
                               {item.article_name ?? item.subject_type}
                             </span>
-                            <span className="font-mono text-[0.875rem] text-mute">
+                            <span className="font-mono text-[0.9375rem] text-mute">
                               {item.epc ?? item.barcode ?? item.subject_id}
                             </span>
                           </td>
-                          <td className="py-2 text-right font-mono text-[0.875rem] text-body">
+                          <td className="py-2 text-right font-mono text-[0.9375rem] text-body">
                             {item.sku_code ?? "—"}
                           </td>
                           <td className="py-2 text-right tabular-nums">
@@ -1240,7 +1239,7 @@ function PoolSheet({
                 <MiniTable head={["Subject", "Age", "Quantity"]}>
                   {pool.missing.map((item) => (
                     <tr key={item.id} className="border-t border-hairline">
-                      <td className="py-2 pr-2 font-mono text-[0.875rem] text-body">
+                      <td className="py-2 pr-2 font-mono text-[0.9375rem] text-body">
                         {item.epc ?? item.sku_code ?? item.subject_id}
                       </td>
                       <td className="py-2 text-right text-warn-fg">
@@ -1268,11 +1267,11 @@ function PoolSheet({
                     >
                       <td className="py-2 pr-2">
                         <Tag>{movement.cause}</Tag>
-                        <span className="mt-0.5 block text-[0.875rem] text-mute">
+                        <span className="mt-0.5 block text-[0.9375rem] text-mute">
                           {moment(movement.occurred_at)}
                         </span>
                       </td>
-                      <td className="py-2 text-right font-mono text-[0.875rem] text-body">
+                      <td className="py-2 text-right font-mono text-[0.9375rem] text-body">
                         {movement.from} → {movement.to}
                       </td>
                       <td className="py-2 text-right tabular-nums">
@@ -1296,7 +1295,7 @@ function PoolSheet({
                     {count(pool.observations.length)}
                   </span>
                 </h4>
-                <p className="mb-2 text-[0.875rem] text-mute">
+                <p className="mb-2 text-[0.9375rem] text-mute">
                   Evidence, not movements — nothing here has changed the ledger.
                 </p>
                 <MiniTable
@@ -1311,10 +1310,10 @@ function PoolSheet({
                       key={item.observation_id}
                       className="border-t border-hairline"
                     >
-                      <td className="py-2 pr-2 font-mono text-[0.875rem] text-body">
+                      <td className="py-2 pr-2 font-mono text-[0.9375rem] text-body">
                         {item.epc}
                       </td>
-                      <td className="py-2 pr-2 text-[0.875rem] text-body">
+                      <td className="py-2 pr-2 text-[0.9375rem] text-body">
                         {ago(item.last_seen_at)}
                       </td>
                       <td className="py-2 text-right tabular-nums">
@@ -1336,7 +1335,7 @@ function PoolSheet({
                 >
                   {pool.counts.map((item) => (
                     <tr key={item.id} className="border-t border-hairline">
-                      <td className="py-2 pr-2 text-[0.875rem] text-ink">
+                      <td className="py-2 pr-2 text-[0.9375rem] text-ink">
                         {item.reason}
                       </td>
                       <td className="py-2 text-right">
@@ -1360,7 +1359,7 @@ function PoolSheet({
               <h4 className="mb-1 text-card-title font-semibold text-ink">
                 Correct a placement
               </h4>
-              <p className="mb-3 text-[0.875rem] text-mute">
+              <p className="mb-3 text-[0.9375rem] text-mute">
                 An observation is evidence, not a movement — the ledger is never
                 corrected on its own. Pick the subject above, say where it is,
                 and name what proves it.
@@ -1476,7 +1475,7 @@ function PoolSheet({
                   )}
                 </form.Subscribe>
                 {actor === "" && (
-                  <p className="text-[0.875rem] text-mute">
+                  <p className="text-[0.9375rem] text-mute">
                     Sign in before posting: the ledger records who moved the
                     stock and the server has no default.
                   </p>
@@ -1552,11 +1551,11 @@ function PoolAllotmentsSheet({
                       >
                         {item.allotment_number}
                       </AppLink>
-                      <span className="mt-0.5 block text-[0.875rem] text-mute">
+                      <span className="mt-0.5 block text-[0.9375rem] text-mute">
                         {humanise(item.type)} · {moment(item.created_at)}
                       </span>
                     </td>
-                    <td className="py-2 pr-2 text-[0.875rem] text-body">
+                    <td className="py-2 pr-2 text-[0.9375rem] text-body">
                       {count(item.destination_count)} · {count(item.sku_count)}{" "}
                       SKU
                       <Pill
@@ -1639,16 +1638,16 @@ function PoolSightingsSheet({
                     className="border-t border-hairline"
                   >
                     <td className="py-2 pr-2">
-                      <span className="block font-mono text-[0.875rem] text-body">
+                      <span className="block font-mono text-[0.9375rem] text-body">
                         {item.epc}
                       </span>
-                      <span className="font-mono text-[0.875rem] text-mute">
+                      <span className="font-mono text-[0.9375rem] text-mute">
                         {item.sku_code ?? "unknown SKU"}
                       </span>
                     </td>
-                    <td className="py-2 pr-2 text-[0.875rem] text-body">
+                    <td className="py-2 pr-2 text-[0.9375rem] text-body">
                       {ago(item.last_seen_at)}
-                      <span className="mt-0.5 block text-[0.875rem] text-mute">
+                      <span className="mt-0.5 block text-[0.9375rem] text-mute">
                         {item.device_id}
                       </span>
                     </td>

@@ -1,0 +1,9 @@
+{
+  "name": "next-full-route-cache-probe",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "../node_modules/.bin/next build --webpack",
+    "start": "../node_modules/.bin/next start --port 3101"
+  }
+}

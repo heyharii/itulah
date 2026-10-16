@@ -201,7 +201,7 @@ export function BillRequestForm({
           from the record.
         </span>
         <div className="flex items-center gap-2">
-          <Button variant="ghost" onClick={onCancel}>
+          <Button data-cancel variant="ghost" onClick={onCancel}>
             Cancel
           </Button>
           <Button

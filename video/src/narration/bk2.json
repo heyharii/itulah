@@ -1,0 +1,16 @@
+[
+  { "id": "intro", "text": "Barang dari PO tiba di DC, dan gudang mulai menghitung." },
+  { "id": "form", "text": "Selama count belum di-**Submit**, angkanya masih bisa diubah. Kedatangannya tetap tercatat." },
+  { "id": "submit", "text": "Setelah Submit, count menunggu diterima oleh pembuat PO." },
+  { "id": "recall", "text": "Selama belum diterima, penghitung bisa menariknya kembali dengan **Recall**." },
+  { "id": "notyet", "text": "Tombol Recall belum dibangun di aplikasi. Yang ditunjukkan di sini adalah aturannya." },
+  { "id": "recalled", "text": "Count lama tidak dihapus, tapi tersimpan sebagai **Recalled**. Stok tidak berubah." },
+  { "id": "same", "text": "Hitungan barunya tetap untuk kedatangan yang sama, bukan kiriman kedua." },
+  { "id": "recount", "text": "Pembuat PO juga bisa meminta **Recount**. Count lama tetap tersimpan." },
+  { "id": "accept", "text": "Lalu pembuat PO menerima count-nya, dengan **Partial receive** atau **Close short**." },
+  { "id": "stock", "text": "Begitu diterima, receipt dan stok tercatat." },
+  { "id": "line", "text": "Di sinilah garis merahnya. Setelah diterima, Recall terkunci." },
+  { "id": "instead", "text": "Kalau ternyata ada yang beda, jalannya lewat bukti baru, atau pemeriksaan oleh Inventory." },
+  { "id": "return", "text": "Barang yang salah atau berlebih dikembalikan lewat **Return PO**. Tidak ada yang dibuka ulang." },
+  { "id": "rest", "text": "Dengan Partial receive, sisa 15 di PO tetap terbuka untuk kedatangan berikutnya. Close short menutupnya." }
+]

@@ -1,0 +1,549 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PO detail · made clear</title>
+<style>
+/* Hub tokens (frontend-hub/src/styles/index.css). Inter 14, nothing under 14px. */
+:root{--ink:#20242c;--text:#394150;--body:#565f6d;--mute:#666f7d;--faint:#b9c0c9;--line-ico:#89919d;
+  --canvas:#fff;--soft:#f8f8f9;--soft-2:#f0f0f2;--soft-3:#f6f6f7;--hairline:#e6e6e9;--hairline-2:#dadade;
+  --accent:#2563eb;--accent-bg:#eff5ff;--ok-fg:#137a37;--ok-bg:#d9f4d2;--warn-fg:#a64a08;--warn-bg:#faeacd;--bad-fg:#be123c;--bad-bg:#fbeaea;
+  --r-card:10px;--r-inner:8px;--shadow-soft:0 1px 3px rgb(24 39 60/4%);--shadow-pop:0 4px 8px rgb(24 39 60/4%),0 12px 32px rgb(24 39 60/8%);
+  --ease-out:cubic-bezier(.23,1,.32,1)}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font:14px/20px Inter,system-ui,sans-serif;color:var(--text);background:var(--soft-3);-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;cursor:pointer;background:none;border:0}
+a{color:var(--accent);text-decoration:none}
+.num{font-variant-numeric:tabular-nums}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:14px;letter-spacing:-.02em}
+svg.i{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+/* ── prototype chrome (as po-detail-branches.html) ── */
+.top{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 20px;background:var(--canvas);border-bottom:1px solid var(--hairline);position:sticky;top:0;z-index:20}
+.top h1{font-size:15px;font-weight:600;color:var(--ink);margin-right:auto}
+.seg{display:flex;gap:2px;background:var(--soft-2);padding:3px;border-radius:999px}
+.seg button{border-radius:999px;padding:4px 14px;color:var(--body);transition:background-color 120ms var(--ease-out),color 120ms var(--ease-out),scale 120ms var(--ease-out)}
+.seg button:active{scale:.97}
+.seg button.on{background:var(--ink);color:#fff;font-weight:500}
+.tog{height:32px;padding:0 14px;border:1px solid var(--hairline-2);border-radius:999px;background:var(--canvas);color:var(--body);transition:scale 120ms var(--ease-out)}
+.tog:active{scale:.97}
+.tog.on{background:var(--warn-bg);border-color:#ecd29b;color:var(--warn-fg);font-weight:500}
+.wrap{display:grid;grid-template-columns:268px minmax(0,1fr);gap:20px;padding:20px;align-items:start}
+.list{position:sticky;top:68px;max-height:calc(100vh - 88px);overflow:auto;background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-card);padding:8px 8px 12px}
+.list h3{font-size:14px;font-weight:500;color:var(--mute);padding:12px 10px 4px}
+.list button{display:flex;width:100%;align-items:center;justify-content:space-between;gap:8px;text-align:left;padding:7px 10px;border-radius:var(--r-inner);color:var(--text);transition:background-color 120ms var(--ease-out),scale 120ms var(--ease-out)}
+.list button:hover{background:var(--soft-2)}
+.list button:active{scale:.985}
+.list button.on{background:var(--accent-bg);color:var(--accent);font-weight:500}
+.list button i{font-style:normal;color:var(--warn-fg);font-size:14px}
+.bar{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:14px}
+.bar h2{font-size:18px;line-height:24px;font-weight:600;color:var(--ink)}
+.bar .say{color:var(--body)}
+.bar .today{margin-left:auto;white-space:nowrap}
+.bar .today.off{color:var(--mute);pointer-events:none}
+
+/* ── the desk: the list behind on a white veil ── */
+.screen{position:relative;height:min(900px,calc(100vh - 150px));min-height:640px;background:var(--canvas);border:1px solid var(--hairline);border-radius:16px;overflow:hidden}
+.behind{position:absolute;inset:0;padding:28px 32px}
+.behind i{display:block;height:52px;border-radius:var(--r-inner);border:1px solid var(--hairline);margin-bottom:10px;background:var(--canvas)}
+.veil{position:absolute;inset:0;background:rgb(255 255 255/.62)}
+.screen.phone{width:414px;height:896px;margin:0 auto;border-radius:36px;border:8px solid var(--ink);min-height:0}
+.screen.phone .behind{padding:60px 16px}
+
+/* ── the sheet ── */
+.sheet{position:absolute;top:16px;right:16px;bottom:16px;width:min(928px,calc(100% - 32px));background:var(--canvas);border-radius:16px;box-shadow:var(--shadow-pop),0 0 0 1px var(--hairline);display:flex;flex-direction:column;overflow:hidden}
+.phone .sheet{top:36px;left:0;right:0;bottom:0;width:auto;border-radius:16px 16px 0 0}
+.phone .sheet:before{content:"";position:absolute;top:8px;left:50%;width:36px;height:4px;margin-left:-18px;border-radius:2px;background:var(--hairline-2)}
+.shd{flex:none;display:flex;align-items:center;gap:16px;padding:12px 28px;border-bottom:1px solid var(--hairline)}
+.phone .shd{flex-wrap:wrap;align-items:flex-start;padding:22px 16px 12px;gap:10px 8px}
+.who{min-width:0;flex:1}
+.who h2{font-size:18px;line-height:24px;font-weight:600;letter-spacing:-.01em;color:var(--ink);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
+.meta{display:flex;flex-wrap:wrap;gap:0 14px;margin-top:2px;color:var(--mute)}
+.meta b{font-weight:500;color:var(--ink)}
+.meta .late,.meta b.late{color:var(--bad-fg)}
+.meta .mono{color:var(--mute)}
+/* the status word, in the list's own colours */
+.st{font-weight:500}
+.st.ok{color:var(--ok-fg)}.st.info{color:var(--accent)}.st.done{color:var(--ink)}.st.neutral{color:var(--mute)}.st.warn{color:var(--warn-fg)}.st.bad{color:var(--bad-fg)}
+.kbox{display:flex;flex:none;border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden;background:var(--canvas);box-shadow:var(--shadow-soft)}
+.kbox div{padding:8px 20px;min-width:0}
+.kbox div+div{border-left:1px solid var(--hairline)}
+.kbox dt{color:var(--body);white-space:nowrap}
+.kbox dd{font-size:18px;line-height:24px;font-weight:600;letter-spacing:-.02em;color:var(--ink);white-space:nowrap}
+.kbox dd small{font-size:14px;font-weight:400;letter-spacing:0;color:var(--body);margin-left:4px}
+.kbox dd .d{font-size:14px;font-weight:500;letter-spacing:0;margin-left:8px;color:var(--warn-fg)}
+.kbox dd.bad{color:var(--bad-fg)}
+.kbox dd.warn{color:var(--warn-fg)}
+.phone .kbox{order:3;width:100%}
+.phone .kbox div{flex:1;padding:8px 14px}
+.tools{display:flex;align-items:center;gap:4px;flex:none}
+.ibtn{width:32px;height:32px;display:grid;place-items:center;border-radius:var(--r-inner);color:var(--line-ico);transition:background-color 120ms var(--ease-out),color 120ms var(--ease-out),scale 120ms var(--ease-out)}
+.ibtn:hover{background:var(--soft-2);color:var(--ink)}
+.ibtn:active{scale:.94}
+.sbd{flex:1;min-height:0;overflow:auto;padding:28px;display:flex;flex-direction:column;gap:20px;position:relative}
+.sbd>*{flex:none}
+.phone .sbd{padding:16px}
+.sft{flex:none;display:flex;align-items:center;gap:8px;padding:12px 28px;border-top:1px solid var(--hairline)}
+.phone .sft{padding:12px 16px;flex-wrap:wrap}
+.sft .sp{flex:1}
+.btn{height:36px;display:inline-flex;align-items:center;gap:6px;padding:0 16px;border-radius:var(--r-inner);font-weight:500;white-space:nowrap;color:var(--text);border:1px solid transparent;transition:background-color 120ms var(--ease-out),scale 120ms var(--ease-out)}
+.btn:hover{background:var(--soft-2)}
+.btn:active{scale:.97}
+.btn.pri{background:var(--accent);color:#fff}
+.btn.pri:hover{background:#1f56cf}
+.phone .btn{height:44px;padding:0 18px}
+.phone .ibtn{width:44px;height:44px}
+
+/* stamp: the hub's own, over the document's corner. Tones follow the list. */
+.stamp{position:absolute;top:14px;right:24px;z-index:3;pointer-events:none;transform:rotate(-6deg);border:2px solid;border-radius:var(--r-inner);padding:2px 12px;font-size:18px;line-height:24px;font-weight:700;letter-spacing:.14em;opacity:.4;user-select:none}
+.stamp.ok{color:var(--ok-fg);border-color:var(--ok-fg)}
+.stamp.done{color:var(--ink);border-color:var(--ink)}
+.stamp.bad{color:var(--bad-fg);border-color:var(--bad-fg)}
+.phone .stamp{right:12px;top:8px;font-size:14px;padding:0 8px}
+
+/* parts */
+.banner{display:flex;gap:12px;align-items:flex-start;border-radius:var(--r-card);padding:12px 16px}
+.banner.info{background:var(--soft);color:var(--body);border:1px solid var(--hairline)}
+.banner.info b{color:var(--ink)}
+.banner.warn{background:var(--warn-bg);color:var(--warn-fg)}
+.banner.bad{background:var(--bad-bg);color:var(--bad-fg)}
+.banner b{display:block;font-weight:600}
+.quiet{color:var(--body)}
+.quiet b{font-weight:500;color:var(--ink)}
+.sect>h3{font-size:14px;font-weight:500;color:var(--body);margin-bottom:8px}
+.prose{color:var(--ink);line-height:22px;white-space:pre-wrap}
+details.fold{border-top:1px solid var(--hairline);padding-top:14px;color:var(--body)}
+details.fold summary{cursor:pointer;list-style:none;display:flex;gap:6px;align-items:center}
+details.fold summary::-webkit-details-marker{display:none}
+details.fold summary:before{content:"›";display:inline-block;transition:rotate 160ms var(--ease-out)}
+details.fold[open] summary:before{rotate:90deg}
+details.fold ul{list-style:none;display:grid;gap:8px;margin-top:12px;color:var(--ink)}
+details.fold li span{color:var(--mute)}
+details.fold .prose{margin-top:12px}
+
+/* items table (header white, as built) */
+.itw{border:1px solid var(--hairline);border-radius:var(--r-inner);overflow:hidden}
+.itw .sc{overflow-x:auto}
+table.items{width:100%;border-collapse:collapse;table-layout:fixed;min-width:52rem}
+.items th{height:44px;padding:0 16px;text-align:right;font-weight:500;color:var(--body);background:var(--canvas);border-bottom:1px solid var(--hairline);white-space:nowrap}
+.items th:first-child,.items td:first-child{text-align:left}
+.items td{padding:14px 16px;text-align:right;color:var(--ink);border-top:1px solid var(--hairline);vertical-align:top;font-variant-numeric:tabular-nums;white-space:nowrap}
+.items tbody tr:first-child td{border-top:0}
+.it{display:flex;gap:12px;align-items:flex-start;white-space:normal}
+.th{width:40px;height:40px;border-radius:8px;background:var(--soft-2);display:grid;place-items:center;color:#a0a6af;flex:none}
+.th svg{width:24px;height:24px;fill:currentColor}
+.it .nm{min-width:0;overflow-wrap:anywhere}
+.it small{display:block;color:var(--body);font-size:14px;line-height:20px}
+.it .rcp{margin-top:4px}
+.vr td{border-top:0;padding-top:0;padding-bottom:8px;color:var(--body);font-size:14px}
+.vr td:first-child{padding-left:68px}
+.under{color:var(--body);font-size:14px;display:block;font-weight:400}
+.bad{color:var(--bad-fg)}
+.warn{color:var(--warn-fg)}
+.dim{opacity:.55}
+.dash{color:var(--faint)}
+
+/* phone cards */
+.cards{display:none;flex-direction:column;border:1px solid var(--hairline);border-radius:var(--r-inner);overflow:hidden}
+.phone .cards{display:flex}.phone .itw{display:none}
+.cards li{list-style:none;border-top:1px solid var(--hairline);padding:14px}
+.cards li:first-child{border-top:0}
+.cards dl{display:grid;grid-template-columns:1fr 1fr;gap:10px 16px;margin-top:12px}
+.cards dt{color:var(--body)}
+.cards dd{color:var(--ink);font-variant-numeric:tabular-nums}
+.cards .vl{display:grid;gap:4px;margin:10px 0 0 52px;color:var(--body)}
+.cards .vl span{display:flex;justify-content:space-between;gap:12px}
+
+/* totals: ONE box at the table's right edge, in two halves parted by a hairline — pieces (the sum of
+   the Received column) then money (the sum of Amount), so no column mixes pcs and Rp and Grand Total
+   stands under Amount. How it is paid sits under the money, where it belongs. */
+.two{display:flex;justify-content:flex-end}
+.tbox{display:flex;align-items:stretch;background:var(--soft);border:1px solid var(--hairline);border-radius:var(--r-card);font-size:15px;font-variant-numeric:tabular-nums}
+.tbox dl{display:grid;grid-template-columns:auto auto;gap:8px 40px;align-content:start;padding:10px 16px}
+.tbox dl+dl{border-left:1px solid var(--hairline-2)}
+.phone .tbox{flex-direction:column;width:100%}
+.phone .tbox dl{grid-template-columns:1fr auto}
+.phone .tbox dl+dl{border-left:0;border-top:1px solid var(--hairline-2)}
+.tbox dt{color:var(--ink)}
+.tbox dd{text-align:right;font-weight:600;color:var(--ink)}
+.tbox dt.l{color:var(--body);font-weight:400}
+.tbox dd.l{font-weight:400;color:var(--ink)}
+.tbox dt small{color:var(--mute);font-size:14px;margin-left:6px}
+.tbox hr{grid-column:1/-1;border:0;border-top:1px solid var(--hairline-2)}
+.facts{display:grid;grid-template-columns:auto auto;gap:16px 32px;justify-content:start;margin-top:4px}
+.phone .facts{grid-template-columns:1fr 1fr;gap:12px 16px}
+.facts dt{color:var(--body)}
+.facts dd{color:var(--ink);margin-top:4px}
+
+/* Return PO */
+.rs{border:1px solid var(--hairline);border-radius:var(--r-inner);padding:12px;display:grid;gap:6px}
+.rs .r1{display:flex;justify-content:space-between;gap:12px}
+.rs .r1 a{font-weight:500}
+.rs .r1 span{color:var(--mute)}
+.rs .r2{display:flex;justify-content:space-between;gap:12px;color:var(--ink)}
+.rs .r2 span:last-child{color:var(--body)}
+.exl{display:grid;gap:6px}
+.exl li{list-style:none;display:flex;justify-content:space-between;gap:12px;color:var(--ink)}
+.exl li b{font-weight:500;color:var(--warn-fg)}
+.exl li b.n{color:var(--body)}
+
+/* ── map ── */
+.mapw{background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-card);overflow:auto}
+table.map{width:100%;border-collapse:collapse;min-width:1240px}
+.map th{height:44px;padding:0 14px;text-align:left;font-weight:500;color:var(--body);border-bottom:1px solid var(--hairline);background:var(--canvas);position:sticky;top:0}
+.map td{padding:10px 14px;border-top:1px solid var(--hairline);color:var(--ink);vertical-align:top}
+.map tr.g td{background:var(--soft);color:var(--body);font-weight:500;border-top:1px solid var(--hairline-2)}
+.map tbody tr:not(.g){cursor:pointer;transition:background-color 120ms var(--ease-out)}
+.map tbody tr:not(.g):hover td{background:var(--soft)}
+.map td.mu{color:var(--body)}
+.map td.ch{color:var(--warn-fg)}
+@media(max-width:1000px){.wrap{grid-template-columns:1fr}.list{position:static;max-height:none}}
+@media(prefers-reduced-motion:reduce){*{transition-duration:0ms!important}}
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>PO detail · made clear</h1>
+  <div class="seg" id="view"><button data-v="sheet" class="on">Sheet</button><button data-v="map">Map</button></div>
+  <div class="seg" id="dev"><button data-v="desk" class="on">Desk</button><button data-v="phone">Phone</button></div>
+  <div class="seg" id="lines"><button data-v="plain" class="on">Plain</button><button data-v="var">Colour &amp; size</button><button data-v="kodi">Per kodi</button></div>
+  <button class="tog" id="worst">Worst case</button>
+</header>
+<div class="wrap">
+  <nav class="list" id="list"></nav>
+  <main><div class="bar" id="bar"></div><div id="stage"></div></main>
+</div>
+
+<script>
+/* ───────────── formatting (hub rules: Rp 1.234, pcs, signed differences, dates with year) ───────────── */
+const rp = n => 'Rp ' + Math.round(n).toLocaleString('id-ID')
+const money = n => n < 0 ? '–' + rp(-n) : rp(n)
+const num = n => Math.round(n).toLocaleString('id-ID')
+const pcs = n => num(n) + ' pcs'
+const esc = s => String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))
+const ICON = {
+  print:'<svg class="i" viewBox="0 0 24 24"><path d="M6 9V3h12v6M6 18H4a1 1 0 0 1-1-1v-6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v6a1 1 0 0 1-1 1h-2"/><path d="M6 14h12v7H6z"/></svg>',
+  x:'<svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>',
+  shirt:'<svg viewBox="0 0 24 24"><path d="M8 3 3 6l2 5 3-1v11h8V10l3 1 2-5-5-3a4 4 0 0 1-8 0z"/></svg>',
+  recall:'<svg class="i" viewBox="0 0 24 24" style="width:20px;height:20px;margin-top:1px"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>'
+}
+
+/* ───────────── the order, and what each branch changes in it ─────────────
+   One rule for every figure: a "Received" figure is what matched the order. Anything
+   beyond it — pieces over a line, pieces matching no line — is a signed difference
+   beside it, never folded into it. So 200 + "+30 over" is one reading everywhere:
+   the head, the row, the Receive box, the Return PO. */
+const SUP = 'Indorama, PT'
+const BASE_LINES = [
+  {name:'Kemeja Gelambir', filed:'Pria · Kemeja', q:200, price:40000, kodiPrice:800000, vars:[['Black','M',80],['Black','L',70],['Sand','M',50]]},
+  {name:'Kaos Uji UJI3',   filed:'Pria · Kaos',   q:120, price:35000, kodiPrice:700000, vars:[['White','M',60],['White','L',60]]},
+  {name:'Celana Chino Slim', filed:'Pria · Celana', q:80, price:90000, kodiPrice:1800000, vars:[['Navy','30',40],['Navy','32',40]]}
+]
+const GRN = n => 'GRN-HO-GUDANG-0000' + n
+
+function fresh() {
+  return {
+    po:'PO-041026-012', sup:SUP, deliv:'14 Oct 2026', late:0, life:'ACTIVE', terms:'30 days', method:'Giro', disc:.025,
+    lines: BASE_LINES.map(l => ({...l, rec:0, extra:0, short:0, rc:[]})),
+    nao:0, counted:false, hasReceipt:false, notes:null, returns:[], banner:null, reason:null, closedBy:null, closedAt:null, activity:[], actOpen:false, held:null
+  }
+}
+const set = (o, key, arr) => arr.forEach((v, i) => o.lines[i][key] = v)
+const rcpt = (o, i, d, n, q) => o.lines[i].rc.push({d, g:GRN(n), q})
+const part = o => { o.life = 'PART'; o.hasReceipt = true; set(o, 'rec', [200, 60, 0]); rcpt(o, 0, '11 Oct 2026', 22, 200); rcpt(o, 1, '11 Oct 2026', 22, 60); o.activity = ['receiving22', 'created'] }
+const full = o => { o.life = 'FULL'; o.hasReceipt = true; set(o, 'rec', [200, 120, 80]); rcpt(o, 0, '11 Oct 2026', 22, 200); rcpt(o, 1, '11 Oct 2026', 22, 120); rcpt(o, 2, '11 Oct 2026', 22, 80); o.activity = ['receiving22', 'created'] }
+const short = o => { o.life = 'SHORT'; o.hasReceipt = true; set(o, 'rec', [200, 120, 40]); o.lines[2].short = 40; rcpt(o, 0, '11 Oct 2026', 22, 200); rcpt(o, 1, '11 Oct 2026', 22, 120); rcpt(o, 2, '11 Oct 2026', 22, 40); o.closedBy = 'Rina Kusuma'; o.closedAt = '11 Oct 2026'; o.reason = 'Supplier is out of stock'; o.activity = ['short', 'receiving22', 'created'] }
+const over = o => { o.lines[0].extra = 30 }
+const handedBack = (o, parts) => { o.returns = [{no:'RS-00000004', state:'Handed back 11 Oct 2026', parts}] }
+
+const STATUS = {ACTIVE:['Active', 'ok'], PART:['Partially received', 'info'], FULL:['Fully received', 'done'], SHORT:['Closed short', 'done'], CANCELLED:['Cancelled', 'neutral']}
+const STAMP = {FULL:['FULLY RECEIVED', 'ok'], SHORT:['CLOSED SHORT', 'done'], CANCELLED:['CANCELLED', 'bad']}
+const GROUPS = ['Not sent', 'Not counted', 'Counting', 'Receiving', 'Received', 'Return PO', 'Ended']
+
+/* say: the one sentence the sheet must make obvious. changed: against po-detail-branches.html (old: its branch id there). */
+const BR = [
+ {id:'offline', g:0, n:'Offline', old:'offline', list:'Offline', say:'Made on this device; it is sent by itself once you are back online.', changed:'Same sheet as a sent order — table, prices, totals — not a second shape; no dead Send Now; "No number yet" says why there is no PO number',
+  mod(o){ o.held = 'offline'; o.po = null; o.activity = ['madeOffline'] }},
+ {id:'refused', g:0, n:'Refused by the server', old:'refused', list:'Not sent', say:'The server said no, and why; fix it and send again.', changed:'Same sheet; the refusal is in Activity too',
+  mod(o){ o.held = 'refused'; o.po = null; o.activity = ['refused', 'madeOffline'] }},
+ {id:'new', g:1, n:'New order', old:'new', list:'Active', say:'Nothing has happened yet.', changed:'A status word in the meta line, in the list\'s colour — an open order now says what it is',
+  mod(o){ o.activity = ['created'] }},
+ {id:'late', g:1, n:'New order, late', old:'late', list:'Active · red date', say:'Promised for 10 Oct, nothing came: 2 days late.', changed:'"2 days late" in words beside the red date; the Received figure no longer goes red for being late',
+  mod(o){ o.deliv = '10 Oct 2026'; o.late = 2; o.notes = 'Deliver to the Main warehouse, gate 2, before 15:00.'; o.activity = ['created'] }},
+ {id:'edited', g:1, n:'Edited', old:'edited', list:'Active', say:'Changed once since it was raised; the change is in Activity.', changed:'—',
+  mod(o){ o.activity = ['edited', 'created']; o.actOpen = true }},
+ {id:'counted', g:2, n:'Counted, waiting for review', old:'counted', list:'Active · Review Count', say:'The warehouse counted; the buyer has not looked yet.', changed:'Cancel is not shown while a count waits (not a dead button with a hover-only reason); the body says nothing, as ruled 10 Oct',
+  mod(o){ o.counted = true; o.activity = ['counted', 'created'] }},
+ {id:'countedmore', g:2, n:'Counted, more or not as ordered', old:'countedmore', list:'Active · Review Count', say:'Same as above: what the count found is for Review Count to show, not the sheet.', changed:'Identical to "Counted" on purpose — the sheet never pre-empts the review',
+  mod(o){ o.counted = true; o.activity = ['counted', 'created'] }},
+ {id:'recalled', g:2, n:'Count withdrawn by the warehouse', old:'recalled', list:'Active', say:'The warehouse took its count back; nothing waits for review.', changed:'Calm banner (not amber: nothing to do); says what the 430 was; date with year',
+  mod(o){ o.banner = {by:'Dedi Santoso', at:'10 Oct 2026, 16:40', was:430}; o.activity = ['recalled', 'counted', 'created'] }},
+ {id:'recount', g:2, n:'Sent back for a recount', old:'recount', list:'Active', say:'The buyer sent the count back; the warehouse counts again.', changed:'The recount is in Activity — no banner (ruled 10 Oct), but the trace exists',
+  mod(o){ o.activity = ['recount', 'counted', 'created'] }},
+ {id:'part', g:3, n:'Part received', old:'part', list:'Partially received', say:'260 of 400 came; 140 still expected.', changed:'"60 still expected" under the short line, the hub\'s own diff idiom; the date under the item, the pieces in the column — said once each',
+  mod(o){ part(o) }},
+ {id:'partlate', g:3, n:'Part received, late', old:'partlate', list:'Partially received · red date', say:'260 came, the rest is 2 days late.', changed:'Red on the date and on what is still expected; not on what was received',
+  mod(o){ part(o); o.deliv = '10 Oct 2026'; o.late = 2 }},
+ {id:'part2', g:3, n:'Part received, two receivings', old:'part2', list:'Partially received', say:'Kemeja came in two lots; the column still says 200.', changed:'Receivings listed under the item with pieces; column stays the total',
+  mod(o){ part(o); o.lines[0].rc = []; rcpt(o, 0, '08 Oct 2026', 19, 120); rcpt(o, 0, '11 Oct 2026', 22, 80); o.activity = ['receiving22', 'receiving19', 'created'] }},
+ {id:'partcount', g:3, n:'Part received, a new count waiting', old:'partcount', list:'Partially received · Review Count', say:'More came; review the count before deciding anything.', changed:'Close Short hidden while a count waits (as Cancel is) — the count may close the gap',
+  mod(o){ part(o); o.lines[0].rc = []; o.lines[1].rc = []; rcpt(o, 0, '08 Oct 2026', 19, 200); rcpt(o, 1, '08 Oct 2026', 19, 60); o.counted = true; o.activity = ['counted', 'receiving19', 'created'] }},
+ {id:'partextra', g:3, n:'Part received, extra arrived', old:null, list:'Partially received · +30', say:'260 matched, 30 more came on Kemeja and go back; 140 still expected.', changed:'New branch (possible in the hub today): Return in the foot beside Close Short',
+  mod(o){ part(o); over(o) }},
+ {id:'refusedlorry', g:3, n:'Nothing accepted, all not as ordered', old:null, list:'Active · Not as ordered', say:'A delivery came and none of it matched; 150 pcs go back, all 400 still expected.', changed:'New branch: Not as Ordered stands apart from the articles — never under one — in the head, the Receive box and Return PO',
+  mod(o){ o.nao = 150; o.hasReceipt = true; o.activity = ['receivingNone', 'created'] }},
+ {id:'full', g:4, n:'Fully received', old:'full', list:'Fully received', say:'All 400 came.', changed:'No green on the rows; the head, the status word and the stamp carry it',
+  mod(o){ full(o) }},
+ {id:'extra', g:4, n:'Extra arrived, return pending', old:'extra', list:'Fully received · +30', say:'400 matched, 30 more came on Kemeja; they go back.', changed:'One figure per row: 200 pcs with "+30 over" under it (was 230 / 200 / +30 in one row); head says "+30 over" like the list; Return button in the foot, not mid-body',
+  mod(o){ full(o); over(o) }},
+ {id:'nao', g:4, n:'Not as ordered, return pending', old:'nao', list:'Fully received · Not as ordered', say:'400 came and matched; 12 more pcs matched nothing and go back.', changed:'The 12 are not hung on Kaos Uji (they match no article); one vocabulary — Not as Ordered — never "Item unknown"',
+  mod(o){ full(o); o.nao = 12 }},
+ {id:'ret1', g:5, n:'Return raised, note not printed', old:'ret1', list:'Fully received', say:'30 pcs are going back; the return note is not printed yet.', changed:'"Note not printed" instead of "Not Generated"; the over-figure leaves the head once the return is raised',
+  mod(o){ full(o); over(o); o.returns = [{no:'RS-00000004', state:'Note not printed', parts:[['Kemeja Gelambir', 30, 1200000]]}]; o.activity = ['return', 'receiving22', 'created'] }},
+ {id:'ret2', g:5, n:'Return note printed', old:'ret2', list:'Fully received', say:'The note is printed; the warehouse hands the 30 pcs over.', changed:'"Note printed" instead of "Generated"',
+  mod(o){ full(o); over(o); o.returns = [{no:'RS-00000004', state:'Note printed', parts:[['Kemeja Gelambir', 30, 1200000]]}]; o.activity = ['return', 'receiving22', 'created'] }},
+ {id:'ret3', g:5, n:'Return handed back', old:'ret3', list:'Fully received', say:'30 + 12 pcs went back to the supplier on 11 Oct 2026.', changed:'"Handed back 11 Oct 2026" instead of "Confirmed"; "Not as Ordered · 12 pcs" said once (was "Item unknown · Item unknown")',
+  mod(o){ full(o); over(o); o.nao = 12; handedBack(o, [['Kemeja Gelambir', 30, 1200000], ['Not as Ordered', 12, null]]); o.activity = ['handover', 'return', 'receiving22', 'created'] }},
+ {id:'short', g:6, n:'Closed short', old:'short', list:'Closed short', say:'360 of 400 came; the last 40 will not; the order is done for Rp 15.405.000.', changed:'Who closed it and why, first thing; Closed Short at gross (40 pcs × Rp 90.000 = Rp 3.600.000) and Discount on what stays, so every line checks; dark stamp, not green',
+  mod(o){ short(o) }},
+ {id:'shortret', g:6, n:'Closed short, return handed back', old:null, list:'Closed short', say:'360 matched and 30 extra went back; the last 40 will not come.', changed:'New branch (possible in the hub today)',
+  mod(o){ short(o); over(o); handedBack(o, [['Kemeja Gelambir', 30, 1200000]]); o.activity = ['short', 'handover', 'return', 'receiving22', 'created'] }},
+ {id:'cancel', g:6, n:'Cancelled', old:'cancel', list:'Cancelled', say:'Called off on 8 Oct 2026 before anything came; nothing is owed.', changed:'Who and why, first thing — not under the Terms; totals dimmed, nothing reads as a bill',
+  mod(o){ o.life = 'CANCELLED'; o.reason = 'Supplier cannot deliver before 14 Oct 2026'; o.closedBy = 'Rina Kusuma'; o.closedAt = '08 Oct 2026'; o.activity = ['cancelled', 'created'] }}
+]
+
+const ACT = {
+  madeOffline:'Rina Kusuma made this order on this device', refused:'The server refused the order: no catalogue price for Celana Chino Slim',
+  created:'Rina Kusuma created this PO', edited:'Rina Kusuma edited the order: Kemeja Gelambir 180 → 200 pcs · Delivery 12 → 14 Oct 2026',
+  counted:'Dedi Santoso submitted a count', recalled:'Dedi Santoso withdrew the count', recount:'Rina Kusuma sent the count back for a recount',
+  receiving22:'Rina Kusuma accepted the count · ' + GRN(22), receiving19:'Rina Kusuma accepted the count · ' + GRN(19),
+  receivingNone:'Rina Kusuma reviewed the count: nothing matched the order · ' + GRN(22),
+  return:'Rina Kusuma raised a return · RS-00000004', handover:'Dedi Santoso handed the goods back to the supplier · RS-00000004',
+  short:'Rina Kusuma closed the order short: Supplier is out of stock', cancelled:'Rina Kusuma cancelled the order: Supplier cannot deliver before 14 Oct 2026'
+}
+const ACT_AT = {madeOffline:'12 Oct 2026', refused:'12 Oct 2026', created:'05 Oct 2026', edited:'07 Oct 2026', counted:'10 Oct 2026', recalled:'10 Oct 2026', recount:'10 Oct 2026', receiving22:'11 Oct 2026', receiving19:'08 Oct 2026', receivingNone:'11 Oct 2026', return:'11 Oct 2026', handover:'11 Oct 2026', short:'11 Oct 2026', cancelled:'08 Oct 2026'}
+
+/* ───────────── numbers ───────────── */
+function figures(o) {
+  const L = o.lines
+  const pieces = L.reduce((s, l) => s + l.q, 0)
+  const gross = L.reduce((s, l) => s + l.q * l.price * o.pm, 0)
+  const recd = L.reduce((s, l) => s + l.rec, 0)
+  const shortPcs = L.reduce((s, l) => s + l.short, 0)
+  const shortGross = L.reduce((s, l) => s + l.short * l.price * o.pm, 0)
+  // The discount is on what stays on the order: pieces closed short never earn one.
+  const discount = Math.round((gross - shortGross) * o.disc)
+  const extra = L.reduce((s, l) => s + l.extra, 0)
+  const pending = o.returns.length ? 0 : extra + o.nao
+  return {pieces, gross, recd, shortPcs, shortGross, discount, grand: gross - shortGross - discount, extra, nao: o.nao, pending, owed: pieces - recd - shortPcs}
+}
+const priceText = (l, o, mode) => mode === 'kodi' ? rp(l.kodiPrice * o.pm) + ' / kodi' : rp(l.price * o.pm) + ' / pc'
+const kodiOf = n => n / 20 + ' kodi'
+
+/* ───────────── state ───────────── */
+const S = {view:'sheet', dev:'desk', lines:'plain', worst:false, branch:'new'}
+const $ = s => document.querySelector(s)
+const branch = () => BR.find(b => b.id === S.branch)
+function orderOf(b) {
+  const o = fresh()
+  o.pm = S.worst ? 600 : 1
+  b.mod(o)
+  if (S.worst) {
+    o.sup = 'PT Sumber Tekstil Nusantara Indah Makmur Sejahtera Abadi Jaya Tbk (Persero) Cabang Surabaya'
+    o.lines.forEach((l, i) => { l.name = ['Kemeja Gelambir Lengan Panjang Katun Combed 30s Premium Edisi Ramadan Limited Collection XXL', 'Kaos', 'Celana Chino Slim Fit Stretch Water Repellent Dark Navy Edisi Khusus'][i]; l.filed = i === 1 ? 'Pria' : 'Pria · Celana · Musim Hujan · Koleksi Terbatas' })
+    // Many receivings that still add up to the column: the worst case must not contradict itself.
+    o.lines.forEach(l => { if (l.rc.length && l.rec > 7) { const n = 7, each = Math.floor(l.rec / n); l.rc = Array.from({length:n}, (_, k) => ({d:'0' + (2 + k) + ' Oct 2026', g:GRN(30 + k), q:k === n - 1 ? l.rec - each * (n - 1) : each})) } })
+    o.activity = [...o.activity, ...Array(6).fill('edited')]
+  }
+  return o
+}
+
+/* ───────────── what the foot offers ─────────────
+   Print at the left, alone. Then anything that gives up (Close Short, Delete Order), the spacer,
+   and at the right what goes forward — the main action last. A button that cannot be used now
+   is not shown greyed with a hover-only reason: it is not there, and comes back when it can be. */
+function actionsOf(o, f) {
+  if (o.held) return {left:['Delete Order'], right:['Edit|pri']}
+  const left = [], right = []
+  if (o.life === 'PART' && !o.counted) left.push('Close Short')
+  if (o.life === 'ACTIVE' && !o.counted && !o.hasReceipt) right.push('Cancel')
+  const forward = o.counted ? 'Review Count' : f.pending ? `Return ${pcs(f.pending)}` : null
+  if (o.life === 'ACTIVE') right.push(forward ? 'Edit' : 'Edit|pri')
+  if (forward) right.push(forward + '|pri')
+  return {left, right}
+}
+
+/* ───────────── pieces of the sheet ───────────── */
+function head(o, f) {
+  const st = o.held ? (o.held === 'offline' ? ['Offline', 'warn'] : ['Not sent', 'bad']) : STATUS[o.life]
+  const late = o.late ? `<span class="late"> · ${o.late} day${o.late > 1 ? 's' : ''} late</span>` : ''
+  const meta = `<span class="mono">${o.po ?? 'No number yet'}</span><span class="st ${st[1]}">${st[0]}</span><span>Delivery <b class="${o.late ? 'late' : ''}">${o.deliv}</b>${late}</span>`
+  const cell = (t, val, cls = '', tail = '') => `<div><dt>${t}</dt><dd class="num ${cls}">${val}<small>pcs</small>${tail}</dd></div>`
+  const redShort = f.recd < f.pieces && o.life === 'SHORT'
+  let cells = cell('Ordered', num(f.pieces))
+  // The head sums up the open question: the over-figure and the unknown pieces stand here
+  // while they still wait for a return; once one is raised the Return PO section has them.
+  if (f.recd > 0) cells += cell('Received', num(f.recd), redShort ? 'bad' : '', f.pending && f.extra > 0 ? `<span class="d">+${num(f.extra)} over</span>` : '')
+  if (f.pending && f.nao > 0) cells += cell('Not as ordered', num(f.nao), 'warn')
+  return `<div class="shd"><div class="who"><h2>${esc(o.sup)}</h2><div class="meta">${meta}</div></div><dl class="kbox">${cells}</dl><div class="tools"><button class="ibtn" aria-label="Close">${ICON.x}</button></div></div>`
+}
+/* What a line's Received cell says: the matched pieces, and under them the one difference that
+   matters for this line — over, short, or still expected. Never two figures for one fact. */
+function recCell(l, o) {
+  if (l.rec <= 0) return '<span class="dash">—</span>'
+  let under = ''
+  if (l.extra > 0) under += `<span class="under warn">+${num(l.extra)} over</span>`
+  if (o.life === 'SHORT' && l.short > 0) under += `<span class="under bad">${num(l.short)} short</span>`
+  else if (o.life === 'PART' && l.q - l.rec > 0) under += `<span class="under ${o.late ? 'bad' : ''}">${num(l.q - l.rec)} still expected</span>`
+  return pcs(l.rec) + under
+}
+/* When it came: the date under the item for one receiving (the pieces are in the column);
+   each lot with its pieces when there were several. */
+const whenLine = l => !l.rc.length ? '' : l.rc.length === 1
+  ? `<small class="rcp">Received ${l.rc[0].d}</small>`
+  : `<small class="rcp">Received${l.rc.map(r => `<span class="under">• ${r.d} · ${pcs(r.q)}</span>`).join('')}</small>`
+
+function itemRows(o, f) {
+  const mode = S.lines, rec = f.recd > 0
+  const widths = ['', '8.5rem', rec ? '10rem' : null, '10rem', '10rem'].filter(w => w !== null)
+  const th = `<th>Item</th><th>Quantity</th>${rec ? '<th>Received</th>' : ''}<th>Unit Price</th><th>Amount</th>`
+  const rows = o.lines.map(l => {
+    const said = mode === 'kodi' ? `<span class="under">${kodiOf(l.q)}</span>` : ''
+    const main = `<tr><td><div class="it"><span class="th">${ICON.shirt}</span><div class="nm">${esc(l.name)}<small>${esc(l.filed)}</small>${whenLine(l)}</div></div></td><td>${pcs(l.q)}${said}</td>${rec ? `<td>${recCell(l, o)}</td>` : ''}<td>${priceText(l, o, mode)}</td><td style="font-weight:500">${rp(l.q * l.price * o.pm)}</td></tr>`
+    const span = 3 + (rec ? 1 : 0)
+    const vr = mode === 'var' ? l.vars.map(x => `<tr class="vr"><td>${x[0]} · ${x[1]}</td><td>${pcs(x[2])}</td><td colspan="${span - 1}"></td></tr>`).join('') : ''
+    return main + vr
+  }).join('')
+  return `<div class="itw"><div class="sc"><table class="items"><colgroup>${widths.map(w => `<col ${w ? `style="width:${w}"` : ''}>`).join('')}</colgroup><thead><tr>${th}</tr></thead><tbody>${rows}</tbody></table></div></div>`
+}
+function itemCards(o, f) {
+  const mode = S.lines, rec = f.recd > 0
+  return `<ul class="cards">${o.lines.map(l => `<li><div class="it"><span class="th">${ICON.shirt}</span><div class="nm">${esc(l.name)}<small>${esc(l.filed)}</small>${whenLine(l)}</div></div>
+      ${mode === 'var' ? `<div class="vl">${l.vars.map(x => `<span><span>${x[0]} · ${x[1]}</span><span class="num">${pcs(x[2])}</span></span>`).join('')}</div>` : ''}
+      <dl><div><dt>Quantity</dt><dd>${pcs(l.q)}${mode === 'kodi' ? `<span class="under">${kodiOf(l.q)}</span>` : ''}</dd></div>
+      ${rec ? `<div><dt>Received</dt><dd>${recCell(l, o)}</dd></div>` : ''}
+      <div><dt>Unit Price</dt><dd>${priceText(l, o, mode)}</dd></div><div><dt>Amount</dt><dd style="font-weight:500">${rp(l.q * l.price * o.pm)}</dd></div></dl></li>`).join('')}</ul>`
+}
+/* Order at the left in money, Receive at the right in pieces (owner, 11 Oct 2026). Every line of
+   the Order box can be checked by hand: Closed Short is pieces × price, the Discount is on what stays. */
+function totals(o, f) {
+  const disc = String(o.disc * 100).replace('.', ',') + '%'
+  const r = (t, v, c = '') => `<dt class="${c}">${t}</dt><dd class="${c}">${v}</dd>`
+  let order = ''
+  if (o.disc || f.shortPcs) {
+    order += r('Total', money(f.gross), 'l')
+    if (f.shortPcs) order += r(`Closed Short<small>${pcs(f.shortPcs)}</small>`, money(-f.shortGross), 'l')
+    if (o.disc) order += r('Discount · ' + disc, money(-f.discount), 'l')
+    order += '<hr>'
+  }
+  order += r('Grand Total', money(f.grand))
+  order += '<hr>' + r('Payment Terms', o.terms, 'l') + r('Payment Method', o.method, 'l')
+  let recv = ''
+  if (f.recd > 0 || f.nao > 0) {
+    recv += r('Total Received', pcs(f.recd))
+    if (o.life === 'SHORT') recv += r('Short', pcs(f.shortPcs), 'bad')
+    else if (f.owed > 0) recv += `<dt>Still Expected</dt><dd class="${o.late ? 'bad' : ''}">${pcs(f.owed)}</dd>`
+    if (f.extra > 0 || f.nao > 0) {
+      recv += '<hr>'
+      if (f.extra > 0) recv += r('Over', '+' + pcs(f.extra), 'warn')
+      if (f.nao > 0) recv += r('Not as Ordered', pcs(f.nao), 'warn')
+    }
+    recv = `<dl>${recv}</dl>`
+  }
+  return `<div class="two"><div class="tbox ${o.life === 'CANCELLED' ? 'dim' : ''}">${recv}<dl>${order}</dl></div></div>`
+}
+/* What goes back: the lines still waiting for a return (read as facts; the button is in the foot),
+   then each return raised, with where it stands in plain words. */
+function returnSection(o, f) {
+  if (!f.pending && !o.returns.length) return ''
+  let list = ''
+  if (f.pending) {
+    const items = o.lines.filter(l => l.extra > 0).map(l => `<li><span>${esc(l.name)}</span><b class="num">+${pcs(l.extra)} over</b></li>`)
+    if (f.nao > 0) items.push(`<li><span>Not as Ordered</span><b class="num n">${pcs(f.nao)}</b></li>`)
+    list = `<ul class="exl">${items.join('')}</ul>`
+  }
+  const cards = o.returns.map(r => `<div class="rs"><div class="r1"><a>${r.no}</a><span>${r.state}</span></div>${r.parts.map(p => `<div class="r2"><span>${esc(p[0])}</span><span class="num">${p[2] === null ? pcs(p[1]) : pcs(p[1]) + ' · ' + money(p[2] * o.pm)}</span></div>`).join('')}</div>`).join('')
+  return `<div class="sect"><h3>Return PO</h3><div style="display:grid;gap:12px">${list}${cards}</div></div>`
+}
+const activity = o => `<details class="fold" ${o.actOpen ? 'open' : ''}><summary>Activity (${o.activity.length})</summary><ul>${o.activity.map(k => `<li><span>${ACT_AT[k]} · </span>${ACT[k]}</li>`).join('')}</ul></details>`
+const terms = () => `<details class="fold"><summary>Terms and Conditions</summary><p class="prose">Goods are received Monday to Saturday, 08:00–15:00, with a break from 12:00 to 13:00. On Fridays the break is from 11:30 to 13:00.</p></details>`
+function foot(o, f) {
+  const a = actionsOf(o, f)
+  const btn = s => { const [t, k] = s.split('|'); return `<button class="btn ${k === 'pri' ? 'pri' : ''}">${t}</button>` }
+  return `<div class="sft"><button class="ibtn" aria-label="Print">${ICON.print}</button>${a.left.map(btn).join('')}<span class="sp"></span>${a.right.map(btn).join('')}</div>`
+}
+
+/* ───────────── the sheet ─────────────
+   Order of the body: what ended it (reason) · what the warehouse did (banner) · the items · the totals ·
+   how it is paid · what goes back · notes · activity · the terms. The one-off facts first, the boilerplate last. */
+function sheet(b) {
+  const o = orderOf(b), f = figures(o)
+  const top = []
+  if (o.held === 'offline') top.push(`<div class="banner warn"><div>This order is on this device. It is sent by itself once you are back online.</div></div>`)
+  if (o.held === 'refused') top.push(`<div class="banner bad"><div>Not accepted: the supplier has no catalogue price for Celana Chino Slim. Edit it and send again.</div></div>`)
+  if (o.life === 'SHORT') top.push(`<p class="quiet">Closed short by <b>${o.closedBy}</b>, ${o.closedAt} · ${esc(o.reason)}</p>`)
+  if (o.life === 'CANCELLED') top.push(`<p class="quiet">Cancelled by <b>${o.closedBy}</b>, ${o.closedAt} · ${esc(o.reason)}</p>`)
+  if (o.banner) top.push(`<div class="banner info">${ICON.recall}<div><b>Count withdrawn by the warehouse</b>${o.banner.by}, ${o.banner.at} · the count of ${pcs(o.banner.was)} was taken back</div></div>`)
+  const stamp = STAMP[o.life] ? `<span class="stamp ${STAMP[o.life][1]}" aria-hidden="true">${STAMP[o.life][0]}</span>` : ''
+  const notes = o.notes ? `<div class="sect"><h3>Notes</h3><p class="prose">${esc(o.notes)}</p></div>` : ''
+  return `<div class="sheet">${head(o, f)}<div class="sbd">${stamp}${top.join('')}
+    <div class="sect"><h3>Items (${o.lines.length})</h3>${itemRows(o, f)}${itemCards(o, f)}</div>
+    ${totals(o, f)}
+    ${returnSection(o, f)}
+    ${notes}${activity(o)}${terms()}</div>${foot(o, f)}</div>`
+}
+
+/* ───────────── map: every branch at a glance, read off the same data ───────────── */
+function map() {
+  let last = -1
+  const rows = BR.map(b => {
+    const g = b.g !== last ? (last = b.g, `<tr class="g"><td colspan="8">${GROUPS[b.g]}</td></tr>`) : ''
+    const o = orderOf(b), f = figures(o)
+    const st = o.held ? (o.held === 'offline' ? 'Offline' : 'Not sent') : STATUS[o.life][0]
+    const box = ['Ordered', f.recd > 0 ? 'Received' + (f.pending && f.extra ? ' +over' : '') : null, f.pending && f.nao ? 'Not as ordered' : null].filter(Boolean).join(' · ')
+    const col = f.recd > 0 ? [...new Set(o.lines.map(l => l.rec <= 0 ? '—' : l.extra ? 'pcs + over' : o.life === 'SHORT' && l.short ? 'pcs + short' : o.life === 'PART' && l.q > l.rec ? 'pcs + still expected' : 'pcs'))].join(' · ') : 'no column'
+    const under = ['Totals: money + payment', f.recd > 0 || f.nao > 0 ? 'pieces half' : null, f.pending || o.returns.length ? 'Return PO' : null, o.reason ? 'reason line on top' : null, o.banner ? 'withdrawn banner' : null].filter(Boolean).join(' · ')
+    const a = actionsOf(o, f)
+    return g + `<tr data-id="${b.id}"><td>${b.n}</td><td class="mu">${b.list}</td><td class="mu">${st}${STAMP[o.life] ? ' + stamp' : ''}</td><td class="mu">${box}</td><td class="mu">${col}</td><td class="mu">${under}</td><td>${[...a.left, ...a.right].map(x => x.split('|')[0]).join(' · ') || 'print only'}</td><td class="ch">${esc(b.changed)}</td></tr>`
+  }).join('')
+  return `<div class="mapw"><table class="map"><thead><tr><th>Branch</th><th>In the list</th><th>Status</th><th>Head box</th><th>Received column</th><th>Under the table</th><th>Foot</th><th>Changed from today</th></tr></thead><tbody>${rows}</tbody></table></div>`
+}
+
+/* ───────────── render ───────────── */
+function render() {
+  const b = branch()
+  document.querySelectorAll('#view button').forEach(x => x.classList.toggle('on', x.dataset.v === S.view))
+  document.querySelectorAll('#dev button').forEach(x => x.classList.toggle('on', x.dataset.v === S.dev))
+  document.querySelectorAll('#lines button').forEach(x => x.classList.toggle('on', x.dataset.v === S.lines))
+  $('#worst').classList.toggle('on', S.worst)
+  $('#list').innerHTML = GROUPS.map((g, gi) => `<h3>${g}</h3>${BR.filter(x => x.g === gi).map(x => `<button data-id="${x.id}" class="${x.id === S.branch && S.view === 'sheet' ? 'on' : ''}">${x.n}${x.old ? '' : '<i>new</i>'}</button>`).join('')}`).join('')
+  if (S.view === 'map') { $('#bar').innerHTML = '<h2>All branches</h2><span class="say">What each sheet shows, and what changed from po-detail-branches.html</span>'; $('#stage').innerHTML = map(); return }
+  const link = b.old ? `<a class="today" href="po-detail-branches.html#${b.old}" target="_blank" rel="noopener">Today's ↗</a>` : '<span class="today off">New branch</span>'
+  $('#bar').innerHTML = `<h2>${b.n}</h2><span class="say">${esc(b.say)}</span>${link}`
+  $('#stage').innerHTML = `<div class="screen ${S.dev === 'phone' ? 'phone' : ''}"><div class="behind">${'<i></i>'.repeat(10)}</div><div class="veil"></div>${sheet(b)}</div>`
+  history.replaceState(null, '', '#' + S.branch)
+}
+document.addEventListener('click', e => {
+  const t = e.target.closest('button, tr[data-id]'); if (!t) return
+  if (t.closest('#view')) S.view = t.dataset.v
+  else if (t.closest('#dev')) S.dev = t.dataset.v
+  else if (t.closest('#lines')) S.lines = t.dataset.v
+  else if (t.id === 'worst') S.worst = !S.worst
+  else if (t.closest('#list') && t.dataset.id) { S.branch = t.dataset.id; S.view = 'sheet' }
+  else if (t.matches('tr[data-id]')) { S.branch = t.dataset.id; S.view = 'sheet' }
+  else return
+  render()
+})
+document.addEventListener('keydown', e => {
+  if (S.view !== 'sheet' || !['ArrowDown', 'ArrowUp'].includes(e.key)) return
+  const i = BR.findIndex(x => x.id === S.branch), n = BR[Math.min(BR.length - 1, Math.max(0, i + (e.key === 'ArrowDown' ? 1 : -1)))]
+  S.branch = n.id; e.preventDefault(); render()
+})
+function fromHash() { const h = location.hash.slice(1); if (BR.some(x => x.id === h)) { S.branch = h; S.view = 'sheet' } }
+window.addEventListener('hashchange', () => { fromHash(); render() })
+fromHash()
+render()
+</script>
+</body>
+</html>

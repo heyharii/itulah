@@ -1,14 +1,18 @@
-import { useQueryClient } from "@tanstack/react-query"
-import { RouterProvider } from "@tanstack/react-router"
+import { useQueryClient, type QueryClient } from "@tanstack/react-query"
+import type { LinkProps } from "@tanstack/react-router"
+import { useRouter } from "@tanstack/react-router"
 import { Suspense, lazy, useEffect, useRef, useState } from "react"
 
+import { AppShell } from "@/components/shell/app-shell"
 import { BusinessChooser, BusinessEyebrow } from "@/components/business-door"
-import { Launch } from "@/components/brand-mark"
+import { BootSkeleton } from "@/components/boot-skeleton"
 import { LoginForm } from "@/components/login-form"
 import { SignInDoor } from "@/components/sign-in-door"
 import { Toasts } from "@/components/ui/toast"
 import { cacheKey } from "@/lib/api"
 import { onWorkerMessage } from "@/lib/pwa"
+import { startPersistence } from "@/lib/query-persist"
+import { afterStreamedHydration } from "@/lib/use-mounted"
 import { setupKeys, useSetupStatus } from "@/lib/queries/setup"
 import {
   clearSignedOutElsewhere,
@@ -16,16 +20,24 @@ import {
   useIdentity,
 } from "@/lib/session"
 import { selectBusiness, useTenancy } from "@/lib/tenancy"
-import { router } from "@/routes"
-import { JoinPage } from "@/screens/join/join-page"
 import { deferSetup, useSetupDeferred } from "@/screens/setup/defer"
 import { ApiError, type Identity } from "@itulah/contract/client"
+
+/// The invitation screen, for the one URL that reaches it: fetched when such
+/// a link is opened rather than carried by every visit.
+const JoinPage = lazy(() =>
+  import("@/screens/join/join-page").then((module) => ({
+    default: module.JoinPage,
+  }))
+)
 
 /// `/join/{token}` out of the address bar, once, at mount — the invited
 /// person's own link, and the one URL this app answers before it has asked
 /// anybody to sign in.
-function joinTokenFromLocation(): string | null {
-  const match = /^\/join\/([^/?#]+)/.exec(window.location.pathname)
+/// Read from the router's location rather than `window`, so the server
+/// renders the same page the browser will hydrate.
+function joinTokenFromLocation(pathname: string): string | null {
+  const match = /^\/join\/([^/?#]+)/.exec(pathname)
   return match ? decodeURIComponent(match[1]) : null
 }
 
@@ -33,8 +45,8 @@ function joinTokenFromLocation(): string | null {
 /// so a teammate lands straight on the right business's door on a sandbox
 /// server. `null` on any server that was never given one; nothing below acts
 /// on it unless tenancy also turns out to be `"sandbox"`.
-function businessSlugFromLocation(): string | null {
-  return new URLSearchParams(window.location.search).get("business")
+function businessSlugFromLocation(searchStr: string): string | null {
+  return new URLSearchParams(searchStr).get("business")
 }
 
 /// Removes `?business=` from the address bar without a reload or a history
@@ -51,10 +63,24 @@ function stripBusinessParam() {
 
 /// `/n/{token}` out of the address bar, once, at mount — the page a Surat Jalan
 /// Retur's QR opens. Public like the join link: no session is asked for.
-function noteTokenFromLocation(): string | null {
-  const match = /^\/n\/([^/?#]+)/.exec(window.location.pathname)
+function noteTokenFromLocation(pathname: string): string | null {
+  const match = /^\/n\/([^/?#]+)/.exec(pathname)
   return match ? decodeURIComponent(match[1]) : null
 }
+
+/// `/p/{token}` out of the address bar, once, at mount — the page a printed
+/// PO's QR opens (0971). Public, as the surat jalan's.
+function orderTokenFromLocation(pathname: string): string | null {
+  const match = /^\/p\/([^/?#]+)/.exec(pathname)
+  return match ? decodeURIComponent(match[1]) : null
+}
+
+/// A printed PO's public page, fetched only by whoever scans one.
+const PurchaseOrderPage = lazy(() =>
+  import("@/screens/public/purchase-order-page").then((module) => ({
+    default: module.PurchaseOrderPage,
+  }))
+)
 
 /// The surat jalan's public page, fetched only by whoever scans one.
 const ReturnNotePage = lazy(() =>
@@ -72,6 +98,16 @@ const Onboarding = lazy(() =>
 
 export function App() {
   const queryClient = useQueryClient()
+  const router = useRouter()
+
+  // The device's stored cache is read in once the whole page is hydrated —
+  // the shell AND every section streamed in after it — not before: a stored
+  // answer landing ahead of a section's hydration would draw what the server
+  // drew as loading, and the server's answers are newer anyway.
+  useEffect(
+    () => afterStreamedHydration(() => startPersistence(queryClient)),
+    [queryClient]
+  )
 
   // An invited person's own link, outside the signed-in shell entirely and
   // checked before anything else below asks whether somebody is signed in —
@@ -79,7 +115,9 @@ export function App() {
   // that question to be about. Read once, at mount: after acceptance this is
   // set back to `null` and the address bar is corrected to `/` without a
   // reload, the way `LoginForm.onSignedIn` hands off into the ordinary app.
-  const [joinToken, setJoinToken] = useState(joinTokenFromLocation)
+  const [joinToken, setJoinToken] = useState(() =>
+    joinTokenFromLocation(router.state.location.pathname)
+  )
 
   // Three states, not two. While the session query is pending nobody has been
   // asked anything: showing a login box during that moment makes an
@@ -99,9 +137,16 @@ export function App() {
   // A surat jalan's page names its own business to the API (`?business=`), and
   // must not select it for this browser: the person scanning it may be signed
   // in to another business in the same browser.
-  const [noteToken] = useState(noteTokenFromLocation)
+  const [noteToken] = useState(() =>
+    noteTokenFromLocation(router.state.location.pathname)
+  )
+  const [orderToken] = useState(() =>
+    orderTokenFromLocation(router.state.location.pathname)
+  )
   const [linkSlug] = useState(() =>
-    noteToken === null ? businessSlugFromLocation() : null
+    noteToken === null && orderToken === null
+      ? businessSlugFromLocation(router.state.location.searchStr)
+      : null
   )
   const [resolvingLink, setResolvingLink] = useState(linkSlug !== null)
   const linkHandled = useRef(false)
@@ -133,6 +178,24 @@ export function App() {
   const setup = useSetupStatus(signedIn)
   const deferred = useSetupDeferred()
 
+  // The landing screen starts moving the moment the session is known, not
+  // when the router first mounts it: its chunk and its first data are in
+  // flight while the sign-in handoff is still on screen, so the first
+  // navigation is a paint rather than a wait (owner, 2026-10-10: "loading
+  // hanya kalau terpaksa"). It yields to the same quiet rules as every other
+  // prefetch — `prefetchRoute` is fire-and-forget and the loader of the real
+  // navigation re-asks with the right search anyway.
+  const preloadedLanding = useRef(false)
+  useEffect(() => {
+    if (!signedIn || preloadedLanding.current) return
+    preloadedLanding.current = true
+    void import("@/lib/navigation")
+      .then((nav) =>
+        router.preloadRoute({ to: nav.landingPath as LinkProps["to"] })
+      )
+      .catch(() => {})
+  }, [signedIn, router])
+
   // A notification tapped while the app is open: the worker hands over where
   // it leads and the router goes there, rather than the worker reloading the
   // page out from under whatever was on screen (`src/sw.ts`).
@@ -143,7 +206,7 @@ export function App() {
           void router.navigate({ href: message.url })
         }
       }),
-    []
+    [router]
   )
 
   // A lapsed session resolves to `null` rather than an error, so anything left
@@ -155,6 +218,15 @@ export function App() {
       : session.error instanceof ApiError
         ? session.error.message
         : "could not reach the server"
+
+  // A printed PO's own link: public, read-only, outside the shell entirely.
+  if (orderToken !== null) {
+    return (
+      <Suspense fallback={null}>
+        <PurchaseOrderPage token={orderToken} />
+      </Suspense>
+    )
+  }
 
   // A surat jalan's own link: public, read-only, outside the shell entirely.
   if (noteToken !== null) {
@@ -188,7 +260,7 @@ export function App() {
   }
 
   if (session.isPending || tenancy.isPending || resolvingLink) {
-    return <Launch />
+    return <BootSkeleton />
   }
 
   if ((session.data ?? null) === null) {
@@ -256,7 +328,7 @@ export function App() {
   }
 
   if (setup.isPending) {
-    return <Launch />
+    return <BootSkeleton />
   }
 
   if (setup.data !== undefined && !setup.data.finished && !deferred) {
@@ -287,8 +359,44 @@ export function App() {
   // click cannot show one.
   return (
     <>
-      <RouterProvider router={router} />
+      <SignedInShell />
       <Toasts />
     </>
+  )
+}
+
+/// Everything behind the sign-in door: the shell (navigation, sheets, the
+/// palette) with the router's matched screen inside it, and the quiet work a
+/// signed-in session starts — the idle warm-up of the most-used screens
+/// (`startPrefetch`), the offline reference cache, and the offline purchase
+/// order outbox. Their modules stay lazy: the dynamic imports below keep them
+/// out of the entry bundle, so a signed-out first visit does not pay for them
+/// (measured 2026-10-10: ~130 KB gzipped of the old entry chunk).
+function SignedInShell() {
+  const client = useQueryClient()
+  // After every streamed section has hydrated: the reference cache and the
+  // warm-up both write answers into the cache, and an answer landing ahead of
+  // a section's hydration would draw what the server drew as loading. A
+  // cancelled wait (strict mode's second run) simply waits again.
+  useEffect(() => afterStreamedHydration(() => start(client)), [client])
+  return <AppShell />
+}
+
+/// The quiet work a signed-in session starts. Each `start*` is idempotent.
+function start(client: QueryClient) {
+  void Promise.all([
+    import("@/lib/prefetch"),
+    import("@/lib/offline/reference"),
+    import("@/lib/offline/po-outbox"),
+  ]).then(
+    ([prefetch, reference, outbox]) => {
+      prefetch.startPrefetch(client)
+      reference.hydrateReference(client)
+      outbox.startOutbox(client)
+    },
+    () => {
+      // A failed warm-up is nothing: the screens ask for their own data,
+      // and the outbox retries when the module loads again.
+    }
   )
 }

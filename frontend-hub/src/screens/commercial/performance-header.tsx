@@ -485,11 +485,11 @@ function Tile({
         {pending || unknown === true ? "—" : metric.draw(value)}
       </div>
       {caveat !== null ? (
-        <div className="mt-1.5 truncate text-[0.875rem] text-warn-fg">
+        <div className="mt-1.5 truncate text-[0.9375rem] text-warn-fg">
           {caveat}
         </div>
       ) : change !== null ? (
-        <div className="mt-1.5 truncate text-[0.875rem] tabular-nums">
+        <div className="mt-1.5 truncate text-[0.9375rem] tabular-nums">
           <span
             className={cn(
               "font-semibold",
@@ -505,7 +505,7 @@ function Tile({
       ) : (
         // Nothing to compare against is not a flat nought per cent, and drawing
         // one would claim a steady figure where there is no earlier figure.
-        <div className="mt-1.5 truncate text-[0.875rem] text-mute">
+        <div className="mt-1.5 truncate text-[0.9375rem] text-mute">
           No earlier period to compare
         </div>
       )}

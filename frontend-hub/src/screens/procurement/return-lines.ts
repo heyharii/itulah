@@ -51,6 +51,16 @@ export const NOT_AS_ORDERED_ROW = {
   sub: "Item Unknown",
 } as const
 
+/// The same row on the paper the supplier reads, in Indonesian (owner,
+/// 2026-10-16): the print, the PDF and the note's public page.
+export const NOT_AS_ORDERED_PAPER_ROW = {
+  title: "Barang Tidak Sesuai Pesanan",
+  sub: "Item Unknown",
+} as const
+
+/// The key the not-as-ordered row's note is kept under: it has no article.
+export const UNKNOWN_NOTE = "*"
+
 export interface FoldedLine {
   /// The article's code; unique among the items.
   readonly sku: string

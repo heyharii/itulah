@@ -1,0 +1,523 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Purchase Orders · layout</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet" />
+<style>
+/* Hub tokens (frontend-hub/src/styles/index.css). Inter 14, nothing under 14px. */
+:root{--ink:#20242c;--text:#394150;--body:#626b78;--mute:#737c89;--faint:#b9c0c9;--line-ico:#89919d;--canvas:#fff;--soft:#f8f8f9;--soft-2:#f0f0f2;--soft-3:#f6f6f7;
+  --hairline:#e6e6e9;--hairline-2:#dadade;--backdrop:#e0e0e4;
+  --accent:#2563eb;--accent-bg:#eff5ff;--ok-fg:#15803d;--warn-fg:#b45309;--bad-fg:#be123c;
+  --rail:#242526;--rail-2:#303234;--rail-mute:#a1a3a8;
+  --r-card:10px;--r-inner:7px;--shadow-soft:0 1px 3px rgb(24 39 60/4%);--shadow-shell:0 10px 34px rgb(24 39 60/8%)}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font:14px/20px Inter,system-ui,sans-serif;color:var(--text);background:var(--backdrop);-webkit-font-smoothing:antialiased;padding:16px 16px 40px}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer}
+.num{font-variant-numeric:tabular-nums}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:14px;letter-spacing:-.02em}
+svg.i{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+/* prototype chrome */
+.top{max-width:90rem;margin:0 auto 12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.top h1{font-size:15px;font-weight:600;color:var(--ink)}
+.seg{display:flex;gap:2px;background:var(--canvas);padding:3px;border-radius:999px;box-shadow:0 0 0 1px var(--hairline);flex-wrap:wrap}
+.seg button{border:0;background:none;border-radius:999px;padding:5px 14px;color:var(--body)}
+.seg button.on{background:var(--ink);color:#fff;font-weight:500}
+.sp{flex:1}
+.score{max-width:90rem;margin:0 auto 12px;display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.score div{background:var(--canvas);border-radius:var(--r-card);padding:10px 14px;box-shadow:var(--shadow-soft);cursor:pointer;border:1px solid transparent}
+.score div.on{border-color:var(--ink)}
+.score b{display:block;color:var(--ink);font-weight:600}
+.score span{color:var(--body)}
+.score em{font-style:normal;color:var(--ok-fg);font-weight:500}
+
+/* the screen: a 1440 × 900 laptop */
+.shell{width:1440px;max-width:100%;height:900px;margin:0 auto;display:flex;background:var(--canvas);border-radius:16px;box-shadow:var(--shadow-shell);overflow:hidden;position:relative}
+.rail{width:56px;flex:none;background:var(--rail);display:flex;flex-direction:column;align-items:center;padding:14px 0;gap:6px}
+.rail b{width:28px;height:28px;border-radius:8px;background:#fff;color:var(--rail);display:grid;place-items:center;font-weight:700;margin-bottom:12px;position:relative}
+.rail b::after{content:"";position:absolute;right:5px;bottom:5px;width:5px;height:5px;border-radius:50%;background:var(--accent)}
+.rail i{width:36px;height:36px;border-radius:9px;display:grid;place-items:center;color:var(--rail-mute)}
+.rail i.on{background:var(--rail-2);color:#fff}
+.sub{width:232px;flex:none;border-right:1px solid var(--hairline);padding:16px 10px;display:flex;flex-direction:column;gap:2px}
+.sub h2{font-size:15px;font-weight:600;color:var(--ink);padding:4px 10px 14px}
+.sub a{display:flex;align-items:center;height:36px;padding:0 12px;border-radius:8px;color:var(--text);text-decoration:none}
+.sub a.on{background:var(--accent-bg);color:var(--accent);font-weight:500}
+.sub a span{margin-left:auto;color:var(--warn-fg);font-weight:500}
+.sub .clock{margin-top:auto;border-top:1px solid var(--hairline);padding:12px 10px 0;color:var(--body)}
+.main{flex:1;min-width:0;background:var(--soft-3);overflow:hidden;position:relative}
+.main.is-scrollable{overflow-y:auto;overflow-x:hidden;overscroll-behavior-y:contain;scrollbar-gutter:stable;background:var(--canvas)}
+.page{padding:28px 32px}
+
+/* page parts */
+.ttl{font-size:15px;line-height:20px;font-weight:600;color:var(--ink)}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.kpi{background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-card);padding:12px 18px}
+.kpi span{display:block;color:var(--body);font-size:15px}
+.kpi b{display:block;font-size:22px;line-height:30px;font-weight:600;color:var(--ink)}
+.kbox{background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-card);display:grid}
+.kbox div{padding:10px 16px}
+.kbox span{display:block;color:var(--body)}
+.kbox b{display:block;font-size:20px;line-height:28px;font-weight:600;color:var(--ink)}
+.kbox.g2{grid-template-columns:auto auto;width:22rem}
+.kbox.g2 div:nth-child(odd){border-right:1px solid var(--hairline)}
+.kbox.g2 div:nth-child(-n+2){border-bottom:1px solid var(--hairline)}
+.kbox.g4{grid-template-columns:repeat(4,auto)}
+.kbox.g4 div+div{border-left:1px solid var(--hairline)}
+.kbox.g4 div{padding:8px 18px}
+.kbox.g4 b{font-size:18px;line-height:24px}
+.kline{display:flex;gap:28px;align-items:baseline}
+.kline div{display:flex;gap:8px;align-items:baseline}
+.kline span{color:var(--body)}
+.kline b{font-size:18px;font-weight:600;color:var(--ink)}
+.tabs{display:flex;gap:28px;border-bottom:1px solid var(--hairline)}
+.tabs button{border:0;background:none;height:40px;padding:0 2px;color:var(--body);font-size:15px;border-bottom:2px solid transparent;margin-bottom:-1px}
+.tabs button span{margin-left:6px}
+.tabs button.on{color:var(--ink);font-weight:500;border-color:var(--ink)}
+.tabs.bare{border-bottom:0}
+.bar{display:flex;align-items:center;gap:10px}
+.ctl{height:36px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas);display:flex;align-items:center;gap:8px;padding:0 12px;color:var(--mute);box-shadow:var(--shadow-soft)}
+.ctl.search{width:15rem}
+.ctl.date{width:15rem;justify-content:space-between}
+.ctl.date.s{width:11rem}
+.btn{height:36px;display:inline-flex;align-items:center;gap:6px;padding:0 14px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas);color:var(--ink);font-weight:500;white-space:nowrap}
+.btn.q{border-color:transparent;background:none;color:var(--text)}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:#fff}
+.card{background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden}
+.cardbar{height:46px;display:flex;align-items:center;justify-content:flex-end;gap:10px;padding:0 16px;color:var(--body)}
+table{width:100%;border-collapse:collapse}
+th{height:48px;background:var(--soft);font-weight:500;color:var(--body);text-align:left;padding:0 28px;font-size:15px}
+td{height:64px;border-top:1px solid var(--hairline);padding:0 28px;font-size:15px;color:var(--ink)}
+.r{text-align:right}
+td small{display:block;color:var(--body);font-size:14px}
+.st{display:inline-flex;align-items:center;gap:7px}
+.st i{width:6px;height:6px;border-radius:50%;background:var(--accent)}
+.st.warn i{background:var(--warn-fg)}.st.bad{color:var(--bad-fg)}.st.bad i{background:var(--bad-fg)}
+tfoot td{height:56px;background:var(--soft)}
+/* navigation tabs, the head's line, and the two looks of the filters */
+.hd2{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;padding:32px 32px 0;border-bottom:2px solid #a0a0ab}
+.hd2 .hl{min-width:0;padding-bottom:12px}
+.hd2 .hl .ttl{margin-bottom:8px}
+.hd2>.kbox{margin-bottom:12px;flex:none}
+.navtabs{display:flex;gap:8px}
+.nt{height:36px;display:inline-flex;align-items:center;gap:8px;padding:0 14px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas);color:var(--text);font-weight:500;white-space:nowrap}
+.nt span{color:var(--mute);font-weight:400}
+.nt.on{background:var(--accent-bg);border-color:#c9dcff;color:var(--accent)}
+.nt.on span{color:var(--accent)}
+.bd2{padding:44px 32px 28px}
+.fbar{display:flex;align-items:center;gap:10px}
+.fbar .upd{color:var(--body);white-space:nowrap}
+.fbar .ref{display:inline-flex;color:var(--body);margin-right:6px}
+.fbar.fill .ctl{background:var(--soft-2);border-color:transparent;box-shadow:none}
+.fbar.fill .ctl:hover{background:#e8e8eb}
+
+/* four looks for the tabs as navigation */
+.n1{display:inline-flex;gap:2px;padding:3px;background:var(--soft-2);border-radius:10px}
+.n1 button{height:34px;border:0;background:none;border-radius:8px;padding:0 16px;color:var(--body);font-weight:500;white-space:nowrap}
+.n1 button span{margin-left:8px;color:var(--mute);font-weight:400}
+.n1 button.on{background:var(--canvas);color:var(--ink);box-shadow:0 1px 3px rgb(24 39 60/12%),0 0 0 1px var(--hairline)}
+.n1 button.on span{color:var(--body)}
+.n2{display:flex;gap:4px}
+.n2 button{height:36px;border:0;background:none;border-radius:8px;padding:0 14px;color:var(--text);white-space:nowrap}
+.n2 button span{margin-left:8px;color:var(--mute)}
+.n2 button:hover{background:var(--soft-2)}
+.n2 button.on{background:var(--accent-bg);color:var(--accent);font-weight:500}
+.n2 button.on span{color:var(--accent)}
+.n3{display:flex;gap:4px}
+.n3 button{height:34px;border:0;background:none;border-radius:999px;padding:0 16px;color:var(--body);font-weight:500;white-space:nowrap}
+.n3 button span{margin-left:8px;opacity:.7;font-weight:400}
+.n3 button:hover{background:var(--soft-2)}
+.n3 button.on{background:var(--ink);color:#fff}
+.n4{display:flex;gap:10px}
+.n4 button{height:60px;min-width:150px;text-align:left;border:1px solid var(--hairline);border-radius:var(--r-card);background:var(--canvas);padding:7px 16px;color:var(--body);white-space:nowrap}
+.n4 button b{display:block;font-size:20px;line-height:28px;font-weight:600;color:var(--ink)}
+.n4 button.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent);background:var(--accent-bg);color:var(--accent)}
+.n4 button.on b{color:var(--accent)}
+
+/* N3: page identity, summary, navigation, then table tools. */
+.n3-page{padding:0}
+.n3-head{padding:20px 32px 16px;background:var(--canvas);border-bottom:1px solid var(--hairline)}
+.n3-heading{display:flex;align-items:center;gap:20px}
+.n3-identity{flex:1;min-width:0}
+.n3-identity .ttl{font-size:20px;line-height:28px;letter-spacing:-.025em}
+.n3-updated{display:flex;align-items:center;gap:4px;color:var(--mute);white-space:nowrap}
+.n3-refresh{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border:0;border-radius:6px;background:none;color:var(--mute)}
+.n3-refresh:hover{background:var(--soft-2);color:var(--ink)}
+.n3-summary{display:flex;align-items:center;flex:none}
+.n3-metric{display:flex;align-items:baseline;gap:8px;padding:0 14px;white-space:nowrap}
+.n3-metric:first-child{padding-left:0}
+.n3-metric+.n3-metric{border-left:1px solid var(--hairline)}
+.n3-metric span{color:var(--body)}
+.n3-metric b{font-size:16px;line-height:24px;font-weight:500;color:var(--text)}
+.n3-metric.overdue b{color:var(--bad-fg)}
+.n3-create{height:36px;padding:0 14px}
+.n3-head .n3{margin-top:14px;gap:8px}
+.n3-head .n3 button{height:34px;padding:0 16px}
+.n3-head .n3 button span{display:inline-flex;align-items:center;justify-content:center;min-width:24px;height:22px;margin-left:8px;padding:0 6px;border-radius:999px;background:var(--soft-2);color:var(--body);opacity:1}
+.n3-head .n3 button.on span{background:rgb(255 255 255 / 14%);color:#fff}
+.n3-body{padding:16px 32px 28px}
+.n3-tools{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+.n3-tools .ctl.search{width:15rem}
+.n3-tools .ctl.date{width:11rem}
+.n3-body th{height:44px;font-size:14px;background:var(--soft);color:var(--body)}
+.n3-body td:first-child{font-weight:500}
+.n3-body td small{margin-top:3px;font-weight:400}
+.n3-body .st{font-size:14px;color:var(--body)}
+.n3-body .st.bad{color:var(--bad-fg)}
+.n3-body .st.warn{color:var(--warn-fg)}
+.n3-body tbody tr:hover{background:#fafbfc}
+@media(max-width:1250px){
+  .n3-heading{flex-wrap:wrap;gap:16px}
+  .n3-identity{order:0}
+  .n3-create{order:1}
+  .n3-summary{order:2;width:100%;margin-top:2px}
+  .n3-metric{flex:1}
+}
+
+/* Hierarchy studies: same data and toolbar, different navigation and KPI weight. */
+.hierarchy-head{padding:24px 32px 22px;background:var(--canvas);border-bottom:1px solid var(--hairline)}
+.hierarchy-heading{display:flex;align-items:flex-end;justify-content:space-between;gap:28px}
+.hierarchy-identity{min-width:0}
+.hierarchy-head .ttl{font-size:20px;line-height:28px;letter-spacing:-.025em}
+.hierarchy-nav{margin-top:20px}
+.hierarchy-head .n3{margin-top:0}
+.hierarchy-summary{display:grid;grid-template-columns:repeat(3,108px) 212px;width:536px;flex:none;align-self:center}
+.hierarchy-metric{padding:12px 16px;min-width:0}
+.hierarchy-metric span{display:block;color:var(--body);white-space:nowrap}
+.hierarchy-metric b{display:block;margin-top:6px;font-size:22px;line-height:28px;font-weight:600;color:var(--ink);white-space:nowrap;letter-spacing:-.025em}
+.hierarchy-metric.overdue b{color:var(--bad-fg)}
+.h-panel .hierarchy-summary{border:1px solid var(--hairline);border-radius:10px;background:var(--canvas)}
+.h-panel .hierarchy-metric+.hierarchy-metric{border-left:1px solid var(--hairline)}
+.h-panel{background:var(--canvas)}
+.h-panel .hierarchy-body{background:var(--canvas);padding-top:0}
+.h-panel .hierarchy-body .n3-tools{position:sticky;top:0;z-index:4;background:var(--canvas);padding:22px 0 16px;margin-bottom:0}
+.h-panel .card{overflow:clip}
+.h-panel table{border-collapse:separate;border-spacing:0}
+.h-panel thead{position:sticky;top:var(--sticky-tools-height,74px);z-index:3;background:var(--canvas)}
+.h-panel th{box-shadow:inset 0 -1px 0 var(--hairline)}
+.h-panel tbody tr:first-child td{border-top:0}
+.main.is-stuck .h-panel thead{box-shadow:0 2px 5px -2px rgb(24 39 60 / 9%)}
+.scroll-demo{max-width:90rem;margin:0 auto 14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.scroll-demo[hidden]{display:none}
+.scroll-demo>span{color:var(--body)}
+.scroll-demo .btn{height:32px}
+
+.h-panel .card{box-shadow:0 1px 2px rgb(24 39 60 / 8%),0 2px 5px -2px rgb(24 39 60 / 9%)}
+.h-panel .hierarchy-identity .ttl{font-size:20px;line-height:28px}
+.h-panel.kpi-three .hierarchy-summary{width:448px;grid-template-columns:repeat(2,minmax(0,1fr)) 224px}
+.h-panel tfoot{position:sticky;bottom:0;z-index:3;background:var(--canvas);box-shadow:0 -1px 2px rgb(24 39 60 / 6%),0 -3px 6px -3px rgb(24 39 60 / 8%)}
+.h-panel tfoot td{height:56px;background:var(--canvas);font-size:14px;font-weight:500}
+.h-panel .n3-body th{background:var(--canvas)}
+.h-cards .hierarchy-summary{gap:8px;grid-template-columns:repeat(3,102px) 206px}
+.h-cards .hierarchy-metric{border:1px solid var(--hairline);border-radius:9px;background:var(--soft)}
+.h-cards .hierarchy-metric.overdue{background:#fff5f5;border-color:#f4dcdc}
+.h-cards .hierarchy-nav{margin-top:16px}
+.h-cards .tabs{gap:20px;border-bottom:0}
+.h-cards .tabs button{height:38px;font-size:14px;margin-bottom:0}
+.h-cards .tabs button.on{color:var(--accent);border-color:var(--accent);font-weight:600}
+.h-cards .tabs button span{color:var(--body);font-weight:400}
+.hierarchy-body{padding:22px 32px 28px}
+.hierarchy-body .n3-tools{gap:12px;margin-bottom:16px}
+.hierarchy-body .ctl.search{width:13rem}
+.hierarchy-body .ctl.date{width:10rem}
+.hierarchy-body .n3-updated{margin-left:auto}
+.h-band .hierarchy-heading{align-items:center}
+.h-band .hierarchy-summary{width:100%;grid-template-columns:repeat(3,1fr) 1.6fr;margin-top:20px;border:1px solid var(--hairline);border-radius:10px;background:var(--soft)}
+.h-band .hierarchy-metric{padding:12px 20px}
+.h-band .hierarchy-metric+.hierarchy-metric{border-left:1px solid var(--hairline)}
+.h-band .hierarchy-metric:last-child{background:var(--accent-bg);border-radius:0 9px 9px 0}
+.h-band .hierarchy-metric:last-child b{color:var(--accent)}
+.hierarchy-body>.tabs{margin-bottom:18px}
+.hierarchy-body>.tabs button{font-size:14px}
+@media(max-width:1380px){
+  .hierarchy-heading{flex-wrap:wrap;gap:20px}
+  .hierarchy-summary{width:100%;grid-template-columns:repeat(3,1fr) 1.8fr}
+  .h-cards .hierarchy-summary{grid-template-columns:repeat(3,1fr) 1.8fr}
+  .h-panel.kpi-three .hierarchy-summary{width:100%;grid-template-columns:repeat(2,minmax(0,1fr)) 1.8fr}
+}
+
+/* devices: G on a tablet and a phone */
+.devices{display:none;max-width:90rem;margin:0 auto;gap:32px;align-items:flex-start;justify-content:center;flex-wrap:wrap}
+.devices.on{display:flex}
+.dev{background:var(--soft-3);border-radius:28px;box-shadow:0 0 0 10px #1c1d1f,var(--shadow-shell);overflow:hidden;position:relative;display:flex;flex-direction:column;margin:10px}
+.dev.tab{width:820px;height:1180px}
+.dev.ph{width:414px;height:896px}
+.devcap{text-align:center;color:var(--body);margin-top:14px;font-weight:500}
+.tbar{height:52px;flex:none;background:var(--canvas);border-bottom:1px solid var(--hairline);display:flex;align-items:center;gap:14px;padding:0 20px;color:var(--body)}
+.tbar b{color:var(--ink);font-weight:500}
+.tbar .r{margin-left:auto;display:flex;gap:16px;align-items:center}
+.pill99{background:var(--accent);color:#fff;border-radius:999px;padding:0 6px;font-size:14px;line-height:18px}
+.dscroll{flex:1;min-height:0;overflow:hidden;padding:20px}
+.ph .dscroll{padding:12px 16px}
+.cards{display:grid;gap:12px}
+.cards.c2{grid-template-columns:1fr 1fr}
+.pc{background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden}
+.pc .hd{display:flex;gap:12px;padding:14px 16px}
+.pc .hd .who{flex:1;min-width:0}
+.pc .hd .who b{display:block;color:var(--ink);font-weight:600}
+.pc .hd .who>span{display:block;color:var(--body)}
+.pc .fig{text-align:right}
+.pc .fig b{font-size:22px;line-height:28px;font-weight:600;color:var(--ink)}
+.pc .fig b small{font-size:14px;font-weight:400;color:var(--body);margin-left:3px}
+.pc .fig span{display:block;color:var(--body)}
+.pc .ft{display:flex;align-items:center;justify-content:space-between;gap:12px;border-top:1px solid var(--hairline);padding:10px 16px;color:var(--body);min-height:52px}
+.pc .ft.rv{background:#fdf2f3}
+.pc .ft b{color:var(--ink);font-weight:600}
+.chipst{border:1px solid #bfe3b8;color:var(--ok-fg);border-radius:7px;padding:1px 9px;background:#f3fbf1;font-weight:500}
+.chipst.bad{border-color:#f3c2cb;color:var(--bad-fg);background:#fdf2f3}
+.btn.sm{height:32px;padding:0 12px}
+.kbox.full{grid-template-columns:1fr 1fr;width:100%}
+.kbox.full div:nth-child(odd){border-right:1px solid var(--hairline)}
+.kbox.full div:nth-child(-n+2){border-bottom:1px solid var(--hairline)}
+.kbox.full div{padding:8px 14px}
+.kbox.full b{font-size:18px;line-height:24px}
+.dock{flex:none;display:flex;align-items:center;gap:8px;padding:8px 12px;background:rgb(255 255 255/.92);border-top:1px solid var(--hairline)}
+.dock .chip{height:44px;border-radius:999px;border:1px solid var(--hairline-2);display:flex;align-items:center;gap:6px;padding:0 14px;color:var(--ink);font-weight:500;background:var(--canvas)}
+.dock .srch{flex:1;height:44px;border-radius:999px;border:1px solid var(--hairline-2);display:flex;align-items:center;gap:8px;padding:0 14px;color:var(--mute);background:var(--canvas)}
+.dock .ic{width:44px;height:44px;border-radius:999px;border:1px solid var(--hairline-2);display:grid;place-items:center;background:var(--canvas);color:var(--text)}
+.dock .fab{width:48px;height:48px;border-radius:999px;background:var(--accent);color:#fff;display:grid;place-items:center;font-size:24px;line-height:1}
+.bnav{flex:none;height:76px;padding-bottom:20px;background:var(--canvas);border-top:1px solid var(--hairline);display:grid;grid-template-columns:repeat(5,1fr);align-items:center;text-align:center;color:var(--mute);font-size:14px}
+.bnav .on{color:var(--accent);font-weight:500}
+
+/* the old table top, for comparison */
+.was{position:absolute;left:0;right:0;border-top:1.5px dashed var(--accent);pointer-events:none;z-index:4}
+.was span{position:absolute;right:12px;top:-11px;background:var(--accent);color:#fff;border-radius:999px;padding:0 10px;font-size:14px;line-height:22px}
+</style>
+</head>
+<body>
+<div class="top">
+  <h1>Purchase Orders · hierarchy options</h1>
+  <div class="sp"></div>
+  <div class="seg" id="scope"><button class="on" data-scope="hierarchy">Hierarchy options</button><button data-scope="all">All layouts</button></div>
+  <div class="seg" id="fl"><button class="on" data-fl="white">White filters</button><button data-fl="fill">Filled filters</button></div>
+  <div class="seg" id="kpi-count" aria-label="H1 KPI count comparison"></div>
+  <div class="seg" id="pick"></div>
+  <a class="btn q" style="text-decoration:none" href="po-detail-create-layout-options.html">PO detail + create ↗</a>
+</div>
+<div class="score" id="score"></div>
+<div class="scroll-demo" id="scroll-demo"></div>
+<div class="devices" id="devices"></div>
+<div class="shell" id="desk">
+  <nav class="rail"><b>C</b><i class="on"><svg class="i" viewBox="0 0 24 24"><circle cx="9" cy="20" r="1"/><circle cx="18" cy="20" r="1"/><path d="M3 4h2l2.4 11h11.2L21 7H6.2"/></svg></i><i><svg class="i" viewBox="0 0 24 24"><path d="M8 3 3 6l2 4 2-1v12h10V9l2 1 2-4-5-3c-.6 1.6-2 2.5-4 2.5S8.6 4.6 8 3z"/></svg></i><i><svg class="i" viewBox="0 0 24 24"><path d="M3 7h11v9H3zM14 10h4l3 3v3h-7"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></svg></i><i><svg class="i" viewBox="0 0 24 24"><path d="M4 11h16M5 11V7l7-4 7 4v4M6 11v9M18 11v9M10 15h4"/></svg></i><i><svg class="i" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3 3-5 6-5s6 2 6 5M16 5a3 3 0 0 1 0 6M21 20c0-2-1.5-3.6-3.5-4.4"/></svg></i></nav>
+  <aside class="sub"><h2>Procurement</h2><a class="on" href="#">Purchase Orders<span>2</span></a><a href="#">Suppliers</a><a href="#">Sourcing</a><a href="#">Return PO<span>2</span></a><div class="clock num">Sat 10 Oct 2026 · 18:43</div></aside>
+  <main class="main" id="main" tabindex="0" aria-label="Purchase order preview"></main>
+</div>
+
+<script>
+const I = {
+  search:'<svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
+  cal:'<svg class="i" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/></svg>',
+  cols:'<svg class="i" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M10 4v16M15 4v16"/></svg>',
+  ref:'<svg class="i" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14-5l-2 2M4 13a8 8 0 0 0 14 5l2-2M4 4v4h4M20 20v-4h-4"/></svg>',
+  sort:'<svg class="i" viewBox="0 0 24 24" style="width:14px;height:14px;color:var(--faint)"><path d="m8 9 4-4 4 4M8 15l4 4 4-4"/></svg>'
+}
+const KPI = [['Orders','12'],['Still open','10'],['Overdue','1'],['On order','Rp 81.260.000']]
+const ROWS = [
+  ['Garmen Nusantara, PT','PO-101026-003 · 2 items','14 Oct 2026','280 pcs','Rp 8.170.000',['Partly received','']],
+  ['Indorama, PT','PO-091026-002 · 1 item','16 Oct 2026','120 pcs','Rp 4.800.000',['Issued','']],
+  ['Tekstil Jaya, CV','PO-081026-005 · 4 items','08 Oct 2026','640 pcs','Rp 15.360.000',['Overdue','bad']],
+  ['Busana Prima, PT','PO-071026-001 · 3 items','18 Oct 2026','300 pcs','Rp 9.900.000',['Counted · to review','warn']],
+  ['Mitra Konveksi, CV','PO-061026-004 · 1 item','20 Oct 2026','60 pcs','Rp 1.950.000',['Issued','']],
+  ['Sinar Rajut, PT','PO-051026-002 · 2 items','22 Oct 2026','150 pcs','Rp 5.440.000',['Issued','']],
+  ['Benang Emas, PT','PO-041026-007 · 1 item','24 Oct 2026','90 pcs','Rp 3.000.000',['Issued','']],
+  ['Kain Lestari, PT','PO-031026-006 · 2 items','25 Oct 2026','200 pcs','Rp 6.200.000',['Issued','']],
+  ['Rajut Mandiri, CV','PO-031026-002 · 1 item','26 Oct 2026','80 pcs','Rp 2.640.000',['Issued','']],
+  ['Garmen Nusantara, PT','PO-021026-009 · 3 items','27 Oct 2026','360 pcs','Rp 11.880.000',['Issued','']],
+  ['Indorama, PT','PO-021026-004 · 1 item','28 Oct 2026','100 pcs','Rp 4.000.000',['Issued','']],
+  ['Busana Prima, PT','PO-011026-003 · 2 items','30 Oct 2026','240 pcs','Rp 7.920.000',['Issued','']]
+]
+
+const demoRows = () => Array.from({length: demoCount}, (_, index) => {
+  const [supplier, po, date, quantity, value, status] = ROWS[index % ROWS.length]
+  return [supplier, index < ROWS.length ? po : 'PO-DEMO-' + String(index + 1).padStart(3, '0') + ' · ' + po.split(' · ')[1], date, quantity, value, status]
+})
+const formatNumber = value => new Intl.NumberFormat('id-ID').format(value)
+const title = '<h1 class="ttl">Purchase Orders</h1>'
+const kpiCards = `<div class="kpis">${KPI.map(([l, v]) => `<div class="kpi"><span>${l}</span><b class="num">${v}</b></div>`).join('')}</div>`
+const kbox = (cls) => `<div class="kbox ${cls}">${KPI.map(([l, v]) => `<div><span>${l}</span><b class="num">${v}</b></div>`).join('')}</div>`
+const kline = `<div class="kline">${KPI.map(([l, v]) => `<div><span>${l}</span><b class="num">${v}</b></div>`).join('')}</div>`
+const tabs = (bare) => `<div class="tabs ${bare ? 'bare' : ''}"><button class="on">Active PO<span class="num">12</span></button><button>Completed PO<span class="num">13</span></button><button>Cancelled PO<span class="num">1</span></button></div>`
+const filters = (short) => `<div class="ctl search">${I.search}Search orders</div><div class="ctl date ${short ? 's' : ''}">Issued${I.cal}</div><div class="ctl date ${short ? 's' : ''}">Delivery date${I.cal}</div>`
+const actions = `<button class="btn q">${I.cols}Columns</button><button class="btn pri">New order</button>`
+const table = (barActions, rows = ROWS) => {
+  const pieces = rows.reduce((sum, row) => sum + Number(row[3].replace(/[^0-9]/g, '')), 0)
+  const value = rows.reduce((sum, row) => sum + Number(row[4].replace(/[^0-9]/g, '')), 0)
+  return `<div class="card" id="tbl"><div class="cardbar"><span class="num">Updated 18:43</span>${I.ref}${barActions ? `<span style="width:8px"></span>${actions}` : ''}</div><table><thead><tr><th>PO ${I.sort}</th><th>Delivery Date ${I.sort}</th><th class="r">Ordered</th><th>Status ${I.sort}</th></tr></thead><tbody>${rows.map(([s, po, d, q, v, [st, tone]]) => `<tr><td>${s}<small class="mono">${po}</small></td><td class="num">${d}</td><td class="r num">${q}<small>${v}</small></td><td><span class="st ${tone}"><i></i>${st}</span></td></tr>`).join('')}</tbody><tfoot><tr><td>${rows.length} orders</td><td></td><td class="r num">${formatNumber(pieces)} pcs<small>Rp ${formatNumber(value)}</small></td><td></td></tr></tfoot></table></div>`
+}
+
+const NAVS = {
+  n1: `<div class="n1"><button class="on">Active PO<span class="num">12</span></button><button>Completed PO<span class="num">13</span></button><button>Cancelled PO<span class="num">1</span></button></div>`,
+  n2: `<div class="n2"><button class="on">Active PO<span class="num">12</span></button><button>Completed PO<span class="num">13</span></button><button>Cancelled PO<span class="num">1</span></button></div>`,
+  n3: `<div class="n3"><button class="on">Active PO<span class="num">12</span></button><button>Completed PO<span class="num">13</span></button><button>Cancelled PO<span class="num">1</span></button></div>`,
+  n4: `<div class="n4"><button class="on">Active PO<b class="num">12</b></button><button>Completed PO<b class="num">13</b></button><button>Cancelled PO<b class="num">1</b></button></div>`
+}
+const head2 = (nav) => `<div class="hd2"><div class="hl">${title}${NAVS[nav]}</div>${kbox('g4')}</div><div class="bd2"><div class="fbar ${fillFilters ? 'fill' : ''}">${filters()}<div class="sp"></div><span class="num upd">Updated 18:43</span><span class="ref">${I.ref}</span>${actions}</div><div style="height:16px"></div>${table(false).replace(/<div class="cardbar">.*?<\/div>/, '')}</div>`
+const n3Layout = () => `<div class="page n3-page"><header class="n3-head"><div class="n3-heading"><div class="n3-identity">${title}</div><div class="n3-summary" aria-label="Order summary">${KPI.map(([label, value]) => `<div class="n3-metric ${label === 'Overdue' ? 'overdue' : ''}"><span>${label}</span><b class="num">${value}</b></div>`).join('')}</div><button class="btn pri n3-create">New order</button></div>${NAVS.n3}</header><section class="n3-body" aria-label="Purchase order list"><div class="n3-tools fbar ${fillFilters ? 'fill' : ''}">${filters(true)}<div class="sp"></div><div class="n3-updated"><span class="num">Updated 18:43</span><button class="n3-refresh" aria-label="Refresh orders">${I.ref}</button></div><button class="btn q">${I.cols}Columns</button></div>${table(false).replace(/<div class="cardbar">.*?<\/div>/, '')}</section></div>`
+const hierarchyLayout = (kind) => {
+  const band = kind === 'band'
+  const scale = kind === 'panel' ? demoCount / ROWS.length : 1
+  const metrics = kind === 'panel' ? [['Orders',String(demoCount)],['Still open',String(10 * scale)],['Overdue',String(scale)],['On order','Rp ' + formatNumber(81260000 * scale)]] : KPI
+  const summaryItems = kind === 'panel' && kpiCount === 3 ? metrics.filter(([label]) => label !== 'Orders') : metrics
+  const summary = `<div class="hierarchy-summary" aria-label="Order summary">${summaryItems.map(([label, value]) => `<div class="hierarchy-metric ${label === 'Overdue' ? 'overdue' : ''}"><span>${label}</span><b class="num">${value}</b></div>`).join('')}</div>`
+  const nav = kind === 'panel' ? NAVS.n3.replace('Active PO<span class="num">12', 'Active PO<span class="num">' + demoCount) : tabs(band)
+  const create = '<button class="btn pri">New order</button>'
+  return `<div class="page n3-page h-${kind} ${kind === 'panel' && kpiCount === 3 ? 'kpi-three' : 'kpi-four'}"><header class="hierarchy-head"><div class="hierarchy-heading"><div class="hierarchy-identity">${title}${band ? '' : `<div class="hierarchy-nav">${nav}</div>`}</div>${band ? create : summary}</div>${band ? summary : ''}</header><section class="n3-body hierarchy-body" aria-label="Purchase order list">${band ? nav : ''}<div class="n3-tools fbar ${fillFilters ? 'fill' : ''}">${filters(true)}<div class="sp"></div><div class="n3-updated"><span class="num">Updated 18:43</span><button class="n3-refresh" aria-label="Refresh orders">${I.ref}</button></div><button class="btn q">${I.cols}Columns</button>${band ? '' : create}</div>${table(false, kind === 'panel' ? demoRows() : ROWS).replace(/<div class="cardbar">.*?<\/div>/, '')}</section></div>`
+}
+
+const OPTIONS = {
+  H1: {
+    name: 'H1 · Final · S1', note: 'Filter dan header kolom sticky di atas; footer total sticky di bawah. Judul 20px, panel KPI putih, pill gelap, shadow S1.',
+    html: () => hierarchyLayout('panel')
+  },
+  H2: {
+    name: 'H2 · Underline + KPI cards', note: 'Tabs garis bawah lebih ringan; empat kartu KPI dengan angka besar. Seimbang untuk header yang ringkas.',
+    html: () => hierarchyLayout('cards')
+  },
+  H3: {
+    name: 'H3 · Full-width KPI band', note: 'KPI punya baris penuh; nilai On order diberi aksen. Paling menonjol, tetapi memakai lebih banyak tinggi.',
+    html: () => hierarchyLayout('band')
+  },
+  now: {
+    name: 'Now', note: 'Title · four KPI cards · tabs · filters · table',
+    html: () => `<div class="page">${title}<div style="height:16px"></div>${kpiCards}<div style="height:20px"></div>${tabs()}<div style="height:16px"></div><div class="bar">${filters()}<div class="sp"></div>${actions}</div><div style="height:16px"></div>${table(false)}</div>`
+  },
+  A: {
+    name: 'A · Sketch', note: 'KPI in one box at the right, 2 × 2; title, tabs and filters at the left; Columns and New order on the table',
+    html: () => `<div class="page"><div style="display:flex;gap:24px;align-items:flex-start"><div style="flex:1;min-width:0">${title}<div style="height:16px"></div>${tabs(true)}<div style="height:12px"></div><div class="bar">${filters(true)}</div></div>${kbox('g2')}</div><div style="height:16px"></div>${table(true)}</div>`
+  },
+  B: {
+    name: 'B · KPI in one line', note: 'The KPI box is one row at the right of the title; tabs and filters under it, full width',
+    html: () => `<div class="page"><div style="display:flex;align-items:center;gap:24px">${title}<div class="sp"></div>${kbox('g4')}</div><div style="height:12px"></div>${tabs()}<div style="height:14px"></div><div class="bar">${filters()}<div class="sp"></div>${actions}</div><div style="height:14px"></div>${table(false)}</div>`
+  },
+  C: {
+    name: 'C · B, tabs and filters on one line', note: 'The one-line KPI box at the right of the title; tabs at the left and the filters at the right of one line',
+    html: () => `<div class="page"><div style="display:flex;align-items:center;gap:24px">${title}<div class="sp"></div>${kbox('g4')}</div><div style="height:12px"></div><div class="bar" style="gap:24px;border-bottom:1px solid var(--hairline)">${tabs(true)}<div class="sp"></div><div class="bar" style="padding-bottom:6px">${filters(true)}</div></div><div style="height:14px"></div>${table(true)}</div>`
+  },
+  E: {
+    name: 'E · C, filters under the tabs', note: 'The one-line KPI box at the right of the title; tabs; the filters under the tabs; Columns and New order on the table',
+    html: () => `<div class="page"><div style="display:flex;align-items:center;gap:24px">${title}<div class="sp"></div>${kbox('g4')}</div><div style="height:12px"></div>${tabs()}<div style="height:14px"></div><div class="bar">${filters()}</div><div style="height:14px"></div>${table(true)}</div>`
+  },
+  F: {
+    name: 'F · E, the table bar joins the filters', note: 'As E, but Updated, Columns and New order stand at the right of the filter row, so the table opens straight on its header',
+    html: () => `<div class="page"><div style="display:flex;align-items:center;gap:24px">${title}<div class="sp"></div>${kbox('g4')}</div><div style="height:12px"></div>${tabs()}<div style="height:14px"></div><div class="bar">${filters(true)}<div class="sp"></div><span class="num" style="color:var(--body);white-space:nowrap">Updated 18:43</span><span style="color:var(--body);display:inline-flex">${I.ref}</span>${actions}</div><div style="height:14px"></div>${table(false).replace(/<div class="cardbar">.*?<\/div>/, '')}</div>`
+  },
+  G: {
+    name: 'G · F, Updated under the title', note: 'As F, with "Updated 18:43" and its refresh under the title instead of in the filter row',
+    html: () => `<div class="page"><div style="display:flex;align-items:center;gap:24px"><div>${title}<div style="display:flex;align-items:center;gap:6px;margin-top:4px;color:var(--body)"><span class="num">Updated 18:43</span>${I.ref}</div></div><div class="sp"></div>${kbox('g4')}</div><div style="height:12px"></div>${tabs()}<div style="height:14px"></div><div class="bar">${filters()}<div class="sp"></div>${actions}</div><div style="height:14px"></div>${table(false).replace(/<div class="cardbar">.*?<\/div>/, '')}</div>`
+  },
+  N1: {
+    name: 'N1 · Segmented', note: 'One soft track, the open tab raised in it; the title close above; a clear line under the head',
+    html: () => `<div class="page" style="padding:0">${head2('n1')}</div>`
+  },
+  N2: {
+    name: 'N2 · Like the left menu', note: 'No borders: the open tab is the blue-tinted row the left menu uses; the others are plain words',
+    html: () => `<div class="page" style="padding:0">${head2('n2')}</div>`
+  },
+  N3: {
+    name: 'N3 · Compact reference', note: 'Versi sebelumnya untuk pembanding: KPI label dan angka sebaris, header paling padat.',
+    html: n3Layout
+  },
+  N4: {
+    name: 'N4 · Tiles', note: 'Each tab a tile with its count large, the same height as the KPI box beside it; the open one outlined in blue',
+    html: () => `<div class="page" style="padding:0">${head2('n4')}</div>`
+  },
+  D: {
+    name: 'D · Two lines', note: 'Title with the KPI figures as plain text; tabs and filters on the second line; no boxes',
+    html: () => `<div class="page"><div style="display:flex;align-items:baseline;gap:32px">${title}<div class="sp"></div>${kline}</div><div style="height:16px"></div><div class="bar" style="gap:24px;border-bottom:1px solid var(--hairline)">${tabs(true)}<div class="sp"></div><div class="bar" style="padding-bottom:6px">${filters(true)}</div></div><div style="height:14px"></div>${table(true)}</div>`
+  }
+}
+
+/// The cards the hub draws under md and on a tablet: the Lead Figure card (6 Oct).
+const FOOT = {
+  'Partly received': ['Received <b>140 pcs</b><br>Rp 4.085.000', '<span class="chipst">Active</span>', ''],
+  'Issued': ['Received 0 pcs', '<span class="chipst">Active</span>', ''],
+  'Overdue': ['Received 0 pcs', '<span class="chipst bad">Overdue</span>', ''],
+  'Counted · to review': ['Received <b>300 pcs</b> <span style="color:var(--bad-fg)">(+30)</span><br>Rp 9.900.000', '<button class="btn pri sm">Review Count</button>', 'rv']
+}
+const card = ([s, po, d, q, v, [st]]) => { const [l, r, cls] = FOOT[st]; return `<div class="pc"><div class="hd"><div class="who"><b>${s}</b><span class="mono">${po}</span><span>Delivery <span style="color:var(--ink)">${d}</span></span></div><div class="fig"><b class="num">${q.replace(' pcs', '')}<small>pcs</small></b><span class="num">${v}</span></div></div><div class="ft ${cls}"><span>${l}</span>${r}</div></div>` }
+const updated = `<div style="display:flex;align-items:center;gap:6px;margin-top:4px;color:var(--body)"><span class="num">Updated 18:43</span>${I.ref}</div>`
+const kpiShort = [['Orders','12'],['Still open','10'],['Overdue','1'],['On order','Rp 81,3 M']]
+const kboxShort = (cls) => `<div class="kbox ${cls}">${kpiShort.map(([l, v]) => `<div><span>${l}</span><b class="num">${v}</b></div>`).join('')}</div>`
+
+const tablet = () => `<div><div class="dev tab"><div class="tbar"><span>☰</span><span>Procurement / <b>Purchase Orders</b></span><div class="r"><span>Time</span><span class="pill99">99+</span><span>Ask</span></div></div><div class="dscroll"><div style="display:flex;align-items:center;gap:20px"><div>${title}${updated}</div><div class="sp"></div>${kboxShort('g4')}</div><div style="height:12px"></div>${tabs()}<div style="height:14px"></div><div class="bar"><div class="ctl search" style="flex:1;width:auto;height:44px">${I.search}Search orders</div><button class="btn" style="height:44px;width:44px;padding:0;justify-content:center">${I.cal}</button>${actions.replace(/class="btn q"/, 'class="btn q" style="height:44px"').replace(/class="btn pri"/, 'class="btn pri" style="height:44px"')}</div><div style="height:14px"></div><div class="cards c2">${ROWS.slice(0, 8).map(card).join('')}</div></div></div><div class="devcap">Tablet · 820 × 1180</div></div>`
+
+const phone = () => `<div><div class="dev ph"><div class="tbar" style="padding:0 16px"><b style="font-weight:600">Purchase Orders</b><div class="r"><span style="width:28px;height:28px;border-radius:50%;background:var(--accent-bg);color:var(--accent);display:grid;place-items:center;font-weight:600">R</span></div></div><div class="dscroll">${updated.replace('margin-top:4px', 'margin:0 0 10px')}${kboxShort('full')}<div style="height:12px"></div><div class="cards">${ROWS.slice(0, 5).map(card).join('')}</div></div><div class="dock"><span class="chip">Active ▾</span><span class="srch">${I.search}Search orders</span><span class="ic">${I.cal}</span><span class="fab">+</span></div><nav class="bnav"><span>Home</span><span class="on">Orders</span><span>Suppliers</span><span>Sourcing</span><span>Return PO</span></nav></div><div class="devcap">Phone · iPhone XR 414 × 896</div></div>`
+
+const main = document.getElementById('main')
+let pick = 'H1'
+let scope = 'hierarchy'
+let kpiCount = 3
+let demoCount = 48
+let fillFilters = false
+const measure = () => {
+  const m = main.getBoundingClientRect(), t = main.querySelector('#tbl thead').getBoundingClientRect()
+  const rows = [...main.querySelectorAll('tbody tr')].filter(r => r.getBoundingClientRect().bottom <= m.bottom).length
+  return { top: Math.round(t.top - m.top), rows }
+}
+const results = {}
+for (const k of Object.keys(OPTIONS)) { main.innerHTML = OPTIONS[k].html(); results[k] = measure() }
+
+let toolsObserver
+function syncSticky() {
+  const tools = main.querySelector('.h-panel .n3-tools')
+  const head = main.querySelector('.h-panel .hierarchy-head')
+  if (tools) main.style.setProperty('--sticky-tools-height', tools.offsetHeight + 'px')
+  main.classList.toggle('is-stuck', !!head && main.scrollTop >= head.offsetHeight)
+}
+main.addEventListener('scroll', syncSticky, {passive:true})
+function draw() {
+  const previousScroll = main.scrollTop
+  const demo = document.getElementById('scroll-demo')
+  demo.hidden = pick !== 'H1'
+  demo.innerHTML = `<div class="seg"><button data-rows="12" class="${demoCount === 12 ? 'on' : ''}">12 PO</button><button data-rows="48" class="${demoCount === 48 ? 'on' : ''}">48 PO · demo</button></div><span>Scroll di area daftar: filter, kolom, dan footer total tetap terlihat.</span><div class="sp"></div><button class="btn" data-scroll="top">Ke atas</button><button class="btn" data-scroll="sticky">Lihat sticky</button><button class="btn" data-scroll="bottom">Ke bawah</button>`
+  main.classList.toggle('is-scrollable', pick === 'H1')
+
+  const kpiControl = document.getElementById('kpi-count')
+  kpiControl.style.display = pick === 'H1' ? '' : 'none'
+  kpiControl.innerHTML = [3,4].map(count => `<button data-kpis="${count}" class="${kpiCount === count ? 'on' : ''}" aria-pressed="${kpiCount === count}">${count} KPI</button>`).join('')
+
+  const options = Object.entries(OPTIONS).filter(([k]) => scope === 'all' || ['H1', 'H2', 'H3', 'N3'].includes(k))
+  const devices = pick === 'GD'
+  document.getElementById('devices').classList.toggle('on', devices)
+  document.getElementById('desk').style.display = devices ? 'none' : ''
+  document.getElementById('score').style.display = devices ? 'none' : ''
+  if (devices) document.getElementById('devices').innerHTML = tablet() + phone()
+  main.innerHTML = OPTIONS[devices ? 'G' : pick].html()
+  main.scrollTop = pick === 'H1' ? previousScroll : 0
+  if (toolsObserver) toolsObserver.disconnect()
+  syncSticky()
+  if (pick === 'H1' && typeof ResizeObserver !== 'undefined') {
+    toolsObserver = new ResizeObserver(syncSticky)
+    toolsObserver.observe(main.querySelector('.h-panel .n3-tools'))
+  }
+  if (scope === 'all' && pick !== 'now' && !devices) main.insertAdjacentHTML('beforeend', `<div class="was" style="top:${results.now.top}px"><span>Now the table header starts here</span></div>`)
+  document.getElementById('pick').innerHTML = options.map(([k, o]) => `<button data-k="${k}" class="${k === pick ? 'on' : ''}">${o.name}</button>`).join('') + (scope === 'all' ? `<button data-k="GD" class="${pick === 'GD' ? 'on' : ''}">G · tablet + phone</button>` : '')
+  document.getElementById('score').innerHTML = options.map(([k, o]) => {
+    const r = results[k], up = results.now.top - r.top
+    return `<div data-k="${k}" class="${k === pick ? 'on' : ''}"><b>${o.name}</b><span class="num">Table header at ${r.top}px · ${r.rows} of ${k === 'H1' ? demoCount : ROWS.length} rows on screen</span>${k === 'now' ? '' : `<br><em class="num">${up >= 0 ? `${up}px higher` : `${-up}px lower`}</em>`}<br><span>${o.note}</span></div>`
+  }).join('')
+}
+document.addEventListener('click', (e) => {
+  const scrollButton = e.target.closest('[data-scroll]')
+  if (scrollButton) {
+    const head = main.querySelector('.hierarchy-head')
+    const top = scrollButton.dataset.scroll === 'bottom' ? main.scrollHeight : scrollButton.dataset.scroll === 'sticky' ? head.offsetHeight + 160 : 0
+    main.scrollTo({top, behavior:'smooth'})
+    return
+  }
+  const rowsButton = e.target.closest('[data-rows]')
+  if (rowsButton) { demoCount = Number(rowsButton.dataset.rows); draw(); return }
+  const countButton = e.target.closest('[data-kpis]'); if (countButton) { kpiCount = Number(countButton.dataset.kpis); draw(); return } const s = e.target.closest('[data-scope]'); if (s) { scope = s.dataset.scope; if (scope === 'hierarchy' && !['H1','H2','H3','N3'].includes(pick)) pick = 'H2'; document.querySelectorAll('#scope button').forEach(x => x.classList.toggle('on', x === s)); draw(); return } const f = e.target.closest('[data-fl]'); if (f) { fillFilters = f.dataset.fl === 'fill'; document.querySelectorAll('#fl button').forEach(x => x.classList.toggle('on', x === f)); draw(); return } const b = e.target.closest('[data-k]'); if (!b) return; pick = b.dataset.k; draw() })
+const zoom = new URLSearchParams(location.search).get('zoom'); if (zoom) document.body.style.zoom = zoom
+const initialRows = new URLSearchParams(location.search).get('rows'); if (['12','48'].includes(initialRows)) demoCount = Number(initialRows)
+const initialKpiCount = new URLSearchParams(location.search).get('kpis'); if (['3','4'].includes(initialKpiCount)) kpiCount = Number(initialKpiCount)
+const first = new URLSearchParams(location.search).get('pick'); if (first && OPTIONS[first]) { pick = first }
+if (!['H1','H2','H3','N3'].includes(pick)) { scope = 'all'; document.querySelectorAll('#scope button').forEach(x => x.classList.toggle('on', x.dataset.scope === scope)) }
+draw()
+</script>
+</body>
+</html>

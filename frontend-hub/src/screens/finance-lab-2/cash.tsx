@@ -193,7 +193,7 @@ export function Cash() {
                               {unitName(row.unit_id)}
                             </span>
                             {row.qualifier !== "" && (
-                              <span className="block text-[0.875rem] text-mute">
+                              <span className="block text-[0.9375rem] text-mute">
                                 {row.qualifier}
                               </span>
                             )}

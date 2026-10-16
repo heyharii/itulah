@@ -20,6 +20,7 @@ import { Field, Input, Money, Textarea } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
+import { RefreshStrip } from "@/components/ui/refresh-stamp"
 import { KeyValue, SubHead } from "@/components/ui/rows"
 import { Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
@@ -203,7 +204,7 @@ const columns: ColumnDef<TableSetup, MoneyAccountRow>[] = [
           <span className="text-body tabular-nums">
             {money(last.closing_minor)}
           </span>
-          <span className="text-[0.875rem] text-mute">
+          <span className="text-[0.9375rem] text-mute">
             to {day(last.period_end)}
           </span>
         </span>
@@ -355,7 +356,7 @@ export function BankReconciliation() {
             and one left blank look identical to a reader — and here the date
             does real work: the statement beside each row is the last one whose
             period ended on or before it. */}
-        <span className="text-[0.875rem] text-mute">
+        <span className="text-[0.9375rem] text-mute">
           {asOf.chip}
           {unit === "" ? " · all units" : " · "}
           {unit !== "" && <UnitName id={unit} />}
@@ -396,6 +397,8 @@ export function BankReconciliation() {
             </Card>
           ) : (
             <div className="flex flex-col gap-3">
+              {/* One stamp for the four tables: they are one read. */}
+              <RefreshStrip queries={[money]} />
               {/* Grouped, and visibly. One flat list puts a cash drawer beside
                   a card receivable with nothing to say they are different
                   kinds of thing — and giro outstanding, which is a liability,
@@ -560,7 +563,7 @@ function MoneyFamily({
     <Card className="overflow-hidden">
       <CardHeader>
         <CardTitle>{family.label}</CardTitle>
-        <span className="text-[0.875rem] text-mute">
+        <span className="text-[0.9375rem] text-mute">
           {family.note}
           {" · "}
           <span className="font-medium text-ink tabular-nums">
@@ -711,7 +714,7 @@ function AccountSheet({
           <button
             type="button"
             onClick={statement.close}
-            className="flex items-center gap-1 self-start text-[0.875rem] text-mute transition-colors hover:text-accent"
+            className="flex items-center gap-1 self-start text-[0.9375rem] text-mute transition-colors hover:text-accent"
           >
             <ChevronLeft aria-hidden className="size-3.5" />
             All statements for this account
@@ -768,7 +771,7 @@ function AccountSheet({
             {mine.length === 0 && statements.isPending ? (
               <LoadingState>Reading the statements…</LoadingState>
             ) : mine.length === 0 ? (
-              <p className="text-[0.875rem] text-body">
+              <p className="text-[0.9375rem] text-body">
                 Nothing has been imported for this account, so there is nothing
                 to check the books against. A cash drawer never has one; a bank
                 account with no statement is unfinished work.
@@ -785,15 +788,15 @@ function AccountSheet({
                       className="flex items-center gap-2.5 rounded-inner border border-hairline px-3 py-2 text-left transition-colors hover:bg-soft"
                     >
                       <span className="min-w-0 flex-1">
-                        <span className="block text-[0.875rem] text-ink">
+                        <span className="block text-[0.9375rem] text-ink">
                           {day(row.period_start)} – {day(row.period_end)}
                         </span>
-                        <span className="block text-[0.875rem] text-mute">
+                        <span className="block text-[0.9375rem] text-mute">
                           {count(row.matched_count)} of {count(row.line_count)}{" "}
                           agreed · imported {moment(row.imported_at)}
                         </span>
                       </span>
-                      <span className="shrink-0 text-[0.875rem] tabular-nums">
+                      <span className="shrink-0 text-[0.9375rem] tabular-nums">
                         {money(row.closing_minor)}
                       </span>
                       {unmatched > 0 && (
@@ -985,10 +988,10 @@ function Reconcile({ statement }: { statement: BankStatementRow }) {
                       className="flex items-center gap-2.5 rounded-inner border border-hairline px-3 py-2"
                     >
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[0.875rem] text-ink">
+                        <span className="block truncate text-[0.9375rem] text-ink">
                           {line.description}
                         </span>
-                        <span className="block text-[0.875rem] text-mute">
+                        <span className="block text-[0.9375rem] text-mute">
                           {day(line.value_date)} ·{" "}
                           <EntryLink
                             number={line.matched_entry_number}
@@ -999,7 +1002,7 @@ function Reconcile({ statement }: { statement: BankStatementRow }) {
                             : ""}
                         </span>
                       </span>
-                      <span className="shrink-0 text-[0.875rem] tabular-nums">
+                      <span className="shrink-0 text-[0.9375rem] tabular-nums">
                         {money(
                           line.debit_minor === 0
                             ? line.credit_minor
@@ -1076,15 +1079,15 @@ function UnmatchedLine({
     <div className="rounded-inner border border-hairline p-3">
       <div className="flex items-start gap-2.5">
         <span className="min-w-0 flex-1">
-          <span className="block text-[0.875rem] text-ink">
+          <span className="block text-[0.9375rem] text-ink">
             {line.description}
           </span>
-          <span className="block text-[0.875rem] text-mute">
+          <span className="block text-[0.9375rem] text-mute">
             {day(line.value_date)}
             {line.reference ? ` · ${line.reference}` : ""}
           </span>
         </span>
-        <span className="shrink-0 text-[0.875rem] font-medium tabular-nums">
+        <span className="shrink-0 text-[0.9375rem] font-medium tabular-nums">
           {line.debit_minor === 0
             ? money(line.credit_minor)
             : money(line.debit_minor)}
@@ -1095,13 +1098,13 @@ function UnmatchedLine({
       </div>
 
       {scoring ? (
-        <p className="mt-2 text-[0.875rem] text-mute">
+        <p className="mt-2 text-[0.9375rem] text-mute">
           Scoring against the ledger…
         </p>
       ) : (
         <>
           {top.length === 0 ? (
-            <p className="mt-2 text-[0.875rem] text-body">
+            <p className="mt-2 text-[0.9375rem] text-body">
               Nothing in our books looks like this. Either it is still in
               transit, or we never booked it — and those have different answers.
               If it is the second, book it.
@@ -1115,7 +1118,7 @@ function UnmatchedLine({
                 >
                   <span className="min-w-0 flex-1">
                     {/* The reasons, in words. The score only orders them. */}
-                    <span className="block text-[0.875rem] text-text">
+                    <span className="block text-[0.9375rem] text-text">
                       {suggestion.reasons.join(" · ")}
                     </span>
                     {/* Text, not a link, and it has to stay text. A
@@ -1126,7 +1129,7 @@ function UnmatchedLine({
                         endpoint will trade for it. Closing it means
                         `Suggestion` growing an entry id in
                         `cloud/http/finance.rs`. */}
-                    <span className="block font-mono text-[0.875rem] text-mute">
+                    <span className="block font-mono text-[0.9375rem] text-mute">
                       {suggestion.journal_line_id}
                     </span>
                   </span>
@@ -1142,7 +1145,7 @@ function UnmatchedLine({
                 </div>
               ))}
               {top.length > 1 && !top[0].auto_match && (
-                <p className="text-[0.875rem] text-mute">
+                <p className="text-[0.9375rem] text-mute">
                   More than one candidate fits, so nothing was matched
                   automatically. Two identical payments on the same day is an
                   ordinary week.
@@ -1170,7 +1173,7 @@ function UnmatchedLine({
               >
                 Book it
               </Button>
-              <span className="ml-2 text-[0.875rem] text-mute">
+              <span className="ml-2 text-[0.9375rem] text-mute">
                 The bank did something we never recorded. This posts an entry.
               </span>
             </div>
@@ -1227,7 +1230,7 @@ function BookLine({
       </Field>
 
       <div className="flex items-center justify-end gap-2">
-        <Button size="sm" variant="quiet" onClick={onCancel}>
+        <Button data-cancel size="sm" variant="quiet" onClick={onCancel}>
           Cancel
         </Button>
         <Button
@@ -1352,7 +1355,7 @@ function ImportSheet({
         >
           {(state) => (
             <div className="flex items-center justify-between gap-3">
-              <span className="text-[0.875rem] text-mute tabular-nums">
+              <span className="text-[0.9375rem] text-mute tabular-nums">
                 {state.read === 0
                   ? "Nothing to load yet"
                   : `${count(state.read)} lines read`}
@@ -1384,7 +1387,7 @@ function ImportSheet({
         <Problem error={load.error} />
 
         <div>
-          <span className="mb-1.5 block text-[0.875rem] font-medium text-text">
+          <span className="mb-1.5 block text-[0.9375rem] font-medium text-text">
             Bank account
           </span>
           {/* Deliberately the bare picker and not `<AccountAndCategory>`:
@@ -1411,7 +1414,7 @@ function ImportSheet({
               ) : (
                 <div className="flex items-center gap-2 rounded-inner border border-hairline px-3 py-2">
                   <Tag>{picked.code}</Tag>
-                  <span className="min-w-0 flex-1 truncate text-[0.875rem] text-ink">
+                  <span className="min-w-0 flex-1 truncate text-[0.9375rem] text-ink">
                     {picked.name}
                   </span>
                   <Button
@@ -1536,7 +1539,7 @@ function ImportSheet({
                 value={field.state.value}
                 onBlur={field.handleBlur}
                 onChange={(event) => field.handleChange(event.target.value)}
-                className="font-mono text-[0.875rem]"
+                className="font-mono text-[0.9375rem]"
               />
             </Field>
           )}

@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useHydrated } from "@tanstack/react-router"
 import { BellOff, BellRing, Download, Share, SquarePlus } from "lucide-react"
 import { useState } from "react"
 
@@ -40,7 +41,7 @@ function Note({
   children: React.ReactNode
 }) {
   return (
-    <p className="flex gap-2 text-[0.875rem] leading-snug text-body">
+    <p className="flex gap-2 text-[0.9375rem] leading-snug text-body">
       <Icon aria-hidden className="mt-0.5 size-4 shrink-0 text-line-ico" />
       <span>{children}</span>
     </p>
@@ -57,7 +58,7 @@ function AddToHomeScreen() {
         On iPhone and iPad, notifications can only be received once this app is
         added to the Home Screen.
       </Note>
-      <ol className="ml-6 flex list-decimal flex-col gap-1 text-[0.875rem] leading-snug text-body">
+      <ol className="ml-6 flex list-decimal flex-col gap-1 text-[0.9375rem] leading-snug text-body">
         <li>
           Tap{" "}
           <Share aria-label="Share" className="inline size-4 align-[-3px]" />{" "}
@@ -90,7 +91,14 @@ function InstallButton() {
   )
 }
 
+/// The browser's own answers (permission, service worker, standalone) exist
+/// only in the browser, so the control appears once the page is hydrated —
+/// the server and the first client render both draw nothing here.
 export function PushControl({ className }: { className?: string }) {
+  return useHydrated() ? <PushControlNow className={className} /> : null
+}
+
+function PushControlNow({ className }: { className?: string }) {
   const client = useQueryClient()
   const username = useIdentity().data?.username ?? ""
   const support = pushSupport()
@@ -190,7 +198,7 @@ export function PushControl({ className }: { className?: string }) {
           </Note>
         )}
         {problem !== null && (
-          <p role="alert" className="text-[0.875rem] text-bad-fg">
+          <p role="alert" className="text-[0.9375rem] text-bad-fg">
             {problem}
           </p>
         )}

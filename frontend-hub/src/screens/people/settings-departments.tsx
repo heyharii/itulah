@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -13,16 +13,16 @@ import { Pill } from "@/components/ui/pill"
 import { MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
 import { EmptyState } from "@/components/ui/states"
 import {
-  departments,
   orgKeys,
   retireDepartment,
   saveDepartment,
+  departmentsQuery,
 } from "@/lib/queries/people"
-import { queryState } from "@/lib/query-state"
 import { useCanWrite } from "@/lib/session"
 import { FormSheet, NameCell } from "@/screens/people/settings-parts"
 import { useRetire, useSheetTarget } from "@/screens/people/settings-hooks"
 import type { DepartmentView } from "@itulah/contract"
+import { awaiting } from "@/screens/people/awaiting"
 
 /// Settings › Departments: what somebody works in, across stores and head
 /// office — Operations, Finance, HR. Where each person sits is on their own
@@ -30,10 +30,6 @@ import type { DepartmentView } from "@itulah/contract"
 export function DepartmentSettings() {
   const canWrite = useCanWrite()
   const phone = useLayout() === "phone"
-  const list = useQuery({
-    queryKey: orgKeys.departments(),
-    queryFn: ({ signal }) => departments(signal),
-  })
   const sheet = useSheetTarget<DepartmentView>()
 
   return (
@@ -55,7 +51,7 @@ export function DepartmentSettings() {
         }
       />
       <Card className="px-4 py-3">
-        {queryState(list, {
+        {awaiting(departmentsQuery(), {
           loading: "Reading the departments…",
           render: (rows) => {
             const named = new Map(rows.map((row) => [row.code, row.name]))

@@ -48,14 +48,22 @@ function write(storage: () => Storage, key: string, value: string | null): void 
 const local = () => window.localStorage
 const session = () => window.sessionStorage
 
-/// This browser's till name, minted once and kept — printed on receipts and
-/// carried on every shift, so it has to survive a reload.
+/// Which kasir this browser is installed as — `KASIR-1` … `KASIR-N` — kept so
+/// it survives a reload. A till is installed per kasir and nobody picks another
+/// one at the counter: the install opens at `?kasir=2` once, and remembers.
+/// Without a number it is Kasir 1. A name minted the old way (`WEB-xxxx`) is
+/// not a kasir and is replaced.
 function terminalId(): string {
+  const asked = new URLSearchParams(window.location.search).get("kasir")
+  if (asked !== null && /^\d+$/.test(asked) && Number(asked) > 0) {
+    const named = `KASIR-${Number(asked)}`
+    write(local, TERMINAL_KEY, named)
+    return named
+  }
   const held = read(local, TERMINAL_KEY)
-  if (held !== null && held !== "") return held
-  const minted = `WEB-${Math.random().toString(36).slice(2, 6).toUpperCase()}`
-  write(local, TERMINAL_KEY, minted)
-  return minted
+  if (held !== null && /^KASIR-\d+$/.test(held)) return held
+  write(local, TERMINAL_KEY, "KASIR-1")
+  return "KASIR-1"
 }
 
 type Printer = {
@@ -120,7 +128,7 @@ export async function webEdge<T>(
   body?: unknown,
 ): Promise<EdgeReply<T>> {
   if (!path.startsWith("/")) {
-    return unreachable(`“${path}” bukan path di node toko.`)
+    return unreachable(`“${path}” is not a path on the store node.`)
   }
   const headers: Record<string, string> = {
     Accept: "application/json",
@@ -141,7 +149,7 @@ export async function webEdge<T>(
     })
   } catch (error) {
     return unreachable(
-      `Node toko tidak menjawab (${error instanceof Error ? error.message : String(error)}).`,
+      `The store node did not answer (${error instanceof Error ? error.message : String(error)}).`,
     )
   }
 
@@ -165,7 +173,7 @@ export async function webEdge<T>(
     problem =
       words ??
       (text.trim() === ""
-        ? `Node toko menolak dengan ${response.status} tanpa keterangan.`
+        ? `The store node refused with ${response.status} and no explanation.`
         : text)
   }
   return { ok, status: response.status, body: parsed as T, problem }

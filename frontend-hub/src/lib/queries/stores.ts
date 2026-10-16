@@ -1,3 +1,5 @@
+import { queryOptions } from "@tanstack/react-query"
+
 import { node } from "@/lib/api"
 import type {
   OpenedStore,
@@ -55,6 +57,10 @@ export type {
 /// these only once it has actually been read off the field it names.
 export type StoreStatus = "GETTING_READY" | "OPEN" | "CLOSED"
 
+/// What each word is called on screen lives in `screens/stores/shared.tsx`:
+/// `SYNCING` is "Getting data" and `ONLINE` is "Ready". `WAITING_FOR_APPROVAL`
+/// no longer happens in the normal flow — a claimed code is approved by itself
+/// — and stays only as a fallback.
 export type ServerState =
   | "NOT_INSTALLED"
   | "WAITING_TO_INSTALL"
@@ -62,6 +68,50 @@ export type ServerState =
   | "SYNCING"
   | "ONLINE"
   | "OFFLINE"
+
+/// What the store's server adds to `StoreServer` once it has connected
+/// (`machine`, `connected_at`, `first_data`, `app_address`, `app_qr_svg`).
+/// Declared here by hand, all optional, so the screens read them through
+/// `serverExtras` and degrade to nothing while the generated contract has not
+/// caught up — the day it has, this is the same shape and can be dropped.
+export interface ServerMachine {
+  readonly hostname: string
+  readonly os: string
+  readonly version: string
+}
+
+/// One stream of the first data a new server pulls — articles, price books,
+/// staff, payment methods, promotions.
+export interface FirstDataStream {
+  readonly key: string
+  readonly label: string
+  readonly done: boolean
+  readonly count: number | null
+}
+
+/// Present while the server is `SYNCING`.
+export interface FirstData {
+  readonly done: number
+  readonly total: number
+  readonly streams: readonly FirstDataStream[]
+}
+
+export interface ServerExtras {
+  readonly machine: ServerMachine | null
+  /// ISO.
+  readonly connected_at: string | null
+  readonly first_data: FirstData | null
+  /// Where the store app is served on the shop's network.
+  readonly app_address: string | null
+  /// An inline `<svg>` QR of `app_address`; draw it with `svgDataUri`.
+  readonly app_qr_svg: string | null
+}
+
+export function serverExtras(
+  server: StoreServer
+): StoreServer & Partial<ServerExtras> {
+  return server as StoreServer & Partial<ServerExtras>
+}
 
 /// A server state that is on its way somewhere else, rather than at rest.
 /// What the Server tab polls every 5 seconds for, and nothing else does.
@@ -87,6 +137,17 @@ export const storesKeys = {
 export function listStores(signal?: AbortSignal): Promise<StoreList> {
   return node.get<StoreList>("/api/v1/stores", { signal })
 }
+
+/// Every store, as the Stores list reads it and the prefetcher asks for it
+/// (`screens/stores/prefetch.ts`). A server's heartbeat and a till's last-seen
+/// move by the second; a shop watched from this list should not look five
+/// minutes stale.
+export const storesListQuery = () =>
+  queryOptions({
+    queryKey: storesKeys.list(),
+    queryFn: ({ signal }) => listStores(signal),
+    refetchInterval: 30_000,
+  })
 
 export function storeDetail(
   unit: string,
@@ -131,15 +192,54 @@ export function setTillSeats(
   )
 }
 
-/// Issue an install code and QR for this store's server. A store that already
-/// has one outstanding gets a new one — the new code cancels the old, same as
-/// `issueEnrolment` on System › Nodes. Answers 201; `response.ok` covers that
+/// Issue an install code for this store's server — good for one hour, once. A
+/// store that already has one outstanding gets a new one — the new code
+/// cancels the old, same as `issueEnrolment` on System › Nodes. Answers 201; `response.ok` covers that
 /// the same as 200, so nothing here has to name the status.
 export function installStoreServer(unit: string): Promise<StoreServerInstall> {
   return node.post<StoreServerInstall>(
     `/api/v1/stores/${encodeURIComponent(unit)}/server/install`,
     {}
   )
+}
+
+/// Disconnect the machine that is serving this store: the server stops
+/// receiving the store's data and a fresh install code is issued for the right
+/// machine. Admin only; answers like `installStoreServer`.
+export function disconnectStoreServer(
+  unit: string
+): Promise<StoreServerInstall> {
+  return node.post<StoreServerInstall>(
+    `/api/v1/stores/${encodeURIComponent(unit)}/server/disconnect`,
+    {}
+  )
+}
+
+/// Install codes issued in this browser tab, by unit id. A code is shown once
+/// and no read of the store returns it again, so the page that issued it
+/// hands it to the Server tab through here — the "Add store" sheet issues one
+/// right after the store is made, and the store page then shows it at once.
+/// Held in memory only and never persisted: a reload loses it, which is the
+/// rule for a write-once secret.
+const heldInstalls = new Map<string, StoreServerInstall>()
+
+export function holdInstall(unit: string, install: StoreServerInstall): void {
+  heldInstalls.set(unit, install)
+}
+
+/// The held code, unless it has run out (a code lives for an hour).
+export function heldInstallOf(unit: string): StoreServerInstall | null {
+  const held = heldInstalls.get(unit)
+  if (held === undefined) return null
+  if (Date.parse(held.expires_at) <= Date.now()) {
+    heldInstalls.delete(unit)
+    return null
+  }
+  return held
+}
+
+export function dropHeldInstall(unit: string): void {
+  heldInstalls.delete(unit)
 }
 
 /// A `data:` URI an `<img>` can point at, built from the server's inline SVG

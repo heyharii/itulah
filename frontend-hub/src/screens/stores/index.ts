@@ -1,12 +1,21 @@
-import type { ScreenMap } from "@/screens/registry"
-import { StoreDetail } from "@/screens/stores/detail"
-import { StoreExceptions } from "@/screens/stores/exceptions"
-import { StoresList } from "@/screens/stores/list"
+import { lazyScreen, type ScreenMap } from "@/screens/registry"
 
 /// Screens this module has written. Keys must be paths declared in
 /// `nav.ts`; anything not listed here renders `Placeholder`.
 export const screens: ScreenMap = {
-  "/stores": StoresList,
-  "/stores/exceptions": StoreExceptions,
-  "/stores/$unit": StoreDetail,
+  "/stores": lazyScreen(
+    "stores/list",
+    () => import("@/screens/stores/list"),
+    (m) => m.StoresList
+  ),
+  "/stores/exceptions": lazyScreen(
+    "stores/exceptions",
+    () => import("@/screens/stores/exceptions"),
+    (m) => m.StoreExceptions
+  ),
+  "/stores/$unit": lazyScreen(
+    "stores/detail",
+    () => import("@/screens/stores/detail"),
+    (m) => m.StoreDetail
+  ),
 }

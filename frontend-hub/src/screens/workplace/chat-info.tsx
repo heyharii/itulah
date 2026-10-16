@@ -248,7 +248,7 @@ function About({
 
       {group && (
         <div className="flex flex-col gap-2 border-t border-hairline pt-5">
-          <p className="text-[0.875rem] text-body">
+          <p className="text-[0.9375rem] text-body">
             Leaving takes you out of the room and its history. Somebody still in
             it can add you back.
           </p>
@@ -392,7 +392,7 @@ function Members({
               <Avatar name={member.display_name} />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  <span className="truncate text-[0.875rem] font-medium text-ink">
+                  <span className="truncate text-[0.9375rem] font-medium text-ink">
                     {self
                       ? `${member.display_name} (you)`
                       : member.display_name}
@@ -554,7 +554,7 @@ function Pinned({
                     {dayOf(message.sent_at)} {clock(message.sent_at)}
                   </span>
                 </span>
-                <span className="mt-0.5 line-clamp-3 text-[0.875rem] text-body">
+                <span className="mt-0.5 line-clamp-3 text-[0.9375rem] text-body">
                   {plainText(message.body) ||
                     (message.attachments.length > 0 ? "📎 Attachment" : "")}
                 </span>
@@ -599,7 +599,7 @@ function Files({ conversationId }: { conversationId: string }) {
                     <AppLink
                       to="/library"
                       sheet={{ key: "file", value: file.file_id }}
-                      className="block truncate text-[0.875rem] text-ink hover:text-accent"
+                      className="block truncate text-[0.9375rem] text-ink hover:text-accent"
                     >
                       {file.file_name}
                     </AppLink>

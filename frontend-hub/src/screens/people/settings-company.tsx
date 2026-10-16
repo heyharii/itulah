@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -13,12 +13,12 @@ import { PickOne } from "@/components/ui/pick"
 import { KeyValue, MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
 import { EmptyState } from "@/components/ui/states"
 import { day } from "@/lib/format"
-import { orgCompany, orgKeys, registerBpjs } from "@/lib/queries/people"
-import { queryState } from "@/lib/query-state"
+import { companyQuery, orgKeys, registerBpjs } from "@/lib/queries/people"
 import { useCanWrite } from "@/lib/session"
 import { FormSheet } from "@/screens/people/settings-parts"
 import { useSheetTarget } from "@/screens/people/settings-hooks"
 import type { CompanyView } from "@itulah/contract"
+import { awaiting } from "@/screens/people/awaiting"
 
 /// Settings › Company: who the company is, and its BPJS registration over
 /// time. Name, address and NPWP are the company's own, set in System › Setup;
@@ -26,10 +26,6 @@ import type { CompanyView } from "@itulah/contract"
 export function CompanySettings() {
   const canWrite = useCanWrite()
   const phone = useLayout() === "phone"
-  const company = useQuery({
-    queryKey: orgKeys.company(),
-    queryFn: ({ signal }) => orgCompany(signal),
-  })
   const sheet = useSheetTarget<null>()
 
   return (
@@ -47,7 +43,7 @@ export function CompanySettings() {
           )
         }
       />
-      {queryState(company, {
+      {awaiting(companyQuery(), {
         loading: "Reading the company…",
         render: (view) => {
           const current = view.bpjs[0]
@@ -73,7 +69,7 @@ export function CompanySettings() {
                   <KeyValue term="JKK risk class">
                     {current?.jkk_risk_class ?? "not stated"}
                   </KeyValue>
-                  <p className="mt-2 text-[0.875rem] text-mute">
+                  <p className="mt-2 text-[0.9375rem] text-mute">
                     Name, address and NPWP are the company&rsquo;s own, set in
                     System › Setup.
                   </p>
@@ -176,7 +172,7 @@ function BpjsSheet({
       canSave={from !== "" && reason.trim() !== ""}
       onSave={() => save.mutate()}
     >
-      <p className="text-[0.875rem] text-mute">
+      <p className="text-[0.9375rem] text-mute">
         State the numbers from a date. Earlier months keep the registration they
         were paid under.
       </p>

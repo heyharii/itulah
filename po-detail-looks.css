@@ -1,0 +1,244 @@
+/* PO detail looks: the same sheet layout on whiter surfaces.
+   po-list-refined.html sets html[data-look] from ?look= (or a message from po-detail-variants.html). */
+
+/* ---------- Every white look ---------- */
+html[data-look] #detail .record-foot .secondary{background:transparent;color:#424b59;font-weight:500}
+html[data-look] #detail .record-status,html[data-look] #detail .record-status[data-status="active"]{background:#ecf7f0;color:#1d7240;font-weight:500;border-radius:6px;padding:2px 9px}
+html[data-look] #detail .record-status[data-status="cancelled"]{background:#f3f4f6;color:#596371}
+html[data-look] #detail .ledger-divider{background:#eceef1}
+html[data-look] #detail .ledger-return,html[data-look] #detail .ledger-expectation{border-top-color:#f0f1f4}
+@media(hover:hover) and (pointer:fine){html[data-look] #detail .record-foot .secondary:hover{background:#f6f7f9;filter:none}}
+
+/* ---------- A · Hairline: today's frames, no grey fills ---------- */
+html[data-look="hairline"] #detail::backdrop{background:rgb(20 24 31 / 9%);backdrop-filter:blur(2px)}
+html[data-look="hairline"] #detail.record-sheet{border-color:#e9ebef;box-shadow:0 1px 3px rgb(27 39 60 / 4%),0 16px 44px rgb(27 39 60 / 9%)}
+html[data-look="hairline"] #detail .header-receipts{border-color:#eceef1}
+html[data-look="hairline"] #detail .header-receipts>div+div{border-left-color:#eceef1}
+html[data-look="hairline"] #detail .record-table-wrap{border-color:#eceef1}
+html[data-look="hairline"] #detail .record-table th{background:#fff;border-bottom-color:#eceef1}
+html[data-look="hairline"] #detail .record-table td{border-bottom-color:#f2f3f5}
+html[data-look="hairline"] #detail .record-table .detail-item-thumb{background:#fff;border-color:#eceef1}
+@media screen and (max-width:760px){
+ html[data-look="hairline"] #detail .record-table tbody tr{border-color:#eceef1}
+ html[data-look="hairline"] #detail .record-table .item-name{border-bottom-color:#f2f3f5}
+}
+
+/* ---------- B · Paper: no boxes, ruled rows only ---------- */
+html[data-look="paper"] #detail::backdrop{background:rgb(255 255 255 / 62%);backdrop-filter:blur(6px)}
+html[data-look="paper"] #detail.record-sheet{border-color:#e8eaee;box-shadow:0 1px 2px rgb(27 39 60 / 4%),0 20px 52px rgb(27 39 60 / 10%)}
+html[data-look="paper"] #detail .header-receipts{border:0;padding:0;gap:28px;background:none}
+html[data-look="paper"] #detail .header-receipts>div{padding:0;min-width:0}
+html[data-look="paper"] #detail .header-receipts>div+div{border-left:0}
+html[data-look="paper"] #detail .record-table .detail-item-thumb{background:#f6f7f9;border:0}
+@media screen and (min-width:761px){
+ html[data-look="paper"] #detail .record-table-wrap{border:0;border-radius:0}
+ html[data-look="paper"] #detail .record-table th{background:#fff;border-bottom:1px solid #e9ebef}
+ html[data-look="paper"] #detail .record-table td{border-bottom:1px solid #f1f2f4}
+ html[data-look="paper"] #detail .record-table tr:last-child td{border-bottom:1px solid #e9ebef}
+ html[data-look="paper"] #detail .record-table th:first-child,html[data-look="paper"] #detail .record-table td:first-child{padding-left:0}
+ html[data-look="paper"] #detail .record-table th:last-child,html[data-look="paper"] #detail .record-table td:last-child{padding-right:0}
+}
+@media screen and (max-width:760px){
+ html[data-look="paper"] #detail .header-receipts>div{width:50%}
+ html[data-look="paper"] #detail .header-receipts>div+div{border-left:1px solid #eceef1;padding-left:16px}
+ html[data-look="paper"] #detail .record-table tbody{gap:0}
+ html[data-look="paper"] #detail .record-table tbody tr{border:0;border-radius:0;padding:16px 0;border-bottom:1px solid #f0f1f4}
+ html[data-look="paper"] #detail .record-table tbody tr+tr{padding-top:16px}
+ html[data-look="paper"] #detail .record-table .item-name,html[data-look="paper"] #detail .record-table tbody tr+tr td.item-name{border-bottom:0;padding-bottom:2px}
+}
+
+/* ---------- C · Air: no row lines, more room ---------- */
+html[data-look="air"] #detail::backdrop{background:rgb(255 255 255 / 72%);backdrop-filter:blur(8px)}
+html[data-look="air"] #detail.record-sheet{border-color:#eceef1;box-shadow:0 2px 6px rgb(27 39 60 / 3%),0 28px 70px rgb(27 39 60 / 10%)}
+html[data-look="air"] #detail .header-receipts{border:0;padding:0;gap:32px;background:none}
+html[data-look="air"] #detail .header-receipts>div{padding:0;min-width:0}
+html[data-look="air"] #detail .header-receipts>div+div{border-left:0}
+html[data-look="air"] #detail .record-table .detail-item-thumb{background:#fff;border-color:#edf0f3}
+@media screen and (min-width:651px){
+ html[data-look="air"] #detail .record-head{padding:28px 36px 22px}
+ html[data-look="air"] #detail .record-body{padding:8px 36px 36px;gap:28px}
+ html[data-look="air"] #detail .record-foot{padding:12px 36px 20px}
+}
+@media screen and (min-width:761px){
+ html[data-look="air"] #detail .record-table-wrap{border:0;border-radius:0}
+ html[data-look="air"] #detail .record-table th{background:#fff;border-bottom:1px solid #eceef1}
+ html[data-look="air"] #detail .record-table td{border-bottom:0;height:76px;padding-top:16px;padding-bottom:16px}
+ html[data-look="air"] #detail .record-table tbody tr:first-child td{padding-top:20px}
+ html[data-look="air"] #detail .record-table th:first-child,html[data-look="air"] #detail .record-table td:first-child{padding-left:0}
+ html[data-look="air"] #detail .record-table th:last-child,html[data-look="air"] #detail .record-table td:last-child{padding-right:0}
+}
+@media screen and (max-width:760px){
+ html[data-look="air"] #detail .header-receipts>div{width:50%}
+ html[data-look="air"] #detail .header-receipts>div+div{padding-left:16px}
+ html[data-look="air"] #detail .record-table tbody{gap:8px}
+ html[data-look="air"] #detail .record-table tbody tr{border:0;border-radius:0;padding:12px 0}
+ html[data-look="air"] #detail .record-table .item-name,html[data-look="air"] #detail .record-table tbody tr+tr td.item-name{border-bottom:0;padding-bottom:2px}
+}
+
+/* ---------- D · All white: white page behind, Apple ink, inset rules ---------- */
+html[data-look="white"] #detail::backdrop{background:rgb(255 255 255 / 92%);backdrop-filter:none}
+html[data-look="white"] #detail.record-sheet{border:0;color:#1d1d1f;box-shadow:0 0 0 1px rgb(0 0 0 / 4%),0 2px 8px rgb(0 0 0 / 4%),0 24px 72px rgb(0 0 0 / 9%)}
+html[data-look="white"] #detail .record-head h2,html[data-look="white"] #detail .record-table .item-name,html[data-look="white"] #detail .ledger-accepted{color:#1d1d1f}
+html[data-look="white"] #detail .record-eyebrow,html[data-look="white"] #detail .detail-delivery,html[data-look="white"] #detail .header-receipts dt,html[data-look="white"] #detail .header-receipts small,html[data-look="white"] #detail .record-table th,html[data-look="white"] #detail .record-table .item-meta,html[data-look="white"] #detail .record-table .muted-quantity,html[data-look="white"] #detail .ledger-quantity,html[data-look="white"] #detail .ledger-muted,html[data-look="white"] #detail .detail-payment dt,html[data-look="white"] #detail .payment-notes,html[data-look="white"] #detail .ledger-expectation,html[data-look="white"] #detail .ledger-return-status{color:#6e6e73}
+html[data-look="white"] #detail .detail-delivery strong,html[data-look="white"] #detail .header-receipts dd,html[data-look="white"] #detail .record-table td,html[data-look="white"] #detail .record-table .money,html[data-look="white"] #detail .ledger-money,html[data-look="white"] #detail .detail-payment dd,html[data-look="white"] #detail .payment-notes p,html[data-look="white"] #detail .receipt-ledger{color:#1d1d1f}
+html[data-look="white"] #detail .detail-delivery strong.late{color:#d70015}
+html[data-look="white"] #detail .record-status,html[data-look="white"] #detail .record-status[data-status="active"]{background:none;padding:0;color:#248a3d}
+html[data-look="white"] #detail .record-status[data-status="cancelled"]{color:#6e6e73}
+html[data-look="white"] #detail .header-receipts{border:0;padding:0;gap:28px;background:none}
+html[data-look="white"] #detail .header-receipts>div{padding:0;min-width:0}
+html[data-look="white"] #detail .header-receipts>div+div{border-left:0}
+html[data-look="white"] #detail .record-table .detail-item-thumb{background:#f5f5f7;border:0}
+html[data-look="white"] #detail .ledger-divider{background:#e8e8ed}
+html[data-look="white"] #detail .record-foot .quiet,html[data-look="white"] #detail .record-foot .secondary{color:var(--button-blue);font-weight:500}
+@media screen and (min-width:761px){
+ html[data-look="white"] #detail .record-table-wrap{border:0;border-radius:0}
+ html[data-look="white"] #detail .record-table th{background:#fff;border-bottom:1px solid #e8e8ed}
+ html[data-look="white"] #detail .record-table td{border-bottom:1px solid #ededf0}
+ /* iOS-style separators start at the item name, not under the photo. */
+ html[data-look="white"] #detail .record-table td:first-child{border-bottom:0;background:linear-gradient(#ededf0,#ededf0) no-repeat 52px 100%/calc(100% - 52px) 1px}
+ html[data-look="white"] #detail .record-table tr:last-child td{border-bottom:0}
+ html[data-look="white"] #detail .record-table tr:last-child td:first-child{background:none}
+ html[data-look="white"] #detail .record-table th:first-child,html[data-look="white"] #detail .record-table td:first-child{padding-left:0}
+ html[data-look="white"] #detail .record-table th:last-child,html[data-look="white"] #detail .record-table td:last-child{padding-right:0}
+}
+@media screen and (max-width:760px){
+ html[data-look="white"] #detail .header-receipts>div{width:50%}
+ html[data-look="white"] #detail .header-receipts>div+div{border-left:1px solid #e8e8ed;padding-left:16px}
+ html[data-look="white"] #detail .record-table tbody{gap:0}
+ html[data-look="white"] #detail .record-table tbody tr{border:0;border-radius:0;padding:16px 0 16px 52px;position:relative}
+ html[data-look="white"] #detail .record-table tbody tr+tr{padding-top:16px}
+ html[data-look="white"] #detail .record-table tbody tr+tr:before{content:'';position:absolute;top:0;left:52px;right:0;height:1px;background:#ededf0}
+ html[data-look="white"] #detail .record-table td.item-name,html[data-look="white"] #detail .record-table tbody tr+tr td.item-name{margin-left:-52px;border-bottom:0;padding-bottom:2px}
+}
+
+/* ---------- D · All white on the PO list: same layout, white ground, Apple ink, no boxes ---------- */
+html[data-look="white"] body,html[data-look="white"] .shell,html[data-look="white"][data-navigation-hidden="true"] .shell{background:#fff}
+html[data-look="white"] .page,html[data-look="white"][data-navigation-hidden="true"] .page{margin:0;border:0;border-radius:0;color:#1d1d1f}
+html[data-look="white"] .page-head h1{color:#1d1d1f}
+/* KPIs sit together as one row of figures with hairline dividers, not spread across the page. */
+html[data-look="white"] .metrics{display:flex;flex-wrap:wrap;gap:0;margin:22px 0 20px}
+html[data-look="white"] .metric{position:relative;flex:none;border:0;box-shadow:none;background:none;border-radius:10px;padding:6px 32px;min-height:0}
+html[data-look="white"] .metric:first-child{padding-left:0}
+html[data-look="white"] .metric+.metric:before{content:'';position:absolute;left:0;top:10px;bottom:10px;width:1px;background:#e8e8ed}
+html[data-look="white"] .metric-label{color:#6e6e73}
+html[data-look="white"] .metric-value{color:#1d1d1f}
+html[data-look="white"] .metric.overdue .metric-value{color:#d70015}
+html[data-look="white"] .metric[aria-pressed=true]{background:#fff2f4}
+html[data-look="white"] .tabs{border-bottom-color:#e8e8ed}
+html[data-look="white"] .tab{color:#6e6e73}
+html[data-look="white"] .tab[aria-selected=true]{color:#1d1d1f}
+html[data-look="white"] .tab[aria-selected=true]:after{background:#1d1d1f}
+html[data-look="white"] .tab span{color:#6e6e73}
+html[data-look="white"] .search{background:#fff;border-color:#e5e5ea;color:#6e6e73}
+html[data-look="white"] .search input::placeholder{color:#8e8e93}
+html[data-look="white"] .toolbar .secondary{background:transparent;color:#1d1d1f;padding:0 10px}
+html[data-look="white"] .toolbar .quiet,html[data-look="white"] .stamp{color:#1d1d1f}
+html[data-look="white"] .toolbar svg,html[data-look="white"] .stamp,html[data-look="white"] .icon-button{color:#6e6e73}
+html[data-look="white"] .filter-panel{background:#fff;border:1px solid #e8e8ed}
+html[data-look="white"] .table-wrap{border:0;border-radius:0;box-shadow:none}
+html[data-look="white"] .table-wrap thead th{background:#fff;color:#6e6e73;border-bottom:1px solid #e8e8ed}
+html[data-look="white"] .table-wrap tbody td{border-bottom:1px solid #ededf0;color:#1d1d1f}
+html[data-look="white"] .table-wrap tbody tr:last-child td{border-bottom:0}
+html[data-look="white"] .table-wrap th:first-child,html[data-look="white"] .table-wrap td:first-child{padding-left:0}
+html[data-look="white"] .table-wrap th:last-child,html[data-look="white"] .table-wrap td:last-child{padding-right:0}
+html[data-look="white"] .table-wrap .supplier-button,html[data-look="white"] .table-wrap .ordered,html[data-look="white"] .table-wrap .value{color:#1d1d1f}
+html[data-look="white"] .table-wrap .sub,html[data-look="white"] .table-wrap .received,html[data-look="white"] .table-wrap .received span{color:#6e6e73}
+html[data-look="white"] .table-wrap .late,html[data-look="white"] .table-wrap .late .sub{color:#d70015}
+html[data-look="white"] .table-wrap .status.active,html[data-look="white"] .table-wrap .status.complete,html[data-look="white"] .table-wrap .status.receiving{color:#248a3d}
+html[data-look="white"] .table-wrap .status{color:#6e6e73}
+html[data-look="white"] .table-wrap tfoot td{background:#fff;border-top:1px solid #e8e8ed;color:#6e6e73}
+html[data-look="white"] .table-wrap tfoot strong{color:#1d1d1f}
+html[data-look="white"] .preview-note{color:#6e6e73}
+/* Only the PO name opens the record, so the row itself stays still on hover. */
+@media(hover:hover) and (pointer:fine){html[data-look="white"] .table-wrap tbody tr:hover{background:transparent}html[data-look="white"] .metric.overdue:hover{background:#fff6f7;filter:none}html[data-look="white"] .toolbar .secondary:hover{background:#f5f5f7;filter:none}}
+@media(max-width:600px){html[data-look="white"] .metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 0}html[data-look="white"] .metric,html[data-look="white"] .metric:first-child{padding:4px 0 4px 16px}html[data-look="white"] .metric:nth-child(odd){padding-left:0}html[data-look="white"] .metric+.metric:before{display:none}html[data-look="white"] .metric:nth-child(even):before{display:block;content:'';position:absolute;left:0;top:8px;bottom:8px;width:1px;background:#e8e8ed}}
+
+/* ---------- E · Air + White: D's white surface with C's room and no row lines ----------
+   Set as data-look="white" plus data-space="air". */
+html[data-look="white"][data-space="air"] #detail .record-foot .quiet,html[data-look="white"][data-space="air"] #detail .record-foot .secondary{color:#1d1d1f}
+html[data-look="white"][data-space="air"] #detail .record-table .detail-item-thumb{background:#f5f5f7}
+@media screen and (min-width:651px){
+ html[data-look="white"][data-space="air"] #detail .record-head{padding:28px 36px 22px}
+ html[data-look="white"][data-space="air"] #detail .record-body{padding:8px 36px 36px;gap:28px}
+ html[data-look="white"][data-space="air"] #detail .record-foot{padding:12px 36px 20px}
+}
+@media screen and (min-width:761px){
+ html[data-look="white"][data-space="air"] #detail .record-table td,html[data-look="white"][data-space="air"] #detail .record-table td:first-child{border-bottom:0;background:none;height:76px;padding-top:16px;padding-bottom:16px}
+ html[data-look="white"][data-space="air"] #detail .record-table tbody tr:first-child td{padding-top:20px}
+}
+@media screen and (max-width:760px){
+ html[data-look="white"][data-space="air"] #detail .record-table tbody{gap:8px}
+ html[data-look="white"][data-space="air"] #detail .record-table tbody tr+tr:before{display:none}
+}
+
+/* ---------- Floating chrome (po-detail-variants.html) ----------
+   frame=float: no preview bar inside the page, so the sheet runs to the top of the screen. */
+html[data-frame="float"] .preview-controls{display:none}
+html[data-frame="float"] .shell{min-height:100vh}
+@media screen and (min-width:1101px){html[data-frame="float"] .record-sheet{inset:12px 12px 12px auto;height:calc(100dvh - 24px)}}
+
+/* ---------- F · White, wrapped: D's white, the table held in one hairline frame ----------
+   Set as data-look="white" plus data-wrap. Owner, 14 Oct: "all white tapi tablenya di bungkus". */
+@media screen and (min-width:761px){
+ html[data-look="white"][data-wrap] #detail .record-table-wrap{border:1px solid #e5e5ea;border-radius:12px;overflow:hidden}
+ html[data-look="white"][data-wrap] #detail .record-table th:first-child,html[data-look="white"][data-wrap] #detail .record-table td:first-child{padding-left:16px}
+ html[data-look="white"][data-wrap] #detail .record-table th:last-child,html[data-look="white"][data-wrap] #detail .record-table td:last-child{padding-right:16px}
+ /* the inset rule still starts at the item's name: 16px in, then the 40px photo and its 12px gap */
+ html[data-look="white"][data-wrap] #detail .record-table td:first-child{background:linear-gradient(#ededf0,#ededf0) no-repeat 68px 100%/calc(100% - 68px) 1px}
+ html[data-look="white"][data-wrap] #detail .record-table tr:last-child td:first-child{background:none}
+}
+@media screen and (max-width:760px){
+ html[data-look="white"][data-wrap] #detail .record-table-wrap{border:1px solid #e5e5ea;border-radius:14px;overflow:hidden}
+ html[data-look="white"][data-wrap] #detail .record-table tbody tr{padding:14px 14px 14px 66px}
+ html[data-look="white"][data-wrap] #detail .record-table tbody tr+tr{padding-top:14px}
+ html[data-look="white"][data-wrap] #detail .record-table tbody tr+tr:before{left:66px}
+}
+/* the PO list: the same frame round its table, the cells back off the edge */
+html[data-look="white"][data-wrap] .table-wrap{border:1px solid #e5e5ea;border-radius:14px;overflow:hidden}
+html[data-look="white"][data-wrap] .table-wrap th:first-child,html[data-look="white"][data-wrap] .table-wrap td:first-child{padding-left:16px}
+html[data-look="white"][data-wrap] .table-wrap th:last-child,html[data-look="white"][data-wrap] .table-wrap td:last-child{padding-right:16px}
+
+/* ---------- G / H / I: the wrapped table made to stand out (owner, 14 Oct: "fokus ke tablenya dikuatkan … shadow?") ----------
+   data-wrap="shadow" | "band" | "lift" on top of F. */
+/* G · the frame and a soft shadow under it */
+html[data-look="white"]:is([data-wrap="shadow"],[data-wrap="band"],[data-wrap="polish"]) :is(#detail .record-table-wrap, .table-wrap){box-shadow:0 1px 2px rgb(0 0 0 / 4%),0 4px 16px rgb(0 0 0 / 6%)}
+/* H · the same, and the column names on a light grey band, in ink */
+html[data-look="white"]:is([data-wrap="band"],[data-wrap="polish"]) #detail .record-table th,html[data-look="white"]:is([data-wrap="band"],[data-wrap="polish"]) .table-wrap thead th{background:#f5f5f7;color:#1d1d1f;font-weight:600;border-bottom:1px solid #e5e5ea}
+html[data-look="white"]:is([data-wrap="band"],[data-wrap="polish"]) .table-wrap tfoot td{background:#f5f5f7}
+/* I · no line at all: the table lifted off the page by its shadow alone */
+html[data-look="white"][data-wrap="lift"] :is(#detail .record-table-wrap, .table-wrap){border-color:transparent;box-shadow:0 0 0 1px rgb(0 0 0 / 4%),0 2px 6px rgb(0 0 0 / 5%),0 14px 36px rgb(0 0 0 / 9%)}
+
+/* ---------- J · H, polished (owner, 14 Oct: "any adjustment more? focus in dialog table … terlalu kuat ga shadownya?") ---------- */
+/* in a sheet that already floats, the table only needs a contact edge, not a second elevation */
+html[data-look="white"][data-wrap="polish"] #detail .record-table-wrap{box-shadow:0 1px 2px rgb(0 0 0 / 5%)}
+/* the column names stay on screen while ten lines scroll under them; clip, not hidden, so sticky still works */
+@media screen and (min-width:761px){
+ html[data-look="white"][data-wrap="polish"] #detail .record-table-wrap{overflow:clip}
+ /* -20px: the sheet body's own top padding, so the names stick flush under the head with no strip of rows above them */
+ html[data-look="white"][data-wrap="polish"] #detail .record-table thead th{position:sticky;top:-20px;z-index:2}
+ /* the totals' figures stand under the Amount column, not 17px right of it */
+ html[data-look="white"][data-wrap="polish"] #detail .detail-ledger-row .receipt-ledger{padding-right:17px}
+}
+/* column names a step quieter than the goods they head */
+html[data-look="white"][data-wrap="polish"] #detail .record-table th{color:#3a3a3c}
+/* the unit and the currency repeat on every line: grey, so the eye reads the figures */
+html[data-look="white"][data-wrap="polish"] #detail .record-table :is(.unit,.cur){color:#6e6e73}
+
+/* ---------- Page · Sheet on stone (owner, 14 Oct: "model list purchase order seperti sheet … sidebarnya stone") ----------
+   data-page="sheet": the PO list as a floating white sheet, 12px off the window and ringed like the detail sheet,
+   on one stone shell with the sidebar showing. The page's table is the main thing on it: its column names stay quiet. */
+html[data-page="sheet"][data-frame] .shell{min-height:100vh}
+html[data-page="sheet"] .shell{background:var(--nav-bg)}
+html[data-page="sheet"] .page,html[data-page="sheet"][data-navigation-hidden] .page{margin:12px 12px 12px 0;min-height:calc(100vh - 24px);border:0;border-radius:16px;background:#fff;box-shadow:0 0 0 1px rgb(0 0 0 / 5%),0 2px 8px rgb(0 0 0 / 4%),0 24px 72px rgb(0 0 0 / 10%)}
+html[data-page="sheet"] .content{padding:28px 36px 28px}
+/* the menu: stone ink, a smaller word, the chosen row white on the stone */
+html[data-page="sheet"] .sidebar h2{font-size:15px}
+html[data-page="sheet"] .nav-item{font-size:14px;padding:8px 12px}
+html[data-page="sheet"] .nav-item small{font-size:14px}
+html[data-page="sheet"] .nav-item.active{color:#1d1d1f;font-weight:550;box-shadow:0 1px 2px rgb(0 0 0 / 7%)}
+/* the table: held in one frame, a contact shadow only; the header does not compete with the rows */
+html[data-page="sheet"] .table-wrap{border:1px solid #e5e5ea;border-radius:12px;overflow:hidden;box-shadow:0 1px 2px rgb(0 0 0 / 5%)}
+html[data-page="sheet"] .table-wrap thead th{background:#fff;color:#6e6e73;font-weight:500;border-bottom:1px solid #eceef1}
+html[data-page="sheet"] .table-wrap tfoot td{background:#fff;border-top:1px solid #eceef1}
+html[data-page="sheet"] .table-wrap th:first-child,html[data-page="sheet"] .table-wrap td:first-child{padding-left:16px}
+html[data-page="sheet"] .table-wrap th:last-child,html[data-page="sheet"] .table-wrap td:last-child{padding-right:16px}

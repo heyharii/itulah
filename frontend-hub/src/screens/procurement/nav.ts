@@ -103,6 +103,9 @@ export const procurementNav: AppModule = {
           path: "/procurement/sourcing",
           label: "Sourcing",
           icon: PackageSearch,
+          // Hidden on the owner's instruction (2026-10-11), for now. The
+          // route stays.
+          hidden: true,
         },
         {
           // Fourth primary row, owner's menu of 2026-09-28: goods a supplier

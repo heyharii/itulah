@@ -1,11 +1,8 @@
-import { useQuery } from "@tanstack/react-query"
 import { Link, useRouter, useRouterState } from "@tanstack/react-router"
 import {
-  Bell,
   Ellipsis,
   House,
   LayoutGrid,
-  MessageSquare,
   type LucideIcon,
 } from "lucide-react"
 import {
@@ -21,23 +18,20 @@ import { useDock, useDockRow } from "@/components/shell/dock"
 import type { AppTile } from "@/lib/apps"
 import { primaryItems, type AppModule, type NavItem } from "@/lib/navigation"
 
-import {
-  fallbackInterval,
-  useNotificationStream,
-} from "@/lib/notification-stream"
-import { listNotifications, systemKeys } from "@/lib/queries/system"
-import { usePushReconcile } from "@/lib/use-push-reconcile"
 import { cn } from "@/lib/utils"
-import { useChatUnread } from "@/screens/workplace/chat-unread"
 
-/// The phone's navigation: four tabs at the thumb's edge.
+/// The phone's navigation: tabs at the thumb's edge.
 ///
 /// Under 48rem the rail and the sidebar were one drawer behind a hamburger in
 /// the top-left corner — the one place on a phone a thumb does not reach —
 /// and the chat, discussions and bell were three icons squeezed into the top
 /// bar beside it. The owner's shape (2026-09-25), a super-app's: Apps (the
 /// launcher, `/apps`), Messages (chat and discussions), Notifications, and
-/// Profile. From 48rem up nothing here is drawn; the rail is the navigation.
+/// Profile. Messages, Notifications and Profile are the account orb's since
+/// 2026-10-16 (`account-orb.tsx`, the same on every device), which rests just
+/// above this bar; the bar keeps the navigation — Home, and inside a
+/// department its screens. From 48rem up nothing here is drawn; the rail is
+/// the navigation.
 ///
 /// No motion on a tab change. Tabs are pressed dozens of times a session, and
 /// motion there reads as lag by the tenth (Emil Kowalski's frequency rule):
@@ -52,21 +46,7 @@ const TABS = [
     // screen were Home.
     owns: (path: string) => within(path, "/apps"),
   },
-  {
-    to: "/chat",
-    label: "Chat",
-    icon: MessageSquare,
-    owns: (path: string) => MESSAGES.some((one) => within(path, one)),
-  },
-  {
-    to: "/system/notifications",
-    label: "Activity",
-    icon: Bell,
-    owns: (path: string) => within(path, "/system/notifications"),
-  },
 ] as const
-
-const MESSAGES = ["/chat", "/discussions"]
 
 function within(path: string, base: string): boolean {
   return path === base || path.startsWith(`${base}/`)
@@ -75,23 +55,6 @@ function within(path: string, base: string): boolean {
 export function BottomBar() {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const typing = useTyping()
-
-  // The bell's own query and key: one cache entry behind the badge here, the
-  // launcher's "unread" line and the Notifications screen. Kept live by the
-  // notification stream, as the bell is on a desk (`notification-bell.tsx`).
-  const stream = useNotificationStream()
-  usePushReconcile()
-  const feed = useQuery({
-    queryKey: [...systemKeys.notifications(), "bell", 8] as const,
-    queryFn: ({ signal }) => listNotifications(8, signal),
-    staleTime: 30_000,
-    refetchOnWindowFocus: true,
-    refetchInterval: fallbackInterval(stream.state),
-  })
-  const unread = feed.data?.unread ?? 0
-  // Messages waiting in Chat, on the Messages tab — the same count the Chat
-  // icon carries on a desk.
-  const chatUnread = useChatUnread()
 
   const dock = useDock()
   const attach = dock?.attach
@@ -120,6 +83,8 @@ export function BottomBar() {
       // the drawer is itself the search field, when it stays and is lifted
       // clear of the keyboard.
       inert={typing && !searching ? true : undefined}
+      // The account orb's floor: it rests above this stack, dock and all.
+      data-shell-bar="bottom"
       style={searching && lift > 0 ? { bottom: lift } : undefined}
       className={cn(
         "fixed inset-x-0 bottom-0 z-30 transition-opacity duration-150 ease-(--ease-out) motion-reduce:transition-none md:hidden",
@@ -150,30 +115,32 @@ export function BottomBar() {
             pathname={pathname}
           />
         ) : (
-          <ul className="grid h-[3.25rem] grid-cols-4">
+          // Chat and Activity were tabs here, each with its dot; they are
+          // tiles of the account orb now, whose one badge counts both (owner,
+          // 2026-10-16: `account-orb.tsx`). The House button beside Home went
+          // with them — both led to the launcher, and with nothing between
+          // them the bar read "Home Home".
+          <ul className="grid h-[3.25rem] grid-cols-1">
             {TABS.map((tab) => {
               const on = tab.owns(pathname)
-              // A dot, never a number (owner, 2026-10-05): the count lives on
-              // the screen it opens.
-              const dot =
-                (tab.to === "/system/notifications" && unread > 0) ||
-                (tab.to === "/chat" && chatUnread !== null && chatUnread > 0)
               return (
                 <li key={tab.to}>
                   <Link
                     to={tab.to as string}
                     aria-current={on ? "page" : undefined}
-                    aria-label={dot ? `${tab.label}, something new` : tab.label}
+                    aria-label={tab.label}
                     className={tabClass(on)}
                   >
-                    <TabFace on={on} icon={tab.icon} label={tab.label} dot={dot} />
+                    <TabFace
+                      on={on}
+                      icon={tab.icon}
+                      label={tab.label}
+                      dot={false}
+                    />
                   </Link>
                 </li>
               )
             })}
-            <li>
-              <HomeButton />
-            </li>
           </ul>
         )}
       </nav>
@@ -250,7 +217,7 @@ function DockDrawer({
 
 const tabClass = (on: boolean) =>
   cn(
-    "group relative flex h-full w-full flex-col items-center justify-center gap-0.5 text-[0.875rem] leading-[1.2] font-medium tracking-[0.005em] transition-colors",
+    "group relative flex h-full w-full flex-col items-center justify-center gap-0.5 text-[0.9375rem] leading-[1.2] font-medium tracking-[0.005em] transition-colors",
     on ? "text-accent" : "text-mute"
   )
 
@@ -307,8 +274,8 @@ function TabFace({
 
 /// Inside a department the bar is the department's (owner, 2026-10-05): Home,
 /// then its screens, the one on show lit. Four screens fit beside Home; a
-/// department with more keeps three and a More that opens the full list. Home,
-/// Chat and Activity are the launcher's; Home leads to them.
+/// department with more keeps three and a More that opens the full list. Chat
+/// and Activity are the account orb's (owner, 2026-10-16).
 function DepartmentTabs({
   tile,
   pathname,
@@ -319,27 +286,39 @@ function DepartmentTabs({
   const audiences = useAudiences(tile.modules)
   const [more, setMore] = useState(false)
   const seen = new Set<string>()
-  const items = tile.modules
-    .flatMap((module, index) =>
-      primaryItems(module, audiences[index])
-        .filter((item) => !item.soon)
-        // Two modules of one department can each open on an "Overview": the
-        // second is named for its module, so no two tabs read alike.
-        .map((item) => {
-          const name = item.short ?? item.label
-          const dup = seen.has(name)
-          seen.add(name)
-          return dup ? { ...item, short: module.label } : item
-        })
-    )
+  const items = tile.modules.flatMap((module, index) =>
+    primaryItems(module, audiences[index])
+      .filter((item) => !item.soon)
+      // Two modules of one department can each open on an "Overview": the
+      // second is named for its module, so no two tabs read alike.
+      .map((item) => {
+        const name = item.short ?? item.label
+        const dup = seen.has(name)
+        seen.add(name)
+        return dup ? { ...item, short: module.label } : item
+      })
+  )
   const shown = items.length > 4 ? items.slice(0, 3) : items
-  // The longest path that holds this one wins, so a screen under another's
-  // path lights its own row only.
-  const current = items
-    .filter(
-      (item) => pathname === item.path || pathname.startsWith(`${item.path}/`)
+  // The row that IS this screen first; then a door that claims it
+  // (`alsoLights`, its tabs' other screens — HR's People door sits at the
+  // module's base, so by prefix alone it would light on every HR screen);
+  // then the longest path that holds this one, so a screen under another's
+  // path lights its own row only. The sidebar reads them the same way.
+  const claim = (item: (typeof items)[number]) =>
+    Math.max(
+      -1,
+      ...(item.alsoLights ?? [])
+        .filter((path) => within(pathname, path))
+        .map((path) => path.length)
     )
-    .sort((left, right) => right.path.length - left.path.length)[0]
+  const current =
+    items.find((item) => item.path === pathname) ??
+    items
+      .filter((item) => claim(item) >= 0)
+      .sort((left, right) => claim(right) - claim(left))[0] ??
+    items
+      .filter((item) => within(pathname, item.path))
+      .sort((left, right) => right.path.length - left.path.length)[0]
   const slots = 1 + shown.length + (items.length > 4 ? 1 : 0)
   return (
     <>
@@ -392,6 +371,10 @@ function ItemTab({ item, on }: { item: NavItem; on: boolean }) {
   return (
     <Link
       to={item.path as string}
+      // The router's own "active" is a prefix match, so a door at the
+      // module's base (HR's People, `/people`) was current on every HR
+      // screen beside the tab `on` names.
+      activeOptions={{ exact: true }}
       aria-current={on ? "page" : undefined}
       aria-label={dot ? `${item.label}, something waiting` : item.label}
       className={tabClass(on)}
@@ -455,7 +438,9 @@ function useKeyboardLift(active: boolean): number {
 /// for at all.
 function HomeButton({ fallback = "/apps" }: { fallback?: string }) {
   const router = useRouter()
-  const pathname = useRouterState({ select: (state) => state.location.pathname })
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  })
   return (
     <button
       type="button"
@@ -464,7 +449,7 @@ function HomeButton({ fallback = "/apps" }: { fallback?: string }) {
       // is greyed only on Home itself, where there is nowhere to go.
       disabled={within(pathname, fallback)}
       onClick={() => void router.navigate({ to: fallback as never })}
-      className="group relative flex h-full w-full flex-col items-center justify-center gap-0.5 text-[0.875rem] leading-[1.2] font-medium tracking-[0.005em] text-mute transition-opacity disabled:opacity-40"
+      className="group relative flex h-full w-full flex-col items-center justify-center gap-0.5 text-[0.9375rem] leading-[1.2] font-medium tracking-[0.005em] text-mute transition-opacity disabled:opacity-40"
     >
       <span className="transition-[scale] duration-(--t-press) ease-(--ease-out) group-active:scale-[0.9]">
         <House className="size-[1.375rem] stroke-[1.7]" />

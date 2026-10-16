@@ -1,0 +1,12 @@
+[
+  { "id": "intro", "text": "Ini alur **Purchase Order** di Central, dari dibuat sampai selesai." },
+  { "id": "menu", "text": "Dari menu **Procurement**, buka **Purchase Orders**, lalu tekan **New order**." },
+  { "id": "header", "text": "Pilih supplier, tanggal kirim, dan cara bayar. Satu PO untuk satu supplier dan satu tujuan." },
+  { "id": "newitem", "text": "Tambahkan barang lewat **New item**." },
+  { "id": "units", "text": "Jumlahnya boleh lusin, kodi, atau pcs. Harganya mengikuti satuan yang disepakati." },
+  { "id": "pieces", "text": "Di PO, jumlah selalu dihitung dalam pcs. 50 lusin jadi **600 pcs**, dan nilainya dibulatkan sekali." },
+  { "id": "review", "text": "Sebelum dikirim, **Review order** menampilkan semuanya sekali lagi." },
+  { "id": "submit", "text": "Tekan **Submit**, dan PO langsung aktif. Tidak ada draft, tidak ada approval. Gudang langsung bisa melihatnya." },
+  { "id": "offline", "text": "Kalau sedang offline, **Submit** tetap bisa. PO disimpan di perangkat, dan terkirim sendiri begitu koneksi kembali." },
+  { "id": "cancel", "text": "**Cancel** hanya bisa selama belum ada barang yang diterima." }
+]

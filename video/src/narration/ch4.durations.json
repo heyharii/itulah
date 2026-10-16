@@ -1,0 +1,18 @@
+{
+  "return": {
+    "seconds": 8.48975,
+    "say": "Kelebihan dan barang yang tidak sesuai pesanan masuk ke Return P O. Nilainya nol rupiah, karena P O hanya membayar barang yang cocok."
+  },
+  "sheet": {
+    "seconds": 4.676,
+    "say": "Setiap order punya Return P O sendiri, lengkap dengan alasannya."
+  },
+  "note": {
+    "seconds": 5.2505,
+    "say": "Gudang membuat surat jalan retur, lalu mencetaknya untuk ditandatangani supplier."
+  },
+  "confirm": {
+    "seconds": 5.27675,
+    "say": "Saat barang diserahkan, Gudang menekan Confirm, dan Return P O selesai."
+  }
+}

@@ -62,7 +62,7 @@ export function ArticleTabStrip({
             aria-selected={index === active}
             onClick={() => onPick(index)}
             className={cn(
-              "px-3 pt-2 pb-2.5 text-[0.875rem] font-medium whitespace-nowrap transition-colors",
+              "px-3 pt-2 pb-2.5 text-[0.9375rem] font-medium whitespace-nowrap transition-colors",
               index === active ? "text-ink" : "text-body hover:text-ink"
             )}
           >
@@ -93,7 +93,7 @@ export function ArticleTabStrip({
           type="button"
           onClick={onAdd}
           disabled={!canAdd}
-          className="mb-1 ml-auto inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-inner px-2.5 py-1.5 text-[0.875rem] font-medium text-body transition-colors enabled:hover:bg-soft-2 enabled:hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+          className="mb-1 ml-auto inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-inner px-2.5 py-1.5 text-[0.9375rem] font-medium text-body transition-colors enabled:hover:bg-soft-2 enabled:hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Plus className="size-4" />
           Split Article
@@ -141,7 +141,7 @@ export function SplitMenu({
         className="flex w-full items-center justify-between gap-4 rounded-inner px-3 py-2 text-left text-[0.9375rem] text-ink transition-colors hover:bg-soft-2 disabled:pointer-events-none disabled:opacity-50"
       >
         {label}
-        <span className="text-[0.875rem] text-mute tabular-nums">
+        <span className="text-[0.9375rem] text-mute tabular-nums">
           {made} {made === 1 ? "article" : "articles"}
         </span>
       </button>
@@ -197,7 +197,7 @@ export function SplitMenu({
                   className="h-10 text-right text-[0.9375rem] tabular-nums"
                 />
                 <div className="mt-3 flex items-center justify-between gap-3">
-                  <span className="text-[0.875rem] text-mute tabular-nums">
+                  <span className="text-[0.9375rem] text-mute tabular-nums">
                     {every > 0
                       ? `${everyCount} ${everyCount === 1 ? "article" : "articles"}`
                       : `${filled} variants`}

@@ -150,7 +150,7 @@ export function ReadLines({ lines }: { lines: readonly AllotmentLine[] }) {
                         <span className="block text-[0.9375rem] leading-5 text-ink [overflow-wrap:anywhere]">
                           {lineName(line)}
                         </span>
-                        <span className="block truncate font-mono text-[0.875rem] text-mute">
+                        <span className="block truncate font-mono text-[0.9375rem] text-mute">
                           {line.sku_code}
                         </span>
                       </div>

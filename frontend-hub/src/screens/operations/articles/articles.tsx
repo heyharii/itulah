@@ -399,7 +399,7 @@ function ArticleCard({
           <dl className="grid grid-cols-2 gap-x-4 gap-y-2.5">
             {heldIn.map((c) => (
               <div key={c.id} className="min-w-0">
-                <dt className="text-[0.875rem] leading-4 text-mute">
+                <dt className="text-[0.9375rem] leading-4 text-mute">
                   {c.label}
                 </dt>
                 <dd className="mt-0.5 text-cell text-ink tabular-nums">

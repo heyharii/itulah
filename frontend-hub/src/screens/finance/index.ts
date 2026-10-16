@@ -1,104 +1,4 @@
-import type { ScreenMap } from "@/screens/registry"
-
-import { AccountLinks } from "@/screens/finance/account-links"
-import { AssetClasses } from "@/screens/finance/asset-classes"
-import { BankClearance } from "@/screens/finance/bank-clearance"
-import { BankTransactions } from "@/screens/finance/bank-transactions"
-import { AssetRegister } from "@/screens/finance/assets"
-import { AssetDisposals } from "@/screens/finance/asset-disposals"
-import { AssetRegister as FixedAssetRegister } from "@/screens/finance/asset-register"
-import { BankReconciliationSummary } from "@/screens/finance/bank-reconciliation-summary"
-import { BankRules } from "@/screens/finance/bank-rules"
-import { ChangesInEquity } from "@/screens/finance/changes-in-equity"
-import { CreditNotes } from "@/screens/finance/credit-notes"
-import { ExpensesByMonth } from "@/screens/finance/expenses-by-month"
-import { WithholdingReport } from "@/screens/finance/withholding-report"
-import {
-  Bkk,
-  BkkDocument,
-  Bkm,
-  BkmDocument,
-} from "@/screens/finance/cash-documents"
-import { ChartOfAccounts } from "@/screens/finance/chart-of-accounts"
-import { DimensionResults } from "@/screens/finance/dimension-results"
-import { Dimensions } from "@/screens/finance/dimensions"
-import { ExpenseCategories } from "@/screens/finance/expense-categories"
-import { FinanceSettings } from "@/screens/finance/finance-settings"
-import { GiroBoard } from "@/screens/finance/giro-board"
-import { GiroPrinting } from "@/screens/finance/giro-print"
-import { JournalTemplates } from "@/screens/finance/journal-templates"
-import {
-  FinanceDashboard,
-  PaymentsDashboard,
-} from "@/screens/finance/dashboard"
-import { PayComponents } from "@/screens/finance/pay-components"
-import { PaymentMethods } from "@/screens/finance/payment-methods"
-import { PaymentProjection } from "@/screens/finance/payment-projection"
-import { RecurringBills } from "@/screens/finance/recurring-bills"
-import { Accruals } from "@/screens/finance/accruals"
-import { ContractorProjects } from "@/screens/finance/contractor-projects"
-import {
-  StoresCashierFloat,
-  StoresCashOnHand,
-  StoresOverview,
-  StoresPettyCash,
-} from "@/screens/finance/stores-cash"
-import {
-  InventoryValuationScreen,
-  StockVsLedger,
-} from "@/screens/finance/inventory"
-import {
-  CogsScreen,
-  GoodsInTransitScreen,
-  StockAdjustmentsScreen,
-} from "@/screens/finance/inventory-more"
-import { StoresCounts, StoresSales } from "@/screens/finance/stores"
-import { ShopPaymentMethods } from "@/screens/finance/shop-payment-methods"
-import { PeriodClosing } from "@/screens/finance/period-closing"
-import { Periods } from "@/screens/finance/periods"
-import { Permissions } from "@/screens/finance/permissions"
-import { PostingPolicies } from "@/screens/finance/posting-policies"
-import { PostingReadinessScreen } from "@/screens/finance/posting-readiness"
-import { SalesByDivision } from "@/screens/finance/sales-by-division"
-import { SalesSetup } from "@/screens/finance/sales-setup"
-import { SupplierBills } from "@/screens/finance/supplier-bills"
-import { SupplierLedger } from "@/screens/finance/supplier-ledger"
-import { TaxTypes, TaxWithholding } from "@/screens/finance/taxes"
-import { Advances } from "@/screens/finance-final/advances"
-import { Cash } from "@/screens/finance-final/cash"
-import { LineCategories } from "@/screens/finance-final/categories"
-import { FinanceControls } from "@/screens/finance-final/controls"
-import { Deposits } from "@/screens/finance-final/deposits"
-import { Expenses } from "@/screens/finance-final/expenses"
-import { Financing } from "@/screens/finance-final/financing"
-import { Journals } from "@/screens/finance-final/journals"
-import {
-  AccountsPayable,
-  AccountsPayableSummary,
-} from "@/screens/finance-final/payable"
-import { Payments } from "@/screens/finance-final/payments"
-import {
-  PayrollPayables,
-  PayrollPayments,
-  PayrollPosting,
-  PayrollRuns,
-} from "@/screens/finance-final/payroll"
-import { PrepaidSchedules } from "@/screens/finance-final/prepaid-schedules"
-import { PrepaidsAndAccruals } from "@/screens/finance-final/prepaids"
-import { AccountsReceivable } from "@/screens/finance-final/receivable"
-import { BalanceSheet } from "@/screens/finance-final/reports/balance-sheet"
-import { BalanceSheetTwoYears } from "@/screens/finance-final/reports/balance-sheet-2-years"
-import { CashFlow } from "@/screens/finance-final/reports/cash-flow"
-import { GeneralLedger } from "@/screens/finance-final/reports/general-ledger"
-import { ProfitAndLoss } from "@/screens/finance-final/reports/profit-and-loss"
-import { ProfitAndLossByUnit } from "@/screens/finance-final/reports/profit-and-loss-by-unit"
-import { TrialBalance } from "@/screens/finance-final/reports/trial-balance"
-import { SalesPostings } from "@/screens/finance-final/sales-postings"
-import { SalesReconciliation } from "@/screens/finance-final/sales-reconciliation"
-import { Tax } from "@/screens/finance-final/tax"
-import { Transactions } from "@/screens/finance-final/transactions"
-import { BankAccounts } from "@/screens/finance-lab-2/bank-accounts"
-import { BankReconciliationList } from "@/screens/finance-lab-2/bank-reconciliation-list"
+import { lazyScreen, type ScreenMap } from "@/screens/registry"
 
 /// The screens behind the Finance menu (`nav.ts`), one row at a time.
 ///
@@ -175,107 +75,468 @@ import { BankReconciliationList } from "@/screens/finance-lab-2/bank-reconciliat
 /// | Settings → Role Permissions | `finance/permissions` |
 /// | Reports → Dimension Results | `finance/dimension-results` |
 export const screens: ScreenMap = {
-  "/finance/dashboard": FinanceDashboard,
-  "/finance/payments-dashboard": PaymentsDashboard,
+  "/finance/dashboard": lazyScreen(
+    "finance/dashboard",
+    () => import("@/screens/finance/dashboard"),
+    (m) => m.FinanceDashboard
+  ),
+  "/finance/payments-dashboard": lazyScreen(
+    "finance/dashboard",
+    () => import("@/screens/finance/dashboard"),
+    (m) => m.PaymentsDashboard
+  ),
 
-  "/finance/cash-bank/bank-accounts": BankAccounts,
-  "/finance/cash-bank/cash-transactions": Transactions,
-  "/finance/cash-bank/bkk": Bkk,
-  "/finance/cash-bank/bkm": Bkm,
-  "/finance/cash-bank/bkk/new": BkkDocument,
-  "/finance/cash-bank/bkk/$id": BkkDocument,
-  "/finance/cash-bank/bkm/new": BkmDocument,
-  "/finance/cash-bank/bkm/$id": BkmDocument,
-  "/finance/cash-bank/giro": GiroBoard,
-  "/finance/cash-bank/petty-cash": Expenses,
-  "/finance/cash-bank/deposits": Deposits,
-  "/finance/cash-bank/bank-reconciliation": BankReconciliationList,
-  "/finance/cash-bank/bank-transactions": BankTransactions,
-  "/finance/cash-bank/bank-clearance": BankClearance,
-  "/finance/cash-bank/bank-rules": BankRules,
+  "/finance/cash-bank/bank-accounts": lazyScreen(
+    "finance-lab-2/bank-accounts",
+    () => import("@/screens/finance-lab-2/bank-accounts"),
+    (m) => m.BankAccounts
+  ),
+  "/finance/cash-bank/cash-transactions": lazyScreen(
+    "finance-final/transactions",
+    () => import("@/screens/finance-final/transactions"),
+    (m) => m.Transactions
+  ),
+  "/finance/cash-bank/bkk": lazyScreen(
+    "finance/cash-documents",
+    () => import("@/screens/finance/cash-documents"),
+    (m) => m.Bkk
+  ),
+  "/finance/cash-bank/bkm": lazyScreen(
+    "finance/cash-documents",
+    () => import("@/screens/finance/cash-documents"),
+    (m) => m.Bkm
+  ),
+  "/finance/cash-bank/bkk/new": lazyScreen(
+    "finance/cash-documents",
+    () => import("@/screens/finance/cash-documents"),
+    (m) => m.BkkDocument
+  ),
+  "/finance/cash-bank/bkk/$id": lazyScreen(
+    "finance/cash-documents",
+    () => import("@/screens/finance/cash-documents"),
+    (m) => m.BkkDocument
+  ),
+  "/finance/cash-bank/bkm/new": lazyScreen(
+    "finance/cash-documents",
+    () => import("@/screens/finance/cash-documents"),
+    (m) => m.BkmDocument
+  ),
+  "/finance/cash-bank/bkm/$id": lazyScreen(
+    "finance/cash-documents",
+    () => import("@/screens/finance/cash-documents"),
+    (m) => m.BkmDocument
+  ),
+  "/finance/cash-bank/giro": lazyScreen(
+    "finance/giro-board",
+    () => import("@/screens/finance/giro-board"),
+    (m) => m.GiroBoard
+  ),
+  "/finance/cash-bank/petty-cash": lazyScreen(
+    "finance-final/expenses",
+    () => import("@/screens/finance-final/expenses"),
+    (m) => m.Expenses
+  ),
+  "/finance/cash-bank/deposits": lazyScreen(
+    "finance-final/deposits",
+    () => import("@/screens/finance-final/deposits"),
+    (m) => m.Deposits
+  ),
+  "/finance/cash-bank/bank-reconciliation": lazyScreen(
+    "finance-lab-2/bank-reconciliation-list",
+    () => import("@/screens/finance-lab-2/bank-reconciliation-list"),
+    (m) => m.BankReconciliationList
+  ),
+  "/finance/cash-bank/bank-transactions": lazyScreen(
+    "finance/bank-transactions",
+    () => import("@/screens/finance/bank-transactions"),
+    (m) => m.BankTransactions
+  ),
+  "/finance/cash-bank/bank-clearance": lazyScreen(
+    "finance/bank-clearance",
+    () => import("@/screens/finance/bank-clearance"),
+    (m) => m.BankClearance
+  ),
+  "/finance/cash-bank/bank-rules": lazyScreen(
+    "finance/bank-rules",
+    () => import("@/screens/finance/bank-rules"),
+    (m) => m.BankRules
+  ),
 
-  "/finance/receivables/card-settlement": SalesReconciliation,
-  "/finance/receivables/employee": Advances,
-  "/finance/receivables/aging": AccountsReceivable,
-  "/finance/receivables/sales-postings": SalesPostings,
+  "/finance/receivables/card-settlement": lazyScreen(
+    "finance-final/sales-reconciliation",
+    () => import("@/screens/finance-final/sales-reconciliation"),
+    (m) => m.SalesReconciliation
+  ),
+  "/finance/receivables/employee": lazyScreen(
+    "finance-final/advances",
+    () => import("@/screens/finance-final/advances"),
+    (m) => m.Advances
+  ),
+  "/finance/receivables/aging": lazyScreen(
+    "finance-final/receivable",
+    () => import("@/screens/finance-final/receivable"),
+    (m) => m.AccountsReceivable
+  ),
+  "/finance/receivables/sales-postings": lazyScreen(
+    "finance-final/sales-postings",
+    () => import("@/screens/finance-final/sales-postings"),
+    (m) => m.SalesPostings
+  ),
 
-  "/finance/payables/bills": SupplierBills,
-  "/finance/payables/recurring-bills": RecurringBills,
-  "/finance/payables/accruals": Accruals,
-  "/finance/assets/contractor-projects": ContractorProjects,
-  "/finance/stores": StoresOverview,
-  "/finance/stores/sales": StoresSales,
-  "/finance/stores/cash-on-hand": StoresCashOnHand,
-  "/finance/stores/petty-cash": StoresPettyCash,
-  "/finance/stores/cashier-float": StoresCashierFloat,
-  "/finance/stores/cash-counts": StoresCounts,
-  "/finance/inventory/valuation": InventoryValuationScreen,
-  "/finance/inventory/stock-vs-ledger": StockVsLedger,
-  "/finance/inventory/goods-in-transit": GoodsInTransitScreen,
-  "/finance/inventory/cogs": CogsScreen,
-  "/finance/inventory/adjustments": StockAdjustmentsScreen,
-  "/finance/payables/credit-notes": CreditNotes,
-  "/finance/payables/payments": Payments,
-  "/finance/payables/aging": AccountsPayable,
-  "/finance/reports/accounts-payable-summary": AccountsPayableSummary,
-  "/finance/payables/supplier-ledger": SupplierLedger,
-  "/finance/payables/projection": PaymentProjection,
+  "/finance/payables/bills": lazyScreen(
+    "finance/supplier-bills",
+    () => import("@/screens/finance/supplier-bills"),
+    (m) => m.SupplierBills
+  ),
+  "/finance/payables/recurring-bills": lazyScreen(
+    "finance/recurring-bills",
+    () => import("@/screens/finance/recurring-bills"),
+    (m) => m.RecurringBills
+  ),
+  "/finance/payables/accruals": lazyScreen(
+    "finance/accruals",
+    () => import("@/screens/finance/accruals"),
+    (m) => m.Accruals
+  ),
+  "/finance/assets/contractor-projects": lazyScreen(
+    "finance/contractor-projects",
+    () => import("@/screens/finance/contractor-projects"),
+    (m) => m.ContractorProjects
+  ),
+  "/finance/stores": lazyScreen(
+    "finance/stores-cash",
+    () => import("@/screens/finance/stores-cash"),
+    (m) => m.StoresOverview
+  ),
+  "/finance/stores/sales": lazyScreen(
+    "finance/stores",
+    () => import("@/screens/finance/stores"),
+    (m) => m.StoresSales
+  ),
+  "/finance/stores/cash-on-hand": lazyScreen(
+    "finance/stores-cash",
+    () => import("@/screens/finance/stores-cash"),
+    (m) => m.StoresCashOnHand
+  ),
+  "/finance/stores/petty-cash": lazyScreen(
+    "finance/stores-cash",
+    () => import("@/screens/finance/stores-cash"),
+    (m) => m.StoresPettyCash
+  ),
+  "/finance/stores/cashier-float": lazyScreen(
+    "finance/stores-cash",
+    () => import("@/screens/finance/stores-cash"),
+    (m) => m.StoresCashierFloat
+  ),
+  "/finance/stores/cash-counts": lazyScreen(
+    "finance/stores",
+    () => import("@/screens/finance/stores"),
+    (m) => m.StoresCounts
+  ),
+  "/finance/inventory/valuation": lazyScreen(
+    "finance/inventory",
+    () => import("@/screens/finance/inventory"),
+    (m) => m.InventoryValuationScreen
+  ),
+  "/finance/inventory/stock-vs-ledger": lazyScreen(
+    "finance/inventory",
+    () => import("@/screens/finance/inventory"),
+    (m) => m.StockVsLedger
+  ),
+  "/finance/inventory/goods-in-transit": lazyScreen(
+    "finance/inventory-more",
+    () => import("@/screens/finance/inventory-more"),
+    (m) => m.GoodsInTransitScreen
+  ),
+  "/finance/inventory/cogs": lazyScreen(
+    "finance/inventory-more",
+    () => import("@/screens/finance/inventory-more"),
+    (m) => m.CogsScreen
+  ),
+  "/finance/inventory/adjustments": lazyScreen(
+    "finance/inventory-more",
+    () => import("@/screens/finance/inventory-more"),
+    (m) => m.StockAdjustmentsScreen
+  ),
+  "/finance/payables/credit-notes": lazyScreen(
+    "finance/credit-notes",
+    () => import("@/screens/finance/credit-notes"),
+    (m) => m.CreditNotes
+  ),
+  "/finance/payables/payments": lazyScreen(
+    "finance-final/payments",
+    () => import("@/screens/finance-final/payments"),
+    (m) => m.Payments
+  ),
+  "/finance/payables/aging": lazyScreen(
+    "finance-final/payable",
+    () => import("@/screens/finance-final/payable"),
+    (m) => m.AccountsPayable
+  ),
+  "/finance/reports/accounts-payable-summary": lazyScreen(
+    "finance-final/payable",
+    () => import("@/screens/finance-final/payable"),
+    (m) => m.AccountsPayableSummary
+  ),
+  "/finance/payables/supplier-ledger": lazyScreen(
+    "finance/supplier-ledger",
+    () => import("@/screens/finance/supplier-ledger"),
+    (m) => m.SupplierLedger
+  ),
+  "/finance/payables/projection": lazyScreen(
+    "finance/payment-projection",
+    () => import("@/screens/finance/payment-projection"),
+    (m) => m.PaymentProjection
+  ),
 
-  "/finance/payroll/runs": PayrollRuns,
-  "/finance/payroll/payables": PayrollPayables,
-  "/finance/payroll/payments": PayrollPayments,
-  "/finance/payroll/posting": PayrollPosting,
+  "/finance/payroll/runs": lazyScreen(
+    "finance-final/payroll",
+    () => import("@/screens/finance-final/payroll"),
+    (m) => m.PayrollRuns
+  ),
+  "/finance/payroll/payables": lazyScreen(
+    "finance-final/payroll",
+    () => import("@/screens/finance-final/payroll"),
+    (m) => m.PayrollPayables
+  ),
+  "/finance/payroll/payments": lazyScreen(
+    "finance-final/payroll",
+    () => import("@/screens/finance-final/payroll"),
+    (m) => m.PayrollPayments
+  ),
+  "/finance/payroll/posting": lazyScreen(
+    "finance-final/payroll",
+    () => import("@/screens/finance-final/payroll"),
+    (m) => m.PayrollPosting
+  ),
 
-  "/finance/assets/capitalization": AssetRegister,
+  "/finance/assets/capitalization": lazyScreen(
+    "finance/assets",
+    () => import("@/screens/finance/assets"),
+    (m) => m.AssetRegister
+  ),
 
-  "/finance/financing/loans": Financing,
+  "/finance/financing/loans": lazyScreen(
+    "finance-final/financing",
+    () => import("@/screens/finance-final/financing"),
+    (m) => m.Financing
+  ),
 
-  "/finance/tax/payables": Tax,
+  "/finance/tax/payables": lazyScreen(
+    "finance-final/tax",
+    () => import("@/screens/finance-final/tax"),
+    (m) => m.Tax
+  ),
 
-  "/finance/accounting/journal-entries": Journals,
-  "/finance/accounting/general-ledger": GeneralLedger,
-  "/finance/accounting/trial-balance": TrialBalance,
-  "/finance/accounting/chart-of-accounts": ChartOfAccounts,
-  "/finance/accounting/accruals": PrepaidsAndAccruals,
-  "/finance/accounting/prepaids": PrepaidSchedules,
+  "/finance/accounting/journal-entries": lazyScreen(
+    "finance-final/journals",
+    () => import("@/screens/finance-final/journals"),
+    (m) => m.Journals
+  ),
+  "/finance/accounting/general-ledger": lazyScreen(
+    "finance-final/reports/general-ledger",
+    () => import("@/screens/finance-final/reports/general-ledger"),
+    (m) => m.GeneralLedger
+  ),
+  "/finance/accounting/trial-balance": lazyScreen(
+    "finance-final/reports/trial-balance",
+    () => import("@/screens/finance-final/reports/trial-balance"),
+    (m) => m.TrialBalance
+  ),
+  "/finance/accounts-setup": lazyScreen(
+    "finance/setup-index",
+    () => import("@/screens/finance/setup-index"),
+    (m) => m.FinanceSetup
+  ),
+  "/finance/accounting/chart-of-accounts": lazyScreen(
+    "finance/chart-of-accounts",
+    () => import("@/screens/finance/chart-of-accounts"),
+    (m) => m.ChartOfAccounts
+  ),
+  "/finance/accounting/accruals": lazyScreen(
+    "finance-final/prepaids",
+    () => import("@/screens/finance-final/prepaids"),
+    (m) => m.PrepaidsAndAccruals
+  ),
+  "/finance/accounting/prepaids": lazyScreen(
+    "finance-final/prepaid-schedules",
+    () => import("@/screens/finance-final/prepaid-schedules"),
+    (m) => m.PrepaidSchedules
+  ),
 
-  "/finance/period-close": FinanceControls,
+  "/finance/period-close": lazyScreen(
+    "finance-final/controls",
+    () => import("@/screens/finance-final/controls"),
+    (m) => m.FinanceControls
+  ),
 
-  "/finance/reports/balance-sheet": BalanceSheet,
-  "/finance/reports/profit-and-loss": ProfitAndLoss,
-  "/finance/reports/cash-flow": CashFlow,
-  "/finance/reports/profit-and-loss-by-unit": ProfitAndLossByUnit,
-  "/finance/reports/balance-sheet-2-years": BalanceSheetTwoYears,
-  "/finance/reports/cash-bank": Cash,
-  "/finance/reports/dimension-results": DimensionResults,
-  "/finance/reports/sales-by-division": SalesByDivision,
-  "/finance/reports/changes-in-equity": ChangesInEquity,
-  "/finance/reports/expenses-by-month": ExpensesByMonth,
-  "/finance/reports/tax-withholding": WithholdingReport,
-  "/finance/reports/bank-reconciliation-summary": BankReconciliationSummary,
-  "/finance/reports/asset-register": FixedAssetRegister,
-  "/finance/reports/asset-disposals": AssetDisposals,
+  "/finance/reports/balance-sheet": lazyScreen(
+    "finance-final/reports/balance-sheet",
+    () => import("@/screens/finance-final/reports/balance-sheet"),
+    (m) => m.BalanceSheet
+  ),
+  "/finance/reports/profit-and-loss": lazyScreen(
+    "finance-final/reports/profit-and-loss",
+    () => import("@/screens/finance-final/reports/profit-and-loss"),
+    (m) => m.ProfitAndLoss
+  ),
+  "/finance/reports/cash-flow": lazyScreen(
+    "finance-final/reports/cash-flow",
+    () => import("@/screens/finance-final/reports/cash-flow"),
+    (m) => m.CashFlow
+  ),
+  "/finance/reports/profit-and-loss-by-unit": lazyScreen(
+    "finance-final/reports/profit-and-loss-by-unit",
+    () => import("@/screens/finance-final/reports/profit-and-loss-by-unit"),
+    (m) => m.ProfitAndLossByUnit
+  ),
+  "/finance/reports/balance-sheet-2-years": lazyScreen(
+    "finance-final/reports/balance-sheet-2-years",
+    () => import("@/screens/finance-final/reports/balance-sheet-2-years"),
+    (m) => m.BalanceSheetTwoYears
+  ),
+  "/finance/reports/cash-bank": lazyScreen(
+    "finance-final/cash",
+    () => import("@/screens/finance-final/cash"),
+    (m) => m.Cash
+  ),
+  "/finance/reports/dimension-results": lazyScreen(
+    "finance/dimension-results",
+    () => import("@/screens/finance/dimension-results"),
+    (m) => m.DimensionResults
+  ),
+  "/finance/reports/sales-by-division": lazyScreen(
+    "finance/sales-by-division",
+    () => import("@/screens/finance/sales-by-division"),
+    (m) => m.SalesByDivision
+  ),
+  "/finance/reports/changes-in-equity": lazyScreen(
+    "finance/changes-in-equity",
+    () => import("@/screens/finance/changes-in-equity"),
+    (m) => m.ChangesInEquity
+  ),
+  "/finance/reports/expenses-by-month": lazyScreen(
+    "finance/expenses-by-month",
+    () => import("@/screens/finance/expenses-by-month"),
+    (m) => m.ExpensesByMonth
+  ),
+  "/finance/reports/tax-withholding": lazyScreen(
+    "finance/withholding-report",
+    () => import("@/screens/finance/withholding-report"),
+    (m) => m.WithholdingReport
+  ),
+  "/finance/reports/bank-reconciliation-summary": lazyScreen(
+    "finance/bank-reconciliation-summary",
+    () => import("@/screens/finance/bank-reconciliation-summary"),
+    (m) => m.BankReconciliationSummary
+  ),
+  "/finance/reports/asset-register": lazyScreen(
+    "finance/asset-register",
+    () => import("@/screens/finance/asset-register"),
+    (m) => m.AssetRegister
+  ),
+  "/finance/reports/asset-disposals": lazyScreen(
+    "finance/asset-disposals",
+    () => import("@/screens/finance/asset-disposals"),
+    (m) => m.AssetDisposals
+  ),
 
-  "/finance/setup/account-links": AccountLinks,
-  "/finance/setup/posting-readiness": PostingReadinessScreen,
-  "/finance/setup/line-categories": LineCategories,
-  "/finance/setup/edc-mdr": SalesSetup,
-  "/finance/setup/giro-templates": GiroPrinting,
-  "/finance/setup/periods": Periods,
-  "/finance/setup/dimensions": Dimensions,
-  "/finance/setup/payment-methods": PaymentMethods,
-  "/finance/setup/shop-payment-methods": ShopPaymentMethods,
-  "/finance/setup/journal-templates": JournalTemplates,
-  "/finance/setup/expense-categories": ExpenseCategories,
-  "/finance/setup/pay-components": PayComponents,
-  "/finance/setup/asset-classes": AssetClasses,
+  "/finance/setup/account-links": lazyScreen(
+    "finance/account-links",
+    () => import("@/screens/finance/account-links"),
+    (m) => m.AccountLinks
+  ),
+  "/finance/setup/posting-readiness": lazyScreen(
+    "finance/posting-readiness",
+    () => import("@/screens/finance/posting-readiness"),
+    (m) => m.PostingReadinessScreen
+  ),
+  "/finance/setup/line-categories": lazyScreen(
+    "finance-final/categories",
+    () => import("@/screens/finance-final/categories"),
+    (m) => m.LineCategories
+  ),
+  "/finance/setup/edc-mdr": lazyScreen(
+    "finance/sales-setup",
+    () => import("@/screens/finance/sales-setup"),
+    (m) => m.SalesSetup
+  ),
+  "/finance/setup/giro-templates": lazyScreen(
+    "finance/giro-print",
+    () => import("@/screens/finance/giro-print"),
+    (m) => m.GiroPrinting
+  ),
+  "/finance/setup/periods": lazyScreen(
+    "finance/periods",
+    () => import("@/screens/finance/periods"),
+    (m) => m.Periods
+  ),
+  "/finance/setup/dimensions": lazyScreen(
+    "finance/dimensions",
+    () => import("@/screens/finance/dimensions"),
+    (m) => m.Dimensions
+  ),
+  "/finance/setup/payment-methods": lazyScreen(
+    "finance/payment-methods",
+    () => import("@/screens/finance/payment-methods"),
+    (m) => m.PaymentMethods
+  ),
+  "/finance/setup/shop-payment-methods": lazyScreen(
+    "finance/shop-payment-methods",
+    () => import("@/screens/finance/shop-payment-methods"),
+    (m) => m.ShopPaymentMethods
+  ),
+  "/finance/setup/journal-templates": lazyScreen(
+    "finance/journal-templates",
+    () => import("@/screens/finance/journal-templates"),
+    (m) => m.JournalTemplates
+  ),
+  "/finance/setup/expense-categories": lazyScreen(
+    "finance/expense-categories",
+    () => import("@/screens/finance/expense-categories"),
+    (m) => m.ExpenseCategories
+  ),
+  "/finance/setup/pay-components": lazyScreen(
+    "finance/pay-components",
+    () => import("@/screens/finance/pay-components"),
+    (m) => m.PayComponents
+  ),
+  "/finance/setup/asset-classes": lazyScreen(
+    "finance/asset-classes",
+    () => import("@/screens/finance/asset-classes"),
+    (m) => m.AssetClasses
+  ),
 
-  "/finance/closing/period-closing-voucher": PeriodClosing,
+  "/finance/closing/period-closing-voucher": lazyScreen(
+    "finance/period-closing",
+    () => import("@/screens/finance/period-closing"),
+    (m) => m.PeriodClosing
+  ),
 
-  "/finance/tax-setup/withholding": TaxWithholding,
-  "/finance/tax-setup/types": TaxTypes,
+  "/finance/tax-setup/withholding": lazyScreen(
+    "finance/taxes",
+    () => import("@/screens/finance/taxes"),
+    (m) => m.TaxWithholding
+  ),
+  "/finance/tax-setup/types": lazyScreen(
+    "finance/taxes",
+    () => import("@/screens/finance/taxes"),
+    (m) => m.TaxTypes
+  ),
 
-  "/finance/settings/accounts": FinanceSettings,
-  "/finance/settings/posting-policies": PostingPolicies,
-  "/finance/settings/permissions": Permissions,
+  "/finance/settings/accounts": lazyScreen(
+    "finance/finance-settings",
+    () => import("@/screens/finance/finance-settings"),
+    (m) => m.FinanceSettings
+  ),
+  "/finance/settings/posting-policies": lazyScreen(
+    "finance/posting-policies",
+    () => import("@/screens/finance/posting-policies"),
+    (m) => m.PostingPolicies
+  ),
+  "/finance/settings/permissions": lazyScreen(
+    "finance/permissions",
+    () => import("@/screens/finance/permissions"),
+    (m) => m.Permissions
+  ),
 }

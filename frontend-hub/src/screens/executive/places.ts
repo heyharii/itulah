@@ -1,7 +1,7 @@
-import { useQuery } from "@tanstack/react-query"
+import { useSuspenseQuery } from "@tanstack/react-query"
 import { useMemo } from "react"
 
-import { analyticsKeys, salesSeries } from "@/lib/queries/analytics"
+import { salesSeriesQuery } from "@/screens/executive/data"
 import type { ReportScope } from "@/screens/executive/scope"
 
 export interface Place {
@@ -17,12 +17,9 @@ export function usePlaces(scope: ReportScope): {
   readonly places: readonly Place[]
   readonly nameOf: (siteId: string) => string
 } {
-  const series = useQuery({
-    queryKey: analyticsKeys.series(scope.range),
-    queryFn: ({ signal }) => salesSeries(scope.range, signal),
-  })
+  const series = useSuspenseQuery(salesSeriesQuery(scope.range))
   return useMemo(() => {
-    const places = (series.data?.sites ?? [])
+    const places = series.data.sites
       .map((site) => ({
         site_id: site.site_id,
         name: site.site_name || site.site_id,
@@ -36,7 +33,7 @@ export function usePlaces(scope: ReportScope): {
         // Head office does not trade, so it is rarely in the series; the
         // series resolves its id from its kind (0603) so no screen spells it.
         names.get(siteId) ??
-        (siteId === series.data?.head_office_site_id ? "Head office" : siteId),
+        (siteId === series.data.head_office_site_id ? "Head office" : siteId),
     }
   }, [series.data])
 }

@@ -13,11 +13,7 @@ import { dcNode, node } from "@/lib/api"
 // ── Short pick ─────────────────────────────────────────────────────────────
 
 export type ShortReason =
-  | "NOT_CONFIRMED"
-  | "NOT_FOUND"
-  | "DAMAGED"
-  | "LABEL_OR_EQUIPMENT"
-  | "OTHER"
+  "NOT_CONFIRMED" | "NOT_FOUND" | "DAMAGED" | "LABEL_OR_EQUIPMENT" | "OTHER"
 
 /// The five reasons the pick sheet offers, in its order. The first three are
 /// about the stock and raise a targeted count; the other two stay with Ops.
@@ -26,10 +22,18 @@ export const SHORT_REASONS: readonly {
   label: string
   stock: boolean
 }[] = [
-  { code: "NOT_CONFIRMED", label: "Stock at rack could not be confirmed", stock: true },
-  { code: "NOT_FOUND", label: "Item not found at the rack", stock: true },
+  {
+    code: "NOT_CONFIRMED",
+    label: "Stock in the pool could not be confirmed",
+    stock: true,
+  },
+  { code: "NOT_FOUND", label: "Item not found in the pool", stock: true },
   { code: "DAMAGED", label: "Item damaged", stock: true },
-  { code: "LABEL_OR_EQUIPMENT", label: "Label or equipment problem", stock: false },
+  {
+    code: "LABEL_OR_EQUIPMENT",
+    label: "Label or equipment problem",
+    stock: false,
+  },
   { code: "OTHER", label: "Other", stock: false },
 ]
 
@@ -273,10 +277,9 @@ export interface DcChange {
 }
 
 export async function dcChanges(signal?: AbortSignal): Promise<DcChange[]> {
-  const body = await dcNode().get<{ items: DcChange[] }>(
-    "/api/v1/dc/changes",
-    { signal }
-  )
+  const body = await dcNode().get<{ items: DcChange[] }>("/api/v1/dc/changes", {
+    signal,
+  })
   return body.items
 }
 

@@ -53,6 +53,8 @@ export interface QuantityCheck {
 export const quantityCheckKeys = {
   all: ["quantity-checks"] as const,
   open: () => ["quantity-checks", "open"] as const,
+  /// Every check, asked for or answered: what Operations › Quantity Checks reads.
+  book: () => ["quantity-checks", "book"] as const,
   line: (receiptLineId: string) =>
     ["quantity-checks", "line", receiptLineId] as const,
 }
@@ -61,6 +63,11 @@ export function listOpenQuantityChecks(signal?: AbortSignal) {
   return node.get<QuantityCheck[]>("/api/v1/quantity-checks?status=REQUESTED", {
     signal,
   })
+}
+
+/// Every check there is, newest first, whatever its status.
+export function listQuantityChecks(signal?: AbortSignal) {
+  return node.get<QuantityCheck[]>("/api/v1/quantity-checks", { signal })
 }
 
 /// Every check of one delivery line, newest first.

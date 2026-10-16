@@ -465,7 +465,7 @@ function CountPanel({
           </tbody>
         </Grid>
 
-        <div className="flex flex-col gap-1.5 rounded-inner border border-hairline bg-soft p-3 text-[0.875rem]">
+        <div className="flex flex-col gap-1.5 rounded-inner border border-hairline bg-soft p-3 text-[0.9375rem]">
           <div className="flex justify-between">
             <span className="text-body">Counted</span>
             <span className="font-medium text-ink tabular-nums">
@@ -508,7 +508,7 @@ function CountPanel({
         </Field>
 
         <div className="flex items-center justify-end gap-2">
-          <Button variant="ghost" onClick={onClose}>
+          <Button data-cancel variant="ghost" onClick={onClose}>
             Cancel
           </Button>
           <Button

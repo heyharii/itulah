@@ -3,7 +3,6 @@ import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Checkbox, Field, Input } from "@/components/ui/field"
-import { Pill } from "@/components/ui/pill"
 import { SubHead } from "@/components/ui/rows"
 import { Banner, EmptyState } from "@/components/ui/states"
 import {
@@ -12,7 +11,7 @@ import {
   openChecklist,
   orgKeys,
 } from "@/lib/queries/people"
-import { hrEmployeeKeys } from "@/lib/queries/hr-employees"
+import { hrEmployeeKeys, useNameOfLogin } from "@/lib/queries/hr-employees"
 import { queryState } from "@/lib/query-state"
 import { OWNER_LABEL } from "@/screens/people/checklist-owners"
 import type { LifecycleTaskView } from "@itulah/contract"
@@ -45,10 +44,7 @@ export function ChecklistPanel({ employeeId }: { employeeId: string }) {
         loading: "Reading the checklist…",
         render: () =>
           rows.length === 0 ? (
-            <EmptyState>
-              No checklist yet. A hire opens the onboarding checklist by itself;
-              somebody hired before it existed gets one here.
-            </EmptyState>
+            <EmptyState>No checklist yet.</EmptyState>
           ) : (
             <>
               {(["ONBOARDING", "SEPARATION"] as const)
@@ -99,6 +95,7 @@ function Checklist({
   employeeId: string
 }) {
   const client = useQueryClient()
+  const nameOfLogin = useNameOfLogin()
   const [why, setWhy] = useState("")
   const done = rows.filter((row) => row.state === "DONE").length
   const tick = useMutation({
@@ -132,12 +129,11 @@ function Checklist({
                 }
                 onChange={() => tick.mutate(row.id)}
               />
-              <Pill tone="neutral">{OWNER_LABEL[row.owner] ?? row.owner}</Pill>
-              {row.done_by !== null && (
-                <span className="text-[0.875rem] text-mute">
-                  by {row.done_by}
-                </span>
-              )}
+              <span className="text-[0.9375rem] text-mute">
+                {OWNER_LABEL[row.owner] ?? row.owner}
+                {row.done_by !== null &&
+                  ` · done by ${nameOfLogin(row.done_by)}`}
+              </span>
             </li>
           ))}
       </ul>

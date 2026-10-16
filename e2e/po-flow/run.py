@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
 import sys
 import time
 import uuid
@@ -34,7 +35,11 @@ dp = importlib.util.module_from_spec(spec)
 sys.modules["demo_populate"] = dp
 spec.loader.exec_module(dp)
 
-CLOUD, DC, STORE_NODE = "http://127.0.0.1:8480", "http://127.0.0.1:8481", "http://127.0.0.1:8482"
+# The pos-e2e rig by default; RIG_CLOUD / RIG_DC / RIG_STORE point it at
+# another (the demo rig: 8180 / 8181 / 8182).
+CLOUD = os.environ.get("RIG_CLOUD", "http://127.0.0.1:8480")
+DC = os.environ.get("RIG_DC", "http://127.0.0.1:8481")
+STORE_NODE = os.environ.get("RIG_STORE", "http://127.0.0.1:8482")
 STORE = "store-01"
 PASSWORD = "Password01"
 PRINTER_PORT = 9109
@@ -115,7 +120,7 @@ def units_at(node, sku_codes: set[str], place_suffix: str) -> list[str]:
 
 def edge_db(node: str):
     import sqlite3
-    path = ROOT / "runs/pos-e2e" / ("dc-edge.sqlite3" if node == "dc" else "store-edge.sqlite3")
+    path = ROOT / "runs" / os.environ.get("RIG_RUN", "pos-e2e") / ("dc-edge.sqlite3" if node == "dc" else "store-edge.sqlite3")
     return sqlite3.connect(f"file:{path}?mode=ro", uri=True)
 
 
@@ -606,6 +611,28 @@ def v_wrong(rig, ctx):
     check("the PO now reads fully received", lifecycle(cloud, po) in ("FULLY_RECEIVED", "CLOSED"), lifecycle(cloud, po))
 
 
+@variant("two deliveries complete one PO")
+def v_partial(rig, ctx):
+    """5 come first and are accepted as a part delivery (the PO stays open);
+    the other 3 come on a second receipt and close it."""
+    cloud = rig.as_("cloud", "rina")
+    po = place_po(rig, ctx, 8)
+    print(f"  PO {po}: ordered 8")
+    count_and_verify(rig, ctx, po, 5)
+    settle(rig)
+    n = wait_po(cloud, po, {"received_stock_units": 5})
+    check("first delivery: 5 received, 3 outstanding, still open",
+          n["received_stock_units"] == 5 and n["outstanding_stock_units"] == 3
+          and lifecycle(cloud, po) not in ("FULLY_RECEIVED", "CLOSED", "CANCELLED"), json.dumps(n))
+    count_and_verify(rig, ctx, po, 3)
+    settle(rig)
+    n = wait_po(cloud, po, {"received_stock_units": 8})
+    check("second delivery: 8 received, 0 outstanding", n["received_stock_units"] == 8 and n["outstanding_stock_units"] == 0, json.dumps(n))
+    check("the PO reads fully received", lifecycle(cloud, po) in ("FULLY_RECEIVED", "CLOSED"), lifecycle(cloud, po))
+    receipts = (line_of(cloud, po).get("receipts") or [])
+    check("the line shows two receipts", len(receipts) == 2, json.dumps(receipts)[:200])
+
+
 @variant("recount asked by the buyer")
 def v_recount(rig, ctx):
     cloud = rig.as_("cloud", "rina")
@@ -654,7 +681,7 @@ def v_cancel(rig, ctx):
 
 
 def phase4(rig: Rig, ctx: dict) -> None:
-    for fn in (v_short, v_over, v_wrong, v_recount, v_reject, v_cancel):
+    for fn in (v_short, v_partial, v_over, v_wrong, v_recount, v_reject, v_cancel):
         fn(rig, ctx)
 
 

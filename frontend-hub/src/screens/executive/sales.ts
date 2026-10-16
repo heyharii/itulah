@@ -1,14 +1,13 @@
-import { useQuery } from "@tanstack/react-query"
+import { useSuspenseQueries } from "@tanstack/react-query"
 import { useMemo } from "react"
 
 import type { ChartRow } from "@/components/ui/chart"
 import {
-  analyticsKeys,
-  salesSeries,
   totalsByBucket,
   totalsBySite,
   type SalesSeries,
 } from "@/lib/queries/analytics"
+import { salesSeriesQuery } from "@/screens/executive/data"
 import type { ReportScope } from "@/screens/executive/scope"
 
 /// The trade the executive pages share: this period and the one before it,
@@ -53,14 +52,15 @@ function tradeOf(
   return { net, sales, units }
 }
 
+/// Read inside a `<Suspense>`: the two series are asked for together, and
+/// nothing is drawn from half of them — a comparison with no base is not a
+/// report.
 export function useTrade(scope: ReportScope) {
-  const current = useQuery({
-    queryKey: analyticsKeys.series(scope.range),
-    queryFn: ({ signal }) => salesSeries(scope.range, signal),
-  })
-  const before = useQuery({
-    queryKey: analyticsKeys.series(scope.beforeRange),
-    queryFn: ({ signal }) => salesSeries(scope.beforeRange, signal),
+  const [current, before] = useSuspenseQueries({
+    queries: [
+      salesSeriesQuery(scope.range),
+      salesSeriesQuery(scope.beforeRange),
+    ],
   })
 
   const derived = useMemo(() => {
@@ -111,16 +111,9 @@ export function useTrade(scope: ReportScope) {
   }, [current.data, before.data, scope.store])
 
   return {
-    // One query standing for both: a comparison with no base is not a report.
-    query: {
-      isPending: current.isPending || before.isPending,
-      isError: current.isError || before.isError,
-      error: current.error ?? before.error,
-      data: current.data && before.data ? derived : undefined,
-      refetch: () => {
-        void current.refetch()
-        void before.refetch()
-      },
-    },
+    data: derived,
+    /// The two reads themselves, for a table's reload stamp
+    /// (`refresh={trade.reads}`).
+    reads: [current, before],
   }
 }

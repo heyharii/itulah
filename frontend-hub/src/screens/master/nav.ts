@@ -7,6 +7,7 @@ import {
   Ruler,
   Scale,
   Shirt,
+  Store,
   Tag,
   TextCursorInput,
   Warehouse,
@@ -78,36 +79,20 @@ export const masterNav: AppModule = {
       ],
     },
     {
-      /// The company itself: head office, the warehouse and every store, the
-      /// premises each owns and who is answerable for each (0600-0602) — the
-      /// screen has been called Organisation in the code all along. From
-      /// System since 2026-10-04 (owner): a register of the company is
-      /// master data, and System never showed in the sidebar to offer it.
-      /// Its CONSOLE half stays in Sales as Stores — same table, different
-      /// job: this registers a unit, Stores watches the shops trade.
-      items: [
-        {
-          path: "/master/organisation",
-          label: "Units",
-          icon: Building2,
-          moved: ["/system/units"],
-          // Hidden from the menu (owner, 2026-10-05); the screen and its path
-          // still work.
-          hidden: true,
-        },
-      ],
-    },
-    {
       /// The four lists an article is described with. Owner's menu of
       /// 2026-09-28 reordered the primary row to Divisions, Tags, Sizes,
       /// Colours — the array order below, since primary rows draw flat in
       /// declaration order — superseding the 2026-09-12 order (Divisions,
-      /// Colours, Sizes, Tags). Unlabelled on purpose — the rule the sidebar
-      /// draws above them is the whole heading they need.
+      /// Colours, Sizes, Tags).
       ///
       /// One screen serves three of them — code, label, order, active is one
       /// shape — and Colours keeps its own, because a colour also carries a
       /// hex value and a preview and nothing else here has a picture.
+      ///
+      /// Under a grey chip since 2026-10-16 (owner: "label group kayak di
+      /// sales"), as Sales' groups are.
+      label: "Attributes",
+      chip: true,
       items: [
         { path: "/master/divisions", label: "Divisions", icon: FolderTree },
         { path: "/master/tags", label: "Tags", icon: Tag },
@@ -137,11 +122,46 @@ export const masterNav: AppModule = {
       ],
     },
     {
+      /// The company itself: head office, the warehouse and every store, the
+      /// premises each owns and who is answerable for each (0600-0602) — the
+      /// screen has been called Organisation in the code all along. From
+      /// System since 2026-10-04 (owner): a register of the company is
+      /// master data, and System never showed in the sidebar to offer it.
+      /// Its CONSOLE half stays in Sales as Stores — same table, different
+      /// job: this registers a unit, Stores watches the shops trade.
+      ///
+      /// **Stores** is where a shop is made (owner, 2026-10-11: "di master
+      /// data"): Add store, then the store's own page — Overview, Server,
+      /// Status — to install its server and open it. The same screens as
+      /// Sales' Stores, filed under a second path the way Suppliers is, so
+      /// the Master sidebar stays lit while the store page is open.
+      ///
       /// Suppliers, in the Master menu as well as Procurement's (owner,
       /// 2026-10-07: "supplier into master, but it stays in procurement"). One
       /// screen under two paths — the way Merchandise reaches the article
       /// screens — so each menu opens it in its own department.
+      ///
+      /// Under the Organisation chip with Suppliers (2026-10-16): the
+      /// company's own places and the companies it buys from.
+      label: "Organisation",
+      chip: true,
       items: [
+        { path: "/master/stores", label: "Stores", icon: Store },
+        {
+          path: "/master/stores/$unit",
+          label: "Store",
+          icon: Store,
+          hidden: true,
+        },
+        {
+          path: "/master/organisation",
+          label: "Units",
+          icon: Building2,
+          moved: ["/system/units"],
+          // Hidden from the menu (owner, 2026-10-05); the screen and its path
+          // still work.
+          hidden: true,
+        },
         {
           path: "/master/suppliers",
           label: "Suppliers",

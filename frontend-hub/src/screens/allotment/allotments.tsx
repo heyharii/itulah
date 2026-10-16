@@ -1,20 +1,22 @@
+import { ActivityFold } from "@/components/ui/activity-fold"
+import { useShopName } from "@/components/operations/outbound-papers"
 import {
+  keepPreviousData,
   useMutation,
   useQuery,
   useQueryClient,
   type UseQueryResult,
 } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
-import { ChevronRight } from "lucide-react"
 import { useTable } from "@tanstack/react-table"
-import { Fragment, useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { DataTable, dockSortOf } from "@/components/ui/data-table"
-import { ConfirmButton, SavedDialog } from "@/components/ui/dialog"
+import { ConfirmButton } from "@/components/ui/dialog"
 import { Select } from "@/components/ui/field"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import {
@@ -25,18 +27,19 @@ import {
 import { Fab } from "@/components/ui/fab"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
-import { MiniTable, Section } from "@/components/ui/rows"
+import { MiniTable } from "@/components/ui/rows"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { SheetFooter } from "@/components/ui/sheet-footer"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Timeline, type TimelineEvent } from "@/components/ui/timeline"
 import { useFilters } from "@/lib/filters"
-import { count, day, dayMonth, label, moment, quantity } from "@/lib/format"
+import { count, dayMonth, label, moment, quantity } from "@/lib/format"
 import { STAMP } from "@/screens/procurement/shared"
 import { useLayout } from "@/lib/layout"
 import { useAppNavigate } from "@/lib/navigate"
 import { useCatalogueIdentity } from "@/lib/operations/catalogue"
+import { amendAllotment } from "@/lib/operations/changes"
 import {
   allotmentDetail,
   allotmentsByArticle,
@@ -49,7 +52,6 @@ import {
   listFinishedAllotments,
   type AllotmentAmendment,
   type AllotmentDetail,
-  type AllotmentLine,
   type AllotmentRow,
   type ArticleAllotmentList,
   type ArticleRollup,
@@ -58,21 +60,29 @@ import {
 } from "@/lib/queries/inventory"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
+import { DeliveryCards } from "@/screens/allotment/delivery-cards"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { cn } from "@/lib/utils"
 import { Choice, Metric, MetricRow } from "@/screens/inventory/parts"
+import { toast } from "@/lib/toast"
 import {
   cancelOf,
+  draftEditOf,
+  draftNoteOf,
+  floorOf,
   pendingOf,
   roomOf,
+  stagesOf,
+  storesOf,
   targetOf,
+  undoLinesOf,
 } from "@/screens/allotment/amend-data"
-import { ReadLines } from "@/screens/allotment/amend-sheet"
 import { ArticleThumb } from "@/screens/allotment/article-thumb"
 import { CancelDialog } from "@/screens/allotment/cancel-dialog"
 import { allotFromValue, stageDraft } from "@/screens/allotment/draft"
 import { AllotmentItems, ExpandToggle } from "@/screens/allotment/items"
 import { ExpandContext, useExpanding } from "@/screens/allotment/expanding"
+import { StoreLines } from "@/screens/allotment/store-lines"
 import { ToAllot } from "@/screens/allotment/to-allot"
 import { useToAllot } from "@/screens/allotment/to-allot-data"
 import { sitesOf, useActor } from "@/screens/inventory/shared"
@@ -201,7 +211,7 @@ function StatusWord({
   text: string
 }) {
   return (
-    <span className="inline-flex items-center gap-1.5 text-[0.875rem] text-ink">
+    <span className="inline-flex items-center gap-1.5 text-[0.9375rem] text-ink">
       <span
         aria-hidden
         className={cn(
@@ -247,8 +257,12 @@ function EndedStamp({ row }: { row: AllotmentRow }) {
 /// made, whose goods, its status and how far it has got. Searched, filtered
 /// and ordered through them; oldest first, because the allotment that has
 /// waited longest is the one somebody should be chasing.
-function columns(): ColumnDef<TableSetup, AllotmentRow>[] {
-  return [
+///
+/// Completed and Cancelled read two columns, the allotment's number and its
+/// supplier (allotment-ops-prototype, 11 Oct 2026: "completed cukup allotment
+/// number dan supplier"); a row still opens the sheet.
+function columns(finished = false): ColumnDef<TableSetup, AllotmentRow>[] {
+  const all: ColumnDef<TableSetup, AllotmentRow>[] = [
     {
       id: "expand",
       header: () => <span className="sr-only">Items</span>,
@@ -310,7 +324,7 @@ function columns(): ColumnDef<TableSetup, AllotmentRow>[] {
           </span>
           <span className="block whitespace-nowrap text-mute">
             {count(row.original.article_count)}{" "}
-            {row.original.article_count === 1 ? "item" : "items"}
+            {row.original.article_count === 1 ? "article" : "articles"}
           </span>
         </span>
       ),
@@ -333,12 +347,25 @@ function columns(): ColumnDef<TableSetup, AllotmentRow>[] {
       id: "supplier",
       accessorFn: (row) => row.supplier_names ?? "",
       header: "Supplier",
-      meta: { grow: 160, card: "hide" },
-      cell: ({ row }) => (
-        <span className="block truncate">
-          {row.original.supplier_names ?? "No supplier"}
-        </span>
-      ),
+      meta: { grow: 160, card: finished ? "title" : "hide" },
+      // One supplier per line (owner, 16 Oct 2026: "kebawah, per supplier").
+      cell: ({ row }) => {
+        const names = (row.original.supplier_names ?? "")
+          .split(",")
+          .map((name) => name.trim())
+          .filter(Boolean)
+        return names.length === 0 ? (
+          <span className="text-mute">No supplier</span>
+        ) : (
+          <span className="flex flex-col">
+            {names.map((name) => (
+              <span key={name} className="block truncate">
+                {name}
+              </span>
+            ))}
+          </span>
+        )
+      },
     },
     {
       accessorKey: "fulfillment_status",
@@ -395,11 +422,11 @@ function columns(): ColumnDef<TableSetup, AllotmentRow>[] {
         <span className="flex flex-col items-end tabular-nums">
           <span className="text-[1.5rem] leading-tight font-semibold tracking-tight text-ink">
             {count(row.original.total_quantity)}
-            <span className="text-[0.875rem] font-normal tracking-normal text-mute">
+            <span className="text-[0.9375rem] font-normal tracking-normal text-mute">
               {row.original.total_quantity === 1 ? " pc" : " pcs"}
             </span>
           </span>
-          <span className="mt-0.5 text-[0.875rem] text-mute">
+          <span className="mt-0.5 text-[0.9375rem] text-mute">
             {count(row.original.article_count)}{" "}
             {row.original.article_count === 1 ? "item" : "items"}
           </span>
@@ -423,6 +450,40 @@ function columns(): ColumnDef<TableSetup, AllotmentRow>[] {
         </span>
       ),
     },
+  ]
+  // Finished: the number, the supplier, how many stores, the pieces over the
+  // articles, and the stamp (owner, 16 Oct 2026: "berapa pcs berapa
+  // articles", "berapa store", "ada capnya seperti di po list").
+  if (!finished) return all
+  const keep = (id: string) =>
+    all.find(
+      (column) =>
+        column.id === id ||
+        ("accessorKey" in column && column.accessorKey === id)
+    )!
+  return [
+    keep("allotment_number"),
+    keep("supplier"),
+    {
+      id: "store_count",
+      accessorFn: (row) => (row.destination_names ?? []).length,
+      header: "Stores",
+      size: 110,
+      meta: { align: "right", card: "hide" },
+      cell: ({ row }) => {
+        const names = row.original.destination_names ?? []
+        return (
+          <span
+            className="block text-right whitespace-nowrap tabular-nums"
+            title={names.join(", ") || undefined}
+          >
+            {count(names.length)} {names.length === 1 ? "store" : "stores"}
+          </span>
+        )
+      },
+    },
+    { ...keep("qty"), meta: { align: "right", card: "lead" } },
+    keep("fulfillment_status"),
   ]
 }
 
@@ -454,7 +515,7 @@ function AllotmentCell({ row }: { row: AllotmentRow }) {
     // stays in progress until they are, but says so (owner, 10 Oct 2026).
     row.fulfillment_status === "ACTIVE" &&
       (row.cancelled_at ?? null) !== null && {
-        text: "Cancelled · warehouse moving back",
+        text: "Cancelled · warehouse putting back",
         tone: "text-bad-fg",
       },
     row.edge_application_status === "PENDING" && {
@@ -639,6 +700,8 @@ export function Allotments({
     { id: "to_receive_qty", desc: true },
   ])
   const allotment = useSheet("allotment")
+  /// What the card's foot asked the sheet to start with: Edit or Cancel.
+  const [sheetStart, setSheetStart] = useState<"edit" | "cancel" | null>(null)
   const expanding = useExpanding()
 
   /// The KPI strip's own read — always ACTIVE, always this book's type — kept
@@ -660,8 +723,8 @@ export function Allotments({
   const finishedDone = completedQuery.data?.items.filter(
     (row) => !isCancelled(row)
   ).length
-  const finishedCancelled = completedQuery.data?.items.filter(isCancelled)
-    .length
+  const finishedCancelled =
+    completedQuery.data?.items.filter(isCancelled).length
 
   const list = useQuery({
     queryKey: inventoryKeys.allotmentList(type, statusOf(tab)),
@@ -670,6 +733,9 @@ export function Allotments({
         ? listAllotments(type, "ACTIVE", signal)
         : listFinishedAllotments(type, signal),
     enabled: reading === "allotments",
+    // Another tab or filter: the rows in hand stay, dimmed (`list-swap`),
+    // until the next are read.
+    placeholderData: keepPreviousData,
   })
 
   const byStore = useQuery({
@@ -707,10 +773,9 @@ export function Allotments({
     if (view === "completed") return all.filter((row) => !isCancelled(row))
     if (view === "cancelled") return all.filter(isCancelled)
     return all
-  }, [source.data, view]
-  )
+  }, [source.data, view])
 
-  const tableColumns = useMemo(() => columns(), [])
+  const tableColumns = useMemo(() => columns(finishedView), [finishedView])
   const filters = useFilters(tableColumns)
 
   const table = useTable(
@@ -728,8 +793,10 @@ export function Allotments({
             ...visibility,
             lead: cards,
             foot: cards,
-            ...(cards || finishedView
-              ? { fulfillment_status: true }
+            ...(cards && !finishedView ? { fulfillment_status: true } : {}),
+            // Finished books always show whose goods and the stamp.
+            ...(finishedView
+              ? { supplier: true, fulfillment_status: true }
               : {}),
           },
         },
@@ -745,7 +812,7 @@ export function Allotments({
         sorting,
         visibility,
         cards,
-        view,
+        finishedView,
       ]
     )
   )
@@ -778,7 +845,17 @@ export function Allotments({
   const pageTabs = {
     value: view,
     options: [
-      { value: "unallotted", label: "Unallotted", count: toAllot.articles },
+      // A return book has nothing to allot: no Unallotted (owner, 16 Oct
+      // 2026: Return HO gets the same tabs).
+      ...(storeBook
+        ? [
+            {
+              value: "unallotted",
+              label: "Unallotted",
+              count: toAllot.articles,
+            },
+          ]
+        : []),
       {
         value: "allotted",
         label: "In progress",
@@ -789,16 +866,18 @@ export function Allotments({
     ],
     onChange: (next: string) => setView(next as View),
   }
-  /// The strip's figures, said in a line under the title on a phone.
-  const notShipped = activeQuery.data
-    ? sumOf(
-        activeQuery.data.items,
-        (r) =>
-          r.to_pack_qty + r.at_packed_qty + r.at_shipment_qty + r.at_loaded_qty
+  /// The strip's figures — said again in a line under the title on a phone.
+  const active = activeQuery.data?.items
+  const toPickPcs = active
+    ? sumOf(active, (r) =>
+        Math.max(0, r.total_quantity - r.total_cancelled_quantity - workedOf(r))
       )
     : undefined
-  const inTransit = activeQuery.data
-    ? sumOf(activeQuery.data.items, (r) => r.at_in_transit_qty)
+  const inWarehouse = active
+    ? sumOf(active, (r) => Math.max(0, workedOf(r) - departedOf(r)))
+    : undefined
+  const inTransit = active
+    ? sumOf(active, (r) => r.at_in_transit_qty)
     : undefined
 
   return (
@@ -809,7 +888,18 @@ export function Allotments({
           sub ??
           "What each store has been promised, and how much of it has arrived."
         }
-        actions={view === "unallotted" ? undefined : actions}
+        // The screen's one action stands in its head (hub-ui-patterns,
+        // 14 Oct); a phone has the + at the thumb instead (`Fab` below).
+        actions={
+          view === "unallotted"
+            ? undefined
+            : (actions ??
+              (type === "TO_STORE" && !cards ? (
+                <Button variant="primary" onClick={() => setView("unallotted")}>
+                  New allotment
+                </Button>
+              ) : undefined))
+        }
       />
 
       {activeQuery.data && (
@@ -818,54 +908,33 @@ export function Allotments({
             {count(activeQuery.data.items.length)}{" "}
             {activeQuery.data.items.length === 1 ? "allotment" : "allotments"}
           </b>{" "}
-          {activeQuery.data.items.length === 1 ? "is" : "are"} active.{" "}
-          {qty(notShipped ?? 0)} pcs not shipped yet, {qty(inTransit ?? 0)} in
-          transit.
+          in progress. {qty(toPickPcs ?? 0)} pcs to pick,{" "}
+          {qty(inWarehouse ?? 0)} in stock, {qty(inTransit ?? 0)} in transit.
         </p>
       )}
+      {/* What MD reads first (allotment-ops-prototype): how many are in
+          progress, and where their pieces are — still to pick, in the
+          warehouse, or dispatched and not yet received. */}
       <KpiStrip className="grid-cols-2 max-md:hidden md:grid-cols-4 xl:grid-cols-4">
         <Kpi
-          label="Active"
+          label="In stock"
+          value={inWarehouse === undefined ? "—" : `${qty(inWarehouse)} pcs`}
+        />
+        <Kpi
+          label="Picklist"
+          value={toPickPcs === undefined ? "—" : `${qty(toPickPcs)} pcs`}
+        />
+        <Kpi
+          label="In progress"
           value={activeQuery.data ? count(activeQuery.data.items.length) : "—"}
         />
         <Kpi
-          label="Completed"
-          value={
-            finishedDone === undefined ? "—" : count(finishedDone)
-          }
-        />
-        {/* The warehouse's debt: every active piece that has not left it yet —
-            to pick, picked or packed, or on a delivery note still at the dock
-            (the owner, 2026-09-29). */}
-        <Kpi
-          label="Not shipped yet"
-          value={
-            activeQuery.data
-              ? qty(
-                  sumOf(
-                    activeQuery.data.items,
-                    (r) =>
-                      r.to_pack_qty +
-                      r.at_packed_qty +
-                      r.at_shipment_qty +
-                      r.at_loaded_qty
-                  )
-                )
-              : "—"
-          }
-        />
-        {/* Left the warehouse, not yet at the store. */}
-        <Kpi
           label="In transit"
-          value={
-            activeQuery.data
-              ? qty(sumOf(activeQuery.data.items, (r) => r.at_in_transit_qty))
-              : "—"
-          }
+          value={inTransit === undefined ? "—" : `${qty(inTransit)} pcs`}
         />
       </KpiStrip>
 
-      {storeBook && (
+      {
         <SubTabs
           className="max-md:hidden"
           value={view}
@@ -877,19 +946,21 @@ export function Allotments({
               ["completed", "Completed", finishedDone],
               ["cancelled", "Cancelled", finishedCancelled],
             ] as const
-          ).map(([value, text, total]) => ({
-            value,
-            label: (
-              <>
-                {text}{" "}
-                <span className="text-mute tabular-nums">
-                  {total === undefined ? "—" : count(total)}
-                </span>
-              </>
-            ),
-          }))}
+          )
+            .filter(([value]) => storeBook || value !== "unallotted")
+            .map(([value, text, total]) => ({
+              value,
+              label: (
+                <>
+                  {text}{" "}
+                  <span className="text-mute tabular-nums">
+                    {total === undefined ? "—" : count(total)}
+                  </span>
+                </>
+              ),
+            }))}
         />
-      )}
+      }
 
       {view === "unallotted" ? (
         <ToAllot
@@ -930,25 +1001,12 @@ export function Allotments({
             )}
             <div className="hidden md:contents">
               <span className="flex-1" />
-              {reading === "article" && (
-                <ColumnsMenu table={articleTable} />
-              )}
-              {type === "TO_STORE" && (
-                <Button
-                  variant="primary"
-                  onClick={() => setView("unallotted")}
-                >
-                  New allotment
-                </Button>
-              )}
+              {reading === "article" && <ColumnsMenu table={articleTable} />}
             </div>
           </div>
 
           {type === "TO_STORE" && (
-            <Fab
-              label="New Allotment"
-              onClick={() => setView("unallotted")}
-            />
+            <Fab label="New Allotment" onClick={() => setView("unallotted")} />
           )}
           {/* On a phone the status, search, filter and sort are the dock's
               (owner, 2026-10-06), as on the order book. */}
@@ -959,22 +1017,20 @@ export function Allotments({
               label: "Search Allotments",
             }}
             sort={reading === "article" ? undefined : dockSortOf(table)}
-            status={storeBook ? pageTabs : undefined}
+            status={pageTabs}
           />
 
           {reading === "article" ? (
             <ByArticle
               table={articleTable}
               query={byArticle}
-              store={
-                stores.find((one) => one.value === store)?.label ?? null
-              }
+              store={stores.find((one) => one.value === store)?.label ?? null}
             />
           ) : reading === "store" && store === "" ? (
             <Card>
               <EmptyState>
-                Choose a store to see everything owed to it, and its
-                lifetime per-SKU pipeline.
+                Choose a store to see everything owed to it, and its lifetime
+                per-SKU pipeline.
               </EmptyState>
             </Card>
           ) : (
@@ -986,10 +1042,7 @@ export function Allotments({
                       <Metric
                         label="Allotted"
                         value={qty(
-                          sumOf(
-                            byStore.data.sku_summary,
-                            (sku) => sku.quantity
-                          )
+                          sumOf(byStore.data.sku_summary, (sku) => sku.quantity)
                         )}
                       />
                       <Metric
@@ -1016,10 +1069,10 @@ export function Allotments({
                         value={count(byStore.data.sku_summary.length)}
                       />
                     </MetricRow>
-                    <p className="mt-3 text-[0.875rem] text-mute">
+                    <p className="mt-3 text-[0.9375rem] text-mute">
                       This summary spans every allotment ever addressed to{" "}
-                      {byStore.data.destination_name} — not only the ones
-                      listed below.
+                      {byStore.data.destination_name} — not only the ones listed
+                      below.
                     </p>
                   </Card>
 
@@ -1032,7 +1085,10 @@ export function Allotments({
                 </>
               )}
 
-              <div>
+              <div
+                aria-busy={source.isPlaceholderData || undefined}
+                className="list-swap"
+              >
                 {queryState(source, {
                   loading: "Reading the allotment book…",
                   render: () =>
@@ -1048,6 +1104,25 @@ export function Allotments({
                       ) : (
                         <EmptyState>Nothing here yet.</EmptyState>
                       )
+                    ) : view === "allotted" && reading === "allotments" ? (
+                      <>
+                        <DeliveryCards
+                          rows={shown}
+                          stores={stores}
+                          onOpen={(id) => {
+                            setSheetStart(null)
+                            allotment.open(id)
+                          }}
+                          onEdit={(id) => {
+                            setSheetStart("edit")
+                            allotment.open(id)
+                          }}
+                          onCancel={(id) => {
+                            setSheetStart("cancel")
+                            allotment.open(id)
+                          }}
+                        />
+                      </>
                     ) : (
                       <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
                         <ExpandContext value={expanding}>
@@ -1058,14 +1133,12 @@ export function Allotments({
                             pageScroll
                             cardSort={false}
                             cardsApart
-                            cardLead
+                            cardLead={!finishedView}
                             cardTone={cardToneOf}
                             onRowClick={(row) => allotment.open(row.id)}
                             isSelected={(row) => row.id === allotment.value}
                             isExpanded={(row) => expanding.isOpen(row.id)}
-                            renderSub={(row) => (
-                              <AllotmentItems id={row.id} />
-                            )}
+                            renderSub={(row) => <AllotmentItems id={row.id} />}
                             summary={{
                               allotment_number: (
                                 <span>
@@ -1092,7 +1165,11 @@ export function Allotments({
 
       <AllotmentSheet
         id={allotment.value ?? null}
-        onClose={allotment.close}
+        onClose={() => {
+          setSheetStart(null)
+          allotment.close()
+        }}
+        start={sheetStart}
         display={display}
         actor={actor}
       />
@@ -1150,7 +1227,7 @@ function ByStoreSkus({
     <Card className="mb-[1.125rem] overflow-hidden">
       <CardHeader>
         <CardTitle>Owed to {store}, by SKU</CardTitle>
-        <span className="text-[0.875rem] text-mute tabular-nums">
+        <span className="text-[0.9375rem] text-mute tabular-nums">
           {count(shown.length)} SKUs
         </span>
       </CardHeader>
@@ -1177,10 +1254,10 @@ function ByStoreSkus({
               return (
                 <tr key={row.sku_id} className="border-t border-hairline">
                   <td className="py-2 pr-2">
-                    <span className="block text-[0.875rem] text-ink">
+                    <span className="block text-[0.9375rem] text-ink">
                       {identity?.article_name ?? row.sku_code}
                     </span>
-                    <span className="font-mono text-[0.875rem] text-mute">
+                    <span className="font-mono text-[0.9375rem] text-mute">
                       {row.sku_code}
                       {identity &&
                         ` · ${[identity.colour, identity.size].filter(Boolean).join(" · ")}`}
@@ -1235,9 +1312,11 @@ function ByArticle({
     <Card className="overflow-clip">
       <CardHeader>
         <CardTitle>
-          {store === null ? "Every article ever allotted" : `Sent to ${store}`}
+          {store === null
+            ? "Every article ever allotted"
+            : `Dispatched to ${store}`}
         </CardTitle>
-        <span className="text-[0.875rem] text-mute tabular-nums">
+        <span className="text-[0.9375rem] text-mute tabular-nums">
           {count(rows.length)} articles
         </span>
       </CardHeader>
@@ -1249,7 +1328,7 @@ function ByArticle({
               <EmptyState>
                 {store === null
                   ? "Nothing has been allotted out of any pool yet."
-                  : "Nothing has ever been sent to this store."}
+                  : "Nothing has ever been dispatched to this store."}
               </EmptyState>
             ) : (
               <DataTable<ArticleRollup> table={table} pageScroll />
@@ -1264,27 +1343,38 @@ function ByArticle({
 /// row: the list carries a summary and the lines are only wanted once
 /// somebody opens one allotment.
 ///
-/// MD edits and cancels from here (9 Oct 2026; the foot, never the head):
+/// MD edits and cancels from here, in place (allotment-ops-prototype, "MD ·
+/// Allotments", 15 Oct 2026; the foot, never the head). The body is the
+/// allotment's STORES (`StoreLines`): articles when a store is opened, sizes
+/// never.
 ///
-///  - **Edit** opens the New allotment grid (`/allotment/new`, `allotFrom=
-///    edit~<id>`) filled with this allotment's quantities: any cell can be
-///    raised or lowered — never below what is already sent — and an empty one
-///    typed into adds a store or a SKU. Its Save sends one amend request
-///    (`amendAllotment`) and comes back to this sheet.
-///  - **Cancel allotment** opens `CancelDialog`: the cost by stage, a ticked
-///    acknowledgement when the warehouse has to move pieces back, a required
-///    reason. It is available whenever anything is not yet sent.
+///  - **Edit** turns each store's total, and each article's total for a store,
+///    into a box. A typed total is spread over the sizes underneath, never
+///    under what is already dispatched. **Save** sends the draft as one
+///    `/amend` (per-line `to` targets).
+///  - **Ticks** pick the stores a Cancel is for. Cancelling stores is an
+///    `/amend` too: each of their lines down to what is dispatched (0 when
+///    nothing is). With no tick, and nothing dispatched anywhere, it is the
+///    whole allotment's `/cancel`; with part dispatched, "Cancel the rest" is
+///    the same `/amend` over every store.
+///  - Save and a store cancel answer in a toast with **Undo** for 10 s, which
+///    sends the lines back to what they were — re-read first, never under what
+///    has been dispatched since. The whole `/cancel` has no way back (there is
+///    no un-cancel), so its toast has no Undo.
 ///
 /// A DC-owned allotment keeps the old Edit (close short, then New allotment
-/// filled in): the new routes answer only for the cloud's own.
+/// filled in) and the old cancel: `/amend` answers only for the cloud's own.
 function AllotmentSheet({
   id,
   onClose,
+  start = null,
   display,
   actor,
 }: {
   id: string | null
   onClose: () => void
+  /// Open straight into Edit or the Cancel dialog (the In progress card's foot).
+  start?: "edit" | "cancel" | null
   /// The viewer's chosen unit, shared with the list this sheet opens from —
   /// switching it there is reflected here without a picker of its own.
   display: DisplayUnit
@@ -1292,6 +1382,8 @@ function AllotmentSheet({
 }) {
   const client = useQueryClient()
   const qty = (n: number) => qtyOf(display, n)
+  // The store as the board names it ("C001 · Cikupa").
+  const shopName = useShopName()
 
   const detail = useQuery({
     queryKey: inventoryKeys.allotment(id ?? ""),
@@ -1307,12 +1399,18 @@ function AllotmentSheet({
 
   /// The cancel dialog.
   const [cancelling, setCancelling] = useState(false)
+  /// Editing in place: each touched line's new target, by line id.
+  const [draft, setDraft] = useState<Map<string, number> | null>(null)
+  /// The stores ticked for a Cancel.
+  const [ticked, setTicked] = useState<Set<string>>(new Set())
   // Another allotment opens on a fresh sheet — "adjusting state during
-  // render": nothing of the last one's dialog is left to flash.
-  const [shown, setShown] = useState(id)
+  // render": nothing of the last one's dialog, draft or ticks is left over.
+  const [shown, setShown] = useState<string | null>(null)
   if (id !== shown) {
     setShown(id)
-    setCancelling(false)
+    setCancelling(id !== null && start === "cancel")
+    setDraft(null)
+    setTicked(new Set())
   }
 
   const refresh = () => {
@@ -1320,37 +1418,58 @@ function AllotmentSheet({
     client.invalidateQueries({ queryKey: inventoryKeys.fleet() })
   }
 
-  /// What a cancel said, held in the receipt dialog until it is read (the
-  /// owner, 2026-10-04) — the sheet underneath keeps standing. This sheet stays
-  /// mounted between openings, so the state lives here and survives the
-  /// refetch that moves the row between tabs.
-  const [receipt, setReceipt] = useState<{
-    title: string
-    detail: string | null
-  } | null>(null)
-
   const cancel = useMutation({
-    mutationFn: (vars: { reason: string; receipt: boolean }) =>
+    mutationFn: (vars: { reason: string }) =>
       cancelAllotment(id!, {
         reason: vars.reason,
         actor_id: actor,
         idempotency_key: idempotencyKey(),
       }),
-    onSuccess: (result, vars) => {
-      refresh()
-      if (!vars.receipt) return
-      const owed = result.owed_total ?? 0
-      setReceipt(
-        result.edge_cancellation_status === "PENDING"
-          ? { title: "Sent to the DC. Cancelling", detail: null }
-          : {
-              title: `${result.allotment_number} cancelled`,
-              detail:
-                owed > 0 ? `${quantity(owed)} the warehouse moves back` : null,
-            }
-      )
-    },
+    onSuccess: refresh,
   })
+
+  /// MD's change in place: lines to new targets, through `/amend`.
+  const amend = useMutation({
+    mutationFn: (vars: {
+      id: string
+      lines: { allotment_line_id: string; to: number }[]
+      reason: string | null
+    }) =>
+      amendAllotment(vars.id, {
+        idempotency_key: idempotencyKey(),
+        reason: vars.reason,
+        lines: vars.lines,
+      }),
+    onSuccess: refresh,
+  })
+
+  /// Undo for 10 s: the lines back to `before`, read against the allotment as
+  /// it stands now. It holds the allotment's id, not the sheet's — the sheet
+  /// may have closed or moved on by the time Undo is pressed.
+  const undoOf = (allotmentId: string, before: Map<string, number>) => () => {
+    void (async () => {
+      try {
+        const fresh = await client.fetchQuery({
+          queryKey: inventoryKeys.allotment(allotmentId),
+          queryFn: ({ signal }) => allotmentDetail(allotmentId, signal),
+          staleTime: 0,
+        })
+        const back = undoLinesOf(fresh.lines, before)
+        if (back.length > 0)
+          await amendAllotment(allotmentId, {
+            idempotency_key: idempotencyKey(),
+            reason: "Undo",
+            lines: back,
+          })
+        refresh()
+        toast("Undone")
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "Could not undo the change"
+        )
+      }
+    })()
+  }
 
   const goto = useAppNavigate()
 
@@ -1368,7 +1487,7 @@ function AllotmentSheet({
       destinationId: one.destination_id,
       quantity: one.to_pack_qty,
     }))
-    await cancel.mutateAsync({ reason, receipt: false })
+    await cancel.mutateAsync({ reason })
     stageDraft(released)
     goto("/allotment/new", {
       key: "allotFrom",
@@ -1387,35 +1506,195 @@ function AllotmentSheet({
     record !== undefined &&
     record.fulfillment_status === "ACTIVE" &&
     !(gone?.cancelled ?? false)
-  /// Nothing is left that is not sent: no edit down, no cancel.
+  /// The cloud's own allotment to stores: edited and cancelled in place.
+  const inPlace =
+    live && toStore && !edge && record.cancellation === null && actor !== ""
+  /// Nothing is left that is not dispatched: no edit down, no cancel.
   const allSent =
-    record !== undefined && (edge ? record.to_pack_qty === 0 : roomOf(lines) === 0)
-  /// Anything already on a delivery note: then the allotment is not
-  /// cancelled any more, only edited down (owner, 10 Oct 2026).
-  const someSent =
     record !== undefined &&
-    record.at_shipment_qty +
-      record.at_loaded_qty +
-      record.at_in_transit_qty +
-      record.received_qty +
-      record.receiving_gap_qty >
-      0
-  const cancelDisabled =
-    record === undefined ||
-    allSent ||
-    (!edge && someSent) ||
-    record.cancellation !== null ||
-    (edge && record.edge_application_status !== "ACCEPTED") ||
-    actor === ""
+    (edge ? record.to_pack_qty === 0 : roomOf(lines) === 0)
+  const editing = inPlace && draft !== null
+  /// Edit is the New allotment grid (owner, 2026-10-16): same rows, Stock
+  /// column, and a cell never goes over the free stock.
+  const editInGrid = () => {
+    if (!record) return
+    goto("/allotment/new", {
+      key: "allotFrom",
+      value: allotFromValue("edit", record.id),
+    })
+  }
+  // A card's Edit opens the grid once the allotment is known to be ours.
+  const wantsGrid = start === "edit" && inPlace ? (record?.id ?? null) : null
+  useEffect(() => {
+    if (wantsGrid !== null)
+      goto("/allotment/new", {
+        key: "allotFrom",
+        value: allotFromValue("edit", wantsGrid),
+      })
+  }, [wantsGrid, goto])
+
+  // What a Cancel is for: the ticked stores, or every store — only those with
+  // something left to cancel (a store dispatched in full has nothing to give).
+  const storeIds = [...new Set(lines.map((line) => line.destination_id))]
+  const scopeIds = (ticked.size > 0 ? [...ticked] : storeIds).filter(
+    (store) => roomOf(lines.filter((line) => line.destination_id === store)) > 0
+  )
+  const scopeLines = lines.filter((line) =>
+    scopeIds.includes(line.destination_id)
+  )
+  const whole = ticked.size === 0
+  /// Part of what the Cancel is for is dispatched already: it cancels the rest.
+  const rest = stagesOf(scopeLines).dispatched > 0
+  /// Anything of the allotment dispatched at all: then even the whole of it is
+  /// cancelled line by line, never by `/cancel`.
+  const anyDispatched = stagesOf(lines).dispatched > 0
+  const scopeNames = storesOf(scopeLines).map((store) => {
+    const board = shopName(store.id)
+    return board === store.id ? store.name : board
+  })
+  const scopeWho =
+    scopeNames.length === 1
+      ? scopeNames[0]
+      : `${count(scopeNames.length)} stores`
+  const cancelLabel = !whole
+    ? `${rest ? "Cancel the rest for" : "Cancel"} ${scopeWho}`
+    : rest
+      ? "Cancel the rest"
+      : "Cancel allotment"
+
+  /// The cancel MD confirmed. The whole allotment with nothing dispatched is
+  /// `/cancel`; anything else is every scoped line down to its floor.
+  const confirmCancel = async (reason: string) => {
+    if (!record) return
+    if (!inPlace || (whole && !anyDispatched)) {
+      const result = await cancel.mutateAsync({ reason })
+      const owed = result.owed_total ?? 0
+      toast.success(
+        result.edge_cancellation_status === "PENDING"
+          ? "Passed to the DC. Cancelling"
+          : `${result.allotment_number} cancelled${
+              owed > 0 ? ` · ${quantity(owed)} put back by the warehouse` : ""
+            }`
+      )
+      setTicked(new Set())
+      return
+    }
+    const down = scopeLines
+      .filter((line) => targetOf(line) > floorOf(line))
+      .map((line) => ({ allotment_line_id: line.id, to: floorOf(line) }))
+    await amend.mutateAsync({ id: record.id, lines: down, reason })
+    setTicked(new Set())
+    // No Undo on a cancel: the server closes what was still to pick short,
+    // and a closed-short line is not raised back by the same edit (tested on
+    // the cloud Gudang, 16 Oct 2026).
+    toast.success(
+      `${rest ? "Rest cancelled" : "Cancelled"} · ${
+        whole ? record.allotment_number : scopeWho
+      }`
+    )
+  }
+
+  const edit = draft === null ? null : draftEditOf(lines, draft)
+  const save = () => {
+    if (!record || edit === null || edit.lines.length === 0) return
+    const before = edit.before
+    const said = draftNoteOf(edit)
+    amend.mutate(
+      { id: record.id, lines: edit.lines, reason: null },
+      {
+        onSuccess: () => {
+          setDraft(null)
+          // Undo only takes an increase back (a lower target); a decrease
+          // was closed short or owed to the warehouse and does not come back
+          // by raising the target again.
+          const raisedOnly = edit.lines.every(
+            (line) => line.to > (before.get(line.allotment_line_id) ?? 0)
+          )
+          toast.success(
+            `Saved · ${said}`,
+            raisedOnly
+              ? {
+                  duration: 10_000,
+                  action: { label: "Undo", onClick: undoOf(record.id, before) },
+                }
+              : undefined
+          )
+        },
+      }
+    )
+  }
+
+  /// Why Edit and Cancel are off on a DC-run allotment: the DC turned the
+  /// last change down, because what it was for is already picked there.
+  const refused =
+    record?.cancellation?.outcome === "REJECTED"
+      ? (record.cancellation.blocked_picked_quantity ?? 0) > 0
+        ? `The DC already picked ${qty(record.cancellation.blocked_picked_quantity ?? 0)}, so it can no longer be edited or cancelled.`
+        : "The DC turned down the last change."
+      : null
 
   const footer =
-    record === undefined || !live ? undefined : (
+    record === undefined || !live ? undefined : inPlace ? (
+      editing ? (
+        <SheetFooter
+          onCancel={() => {
+            setDraft(null)
+            amend.reset()
+          }}
+          cancelLabel="Discard"
+          primary={{
+            label: "Save",
+            onClick: save,
+            pending: amend.isPending,
+            disabled: edit === null || edit.lines.length === 0,
+          }}
+          note={edit === null ? undefined : draftNoteOf(edit)}
+          error={amend.error}
+        />
+      ) : (
+        <SheetFooter
+          danger={
+            <>
+              <Button
+                variant="danger"
+                disabled={scopeLines.length === 0}
+                onClick={() => setCancelling(true)}
+              >
+                {cancelLabel}
+              </Button>
+              <CancelDialog
+                open={cancelling}
+                onOpenChange={setCancelling}
+                id={record.id}
+                number={record.allotment_number}
+                simple={false}
+                toPack={record.to_pack_qty}
+                scope={{ lines: scopeLines, whole }}
+                onConfirm={confirmCancel}
+              />
+            </>
+          }
+          primary={{
+            label: "Edit",
+            onClick: editInGrid,
+          }}
+          note={allSent ? "Everything has already been dispatched." : undefined}
+        />
+      )
+    ) : (
       <SheetFooter
         danger={
           <>
             <Button
               variant="danger"
-              disabled={cancelDisabled}
+              disabled={
+                allSent ||
+                // A return already on its way is not cancelled any more.
+                (!edge && anyDispatched) ||
+                record.cancellation !== null ||
+                (edge && record.edge_application_status !== "ACCEPTED") ||
+                actor === ""
+              }
               onClick={() => setCancelling(true)}
             >
               Cancel allotment
@@ -1425,92 +1704,81 @@ function AllotmentSheet({
               onOpenChange={setCancelling}
               id={record.id}
               number={record.allotment_number}
-              simple={edge || !toStore}
+              simple
               toPack={record.to_pack_qty}
-              onConfirm={(reason) =>
-                cancel.mutateAsync({ reason, receipt: true })
-              }
+              onConfirm={confirmCancel}
             />
           </>
         }
         primary={
-          !toStore ? undefined : edge ? (
+          !toStore || !edge ? undefined : (
             <ConfirmButton
               label="Edit"
               variant="primary"
               title="Edit this allotment?"
               description={`${qty(record.to_pack_qty)} still to pack opens in New allotment, filled in, to change and save. This allotment is replaced.`}
               confirmLabel="Edit"
-              reason={{ label: "Reason", optional: true }}
               pending={cancel.isPending}
-              disabled={cancelDisabled}
-              onConfirm={(reason) =>
-                reallot(reason.trim() === "" ? "Edited" : reason)
+              disabled={
+                allSent ||
+                record.cancellation !== null ||
+                record.edge_application_status !== "ACCEPTED" ||
+                actor === ""
               }
+              // No reason asked (owner, 2026-10-11): the close is recorded as
+              // "Edited", which is all an edit is.
+              onConfirm={() => reallot("Edited")}
             />
-          ) : (
-            {
-              label: "Edit",
-              onClick: () =>
-                goto("/allotment/new", {
-                  key: "allotFrom",
-                  value: allotFromValue("edit", record.id),
-                }),
-              disabled: record.cancellation !== null,
-            }
           )
         }
         note={
           allSent
-            ? "Everything has already been sent."
-            : !edge && someSent
-              ? "Some pieces are already sent. Edit the rest down instead of cancelling."
+            ? "Everything has already been dispatched."
+            : refused !== null
+              ? refused
               : undefined
         }
       />
     )
 
   return (
-    <>
-      <Sheet
-        open={id !== null}
-        subject={id === null ? undefined : { kind: "allotment", id }}
-        onOpenChange={(open) => {
-          if (!open) onClose()
-        }}
-        title={record?.allotment_number ?? "Allotment"}
-        closeAs="back"
-        // MD sees it at once: Cancelled, whoever's work is still to do.
-        badge={
-          gone?.cancelled ? <Pill tone="bad">Cancelled</Pill> : undefined
-        }
-        // Who and when, and nothing else (the owner, 2026-09-29): how many
-        // stores and items is the body's, and where it stands is the four
-        // figures under the header — a status word beside the number was one
-        // more thing in a header that is read in a glance.
-        caption={
-          record && `Created ${day(record.created_at)} by ${record.created_by}`
-        }
-        footer={footer}
-        width="wide"
-      >
-        {queryState(detail, {
-          loading: "Opening the allotment…",
-          render: (data) => (
-            <AllotmentDocument record={data} display={display} />
-          ),
-        })}
-      </Sheet>
-      <SavedDialog
-        open={receipt !== null}
-        onOpenChange={(next) => {
-          if (!next) setReceipt(null)
-        }}
-        title={receipt?.title ?? ""}
-      >
-        {receipt?.detail}
-      </SavedDialog>
-    </>
+    <Sheet
+      open={id !== null}
+      subject={id === null ? undefined : { kind: "allotment", id }}
+      onOpenChange={(open) => {
+        if (!open) onClose()
+      }}
+      title={record?.allotment_number ?? "Allotment"}
+      closeAs="back"
+      // MD sees it at once: Cancelled, whoever's work is still to do.
+      badge={gone?.cancelled ? <Pill tone="bad">Cancelled</Pill> : undefined}
+      // Who made it and when is the Activity's (owner, 2026-10-12): the
+      // head is the number, its state and nothing else.
+      footer={footer}
+      width="wide"
+      // A draft is typing: closing asks first.
+      dirty={edit !== null && edit.lines.length > 0}
+    >
+      {queryState(detail, {
+        loading: "Opening the allotment…",
+        render: (data) => (
+          <AllotmentDocument
+            record={data}
+            display={display}
+            lines={
+              <StoreLines
+                key={data.id}
+                lines={data.lines}
+                draft={draft ?? undefined}
+                onDraft={editing ? setDraft : undefined}
+                selected={inPlace ? ticked : undefined}
+                onSelect={inPlace ? setTicked : undefined}
+              />
+            }
+          />
+        ),
+      })}
+    </Sheet>
   )
 }
 
@@ -1540,9 +1808,13 @@ const AMENDMENT_TITLE: Record<AllotmentAmendment["kind"], string> = {
 function AllotmentDocument({
   record,
   display,
+  lines,
 }: {
   record: AllotmentDetail
   display: DisplayUnit
+  /// The allotment's stores (`StoreLines`), drawn by the sheet: it holds the
+  /// draft and the ticks.
+  lines: React.ReactNode
 }) {
   const qty = (n: number) => qtyOf(display, n)
   /// The SKU and store an event names, when it names them.
@@ -1607,7 +1879,7 @@ function AllotmentDocument({
       },
     })
   }
-  // The warehouse's side of MD's changes: "Got it" per store, and the pieces
+  // The warehouse's side of MD's changes: seen per store (opening the work), and the pieces
   // it moved back.
   for (const one of record.acknowledgements ?? []) {
     const store = record.lines.find(
@@ -1617,7 +1889,7 @@ function AllotmentDocument({
       at: one.at,
       event: {
         id: `acknowledged-${one.destination_id}-${one.at}`,
-        title: "Warehouse acknowledged",
+        title: "Warehouse saw the change",
         detail: [
           store?.destination_name ?? destinationShort(one.destination_id),
           one.by,
@@ -1673,7 +1945,7 @@ function AllotmentDocument({
           )}
           {owed > 0 && (
             <Banner tone="warn">
-              {`The warehouse still has to move back ${quantity(owed)} ${
+              {`The warehouse still has to put back ${quantity(owed)} ${
                 gone.cancelled ? "of this cancelled allotment" : "you took out"
               }.`}
             </Banner>
@@ -1707,243 +1979,13 @@ function AllotmentDocument({
 
       {/* No heading and no rule over it: the sheet is the allotment's items
           (owner, 10 Oct 2026). */}
-      <LinesTable key={record.id} lines={record.lines} display={display} />
+      {lines}
 
       {events.length > 0 && (
-        <Section title="History">
+        <ActivityFold count={events.length}>
           <Timeline events={events} />
-        </Section>
+        </ActivityFold>
       )}
-    </div>
-  )
-}
-
-/// The allotment's lines as a read-only matrix, the same shape as New
-/// allotment: articles down the left with their SKUs beneath, one column per
-/// store, what is wanted in each cell (the net target, after MD's edits) and a
-/// Total at the right and the foot.
-function LinesTable({
-  lines,
-  display,
-}: {
-  lines: readonly AllotmentLine[]
-  display: DisplayUnit
-}) {
-  const qty = (n: number) => qtyOf(display, n)
-  const phone = useLayout() === "phone"
-  /// The articles opened to their SKUs. Shut, each article is one row: the
-  /// SKUs are for whoever asks (owner, 10 Oct 2026).
-  const [opened, setOpened] = useState<ReadonlySet<string>>(new Set())
-  const flip = (id: string) =>
-    setOpened((was) => {
-      const next = new Set(was)
-      if (!next.delete(id)) next.add(id)
-      return next
-    })
-
-  // A phone cannot hold a column per store: nothing scrolls sideways there, so
-  // the same lines are read as stores folded one under another.
-  if (phone) return <ReadLines lines={lines} />
-
-  const stores = [
-    ...new Map(
-      lines.map((line) => [
-        line.destination_id,
-        line.destination_name ?? destinationShort(line.destination_id),
-      ])
-    ).entries(),
-  ]
-    .map(([id, name]) => ({ id, name }))
-    .sort((left, right) =>
-      left.id.localeCompare(right.id, undefined, { numeric: true })
-    )
-
-  const cell = new Map<string, number>()
-  for (const line of lines) {
-    const key = `${line.sku_id}|${line.destination_id}`
-    cell.set(key, (cell.get(key) ?? 0) + targetOf(line))
-  }
-
-  const articles = [
-    ...lines
-      .reduce((groups, line) => {
-        const group = groups.get(line.article_id) ?? {
-          id: line.article_id,
-          name: line.article_name,
-          code: line.article_code,
-          image: line.image_url,
-          skus: new Map<string, AllotmentLine>(),
-        }
-        if (!group.skus.has(line.sku_id)) group.skus.set(line.sku_id, line)
-        groups.set(line.article_id, group)
-        return groups
-      }, new Map<string, { id: string; name: string; code: string; image: string | null; skus: Map<string, AllotmentLine> }>())
-      .values(),
-  ]
-    .sort((left, right) => left.name.localeCompare(right.name))
-    .map((group) => ({
-      ...group,
-      skus: [...group.skus.values()].sort(
-        (left, right) =>
-          (left.colour ?? "").localeCompare(right.colour ?? "") ||
-          (left.size ?? "").localeCompare(right.size ?? "", undefined, {
-            numeric: true,
-          })
-      ),
-    }))
-
-  const at = (skuId: string, storeId: string) =>
-    cell.get(`${skuId}|${storeId}`) ?? 0
-  const rowTotal = (skuId: string) =>
-    stores.reduce((sum, store) => sum + at(skuId, store.id), 0)
-  const figure = (n: number, strong = false) =>
-    n > 0 ? (
-      <span className={strong ? "font-medium text-ink" : "text-ink"}>
-        {qty(n)}
-      </span>
-    ) : (
-      <span className="text-faint">—</span>
-    )
-
-  const NUM = "px-3 text-right text-[0.875rem] tabular-nums"
-  /// One rule between rows, and no per-row shapes: the table is one panel.
-  const ROW = "border-t border-hairline"
-  const FIRST = "sticky left-0 z-10 w-[17rem] min-w-[17rem] pr-3 pl-4 text-left"
-  const LAST = "sticky right-0 z-10 w-[6.5rem] min-w-[6.5rem]"
-
-  return (
-    <div className="overflow-x-auto rounded-inner border border-hairline">
-      <table className="w-full min-w-max border-separate border-spacing-0 text-[0.875rem]">
-        <thead>
-          <tr className="h-12">
-            <th className={cn(FIRST, "bg-soft font-normal text-mute")}>
-              Article
-            </th>
-            {stores.map((store) => (
-              <th
-                key={store.id}
-                className="min-w-[6.5rem] bg-soft px-3 text-right font-medium text-ink"
-              >
-                {store.name}
-              </th>
-            ))}
-            <th className={cn(LAST, NUM, "bg-soft font-medium text-ink")}>
-              Total
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {articles.map((article) => (
-            <Fragment key={article.id}>
-              <tr
-                className="h-[4.5rem] cursor-pointer"
-                onClick={() => flip(article.id)}
-              >
-                <td className={cn(FIRST, ROW, "bg-canvas")}>
-                  <button
-                    type="button"
-                    aria-expanded={opened.has(article.id)}
-                    aria-label={`${opened.has(article.id) ? "Fold" : "Open"} ${article.name}`}
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      flip(article.id)
-                    }}
-                    className="flex w-full items-center gap-3 text-left"
-                  >
-                    <ChevronRight
-                      className={cn(
-                        "size-4 shrink-0 text-mute transition-transform duration-150",
-                        opened.has(article.id) && "rotate-90"
-                      )}
-                    />
-                    <ArticleThumb
-                      url={article.image}
-                      name={article.name}
-                      colour={article.skus[0]?.colour}
-                      articleCode={article.code}
-                    />
-                    <span className="min-w-0">
-                      <span
-                        className="block truncate font-medium text-ink"
-                        title={article.name}
-                      >
-                        {article.name}
-                      </span>
-                      <span className="block truncate text-mute">
-                        {article.code}
-                      </span>
-                    </span>
-                  </button>
-                </td>
-                {stores.map((store) => (
-                  <td key={store.id} className={cn(NUM, ROW, "bg-canvas")}>
-                    {figure(
-                      article.skus.reduce(
-                        (sum, sku) => sum + at(sku.sku_id, store.id),
-                        0
-                      ),
-                      true
-                    )}
-                  </td>
-                ))}
-                <td className={cn(LAST, NUM, ROW, "bg-canvas font-medium")}>
-                  {figure(
-                    article.skus.reduce(
-                      (sum, sku) => sum + rowTotal(sku.sku_id),
-                      0
-                    ),
-                    true
-                  )}
-                </td>
-              </tr>
-              {opened.has(article.id) && article.skus.map((sku) => (
-                <tr key={sku.sku_id} className="h-14">
-                  <td className={cn(FIRST, ROW, "bg-soft pl-[4.75rem]")}>
-                    <span className="block truncate text-ink">
-                      {[sku.colour, sku.size].filter(Boolean).join(" · ") ||
-                        sku.sku_code}
-                    </span>
-                    <span className="block truncate text-mute">
-                      {sku.sku_code}
-                    </span>
-                  </td>
-                  {stores.map((store) => (
-                    <td key={store.id} className={cn(NUM, ROW, "bg-soft")}>
-                      {figure(at(sku.sku_id, store.id))}
-                    </td>
-                  ))}
-                  <td className={cn(LAST, NUM, ROW, "bg-soft font-medium")}>
-                    {figure(rowTotal(sku.sku_id), true)}
-                  </td>
-                </tr>
-              ))}
-            </Fragment>
-          ))}
-          <tr className="h-14">
-            <td
-              className={cn(FIRST, ROW, "bg-soft font-medium text-ink")}
-            >
-              Total
-            </td>
-            {stores.map((store) => (
-              <td key={store.id} className={cn(NUM, ROW, "bg-soft font-medium")}>
-                {figure(
-                  lines
-                    .filter((line) => line.destination_id === store.id)
-                    .reduce((sum, line) => sum + targetOf(line), 0),
-                  true
-                )}
-              </td>
-            ))}
-            <td className={cn(LAST, NUM, ROW, "bg-soft font-medium")}>
-              {figure(
-                lines.reduce((sum, line) => sum + targetOf(line), 0),
-                true
-              )}
-            </td>
-          </tr>
-        </tbody>
-      </table>
     </div>
   )
 }

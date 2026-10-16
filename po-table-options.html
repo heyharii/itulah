@@ -1,0 +1,426 @@
+<!doctype html>
+<html lang="en" data-v="a" data-device="desk">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PO Table Options</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400..700&family=JetBrains+Mono:wght@500..600&display=swap" rel="stylesheet" />
+<style>
+/* Purchase Orders list, six table versions on the same rows (owner, 2026-10-13:
+   "bikin beberapa versi prototype table di po"). The shell is the hub as migrated
+   to Lark (blue hero KPI, white-border cards); only the table changes. The one
+   picked becomes the hub's single table component. */
+:root {
+  --ink: #20242c; --text: #394150; --body: #565f6d; --mute: #666f7d; --faint: #9aa1ab;
+  --hairline: #eceef1; --edge: #e3e5e9; --well: #f2f3f5; --band: #f5f6f8; --zebra: #f8f9fb;
+  --accent: #2563eb; --accent-hover: #1d4ed8; --tint: #eaf0ff; --hero: #2457d6;
+  --red: #be123c; --green: #137a37; --amber: #a64a08; --info: #2457d6;
+  --sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { font: 400 15px/1.45 var(--sans); letter-spacing: -0.006em; color: var(--ink); background: #e8e9ec; -webkit-font-smoothing: antialiased; }
+button, input { font: inherit; color: inherit; letter-spacing: inherit; }
+button { cursor: pointer; border: 0; background: none; padding: 0; }
+svg.i { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+
+/* ── prototype bar (not the design) ── */
+.proto { position: fixed; inset: 0 0 auto; z-index: 100; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 9px 16px; background: #fff; border-bottom: 1px solid var(--hairline); font-size: 14px; }
+.proto .name { font-weight: 600; margin-right: 6px; }
+.seg { display: inline-flex; gap: 2px; padding: 3px; border-radius: 10px; background: #f0f0f2; }
+.seg button { height: 30px; padding: 0 11px; border-radius: 7px; color: var(--body); font-weight: 500; white-space: nowrap; }
+.seg button[aria-pressed="true"] { background: #fff; color: var(--ink); box-shadow: 0 1px 2px rgb(24 39 60 / 12%); }
+.proto .sp { flex: 1; }
+
+/* ── stage ── */
+.stage { position: fixed; top: var(--bar-h, 50px); left: 0; right: 0; bottom: 0; display: grid; place-items: center; }
+.app { width: 100%; height: 100%; overflow: hidden; background: #eef1f6; container: app / inline-size; }
+html[data-device="phone"] .app { width: 414px; height: min(896px, calc(100vh - var(--bar-h, 50px) - 24px)); border-radius: 44px; border: 10px solid #1b1c1f; box-shadow: 0 30px 80px rgb(0 0 0 / 25%); position: relative; }
+
+/* ── hub shell in the Lark look ── */
+.shell { display: grid; grid-template-columns: 64px 224px minmax(0, 1fr); height: 100%; }
+.rail { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 14px 0; }
+.rail .logo { width: 32px; height: 32px; border-radius: 8px; background: var(--ink); color: #fff; display: grid; place-items: center; font-weight: 700; margin-bottom: 12px; }
+.rail .ic { width: 40px; height: 40px; border-radius: 8px; display: grid; place-items: center; color: #5b6472; }
+.rail .ic.on { background: #fff; color: var(--ink); box-shadow: 0 1px 2px rgb(16 24 40 / 8%); }
+.panel { padding: 14px 10px; display: flex; flex-direction: column; gap: 2px; }
+.panel .ph { height: 36px; display: flex; align-items: center; padding: 0 10px; font-weight: 600; margin-bottom: 8px; }
+.panel a { height: 38px; display: flex; align-items: center; justify-content: space-between; padding: 0 10px; border-radius: 8px; color: var(--text); text-decoration: none; }
+.panel a.on { background: #fff; color: var(--accent); font-weight: 500; box-shadow: 0 1px 2px rgb(16 24 40 / 6%); }
+.panel a .n { color: var(--amber); font-size: 14px; }
+.page { margin: 8px 8px 8px 0; border-radius: 14px; background: #fff; box-shadow: 0 0 0 1px rgb(16 24 40 / 4%); overflow: auto; }
+.page-in { padding: 26px 32px 48px; }
+h1 { margin: 0; font-size: 30px; line-height: 36px; font-weight: 700; letter-spacing: -0.024em; }
+.kpis { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 18px; }
+.kpi { padding: 12px 22px 12px 16px; border-radius: 10px; border: 1px solid var(--edge); background: #fff; }
+.kpi:first-child { background: var(--hero); border-color: transparent; color: #fff; }
+.kpi .kl { font-size: 14px; color: var(--body); }
+.kpi:first-child .kl { color: #fff; }
+.kpi .kv { margin-top: 2px; font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+.tabs { display: inline-flex; gap: 2px; padding: 3px; margin-top: 20px; border-radius: 10px; background: #eeeff2; }
+.tabs button { height: 30px; padding: 0 14px; border-radius: 8px; font-weight: 500; color: var(--body); }
+.tabs button[aria-pressed="true"] { background: #fff; color: var(--ink); box-shadow: 0 1px 3px rgb(16 24 40 / 12%); }
+.tabs .c { margin-left: 5px; color: var(--mute); font-weight: 400; }
+.bar { display: flex; align-items: center; gap: 8px; margin-top: 16px; }
+.search { height: 36px; width: 240px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: 8px; background: var(--well); color: var(--mute); }
+.search input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; color: var(--ink); }
+.search input::placeholder { color: var(--mute); }
+.pill { height: 36px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border-radius: 8px; background: var(--well); color: var(--text); font-weight: 500; }
+.link { height: 36px; display: inline-flex; align-items: center; padding: 0 8px; border-radius: 8px; color: var(--accent); font-weight: 500; }
+.btn { height: 36px; display: inline-flex; align-items: center; padding: 0 16px; border-radius: 8px; background: var(--accent); color: #fff; font-weight: 600; transition: background-color 150ms ease, transform 160ms var(--ease-out); }
+.btn:active { transform: scale(0.97); }
+@media (hover: hover) and (pointer: fine) { .btn:hover { background: var(--accent-hover); } .link:hover { background: rgb(37 99 235 / 6%); } }
+.bar .sp { flex: 1; }
+.stamp { margin: 14px 4px 6px; display: flex; justify-content: flex-end; gap: 14px; font-size: 14px; color: var(--mute); }
+.stamp b { font-weight: 500; color: var(--accent); }
+
+/* ── the table: shared bones ── */
+.tw { margin-top: 4px; }
+table.po { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; font-variant-numeric: tabular-nums; }
+.po th { padding: 0 14px; text-align: left; font-size: 14px; font-weight: 500; color: var(--body); white-space: nowrap; }
+.po th.r, .po td.r { text-align: right; }
+.po th .so { display: inline-block; width: 12px; margin-left: 4px; color: var(--faint); opacity: 0; transition: opacity 120ms ease; }
+@media (hover: hover) and (pointer: fine) { .po th:hover .so { opacity: 1; } }
+.po th.sorted .so { opacity: 1; color: var(--body); }
+.po td { padding: 0 14px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
+.po tbody tr { cursor: pointer; }
+.sup { color: var(--ink); font-weight: 500; overflow: hidden; text-overflow: ellipsis; }
+.no { margin-top: 2px; font-size: 14px; color: var(--mute); overflow: hidden; text-overflow: ellipsis; }
+.no .m { font-family: var(--mono); font-size: 14px; font-weight: 500; color: var(--body); }
+.f b { display: block; font-weight: 500; color: var(--ink); }
+.f small { display: block; margin-top: 2px; font-size: 14px; color: var(--mute); }
+.f.zero b, .f.zero small { color: var(--faint); font-weight: 400; }
+.f.short b { color: var(--red); }
+.f .ex { color: var(--amber); font-weight: 500; margin-left: 4px; }
+.po td.late { color: var(--red); font-weight: 500; }
+.po td.late small { display: block; margin-top: 2px; font-size: 14px; font-weight: 400; }
+/* status */
+.st { display: inline-flex; align-items: center; gap: 7px; font-size: 14px; font-weight: 500; white-space: nowrap; }
+.st i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; display: none; }
+.st.part { color: var(--info); } .st.act { color: var(--body); } .st.done { color: var(--green); }
+.go { height: 30px; padding: 0 12px; border-radius: 999px; background: var(--accent); color: #fff; font-size: 14px; font-weight: 600; transition: background-color 150ms ease, transform 160ms var(--ease-out); position: relative; }
+.go::after { content: ""; position: absolute; inset: -7px -4px; }
+.go:active { transform: scale(0.97); }
+@media (hover: hover) and (pointer: fine) { .go:hover { background: var(--accent-hover); } }
+.po tfoot td { font-weight: 500; color: var(--ink); }
+.po tfoot .f small { font-weight: 400; }
+
+/* A · Band — the hub today: soft header band with round ends, hairlines between rows, chip status */
+html[data-v="a"] .po th { height: 40px; background: var(--band); }
+html[data-v="a"] .po th:first-child { border-radius: 10px 0 0 10px; }
+html[data-v="a"] .po th:last-child { border-radius: 0 10px 10px 0; }
+html[data-v="a"] .po td { height: 68px; border-top: 1px solid var(--hairline); }
+html[data-v="a"] .po tbody tr:first-child td { border-top: 0; }
+html[data-v="a"] .st { height: 26px; padding: 0 10px; border-radius: 6px; }
+html[data-v="a"] .st.part { background: #eaf0ff; } html[data-v="a"] .st.act { background: #f0f1f4; } html[data-v="a"] .st.done { background: #e7f6ec; }
+html[data-v="a"] .po tfoot td { height: 60px; background: var(--band); border-top: 0; }
+html[data-v="a"] .po tfoot td:first-child { border-radius: 10px 0 0 10px; } html[data-v="a"] .po tfoot td:last-child { border-radius: 0 10px 10px 0; }
+@media (hover: hover) and (pointer: fine) { html[data-v="a"] .po tbody tr:hover td { background: #f7f9fe; } }
+
+/* B · Lines — Apple Mail/Finder: no fills, one rule under the header, rules inset to the text, status a dot and a word */
+html[data-v="b"] .po th { height: 36px; border-bottom: 1px solid var(--edge); color: var(--mute); }
+html[data-v="b"] .po td { height: 64px; background: linear-gradient(var(--hairline), var(--hairline)) 14px 0 / calc(100% - 14px) 1px no-repeat; }
+html[data-v="b"] .po td:not(:first-child) { background-position: 0 0; background-size: 100% 1px; }
+html[data-v="b"] .po td:last-child { background-size: calc(100% - 14px) 1px; }
+html[data-v="b"] .po tbody tr:first-child td { background: none; }
+html[data-v="b"] .st i { display: block; }
+html[data-v="b"] .st.act { color: var(--text); font-weight: 400; } html[data-v="b"] .st.act i { background: #b6bbc4; }
+html[data-v="b"] .po tfoot td { height: 56px; border-top: 1px solid var(--edge); }
+@media (hover: hover) and (pointer: fine) { html[data-v="b"] .po tbody tr:hover td { background-color: #f7f8fa; } }
+
+/* C · Zebra — Lark Base / Numbers: no lines, every other row a soft fill with round ends */
+html[data-v="c"] .po th { height: 40px; }
+html[data-v="c"] .po td { height: 64px; }
+html[data-v="c"] .po tbody tr:nth-child(odd) td { background: var(--zebra); }
+html[data-v="c"] .po tbody td:first-child { border-radius: 10px 0 0 10px; }
+html[data-v="c"] .po tbody td:last-child { border-radius: 0 10px 10px 0; }
+html[data-v="c"] .st { height: 26px; padding: 0 10px; border-radius: 6px; }
+html[data-v="c"] .st.part { background: #eaf0ff; } html[data-v="c"] .st.act { background: #eceef2; } html[data-v="c"] .st.done { background: #e7f6ec; }
+html[data-v="c"] .po tfoot td { height: 56px; border-top: 1px solid var(--edge); }
+@media (hover: hover) and (pointer: fine) { html[data-v="c"] .po tbody tr:hover td { background: #eef3ff; } }
+
+/* D · Row cards — Lark task list / Linear: each order a white card on a soft canvas, no rules */
+html[data-v="d"] .tw { padding: 6px 10px 10px; border-radius: 14px; background: var(--band); }
+html[data-v="d"] table.po { border-spacing: 0 8px; }
+html[data-v="d"] .po th { height: 34px; }
+html[data-v="d"] .po td { height: 68px; background: #fff; box-shadow: 0 1px 0 rgb(16 24 40 / 4%); }
+html[data-v="d"] .po tbody td:first-child { border-radius: 12px 0 0 12px; box-shadow: -1px 0 0 rgb(16 24 40 / 5%), 0 1px 0 rgb(16 24 40 / 4%); }
+html[data-v="d"] .po tbody td:last-child { border-radius: 0 12px 12px 0; }
+html[data-v="d"] .st { height: 26px; padding: 0 10px; border-radius: 6px; }
+html[data-v="d"] .st.part { background: #eaf0ff; } html[data-v="d"] .st.act { background: #f0f1f4; } html[data-v="d"] .st.done { background: #e7f6ec; }
+html[data-v="d"] .po tfoot td { height: 52px; }
+@media (hover: hover) and (pointer: fine) { html[data-v="d"] .po tbody tr:hover td { box-shadow: 0 1px 0 rgb(16 24 40 / 4%), 0 4px 12px -6px rgb(16 24 40 / 18%); } }
+
+/* E · Compact — for a long list read all day: 48px rows, the money beside the pieces on one line, the status a coloured word */
+html[data-v="e"] .po th { height: 36px; background: var(--band); }
+html[data-v="e"] .po th:first-child { border-radius: 8px 0 0 8px; } html[data-v="e"] .po th:last-child { border-radius: 0 8px 8px 0; }
+html[data-v="e"] .po td { height: 48px; border-top: 1px solid var(--hairline); }
+html[data-v="e"] .po tbody tr:first-child td { border-top: 0; }
+html[data-v="e"] .who { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+html[data-v="e"] .who .no { margin: 0; flex-shrink: 0; }
+html[data-v="e"] .who .no .it { display: none; }
+html[data-v="e"] .f b, html[data-v="e"] .f small { display: inline; margin: 0; }
+html[data-v="e"] .f small { margin-left: 8px; }
+html[data-v="e"] .po td.late small { display: none; }
+html[data-v="e"] .po col:nth-child(2) { width: 130px !important; }
+html[data-v="e"] .po col:nth-child(3), html[data-v="e"] .po col:nth-child(4) { width: 240px !important; }
+html[data-v="e"] .po tfoot td { height: 48px; border-top: 1px solid var(--edge); }
+html[data-v="e"] .go { height: 28px; }
+@media (hover: hover) and (pointer: fine) { html[data-v="e"] .po tbody tr:hover td { background: #f7f9fe; } }
+
+/* F · Sections — Apple's grouped list: the orders under what they wait for, a heading row per group */
+html[data-v="f"] .po th { height: 36px; border-bottom: 1px solid var(--edge); color: var(--mute); }
+html[data-v="f"] .po td { height: 64px; border-top: 1px solid var(--hairline); }
+html[data-v="f"] .po tr.sec td { height: 44px; padding-top: 14px; border-top: 0; background: none; cursor: default; font-weight: 600; color: var(--ink); }
+html[data-v="f"] .po tr.sec td span { margin-left: 6px; font-weight: 400; color: var(--mute); }
+html[data-v="f"] .po tr.sec.red td { color: var(--red); }
+html[data-v="f"] .po tr.sec + tr td { border-top: 0; }
+html[data-v="f"] .st i { display: block; }
+html[data-v="f"] .st.act { color: var(--text); font-weight: 400; } html[data-v="f"] .st.act i { background: #b6bbc4; }
+html[data-v="f"] .po tfoot td { height: 56px; border-top: 1px solid var(--edge); }
+@media (hover: hover) and (pointer: fine) { html[data-v="f"] .po tbody tr:not(.sec):hover td { background: #f7f8fa; } }
+
+/* G · H · I — calm: one size, one font, grey for what is secondary, colour only for late and the button */
+html[data-v="g"] .po th, html[data-v="h"] .po th, html[data-v="i"] .po th { height: 44px; padding: 0 20px; border-bottom: 1px solid var(--edge); font-size: 15px; font-weight: 400; color: var(--mute); }
+html[data-v="g"] .po td, html[data-v="h"] .po td, html[data-v="i"] .po td { padding: 0 20px; font-size: 15px; color: var(--ink); border-top: 1px solid var(--hairline); }
+html[data-v="g"] .po td, html[data-v="i"] .po td { height: 58px; }
+html[data-v="h"] .po td { height: 72px; }
+html[data-v="g"] .po tbody tr:first-child td, html[data-v="h"] .po tbody tr:first-child td { border-top: 0; }
+:is(html[data-v="g"], html[data-v="h"], html[data-v="i"]) .sup { font-weight: 500; }
+:is(html[data-v="g"], html[data-v="h"], html[data-v="i"]) .q { color: var(--mute); font-weight: 400; }
+:is(html[data-v="g"], html[data-v="h"], html[data-v="i"]) div.q { margin-top: 3px; }
+:is(html[data-v="g"], html[data-v="h"], html[data-v="i"]) .po td.late { font-weight: 400; color: var(--red); }
+:is(html[data-v="g"], html[data-v="h"], html[data-v="i"]) .po td.late .q { color: var(--red); }
+:is(html[data-v="g"], html[data-v="h"], html[data-v="i"]) .sw { color: var(--mute); }
+:is(html[data-v="g"], html[data-v="h"], html[data-v="i"]) .po tfoot td { height: 56px; border-top: 1px solid var(--edge); font-weight: 400; color: var(--mute); }
+html[data-v="i"] .po tr.sec td { height: 48px; padding-top: 18px; border-top: 0; font-weight: 600; color: var(--ink); cursor: default; }
+html[data-v="i"] .po tr.sec td span { margin-left: 6px; font-weight: 400; color: var(--mute); }
+html[data-v="i"] .po tr.sec.red td { color: var(--red); }
+html[data-v="i"] .po tr.sec + tr td { border-top: 1px solid var(--edge); }
+@media (hover: hover) and (pointer: fine) { :is(html[data-v="g"], html[data-v="h"], html[data-v="i"]) .po tbody tr:not(.sec):hover td { background: #f7f8fa; } }
+
+/* the open row, in every version */
+.po tbody tr.on td { background-color: #eef3ff !important; }
+
+/* ── phone: the same version as a list of cards ── */
+.pbar, .dock { display: none; }
+@container app (max-width: 640px) {
+  .shell { display: block; height: 100%; }
+  .rail, .panel { display: none; }
+  .page { margin: 0; border-radius: 0; box-shadow: none; height: 100%; }
+  .page-in { padding: 54px 16px 120px; }
+  h1 { font-size: 28px; line-height: 34px; }
+  .kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .kpi { padding: 10px 12px; } .kpi .kv { font-size: 17px; }
+  .bar, .stamp, .tabs { display: none; }
+  .po thead, .po colgroup { display: none; }
+  table.po, .po tbody, .po tfoot { display: block; }
+  .po tr { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; padding: 14px 12px; }
+  .po td { height: auto !important; padding: 0 !important; border: 0 !important; white-space: normal; border-radius: 0 !important; box-shadow: none !important; background: none; }
+  .po td.c-who { grid-column: 1; }
+  .po td.c-ord { grid-column: 2; grid-row: 1; text-align: right; }
+  .po td.c-del { grid-column: 1; grid-row: 2; font-size: 14px; color: var(--mute); }
+  .po td.c-del::before { content: "Delivery "; }
+  .po td.c-del.late { color: var(--red); }
+  .po td.c-rec, .po td.c-po { display: none; }
+  .po td.c-val { grid-column: 2; grid-row: 1; text-align: right; }
+  .po td.c-st { grid-column: 2; grid-row: 2; text-align: right; }
+  .po tfoot tr { margin-top: 8px; }
+  .po tfoot td.c-del, .po tfoot td.c-st, .po tfoot td.c-rec { display: none; }
+  .po tr.sec { padding: 18px 4px 6px !important; }
+  .po tr.sec td { grid-column: 1 / -1; }
+  html[data-v="a"] .po tbody tr { border-top: 1px solid var(--hairline); }
+  html[data-v="a"] .po tbody tr:first-child { border-top: 0; }
+  html[data-v="b"] .po tbody tr + tr { box-shadow: inset 12px 1px 0 -11px #fff, inset 0 1px 0 var(--hairline); }
+  html[data-v="c"] .po tbody tr:nth-child(odd) { background: var(--zebra); border-radius: 12px; }
+  html[data-v="d"] .tw { padding: 2px 8px 8px; }
+  html[data-v="d"] .po tbody tr { margin-top: 8px; background: #fff; border-radius: 12px; box-shadow: 0 0 0 1px rgb(16 24 40 / 5%); }
+  html[data-v="e"] .po tbody tr { padding: 10px 4px; border-top: 1px solid var(--hairline); }
+  html[data-v="e"] .po tbody tr:first-child { border-top: 0; }
+  html[data-v="f"] .po tbody tr:not(.sec) { border-top: 1px solid var(--hairline); }
+  :is(html[data-v="g"], html[data-v="h"], html[data-v="i"]) .po tbody tr:not(.sec) { border-top: 1px solid var(--hairline); padding: 14px 4px; }
+  :is(html[data-v="g"], html[data-v="h"], html[data-v="i"]) .po tbody tr:first-child { border-top: 0; }
+  :is(html[data-v="g"], html[data-v="h"], html[data-v="i"]) .po td.c-del { font-size: 15px; }
+  :is(html[data-v="g"], html[data-v="h"], html[data-v="i"]) .po td.c-del:not(.late) { color: var(--mute); }
+  html[data-v="f"] .po tr.sec + tr { border-top: 0 !important; }
+  .pbar { display: flex; position: absolute; top: 0; left: 0; right: 0; height: 44px; align-items: center; justify-content: center; font-weight: 600; background: rgb(255 255 255 / 88%); backdrop-filter: blur(20px); z-index: 5; }
+  .dock { display: flex; position: absolute; z-index: 10; left: 16px; right: 16px; bottom: 26px; gap: 10px; }
+  .dock .cap { flex: 1; height: 48px; display: flex; align-items: center; gap: 4px; padding: 0 6px; border-radius: 999px; background: rgb(255 255 255 / 88%); backdrop-filter: blur(20px) saturate(180%); box-shadow: 0 0 0 1px rgb(16 24 40 / 6%), 0 8px 24px rgb(16 24 40 / 12%); }
+  .dock .cap button { height: 38px; padding: 0 12px; border-radius: 999px; color: var(--text); }
+  .dock .cap .grow { flex: 1; text-align: left; color: var(--mute); }
+  .dock .fab { width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: #fff; box-shadow: 0 8px 20px rgb(37 99 235 / 30%); }
+  .dock .fab svg.i { width: 22px; height: 22px; stroke-width: 2.2; }
+}
+</style>
+</head>
+<body>
+<div class="proto" id="proto">
+  <span class="name">PO table</span>
+  <span class="seg" id="vers"></span>
+  <span class="sp"></span>
+  <span class="seg" data-k="device"><button data-v="desk">Desktop</button><button data-v="phone">Phone</button></span>
+</div>
+<div class="stage"><div class="app" id="app"></div></div>
+<script>
+const $ = (id) => document.getElementById(id);
+const root = document.documentElement;
+const ID = (n) => n.toLocaleString("id-ID");
+const RP = (n) => "Rp " + ID(n);
+const I = (p) => `<svg class="i" viewBox="0 0 24 24">${p}</svg>`;
+const IC = {
+  search: I('<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>'),
+  filter: I('<path d="M3 6h18M7 12h10M10 18h4"/>'),
+  plus: I('<path d="M12 5v14M5 12h14"/>'),
+  home: I('<path d="M3 11 12 4l9 7v9H3z"/>'), cart: I('<circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M2 3h3l2.5 12h12L22 7H6"/>'),
+  shirt: I('<path d="M8 3 3 6l2 5 3-1v11h8V10l3 1 2-5-5-3c0 2-2 3-4 3S8 5 8 3Z"/>'), truck: I('<path d="M3 6h11v10H3zM14 9h4l3 3v4h-7"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/>'),
+  box: I('<path d="M21 8 12 3 3 8v8l9 5 9-5Z"/><path d="m3 8 9 5 9-5M12 13v8"/>'), tag: I('<path d="M20 12 12 20l-9-9V4h7z"/><circle cx="7.5" cy="7.5" r="1.5"/>'),
+  store: I('<path d="M4 10v10h16V10M3 4h18l-1 6H4z"/>'), bank: I('<path d="M3 10h18M5 10v8M9.5 10v8M14.5 10v8M19 10v8M3 21h18M12 3l9 5H3z"/>'),
+};
+const VERSIONS = [
+  ["a", "A · Band"],
+  ["b", "B · Lines"],
+  ["c", "C · Zebra"],
+  ["d", "D · Row cards"],
+  ["e", "E · Compact"],
+  ["f", "F · Sections"],
+  ["g", "G · Calm, one line"],
+  ["h", "H · Calm, two lines"],
+  ["i", "I · Calm, sections"],
+];
+/* G–I answer "terlalu berdekatan, banyak warna dan size" (owner, 2026-10-13):
+   one size (15) and one font for every cell, grey only for what is secondary,
+   red only for a late delivery, blue only for the one button; one figure per
+   cell (pieces as "10 of 12", the order's value once); more air between columns. */
+const CALM = new Set(["g", "h", "i"]);
+/* supplier, PO, items, delivery, days late, ordered pcs, ordered Rp, received pcs, received Rp, beyond, state */
+const ROWS = [
+  ["Batik Pesisir Pekalongan, CV", "PO-121026-016", 1, "13 Oct 2026", 0, 12, 1344000, 10, 1120000, 0, "review"],
+  ["Rajut Prima Knitting, PT", "PO-121026-015", 1, "13 Oct 2026", 0, 12, 1188000, 11, 1089000, 0, "review"],
+  ["Kids Ceria Garment, PT", "PO-121026-029", 1, "10 Oct 2026", 3, 36, 1116000, 0, 0, 0, "act"],
+  ["Denim Indah, CV", "PO-121026-028", 2, "09 Oct 2026", 4, 28, 3696000, 0, 0, 0, "act"],
+  ["Tekstil Mulia Jaya, PT", "PO-121026-023", 1, "08 Oct 2026", 5, 16, 1152000, 0, 0, 0, "act"],
+  ["Tekstil Mulia Jaya, PT", "PO-121026-013", 1, "13 Oct 2026", 0, 9, 756000, 8, 672000, 2, "part"],
+  ["Tas Kulit Garut, CV", "PO-121026-008", 2, "13 Oct 2026", 0, 30, 2766000, 24, 2076000, 0, "part"],
+  ["Rajut Prima Knitting, PT", "PO-121026-007", 2, "14 Oct 2026", 0, 42, 3990000, 15, 1380000, 0, "part"],
+  ["Garmen Nusantara, PT", "PO-121026-018", 1, "22 Oct 2026", 0, 60, 4320000, 0, 0, 0, "act"],
+  ["Sepatu Sejahtera, CV", "PO-121026-019", 2, "24 Oct 2026", 0, 24, 4776000, 0, 0, 0, "act"],
+  ["Langkah Nusantara Footwear, PT", "PO-121026-030", 2, "27 Oct 2026", 0, 36, 5342760, 0, 0, 0, "act"],
+  ["Aktif Sportwear Indonesia, PT", "PO-121026-031", 3, "29 Oct 2026", 0, 78, 3738000, 0, 0, 0, "act"],
+];
+const SECTIONS = [
+  ["review", "Count to review", ""],
+  ["late", "Overdue", "red"],
+  ["part", "Receiving", ""],
+  ["act", "Waiting for delivery", ""],
+];
+const items = (n) => `${n} ${n === 1 ? "item" : "items"}`;
+const S = { v: "a", device: "desk", on: -1 };
+try { Object.assign(S, JSON.parse(localStorage.getItem("po-table-options") || "{}")); } catch {}
+{ const q = new URLSearchParams(location.search); if (q.get("v")) S.v = q.get("v"); if (q.get("device")) S.device = q.get("device"); }
+
+function status(k) {
+  if (k === "review") return `<button class="go" data-review>Review count</button>`;
+  if (k === "part") return `<span class="st part"><i></i>Partially received</span>`;
+  return `<span class="st act"><i></i>Active</span>`;
+}
+function row(r, i) {
+  const [sup, no, n, date, late, op, orp, rp, rrp, ex, k] = r;
+  const short = k === "review" && rp < op;
+  return `<tr data-i="${i}"${S.on === i ? ' class="on"' : ""}>
+    <td class="c-who"><div class="who"><div class="sup">${sup}</div><div class="no"><span class="m">${no}</span><span class="it"> · ${items(n)}</span></div></div></td>
+    <td class="c-del${late ? " late" : ""}">${date}${late ? `<small>${late} days late</small>` : ""}</td>
+    <td class="c-ord r f"><b>${ID(op)} pcs</b><small>${RP(orp)}</small></td>
+    <td class="c-rec r f${rp ? "" : " zero"}${short ? " short" : ""}"><b>${ID(rp)} pcs${ex ? `<span class="ex">+${ex}</span>` : ""}</b><small>${RP(rrp)}</small></td>
+    <td class="c-st">${status(k)}</td></tr>`;
+}
+function calmStatus(k) {
+  if (k === "review") return `<button class="go" data-review>Review count</button>`;
+  return `<span class="sw">${k === "part" ? "Receiving" : "Waiting"}</span>`;
+}
+function rowCalm(r, i) {
+  const [sup, no, n, date, late, op, orp, rp, , , k] = r;
+  const two = S.v === "h";
+  return `<tr data-i="${i}"${S.on === i ? ' class="on"' : ""}>
+    <td class="c-who"><div class="sup">${sup}</div>${two ? `<div class="q">${no} · ${items(n)}</div>` : ""}</td>
+    ${two ? "" : `<td class="c-po q">${no}</td>`}
+    <td class="c-del${late ? " late" : ""}">${date}${two && late ? `<div class="q late">${late} days late</div>` : ""}</td>
+    <td class="c-rec r${rp ? "" : " q"}">${ID(rp)} of ${ID(op)} pcs</td>
+    <td class="c-val r">${RP(orp)}</td>
+    <td class="c-st">${calmStatus(k)}</td></tr>`;
+}
+function body() {
+  if (CALM.has(S.v) && S.v !== "i") return ROWS.map(rowCalm).join("");
+  if (S.v !== "f" && S.v !== "i") return ROWS.map(row).join("");
+  const draw = S.v === "i" ? rowCalm : row;
+  const span = S.v === "i" ? 6 : 5;
+  const keyOf = (r) => (r[10] === "review" ? "review" : r[4] ? "late" : r[10]);
+  return SECTIONS.map(([key, label, tone]) => {
+    const rows = ROWS.map((r, i) => [r, i]).filter(([r]) => keyOf(r) === key);
+    if (!rows.length) return "";
+    return `<tr class="sec${tone ? " " + tone : ""}"><td colspan="${span}">${label}<span>${rows.length}</span></td></tr>` + rows.map(([r, i]) => draw(r, i)).join("");
+  }).join("");
+}
+function calmTable(sum) {
+  const two = S.v === "h";
+  return `<colgroup><col />${two ? "" : '<col style="width:170px" />'}<col style="width:150px" /><col style="width:150px" /><col style="width:160px" /><col style="width:170px" /></colgroup>
+    <thead><tr><th>Supplier</th>${two ? "" : "<th>PO</th>"}<th class="sorted">Delivery<span class="so">↑</span></th><th class="r">Received</th><th class="r">Value</th><th>Status</th></tr></thead>
+    <tbody>${body()}</tbody>
+    <tfoot><tr><td class="c-who">${ROWS.length} orders</td>${two ? "" : '<td class="c-po"></td>'}<td class="c-del"></td>
+      <td class="c-rec r">${ID(sum(7))} of ${ID(sum(5))} pcs</td><td class="c-val r">${RP(sum(6))}</td><td class="c-st"></td></tr></tfoot>`;
+}
+function page() {
+  const sum = (j) => ROWS.reduce((a, r) => a + r[j], 0);
+  const ex = sum(9);
+  return `<div class="page-in">
+    <h1>Purchase Orders</h1>
+    <div class="kpis">
+      <div class="kpi"><div class="kl">Orders</div><div class="kv">19</div></div>
+      <div class="kpi"><div class="kl">Still open</div><div class="kv">19</div></div>
+      <div class="kpi"><div class="kl">Overdue</div><div class="kv">4</div></div>
+      <div class="kpi"><div class="kl">On order</div><div class="kv">Rp 49,1 M</div></div>
+    </div>
+    <div class="tabs"><button aria-pressed="true">Active PO<span class="c">19</span></button><button aria-pressed="false">Completed PO<span class="c">12</span></button><button aria-pressed="false">Cancelled PO<span class="c">2</span></button></div>
+    <div class="bar"><label class="search">${IC.search}<input placeholder="Search orders" /></label><button class="pill">${IC.filter}Filter</button><span class="sp"></span><button class="link">Columns</button><button class="btn">New order</button></div>
+    <div class="stamp"><span>Updated 22:14</span><b>Refresh</b></div>
+    <div class="tw"><table class="po">${CALM.has(S.v) ? calmTable(sum) : `
+      <colgroup><col /><col style="width:150px" /><col style="width:170px" /><col style="width:170px" /><col style="width:180px" /></colgroup>
+      <thead><tr><th>PO<span class="so">↕</span></th><th class="sorted">Delivery date<span class="so">↑</span></th><th class="r">Ordered<span class="so">↕</span></th><th class="r">Received<span class="so">↕</span></th><th>Status<span class="so">↕</span></th></tr></thead>
+      <tbody>${body()}</tbody>
+      <tfoot><tr><td class="c-who">${ROWS.length} orders</td><td class="c-del"></td>
+        <td class="c-ord r f"><b>${ID(sum(5))} pcs</b><small>${RP(sum(6))}</small></td>
+        <td class="c-rec r f"><b>${ID(sum(7))} pcs${ex ? `<span class="ex">+${ex}</span>` : ""}</b><small>${RP(sum(8))}</small></td><td class="c-st"></td></tr></tfoot>`}
+    </table></div>
+  </div>`;
+}
+function render() {
+  root.dataset.v = S.v; root.dataset.device = S.device;
+  try { localStorage.setItem("po-table-options", JSON.stringify(S)); } catch {}
+  $("vers").innerHTML = VERSIONS.map(([v, t]) => `<button data-ver="${v}" aria-pressed="${S.v === v}">${t}</button>`).join("");
+  document.querySelectorAll('[data-k="device"] button').forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.v === S.device)));
+  $("app").innerHTML = `<div class="shell">
+      <nav class="rail"><span class="logo">C</span><span class="ic">${IC.home}</span><span class="ic on">${IC.cart}</span><span class="ic">${IC.shirt}</span><span class="ic">${IC.truck}</span><span class="ic">${IC.box}</span><span class="ic">${IC.tag}</span><span class="ic">${IC.store}</span><span class="ic">${IC.bank}</span></nav>
+      <nav class="panel"><div class="ph">Procurement</div><a class="on">Purchase Orders<span class="n">2</span></a><a>Suppliers</a><a>Return PO<span class="n">2</span></a></nav>
+      <main class="page">${page()}</main></div>
+    <div class="pbar">Purchase Orders</div>
+    <div class="dock"><div class="cap"><button>Active</button><button class="grow">Search</button><button>Filter</button></div><button class="fab" aria-label="New order">${IC.plus}</button></div>`;
+  root.style.setProperty("--bar-h", $("proto").offsetHeight + "px");
+}
+document.addEventListener("click", (e) => {
+  const v = e.target.closest("[data-ver]"); if (v) { S.v = v.dataset.ver; return render(); }
+  const d = e.target.closest('[data-k="device"] button'); if (d) { S.device = d.dataset.v; return render(); }
+  if (e.target.closest("[data-review]")) return;
+  const r = e.target.closest("tbody tr[data-i]"); if (r) { S.on = S.on === +r.dataset.i ? -1 : +r.dataset.i; render(); }
+});
+addEventListener("keydown", (e) => {
+  if (e.target.closest("input")) return;
+  const n = "123456789".indexOf(e.key); if (n >= 0) { S.v = VERSIONS[n][0]; render(); }
+});
+addEventListener("resize", () => root.style.setProperty("--bar-h", $("proto").offsetHeight + "px"));
+render();
+</script>
+</body>
+</html>

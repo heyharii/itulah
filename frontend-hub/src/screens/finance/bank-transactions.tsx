@@ -5,15 +5,19 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query"
-import { Fragment, useMemo, useState } from "react"
+import type { ColumnDef } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
+import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { DataTable } from "@/components/ui/data-table"
 import { Day } from "@/components/ui/day"
 import { Fab } from "@/components/ui/fab"
 import { Field, Input, Money, Select, Textarea } from "@/components/ui/field"
+import { ExpandingSearch } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Status } from "@/components/ui/pill"
 import { Toolbar } from "@/components/ui/segmented"
@@ -34,9 +38,9 @@ import {
   todayIso,
 } from "@/screens/finance/chart"
 import { useUnitName } from "@/screens/finance/hooks"
-import { CardFigure, PhoneList } from "@/components/ui/phone-cards"
+import { tableSetup, type TableSetup } from "@/lib/table"
 import { AccountPicker, UnitSelect } from "@/screens/finance/parts"
-import { Code, Grid, Note, Td, Th } from "@/screens/finance-final/parts"
+import { Code, Note } from "@/screens/finance-final/parts"
 import { useStatements } from "@/screens/finance-lab-2/hooks"
 import type { BankStatementLineRow, BankStatementRow } from "@itulah/contract"
 
@@ -203,28 +207,141 @@ export function BankTransactions() {
     year !== "" ||
     status !== ""
 
+  /// The lines, newest first, a band for each month. A card is the description
+  /// over who and what, the date under it, the status at the right and the
+  /// amount, in or out, as its one figure.
+  const columns = useMemo<ColumnDef<TableSetup, MergedLine>[]>(
+    () => [
+      {
+        id: "date",
+        accessorFn: (row) => row.line.value_date,
+        header: "Date",
+        size: 110,
+        enableSorting: false,
+        meta: { card: "meta" },
+        cell: ({ row }) => (
+          <span className="text-body">
+            {dayMonth(row.original.line.value_date)}
+          </span>
+        ),
+      },
+      {
+        id: "description",
+        accessorFn: (row) => row.line.description,
+        header: "Description",
+        size: 360,
+        enableSorting: false,
+        meta: { card: "title", grow: 320 },
+        cell: ({ row }) => {
+          const { line } = row.original
+          const reference =
+            line.reference !== null && !INTERNAL.test(line.reference)
+              ? line.reference
+              : null
+          const note = [
+            line.party_name,
+            reference,
+            banksShown > 1
+              ? (row.original.bank ?? row.original.accountName)
+              : null,
+          ].filter((part) => part !== null && part !== "")
+          return (
+            <span className="flex min-w-0 flex-col">
+              <span className="truncate text-ink" title={line.description}>
+                {line.description}
+              </span>
+              {note.length > 0 && (
+                <span className="truncate text-[0.9375rem] font-normal text-mute">
+                  {note.join(" · ")}
+                </span>
+              )}
+            </span>
+          )
+        },
+      },
+      {
+        id: "status",
+        accessorFn: (row) =>
+          row.line.unallocated_minor === 0 ? "Reconciled" : "Unreconciled",
+        header: "Status",
+        size: 150,
+        enableSorting: false,
+        meta: { card: "status", priority: 2 },
+        cell: ({ row }) => (
+          <StatusDot reconciled={row.original.line.unallocated_minor === 0} />
+        ),
+      },
+      {
+        id: "debit",
+        accessorFn: (row) =>
+          row.line.debit_minor > 0 ? row.line.debit_minor : null,
+        header: "Debit",
+        size: 160,
+        enableSorting: false,
+        meta: { align: "right", card: "metric" },
+        cell: ({ row }) =>
+          row.original.line.debit_minor > 0 ? (
+            <span className="text-ink">
+              {money(row.original.line.debit_minor)}
+            </span>
+          ) : (
+            <span className="text-hairline-strong">·</span>
+          ),
+      },
+      {
+        id: "credit",
+        accessorFn: (row) =>
+          row.line.credit_minor > 0 ? row.line.credit_minor : null,
+        header: "Credit",
+        size: 160,
+        enableSorting: false,
+        meta: { align: "right", card: "metric" },
+        cell: ({ row }) =>
+          row.original.line.credit_minor > 0 ? (
+            <span className="font-medium text-ok-fg">
+              {money(row.original.line.credit_minor)}
+            </span>
+          ) : (
+            <span className="text-hairline-strong">·</span>
+          ),
+      },
+    ],
+    [banksShown]
+  )
+
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: shown,
+        columns,
+        getRowId: (row: MergedLine) => row.line.line_id,
+      }),
+      [shown, columns]
+    )
+  )
+
   return (
     <PageContent>
       <PageHeader
-        className="max-md:hidden"
         crumb="Finance · Banking"
         title="Bank Transactions"
         actions={
-          <Button variant="primary" onClick={() => setUploading(true)}>
-            Upload statement
-          </Button>
+          phone ? undefined : (
+            <Button variant="primary" onClick={() => setUploading(true)}>
+              Upload statement
+            </Button>
+          )
         }
       />
       <Fab label="Upload statement" onClick={() => setUploading(true)} />
 
-      <div className="flex flex-col gap-4">
-        <Toolbar>
-          <Input
+      <div className="flex flex-col">
+        <Toolbar className="group/bar">
+          <ExpandingSearch
             value={needle}
-            onChange={(event) => setNeedle(event.target.value)}
-            aria-label="Search bank transactions"
-            placeholder="Search bank transactions"
-            className="h-control w-64"
+            onChange={setNeedle}
+            label="Search bank transactions"
           />
           <Select
             aria-label="Bank account"
@@ -276,7 +393,7 @@ export function BankTransactions() {
             ))}
           </Select>
           <Toolbar.Spacer />
-          <span className="text-[0.875rem] text-mute">
+          <span className="text-[0.9375rem] text-mute">
             {count(shown.length)} lines · {money(deposits)} in ·{" "}
             {money(withdrawals)} out
           </span>
@@ -290,9 +407,7 @@ export function BankTransactions() {
             allRows.length === 0 ? (
               <Card>
                 <EmptyState>
-                  No bank statement has been uploaded yet. Upload one and its
-                  lines land here, whether or not anybody has agreed them
-                  against the books.
+                  No bank statement has been uploaded yet.
                 </EmptyState>
               </Card>
             ) : shown.length === 0 ? (
@@ -305,94 +420,27 @@ export function BankTransactions() {
                       : "Nothing to show."}
                 </EmptyState>
               </Card>
-            ) : phone ? (
-              <div className="flex flex-col gap-2.5">
-                {shown.map((row, index) => {
-                  const monthKey = row.line.value_date.slice(0, 7)
-                  const first =
-                    index === 0 ||
-                    shown[index - 1].line.value_date.slice(0, 7) !== monthKey
-                  const { line } = row
-                  const reconciled = line.unallocated_minor === 0
-                  const reference =
-                    line.reference !== null && !INTERNAL.test(line.reference)
-                      ? line.reference
-                      : null
-                  const note = [
-                    line.party_name,
-                    reference,
-                    banksShown > 1 ? (row.bank ?? row.accountName) : null,
-                  ].filter((part) => part !== null && part !== "")
-                  return (
-                    <Fragment key={line.line_id}>
-                      {first && (
-                        <h3 className="px-1 pt-2 text-[0.9375rem] font-semibold text-ink first:pt-0">
-                          {monthYear(monthKey, true)}
-                        </h3>
-                      )}
-                      <PhoneList
-                        rows={[
-                          {
-                            key: line.line_id,
-                            title: line.description,
-                            line:
-                              note.length > 0 ? note.join(" · ") : undefined,
-                            lead:
-                              line.credit_minor > 0 ? (
-                                <CardFigure
-                                  value={money(line.credit_minor)}
-                                  caption="in"
-                                />
-                              ) : (
-                                <CardFigure
-                                  value={money(line.debit_minor)}
-                                  caption="out"
-                                />
-                              ),
-                            foot: day(line.value_date),
-                            action: <StatusDot reconciled={reconciled} />,
-                            onOpen: () => setOpenLine(row),
-                          },
-                        ]}
-                      />
-                    </Fragment>
-                  )
-                })}
-              </div>
             ) : (
-              <Card className="overflow-hidden">
-                <Grid>
-                  <thead>
-                    <tr>
-                      <Th width="8rem">Date</Th>
-                      <Th>Description</Th>
-                      <Th align="right" width="10rem">
-                        Debit
-                      </Th>
-                      <Th align="right" width="10rem">
-                        Credit
-                      </Th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {shown.map((row, index) => {
-                      const month = row.line.value_date.slice(0, 7)
-                      const first =
-                        index === 0 ||
-                        shown[index - 1].line.value_date.slice(0, 7) !== month
-                      return (
-                        <Fragment key={row.line.line_id}>
-                          {first && <MonthRow month={month} />}
-                          <TransactionRow
-                            row={row}
-                            showBank={banksShown > 1}
-                            onOpen={() => setOpenLine(row)}
-                          />
-                        </Fragment>
-                      )
-                    })}
-                  </tbody>
-                </Grid>
+              <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+                <DataTable<MergedLine>
+                  table={table}
+                  onRowClick={setOpenLine}
+                  isSelected={(row) =>
+                    row.line.line_id === openLine?.line.line_id
+                  }
+                  // The month a run of lines belongs to, once, instead of a
+                  // year on every date.
+                  renderBefore={(row, index, all) =>
+                    index > 0 &&
+                    all[index - 1].line.value_date.slice(0, 7) ===
+                      row.line.value_date.slice(0, 7) ? null : (
+                      <MonthBand month={row.line.value_date.slice(0, 7)} />
+                    )
+                  }
+                  pageScroll
+                  cardSort={false}
+                  cardsApart
+                />
               </Card>
             ),
         })}
@@ -451,89 +499,18 @@ interface MergedLine {
   readonly bank: string | null
 }
 
-/// The month a run of lines belongs to, once, instead of a year on every
-/// date.
-function MonthRow({ month }: { month: string }) {
-  const label = monthYear(month, true)
+/// The month a run of lines belongs to, once, as a band over them.
+function MonthBand({ month }: { month: string }) {
   return (
-    <tr>
-      <td
-        colSpan={4}
-        className="bg-soft px-3.5 py-2 text-[0.875rem] font-medium text-body"
-      >
-        {label}
-      </td>
-    </tr>
+    <div className="bg-soft px-3.5 py-2 text-[0.9375rem] font-medium text-body">
+      {monthYear(month, true)}
+    </div>
   )
 }
 
 /// An internal journal number is how the books remember a match, not
 /// something anyone reads a bank line by.
 const INTERNAL = /^JV-/
-
-function TransactionRow({
-  row,
-  showBank,
-  onOpen,
-}: {
-  row: MergedLine
-  showBank: boolean
-  onOpen: () => void
-}) {
-  const { line } = row
-  const reconciled = line.unallocated_minor === 0
-  const reference =
-    line.reference !== null && !INTERNAL.test(line.reference)
-      ? line.reference
-      : null
-  const note = [line.party_name, reference].filter(
-    (part) => part !== null && part !== ""
-  )
-  return (
-    <tr
-      onClick={onOpen}
-      className="cursor-pointer transition-colors hover:bg-soft"
-    >
-      <Td className="py-4 pr-8 whitespace-nowrap text-body">
-        {dayMonth(line.value_date)}
-      </Td>
-      <Td className="max-w-0 py-4">
-        <span className="block truncate text-ink" title={line.description}>
-          {line.description}
-        </span>
-        {(note.length > 0 || !reconciled || showBank) && (
-          <span className="block truncate text-[0.875rem] text-mute">
-            {[...note, showBank ? (row.bank ?? row.accountName) : null]
-              .filter(Boolean)
-              .join(" · ")}
-            {!reconciled && (
-              <span className="text-warn-fg">
-                {note.length > 0 || showBank ? " · " : ""}
-                Not matched yet
-              </span>
-            )}
-          </span>
-        )}
-      </Td>
-      <Td align="right" className="py-4 whitespace-nowrap tabular-nums">
-        {line.debit_minor > 0 ? (
-          <span className="text-ink">{money(line.debit_minor)}</span>
-        ) : (
-          <span className="text-hairline-strong">·</span>
-        )}
-      </Td>
-      <Td align="right" className="py-4 whitespace-nowrap tabular-nums">
-        {line.credit_minor > 0 ? (
-          <span className="font-medium text-ok-fg">
-            {money(line.credit_minor)}
-          </span>
-        ) : (
-          <span className="text-hairline-strong">·</span>
-        )}
-      </Td>
-    </tr>
-  )
-}
 
 /// Dot and word, colour spent only on the exception: an unreconciled line is
 /// the one worth a person's attention, and one already agreed reads as
@@ -713,7 +690,7 @@ function UploadSheet({
         >
           {(state) => (
             <div className="flex items-center justify-between gap-3">
-              <span className="text-[0.875rem] text-mute tabular-nums">
+              <span className="text-[0.9375rem] text-mute tabular-nums">
                 {state.read === 0
                   ? "Nothing to load yet"
                   : `${count(state.read)} lines read`}
@@ -748,7 +725,7 @@ function UploadSheet({
         )}
 
         <div>
-          <span className="mb-1.5 block text-[0.875rem] font-medium text-text">
+          <span className="mb-1.5 block text-[0.9375rem] font-medium text-text">
             Bank account
           </span>
           <form.Subscribe
@@ -769,7 +746,7 @@ function UploadSheet({
               ) : (
                 <div className="flex items-center gap-2 rounded-inner border border-hairline px-3 py-2">
                   <Code>{picked.code}</Code>
-                  <span className="min-w-0 flex-1 truncate text-[0.875rem] text-ink">
+                  <span className="min-w-0 flex-1 truncate text-[0.9375rem] text-ink">
                     {picked.name}
                   </span>
                   <Button
@@ -892,7 +869,7 @@ function UploadSheet({
                 value={field.state.value}
                 onBlur={field.handleBlur}
                 onChange={(event) => field.handleChange(event.target.value)}
-                className="font-mono text-[0.875rem]"
+                className="font-mono text-[0.9375rem]"
               />
             </Field>
           )}

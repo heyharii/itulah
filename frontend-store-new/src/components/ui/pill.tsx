@@ -27,20 +27,20 @@ import { cn } from "@/lib/utils"
 /// `info` is SKY and only ever means in motion — shipped, processing, issued,
 /// still receiving. `accent` means selected. They never swap.
 const pill = cva(
-  "inline-flex h-7 w-max items-center gap-1.5 rounded-inner border bg-canvas px-2.5 text-pill font-medium whitespace-nowrap",
+  "pill inline-flex h-7 w-max items-center gap-1.5 rounded-inner border bg-canvas px-2.5 text-pill font-medium whitespace-nowrap",
   {
     variants: {
       tone: {
-        ok: "border-ok-fg/30 text-ok-fg",
-        warn: "border-warn-fg/30 text-warn-fg",
-        bad: "border-bad-fg/30 text-bad-fg",
-        info: "border-info-fg/30 text-info-fg",
-        accent: "border-accent/30 text-accent",
-        neutral: "border-hairline-2 text-body",
-        new: "border-new-fg/30 text-new-fg",
+        ok: "pill-ok border-ok-fg/30 text-ok-fg",
+        warn: "pill-warn border-warn-fg/30 text-warn-fg",
+        bad: "pill-bad border-bad-fg/30 text-bad-fg",
+        info: "pill-info border-info-fg/30 text-info-fg",
+        accent: "pill-accent border-accent/30 text-accent",
+        neutral: "pill-neutral border-hairline-2 text-body",
+        new: "pill-new border-new-fg/30 text-new-fg",
         /// Finished and nothing left to do — dark grey, filled, so a
         /// completed row reads as settled beside the coloured ones.
-        done: "border-body/40 bg-soft-2 text-text",
+        done: "pill-done border-body/40 bg-soft-2 text-text",
       },
     },
     defaultVariants: { tone: "neutral" },

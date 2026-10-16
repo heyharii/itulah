@@ -1,3 +1,5 @@
+import { queryOptions } from "@tanstack/react-query"
+
 import { node } from "@/lib/api"
 
 /// The names New articles suggests as a name is typed — a master of its own
@@ -48,3 +50,11 @@ export function updateNameSuggestion(
 export function deleteNameSuggestion(id: string) {
   return node.delete<void>(`/api/v1/name-suggestions/${id}`)
 }
+
+/// The master screen's whole list, for that screen and for the prefetcher
+/// (`screens/master/prefetch.ts`).
+export const masterNamesQuery = () =>
+  queryOptions({
+    queryKey: nameSuggestionKeys.master(),
+    queryFn: ({ signal }) => listNameSuggestions(signal),
+  })

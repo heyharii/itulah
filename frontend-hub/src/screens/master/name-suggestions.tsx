@@ -1,9 +1,12 @@
 import { useForm } from "@tanstack/react-form"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  useMutation,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { Pencil } from "lucide-react"
-import { useCallback, useMemo, useState } from "react"
+import { Suspense, useCallback, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { DockTools } from "@/components/shell/dock-tools"
@@ -13,17 +16,16 @@ import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { Dialog } from "@/components/ui/dialog"
 import { Fab } from "@/components/ui/fab"
 import { Field, Input } from "@/components/ui/field"
-import { BarSpacer, ExpandingSearch } from "@/components/ui/list-chrome"
+import { ExpandingSearch } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Sheet } from "@/components/ui/sheet"
-import { Banner, EmptyState } from "@/components/ui/states"
+import { Banner, EmptyState, LoadingState } from "@/components/ui/states"
 import { useFilters } from "@/lib/filters"
 import { useLayout } from "@/lib/layout"
-import { queryState } from "@/lib/query-state"
 import {
   createNameSuggestion,
   deleteNameSuggestion,
-  listNameSuggestions,
+  masterNamesQuery,
   nameSuggestionKeys,
   updateNameSuggestion,
   type NameSuggestion,
@@ -54,19 +56,16 @@ const columns: ColumnDef<TableSetup, NameSuggestion>[] = [
   },
   {
     id: "action",
-    header: "Action",
+    header: "",
     size: 80,
     enableSorting: false,
     meta: { align: "right", card: "hide" },
+    // The same Edit as Colors and Sizes (owner, 2026-10-11): the row's own
+    // click opens the sheet; the button only says so.
     cell: ({ row }) => (
-      <button
-        type="button"
-        aria-label={`Edit ${row.original.name}`}
-        title="Edit"
-        className="inline-flex size-8 cursor-pointer items-center justify-center rounded-inner text-mute transition-colors hover:bg-soft-2 hover:text-ink"
-      >
-        <Pencil className="size-4" />
-      </button>
+      <Button size="sm" aria-label={`Edit ${row.original.name}`}>
+        Edit
+      </Button>
     ),
   },
   // Two columns that exist only on a card (a phone): the name, and the button
@@ -104,16 +103,62 @@ const columns: ColumnDef<TableSetup, NameSuggestion>[] = [
 ]
 
 export function NameSuggestions() {
-  const [query, setQuery] = useState("")
-  const [sorting, setSorting] = useState<SortingState>([])
   const [editing, setEditing] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
+  const phone = useLayout() === "phone"
+  const create = () => {
+    setEditing(null)
+    setCreating(true)
+  }
 
-  const book = useQuery({
-    queryKey: nameSuggestionKeys.master(),
-    queryFn: ({ signal }) => listNameSuggestions(signal),
-  })
-  const all = useMemo(() => book.data ?? [], [book.data])
+  return (
+    <PageContent>
+      {/* The screen's one action stands in its head; a phone has the + at the
+          thumb (`Fab` below). Both stand while the list is read: the list
+          waits for its names and streams in with them (the server starts the
+          read too). */}
+      <PageHeader
+        title="Name Suggestions"
+        small
+        actions={
+          phone ? undefined : (
+            <Button variant="primary" onClick={create}>
+              New Name
+            </Button>
+          )
+        }
+      />
+
+      <Fab label="New Name" onClick={create} />
+
+      <Suspense fallback={<LoadingState>Reading the names…</LoadingState>}>
+        <NameList
+          editing={editing}
+          setEditing={setEditing}
+          creating={creating}
+          setCreating={setCreating}
+        />
+      </Suspense>
+    </PageContent>
+  )
+}
+
+function NameList({
+  editing,
+  setEditing,
+  creating,
+  setCreating,
+}: {
+  editing: string | null
+  setEditing: (id: string | null) => void
+  creating: boolean
+  setCreating: (creating: boolean) => void
+}) {
+  const [query, setQuery] = useState("")
+  const [sorting, setSorting] = useState<SortingState>([])
+
+  const book = useSuspenseQuery(masterNamesQuery())
+  const all = book.data
 
   const filters = useFilters(columns)
   const phone = useLayout() === "phone"
@@ -142,72 +187,49 @@ export function NameSuggestions() {
   const close = useCallback(() => {
     setCreating(false)
     setEditing(null)
-  }, [])
+  }, [setCreating, setEditing])
 
   return (
-    <PageContent>
-      <PageHeader title="Name Suggestions" small />
-
+    <>
       <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2 max-md:hidden">
         <ExpandingSearch
           value={query}
           onChange={setQuery}
           label="Search Name Suggestions"
         />
-        <BarSpacer />
-        <Button
-          variant="primary"
-          onClick={() => {
-            setEditing(null)
-            setCreating(true)
-          }}
-        >
-          New Name
-        </Button>
       </div>
 
-      <Fab
-        label="New Name"
-        onClick={() => {
-          setEditing(null)
-          setCreating(true)
-        }}
-      />
       <DockTools
         search={{ value: query, onChange: setQuery, label: "Search Names" }}
         sort={dockSortOf(table)}
       />
 
       <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-        {queryState(book, {
-          loading: "Reading the names…",
-          render: () =>
-            all.length === 0 ? (
-              <EmptyState
-                action={
-                  <Button variant="primary" onClick={() => setCreating(true)}>
-                    New Name
-                  </Button>
-                }
-              >
-                No names yet. Add the ones New Articles should suggest.
-              </EmptyState>
-            ) : (
-              <DataTable<NameSuggestion>
-                refresh={[book]}
-                table={table}
-                onRowClick={(row) => {
-                  setCreating(false)
-                  setEditing(row.suggestion_id)
-                }}
-                isSelected={(row) => row.suggestion_id === editing}
-                empty="Nothing matches that search."
-                pageScroll
-                cardSort={false}
-                cardsApart
-              />
-            ),
-        })}
+        {all.length === 0 ? (
+          <EmptyState
+            action={
+              <Button variant="primary" onClick={() => setCreating(true)}>
+                New Name
+              </Button>
+            }
+          >
+            No names yet. Add the ones New Articles should suggest.
+          </EmptyState>
+        ) : (
+          <DataTable<NameSuggestion>
+            refresh={[book]}
+            table={table}
+            onRowClick={(row) => {
+              setCreating(false)
+              setEditing(row.suggestion_id)
+            }}
+            isSelected={(row) => row.suggestion_id === editing}
+            empty="Nothing matches that search."
+            pageScroll
+            cardSort={false}
+            cardsApart
+          />
+        )}
       </Card>
 
       <Sheet
@@ -229,7 +251,7 @@ export function NameSuggestions() {
           onDone={close}
         />
       </Sheet>
-    </PageContent>
+    </>
   )
 }
 

@@ -1,6 +1,6 @@
 import { Popover } from "@base-ui/react/popover"
+import type React from "react"
 import { useQuery } from "@tanstack/react-query"
-import { Bell } from "lucide-react"
 
 import { PushControl } from "@/components/shell/push-control"
 import { AppLink } from "@/components/ui/app-link"
@@ -17,41 +17,37 @@ import { cn } from "@/lib/utils"
 
 /// Work that came looking for somebody, in the one place every screen has.
 ///
-/// # Why the bar and not the module
+/// # Why the shell and not the module
 ///
 /// `system/notifications.tsx` has drawn this list well for a while, and almost
 /// nobody has seen it: it lives in System, beside Access, Nodes and Sync — the
 /// module people open once a quarter. A notification that has to be gone
-/// looking for is not a notification, it is a report. So the count moves to the
-/// one strip that is on screen in every module, and the full list stays exactly
-/// where it is.
+/// looking for is not a notification, it is a report. So the count moves to
+/// what is on screen in every module, and the full list stays exactly where it
+/// is.
 ///
-/// # On the rail
+/// # On the orb
 ///
-/// It sat in the bar at the top right, as a grey bell among three other grey
-/// glyphs, and was not found — asked after on 2026-09-24 by somebody looking
-/// straight at it. It lives on the dark rail now, above the icon strip, where
-/// it is the only thing that can turn blue: a badge on near-black is seen from
-/// across the room, and on the bar it was one more mark in a row of marks.
+/// It was a bell on the dark rail, then on the top bar of a tablet, and the
+/// phone's Activity tab. All three are one tile of the account orb now
+/// (`account-orb.tsx`, owner, 2026-10-16: "E · Floating orb"): its count rides
+/// the orb's one badge, and the popup below opens beside the orb.
 ///
 /// # Five, and then the list
 ///
 /// The popup is a glance, not a screen. It answers "is there anything" and
 /// "what is the newest", and anything past that is a reading task that belongs
 /// on the page with the filters and the facets.
-export function NotificationBell({
-  tone = "light",
-}: {
-  /// `rail` draws it for the dark column and opens the popup to its right.
-  tone?: "light" | "rail"
-}) {
-  const rail = tone === "rail"
+
+/// The bell's feed: one cache entry behind the orb's badge, the launcher's
+/// "unread" line and the Notifications screen.
+export function useNotificationFeed() {
   // Live: the stream refreshes this query the moment something arrives or is
   // read elsewhere, and a minute's poll stands in only while it is down
   // (`lib/notification-stream.ts`).
   const stream = useNotificationStream()
   usePushReconcile()
-  const feed = useQuery({
+  return useQuery({
     // A CHILD of the screen's key, not the key itself. Both would be a cache
     // entry two callers write with different limits, and whichever resolved
     // first would decide what the other saw — the screen showing eight rows
@@ -67,64 +63,64 @@ export function NotificationBell({
     refetchOnWindowFocus: true,
     refetchInterval: fallbackInterval(stream.state),
   })
+}
 
+type NotificationFeed = ReturnType<typeof useNotificationFeed>
+
+/// The newest five, opened from the orb. Controlled and triggerless: the orb
+/// is the thing pressed, and its tile closes the orb's panel before this one
+/// opens beside it — toward the middle of the screen, as the panel grew.
+export function NotificationsPopover({
+  feed,
+  open,
+  onOpenChange,
+  anchor,
+  side,
+  align,
+}: {
+  feed: NotificationFeed
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  anchor: React.RefObject<Element | null>
+  side: "left" | "right"
+  align: "start" | "end"
+}) {
   const unread = feed.data?.unread ?? 0
   const newest = (feed.data?.items ?? []).slice(0, 5)
 
   return (
-    <Popover.Root>
-      <Popover.Trigger
-        aria-label={
-          unread === 0 ? "Notifications" : `Notifications, ${unread} unread`
-        }
-        title="Notifications"
-        className={cn(
-          "relative grid place-items-center rounded-inner transition-colors",
-          rail
-            ? "size-8 text-rail-mute hover:bg-rail-2 hover:text-rail-ink data-[popup-open]:bg-rail-3 data-[popup-open]:text-rail-ink"
-            : "size-8 text-line-ico hover:bg-soft-2 hover:text-text data-[popup-open]:bg-soft-2 data-[popup-open]:text-ink pointer-coarse:size-tap"
-        )}
-      >
-        <Bell
-          className={cn("stroke-[1.55]", rail ? "size-4" : "size-[1.0625rem]")}
-        />
-        {unread > 0 && (
-          <span
-            className={cn(
-              "absolute top-1 right-1 grid h-4 min-w-4 place-items-center rounded-full px-1",
-              "bg-accent text-[0.875rem] font-semibold text-white tabular-nums",
-              // A ring in the rail's own colour, so the badge reads as sitting
-              // ON the bell rather than overlapping it.
-              rail && "-top-0.5 -right-0.5 ring-2 ring-rail"
-            )}
-          >
-            {/* Past two figures the exact number stops being information and
-                starts being a layout problem. */}
-            {unread > 99 ? "99+" : unread}
-          </span>
-        )}
-      </Popover.Trigger>
+    <Popover.Root open={open} onOpenChange={onOpenChange}>
       <Popover.Portal>
         <Popover.Positioner
           className={POSITIONER}
-          side={rail ? "right" : "bottom"}
-          align="end"
-          sideOffset={8}
+          anchor={anchor}
+          side={side}
+          align={align}
+          sideOffset={10}
+          collisionPadding={8}
         >
-          <Popover.Popup className={cn(POPUP, "w-[22rem] p-0")}>
+          <Popover.Popup
+            className={cn(POPUP, "w-[22rem] max-w-[calc(100vw-1rem)] p-0")}
+            // Following a row or "See everything" is done with the glance;
+            // nothing is left behind standing over the screen it opened.
+            onClick={(event) => {
+              if ((event.target as HTMLElement).closest("a") !== null)
+                onOpenChange(false)
+            }}
+          >
             <div className="flex items-center justify-between border-b border-hairline px-3 py-2">
-              <span className="text-[0.875rem] font-semibold text-ink">
+              <span className="text-[0.9375rem] font-semibold text-ink">
                 Notifications
               </span>
               {unread > 0 && (
-                <span className="text-[0.875rem] text-mute tabular-nums">
+                <span className="text-[0.9375rem] text-mute tabular-nums">
                   {unread} unread
                 </span>
               )}
             </div>
 
             {newest.length === 0 ? (
-              <p className="px-3 py-6 text-center text-[0.875rem] text-mute">
+              <p className="px-3 py-6 text-center text-[0.9375rem] text-mute">
                 Nothing is waiting for you.
               </p>
             ) : (
@@ -145,13 +141,13 @@ export function NotificationBell({
                         )}
                       />
                       <div className="min-w-0">
-                        <p className="text-[0.875rem] leading-snug font-medium text-ink">
+                        <p className="text-[0.9375rem] leading-snug font-medium text-ink">
                           {one.title}
                         </p>
-                        <p className="mt-0.5 line-clamp-2 text-[0.875rem] leading-snug text-body">
+                        <p className="mt-0.5 line-clamp-2 text-[0.9375rem] leading-snug text-body">
                           {one.body}
                         </p>
-                        <p className="mt-0.5 text-[0.875rem] text-mute">
+                        <p className="mt-0.5 text-[0.9375rem] text-mute">
                           {moment(one.created_at)}
                         </p>
                       </div>
@@ -191,7 +187,7 @@ export function NotificationBell({
             <div className="border-t border-hairline px-3 py-2">
               <AppLink
                 to="/system/notifications"
-                className="text-[0.875rem] font-medium text-accent"
+                className="text-[0.9375rem] font-medium text-accent"
               >
                 See everything
               </AppLink>

@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query"
+import { keepPreviousData, useQuery } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { ChevronRight } from "lucide-react"
@@ -142,6 +142,9 @@ export function Reports() {
     // Nothing is asked of `/statement` while the grid is up: the grid is three
     // reads of its own and the consolidated figures are not on screen.
     enabled: !spread,
+    // Another statement or window: the figures in hand stay, dimmed
+    // (`list-swap`), until the next are read.
+    placeholderData: keepPreviousData,
   })
 
   return (
@@ -208,7 +211,7 @@ export function Reports() {
         {/* The effective answer, in words, always. A date box left blank and a
             date box filled with today look identical to a reader; the sentence
             is what tells them which report they are looking at. */}
-        <span className="text-[0.875rem] text-mute">
+        <span className="text-[0.9375rem] text-mute">
           {kind === "PROFIT_LOSS" ? range.chip : asOf.chip}
           {spread ? (
             " · all units, broken out"
@@ -248,153 +251,158 @@ export function Reports() {
             </Banner>
           )}
 
-          {queryState(report, {
-            loading: "Building the statement…",
-            render: (data) =>
-              data.sections.length === 0 ? (
-                <Card>
-                  <EmptyState>
-                    Nothing has been posted in this window, so there is no
-                    statement to draw.
-                  </EmptyState>
-                </Card>
-              ) : (
-                <div className="flex flex-col gap-3">
-                  {/* The shape of the period, before the detail of it. Only
+          <div
+            aria-busy={report.isPlaceholderData || undefined}
+            className="list-swap"
+          >
+            {queryState(report, {
+              loading: "Building the statement…",
+              render: (data) =>
+                data.sections.length === 0 ? (
+                  <Card>
+                    <EmptyState>
+                      Nothing has been posted in this window, so there is no
+                      statement to draw.
+                    </EmptyState>
+                  </Card>
+                ) : (
+                  <div className="flex flex-col gap-3">
+                    {/* The shape of the period, before the detail of it. Only
                       on the profit and loss: a balance sheet's three classes
                       are assets against liabilities and equity, and drawing
                       them as three bars of one series would invite somebody
                       to read a total across the accounting identity. */}
-                  {data.kind === "PROFIT_LOSS" && (
-                    <Card>
-                      <CardHeader>
-                        <CardTitle>By class</CardTitle>
-                        <span className="text-[0.875rem] text-mute">
-                          The client's own root classes, as the report prints
-                          them
-                        </span>
-                      </CardHeader>
-                      <div className="grid gap-x-6 gap-y-4 px-4 pb-3.5 xl:grid-cols-[minmax(0,1fr)_20rem]">
-                        <BarSeries
-                          rows={data.sections.map((section) => ({
-                            bucket: section.root_class,
-                            total: asPresented(
-                              section.total_minor,
-                              section.root_class
-                            ),
-                          }))}
-                          series={SECTION_SERIES}
-                          format={money}
-                          // The client's own name for the class, shortened, on
-                          // the axis — and the whole of it in the tooltip. The
-                          // bare class number was here, which is a chart of the
-                          // chart of accounts' internal numbering rather than
-                          // of the business: "7" is not a thing anybody spends
-                          // money on.
-                          labelOf={(bucket) =>
-                            ROOT_CLASSES_SHORT[bucket] ?? bucket
-                          }
-                          titleOf={(bucket) =>
-                            data.sections.find(
-                              (section) => section.root_class === bucket
-                            )?.title ??
-                            ROOT_CLASSES[bucket] ??
-                            bucket
-                          }
-                          className="h-[9.5rem]"
-                        />
-                        <TotalsLadder
-                          rows={data.sections.map((section) => ({
-                            label: (
-                              <span className="flex min-w-0 items-center gap-1.5">
-                                <span className="font-mono text-id text-mute">
-                                  {section.root_class}
-                                </span>
-                                <span className="truncate">
-                                  {section.title}
-                                </span>
-                              </span>
-                            ),
-                            value: money(
-                              asPresented(
+                    {data.kind === "PROFIT_LOSS" && (
+                      <Card>
+                        <CardHeader>
+                          <CardTitle>By class</CardTitle>
+                          <span className="text-[0.9375rem] text-mute">
+                            The client's own root classes, as the report prints
+                            them
+                          </span>
+                        </CardHeader>
+                        <div className="grid gap-x-6 gap-y-4 px-4 pb-3.5 xl:grid-cols-[minmax(0,1fr)_20rem]">
+                          <BarSeries
+                            rows={data.sections.map((section) => ({
+                              bucket: section.root_class,
+                              total: asPresented(
                                 section.total_minor,
                                 section.root_class
-                              )
-                            ),
-                          }))}
-                          // The server's own bottom line, not a sum of the
-                          // bars beside it. It is computed from the journal
-                          // rather than by adding the sections up, so a
-                          // disagreement here is a bug showing itself instead
-                          // of hiding inside the figure that should catch it.
-                          //
-                          // Negated and named by its sign, because the wire
-                          // speaks debits-positive: a loss arrives POSITIVE,
-                          // and this card printed a 33-million loss as though
-                          // it were a profit. See `periodResult`.
-                          total={{
-                            label: periodResult(data.result_minor).label,
-                            value: (
-                              <span
-                                className={
-                                  periodResult(data.result_minor).loss
-                                    ? "text-bad-fg"
-                                    : undefined
-                                }
-                              >
-                                {money(periodResult(data.result_minor).minor)}
-                              </span>
-                            ),
-                          }}
-                        />
-                      </div>
-                    </Card>
-                  )}
+                              ),
+                            }))}
+                            series={SECTION_SERIES}
+                            format={money}
+                            // The client's own name for the class, shortened, on
+                            // the axis — and the whole of it in the tooltip. The
+                            // bare class number was here, which is a chart of the
+                            // chart of accounts' internal numbering rather than
+                            // of the business: "7" is not a thing anybody spends
+                            // money on.
+                            labelOf={(bucket) =>
+                              ROOT_CLASSES_SHORT[bucket] ?? bucket
+                            }
+                            titleOf={(bucket) =>
+                              data.sections.find(
+                                (section) => section.root_class === bucket
+                              )?.title ??
+                              ROOT_CLASSES[bucket] ??
+                              bucket
+                            }
+                            className="h-[9.5rem]"
+                          />
+                          <TotalsLadder
+                            rows={data.sections.map((section) => ({
+                              label: (
+                                <span className="flex min-w-0 items-center gap-1.5">
+                                  <span className="font-mono text-id text-mute">
+                                    {section.root_class}
+                                  </span>
+                                  <span className="truncate">
+                                    {section.title}
+                                  </span>
+                                </span>
+                              ),
+                              value: money(
+                                asPresented(
+                                  section.total_minor,
+                                  section.root_class
+                                )
+                              ),
+                            }))}
+                            // The server's own bottom line, not a sum of the
+                            // bars beside it. It is computed from the journal
+                            // rather than by adding the sections up, so a
+                            // disagreement here is a bug showing itself instead
+                            // of hiding inside the figure that should catch it.
+                            //
+                            // Negated and named by its sign, because the wire
+                            // speaks debits-positive: a loss arrives POSITIVE,
+                            // and this card printed a 33-million loss as though
+                            // it were a profit. See `periodResult`.
+                            total={{
+                              label: periodResult(data.result_minor).label,
+                              value: (
+                                <span
+                                  className={
+                                    periodResult(data.result_minor).loss
+                                      ? "text-bad-fg"
+                                      : undefined
+                                  }
+                                >
+                                  {money(periodResult(data.result_minor).minor)}
+                                </span>
+                              ),
+                            }}
+                          />
+                        </div>
+                      </Card>
+                    )}
 
-                  {data.sections.map((section) => (
-                    <Section key={section.root_class} section={section} />
-                  ))}
+                    {data.sections.map((section) => (
+                      <Section key={section.root_class} section={section} />
+                    ))}
 
-                  {data.kind === "BALANCE_SHEET" && (
-                    <Card>
-                      <CardHeader>
-                        {/* Named by its sign and negated for display, exactly
+                    {data.kind === "BALANCE_SHEET" && (
+                      <Card>
+                        <CardHeader>
+                          {/* Named by its sign and negated for display, exactly
                             as on the other tab: the wire speaks
                             debits-positive, so a loss arrives POSITIVE and
                             printing it raw calls a loss a profit. */}
-                        <CardTitle>
-                          {periodResult(data.result_minor).label}
-                        </CardTitle>
-                        <span
-                          className={cn(
-                            "text-[0.9375rem] font-semibold tabular-nums",
-                            periodResult(data.result_minor).loss
-                              ? "text-bad-fg"
-                              : "text-ink"
-                          )}
-                        >
-                          {money(periodResult(data.result_minor).minor)}
-                        </span>
-                      </CardHeader>
-                      <p className="px-4 pb-3.5 text-[0.875rem] text-body">
-                        Income less expenses, classes 4 through 8 netted, and
-                        measured inception to date. It is what makes classes 1,
-                        2 and 3 add up — profit earned and not yet closed to
-                        equity. The client's own line for it is{" "}
-                        <AppLink
-                          to="/finance/ledger"
-                          sheet={{ key: "account", value: "3013001003" }}
-                          className="font-mono text-id text-accent hover:underline"
-                        >
-                          3013001003
-                        </AppLink>
-                        .
-                      </p>
-                    </Card>
-                  )}
-                </div>
-              ),
-          })}
+                          <CardTitle>
+                            {periodResult(data.result_minor).label}
+                          </CardTitle>
+                          <span
+                            className={cn(
+                              "text-[0.9375rem] font-semibold tabular-nums",
+                              periodResult(data.result_minor).loss
+                                ? "text-bad-fg"
+                                : "text-ink"
+                            )}
+                          >
+                            {money(periodResult(data.result_minor).minor)}
+                          </span>
+                        </CardHeader>
+                        <p className="px-4 pb-3.5 text-[0.9375rem] text-body">
+                          Income less expenses, classes 4 through 8 netted, and
+                          measured inception to date. It is what makes classes
+                          1, 2 and 3 add up — profit earned and not yet closed
+                          to equity. The client's own line for it is{" "}
+                          <AppLink
+                            to="/finance/ledger"
+                            sheet={{ key: "account", value: "3013001003" }}
+                            className="font-mono text-id text-accent hover:underline"
+                          >
+                            3013001003
+                          </AppLink>
+                          .
+                        </p>
+                      </Card>
+                    )}
+                  </div>
+                ),
+            })}
+          </div>
         </>
       )}
     </PageContent>
@@ -524,7 +532,7 @@ function LocationSpread({
             <AppLink
               to="/finance/ledger"
               sheet={{ key: "account", value: row.original.account_code }}
-              className="shrink-0 font-mono text-[0.875rem] text-mute hover:text-accent hover:underline"
+              className="shrink-0 font-mono text-[0.9375rem] text-mute hover:text-accent hover:underline"
             >
               {row.original.account_code}
             </AppLink>
@@ -569,7 +577,7 @@ function LocationSpread({
         header: () => (
           <span className="inline-flex flex-col items-end leading-tight">
             <UnitName id={unit} />
-            <span className="text-[0.875rem] font-normal text-faint tabular-nums">
+            <span className="text-[0.9375rem] font-normal text-faint tabular-nums">
               {money(columnTotals[index] ?? 0)}
             </span>
           </span>
@@ -665,7 +673,7 @@ function LocationSpread({
           ))}
         </CardTitle>
         {matrix.data && (
-          <span className="shrink-0 text-[0.875rem] text-mute">
+          <span className="shrink-0 text-[0.9375rem] text-mute">
             as at {day(matrix.data.as_of)}
           </span>
         )}
@@ -684,6 +692,7 @@ function LocationSpread({
             ) : (
               <>
                 <DataTable<BalanceRow>
+                  refresh={[matrix]}
                   table={table}
                   className="max-h-[32rem]"
                 />
@@ -705,7 +714,7 @@ function LocationSpread({
                         value: money(data.grand_total_minor),
                       }}
                     />
-                    <p className="mt-1 text-[0.875rem] text-mute">
+                    <p className="mt-1 text-[0.9375rem] text-mute">
                       The server's total for this level, and the column heads
                       are its per-unit totals. Neither is a sum of the rows on
                       screen.
@@ -781,7 +790,7 @@ function Section({ section }: { section: StatementSection }) {
       </CardHeader>
 
       {section.lines.length === 0 ? (
-        <p className="border-t border-hairline px-4 py-3 text-[0.875rem] text-mute">
+        <p className="border-t border-hairline px-4 py-3 text-[0.9375rem] text-mute">
           Nothing under this class has moved.
         </p>
       ) : (
@@ -797,7 +806,7 @@ function Section({ section }: { section: StatementSection }) {
                 <AppLink
                   to="/finance/ledger"
                   sheet={{ key: "account", value: line.account_code }}
-                  className="shrink-0 font-mono text-[0.875rem] text-mute hover:text-accent hover:underline"
+                  className="shrink-0 font-mono text-[0.9375rem] text-mute hover:text-accent hover:underline"
                 >
                   {line.account_code}
                 </AppLink>

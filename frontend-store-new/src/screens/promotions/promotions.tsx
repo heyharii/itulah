@@ -112,6 +112,13 @@ function PromotionList({ offers }: { offers: StoreOffers }) {
           onChange: (next) => setPhase(next as Phase),
         }}
       />
+      <Summary
+        parts={[
+          [offers.running.length, "active"],
+          [offers.upcoming.length, "scheduled"],
+        ]}
+      />
+
       <Toolbar>
         <PhaseFilter
           value={phase}
@@ -125,13 +132,6 @@ function PromotionList({ offers }: { offers: StoreOffers }) {
           placeholder="Search name, code or SKU"
         />
       </Toolbar>
-
-      <Summary
-        parts={[
-          [offers.running.length, "active"],
-          [offers.upcoming.length, "scheduled"],
-        ]}
-      />
 
       {shown.length === 0 ? (
         <EmptyState>

@@ -1,0 +1,114 @@
+{
+  "intro": {
+    "seconds": 6.47825,
+    "say": "Setelah dihitung, jalannya P O ditentukan oleh selisihnya. Ada tujuh kemungkinan."
+  },
+  "match-map": {
+    "seconds": 2.40325,
+    "say": "Pertama, hitungannya pas."
+  },
+  "match-ui": {
+    "seconds": 4.467,
+    "say": "P O diterima otomatis atas nama pembuatnya, tanpa Review Count."
+  },
+  "shortKeep-map": {
+    "seconds": 5.747,
+    "say": "Kedua, barangnya kurang: datang 580 dari 600."
+  },
+  "shortKeep-review": {
+    "seconds": 3.5265,
+    "say": "Selisihnya muncul di daftar P O sebagai Review Count."
+  },
+  "shortKeep-partial": {
+    "seconds": 4.23175,
+    "say": "Partial Receive menerima yang datang, dan sisanya tetap ditunggu."
+  },
+  "shortKeep-next": {
+    "seconds": 5.48575,
+    "say": "Kiriman berikutnya dihitung lagi. Kalau pas dengan sisanya, P O selesai sendiri."
+  },
+  "shortClose-map": {
+    "seconds": 4.1535,
+    "say": "Ketiga, kurang, dan sisanya tidak akan datang."
+  },
+  "shortClose-choose": {
+    "seconds": 3.23925,
+    "say": "Buyer memilih Close Short dan menulis alasannya."
+  },
+  "shortClose-removed": {
+    "seconds": 4.96325,
+    "say": "20 pieces dihapus dari order. Langkah ini tidak bisa dibatalkan."
+  },
+  "shortClose-notcancel": {
+    "seconds": 4.5715,
+    "say": "Ini bukan Cancel. Nama dan alasannya tetap tercatat di P O."
+  },
+  "over-map": {
+    "seconds": 4.885,
+    "say": "Keempat, barangnya lebih: datang 620 untuk pesanan 600."
+  },
+  "over-review": {
+    "seconds": 5.06775,
+    "say": "Yang dipesan diterima. Kelebihannya selalu dikembalikan ke supplier."
+  },
+  "over-return": {
+    "seconds": 4.049,
+    "say": "Return P O dibuat otomatis untuk 20 pieces itu."
+  },
+  "wrong-map": {
+    "seconds": 3.84,
+    "say": "Kelima, ada 15 barang yang tidak sesuai pesanan."
+  },
+  "wrong-review": {
+    "seconds": 5.4335,
+    "say": "Yang tidak sesuai pesanan dikembalikan. Kekurangannya ditunggu, atau ditutup."
+  },
+  "wrong-return": {
+    "seconds": 5.17225,
+    "say": "Return P O dibuat untuk 15 pieces, dan P O tetap menunggu sisanya."
+  },
+  "wrong-reject": {
+    "seconds": 6.87025,
+    "say": "Mau menolak seluruh kiriman? Artikelnya diisi 0, dan semua barangnya dicatat sebagai Not as Ordered."
+  },
+  "wrong-reject-result": {
+    "seconds": 9.169,
+    "say": "Di Review Count, semua 600 pieces itu dikembalikan ke supplier, dan P O tetap menunggu barang yang benar, atau ditutup dengan Close Short."
+  },
+  "mixed-map": {
+    "seconds": 5.12,
+    "say": "Keenam, lebih dan tidak sesuai, dalam satu kiriman tiga artikel."
+  },
+  "mixed-review": {
+    "seconds": 5.2505,
+    "say": "Ada yang pas, ada yang lebih 10, dan ada 20 yang tidak sesuai pesanan."
+  },
+  "mixed-hide": {
+    "seconds": 3.3175,
+    "say": "Hide matched menyembunyikan baris yang sudah pas."
+  },
+  "mixed-return": {
+    "seconds": 4.885,
+    "say": "Kelebihan dan yang tidak sesuai pesanan jadi satu Return P O: 30 pieces."
+  },
+  "recount-map": {
+    "seconds": 4.075,
+    "say": "Ketujuh, Recount: buyer ragu dengan hitungannya."
+  },
+  "recount-review": {
+    "seconds": 3.9705,
+    "say": "Kurang 40. Mungkin rak belakang belum dihitung."
+  },
+  "recount-send": {
+    "seconds": 5.8515,
+    "say": "Recount: centang barisnya, tulis alasannya, lalu kirim kembali ke Gudang."
+  },
+  "recount-again": {
+    "seconds": 3.03025,
+    "say": "Di Gudang, tombolnya berubah jadi Count again."
+  },
+  "recount-loop": {
+    "seconds": 3.47425,
+    "say": "Hasil hitungan barunya masuk ke salah satu jalur tadi."
+  }
+}

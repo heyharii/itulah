@@ -3,7 +3,7 @@ import { useEffect, useRef } from "react"
 
 import { Button } from "@/components/ui/button"
 import type { NewStore, SetupStore } from "@/lib/queries/setup"
-import { nextCodes, timezoneOf } from "@/screens/setup/names"
+import { nextCodes } from "@/screens/setup/names"
 
 /// A store not yet opened: a row in the list somebody is typing into.
 ///
@@ -55,11 +55,10 @@ function missingManager(row: DraftStore): boolean {
 /// cell), typed one per line with Enter, or read from a CSV. One store or
 /// thirty is the same gesture, which is why there is no single/bulk switch.
 ///
-/// Only a name and a city. The city is there because it settles the clock
-/// the store keeps and tells two shops of the same name apart; the street
-/// address is asked for before the first delivery, not here.
+/// Only a name and a manager. The city, the clock and the street address are
+/// filled in later, on the store's own page.
 ///
-/// Used twice: in the setup wizard, and in the Open store sheet over Locations.
+/// Used twice: in the setup wizard, and in the Add store sheet over Locations.
 export function StoreList({
   existing,
   showExisting = true,
@@ -178,7 +177,6 @@ export function StoreList({
                 } else if (
                   event.key === "Backspace" &&
                   row.name === "" &&
-                  row.city === "" &&
                   row.manager === "" &&
                   rows.length > 1
                 ) {
@@ -198,21 +196,6 @@ export function StoreList({
               }}
               className="h-10 min-w-0 flex-1 bg-transparent text-card-title text-ink outline-none placeholder:text-faint"
             />
-            <input
-              value={row.city}
-              aria-label={`City ${codes[index]}`}
-              onChange={(event) => set(index, { city: event.target.value })}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault()
-                  insert(index + 1)
-                }
-              }}
-              className="h-10 w-32 shrink-0 border-l border-hairline bg-transparent pl-3 text-cell text-text outline-none placeholder:text-faint"
-            />
-            <span className="w-10 shrink-0 font-mono text-id text-mute">
-              {row.city.trim() === "" ? "" : timezoneOf(row.city)}
-            </span>
             <input
               value={row.manager}
               aria-label={`Manager ${codes[index]}`}
@@ -251,7 +234,7 @@ export function StoreList({
         <kbd className="rounded-[0.3125rem] border border-b-2 border-hairline-2 bg-canvas px-1.5 font-mono text-id text-body">
           Enter
         </kbd>
-        new row · paste from Excel (name, city, manager) ·
+        new row · paste from Excel (name, manager) ·
         <label className="cursor-pointer text-body underline decoration-hairline-strong underline-offset-[3px] hover:text-ink">
           import CSV
           <input
@@ -270,7 +253,7 @@ export function StoreList({
   )
 }
 
-/// Lines of "name, city, manager" — from a spreadsheet's clipboard (tab
+/// Lines of "name, manager" — from a spreadsheet's clipboard (tab
 /// between the cells) or a CSV (comma). A first line that reads like a
 /// heading is not a store called "Nama". The third cell is new: a pasted
 /// list from before the manager was required lands with that column blank,
@@ -286,7 +269,5 @@ function parseLines(text: string): DraftStore[] {
     lines.length > 0 && /^(nama|name|toko)$/i.test(lines[0][0])
       ? lines.slice(1)
       : lines
-  return body.map(([name, city = "", manager = ""]) =>
-    draftStore(name, city, manager)
-  )
+  return body.map(([name, manager = ""]) => draftStore(name, "", manager))
 }

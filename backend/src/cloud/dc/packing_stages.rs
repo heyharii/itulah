@@ -109,7 +109,7 @@ pub(super) async fn pack(
         .sort_by(|left, right| left.sku_code.cmp(&right.sku_code));
     if request.lines.is_empty() {
         return Err(AppError::Validation(
-            "a pack needs at least one line; a carton holding nothing is a number nobody can explain"
+            "a pack needs at least one line; a koli holding nothing is a number nobody can explain"
                 .into(),
         ));
     }
@@ -136,12 +136,12 @@ pub(super) async fn pack(
         (true, Some(shop)) => shop,
         (true, None) => {
             return Err(AppError::Validation(
-                "name the shop this carton is for".into(),
+                "name the shop this koli is for".into(),
             ))
         }
         (false, Some(shop)) if shop != named => {
             return Err(AppError::Validation(format!(
-                "these picklists are for {shop}, not {named}; one carton is for one shop"
+                "these picklists are for {shop}, not {named}; one koli is for one shop"
             )))
         }
         (false, _) => named,
@@ -156,7 +156,7 @@ pub(super) async fn pack(
     }
     if destination == site {
         return Err(AppError::Validation(
-            "a carton from the Gudang goes to a shop, not back to the Gudang".into(),
+            "a koli from the Gudang goes to a shop, not back to the Gudang".into(),
         ));
     }
     request.destination_store_id = destination.clone();
@@ -441,7 +441,7 @@ async fn picklist_hints(
             None => shop = Some(walked_for),
             Some(first) if *first != walked_for => {
                 return Err(AppError::Validation(format!(
-                    "picklist {pick} is for {walked_for}, not {first}; one carton is for one shop"
+                    "picklist {pick} is for {walked_for}, not {first}; one koli is for one shop"
                 )))
             }
             Some(_) => {}
@@ -494,12 +494,12 @@ pub(super) async fn dispatch_trip(
     request.koli_ids.sort();
     if request.koli_ids.is_empty() {
         return Err(AppError::Validation(
-            "a dispatch needs at least one sealed carton".into(),
+            "a dispatch needs at least one sealed koli".into(),
         ));
     }
     if request.koli_ids.windows(2).any(|pair| pair[0] == pair[1]) {
         return Err(AppError::Validation(
-            "one carton cannot be ticked twice on the same trip".into(),
+            "one koli cannot be ticked twice on the same trip".into(),
         ));
     }
     let request_json = serde_json::to_string(&request)?;
@@ -580,12 +580,12 @@ pub(super) async fn dispatch_trip(
         let number = &carton.koli_number;
         if carton.voided_at.is_some() {
             return Err(AppError::Conflict(format!(
-                "carton {number} was emptied by a move back; there is nothing in it to send"
+                "koli {number} was emptied by a put back; there is nothing in it to dispatch"
             )));
         }
         if carton.sealed_at.is_none() {
             return Err(AppError::Conflict(format!(
-                "carton {number} is not sealed yet"
+                "koli {number} is not sealed yet"
             )));
         }
         match carton.shipment_id {
@@ -596,7 +596,7 @@ pub(super) async fn dispatch_trip(
             Some(shipment_id) => {
                 if carton.dispatch_id.is_some() {
                     return Err(AppError::Conflict(format!(
-                        "carton {number} is already on a trip ({})",
+                        "koli {number} is already on a trip ({})",
                         carton.shipment_number.clone().unwrap_or_default()
                     )));
                 }

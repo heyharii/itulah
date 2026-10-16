@@ -2,16 +2,16 @@
 ///
 /// # What a person sees
 ///
-/// 1. **Cari node** — the till listens on the LAN for a few seconds and lists
+/// 1. **Find the server** — the till listens on the LAN for a few seconds and lists
 ///    every node that answered *and* confirmed who it is. An address can
 ///    always be typed instead, and is checked the same way.
-/// 2. **Minta bergabung** — the till asks, and shows a six-character code and
+/// 2. **Ask to join** — the till asks, and shows a six-character code and
 ///    a six-digit number.
-/// 3. **Menunggu** — a supervisor opens *Kasir menunggu* on a till that has
+/// 3. **Supervisor approves** — a supervisor opens *Kasir menunggu* on a till that has
 ///    already joined, finds this code, checks the number matches this screen,
 ///    and approves with a finger or a PIN. This screen asks the node every few
 ///    seconds whether that has happened.
-/// 4. **Tergabung** — the till is "Kasir N" at this shop.
+/// 4. **Joined** — the till is "Kasir N" at this shop.
 ///
 /// # Why the number matters more than the code
 ///
@@ -100,11 +100,8 @@ export function JoinScreen({
         <div className="page-inner" style={{ maxWidth: 620 }}>
           <div className="page-head">
             <div>
-              <h1>Gabungkan kasir ke node toko</h1>
-              <p>
-                Kasir ini meminta bergabung, supervisor toko menyetujui. Tidak
-                ada alamat atau kata sandi yang perlu diketik di sini.
-              </p>
+              <h1>Join this till to the store server</h1>
+              <p>A supervisor approves this till with their PIN.</p>
             </div>
             {/* Leaving while waiting keeps the request: it is picked up again,
                 same code, the next time this screen opens. */}
@@ -113,27 +110,27 @@ export function JoinScreen({
               stage.kind === "waiting") && (
               <button className="btn ghost" type="button" onClick={onDone}>
                 <Icon name="back" />
-                Kembali
+                Back
               </button>
             )}
           </div>
 
           <div className="steps">
             <span className={stage.kind === "find" || stage.kind === "loading" ? "active" : ""}>
-              1 · Cari node
+              1 · Find the server
             </span>
             <span className={stage.kind === "confirm" ? "active" : ""}>
-              2 · Minta bergabung
+              2 · Ask to join
             </span>
             <span className={stage.kind === "waiting" ? "active" : ""}>
-              3 · Persetujuan supervisor
+              3 · Supervisor approves
             </span>
             <span className={stage.kind === "approved" ? "active" : ""}>
-              4 · Tergabung
+              4 · Joined
             </span>
           </div>
 
-          {stage.kind === "loading" && <p className="muted">Memeriksa…</p>}
+          {stage.kind === "loading" && <p className="muted">Checking…</p>}
 
           {stage.kind === "find" && (
             <FindNode onPick={(node) => setStage({ kind: "confirm", node })} />
@@ -223,7 +220,7 @@ function FindNode({ onPick }: { onPick: (node: FoundNode) => void }) {
   return (
     <>
       <div className="block-head" style={{ marginBottom: 0 }}>
-        <span className="label">Node di jaringan ini</span>
+        <span className="label">Servers on this network</span>
         <button
           className="btn ghost"
           type="button"
@@ -231,20 +228,20 @@ function FindNode({ onPick }: { onPick: (node: FoundNode) => void }) {
           onClick={() => void search()}
         >
           <Icon name="search" />
-          {found === null ? "Mencari…" : "Cari lagi"}
+          {found === null ? "Looking…" : "Look again"}
         </button>
       </div>
 
       {found === null && (
-        <div className="notice">Mendengarkan jaringan toko selama beberapa detik…</div>
+        <div className="notice">Looking on this network…</div>
       )}
 
       {found !== null && confirmed.length === 0 && (
         <div className="notice warn">
           {problem ??
-            "Tidak ada node toko yang terdengar di jaringan ini. Router toko " +
-              "mungkin memblokir pengumuman jaringan (multicast), atau node ada " +
-              "di jaringan lain — ketik alamatnya di bawah."}
+            "No store server answered on this network. The store router may " +
+              "be blocking network announcements (multicast), or the server is " +
+              "on another network. Type its address below."}
         </div>
       )}
 
@@ -269,13 +266,13 @@ function FindNode({ onPick }: { onPick: (node: FoundNode) => void }) {
                 <span className="grow">
                   <strong>{siteTitle(identity)}</strong>
                   <small className="num">
-                    {identity.origin_id} · {node.host} · versi {identity.version}
+                    {identity.origin_id} · {node.host} · version {identity.version}
                   </small>
                 </span>
                 {current ? (
-                  <span className="badge plain">Node kasir ini</span>
+                  <span className="badge plain">This till's server</span>
                 ) : (
-                  <span className="badge ok">Terkonfirmasi</span>
+                  <span className="badge ok">Confirmed</span>
                 )}
               </button>
             )
@@ -290,7 +287,7 @@ function FindNode({ onPick }: { onPick: (node: FoundNode) => void }) {
               <span className="grow">
                 <h3>
                   {node.advertised_site ?? node.host}{" "}
-                  <span className="badge warn">Tidak terkonfirmasi</span>
+                  <span className="badge warn">Not confirmed</span>
                 </h3>
                 <p>{node.problem}</p>
               </span>
@@ -301,7 +298,7 @@ function FindNode({ onPick }: { onPick: (node: FoundNode) => void }) {
 
       <form className="rows" onSubmit={(event) => void check(event)}>
         <label className="field">
-          Atau ketik alamat node
+          Or type the server address
           <input
             value={typed}
             onChange={(event) => setTyped(event.target.value)}
@@ -314,7 +311,7 @@ function FindNode({ onPick }: { onPick: (node: FoundNode) => void }) {
         {typedProblem !== null && <p className="error">{typedProblem}</p>}
         <div>
           <button className="btn" type="submit" disabled={checking || typed.trim() === ""}>
-            {checking ? "Memeriksa…" : "Periksa alamat"}
+            {checking ? "Checking…" : "Check address"}
           </button>
         </div>
       </form>
@@ -368,17 +365,16 @@ function ConfirmNode({
       </div>
 
       <div className="notice">
-        Kasir ini akan meminta bergabung ke node ini. Setelah itu layar ini
-        menampilkan <strong>kode</strong> dan <strong>nomor verifikasi</strong>;
-        supervisor toko menyetujuinya dari kasir yang sudah tergabung, dengan
-        sidik jari atau PIN.
+        This till will ask to join this store server. This screen then shows a{" "}
+        <strong>code</strong> and a <strong>verification number</strong>. A
+        supervisor approves this till with their PIN.
       </div>
 
       {alreadyPaired && (
         <div className="notice warn">
-          Kasir ini sudah terpasang sebagai <strong>{config?.terminal_id}</strong>.
-          Setelah disetujui, kredensial lamanya diganti. Agar namanya tetap, minta
-          supervisor menyetujui sebagai <strong>pengganti {config?.terminal_id}</strong>.
+          This till is already set up as <strong>{config?.terminal_id}</strong>.
+          Once approved, its old credentials are replaced. To keep the name, ask
+          the supervisor to approve it as the <strong>replacement for {config?.terminal_id}</strong>.
         </div>
       )}
 
@@ -386,7 +382,7 @@ function ConfirmNode({
 
       <div className="action-bar" style={{ padding: 0, border: 0, background: "none" }}>
         <button className="btn" type="button" onClick={onBack} disabled={busy}>
-          Kembali
+          Back
         </button>
         <button
           className="btn primary"
@@ -395,7 +391,7 @@ function ConfirmNode({
           onClick={() => void ask()}
           disabled={busy}
         >
-          {busy ? "Meminta…" : "Minta bergabung"}
+          {busy ? "Asking…" : "Ask to join"}
         </button>
       </div>
     </>
@@ -479,34 +475,33 @@ function Waiting({
       >
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
           <div>
-            <span className="label">Kode kasir</span>
+            <span className="label">Till code</span>
             <div className="join-code num">{view.code}</div>
           </div>
           <div>
-            <span className="label">Nomor verifikasi</span>
+            <span className="label">Verification number</span>
             <div className="join-number num">{spaced(view.verification)}</div>
           </div>
         </div>
         <p className="muted" style={{ fontSize: 12.5, textAlign: "left" }}>
           {view.node !== null ? siteTitle(view.node) : view.base_url}
           {view.node !== null && <> · {view.node.origin_id}</>}
-          {left !== null ? <> · berlaku {left} lagi</> : <> · kedaluwarsa</>}
+          {left !== null ? <> · {left} left</> : <> · expired</>}
         </p>
       </div>
 
       <div className="notice">
-        <strong>Minta supervisor:</strong> di kasir yang sudah tergabung, buka{" "}
-        <strong>Setelan → Kasir menunggu</strong>, pilih kode{" "}
-        <strong className="num">{view.code}</strong>, pastikan nomor verifikasinya{" "}
-        <strong className="num">{spaced(view.verification)}</strong> — sama persis
-        dengan layar ini — lalu setujui dengan sidik jari atau PIN. Nomor yang
-        berbeda berarti permintaan dari komputer lain: jangan disetujui.
+        A supervisor approves this till with their PIN. Code{" "}
+        <strong className="num">{view.code}</strong>, number{" "}
+        <strong className="num">{spaced(view.verification)}</strong>: the
+        supervisor must see the same number on their screen. A different number
+        means the request came from another computer, so do not approve it.
       </div>
 
       <p className={unanswered === null ? "muted" : "error"} style={{ fontSize: 12 }}>
         {unanswered === null
-          ? "Menunggu persetujuan… layar ini berganti sendiri begitu disetujui."
-          : `Node belum menjawab — mencoba lagi. ${unanswered}`}
+          ? "Waiting for a supervisor… this screen changes by itself once approved."
+          : `The server has not answered, trying again. ${unanswered}`}
       </p>
 
       {here ? (
@@ -515,7 +510,7 @@ function Waiting({
         <div>
           <button className="btn" type="button" onClick={() => setHere(true)}>
             <Icon name="user" />
-            Supervisor ada di kasir ini?
+            Is the supervisor at this till?
           </button>
         </div>
       )}
@@ -531,7 +526,7 @@ function Waiting({
             })()
           }}
         >
-          Batalkan permintaan
+          Cancel request
         </button>
       </div>
     </>
@@ -590,8 +585,8 @@ function ApproveHere({ view, onClose }: { view: JoinView; onClose: () => void })
       return
     }
     setDone(
-      `Disetujui oleh ${answer.value.approved_by} sebagai ${answer.value.label}. ` +
-        "Menunggu node mengonfirmasi…",
+      `Approved by ${answer.value.approved_by} as ${answer.value.label}. ` +
+        "Waiting for the server to confirm…",
     )
   }
 
@@ -607,8 +602,8 @@ function ApproveHere({ view, onClose }: { view: JoinView; onClose: () => void })
   return (
     <div className="stat" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <div className="block-head" style={{ marginBottom: 0 }}>
-        <strong style={{ fontSize: 14 }}>Setujui di kasir ini</strong>
-        <button className="icon-btn" type="button" onClick={() => void leave()} aria-label="Tutup">
+        <strong style={{ fontSize: 14 }}>Approve at this till</strong>
+        <button className="icon-btn" type="button" onClick={() => void leave()} aria-label="Close">
           <Icon name="x" />
         </button>
       </div>
@@ -616,13 +611,13 @@ function ApproveHere({ view, onClose }: { view: JoinView; onClose: () => void })
       {signedIn === null ? (
         <form className="rows" onSubmit={(event) => void signIn(event)}>
           <p className="muted" style={{ fontSize: 12 }}>
-            Bisa untuk kasir pertama di toko ini, atau dengan akun Admin. Untuk
-            kasir berikutnya node meminta sidik jari atau PIN supervisor di kasir
-            yang sudah tergabung. Masuk di sini mengeluarkan akun itu dari
-            perangkat lain di node {siteTitle(view.node)}.
+            Works for the first till in this store, or with an Admin account.
+            Later tills are approved with a supervisor's PIN at a till that has
+            already joined. Signing in here signs that account out of its other
+            devices on {siteTitle(view.node)}.
           </p>
           <label className="field">
-            Nama pengguna supervisor
+            Supervisor username
             <input
               value={username}
               onChange={(event) => setUsername(event.target.value)}
@@ -632,7 +627,7 @@ function ApproveHere({ view, onClose }: { view: JoinView; onClose: () => void })
             />
           </label>
           <label className="field">
-            Kata sandi
+            Password
             <input
               type="password"
               value={password}
@@ -647,18 +642,18 @@ function ApproveHere({ view, onClose }: { view: JoinView; onClose: () => void })
               type="submit"
               disabled={busy || username.trim() === "" || password === ""}
             >
-              {busy ? "Memeriksa…" : "Masuk"}
+              {busy ? "Checking…" : "Sign in"}
             </button>
           </div>
         </form>
       ) : (
         <>
           <p className="muted" style={{ fontSize: 12 }}>
-            Masuk sebagai <strong>{signedIn.username}</strong>. Cocokkan dulu:
-            kode <strong className="num">{view.code}</strong>, nomor{" "}
+            Signed in as <strong>{signedIn.username}</strong>. Check first:
+            code <strong className="num">{view.code}</strong>, number{" "}
             <strong className="num">{spaced(view.verification)}</strong>.
           </p>
-          <div className="segmented" role="radiogroup" aria-label="Kasir ini sebagai">
+          <div className="segmented" role="radiogroup" aria-label="This till is">
             <button
               type="button"
               role="radio"
@@ -666,7 +661,7 @@ function ApproveHere({ view, onClose }: { view: JoinView; onClose: () => void })
               aria-pressed={mode === "new"}
               onClick={() => setMode("new")}
             >
-              Kasir baru
+              New till
             </button>
             <button
               type="button"
@@ -676,29 +671,29 @@ function ApproveHere({ view, onClose }: { view: JoinView; onClose: () => void })
               disabled={signedIn.tills.length === 0}
               onClick={() => setMode("replace")}
             >
-              Menggantikan kasir lama
+              Replaces an old till
             </button>
           </div>
           {mode === "new" ? (
             <label className="field">
-              Nama kasir
+              Till name
               <input
                 value={label}
                 onChange={(event) => setLabel(event.target.value)}
-                placeholder="Kosongkan untuk nomor berikutnya (Kasir N)"
+                placeholder="Leave empty for the next number (Kasir N)"
                 autoComplete="off"
               />
             </label>
           ) : (
             <label className="field">
-              Kasir yang digantikan — namanya dipakai kasir ini, kasir lama dicabut
+              Till to replace: this till takes its name and the old till is revoked
               <select value={replaces} onChange={(event) => setReplaces(event.target.value)}>
-                <option value="">Pilih kasir…</option>
+                <option value="">Choose a till…</option>
                 {signedIn.tills.map((till) => (
                   <option key={till.device_id} value={till.device_id}>
                     {till.label}
                     {till.status !== "ACTIVE" ? ` (${till.status.toLowerCase()})` : ""}
-                    {till.device_id === config?.pairing_id ? " — kasir ini sebelumnya" : ""}
+                    {till.device_id === config?.pairing_id ? " (this till before)" : ""}
                   </option>
                 ))}
               </select>
@@ -706,13 +701,13 @@ function ApproveHere({ view, onClose }: { view: JoinView; onClose: () => void })
           )}
           {signedIn.problem !== null && (
             <p className="muted" style={{ fontSize: 12 }}>
-              Daftar kasir tidak bisa dibaca: {signedIn.problem}
+              The list of tills could not be read: {signedIn.problem}
             </p>
           )}
           {problem !== null && <p className="error">{problem}</p>}
           <div style={{ display: "flex", gap: 10 }}>
             <button className="btn" type="button" onClick={() => void leave()} disabled={busy}>
-              Batal
+              Cancel
             </button>
             <button
               className="btn primary"
@@ -721,7 +716,7 @@ function ApproveHere({ view, onClose }: { view: JoinView; onClose: () => void })
               disabled={busy || (mode === "replace" && replaces === "")}
               onClick={() => void approve()}
             >
-              {busy ? "Menyetujui…" : "Setujui kasir ini"}
+              {busy ? "Approving…" : "Approve this till"}
             </button>
           </div>
         </>
@@ -754,15 +749,15 @@ function Approved({
       <span className="seal">
         <Icon name="check" />
       </span>
-      <h3>Kasir ini sudah tergabung</h3>
+      <h3>This till has joined</h3>
       <div className="join-code">{view.label}</div>
       <p className="muted num" style={{ fontSize: 12.5 }}>
         {siteTitle(view.node)} · {view.base_url}
       </p>
       <div className="notice" style={{ width: "100%", textAlign: "left" }}>
-        Nama ini tercetak di struk dan dipakai untuk shift kas. Perangkat yang
-        tersambung ke kasir ini dilaporkan ke node sekarang; periksa di{" "}
-        <strong>Perangkat kasir</strong>.
+        This name is printed on receipts and used for cash shifts. Devices
+        connected to this till are reported to the server now; check them
+        under <strong>Till devices</strong>.
       </div>
       <div style={{ display: "flex", gap: 10, width: "100%" }}>
         <button
@@ -772,7 +767,7 @@ function Approved({
           onClick={() => leave(onPeripherals)}
         >
           <Icon name="plug" />
-          Perangkat kasir
+          Till devices
         </button>
         <button
           className="btn primary"
@@ -781,7 +776,7 @@ function Approved({
           onClick={() => leave(onDone)}
           autoFocus
         >
-          Selesai
+          Done
         </button>
       </div>
     </div>
@@ -804,18 +799,18 @@ function Refused({
       <span className="seal warn">
         <Icon name="alert" />
       </span>
-      <h3>Belum tergabung</h3>
+      <h3>Not joined</h3>
       <p className="muted" style={{ fontSize: 13 }}>
         {refusedBecause(view.reason)}
       </p>
       <p className="muted" style={{ fontSize: 12 }}>
-        Kunci yang dibuat untuk permintaan ini sudah dibuang. Permintaan baru
-        memakai kunci baru dan kode baru.
+        The key made for this request has been thrown away. A new request uses
+        a new key and a new code.
       </p>
       {problem !== null && <p className="error">{problem}</p>}
       <div style={{ display: "flex", gap: 10, width: "100%" }}>
         <button className="btn" type="button" style={{ flex: 1 }} onClick={onFind} disabled={busy}>
-          Pilih node lain
+          Choose another server
         </button>
         <button
           className="btn primary"
@@ -836,7 +831,7 @@ function Refused({
             })()
           }}
         >
-          {busy ? "Meminta…" : "Minta lagi"}
+          {busy ? "Asking…" : "Ask again"}
         </button>
       </div>
     </div>

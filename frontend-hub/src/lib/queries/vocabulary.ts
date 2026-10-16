@@ -1,3 +1,5 @@
+import { queryOptions } from "@tanstack/react-query"
+
 import { node } from "@/lib/api"
 
 /// Divisions, sizes and tags — the three lists nothing could edit.
@@ -101,6 +103,14 @@ export const vocabularyKeys = {
 export function listTerms(kind: VocabularyKind, signal?: AbortSignal) {
   return node.get<MasterVocabulary>(`/api/v1/vocabulary/${kind}`, { signal })
 }
+
+/// The one whole list as a query: the vocabulary screens read it and the
+/// prefetcher (`screens/master/prefetch.ts`) asks for it, with these options.
+export const termsQuery = (kind: VocabularyKind) =>
+  queryOptions({
+    queryKey: vocabularyKeys.list(kind),
+    queryFn: ({ signal }) => listTerms(kind, signal),
+  })
 
 function guarded(
   idempotencyKey: string,

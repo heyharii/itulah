@@ -74,7 +74,7 @@ export function Transcript({
 export function Answer({ exchange }: { exchange: Exchange }) {
   return (
     <article className="mb-6 last:mb-0">
-      <p className="mb-2.5 text-[0.875rem] leading-snug font-semibold tracking-[-0.01em] text-ink">
+      <p className="mb-2.5 text-[0.9375rem] leading-snug font-semibold tracking-[-0.01em] text-ink">
         {exchange.question}
       </p>
 
@@ -128,7 +128,7 @@ function Verdicts({ exchange }: { exchange: Exchange }) {
 
   return (
     <div className="mt-2">
-      <div className="flex items-center gap-0.5 text-[0.875rem] text-mute">
+      <div className="flex items-center gap-0.5 text-[0.9375rem] text-mute">
         <Button
           variant="quiet"
           size="icon"
@@ -188,7 +188,7 @@ function Verdicts({ exchange }: { exchange: Exchange }) {
       )}
 
       {down && !asking && exchange.verdictNote && (
-        <p className="mt-1 text-[0.875rem] text-mute">
+        <p className="mt-1 text-[0.9375rem] text-mute">
           Flagged: {exchange.verdictNote}
         </p>
       )}

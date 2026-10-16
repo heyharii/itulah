@@ -199,7 +199,7 @@ export function ExpenseCodes({ unitId }: { unitId: string }) {
                     </Td>
                     <Td align="right">
                       {one.status === "OPEN" && (
-                        <Button
+                        <Button data-cancel
                           size="sm"
                           variant="quiet"
                           pending={

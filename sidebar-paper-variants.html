@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Sidebar · Paper variants</title>
+<style>
+@font-face{font-family:Inter;src:url('./frontend-hub/node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2') format('woff2');font-weight:100 900;font-display:swap}
+*{box-sizing:border-box}body{margin:0;font:14px/1.5 Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#24282e;background:#e9edf1;-webkit-font-smoothing:antialiased}button,select{font:inherit}button{cursor:pointer;color:inherit}button:focus-visible,select:focus-visible,a:focus-visible{outline:3px solid #3976d5;outline-offset:3px}button{border:0;background:none;text-align:left}svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}h1,h2,h3,p{margin:0}button,select,a{-webkit-tap-highlight-color:transparent}
+.shell{height:100dvh;display:flex;padding:12px 12px 12px 0;background:#e9edf1;gap:12px;overflow:hidden}
+.nav-surface{display:flex;flex:none;width:308px;background:var(--rail);border-radius:0 14px 14px 0;overflow:hidden}
+.rail{width:60px;flex:none;padding:12px 0;display:flex;align-items:center;flex-direction:column;gap:6px;color:var(--rail-ink)}
+.ic{position:relative;width:38px;height:38px;display:grid;place-items:center;border-radius:9px;flex:none}.ic:hover{background:var(--rail-hover)}.ic.on{background:var(--rail-active);color:var(--rail-on)}.rail .end{margin-top:auto}.ic .dot{position:absolute;width:6px;height:6px;background:#c83b46;border:1px solid var(--rail);border-radius:50%;top:5px;right:5px}
+.panel{display:flex;flex-direction:column;min-width:0;flex:1;background:var(--panel);color:var(--text);border:1px solid var(--edge);border-radius:12px;margin:0;overflow:hidden}
+.panel-head{padding:23px 20px 17px;border-bottom:1px solid var(--line)}.panel-head .eyebrow{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);font-weight:600}.panel-head h2{font-size:19px;letter-spacing:-.03em;line-height:1.4;margin-top:3px;color:var(--heading);font-weight:650}
+.list{flex:1;min-height:0;overflow:auto;scrollbar-width:thin;scrollbar-color:var(--scroll) transparent;padding:12px 10px 22px;scroll-padding:20px}
+.item{position:relative;display:flex;align-items:center;justify-content:space-between;gap:7px;width:100%;min-height:35px;padding:7px 11px;border-radius:7px;color:var(--text);line-height:21px;font-weight:450}
+.item .label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.item:hover{background:var(--hover);color:var(--heading)}.item.on{background:var(--active);color:var(--on);font-weight:600;box-shadow:inset 0 0 0 1px var(--active-edge)}.item.on:before{content:'';position:absolute;left:0;width:3px;height:17px;border-radius:2px;background:var(--marker)}
+.badge{display:grid;place-items:center;min-width:20px;height:20px;padding:0 5px;background:var(--badge);color:var(--badge-ink);font-size:11px;font-weight:650;border-radius:6px;flex:none;font-variant-numeric:tabular-nums}
+.glabel{display:flex;align-items:center;justify-content:space-between;width:100%;height:31px;margin:17px 0 3px;padding:0 11px;color:var(--muted);font-size:12px;font-weight:650;letter-spacing:.015em}.group:first-child>.glabel{margin-top:0}.glabel svg{width:14px;height:14px;transform:rotate(90deg)}button.glabel{border-radius:7px}button.glabel:hover{background:var(--hover)}.group.shut>.glabel{margin-top:3px;height:36px;font-size:13px;color:var(--text);letter-spacing:0}.group.shut>.glabel svg{transform:none}.group.shut>.fold{display:none}.setup{border-top:1px solid var(--line);padding:6px 10px}.setup>.glabel{height:36px;margin:0;color:var(--text);font-size:13px}.setup>.glabel span{display:flex;gap:9px;align-items:center}.setup .fold{max-height:32vh;overflow:auto}.setup.shut>.fold{display:none}.setup.shut>.glabel svg:last-child{transform:none}.subhead{font-size:12px;font-weight:650;padding:13px 11px 4px;color:var(--muted)}.panel-foot{padding:13px 20px;border-top:1px solid var(--line);font-size:11px;color:var(--muted)}
+.page{flex:1;min-width:0;overflow:auto;background:#fff;border:1px solid #dee3e9;border-radius:14px}.toolbar{padding:22px 28px 20px;border-bottom:1px solid #e9edf1}.toolbar-top{display:flex;align-items:flex-start;justify-content:space-between;gap:18px}.kicker{font-size:11px;text-transform:uppercase;letter-spacing:.11em;font-weight:650;color:#636d79}h1{font-size:23px;letter-spacing:-.035em;line-height:1.3;margin-top:5px}.toolbar p{font-size:13px;color:#626c78;margin-top:7px;max-width:600px}.view-switch{display:flex;padding:3px;background:#f1f3f6;border-radius:9px;flex:none}.view-switch button{padding:7px 12px;border-radius:6px;font-size:12px;font-weight:550;white-space:nowrap}.view-switch button[aria-pressed="true"]{background:#fff;box-shadow:0 1px 4px #17223518;color:#202a39}.palettes{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;margin-top:23px}.palette{border:1px solid #dfe4ea;border-radius:9px;padding:10px 10px 8px;min-width:0;position:relative}.palette:hover{border-color:#9eacbf}.palette[aria-pressed="true"]{border-color:#3a5f97;box-shadow:0 0 0 1px #3a5f97}.palette strong{font-size:12px;font-weight:600;display:block;margin-top:6px}.palette .n{color:#697381;font-size:10px;font-variant-numeric:tabular-nums;margin-right:4px}.swatches{display:flex;height:16px;border-radius:4px;overflow:hidden;box-shadow:inset 0 0 0 1px #0000000c}.swatches i{flex:1}.swatches i:first-child{flex:2}.settings{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-top:18px;flex-wrap:wrap}.settings label{display:flex;align-items:center;gap:8px;font-size:12px;color:#626c78}.settings select{font-size:12px;max-width:210px;padding:6px 25px 6px 9px;border:1px solid #dce1e7;border-radius:6px;background:#fff;color:#283241}.hint{font-size:11px;color:#697381}.content{padding:27px 28px 38px}.theme-note{display:flex;justify-content:space-between;gap:20px;align-items:start}.theme-note h2{font-size:17px;letter-spacing:-.02em}.theme-note p{font-size:13px;color:#626c78;max-width:540px;margin-top:5px}.recommend{padding:4px 8px;border-radius:5px;background:#edf3ed;color:#36533e;font-size:10px;font-weight:650;white-space:nowrap}.tokens{display:flex;gap:22px;flex-wrap:wrap;margin-top:17px;padding-bottom:24px;border-bottom:1px solid #edf0f3}.token{display:flex;align-items:center;gap:7px;font-size:11px;color:#626c78}.token i{width:14px;height:14px;border-radius:4px;border:1px solid #00000018}.token code{font-size:10px;color:#525e6d}
+.demo{margin-top:26px}.crumb{font-size:11px;color:#626c78}.demo-title{display:flex;justify-content:space-between;gap:14px;align-items:center;margin:5px 0 18px}.demo h2{font-size:22px;letter-spacing:-.035em}.date{font-size:12px;background:#f6f7f9;border:1px solid #e7eaef;padding:7px 10px;border-radius:6px;color:#586371}.metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border:1px solid #e6eaf0;border-radius:10px;margin-bottom:22px}.metric{padding:16px 18px}.metric+.metric{border-left:1px solid #e6eaf0}.metric span{display:block;font-size:11px;color:#626c78}.metric strong{display:block;font-size:25px;letter-spacing:-.04em;font-weight:600;margin-top:5px;font-variant-numeric:tabular-nums}.metric small{font-size:11px;color:#66727e}.table-wrap{overflow:auto}table{width:100%;border-collapse:collapse;font-size:12px;white-space:nowrap}th{text-align:left;color:#687381;background:#f8f9fb;font-size:11px;font-weight:500}td,th{padding:12px 13px;border-bottom:1px solid #edf0f3}td:first-child{font-weight:550}.status{font-size:10px;color:#36624a;background:#ecf4ef;padding:4px 7px;border-radius:5px}.status.late{color:#845b20;background:#faf2e5}.demo-note{margin-top:13px;font-size:11px;color:#687381}
+.comparison{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}.sample{min-width:0}.sample-title{display:flex;justify-content:space-between;align-items:center;margin:0 0 9px}.sample-title strong{font-size:12px}.sample-title span{font-size:10px;color:#687381}.mini{height:325px;display:flex;background:var(--rail);border:1px solid var(--edge);border-radius:10px;overflow:hidden}.mini-rail{width:35px;padding-top:14px;display:flex;align-items:center;flex-direction:column;gap:15px;flex:none;color:var(--rail-ink)}.mini-rail svg{width:15px;height:15px}.mini-rail .mini-on{color:var(--rail-on);background:var(--rail-active);padding:6px;border-radius:6px;display:flex}.mini-panel{flex:1;min-width:0;padding:15px 8px;background:var(--panel);border-left:1px solid var(--line);color:var(--text)}.mini-panel h3{font-size:14px;color:var(--heading);padding:0 7px 12px}.mini .glabel{font-size:10px;margin-top:12px;height:22px;padding:0 7px}.mini .item{min-height:29px;font-size:11px;line-height:17px;padding:5px 7px;border-radius:5px}.sample-pick{width:100%;font-size:11px;text-align:center;margin-top:9px;padding:7px;border:1px solid #e0e5eb;border-radius:6px;color:#495668}.sample-pick:hover{background:#f5f7f9}.sample-pick[aria-pressed="true"]{background:#edf2f9;border-color:#bac9df;color:#284972}.contrast{font-size:10px;color:#697381;margin-top:6px}.compare-caption{font-size:12px;color:#626c78;margin-bottom:22px;max-width:610px}.mobile-dept{display:none}.visually-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+@media(min-width:1500px){.toolbar,.content{padding-left:42px;padding-right:42px}.comparison{gap:24px}.mini{height:350px}}
+@media(max-width:1150px){.comparison{grid-template-columns:repeat(2,minmax(0,1fr))}.palettes{grid-template-columns:repeat(3,minmax(0,1fr))}.nav-surface{width:286px}.rail{width:52px}.toolbar,.content{padding-left:22px;padding-right:22px}.toolbar-top{flex-wrap:wrap}.hint{display:none}}
+@media(max-width:760px){.shell{padding:0;gap:0}.nav-surface{width:226px;border-radius:0}.rail{display:none}.panel{border-radius:0;border-top:0;border-bottom:0}.page{border-radius:0;border:0}.toolbar,.content{padding:18px 16px}.palettes{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}.comparison{grid-template-columns:1fr}.metrics{grid-template-columns:1fr}.metric+.metric{border-left:0;border-top:1px solid #e6eaf0}.theme-note{flex-wrap:wrap}.tokens{gap:10px}.date{display:none}.mobile-dept{display:flex!important}.palette{padding:7px}.toolbar p{font-size:12px}h1{font-size:19px}}
+@media(max-width:480px){.nav-surface{width:185px}.panel-head{padding-left:15px}.list{padding-left:6px;padding-right:6px}.item{font-size:12px;padding-left:8px}.glabel{padding-left:8px}.palette .n{display:none}.palette strong{font-size:11px}.view-switch button{font-size:11px;padding:6px 8px}.settings select{max-width:145px}.settings label{flex-wrap:wrap;gap:4px}.tokens{display:none}.sample-title{flex-wrap:wrap}.theme-note h2{font-size:15px}}
+/* Paper stays white; only the surrounding rail, selection and counts vary. */
+.item.on{box-shadow:inset 0 0 0 1px var(--active-edge),var(--active-shadow)}
+.badge{border:1px solid var(--badge-border);border-radius:var(--badge-radius);font-size:11px;min-width:21px}
+.item.on .badge{background:var(--badge);color:var(--badge-ink)}
+.rail-count{position:absolute;right:-5px;top:-4px;min-width:17px;height:17px;display:grid;place-items:center;padding:0 4px;border-radius:6px;background:var(--rail-badge);color:var(--rail-badge-ink);font-size:9px;line-height:1;font-weight:650;border:1px solid var(--badge-border);box-shadow:0 0 0 2px var(--rail);font-variant-numeric:tabular-nums}
+.mini-rail .mini-on{position:relative}.mini .rail-count{min-width:15px;height:15px;font-size:8px;right:-5px;top:-4px;padding:0 3px}
+.mini .badge{font-size:9px;min-width:18px;height:18px;padding:0 4px}
+[data-badge="text"] .item:not(.on) .badge{background:transparent;border-color:transparent}
+[data-badge="text"] .item.on .badge{background:transparent;border-color:transparent;color:inherit}
+.sample-details{margin-top:9px;font-size:10px;color:#63707e}.sample-pick{margin-top:7px}
+.settings{justify-content:flex-start;gap:12px 20px}.settings .hint{flex-basis:100%}.settings select{max-width:165px}
+.current-combo{font-size:11px!important;color:#505e6e!important;font-weight:550;margin-top:9px!important}
+.palette[aria-pressed="true"]{border-color:#687787;box-shadow:0 0 0 1px #687787}.palette strong{font-size:11px}.palette .n{margin-right:3px}
+.sample-pick[aria-pressed="true"]{background:#edf0f3;border-color:#b8c2cd;color:#354557}
+.recommend{background:#eef1f4;color:#4e5c6c}.mini{height:365px}.mini-panel{padding-top:17px}
+@media(max-width:480px){.settings{gap:9px}.settings select{max-width:145px}}
+
+</style>
+</head>
+<body>
+<div class="shell" id="shell">
+ <div class="nav-surface" id="nav"><nav class="rail" id="rail" aria-label="Departemen"></nav><nav class="panel" aria-label="Menu departemen"><div class="panel-head"><div class="eyebrow">ITULAH / WORKSPACE</div><h2 id="dept"></h2></div><div class="list" id="list"></div><div id="foot"></div><div class="panel-foot">15 Okt 2026 · Jakarta</div></nav></div>
+ <main class="page"><header class="toolbar"><div class="toolbar-top"><div><div class="kicker">Sidebar / Paper variants</div><h1>Paper, enam variasi</h1><p>Panel menu tetap putih. Bandingkan rail luar, penanda menu aktif, dan angka notifikasi.</p></div><div class="view-switch" role="group" aria-label="Tampilan"><button data-view="preview">Preview</button><button data-view="compare">Bandingkan 6</button></div></div><div class="palettes" id="palettes" role="group" aria-label="Pilihan warna"></div><div class="settings"><label>Menu aktif <select id="active-style"><option value="soft">Abu lembut</option><option value="outline">Bingkai tipis</option><option value="line">Garis kiri</option><option value="solid">Arang penuh</option></select></label><label>Notifikasi <select id="badge-style"><option value="soft">Abu lembut</option><option value="solid">Angka gelap</option><option value="outline">Bingkai tipis</option><option value="text">Angka saja</option><option value="warm">Tanah lembut</option></select></label><label>Struktur <select id="layout"><option value="labels">Semua menu + label</option><option value="fold">Grup bisa dilipat</option><option value="setup">Work + Setup</option></select></label><label class="mobile-dept">Departemen <select id="department"></select></label><span class="hint">Setiap varian punya kombinasi awal; active state dan notifikasi bisa kamu ubah.</span></div></header><div class="content" id="content"></div></main>
+</div>
+<script>
+const I = {
+ home:'<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1Z"/>',
+ buying:'<circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M2 3h3l2.6 12.4a2 2 0 0 0 2 1.6h8.2a2 2 0 0 0 2-1.6L21 7H6"/>',
+ merch:'<path d="M8 3 4 6v4h3v11h10V10h3V6l-4-3a4 4 0 0 1-8 0Z"/>',
+ ops:'<path d="M3 7h11v9H3zM14 10h4l3 3v3h-7"/><circle cx="7" cy="18" r="1.6"/><circle cx="17" cy="18" r="1.6"/>',
+ inv:'<path d="m12 3 8 4.5v9L12 21l-8-4.5v-9Z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/>',
+ mkt:'<path d="M3 11v2a1 1 0 0 0 1 1h3l5 4V6L7 10H4a1 1 0 0 0-1 1ZM16 8a5 5 0 0 1 0 8"/>',
+ sales:'<path d="M3 10h18M5 10l1-6h12l1 6M5 10v10h14V10M10 20v-5h4v5"/>',
+ fin:'<path d="M3 21h18M5 21V10M19 21V10M9 21v-6h6v6M3 10l9-6 9 6"/>',
+ hr:'<circle cx="9" cy="8" r="3"/><path d="M3 20a6 6 0 0 1 12 0M16 4a3 3 0 0 1 0 6M21 20a5 5 0 0 0-4-5"/>',
+ ga:'<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7h2M14 7h2M8 11h2M14 11h2M10 21v-4h4v4"/>',
+ master:'<path d="M4 5c0-1.1 3.6-2 8-2s8 .9 8 2-3.6 2-8 2-8-.9-8-2Z"/><path d="M4 5v14c0 1.1 3.6 2 8 2s8-.9 8-2V5M4 12c0 1.1 3.6 2 8 2s8-.9 8-2"/>',
+ cog:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2"/>',
+ chev:'<path d="m9 6 6 6-6 6"/>',
+}
+const svg = (k) => `<svg viewBox="0 0 24 24">${I[k]}</svg>`
+
+// ── the menu, read from frontend-hub's nav.ts files (15 Oct) ──
+// row = "Label" or ["Label", count]; group = {l: label|null, s: setup?, r: rows}
+// today = how the hub draws it now: flat rows; Finance folds; GA dividers
+const D = [
+ {id:"buying", l:"Procurement", ic:"buying", on:"Purchase Orders", g:[
+  {l:"Orders", r:[["Purchase Orders",4],["Return PO",2]]},
+  {l:"Partners", r:["Suppliers"]}],
+  today:[["Purchase Orders",4],"Suppliers",["Return PO",2]]},
+ {id:"merch", l:"Merchandise", ic:"merch", on:"Articles", g:[
+  {l:"Articles", r:["Articles",["New Articles",7]]},
+  {l:"Allotment", r:["Allotments","Return HO"]},
+  {l:"Attributes", s:1, r:["Divisions","Tags","Sizes","Colors","Name Suggestions"]}]},
+ {id:"ops", l:"Ops", ic:"ops", on:"Receiving PO", g:[
+  {l:"Inbound", r:[["Receiving PO",3],["Quantity Checks",2]]},
+  {l:"Returns", r:[["Receiving Return",1],["Return from Store",1]]},
+  {l:"Outbound", r:[["Allotment",5]]}],
+  today:[["Receiving PO",3],["Receiving Return",1],["Quantity Checks",2],["Allotment",5],["Return from Store",1]]},
+ {id:"inv", l:"Inventory", ic:"inv", on:"Stock", g:[
+  {l:"Stock", r:["Stock",["Exceptions",3]]},
+  {l:"Checks", r:["Counts","Movements"]}]},
+ {id:"mkt", l:"Marketing", ic:"mkt", on:"Pricelist", g:[
+  {l:"Prices", r:["Pricelist"]},
+  {l:"Offers", r:["Promotions","Campaigns","Vouchers"]}]},
+ {id:"sales", l:"Sales", ic:"sales", on:"Sales by Store", g:[
+  {l:null, r:["Sales"]},
+  {l:"By place", r:["Sales by Store","Sales by Payment","Sales by Cashier Session"]},
+  {l:"By product", r:["Sales by Division","Sales by Tag","Sales by Article","Sales by SKU"]},
+  {l:"By source", r:["Sales by PO","Sales by Supplier","Sales by Campaign"]}],
+  today:["Sales","Sales by Store","Sales by Division","Sales by Tag","Sales by Article","Sales by SKU","Sales by PO","Sales by Supplier","Sales by Campaign","Sales by Payment","Sales by Cashier Session"]},
+ {id:"fin", l:"Finance", ic:"fin", on:"Bank Transactions", g:[
+  {l:null, r:["Overview"]},
+  {l:"Stores", r:["Store Overview","Sales by Day","Cash on Hand","Petty Cash","Cashier Float","Cash Counts"]},
+  {l:"Inventory", r:["Inventory Valuation","Stock vs Ledger","Goods in Transit","Cost of Goods Sold","Stock Adjustments"]},
+  {l:"Payables", r:[["Purchase Invoice",6],"Credit Note","Recurring Bills","Accruals","Accounts Payable","Supplier Bills","Payment Projection","Loans"]},
+  {l:"Receivables", r:["Card & EDC Settlement"]},
+  {l:"Payments", r:["BKK","BKM","Journal Entry","Recurring Journal","Mode of Payment"]},
+  {l:"Banking", r:["Bank Account","Giro Board","Bank Transactions",["Bank Reconciliation",2],"Bank Rules"]},
+  {l:"Financial Reports", r:["General Ledger","Trial Balance","Profit and Loss","Balance Sheet","Cash Flow","Profit and Loss by Unit","Balance Sheet 2 Years","Sales by Division","Statement of Changes in Equity","Expenses by Month","Bank Reconciliation Summary"]},
+  {l:"Assets", r:["Asset","Contractor Projects","Asset Category","Fixed Asset Register","Asset Disposals"]},
+  {l:"Tax", r:["Tax Withholding","Tax Withholding Details","Tax Payables","Tax Types"]},
+  {l:"Accounting Masters", s:1, r:["Chart of Accounts","Accounts Settings",["Accounting Period",1],"Pay Components"]},
+  {l:"Closing", r:["Period Close","Period Closing Voucher"]}],
+  todayFold:1},
+ {id:"hr", l:"HR", ic:"hr", on:"Attendance", g:[
+  {l:null, r:[["Overview & Requests",5],"Reports"]},
+  {l:"Employees", r:["Employee List","Org Chart","Transfers & Changes","Onboarding","Offboarding","Reprimands","Invitations"]},
+  {l:"Time", r:["Time Off Requests","Time Off Balances","Attendance","Overtime","Roster","Team Calendar"]},
+  {l:"Claims & Loans", r:["Claims","Loans","Claim Allowances","Benefit Balances"]},
+  {l:"Payroll", r:["Payroll Runs","One-offs","Tax & BPJS Report","1721-A1"]},
+  {l:"Company", s:1, r:["Company & NPP","Group & Business Units","Departments","Job Levels & Grades"]},
+  {l:"Time rules", s:1, r:["Attendance Rules","Mobile & Locations","Shifts & Breaks","Time Off Types","Holidays","Overtime Rules"]},
+  {l:"Pay rules", s:1, r:["Schedule & Pro-rate","Components & Structures","Payslip","Absence Deduction","BPJS & Tax Rates","Claim Types","Benefit"]},
+  {l:"Access", s:1, r:["Job Roles","Onboarding Tasks","Approval Delegation","Employee App"]}],
+  today:[["Overview & Requests",5],"Employee List","Org Chart","Transfers & Changes","Onboarding","Offboarding","Reprimands","Invitations","Time Off Requests","Time Off Balances","Attendance","Overtime","Roster","Team Calendar","Claims","Loans","Claim Allowances","Balances","Payroll Runs","One-offs","Tax & BPJS Report","1721-A1","Reports","Company & NPP","Group & Business Units","Departments","Job Levels & Grades","Attendance Rules","Mobile & Locations","Shifts & Breaks","Time Off Types","Holidays","Overtime Rules","Schedule & Pro-rate","Components & Structures","Payslip","Absence Deduction","BPJS & Tax Rates","Claim Types","Benefit","Job Roles","Onboarding Tasks","Approval Delegation","Employee App"]},
+ {id:"ga", l:"GA", ic:"ga", on:"Repairs", g:[
+  {l:null, r:["Overview"]},
+  {l:"Requests", r:[["Supply Requests",2],"Repairs","Service Schedule"]},
+  {l:"Property", r:["Assets","Contracts","Sites","Suppliers"]},
+  {l:"Documents", r:["Letters","Files"]}],
+  today:["Overview","---",["Supply Requests",2],"Repairs","Service Schedule","---","Assets","Contracts","Sites","Suppliers","---","Letters","Files"]},
+ {id:"master", l:"Master", ic:"master", on:"Articles", g:[
+  {l:"Articles", r:["Articles",["New Articles",7]]},
+  {l:"Places & partners", r:["Stores","Suppliers"]},
+  {l:"Attributes", s:1, r:["Divisions","Tags","Sizes","Colors","Name Suggestions"]}],
+  today:["Articles",["New Articles",7],"Stores","Divisions","Tags","Sizes","Colors","Name Suggestions","Suppliers"]},
+]
+
+
+const THEMES = [{"id": "fog", "name": "Fog", "tag": "Abu netral", "desc": "Rail abu netral, menu aktif abu tipis, dan badge angka abu. Paling dekat dengan Paper, dengan aksen yang lebih tenang.", "recommend": true, "activeStyle": "soft", "badgeStyle": "soft", "colors": {"panel": "#ffffff", "text": "#39424e", "muted": "#65707d", "heading": "#202831", "line": "#e8ebef", "edge": "#dde2e7", "hover": "#f3f5f7", "scroll": "#bcc4cc", "frame": "#e8ebef", "rail": "#e2e6eb", "rail-ink": "#53606f", "rail-hover": "#d2d9e1", "rail-active": "#ffffff", "rail-on": "#273440"}}, {"id": "pearl", "name": "Pearl", "tag": "Putih berlapis", "desc": "Rail putih tulang, menu aktif cukup lewat garis kiri dan bobot teks. Notifikasi berupa angka berbingkai agar tetap terbaca.", "recommend": false, "activeStyle": "line", "badgeStyle": "outline", "colors": {"panel": "#ffffff", "text": "#39424e", "muted": "#65707d", "heading": "#202831", "line": "#e8ebef", "edge": "#dde2e7", "hover": "#f3f5f7", "scroll": "#bcc4cc", "frame": "#eff0f2", "rail": "#f6f6f5", "rail-ink": "#5c646e", "rail-hover": "#e7e9eb", "rail-active": "#e6e8eb", "rail-on": "#252d36"}}, {"id": "linen", "name": "Linen", "tag": "Abu hangat", "desc": "Rail abu hangat dengan menu aktif berbingkai tipis. Angka notifikasi memakai warna tanah yang redup.", "recommend": false, "activeStyle": "outline", "badgeStyle": "warm", "colors": {"panel": "#ffffff", "text": "#39424e", "muted": "#65707d", "heading": "#202831", "line": "#e8ebef", "edge": "#dde2e7", "hover": "#f3f5f7", "scroll": "#bcc4cc", "frame": "#eae7e1", "rail": "#e4e0d8", "rail-ink": "#655d51", "rail-hover": "#d6d0c6", "rail-active": "#ffffff", "rail-on": "#443b30"}}, {"id": "cloud", "name": "Cloud", "tag": "Biru abu lembut", "desc": "Panel menu tetap putih; warna hanya muncul di rail luar. Menu aktif berbingkai netral dan badge abu, tanpa dominasi biru di menu.", "recommend": false, "activeStyle": "outline", "badgeStyle": "soft", "colors": {"panel": "#ffffff", "text": "#39424e", "muted": "#65707d", "heading": "#202831", "line": "#e8ebef", "edge": "#dde2e7", "hover": "#f3f5f7", "scroll": "#bcc4cc", "frame": "#e6ebf2", "rail": "#dce4ee", "rail-ink": "#4b5e76", "rail-hover": "#cbd6e4", "rail-active": "#ffffff", "rail-on": "#31435a"}}, {"id": "ink", "name": "Ink rail", "tag": "Arang + putih", "desc": "Rail arang memisahkan navigasi utama dari panel putih. Menu aktif abu lembut dan badge angka gelap memberi penanda yang jelas.", "recommend": true, "activeStyle": "soft", "badgeStyle": "solid", "colors": {"panel": "#ffffff", "text": "#39424e", "muted": "#65707d", "heading": "#202831", "line": "#e8ebef", "edge": "#dde2e7", "hover": "#f3f5f7", "scroll": "#bcc4cc", "frame": "#e8ebee", "rail": "#282e35", "rail-ink": "#bac3ce", "rail-hover": "#3b444f", "rail-active": "#f3f5f7", "rail-on": "#28323e"}}, {"id": "midnight", "name": "Midnight", "tag": "Navy + putih", "desc": "Rail biru malam dengan panel putih. Menu aktif arang penuh memberi kontras paling kuat; notifikasi hanya angka agar tidak bersaing.", "recommend": false, "activeStyle": "solid", "badgeStyle": "text", "colors": {"panel": "#ffffff", "text": "#39424e", "muted": "#65707d", "heading": "#202831", "line": "#e8ebef", "edge": "#dde2e7", "hover": "#f3f5f7", "scroll": "#bcc4cc", "frame": "#e7ebf0", "rail": "#1e2c40", "rail-ink": "#becce0", "rail-hover": "#30445f", "rail-active": "#edf2f8", "rail-on": "#233c5b"}}];
+const ACTIVE={
+ soft:{label:'Abu lembut',active:'#eceff2',on:'#27323e',marker:'transparent','active-edge':'#e2e6eb','active-shadow':'0 0 0 0 transparent'},
+ outline:{label:'Bingkai tipis',active:'#ffffff',on:'#27323e',marker:'transparent','active-edge':'#a8b4c1','active-shadow':'0 1px 2px #182a3c0a'},
+ line:{label:'Garis kiri',active:'#ffffff',on:'#202c39',marker:'#4b5b6e','active-edge':'transparent','active-shadow':'0 0 0 0 transparent'},
+ solid:{label:'Arang penuh',active:'#333d49',on:'#ffffff',marker:'transparent','active-edge':'#333d49','active-shadow':'0 0 0 0 transparent'}
+};
+const BADGES={
+ soft:{label:'Abu lembut',badge:'#e8ecf0','badge-ink':'#455363','badge-border':'transparent'},
+ solid:{label:'Angka gelap',badge:'#455363','badge-ink':'#ffffff','badge-border':'#455363'},
+ outline:{label:'Bingkai tipis',badge:'#ffffff','badge-ink':'#4c5969','badge-border':'#c3cbd4'},
+ text:{label:'Angka saja',badge:'#ffffff','badge-ink':'#536173','badge-border':'transparent'},
+ warm:{label:'Tanah lembut',badge:'#eee7dc','badge-ink':'#705735','badge-border':'transparent'}
+};
+function resolveColors(t,current=false){const a=current?state.active:t.activeStyle,b=current?state.badge:t.badgeStyle;return {...t.colors,...ACTIVE[a],...BADGES[b],'badge-radius':b==='solid'?'999px':'5px','rail-badge':b==='text'?t.colors.rail:BADGES[b].badge,'rail-badge-ink':b==='text'?t.colors['rail-ink']:BADGES[b]['badge-ink']}}
+function applyStyle(){const t=theme();$('nav').style.cssText=Object.entries(resolveColors(t,true)).filter(([k])=>k!=='label').map(([k,v])=>`--${k}:${v}`).join(';');$('shell').style.background=t.colors.frame;$('active-style').value=state.active;$('badge-style').value=state.badge;$('nav').dataset.badge=state.badge;}
+function railBadge(d){const count=d.g.flatMap(g=>g.r).reduce((s,r)=>s+rowCount(r),0);return count?`<span class="rail-count" aria-label="${count} menunggu">${count}</span>`:''}
+
+const state={theme:'fog',dept:'buying',layout:'labels',view:'preview',active:'soft',badge:'soft',selected:{},open:{},setup:{}};
+D.forEach(d=>state.selected[d.id]=d.on);
+const $=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const rowName=r=>Array.isArray(r)?r[0]:r;
+const rowCount=r=>Array.isArray(r)?r[1]:0;
+const styleOf=t=>Object.entries(resolveColors(t)).map(([k,v])=>`--${k}:${v}`).join(';');
+const theme=()=>THEMES.find(t=>t.id===state.theme);
+function row(r,d){const name=rowName(r),n=rowCount(r),active=state.selected[d.id]===name;return `<button class="item${active?' on':''}" data-row="${esc(name)}" title="${esc(name)}"${active?' aria-current="page"':''}><span class="label">${esc(name)}</span>${n?`<span class="badge" aria-label="${n} menunggu">${n}</span>`:''}</button>`}
+function group(g,i,d,fold){const key=`${d.id}:${i}`,inside=g.r.some(r=>rowName(r)===state.selected[d.id]),open=state.open[key]??inside;return `<div class="group${fold?(open?' open':' shut'):''}">${g.l?fold?`<button class="glabel" data-fold="${key}" aria-expanded="${open}"><span>${esc(g.l)}</span>${svg('chev')}</button>`:`<div class="glabel">${esc(g.l)}</div>`:''}<div class="fold"${fold&&!open?' inert':''}>${g.r.map(r=>row(r,d)).join('')}</div></div>`}
+function updateUrl(){const u=new URL(location.href);u.searchParams.set('theme',state.theme);u.searchParams.set('d',state.dept);u.searchParams.set('layout',state.layout);u.searchParams.set('view',state.view);u.searchParams.set('active',state.active);u.searchParams.set('badge',state.badge);try{history.replaceState(null,'',u)}catch{}}
+function renderNav(){const d=D.find(d=>d.id===state.dept);applyStyle();$('dept').textContent=d.l;$('rail').innerHTML=`<div class="ic" title="Itulah">${svg('home')}</div>`+D.map(x=>`<button class="ic${x.id===d.id?' on':''}" data-dept="${x.id}" title="${esc(x.l)}" aria-label="${esc(x.l)}"${x.id===d.id?' aria-current="true"':''}>${svg(x.ic)}${railBadge(x)}</button>`).join('')+`<div class="ic end" title="Workspace">${svg('cog')}</div>`;
+ const fold=state.layout!=='labels';$('list').innerHTML=d.g.map((g,i)=>state.layout==='setup'&&g.s?'':group(g,i,d,fold)).join('');const set=d.g.filter(g=>g.s),hasSelected=set.some(g=>g.r.some(r=>rowName(r)===state.selected[d.id])),open=state.setup[d.id]??hasSelected;
+ $('foot').innerHTML=state.layout==='setup'&&set.length?`<div class="setup ${open?'open':'shut'}"><button class="glabel" data-setup aria-expanded="${open}"><span>${svg('cog')}Setup</span>${svg('chev')}</button><div class="fold"${!open?' inert':''}>${set.map(g=>`<div class="subhead">${esc(g.l)}</div>${g.r.map(r=>row(r,d)).join('')}`).join('')}</div></div>`:'';
+ $('layout').value=state.layout;$('department').value=state.dept;
+}
+function renderPalettes(){$('palettes').innerHTML=THEMES.map((t,i)=>`<button class="palette" data-theme="${t.id}" aria-pressed="${t.id===state.theme}" title="${esc(t.tag)}"><span class="swatches" aria-hidden="true"><i style="background:${t.colors.panel}"></i><i style="background:${t.colors.rail}"></i><i style="background:${resolveColors(t).active}"></i><i style="background:${resolveColors(t).text}"></i></span><strong><span class="n">0${i+1}</span>${t.name}</strong></button>`).join('');document.querySelectorAll('[data-view]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.view===state.view))}
+function luminance(h){const c=h.match(/[\da-f]{2}/gi).map(x=>parseInt(x,16)/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4);return c[0]*.2126+c[1]*.7152+c[2]*.0722}
+function contrast(a,b){const x=[luminance(a),luminance(b)].sort((a,b)=>a-b);return ((x[1]+.05)/(x[0]+.05)).toFixed(1)}
+function sample(t){
+ const d=D.find(d=>d.id===state.dept),sel=state.selected[d.id],g=d.g.find(g=>g.r.some(r=>rowName(r)===sel));
+ const rows=g.r.slice(0,5);if(!rows.some(r=>rowName(r)===sel))rows[rows.length-1]=g.r.find(r=>rowName(r)===sel);
+ const other=d.g.find(x=>x!==g&&x.r.some(r=>rowCount(r)))??d.g.find(x=>x!==g);
+ const smallRow=r=>`<div class="item${rowName(r)===sel?' on':''}"><span class="label">${esc(rowName(r))}</span>${rowCount(r)?`<span class="badge">${rowCount(r)}</span>`:''}</div>`;
+ const colors=resolveColors(t);
+ return `<article class="sample"><div class="sample-title"><strong>${t.name}</strong><span>${t.tag}</span></div><div class="mini" style="${styleOf(t)}" data-badge="${t.badgeStyle}"><div class="mini-rail">${svg('home')}<span class="mini-on">${svg(d.ic)}${railBadge(d)}</span>${svg('fin')}${svg('cog')}</div><div class="mini-panel"><h3>${esc(d.l)}</h3><div class="glabel">${esc(g.l??'Workspace')}</div>${rows.map(smallRow).join('')}${other?`<div class="glabel">${esc(other.l??'Workspace')}</div>${other.r.slice(0,2).map(smallRow).join('')}`:''}</div></div><div class="sample-details">${ACTIVE[t.activeStyle].label} · ${BADGES[t.badgeStyle].label.toLowerCase()}</div><button class="sample-pick" data-theme="${t.id}" aria-pressed="${state.theme===t.id}">${state.theme===t.id?'Pakai ulang kombinasi ini':'Coba '+t.name}</button><p class="contrast">Teks ${contrast(colors.text,colors.panel)}:1 · label ${contrast(colors.muted,colors.panel)}:1</p></article>`
+}
+
+function renderContent(){const t={...theme(),colors:resolveColors(theme(),true)},d=D.find(d=>d.id===state.dept);if(state.view==='compare'){$('content').innerHTML=`<p class="compare-caption">Departemen dan menu aktif mengikuti sidebar kiri. Setiap kartu menampilkan kombinasi awalnya, termasuk angka notifikasi. Klik Coba untuk memakainya di sidebar kiri.</p><div class="comparison">${THEMES.map(sample).join('')}</div>`;return}
+ const tokens=[['Rail luar','rail'],['Panel','panel'],['Menu aktif','active'],['Notifikasi','badge']];$('content').innerHTML=`<div class="theme-note"><div><h2>${t.name} <span style="font-weight:400;color:#697381">/ ${t.tag}</span></h2><p>${t.desc}</p><p class="current-combo">Dipakai: ${ACTIVE[state.active].label} · notifikasi ${BADGES[state.badge].label.toLowerCase()}</p></div>${t.recommend?'<span class="recommend">Pilihan yang disarankan</span>':''}</div><div class="tokens">${tokens.map(([label,key])=>`<span class="token"><i style="background:${t.colors[key]}"></i>${label} <code>${t.colors[key]}</code></span>`).join('')}</div><section class="demo" aria-label="Contoh halaman kerja"><div class="crumb">${esc(d.l)} / Workspace</div><div class="demo-title"><h2>${esc(state.selected[d.id])}</h2><span class="date">15 Okt 2026</span></div><div class="metrics"><div class="metric"><span>Hadir hari ini</span><strong>142 <small>/ 156</small></strong></div><div class="metric"><span>Terlambat</span><strong>6</strong></div><div class="metric"><span>Cuti & izin</span><strong>8</strong></div></div><div class="table-wrap"><table><thead><tr><th>Nama</th><th>Departemen</th><th>Jadwal</th><th>Masuk</th><th>Status</th></tr></thead><tbody>${[['Alya Pratama','Finance','08:00 – 17:00','07:52','Hadir'],['Bima Santoso','Operations','08:00 – 17:00','07:56','Hadir'],['Citra Dewi','HR','08:00 – 17:00','08:12','Terlambat'],['Dimas Putra','Merchandise','08:00 – 17:00','07:48','Hadir'],['Eva Larasati','Procurement','08:00 – 17:00','07:59','Hadir']].map(r=>`<tr>${r.slice(0,4).map(x=>`<td>${x}</td>`).join('')}<td><span class="status${r[4]==='Terlambat'?' late':''}">${r[4]}</span></td></tr>`).join('')}</tbody></table></div><p class="demo-note">Data contoh untuk menilai sidebar di samping halaman kerja yang terang.</p></section>`}
+function render(){renderNav();renderPalettes();renderContent();updateUrl()}
+function revealSelected(){$('nav').querySelector('.item.on')?.scrollIntoView({block:'nearest',inline:'nearest'})}
+function selectTheme(id){const preset=THEMES.find(t=>t.id===id);if(!preset)return;state.theme=id;state.active=preset.activeStyle;state.badge=preset.badgeStyle;applyStyle();renderPalettes();renderContent();updateUrl()}
+document.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;if(b.dataset.theme)return selectTheme(b.dataset.theme);if(b.dataset.view){state.view=b.dataset.view;renderPalettes();renderContent();return updateUrl()}if(b.dataset.dept){state.dept=b.dataset.dept;render();return revealSelected()}if(b.dataset.row){state.selected[state.dept]=b.dataset.row;const old=$('list').scrollTop;renderNav();$('list').scrollTop=old;renderContent();return}if(b.dataset.fold){const g=b.parentElement,open=g.classList.contains('shut');state.open[b.dataset.fold]=open;g.classList.toggle('shut',!open);g.classList.toggle('open',open);b.setAttribute('aria-expanded',open);g.querySelector('.fold').inert=!open;return}if(b.hasAttribute('data-setup')){const g=b.parentElement,open=g.classList.contains('shut');state.setup[state.dept]=open;g.classList.toggle('shut',!open);g.classList.toggle('open',open);b.setAttribute('aria-expanded',open);g.querySelector('.fold').inert=!open}});
+$('layout').addEventListener('change',e=>{state.layout=e.target.value;state.open={};render();revealSelected()});$('department').innerHTML=D.map(d=>`<option value="${d.id}">${d.l}</option>`).join('');$('department').addEventListener('change',e=>{state.dept=e.target.value;render();revealSelected()});
+addEventListener('keydown',e=>{if(e.target.closest('input,select,textarea,[contenteditable]')||e.ctrlKey||e.altKey||e.metaKey)return;const t=THEMES[Number(e.key)-1];if(t)selectTheme(t.id)});
+const params=new URLSearchParams(location.search);if(THEMES.some(t=>t.id===params.get('theme')))state.theme=params.get('theme');if(D.some(d=>d.id===params.get('d')))state.dept=params.get('d');if(['labels','fold','setup'].includes(params.get('layout')))state.layout=params.get('layout');if(params.get('view')==='compare')state.view='compare';const initial=theme();state.active=ACTIVE[params.get('active')]?params.get('active'):initial.activeStyle;state.badge=BADGES[params.get('badge')]?params.get('badge'):initial.badgeStyle;
+$('active-style').addEventListener('change',e=>{state.active=e.target.value;applyStyle();renderContent();updateUrl()});$('badge-style').addEventListener('change',e=>{state.badge=e.target.value;applyStyle();renderContent();updateUrl()});render();revealSelected();
+</script>
+</body>
+</html>

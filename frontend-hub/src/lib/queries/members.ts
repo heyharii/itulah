@@ -1,3 +1,5 @@
+import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query"
+
 import { node } from "@/lib/api"
 import type { SpecFilter } from "@/lib/queries/reports"
 
@@ -312,6 +314,32 @@ export function memberSegments(signal?: AbortSignal): Promise<SegmentBook> {
   return node.get<SegmentBook>("/api/v1/members/segments", { signal })
 }
 
+/// The segment book as a query: what the Members directory reads for its two
+/// window lengths, and what the Segments screen and the Executive's Customers
+/// page are made of. Shared with their prefetchers (`screens/members/
+/// prefetch.ts`, `screens/executive/prefetch.ts`).
+export const memberSegmentsQuery = () =>
+  queryOptions({
+    queryKey: memberKeys.segments(),
+    queryFn: ({ signal }) => memberSegments(signal),
+  })
+
+/// Rows per request of the directory. Small enough that the first page is
+/// quick, and the table asks for the next as it nears the bottom.
+export const MEMBERS_PAGE = 200
+
+/// The directory for one question, a page at a time on the server's cursor.
+/// Shared by the screen and its prefetcher so the key and the request cannot
+/// drift apart.
+export const memberDirectoryQuery = (scope: MemberQuery) =>
+  infiniteQueryOptions({
+    queryKey: memberKeys.directory(scope),
+    queryFn: ({ pageParam, signal }) =>
+      listMembers({ ...scope, cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+  })
+
 /// Enrol a card at the counter.
 ///
 /// No idempotency key, and that is the server's shape rather than an omission
@@ -434,6 +462,13 @@ export const savedSegmentKeys = {
 export function savedSegments(signal?: AbortSignal): Promise<SavedSegment[]> {
   return node.get<SavedSegment[]>("/api/v1/members/segments/saved", { signal })
 }
+
+/// The segments somebody wrote, as a query.
+export const savedSegmentsQuery = () =>
+  queryOptions({
+    queryKey: savedSegmentKeys.list(),
+    queryFn: ({ signal }) => savedSegments(signal),
+  })
 
 export function createSegment(
   input: SegmentInput,

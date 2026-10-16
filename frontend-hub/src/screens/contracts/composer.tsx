@@ -281,7 +281,7 @@ export function ContractComposer({
             {type === undefined ? "Choose a type first" : type.name}
           </span>
           <div className="flex items-center gap-2">
-            <Button variant="ghost" onClick={onClose}>
+            <Button data-cancel variant="ghost" onClick={onClose}>
               Cancel
             </Button>
             <Button variant="primary" pending={save.isPending} onClick={submit}>

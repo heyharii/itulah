@@ -8,7 +8,13 @@ import {
   Trash2,
   Pencil,
 } from "lucide-react"
-import { useEffect, useMemo, useRef, useState } from "react"
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react"
 
 import { Button } from "@/components/ui/button"
 import { Dialog } from "@/components/ui/dialog"
@@ -27,7 +33,6 @@ import { asJpeg, PICTURE_TYPES, warmCleaning } from "@/lib/image"
 import { wholeProduct } from "@/lib/decimal"
 import { unitFactor, useUnits } from "@/lib/queries/units"
 import {
-  capitaliseFirst,
   supplierDisplayName,
   titled,
 } from "@/screens/procurement/supplier-format"
@@ -40,7 +45,6 @@ import {
   type VariantDraft,
 } from "@/screens/procurement/line-pricing-model"
 import { colourKeys, listColours } from "@/lib/queries/colours"
-import { useColourwayFill } from "@/lib/colourway-fill"
 import {
   catalogueVocabulary,
   createSupplierItem,
@@ -48,6 +52,7 @@ import {
   procurementKeys,
   supplierDetail,
   updateSupplierItem,
+  readItemPhoto,
   uploadSupplierItemImage,
 } from "@/lib/queries/procurement"
 import { count, money } from "@/lib/format"
@@ -231,6 +236,8 @@ export function ItemFormSheet({
   line,
   onLine,
   onSkip,
+  onRemove,
+  context,
 }: {
   open: boolean
   /// The item being corrected, or absent to add one.
@@ -261,6 +268,12 @@ export function ItemFormSheet({
   onLine?: (line: LineResult) => void
   /// Leave this line out and go on to the next one picked.
   onSkip?: () => void
+  /// Takes the line off the order — offered when the form opens on a line
+  /// already on it (the row itself has only Edit).
+  onRemove?: () => void
+  /// Where this form sits: the order it adds to ("PO-0002-OPE6", or "New
+  /// purchase order"), said in grey over its name.
+  context?: string
 }) {
   const client = useQueryClient()
   const idempotency = useIdempotencyKey()
@@ -378,8 +391,6 @@ export function ItemFormSheet({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [fixedPool, line?.offered, sizeChoices]
   )
-  // The placeholder wears the first colour picked, and repaints as it changes.
-  const fill = useColourwayFill()
 
   /// The photograph waiting to be uploaded, if somebody chose one.
   ///
@@ -454,9 +465,7 @@ export function ItemFormSheet({
   /// camera (owner, 2026-10-05): somebody adding an item from an order is
   /// holding the garment, not a gallery.
   const gallery = useRef<HTMLInputElement>(null)
-  const touch =
-    typeof window !== "undefined" &&
-    window.matchMedia("(pointer: coarse)").matches
+  const touch = useCoarsePointer()
   if (seededFor !== seedKey) {
     setSeededFor(seedKey)
     setDraft(seed())
@@ -469,6 +478,65 @@ export function ItemFormSheet({
   /// garment can take it, replace it or take it off from the order itself
   /// (owner, 2026-10-06) — saved to the item when the order is.
   const identityFixed = line !== undefined && !line.draftItem
+  /// Jev reading a new item's photo for its division, colour, sizes and tags
+  /// (owner, 15 Oct 2026). Only fields still empty are filled, and only when
+  /// Jev is sure enough; the buyer changes any of them as before. A node not
+  /// set up for it answers nothing and the form says nothing.
+  const latest = useRef(draft)
+  latest.current = draft
+  const [reading, setReading] = useState<
+    { state: "reading" } | { state: "filled"; what: string } | null
+  >(null)
+  const readPhoto = (picture: Blob) => {
+    if (identityFixed || editing) return
+    setReading({ state: "reading" })
+    readItemPhoto(picture, latest.current.name).then(
+      (read) => {
+        const was = latest.current
+        const change: Partial<Draft> = {}
+        const what: string[] = []
+        if (
+          was.division === null &&
+          read.division &&
+          read.division.confidence >= 0.6
+        ) {
+          change.division = read.division.code
+          what.push("division")
+        }
+        if (
+          was.colours.length === 0 &&
+          read.colour &&
+          read.colour.confidence >= 0.5
+        ) {
+          change.colours = [read.colour.code]
+          what.push("colour")
+        }
+        if (
+          was.sizes.length === 0 &&
+          read.sizes &&
+          read.sizes.confidence >= 0.5
+        ) {
+          change.sizes = [...read.sizes.codes]
+          what.push("sizes")
+        }
+        if (was.tags.length === 0) {
+          const sure = read.tags
+            .filter((one) => one.probability >= 0.7)
+            .slice(0, 3)
+            .map((one) => one.code)
+          if (sure.length > 0) {
+            change.tags = sure
+            what.push(sure.length === 1 ? "tag" : "tags")
+          }
+        }
+        if (what.length > 0) set(change)
+        setReading(
+          what.length > 0 ? { state: "filled", what: what.join(", ") } : null
+        )
+      },
+      () => setReading(null)
+    )
+  }
   /// The photo's menu on a phone.
   const [photoMenu, setPhotoMenu] = useState(false)
   /// What the empty picture box says: the camera opens on a phone, so it says
@@ -823,6 +891,10 @@ export function ItemFormSheet({
       (photo !== null && photo !== (line?.photo ?? null)))
   const [discarding, setDiscarding] = useState(false)
   const askClose = () => (dirty ? setDiscarding(true) : close())
+  /// A new item drafted onto an order, which may be followed by another.
+  const adding = onDraft !== undefined && !editing && line === undefined
+  /// Which of the two adds was pressed, for the one that says "Adding…".
+  const [another, setAnother] = useState(false)
 
   return (
     <>
@@ -830,6 +902,7 @@ export function ItemFormSheet({
         open={open}
         onOpenChange={(next) => !next && askClose()}
         title={line?.title ?? (editing ? "Edit item" : "Add item")}
+        context={context}
         id={line?.caption ?? (editing ? item.supplier_item_code : undefined)}
         // As wide as the composer, and for the same reason: this is the form
         // that decides what Sourcing is able to show, and a rail would make the
@@ -842,14 +915,38 @@ export function ItemFormSheet({
         // additionally makes it a task over the page rather than a column beside
         // the list, which is what lets it open on top of the composer.
         width="wide"
-        className="md:w-[64rem]"
+        // Over the order it belongs to, a step narrower than it, so the
+        // order shows at its left edge (hub-ui-patterns' nested sheet).
+        className="md:w-[min(52rem,calc(100vw-7rem))] xl:w-[min(52rem,calc(100vw-7rem))] min-[90rem]:w-[min(52rem,calc(100vw-7rem))]"
         // Two buttons at their own size, at the trailing edge — the shape the
         // composer's footer settled on, and this form now opens over it. A
         // full-width black bar across 64rem reads as a banner, and it left the ×
         // in the corner as the only way to abandon a half-filled form.
         footer={
-          <div className="flex items-center justify-end gap-2">
-            <Button variant="ghost" onClick={askClose}>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {onRemove !== undefined && (
+              <Button variant="ghost" onClick={onRemove}>
+                Remove from order
+              </Button>
+            )}
+            {/* "Add another" is its own button, white, before Cancel (owner,
+                2026-10-14: not a checkbox): it adds this one and the form
+                stays up, empty, for the next — somebody typing a price list
+                in is adding twenty. */}
+            {adding && (
+              <Button
+                variant="ghost"
+                pending={save.isPending && another}
+                disabled={save.isPending}
+                onClick={() => {
+                  setAnother(true)
+                  submit(true)
+                }}
+              >
+                {save.isPending && another ? "Adding item…" : "Add another"}
+              </Button>
+            )}
+            <Button data-cancel variant="destructive" onClick={askClose}>
               Cancel
             </Button>
             {onSkip !== undefined && (
@@ -857,17 +954,22 @@ export function ItemFormSheet({
                 Skip this one
               </Button>
             )}
-            {onDraft !== undefined && !editing && line === undefined && (
-              <Button variant="ghost" onClick={() => submit(true)}>
-                Add next item
-              </Button>
-            )}
             <Button
               variant="primary"
-              pending={save.isPending}
-              onClick={() => submit(false)}
+              pending={save.isPending && !another}
+              disabled={save.isPending}
+              onClick={() => {
+                setAnother(false)
+                submit(false)
+              }}
             >
-              {save.isPending ? "Submitting…" : "Submit"}
+              {save.isPending && !another
+                ? adding
+                  ? "Adding item…"
+                  : "Submitting…"
+                : adding
+                  ? "Add item"
+                  : "Submit"}
             </Button>
           </div>
         }
@@ -894,6 +996,16 @@ export function ItemFormSheet({
           <div className="grid gap-4 md:grid-cols-[13rem_1fr]">
             <Field label="Photo" problem={photoRefused ?? undefined}>
               <div className="flex flex-col gap-2">
+                {reading !== null && (
+                  <p
+                    aria-live="polite"
+                    className="order-last text-[0.9375rem] leading-5 text-mute"
+                  >
+                    {reading.state === "reading"
+                      ? "Reading the photo…"
+                      : `Filled from the photo: ${reading.what}`}
+                  </p>
+                )}
                 {touch ? (
                   // On a phone: the picture and ONE button, which opens the
                   // menu — take a photo, choose from the gallery, remove. Two
@@ -937,7 +1049,16 @@ export function ItemFormSheet({
                     <button
                       type="button"
                       onClick={() => chooser.current?.click()}
-                      className="group relative block aspect-square w-full overflow-hidden rounded-card border border-hairline bg-soft-2 transition-colors enabled:hover:border-hairline-strong"
+                      className={cn(
+                        "group relative block aspect-square w-full overflow-hidden rounded-card transition-colors",
+                        // Empty, it reads as a place to drop a picture — a
+                        // dashed edge, the add-photo mark and the verb — not
+                        // as a photo of a garment (owner, 15 Oct: "not look
+                        // like uploadable").
+                        showing === null
+                          ? "border border-dashed border-hairline-strong bg-canvas hover:border-accent hover:bg-accent-bg/40"
+                          : "border border-hairline bg-soft-2 enabled:hover:border-hairline-strong"
+                      )}
                       aria-label={
                         showing === null
                           ? touch
@@ -946,24 +1067,14 @@ export function ItemFormSheet({
                           : "Replace the photo"
                       }
                     >
-                      {showing === null &&
-                      (draft.name.trim() !== "" || draft.division !== null) ? (
-                        <>
-                          <Thumbnail
-                            url={null}
-                            name={draft.name}
-                            division={draft.division}
-                            colours={fill(draft.colours[0])}
-                            className="size-full"
-                          />
-                          <span className="absolute inset-x-0 bottom-2 text-center text-[0.875rem] text-mute">
+                      {showing === null ? (
+                        <span className="flex size-full flex-col items-center justify-center gap-2.5 px-3 text-center">
+                          <span className="grid size-11 place-items-center rounded-full bg-soft-2 text-ink transition-colors group-hover:bg-accent-bg group-hover:text-accent">
+                            <ImagePlus className="size-5" />
+                          </span>
+                          <span className="text-[0.9375rem] font-medium text-ink group-hover:text-accent">
                             {photoLabel}
                           </span>
-                        </>
-                      ) : showing === null ? (
-                        <span className="flex size-full flex-col items-center justify-center gap-1.5 text-mute">
-                          <ImagePlus className="size-5" />
-                          <span className="text-[0.875rem]">{photoLabel}</span>
                         </span>
                       ) : (
                         <Thumbnail
@@ -1111,6 +1222,7 @@ export function ItemFormSheet({
                 onUse={(kept) => {
                   setPhoto(kept)
                   setReviewing(null)
+                  readPhoto(kept)
                 }}
                 onRetake={() => {
                   setReviewing(null)
@@ -1177,13 +1289,9 @@ export function ItemFormSheet({
                 <Textarea
                   rows={3}
                   value={draft.description}
-                  readOnly={identityFixed}
                   onChange={(event) =>
-                    titled(
-                      event,
-                      (description) => set({ description }),
-                      capitaliseFirst
-                    )
+                    // Title Case, as names are typed (owner, 2026-10-16).
+                    titled(event, (description) => set({ description }))
                   }
                 />
               </Field>
@@ -1246,7 +1354,9 @@ export function ItemFormSheet({
                   <PickMany
                     label="Sizes"
                     choices={pickableSizes}
-                    loading={vocabulary.isPending ? "Loading sizes…" : undefined}
+                    loading={
+                      vocabulary.isPending ? "Loading sizes…" : undefined
+                    }
                     values={draft.sizes}
                     disabled={identityFixed && !ordering}
                     onChange={(sizes) => set({ sizes })}
@@ -1298,7 +1408,7 @@ export function ItemFormSheet({
               )}
 
               {say(gaps.price) !== null && (
-                <span data-problem className="text-[0.875rem] text-bad">
+                <span data-problem className="text-[0.9375rem] text-bad">
                   {gaps.price}
                 </span>
               )}
@@ -1321,6 +1431,7 @@ export function ItemFormSheet({
                     }
                     priced={false}
                     photos
+                    articlePhoto={showing}
                     articleName={draft.name}
                     basePrice={draft.basePrice}
                     fallbackPrice={draft.price}
@@ -1376,13 +1487,13 @@ export function ItemFormSheet({
                           }}
                           className="pr-20 pl-10"
                         />
-                        <span className="pointer-events-none absolute right-3 text-[0.875rem] text-mute">
+                        <span className="pointer-events-none absolute right-3 text-[0.9375rem] text-mute">
                           / {unitLabel}
                         </span>
                       </span>
                     </Field>
                   </div>
-                  <p className="text-[0.875rem] text-body tabular-nums">
+                  <p className="text-[0.9375rem] text-body tabular-nums">
                     {/* Open hands: nothing typed, nothing said — the line speaks
                       once a quantity is in (owner, 2026-10-04: the quantity
                       opens empty). */}
@@ -1415,7 +1526,7 @@ export function ItemFormSheet({
                 </div>
               )}
               {gaps.selling !== null && (
-                <span data-problem className="text-[0.875rem] text-bad">
+                <span data-problem className="text-[0.9375rem] text-bad">
                   {gaps.selling}
                 </span>
               )}
@@ -1446,4 +1557,19 @@ export function ItemFormSheet({
 /// and the server's own uniqueness check is the backstop.
 function autoItemCode(): string {
   return `ITM-${crypto.randomUUID().replace(/-/g, "").slice(0, 8).toUpperCase()}`
+}
+
+/// Whether the main pointer is a finger. The server has no pointer, so it (and
+/// the browser's first render, while it hydrates) draws the mouse's form, and a
+/// touch device switches over once the page is alive.
+function useCoarsePointer(): boolean {
+  return useSyncExternalStore(
+    (onChange) => {
+      const query = window.matchMedia("(pointer: coarse)")
+      query.addEventListener("change", onChange)
+      return () => query.removeEventListener("change", onChange)
+    },
+    () => window.matchMedia("(pointer: coarse)").matches,
+    () => false
+  )
 }

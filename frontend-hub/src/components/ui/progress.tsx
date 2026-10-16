@@ -42,12 +42,12 @@ export function Progress({
     <div className={cn("flex items-center gap-2.5", className)}>
       <span
         id={labelId}
-        className="w-[5.5rem] shrink-0 text-[0.875rem] text-text"
+        className="w-[5.5rem] shrink-0 text-[0.9375rem] text-text"
       >
         {label}
       </span>
       <Meter value={share} tone={tone} labelledBy={labelId} />
-      <span className="w-[3.25rem] shrink-0 text-right text-[0.875rem] font-semibold text-text tabular-nums">
+      <span className="w-[3.25rem] shrink-0 text-right text-[0.9375rem] font-semibold text-text tabular-nums">
         {detail ?? `${Math.round(share * 100)}%`}
       </span>
     </div>

@@ -47,9 +47,9 @@ export interface Choice {
 /// `min-h-9` rather than `h-9`: `<PickMany>` grows as chips wrap, and a fixed
 /// height would clip the second row. A caller in a table or a toolbar
 /// compacts it the way `<Day>` is compacted — `min-h-8 px-2.5
-/// text-[0.875rem]` — and twMerge lets those win.
+/// text-[0.9375rem]` — and twMerge lets those win.
 const FIELD = cn(
-  "flex min-h-10 w-full items-center gap-1.5 rounded-inner border border-hairline-2 bg-canvas px-3 py-1 text-left text-[0.875rem] transition-colors hover:border-hairline-strong has-[input:focus-visible]:border-accent",
+  "ui-field flex min-h-10 w-full items-center gap-1.5 rounded-inner border border-hairline-2 bg-canvas px-3 py-1 text-left text-[0.9375rem] transition-colors hover:border-hairline-strong has-[input:focus-visible]:border-accent",
   // Refused: the box itself carries `aria-invalid` on a phone (it is the
   // button), the input inside it does on a desk.
   INVALID,

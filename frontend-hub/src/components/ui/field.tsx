@@ -85,7 +85,10 @@ export function Field({
   return (
     <label className={cn("flex flex-col gap-2", className)}>
       <span className="flex items-baseline justify-between gap-2">
-        <span className="min-w-0 text-[0.9375rem] font-medium text-text capitalize">
+        {/* 14, grey, over its box (hub-ui-patterns): the box and what is in
+            it are what is read; the label says what it is and steps back,
+            written as the screen wrote it — no forced capitals. */}
+        <span className="field-label min-w-0 text-[0.9375rem] text-mute">
           {label}
           {required === true && (
             <>
@@ -97,18 +100,18 @@ export function Field({
           )}
         </span>
         {aside && (
-          <span className="shrink-0 truncate rounded-inner bg-soft-2 px-[0.375rem] text-[0.875rem] text-body">
+          <span className="shrink-0 truncate rounded-inner bg-soft-2 px-[0.375rem] text-[0.9375rem] text-body">
             {aside}
           </span>
         )}
       </span>
       <FieldContext.Provider value={state}>{children}</FieldContext.Provider>
       {invalid ? (
-        <span id={under} className="text-[0.875rem] text-bad">
+        <span id={under} className="text-[0.9375rem] text-bad">
           {problem}
         </span>
       ) : hint ? (
-        <span id={under} className="text-[0.875rem] text-mute">
+        <span id={under} className="text-[0.9375rem] text-mute">
           {hint}
         </span>
       ) : null}
@@ -218,7 +221,7 @@ export function Input({
             : props.onChange
         }
         className={cn(
-          "h-10 w-full rounded-inner border border-hairline-2 bg-canvas px-3 text-[0.9375rem] text-ink transition-[border-color,box-shadow] outline-none",
+          "ui-field h-10 w-full rounded-inner border border-hairline-2 bg-canvas px-3 text-[0.9375rem] text-ink transition-[border-color,box-shadow] outline-none",
           "placeholder:text-mute hover:border-hairline-strong focus:border-accent",
           // On a form, the form's box — see `FORM_BOX`. Off one, in a toolbar
           // or a table cell, 40 for a pointer and 44 for a finger (D1).
@@ -358,7 +361,7 @@ export function Checkbox({
         className={cn(
           // A 20px box and a 44px row under a finger (D1): the label is the
           // target, so the row is the height.
-          "inline-flex items-center gap-2 text-[0.875rem] text-text capitalize pointer-coarse:min-h-11",
+          "inline-flex items-center gap-2 text-[0.9375rem] text-text capitalize pointer-coarse:min-h-11",
           disabled === true ? "opacity-55" : "cursor-pointer"
         )}
       >
@@ -395,7 +398,7 @@ export function Checkbox({
         {label}
       </label>
       {hint !== undefined && (
-        <span className="text-[0.875rem] text-mute">{hint}</span>
+        <span className="text-[0.9375rem] text-mute">{hint}</span>
       )}
     </span>
   )
@@ -519,7 +522,7 @@ export function Money({
     // so a narrowed box wants no prefix or suffix.
     <span className="relative flex w-full min-w-0 items-center">
       {prefix !== undefined && (
-        <span className="pointer-events-none absolute left-3.5 text-[0.875rem] text-mute">
+        <span className="pointer-events-none absolute left-3.5 text-[0.9375rem] text-mute">
           {prefix}
         </span>
       )}
@@ -557,7 +560,7 @@ export function Money({
         )}
       />
       {suffix !== undefined && (
-        <span className="pointer-events-none absolute right-3.5 text-[0.875rem] text-mute">
+        <span className="pointer-events-none absolute right-3.5 text-[0.9375rem] text-mute">
           {suffix}
         </span>
       )}
@@ -676,7 +679,7 @@ export function Select({
           onClick={() => setOpen(true)}
           {...aria}
           className={cn(
-            "flex h-10 w-full items-center rounded-inner border border-hairline-2 bg-canvas px-3 text-left text-[0.9375rem] text-ink disabled:opacity-50",
+            "ui-field flex h-10 w-full items-center rounded-inner border border-hairline-2 bg-canvas px-3 text-left text-[0.9375rem] text-ink disabled:opacity-50",
             form ? FORM_BOX : "pointer-coarse:h-11",
             INVALID,
             className
@@ -716,7 +719,7 @@ export function Select({
         aria-label={label}
         {...aria}
         className={cn(
-          "flex h-10 w-full items-center rounded-inner border border-hairline-2 bg-canvas py-0 pr-3 pl-3 text-left text-[0.9375rem] text-ink transition-[border-color,box-shadow] outline-none",
+          "ui-field flex h-10 w-full items-center rounded-inner border border-hairline-2 bg-canvas py-0 pr-3 pl-3 text-left text-[0.9375rem] text-ink transition-[border-color,box-shadow] outline-none",
           // The two states `<Input>` and `<PickOne>` already wear, because a
           // form row holding a text box, a typeahead and a select was giving
           // three different answers to "is the pointer on me": a darker

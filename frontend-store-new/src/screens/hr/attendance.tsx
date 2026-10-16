@@ -4,6 +4,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query"
+import { ChevronLeft, ChevronRight } from "lucide-react"
 import { useState } from "react"
 
 import { DockTools } from "@/components/shell/dock-tools"
@@ -17,29 +18,38 @@ import { PeopleTable } from "@/components/ui/people-table"
 import { PeopleTabs } from "@/components/ui/people-tabs"
 import { Pill, Status } from "@/components/ui/pill"
 import { Segmented } from "@/components/ui/segmented"
-import { Stat, StatStrip } from "@/components/ui/stat-strip"
-import { Banner, EmptyState } from "@/components/ui/states"
+import { EmptyState } from "@/components/ui/states"
 import { dateText, moment } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import {
+  canStepOn,
+  mondayOfDate,
+  recentSpans,
+  spanStart,
+  stepDate,
+  type DayRow,
+  type Span,
+} from "@/lib/queries/attendance"
+import {
   attendanceOf,
-  attendanceToday,
   clockOf,
   correctionsAt,
+  correctionsQuery,
   decideCorrection,
   fileCorrection,
   hrKeys,
   isoDay,
-  isoMonth,
   monthBounds,
-  planWord,
   readDate,
   readMonth,
-  rosterAt,
   type CorrectionEffect,
   type StoreScope,
 } from "@/lib/queries/hr"
+import { daysOfWeek } from "@/lib/queries/schedule"
 import { cn } from "@/lib/utils"
+import { DayView } from "@/screens/hr/attendance-day"
+import { PersonDaySheet } from "@/screens/hr/attendance-person"
+import { WeekView } from "@/screens/hr/attendance-week"
 import { centreState } from "@/screens/hr/centre"
 import {
   dateLead,
@@ -51,10 +61,9 @@ import {
   useDecision,
 } from "@/screens/hr/parts"
 import { RefusedBanner } from "@/screens/hr/refused"
+import { weekRange } from "@/screens/hr/schedule-look"
 import { SwapList } from "@/screens/hr/swaps"
 import {
-  dayStatus,
-  outcomeWord,
   personByLogin,
   personName,
   requestState,
@@ -70,8 +79,9 @@ import type {
   EmployeeList,
 } from "@itulah/contract"
 
-/// Attendance at this shop — the prototype's store Attendance: today, the
-/// month's sheet, and the fixes.
+/// Attendance at this shop — the prototype's store Attendance: a day with a
+/// stepper, the week of it as a sheet of times, the month as a sheet of
+/// letters, and the fixes.
 ///
 /// # Nothing here is typed in
 ///
@@ -83,6 +93,10 @@ import type {
 /// the day is derived again with the fix on top. The requester and the decider
 /// must be different people, and the centre refuses the same name twice.
 ///
+/// A row of the day, a cell of the week, opens that person's day
+/// (`PersonDaySheet`), which is where a fix is started from; the "New
+/// attendance fix" button in the header opens the same form blank.
+///
 /// # "Not assessed" is not "absent"
 ///
 /// The centre says whether any punch source has ever reported for this shop.
@@ -91,11 +105,12 @@ import type {
 ///
 /// # The phone
 ///
-/// The three slices are the dock's one chip (`PeopleTabs`); the month is a row
-/// of the ⚙ sheet. The monthly sheet of thirty columns is one lead card per
-/// person — the days present as the figure, what is wrong in the foot — and a
-/// person's month is a sheet that lists the days one under the other, with a
-/// "Record a fix" on every day nothing was recorded. The desk keeps the grid.
+/// The two slices (the days, the fixes) are the dock's one chip (`PeopleTabs`);
+/// the Day / Week / Month switch and the period are rows of the ⚙ sheet. The
+/// week's sheet and the month's thirty columns are one card per person — the
+/// hours or the days present as the figure — and a person's month is a sheet
+/// that lists the days one under the other, with a "New fix" on every day
+/// nothing was recorded. The desk keeps the grids.
 export function HrAttendance() {
   const [recording, setRecording] = useState<Prefill | null>(null)
   return (
@@ -116,14 +131,14 @@ export function HrAttendance() {
   )
 }
 
-/// What a "New attendance fix" sheet opens already filled in — from a `?` day
-/// on the month's sheet, the person and the day.
+/// What a "New attendance fix" sheet opens already filled in — from a day's
+/// sheet or a `?` day on the month's, the person and the day.
 interface Prefill {
   readonly employeeId?: string
   readonly date?: string
 }
 
-type Tab = "today" | "sheet" | "fixes"
+type Tab = "days" | "fixes"
 
 /// One person's month, opened: which month it is the sheet's own question.
 interface Opened {
@@ -140,13 +155,13 @@ function Attendance({
   recording: Prefill | null
   onRecord: (prefill: Prefill | null) => void
 }) {
-  const [tab, setTab] = useState<Tab>("today")
+  const [tab, setTab] = useState<Tab>("days")
+  /// A month, opened on one person.
   const [opened, setOpened] = useState<Opened | null>(null)
+  /// A day, opened on one person: the way into the fix form.
+  const [looking, setLooking] = useState<DayRow | null>(null)
   const team = useTeam(scope)
-  const pendingFixes = useQuery({
-    queryKey: hrKeys.corrections(scope.unit_id, true),
-    queryFn: ({ signal }) => correctionsAt(scope.unit_id, true, signal),
-  })
+  const pendingFixes = useQuery(correctionsQuery(scope.unit_id, true))
   const swaps = usePendingSwaps(scope)
   const waiting =
     (pendingFixes.data?.length ?? 0) + (swaps.data?.rows.length ?? 0)
@@ -157,29 +172,40 @@ function Attendance({
         value={tab}
         onChange={setTab}
         tabs={[
-          { value: "today", label: "Today" },
-          { value: "sheet", label: "Monthly sheet" },
+          { value: "days", label: "Attendance" },
           { value: "fixes", label: "Fixes & swaps", count: waiting },
         ]}
       />
-      {tab === "today" && (
-        <Today
+      {tab === "days" && (
+        <Days
           scope={scope}
           team={team.data}
-          onOpen={(employeeId) =>
-            setOpened({ employeeId, period: isoMonth(new Date()) })
+          onOpenDay={setLooking}
+          onOpenMonth={(employeeId, period) =>
+            setOpened({ employeeId, period })
           }
-        />
-      )}
-      {tab === "sheet" && (
-        <MonthlySheet
-          scope={scope}
-          team={team.data}
-          onOpen={(employeeId, period) => setOpened({ employeeId, period })}
           onFix={(employeeId, date) => onRecord({ employeeId, date })}
         />
       )}
       {tab === "fixes" && <Fixes scope={scope} team={team.data} />}
+
+      {looking !== null && (
+        <PersonDaySheet
+          key={`${looking.employeeId}-${looking.date}`}
+          row={looking}
+          team={team.data}
+          onClose={() => setLooking(null)}
+          onFix={(employeeId, date) => {
+            // One sheet at a time: the fix opens where this one was.
+            setLooking(null)
+            onRecord({ employeeId, date })
+          }}
+          onMonth={(employeeId, period) => {
+            setLooking(null)
+            setOpened({ employeeId, period })
+          }}
+        />
+      )}
 
       {opened !== null && (
         <PersonMonth
@@ -211,254 +237,146 @@ function Attendance({
   )
 }
 
-/// Where a reading came from, said plainly. A reader witnessed it; a phone tap
-/// was witnessed by nothing — and a screen that did not say which would be
-/// presenting a person's own claim as a measurement.
-function sourceWord(sources: readonly string[]): string {
-  if (sources.length === 0) return "—"
-  return sources
-    .map((source) =>
-      source === "TERMINAL"
-        ? "Reader"
-        : source === "EMPLOYEE_APP"
-          ? "App"
-          : source,
-    )
-    .join(" + ")
+// ── the days ────────────────────────────────────────────────────────────────
+
+const SPANS = [
+  { value: "day", label: "Day" },
+  { value: "week", label: "Week" },
+  { value: "month", label: "Month" },
+] as const
+
+/// What the heading over the days says the span is: `Today, Sun 11 Oct 2026`,
+/// `05–11 Oct 2026`, `October 2026`.
+function spanLabel(span: Span, date: string, today: string): string {
+  if (span === "day") {
+    return `${date === today ? "Today, " : ""}${readDate(date, true)}`
+  }
+  if (span === "week") return weekRange(mondayOfDate(date))
+  return readMonth(date.slice(0, 7))
 }
 
-/// A rostered day in a line: `Morning 09:00–17:00`, or what the day is.
-function shiftWord(
-  plan: {
-    plan: string
-    shift_name: string | null
-    starts_at: string | null
-    ends_at: string | null
-  } | null,
-): string {
-  if (plan === null) return "Not rostered"
-  return plan.plan === "SCHEDULED"
-    ? `${plan.shift_name ?? "Shift"} ${plan.starts_at ?? ""}–${plan.ends_at ?? ""}`
-    : planWord(plan.plan)
+/// What a row of the phone's pickers says: the same, without "Today" for a
+/// week or a month, which has no such word.
+function pickLabel(span: Span, date: string, today: string): string {
+  return span === "day" && date === today
+    ? `Today · ${readDate(date, true)}`
+    : spanLabel(span, date, today)
 }
 
-// ── today ───────────────────────────────────────────────────────────────────
-
-function Today({
+/// The prototype's Attendance: a day with a stepper — the list of who was due
+/// and how they stand — or the week of it as a sheet of times, or the month as
+/// a sheet of letters.
+///
+/// One date is held, and the three are views of it: stepping moves a day, a
+/// week or a month, and changing the view keeps the date, so the week of a day
+/// is a press away and the day it came from is too. A step never goes past
+/// today — a day that has not happened has no attendance.
+///
+/// On a phone the view and the period are rows of the ⚙ sheet; the stepper and
+/// the Day / Week / Month switch are the desk's.
+function Days({
   scope,
   team,
-  onOpen,
+  onOpenDay,
+  onOpenMonth,
+  onFix,
 }: {
   scope: StoreScope
   team: EmployeeList | undefined
-  onOpen: (employeeId: string) => void
+  onOpenDay: (row: DayRow) => void
+  onOpenMonth: (employeeId: string, period: string) => void
+  onFix: (employeeId: string, date: string) => void
 }) {
   const today = isoDay(new Date())
-  const roster = useQuery({
-    queryKey: hrKeys.roster(scope.unit_id, today, today),
-    queryFn: ({ signal }) => rosterAt(scope.unit_id, today, today, signal),
-  })
-  const attendance = useQuery({
-    queryKey: hrKeys.attendanceToday(scope.unit_id, today),
-    queryFn: ({ signal }) => attendanceToday(scope.unit_id, today, signal),
-  })
+  const [span, setSpan] = useState<Span>("day")
+  const [date, setDate] = useState(today)
+  const here = spanStart(span, date)
+  const choices = recentSpans(span, today)
+  if (!choices.includes(here)) choices.push(here)
 
-  return centreState(attendance, {
-    loading: "Reading today's attendance…",
-    what: "today's attendance",
-    render: (view) => {
-      const connected = view.punch_source_connected
-      const derived = new Map(view.days.map((day) => [day.employee_id, day]))
-      const planned = roster.data ?? []
-      // Everybody rostered, plus anybody who punched without being rostered —
-      // a person working off the rota is exactly who the month's close asks
-      // about.
-      const ids = [
-        ...new Set([
-          ...planned.map((day) => day.employee_id),
-          ...view.days.map((day) => day.employee_id),
-        ]),
-      ]
-      const rows = ids.map((employeeId) => {
-        const plan =
-          planned.find((day) => day.employee_id === employeeId) ?? null
-        const day = derived.get(employeeId) ?? null
-        return {
-          employeeId,
-          plan,
-          day,
-          status: dayStatus({
-            plan: plan?.plan ?? null,
-            outcomes: day?.outcomes ?? [],
-            arrival: day?.arrival ?? null,
-            connected,
-          }),
-        }
-      })
-      const count = (label: string) =>
-        rows.filter((row) => row.status.label === label).length
+  return (
+    <>
+      <DockTools
+        views={[
+          {
+            title: "View",
+            value: span,
+            options: SPANS,
+            onChange: (next) => setSpan(next as Span),
+          },
+          {
+            title: SPANS.find((one) => one.value === span)?.label ?? "Day",
+            value: here,
+            options: choices
+              .sort()
+              .reverse()
+              .map((value) => ({
+                value,
+                label: pickLabel(span, value, today),
+              })),
+            onChange: setDate,
+          },
+        ]}
+      />
+      <div>
+        <Heading
+          action={
+            <div className="flex items-center gap-1.5 max-md:hidden">
+              <Segmented
+                options={SPANS}
+                value={span}
+                onChange={setSpan}
+                className="mr-1.5"
+              />
+              {spanStart(span, date) !== spanStart(span, today) && (
+                <Button variant="quiet" onClick={() => setDate(today)}>
+                  Today
+                </Button>
+              )}
+              <Button
+                size="icon"
+                aria-label={`The ${span} before`}
+                onClick={() => setDate(stepDate(span, date, -1))}
+              >
+                <ChevronLeft />
+              </Button>
+              <Button
+                size="icon"
+                aria-label={`The ${span} after`}
+                disabled={!canStepOn(span, date, today)}
+                onClick={() => setDate(stepDate(span, date, 1))}
+              >
+                <ChevronRight />
+              </Button>
+            </div>
+          }
+        >
+          {spanLabel(span, date, today)}
+        </Heading>
+      </div>
 
-      return (
-        <>
-          {!connected && (
-            <Banner tone="info" className="mb-4">
-              No check-in source has reported yet. Not assessed.
-            </Banner>
-          )}
-          <StatStrip>
-            <Stat
-              label="Rostered"
-              value={planned.filter((day) => day.plan === "SCHEDULED").length}
-            />
-            <Stat
-              label="Present"
-              value={connected ? count("Present") : "—"}
-              tone={connected ? "ok" : undefined}
-            />
-            <Stat
-              label="Late"
-              value={connected ? count("Late") : "—"}
-              tone={connected && count("Late") > 0 ? "warn" : undefined}
-            />
-            <Stat
-              label="Not clocked in"
-              value={connected ? count("Not clocked in") : "—"}
-              tone={
-                connected && count("Not clocked in") > 0 ? "bad" : undefined
-              }
-            />
-            <Stat label="On leave" value={count("On leave")} />
-          </StatStrip>
-
-          <PeopleTable
-            rows={rows}
-            rowKey={(row) => row.employeeId}
-            onRowClick={(row) => onOpen(row.employeeId)}
-            empty="Nobody is rostered or checked in today."
-            card={(row) => {
-              const arrival = row.day?.arrival ?? null
-              return {
-                ...personCard(team, row.employeeId, [shiftWord(row.plan)]),
-                // The time they checked in; before that, the time they are
-                // due, quieter. A day off has no time to say.
-                lead:
-                  arrival !== null
-                    ? { figure: clockOf(arrival), caption: "checked in" }
-                    : row.plan?.plan === "SCHEDULED" &&
-                        row.plan.starts_at !== null
-                      ? {
-                          figure: row.plan.starts_at,
-                          caption: "due in",
-                          muted: true,
-                        }
-                      : undefined,
-                foot: {
-                  info: (
-                    <Status tone={row.status.tone}>{row.status.label}</Status>
-                  ),
-                  action: {
-                    label: "Open",
-                    onClick: () => onOpen(row.employeeId),
-                  },
-                },
-              }
-            }}
-            columns={[
-              {
-                key: "who",
-                header: "Employee",
-                cell: (row) => <Person team={team} id={row.employeeId} />,
-              },
-              {
-                key: "shift",
-                header: "Shift",
-                card: "meta",
-                cell: (row) => shiftWord(row.plan),
-              },
-              {
-                key: "in",
-                header: "Check-in",
-                align: "right",
-                cell: (row) => (
-                  <span className="font-mono">
-                    {clockOf(row.day?.arrival ?? null)}
-                  </span>
-                ),
-              },
-              {
-                key: "out",
-                header: "Check-out",
-                align: "right",
-                cell: (row) => (
-                  <span className="font-mono">
-                    {clockOf(row.day?.departure ?? null)}
-                  </span>
-                ),
-              },
-              {
-                key: "source",
-                header: "Source",
-                card: "meta",
-                cell: (row) => sourceWord(row.day?.punch_sources ?? []),
-              },
-              {
-                // What else the day was — left early, a missing punch, agreed
-                // overtime. The headline status is in the next column; these
-                // are the codes it does not say.
-                key: "also",
-                header: "Also",
-                card: "meta",
-                cell: (row) => {
-                  const extra = (row.day?.outcomes ?? []).filter(
-                    (code) =>
-                      !["ON_TIME", "LATE", "APPROVED_LEAVE"].includes(code),
-                  )
-                  return extra.length === 0 ? (
-                    <span className="text-faint">—</span>
-                  ) : (
-                    <span className="flex flex-wrap gap-x-3 gap-y-1">
-                      {extra.map((code) => {
-                        const word = outcomeWord(code)
-                        return (
-                          <Status key={code} tone={word.tone}>
-                            {word.label}
-                          </Status>
-                        )
-                      })}
-                    </span>
-                  )
-                },
-              },
-              {
-                key: "status",
-                header: "Status",
-                card: "status",
-                cell: (row) => (
-                  <Status tone={row.status.tone}>{row.status.label}</Status>
-                ),
-              },
-            ]}
-          />
-
-          {view.underivable.length > 0 && (
-            <>
-              <Heading count={view.underivable.length}>Not assessed</Heading>
-              <Banner tone="warn">
-                {view.underivable.map((day) => (
-                  <span
-                    key={`${day.employee_id}-${day.date}`}
-                    className="block"
-                  >
-                    {personName(team, day.employee_id)}: {day.reason}
-                  </span>
-                ))}
-              </Banner>
-            </>
-          )}
-        </>
-      )
-    },
-  })
+      {span === "day" && (
+        <DayView scope={scope} team={team} date={date} onOpen={onOpenDay} />
+      )}
+      {span === "week" && (
+        <WeekView
+          scope={scope}
+          team={team}
+          days={daysOfWeek(mondayOfDate(date))}
+          onOpen={onOpenDay}
+        />
+      )}
+      {span === "month" && (
+        <MonthlySheet
+          scope={scope}
+          team={team}
+          period={date.slice(0, 7)}
+          onOpen={onOpenMonth}
+          onFix={onFix}
+        />
+      )}
+    </>
+  )
 }
 
 // ── the month's sheet ───────────────────────────────────────────────────────
@@ -558,20 +476,6 @@ function tally(days: readonly AttendanceDayView[], connected: boolean) {
   }
 }
 
-const MONTHS = [
-  { value: "this", label: "This month" },
-  { value: "last", label: "Last month" },
-] as const
-
-type Which = (typeof MONTHS)[number]["value"]
-
-function periodOf(which: Which): string {
-  const now = new Date()
-  return which === "this"
-    ? isoMonth(now)
-    : isoMonth(new Date(now.getFullYear(), now.getMonth() - 1, 1))
-}
-
 /// The days a month's sheet reads: up to today, not the month's end — a day
 /// that has not happened yet has no attendance, and asking for it only fills
 /// the sheet with blanks.
@@ -584,17 +488,18 @@ function monthWindow(period: string): { from: string; to: string } {
 function MonthlySheet({
   scope,
   team,
+  period,
   onOpen,
   onFix,
 }: {
   scope: StoreScope
   team: EmployeeList | undefined
+  /// `YYYY-MM`, chosen by the stepper over the screen.
+  period: string
   onOpen: (employeeId: string, period: string) => void
   onFix: (employeeId: string, date: string) => void
 }) {
   const phone = useLayout() === "phone"
-  const [which, setWhich] = useState<Which>("this")
-  const period = periodOf(which)
   const { from, to } = monthWindow(period)
   const dates: string[] = []
   for (
@@ -623,22 +528,6 @@ function MonthlySheet({
 
   return (
     <>
-      {/* The month, a row of the ⚙ sheet on a phone and a switch on a desk. */}
-      <DockTools
-        views={[
-          {
-            title: "Month",
-            value: which,
-            options: MONTHS,
-            onChange: (next) => setWhich(next as Which),
-          },
-        ]}
-      />
-      <div className="mb-4 max-md:hidden md:max-w-[20rem]">
-        <Segmented options={MONTHS} value={which} onChange={setWhich} />
-      </div>
-      <Heading>{readMonth(period)}</Heading>
-
       {refused !== undefined && (
         <RefusedBanner error={refused.error} what="this month's attendance" />
       )}

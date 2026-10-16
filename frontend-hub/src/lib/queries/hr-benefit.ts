@@ -1,3 +1,5 @@
+import { queryOptions } from "@tanstack/react-query"
+
 import { node } from "@/lib/api"
 import type {
   AdjustBenefitBody,
@@ -78,3 +80,15 @@ export function signedMinor(
 ): string {
   return `${delta > 0 ? "+" : delta < 0 ? "-" : ""}${format(Math.abs(delta))}`
 }
+
+export const benefitSettingsQuery = () =>
+  queryOptions({
+    queryKey: benefitKeys.settings(),
+    queryFn: ({ signal }) => benefitSettings(signal),
+  })
+
+export const benefitBalancesQuery = () =>
+  queryOptions({
+    queryKey: benefitKeys.balances(),
+    queryFn: ({ signal }) => benefitBalances(signal),
+  })

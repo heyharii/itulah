@@ -172,7 +172,7 @@ export function SupplierBankAccountsPanel({
                         {VERIFICATION_LABEL[account.verification_status]}
                       </Pill>
                     )}
-                    <span className="block font-mono text-[0.875rem] text-mute">
+                    <span className="block font-mono text-[0.9375rem] text-mute">
                       {account.account_no}
                       {account.branch !== null && ` · ${account.branch}`}
                     </span>
@@ -298,7 +298,7 @@ export function SupplierBankAccountsPanel({
                 </Button>
               )}
             </form.Subscribe>
-            <Button variant="quiet" onClick={() => setAdding(false)}>
+            <Button data-cancel variant="quiet" onClick={() => setAdding(false)}>
               Cancel
             </Button>
           </div>
@@ -434,7 +434,7 @@ export function SupplierContactsPanel({ supplierId }: { supplierId: string }) {
                       </Pill>
                     )}
                     {contact.role !== null && (
-                      <span className="block text-[0.875rem] text-mute">
+                      <span className="block text-[0.9375rem] text-mute">
                         {contact.role}
                       </span>
                     )}
@@ -444,7 +444,7 @@ export function SupplierContactsPanel({ supplierId }: { supplierId: string }) {
                   >
                     {contact.phone ?? "—"}
                     {contact.email !== null && (
-                      <span className="block font-mono text-[0.875rem] text-mute">
+                      <span className="block font-mono text-[0.9375rem] text-mute">
                         {contact.email}
                       </span>
                     )}
@@ -549,7 +549,7 @@ export function SupplierContactsPanel({ supplierId }: { supplierId: string }) {
             >
               {add.isPending ? "Submitting…" : "Submit"}
             </Button>
-            <Button variant="quiet" onClick={() => setAdding(false)}>
+            <Button data-cancel variant="quiet" onClick={() => setAdding(false)}>
               Cancel
             </Button>
           </div>

@@ -1,0 +1,38 @@
+[
+  {
+    "id": "short",
+    "text": "Kadang barangnya tidak ada di rak."
+  },
+  {
+    "id": "report",
+    "text": "Gudang mengisi yang terambil, lalu memilih alasannya."
+  },
+  {
+    "id": "goes",
+    "text": "Yang sudah terambil jalan terus sampai dikirim. Sisanya tetap di To pick, dengan strip **Short pick**."
+  },
+  {
+    "id": "md",
+    "text": "MD melihatnya di **Still needed**: Target 100, Sent 95, To pick 5."
+  },
+  {
+    "id": "close",
+    "text": "Kalau sisanya tidak dibutuhkan lagi, MD menekan **Close remaining**."
+  },
+  {
+    "id": "inv",
+    "text": "Kalau masalahnya soal stok, Inventory mengecek di **Stock checks**."
+  },
+  {
+    "id": "found",
+    "text": "Kalau **Found**, stripnya hilang dan barangnya bisa di-pick lagi. Kalau **Lost**, MD menutup sisanya."
+  },
+  {
+    "id": "revive",
+    "text": "Allotment yang sudah dibatalkan tidak hidup lagi. Barangnya kembali ke stok."
+  },
+  {
+    "id": "received",
+    "text": "Di toko, 214 dari 220 tercatat **Received short**, bukan Completed. Yang sisanya ditutup tercatat **Closed short**."
+  }
+]

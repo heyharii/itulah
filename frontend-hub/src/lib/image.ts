@@ -240,3 +240,27 @@ export async function tidyPhoto(photo: Blob): Promise<File> {
     bitmap.close()
   }
 }
+
+/// A photo shrunk for a model to read: the long edge at most 1,024px, as a
+/// JPEG, base64 without a `data:` prefix. Enough to tell a shirt from a shoe
+/// and navy from black, and a few hundred KB on the wire rather than the
+/// camera's several MB (`readItemPhoto`).
+export async function photoForModel(photo: Blob): Promise<string> {
+  const bitmap = await createImageBitmap(photo)
+  const long = Math.max(bitmap.width, bitmap.height)
+  const scale = long > 1024 ? 1024 / long : 1
+  const canvas = document.createElement("canvas")
+  canvas.width = Math.max(1, Math.round(bitmap.width * scale))
+  canvas.height = Math.max(1, Math.round(bitmap.height * scale))
+  const context = canvas.getContext("2d")
+  if (context === null) {
+    bitmap.close()
+    throw new Error("this browser cannot read the photo")
+  }
+  context.fillStyle = "#ffffff"
+  context.fillRect(0, 0, canvas.width, canvas.height)
+  context.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+  bitmap.close()
+  const url = canvas.toDataURL("image/jpeg", 0.85)
+  return url.slice(url.indexOf(",") + 1)
+}

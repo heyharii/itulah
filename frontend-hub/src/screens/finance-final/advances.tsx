@@ -1,298 +1,279 @@
 import {
-  useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
+  useSuspenseInfiniteQuery,
+  useSuspenseQuery,
 } from "@tanstack/react-query"
-import { useMemo, useState } from "react"
+import type { ColumnDef } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
+import { Suspense, useDeferredValue, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
+import { Card } from "@/components/ui/card"
+import { DataTable } from "@/components/ui/data-table"
 import { Day } from "@/components/ui/day"
 import { Field, Select } from "@/components/ui/field"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import {
-  Banner,
-  EmptyState,
-  ErrorState,
-  LoadMore,
-  LoadingState,
-} from "@/components/ui/states"
+import { SheetFooter } from "@/components/ui/sheet-footer"
+import { SubTabs } from "@/components/ui/sub-tabs"
+import { Banner, EmptyState } from "@/components/ui/states"
 import { money } from "@/lib/format"
-import { useLayout } from "@/lib/layout"
 import { financeKeys, listCompanyBankAccounts } from "@/lib/queries/finance"
 import {
-  advanceControl,
-  advancePage,
-  domainKeys,
+  advanceControlQuery,
+  advancePagesQuery,
   payAdvance,
 } from "@/lib/queries/finance-domains"
 import { useCanWrite } from "@/lib/session"
-import {
-  Code,
-  Grid,
-  Note,
-  NumberCard,
-  Td,
-  Th,
-} from "@/screens/finance-final/parts"
-import { CardFigure, PhoneList } from "@/components/ui/phone-cards"
-import { PhoneChoice, PhoneFigures } from "@/screens/finance/parts"
+import { tableSetup, type TableSetup } from "@/lib/table"
+import { Code } from "@/screens/finance-final/parts"
+import { ScreenPending } from "@/screens/finance/pending"
+import type { Advance } from "@itulah/contract"
 
 /// Advances — money out with somebody, and how old it is.
 ///
 /// Ageing is derived from the day the money left, not stored, so it cannot
 /// disagree with the balance beside it.
 export function Advances() {
+  return (
+    <Suspense
+      fallback={
+        <ScreenPending crumb="Finance" title="Advances">
+          Reading the advances…
+        </ScreenPending>
+      }
+    >
+      <AdvancesScreen />
+    </Suspense>
+  )
+}
+
+function AdvancesScreen() {
   const [status, setStatus] = useState<string | undefined>(undefined)
   const [paying, setPaying] = useState<PayTarget | null>(null)
   const canWrite = useCanWrite()
-  const phone = useLayout() === "phone"
+  // The tab answers at once; the list trails it, and the rows in hand stay on
+  // screen (dimmed) until the next are read.
+  const askedStatus = useDeferredValue(status)
   // A page at a time, newest first. The cards read the server's figures over
   // the whole book, never a sum of the pages loaded.
-  const advances = useInfiniteQuery({
-    queryKey: [...domainKeys.advances(undefined, status), "pages"],
-    queryFn: ({ pageParam, signal }) =>
-      advancePage({ status, cursor: pageParam, limit: 100 }, signal),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) => last.next_cursor ?? undefined,
-    placeholderData: (previous) => previous,
-  })
-  const control = useQuery({
-    queryKey: domainKeys.advanceControl(),
-    queryFn: ({ signal }) => advanceControl(signal),
-  })
+  const advances = useSuspenseInfiniteQuery(advancePagesQuery(askedStatus))
+  const control = useSuspenseQuery(advanceControlQuery())
 
   const rows = useMemo(
-    () => advances.data?.pages.flatMap((page) => page.rows) ?? [],
+    () => advances.data.pages.flatMap((page) => page.rows),
     [advances.data]
   )
-  const head = advances.data?.pages[0]
-  const outstanding = head?.outstanding_minor ?? null
-  const old = head?.over_thirty_days ?? null
-  const difference = (control.data ?? []).reduce(
+  const head = advances.data.pages[0]
+  const outstanding = head.outstanding_minor
+  const old = head.over_thirty_days
+  const difference = control.data.reduce(
     (total, row) => total + row.difference_minor,
     0
   )
 
+  /// The advances, and how old each is. On a card the person names it, the
+  /// number sits over it and the value, what is left and the age follow — with
+  /// the verb, Pay out, where an approved one waits for it.
+  const columns = useMemo<ColumnDef<TableSetup, Advance>[]>(
+    () => [
+      {
+        id: "number",
+        accessorFn: (row) => row.advance_number,
+        header: "Number",
+        size: 120,
+        enableSorting: false,
+        meta: { card: "id" },
+        cell: ({ row }) => <Code>{row.original.advance_number}</Code>,
+      },
+      {
+        id: "to",
+        accessorFn: (row) => row.party_label,
+        header: "To",
+        size: 170,
+        enableSorting: false,
+        meta: { card: "title", grow: 150 },
+        cell: ({ row }) => (
+          <span className="flex min-w-0 flex-col whitespace-normal">
+            <span>{row.original.party_label}</span>
+            <span className="text-[0.9375rem] font-normal text-mute">
+              {row.original.party_type}
+            </span>
+          </span>
+        ),
+      },
+      {
+        id: "purpose",
+        accessorFn: (row) => row.purpose,
+        header: "Purpose",
+        size: 230,
+        enableSorting: false,
+        meta: { card: "meta", priority: 2 },
+        cell: ({ row }) => (
+          <span className="whitespace-normal">{row.original.purpose}</span>
+        ),
+      },
+      {
+        id: "unit",
+        accessorFn: (row) => row.site_id,
+        header: "Unit",
+        size: 100,
+        enableSorting: false,
+        meta: { card: "hide", priority: 3 },
+        cell: ({ row }) => row.original.site_id,
+      },
+      {
+        id: "value",
+        accessorFn: (row) => row.amount_minor,
+        header: "Value",
+        size: 130,
+        enableSorting: false,
+        meta: { align: "right", card: "metric" },
+        cell: ({ row }) => money(row.original.amount_minor),
+      },
+      {
+        id: "remaining",
+        accessorFn: (row) => row.outstanding_minor,
+        header: "Remaining",
+        size: 130,
+        enableSorting: false,
+        meta: { align: "right", card: "metric" },
+        cell: ({ row }) => money(row.original.outstanding_minor),
+      },
+      {
+        id: "age",
+        accessorFn: (row) => row.age_days,
+        header: "Age",
+        size: 90,
+        enableSorting: false,
+        meta: { align: "right", card: "metric", priority: 2 },
+        cell: ({ row }) =>
+          row.original.age_days === null
+            ? "—"
+            : `${row.original.age_days} days`,
+      },
+      {
+        id: "status",
+        accessorFn: (row) => row.status,
+        header: "Status",
+        size: 200,
+        enableSorting: false,
+        meta: { card: "status" },
+        cell: ({ row }) => (
+          <span className="inline-flex items-center gap-2">
+            <Pill
+              tone={
+                row.original.status === "SETTLED"
+                  ? "ok"
+                  : row.original.status === "CANCELLED"
+                    ? "neutral"
+                    : (row.original.age_days ?? 0) > 30
+                      ? "warn"
+                      : "info"
+              }
+            >
+              {row.original.status}
+            </Pill>
+            {row.original.status === "APPROVED" && canWrite && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() =>
+                  setPaying({
+                    id: row.original.advance_id,
+                    number: row.original.advance_number,
+                    party: row.original.party_label,
+                    purpose: row.original.purpose,
+                    amount: row.original.amount_minor,
+                  })
+                }
+              >
+                Pay out
+              </Button>
+            )}
+          </span>
+        ),
+      },
+    ],
+    [canWrite]
+  )
+
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: rows,
+        columns,
+        getRowId: (row: Advance) => row.advance_id,
+      }),
+      [rows, columns]
+    )
+  )
+
   return (
     <PageContent>
-      <PageHeader
-        className="max-md:hidden"
-        crumb="Finance"
-        title="Advances"
-        sub="Travel, contractors and other needs that have no bill yet."
-      />
+      <PageHeader crumb="Finance" title="Advances" />
 
-      <PhoneFigures
-        items={[
-          { label: "Still with people", value: outstanding },
-          {
-            label: "Over 30 days",
-            value: old,
-            tone: old === null ? undefined : old === 0 ? "ok" : "warn",
-          },
-          {
-            label: "Difference from the ledger",
-            value: difference,
-            tone: difference === 0 ? "ok" : "bad",
-          },
-        ]}
-      />
-      <div className="max-md:hidden">
-        <Grid>
-          <NumberCard label="Still with people" value={outstanding} />
-          <NumberCard
-            label="Over 30 days"
-            value={old}
-            tone={old === null ? undefined : old === 0 ? "ok" : "warn"}
-          />
-          <NumberCard
-            label="Difference from the ledger"
-            value={difference}
-            tone={difference === 0 ? "ok" : "bad"}
-          />
-        </Grid>
-      </div>
-
-      <Note>
-        An advance that has been paid cannot be cancelled — it is accounted for
-        with receipts, or the money is returned. Either one reduces the balance
-        through its own journal entry.
-      </Note>
-
-      {/* A phone: the status is a chip in the dock. */}
-      <PhoneChoice
-        title="Status"
-        value={status ?? ""}
-        onChange={(next) => setStatus(next === "" ? undefined : next)}
-        options={[
-          { value: "", label: "All" },
-          ...[
-            "REQUESTED",
-            "APPROVED",
-            "PAID",
-            "PARTIALLY_SETTLED",
-            "SETTLED",
-          ].map((one) => ({ value: one, label: one })),
-        ]}
-      />
-      <div className="flex flex-wrap gap-2 max-md:hidden">
-        {[
-          undefined,
-          "REQUESTED",
-          "APPROVED",
-          "PAID",
-          "PARTIALLY_SETTLED",
-          "SETTLED",
-        ].map((option) => (
-          <button
-            key={option ?? "ALL"}
-            type="button"
-            className={
-              status === option
-                ? "rounded-control border border-accent px-2 py-1 text-sm text-accent"
-                : "rounded-control border border-hairline px-2 py-1 text-sm"
-            }
-            onClick={() => setStatus(option)}
-          >
-            {option ?? "All"}
-          </button>
-        ))}
-      </div>
-
-      {advances.isPending ? (
-        <LoadingState />
-      ) : advances.isError && advances.data === undefined ? (
-        <ErrorState error={advances.error} />
-      ) : rows.length === 0 ? (
-        <EmptyState>No advances yet</EmptyState>
-      ) : phone ? (
-        <PhoneList
-          rows={rows.map((row) => ({
-            key: row.advance_id,
-            title: row.party_label,
-            code: row.advance_number,
-            line: `${row.party_type} · ${row.purpose}`,
-            lead: (
-              <CardFigure
-                value={money(row.outstanding_minor)}
-                caption="remaining"
-              />
-            ),
-            foot: (
-              <span className="tabular-nums">
-                Value {money(row.amount_minor)}
-                {row.age_days === null ? "" : ` · ${row.age_days} days`}
-              </span>
-            ),
-            action:
-              row.status === "APPROVED" && canWrite ? (
-                <Button
-                  variant="tint"
-                  size="card"
-                  onClick={() =>
-                    setPaying({
-                      id: row.advance_id,
-                      number: row.advance_number,
-                      party: row.party_label,
-                      purpose: row.purpose,
-                      amount: row.amount_minor,
-                    })
-                  }
-                >
-                  Pay out
-                </Button>
-              ) : (
-                <Pill
-                  tone={
-                    row.status === "SETTLED"
-                      ? "ok"
-                      : row.status === "CANCELLED"
-                        ? "neutral"
-                        : (row.age_days ?? 0) > 30
-                          ? "warn"
-                          : "info"
-                  }
-                >
-                  {row.status}
-                </Pill>
-              ),
-          }))}
+      <KpiStrip className="grid-cols-2 md:grid-cols-3 xl:grid-cols-3">
+        <Kpi label="Still with people" value={money(outstanding)} />
+        <Kpi
+          label="Over 30 days"
+          value={
+            <span
+              className={old === null || old === 0 ? undefined : "text-warn-fg"}
+            >
+              {money(old)}
+            </span>
+          }
         />
-      ) : (
-        <table className="w-full border-collapse text-sm">
-          <thead>
-            <tr>
-              <Th>Number</Th>
-              <Th>To</Th>
-              <Th>Purpose</Th>
-              <Th>Unit</Th>
-              <Th align="right">Value</Th>
-              <Th align="right">Remaining</Th>
-              <Th align="right">Age</Th>
-              <Th>Status</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr key={row.advance_id}>
-                <Td>
-                  <Code>{row.advance_number}</Code>
-                </Td>
-                <Td>
-                  {row.party_label}
-                  <div className="text-[0.875rem] text-mute">
-                    {row.party_type}
-                  </div>
-                </Td>
-                <Td>{row.purpose}</Td>
-                <Td>{row.site_id}</Td>
-                <Td align="right">{money(row.amount_minor)}</Td>
-                <Td align="right">{money(row.outstanding_minor)}</Td>
-                <Td align="right">
-                  {row.age_days === null ? "—" : `${row.age_days} days`}
-                </Td>
-                <Td>
-                  <Pill
-                    tone={
-                      row.status === "SETTLED"
-                        ? "ok"
-                        : row.status === "CANCELLED"
-                          ? "neutral"
-                          : (row.age_days ?? 0) > 30
-                            ? "warn"
-                            : "info"
-                    }
-                  >
-                    {row.status}
-                  </Pill>
-                  {row.status === "APPROVED" && canWrite && (
-                    <Button
-                      variant="ghost"
-                      className="ml-2"
-                      onClick={() =>
-                        setPaying({
-                          id: row.advance_id,
-                          number: row.advance_number,
-                          party: row.party_label,
-                          purpose: row.purpose,
-                          amount: row.amount_minor,
-                        })
-                      }
-                    >
-                      Pay out
-                    </Button>
-                  )}
-                </Td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-      <LoadMore query={advances} />
+        <Kpi
+          label="Difference from the ledger"
+          value={
+            <span className={difference === 0 ? undefined : "text-bad-fg"}>
+              {money(difference)}
+            </span>
+          }
+        />
+      </KpiStrip>
+
+      {/* The status is the dock's button on a phone. */}
+      <SubTabs
+        className="mb-3.5"
+        tabs={[
+          { value: "ALL", label: "All" },
+          { value: "REQUESTED", label: "Requested" },
+          { value: "APPROVED", label: "Approved" },
+          { value: "PAID", label: "Paid" },
+          { value: "PARTIALLY_SETTLED", label: "Partially settled" },
+          { value: "SETTLED", label: "Settled" },
+        ]}
+        value={status ?? "ALL"}
+        onChange={(next) => setStatus(next === "ALL" ? undefined : next)}
+      />
+
+      <Card
+        aria-busy={askedStatus !== status || undefined}
+        className="list-swap overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none"
+      >
+        {rows.length === 0 ? (
+          <EmptyState>No advances yet</EmptyState>
+        ) : (
+          <DataTable<Advance>
+            refresh={[advances]}
+            table={table}
+            more={advances}
+            pageScroll
+            cardSort={false}
+            cardsApart
+          />
+        )}
+      </Card>
+
       {paying !== null && (
         <PaySheet target={paying} onClose={() => setPaying(null)} />
       )}
@@ -347,19 +328,15 @@ function PaySheet({
       onOpenChange={(next) => !next && onClose()}
       title={`Pay out ${target.number}`}
       footer={
-        <div className="flex justify-end gap-2">
-          <Button variant="quiet" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            pending={pay.isPending}
-            disabled={on === ""}
-            onClick={() => pay.mutate()}
-          >
-            Pay out
-          </Button>
-        </div>
+        <SheetFooter
+          onCancel={onClose}
+          primary={{
+            label: "Pay out",
+            pending: pay.isPending,
+            disabled: on === "",
+            onClick: () => pay.mutate(),
+          }}
+        />
       }
     >
       <div className="flex flex-col gap-4">

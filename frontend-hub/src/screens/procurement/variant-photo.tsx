@@ -62,7 +62,7 @@ export function VariantPhoto({
         </span>
       </ZoomPhoto>
       {more > 0 && (
-        <span className="text-[0.875rem] text-mute tabular-nums">
+        <span className="text-[0.9375rem] text-mute tabular-nums">
           {`+${count(more)}`}
         </span>
       )}

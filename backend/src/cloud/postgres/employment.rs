@@ -94,6 +94,9 @@ pub struct EmployeeSummary {
     pub position: Option<String>,
     /// The login this record is bound to, when one is.
     pub username: Option<String>,
+    /// No login yet, and an invitation to make one is still open — the
+    /// latest one, unanswered, unrevoked and unexpired.
+    pub invited: bool,
 }
 
 /// A fixed term running out, for the report that made contracts a table.
@@ -552,6 +555,10 @@ const WORKFORCE_ROWS: &str = "
            a.unit_id, unit.name AS unit_name,
            c.kind AS contract_kind, c.ends_on AS contract_ends_on, c.position,
            u.username,
+           -- Asked to make their own login and not answered yet: the latest
+           -- invitation still open, and no login bound. The Employee list's
+           -- Login column says Invited rather than None.
+           (u.username IS NULL AND COALESCE(inv.open, FALSE)) AS invited,
            -- An unenrolled record sorts to the front of the alphabet rather
            -- than vanishing into a NULL the keyset cannot compare. That is
            -- also the more useful answer: a list of people whose paperwork is
@@ -562,7 +569,10 @@ const WORKFORCE_ROWS: &str = "
       FROM employee e
       LEFT JOIN employee_profile p ON p.employee_id = e.id
       LEFT JOIN LATERAL (
-           SELECT name FROM user_invitation
+           SELECT name,
+                  (accepted_at IS NULL AND revoked_at IS NULL
+                   AND expires_at > now()) AS open
+             FROM user_invitation
             WHERE employee_id = e.id
             ORDER BY created_at DESC
             LIMIT 1
@@ -741,7 +751,27 @@ fn summary_from(row: &sqlx::postgres::PgRow) -> Result<EmployeeSummary, AppError
         contract_ends_on: row.try_get("contract_ends_on")?,
         position: row.try_get("position")?,
         username: row.try_get("username")?,
+        invited: row.try_get("invited")?,
     })
+}
+
+/// Everybody working today inside a reach, by id — `None` for every place.
+///
+/// The same fence and the same status as the workforce list, read from the
+/// same [`WORKFORCE_ROWS`], so a figure keyed on these ids (the Balances
+/// list's days left) covers exactly the people that list shows.
+pub async fn active_employee_ids_within(
+    pool: &PgPool,
+    reach_unit: Option<&str>,
+) -> Result<Vec<String>, AppError> {
+    Ok(sqlx::query_scalar(&format!(
+        "WITH searched AS ({WORKFORCE_ROWS})
+         SELECT id FROM searched WHERE status = 'ACTIVE' ORDER BY id"
+    ))
+    .bind(reach_unit)
+    .bind(None::<String>)
+    .fetch_all(pool)
+    .await?)
 }
 
 /// How many rows there are, and how they split.

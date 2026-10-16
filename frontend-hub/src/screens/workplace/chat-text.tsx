@@ -36,7 +36,7 @@ export function RichText({
         block.code ? (
           <pre
             key={index}
-            className="my-1 overflow-x-auto rounded-md bg-soft-2 px-2.5 py-2 font-mono text-[0.875rem] leading-snug whitespace-pre text-ink"
+            className="my-1 overflow-x-auto rounded-md bg-soft-2 px-2.5 py-2 font-mono text-[0.9375rem] leading-snug whitespace-pre text-ink"
           >
             {block.text}
           </pre>
@@ -83,7 +83,7 @@ function inline(
     out.push(
       <code
         key={`c${key}`}
-        className="rounded bg-soft-2 px-1 py-px font-mono text-[0.875rem] text-ink"
+        className="rounded bg-soft-2 px-1 py-px font-mono text-[0.9375rem] text-ink"
       >
         {match[1]}
       </code>

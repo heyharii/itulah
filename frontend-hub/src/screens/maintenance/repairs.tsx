@@ -1,11 +1,11 @@
 import {
-  useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
+  useSuspenseInfiniteQuery,
 } from "@tanstack/react-query"
 import { Plus, Wrench } from "lucide-react"
-import { useMemo, useState } from "react"
+import { Suspense, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
@@ -19,6 +19,7 @@ import { Sheet } from "@/components/ui/sheet"
 import {
   Banner,
   EmptyState,
+  LoadingState,
   LoadMore,
   type Pageable,
 } from "@/components/ui/states"
@@ -29,12 +30,11 @@ import {
   gaAssets,
   gaContracts,
   gaKeys,
+  gaRepairBookQuery,
   gaRepairObjects,
-  gaRepairs,
   recordGaRepair,
   useGaSites,
 } from "@/lib/queries/ga"
-import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { RepairSheet } from "@/screens/maintenance/hub"
 import { RepairStagePill } from "@/screens/maintenance/parts"
@@ -64,31 +64,10 @@ import type { GaAssetRow, GaRepairRow, GaRepairSummary } from "@itulah/contract"
 /// A repair is the problem ("AC cassette not cooling"), and the site is
 /// required even when no single asset is — a leaking ceiling happens to a
 /// building. That is what makes the cost readable per location later.
-/// How many repairs one page of the book asks for.
-const PAGE = 100
-
 export function Repairs() {
   const open = useSheet("repair")
   const [adding, setAdding] = useState(false)
   const phone = useLayout() === "phone"
-
-  /// The book, a page at a time as its foot nears view. Its own key under
-  /// the book's prefix: the replacement form reads the same scope as one
-  /// plain page, and an infinite answer cannot share its cache entry.
-  const book = useInfiniteQuery({
-    queryKey: [...gaKeys.repairs({}), "pages"] as const,
-    queryFn: ({ pageParam, signal }) =>
-      gaRepairs({ limit: PAGE, cursor: pageParam }, signal),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) => last.next_cursor ?? undefined,
-    placeholderData: (previous) => previous,
-  })
-
-  const rows = useMemo(
-    () => book.data?.pages.flatMap((page) => page.rows) ?? [],
-    [book.data]
-  )
-  const head = book.data?.pages[0]
 
   return (
     <PageContent>
@@ -110,29 +89,11 @@ export function Repairs() {
 
       <Fab label="Record repair" onClick={() => setAdding(true)} />
 
-      {head !== undefined && <SummaryStrip summary={head.summary} />}
-
-      {queryState(book, {
-        loading: "Opening the repair book…",
-        render: () =>
-          rows.length === 0 ? (
-            <Card>
-              <EmptyState
-                action={
-                  <Button variant="ghost" onClick={() => setAdding(true)}>
-                    Record the first one
-                  </Button>
-                }
-              >
-                No repairs recorded yet. A repair is recorded when something
-                breaks — tomorrow from an inspection that finds damage, or
-                straight from a store report.
-              </EmptyState>
-            </Card>
-          ) : (
-            <RepairTable rows={rows} onOpen={open.open} more={book} />
-          ),
-      })}
+      <Suspense
+        fallback={<LoadingState>Opening the repair book…</LoadingState>}
+      >
+        <RepairBook onAdd={() => setAdding(true)} onOpen={open.open} />
+      </Suspense>
 
       <RepairComposer
         open={adding}
@@ -150,6 +111,49 @@ export function Repairs() {
         onClose={open.close}
       />
     </PageContent>
+  )
+}
+
+/// The book: its figures and its table, read together. The page's head and
+/// its round button stand outside, so they paint before the book arrives.
+function RepairBook({
+  onAdd,
+  onOpen,
+}: {
+  onAdd: () => void
+  onOpen: (repairId: string) => void
+}) {
+  /// A page at a time, the next one fetched as the foot of the list nears
+  /// view.
+  const book = useSuspenseInfiniteQuery(gaRepairBookQuery())
+  const rows = useMemo(
+    () => book.data.pages.flatMap((page) => page.rows),
+    [book.data]
+  )
+  const head = book.data.pages[0]
+
+  return (
+    <>
+      {head !== undefined && <SummaryStrip summary={head.summary} />}
+
+      {rows.length === 0 ? (
+        <Card>
+          <EmptyState
+            action={
+              <Button variant="ghost" onClick={onAdd}>
+                Record the first one
+              </Button>
+            }
+          >
+            No repairs recorded yet. A repair is recorded when something breaks
+            — tomorrow from an inspection that finds damage, or straight from a
+            store report.
+          </EmptyState>
+        </Card>
+      ) : (
+        <RepairTable rows={rows} onOpen={onOpen} more={book} />
+      )}
+    </>
   )
 }
 
@@ -469,7 +473,7 @@ export function RepairComposer({
               : "Object and location follow the asset"}
           </span>
           <div className="flex items-center gap-2">
-            <Button variant="ghost" onClick={onClose}>
+            <Button data-cancel variant="ghost" onClick={onClose}>
               Cancel
             </Button>
             <Button variant="primary" pending={save.isPending} onClick={submit}>

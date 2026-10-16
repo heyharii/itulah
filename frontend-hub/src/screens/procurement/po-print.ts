@@ -2,6 +2,7 @@ import { count, day, money } from "@/lib/format"
 import type { PurchaseOrderDetail } from "@/lib/queries/procurement"
 import { COMPANY } from "@/screens/finance-lab/print"
 import { escapeHtml } from "@/screens/procurement/print"
+import { qrSvg } from "@/screens/procurement/qr"
 import {
   DEFAULT_TERMS,
   lineValue,
@@ -11,12 +12,47 @@ import { supplierDisplayName } from "@/screens/procurement/supplier-format"
 import { lineTotal } from "@/screens/procurement/line-pricing-model"
 import type { Supplier } from "@itulah/contract"
 
+/// When an order was cancelled and why, read off its history: a cancel is a
+/// revision whose change is `{kind: "cancelled", to: reason}` (suppliers.rs).
+export function cancellationOf(order: PurchaseOrderDetail): {
+  at: string
+  reason: string | null
+} | null {
+  if (order.lifecycle !== "CANCELLED") return null
+  for (const revision of order.revisions ?? []) {
+    const change = revision.changes.find((one) => one.kind === "cancelled")
+    if (change !== undefined) {
+      const reason = typeof change.to === "string" ? change.to.trim() : ""
+      return { at: revision.revised_at, reason: reason === "" ? null : reason }
+    }
+  }
+  return null
+}
+
+/// The day a stamp stands for: when it was cancelled, or when the last goods
+/// came in for an order that is finished (owner, 2026-10-16).
+export function stampDayOf(order: PurchaseOrderDetail): string | null {
+  const cancelled = cancellationOf(order)
+  if (cancelled !== null) return cancelled.at
+  const received = order.lines
+    .flatMap((line) => (line.receipts ?? []).map((one) => one.received_at))
+    .sort()
+    .at(-1)
+  return received ?? null
+}
+
 /// One purchase order to print, with the supplier's record for its address
 /// and telephone; null when that could not be read — the order still prints,
 /// with its name.
 export interface PrintableOrder {
   readonly order: PurchaseOrderDetail
   readonly supplier: Supplier | null
+  /// Each catalogue item's description, by supplier item id, printed under
+  /// the line's name (owner, 2026-10-16). Absent where it could not be read.
+  readonly descriptions?: ReadonlyMap<string, string>
+  /// The order's public page (`/p/{token}`), when the print could make it:
+  /// the QR carries it while the order is still open. Without it, no QR.
+  readonly qrUrl?: string
 }
 
 /// Purchase orders as they go to the supplier, on A5, one order a sheet.
@@ -130,6 +166,7 @@ export function purchaseOrdersHtml({
     // (the tanda terima): what arrived stands beside what was ordered, and
     // the amount is worked out on what arrived.
     const received = order.lines.some((line) => line.received_quantity > 0)
+    const cancelled = cancellationOf(order)
     const stamp =
       order.lifecycle === "CANCELLED"
         ? { word: "CANCELLED", tone: "bad" }
@@ -188,7 +225,12 @@ export function purchaseOrdersHtml({
         const tone = receivedTone(line.ordered_quantity, line.received_quantity)
         return `<tr>
   <td>${index + 1}</td>
-  <td>${e(line.article_name)}${variantLines(line, variantName)
+  <td>${e(line.article_name)}${(() => {
+    const said = line.supplier_item_id
+      ? one.descriptions?.get(line.supplier_item_id)
+      : undefined
+    return said ? `<div class="sub">${e(said)}</div>` : ""
+  })()}${variantLines(line, variantName)
     .map((one) => `<div class="sub">${e(one)}</div>`)
     .join("")}${receipts.join("")}</td>
   <td class="num">${count(line.ordered_quantity)} pcs${entered === null ? "" : `<div class="sub">${e(entered)}</div>`}</td>
@@ -210,17 +252,25 @@ export function purchaseOrdersHtml({
     const terms = order.terms_and_conditions?.trim() || DEFAULT_TERMS
 
     return `<section class="page">
-${stamp === null ? "" : `<div class="stamp ${stamp.tone}">${stamp.word}</div>`}
+${stamp === null ? "" : `<div class="stamp ${stamp.tone}">${stamp.word}${stampDayOf(order) === null ? "" : `<span class="stamp-day">${day(stampDayOf(order)!)}</span>`}${cancelled?.reason ? `<span class="stamp-note">${e(cancelled.reason)}</span>` : ""}</div>`}
 <div class="head">
   <div>
     <div class="company">${e(COMPANY.name)}</div>
-    <div class="muted">${e(COMPANY.address)}</div>
+    <div class="muted strong">${e(COMPANY.address)}</div>
     ${COMPANY.phone ? `<div class="muted">${e(COMPANY.phone)}</div>` : ""}
   </div>
-  <div class="title">
-    <h1>PURCHASE ORDER</h1>
-    <div>No. <span class="mono">${e(order.po_number)}</span></div>
-    <div class="muted">Date ${e(day(order.issued_at ?? order.created_at))}</div>
+  <div class="title-side">
+    <div class="title">
+      <h1>PURCHASE ORDER</h1>
+      <div>No. <span class="mono">${e(order.po_number)}</span></div>
+      <div class="muted">Date <b class="strong">${e(day(order.issued_at ?? order.created_at))}</b></div>
+    </div>
+    ${
+      // A QR while the order is still open (owner, 2026-10-16): a scan opens
+      // the order in the hub, which says whether it is still active. A
+      // finished order wears its stamp instead.
+      stamp === null && one.qrUrl ? `<div class="po-qr">${qrSvg(one.qrUrl)}</div>` : ""
+    }
   </div>
 </div>
 
@@ -288,9 +338,12 @@ body { font-family: Inter, -apple-system, "Segoe UI", sans-serif; font-size: 14p
 .page { position: relative; padding: 8mm 10mm; break-after: page; break-inside: avoid; }
 .page:last-child { break-after: auto; }
 .head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; border-bottom: 2px solid #1d1f1a; padding-bottom: 8px; }
+.strong { font-weight: 700; color: #111; }
 .company { font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
 .muted { color: #5b6158; }
 .title { text-align: right; flex-shrink: 0; }
+.title-side { display: flex; align-items: flex-start; gap: 12px; flex-shrink: 0; }
+.po-qr svg { width: 20mm; height: 20mm; display: block; }
 .title h1 { font-size: 18px; letter-spacing: .04em; margin: 0 0 4px; }
 .mono { font-family: ui-monospace, Menlo, monospace; }
 .parties { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; margin: 8px 0; }
@@ -312,6 +365,8 @@ tr { break-inside: avoid; page-break-inside: avoid; }
 .madeby { margin-top: 10px; }
 .terms { margin-top: 18px; padding-top: 8px; border-top: 1px solid #d9dbd6; }
 .system { margin-top: 3px; color: #5b6158; }
+.stamp .stamp-day { display: block; font-size: 14px; letter-spacing: .04em; text-align: center; }
+.stamp .stamp-note { display: block; max-width: 60mm; font-size: 12px; letter-spacing: .02em; text-align: center; text-transform: none; white-space: normal; }
 .stamp { position: absolute; top: 22mm; right: 58mm; transform: rotate(-12deg); border: 3px solid; border-radius: 6px; padding: 2px 12px; font-size: 22px; font-weight: 700; letter-spacing: .12em; opacity: .55; pointer-events: none; }
 .ok { color: #1f8a4c; }
 .bad { color: #c0392b; }

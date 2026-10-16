@@ -28,10 +28,7 @@ import { toast } from "@/lib/toast"
 import { cn } from "@/lib/utils"
 import { idempotencyKey } from "@itulah/contract/client"
 
-import {
-  owedBySku,
-  type MoveBackTarget,
-} from "@/screens/operations/board/owed"
+import { owedBySku, type MoveBackTarget } from "@/screens/operations/board/owed"
 
 /// **Move back**: the Gudang undoes its own work, or works off what MD took
 /// out. Picked → Pick List, Packed → Picked, Packed → Pick List. Partial, per
@@ -49,7 +46,7 @@ import {
 /// Pieces MD already took out go back first and are not asked for again (the
 /// server settles them; the sentence under the lines says how many).
 
-const WHERE = { picked: "Picked", pick: "Pick List" } as const
+const WHERE = { picked: "Picked", pick: "Picklist" } as const
 
 /// What `target` opens: the dialog when it is a target, nothing when `null`.
 /// The last target stays drawn while the dialog fades out, and every opening
@@ -275,7 +272,7 @@ function Mover({
     parts.push(
       to === "picked"
         ? `${quantity(moved)} join the picked pile`
-        : `${quantity(moved)} go back to stock`
+        : `${quantity(moved)} back to stock`
     )
     if (to === "pick")
       parts.push(
@@ -313,7 +310,7 @@ function Mover({
   })
 
   const ready = lines !== undefined && qty !== null
-  const where = packed ? "Carton" : "Picklist"
+  const where = packed ? "Koli" : "Picklist"
   const sub = ready
     ? `${count(total)} ${total === 1 ? "pc" : "pcs"} · now ${packed ? "packed" : "picked"}`
     : undefined
@@ -339,7 +336,7 @@ function Mover({
       <ErrorState error={source.error} onRetry={source.retry} />
     ) : (
       <LoadingState>
-        {packed ? "Reading the carton…" : "Reading what is picked…"}
+        {packed ? "Reading the koli…" : "Reading what is picked…"}
       </LoadingState>
     )
   ) : lines.length === 0 ? (
@@ -358,7 +355,7 @@ function Mover({
                 aria-pressed={to === one}
                 onClick={() => setChoice(one)}
                 className={cn(
-                  "inline-flex h-9 items-center rounded-full border px-4 text-[0.9375rem] font-medium transition-[color,background-color,border-color,scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.97] max-md:h-11 motion-reduce:transition-none motion-reduce:active:scale-100",
+                  "inline-flex h-9 items-center rounded-full border px-4 text-[0.9375rem] font-medium transition-[color,background-color,border-color,scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100 max-md:h-11",
                   to === one
                     ? "border-accent bg-accent-bg text-accent"
                     : "border-hairline-2 bg-canvas text-body hover:border-hairline-strong hover:text-ink"
@@ -418,7 +415,7 @@ function Mover({
                     <div className="text-[0.9375rem] [overflow-wrap:anywhere] text-ink">
                       {name(line.sku)}
                     </div>
-                    <div className="font-mono text-[0.875rem] break-all text-mute">
+                    <div className="font-mono text-[0.9375rem] break-all text-mute">
                       {line.sku}
                       {line.where !== "" && ` · ${line.where}`}
                     </div>
@@ -434,7 +431,7 @@ function Mover({
                   block
                   value={q}
                   max={line.now}
-                  label={`Move back ${line.sku}`}
+                  label={`Put back ${line.sku}`}
                   padLabel={name(line.sku)}
                   onChange={(next) => set(line, next)}
                 />
@@ -453,13 +450,13 @@ function Mover({
         <div className="overflow-hidden rounded-inner border border-hairline">
           <table className="w-full border-collapse text-[0.9375rem]">
             <thead>
-              <tr className="border-b border-hairline text-left text-[0.875rem] text-body">
+              <tr className="border-b border-hairline text-left text-[0.9375rem] text-body">
                 <th className="h-9 w-12 px-3 font-normal">No.</th>
                 <th className="h-9 px-3 font-normal">SKU</th>
                 <th className="h-9 px-3 font-normal">{where}</th>
                 <th className="h-9 w-20 px-3 text-right font-normal">Now</th>
                 <th className="h-9 w-56 px-3 text-center font-normal">
-                  Move back
+                  Put back
                 </th>
               </tr>
             </thead>
@@ -479,11 +476,11 @@ function Mover({
                     </td>
                     <td className="px-3 py-2">
                       <div className="text-ink">{name(line.sku)}</div>
-                      <div className="font-mono text-[0.875rem] text-mute">
+                      <div className="font-mono text-[0.9375rem] text-mute">
                         {line.sku}
                       </div>
                     </td>
-                    <td className="px-3 py-2 font-mono text-[0.875rem] text-body">
+                    <td className="px-3 py-2 font-mono text-[0.9375rem] text-body">
                       {line.where}
                     </td>
                     <td className="px-3 py-2 text-right text-body tabular-nums">
@@ -494,7 +491,7 @@ function Mover({
                         <Stepper
                           value={q}
                           max={line.now}
-                          label={`Move back ${line.sku}`}
+                          label={`Put back ${line.sku}`}
                           padLabel={name(line.sku)}
                           onChange={(next) => set(line, next)}
                         />
@@ -521,7 +518,7 @@ function Mover({
     </div>
   )
 
-  const title = `Move back from ${shopName(target.destinationId)}`
+  const title = `Put back from ${shopName(target.destinationId)}`
   const foot = (
     <SheetFooter
       onCancel={onClose}
@@ -531,9 +528,9 @@ function Mover({
       primary={{
         label:
           moved > 0
-            ? `Move back ${quantity(moved)} to ${WHERE[to]}`
-            : "Move back",
-        pendingLabel: "Moving back…",
+            ? `Put back ${quantity(moved)} to ${WHERE[to]}`
+            : "Put back",
+        pendingLabel: "Putting back…",
         pending: submit.isPending,
         disabled: !ready || moved === 0,
         onClick: () => submit.mutate(),
@@ -581,10 +578,8 @@ function Mover({
                 {title}
               </BaseDialog.Title>
               {(id !== undefined || sub !== undefined) && (
-                <p className="mt-0.5 text-[0.875rem] text-mute tabular-nums">
-                  {id !== undefined && (
-                    <span className="font-mono">{id}</span>
-                  )}
+                <p className="mt-0.5 text-[0.9375rem] text-mute tabular-nums">
+                  {id !== undefined && <span className="font-mono">{id}</span>}
                   {id !== undefined && sub !== undefined && " · "}
                   {sub}
                 </p>
@@ -613,8 +608,8 @@ function Mover({
 /// is on the source now less what moves, so it is known for every line.
 function Split({ moving, keeping }: { moving: number; keeping: number }) {
   return (
-    <span className="text-[0.875rem] text-mute tabular-nums">
-      Move back <span className="text-ink">{count(moving)}</span> · Keep{" "}
+    <span className="text-[0.9375rem] text-mute tabular-nums">
+      Put back <span className="text-ink">{count(moving)}</span> · Keep{" "}
       <span className="text-ink">{count(keeping)}</span>
     </span>
   )
@@ -688,7 +683,7 @@ function Stepper({
 
 /// The receipt: what moved, where, and what the server did to the labels.
 function said(result: MoveBackResult, to: "picked" | "pick"): string {
-  const parts = [`${quantity(result.moved)} moved back to ${WHERE[to]}`]
+  const parts = [`${quantity(result.moved)} put back to ${WHERE[to]}`]
   const reprinted = result.kolis.filter((one) => one.label_reprint).length
   if (reprinted > 0)
     parts.push(reprinted === 1 ? "label reprinted" : "labels reprinted")

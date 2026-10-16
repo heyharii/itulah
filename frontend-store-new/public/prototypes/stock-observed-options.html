@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Stok Toko · Terlihat & Sistem · 3 opsi</title>
+  <style>:root{--ink:#20242c;--text:#394150;--muted:#697280;--line:#e6e7eb;--soft:#f7f8fa;--blue:#2563eb;--blue-bg:#eff5ff;--amber:#a65c08;--amber-bg:#fff5e7;--green:#23814a;--green-bg:#edf8f0}
+*{box-sizing:border-box}body{margin:0;font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--text);background:var(--soft)}button,input,select{font:inherit;color:inherit}button{cursor:pointer}button,a,input,select{outline-offset:4px}button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--blue)}button{border:0;background:none}a{color:inherit;text-decoration:none}h1,h2,h3,p{margin:0}button:disabled{cursor:not-allowed;opacity:.45}[hidden]{display:none!important}
+.prototype-bar{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:22px;min-height:58px;padding:10px 24px;background:#17191d;color:#fff}.prototype-label{font-size:10px;color:#9097a3;letter-spacing:1px;white-space:nowrap}.prototype-label b{display:block;color:#eef1f5;font-size:13px;letter-spacing:0;font-weight:500}.prototype-bar nav{display:flex;gap:6px;flex:1}.prototype-bar nav button{color:#abb1bc;padding:8px 14px;border-radius:7px;white-space:nowrap;font-size:13px}.prototype-bar nav button[aria-pressed=true]{background:#34373d;color:#fff}.prototype-bar nav button span{font-size:10px;color:#c6d7fb;margin-left:8px}.reset{color:#afb6c2;font-size:12px;padding:8px}.workspace{display:flex;min-height:calc(100vh - 58px)}.sidebar{width:216px;flex:none;background:#fff;border-right:1px solid var(--line);padding:26px 18px;display:flex;flex-direction:column}.brand{display:flex;align-items:center;flex-wrap:wrap;gap:9px;font-size:22px;font-weight:650;letter-spacing:-.8px}.brand-mark{position:relative;display:grid;place-items:center;background:#20242c;color:white;border-radius:9px;width:32px;height:32px;font-size:26px}.brand-mark span{position:absolute;background:#3b82f6;width:5px;height:5px;border-radius:50%;right:7px;bottom:7px}.store-label{width:100%;font-size:12px;letter-spacing:0;font-weight:400;color:var(--muted);padding-left:41px;margin-top:-7px}.nav-heading{font-size:10px;letter-spacing:1.1px;color:#9299a4;margin:42px 10px 12px}.nav-link{display:flex;gap:12px;align-items:center;padding:10px 12px;border-radius:8px;margin:2px 0;color:var(--muted);font-size:17px}.nav-link span{font-size:13px}.nav-link.active{background:var(--blue-bg);color:var(--blue);font-weight:600}.sidebar-foot{margin-top:auto;padding:30px 8px 0;font-size:12px;color:var(--muted)}.sidebar-foot i{display:inline-block;width:6px;height:6px;background:#8ba1bd;border-radius:50%;margin-right:6px}.sidebar-foot span{display:block;font-size:11px;color:#8b94a0;padding-left:12px}main{flex:1;min-width:0;max-width:1440px;padding:25px 44px 40px}.breadcrumb{font-size:12px;color:var(--muted);margin-bottom:24px}.breadcrumb span{margin:0 12px;color:#b7bcc5}.page-heading{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:26px}h1{font-size:28px;letter-spacing:-.7px;line-height:1.25;font-weight:650;color:var(--ink)}.page-heading p{margin-top:6px;color:var(--muted);font-size:13px}.page-heading p span{padding:0 6px}.primary,.secondary{display:inline-flex;align-items:center;justify-content:center;gap:9px;border-radius:8px;padding:10px 16px;font-size:13px;font-weight:550;min-height:42px}.primary{background:var(--blue);color:#fff;box-shadow:0 1px 2px #192a4820}.primary:hover{background:#1d4ed8}.primary span{font-size:18px;line-height:1}.secondary{background:white;border:1px solid #dce0e6}.inventory{background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 2px 4px #12233803;overflow:hidden}.view-controls{padding:20px 24px;display:flex;align-items:center;justify-content:space-between;gap:15px;border-bottom:1px solid var(--line)}.segmented{display:inline-flex;border:1px solid #e1e5eb;background:#f4f5f7;padding:3px;border-radius:9px;flex:none}.segmented button{padding:7px 18px;border-radius:6px;color:var(--muted);font-size:13px;min-width:96px}.segmented button[aria-pressed=true]{background:#fff;box-shadow:0 1px 4px #18283b1b;color:var(--ink);font-weight:600}.context{font-size:12px;color:var(--muted);text-align:right;line-height:1.8}.context strong{color:var(--text);font-weight:500}.text-button{padding:0;color:var(--blue);font-size:12px;text-decoration:underline;text-underline-offset:3px}.context-line{display:flex;align-items:center;gap:7px;justify-content:flex-end}.context p{display:block}.time-dot{width:6px;height:6px;background:#8fa8bd;border-radius:50%}.view-b .view-controls{align-items:flex-start;padding-bottom:18px}.view-b .view-description{max-width:450px}.view-description .eyebrow{margin-bottom:4px}.view-description h2{font-size:16px;letter-spacing:-.3px;color:var(--ink);font-weight:600}.view-description p{font-size:12px;margin-top:4px;color:var(--muted)}.view-c .view-controls{padding:20px 24px 16px;flex-wrap:wrap;border-bottom:0}.meaning-banner{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 24px;background:#f3f7ff;border-top:1px solid #e9effb;border-bottom:1px solid #e9effb}.meaning-banner h2{font-size:14px;color:#344864;font-weight:550}.meaning-banner p{font-size:12px;color:#6a7a92;margin-top:2px}.table-toolbar{display:flex;align-items:center;justify-content:space-between;gap:15px;padding:16px 24px}.search{display:flex;align-items:center;gap:8px;min-width:0}.search span{font-size:24px;line-height:1;color:#8c94a1}.search input{border:none;background:none;outline-offset:2px;width:245px;min-width:0;font-size:12px;padding:8px 4px}.search input::placeholder{color:#858d9a}.attention{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px;white-space:nowrap;cursor:pointer}.attention input{accent-color:var(--blue);width:14px;height:14px}.table-scroll{overflow-x:auto}table{width:100%;border-collapse:collapse;table-layout:fixed}th{text-align:right;color:var(--muted);font-size:11px;font-weight:550;background:#fafbfc;border-bottom:1px solid var(--line);border-top:1px solid var(--line);height:42px;padding:10px 24px}th:first-child{text-align:left;width:40%}th:last-child{width:19%;text-align:center}th small{display:block;font-size:10px;font-weight:400;color:#7c8795;white-space:nowrap;margin-top:3px}.view-b th{height:62px}.view-c th:first-child{width:34%}.view-c th:last-child{width:28%;text-align:left}td{padding:17px 24px;border-bottom:1px solid #eef0f3;text-align:right;font-variant-numeric:tabular-nums;font-size:17px;color:var(--ink)}td:first-child{text-align:left}td:last-child{text-align:center}.view-c td:last-child{text-align:left}tbody tr:last-child td{border-bottom:0}tbody tr:hover{background:#fafcff;cursor:pointer}tbody tr:focus-visible{outline:2px solid var(--blue);outline-offset:-3px}.product{display:flex;align-items:center;gap:13px}.product-thumb{width:36px;height:42px;display:grid;place-items:center;border-radius:7px;background:#f0f1f4;flex:none}.garment{display:block;width:21px;height:24px;background:var(--cloth,#333);clip-path:polygon(25% 0,38% 6%,62% 6%,75% 0,100% 18%,83% 39%,75% 30%,75% 100%,25% 100%,25% 30%,17% 39%,0 18%)}.black{--cloth:#393b41}.blue{--cloth:#66839f}.grey{--cloth:#9a9ca3}.white{--cloth:#d6d7da}.olive{--cloth:#839078}.sand{--cloth:#c8b793}.product-name{font-size:13px;font-weight:550;color:var(--ink)}.product-variant{font-size:12px;color:var(--muted);margin-top:2px}.unknown{color:#a7aeb9;font-weight:400}.quantity-partial{border-bottom:1px dotted #94a0b3;cursor:help}.status-button{display:inline-flex;align-items:center;gap:7px;padding:4px;border-radius:6px;font-size:11px;white-space:nowrap;min-height:36px;min-width:36px;justify-content:center}.status-symbol{width:22px;height:22px;border:1px solid currentColor;border-radius:50%;display:grid;place-items:center;font-size:13px;font-weight:600}.amber{color:var(--amber)}.blue-tone{color:var(--blue)}.green{color:var(--green)}.muted-tone{color:#8a94a1}.status-button:hover{background:#f0f2f5}.table-foot{border-top:1px solid var(--line);padding:13px 24px;display:flex;justify-content:space-between;gap:12px;color:var(--muted);font-size:11px}.table-foot strong{font-weight:500;color:#626d7b}.table-note{display:flex;gap:9px;font-size:11px;line-height:1.7;color:var(--muted);padding:14px 6px;max-width:780px}.table-note>span{font-size:14px}.table-note b{font-weight:500}.design-note{display:flex;align-items:center;justify-content:space-between;gap:26px;padding:22px 25px;margin-top:25px;border:1px dashed #cfd6e2;border-radius:10px;background:#f9fafc}.design-note>div:first-child{max-width:630px}.design-note span{color:#8a96a7;font-size:10px;font-weight:600;letter-spacing:1.3px}.design-note h2{font-size:15px;font-weight:550;margin:5px 0 6px;color:#36465d}.design-note p{font-size:12px;line-height:1.8;color:#728095}.design-principle{font-size:11px;line-height:1.8;white-space:nowrap;color:#8590a0;border-left:1px solid #dce2eb;padding-left:24px}.design-principle b{color:#50647e;font-weight:550}.demo-note{font-size:10px;color:#9aa2ae;margin-top:16px}.empty{padding:44px;font-size:13px;text-align:center;color:var(--muted)}
+dialog{padding:0;border:none;color:var(--text);background:#fff}dialog::backdrop{background:#1a233b45;backdrop-filter:blur(2px)}.sheet{position:fixed;left:auto;right:0;top:0;bottom:0;margin:0;width:480px;max-width:100vw;height:100dvh;max-height:100dvh;box-shadow:-10px 0 40px #14254220}.sheet[open]{display:flex;flex-direction:column}.sheet>div[id$=content]{display:flex;flex-direction:column;min-height:0;height:100%}.sheet-head{padding:26px 26px 21px;display:flex;align-items:flex-start;justify-content:space-between;gap:16px;border-bottom:1px solid var(--line);flex:none}.sheet-head h2{font-size:21px;letter-spacing:-.4px;color:var(--ink);line-height:1.3}.sheet-head p{font-size:12px;color:var(--muted);margin-top:5px}.eyebrow{font-size:10px;font-weight:600;letter-spacing:1px;color:#8490a2;display:block;margin-bottom:6px}.icon-button{width:32px;height:32px;border-radius:6px;font-size:24px;color:#84909f}.icon-button:hover{background:#f0f2f5}.sheet-body{padding:24px 26px;overflow-y:auto;flex:1}.sheet-footer{display:flex;justify-content:space-between;gap:10px;padding:18px 26px;border-top:1px solid var(--line);margin-top:auto;flex:none}.lead{font-size:15px;font-weight:500;color:var(--ink);margin-bottom:8px}.muted{color:var(--muted);font-size:12px}.info-box{padding:14px;border-radius:8px;background:var(--blue-bg);color:#496582;font-size:12px;line-height:1.7;margin:16px 0}.warning-box{background:var(--amber-bg);color:#8d631f}.comparison-table{margin-top:20px;table-layout:auto}.comparison-table th,.comparison-table td{padding:10px 9px;text-align:right;font-size:13px}.comparison-table th{font-size:10px;line-height:1.6;background:#f8f9fb;vertical-align:bottom}.comparison-table th:first-child,.comparison-table td:first-child{text-align:left;width:auto}.comparison-table th:last-child,.comparison-table td:last-child{width:auto;text-align:right}.comparison-table td{height:48px}.location-detail{padding:19px 0;border-bottom:1px solid var(--line)}.location-detail h3{font-size:13px;font-weight:550;margin-bottom:6px}.location-detail p{color:var(--muted);font-size:12px;line-height:1.8}.location-detail .delta{color:var(--amber);font-weight:500}.location-detail .moved{color:var(--blue)}.detail-status{display:flex;gap:10px;align-items:center;font-size:14px;font-weight:550}.coverage-card{padding:18px;border:1px solid var(--line);border-radius:9px;margin-top:20px}.coverage-card h3{font-size:14px;display:flex;justify-content:space-between;gap:10px;font-weight:550}.coverage-card h3 span{font-size:12px;font-weight:400;color:var(--muted)}.coverage-track{height:5px;background:#edf0f5;border-radius:10px;margin:13px 0}.coverage-track i{display:block;height:5px;background:#7899c3;border-radius:10px}.coverage-card p{font-size:12px;color:var(--muted);line-height:1.8}.steps{display:flex;gap:16px;font-size:11px;color:#939dab;margin-top:14px}.steps b{font-weight:550;color:var(--blue)}.route-card{padding:22px;border:1px solid var(--line);border-radius:10px;display:flex;align-items:center;justify-content:space-between;width:100%;margin-top:12px;font-size:14px}.route-card:hover{border-color:#a8c3ef;background:#f5f8ff}.route-card span{color:#8796aa}.route-card b{font-weight:550}.transfer-line{display:flex;align-items:center;gap:12px;padding:18px 0;border-bottom:1px solid var(--line)}.transfer-line>div{flex:1;min-width:0}.transfer-line input{width:74px;border:1px solid #d4dbe5;border-radius:7px;padding:9px;text-align:center;background:#fff;font-variant-numeric:tabular-nums}.transfer-line input:disabled{background:#f5f6f8}.transfer-line .availability{font-size:11px;color:#8a93a1;margin-top:3px}.form-error{font-size:12px;color:#b34635;margin-top:16px;min-height:18px}.confirmation-line{display:flex;align-items:flex-start;gap:8px;margin-top:20px;font-size:13px;line-height:1.7}.confirmation-line input{margin-top:5px;accent-color:var(--blue)}.review-line{padding:14px 0;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:14px}.review-line p{font-size:13px;font-weight:500}.review-line span{font-size:12px;color:var(--muted)}.review-line b{font-size:17px;font-variant-numeric:tabular-nums}.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:30;padding:13px 20px;background:#263a30;color:#fff;border-radius:9px;box-shadow:0 8px 30px #0002;font-size:13px;max-width:calc(100vw - 30px)}
+@media(min-width:1500px){main{padding-left:70px;padding-right:70px}}@media(max-width:1100px){.sidebar{width:185px;padding:24px 12px}main{padding:24px}.prototype-bar{gap:15px}.prototype-bar nav button{padding:8px 10px}th,td{padding-left:18px;padding-right:18px}.design-principle{display:none}}@media(max-width:850px){.sidebar{display:none}.prototype-label{display:none}.prototype-bar{padding:8px 16px;gap:8px}.prototype-bar nav{gap:3px}.prototype-bar nav button{font-size:12px}.prototype-bar nav button span{display:none}main{padding:22px}.breadcrumb{margin-bottom:18px}.design-note{margin-top:15px}}@media(max-width:560px){.prototype-bar{align-items:center;padding:8px;min-height:50px}.prototype-bar nav button{padding:8px;font-size:11px}.reset{font-size:10px;padding:6px}.workspace{min-height:calc(100vh - 50px)}main{padding:18px 12px 30px}.breadcrumb{font-size:10px;margin-bottom:20px}.page-heading{gap:10px;margin-bottom:22px;align-items:center}h1{font-size:24px}.page-heading p{font-size:11px}.primary,.secondary{font-size:12px;padding:9px 12px;min-height:40px}.page-heading .primary{gap:6px}.view-controls{padding:16px;flex-wrap:wrap;gap:13px}.segmented{width:100%}.segmented button{flex:1}.context{text-align:left}.context-line{justify-content:flex-start}.table-toolbar{padding:10px 14px;flex-wrap:wrap;gap:4px}.search{width:100%}.search input{flex:1;width:100%;font-size:12px}.attention{font-size:11px;padding-bottom:8px}.inventory{border-radius:9px}th,td{padding:13px 7px}th{font-size:10px}th:first-child{width:43%;padding-left:13px}th:last-child{width:15%}td{font-size:15px}td:first-child{padding-left:13px}.product{gap:8px}.product-thumb{display:none}.product-name{font-size:12px}.product-variant{font-size:10px}.status-button{padding:2px;min-width:32px;min-height:32px}.status-symbol{width:19px;height:19px;font-size:11px}.table-foot{padding:12px 14px;flex-wrap:wrap;font-size:10px}.table-note{font-size:10px;padding:12px 2px}.design-note{padding:16px}.design-note p{font-size:11px}.design-note h2{font-size:14px}.demo-note{font-size:9px}.view-b .view-controls{padding:16px}.view-b th small{font-size:9px;white-space:normal;max-width:70px;margin-left:auto}.view-b th:first-child{width:37%}.view-b th:last-child{width:15%}.view-description h2{font-size:14px}.view-c .view-controls{padding:16px}.meaning-banner{padding:12px 16px;flex-wrap:wrap;gap:7px}.meaning-banner h2{font-size:12px}.meaning-banner p{font-size:11px}.view-c th:first-child{width:31%}.view-c th:last-child{width:29%}.view-c td:last-child{padding-left:2px;padding-right:4px}.view-c .status-button{font-size:9px;gap:4px;white-space:normal;text-align:left;justify-content:flex-start}.view-c .status-symbol{flex:none;width:16px;height:16px;font-size:10px}.sheet-head{padding:22px 20px 18px}.sheet-body{padding:20px}.sheet-footer{padding:16px 20px}.sheet-head h2{font-size:20px}.comparison-table th{font-size:9px}.comparison-table th,.comparison-table td{padding:9px 5px}.coverage-card{padding:15px}.toast{font-size:12px;bottom:16px}}
+</style>
+</head>
+<body>
+  <header class="prototype-bar">
+    <span class="prototype-label">PROTOTYPE <b>Stok toko</b></span>
+    <nav aria-label="Opsi desain">
+      <button data-option="a" aria-pressed="true">A · Ringkas <span>Rekomendasi</span></button>
+      <button data-option="b" aria-pressed="false">B · Per lokasi</button>
+      <button data-option="c" aria-pressed="false">C · Status jelas</button>
+    </nav>
+    <button id="reset" class="reset">Ulangi demo</button>
+  </header>
+  <div class="workspace">
+    <aside class="sidebar" aria-label="Navigasi toko">
+      <a class="brand" href="/stock"><span class="brand-mark">c<span></span></span>central<span class="store-label">Store 01</span></a>
+      <p class="nav-heading">OPERASIONAL TOKO</p>
+      <a class="nav-link" href="/">⌂ <span>Ringkasan</span></a>
+      <a class="nav-link active" href="/stock">▦ <span>Stok toko</span></a>
+      <a class="nav-link" href="/receive">↓ <span>Penerimaan</span></a>
+      <a class="nav-link" href="/stock/movements">↔ <span>Riwayat stok</span></a>
+      <div class="sidebar-foot"><i></i> Data simulasi <span>Tidak mengubah stok toko</span></div>
+    </aside>
+    <main>
+      <div class="breadcrumb">Operasional <span>/</span> Stok toko</div>
+      <section class="page-heading">
+        <div><h1>Stok Toko</h1><p>Store 01 <span>·</span> Semua produk</p></div>
+        <button id="open-transfer" class="primary"><span aria-hidden="true">↔</span> Pindahkan Stok</button>
+      </section>
+      <section class="inventory" aria-label="Daftar stok">
+        <div id="view-controls"></div>
+        <div class="table-toolbar">
+          <label class="search"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Cari produk, warna, atau SKU" aria-label="Cari produk, warna, atau SKU"></label>
+          <label class="attention"><input id="attention" type="checkbox"> Perlu diperhatikan</label>
+        </div>
+        <div class="table-scroll"><table id="stock-table"><thead id="table-head"></thead><tbody id="rows"></tbody></table></div>
+        <div id="table-foot" class="table-foot"></div>
+      </section>
+      <div class="table-note"><span>ⓘ</span><p>Terlihat adalah hasil pengecekan terakhir, bukan jaminan jumlah fisik saat ini. <b>—</b> berarti belum dicek; <b>0</b> berarti sudah dicek dan tidak ada barang yang terlihat.</p></div>
+      <section class="design-note" aria-label="Penjelasan opsi"><div><span id="option-kicker">OPSI A</span><h2 id="option-title"></h2><p id="option-description"></p></div><div class="design-principle">Satu tabel.<br><b>Satu angka per lokasi.</b><br>Bandingkan saat diperlukan.</div></section>
+      <p class="demo-note">Data simulasi · Pengecekan contoh dari hitung manual · Perpindahan tanpa scan</p>
+    </main>
+  </div>
+  <dialog id="detail-dialog" class="sheet" aria-labelledby="detail-title"><div id="detail-content"></div></dialog>
+  <dialog id="coverage-dialog" class="sheet" aria-labelledby="coverage-title">
+    <div class="sheet-head"><div><span class="eyebrow">TERLIHAT</span><h2 id="coverage-title">Cakupan pengecekan</h2></div><button class="icon-button" data-close="coverage-dialog" aria-label="Tutup cakupan">×</button></div>
+    <div class="sheet-body"><p class="lead">Hari ini · pengecekan terakhir 14:23</p><p class="muted">Jumlah varian yang pernah diperiksa. Cakupan area tiap varian bisa berbeda.</p><div class="coverage-card"><h3>Gudang <span>5 dari 6 varian</span></h3><div class="coverage-track"><i style="width:83.33%"></i></div><p>4 varian seluruh area · Cargo Pants hanya Rak B, pukul 14:10. Oxford Shirt belum dicek.</p></div><div class="coverage-card"><h3>Floor <span>4 dari 6 varian</span></h3><div class="coverage-track"><i style="width:66.66%"></i></div><p>Basic Tee, Slim Jeans, Hoodie, dan Linen Shirt sudah dicek. Oxford Shirt dan Cargo Pants belum dicek.</p></div><div class="info-box">Gudang dan Floor diperiksa terpisah. Buka detail produk untuk melihat waktu dan area yang diperiksa.</div></div>
+    <div class="sheet-footer"><button class="secondary" data-close="coverage-dialog">Kembali ke stok</button></div>
+  </dialog>
+  <dialog id="transfer-dialog" class="sheet transfer-sheet" aria-labelledby="transfer-title"><div id="transfer-content"></div></dialog>
+  <div id="toast" role="status" class="toast" hidden></div>
+  <script type="module">const locations = ['warehouse', 'floor'];
+const locationNames = { warehouse: 'Gudang', floor: 'Floor' };
+const checked = (count, system, scope = 'Seluruh area', time = '14:23', complete = true) => ({ count, system, scope, time, complete });
+function seed() {
+  return [
+    { id: 'tee', name: 'Basic Tee', variant: 'Black / M', sku: 'BT-BLK-M', tint: 'black', system: { warehouse: 24, floor: 9 }, observed: { warehouse: checked(22, 24), floor: checked(9, 9) } },
+    { id: 'jeans', name: 'Slim Jeans', variant: 'Blue / 32', sku: 'SJ-BLU-32', tint: 'blue', system: { warehouse: 14, floor: 4 }, observed: { warehouse: checked(12, 12), floor: checked(6, 6) } },
+    { id: 'hoodie', name: 'Hoodie', variant: 'Grey / L', sku: 'HD-GRY-L', tint: 'grey', system: { warehouse: 9, floor: 5 }, observed: { warehouse: checked(9, 9), floor: checked(5, 5) } },
+    { id: 'oxford', name: 'Oxford Shirt', variant: 'White / L', sku: 'OX-WHT-L', tint: 'white', system: { warehouse: 8, floor: 2 }, observed: { warehouse: null, floor: null } },
+    { id: 'linen', name: 'Linen Shirt', variant: 'Olive / M', sku: 'LN-OLV-M', tint: 'olive', system: { warehouse: 0, floor: 0 }, observed: { warehouse: checked(0, 0), floor: checked(0, 0) } },
+    { id: 'cargo', name: 'Cargo Pants', variant: 'Sand / L', sku: 'CG-SND-L', tint: 'sand', system: { warehouse: 10, floor: 3 }, observed: { warehouse: checked(4, 10, 'Rak B saja', '14:10', false), floor: null } },
+  ].map(product => ({ ...product, changedLocations: product.id === 'jeans' ? [...locations] : [] }));
+}
+function value(product, location, mode) {
+  return mode === 'system' ? product.system[location] : product.observed[location]?.count ?? null;
+}
+function total(product, mode) {
+  const values = locations.map(location => value(product, location, mode));
+  return values.some(n => n === null) ? null : values.reduce((a, b) => a + b, 0);
+}
+function status(product) {
+  const observations = locations.map(location => product.observed[location]);
+  if (observations.every(observation => !observation)) return 'unchecked';
+  if (locations.some(location => product.observed[location] && changedAt(product, location))) return 'changed';
+  if (observations.some(observation => !observation || !observation.complete)) return 'partial';
+  if (observations.some(observation => observation.count !== observation.system)) return 'difference';
+  return 'match';
+}
+function changedAt(product, location) {
+  return product.changedLocations.includes(location) || (product.observed[location] && product.system[location] !== product.observed[location].system);
+}
+const statuses = {
+  difference: { label: 'Berbeda saat dicek', short: 'Berbeda', icon: '!', tone: 'amber' },
+  changed: { label: 'Berubah sejak dicek', short: 'Ada perpindahan', icon: '↻', tone: 'blue' },
+  match: { label: 'Sesuai saat dicek', short: 'Sesuai', icon: '✓', tone: 'green' },
+  unchecked: { label: 'Belum dicek', short: 'Belum dicek', icon: '—', tone: 'muted' },
+  partial: { label: 'Pengecekan sebagian', short: 'Sebagian dicek', icon: '◐', tone: 'muted' },
+};
+function transfer(products, quantities, from, to) {
+  if (!locations.includes(from) || !locations.includes(to) || from === to) throw new Error('Pilih dua lokasi berbeda.');
+  const entries = Object.entries(quantities);
+  if (!entries.length || !entries.some(([, n]) => n > 0)) throw new Error('Isi jumlah barang yang dipindahkan.');
+  for (const [id, quantity] of entries) {
+    const product = products.find(product => product.id === id);
+    if (!product || !Number.isInteger(quantity) || quantity < 0) throw new Error('Jumlah harus bilangan bulat, minimal 0.');
+    if (quantity > product.system[from]) throw new Error(`Jumlah ${product.name} melebihi stok Sistem di ${locationNames[from]}.`);
+  }
+  for (const [id, quantity] of entries) {
+    const product = products.find(product => product.id === id);
+    product.system[from] -= quantity;
+    product.system[to] += quantity;
+    if (quantity > 0) product.changedLocations = [...new Set([...product.changedLocations, from, to])];
+  }
+  return entries.reduce((sum, [, n]) => sum + n, 0);
+}
+
+const $ = selector => document.querySelector(selector);
+const escape = text => String(text).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
+const number = n => n === null ? '<span class="unknown">—</span>' : n.toLocaleString('id-ID');
+const requestedOption = new URLSearchParams(location.search).get('option');
+let products = seed(), option = ['a', 'b', 'c'].includes(requestedOption) ? requestedOption : 'a', mode = 'observed', search = '', attention = false, systemTime = '14:35', minute = 35;
+let move = { step: 1, from: 'warehouse', to: 'floor', quantities: {} }, toastTimer;
+const options = {
+  a: { title: 'Ringkas, dengan konteks yang selalu terlihat', description: 'Toggle di kiri, waktu dan cakupan di kanan. Ikon status menjaga tabel tetap tenang. Klik produk atau ikon untuk melihat perbandingan. Paling cocok untuk daftar stok sehari-hari.' },
+  b: { title: 'Waktu dan cakupan langsung di tiap lokasi', description: 'Konteks pengecekan ditempatkan di kepala kolom Gudang dan Floor. Cocok jika kedua lokasi sering diperiksa pada waktu berbeda. Angka tetap satu per sel.' },
+  c: { title: 'Status ditulis, lebih mudah dibaca staf baru', description: 'Arti tampilan diterangkan dengan kalimat pendek, status menggunakan ikon dan teks. Cocok untuk tim yang belum terbiasa dengan simbol. Tabel sedikit lebih lebar.' },
+};
+function symbol(item, withText = false) {
+  const s = statuses[status(item)];
+  return `<span class="status-symbol ${s.tone === 'blue' ? 'blue-tone' : s.tone === 'muted' ? 'muted-tone' : s.tone}" aria-hidden="true">${s.icon}</span>${withText ? `<span>${s.short}</span>` : ''}`;
+}
+function renderControls() {
+  $('.inventory').className = `inventory view-${option}`;
+  const toggle = `<div class="segmented" role="group" aria-label="Cara melihat stok"><button data-mode="observed" aria-pressed="${mode === 'observed'}">Terlihat</button><button data-mode="system" aria-pressed="${mode === 'system'}">Sistem</button></div>`;
+  const coverage = `<button class="text-button" data-coverage>Lihat cakupan</button>`;
+  const context = mode === 'observed' ? `<div class="context"><div class="context-line"><i class="time-dot"></i><strong>Pengecekan hari ini · 14:23</strong></div><p>Gudang 5/6 varian · Floor 4/6 varian <span>·</span> ${coverage}</p></div>` : `<div class="context"><strong>Catatan stok saat ini · ${systemTime}</strong><p>Termasuk perpindahan setelah pengecekan</p></div>`;
+  if (option === 'a') $('#view-controls').innerHTML = `<div class="view-controls">${toggle}${context}</div>`;
+  if (option === 'b') $('#view-controls').innerHTML = `<div class="view-controls"><div class="view-description"><span class="eyebrow">${mode === 'observed' ? 'HASIL PENGECEKAN TERAKHIR' : 'CATATAN STOK SAAT INI'}</span><h2>${mode === 'observed' ? 'Apa yang terlihat saat dicek' : 'Apa yang tercatat di sistem'}</h2><p>${mode === 'observed' ? 'Waktu dan cakupan mengikuti masing-masing lokasi.' : `Diperbarui pukul ${systemTime} · jumlah mengikuti transaksi terbaru.`}</p></div>${toggle}</div>`;
+  if (option === 'c') $('#view-controls').innerHTML = `<div class="view-controls">${toggle}${context}</div><div class="meaning-banner"><div><h2>${mode === 'observed' ? 'Terlihat = jumlah yang tercatat saat pengecekan terakhir' : 'Sistem = stok tercatat setelah transaksi terbaru'}</h2><p>${mode === 'observed' ? 'Angka lama tetap disimpan jika ada perpindahan. Lihat status untuk konteksnya.' : 'Untuk pindah barang, jumlah dibatasi stok asal yang tercatat di Sistem.'}</p></div></div>`;
+  $('#option-kicker').textContent = `OPSI ${option.toUpperCase()}${option === 'a' ? ' · REKOMENDASI' : ''}`;
+  $('#option-title').textContent = options[option].title;
+  $('#option-description').textContent = options[option].description;
+  document.querySelectorAll('[data-option]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.option === option)));
+  const columnContext = location => option === 'b' ? `<small>${mode === 'observed' ? `Terakhir 14:23<br>${location === 'warehouse' ? '5/6' : '4/6'} varian` : `Sistem · ${systemTime}`}</small>` : '';
+  $('#table-head').innerHTML = `<tr><th scope="col">Produk</th><th scope="col">Gudang${columnContext('warehouse')}</th><th scope="col">Floor${columnContext('floor')}</th><th scope="col">Total</th><th scope="col">Status</th></tr>`;
+}
+function renderRows() {
+  const shown = products.filter(product => `${product.name} ${product.variant} ${product.sku}`.toLowerCase().includes(search.toLowerCase()) && (!attention || status(product) !== 'match'));
+  $('#rows').innerHTML = shown.map(product => `<tr data-product="${product.id}" tabindex="0" aria-label="Buka detail ${product.name}, ${product.variant}"><td><div class="product"><span class="product-thumb ${product.tint}" aria-hidden="true"><i class="garment"></i></span><div><div class="product-name">${product.name}</div><div class="product-variant">${product.variant}</div></div></div></td>${locations.map(location => `<td>${mode === 'observed' && product.observed[location] && !product.observed[location].complete ? `<span class="quantity-partial" title="${escape(product.observed[location].scope)} · ${product.observed[location].time}" aria-label="${value(product, location, mode)} terlihat, ${escape(product.observed[location].scope)}">${number(value(product, location, mode))}</span>` : number(value(product, location, mode))}</td>`).join('')}<td>${number(total(product, mode))}</td><td><button class="status-button" data-detail="${product.id}" aria-label="${product.name}: ${statuses[status(product)].label}. Lihat perbandingan" title="${statuses[status(product)].label}">${symbol(product, option === 'c')}</button></td></tr>`).join('') || '<tr><td colspan="5" class="empty">Tidak ada produk yang cocok.</td></tr>';
+  $('#table-foot').innerHTML = `<span>${shown.length} varian ditampilkan</span><strong>${mode === 'observed' ? 'Terlihat · sebagian area belum diperiksa' : `Sistem · diperbarui ${systemTime}`}${option === 'b' && mode === 'observed' ? ` · <button class="text-button" data-coverage>Detail cakupan</button>` : ''}</strong>`;
+}
+function render() { renderControls(); renderRows(); }
+function showDetail(id) {
+  const product = products.find(product => product.id === id), s = statuses[status(product)];
+  const explanation = { difference: 'Ada perbedaan dengan Sistem pada saat pengecekan. Periksa cakupan dan hitung ulang sebelum melakukan koreksi stok.', changed: 'Catatan Sistem berubah setelah pengecekan. Angka Terlihat belum diperbarui dan tidak bisa dianggap sebagai stok sekarang.', match: 'Jumlah yang terlihat cocok dengan Sistem pada saat pengecekan. Ini tetap hasil pengecekan terakhir.', unchecked: 'Produk ini belum diperiksa di kedua lokasi. Tanda — bukan berarti stok kosong.', partial: 'Pengecekan baru mencakup sebagian lokasi atau area. Jumlah yang terlihat belum mewakili seluruh stok.' }[status(product)];
+  $('#detail-content').innerHTML = `<div class="sheet-head"><div><span class="eyebrow">PERBANDINGAN STOK</span><h2 id="detail-title">${product.name}</h2><p>${product.variant} · ${product.sku}</p></div><button class="icon-button" data-close="detail-dialog" aria-label="Tutup detail">×</button></div><div class="sheet-body"><div class="detail-status">${symbol(product)}<span>${s.label}</span></div><div class="info-box ${status(product) === 'difference' ? 'warning-box' : ''}">${explanation}</div><table class="comparison-table" aria-label="Perbandingan per lokasi"><thead><tr><th>Lokasi</th><th>Terlihat<br>saat dicek</th><th>Sistem<br>saat dicek</th><th>Sistem<br>sekarang ${systemTime}</th></tr></thead><tbody>${locations.map(location => `<tr><td>${locationNames[location]}</td><td>${number(product.observed[location]?.count ?? null)}</td><td>${number(product.observed[location]?.system ?? null)}</td><td>${number(product.system[location])}</td></tr>`).join('')}</tbody></table>${locations.map(location => {
+    const observation = product.observed[location];
+    if (!observation) return `<div class="location-detail"><h3>${locationNames[location]}</h3><p>Belum dicek · belum ada waktu atau cakupan pengecekan.</p></div>`;
+    const delta = observation.count - observation.system;
+    return `<div class="location-detail"><h3>${locationNames[location]}</h3><p>Hari ini, ${observation.time} · ${observation.scope}<br>Hasil hitung manual · Dita</p><p class="${changedAt(product, location) ? 'moved' : delta && observation.complete ? 'delta' : ''}">${!observation.complete ? 'Area belum lengkap; selisih seluruh lokasi belum bisa disimpulkan.' : delta ? `Selisih saat dicek: ${delta > 0 ? '+' : ''}${delta} pcs terhadap Sistem saat itu.` : 'Sesuai dengan Sistem saat dicek.'}${changedAt(product, location) ? '<br>Ada pergerakan stok setelah pengecekan. Periksa ulang untuk angka Terlihat terbaru.' : ''}</p></div>`;
+  }).join('')}<p class="muted" style="margin-top:20px">Perbandingan memakai Sistem pada waktu pengecekan agar perpindahan setelahnya tidak disalahartikan sebagai selisih.</p></div><div class="sheet-footer"><button class="secondary" data-close="detail-dialog">Kembali</button><button class="primary" data-transfer-product="${product.id}">Pindahkan barang ini</button></div>`;
+  $('#detail-dialog').showModal();
+}
+function renderMove() {
+  const selected = products.filter(product => (move.quantities[product.id] ?? 0) > 0), quantity = selected.reduce((sum, product) => sum + move.quantities[product.id], 0);
+  const steps = `<div class="steps">${['Pilih arah', 'Barang & jumlah', 'Konfirmasi'].map((label, index) => index + 1 === move.step ? `<b>${index + 1}. ${label}</b>` : `<span>${index + 1}. ${label}</span>`).join('')}</div>`;
+  let content = '', footer = '';
+  if (move.step === 1) {
+    content = `<p class="lead">Ke mana barang dipindahkan?</p><p class="muted">Pilih arah, lalu isi barang dan jumlahnya.</p><button class="route-card" data-route="warehouse"><b>Gudang</b><span>→</span><b>Floor</b></button><button class="route-card" data-route="floor"><b>Floor</b><span>→</span><b>Gudang</b></button>`;
+    footer = '<button class="secondary" data-close="transfer-dialog">Batal</button>';
+  } else if (move.step === 2) {
+    const shown = move.productId ? products.filter(product => product.id === move.productId) : products;
+    content = `<p class="lead">${locationNames[move.from]} → ${locationNames[move.to]}</p><p class="muted">Masukkan jumlah yang akan dipindahkan. Batas jumlah mengikuti stok Sistem di lokasi asal.</p>${shown.map(product => `<label class="transfer-line"><div><p class="product-name">${product.name}</p><p class="product-variant">${product.variant}</p><p class="availability">Sistem di ${locationNames[move.from]}: ${product.system[move.from]} pcs</p></div><input type="number" inputmode="numeric" min="0" max="${product.system[move.from]}" step="1" value="${move.quantities[product.id] ?? 0}" data-quantity="${product.id}" aria-label="Jumlah ${product.name}, ${product.variant}" ${product.system[move.from] === 0 ? 'disabled' : ''}></label>`).join('')}<p id="move-error" class="form-error" role="alert"></p>`;
+    footer = '<button class="secondary" id="move-back">Kembali</button><button class="primary" id="move-review">Periksa pindahan</button>';
+  } else {
+    content = `<p class="lead">${quantity} pcs · ${locationNames[move.from]} → ${locationNames[move.to]}</p><p class="muted">Periksa barang dan jumlah sebelum mencatat pindahan.</p>${selected.map(product => `<div class="review-line"><div><p>${product.name}</p><span>${product.variant}</span><br><span>${locationNames[move.from]}: ${product.system[move.from]} → ${product.system[move.from] - move.quantities[product.id]} · ${locationNames[move.to]}: ${product.system[move.to]} → ${product.system[move.to] + move.quantities[product.id]}</span></div><b>${move.quantities[product.id]}</b></div>`).join('')}<div class="info-box">Stok Sistem akan diperbarui. Angka Terlihat tetap hasil pengecekan sebelumnya sampai diperiksa lagi.</div><label class="confirmation-line"><input id="arrival" type="checkbox"> Barang sudah dipindahkan dan jumlahnya sesuai.</label><p id="move-error" class="form-error" role="alert"></p>`;
+    footer = '<button class="secondary" id="move-back">Kembali</button><button class="primary" id="move-save" disabled>Catat pindahan</button>';
+  }
+  $('#transfer-content').innerHTML = `<div class="sheet-head"><div><span class="eyebrow">PERPINDAHAN BARANG</span><h2 id="transfer-title">Pindahkan Stok</h2>${steps}</div><button class="icon-button" data-close="transfer-dialog" aria-label="Tutup pindahan">×</button></div><div class="sheet-body">${content}</div><div class="sheet-footer">${footer}</div>`;
+}
+function startMove(productId) { move = { step: 1, from: 'warehouse', to: 'floor', quantities: {}, productId }; renderMove(); $('#transfer-dialog').showModal(); }
+function toast(message) { $('#toast').textContent = message; $('#toast').hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { $('#toast').hidden = true; }, 6500); }
+document.addEventListener('click', event => {
+  const close = event.target.closest('[data-close]');
+  if (close) { $(`#${close.dataset.close}`).close(); return; }
+  const design = event.target.closest('[data-option]');
+  if (design) { option = design.dataset.option; history.replaceState(null, '', `?option=${option}`); render(); return; }
+  const view = event.target.closest('[data-mode]');
+  if (view) { mode = view.dataset.mode; render(); return; }
+  if (event.target.closest('[data-coverage]')) { $('#coverage-dialog').showModal(); return; }
+  const productMove = event.target.closest('[data-transfer-product]');
+  if (productMove) { $('#detail-dialog').close(); startMove(productMove.dataset.transferProduct); return; }
+  const detail = event.target.closest('[data-detail]') || event.target.closest('[data-product]');
+  if (detail) { showDetail(detail.dataset.detail || detail.dataset.product); return; }
+  const route = event.target.closest('[data-route]');
+  if (route) { if (move.from !== route.dataset.route) move.quantities = {}; move.from = route.dataset.route; move.to = move.from === 'warehouse' ? 'floor' : 'warehouse'; move.step = 2; renderMove(); return; }
+  if (event.target.closest('#move-back')) { move.step--; renderMove(); return; }
+  if (event.target.closest('#move-review')) {
+    try {
+      const quantities = {};
+      document.querySelectorAll('[data-quantity]').forEach(input => {
+        if (input.value === '') return;
+        const quantity = Number(input.value);
+        if (!Number.isInteger(quantity) || quantity < 0 || !input.validity.valid) throw new Error('Isi jumlah bulat, minimal 0 dan tidak melebihi stok Sistem di lokasi asal.');
+        if (quantity) quantities[input.dataset.quantity] = quantity;
+      });
+      transfer(structuredClone(products), quantities, move.from, move.to);
+      move.quantities = quantities; move.step = 3; renderMove();
+    } catch (error) { $('#move-error').textContent = error.message; }
+    return;
+  }
+  if (event.target.closest('#move-save')) {
+    if (!$('#arrival').checked) return;
+    try {
+      const quantity = transfer(products, move.quantities, move.from, move.to);
+      minute++; systemTime = `${14 + Math.floor(minute / 60)}:${String(minute % 60).padStart(2, '0')}`; $('#transfer-dialog').close(); render(); toast(`${quantity} pcs dicatat berpindah. Sistem diperbarui; Terlihat tetap hasil pengecekan terakhir.`);
+    } catch (error) { $('#move-error').textContent = error.message; }
+  }
+});
+document.addEventListener('keydown', event => {
+  if (event.target.matches('tr[data-product]') && ['Enter', ' '].includes(event.key)) { event.preventDefault(); showDetail(event.target.dataset.product); }
+});
+document.addEventListener('input', event => {
+  if (event.target.matches('[data-quantity]')) { move.quantities[event.target.dataset.quantity] = Number(event.target.value); $('#move-error').textContent = ''; }
+});
+document.addEventListener('change', event => { if (event.target.id === 'arrival') $('#move-save').disabled = !event.target.checked; });
+$('#search').addEventListener('input', event => { search = event.target.value; renderRows(); });
+$('#attention').addEventListener('change', event => { attention = event.target.checked; renderRows(); });
+$('#open-transfer').addEventListener('click', () => startMove());
+$('#reset').addEventListener('click', () => { products = seed(); systemTime = '14:35'; minute = 35; mode = 'observed'; search = ''; attention = false; $('#search').value = ''; $('#attention').checked = false; $('#toast').hidden = true; render(); });
+render();</script>
+</body>
+</html>

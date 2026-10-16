@@ -1,26 +1,25 @@
-import { useQuery } from "@tanstack/react-query"
-import { useMemo } from "react"
+import { useSuspenseQuery } from "@tanstack/react-query"
+import { Suspense, useMemo } from "react"
 
 import { Card } from "@/components/ui/card"
-import { MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
-import { EmptyState } from "@/components/ui/states"
+import { EmptyState, LoadingState } from "@/components/ui/states"
 import { count, money } from "@/lib/format"
+import { type CampaignPerformance } from "@/lib/queries/commercial-performance"
 import {
-  campaignPerformance,
-  performanceKeys,
-} from "@/lib/queries/commercial-performance"
-import {
-  memberKeys,
-  memberSegments,
+  memberSegmentsQuery,
   SEGMENT_ORDER,
   type SegmentKey,
+  type SegmentRow,
 } from "@/lib/queries/members"
-import { listVouchers, voucherKeys } from "@/lib/queries/vouchers"
-import { queryState } from "@/lib/query-state"
-import { isoDate } from "@itulah/contract/reporting"
+import {
+  CardTable,
+  field,
+  type CardShape,
+} from "@/screens/executive/card-table"
 import { rupiah } from "@/screens/executive/format"
 import { Figure, Figures, Head, ReportPage } from "@/screens/executive/parts"
-import { useReportScope } from "@/screens/executive/scope"
+import { campaignsQuery, vouchersPeekQuery } from "@/screens/executive/data"
+import { useReportScope, type ReportScope } from "@/screens/executive/scope"
 
 /// Customers & Promotions — who the members are and how they are spending, what
 /// the vouchers in circulation are worth, and what each campaign gave away.
@@ -34,178 +33,238 @@ const SEGMENT: Record<SegmentKey, string> = {
   BLOCKED: "Stopped",
 }
 
-/// A trading day as the instants the promotion report is asked in — WIB, the
-/// same day boundary the sales report uses.
-function instant(date: string): string {
-  return `${date}T00:00:00+07:00`
+const segmentKey = (row: SegmentRow) => row.key
+
+const SEGMENT_COLUMNS = [
+  field<SegmentRow>("segment", "Segment", (row) => (
+    <span className="font-medium text-ink">{SEGMENT[row.key]}</span>
+  )),
+  field<SegmentRow>("members", "Members", (row) => count(row.members), {
+    right: true,
+    by: (row) => row.members,
+  }),
+  field<SegmentRow>(
+    "spent",
+    "Spent",
+    (row) => (
+      <span title={money(row.spent_minor)}>{rupiah(row.spent_minor)}</span>
+    ),
+    { right: true, by: (row) => row.spent_minor, priority: 3 }
+  ),
+  field<SegmentRow>(
+    "average",
+    "Average",
+    (row) => (row.members === 0 ? "—" : rupiah(row.average_spend_minor)),
+    { right: true, by: (row) => row.average_spend_minor, priority: 2 }
+  ),
+]
+
+/// A phone's card: the segment, how many members, and what they spent.
+const SEGMENT_CARD: CardShape<SegmentRow> = {
+  lead: (row) => ({
+    value: count(row.members),
+    caption: row.members === 1 ? "member" : "members",
+    tone: row.members === 0 ? "quiet" : undefined,
+  }),
+  foot: (row) =>
+    row.members === 0
+      ? "Nobody"
+      : `Spent ${rupiah(row.spent_minor)} · average ${rupiah(row.average_spend_minor)}`,
 }
 
-function dayAfter(date: string): string {
-  const next = new Date(`${date}T12:00:00`)
-  next.setDate(next.getDate() + 1)
-  return isoDate(next)
+const campaignKey = (row: CampaignPerformance) => row.campaign_id
+
+const CAMPAIGN_COLUMNS = [
+  field<CampaignPerformance>("campaign", "Campaign", (row) => (
+    <span className="font-medium text-ink">{row.name ?? row.campaign_id}</span>
+  )),
+  field<CampaignPerformance>(
+    "transactions",
+    "Transactions",
+    (row) => count(row.sale_count),
+    { right: true, by: (row) => row.sale_count, priority: 2 }
+  ),
+  field<CampaignPerformance>(
+    "sales",
+    "Sales",
+    (row) => (
+      <span title={money(row.basket_revenue_minor)}>
+        {rupiah(row.basket_revenue_minor)}
+      </span>
+    ),
+    { right: true, by: (row) => row.basket_revenue_minor }
+  ),
+  field<CampaignPerformance>(
+    "discount",
+    "Discount",
+    (row) => (
+      <span title={money(row.benefit_minor)}>{rupiah(row.benefit_minor)}</span>
+    ),
+    { right: true, by: (row) => row.benefit_minor }
+  ),
+]
+
+/// A phone's card: the campaign, what it sold, and what it gave away.
+const CAMPAIGN_CARD: CardShape<CampaignPerformance> = {
+  lead: (row) => ({
+    value: (
+      <span title={money(row.basket_revenue_minor)}>
+        {rupiah(row.basket_revenue_minor)}
+      </span>
+    ),
+    caption: "sales",
+  }),
+  foot: (row) =>
+    `${count(row.sale_count)} ${row.sale_count === 1 ? "transaction" : "transactions"} · discount ${rupiah(row.benefit_minor)}`,
 }
 
-export function ExecutiveCustomers() {
-  const scope = useReportScope()
-  const segments = useQuery({
-    queryKey: memberKeys.segments(),
-    queryFn: ({ signal }) => memberSegments(signal),
-  })
-  const vouchers = useQuery({
-    queryKey: voucherKeys.list({ limit: 1 }),
-    queryFn: ({ signal }) => listVouchers({ limit: 1 }, signal),
-  })
-  const { from, to } = scope.current
-  const span = useMemo(
-    () => ({
-      from: instant(from),
-      to: instant(dayAfter(to)),
-      siteId: scope.store ?? null,
-    }),
-    [from, to, scope.store]
-  )
-  const campaigns = useQuery({
-    queryKey: performanceKeys.campaigns(span),
-    queryFn: ({ signal }) => campaignPerformance(span, signal),
-    retry: false,
-  })
-
-  const book = segments.data
-  const active = book
-    ? book.segments
-        .filter((row) => row.key === "ACTIVE" || row.key === "NEW")
-        .reduce((sum, row) => sum + row.members, 0)
-    : undefined
-  const running = useMemo(
+/// The campaigns that sold something or gave something away in the report's
+/// span, biggest sales first. Read inside a `<Suspense>`.
+function useRunning(scope: ReportScope) {
+  const campaigns = useSuspenseQuery(campaignsQuery(scope))
+  return useMemo(
     () =>
-      [...(campaigns.data?.campaigns ?? [])]
+      [...campaigns.data.campaigns]
         .filter((row) => row.sale_count > 0 || row.benefit_minor > 0)
         .sort((a, b) => b.basket_revenue_minor - a.basket_revenue_minor),
     [campaigns.data]
   )
+}
+
+export function ExecutiveCustomers() {
+  const scope = useReportScope()
 
   return (
     <ReportPage title="Customers & Promotions" scope={scope}>
       <Figures>
-        <Figure
-          label="Registered members"
-          value={book ? count(book.member_count) : "…"}
-        />
-        <Figure
-          label="Active members"
-          value={active === undefined ? "…" : count(active)}
-          note={
-            book ? `Bought within the last ${book.active_days} days` : undefined
+        <Suspense
+          fallback={
+            <>
+              <Figure label="Registered members" value="…" />
+              <Figure label="Active members" value="…" />
+            </>
           }
-        />
-        <Figure
-          label="Vouchers outstanding"
-          value={
-            vouchers.data ? rupiah(vouchers.data.ledger.outstanding_minor) : "…"
+        >
+          <MemberFigures />
+        </Suspense>
+        <Suspense fallback={<Figure label="Vouchers outstanding" value="…" />}>
+          <VoucherFigure />
+        </Suspense>
+        <Suspense
+          fallback={
+            <Figure
+              label="Campaigns running"
+              value="…"
+              note="Producing sales this period"
+            />
           }
-          note={
-            vouchers.data
-              ? `${count(vouchers.data.ledger.outstanding_count)} ${vouchers.data.ledger.outstanding_count === 1 ? "voucher" : "vouchers"}`
-              : undefined
-          }
-        />
-        <Figure
-          label="Campaigns running"
-          value={campaigns.data ? count(running.length) : "…"}
-          note="Producing sales this period"
-        />
+        >
+          <CampaignFigure scope={scope} />
+        </Suspense>
       </Figures>
 
       <div className="grid gap-3 xl:grid-cols-2">
-        <Card className="overflow-hidden">
+        <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
           <Head
             title="Member segments"
             to="/members/segments"
             link="Open members"
           />
-          <div className="overflow-x-auto px-[1.125rem] pb-3">
-            {queryState(segments, {
-              loading: "Reading the members…",
-              render: (data) => {
-                const rows = SEGMENT_ORDER.map((key) =>
-                  data.segments.find((row) => row.key === key)
-                ).filter((row) => row !== undefined)
-                return data.member_count === 0 ? (
-                  <EmptyState>No members are registered yet.</EmptyState>
-                ) : (
-                  <MiniTable
-                    head={["Segment", "Members", "Spent", "Average"]}
-                    style={{ minWidth: "26rem" }}
-                  >
-                    {rows.map((row) => (
-                      <MiniRow key={row.key}>
-                        <MiniCell className="font-medium text-ink">
-                          {SEGMENT[row.key]}
-                        </MiniCell>
-                        <MiniCell align="right">{count(row.members)}</MiniCell>
-                        <MiniCell align="right">
-                          <span title={money(row.spent_minor)}>
-                            {rupiah(row.spent_minor)}
-                          </span>
-                        </MiniCell>
-                        <MiniCell align="right">
-                          {row.members === 0
-                            ? "—"
-                            : rupiah(row.average_spend_minor)}
-                        </MiniCell>
-                      </MiniRow>
-                    ))}
-                  </MiniTable>
-                )
-              },
-            })}
-          </div>
+          <Suspense
+            fallback={<LoadingState>Reading the members…</LoadingState>}
+          >
+            <SegmentTable />
+          </Suspense>
         </Card>
 
-        <Card className="overflow-hidden">
+        <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
           <Head
             title="Promotion campaigns"
             to="/commercial"
             link="Open Marketing"
           />
-          <div className="overflow-x-auto px-[1.125rem] pb-3">
-            {queryState(campaigns, {
-              loading: "Reading the promotions…",
-              render: () =>
-                running.length === 0 ? (
-                  <EmptyState>No campaign was used in this period.</EmptyState>
-                ) : (
-                  <MiniTable
-                    head={["Campaign", "Transactions", "Sales", "Discount"]}
-                    style={{ minWidth: "26rem" }}
-                  >
-                    {running.map((row) => (
-                      <MiniRow key={row.campaign_id}>
-                        <MiniCell className="font-medium text-ink">
-                          {row.name ?? row.campaign_id}
-                        </MiniCell>
-                        <MiniCell align="right">
-                          {count(row.sale_count)}
-                        </MiniCell>
-                        <MiniCell align="right">
-                          <span title={money(row.basket_revenue_minor)}>
-                            {rupiah(row.basket_revenue_minor)}
-                          </span>
-                        </MiniCell>
-                        <MiniCell align="right">
-                          <span title={money(row.benefit_minor)}>
-                            {rupiah(row.benefit_minor)}
-                          </span>
-                        </MiniCell>
-                      </MiniRow>
-                    ))}
-                  </MiniTable>
-                ),
-            })}
-          </div>
+          <Suspense
+            fallback={<LoadingState>Reading the promotions…</LoadingState>}
+          >
+            <CampaignTable scope={scope} />
+          </Suspense>
         </Card>
       </div>
     </ReportPage>
+  )
+}
+
+/// Everybody holding a card, and how many of them bought lately.
+function MemberFigures() {
+  const { data: book } = useSuspenseQuery(memberSegmentsQuery())
+  const active = book.segments
+    .filter((row) => row.key === "ACTIVE" || row.key === "NEW")
+    .reduce((sum, row) => sum + row.members, 0)
+  return (
+    <>
+      <Figure label="Registered members" value={count(book.member_count)} />
+      <Figure
+        label="Active members"
+        value={count(active)}
+        note={`Bought within the last ${book.active_days} days`}
+      />
+    </>
+  )
+}
+
+/// What the vouchers in circulation are worth.
+function VoucherFigure() {
+  const { data: vouchers } = useSuspenseQuery(vouchersPeekQuery())
+  return (
+    <Figure
+      label="Vouchers outstanding"
+      value={rupiah(vouchers.ledger.outstanding_minor)}
+      note={`${count(vouchers.ledger.outstanding_count)} ${vouchers.ledger.outstanding_count === 1 ? "voucher" : "vouchers"}`}
+    />
+  )
+}
+
+/// How many campaigns produced sales in the period.
+function CampaignFigure({ scope }: { scope: ReportScope }) {
+  const running = useRunning(scope)
+  return (
+    <Figure
+      label="Campaigns running"
+      value={count(running.length)}
+      note="Producing sales this period"
+    />
+  )
+}
+
+/// The six segments, with their members and what they spent.
+function SegmentTable() {
+  const { data } = useSuspenseQuery(memberSegmentsQuery())
+  const rows = SEGMENT_ORDER.map((key) =>
+    data.segments.find((row) => row.key === key)
+  ).filter((row) => row !== undefined)
+  return data.member_count === 0 ? (
+    <EmptyState>No members are registered yet.</EmptyState>
+  ) : (
+    <CardTable<SegmentRow>
+      columns={SEGMENT_COLUMNS}
+      rows={rows}
+      getRowId={segmentKey}
+      card={SEGMENT_CARD}
+    />
+  )
+}
+
+/// What each campaign sold and gave away.
+function CampaignTable({ scope }: { scope: ReportScope }) {
+  const running = useRunning(scope)
+  return running.length === 0 ? (
+    <EmptyState>No campaign was used in this period.</EmptyState>
+  ) : (
+    <CardTable<CampaignPerformance>
+      columns={CAMPAIGN_COLUMNS}
+      rows={running}
+      getRowId={campaignKey}
+      card={CAMPAIGN_CARD}
+    />
   )
 }

@@ -124,9 +124,9 @@ export function UnitsSection({
       </div>
 
       <div className="flex flex-col gap-2">
-        <span className="text-[0.875rem] font-medium text-text">Other UoM</span>
+        <span className="text-[0.9375rem] font-medium text-text">Other UoM</span>
         {value.units.length === 0 ? (
-          <p className="text-[0.875rem] text-body">
+          <p className="text-[0.9375rem] text-body">
             This article is only ever counted in{" "}
             {value.stockUnit || "its stock unit"}.
           </p>
@@ -157,7 +157,7 @@ export function UnitsSection({
                       </option>
                     ))}
                   </Select>
-                  <span className="text-[0.875rem] text-body">=</span>
+                  <span className="text-[0.9375rem] text-body">=</span>
                   <Input
                     className="flex-1 text-right tabular-nums"
                     inputMode="decimal"
@@ -174,7 +174,7 @@ export function UnitsSection({
                       )
                     }
                   />
-                  <span className="text-[0.875rem] text-body">
+                  <span className="text-[0.9375rem] text-body">
                     {value.stockUnit}
                   </span>
                   <Button

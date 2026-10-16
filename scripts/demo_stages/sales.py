@@ -391,12 +391,18 @@ def _settle_bca(finance, lines_of_day):
         return
     gross = bca["gross_minor"] - bca.get("returns_minor", 0)
     mdr = gross * MDR_BPS // 10_000
-    made = finance.post("/api/v1/finance/acquirer-settlements", {
+    made = finance.call("POST", "/api/v1/finance/acquirer-settlements", {
         "acquirer": "BCA", "settlement_date": _today(), "business_from": _today(),
         "business_to": _today(), "gross_minor": gross, "mdr_minor": mdr,
         "lines": [{"sale_id": None, "tender_seq": None, "site_id": STORE,
                    "tender_kind": "CARD_DEBIT", "auth_code": None,
-                   "amount_minor": gross, "mdr_minor": mdr}]})
+                   "amount_minor": gross, "mdr_minor": mdr}]}, ok=None)
+    # Since 1 Oct a card or QRIS taking goes straight to Cash in Bank at the
+    # EDC's bank (owner's rule), so Cloud refuses a settlement for it: the
+    # fee shows on the bank reconciliation instead. Nothing to settle then.
+    if isinstance(made, dict) and "straight to Cash in Bank" in str(made.get("error", "")):
+        print(f"  = BCA debit takings (Rp {gross:,}) go straight to Cash in Bank — no settlement to record")
+        return
     sid = made.get("settlement_id") or (made.get("settlement") or {}).get("settlement_id")
     curated = finance.post(f"/api/v1/finance/acquirer-settlements/{sid}/curate", {
         "bank_key": "bank_giro", "bank_qualifier": "BCA", "posting_date": _today()})

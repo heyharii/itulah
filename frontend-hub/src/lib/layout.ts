@@ -1,4 +1,6 @@
 import { useSyncExternalStore } from "react"
+import { deviceHint } from "@/lib/device"
+import { isWhiteLook } from "@/lib/look"
 
 /// What the app is being worked ON, expressed as a width rather than a device.
 ///
@@ -37,6 +39,8 @@ const WIDE = "(width >= 96rem)"
 /// either. Under 80rem the panel floats over the page on demand instead of
 /// being a column (owner, 2026-10-05).
 const COMPACT = "(width < 80rem)"
+/// A finger rather than a mouse.
+const COARSE = "(pointer: coarse)"
 
 export function useLayout(): Layout {
   const phone = useMedia(PHONE)
@@ -95,7 +99,10 @@ export function publishPageWidth(width: number) {
   const next = Math.round(width)
   // The attribute before the early return: the first measurement can equal
   // the guess `pageWidth` started from, and the classes must still be told.
-  document.documentElement.toggleAttribute("data-dock", next >= FILTERS_BESIDE)
+  document.documentElement.toggleAttribute(
+    "data-dock",
+    next >= FILTERS_BESIDE && !isWhiteLook()
+  )
   if (next === pageWidth) return
   pageWidth = next
   for (const listener of pageListeners) listener()
@@ -125,8 +132,13 @@ function usePageAtLeast(px: number): boolean {
 /// `<DockedFilters>` had two components rendering a dialog under the same
 /// `?filters=` key, and opening either opened both. One of the two exists at
 /// a time now, which is the only way that stays true.
+///
+/// Never in the All white look (owner, 2026-10-12: "filternya make jg consistent ya
+/// jangan filter kanan"): every list narrows from its toolbar, at the left —
+/// the Filter button and its chips — at every width, and the figures the
+/// column carried stand over the list as its KPI cards (`DockedFilters`).
 export function usePanelDock(): boolean {
-  return usePageAtLeast(FILTERS_BESIDE)
+  return usePageAtLeast(FILTERS_BESIDE) && !isWhiteLook()
 }
 
 /// Whether an open record stands beside the list rather than over it.
@@ -144,7 +156,7 @@ export function useRecordBeside(): boolean {
 /// decides the size of what you press** — which is why this app does not need
 /// a second set of screens for touch.
 export function useCoarsePointer(): boolean {
-  return useMedia("(pointer: coarse)")
+  return useMedia(COARSE)
 }
 
 /// Whether a picker opens as a sheet from the bottom edge rather than as a
@@ -192,9 +204,27 @@ function useMedia(query: string): boolean {
   return useSyncExternalStore(
     subscriberFor(query),
     () => listFor(query).matches,
-    // There is no server render here, and if there ever is, the desk is the
-    // safe guess: a wide shell that narrows on hydration re-lays once, while a
-    // narrow one that widens shows a phone list to somebody at a desk.
-    () => false
+    () => guessFor(query)
   )
+}
+
+/// The server's answer, and the hydrating render's: the width the browser
+/// last reported, or the usual one for the kind of device (`lib/device.ts`),
+/// asked the same questions the window would be.
+function guessFor(query: string): boolean {
+  const { phone, width } = deviceHint()
+  switch (query) {
+    case PHONE:
+      return width < 768
+    case NARROW:
+      return width < 1024
+    case WIDE:
+      return width >= 1536
+    case COMPACT:
+      return width < 1280
+    case COARSE:
+      return phone
+    default:
+      return false
+  }
 }

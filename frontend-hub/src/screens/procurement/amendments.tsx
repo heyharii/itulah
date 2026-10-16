@@ -1,7 +1,12 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { useMemo, useState } from "react"
+import { Suspense, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { DockTools } from "@/components/shell/dock-tools"
@@ -9,12 +14,13 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { FilterPanel } from "@/components/ui/filter-panel"
-import { Input, Textarea } from "@/components/ui/field"
+import { Textarea } from "@/components/ui/field"
+import { ExpandingSearch } from "@/components/ui/list-chrome"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { MiniTable, TotalsLadder } from "@/components/ui/rows"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import { Banner, EmptyState } from "@/components/ui/states"
+import { Banner, EmptyState, LoadingState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { useFilters } from "@/lib/filters"
 import { moment, money } from "@/lib/format"
@@ -22,12 +28,11 @@ import { useLayout } from "@/lib/layout"
 import {
   decidePriceAmendment,
   listPurchaseOrders,
-  pendingPriceAmendments,
+  priceAmendmentsQuery,
   procurementKeys,
   type PriceAmendment,
   type PriceAmendmentOutcome,
 } from "@/lib/queries/procurement"
-import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { cn } from "@/lib/utils"
 import { tableSetup, type TableSetup } from "@/lib/table"
@@ -69,7 +74,7 @@ const columns: ColumnDef<TableSetup, PriceAmendment>[] = [
         <span className="font-medium text-ink">
           {row.original.article_name}
         </span>
-        <span className="font-mono text-[0.875rem] text-mute">
+        <span className="font-mono text-[0.9375rem] text-mute">
           {row.original.article_code}
         </span>
       </span>
@@ -158,7 +163,7 @@ const columns: ColumnDef<TableSetup, PriceAmendment>[] = [
         <span className="min-w-0 text-[1rem] font-semibold break-words text-ink">
           {row.original.article_name}
         </span>
-        <span className="font-mono text-[0.875rem] font-normal text-mute">
+        <span className="font-mono text-[0.9375rem] font-normal text-mute">
           {row.original.po_number}
         </span>
       </span>
@@ -184,7 +189,7 @@ const columns: ColumnDef<TableSetup, PriceAmendment>[] = [
             {gap > 0 ? "+" : ""}
             {money(gap)}
           </span>
-          <span className="text-[0.875rem] text-mute">
+          <span className="text-[0.9375rem] text-mute">
             {gap > 0 ? "over agreed" : gap < 0 ? "under agreed" : "as agreed"}
           </span>
         </span>
@@ -228,18 +233,32 @@ const columns: ColumnDef<TableSetup, PriceAmendment>[] = [
 ]
 
 export function PriceAmendments() {
+  // The title stands at once; the queue waits for the amendments and streams
+  // in with them (the server starts the read too).
+  return (
+    <PageContent>
+      <PageHeader
+        crumb="Procurement"
+        title="Price Amendments"
+        sub="Deliveries billed at a price the order does not carry, waiting on an answer."
+      />
+      <Suspense fallback={<LoadingState>Reading the queue…</LoadingState>}>
+        <AmendmentQueue />
+      </Suspense>
+    </PageContent>
+  )
+}
+
+function AmendmentQueue() {
   const amendment = useSheet("amendment")
   const [query, setQuery] = useState("")
   const [sorting, setSorting] = useState<SortingState>([
     { id: "difference_minor", desc: true },
   ])
 
-  const amendments = useQuery({
-    queryKey: procurementKeys.amendments(),
-    queryFn: ({ signal }) => pendingPriceAmendments(signal),
-  })
+  const amendments = useSuspenseQuery(priceAmendmentsQuery())
 
-  const rows = useMemo(() => amendments.data ?? [], [amendments.data])
+  const rows = amendments.data
   const exposure = rows.reduce((sum, row) => sum + row.difference_minor, 0)
   const over = rows.filter((row) => row.difference_minor > 0).length
 
@@ -273,24 +292,7 @@ export function PriceAmendments() {
   )
 
   return (
-    <PageContent>
-      <PageHeader
-        crumb="Procurement"
-        title="Price Amendments"
-        sub="Deliveries billed at a price the order does not carry, waiting on an answer."
-        // The search is the dock's on a phone: nothing but the title and the
-        // figures stands at the top.
-        actions={
-          phone ? undefined : (
-            <Input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              className="h-8 w-48"
-            />
-          )
-        }
-      />
-
+    <>
       <KpiStrip className="grid-cols-2 md:grid-cols-3 xl:grid-cols-3">
         <Kpi label="Waiting on an Answer" value={rows.length} />
         <Kpi label="Billed Above the Order" value={over} />
@@ -302,7 +304,14 @@ export function PriceAmendments() {
         />
       </KpiStrip>
 
-      <div className="mb-3.5 flex flex-wrap items-center gap-[0.4375rem] max-md:hidden">
+      {/* One bar: the search, then what narrows the queue. On a phone both are
+          the dock's. */}
+      <div className="group/bar mb-3.5 flex min-h-[2.25rem] flex-wrap items-center gap-2 max-md:hidden">
+        <ExpandingSearch
+          value={query}
+          onChange={setQuery}
+          label="Search amendments"
+        />
         <FilterPanel model={filters} table={table} />
       </div>
       <DockTools
@@ -319,28 +328,24 @@ export function PriceAmendments() {
       />
 
       <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-        {queryState(amendments, {
-          loading: "Reading the queue…",
-          render: () =>
-            rows.length === 0 ? (
-              <EmptyState>
-                {query === ""
-                  ? "No delivery is waiting on a price decision."
-                  : "No pending amendment matches that search."}
-              </EmptyState>
-            ) : (
-              <DataTable<PriceAmendment>
-                refresh={[amendments]}
-                table={table}
-                onRowClick={(row) => amendment.open(row.request_id)}
-                isSelected={(row) => row.request_id === amendment.value}
-                className="max-h-[calc(100dvh-20rem)]"
-                cardSort={false}
-                cardsApart
-                cardLead
-              />
-            ),
-        })}
+        {rows.length === 0 ? (
+          <EmptyState>
+            {query === ""
+              ? "No delivery is waiting on a price decision."
+              : "No pending amendment matches that search."}
+          </EmptyState>
+        ) : (
+          <DataTable<PriceAmendment>
+            refresh={[amendments]}
+            table={table}
+            onRowClick={(row) => amendment.open(row.request_id)}
+            isSelected={(row) => row.request_id === amendment.value}
+            className="max-h-[calc(100dvh-20rem)]"
+            cardSort={false}
+            cardsApart
+            cardLead
+          />
+        )}
       </Card>
 
       <AmendmentSheet
@@ -348,7 +353,7 @@ export function PriceAmendments() {
         rows={rows}
         onClose={amendment.close}
       />
-    </PageContent>
+    </>
   )
 }
 
@@ -475,7 +480,7 @@ function AmendmentSheet({
             <h4 className="mb-2 text-card-title font-semibold text-ink">
               What the warehouse read
             </h4>
-            <p className="rounded-inner bg-soft px-3.5 py-2.5 text-[0.875rem] text-body">
+            <p className="rounded-inner bg-soft px-3.5 py-2.5 text-[0.9375rem] text-body">
               {amendment.note}
             </p>
           </div>
@@ -483,7 +488,7 @@ function AmendmentSheet({
           <div>
             <MiniTable head={["Price", "Per Unit"]}>
               <tr className="border-t border-hairline">
-                <td className="py-2 text-[0.875rem] text-ink">
+                <td className="py-2 text-[0.9375rem] text-ink">
                   Agreed on the order
                 </td>
                 <td className="py-2 text-right tabular-nums">
@@ -491,7 +496,7 @@ function AmendmentSheet({
                 </td>
               </tr>
               <tr className="border-t border-hairline">
-                <td className="py-2 text-[0.875rem] text-ink">
+                <td className="py-2 text-[0.9375rem] text-ink">
                   Invoiced by the supplier
                 </td>
                 <td className="py-2 text-right tabular-nums">

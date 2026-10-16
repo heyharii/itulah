@@ -261,3 +261,57 @@ async fn a_code_that_could_never_be_approved_is_never_issued(pool: PgPool) {
     let nowhere = cloud::issue_node_enrolment(&pool, issue_request("store-99"), "admin").await;
     assert!(matches!(nowhere, Err(AppError::NotFound(_))), "{nowhere:?}");
 }
+
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_claimed_code_is_approved_at_once_as_the_admin_who_issued_it(pool: PgPool) {
+    let issued = cloud::issue_node_enrolment(&pool, issue_request("store-07"), "rina")
+        .await
+        .unwrap_or_else(|error| panic!("issue: {error}"));
+    let (answer, let_in) =
+        cloud::claim_and_approve_node_enrolment(&pool, claim(&issued.code, KEY_A), None)
+            .await
+            .unwrap_or_else(|error| panic!("claim: {error}"));
+    let let_in = let_in.unwrap_or_else(|| panic!("a claimed code is let in by itself"));
+    assert_eq!(
+        let_in.decided_by, "rina",
+        "the decision is the Admin's who issued the code"
+    );
+    assert_eq!(
+        answer.verification,
+        verification_number(&issued.code.replace('-', ""), &key_digest(KEY_A)),
+        "the six digits are still in the answer, for the nodes that show them"
+    );
+
+    // Nobody waits for anybody: the machine's first poll finds itself approved.
+    let status = cloud::node_enrolment_status(&pool, answer.enrolment_id, Some(KEY_A))
+        .await
+        .unwrap_or_else(|error| panic!("status: {error}"));
+    assert!(
+        matches!(
+            status,
+            StatusAnswer::Approved {
+                active_generation: 1,
+                ..
+            }
+        ),
+        "{status:?}"
+    );
+
+    // The first data is queued after the decision, and written down on the
+    // enrolment: when, and which stretch of the node's command lane it took.
+    cloud::finish_node_approval(&pool, &let_in)
+        .await
+        .unwrap_or_else(|error| panic!("first data: {error}"));
+    let queued = command_types(&pool, "store-07").await.len() as i64;
+    let (recorded, from, to): (bool, i64, i64) = sqlx::query_as(
+        "SELECT bootstrap_at IS NOT NULL, COALESCE(bootstrap_from_seq, -1), COALESCE(bootstrap_seq, -1)
+           FROM node_enrolment WHERE enrolment_id = $1",
+    )
+    .bind(answer.enrolment_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("enrolment: {error}"));
+    assert!(recorded, "the first data is written down");
+    assert!(queued > 0, "something was queued for the new node");
+    assert_eq!(to - from, queued, "the range is exactly what was queued");
+}

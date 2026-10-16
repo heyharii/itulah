@@ -25,12 +25,12 @@ function Line({
   return (
     <div className="flex items-baseline justify-between gap-3 border-b border-hairline py-2 last:border-0">
       <span className="min-w-0">
-        <span className="block text-[0.875rem] text-ink">{label}</span>
+        <span className="block text-[0.9375rem] text-ink">{label}</span>
         {basis !== null && (
-          <span className="block text-[0.875rem] text-mute">{basis}</span>
+          <span className="block text-[0.9375rem] text-mute">{basis}</span>
         )}
       </span>
-      <span className="shrink-0 text-[0.875rem] text-ink tabular-nums">
+      <span className="shrink-0 text-[0.9375rem] text-ink tabular-nums">
         {money(amount)}
       </span>
     </div>
@@ -85,7 +85,7 @@ export function SlipBreakdown({ slip }: { slip: PayrollSlipRow }) {
       <div>
         <SubHead>Deductions</SubHead>
         {slip.deductions.length === 0 ? (
-          <p className="py-2 text-[0.875rem] text-mute">Nothing taken off.</p>
+          <p className="py-2 text-[0.9375rem] text-mute">Nothing taken off.</p>
         ) : (
           slip.deductions.map((line) => (
             <Line
@@ -116,7 +116,7 @@ export function SlipBreakdown({ slip }: { slip: PayrollSlipRow }) {
         }}
       />
       {slip.deduction_total_minor === null && deductions > 0 && (
-        <p className="text-[0.875rem] text-mute">
+        <p className="text-[0.9375rem] text-mute">
           The lines above come to {money(deductions)}, but the total is not
           stated while something on this slip is missing.
         </p>
@@ -135,7 +135,7 @@ export function SlipBreakdown({ slip }: { slip: PayrollSlipRow }) {
               amount={line.amount_minor}
             />
           ))}
-          <p className="mt-1 text-[0.875rem] text-mute">
+          <p className="mt-1 text-[0.9375rem] text-mute">
             On top of gross, and not taken from pay.
           </p>
         </div>
@@ -177,7 +177,7 @@ export function SlipBreakdown({ slip }: { slip: PayrollSlipRow }) {
           </KeyValue>
         )}
         {slip.final_tax_month === true && (
-          <p className="mt-1 text-[0.875rem] text-mute">
+          <p className="mt-1 text-[0.9375rem] text-mute">
             The last month of the tax year: the year's Article 17 tax on its
             actual income, less what the other months withheld (PMK 168/2023).
           </p>

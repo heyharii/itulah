@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
+import { useHydrated } from "@tanstack/react-router"
 
 import {
   checkoutExceptionKeys,
@@ -7,7 +8,7 @@ import {
 import {
   financeAttention,
   financeKeys,
-  postingReadiness,
+  postingReadinessQuery,
 } from "@/lib/queries/finance"
 
 /// The counts the sidebar draws beside three finance entries, and the one
@@ -62,11 +63,19 @@ import {
 /// A (role, source, unit) that resolves nowhere is a gap. That is the server's
 /// count, taken over everything; the browser does not re-derive it.
 export function usePostingReadiness() {
-  return useQuery({
-    queryKey: financeKeys.postingReadiness(),
-    queryFn: ({ signal }) => postingReadiness(signal),
-    staleTime: 60_000,
-  })
+  return useQuery(postingReadinessQuery())
+}
+
+/// A count the sidebar draws, held back until the browser has hydrated.
+///
+/// The sidebar is on every Finance screen and reads its numbers with a plain
+/// query. A screen that the server warmed under the same key (the readiness
+/// matrix is the Posting readiness screen's own data) would put the answer in
+/// the browser's cache before the first render, and the badge would then draw
+/// a number the server's HTML does not have. Drawing nothing until hydration
+/// is done keeps the two markups equal; the number follows at once.
+function useAfterHydration(count: number | null): number | null {
+  return useHydrated() ? count : null
 }
 
 // ---------------------------------------------------------------------------
@@ -100,7 +109,7 @@ function useAttention() {
 /// house has more unpaid bills than one page holds.
 export function useOverdueBillCount(): number | null {
   const attention = useAttention()
-  return attention.data?.overdue_bills ?? null
+  return useAfterHydration(attention.data?.overdue_bills ?? null)
 }
 
 /// Shoppers owed money because a branch took a charge and wrote no sale.
@@ -119,7 +128,7 @@ export function useUnansweredChargeCount(): number | null {
     queryKey: checkoutExceptionKeys.list(null, true),
     queryFn: ({ signal }) => listCheckoutExceptions(null, true, signal),
   })
-  const count = open.data?.open_count ?? null
+  const count = useAfterHydration(open.data?.open_count ?? null)
   // Nought is not a badge. A sidebar that draws a zero teaches people to read
   // past the number, and then the day it says 3 nobody notices.
   return count === null || count === 0 ? null : count
@@ -136,7 +145,7 @@ export function useUnansweredChargeCount(): number | null {
 /// disagreed with it. It costs the sidebar one more read than the other three.
 export function useUnmappedMeaningCount(): number | null {
   const readiness = usePostingReadiness()
-  return readiness.data?.gaps ?? null
+  return useAfterHydration(readiness.data?.gaps ?? null)
 }
 
 /// One, when this calendar month is not open for posting.
@@ -147,7 +156,7 @@ export function useUnmappedMeaningCount(): number | null {
 /// one either and the answer is the same: open the next one.
 export function useMonthNotOpenCount(): number | null {
   const attention = useAttention()
-  return attention.data?.month_not_open ?? null
+  return useAfterHydration(attention.data?.month_not_open ?? null)
 }
 
 // ---------------------------------------------------------------------------
@@ -169,12 +178,13 @@ export function useMonthNotOpenCount(): number | null {
 export function useFinanceAttentionCount(): number | null {
   const attention = useAttention()
   const readiness = usePostingReadiness()
-  if (attention.data === undefined) return null
   // The server's `attention` counts the old pairs; the gaps are the
   // readiness matrix's, so the module row agrees with its own sub-item.
-  return (
-    attention.data.overdue_bills +
-    attention.data.month_not_open +
-    (readiness.data?.gaps ?? 0)
+  return useAfterHydration(
+    attention.data === undefined
+      ? null
+      : attention.data.overdue_bills +
+          attention.data.month_not_open +
+          (readiness.data?.gaps ?? 0)
   )
 }

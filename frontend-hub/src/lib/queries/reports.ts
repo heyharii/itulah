@@ -1,4 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  queryOptions,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
 
 import { node } from "@/lib/api"
 import type { Filter, FilterKind, Operator } from "@/lib/filters"
@@ -203,14 +208,17 @@ export function useCatalogue() {
 /// reads, because the screen holds the whole list and does not page — and the
 /// day it should page, it asks for the envelope here instead of eight screens
 /// each learning a new shape.
-export function useSavedReports() {
-  return useQuery({
+export const savedReportsQuery = () =>
+  queryOptions({
     queryKey: reportKeys.saved(),
     queryFn: async () => {
       const page = await node.get<SavedReportPage>("/api/v1/reports/saved")
       return { items: page.rows }
     },
   })
+
+export function useSavedReports() {
+  return useQuery(savedReportsQuery())
 }
 
 export function useReport(id: string) {

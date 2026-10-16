@@ -1,12 +1,16 @@
 import { useQuery } from "@tanstack/react-query"
+import { useHydrated } from "@tanstack/react-router"
 
 import {
+  changeProposalsQuery,
+  hrEmployeeKeys,
+  listDataRequests,
+} from "@/lib/queries/hr-employees"
+import {
   claimsKeys,
-  hireKeys,
   leaveKeys,
   listClaims,
   listCorrections,
-  listHireProposals,
   listRuns,
   nextKeys,
   payKeys,
@@ -16,23 +20,18 @@ import {
 } from "@/lib/queries/people"
 import { usePeopleAudience } from "@/screens/people/scope"
 
-/// How many decisions are waiting on the caller — the count on the Overview's
-/// sidebar row.
+/// Every read behind HR's one inbox (Overview › Requests): leave, attendance
+/// corrections and roster swaps to decide, expense claims to sanction, and —
+/// head office's alone — payroll runs a place has sent, employment changes
+/// and employees' requests to change their own details.
 ///
-/// The same reads, under the same keys, as the Overview screen draws, so the
-/// badge and the screen cannot disagree and a visit to one warms the other:
-/// leave, attendance corrections and roster swaps to decide, expense claims to
-/// sanction, and the hire requests and payroll runs whose next step is the
-/// caller's — head office's when a request is proposed or approved and a run
-/// is sent, the shop's when a request was sent back.
+/// One hook for the inbox and its badge, so the count on the Overview row is
+/// the number of rows the Overview lists and cannot drift from it (an audit of
+/// 16 Oct 2026 found the badge counting hire proposals no screen showed).
 ///
-/// Overtime orders nobody has answered are not counted: the answer belongs to
-/// the worker, and a badge is a count of the reader's own work.
-///
-/// `null` until every read that applies has answered, and after any of them
-/// fails. A number drawn from half the sources is a number that jumps, and a
-/// badge that jumps teaches people to stop reading it.
-export function usePeopleWaitingCount(): number | null {
+/// Overtime orders nobody has answered are not here: the answer belongs to
+/// the worker, and an inbox is the reader's own work.
+export function usePeopleInbox() {
   const employer = usePeopleAudience() === "employer"
 
   const leave = useQuery({
@@ -51,43 +50,76 @@ export function usePeopleWaitingCount(): number | null {
     queryKey: claimsKeys.queue(),
     queryFn: ({ signal }) => listClaims({ state: "SUBMITTED" }, signal),
   })
-  const hires = useQuery({
-    queryKey: hireKeys.list(),
-    queryFn: ({ signal }) => listHireProposals(signal),
-  })
   /// A run waits on head office alone, so a place never asks.
   const runs = useQuery({
     queryKey: payKeys.runs(),
     queryFn: ({ signal }) => listRuns(signal),
     enabled: employer,
   })
+  /// Changes and detail requests are decided by head office (Changes is its
+  /// tab alone), so a place never asks either.
+  const changes = useQuery({ ...changeProposalsQuery(), enabled: employer })
+  const details = useQuery({
+    queryKey: hrEmployeeKeys.dataRequests(false),
+    queryFn: ({ signal }) => listDataRequests(false, signal),
+    enabled: employer,
+  })
+
+  return {
+    employer,
+    leave,
+    corrections,
+    swaps,
+    claims,
+    runs,
+    changes,
+    details,
+    /// Only the rows that are waiting: the runs a place has sent, the
+    /// changes and requests still pending. Empty while a read is out.
+    waitingRuns: (runs.data ?? []).filter((one) => one.state === "SUBMITTED"),
+    waitingChanges: (changes.data ?? []).filter(
+      (one) => one.state === "PENDING"
+    ),
+    waitingDetails: (details.data ?? []).filter(
+      (one) => one.state === "PENDING"
+    ),
+  }
+}
+
+/// How many decisions are waiting on the caller — the count on the Overview's
+/// sidebar row, and the rows its inbox lists.
+///
+/// `null` until the page is hydrated and every read that applies has answered,
+/// and after any of them fails. A number drawn from half the sources is a
+/// number that jumps, and a badge that jumps teaches people to stop reading it.
+export function usePeopleWaitingCount(): number | null {
+  // Not before the page is hydrated: these are the reads People's own screens
+  // start on the server, so by then the cache may already hold them, and a
+  // count drawn from it would be one the server's HTML did not have.
+  const hydrated = useHydrated()
+  const inbox = usePeopleInbox()
 
   if (
-    leave.data === undefined ||
-    corrections.data === undefined ||
-    swaps.data === undefined ||
-    claims.data === undefined ||
-    hires.data === undefined ||
-    (employer && runs.data === undefined)
+    !hydrated ||
+    inbox.leave.data === undefined ||
+    inbox.corrections.data === undefined ||
+    inbox.swaps.data === undefined ||
+    inbox.claims.data === undefined ||
+    (inbox.employer &&
+      (inbox.runs.data === undefined ||
+        inbox.changes.data === undefined ||
+        inbox.details.data === undefined))
   ) {
     return null
   }
 
-  const hireSteps = hires.data.filter((one) =>
-    employer
-      ? one.state === "PROPOSED" || one.state === "APPROVED"
-      : one.state === "RETURNED"
-  ).length
-  const runSteps = employer
-    ? (runs.data ?? []).filter((one) => one.state === "SUBMITTED").length
-    : 0
-
   return (
-    leave.data.length +
-    corrections.data.length +
-    swaps.data.length +
-    claims.data.length +
-    hireSteps +
-    runSteps
+    inbox.leave.data.length +
+    inbox.corrections.data.length +
+    inbox.swaps.data.length +
+    inbox.claims.data.length +
+    inbox.waitingRuns.length +
+    inbox.waitingChanges.length +
+    inbox.waitingDetails.length
   )
 }

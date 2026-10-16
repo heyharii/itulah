@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Stok Toko · Terlihat & Sistem · 3 opsi</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="prototype-bar">
+    <span class="prototype-label">PROTOTYPE <b>Stok toko</b></span>
+    <nav aria-label="Opsi desain">
+      <button data-option="a" aria-pressed="true">A · Ringkas <span>Rekomendasi</span></button>
+      <button data-option="b" aria-pressed="false">B · Per lokasi</button>
+      <button data-option="c" aria-pressed="false">C · Status jelas</button>
+    </nav>
+    <button id="reset" class="reset">Ulangi demo</button>
+  </header>
+  <div class="workspace">
+    <aside class="sidebar" aria-label="Navigasi toko">
+      <a class="brand" href="/stock"><span class="brand-mark">c<span></span></span>central<span class="store-label">Store 01</span></a>
+      <p class="nav-heading">OPERASIONAL TOKO</p>
+      <a class="nav-link" href="/">⌂ <span>Ringkasan</span></a>
+      <a class="nav-link active" href="/stock">▦ <span>Stok toko</span></a>
+      <a class="nav-link" href="/receive">↓ <span>Penerimaan</span></a>
+      <a class="nav-link" href="/stock/movements">↔ <span>Riwayat stok</span></a>
+      <div class="sidebar-foot"><i></i> Data simulasi <span>Tidak mengubah stok toko</span></div>
+    </aside>
+    <main>
+      <div class="breadcrumb">Operasional <span>/</span> Stok toko</div>
+      <section class="page-heading">
+        <div><h1>Stok Toko</h1><p>Store 01 <span>·</span> Semua produk</p></div>
+        <button id="open-transfer" class="primary"><span aria-hidden="true">↔</span> Pindahkan Stok</button>
+      </section>
+      <section class="inventory" aria-label="Daftar stok">
+        <div id="view-controls"></div>
+        <div class="table-toolbar">
+          <label class="search"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Cari produk, warna, atau SKU" aria-label="Cari produk, warna, atau SKU"></label>
+          <label class="attention"><input id="attention" type="checkbox"> Perlu diperhatikan</label>
+        </div>
+        <div class="table-scroll"><table id="stock-table"><thead id="table-head"></thead><tbody id="rows"></tbody></table></div>
+        <div id="table-foot" class="table-foot"></div>
+      </section>
+      <div class="table-note"><span>ⓘ</span><p>Terlihat adalah hasil pengecekan terakhir, bukan jaminan jumlah fisik saat ini. <b>—</b> berarti belum dicek; <b>0</b> berarti sudah dicek dan tidak ada barang yang terlihat.</p></div>
+      <section class="design-note" aria-label="Penjelasan opsi"><div><span id="option-kicker">OPSI A</span><h2 id="option-title"></h2><p id="option-description"></p></div><div class="design-principle">Satu tabel.<br><b>Satu angka per lokasi.</b><br>Bandingkan saat diperlukan.</div></section>
+      <p class="demo-note">Data simulasi · Pengecekan contoh dari hitung manual · Perpindahan tanpa scan</p>
+    </main>
+  </div>
+  <dialog id="detail-dialog" class="sheet" aria-labelledby="detail-title"><div id="detail-content"></div></dialog>
+  <dialog id="coverage-dialog" class="sheet" aria-labelledby="coverage-title">
+    <div class="sheet-head"><div><span class="eyebrow">TERLIHAT</span><h2 id="coverage-title">Cakupan pengecekan</h2></div><button class="icon-button" data-close="coverage-dialog" aria-label="Tutup cakupan">×</button></div>
+    <div class="sheet-body"><p class="lead">Hari ini · pengecekan terakhir 14:23</p><p class="muted">Jumlah varian yang pernah diperiksa. Cakupan area tiap varian bisa berbeda.</p><div class="coverage-card"><h3>Gudang <span>5 dari 6 varian</span></h3><div class="coverage-track"><i style="width:83.33%"></i></div><p>4 varian seluruh area · Cargo Pants hanya Rak B, pukul 14:10. Oxford Shirt belum dicek.</p></div><div class="coverage-card"><h3>Floor <span>4 dari 6 varian</span></h3><div class="coverage-track"><i style="width:66.66%"></i></div><p>Basic Tee, Slim Jeans, Hoodie, dan Linen Shirt sudah dicek. Oxford Shirt dan Cargo Pants belum dicek.</p></div><div class="info-box">Gudang dan Floor diperiksa terpisah. Buka detail produk untuk melihat waktu dan area yang diperiksa.</div></div>
+    <div class="sheet-footer"><button class="secondary" data-close="coverage-dialog">Kembali ke stok</button></div>
+  </dialog>
+  <dialog id="transfer-dialog" class="sheet transfer-sheet" aria-labelledby="transfer-title"><div id="transfer-content"></div></dialog>
+  <div id="toast" role="status" class="toast" hidden></div>
+  <script type="module" src="app.mjs"></script>
+</body>
+</html>

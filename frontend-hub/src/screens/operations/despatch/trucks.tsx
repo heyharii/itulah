@@ -5,6 +5,7 @@ import { Printer, Truck } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { KoliPhotos } from "@/screens/operations/board/photos"
 import { DockTools } from "@/components/shell/dock-tools"
 import {
   SuratJalanPrint,
@@ -13,18 +14,23 @@ import {
 } from "@/components/operations/outbound-papers"
 import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
+import { DocStamp } from "@/components/ui/doc-stamp"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { ConfirmButton, SavedDialog } from "@/components/ui/dialog"
+import { Fab } from "@/components/ui/fab"
 import { Checkbox, Field, Textarea } from "@/components/ui/field"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
+import { ExpandingSearch } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Status } from "@/components/ui/pill"
 import { MiniCell, MiniRow, MiniTable, Section } from "@/components/ui/rows"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState, Problem } from "@/components/ui/states"
 import { dc } from "@/lib/api"
-import { clock, count, quantity } from "@/lib/format"
+import { clock, count, dayMonth, quantity } from "@/lib/format"
+import { STAMP } from "@/screens/procurement/shared"
+import { useLayout } from "@/lib/layout"
 import { keys } from "@/lib/operations/keys"
 import { tripDocumentNumber } from "@/lib/operations/trip-number"
 import { queryState } from "@/lib/query-state"
@@ -53,10 +59,11 @@ import type { Dispatch, Koli, Shipment } from "@itulah/contract"
 /// shop (owner, 2 Oct 2026), numbered by the trip's `dispatch_number`. There is no "Ready to dispatch" status left to
 /// draw anywhere: a sealed carton is either still here or it is in transit.
 ///
-/// **Received is not this DC's to know.** Its containment model ends the
-/// moment a dispatch departs; nothing scans a delivery note back in here. So a
-/// dispatched shipment reads "In transit" and stays that way — never
-/// "Received", which would be a state this node cannot actually observe.
+/// **Received is the shop's to say.** Nothing scans a delivery note back in
+/// here; the centre tells this node as the shop counts the pieces in, and once
+/// every piece is in the trip carries `received_at`. Until then a dispatched
+/// shipment reads "In transit"; after, it wears the Received stamp with that
+/// day (owner, 2026-10-14).
 ///
 /// **Legacy runs.** A dispatch loaded before this screen existed can still be
 /// sitting on the yard with `departed_at IS NULL`. Those are not reachable
@@ -226,30 +233,42 @@ export function Trucks() {
 
   const siteId =
     identity.data && "site_id" in identity.data ? identity.data.site_id : null
+  const phone = useLayout() === "phone"
 
   return (
     <PageContent>
       <PageHeader
         crumb="Operations"
         title="Dispatch"
-        sub="Tick the sealed cartons going on a trip. One delivery note per trip, made the instant it departs."
+        sub="Tick the packed koli going on a trip. One delivery note per trip, made the instant it departs."
+        // The screen's one action stands in its head; a phone has it at the
+        // thumb (`Fab` below).
         actions={
-          <Button
-            variant="primary"
-            onClick={() => composing.open(true)}
-            disabled={ready.length === 0}
-          >
-            <Truck />
-            Dispatch
-          </Button>
+          phone ? undefined : (
+            <Button
+              variant="primary"
+              onClick={() => composing.open(true)}
+              disabled={ready.length === 0}
+            >
+              <Truck />
+              Dispatch
+            </Button>
+          )
         }
       />
+      {ready.length > 0 && (
+        <Fab
+          label="Dispatch"
+          icon={Truck}
+          onClick={() => composing.open(true)}
+        />
+      )}
 
       <KpiStrip className="grid-cols-2 md:grid-cols-4 xl:grid-cols-4">
-        <Kpi label="Cartons ready to dispatch" value={count(ready.length)} />
+        <Kpi label="Koli ready to dispatch" value={count(ready.length)} />
         <Kpi label="Delivery note in transit" value={count(tripsInTransit)} />
         <Kpi
-          label="Cartons on the road"
+          label="Koli on the road"
           value={count(
             inTransitRows.reduce((total, row) => total + row.koli_count, 0)
           )}
@@ -257,7 +276,15 @@ export function Trucks() {
         <Kpi label="Trips today" value={count(tripsToday.length)} />
       </KpiStrip>
 
-      {/* On a phone the sort is the dock's, not a bar over the list. */}
+      {/* The search under the figures; on a phone it and the sort are the
+          dock's, not a bar over the list. */}
+      <div className="group/bar mb-3.5 flex min-h-[2.25rem] flex-wrap items-center gap-2 max-md:hidden">
+        <ExpandingSearch
+          value={typed}
+          onChange={setTyped}
+          label="Search delivery note"
+        />
+      </div>
       <DockTools
         search={{
           value: typed,
@@ -271,7 +298,7 @@ export function Trucks() {
         <Banner tone="bad" className="mb-5" onDismiss={() => setProgress(null)}>
           {progress.message}
           {
-            " Those cartons are still where they were. The safe retry is the step they failed at."
+            " Those koli are still where they were. The safe retry is the step they failed at."
           }
         </Banner>
       )}
@@ -282,7 +309,7 @@ export function Trucks() {
         <Card className="mb-5 overflow-clip">
           <CardHeader>
             <CardTitle>Not departed</CardTitle>
-            <span className="text-[0.875rem] text-mute">
+            <span className="text-[0.9375rem] text-mute">
               Loaded before this screen made a trip in one act
             </span>
           </CardHeader>
@@ -293,19 +320,18 @@ export function Trucks() {
                 className="flex min-h-row items-center justify-between gap-3 border-b border-hairline px-3.5 py-2.5 last:border-b-0"
               >
                 <div className="min-w-0">
-                  <div className="font-mono text-[0.875rem] text-ink">
+                  <div className="font-mono text-[0.9375rem] text-ink">
                     {run.dispatch_number}
                   </div>
-                  <div className="truncate text-[0.875rem] text-mute">
+                  <div className="truncate text-[0.9375rem] text-mute">
                     {vehicle(run)} · {count(run.shipment_count)}{" "}
                     {run.shipment_count === 1 ? "shop" : "shops"} ·{" "}
-                    {count(run.koli_count)}{" "}
-                    {run.koli_count === 1 ? "carton" : "cartons"}
+                    {count(run.koli_count)} koli
                   </div>
                 </div>
                 <ConfirmButton
                   label="Depart"
-                  title={`Send ${run.dispatch_number} out?`}
+                  title={`Dispatch ${run.dispatch_number}?`}
                   description={
                     <>
                       Stock leaves this warehouse and goes on the road to{" "}
@@ -352,7 +378,7 @@ export function Trucks() {
                 }
               >
                 {ready.length === 0
-                  ? "Nothing has been dispatched, and no sealed carton is waiting for a trip."
+                  ? "Nothing has been dispatched, and no packed koli is waiting for a trip."
                   : "Nothing is in transit yet."}
               </EmptyState>
             ) : (
@@ -570,13 +596,12 @@ export function DispatchSheet({
         }}
         width="wide"
         title="Dispatch"
-        caption="Tick the cartons going on this trip. One delivery note for the trip, made the instant it departs."
         footer={
           <div className="flex flex-wrap items-center gap-2.5">
-            <span className="text-[0.875rem] text-mute">
+            <span className="text-[0.9375rem] text-mute">
               {goingKoliIds.length === 0
-                ? "Tick the cartons going on it"
-                : `1 trip · 1 delivery note · ${count(going.length)} ${going.length === 1 ? "store" : "stores"} · ${quantity(goingKoliIds.length, "cartons")} · ${quantity(goingPieces)}`}
+                ? "Tick the koli going on it"
+                : `${count(going.length)} ${going.length === 1 ? "store" : "stores"} · ${count(goingKoliIds.length)} koli · ${quantity(goingPieces)}`}
             </span>
             <div className="flex-1" />
             <Button
@@ -585,17 +610,15 @@ export function DispatchSheet({
               disabled={goingKoliIds.length === 0}
               onClick={submit}
             >
-              <Printer />
-              {dispatchTrip.isPending
-                ? "Dispatching…"
-                : "Dispatch and print delivery note"}
+              {/* Submit dispatches and prints the delivery note. */}
+              {dispatchTrip.isPending ? "Submitting…" : "Submit"}
             </Button>
           </div>
         }
       >
         <div className="flex flex-col gap-5">
           {queryState(cartons, {
-            loading: "Reading the cartons…",
+            loading: "Reading the koli…",
             render: () =>
               ready.length === 0 ? (
                 <EmptyState
@@ -605,7 +628,7 @@ export function DispatchSheet({
                     </AppLink>
                   }
                 >
-                  No sealed carton is waiting for a trip.
+                  No packed koli is waiting for a trip.
                 </EmptyState>
               ) : (
                 <div className="flex flex-col gap-4 sm:min-h-[26rem] sm:flex-row sm:gap-5">
@@ -620,7 +643,7 @@ export function DispatchSheet({
                   <div className="flex min-w-0 flex-1 flex-col gap-3">
                     {shop === null ? (
                       <Banner tone="ok">
-                        Every shop with a sealed carton is already on this trip.
+                        Every store with a packed koli is already on this trip.
                       </Banner>
                     ) : (
                       <>
@@ -628,11 +651,11 @@ export function DispatchSheet({
                           <h4 className="text-card-title font-semibold text-ink">
                             {shopName(shop)}
                           </h4>
-                          <p className="mt-0.5 text-[0.875rem] text-mute">
-                            {shopNoneTicked
-                              ? "Not going on this trip."
-                              : "Going on this trip."}
-                          </p>
+                          {shopNoneTicked && (
+                            <p className="mt-0.5 text-[0.9375rem] text-mute">
+                              Not going on this trip
+                            </p>
+                          )}
                         </div>
                         <CartonChoice
                           cartons={mine}
@@ -822,9 +845,9 @@ function ShopRail({
   return (
     <div className="flex shrink-0 flex-col overflow-hidden rounded-inner border border-hairline sm:w-64">
       <div className="flex h-11 shrink-0 items-center gap-2 border-b border-hairline px-3">
-        <span className="font-medium text-ink">Shops</span>
+        <span className="font-medium text-ink">Stores</span>
         <span className="flex-1" />
-        <span className="text-[0.875rem] text-mute">{count(going)} going</span>
+        <span className="text-[0.9375rem] text-mute">{count(going)} going</span>
       </div>
       <div className="flex-1 overflow-y-auto">
         {shopIds.map((id) => {
@@ -841,13 +864,11 @@ function ShopRail({
               )}
             >
               <span className="min-w-0 flex-1 truncate">{shopName(id)}</span>
-              <span className="shrink-0 text-right text-[0.875rem]">
+              <span className="shrink-0 text-right text-[0.9375rem]">
                 {ticked === 0 ? (
                   <span className="text-faint">—</span>
                 ) : ticked === mine.length ? (
-                  <span className="text-ink">
-                    {count(ticked)} {ticked === 1 ? "carton" : "cartons"}
-                  </span>
+                  <span className="text-ink">{count(ticked)} koli</span>
                 ) : (
                   <>
                     <span className="text-ink">{count(ticked)}</span>
@@ -887,20 +908,20 @@ function CartonChoice({
           <tr>
             <th className="w-8 pr-2 pb-1.5 text-left">
               <Checkbox
-                label={<span className="sr-only">Every carton</span>}
+                label={<span className="sr-only">Every koli</span>}
                 checked={allTicked}
                 indeterminate={indeterminate}
                 onChange={onToggleShop}
               />
             </th>
             <th className="pr-2 pb-1.5 text-left font-mono text-eyebrow tracking-[0.04em] text-body uppercase">
-              Carton
+              Koli
             </th>
             <th className="pb-1.5 pl-3 text-right font-mono text-eyebrow tracking-[0.04em] text-body uppercase">
               Pcs
             </th>
             <th className="pb-1.5 pl-3 text-right font-mono text-eyebrow tracking-[0.04em] text-body uppercase">
-              Sealed
+              Packed
             </th>
           </tr>
         </thead>
@@ -925,6 +946,7 @@ function CartonChoice({
                   >
                     {box.koli_number}
                   </span>
+                  <KoliPhotos koli={[box.koli_id]} className="mt-1.5" />
                 </MiniCell>
                 <MiniCell align="right">{count(box.unit_count)}</MiniCell>
                 <MiniCell align="right">{clock(box.sealed_at)}</MiniCell>
@@ -945,10 +967,10 @@ function inTransitColumns(): ColumnDef<TableSetup, InTransitRow>[] {
       // The trip's number: rows of one trip share one delivery note.
       accessorFn: (row: InTransitRow) => tripDocumentNumber(row.run, [row]),
       header: "Delivery Note",
-      size: 180,
+      size: 240,
       meta: { card: "id", mono: true },
       cell: ({ row }) => (
-        <span className="font-mono text-[0.875rem] text-ink">
+        <span className="font-mono text-[0.9375rem] text-ink">
           {tripDocumentNumber(row.original.run, [row.original])}
         </span>
       ),
@@ -964,7 +986,7 @@ function inTransitColumns(): ColumnDef<TableSetup, InTransitRow>[] {
     },
     {
       accessorKey: "koli_count",
-      header: "Cartons",
+      header: "Koli",
       size: 90,
       meta: { align: "right", card: "metric" },
       cell: ({ row }) => count(row.original.koli_count),
@@ -995,7 +1017,7 @@ function inTransitColumns(): ColumnDef<TableSetup, InTransitRow>[] {
         return note === "" ? (
           <span className="text-mute">—</span>
         ) : (
-          <span className="truncate text-[0.875rem]" title={note}>
+          <span className="truncate text-[0.9375rem]" title={note}>
             {note.split("\n")[0]}
           </span>
         )
@@ -1007,9 +1029,19 @@ function inTransitColumns(): ColumnDef<TableSetup, InTransitRow>[] {
       size: 110,
       enableSorting: false,
       meta: { card: "status" },
-      // Always "In transit": see the module comment on why this DC never
-      // draws "Received" — it would be a state nothing here observes.
-      cell: () => <Status tone="info">In transit</Status>,
+      // "In transit" until the shop has counted every piece in; then the
+      // finished note is stamped, as the order list stamps a finished order.
+      cell: ({ row }) =>
+        row.original.run?.received_at ? (
+          <span className={cn(STAMP, "text-ok-fg")}>
+            Received
+            <span className="block tabular-nums">
+              {dayMonth(row.original.run.received_at)}
+            </span>
+          </span>
+        ) : (
+          <Status tone="info">In transit</Status>
+        ),
     },
   ]
 }
@@ -1067,7 +1099,10 @@ function ShipmentSheet({
       {queryState(detail, {
         loading: "Reading the delivery note…",
         render: (found) => (
-          <div className="flex flex-col gap-4">
+          <div className="relative flex flex-col gap-4">
+            {run?.received_at && (
+              <DocStamp word="Received" at={run.received_at} tone="ok" />
+            )}
             <Facts>
               <Fact term="Shop">
                 {shopName(found.shipment.destination_store_id)}
@@ -1075,15 +1110,15 @@ function ShipmentSheet({
               <Fact term="Dispatched">
                 {run ? clock(run.departed_at) : "—"}
               </Fact>
-              <Fact term="Cartons">{count(found.shipment.koli_count)}</Fact>
+              <Fact term="Koli">{count(found.shipment.koli_count)}</Fact>
               <Fact term="Pcs">{count(found.shipment.unit_count)}</Fact>
-              {/* Received is the shop's half of this document, and this DC
-                  has no way to hear it — nothing here scans a delivery note
-                  back in. So the status stops at "In transit" rather than
-                  inventing a state nobody has reported. */}
-              <Fact term="Status">
-                <Status tone="info">In transit</Status>
-              </Fact>
+              {/* Received is the shop's half of this document: the centre
+                  says so once every piece is counted in. */}
+              {!run?.received_at && (
+                <Fact term="Status">
+                  <Status tone="info">In transit</Status>
+                </Fact>
+              )}
               <Fact term="Trip data">
                 {run?.trip_note ? (
                   <span className="whitespace-pre-wrap">{run.trip_note}</span>
@@ -1093,8 +1128,8 @@ function ShipmentSheet({
               </Fact>
             </Facts>
 
-            <Section title="Cartons on it" flush>
-              <MiniTable head={["Carton", "Pcs"]}>
+            <Section title="Koli on it" flush>
+              <MiniTable head={["Koli", "Pcs"]}>
                 {found.koli.map((manifest) => (
                   <MiniRow key={manifest.koli.koli_id}>
                     <MiniCell>

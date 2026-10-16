@@ -1,0 +1,30 @@
+[
+  {
+    "id": "intro",
+    "text": "Ini alur Outbound di Central: dari allotment sampai barang diterima toko."
+  },
+  {
+    "id": "unallotted",
+    "text": "Barang dari PO yang sudah diterima menunggu di **Allotments**, tab **Unallotted**, dikelompokkan per supplier."
+  },
+  {
+    "id": "select",
+    "text": "MD mencentang artikelnya, lalu menekan **Make new allotment**."
+  },
+  {
+    "id": "matrix",
+    "text": "Layarnya berbentuk matriks: SKU ke bawah, toko ke samping. **Stock** dan **Left** menunjukkan sisa yang belum dibagi."
+  },
+  {
+    "id": "fill",
+    "text": "Bisa diisi cepat: dibagi rata ke semua toko, semua ke satu toko, atau ke toko yang dipilih."
+  },
+  {
+    "id": "tweak",
+    "text": "Angkanya tetap bisa diubah satu per satu."
+  },
+  {
+    "id": "submit",
+    "text": "**Submit all**. Allotment langsung jadi, dan picklist tiap toko muncul di gudang."
+  }
+]

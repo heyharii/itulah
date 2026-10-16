@@ -2,10 +2,11 @@ import { useQueryClient } from "@tanstack/react-query"
 import { RouterProvider } from "@tanstack/react-router"
 import { useEffect } from "react"
 
-import { Launch } from "@/components/brand-mark"
+import { BootSkeleton } from "@/components/boot-skeleton"
 import { LoginForm } from "@/components/login-form"
 import { ServerStatus } from "@/components/server-status"
 import { SignInDoor } from "@/components/sign-in-door"
+import { Toasts } from "@/components/ui/toast"
 import { cacheKey } from "@/lib/api"
 import { startBasket } from "@/lib/basket"
 import { startSaleQueue } from "@/lib/sale-queue"
@@ -50,7 +51,7 @@ export function App() {
     return (
       <>
         <ServerStatus />
-        <Launch />
+        <BootSkeleton />
       </>
     )
   }
@@ -83,6 +84,7 @@ export function App() {
     <>
       <ServerStatus />
       <RouterProvider router={router} />
+      <Toasts />
     </>
   )
 }

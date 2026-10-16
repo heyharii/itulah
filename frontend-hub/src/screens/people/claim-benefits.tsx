@@ -60,7 +60,7 @@ export function ClaimBalances({
         loading: "Reading the allowances…",
         render: () =>
           rows.length === 0 ? (
-            <p className="text-[0.875rem] text-mute">
+            <p className="text-[0.9375rem] text-mute">
               No allowance and nothing claimed this year.
             </p>
           ) : (
@@ -77,7 +77,7 @@ export function ClaimBalances({
                   <MiniCell>
                     {row.type_name}
                     {row.personal && (
-                      <span className="block text-[0.875rem] text-mute">
+                      <span className="block text-[0.9375rem] text-mute">
                         their own figure
                       </span>
                     )}
@@ -90,7 +90,7 @@ export function ClaimBalances({
                   <MiniCell align="right">
                     {money(row.used_minor)}
                     {row.pending_minor > 0 && (
-                      <span className="block text-[0.875rem] text-mute">
+                      <span className="block text-[0.9375rem] text-mute">
                         +{money(row.pending_minor)} waiting
                       </span>
                     )}

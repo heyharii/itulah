@@ -178,7 +178,7 @@ export function CommandPalette({
                 setCursor(0)
               }}
               className={cn(
-                "inline-flex h-[1.625rem] shrink-0 items-center gap-1.5 rounded-full px-2.5 text-[0.875rem] font-medium transition-colors",
+                "inline-flex h-[1.625rem] shrink-0 items-center gap-1.5 rounded-full px-2.5 text-[0.9375rem] font-medium transition-colors",
                 everywhere
                   ? "bg-accent-bg text-info-fg"
                   : "bg-soft-2 text-body hover:text-ink"
@@ -211,9 +211,9 @@ export function CommandPalette({
               }}
               // 16px under 48rem: a smaller field zooms the page on iOS when it
               // takes focus, and the palette is how a phone finds a screen.
-              className="min-w-0 flex-1 bg-transparent text-[0.875rem] text-ink outline-none placeholder:text-mute max-md:text-[1rem]"
+              className="min-w-0 flex-1 bg-transparent text-[0.9375rem] text-ink outline-none placeholder:text-mute max-md:text-[1rem]"
             />
-            <kbd className="shrink-0 rounded-[5px] border border-hairline-2 bg-canvas px-1.5 py-px font-mono text-[0.875rem] text-body max-md:hidden">
+            <kbd className="shrink-0 rounded-[5px] border border-hairline-2 bg-canvas px-1.5 py-px font-mono text-[0.9375rem] text-body max-md:hidden">
               tab
             </kbd>
             {/* Implicit submission already applies — one text field, nothing
@@ -261,10 +261,10 @@ export function CommandPalette({
                     ) : (
                       <span className="size-4 shrink-0" />
                     )}
-                    <span className="min-w-0 flex-1 truncate text-[0.875rem] font-medium text-ink">
+                    <span className="min-w-0 flex-1 truncate text-[0.9375rem] font-medium text-ink">
                       {row.title}
                     </span>
-                    <span className="shrink-0 truncate text-[0.875rem] text-mute">
+                    <span className="shrink-0 truncate text-[0.9375rem] text-mute">
                       {row.subtitle}
                     </span>
                     {index === at && (
@@ -276,7 +276,7 @@ export function CommandPalette({
             })}
 
             {records.isFetching && needle.length >= 2 && (
-              <p className="px-3.5 py-2 text-[0.875rem] text-mute">
+              <p className="px-3.5 py-2 text-[0.9375rem] text-mute">
                 Looking through {everywhere ? "every module" : here.label}…
               </p>
             )}

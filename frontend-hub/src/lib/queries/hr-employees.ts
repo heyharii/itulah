@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query"
+import { queryOptions, useQuery } from "@tanstack/react-query"
 
 import { node } from "@/lib/api"
 import { APPROVAL_WORD } from "@/lib/words"
@@ -79,18 +79,28 @@ export function allWarningLetters(
   })
 }
 
-export function useAllWarningLetters() {
-  return useQuery({
+/// Options form of the register, shared by `useAllWarningLetters`, the
+/// Reprimands screen (which reads it by suspending) and its prefetcher.
+export const allWarningLettersQuery = () =>
+  queryOptions({
     queryKey: hrEmployeeKeys.letters(),
     queryFn: ({ signal }) => allWarningLetters(signal),
   })
+
+export function useAllWarningLetters() {
+  return useQuery(allWarningLettersQuery())
 }
 
-export function useChangeProposals() {
-  return useQuery({
+/// Options form of the change proposals, shared by `useChangeProposals`, the
+/// Employee changes screen (which reads it by suspending) and its prefetcher.
+export const changeProposalsQuery = () =>
+  queryOptions({
     queryKey: hrEmployeeKeys.changes(),
     queryFn: ({ signal }) => listChangeProposals({}, signal),
   })
+
+export function useChangeProposals() {
+  return useQuery(changeProposalsQuery())
 }
 
 export function useLifecycleTasks(kind: "ONBOARDING" | "SEPARATION") {

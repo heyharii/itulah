@@ -176,7 +176,7 @@ function Activities({
                 disabled={file.isPending}
                 onClick={() => file.mutate(ruleId)}
                 aria-label={`Add ${ruleId} to the plan`}
-                className="rounded-full border border-hairline px-3.5 py-1.5 font-mono text-[0.875rem] text-body hover:bg-soft"
+                className="rounded-full border border-hairline px-3.5 py-1.5 font-mono text-[0.9375rem] text-body hover:bg-soft"
               >
                 {ruleId} +
               </button>
@@ -207,11 +207,11 @@ function Activity({
       <Status tone={activity.status === "DROPPED" ? "warn" : "neutral"}>
         {kindLabel(activity.kind)}
       </Status>
-      <span className="min-w-0 flex-1 truncate text-[0.875rem] text-ink">
+      <span className="min-w-0 flex-1 truncate text-[0.9375rem] text-ink">
         {activity.name}
       </span>
       {activity.ref_id !== null && (
-        <span className="font-mono text-[0.875rem] text-mute">
+        <span className="font-mono text-[0.9375rem] text-mute">
           {activity.ref_id}
         </span>
       )}
@@ -219,16 +219,16 @@ function Activity({
         // The activity claims a rule the published books file elsewhere. That
         // rule's takings are attributed to another campaign in every report, so
         // this one is reading somebody else's numbers.
-        <span className="text-[0.875rem] text-bad-fg">not published</span>
+        <span className="text-[0.9375rem] text-bad-fg">not published</span>
       )}
       {activity.starts_on !== null && (
-        <span className="text-[0.875rem] text-mute tabular-nums">
+        <span className="text-[0.9375rem] text-mute tabular-nums">
           {day(activity.starts_on)}
           {activity.ends_on !== null && ` – ${day(activity.ends_on)}`}
         </span>
       )}
       {activity.cost_minor !== null && (
-        <span className="text-[0.875rem] text-body tabular-nums">
+        <span className="text-[0.9375rem] text-body tabular-nums">
           {money(activity.cost_minor)}
         </span>
       )}
@@ -343,11 +343,11 @@ function ActivityForm({
       )}
 
       <div className="mt-6 flex items-center justify-between gap-4">
-        <span className="min-w-0 text-[0.875rem] text-bad">
+        <span className="min-w-0 text-[0.9375rem] text-bad">
           {problem ?? ""}
         </span>
         <span className="flex shrink-0 items-center gap-3">
-          <Button variant="ghost" onClick={onCancel}>
+          <Button data-cancel variant="ghost" onClick={onCancel}>
             Cancel
           </Button>
           <Button
@@ -492,7 +492,7 @@ function Reach({
                   .map((entry) => (
                     <span
                       key={entry.value}
-                      className="inline-flex items-center gap-1 rounded-full bg-soft px-3.5 py-1 text-[0.875rem] text-body"
+                      className="inline-flex items-center gap-1 rounded-full bg-soft px-3.5 py-1 text-[0.9375rem] text-body"
                     >
                       {entry.value}
                       {editing && (
@@ -599,7 +599,7 @@ function Drift({ plan }: { plan: CampaignPlanView }) {
     return null
   }
   return (
-    <p className="mt-5 flex flex-col gap-2 text-[0.875rem] leading-relaxed text-warn-fg">
+    <p className="mt-5 flex flex-col gap-2 text-[0.9375rem] leading-relaxed text-warn-fg">
       {wideOpen && (
         <span>
           Declared for {count(declaredSites.length)} store
@@ -790,7 +790,7 @@ function Rails({
             </Field>
           </div>
           <div className="mt-6 flex items-center justify-between gap-4">
-            <span className="min-w-0 text-[0.875rem] text-bad">
+            <span className="min-w-0 text-[0.9375rem] text-bad">
               {problem ?? ""}
             </span>
             <Button
@@ -837,10 +837,10 @@ function Rails({
                 key={rail.guardrail_id}
                 className="flex flex-wrap items-baseline gap-x-3 gap-y-1.5 rounded-inner bg-soft px-4 py-3.5"
               >
-                <span className="min-w-0 flex-1 truncate text-[0.875rem] text-ink">
+                <span className="min-w-0 flex-1 truncate text-[0.9375rem] text-ink">
                   {measureOf(rail.measure)?.label ?? rail.measure}
                 </span>
-                <span className="text-[0.875rem] text-body tabular-nums">
+                <span className="text-[0.9375rem] text-body tabular-nums">
                   {rail.direction === "AT_MOST" ? "≤ " : "≥ "}
                   {drawLimit(rail.measure, rail.threshold)}
                 </span>
@@ -855,7 +855,7 @@ function Rails({
                   </span>
                 )}
                 {rail.breach_action === "PAUSE_CAMPAIGN" && (
-                  <span className="text-[0.875rem] text-warn-fg">Stops it</span>
+                  <span className="text-[0.9375rem] text-warn-fg">Stops it</span>
                 )}
                 <ConfirmButton
                   label="Remove"
@@ -886,7 +886,7 @@ function Rails({
       )}
 
       {check.data?.paused === true && (
-        <p className="mt-4 text-[0.875rem] leading-relaxed text-bad-fg">
+        <p className="mt-4 text-[0.9375rem] leading-relaxed text-bad-fg">
           A limit was crossed. The campaign is paused.
         </p>
       )}
@@ -899,16 +899,16 @@ function Rails({
               className="rounded-inner border border-hairline px-4 py-4"
             >
               <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <span className="text-[0.875rem] font-medium text-bad-fg">
+                <span className="text-[0.9375rem] font-medium text-bad-fg">
                   {measureOf(breach.measure)?.label ?? breach.measure} crossed
                 </span>
-                <span className="text-[0.875rem] text-mute tabular-nums">
+                <span className="text-[0.9375rem] text-mute tabular-nums">
                   {day(breach.first_seen_at)}
                   {breach.seen_count > 1 &&
                     ` · seen ${count(breach.seen_count)} times`}
                 </span>
               </div>
-              <p className="mt-2 text-[0.875rem] leading-relaxed text-body tabular-nums">
+              <p className="mt-2 text-[0.9375rem] leading-relaxed text-body tabular-nums">
                 {drawLimit(breach.measure, breach.observed)} against a line of{" "}
                 {drawLimit(breach.measure, breach.threshold)}
                 {breach.action_taken === "PAUSED" &&
@@ -921,7 +921,7 @@ function Rails({
                 type="button"
                 disabled={acknowledge.isPending}
                 onClick={() => acknowledge.mutate(breach.breach_id)}
-                className="mt-3 text-[0.875rem] text-accent hover:underline"
+                className="mt-3 text-[0.9375rem] text-accent hover:underline"
               >
                 Acknowledge
               </button>
@@ -936,6 +936,6 @@ function Rails({
 /// The reading beside a rail, coloured by whether it is on the wrong side.
 function cnTone(breached: boolean): string {
   return breached
-    ? "text-[0.875rem] font-semibold text-bad-fg tabular-nums"
-    : "text-[0.875rem] text-ok-fg tabular-nums"
+    ? "text-[0.9375rem] font-semibold text-bad-fg tabular-nums"
+    : "text-[0.9375rem] text-ok-fg tabular-nums"
 }

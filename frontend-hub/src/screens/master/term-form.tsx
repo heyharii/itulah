@@ -46,7 +46,7 @@ export function SubmitRow({
   onDelete?: () => void
 }) {
   return (
-    <div className="flex items-center justify-between gap-2 pt-1">
+    <div className="submit-row flex items-center justify-between gap-2 pt-1">
       {onDelete ? (
         <Button type="button" variant="quiet" onClick={onDelete}>
           Delete
@@ -251,10 +251,10 @@ export function ActiveRow({
   return (
     <div className="flex items-center justify-between gap-3 rounded-inner border border-hairline px-3.5 py-3">
       <span className="flex flex-col">
-        <span className="text-[0.875rem] font-medium text-ink">
+        <span className="text-[0.9375rem] font-medium text-ink">
           {on ? "Active" : "Inactive"}
         </span>
-        <span className="text-[0.875rem] text-body">
+        <span className="text-[0.9375rem] text-body">
           {on
             ? `This ${noun} can be chosen for new work.`
             : `This ${noun} is hidden from new work.`}

@@ -504,7 +504,7 @@ function NewAsset({ onDone }: { onDone: () => void }) {
         >
           Register
         </Button>
-        <Button onClick={onDone}>Cancel</Button>
+        <Button data-cancel onClick={onDone}>Cancel</Button>
       </div>
       <p className="text-meta text-mute">
         Registering records the thing. It posts nothing — the acquisition is the

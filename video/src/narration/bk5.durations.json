@@ -1,0 +1,30 @@
+{
+  "intro": {
+    "seconds": 3.23925,
+    "say": "Ringkasnya, delapan hal ini tidak bisa mundur."
+  },
+  "list1": {
+    "seconds": 6.00825,
+    "say": "Count yang sudah diterima, receipt yang sudah menggerakkan stok, dan kiriman yang sedang jalan."
+  },
+  "list2": {
+    "seconds": 6.191,
+    "say": "Receipt toko atau DC setelah Submit, dan dokumen yang selesai, ditutup, atau dibatalkan."
+  },
+  "list3": {
+    "seconds": 7.07925,
+    "say": "Kehilangan atau penyesuaian stok yang sudah diposting, barang yang sudah di supplier, dan penyelesaian yang sudah ditutup."
+  },
+  "partly": {
+    "seconds": 8.59425,
+    "say": "Kalau baru sebagian yang diproses, batasnya hanya untuk bagian itu. Sisanya masih bisa ditarik, diubah, atau ditutup."
+  },
+  "race": {
+    "seconds": 6.844,
+    "say": "Kalau Recall dan Accept terjadi bersamaan, hanya satu yang menang. Yang lain ditolak dengan alasannya."
+  },
+  "retry": {
+    "seconds": 7.28825,
+    "say": "Dan kalau koneksi putus lalu dikirim ulang, hasilnya tetap sama. Bukan Recall, bukan kiriman kedua."
+  }
+}

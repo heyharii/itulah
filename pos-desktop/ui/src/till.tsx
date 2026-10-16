@@ -138,7 +138,7 @@ function newCheckoutId(): string {
 /// for a relay that failed).
 function benefitRefusal(reply: api.EdgeReply<unknown>, fallback: string): string {
   if (reply.status === 0 || reply.status === 502 || reply.status === 503 || reply.status === 504) {
-    return "Kantor pusat tidak terjangkau — pakai metode pembayaran lain."
+    return "Head office can't be reached — use another payment method."
   }
   return reply.problem ?? fallback
 }
@@ -224,6 +224,9 @@ export type Where =
   | "sale"
   | "payment"
   | "shift"
+  /// The shift screen, straight at counting the drawer — what the header's
+  /// Finish shift button opens.
+  | "finish"
   | "return"
   | "void"
   | "redeem"
@@ -241,7 +244,6 @@ export function Till({
   terminalId,
   where,
   onGo,
-  onSignOut,
   onLock,
   onSeatLost,
 }: {
@@ -249,7 +251,6 @@ export function Till({
   terminalId: string
   where: Where
   onGo: (next: Where) => void
-  onSignOut: () => void
   onLock: () => void
   /// The node says the shift this till is selling on is no longer the
   /// person's — somebody took the seat. `by` is who, when the node said.
@@ -405,14 +406,14 @@ export function Till({
             bad: true,
             text:
               reply.problem ??
-              `Kupon ${code} tidak bisa ditahan di pusat — pastikan sambungan ke kantor pusat hidup.`,
+              `Coupon ${code} could not be held at head office — check the connection to head office.`,
           })
           return
         }
         const hold = { code, authorizationId: id, checkoutId: checkout }
         // The coupon may have been lifted while head office was answering.
         if (!couponsNow.current.includes(code)) {
-          void releaseCoupon(hold, "kupon dilepas").catch(() => undefined)
+          void releaseCoupon(hold, "coupon released").catch(() => undefined)
           return
         }
         setCouponHolds((was) => [
@@ -526,7 +527,7 @@ export function Till({
       const card = memberFromScan(text)
       if (card !== null) {
         setCustomerId(card)
-        setNote({ bad: false, text: `Kartu member ${card} terbaca.` })
+        setNote({ bad: false, text: `Member card ${card} read.` })
         return
       }
 
@@ -536,7 +537,7 @@ export function Till({
         if (units.some((unit) => unit.epc === scanned.epc)) {
           setNote({
             bad: true,
-            text: "Tag itu sudah ada di keranjang. Satu tag adalah satu barang.",
+            text: "That tag is already in the basket. One tag is one item.",
           })
           return
         }
@@ -572,7 +573,7 @@ export function Till({
       }
       setNote({
         bad: true,
-        text: `Tidak ada yang cocok dengan “${text}”. Pindai tag garmennya, atau ketik sebagian namanya.`,
+        text: `Nothing matches “${text}”. Scan the garment's tag, or type part of its name.`,
       })
     },
     [bySku, rows, units],
@@ -614,7 +615,7 @@ export function Till({
     )
     for (const hold of couponHolds) {
       if (used.has(hold.authorizationId)) continue
-      void releaseCoupon(hold, afterSale ? "tidak terpakai" : "keranjang dibatalkan").catch(
+      void releaseCoupon(hold, afterSale ? "not used" : "basket cancelled").catch(
         () => {
           // It lapses at head office on its own within minutes.
         },
@@ -740,9 +741,8 @@ export function Till({
         unsent={outbox.unsent}
         waiting={waiting}
         onWaiting={() => onGo("joins")}
-        onSignOut={onSignOut}
+        onFinish={() => onGo("finish")}
         onLock={onLock}
-        onSetup={() => onGo("setup")}
         // The second window is a Tauri window `openCustomerDisplay` opens on
         // this machine — nothing a browser tab can do — so web never gets the
         // button that would call it.
@@ -766,8 +766,8 @@ export function Till({
         <div className="banner warn">
           <Icon name="alert" />
           <span className="grow">
-            {outbox.refused} penjualan ditolak node — selesaikan sebelum tutup
-            shift.
+            {outbox.refused} sales refused by the node — sort them out before finishing
+            the shift.
           </span>
         </div>
       )}
@@ -790,8 +790,8 @@ export function Till({
               onClick={() => {
                 if (
                   window.confirm(
-                    "Buang penjualan yang ditolak ini dari terminal? Node tidak " +
-                      "pernah mencatatnya, jadi tidak ada yang dibatalkan di sana.",
+                    "Discard this refused sale from the terminal? The node never " +
+                      "recorded it, so nothing is cancelled there.",
                   )
                 ) {
                   forget(entry.localId)
@@ -821,8 +821,8 @@ export function Till({
                   ref={scan}
                   autoFocus
                   autoComplete="off"
-                  placeholder="Pindai tag atau cari barang"
-                  aria-label="Pindai tag atau cari barang"
+                  placeholder="Scan a tag or search items"
+                  aria-label="Scan a tag or search items"
                 />
                 <button className="scan-go" type="submit" aria-label="Tambahkan">
                   <Icon name="arrow" />
@@ -837,7 +837,7 @@ export function Till({
                   type="button"
                   onClick={() => void readWithR3()}
                   disabled={!inShell() || rfidBusy}
-                  aria-label="Baca satu tag dengan Chainway R3"
+                  aria-label="Read one tag with the Chainway R3"
                 >
                   {rfidBusy ? "Membaca…" : "Baca R3"}
                 </button>
@@ -857,10 +857,10 @@ export function Till({
           {check.length > 0 && (
             <div className="block">
               <div className="block-head">
-                <span className="label">Cek harga</span>
+                <span className="label">Price check</span>
                 <button
                   className="icon-btn"
-                  aria-label="Tutup cek harga"
+                  aria-label="Close price check"
                   onClick={() => setCheck([])}
                 >
                   <Icon name="x" />
@@ -895,7 +895,7 @@ export function Till({
               setCoupons((was) => was.filter((one) => one !== code))
               // Its hold goes back: this basket will not use it.
               for (const hold of couponHolds.filter((one) => one.code === code)) {
-                void releaseCoupon(hold, "kupon dilepas").catch(() => undefined)
+                void releaseCoupon(hold, "coupon released").catch(() => undefined)
               }
               setCouponHolds((was) => was.filter((one) => one.code !== code))
               couponAsks.current.delete(code)
@@ -933,15 +933,15 @@ export function Till({
         <section className="pane-right">
           <div className="cart-head">
             <h2>
-              Keranjang <span className="badge plain">{units.length} unit</span>
+              Basket <span className="badge plain">{units.length} {units.length === 1 ? "item" : "items"}</span>
             </h2>
           </div>
 
           {units.length === 0 ? (
             <div className="empty">
               <Icon name="scan" />
-              <h3>Siap untuk transaksi baru</h3>
-              <p>Pindai tag pertama untuk memulai.</p>
+              <h3>Ready for a new sale</h3>
+              <p>Scan the first tag to start.</p>
             </div>
           ) : (
             <div className="cart-list no-bar">
@@ -953,10 +953,10 @@ export function Till({
                         <span className="num">{unit.sku_code}</span>
                         <span className="num">· …{unit.epc.slice(-8)}</span>
                         {unit.unitPriceMinor === null && (
-                          <span className="flag manual">TANPA HARGA</span>
+                          <span className="flag manual">NO PRICE</span>
                         )}
                       </div>
-                      <p>{unit.name ?? "Tidak ada di buku harga"}</p>
+                      <p>{unit.name ?? "Not in the price book"}</p>
                     </div>
                     <span className="cart-total num">
                       {unit.unitPriceMinor === null
@@ -965,11 +965,11 @@ export function Till({
                     </span>
                     <button
                       className="icon-btn"
-                      aria-label={`Lepas ${unit.name ?? unit.sku_code}`}
+                      aria-label={`Remove ${unit.name ?? unit.sku_code}`}
                       onClick={() =>
                         approval.ask({
                           action: "EDIT_CART",
-                          title: "Hapus barang dari keranjang",
+                          title: "Remove item from basket",
                           detail: `${unit.name ?? unit.sku_code} · …${unit.epc.slice(-8)}${
                             unit.unitPriceMinor === null
                               ? ""
@@ -1011,7 +1011,7 @@ export function Till({
                       setCharges((was) => was.filter((_, index) => index !== at))
                     }
                   >
-                    lepas
+                    remove
                   </button>
                 </span>
                 <span className="num">
@@ -1049,7 +1049,7 @@ export function Till({
               customerId !== null &&
               quote.pointsEarned > 0 && (
                 <div className="total-line">
-                  <span className="muted">Perkiraan poin</span>
+                  <span className="muted">Estimated points</span>
                   <span className="num">+{quote.pointsEarned}</span>
                 </div>
               )}
@@ -1063,9 +1063,9 @@ export function Till({
               <div className="total-line">
                 <span className="muted" style={{ fontSize: 11.5 }}>
                   {quote.problem ??
-                    (quote.stale ? "Menghitung…" : "Sementara — node belum menjawab")}
+                    (quote.stale ? "Calculating…" : "Provisional — the node has not answered")}
                 </span>
-                {unpriced && <span className="badge warn">Ada unit tanpa harga</span>}
+                {unpriced && <span className="badge warn">Some items have no price</span>}
               </div>
             )}
           </div>
@@ -1078,7 +1078,7 @@ export function Till({
                 aria-keyshortcuts="F8"
               >
                 <Icon name="x" />
-                Batal <kbd aria-hidden="true">F8</kbd>
+                Cancel <kbd aria-hidden="true">F8</kbd>
               </button>
               <button
                 className="pay"
@@ -1107,7 +1107,7 @@ export function Till({
             setPanel(null)
             approval.ask({
               action: "CANCEL_BASKET",
-              title: "Batalkan transaksi",
+              title: "Cancel sale",
               detail: `${units.length} unit · ${money(total, currency)}`,
               reason,
               epcs: units.map((unit) => unit.epc),
@@ -1117,7 +1117,7 @@ export function Till({
                 // (`till_approval.reason`), beside the supervisor who agreed.
                 setNote({
                   bad: false,
-                  text: `Transaksi dibatalkan — ${reason} · disetujui ${by.username}`,
+                  text: `Sale cancelled — ${reason} · approved by ${by.username}`,
                 })
                 clearBasket()
               },
@@ -1148,7 +1148,7 @@ export function Till({
             setPanel(null)
             approval.ask({
               action: "DROP_HOLD",
-              title: "Buang transaksi ditahan",
+              title: "Discard held sale",
               detail: `${found.units.length} unit · ditahan ${found.at}`,
               epcs: found.units.map((unit) => unit.epc),
               amountMinor: found.units.reduce(
@@ -1185,8 +1185,8 @@ export function Till({
                 bad: true,
                 text:
                   skipped > 0
-                    ? `Semua ${skipped} tag sesi itu sudah ada di keranjang.`
-                    : "Sesi itu tidak memuat satu tag pun.",
+                    ? `All ${skipped} tags in that session are already in the basket.`
+                    : "That session has no tags.",
               })
               return
             }
@@ -1211,10 +1211,10 @@ export function Till({
             setNote({
               bad: false,
               text:
-                `Ditarik ${fresh.length} tag ke keranjang` +
-                (skipped > 0 ? `, ${skipped} dilewati karena sudah ada` : "") +
+                `Pulled ${fresh.length} tags into the basket` +
+                (skipped > 0 ? `, ${skipped} skipped as already there` : "") +
                 (truncated
-                  ? ". Sesi itu memuat lebih dari 2000 tag — hanya 2000 pertama yang diambil node"
+                  ? ". That session has more than 2000 tags — the node took only the first 2000"
                   : "") +
                 ".",
             })
@@ -1245,15 +1245,21 @@ export function Till({
   )
 }
 
+/// "KASIR-3" → "Kasir 3". A till installed as a kasir is named by its seat;
+/// anything else (a desktop till with its own terminal name) is shown as is.
+export function kasirLabel(terminalId: string): string {
+  const seat = /^KASIR-(\d+)$/.exec(terminalId)
+  return seat === null ? terminalId : `Kasir ${seat[1]}`
+}
+
 export function Topbar({
   terminalId,
   actorId,
   unsent,
   waiting,
   onWaiting,
-  onSignOut,
+  onFinish,
   onLock,
-  onSetup,
   onDisplay,
 }: {
   terminalId?: string
@@ -1262,9 +1268,10 @@ export function Topbar({
   /// Tills waiting for a supervisor at this node. Shown only when some are.
   waiting?: number | null
   onWaiting?: () => void
-  onSignOut?: () => void
+  /// Finish the shift. The one way out: there is no sign-out button, because a
+  /// person leaves a till by counting their drawer, not by walking away from it.
+  onFinish?: () => void
   onLock?: () => void
-  onSetup?: () => void
   onDisplay?: () => void
 }) {
   // Every screen wears the same header, so the terminal and the person are read
@@ -1285,77 +1292,45 @@ export function Topbar({
             className="top-tool"
             onClick={onWaiting}
             disabled={onWaiting === undefined}
-            title="Buka Kasir menunggu untuk mencocokkan kode dan menyetujui"
+            title="Open the waiting tills to match the code and approve"
           >
             <Icon name="plug" />
             <span className="badge warn">
-              {waiting} kasir menunggu persetujuan
+              {waiting} waiting for approval
             </span>
           </button>
         )}
         {unsent !== undefined && unsent > 0 && (
-          <span className="badge warn">{unsent} belum terkirim</span>
+          <span className="badge warn">{unsent} not sent</span>
         )}
         {onDisplay !== undefined && (
           <button className="top-tool" onClick={onDisplay}>
             <Icon name="monitor" />
-            Layar pelanggan
-          </button>
-        )}
-        {onSetup !== undefined && (
-          <button className="top-tool" onClick={onSetup}>
-            <Icon name="settings" />
-            Setelan
+            Customer display
           </button>
         )}
         {onLock !== undefined && (
           <button className="top-tool" onClick={onLock}>
             <Icon name="lock" />
-            Kunci
+            Lock
           </button>
         )}
-        {(onDisplay !== undefined || onSetup !== undefined || onLock !== undefined) && (
+        {(onDisplay !== undefined || onLock !== undefined) && (
           <span className="top-sep" />
         )}
-        {/* Web has no shell to ask, so `inShell()` never returns true there —
-            but it still knows its own terminal id (`web.ts` mints one), and
-            "Browser" would say less than that. A small marker beside it says
-            which edition this tab is, since the two look identical
-            otherwise. */}
-        {/* The till is the seat the person holds, not the machine: "Kasir 3",
-            with the machine kept beside it (web) or as the hover text
-            (desktop) for whoever has to find which box it is. */}
-        {isWeb ? (
-          <>
-            {seat !== null && <span className="badge plain">{seat.label}</span>}
-            <span
-              className="badge plain"
-              style={seat !== null ? { marginLeft: 6 } : undefined}
-            >
-              {terminal}
-            </span>
-            <span className="badge plain" style={{ marginLeft: 6 }}>
-              Web
-            </span>
-          </>
-        ) : (
-          <span className="badge plain" title={seat !== null ? terminal : undefined}>
-            {seat !== null ? seat.label : inShell() ? terminal : "Browser"}
-          </span>
-        )}
+        {/* The till is the kasir it is installed as — "Kasir 1" — and nothing
+            else: no terminal id, no edition. */}
+        <span className="badge plain">
+          {seat !== null ? seat.label : kasirLabel(terminal)}
+        </span>
         {who !== null && (
           <span className="avatar" title={who}>
             {who.slice(0, 2).toUpperCase()}
           </span>
         )}
-        {onSignOut !== undefined && (
-          <button
-            className="icon-btn"
-            onClick={onSignOut}
-            aria-label="Keluar"
-            title="Keluar"
-          >
-            <Icon name="logout" />
+        {onFinish !== undefined && (
+          <button className="btn primary lg" onClick={onFinish}>
+            Finish shift
           </button>
         )}
       </div>
@@ -1367,10 +1342,7 @@ export function Topbar({
 export function Brand() {
   return (
     <span className="brand">
-      <span className="brand-mark">c.</span>central{" "}
-      <span className="muted" style={{ fontWeight: 400, fontSize: 12 }}>
-        kasir
-      </span>
+      <span className="brand-mark">c.</span>central
     </span>
   )
 }
@@ -1398,7 +1370,7 @@ function Extras({
   return (
     <div className="block">
       <div className="block-head">
-        <span className="label">Kupon &amp; member</span>
+        <span className="label">Coupon &amp; member</span>
       </div>
       <form
         className="inline-form"
@@ -1415,13 +1387,13 @@ function Extras({
           <input
             value={typed}
             onChange={(event) => setTyped(event.target.value)}
-            placeholder="Kode kupon"
+            placeholder="Coupon code"
             autoComplete="off"
-            aria-label="Kode kupon"
+            aria-label="Coupon code"
           />
         </div>
         <button className="btn" type="submit">
-          Pakai
+          Apply
         </button>
       </form>
       {coupons.length > 0 && (
@@ -1431,7 +1403,7 @@ function Extras({
               key={code}
               className="chip on"
               onClick={() => onDropCoupon(code)}
-              aria-label={`Lepas kupon ${code}`}
+              aria-label={`Remove coupon ${code}`}
             >
               {code}
               <Icon name="x" />
@@ -1441,7 +1413,7 @@ function Extras({
       )}
       {unappliedCoupons.length > 0 && (
         <div className="notice warn" role="status" style={{ marginTop: 8 }}>
-          {unappliedCoupons.join(", ")} belum memberi potongan.
+          {unappliedCoupons.join(", ")} — no discount yet.
         </div>
       )}
       {/* Written onto the sale exactly as typed. This node cannot check it —
@@ -1460,9 +1432,9 @@ function Extras({
                   : (memberFromScan(event.target.value) ?? event.target.value),
               )
             }
-            placeholder="Nomor member"
+            placeholder="Member number"
             autoComplete="off"
-            aria-label="Nomor member"
+            aria-label="Member number"
             maxLength={64}
           />
         </div>
@@ -1518,16 +1490,16 @@ function ReaderSessions({
       return
     }
     if ((reply.body.epcs?.length ?? 0) === 0) {
-      setProblem("Sesi itu tidak memuat satu tag pun.")
+      setProblem("That session has no tags.")
       return
     }
     onPull(reply.body.epcs ?? [], reply.body.truncated === true)
   }
 
   return (
-    <Sheet title="Ambil dari handheld" onClose={onBack}>
+    <Sheet title="Pull from handheld" onClose={onBack}>
       {items === null && problem === null && (
-        <p className="muted">Memuat sesi…</p>
+        <p className="muted">Loading sessions…</p>
       )}
 
       {problem !== null && <div className="notice warn">{problem}</div>}
@@ -1535,7 +1507,7 @@ function ReaderSessions({
       {items !== null && items.length === 0 && (
         <div className="empty">
           <Icon name="rfid" />
-          <h3>Belum ada sesi pindai</h3>
+          <h3>No scan sessions yet</h3>
         </div>
       )}
 
@@ -1545,7 +1517,7 @@ function ReaderSessions({
             <div className="row-item" key={one.reader_session_id}>
               <div className="grow">
                 <h3>
-                  {one.tag_count} tag · {one.device_count} pemindai
+                  {one.tag_count} tags · {one.device_count} scanners
                 </h3>
                 <p>
                   {one.reader_session_id}
@@ -1621,16 +1593,16 @@ function Board({
   return (
     <div className="utility">
       <div className="utility-row">
-        {tile("hold", "Tahan", onHold, { disabled: !canHold })}
-        {tile("list", "Ditahan", onResume, { key: "F9", disabled: held === 0, count: held })}
-        {tile("bag", "Kantong", onBags, { key: "F4" })}
-        {tile("rfid", "Dari handheld", onRfid, { key: "F6" })}
+        {tile("hold", "Hold", onHold, { disabled: !canHold })}
+        {tile("list", "Held", onResume, { key: "F9", disabled: held === 0, count: held })}
+        {tile("bag", "Bags", onBags, { key: "F4" })}
+        {tile("rfid", "From handheld", onRfid, { key: "F6" })}
       </div>
       <div className="utility-row">
-        {tile("return", "Retur", () => onGo("return"), { key: "F3" })}
+        {tile("return", "Return", () => onGo("return"), { key: "F3" })}
         {tile("void", "Void", () => onGo("void"))}
-        {tile("star", "Tukar poin", () => onGo("redeem"))}
-        {tile("wallet", "Shift & kas", () => onGo("shift"), { key: "F12" })}
+        {tile("star", "Redeem points", () => onGo("redeem"))}
+        {tile("wallet", "Shift & cash", () => onGo("shift"), { key: "F12" })}
       </div>
     </div>
   )
@@ -1663,7 +1635,7 @@ function Statusbar({
       if (!alive) return
       setDevices([
         { what: "RFID", on: rfid.bound, detail: rfid.detail },
-        { what: "Sidik jari", on: fp.bound, detail: fp.detail },
+        { what: "Fingerprint", on: fp.bound, detail: fp.detail },
       ])
     })()
     return () => {
@@ -1673,11 +1645,11 @@ function Statusbar({
 
   const sync =
     refused !== undefined && refused > 0
-      ? { tone: "warn", text: `${refused} penjualan ditolak node` }
+      ? { tone: "warn", text: `${refused} sales refused by the node` }
       : unsent !== undefined && unsent > 0
-        ? { tone: "warn", text: `${unsent} penjualan menunggu terkirim` }
+        ? { tone: "warn", text: `${unsent} sales waiting to be sent` }
         : unsent !== undefined
-          ? { tone: "on", text: "Semua penjualan terkirim" }
+          ? { tone: "on", text: "All sales sent" }
           : null
 
   return (
@@ -1907,7 +1879,7 @@ function Payment({
       taken
         .filter((one) => one.method === "BENEFIT" && one.reference !== null)
         .map((one) =>
-          returnBenefit(one.reference as string, one.amountMinor, "dibatalkan di kasir").catch(
+          returnBenefit(one.reference as string, one.amountMinor, "cancelled at the till").catch(
             () => {
               // Head office can be asked again from the returns screen; the
               // cashier is not held at the counter for it.
@@ -1923,7 +1895,7 @@ function Payment({
         releaseVoucher(
           one.reference as string,
           one.voucherCheckoutId as string,
-          "kasir kembali ke keranjang",
+          "till back to basket",
         ).catch(() => {
           // Nothing to do about it here: the hold lapses by itself in minutes,
           // and refusing to let the cashier leave would be worse than the wait.
@@ -1954,7 +1926,7 @@ function Payment({
   async function findHolder() {
     const code = benefitCode.replace(/\D/g, "")
     if (code.length !== 6) {
-      setProblem("Kode saldo karyawan terdiri dari 6 angka.")
+      setProblem("An employee balance code is 6 digits.")
       return
     }
     setBusy(true)
@@ -1962,7 +1934,7 @@ function Payment({
     const reply = await lookupBenefit(code)
     setBusy(false)
     if (!reply.ok || reply.body === undefined || reply.body === null) {
-      setProblem(benefitRefusal(reply, "Kode tidak dikenali."))
+      setProblem(benefitRefusal(reply, "Code not recognised."))
       return
     }
     setHolder(reply.body)
@@ -1977,12 +1949,12 @@ function Payment({
       return
     }
     if (basketHasPromotion) {
-      setProblem("Saldo karyawan tidak berlaku bersama promo.")
+      setProblem("Employee balance can't be used with a promotion.")
       return
     }
     const amount = Math.min(entered > 0 ? entered : outstanding, outstanding, holder.balance_minor)
     if (amount <= 0) {
-      setProblem("Tidak ada saldo yang bisa dipakai.")
+      setProblem("There is no balance to use.")
       return
     }
     setBusy(true)
@@ -1991,7 +1963,7 @@ function Payment({
     const reply = await spendBenefit(benefitCode.replace(/\D/g, ""), ref, amount, basketHasPromotion)
     setBusy(false)
     if (!reply.ok) {
-      setProblem(benefitRefusal(reply, "Saldo tidak bisa dipakai."))
+      setProblem(benefitRefusal(reply, "The balance can't be used."))
       return
     }
     setTaken((was) => [
@@ -2023,10 +1995,10 @@ function Payment({
     if (one === undefined || one.method !== "BENEFIT" || one.reference === null) return
     setBusy(true)
     setProblem(null)
-    const reply = await returnBenefit(one.reference, one.amountMinor, "dibatalkan di kasir")
+    const reply = await returnBenefit(one.reference, one.amountMinor, "cancelled at the till")
     setBusy(false)
     if (!reply.ok) {
-      setProblem(benefitRefusal(reply, "Saldo belum bisa dikembalikan."))
+      setProblem(benefitRefusal(reply, "The balance can't be returned yet."))
       return
     }
     saleRef.current = newCheckoutId()
@@ -2039,24 +2011,24 @@ function Payment({
       return
     }
     if (needsBank && choice === null) {
-      setProblem("Pilih banknya.")
+      setProblem("Choose the bank.")
       return
     }
     if (needsReference && reference.trim().length < 4) {
       setProblem(
         method === "VOUCHER"
-          ? "Masukkan kode voucher."
-          : "Masukkan kode approval, minimal 4 karakter.",
+          ? "Enter the voucher code."
+          : "Enter the approval code, at least 4 characters.",
       )
       return
     }
     if (needsReference && looksLikeACard) {
-      setProblem("Itu seperti nomor kartu. Tulis kode approval-nya saja.")
+      setProblem("That looks like a card number. Enter only the approval code.")
       return
     }
     if (method !== "CASH" && offered > outstanding) {
       setProblem(
-        "Hanya tunai yang boleh melebihi sisa — kembalian keluar dari laci, bukan dari kartu.",
+        "Only cash may exceed the balance due — change comes out of the drawer, not the card.",
       )
       return
     }
@@ -2076,7 +2048,7 @@ function Payment({
       if (!reply.ok || reply.body?.authorization_id === undefined) {
         setProblem(
           reply.problem ??
-            `Voucher ${code} tidak bisa ditahan di pusat — periksa kodenya, lalu pastikan sambungan ke kantor pusat hidup.`,
+            `Voucher ${code} could not be held at head office — check the code, then check the connection to head office.`,
         )
         return
       }
@@ -2132,14 +2104,14 @@ function Payment({
                 <h3>Lunas</h3>
                 <p>
                   {change > 0
-                    ? <>Kembalian <strong className="num">{money(change, currency)}</strong></>
-                    : "Tanpa kembalian"}
+                    ? <>Change <strong className="num">{money(change, currency)}</strong></>
+                    : "No change"}
                 </p>
               </div>
             ) : (
               <>
                 <div>
-                  <span className="label">Metode pembayaran</span>
+                  <span className="label">Payment method</span>
                   <div className="method-grid" style={{ marginTop: 8 }}>
                     {tiles.map((one) => (
                       <button
@@ -2159,7 +2131,7 @@ function Payment({
                         <Icon name={one.icon} />
                         {one.label}
                         {one.wire === "BENEFIT" && basketHasPromotion && (
-                          <small className="muted"> Tidak berlaku dengan promo</small>
+                          <small className="muted"> Not valid with a promotion</small>
                         )}
                       </button>
                     ))}
@@ -2191,7 +2163,7 @@ function Payment({
                 {isBenefit && (
                   <>
                     <label className="field">
-                      Kode saldo karyawan
+                      Employee balance code
                       <input
                         value={benefitCode}
                         onChange={(event) => {
@@ -2206,7 +2178,7 @@ function Payment({
                         }}
                         inputMode="numeric"
                         autoComplete="off"
-                        placeholder="6 angka dari ponsel karyawan"
+                        placeholder="6 digits from the employee's phone"
                         autoFocus
                       />
                     </label>
@@ -2224,12 +2196,12 @@ function Payment({
                 {needsReference && (
                   <label className="field">
                     {method === "VOUCHER"
-                      ? "Kode voucher"
+                      ? "Voucher code"
                       : method === "QRIS"
-                        ? "Nomor referensi QRIS"
+                        ? "QRIS reference number"
                         : method === "EWALLET"
-                          ? "Nomor referensi e-wallet"
-                          : "Kode approval EDC"}
+                          ? "E-wallet reference number"
+                          : "EDC approval code"}
                     <input
                       value={reference}
                       onChange={(event) => setReference(event.target.value)}
@@ -2240,7 +2212,7 @@ function Payment({
                 )}
 
                 <div>
-                  <span className="label">Nominal</span>
+                  <span className="label">Amount</span>
                   <div className="amount-field" style={{ marginTop: 8 }}>
                     <span className="rp">Rp</span>
                     <input
@@ -2254,7 +2226,7 @@ function Payment({
                         ? Math.min(outstanding, holder.balance_minor)
                         : outstanding
                       ).toLocaleString("id-ID")}
-                      aria-label="Nominal pembayaran"
+                      aria-label="Payment amount"
                       autoFocus={!isBenefit}
                     />
                   </div>
@@ -2267,7 +2239,7 @@ function Payment({
                         <button
                           key={key}
                           className={key === "⌫" ? "del" : undefined}
-                          aria-label={key === "⌫" ? "Hapus satu angka" : undefined}
+                          aria-label={key === "⌫" ? "Delete one digit" : undefined}
                           onClick={() =>
                             setTyped((was) =>
                               key === "⌫"
@@ -2311,11 +2283,11 @@ function Payment({
                 {settled
                   ? busy
                     ? "Membukukan…"
-                    : "Selesaikan transaksi"
+                    : "Complete sale"
                   : isBenefit
                     ? holder === null
-                      ? "Cek saldo"
-                      : `Pakai saldo ${money(
+                      ? "Check balance"
+                      : `Use balance ${money(
                           Math.min(
                             entered > 0 ? entered : outstanding,
                             outstanding,
@@ -2323,7 +2295,7 @@ function Payment({
                           ),
                           currency,
                         )}`
-                  : `${partial ? "Bayar sebagian" : "Bayar"} ${money(
+                  : `${partial ? "Part payment" : "Pay"} ${money(
                       partial ? entered : offered,
                       currency,
                     )}${
@@ -2341,7 +2313,7 @@ function Payment({
         <aside className="pay-side">
           <button className="pay-back" onClick={() => void leavePayment()}>
             <Icon name="back" />
-            Kembali ke keranjang
+            Back to basket
             <kbd aria-hidden="true">Esc</kbd>
           </button>
           <div className="pay-summary">
@@ -2361,7 +2333,7 @@ function Payment({
           </div>
 
           <div className="pay-scroll no-bar">
-            <span className="label">Barang</span>
+            <span className="label">Items</span>
             <div className="pay-items">
               {units.map((unit) => (
                 <div className="pay-item" key={unit.epc}>
@@ -2378,7 +2350,7 @@ function Payment({
             {coupons.length > 0 && (
               <>
                 <span className="label" style={{ marginTop: 4 }}>
-                  Kupon
+                  Coupon
                 </span>
                 <div className="chips">
                   {coupons.map((code) => (
@@ -2427,12 +2399,12 @@ function Payment({
             {settled ? (
               <>
                 <div className="due-line change">
-                  <span>Kembalian</span>
+                  <span>Change</span>
                   <strong className="num">{money(change, currency)}</strong>
                 </div>
                 {change > 0 && (
                   <div className="denoms">
-                    <span className="label">Kembalikan</span>
+                    <span className="label">Hand back</span>
                     {countOut(change).map(([many, denomination]) => (
                       <div className="denom" key={denomination}>
                         <span>
@@ -2495,7 +2467,7 @@ function Sale({
       const { target, here: usb } = receiptTarget(config)
       if (sold.saleId === null || config === null) return
       const drawer = copy ? "NONE" : drawerOnSale(config)
-      const done = copy ? "Salinan struk dicetak." : "Struk dicetak."
+      const done = copy ? "Receipt copy printed." : "Receipt printed."
       // The USB printer on this till: the node renders, this till sends.
       // `usb` is never set in web — there is no peripherals screen there to
       // choose one — but the shell-only send is skipped by edition too,
@@ -2535,16 +2507,16 @@ function Sale({
           className="overlay-card"
           role="dialog"
           aria-modal="true"
-          aria-label={sold.accepted ? "Transaksi selesai" : "Tersimpan di terminal"}
+          aria-label={sold.accepted ? "Sale complete" : "Saved on this terminal"}
         >
           <span className={sold.accepted ? "seal" : "seal warn"}>
             <Icon name={sold.accepted ? "check" : "clock"} />
           </span>
-          <h3>{sold.accepted ? "Transaksi selesai" : "Tersimpan di terminal"}</h3>
+          <h3>{sold.accepted ? "Sale complete" : "Saved on this terminal"}</h3>
           <p className="overlay-total num">{money(sold.totalMinor, currency)}</p>
           {sold.changeMinor > 0 && (
             <div className="overlay-change">
-              <small>Kembalian</small>
+              <small>Change</small>
               <strong className="num">
                 {money(sold.changeMinor, currency)}
               </strong>
@@ -2552,7 +2524,7 @@ function Sale({
           )}
           {!sold.accepted && (
             <div className="notice warn" style={{ width: "100%" }}>
-              Menunggu terkirim ke node — dikirim ulang otomatis.
+              Waiting to be sent to the node — it is resent automatically.
               {sold.problem !== null && <> {sold.problem}</>}
             </div>
           )}
@@ -2579,7 +2551,7 @@ function Sale({
                 onClick={() => void print(true)}
               >
                 <Icon name="print" />
-                Cetak ulang
+                Reprint
               </button>
             </>
           )}
@@ -2589,7 +2561,7 @@ function Sale({
             onClick={onNext}
             autoFocus
           >
-            Transaksi berikutnya
+            Next sale
           </button>
         </div>
       </div>

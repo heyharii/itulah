@@ -16,7 +16,7 @@ import { Stat, StatStrip } from "@/components/ui/stat-strip"
 import { Banner } from "@/components/ui/states"
 import { moment } from "@/lib/format"
 import {
-  awaitingOvertimeAt,
+  awaitingOvertimeQuery,
   hrKeys,
   isoDay,
   isoMonth,
@@ -25,7 +25,7 @@ import {
   readDate,
   readMinutes,
   readMonth,
-  rules,
+  rulesQuery,
   withdrawOvertime,
   type StoreScope,
 } from "@/lib/queries/hr"
@@ -112,10 +112,7 @@ function Overtime({
   onOrdering: (open: boolean) => void
 }) {
   const team = useTeam(scope)
-  const awaiting = useQuery({
-    queryKey: hrKeys.overtime(scope.unit_id),
-    queryFn: ({ signal }) => awaitingOvertimeAt(scope.unit_id, signal),
-  })
+  const awaiting = useQuery(awaitingOvertimeQuery(scope.unit_id))
   const people = (team.data?.rows ?? []).filter(
     (person) => person.status === "ACTIVE",
   )
@@ -127,11 +124,7 @@ function Overtime({
         overtimeOrdersOf(person.employee_id, signal),
     })),
   })
-  const policy = useQuery({
-    queryKey: hrKeys.rules("overtime"),
-    queryFn: ({ signal }) => rules("overtime", signal),
-    staleTime: 5 * 60_000,
-  })
+  const policy = useQuery(rulesQuery("overtime"))
   const [open, setOpen] = useState<OvertimeOrderView | null>(null)
   const month = isoMonth(new Date())
 

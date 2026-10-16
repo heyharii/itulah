@@ -22,7 +22,7 @@ export function KpiStrip({
         // `group/kpis`: a card with no delta line reserves one while any card
         // in the strip has a delta, so every figure in the row stands on the
         // same line — see `Kpi`.
-        "group/kpis mb-4 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6",
+        "kpi-strip group/kpis mb-4 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6",
         "max-md:gap-px max-md:overflow-hidden max-md:rounded-card max-md:border max-md:border-hairline max-md:bg-hairline max-md:shadow-soft max-md:[&_.kpi-card]:rounded-none! max-md:[&_.kpi-card]:border-0! max-md:[&_.kpi-card]:shadow-none! max-md:[&>*:last-child:nth-child(odd)]:col-span-2",
         className,
       )}
@@ -50,8 +50,8 @@ export function Kpi({
     // the rest of the row, which reads as four unrelated boxes instead of one
     // strip.
     <div className="kpi-card flex h-full flex-col rounded-card border border-hairline bg-canvas px-4 py-2.5 shadow-soft">
-      <div className="text-eyebrow font-medium text-body">{label}</div>
-      <div className="mt-auto pt-1.5 text-[1.125rem] leading-none font-semibold tracking-[-0.02em] text-ink tabular-nums">
+      <div className="kpi-label text-eyebrow font-medium text-body">{label}</div>
+      <div className="kpi-value mt-auto pt-1.5 text-[1.125rem] leading-none font-semibold tracking-[-0.02em] text-ink tabular-nums">
         {value}
       </div>
       {delta ? (
@@ -111,7 +111,7 @@ export function KpiRow({
   return (
     <div
       className={cn(
-        "mb-4 flex flex-wrap overflow-hidden rounded-card border border-hairline bg-canvas shadow-soft md:hidden",
+        "kpi-row mb-4 flex flex-wrap overflow-hidden rounded-card border border-hairline bg-canvas shadow-soft md:hidden",
         className,
       )}
     >
@@ -124,7 +124,7 @@ export function KpiRow({
             // Equal cells; a wrapped second row starts with a rule over it.
             style={wrap ? { flex: "1 1 33%" } : { flex: item.wide ? 1.6 : 1 }}
             className={cn(
-              "min-w-0 px-0.5 pt-[0.6875rem] pb-2.5 text-center",
+              "kpi-row-cell min-w-0 px-0.5 pt-[0.6875rem] pb-2.5 text-center",
               index > 0 && "border-l border-hairline",
               wrap && index >= 3 && "border-t",
               wrap && index === 3 && "border-l-0",

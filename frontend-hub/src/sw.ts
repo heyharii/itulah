@@ -1,9 +1,5 @@
-import {
-  cleanupOutdatedCaches,
-  createHandlerBoundToURL,
-  precacheAndRoute,
-} from "workbox-precaching"
-import { NavigationRoute, registerRoute } from "workbox-routing"
+import { cleanupOutdatedCaches, precacheAndRoute } from "workbox-precaching"
+import { registerRoute } from "workbox-routing"
 
 import { recordRoute } from "./lib/record-route"
 
@@ -66,18 +62,20 @@ declare const self: WorkerScope
 
 // ── The shell ───────────────────────────────────────────────────────────────
 
+// The precache is filled by INSTALL and by nothing else: an active worker
+// whose storage was cleared by hand (or by an OS cleanup) serves no shell
+// until a NEW `sw.js` arrives — which every deploy is, because the manifest
+// revisions change with the build. Verified 2026-10-10: deleting the caches
+// without changing these bytes leaves an activated worker with an empty
+// precache and an offline open that fails; the next build fixes it.
 precacheAndRoute(self.__WB_MANIFEST)
 cleanupOutdatedCaches()
 
-// A navigation anywhere in the app is answered with the shell, and the router
-// takes it from there — except the two backends behind this origin. A link
-// to `/api/v1/files/…` opened in a tab must reach the server, not be handed
-// an app that does not know that path.
-registerRoute(
-  new NavigationRoute(createHandlerBoundToURL("index.html"), {
-    denylist: [/^\/api\//, /^\/edge\//],
-  })
-)
+// Under SSR the document is rendered per request by the Start server, so the
+// precached-shell navigation fallback of the SPA build is gone: there is no
+// `index.html` to bind to, and an offline open of a URL is the browser's own
+// offline page. Hashed assets below are still served cache-first and kept per
+// screen, which is the part the offline PO flow depends on.
 
 // ── The screens visited ─────────────────────────────────────────────────────
 

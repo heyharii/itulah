@@ -1,30 +1,28 @@
-import { useInfiniteQuery } from "@tanstack/react-query"
+import { useSuspenseInfiniteQuery } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { useMemo, useState } from "react"
+import { Suspense, useDeferredValue, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { DockTools } from "@/components/shell/dock-tools"
 import { Card } from "@/components/ui/card"
 import { DataTable, dockSortOf } from "@/components/ui/data-table"
-import { Input } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
+import { BarSpacer, ExpandingSearch } from "@/components/ui/list-chrome"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
-import { Segmented, Toolbar } from "@/components/ui/segmented"
-import { Banner, EmptyState } from "@/components/ui/states"
+import { SubTabs } from "@/components/ui/sub-tabs"
+import { Banner, EmptyState, LoadingState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { useFilterState, type Filter, type FilterField } from "@/lib/filters"
 import { count, moment } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import {
-  inventoryKeys,
-  reconciliationsPage,
+  reconciliationsPageQuery,
   type Reconciliation,
   type ReconciliationScope,
 } from "@/lib/queries/inventory"
-import { queryState } from "@/lib/query-state"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { useDebounced } from "@/lib/use-debounced"
 import { CardName } from "@/components/ui/phone-cards"
@@ -250,6 +248,23 @@ const cards: ColumnDef<TableSetup, Reconciliation>[] = [
 ]
 
 export function Reconciliations() {
+  // The title stands at once; the claims wait for the first page and stream in
+  // with it (the server starts the read too).
+  return (
+    <PageContent>
+      <PageHeader
+        crumb="Inventory"
+        title="Claim Reconciliation"
+        sub="Every tag a DC says it sent, against every tag a store says it received."
+      />
+      <Suspense fallback={<LoadingState>Matching the claims…</LoadingState>}>
+        <ClaimBook />
+      </Suspense>
+    </PageContent>
+  )
+}
+
+function ClaimBook() {
   const phone = useLayout() === "phone"
   const [slice, setSlice] = useState<"attention" | "all">("attention")
   const [query, setQuery] = useState("")
@@ -274,20 +289,16 @@ export function Reconciliations() {
     }
   }, [filters.filters, needle, slice, sorting])
 
-  const report = useInfiniteQuery({
-    queryKey: inventoryKeys.reconciliations(scope),
-    queryFn: ({ pageParam, signal }) =>
-      reconciliationsPage({ ...scope, cursor: pageParam }, signal),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) => last.next_cursor ?? undefined,
-    placeholderData: (previous) => previous,
-  })
+  // The deferred scope keeps the rows in hand on screen while the next
+  // question is read, so a keystroke does not empty the table.
+  const asked = useDeferredValue(scope)
+  const report = useSuspenseInfiniteQuery(reconciliationsPageQuery(asked))
 
   const rows = useMemo(
-    () => report.data?.pages.flatMap((page) => page.rows) ?? [],
+    () => report.data.pages.flatMap((page) => page.rows),
     [report.data]
   )
-  const head = report.data?.pages[0]
+  const head = report.data.pages[0]
 
   const model = useMemo(
     () => ({
@@ -331,13 +342,7 @@ export function Reconciliations() {
     : undefined
 
   return (
-    <PageContent>
-      <PageHeader
-        crumb="Inventory"
-        title="Claim Reconciliation"
-        sub="Every tag a DC says it sent, against every tag a store says it received."
-      />
-
+    <>
       {/* On a phone the slice, the search, the filter and the order are the
           dock's. */}
       <DockTools
@@ -365,92 +370,119 @@ export function Reconciliations() {
         }}
       />
 
-      {queryState(report, {
-        loading: "Matching the claims…",
-        render: (answer) => {
-          // The summary is the whole fleet's and arrives on every page.
-          const data = answer.pages[0]
-          return (
-            <>
-              <KpiStrip>
-                <Kpi
-                  label="Matched"
-                  value={count(data.summary.matched)}
-                  delta={`${count(data.summary.matched_unattributed)} unexplained`}
-                  tone={data.summary.matched_unattributed > 0 ? "down" : "up"}
-                />
-                <Kpi label="In the air" value={count(data.summary.dc_only)} />
-                <Kpi
-                  label="Store only"
-                  value={count(data.summary.store_only)}
-                  tone={data.summary.store_only > 0 ? "down" : "flat"}
-                />
-                <Kpi
-                  label="Unresolved"
-                  value={count(data.summary.unresolved)}
-                />
-                <Kpi label="Conflicts" value={count(data.summary.conflicts)} />
-                <Kpi label="Read at" value={moment(data.as_of)} />
-              </KpiStrip>
+      {(() => {
+        // The summary is the whole fleet's and arrives on every page.
+        const data = report.data.pages[0]
+        return (
+          <>
+            <KpiStrip>
+              <Kpi
+                label="Matched"
+                value={count(data.summary.matched)}
+                delta={`${count(data.summary.matched_unattributed)} unexplained`}
+                tone={data.summary.matched_unattributed > 0 ? "down" : "up"}
+              />
+              <Kpi label="In the air" value={count(data.summary.dc_only)} />
+              <Kpi
+                label="Store only"
+                value={count(data.summary.store_only)}
+                tone={data.summary.store_only > 0 ? "down" : "flat"}
+              />
+              <Kpi label="Unresolved" value={count(data.summary.unresolved)} />
+              <Kpi label="Conflicts" value={count(data.summary.conflicts)} />
+              <Kpi label="Read at" value={moment(data.as_of)} />
+            </KpiStrip>
 
-              {data.summary.store_only +
-                data.summary.unresolved +
-                data.summary.conflicts >
-                0 && (
-                <Banner tone="warn" className="mb-[1.125rem]">
-                  While any of these stands, the server will not certify a fleet
-                  total: a tag claimed by a store and by nobody else is either
-                  stock that arrived from nowhere or a despatch that was never
-                  recorded, and it cannot tell which.
-                </Banner>
+            {data.summary.store_only +
+              data.summary.unresolved +
+              data.summary.conflicts >
+              0 && (
+              <Banner tone="warn" className="mb-[1.125rem]">
+                While any of these stands, the server will not certify a fleet
+                total: a tag claimed by a store and by nobody else is either
+                stock that arrived from nowhere or a despatch that was never
+                recorded, and it cannot tell which.
+              </Banner>
+            )}
+
+            {/* The slice is the page's status: tabs on a desk, the dock's
+                  status button on a phone. */}
+            <SubTabs
+              className="max-md:hidden"
+              tabs={[
+                {
+                  value: "attention",
+                  label: (
+                    <span>
+                      Needs answering
+                      {attention !== undefined && (
+                        <span className="ml-1.5 text-body tabular-nums">
+                          {count(attention)}
+                        </span>
+                      )}
+                    </span>
+                  ),
+                },
+                {
+                  value: "all",
+                  label: (
+                    <span>
+                      Every claim
+                      {/* The server's total is over the slice being read:
+                            beside "Needs answering" it would say 0. */}
+                      {slice === "all" && (
+                        <span className="ml-1.5 text-body tabular-nums">
+                          {count(data.total)}
+                        </span>
+                      )}
+                    </span>
+                  ),
+                },
+              ]}
+              value={slice}
+              onChange={(next) => setSlice(next as "attention" | "all")}
+            />
+
+            <div className="group/bar mb-3.5 flex min-h-[2.25rem] flex-wrap items-center gap-2 max-md:hidden">
+              <ExpandingSearch
+                value={query}
+                onChange={setQuery}
+                label="Search claims"
+              />
+              <FilterPanel model={model} />
+              <BarSpacer />
+              <span className="text-[0.9375rem] text-mute tabular-nums">
+                {count(data.total)} claims
+              </span>
+            </div>
+
+            <Card
+              aria-busy={asked !== scope || undefined}
+              className="list-swap overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none"
+            >
+              {rows.length === 0 ? (
+                <EmptyState>
+                  {needle !== "" || filters.filters.length > 0
+                    ? "No claim matches what you asked for."
+                    : slice === "attention"
+                      ? "Every claim matches. Nothing here is holding the fleet total back."
+                      : "No DC has claimed a despatch and no store has claimed a receipt."}
+                </EmptyState>
+              ) : (
+                <DataTable<Reconciliation>
+                  refresh={[report]}
+                  table={table}
+                  more={report}
+                  className="max-h-[calc(100dvh-24rem)]"
+                  cardSort={false}
+                  cardsApart
+                  cardLead
+                />
               )}
-
-              <Toolbar className="max-md:hidden">
-                <Segmented
-                  value={slice}
-                  onChange={setSlice}
-                  options={[
-                    { value: "attention", label: "Needs answering" },
-                    { value: "all", label: "Every claim" },
-                  ]}
-                />
-                <Input
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  className="h-8 w-64"
-                />
-                <FilterPanel model={model} />
-                <Toolbar.Spacer />
-                <span className="text-[0.875rem] text-mute tabular-nums">
-                  {count(data.total)} claims
-                </span>
-              </Toolbar>
-
-              <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-                {rows.length === 0 ? (
-                  <EmptyState>
-                    {needle !== "" || filters.filters.length > 0
-                      ? "No claim matches what you asked for."
-                      : slice === "attention"
-                        ? "Every claim matches. Nothing here is holding the fleet total back."
-                        : "No DC has claimed a despatch and no store has claimed a receipt."}
-                  </EmptyState>
-                ) : (
-                  <DataTable<Reconciliation>
-                    refresh={[report]}
-                    table={table}
-                    more={report}
-                    className="max-h-[calc(100dvh-26rem)]"
-                    cardSort={false}
-                    cardsApart
-                    cardLead
-                  />
-                )}
-              </Card>
-            </>
-          )
-        },
-      })}
-    </PageContent>
+            </Card>
+          </>
+        )
+      })()}
+    </>
   )
 }

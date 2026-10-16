@@ -13,7 +13,9 @@ use axum::{
 };
 use chrono::{Duration, Utc};
 use serde_json::{json, Value};
-use tower_http::{cors::CorsLayer, services::ServeDir, trace::TraceLayer};
+use tower_http::{
+    compression::CompressionLayer, cors::CorsLayer, services::ServeDir, trace::TraceLayer,
+};
 use uuid::Uuid;
 
 // lane-H
@@ -41,6 +43,7 @@ pub mod chat;
 pub mod claims;
 pub mod clock;
 pub mod colours;
+pub mod item_photo;
 /// The payroll component catalogue, its ratified rates, and the one-off
 /// figures a place files. See `domain::component`.
 pub mod components;
@@ -102,7 +105,9 @@ pub mod punch;
 pub mod push;
 pub mod records;
 pub mod reports;
+pub mod purchase_order_links;
 pub mod return_notes;
+pub mod return_proofs;
 pub mod roles;
 pub mod roster;
 pub mod scope;
@@ -264,6 +269,8 @@ pub fn router(state: AppState) -> Router {
     .route("/api/v1/inventory/missing/{id}/lost", post(lost))
     .route("/api/v1/inventory/missing/{id}/dispose", post(dispose))
     .route("/api/v1/inventory/as-of", get(as_of))
+    .route("/api/v1/inventory/stock-card", get(stock_card))
+    .route("/api/v1/inventory/stock-card/lines", get(stock_card_lines))
     .route("/api/v1/inventory/replay", post(replay))
     .route("/api/v1/inventory/repost", post(repost))
     .route("/api/v1/inventory/control", get(control))
@@ -416,6 +423,19 @@ pub fn router(state: AppState) -> Router {
         "/api/v1/supplier-items",
         get(suppliers::search_supplier_items),
     )
+    // A new item's photo read by Jev for its division, colour, sizes and
+    // tags (owner, 15 Oct 2026). Under `supplier-items` so the buying
+    // section and role that may add an item may ask.
+    .route(
+        "/api/v1/supplier-items-from-photo",
+        get(item_photo::photo_reading_status).post(item_photo::read_item_photo),
+    )
+    // A new article's photo read by Jev for its name and possible duplicates
+    // (owner, 15 Oct 2026). Under `article-setups` for the same reason.
+    .route(
+        "/api/v1/article-setups-from-photo",
+        post(item_photo::read_article_photo),
+    )
     .route(
         "/api/v1/catalogue/vocabulary",
         get(suppliers::catalogue_vocabulary),
@@ -467,6 +487,14 @@ pub fn router(state: AppState) -> Router {
     // The public link of a Surat Jalan Retur (0962): the hub makes it when the
     // note is shown or generated (signed in), the QR on the paper opens it
     // (public, read-only; `auth::is_public`).
+    .route(
+        "/api/v1/purchase-orders/{id}/link",
+        post(purchase_order_links::create),
+    )
+    .route(
+        "/api/v1/public/purchase-orders/{token}",
+        get(purchase_order_links::show),
+    )
     .route("/api/v1/return-notes", post(return_notes::create))
     .route(
         "/api/v1/public/return-notes/{token}",
@@ -519,6 +547,12 @@ pub fn router(state: AppState) -> Router {
     .route(
         "/api/v1/stores/{unit}/server/install",
         post(stores::install_server),
+    )
+    // Disconnect the machine that serves the store (its key stops working,
+    // the server goes back to not installed) and get a fresh install code.
+    .route(
+        "/api/v1/stores/{unit}/server/disconnect",
+        post(stores::disconnect_server),
     )
     // A store's Actions menu (remote actions, 28 Sep 2026): what may be done
     // to its server and devices, doing it, and where each action got to.
@@ -952,6 +986,10 @@ pub fn router(state: AppState) -> Router {
     .route(
         "/api/v1/purchase-returns",
         get(suppliers::list_purchase_returns),
+    )
+    .route(
+        "/api/v1/purchase-returns/{id}/proof",
+        get(return_proofs::get).put(return_proofs::put),
     )
     // PO intake: uploads become drafts; the order book is only touched by
     // the order route, pressed by a buyer in the review summary. The body
@@ -1673,6 +1711,10 @@ pub fn router(state: AppState) -> Router {
     // One queue rather than one screen per kind of thing: a manager has
     // five minutes and a list, not three tasks.
     .route("/api/v1/leave-requests/pending", get(leave::pending))
+    // Everybody's balances inside the caller's reach, for the Balances list —
+    // one read, not one per person. The per-person route below stays the
+    // record's own.
+    .route("/api/v1/leave-balances", get(leave::everyone_balances))
     // `{id}` accepts `me` on all four, like the rest of the employee
     // surface. There is deliberately no route that spends a balance: days
     // leave one only through an approval, which mints the deduction and
@@ -1710,6 +1752,9 @@ pub fn router(state: AppState) -> Router {
     // order nobody answers authorizes nothing, so an unanswered one is
     // overtime that will be worked unpaid or not worked at all.
     .route("/api/v1/overtime-orders/awaiting", get(overtime::awaiting))
+    // Every order at the caller's places in a window, answered or not, for
+    // the list's Agreed, Declined and All beside the queue.
+    .route("/api/v1/overtime-orders", get(overtime::orders))
     .route(
         "/api/v1/employees/{id}/overtime-orders",
         get(overtime::list_orders).post(overtime::issue),
@@ -2933,6 +2978,13 @@ pub fn router(state: AppState) -> Router {
             member::require_member,
         ))
         .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
+        // Brotli/gzip on the way out (owner, 2026-10-10: "brotli sudah?").
+        // The default predicate already leaves `text/event-stream` alone — the
+        // assistant's stream must never be buffered — and skips bodies too
+        // small to be worth it. In production Caddy gzips as well, but it sees
+        // the encoding already set and steps aside, so the browser gets this
+        // node's Brotli.
+        .layer(CompressionLayer::new())
         .layer(cors_layer(&state.config))
         .layer(TraceLayer::new_for_http())
         .with_state(state)
@@ -2946,6 +2998,12 @@ async fn health(State(state): State<AppState>) -> Result<Json<Value>, AppError> 
         "status": "ok",
         "node_id": state.config.node_id,
         "node_role": state.config.node_role,
+        // Whether this server hosts many businesses (`sandbox`) or one. The
+        // browser reads this instead of spending a round trip on
+        // `/api/v1/tenancy` to be told "single" — the answer on every
+        // production node (owner, 2026-10-10: reduce requests, keep it
+        // fastest). The sandbox gateway answers `sandbox` in its own health.
+        "mode": "single",
         "ledger_authority": "movement",
         // Where the Gudang's work is done: `cloud` here (`/api/v1/dc/*`), or
         // `edge` on a DC server in the warehouse (`/edge/api/v1/dc/*`).
@@ -3497,6 +3555,22 @@ async fn as_of(
         )
         .await?,
     ))
+}
+/// `GET /api/v1/inventory/stock-card?from=&to=&by=site|article` — the
+/// period's equation per site or per article (`postgres/stock_card.rs`).
+async fn stock_card(
+    State(s): State<AppState>,
+    Query(q): Query<infrastructure::StockCardQuery>,
+) -> Result<Json<infrastructure::StockCardPage>, AppError> {
+    Ok(Json(infrastructure::stock_card_page(&s.db, q).await?))
+}
+/// `GET /api/v1/inventory/stock-card/lines?from=&to=&site_id=&article_id=` —
+/// one place's (or article's) card: every posting with the balance after it.
+async fn stock_card_lines(
+    State(s): State<AppState>,
+    Query(q): Query<infrastructure::StockCardLinesQuery>,
+) -> Result<Json<infrastructure::StockCardLines>, AppError> {
+    Ok(Json(infrastructure::stock_card_lines(&s.db, q).await?))
 }
 async fn replay(
     State(s): State<AppState>,
@@ -4967,6 +5041,10 @@ async fn setup_session_detail(
 #[derive(serde::Deserialize)]
 struct IssueSetupRequest {
     issued_by: String,
+    /// What the article is described as, when the form changed it after the
+    /// session was opened (0968). Absent or `null` keeps the session's own.
+    #[serde(default)]
+    description: Option<String>,
 }
 
 #[derive(Default, serde::Deserialize)]
@@ -4992,6 +5070,9 @@ async fn issue_setup_session(
     Query(options): Query<SetupIssueQuery>,
     Json(request): Json<IssueSetupRequest>,
 ) -> Result<Json<Value>, AppError> {
+    if let Some(description) = request.description.as_deref() {
+        infrastructure::set_setup_description(&s.db, id, description).await?;
+    }
     if options.background {
         infrastructure::enqueue_setup_issue(&s.db, id, &request.issued_by).await?;
         return Ok(Json(infrastructure::setup_session_status(&s.db, id).await?));

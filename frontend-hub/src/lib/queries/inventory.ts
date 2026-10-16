@@ -1697,6 +1697,11 @@ export const AVAILABILITY_OPENING_POOL = "dc.warehouse"
 
 /// One pool's availability a page at a time, as the screen holds it. Shared
 /// with the prefetcher, so the key and the cursor walk cannot drift.
+///
+/// Like the other paged books here it is read with `useSuspenseInfiniteQuery`,
+/// which takes no `placeholderData`: the previous answer stays on screen while
+/// the next is fetched because the screen asks through a deferred question
+/// (`useDeferredValue`).
 export const availabilityQuery = (
   poolId: string,
   needle: string,
@@ -1716,7 +1721,6 @@ export const availabilityQuery = (
       ),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.next_cursor ?? undefined,
-    placeholderData: (previous) => previous,
   })
 
 /// The whole pool, not the first page of it.
@@ -1987,7 +1991,6 @@ export const countsBookQuery = (scope: CountBookScope) =>
       countsPage({ ...scope, cursor: pageParam }, signal),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.next_cursor ?? undefined,
-    placeholderData: (previous) => previous,
   })
 
 export function countDetail(id: string, signal?: AbortSignal) {
@@ -2053,6 +2056,27 @@ export function sightingsPage(scope: SightingScope, signal?: AbortSignal) {
   )
 }
 
+/// The sightings as the Observations screen opens: every pool, nothing
+/// searched, newest first (`desc` is false because the house order on
+/// `last_seen_at` is already newest first — see `sightingsPage`). Shared with
+/// the prefetcher (`screens/inventory/prefetch.ts`).
+export const SIGHTINGS_OPENING_SCOPE: SightingScope = {
+  sort: "last_seen_at",
+  desc: false,
+}
+
+/// The sightings a page at a time, under the question the screen built. Read
+/// with `useSuspenseInfiniteQuery`: the rows in hand stay on screen while the
+/// next question is read because the screen asks through a deferred scope.
+export const sightingsPageQuery = (scope: SightingScope) =>
+  infiniteQueryOptions({
+    queryKey: inventoryKeys.observations(scope),
+    queryFn: ({ pageParam, signal }) =>
+      sightingsPage({ ...scope, cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+  })
+
 /// What the ledger can be asked for.
 ///
 /// Every field is a parameter `GET /api/v1/inventory/movements` answers, and
@@ -2061,8 +2085,8 @@ export function sightingsPage(scope: SightingScope, signal?: AbortSignal) {
 /// range in here because the endpoint has none** — the ledger is walked newest
 /// first instead, a page at a time.
 export interface MovementScope {
-  /// Free text, tried by the server against the tag, the SKU code, who posted
-  /// it, both place ids and the reference.
+  /// Free text, tried by the server against the tag, the SKU code, the
+  /// article's name, who posted it, both place ids and the reference.
   readonly q?: string
   /// One pool, matched against EITHER side of the posting — a movement is
   /// double-entry, so a transfer between two pools appears once in each rather
@@ -2163,9 +2187,6 @@ export const movementsLedgerQuery = (scope: MovementScope) =>
       movementsPage({ ...scope, cursor: pageParam }, signal),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.next_cursor ?? undefined,
-    // The previous answer stays on screen while the next is fetched. Without
-    // it every keystroke empties the table to a loading line.
-    placeholderData: (previous) => previous,
   })
 
 /// The whole history of one article, newest first, in one answer — ordered,
@@ -2264,6 +2285,27 @@ export function reconciliationsPage(
     { signal }
   )
 }
+
+/// The claim book as the Reconciliations screen opens: the claims that stop a
+/// fleet total being certified, the house order (attention first). Shared with
+/// the prefetcher (`screens/inventory/prefetch.ts`).
+export const RECONCILIATIONS_OPENING_SCOPE: ReconciliationScope = {
+  status: "ATTENTION",
+  sort: "status",
+  desc: false,
+}
+
+/// The report a page at a time, under the question the screen built. Read with
+/// `useSuspenseInfiniteQuery`: the rows in hand stay on screen while the next
+/// question is read because the screen asks through a deferred scope.
+export const reconciliationsPageQuery = (scope: ReconciliationScope) =>
+  infiniteQueryOptions({
+    queryKey: inventoryKeys.reconciliations(scope),
+    queryFn: ({ pageParam, signal }) =>
+      reconciliationsPage({ ...scope, cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+  })
 
 /// The ledger's health, and where it and the projection disagree.
 ///
@@ -2456,3 +2498,98 @@ export function timeMachineWhatIf(request: WhatIfRequest) {
     request
   )
 }
+
+// ---------------------------------------------------------------------------
+// Stock card (kartu stok) — `postgres/stock_card.rs`
+// ---------------------------------------------------------------------------
+
+/// A period's equation: `opening + received − sent_out − sold − missing =
+/// closing`, in pieces on hand.
+export interface StockCardFigures {
+  readonly opening: number
+  readonly received: number
+  readonly sent_out: number
+  readonly sold: number
+  readonly missing: number
+  readonly closing: number
+}
+
+export interface StockCardRow {
+  /// The site id, or the article id.
+  readonly key: string
+  readonly label: string
+  /// The site's kind (`HO`, `STORE`), or the article's code.
+  readonly sub: string | null
+  readonly figures: StockCardFigures
+}
+
+export interface StockCardPage {
+  readonly from: string
+  readonly to: string
+  readonly by: "site" | "article"
+  readonly rows: readonly StockCardRow[]
+  /// Every row the read matches, summed.
+  readonly total: StockCardFigures
+  readonly row_count: number
+}
+
+export interface StockCardScope {
+  readonly from: string
+  readonly to: string
+  readonly by: "site" | "article"
+  readonly site_id?: string
+  readonly article_id?: string
+  readonly q?: string
+  readonly limit?: number
+  readonly offset?: number
+}
+
+/// One line of a card: a posting across the place's edge (a day's sales are
+/// one line), signed, with the place's stock after it.
+export interface StockCardLine {
+  readonly at: string
+  readonly cause: string
+  readonly reference_type: string | null
+  readonly reference_id: string | null
+  readonly pieces: number
+  /// A day's receipts, on folded sales.
+  readonly groups: number
+  readonly to_missing: boolean
+  readonly balance: number
+}
+
+export interface StockCardLines {
+  readonly from: string
+  readonly to: string
+  readonly site_id: string | null
+  readonly article_id: string | null
+  readonly figures: StockCardFigures
+  readonly lines: readonly StockCardLine[]
+}
+
+export interface StockCardLinesScope {
+  readonly from: string
+  readonly to: string
+  readonly site_id?: string
+  readonly article_id?: string
+}
+
+export const stockCardQuery = (scope: StockCardScope) =>
+  queryOptions({
+    queryKey: ["inventory", "stock-card", scope] as const,
+    queryFn: ({ signal }) =>
+      node.get<StockCardPage>(
+        `/api/v1/inventory/stock-card${search({ ...scope })}`,
+        { signal }
+      ),
+  })
+
+export const stockCardLinesQuery = (scope: StockCardLinesScope) =>
+  queryOptions({
+    queryKey: ["inventory", "stock-card", "lines", scope] as const,
+    queryFn: ({ signal }) =>
+      node.get<StockCardLines>(
+        `/api/v1/inventory/stock-card/lines${search({ ...scope })}`,
+        { signal }
+      ),
+  })

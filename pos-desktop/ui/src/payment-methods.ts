@@ -40,7 +40,7 @@ const SHAPE: Record<
   string,
   Omit<MethodTile, "key" | "choices" | "needsBank"> & { order: number }
 > = {
-  CASH: { label: "Tunai", icon: "cash", wire: "CASH", cardKind: null, order: 0 },
+  CASH: { label: "Cash", icon: "cash", wire: "CASH", cardKind: null, order: 0 },
   DEBIT_CARD: { label: "Debit", icon: "card", wire: "CARD", cardKind: "DEBIT", order: 1 },
   CREDIT_CARD: { label: "Kredit", icon: "card", wire: "CARD", cardKind: "CREDIT", order: 2 },
   QRIS: { label: "QRIS", icon: "qr", wire: "QRIS", cardKind: null, order: 3 },
@@ -63,7 +63,7 @@ const bankChoices = (): MethodChoice[] =>
 
 /// Exactly what the till showed before: cash, debit, credit, QRIS, voucher, employee balance.
 export const FALLBACK_TILES: readonly MethodTile[] = [
-  { key: "CASH", ...SHAPE.CASH, needsBank: false, choices: [{ code: null, label: "Tunai", acquirer: null }] },
+  { key: "CASH", ...SHAPE.CASH, needsBank: false, choices: [{ code: null, label: "Cash", acquirer: null }] },
   { key: "DEBIT", ...SHAPE.DEBIT_CARD, needsBank: true, choices: bankChoices() },
   { key: "CREDIT", ...SHAPE.CREDIT_CARD, needsBank: true, choices: bankChoices() },
   { key: "QRIS", ...SHAPE.QRIS, needsBank: true, choices: bankChoices() },
@@ -131,8 +131,8 @@ export async function refreshPaymentMethods(): Promise<void> {
   const next = reply.ok && Array.isArray(reply.body) ? tilesFrom(reply.body) : null
   if (next === null) {
     console.warn(
-      `Metode pembayaran tidak terbaca dari master (${reply.problem ?? "daftar kosong"}); ` +
-        (fromMaster ? "memakai daftar terakhir." : "memakai daftar bawaan kasir."),
+      `Payment methods could not be read from master data (${reply.problem ?? "empty list"}); ` +
+        (fromMaster ? "using the last list." : "using the till's built-in list."),
     )
     return
   }

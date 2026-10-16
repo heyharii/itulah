@@ -1,0 +1,54 @@
+{
+  "edit": {
+    "seconds": 8.56825,
+    "say": "Rencana berubah: Store Kemang cukup 250, bukan 300. MD membuka allotment-nya dan menekan Edit."
+  },
+  "steps": {
+    "seconds": 2.63825,
+    "say": "Jumlahnya diubah langsung per SKU."
+  },
+  "lock": {
+    "seconds": 6.32175,
+    "say": "Toko yang sudah In transit terkunci. Yang sudah dikirim tidak bisa dikurangi."
+  },
+  "save": {
+    "seconds": 6.4,
+    "say": "Barangnya sudah di-pack, jadi ada 50 pieces yang harus dikembalikan gudang. Save changes."
+  },
+  "strip": {
+    "seconds": 6.844,
+    "say": "Di papan gudang, kartunya mendapat strip merah Edited minus 50: dari 300 jadi 250."
+  },
+  "blocked": {
+    "seconds": 3.84,
+    "say": "Kartu ini belum bisa dikirim sampai kelebihannya dikembalikan."
+  },
+  "sheet": {
+    "seconds": 4.75425,
+    "say": "Di detailnya terlihat per SKU: Was, Now, dan berapa yang di-Move back."
+  },
+  "moveback": {
+    "seconds": 4.911,
+    "say": "Move back sudah terisi dengan kelebihannya. Gudang tinggal mengonfirmasi."
+  },
+  "racks": {
+    "seconds": 5.72075,
+    "say": "Label koli yang dibuka dicetak ulang, dan 50 pieces kembali ke rak sebagai stok."
+  },
+  "normal": {
+    "seconds": 5.2505,
+    "say": "Kartunya kembali normal: 250 pieces, siap dikirim."
+  },
+  "partial": {
+    "seconds": 3.16075,
+    "say": "Move back juga bisa sebagian, ke Picked atau ke To pick."
+  },
+  "transit": {
+    "seconds": 2.92575,
+    "say": "Yang sudah In transit tidak bisa ditarik kembali."
+  },
+  "add": {
+    "seconds": 4.3625,
+    "say": "Kalau MD menambah jumlah, gudang mendapat kartu baru di To pick."
+  }
+}

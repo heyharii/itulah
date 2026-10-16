@@ -1,19 +1,168 @@
-import { useQueries } from "@tanstack/react-query"
+import { useSuspenseQueries, useSuspenseQuery } from "@tanstack/react-query"
+import type { ColumnDef } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
+import { Suspense, useMemo } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { Card } from "@/components/ui/card"
+import { DataTable } from "@/components/ui/data-table"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { SubHead } from "@/components/ui/rows"
 import { Tag } from "@/components/ui/tag"
-import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states"
+import { EmptyState, LoadingState } from "@/components/ui/states"
 import { count } from "@/lib/format"
-import { useLayout } from "@/lib/layout"
-import { accountChildren, financeKeys } from "@/lib/queries/finance"
-import { ROOT_CLASSES_SHORT } from "@/screens/finance/chart"
-import { useAssetClasses, useCategoriesByFamily } from "@/screens/finance/hooks"
-import { Code, Grid, Note, Td, Th } from "@/screens/finance-final/parts"
-import { PhoneRows } from "@/screens/finance/phone-parts"
-import type { LedgerAccount } from "@itulah/contract"
+import {
+  accountChildrenQuery,
+  assetClassesQuery,
+  lineCategoriesQuery,
+} from "@/lib/queries/finance"
+import { tableSetup, type TableSetup } from "@/lib/table"
+import {
+  ROOT_CLASSES_SHORT,
+  categoryFamilyLabel,
+  categoryFamilyOrder,
+} from "@/screens/finance/chart"
+import { Code } from "@/screens/finance-final/parts"
+import type { AssetClass, LedgerAccount, LineCategory } from "@itulah/contract"
+
+/// The English gloss, where the chart carries one, sits quiet and second. It is
+/// a reading aid for somebody who does not have the client's chart in their
+/// head, and never the label a picker offers.
+function Gloss({ text }: { text: string | null | undefined }) {
+  return text === null || text === undefined || text === "" ? null : (
+    <span className="text-mute"> · {text}</span>
+  )
+}
+
+/// A reference list: a read-only table of a few rows, and the same rows as
+/// cards on a phone.
+function RefTable<TRow>({
+  rows,
+  columns,
+  getRowId,
+}: {
+  rows: readonly TRow[]
+  columns: ColumnDef<TableSetup, TRow>[]
+  getRowId: (row: TRow) => string
+}) {
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: rows as TRow[],
+        columns,
+        getRowId,
+      }),
+      [rows, columns, getRowId]
+    )
+  )
+  return (
+    <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+      <DataTable<TRow> table={table} cardsApart cardSort={false} />
+    </Card>
+  )
+}
+
+const categoryColumns: ColumnDef<TableSetup, LineCategory>[] = [
+  {
+    accessorKey: "category_code",
+    header: "Code",
+    size: 240,
+    meta: { card: "meta" },
+    cell: ({ row }) => <Code>{row.original.category_code}</Code>,
+  },
+  {
+    accessorKey: "name",
+    header: "Name (client’s name)",
+    size: 480,
+    meta: { card: "title", grow: 240 },
+    cell: ({ row }) => (
+      <>
+        <span className="text-ink">{row.original.name}</span>
+        <Gloss text={row.original.name_en} />
+      </>
+    ),
+  },
+  {
+    accessorKey: "is_active",
+    header: "Status",
+    size: 150,
+    meta: { card: "status" },
+    cell: ({ row }) =>
+      row.original.is_active ? (
+        <span className="text-mute">active</span>
+      ) : (
+        <Pill tone="neutral">no longer used</Pill>
+      ),
+  },
+]
+
+const accountColumns: ColumnDef<TableSetup, LedgerAccount>[] = [
+  {
+    accessorKey: "account_code",
+    header: "Code",
+    size: 120,
+    meta: { card: "meta" },
+    cell: ({ row }) => <Code>{row.original.account_code}</Code>,
+  },
+  {
+    accessorKey: "name",
+    header: "Name",
+    size: 480,
+    meta: { card: "title", grow: 240 },
+    cell: ({ row }) => row.original.name,
+  },
+  {
+    id: "class",
+    accessorFn: (row) => ROOT_CLASSES_SHORT[row.root_class] ?? row.root_class,
+    header: "Class",
+    size: 200,
+    meta: { card: "status" },
+    cell: ({ row }) => (
+      <span className="text-mute">
+        {ROOT_CLASSES_SHORT[row.original.root_class] ?? row.original.root_class}
+      </span>
+    ),
+  },
+]
+
+const classColumns: ColumnDef<TableSetup, AssetClass>[] = [
+  {
+    accessorKey: "class_code",
+    header: "Code",
+    size: 240,
+    meta: { card: "meta" },
+    cell: ({ row }) => <Code>{row.original.class_code}</Code>,
+  },
+  {
+    accessorKey: "name",
+    header: "Name (client’s name)",
+    size: 480,
+    meta: { card: "title", grow: 240 },
+    cell: ({ row }) => (
+      <>
+        <span className="text-ink">{row.original.name}</span>
+        <Gloss text={row.original.name_en} />
+      </>
+    ),
+  },
+  {
+    accessorKey: "kind",
+    header: "Kind",
+    size: 170,
+    meta: { card: "status" },
+    cell: ({ row }) => (
+      <Pill tone={row.original.is_active ? "neutral" : "warn"}>
+        {row.original.kind}
+      </Pill>
+    ),
+  },
+]
+
+const categoryRowId = (row: LineCategory) => row.category_code
+const accountRowId = (row: LedgerAccount) => row.account_code
+const classRowId = (row: AssetClass) => row.class_code
 
 /// The vocabulary the forty-account chart is read in.
 ///
@@ -51,9 +200,28 @@ import type { LedgerAccount } from "@itulah/contract"
 /// down, so the day an account changes its declaration this screen changes
 /// with it.
 export function LineCategories() {
-  const phone = useLayout() === "phone"
+  return (
+    <Suspense
+      fallback={
+        <PageContent>
+          <PageHeader
+            crumb="Finance"
+            title="Line Categories"
+            sub="What used to tell two account codes apart is now chosen on the journal line."
+          />
+          <LoadingState>Reading the category list…</LoadingState>
+        </PageContent>
+      }
+    >
+      <LineCategoriesScreen />
+    </Suspense>
+  )
+}
+
+function LineCategoriesScreen() {
   const categories = useCategoriesByFamily()
-  const classes = useAssetClasses()
+  const classes = useSuspenseQuery(assetClassesQuery()).data
+    .classes as readonly AssetClass[]
   const chart = useChartFamilies()
 
   return (
@@ -64,28 +232,8 @@ export function LineCategories() {
         sub="What used to tell two account codes apart is now chosen on the journal line."
       />
 
-      <Note>
-        An account exists only when it is a line on the balance sheet or the
-        profit and loss. Every other distinction — which bank, which rack, which
-        PPh article, electricity or water — is a <b>category</b> on the journal
-        line. An account that declares a family <b>rejects</b> a line without a
-        category from that family; an account that declares nothing rejects a
-        line that carries one. Both are rejected by the database, not by this
-        screen.
-      </Note>
-
-      {categories.isPending ? (
-        <LoadingState>Reading the category list…</LoadingState>
-      ) : categories.isError ? (
-        <ErrorState
-          error={categories.error}
-          onRetry={() => categories.refetch()}
-        />
-      ) : categories.families.length === 0 ? (
-        <EmptyState>
-          No categories yet. The migration that derives them from the
-          client&rsquo;s account names has not been run on this node.
-        </EmptyState>
+      {categories.families.length === 0 ? (
+        <EmptyState>No categories yet.</EmptyState>
       ) : (
         <div className="flex flex-col gap-6">
           <SubHead
@@ -106,11 +254,11 @@ export function LineCategories() {
                     is our word, "Komponen gaji" is the thing. The identifier
                     stays because it is what the wire carries and what a
                     support conversation will be about. */}
-                <span className="text-[0.875rem] font-semibold text-ink">
+                <span className="text-[0.9375rem] font-semibold text-ink">
                   {group.label}
                 </span>
                 <Code>{group.family}</Code>
-                <span className="text-[0.875rem] text-mute">
+                <span className="text-[0.9375rem] text-mute">
                   {count(group.rows.length)} categories
                 </span>
                 {/* The accounts that declare this family, read off the chart.
@@ -124,86 +272,19 @@ export function LineCategories() {
                       {account.account_code}
                     </Tag>
                   )) ?? null}
-                  {chart.isPending ? (
-                    <span className="text-[0.875rem] text-faint">
-                      reading the chart…
+                  {(chart.byFamily.get(group.family) ?? []).length === 0 && (
+                    <span className="text-[0.9375rem] text-warn-fg">
+                      no account asks for it
                     </span>
-                  ) : (
-                    (chart.byFamily.get(group.family) ?? []).length === 0 && (
-                      <span className="text-[0.875rem] text-warn-fg">
-                        no account asks for it
-                      </span>
-                    )
                   )}
                 </span>
               </div>
 
-              {phone ? (
-                <PhoneRows
-                  rows={group.rows.map((row) => ({
-                    key: row.category_code,
-                    title: (
-                      <>
-                        {row.name}
-                        {row.name_en !== null &&
-                          row.name_en !== undefined &&
-                          row.name_en !== "" && (
-                            <span className="text-mute"> · {row.name_en}</span>
-                          )}
-                      </>
-                    ),
-                    sub: <span className="font-mono">{row.category_code}</span>,
-                    figure: row.is_active ? (
-                      <span className="font-normal text-mute">active</span>
-                    ) : (
-                      <span className="font-normal text-mute">
-                        no longer used
-                      </span>
-                    ),
-                  }))}
-                />
-              ) : (
-                <Grid>
-                  <thead>
-                    <tr>
-                      <Th width="16rem">Code</Th>
-                      <Th>Name (client’s name)</Th>
-                      <Th width="8rem">Status</Th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {group.rows.map((row) => (
-                      <tr key={row.category_code}>
-                        <Td>
-                          <Code>{row.category_code}</Code>
-                        </Td>
-                        <Td>
-                          <span className="text-ink">{row.name}</span>
-                          {/* The English gloss, where the chart carries one, sits
-                            quiet and second. It is a reading aid for somebody
-                            who does not have the client's chart in their head,
-                            and never the label a picker offers. */}
-                          {row.name_en !== null &&
-                            row.name_en !== undefined &&
-                            row.name_en !== "" && (
-                              <span className="text-mute">
-                                {" "}
-                                · {row.name_en}
-                              </span>
-                            )}
-                        </Td>
-                        <Td>
-                          {row.is_active ? (
-                            <span className="text-mute">active</span>
-                          ) : (
-                            <Pill tone="neutral">no longer used</Pill>
-                          )}
-                        </Td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </Grid>
-              )}
+              <RefTable
+                rows={group.rows}
+                columns={categoryColumns}
+                getRowId={categoryRowId}
+              />
             </div>
           ))}
         </div>
@@ -218,136 +299,63 @@ export function LineCategories() {
       >
         Accounts without a category
       </SubHead>
-      <Note>
-        These accounts take no category at all. Their identity is already
-        somewhere else: a bank account, an asset in the register, a supplier, a
-        financing facility, or an owner. Choosing one of those does not bring up
-        a second box.
-      </Note>
-      {chart.isPending ? (
-        <LoadingState>Reading the chart of accounts…</LoadingState>
-      ) : chart.isError ? (
-        <ErrorState error={chart.error} />
-      ) : chart.noFamily.length === 0 ? (
+      {chart.noFamily.length === 0 ? (
         <EmptyState>Every postable account asks for a category.</EmptyState>
-      ) : phone ? (
-        <PhoneRows
-          rows={chart.noFamily.map((account) => ({
-            key: account.account_code,
-            title: account.name,
-            sub: <span className="font-mono">{account.account_code}</span>,
-            figure: (
-              <span className="font-normal text-mute">
-                {ROOT_CLASSES_SHORT[account.root_class] ?? account.root_class}
-              </span>
-            ),
-          }))}
-        />
       ) : (
-        <Grid>
-          <thead>
-            <tr>
-              <Th width="7rem">Code</Th>
-              <Th>Name</Th>
-              <Th width="12rem">Class</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {chart.noFamily.map((account) => (
-              <tr key={account.account_code}>
-                <Td>
-                  <Code>{account.account_code}</Code>
-                </Td>
-                <Td>{account.name}</Td>
-                <Td>
-                  <span className="text-mute">
-                    {ROOT_CLASSES_SHORT[account.root_class] ??
-                      account.root_class}
-                  </span>
-                </Td>
-              </tr>
-            ))}
-          </tbody>
-        </Grid>
+        <RefTable
+          rows={chart.noFamily}
+          columns={accountColumns}
+          getRowId={accountRowId}
+        />
       )}
 
       <SubHead
         aside={
-          classes.rows.length === 0
-            ? undefined
-            : `${count(classes.rows.length)} classes`
+          classes.length === 0 ? undefined : `${count(classes.length)} classes`
         }
       >
         Asset classes
       </SubHead>
-      <Note>
-        Not a category family. Asset accounts — 1601, 1609, 7101 and so on —
-        carry no category: the line&rsquo;s identity is the asset it names, and
-        its class is read from the register. This list is here because it is the
-        next question after “this account asks for no category, so what tells
-        its lines apart?”
-      </Note>
-      {classes.isPending ? (
-        <LoadingState>Reading the asset classes…</LoadingState>
-      ) : classes.isError ? (
-        <ErrorState error={classes.error} onRetry={() => classes.refetch()} />
-      ) : classes.rows.length === 0 ? (
+      {classes.length === 0 ? (
         <EmptyState>No asset classes on this node yet.</EmptyState>
-      ) : phone ? (
-        <PhoneRows
-          rows={classes.rows.map((row) => ({
-            key: row.class_code,
-            title: (
-              <>
-                {row.name}
-                {row.name_en !== null &&
-                  row.name_en !== undefined &&
-                  row.name_en !== "" && (
-                    <span className="text-mute"> · {row.name_en}</span>
-                  )}
-              </>
-            ),
-            sub: <span className="font-mono">{row.class_code}</span>,
-            figure: (
-              <Pill tone={row.is_active ? "neutral" : "warn"}>{row.kind}</Pill>
-            ),
-          }))}
-        />
       ) : (
-        <Grid>
-          <thead>
-            <tr>
-              <Th width="16rem">Code</Th>
-              <Th>Name (client’s name)</Th>
-              <Th width="10rem">Kind</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {classes.rows.map((row) => (
-              <tr key={row.class_code}>
-                <Td>
-                  <Code>{row.class_code}</Code>
-                </Td>
-                <Td>
-                  <span className="text-ink">{row.name}</span>
-                  {row.name_en !== null &&
-                    row.name_en !== undefined &&
-                    row.name_en !== "" && (
-                      <span className="text-mute"> · {row.name_en}</span>
-                    )}
-                </Td>
-                <Td>
-                  <Pill tone={row.is_active ? "neutral" : "warn"}>
-                    {row.kind}
-                  </Pill>
-                </Td>
-              </tr>
-            ))}
-          </tbody>
-        </Grid>
+        <RefTable rows={classes} columns={classColumns} getRowId={classRowId} />
       )}
     </PageContent>
   )
+}
+
+/// The categories, grouped by family in the accounts' own order — what
+/// `useCategoriesByFamily` answers, read inside the screen's `<Suspense>` so
+/// the server's HTML holds the lists (`prefetch.ts` warms the same options).
+function useCategoriesByFamily() {
+  const query = useSuspenseQuery(lineCategoriesQuery())
+  const families = useMemo(() => {
+    const table = new Map<string, LineCategory[]>()
+    for (const row of query.data.categories) {
+      const held = table.get(row.family)
+      if (held === undefined) table.set(row.family, [row])
+      else held.push(row)
+    }
+    for (const rows of table.values()) {
+      rows.sort(
+        (a, b) =>
+          a.sort_order - b.sort_order || a.name.localeCompare(b.name, "id-ID")
+      )
+    }
+    return [...table.entries()]
+      .map(([family, rows]) => ({
+        family,
+        label: categoryFamilyLabel(family),
+        rows: rows as readonly LineCategory[],
+      }))
+      .sort(
+        (a, b) =>
+          categoryFamilyOrder(a.family) - categoryFamilyOrder(b.family) ||
+          a.family.localeCompare(b.family)
+      )
+  }, [query.data])
+  return { families }
 }
 
 /// The chart's own answer to "which accounts ask for which family".
@@ -365,14 +373,11 @@ export function LineCategories() {
 /// the forty would make the page an argument about which chart is in force.
 function useChartFamilies() {
   const roots = ["1", "2", "3", "4", "5", "6", "7", "8"]
-  const answers = useQueries({
-    queries: roots.map((root) => ({
-      queryKey: financeKeys.accountChildren(root, false),
-      queryFn: ({ signal }: { signal: AbortSignal }) =>
-        accountChildren({ parent: root }, signal),
-      // A chart is imported once and then sits for months.
-      staleTime: 5 * 60 * 1000,
-    })),
+  // The same reads, under the same options, as the Chart of Accounts: a
+  // chart is imported once and then sits for months, and one key holds one
+  // shape of answer, so opening both costs eight requests rather than sixteen.
+  const answers = useSuspenseQueries({
+    queries: roots.map((root) => accountChildrenQuery(root, false)),
   })
 
   // Computed on every render rather than memoised: it is forty rows and one
@@ -380,7 +385,7 @@ function useChartFamilies() {
   // `useMemo` here would need a dependency that is a lie about what changed.
   const rows: LedgerAccount[] = []
   for (const answer of answers) {
-    for (const row of answer.data?.rows ?? []) {
+    for (const row of answer.data) {
       if (row.is_group || !row.is_active) continue
       rows.push(row)
     }
@@ -398,8 +403,5 @@ function useChartFamilies() {
   return {
     byFamily,
     noFamily: rows.filter((row) => row.category_family === null),
-    isPending: answers.some((one) => one.isPending),
-    isError: answers.some((one) => one.isError),
-    error: answers.find((one) => one.isError)?.error,
   }
 }

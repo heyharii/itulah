@@ -29,8 +29,12 @@
 //! for the whole hour a code lives, an attacker makes about 2²² of them, and
 //! with a handful of live codes the chance that any guess lands is around one
 //! in 2²⁵. There is no per-code attempt counter because a guesser does not know
-//! which code they are guessing; entropy and expiry are the defence, and a
-//! person approving each claim is the defence behind that.
+//! which code they are guessing; entropy and expiry are the defence. Until
+//! 10 Oct 2026 a person approving each claim was the defence behind that; the
+//! owner then decided the code itself is the proof, so a claim in time is
+//! approved at once, as the Admin who issued the code. The verification number
+//! is still computed and answered, and the approve/refuse routes remain for a
+//! claim that could not be let in by itself.
 
 use argon2::password_hash::rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Serialize};
@@ -195,7 +199,8 @@ pub struct ClaimRequest {
 }
 
 /// The answer to a claim that was accepted. The node shows `verification` and
-/// then waits.
+/// then polls; the claim is normally approved already, so the first poll says
+/// so.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ClaimAnswer {
     pub enrolment_id: Uuid,

@@ -4,11 +4,15 @@ import type {
   PaymentTermsBook,
   PaymentTermsTemplateRow,
 } from "@itulah/contract"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  useMutation,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query"
 import type { ColumnDef } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { Plus, X } from "lucide-react"
-import { useCallback, useMemo, useState } from "react"
+import { Suspense, useCallback, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
@@ -18,20 +22,20 @@ import { Fab } from "@/components/ui/fab"
 import { Field, Input, Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
+import type { Refreshable } from "@/components/ui/refresh-stamp"
 import { Sheet } from "@/components/ui/sheet"
 import { SubTabs } from "@/components/ui/sub-tabs"
-import { Banner, EmptyState } from "@/components/ui/states"
+import { Banner, EmptyState, LoadingState } from "@/components/ui/states"
 import { count, percentBps } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import {
   createPaymentTerm,
   createPaymentTermsTemplate,
-  paymentTermsBook,
   paymentTermsKeys,
+  paymentTermsQuery,
   updatePaymentTerm,
   updatePaymentTermsTemplate,
 } from "@/lib/queries/payment-terms"
-import { queryState } from "@/lib/query-state"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { cn } from "@/lib/utils"
 import { CodeFact, SubmitRow } from "@/screens/master/term-form"
@@ -64,7 +68,7 @@ import {
 /// for it. That is why the shared `Field` (12px labels) and `PageHeader`'s
 /// `sub` are not used here, and why pills, banners and buttons are sized up.
 
-const T14 = "text-[0.875rem]"
+const T14 = "text-[0.9375rem]"
 
 // ---------------------------------------------------------------------------
 // Reading a term the way a person says it
@@ -185,11 +189,6 @@ export function PaymentTemplates() {
   const [editing, setEditing] = useState<Editing>(null)
   const [showRetired, setShowRetired] = useState(false)
 
-  const book = useQuery({
-    queryKey: paymentTermsKeys.book(),
-    queryFn: ({ signal }) => paymentTermsBook(signal),
-  })
-
   const close = useCallback(() => setEditing(null), [])
   const phone = useLayout() === "phone"
 
@@ -227,44 +226,68 @@ export function PaymentTemplates() {
         and it stays readable on everything that already carries it.
       </p>
 
-      {queryState(book, {
-        loading: "Reading the payment terms…",
-        render: (data) => (
-          <BookView
-            book={data}
-            showRetired={showRetired}
-            onShowRetired={setShowRetired}
-            onOpen={setEditing}
-          />
-        ),
-      })}
-
-      {book.data && (
-        <>
-          <TemplateSheet
-            open={editing?.kind === "template"}
-            template={
-              editing?.kind === "template" && editing.code !== null
-                ? (book.data.templates.find((t) => t.code === editing.code) ??
-                  null)
-                : null
-            }
-            book={book.data}
-            onClose={close}
-          />
-          <TermSheet
-            open={editing?.kind === "term"}
-            term={
-              editing?.kind === "term" && editing.code !== null
-                ? (book.data.terms.find((t) => t.code === editing.code) ?? null)
-                : null
-            }
-            book={book.data}
-            onClose={close}
-          />
-        </>
-      )}
+      {/* The book waits for its terms and templates and streams in with them
+          (the server starts the read too). */}
+      <Suspense
+        fallback={<LoadingState>Reading the payment terms…</LoadingState>}
+      >
+        <Book
+          editing={editing}
+          showRetired={showRetired}
+          onShowRetired={setShowRetired}
+          onOpen={setEditing}
+          onClose={close}
+        />
+      </Suspense>
     </PageContent>
+  )
+}
+
+function Book({
+  editing,
+  showRetired,
+  onShowRetired,
+  onOpen,
+  onClose,
+}: {
+  editing: Editing
+  showRetired: boolean
+  onShowRetired: (next: boolean) => void
+  onOpen: (next: Editing) => void
+  onClose: () => void
+}) {
+  const book = useSuspenseQuery(paymentTermsQuery())
+  return (
+    <>
+      <BookView
+        refresh={[book]}
+        book={book.data}
+        showRetired={showRetired}
+        onShowRetired={onShowRetired}
+        onOpen={onOpen}
+      />
+
+      <TemplateSheet
+        open={editing?.kind === "template"}
+        template={
+          editing?.kind === "template" && editing.code !== null
+            ? (book.data.templates.find((t) => t.code === editing.code) ?? null)
+            : null
+        }
+        book={book.data}
+        onClose={onClose}
+      />
+      <TermSheet
+        open={editing?.kind === "term"}
+        term={
+          editing?.kind === "term" && editing.code !== null
+            ? (book.data.terms.find((t) => t.code === editing.code) ?? null)
+            : null
+        }
+        book={book.data}
+        onClose={onClose}
+      />
+    </>
   )
 }
 
@@ -273,7 +296,10 @@ function BookView({
   showRetired,
   onShowRetired,
   onOpen,
+  refresh,
 }: {
+  /// The query behind `book`, for the stamp over a phone's list.
+  refresh?: readonly Refreshable[]
   book: PaymentTermsBook
   showRetired: boolean
   onShowRetired: (next: boolean) => void
@@ -340,9 +366,18 @@ function BookView({
           active terms
         </p>
         {view === "templates" ? (
-          <PhoneTemplates templates={shownTemplates} onOpen={onOpen} />
+          <PhoneTemplates
+            templates={shownTemplates}
+            onOpen={onOpen}
+            refresh={refresh}
+          />
         ) : (
-          <PhoneTerms terms={shownTerms} heldBy={heldBy} onOpen={onOpen} />
+          <PhoneTerms
+            terms={shownTerms}
+            heldBy={heldBy}
+            onOpen={onOpen}
+            refresh={refresh}
+          />
         )}
         {retiredCount > 0 && (
           <div className="mt-3 flex justify-center">{retiredButton}</div>
@@ -543,7 +578,7 @@ function nameCell(label: string, code: string) {
         {label}
       </span>
       {codeSaysMore(label, code) && (
-        <span className="font-mono text-[0.875rem] font-normal text-mute">
+        <span className="font-mono text-[0.9375rem] font-normal text-mute">
           {code}
         </span>
       )}
@@ -616,9 +651,11 @@ const TEMPLATE_CARDS: ColumnDef<TableSetup, PaymentTermsTemplateRow>[] = [
 function PhoneTemplates({
   templates,
   onOpen,
+  refresh,
 }: {
   templates: readonly PaymentTermsTemplateRow[]
   onOpen: (next: Editing) => void
+  refresh?: readonly Refreshable[]
 }) {
   const table = useTable(
     useMemo(
@@ -639,6 +676,7 @@ function PhoneTemplates({
     </EmptyState>
   ) : (
     <DataTable<PaymentTermsTemplateRow>
+      refresh={refresh}
       table={table}
       onRowClick={(row) => onOpen({ kind: "template", code: row.code })}
       cardSort={false}
@@ -652,10 +690,12 @@ function PhoneTerms({
   terms,
   heldBy,
   onOpen,
+  refresh,
 }: {
   terms: readonly PaymentTermRow[]
   heldBy: ReadonlyMap<string, readonly PaymentTermsTemplateRow[]>
   onOpen: (next: Editing) => void
+  refresh?: readonly Refreshable[]
 }) {
   const columns = useMemo<ColumnDef<TableSetup, PaymentTermRow>[]>(
     () => [
@@ -744,6 +784,7 @@ function PhoneTerms({
     </EmptyState>
   ) : (
     <DataTable<PaymentTermRow>
+      refresh={refresh}
       table={table}
       onRowClick={(row) => onOpen({ kind: "term", code: row.code })}
       cardSort={false}

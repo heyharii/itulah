@@ -1,0 +1,10 @@
+[
+  {
+    "id": "completed",
+    "text": "Order yang sudah selesai pindah ke **Completed PO**, masing-masing dengan stempelnya."
+  },
+  {
+    "id": "done",
+    "text": "Setiap PO menyimpan apa yang dipesan, dihitung, dikembalikan, dan ditutup."
+  }
+]

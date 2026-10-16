@@ -91,6 +91,7 @@ fn status() -> NodeStatus {
         capabilities: None,
         link_outages: None,
         action_results: None,
+        app_address: None,
     }
 }
 

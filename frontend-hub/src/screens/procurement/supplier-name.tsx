@@ -37,6 +37,30 @@ export function useSupplierName() {
   )
 }
 
+/// The supplier's RECORD id, for opening its sheet, from what an order or a
+/// count carries: its code and bare name (and the record id itself, when the
+/// order kept one). Null when the book does not know the supplier.
+// eslint-disable-next-line react-refresh/only-export-components
+export function useSupplierRecordId() {
+  const suppliers = useQuery({
+    queryKey: procurementKeys.suppliers(),
+    queryFn: ({ signal }) => listSuppliers(undefined, signal),
+    staleTime: 5 * 60 * 1000,
+  })
+  return useCallback(
+    (
+      code: string | null | undefined,
+      name: string | null | undefined,
+      id?: string | null
+    ): string | null => {
+      if (id != null && id !== "") return id
+      const book = suppliers.data ?? []
+      return findSupplier(book, code, name)?.supplier_id ?? null
+    },
+    [suppliers.data]
+  )
+}
+
 /// The same, as a cell for a column declared outside any component.
 export function SupplierName({
   code,

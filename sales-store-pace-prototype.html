@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sales store pace</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+/* Sales › Store › a third tab, Pace: will each store reach last month by the
+   end of this one? The rows stay the stores (one table); the versions differ
+   in how a row says it. A Day strip ★ · B Line · C Numbers · D Split.
+   Tokens: frontend-hub/src/styles/white.css (All white); sidebar = A6 chip. */
+:root{
+  --ink:#1d1d1f; --body:#6e6e73; --mute:#6e6e73; --faint:#c7c7cc; --line-ico:#8e8e93;
+  --canvas:#fff; --soft:#fafafb; --soft-2:#f2f2f5; --soft-3:#f5f5f7;
+  --hairline:#e8e8ec; --hairline-2:#dcdce1; --row-line:#eeeef1; --band:#fafafb;
+  --accent:#2862dc; --accent-bg:#eef3fc; --warn:#b25e09; --warn-bg:#fdf1e3;
+  --ring:0 0 0 1px rgb(0 0 0 / 5%),0 2px 8px rgb(0 0 0 / 5%),0 12px 32px rgb(0 0 0 / 8%);
+  --r-card:10px; --r-inner:8px;
+  --ease-out:cubic-bezier(.23,1,.32,1); --ease-drawer:cubic-bezier(.32,.72,0,1);
+  --font:"Inter",system-ui,-apple-system,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font-family:var(--font);font-size:15px;color:var(--ink);background:#e9e9ec;letter-spacing:-.006em;-webkit-font-smoothing:antialiased;overflow:hidden}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+.i{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.num,td,.fig .v{font-variant-numeric:tabular-nums}
+
+/* ── prototype chrome ── */
+.proto{height:50px;background:#141518;color:#fff;display:flex;align-items:center;gap:12px;padding:0 14px 0 18px}
+.proto .t{font-weight:600;white-space:nowrap}
+.seg{display:flex;gap:2px;background:#24262b;border-radius:9px;padding:3px}
+.seg button{height:32px;padding:0 11px;border-radius:7px;color:#b9bcc3;white-space:nowrap;transition:background-color .15s ease,color .15s ease}
+.seg button b{font-weight:600;color:#fff;margin-right:5px}
+.seg button.on{background:#fff;color:var(--ink)}
+.seg button.on b{color:var(--ink)}
+.seg .star{color:#f4b740;margin-left:4px}
+.proto .sp{flex:1}
+.note{min-height:36px;background:#1c1e22;color:#a7abb3;display:flex;align-items:center;padding:6px 18px;border-top:1px solid #26282d}
+.note b{color:#fff;font-weight:500;margin-right:6px}
+.stagewrap{height:calc(100vh - 86px);overflow:hidden;position:relative}
+
+/* ── hub shell (All white, A6 chip sidebar) ── */
+.app{height:100%;display:grid;grid-template-columns:68px 232px minmax(0,1fr);background:var(--canvas);position:relative;overflow:hidden}
+.rail{background:var(--soft-3);display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:4px}
+.logo{width:28px;height:28px;border-radius:7px;background:var(--ink);color:#fff;display:grid;place-items:center;font-weight:600;margin-bottom:10px}
+.rail .ri{width:40px;height:36px;border-radius:8px;display:grid;place-items:center;color:#3a3a3c}
+.rail .ri.on{background:#fff;box-shadow:0 0 0 1px var(--hairline)}
+.dept{background:#fff;border-right:1px solid var(--hairline);display:flex;flex-direction:column;min-height:0}
+.dept h2{margin:0;padding:20px 20px 14px;font-size:22px;line-height:28px;font-weight:700;letter-spacing:-.02em}
+.rows{padding:2px 10px 24px;display:flex;flex-direction:column;gap:1px;overflow-y:auto}
+.grp{display:flex;flex-direction:column;gap:1px;margin-top:22px}
+.chip{align-self:flex-start;height:22px;line-height:22px;margin:0 0 4px 6px;padding:0 8px;border-radius:6px;background:var(--soft-2);font-size:12px;font-weight:600;color:var(--mute)}
+.row{height:34px;display:flex;align-items:center;padding:0 10px;border-radius:8px;font-weight:450;white-space:nowrap}
+.row.on{background:#eef2f8;font-weight:600}
+.main{overflow-y:auto;min-width:0;position:relative}
+
+/* ── page ── */
+.head{position:sticky;top:0;z-index:4;background:#fff;padding:16px 28px 14px;border-bottom:1px solid var(--hairline)}
+.head h1{margin:0;font-size:17px;line-height:24px;font-weight:600;letter-spacing:-.3px}
+.body{padding:24px 28px 64px}
+.figs{display:flex;flex-wrap:wrap;row-gap:12px;margin-bottom:28px}
+.fig{padding:0 24px;border-left:1px solid var(--hairline)}
+.fig:first-child{border-left:0;padding-left:0}
+.fig .l{color:var(--mute);line-height:20px;white-space:nowrap}
+.fig .v{font-size:16px;line-height:22px;font-weight:600;padding-top:4px;white-space:nowrap}
+.fig .v.warn{color:var(--warn)}
+.tabs{display:flex;gap:6px;box-shadow:inset 0 -1px 0 var(--hairline);margin-bottom:16px}
+.tab{height:40px;padding:0 10px;color:var(--body);position:relative;white-space:nowrap;font-weight:500}
+.tab.on{color:var(--ink)}
+.tab.on::after{content:"";position:absolute;left:8px;right:8px;bottom:0;height:2px;background:var(--ink)}
+.bar{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.bar .sp{flex:1}
+.search{position:relative;display:flex;align-items:center}
+.search .i{position:absolute;left:11px;color:var(--line-ico);width:16px;height:16px}
+.search input{height:38px;width:220px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);padding:0 10px 0 34px;font:inherit;background:#fff;outline:none}
+.pick{height:38px;padding:0 12px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);display:inline-flex;align-items:center;gap:6px;white-space:nowrap;background:#fff}
+.pick .i{width:16px;height:16px;color:var(--line-ico)}
+.sg{display:inline-flex;gap:2px;background:var(--soft-2);border-radius:var(--r-inner);padding:2px}
+.sg button{height:34px;padding:0 12px;border-radius:6px;color:var(--body);white-space:nowrap;transition:background-color .15s ease,color .15s ease,transform .16s var(--ease-out)}
+.sg button.on{background:#fff;color:var(--ink);font-weight:500;box-shadow:0 0 0 1px var(--hairline),0 1px 2px rgb(0 0 0/6%)}
+.btn-t{height:38px;padding:0 8px;color:var(--accent);font-weight:500;white-space:nowrap}
+.sg button:active,.seg button:active,.btn-t:active,.tab:active{transform:scale(.97)}
+
+/* ── table ── */
+.tbox{border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden;background:#fff}
+table{border-collapse:collapse;table-layout:fixed;width:100%}
+th{height:40px;background:var(--band);color:var(--body);font-weight:500;text-align:left;padding:0 14px;white-space:nowrap;border-bottom:1px solid var(--hairline)}
+td{height:52px;padding:0 14px;border-top:1px solid var(--row-line);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+tbody tr:first-child td{border-top:0}
+.r{text-align:right}
+.m{color:var(--mute)}
+.warn{color:var(--warn)}
+.name{font-weight:500}
+tbody tr{cursor:pointer}
+tbody tr td{transition:background-color .12s ease}
+@media (hover:hover){tbody tr:hover td{background:#f6f7f9}}
+tbody tr.sel td{background:#eef2f8}
+tfoot td{background:var(--band);font-weight:600;border-top:1px solid var(--hairline);cursor:default;height:48px}
+
+/* the day strip */
+.strip{display:grid;gap:3px;align-items:center;position:relative;height:30px}
+.strip i{display:block;height:30px;border-radius:3px}
+.strip i.f{border:1px dashed var(--hairline-2);background:transparent}
+.strip i.l0{background:color-mix(in srgb,var(--accent) 9%,transparent)}
+.strip i.l1{background:color-mix(in srgb,var(--accent) 22%,transparent)}
+.strip i.l2{background:color-mix(in srgb,var(--accent) 40%,transparent)}
+.strip i.l3{background:color-mix(in srgb,var(--accent) 62%,transparent)}
+.strip i.w{box-shadow:inset 0 -3px 0 var(--warn)}
+.strip .now{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--ink);border-radius:1px}
+.dayhead{display:grid;gap:3px;position:relative;height:40px;align-items:center;font-weight:500;color:var(--body)}
+.dayhead span{white-space:nowrap;font-size:15px}
+.dayhead .nowl{position:absolute;top:-1px;color:var(--ink);font-weight:600;transform:translateX(-50%)}
+.legend{display:flex;flex-wrap:wrap;align-items:center;gap:6px 18px;margin-top:12px;color:var(--mute)}
+.legend .sw{display:inline-flex;gap:3px;margin-right:8px;vertical-align:middle}
+.legend .sw i{width:14px;height:14px;border-radius:3px;display:inline-block}
+.legend .k{display:inline-flex;align-items:center;gap:8px}
+
+/* split */
+.split{display:grid;grid-template-columns:minmax(0,1fr) 420px;gap:20px;align-items:start}
+.panel{border:1px solid var(--hairline);border-radius:var(--r-card);padding:20px 22px 22px;position:sticky;top:72px}
+.panel h3,.sheet h3{margin:0;font-size:17px;line-height:24px;font-weight:600;letter-spacing:-.3px}
+.panel .crumb,.sheet .crumb{color:var(--mute);margin-bottom:4px}
+.panel .swap{animation:swapin .18s var(--ease-out)}
+@keyframes swapin{from{opacity:0;transform:translateY(4px)}}
+.detail .figs{margin:16px 0 18px;flex-wrap:nowrap}
+.detail .fig{padding:0 16px}
+.detail h4{margin:20px 0 8px;font-size:15px;font-weight:600}
+.detail h4 span{font-weight:400;color:var(--mute)}
+.chart text{font-size:15px;fill:var(--mute);font-family:var(--font)}
+.chart .lbl{fill:var(--ink);font-weight:600}
+.keys{display:flex;flex-wrap:wrap;gap:4px 16px;color:var(--mute);margin-top:6px}
+.keys span{display:inline-flex;align-items:center;gap:7px}
+.keys svg{width:22px;height:10px}
+
+/* sheet */
+.veil{position:absolute;inset:0;background:rgb(40 30 20 / 10%);opacity:0;pointer-events:none;transition:opacity .2s var(--ease-out);z-index:8}
+.veil.open{opacity:1;pointer-events:auto;transition-duration:.34s}
+.sheet{position:absolute;top:12px;right:12px;bottom:12px;width:560px;background:#fff;border-radius:14px;box-shadow:var(--ring);z-index:9;display:flex;flex-direction:column;transform:translateX(calc(100% + 24px));transition:transform .2s var(--ease-out)}
+.sheet.open{transform:none;transition:transform .34s var(--ease-drawer)}
+.sheet .hd{padding:22px 26px 0}
+.sheet .bd{padding:0 26px 24px;overflow-y:auto;flex:1}
+.sheet .ft{padding:12px 26px;border-top:1px solid var(--hairline);display:flex;justify-content:flex-end}
+@media (prefers-reduced-motion:reduce){.sheet,.sheet.open{transition:none}.panel .swap{animation:none}}
+</style>
+</head>
+<body>
+<div class="proto">
+  <div class="t">Store pace</div>
+  <div class="seg" id="opts"></div>
+  <div class="sp"></div>
+</div>
+<div class="note" id="note"></div>
+<div class="stagewrap" id="stage"></div>
+
+<script>
+/* ── a steady shop: same numbers every reload ── */
+function hash(s){let h=2166136261;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619)}return h>>>0}
+function r01(k){let t=hash(k)+0x6D2B79F5;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296}
+const nf=new Intl.NumberFormat('id-ID');
+const n0=v=>nf.format(Math.round(v));
+const rpK=v=>v>=1e9?'Rp '+(v/1e9).toFixed(2).replace('.',',')+' M':'Rp '+(v/1e6).toFixed(1).replace('.',',')+' jt';
+const jt=v=>(v/1e6).toFixed(1).replace('.',',');
+const pct=v=>Math.round(v*100)+'%';
+const x2=v=>v.toFixed(2).replace('.',',')+'×';
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* Today Fri 16 Oct 2026; sales are in up to Thu 15 Oct. */
+const DAYS=31, IN=15;
+const STORES=[ // code, name, Rp jt an average day in Sep, October vs September, vs October 2025
+ ['GIN','Grand Indonesia',34,1.04,1.09],['KGD','Kelapa Gading',32,.99,1.02],['PIM','Pondok Indah',30,1.02,.97],
+ ['CPK','Central Park',29,.86,.91],['SBY','Surabaya',29,1.08,1.14],['KOK','Kota Kasablanka',27,.98,1.01],
+ ['SNC','Senayan City',26,1.01,.95],['BDG','Bandung',26,.83,.88],['BSD','BSD City',24,1.0,1.06],
+ ['MDN','Medan',22,.97,1.03],['BGR','Bogor',21,.91,.96],['SMG','Semarang',19,1.05,1.1],['BAL','Bali',18,1.12,1.21]];
+const WD=[1.45,.85,.85,.9,.95,1.1,1.35]; // Sun..Sat
+const dayFactor=(y,m,d)=>{const w=new Date(y,m,d).getDay();return WD[w]*(d>=25&&d<=28?1.2:1)};
+function month(code,base,y,m,n,trend,key){
+  const out=[];const avgF=[...Array(n)].reduce((a,_,i)=>a+dayFactor(y,m,i+1),0)/n;
+  for(let d=1;d<=n;d++){
+    const slope=1+(trend-1)*(d/n)*1.6; // the gap opens through the month
+    out.push(base*1e6*dayFactor(y,m,d)/avgF*slope*(.88+.24*r01(code+key+d)))}
+  return out;
+}
+const BASIS={prev:{label:'September',long:'September 2026',y:2026,m:8,n:30},year:{label:'October 2025',long:'October 2025',y:2025,m:9,n:31}};
+function build(basis){
+  const b=BASIS[basis];
+  return STORES.map(([code,name,base,trend,yoy])=>{
+    const ref=month(code,base*(basis==='year'?1/yoy:1),b.y,b.m,b.n,1,'r'+basis);
+    const oct=month(code,base*(basis==='year'?1:1),2026,9,DAYS,basis==='year'?trend:trend,'o').slice(0,IN);
+    const so=oct.reduce((a,x)=>a+x,0);
+    const refSame=ref.slice(0,IN).reduce((a,x)=>a+x,0);
+    const refTotal=ref.reduce((a,x)=>a+x,0);
+    const refAvg=refTotal/b.n;
+    // the rest of the month at the last 7 days' rate, weekday by weekday
+    const last7=oct.slice(IN-7);const f7=[...Array(7)].reduce((a,_,i)=>a+dayFactor(2026,9,IN-6+i),0);
+    const unit=last7.reduce((a,x)=>a+x,0)/f7;
+    const proj=[];for(let d=IN+1;d<=DAYS;d++)proj.push(unit*dayFactor(2026,9,d));
+    const end=so+proj.reduce((a,x)=>a+x,0);
+    return {code,name,oct,ref,so,refSame,refTotal,refAvg,proj,end,pace:so/refSame,vs:end/refTotal,needs:Math.max(0,(refTotal-so)/(DAYS-IN))};
+  }).sort((a,b)=>a.vs-b.vs);
+}
+const behind=s=>Math.round(s.vs*100)<100; // below last month, as the column rounds it
+
+/* ── state ── */
+const OPTS={
+  a:{k:'A',name:'Day strip',star:true,note:'Each store a day per box, darker = a bigger day than its usual; the month end is a number at the right. A row opens its sheet.'},
+  b:{k:'B',name:'Line',note:'Each store a small line: this month so far, the rest projected (dashed), last month dotted.'},
+  c:{k:'C',name:'Numbers',note:'No pictures in the table: so far, the same days last month, pace, month end, and what each day needs from here.'},
+  d:{k:'D',name:'Split',note:'A’s strip with the store’s detail beside it, as the reference has it; a row picks the store instead of opening a sheet.'},
+};
+const sp=new URLSearchParams(location.search);
+const S={o:OPTS[sp.get('o')]?sp.get('o'):'a',basis:sp.get('vs')==='year'?'year':'prev',sel:null};
+let DATA=build(S.basis);
+
+/* ── pieces ── */
+const ICON={
+  search:'<svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
+  cal:'<svg class="i" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M8 3v4M16 3v4M3.5 10h17"/></svg>',
+};
+const RAIL=['<path d="M4 11.5 12 5l8 6.5V20H4z"/>','<path d="M4 7h16v13H4zM9 7V4h6v3"/>','<path d="M3 10h18M5 10l1-6h12l1 6M5 10v10h14V10M10 20v-5h4v5"/>','<path d="M4 19V9M10 19V5M16 19v-7M21 19H3"/>','<circle cx="12" cy="8" r="3.5"/><path d="M5 20c1.2-3.8 4-5.5 7-5.5s5.8 1.7 7 5.5"/>'];
+const rail=()=>`<nav class="rail"><div class="logo">C</div>${RAIL.map((d,i)=>`<div class="ri ${i===2?'on':''}"><svg class="i" viewBox="0 0 24 24">${d}</svg></div>`).join('')}</nav>`;
+function sidebar(){
+  const row=(l,on)=>`<div class="row ${on?'on':''}">${l}</div>`;
+  const grp=(c,rs)=>`<div class="grp"><span class="chip">${c}</span>${rs.map(r=>row(r,r==='Store')).join('')}</div>`;
+  return `<aside class="dept"><h2>Sales</h2><nav class="rows">${row('Summary')}${grp('By product',['Division','Tag','Article','SKU'])}${grp('By place',['Store','Cashier session','Payment method'])}${grp('By source',['Supplier','Purchase order'])}</nav></aside>`;
+}
+const B=()=>BASIS[S.basis];
+
+function figs(){
+  const f=(l,v,c='')=>`<div class="fig"><div class="l">${l}</div><div class="v ${c}">${v}</div></div>`;
+  const so=DATA.reduce((a,s)=>a+s.so,0),same=DATA.reduce((a,s)=>a+s.refSame,0),end=DATA.reduce((a,s)=>a+s.end,0),ref=DATA.reduce((a,s)=>a+s.refTotal,0);
+  const n=DATA.filter(behind).length;
+  return f('Sales so far',rpK(so))+f(`${B().label}, same days`,rpK(same))+f('Pace',x2(so/same))+f('Month end',`~${rpK(end)}`)+f(`% of ${B().label}`,pct(end/ref))+f(`Below ${B().label}`,n===1?'1 store':`${n} stores`,n?'warn':'');
+}
+
+function level(s,v){const r=v/s.refAvg;return r<.75?0:r<1?1:r<1.25?2:3}
+function strip(s,compact){
+  const cells=[];for(let d=1;d<=DAYS;d++){
+    if(d<=IN){const v=s.oct[d-1];cells.push(`<i class="l${level(s,v)}" title="${d} Oct · ${rpK(v)}"></i>`)}
+    else cells.push(`<i class="f" title="${d} Oct"></i>`)}
+  return `<div class="strip" style="grid-template-columns:repeat(${DAYS},minmax(0,1fr))">${cells.join('')}<span class="now" style="left:calc(${IN}/${DAYS}*100% - 1px)"></span></div>`;
+}
+function dayHead(){
+  const marks=[1,5,12,19,26];
+  return `<div class="dayhead" style="grid-template-columns:repeat(${DAYS},minmax(0,1fr))">${[...Array(DAYS)].map((_,i)=>`<span>${marks.includes(i+1)?(i+1===1?'1 Oct':i+1):''}</span>`).join('')}<span class="nowl" style="left:calc(${IN}/${DAYS}*100%)">Now</span></div>`;
+}
+function spark(s,w=280,h=40){
+  const max=Math.max(s.refTotal,s.end)*1.04;const X=d=>d/DAYS*w,Y=v=>h-2-(v/max)*(h-4);
+  let c=0;const now=s.oct.map((v,i)=>(c+=v,`${X(i+1)},${Y(c)}`));
+  let p=s.so;const pr=[`${X(IN)},${Y(s.so)}`,...s.proj.map((v,i)=>(p+=v,`${X(IN+i+1)},${Y(p)}`))];
+  let r=0;const ref=s.ref.map((v,i)=>(r+=v,`${(i+1)/s.ref.length*w},${Y(r)}`));
+  return `<svg width="100%" height="${h}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="display:block;overflow:visible">
+   <polyline points="${ref.join(' ')}" fill="none" stroke="#a1a1a6" stroke-width="1.5" stroke-dasharray="1.5 3" vector-effect="non-scaling-stroke"/>
+   <polyline points="0,${h-2} ${now.join(' ')}" fill="none" stroke="var(--ink)" stroke-width="2" vector-effect="non-scaling-stroke"/>
+   <polyline points="${pr.join(' ')}" fill="none" stroke="${behind(s)?'var(--warn)':'var(--ink)'}" stroke-width="2" stroke-dasharray="4 3" vector-effect="non-scaling-stroke"/>
+  </svg>`;
+}
+const endCell=s=>`<td class="r">~${rpK(s.end)}</td><td class="r ${behind(s)?'warn':''}">${pct(s.vs)}</td>`;
+
+function table(){
+  const o=S.o,lb=B().label,rows=DATA;
+  const sel=s=>S.o==='d'&&S.sel===s.code?'sel':'';
+  if(o==='a'||o==='d'){
+    const endW=o==='d'?92:132;
+    return `<div class="tbox"><table><colgroup><col style="width:${o==='d'?170:200}px"><col><col style="width:${endW}px"><col style="width:${o==='d'?120:140}px"></colgroup>
+    <thead><tr><th>Store</th><th style="padding-top:0;padding-bottom:0">${dayHead()}</th><th class="r">Month end</th><th class="r">% of ${lb}</th></tr></thead>
+    <tbody>${rows.map(s=>`<tr data-s="${s.code}" class="${sel(s)}"><td class="name">${esc(s.name)}</td><td>${strip(s)}</td>${o==='d'?`<td class="r">${rpK(s.end).replace('Rp ','')}</td><td class="r ${behind(s)?'warn':''}">${pct(s.vs)}</td>`:endCell(s)}</tr>`).join('')}</tbody></table></div>
+    <div class="legend"><span class="k"><span class="sw"><i style="background:color-mix(in srgb,var(--accent) 9%,transparent)"></i><i style="background:color-mix(in srgb,var(--accent) 22%,transparent)"></i><i style="background:color-mix(in srgb,var(--accent) 40%,transparent)"></i><i style="background:color-mix(in srgb,var(--accent) 62%,transparent)"></i></span>A day against the store’s usual ${lb} day: under 75, 100, 125, over 125%</span><span class="k"><span class="sw"><i style="border:1px dashed var(--hairline-2)"></i></span>Still to come</span></div>`;
+  }
+  if(o==='b'){
+    return `<div class="tbox"><table><colgroup><col style="width:200px"><col><col style="width:130px"><col style="width:132px"><col style="width:140px"></colgroup>
+    <thead><tr><th>Store</th><th>1 – 31 Oct</th><th class="r">So far</th><th class="r">Month end</th><th class="r">% of ${lb}</th></tr></thead>
+    <tbody>${rows.map(s=>`<tr data-s="${s.code}"><td class="name">${esc(s.name)}</td><td>${spark(s)}</td><td class="r">${rpK(s.so)}</td>${endCell(s)}</tr>`).join('')}</tbody></table></div>
+    <div class="legend">${keys()}</div>`;
+  }
+  // c · numbers
+  const tot=k=>DATA.reduce((a,s)=>a+s[k],0);
+  return `<div class="tbox"><table><colgroup><col><col style="width:130px"><col style="width:150px"><col style="width:90px"><col style="width:132px"><col style="width:140px"><col style="width:150px"></colgroup>
+  <thead><tr><th>Store</th><th class="r">So far</th><th class="r">${lb}, same days</th><th class="r">Pace</th><th class="r">Month end</th><th class="r">% of ${lb}</th><th class="r">Needs a day</th></tr></thead>
+  <tbody>${rows.map(s=>`<tr data-s="${s.code}"><td class="name">${esc(s.name)}</td><td class="r">${rpK(s.so)}</td><td class="r m">${rpK(s.refSame)}</td><td class="r">${x2(s.pace)}</td>${endCell(s)}<td class="r ${behind(s)?'warn':'m'}">${rpK(s.needs)}</td></tr>`).join('')}</tbody>
+  <tfoot><tr><td>Total</td><td class="r">${rpK(tot('so'))}</td><td class="r">${rpK(tot('refSame'))}</td><td class="r">${x2(tot('so')/tot('refSame'))}</td><td class="r">~${rpK(tot('end'))}</td><td class="r">${pct(tot('end')/tot('refTotal'))}</td><td class="r">${rpK(tot('needs'))}</td></tr></tfoot></table></div>`;
+}
+
+function keys(){
+  return `<div class="keys"><span><svg viewBox="0 0 22 10"><path d="M1 5h20" stroke="var(--ink)" stroke-width="2"/></svg>October so far</span><span><svg viewBox="0 0 22 10"><path d="M1 5h20" stroke="var(--ink)" stroke-width="2" stroke-dasharray="4 3"/></svg>At the last 7 days’ rate</span><span><svg viewBox="0 0 22 10"><path d="M1 5h20" stroke="#a1a1a6" stroke-width="1.6" stroke-dasharray="1.5 3"/></svg>${B().long}</span></div>`;
+}
+
+/* the store's detail: in the sheet (A B C) or the panel (D) */
+function detail(s){
+  const f=(l,v,c='')=>`<div class="fig"><div class="l">${l}</div><div class="v ${c}">${v}</div></div>`;
+  const lb=B().label;
+  return `<div class="detail"><div class="figs">${f('Pace',x2(s.pace))}${f('Month end',`~${rpK(s.end)}`)}${f(`% of ${lb}`,pct(s.vs),behind(s)?'warn':'')}${f('Needs a day',rpK(s.needs))}</div>
+  ${cumChart(s)}${keys()}
+  <h4>Last 14 days <span>· Rp jt a day</span></h4>${dayBars(s)}
+  <div class="keys"><span><svg viewBox="0 0 22 10"><rect x="6" y="0" width="10" height="10" rx="2" fill="#c7c7cc"/></svg>At or over</span><span><svg viewBox="0 0 22 10"><rect x="6" y="0" width="10" height="10" rx="2" fill="var(--warn)"/></svg>Under</span><span><svg viewBox="0 0 22 10"><path d="M1 5h20" stroke="var(--ink)" stroke-width="1.5" stroke-dasharray="3 3"/></svg>Usual ${lb} day</span></div></div>`;
+}
+function cumChart(s){
+  const W=500,H=200,L=58,R=10,T=26,Bt=30;const w=W-L-R,h=H-T-Bt;
+  const max=Math.max(s.refTotal,s.end)*1.05;const X=d=>L+d/DAYS*w,Y=v=>T+h-(v/max)*h;
+  let c=0;const now=[`${X(0)},${Y(0)}`,...s.oct.map((v,i)=>(c+=v,`${X(i+1)},${Y(c)}`))];
+  let p=s.so;const pr=[`${X(IN)},${Y(s.so)}`,...s.proj.map((v,i)=>(p+=v,`${X(IN+i+1)},${Y(p)}`))];
+  let r=0;const ref=[`${X(0)},${Y(0)}`,...s.ref.map((v,i)=>(r+=v,`${X((i+1)/s.ref.length*DAYS)},${Y(r)}`))];
+  const ticks=[0,.5,1].map(t=>t*s.refTotal);
+  const ex=X(DAYS),ey=Y(s.end),col=behind(s)?'var(--warn)':'var(--ink)';
+  return `<svg class="chart" width="100%" viewBox="0 0 ${W} ${H}" style="display:block">
+   ${ticks.map(t=>`<line x1="${L}" x2="${W-R}" y1="${Y(t)}" y2="${Y(t)}" stroke="var(--row-line)"/><text x="${L-8}" y="${Y(t)+5}" text-anchor="end">${t===0?'0':jt(t).replace(/,\d$/,'')+' jt'}</text>`).join('')}
+   <polygon points="${now.join(' ')} ${X(IN)},${Y(0)}" fill="color-mix(in srgb,var(--accent) 10%,transparent)"/>
+   <polyline points="${ref.join(' ')}" fill="none" stroke="#a1a1a6" stroke-width="1.6" stroke-dasharray="1.5 3.5"/>
+   <polyline points="${now.join(' ')}" fill="none" stroke="var(--ink)" stroke-width="2"/>
+   <polyline points="${pr.join(' ')}" fill="none" stroke="${col}" stroke-width="2" stroke-dasharray="5 4"/>
+   <line x1="${X(IN)}" x2="${X(IN)}" y1="${T-6}" y2="${T+h}" stroke="var(--hairline-2)" stroke-dasharray="2 3"/>
+   <circle cx="${X(IN)}" cy="${Y(s.so)}" r="4" fill="#fff" stroke="var(--ink)" stroke-width="2"/>
+   <circle cx="${ex}" cy="${ey}" r="4.5" fill="${col}"/>
+   <text class="lbl" x="${ex}" y="${ey-12}" text-anchor="end">~${rpK(s.end).replace('Rp ','')}</text>
+   <text x="${X(IN)}" y="${T-12}" text-anchor="middle">Now</text>
+   <text x="${L}" y="${H-6}">1 Oct</text><text x="${W-R}" y="${H-6}" text-anchor="end">31 Oct</text>
+  </svg>`;
+}
+function dayBars(s){
+  const days=s.oct.slice(IN-14),W=500,H=150,T=24,Bt=28,L=4;const h=H-T-Bt;
+  const max=Math.max(...days,s.refAvg)*1.1;const bw=(W-L*2)/14;
+  const Y=v=>T+h-(v/max)*h;
+  return `<svg class="chart" width="100%" viewBox="0 0 ${W} ${H}" style="display:block">
+   ${days.map((v,i)=>{const x=L+i*bw+5,under=v<s.refAvg;const d=IN-13+i;const wd='SMTWTFS'[new Date(2026,9,d).getDay()];
+     return `<rect x="${x}" y="${Y(v)}" width="${bw-10}" height="${T+h-Y(v)}" rx="3" fill="${under?'var(--warn)':'#c7c7cc'}"/><text x="${x+(bw-10)/2}" y="${Y(v)-6}" text-anchor="middle" ${under?'':'class="lbl"'} style="${under?'fill:var(--warn);font-weight:600':''}">${Math.round(v/1e6)}</text><text x="${x+(bw-10)/2}" y="${H-8}" text-anchor="middle">${d}</text>`}).join('')}
+   <line x1="0" x2="${W}" y1="${Y(s.refAvg)}" y2="${Y(s.refAvg)}" stroke="var(--ink)" stroke-width="1.2" stroke-dasharray="4 4"/>
+  </svg>`;
+}
+
+/* ── render ── */
+function page(){
+  const o=S.o;
+  const bar=`<div class="bar"><label class="search">${ICON.search}<input placeholder="Search stores"/></label><button class="pick">${ICON.cal}October 2026</button>
+   <div class="sg">${Object.entries(BASIS).map(([k,b])=>`<button data-basis="${k}" class="${S.basis===k?'on':''}">vs ${b.long}</button>`).join('')}</div><span class="sp"></span><button class="btn-t">Export</button></div>`;
+  const head=`<div class="head"><h1>Sales by Store</h1></div>`;
+  const tabs=`<div class="tabs"><button class="tab">Totals</button><button class="tab">Per month</button><button class="tab on">Pace</button></div>`;
+  const body=o==='d'
+    ? `<div class="split"><div>${table()}</div><aside class="panel" id="panel"></aside></div>`
+    : table();
+  return `<main class="main" id="main">${head}<div class="body"><div class="figs">${figs()}</div>${tabs}${bar}${body}</div><div class="veil" id="veil"></div><aside class="sheet" id="sheet"></aside></main>`;
+}
+function fillPanel(){
+  const s=DATA.find(x=>x.code===S.sel)||DATA[0];S.sel=s.code;
+  const el=document.getElementById('panel');if(!el)return;
+  el.innerHTML=`<div class="swap"><div class="crumb">${behind(s)?`Below ${B().label}`:`On ${B().label}’s pace`}</div><h3>${esc(s.name)}</h3>${detail(s)}</div>`;
+}
+function render(){
+  document.getElementById('opts').innerHTML=Object.entries(OPTS).map(([k,o])=>`<button data-o="${k}" class="${S.o===k?'on':''}"><b>${o.k}</b>${o.name}${o.star?'<span class="star">★</span>':''}</button>`).join('');
+  document.getElementById('note').innerHTML=`<b>${OPTS[S.o].k} · ${OPTS[S.o].name}</b>${OPTS[S.o].note}`;
+  const u=new URLSearchParams();u.set('o',S.o);if(S.basis==='year')u.set('vs','year');history.replaceState(null,'','?'+u);
+  const y=document.getElementById('main')?.scrollTop||0;
+  document.getElementById('stage').innerHTML=`<div class="app">${rail()}${sidebar()}${page()}</div>`;
+  document.getElementById('main').scrollTop=y;
+  if(S.o==='d')fillPanel();
+}
+function openSheet(code){
+  const s=DATA.find(x=>x.code===code);if(!s)return;
+  const sh=document.getElementById('sheet');
+  sh.innerHTML=`<div class="hd"><div class="crumb">Sales by Store · Pace</div><h3>${esc(s.name)}</h3></div><div class="bd">${detail(s)}</div><div class="ft"><button class="btn-t" data-close>Close</button></div>`;
+  requestAnimationFrame(()=>{sh.classList.add('open');document.getElementById('veil').classList.add('open')});
+}
+function closeSheet(){document.getElementById('sheet')?.classList.remove('open');document.getElementById('veil')?.classList.remove('open')}
+
+document.addEventListener('click',e=>{
+  const t=e.target.closest('button,tr[data-s],.veil');if(!t)return;
+  if(t.dataset.o){S.o=t.dataset.o;render();return}
+  if(t.dataset.basis){S.basis=t.dataset.basis;DATA=build(S.basis);render();return}
+  if(t.dataset.close!==undefined||t.classList.contains('veil')){closeSheet();return}
+  if(t.dataset.s){
+    if(S.o==='d'){S.sel=t.dataset.s;document.querySelectorAll('tr.sel').forEach(r=>r.classList.remove('sel'));t.classList.add('sel');fillPanel();return}
+    openSheet(t.dataset.s);
+  }
+});
+document.addEventListener('keydown',e=>{
+  if(e.target.matches('input'))return;
+  if(e.key==='Escape'){closeSheet();return}
+  const k={'1':'a','2':'b','3':'c','4':'d'}[e.key];if(k){S.o=k;render()}
+});
+render();
+</script>
+</body>
+</html>

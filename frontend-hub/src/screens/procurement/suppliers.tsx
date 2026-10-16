@@ -1,14 +1,23 @@
 import {
-  useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
+  useSuspenseInfiniteQuery,
 } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { ChevronRight, Plus, Search, Trash2 } from "lucide-react"
-import { createContext, use, useEffect, useMemo, useRef, useState } from "react"
+import {
+  createContext,
+  Suspense,
+  use,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
@@ -45,9 +54,8 @@ import {
   SheetLoading,
 } from "@/components/ui/sheet-states"
 import { SubTabs } from "@/components/ui/sub-tabs"
-import { EmptyState } from "@/components/ui/states"
+import { EmptyState, LoadingState } from "@/components/ui/states"
 import type { CsvColumn } from "@/lib/csv"
-import { useNameOfLogin } from "@/lib/queries/hr-employees"
 import { recordKeys } from "@/lib/queries/records"
 import { useLayout } from "@/lib/layout"
 import {
@@ -182,7 +190,7 @@ const columns: ColumnDef<TableSetup, SupplierRow>[] = [
         <span className="line-clamp-2 font-medium break-words whitespace-normal text-ink max-md:font-semibold">
           {supplierDisplayName(row.original)}
         </span>
-        <span className="font-mono text-[0.875rem] text-mute">
+        <span className="font-mono text-[0.9375rem] text-mute">
           {row.original.supplier_code}
         </span>
       </span>
@@ -247,7 +255,7 @@ const columns: ColumnDef<TableSetup, SupplierRow>[] = [
         >
           {count(row.original.active)}
         </span>
-        <span className="text-[0.875rem] text-mute">active</span>
+        <span className="text-[0.9375rem] text-mute">active</span>
       </span>
     ),
   },
@@ -433,8 +441,62 @@ const EXPORT_COLUMNS: readonly CsvColumn<ExportRow>[] = [
 type StatusTab = "ALL" | SupplierStatus
 
 export function Suppliers() {
-  const client = useQueryClient()
   // Which supplier is open lives in the URL, like every other sheet in the app.
+  const supplier = useSheet("supplier")
+  // A phone has the + at the thumb (`Fab`) instead of the head's button.
+  const phone = useLayout() === "phone"
+  /// The order being read, opened over the list without leaving it.
+  const [reading, setReading] = useState<string | null>(null)
+  const navigate = useNavigate()
+
+  return (
+    <PageContent>
+      {/* The screen's one action stands in its head, at the right
+          (hub-ui-patterns, 14 Oct); a phone has the + at the thumb instead.
+          The head, the + and the two sheets stand while the book is read: the
+          book waits for its first page and streams in with it (the server
+          starts the read too). */}
+      <PageHeader
+        title="Suppliers"
+        small
+        actions={
+          phone ? undefined : (
+            <Button variant="primary" onClick={() => supplier.open("new")}>
+              New supplier
+            </Button>
+          )
+        }
+      />
+
+      <Fab label="New Supplier" onClick={() => supplier.open("new")} />
+
+      <Suspense
+        fallback={<LoadingState>Reading the supplier list…</LoadingState>}
+      >
+        <SupplierBook setReading={setReading} />
+      </Suspense>
+
+      <SupplierSheet id={supplier.value ?? null} onClose={supplier.close} />
+      <OrderSheet
+        id={reading}
+        onClose={() => setReading(null)}
+        onEdit={(id) =>
+          void navigate({
+            to: "/procurement/orders",
+            search: { "edit-order": id },
+          } as never)
+        }
+      />
+    </PageContent>
+  )
+}
+
+function SupplierBook({
+  setReading,
+}: {
+  setReading: (id: string | null) => void
+}) {
+  const client = useQueryClient()
   const supplier = useSheet("supplier")
   /// What was typed into the omnibox, also in the URL.
   const search = useSheet("q")
@@ -463,9 +525,6 @@ export function Suppliers() {
       else next.add(id)
       return next
     })
-  /// The order being read, opened over the list without leaving it.
-  const [reading, setReading] = useState<string | null>(null)
-  const navigate = useNavigate()
 
   /// The name typed, plus the tab and the switch, as the one request that
   /// answers all three. Debounced: every keystroke is a round trip over the
@@ -493,17 +552,21 @@ export function Suppliers() {
   /// into view. Its own key under the book's prefix: an invalidation of
   /// `suppliers()` still reaches it, and no plain `useQuery` of the same
   /// scope can read a paged answer as a single page.
-  const book = useInfiniteQuery(supplierBookQuery(scope))
+  ///
+  /// The deferred scope keeps the list in hand on screen while a new question
+  /// is read, so a keystroke does not empty the table to a loading line.
+  const asked = useDeferredValue(scope)
+  const book = useSuspenseInfiniteQuery(supplierBookQuery(asked))
 
   const rows = useMemo<SupplierRow[]>(
-    () => (book.data?.pages ?? []).flatMap(rowsOf),
+    () => book.data.pages.flatMap(rowsOf),
     [book.data]
   )
   /// Page one carries the facets and the book summary — the book figures are
   /// counted over the category, not the page — so the five figures over the
   /// cards and the tab counts read it, and the one-row probe that used to ask
   /// for them a second time is gone.
-  const first = book.data?.pages[0]
+  const first = book.data.pages[0]
   /// The status counts for the tabs: over what the search leaves, whatever
   /// tab is showing.
   const statusCount = (value: SupplierStatus) =>
@@ -580,10 +643,7 @@ export function Suppliers() {
     count(rows.reduce((total, row) => total + row[key], 0))
 
   return (
-    <PageContent>
-      <PageHeader title="Suppliers" small />
-
-      {/* The owner's five figures, as cards over the list. */}
+    <>
       <SupplierBand
         active={first !== undefined ? bandOf(first, "ACTIVE") : undefined}
         inactive={first !== undefined ? bandOf(first, "INACTIVE") : undefined}
@@ -596,6 +656,8 @@ export function Suppliers() {
         }
         className="md:hidden"
       />
+      {/* The owner's five figures, as cards over the list on a desk and a
+          tablet (2026-10-12: back to the card model); the band is the phone's. */}
       <KpiStrip className="max-md:hidden md:grid-cols-5 xl:grid-cols-5">
         {bookKpis(first)?.map((kpi) => (
           <div key={kpi.label} title={kpi.note}>
@@ -652,13 +714,14 @@ export function Suppliers() {
                   : search.close()
               }
               aria-label="Search supplier name"
+              placeholder="Search suppliers"
               className="h-[2.125rem] w-full rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.9375rem] text-ink shadow-soft outline-none placeholder:text-body focus:border-accent pointer-coarse:h-11"
             />
           </span>
           {/* A control of the toolbar's own height and edge, beside the
                 search it narrows with — bare on the page, the switch's pale
                 track read as nothing at all. */}
-          <label className="inline-flex h-[2.125rem] shrink-0 cursor-pointer items-center gap-2 rounded-inner border border-hairline-2 bg-canvas px-2.5 text-[0.875rem] whitespace-nowrap text-ink shadow-soft select-none pointer-coarse:h-11">
+          <label className="inline-flex h-[2.125rem] shrink-0 cursor-pointer items-center gap-2 rounded-inner border border-hairline-2 bg-canvas px-2.5 text-[0.9375rem] whitespace-nowrap text-ink shadow-soft select-none pointer-coarse:h-11">
             <Switch
               on={activeOnly}
               label="Only suppliers with an active order"
@@ -675,12 +738,8 @@ export function Suppliers() {
             columns={EXPORT_COLUMNS}
             rows={exportRows}
           />
-          <Button variant="primary" onClick={() => supplier.open("new")}>
-            New supplier
-          </Button>
         </>
       </div>
-      <Fab label="New Supplier" onClick={() => supplier.open("new")} />
       {/* On a phone the status and the search live in the drawer over the
           bottom bar, not at the top of the list (owner, 2026-10-05). */}
       <DockTools
@@ -728,7 +787,7 @@ export function Suppliers() {
           </label>
           {sortChoices !== undefined && (
             <>
-              <span className="block px-3 pt-2 pb-1 text-[0.875rem] font-medium text-mute">
+              <span className="block px-3 pt-2 pb-1 text-[0.9375rem] font-medium text-mute">
                 Sort by
               </span>
               <SheetSortRows
@@ -750,87 +809,75 @@ export function Suppliers() {
       {/* `overflow-clip`, not `overflow-hidden`: hidden makes the card a
           scroll box, and the table's heading would stick to the card instead
           of the window. */}
-      <div ref={fit.ref}>
+      <div
+        ref={fit.ref}
+        aria-busy={asked !== scope || undefined}
+        className="list-swap"
+      >
         <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-          {queryState(book, {
-            loading: "Reading the supplier list…",
-            render: () =>
-              rows.length === 0 ? (
-                <EmptyState>
-                  {narrowed
-                    ? "No supplier matches what you asked for."
-                    : "Nobody has been set up as a supplier yet."}
-                </EmptyState>
-              ) : (
-                <ExpandContext value={expanding}>
-                  <DataTable<SupplierRow>
-                    refresh={[book]}
-                    table={table}
-                    cardSort={false}
-                    cardsApart
-                    cardLead
-                    onRowClick={(row) => supplier.open(row.supplier_id)}
-                    onRowIntent={(row) =>
-                      void prefetchSupplier(client, row.supplier_id)
-                    }
-                    isSelected={(row) => row.supplier_id === supplier.value}
-                    isExpanded={(row) => expanded.has(row.supplier_id)}
-                    renderSub={(row) => (
-                      <ActiveOrders
-                        supplier={row}
-                        onOpen={setReading}
-                        onViewAll={() => supplier.open(row.supplier_id)}
-                      />
-                    )}
-                    more={book}
-                    // The floating footer: how many suppliers the list holds —
-                    // the server's count, not the rows loaded — and the order
-                    // columns added up once every page is in.
-                    summary={{
-                      name: (
-                        <span>
-                          {count(first?.total ?? rows.length)}{" "}
-                          <span className="font-normal text-body">
-                            {(first?.total ?? rows.length) === 1
-                              ? "supplier"
-                              : "suppliers"}
-                          </span>
-                          {!everyLoaded && (
-                            <span className="font-normal text-body">
-                              {" "}
-                              · {count(rows.length)} loaded
-                            </span>
-                          )}
-                        </span>
-                      ),
-                      ...(everyLoaded
-                        ? {
-                            active: sum("active"),
-                            completed: sum("completed"),
-                            cancelled: sum("cancelled"),
-                          }
-                        : {}),
-                    }}
-                    pageScroll
+          {rows.length === 0 ? (
+            <EmptyState>
+              {narrowed
+                ? "No supplier matches what you asked for."
+                : "Nobody has been set up as a supplier yet."}
+            </EmptyState>
+          ) : (
+            <ExpandContext value={expanding}>
+              <DataTable<SupplierRow>
+                refresh={[book]}
+                table={table}
+                cardSort={false}
+                cardsApart
+                cardLead
+                onRowClick={(row) => supplier.open(row.supplier_id)}
+                onRowIntent={(row) =>
+                  void prefetchSupplier(client, row.supplier_id)
+                }
+                isSelected={(row) => row.supplier_id === supplier.value}
+                isExpanded={(row) => expanded.has(row.supplier_id)}
+                renderSub={(row) => (
+                  <ActiveOrders
+                    supplier={row}
+                    onOpen={setReading}
+                    onViewAll={() => supplier.open(row.supplier_id)}
                   />
-                </ExpandContext>
-              ),
-          })}
+                )}
+                more={book}
+                // The floating footer: how many suppliers the list holds —
+                // the server's count, not the rows loaded — and the order
+                // columns added up once every page is in.
+                summary={{
+                  name: (
+                    <span>
+                      {count(first?.total ?? rows.length)}{" "}
+                      <span className="font-normal text-body">
+                        {(first?.total ?? rows.length) === 1
+                          ? "supplier"
+                          : "suppliers"}
+                      </span>
+                      {!everyLoaded && (
+                        <span className="font-normal text-body">
+                          {" "}
+                          · {count(rows.length)} loaded
+                        </span>
+                      )}
+                    </span>
+                  ),
+                  ...(everyLoaded
+                    ? {
+                        active: sum("active"),
+                        completed: sum("completed"),
+                        cancelled: sum("cancelled"),
+                      }
+                    : {}),
+                }}
+                pageScroll
+              />
+            </ExpandContext>
+          )}
         </Card>
       </div>
-
-      <SupplierSheet id={supplier.value ?? null} onClose={supplier.close} />
-      <OrderSheet
-        id={reading}
-        onClose={() => setReading(null)}
-        onEdit={(id) =>
-          void navigate({
-            to: "/procurement/orders",
-            search: { "edit-order": id },
-          } as never)
-        }
-      />
-    </PageContent>
+    </>
   )
 }
 
@@ -859,7 +906,9 @@ function ExpandToggle({ row }: { row: SupplierRow }) {
         aria-expanded={open}
         aria-label={`Show active orders for ${supplierDisplayName(row)}`}
         onClick={() => expanding.toggle(row.supplier_id)}
-        className="grid size-8 place-items-center rounded-full text-line-ico transition-colors hover:bg-soft-2 hover:text-text pointer-coarse:size-tap"
+        // `shrink-0`: in the 44px column the cell's padding squeezed it into
+        // a tall grey pill under the pointer (owner, 2026-10-14).
+        className="grid size-8 shrink-0 place-items-center rounded-full text-line-ico transition-colors hover:bg-soft-2 hover:text-text pointer-coarse:size-tap"
       >
         <ChevronRight
           className={cn(
@@ -875,7 +924,7 @@ function ExpandToggle({ row }: { row: SupplierRow }) {
 const EXPAND_COLUMN: ColumnDef<TableSetup, SupplierRow> = {
   id: "expand",
   header: () => <span className="sr-only">Active orders</span>,
-  size: 44,
+  size: 56,
   enableSorting: false,
   enableHiding: false,
   meta: { card: "hide" },
@@ -918,7 +967,7 @@ function ActiveOrders({
         loading: "Reading the order book…",
         render: () =>
           active.length === 0 ? (
-            <p className="py-1 text-[0.875rem] text-body">No active orders.</p>
+            <p className="py-1 text-[0.9375rem] text-body">No active orders.</p>
           ) : (
             <>
               <OrdersTable
@@ -1400,7 +1449,7 @@ function ContactsFields({
               {/* Two boxes a row, not four: four in one row left each too
                   narrow to hold an email or a phone number whole. */}
               <div className="flex items-center justify-between gap-2">
-                <span className="text-[0.875rem] font-medium text-body">
+                <span className="text-[0.9375rem] font-medium text-body">
                   Contact {index + 1}
                 </span>
                 <Button
@@ -1466,7 +1515,7 @@ function ContactsFields({
                 </Field>
               </div>
               {problem !== null && (
-                <span data-problem className="text-[0.875rem] text-bad">
+                <span data-problem className="text-[0.9375rem] text-bad">
                   {problem}
                 </span>
               )}
@@ -1474,7 +1523,7 @@ function ContactsFields({
           )
         })}
         {contacts.length === 0 && (
-          <p className="text-[0.875rem] text-body">
+          <p className="text-[0.9375rem] text-body">
             Nobody yet. Add puts a contact person here.
           </p>
         )}
@@ -1740,17 +1789,22 @@ export function SupplierComposer({
 
 /// The record: the form it was created with, read-only, then its orders and
 /// its catalogue. `?supplier=new` opens the composer instead.
-function SupplierSheet({
+/// A supplier's record. Exported so a supplier named anywhere — an order's
+/// head, a count — opens the same record as a layer.
+export function SupplierSheet({
   id,
+  context,
   onClose,
 }: {
   id: string | null
+  /// Where it was opened from, in grey over its name ("PO-0002-OPE6").
+  context?: string
   onClose: () => void
 }) {
   const client = useQueryClient()
   const idempotency = useIdempotencyKey()
   const creating = id === "new"
-  const [tab, setTab] = useState("details")
+  const [tab, setTab] = useState("company")
   /// The edit in progress, carrying the id it was typed against: the sheet
   /// stays mounted while the list swaps records under it, and a draft about
   /// another supplier counts as no draft at all.
@@ -1773,7 +1827,6 @@ function SupplierSheet({
     ...supplierPeopleQuery(id ?? ""),
     enabled: id !== null && !creating,
   })
-  const nameOf = useNameOfLogin()
 
   const editSaid = useSaid()
   const save = useMutation({
@@ -1937,51 +1990,57 @@ function SupplierSheet({
   const startEdit = () => {
     if (supplier === undefined) return
     save.reset()
-    setTab("details")
+    setTab("company")
     setEdit(editDraftOf(id!, supplier, people.data ?? []))
   }
 
-  // The record, as the read sheet's own tabs. Activity is appended by the
-  // sheet (`subject`), open on the trail.
-  const readTabs =
-    supplier !== undefined && !editing
-      ? [
-          {
-            value: "details",
-            label: "Details",
-            content: (
-              <>
-                <CompanyFacts supplier={supplier} />
-                <ContactsFields
-                  contacts={(people.data ?? []).map(contactDraftOf)}
-                  readOnly
-                  onChange={() => undefined}
-                />
-                <SheetSection title="Notes">
-                  <p className="text-[0.875rem] leading-[1.375rem] whitespace-pre-wrap text-ink">
-                    {supplier.notes?.trim() || (
-                      <span className="text-body">—</span>
-                    )}
-                  </p>
-                </SheetSection>
-              </>
-            ),
-          },
-          {
-            value: "orders",
-            label: "Orders",
-            content: <SupplierOrders supplier={supplier} />,
-          },
-          {
-            value: "catalogue",
-            label: "Catalogue",
-            content: <SupplierCatalogue supplierId={supplier.supplier_id} />,
-          },
-        ]
-      : undefined
+  // Read mode: the supplier's figures, then Details · Orders · Catalogue as
+  // the PO list's tabs (owner, 2026-10-15: "orders, catalogue, company itu
+  // dibuat tabs ya seperti di po list"; KPIs "seperti po detail"). Details
+  // opens first and is called Details, not Company (owner, 2026-10-16). This one
+  // record keeps real tabs; others still read as one scroll. Activity stays
+  // the sheet's own, at the end (`subject`).
+  const readBody =
+    supplier !== undefined && !editing ? (
+      <>
+        <SupplierFigures supplier={supplier} />
+        <SubTabs
+          dock={false}
+          // In the sheet's flex column a scrolling row shrank to nothing.
+          className="shrink-0"
+          tabs={[
+            { value: "company", label: "Details" },
+            { value: "orders", label: "Orders" },
+            { value: "catalogue", label: "Catalogue" },
+          ]}
+          value={tab}
+          onChange={setTab}
+        />
+        {tab === "orders" && <SupplierOrders supplier={supplier} />}
+        {tab === "catalogue" && (
+          <SupplierCatalogue supplierId={supplier.supplier_id} />
+        )}
+        {tab === "company" && (
+          <>
+            <CompanyFacts supplier={supplier} />
+            <ContactsFields
+              contacts={(people.data ?? []).map(contactDraftOf)}
+              readOnly
+              onChange={() => undefined}
+            />
+            <SheetSection title="Notes">
+              <p className="text-[0.9375rem] leading-[1.375rem] whitespace-pre-wrap text-ink">
+                {supplier.notes?.trim() || <span className="text-body">—</span>}
+              </p>
+            </SheetSection>
+          </>
+        )}
+      </>
+    ) : null
 
   return (
     <Sheet
+      context={context}
       open={id !== null}
       onOpenChange={(open, reason) => {
         if (open) return
@@ -2005,10 +2064,8 @@ function SupplierSheet({
           </Pill>
         )
       }
-      caption={
-        supplier &&
-        `Created by ${nameOf(supplier.created_by)} · ${day(supplier.created_at)}`
-      }
+      // No "Created by" line: who made a record and when is its Activity's
+      // to say, not the head's (owner, 2026-10-12 — the PO never had one).
       size="wide"
       stack
       dirty={dirty}
@@ -2017,9 +2074,6 @@ function SupplierSheet({
           ? { kind: "supplier", id: supplier.supplier_id }
           : undefined
       }
-      tabs={readTabs}
-      tab={tab}
-      onTabChange={setTab}
       footer={
         editing ? (
           <SheetFooter
@@ -2038,8 +2092,9 @@ function SupplierSheet({
             error={save.error}
           />
         ) : supplier ? (
-          // Read mode: Print the icon at the left, Edit the main act at the
-          // right — along the foot on every width.
+          // Read mode: Print the icon at the left, Edit at the right — a
+          // ghost, not the blue main act (14 Oct) — along the foot on every
+          // width.
           <SheetFooter
             onPrint={() =>
               printSuppliers([
@@ -2049,7 +2104,11 @@ function SupplierSheet({
                 },
               ])
             }
-            primary={{ label: "Edit", onClick: startEdit }}
+            secondary={
+              <Button variant="ghost" onClick={startEdit}>
+                Edit
+              </Button>
+            }
           />
         ) : undefined
       }
@@ -2078,13 +2137,58 @@ function SupplierSheet({
           />
           {/* Notes are read as a fact here; they are not part of the edit. */}
           <SheetSection title="Notes">
-            <p className="text-[0.875rem] leading-[1.375rem] whitespace-pre-wrap text-ink">
+            <p className="text-[0.9375rem] leading-[1.375rem] whitespace-pre-wrap text-ink">
               {supplier.notes?.trim() || <span className="text-body">—</span>}
             </p>
           </SheetSection>
         </>
-      ) : null}
+      ) : (
+        readBody
+      )}
     </Sheet>
+  )
+}
+
+/// The supplier's figures, as an order's sheet opens on its own (owner,
+/// 2026-10-15): how many orders are open, done and called off, and when the
+/// last one was placed. Read from the same order book the Orders tab lists,
+/// one cache entry, so the two cannot disagree.
+function SupplierFigures({ supplier }: { supplier: Supplier }) {
+  const scope = { suppliers: [supplier.supplier_code] }
+  const orders = useQuery({
+    queryKey: procurementKeys.orders(scope),
+    queryFn: ({ signal }) => listPurchaseOrders(scope, signal),
+  })
+  const rows = orders.data ?? []
+  const counted = (key: OrderGroup) => {
+    const group = GROUPS.find((one) => one.key === key)!
+    return rows.filter((row) => group.statuses.includes(row.lifecycle)).length
+  }
+  const last = rows
+    .map((row) => row.issued_at)
+    .filter((at): at is string => at !== null)
+    .sort()
+    .at(-1)
+  const shown = orders.data !== undefined
+  return (
+    <KpiStrip className="mb-2!">
+      <Kpi
+        label="Active Order"
+        value={shown ? count(counted("active")) : "—"}
+      />
+      <Kpi
+        label="Completed Order"
+        value={shown ? count(counted("completed")) : "—"}
+      />
+      <Kpi
+        label="Cancelled Order"
+        value={shown ? count(counted("cancelled")) : "—"}
+      />
+      <Kpi
+        label="Last Purchased"
+        value={shown && last !== undefined ? day(last) : "—"}
+      />
+    </KpiStrip>
   )
 }
 
@@ -2124,10 +2228,10 @@ function StatusSwitch({ supplier }: { supplier: Supplier }) {
   return (
     <div className="flex items-center justify-between gap-3 rounded-inner border border-hairline px-3.5 py-3">
       <span className="flex flex-col">
-        <span className="text-[0.875rem] font-medium text-ink">
+        <span className="text-[0.9375rem] font-medium text-ink">
           {active ? "Active" : "Non-active"}
         </span>
-        <span className="text-[0.875rem] text-body">
+        <span className="text-[0.9375rem] text-body">
           {active
             ? "Purchase orders can be issued to this supplier."
             : "No purchase order can be issued to this supplier."}
@@ -2246,7 +2350,7 @@ function SupplierOrders({ supplier }: { supplier: Supplier }) {
           return (
             <section key={group.key} className="flex flex-col gap-3.5">
               <div className="flex items-center justify-between gap-2">
-                <h3 className="text-[0.9375rem] font-semibold text-ink">
+                <h3 className="section-title text-[0.9375rem] font-semibold text-ink">
                   {group.title}
                   <span className="ml-1.5 font-normal text-body tabular-nums">
                     {count(rows.length)}
@@ -2254,7 +2358,7 @@ function SupplierOrders({ supplier }: { supplier: Supplier }) {
                 </h3>
               </div>
               {rows.length === 0 ? (
-                <p className="text-[0.875rem] text-body">None.</p>
+                <p className="text-[0.9375rem] text-body">None.</p>
               ) : (
                 <OrdersTable
                   group={group}
@@ -2292,6 +2396,8 @@ function SupplierOrders({ supplier }: { supplier: Supplier }) {
         <OrderSheet
           id={reading}
           onClose={() => setReading(null)}
+          // Opened from this supplier: naming it goes back here.
+          onSupplier={() => setReading(null)}
           onEdit={(id) =>
             void navigate({
               to: "/procurement/orders",
@@ -2339,10 +2445,10 @@ function OrdersTable({
                 {money(order.net_minor)}
               </span>
             </div>
-            <span className="text-[0.875rem] text-mute tabular-nums">
+            <span className="text-[0.9375rem] text-mute tabular-nums">
               {`Date Issued ${day(order.issued_at)}`}
             </span>
-            <span className="text-[0.875rem] text-mute tabular-nums">
+            <span className="text-[0.9375rem] text-mute tabular-nums">
               {`${group.dateLabel} ${day(group.date(order))} · ${pcs(order.expected_stock_units)}`}
             </span>
           </li>
@@ -2364,7 +2470,7 @@ function OrdersTable({
                 <button
                   type="button"
                   onClick={() => onOpen(order.purchase_order_id)}
-                  className="font-mono text-[0.875rem] text-accent hover:underline"
+                  className="font-mono text-[0.9375rem] text-accent hover:underline"
                 >
                   {order.po_number}
                 </button>
@@ -2504,7 +2610,7 @@ function CatalogueTable({
                 <span className="truncate text-[0.9375rem] text-accent">
                   {item.name}
                 </span>
-                <span className="truncate text-[0.875rem] text-body">
+                <span className="truncate text-[0.9375rem] text-body">
                   {[
                     humanCode(item.division_code),
                     item.tags.map(humanCode).join(", "),
@@ -2512,7 +2618,7 @@ function CatalogueTable({
                     .filter((part) => part !== "" && part !== "—")
                     .join(" · ")}
                 </span>
-                <span className="font-mono text-[0.875rem] text-mute">
+                <span className="font-mono text-[0.9375rem] text-mute">
                   {realItemCode(item.supplier_item_code)}
                 </span>
               </span>
@@ -2545,16 +2651,18 @@ function CatalogueTable({
               onClick={() => onOpen(item)}
               className="cursor-pointer border-t border-hairline transition-colors hover:bg-soft-2"
             >
-              <td className="py-4 pl-3 font-mono text-[0.875rem] text-mute first:pl-0">
+              <td className="py-4 pl-3 font-mono text-[0.9375rem] text-mute first:pl-0">
                 {realItemCode(item.supplier_item_code)}
               </td>
               <td className="py-4 pl-3 first:pl-0">
-                <span className="text-[0.875rem] text-accent">{item.name}</span>
+                <span className="text-[0.9375rem] text-accent">
+                  {item.name}
+                </span>
               </td>
-              <td className="py-4 pl-3 text-[0.875rem] text-body first:pl-0">
+              <td className="py-4 pl-3 text-[0.9375rem] text-body first:pl-0">
                 {humanCode(item.division_code)}
               </td>
-              <td className="py-4 pl-3 text-[0.875rem] text-mute first:pl-0">
+              <td className="py-4 pl-3 text-[0.9375rem] text-mute first:pl-0">
                 {item.tags.map(humanCode).join(", ") || "—"}
               </td>
               <td className="py-4 pl-3 text-right text-[0.9375rem] font-semibold text-ink tabular-nums">
@@ -2599,7 +2707,7 @@ function SupplierCatalogue({ supplierId }: { supplierId: string }) {
         loading: "Reading the catalogue…",
         render: (page) =>
           page.items.length === 0 ? (
-            <p className="text-[0.875rem] text-body">
+            <p className="text-[0.9375rem] text-body">
               This supplier offers nothing yet, so no order can name them.
             </p>
           ) : (
@@ -2644,7 +2752,7 @@ function SupplierCatalogue({ supplierId }: { supplierId: string }) {
                 )}
               </Sheet>
               {page.next_cursor !== null && (
-                <p className="text-[0.875rem] text-body">
+                <p className="text-[0.9375rem] text-body">
                   The first {count(page.limit)} of this supplier's catalogue.
                   The whole of it is on the catalogue screen.
                 </p>

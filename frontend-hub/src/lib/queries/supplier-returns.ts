@@ -1,4 +1,5 @@
 import { node } from "@/lib/api"
+import { ApiError } from "@itulah/contract/client"
 import { raiseDirectPurchaseOrder } from "@/lib/queries/procurement"
 
 /// Returns to a supplier that come out of HO return stock (RETURN_TO_SUPPLIER
@@ -83,6 +84,7 @@ export const supplierReturnKeys = {
   stock: (poolId: string) => ["supplier-returns", "stock", poolId] as const,
   skuSuppliers: (skus: readonly string[]) =>
     ["supplier-returns", "sku-suppliers", skus] as const,
+  proof: (returnId: string) => ["supplier-returns", "proof", returnId] as const,
 }
 
 export function supplierReturns(signal?: AbortSignal) {
@@ -280,4 +282,37 @@ export async function raiseReplacementOrder(
     created_by: actor,
     lines,
   })
+}
+
+/// The photo that proves a return reached its supplier (0972): the link of a
+/// photograph already in the image bucket, kept with the return.
+export interface ReturnProof {
+  readonly photo_url: string
+  readonly taken_by: string
+  readonly taken_at: string
+}
+
+export function putReturnProof(
+  returnId: string,
+  photoUrl: string,
+  signal?: AbortSignal
+) {
+  return node.put<ReturnProof>(
+    `/api/v1/purchase-returns/${returnId}/proof`,
+    { photo_url: photoUrl },
+    { signal }
+  )
+}
+
+/// `null` when the return has no photo.
+export function returnProof(
+  returnId: string,
+  signal?: AbortSignal
+): Promise<ReturnProof | null> {
+  return node
+    .get<ReturnProof>(`/api/v1/purchase-returns/${returnId}/proof`, { signal })
+    .catch((error: unknown) => {
+      if (error instanceof ApiError && error.status === 404) return null
+      throw error
+    })
 }

@@ -1,18 +1,4 @@
-import type { ScreenMap } from "@/screens/registry"
-
-import { AsOf } from "@/screens/inventory/as-of"
-import { Availability } from "@/screens/inventory/availability"
-import { Control } from "@/screens/inventory/control"
-import { Counts } from "@/screens/inventory/counts"
-import { Exceptions } from "@/screens/inventory/exceptions"
-import { Flows } from "@/screens/inventory/flows"
-import { Missing } from "@/screens/inventory/missing"
-import { Movements } from "@/screens/inventory/movements"
-import { Observations } from "@/screens/inventory/observations"
-import { Pools } from "@/screens/inventory/pools"
-import { Reconciliations } from "@/screens/inventory/reconciliations"
-import { StockCards } from "@/screens/inventory/stock-cards"
-import { TimeMachine } from "@/screens/inventory/time-machine"
+import { lazyScreen, type ScreenMap } from "@/screens/registry"
 
 /// Screens this module has written. Keys must be paths declared in
 /// `lib/navigation.ts`; anything not listed here renders `Placeholder`.
@@ -24,17 +10,74 @@ import { TimeMachine } from "@/screens/inventory/time-machine"
 /// Overview's seat: the fleet tree it replaced still renders at
 /// `/inventory/pools`, one click under the fold.
 export const screens: ScreenMap = {
-  "/inventory": StockCards,
-  "/inventory/exceptions": Exceptions,
-  "/inventory/availability": Availability,
-  "/inventory/pools": Pools,
-  "/inventory/counts": Counts,
-  "/inventory/movements": Movements,
-  "/inventory/observations": Observations,
-  "/inventory/missing": Missing,
-  "/inventory/reconciliations": Reconciliations,
-  "/inventory/as-of": AsOf,
-  "/inventory/control": Control,
-  "/inventory/time-machine": TimeMachine,
-  "/inventory/flows": Flows,
+  "/inventory": lazyScreen(
+    "inventory/stock-cards",
+    () => import("@/screens/inventory/stock-cards"),
+    (m) => m.StockCards
+  ),
+  "/inventory/exceptions": lazyScreen(
+    "inventory/exceptions",
+    () => import("@/screens/inventory/exceptions"),
+    (m) => m.Exceptions
+  ),
+  "/inventory/availability": lazyScreen(
+    "inventory/availability",
+    () => import("@/screens/inventory/availability"),
+    (m) => m.Availability
+  ),
+  "/inventory/pools": lazyScreen(
+    "inventory/pools",
+    () => import("@/screens/inventory/pools"),
+    (m) => m.Pools
+  ),
+  "/inventory/counts": lazyScreen(
+    "inventory/counts",
+    () => import("@/screens/inventory/counts"),
+    (m) => m.Counts
+  ),
+  "/inventory/stock-card": lazyScreen(
+    "inventory/stock-card",
+    () => import("@/screens/inventory/stock-card"),
+    (m) => m.StockCard
+  ),
+  "/inventory/movements": lazyScreen(
+    "inventory/movements",
+    () => import("@/screens/inventory/movements"),
+    (m) => m.Movements
+  ),
+  "/inventory/observations": lazyScreen(
+    "inventory/observations",
+    () => import("@/screens/inventory/observations"),
+    (m) => m.Observations
+  ),
+  "/inventory/missing": lazyScreen(
+    "inventory/missing",
+    () => import("@/screens/inventory/missing"),
+    (m) => m.Missing
+  ),
+  "/inventory/reconciliations": lazyScreen(
+    "inventory/reconciliations",
+    () => import("@/screens/inventory/reconciliations"),
+    (m) => m.Reconciliations
+  ),
+  "/inventory/as-of": lazyScreen(
+    "inventory/as-of",
+    () => import("@/screens/inventory/as-of"),
+    (m) => m.AsOf
+  ),
+  "/inventory/control": lazyScreen(
+    "inventory/control",
+    () => import("@/screens/inventory/control"),
+    (m) => m.Control
+  ),
+  "/inventory/time-machine": lazyScreen(
+    "inventory/time-machine",
+    () => import("@/screens/inventory/time-machine"),
+    (m) => m.TimeMachine
+  ),
+  "/inventory/flows": lazyScreen(
+    "inventory/flows",
+    () => import("@/screens/inventory/flows"),
+    (m) => m.Flows
+  ),
 }

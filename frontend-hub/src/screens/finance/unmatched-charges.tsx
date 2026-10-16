@@ -96,7 +96,7 @@ const columns: ColumnDef<TableSetup, CheckoutException>[] = [
         .map((tender) => tender.external_reference ?? "—")
         .join(", ")
       return (
-        <span className="font-mono text-[0.875rem]">{references || "—"}</span>
+        <span className="font-mono text-[0.9375rem]">{references || "—"}</span>
       )
     },
   },
@@ -208,6 +208,7 @@ export function UnmatchedCharges() {
               </EmptyState>
             ) : (
               <DataTable<CheckoutException>
+                refresh={[exceptions]}
                 table={table}
                 onRowClick={(row) => chosen.open(row.checkout_id)}
                 isSelected={(row) => row.checkout_id === chosen.value}
@@ -321,7 +322,7 @@ function ChargeSheet({
                       {label(tender.status)}
                     </Pill>
                   </MiniCell>
-                  <MiniCell className="font-mono text-[0.875rem]">
+                  <MiniCell className="font-mono text-[0.9375rem]">
                     {tender.external_reference ?? "—"}
                   </MiniCell>
                   <MiniCell align="right" className="tabular-nums">

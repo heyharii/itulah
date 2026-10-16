@@ -18,14 +18,21 @@ import { DataTable } from "@/components/ui/data-table"
 import { Day } from "@/components/ui/day"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
-import { Pill } from "@/components/ui/pill"
+import { Pill, Status } from "@/components/ui/pill"
 import { KeyValue, MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
-import { ButtonGroup } from "@/components/ui/segmented"
+import { ButtonGroup, Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
-import { Tag } from "@/components/ui/tag"
 import { Timeline } from "@/components/ui/timeline"
-import { count, day, moment, weekday } from "@/lib/format"
+import {
+  count,
+  dateRange,
+  day,
+  label,
+  moment,
+  monthYear,
+  weekday,
+} from "@/lib/format"
 import {
   listEmployees,
   listShifts,
@@ -39,17 +46,12 @@ import {
   readToday,
   rosterKeys,
 } from "@/lib/queries/people"
+import { useActiveEmployees } from "@/lib/queries/hr-time"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { FileCorrectionSheet } from "@/screens/people/attendance-correction-sheet"
 import { Quiet, UnitChoice, useUnit } from "@/screens/people/parts"
-import {
-  CardButton,
-  CardFigure,
-  CardName,
-  PhoneCards,
-} from "@/components/ui/phone-cards"
 import type {
   AttendanceDayView,
   PunchRow,
@@ -196,7 +198,6 @@ const NO_PUNCHES: readonly PunchRow[] = []
 interface DayRow {
   readonly employeeId: string
   readonly who: string
-  readonly code: string
   readonly plan: string
   readonly arrival: string | null
   readonly departure: string | null
@@ -223,11 +224,8 @@ const columns: ColumnDef<TableSetup, DayRow>[] = [
     size: 210,
     meta: { card: "title" },
     cell: ({ row }) => (
-      <span className="flex min-w-0 flex-col">
-        <span className="truncate text-cell text-ink">{row.original.who}</span>
-        <span className="truncate text-[0.875rem] text-mute">
-          {row.original.code}
-        </span>
+      <span className="truncate text-cell text-ink max-md:text-card-title">
+        {row.original.who}
       </span>
     ),
   },
@@ -236,15 +234,37 @@ const columns: ColumnDef<TableSetup, DayRow>[] = [
     accessorFn: (row) => row.plan,
     header: "Planned",
     size: 170,
-    meta: { priority: 2 },
+    meta: { priority: 2, card: "meta" },
   },
   {
     id: "arrival",
     accessorFn: (row) => row.arrival ?? "",
     header: "In",
     size: 95,
+    // On a card (`cardLead`; a phone) the arrival is the figure the card leads
+    // with, the departure under it where a card's figure keeps its caption —
+    // the `max-md:` classes are the card's `CardFigure`, on the one cell the
+    // table draws.
+    meta: { card: "lead" },
     cell: ({ row }) => (
-      <span className="tabular-nums">{clock(row.original.arrival)}</span>
+      <span className="tabular-nums max-md:flex max-md:flex-col max-md:items-end max-md:text-right">
+        <span
+          className={
+            row.original.arrival === null
+              ? "max-md:text-[1.5rem] max-md:leading-tight max-md:font-semibold max-md:tracking-tight max-md:text-mute"
+              : "max-md:text-[1.5rem] max-md:leading-tight max-md:font-semibold max-md:tracking-tight"
+          }
+        >
+          {clock(row.original.arrival)}
+        </span>
+        <span className="hidden max-md:block max-md:text-[0.9375rem] max-md:font-normal max-md:text-mute">
+          {row.original.departure === null
+            ? row.original.arrival === null
+              ? "no arrival"
+              : "arrived"
+            : `out ${clock(row.original.departure)}`}
+        </span>
+      </span>
     ),
   },
   {
@@ -252,6 +272,8 @@ const columns: ColumnDef<TableSetup, DayRow>[] = [
     accessorFn: (row) => row.departure ?? "",
     header: "Out",
     size: 95,
+    // On a card the departure is the caption under the arrival.
+    meta: { card: "hide" },
     cell: ({ row }) => (
       <span className="tabular-nums">{clock(row.original.departure)}</span>
     ),
@@ -261,20 +283,20 @@ const columns: ColumnDef<TableSetup, DayRow>[] = [
     // Joined into a string so the column carries a sortable value; the cell
     // draws the codes as what they are, which is a set rather than a word.
     accessorFn: (row) => row.outcomes.join(" "),
-    header: "What the Day Was",
+    header: "Outcome",
     size: 240,
-    meta: { card: "status" },
+    meta: { card: "foot" },
     cell: ({ row }) =>
       row.original.outcomes.length === 0 ? (
         <span className="text-mute">—</span>
       ) : (
-        <span className="flex flex-wrap items-center gap-1">
+        <span className="flex flex-wrap items-center gap-x-4 gap-y-1">
           {row.original.outcomes.map((code) => {
             const read = outcome(code)
             return (
-              <Pill key={code} tone={read.tone}>
+              <Status key={code} tone={read.tone}>
                 {read.label}
-              </Pill>
+              </Status>
             )
           })}
         </span>
@@ -282,10 +304,12 @@ const columns: ColumnDef<TableSetup, DayRow>[] = [
   },
   {
     id: "late",
-    accessorFn: (row) => row.lateMinutes,
+    // `null` for none, so a card leaves the figure out instead of drawing a
+    // dash under its label; it still sorts as zero.
+    accessorFn: (row) => (row.lateMinutes === 0 ? null : row.lateMinutes),
     header: "Late by",
     size: 100,
-    meta: { align: "right", priority: 2 },
+    meta: { align: "right", priority: 2, card: "meta" },
     /// The policy's answer, not the arithmetic: the grace is already taken off
     /// by the version named on the row, so an arrival three minutes after the
     /// shift starts is `0` here and that is correct rather than a rounding.
@@ -293,30 +317,37 @@ const columns: ColumnDef<TableSetup, DayRow>[] = [
       row.original.lateMinutes === 0 ? (
         <span className="text-mute">—</span>
       ) : (
-        readMinutes(row.original.lateMinutes)
+        <>
+          <span className="hidden max-md:inline">Late by </span>
+          {readMinutes(row.original.lateMinutes)}
+        </>
       ),
   },
   {
     id: "overtime",
-    accessorFn: (row) => row.overtimeAgreed + row.overtimeUnagreed,
+    accessorFn: (row) =>
+      row.overtimeAgreed + row.overtimeUnagreed === 0
+        ? null
+        : row.overtimeAgreed + row.overtimeUnagreed,
     header: "Overtime",
     size: 150,
-    meta: { align: "right", priority: 2 },
+    meta: { align: "right", priority: 2, card: "meta" },
     /// Agreed and unagreed are never added together. An hour nobody consented
     /// to is not an hour of overtime — PP 35/2021 wants the worker's own
     /// agreement — and a single total would pay it or hide it depending on
     /// which way somebody read the column.
     cell: ({ row }) => (
-      <span className="flex flex-wrap items-center justify-end gap-1">
+      <span className="flex flex-wrap items-center justify-end gap-1 max-md:justify-start">
+        <span className="hidden max-md:inline">Overtime</span>
         {row.original.overtimeAgreed > 0 && (
           <span className="tabular-nums">
             {readMinutes(row.original.overtimeAgreed)}
           </span>
         )}
         {row.original.overtimeUnagreed > 0 && (
-          <Pill tone="warn">
+          <span className="text-warn-fg">
             {readMinutes(row.original.overtimeUnagreed)} unagreed
-          </Pill>
+          </span>
         )}
         {row.original.overtimeAgreed === 0 &&
           row.original.overtimeUnagreed === 0 && (
@@ -327,35 +358,54 @@ const columns: ColumnDef<TableSetup, DayRow>[] = [
   },
   {
     id: "worked",
-    accessorFn: (row) => row.workedMinutes,
+    accessorFn: (row) => (row.workedMinutes === 0 ? null : row.workedMinutes),
     header: "Worked",
     size: 100,
-    meta: { align: "right", priority: 3 },
+    meta: { align: "right", priority: 3, card: "meta" },
     cell: ({ row }) =>
       row.original.workedMinutes === 0 ? (
         <span className="text-mute">—</span>
       ) : (
-        readMinutes(row.original.workedMinutes)
+        <>
+          <span className="hidden max-md:inline">Worked </span>
+          {readMinutes(row.original.workedMinutes)}
+        </>
       ),
   },
   {
     id: "flags",
-    accessorFn: (row) => (row.correction ?? "") + String(row.canClockIn),
+    // Empty when there is nothing to note, so a card leaves the line out.
+    accessorFn: (row) =>
+      row.canClockIn !== true ||
+      row.correction !== null ||
+      row.punchesConsidered === 0
+        ? (row.correction ?? "") + String(row.canClockIn)
+        : "",
     header: "Notes",
-    size: 170,
-    meta: { priority: 2 },
+    size: 210,
+    meta: { priority: 2, card: "meta" },
     /// Two facts that change how the rest of the row should be read, and both
     /// of them belong beside it rather than a click away: a corrected day is
     /// not what the device saw, and somebody with no finger on file could not
-    /// have punched however early they arrived.
-    cell: ({ row }) => (
-      <span className="flex flex-wrap items-center gap-1">
-        {row.original.canClockIn === false && <Tag tone="bad">no finger</Tag>}
-        {row.original.canClockIn === null && <Tag>enrolment unread</Tag>}
-        {row.original.correction !== null && <Tag tone="info">corrected</Tag>}
-        {row.original.punchesConsidered === 0 && <Tag>no punch</Tag>}
-      </span>
-    ),
+    /// have punched however early they arrived. One dot and one line, the
+    /// worst fact's tone, so the cell stays one row.
+    cell: ({ row }) => {
+      const day = row.original
+      const words = [
+        day.canClockIn === false ? "No finger" : null,
+        day.canClockIn === null ? "Enrolment unread" : null,
+        day.correction !== null ? "Corrected" : null,
+        day.punchesConsidered === 0 ? "No punch" : null,
+      ].filter((one) => one !== null)
+      if (words.length === 0) return null
+      const tone =
+        day.canClockIn === false
+          ? "bad"
+          : day.correction !== null
+            ? "info"
+            : "neutral"
+      return <Status tone={tone}>{words.join(" · ")}</Status>
+    },
   },
 ]
 
@@ -415,9 +465,10 @@ function DayChoice({
   const today = todayIso()
   const days = new Set<string>([value])
   for (let by = 1; by >= -13; by -= 1) days.add(addDays(today, by))
-  const label = (iso: string) => weekday(iso, true)
+  const named = (iso: string) => weekday(iso, true)
   return (
     <DockChoice
+      title="Day"
       value={value}
       onChange={onChange}
       options={[...days]
@@ -425,7 +476,7 @@ function DayChoice({
         .reverse()
         .map((iso) => ({
           value: iso,
-          label: iso === today ? `Today · ${label(iso)}` : label(iso),
+          label: iso === today ? `Today · ${named(iso)}` : named(iso),
           short: iso === today ? "Today" : weekday(iso),
         }))}
     />
@@ -504,6 +555,11 @@ export function AttendanceDays() {
     return map
   }, [team.data])
 
+  const stationNames = useMemo(
+    () => new Map((stations.data ?? []).map((one) => [one.id, one.name])),
+    [stations.data]
+  )
+
   const shiftName = useMemo(() => {
     const map = new Map<string, string>()
     for (const shift of shifts.data ?? []) {
@@ -579,7 +635,6 @@ export function AttendanceDays() {
         return {
           employeeId: one.employee_id,
           who: who?.who ?? one.employee_id,
-          code: who?.code ?? one.employee_id,
           plan: planned,
           arrival: one.arrival,
           departure: one.departure,
@@ -627,7 +682,6 @@ export function AttendanceDays() {
   const blocked = mentioned.filter((id) => enrolment.can.get(id) === false)
   const arrived = rows.filter((row) => row.arrival !== null).length
   const late = rows.filter((row) => row.outcomes.includes("LATE")).length
-  const absent = rows.filter((row) => row.outcomes.includes("ABSENT")).length
   const future = date > today
 
   /// Draw the day when there is something that could have recorded it, or when
@@ -644,59 +698,14 @@ export function AttendanceDays() {
   return (
     <PageContent>
       <PageHeader
-        crumb="People"
         title="Attendance"
-        sub={
-          unit.choosing
-            ? "What a day amounted to. Head office reads any unit's; the unit that worked it lives in it."
-            : `What the day amounted to at ${unit.name ?? "your place"}.`
-        }
         // On a phone the unit and the day are the chips over the bottom bar and
         // filing a correction is the round +.
         actions={
           phone ? undefined : (
-            <>
-              <UnitChoice
-                unitId={unitId}
-                units={unit.units}
-                onChange={unit.setUnitId}
-              />
-              {/* A day at a time, because attendance is asked about a day. The
-                picker stays for the jump to a month back. */}
-              <ButtonGroup>
-                <Button
-                  variant="ghost"
-                  aria-label="Previous day"
-                  onClick={() => setDate(addDays(date, -1))}
-                >
-                  <ChevronLeft className="size-4 stroke-[1.7]" />
-                </Button>
-                <Button variant="ghost" onClick={() => setDate(todayIso())}>
-                  Today
-                </Button>
-                <Button
-                  variant="ghost"
-                  aria-label="Next day"
-                  onClick={() => setDate(addDays(date, 1))}
-                >
-                  <ChevronRight className="size-4 stroke-[1.7]" />
-                </Button>
-              </ButtonGroup>
-              <Day
-                value={date}
-                onChange={(next) => {
-                  // A day-shaped screen has no "any day": there is always a date
-                  // whose attendance is being read, so cleared is not a state
-                  // this screen can be in.
-                  if (next !== "") setDate(next)
-                }}
-                clearable={false}
-                className="h-8 w-36"
-              />
-              <Button variant="primary" onClick={() => setCorrecting(true)}>
-                File correction
-              </Button>
-            </>
+            <Button variant="primary" onClick={() => setCorrecting(true)}>
+              File correction
+            </Button>
           )
         }
       />
@@ -711,26 +720,6 @@ export function AttendanceDays() {
           <Fab label="File correction" onClick={() => setCorrecting(true)} />
         </>
       )}
-
-      {unitId === null && !unit.choosing && (
-        <Banner tone="warn" className="mb-4">
-          You are not posted anywhere, so there is no unit whose day this would
-          be.
-        </Banner>
-      )}
-
-      {future && (
-        <Banner tone="info" className="mb-4">
-          {day(date)} has not happened yet. Nothing below is missing — there is
-          nothing to have recorded.
-        </Banner>
-      )}
-
-      {/* Only once the day has actually answered. A failed read leaves
-          `punch_source_connected` at its default, and posting "no station has
-          ever reported" because a request fell over is inventing a fact about
-          a unit out of a network error. */}
-      {view.data !== undefined && <Source posture={posture} />}
 
       {/* The counters are drawn from the rows the server sent, and only when
           something reported them. A strip of zeros is the same lie as a grid of
@@ -753,20 +742,66 @@ export function AttendanceDays() {
         </KpiStrip>
       )}
 
-      {/* The gap the backend names in its own comment, said out loud where
-          somebody might otherwise act on it: the derivation is handed
-          `DayApprovals::none()`, so approved leave is not joined in yet and a
-          day covered by it reads here as an absence. An absent approval never
-          invents an entitlement — it only means this column is not the last
-          word until that join lands. */}
-      {drawing && absent > 0 && (
-        <Banner tone="info" className="mb-4">
-          {absent === 1 ? "One day reads" : `${absent} days read`} as an
-          absence. Approved leave is not yet joined into the derivation, so
-          check Work › Requests before anybody is treated as having missed a
-          shift.
+      {!phone && (
+        <Toolbar>
+          <UnitChoice
+            unitId={unitId}
+            units={unit.units}
+            onChange={unit.setUnitId}
+          />
+          {/* A day at a time, because attendance is asked about a day. The
+          picker stays for the jump to a month back. */}
+          <ButtonGroup>
+            <Button
+              variant="ghost"
+              aria-label="Previous day"
+              onClick={() => setDate(addDays(date, -1))}
+            >
+              <ChevronLeft className="size-4 stroke-[1.7]" />
+            </Button>
+            <Button variant="ghost" onClick={() => setDate(todayIso())}>
+              Today
+            </Button>
+            <Button
+              variant="ghost"
+              aria-label="Next day"
+              onClick={() => setDate(addDays(date, 1))}
+            >
+              <ChevronRight className="size-4 stroke-[1.7]" />
+            </Button>
+          </ButtonGroup>
+          <Day
+            value={date}
+            onChange={(next) => {
+              // A day-shaped screen has no "any day": there is always a date
+              // whose attendance is being read, so cleared is not a state
+              // this screen can be in.
+              if (next !== "") setDate(next)
+            }}
+            clearable={false}
+            className="h-8 w-36"
+          />
+        </Toolbar>
+      )}
+
+      {unitId === null && !unit.choosing && (
+        <Banner tone="warn" className="mb-4">
+          You are not posted anywhere, so there is no unit to read.
         </Banner>
       )}
+
+      {future && (
+        <Banner tone="info" className="mb-4">
+          {day(date)} has not happened yet.
+        </Banner>
+      )}
+
+      {/* Only once the day has actually answered, and only over a day that is
+          drawn: a failed read leaves `punch_source_connected` at its default,
+          and posting "no station has ever reported" because a request fell
+          over is inventing a fact about a unit out of a network error. When
+          nothing is drawn the empty card says the same thing. */}
+      {drawing && view.data !== undefined && <Source posture={posture} />}
 
       <Card className="mb-4 overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         <CardHeader>
@@ -779,94 +814,24 @@ export function AttendanceDays() {
         </CardHeader>
         {queryState(view, {
           loading: "Deriving the day…",
-          refused: (
-            <EmptyState>
-              You are not posted anywhere that reaches this unit, so its day is
-              not yours to read.
-            </EmptyState>
-          ),
+          refused: <EmptyState>This unit is outside your reach.</EmptyState>,
           render: () =>
             !drawing ? (
               <EmptyState>{unsaid(posture, unit.name)}</EmptyState>
             ) : rows.length === 0 ? (
               <EmptyState>
                 Nobody was rostered at {unit.name ?? "this unit"} on {day(date)}
-                . A day with no plan has no attendance to derive — "absent" only
-                means something against a scheduled day.
+                .
               </EmptyState>
-            ) : phone ? (
-              <PhoneCards
-                rows={[...rows].sort((a, b) => a.who.localeCompare(b.who))}
-                onOpen={(row) => person.open(row.employeeId)}
-                rowId={(row) => row.employeeId}
-                spec={{
-                  title: (row) => (
-                    <CardName
-                      name={row.who}
-                      line={
-                        <>
-                          <span className="block">{row.plan}</span>
-                          {(row.canClockIn === false ||
-                            row.correction !== null ||
-                            row.punchesConsidered === 0) && (
-                            <span className="mt-1 flex flex-wrap items-center gap-1">
-                              {row.canClockIn === false && (
-                                <Tag tone="bad">no finger</Tag>
-                              )}
-                              {row.correction !== null && (
-                                <Tag tone="info">corrected</Tag>
-                              )}
-                              {row.punchesConsidered === 0 && (
-                                <Tag>no punch</Tag>
-                              )}
-                            </span>
-                          )}
-                        </>
-                      }
-                    />
-                  ),
-                  lead: (row) => (
-                    <CardFigure
-                      value={clock(row.arrival)}
-                      caption={
-                        row.departure === null
-                          ? row.arrival === null
-                            ? "no arrival"
-                            : "arrived"
-                          : `out ${clock(row.departure)}`
-                      }
-                      tone={row.arrival === null ? "quiet" : undefined}
-                    />
-                  ),
-                  foot: (row) =>
-                    row.outcomes.length === 0 ? (
-                      <>—</>
-                    ) : (
-                      <span className="flex flex-wrap items-center gap-1">
-                        {row.outcomes.map((code) => {
-                          const read = outcome(code)
-                          return (
-                            <Pill key={code} tone={read.tone}>
-                              {read.label}
-                            </Pill>
-                          )
-                        })}
-                      </span>
-                    ),
-                  action: (row) => (
-                    <CardButton
-                      label="Open"
-                      ariaLabel={`Open ${row.who}’s attendance`}
-                      onClick={() => person.open(row.employeeId)}
-                    />
-                  ),
-                }}
-              />
             ) : (
               <DataTable<DayRow>
+                refresh={[view]}
                 table={table}
                 onRowClick={(row) => person.open(row.employeeId)}
                 isSelected={(row) => row.employeeId === person.value}
+                cardsApart
+                cardLead
+                cardSort={false}
               />
             ),
         })}
@@ -885,13 +850,19 @@ export function AttendanceDays() {
         />
       )}
 
-      {unrostered.length > 0 && <Unrostered rows={unrostered} named={named} />}
+      {unrostered.length > 0 && (
+        <Unrostered
+          rows={unrostered}
+          named={named}
+          stationNames={stationNames}
+        />
+      )}
 
       <div className="grid gap-[1.125rem] lg:grid-cols-2">
         <Stations query={stations} unit={unit.name} />
         <Card className="overflow-hidden">
           <CardHeader>
-            <CardTitle>{date.slice(0, 7)} so far</CardTitle>
+            <CardTitle>{monthYear(date)} so far</CardTitle>
           </CardHeader>
           <div className="px-4 pb-4">
             {queryState(readiness, {
@@ -912,13 +883,6 @@ export function AttendanceDays() {
                       ? "not assessed"
                       : count(month.unrostered_punch_days)}
                   </KeyValue>
-                  {!month.punch_source_connected && (
-                    <p className="mt-2.5 text-meta text-body">
-                      Both are unassessed because no station is registered here.
-                      A period closed on this month records that the punch
-                      checks were not made.
-                    </p>
-                  )}
                 </>
               ),
             })}
@@ -950,6 +914,7 @@ export function AttendanceDays() {
         }
         date={date}
         punches={punches}
+        stationNames={stationNames}
         onClose={person.close}
       />
     </PageContent>
@@ -965,44 +930,44 @@ function unsaid(posture: Posture, unit: string | null): string {
   const here = unit ?? "this unit"
   switch (posture.kind) {
     case "UNREGISTERED":
-      return `No punch station is registered at ${here}, so nothing has ever recorded who arrived. Fingerprint is the only way in — there is no PIN and no card — which means nobody here can clock in at all, and every figure this screen could draw would be an absence of evidence rather than evidence of absence. Register a station under Setup › Punch stations.`
+      return `No punch station is registered at ${here}, so nobody there can clock in. Register one under System › Devices.`
     case "SUSPENDED":
-      return `Every station at ${here} is suspended, so none of them may identify anybody. ${posture.stations === 1 ? "The one station" : `All ${posture.stations} stations`} would refuse a finger presented today, and an empty day is what that looks like from here rather than a day nobody worked.`
+      return `${posture.stations === 1 ? "The one station" : `All ${posture.stations} stations`} at ${here} ${posture.stations === 1 ? "is" : "are"} suspended, so nothing was punched.`
     case "SILENT":
-      return `${posture.stations === 1 ? "A station is" : `${posture.stations} stations are`} registered and active at ${here}, and ${posture.stations === 1 ? "it has" : "none has"} never delivered a punch. Until one arrives there is nothing to derive a day from, and the roster on its own says what was planned rather than what was worked.`
+      return `${posture.stations === 1 ? "A station is" : `${posture.stations} stations are`} registered at ${here}, and ${posture.stations === 1 ? "it has" : "none has"} not delivered a punch yet.`
     default:
       return `Nothing to show for ${here}.`
   }
 }
 
-/// What the unit's punch source is, above the day it did or did not record.
+/// What the unit's punch source is, above a day that is drawn anyway.
 function Source({ posture }: { posture: Posture }) {
   switch (posture.kind) {
-    case "UNREGISTERED":
-      return (
-        <Banner tone="warn" className="mb-4">
-          No station has ever reported from this unit. Nothing below is a count
-          of absences — there is no source to have counted anything.
-        </Banner>
-      )
     case "SUSPENDED":
       return (
         <Banner tone="warn" className="mb-4">
-          Every station here is suspended. A suspended station may not attest an
-          identification, so today's readings stop at the device.
+          Every station here is suspended, so readings stop at the device.
         </Banner>
       )
     case "SILENT":
       return (
         <Banner tone="warn" className="mb-4">
-          A station is registered and active here but has never delivered a
-          punch. "One of them will be unplugged on a Monday" — this is how that
-          looks before payroll rather than after it.
+          A station is registered here but has never delivered a punch.
         </Banner>
       )
     default:
       return null
   }
+}
+
+/// Where a punch was taken: the station's name, or the person's own app.
+function sourceOf(
+  row: PunchRow,
+  stationNames: ReadonlyMap<string, string>
+): string {
+  if (row.terminal_id === null)
+    return row.source === "EMPLOYEE_APP" ? "Employee app" : "—"
+  return stationNames.get(row.terminal_id) ?? row.terminal_id
 }
 
 /// Days the derivation would not classify, with the sentence the server wrote.
@@ -1023,7 +988,7 @@ function Underivable({
       <CardHeader>
         <CardTitle>Days that could not be derived</CardTitle>
         <span className="text-meta text-mute">
-          {rows.length === 1 ? "1 day" : `${rows.length} days`} · not absences
+          {rows.length === 1 ? "1 day" : `${rows.length} days`}
         </span>
       </CardHeader>
       <div className="px-4 pb-4">
@@ -1031,7 +996,7 @@ function Underivable({
           head={[
             "Who",
             { label: "Date", align: "left" },
-            { label: "Why Not", align: "left" },
+            { label: "Reason", align: "left" },
           ]}
         >
           {rows.map((row) => (
@@ -1072,13 +1037,6 @@ function CannotClockIn({
         </span>
       </CardHeader>
       <div className="flex flex-col gap-3 px-4 pb-4">
-        <p className="text-meta text-body">
-          Nobody has enrolled a finger for these people. Fingerprint is the only
-          way in — the owner's decision, with no PIN and no card behind it — so
-          they could not have punched however early they arrived, and their day
-          will read as an absence every day until somebody enrols them at the
-          unit's station.
-        </p>
         <div className="flex flex-wrap gap-2">
           {ids.map((id) => (
             <button
@@ -1094,8 +1052,8 @@ function CannotClockIn({
         {unread > 0 && (
           <p className="text-meta text-mute">
             {unread === 1
-              ? "One person's enrolment could not be read, so it is not claimed either way."
-              : `${unread} people's enrolments could not be read, so they are not claimed either way.`}
+              ? "One person's enrolment could not be read."
+              : `${unread} people's enrolments could not be read.`}
           </p>
         )}
       </div>
@@ -1107,33 +1065,28 @@ function CannotClockIn({
 function Unrostered({
   rows,
   named,
+  stationNames,
 }: {
   rows: readonly PunchRow[]
   named: Map<string, { who: string; code: string }>
+  stationNames: ReadonlyMap<string, string>
 }) {
   return (
     <Card className="mb-4 overflow-hidden">
       <CardHeader>
         <CardTitle>Punched with no roster line</CardTitle>
         <span className="text-meta text-mute">
-          {rows.length === 1 ? "1 reading" : `${rows.length} readings`} ·
-          counted nowhere above
+          {rows.length === 1 ? "1 reading" : `${rows.length} readings`}
         </span>
       </CardHeader>
       <div className="px-4 pb-4">
-        <p className="mb-3 text-meta text-body">
-          A day is derived against a plan, so these readings appear in no row.
-          Either the roster missed somebody who worked, or somebody punched who
-          was not meant to be here — the record cannot say which, and both are
-          worth an answer before the month is signed off.
-        </p>
         <MiniTable
           head={[
             "Who",
             { label: "Direction", align: "left" },
             "At",
-            { label: "Station", align: "left" },
-            { label: "Reached Us", align: "right" },
+            { label: "Source", align: "left" },
+            { label: "Received", align: "right" },
           ]}
         >
           {rows.map((row) => (
@@ -1141,11 +1094,9 @@ function Unrostered({
               <MiniCell>
                 {named.get(row.employee_id)?.who ?? row.employee_id}
               </MiniCell>
-              <MiniCell>
-                <Tag>{row.direction}</Tag>
-              </MiniCell>
+              <MiniCell>{label(row.direction)}</MiniCell>
               <MiniCell align="right">{row.at}</MiniCell>
-              <MiniCell>{row.terminal_id}</MiniCell>
+              <MiniCell>{sourceOf(row, stationNames)}</MiniCell>
               <MiniCell align="right">{moment(row.received_at)}</MiniCell>
             </MiniRow>
           ))}
@@ -1177,15 +1128,12 @@ function Stations({
           loading: "Reading the stations…",
           render: (rows) =>
             rows.length === 0 ? (
-              <Quiet>
-                No station is registered at {unit ?? "this unit"}, so nobody
-                here can clock in.
-              </Quiet>
+              <Quiet>No station is registered at {unit ?? "this unit"}.</Quiet>
             ) : (
               <MiniTable
                 head={[
                   "Station",
-                  { label: "State", align: "left" },
+                  { label: "Status", align: "left" },
                   "Enrolled",
                   { label: "Templates Taken", align: "right" },
                   { label: "Last Punch", align: "right" },
@@ -1195,7 +1143,7 @@ function Stations({
                   <MiniRow key={row.id}>
                     <MiniCell>{row.name}</MiniCell>
                     <MiniCell>
-                      <Pill
+                      <Status
                         tone={
                           row.status === "ACTIVE"
                             ? "ok"
@@ -1204,8 +1152,8 @@ function Stations({
                               : "bad"
                         }
                       >
-                        {row.status}
-                      </Pill>
+                        {label(row.status)}
+                      </Status>
                     </MiniCell>
                     <MiniCell align="right">
                       {count(row.enrolled_people)}
@@ -1244,6 +1192,7 @@ function PersonSheet({
   code,
   date,
   punches,
+  stationNames,
   onClose,
 }: {
   employeeId: string | null
@@ -1251,8 +1200,10 @@ function PersonSheet({
   code: string | null
   date: string
   punches: readonly PunchRow[]
+  stationNames: ReadonlyMap<string, string>
   onClose: () => void
 }) {
+  const { nameOf } = useActiveEmployees()
   /// Thirty days back from the day being read, not a calendar month: the
   /// question is "what has this person's month looked like", and on the 2nd a
   /// calendar month answers it with two rows.
@@ -1283,7 +1234,7 @@ function PersonSheet({
       }}
       id={code ?? employeeId}
       title={who ?? employeeId}
-      caption={`${day(from)} — ${day(date)}`}
+      caption={dateRange(from, date)}
       badge={
         canClockIn === false ? (
           <Pill tone="bad">No finger enrolled</Pill>
@@ -1303,18 +1254,15 @@ function PersonSheet({
             <>
               {range.data?.punch_source_connected === false && (
                 <Banner tone="warn" className="mb-4">
-                  This person's unit has no registered station, so the month
-                  below is what was planned and never what was worked.
+                  This person's unit has no registered station, so the month is
+                  the plan, not what was worked.
                 </Banner>
               )}
               {queryState(range, {
                 loading: "Deriving the month…",
                 render: (view) =>
                   view.days.length === 0 && view.underivable.length === 0 ? (
-                    <Quiet>
-                      Nothing was rostered for this person in these thirty days,
-                      so there is no day to derive.
-                    </Quiet>
+                    <Quiet>Nothing was rostered in these thirty days.</Quiet>
                   ) : (
                     <div className="flex flex-col gap-5">
                       {view.days.length > 0 && (
@@ -1323,7 +1271,7 @@ function PersonSheet({
                             "Date",
                             "In",
                             "Out",
-                            { label: "What the Day Was", align: "left" },
+                            { label: "Outcome", align: "left" },
                             "Late by",
                             "Worked",
                           ]}
@@ -1338,13 +1286,13 @@ function PersonSheet({
                                 {clock(one.departure)}
                               </MiniCell>
                               <MiniCell>
-                                <span className="flex flex-wrap gap-1">
+                                <span className="flex flex-wrap gap-x-4 gap-y-1">
                                   {one.outcomes.map((row) => {
                                     const read = outcome(row)
                                     return (
-                                      <Pill key={row} tone={read.tone}>
+                                      <Status key={row} tone={read.tone}>
                                         {read.label}
-                                      </Pill>
+                                      </Status>
                                     )
                                   })}
                                 </span>
@@ -1372,7 +1320,7 @@ function PersonSheet({
                             Could not be derived
                           </p>
                           <MiniTable
-                            head={["Date", { label: "Why Not", align: "left" }]}
+                            head={["Date", { label: "Reason", align: "left" }]}
                           >
                             {view.underivable.map((one) => (
                               <MiniRow key={`${one.date}-${one.reason}`}>
@@ -1396,39 +1344,31 @@ function PersonSheet({
           label: "What the device saw",
           content:
             mine.length === 0 ? (
-              <Quiet>
-                No reading from this person on {day(date)}. That is the device's
-                answer, which is a different question from whether they were
-                late.
-              </Quiet>
+              <Quiet>No reading from this person on {day(date)}.</Quiet>
             ) : (
               <MiniTable
                 head={[
                   { label: "Direction", align: "left" },
                   "At",
-                  { label: "Station", align: "left" },
+                  { label: "Source", align: "left" },
                   { label: "Clock", align: "left" },
-                  { label: "Reached Us", align: "right" },
+                  { label: "Received", align: "right" },
                 ]}
               >
                 {mine.map((one) => (
                   <MiniRow key={one.id}>
-                    <MiniCell>
-                      <Tag>{one.direction}</Tag>
-                    </MiniCell>
+                    <MiniCell>{label(one.direction)}</MiniCell>
                     <MiniCell align="right">{one.at}</MiniCell>
-                    <MiniCell>{one.terminal_id}</MiniCell>
+                    <MiniCell>{sourceOf(one, stationNames)}</MiniCell>
                     {/* The gap between "the device thought it was 08:03" and
                         "it reached us at 17:40" is exactly what is asked about
                         a day a unit was offline, so the quality and the
                         arrival instant are both here rather than folded into
                         one trustworthy-looking time. */}
                     <MiniCell>
-                      <Tag
-                        tone={one.clock_quality === "OK" ? "neutral" : "warn"}
-                      >
-                        {one.clock_quality}
-                      </Tag>
+                      <Status tone={one.clock_quality === "OK" ? "ok" : "warn"}>
+                        {label(one.clock_quality)}
+                      </Status>
                     </MiniCell>
                     <MiniCell align="right">{moment(one.received_at)}</MiniCell>
                   </MiniRow>
@@ -1453,9 +1393,8 @@ function PersonSheet({
                 </Facts>
                 {!view.can_clock_in && (
                   <Banner tone="warn">
-                    Fingerprint is the only way in. Until somebody enrols a
-                    finger at the unit's station, every rostered day for this
-                    person will read as an absence and none of them will be one.
+                    Without a finger on file, their rostered days read as
+                    absences.
                   </Banner>
                 )}
                 {view.fingers.length > 0 && (
@@ -1469,7 +1408,7 @@ function PersonSheet({
                   >
                     {view.fingers.map((finger) => (
                       <MiniRow key={`${finger.finger}-${finger.revision}`}>
-                        <MiniCell>{finger.finger}</MiniCell>
+                        <MiniCell>{label(finger.finger)}</MiniCell>
                         <MiniCell>
                           {finger.terminal_name ?? finger.terminal_id}
                         </MiniCell>
@@ -1496,14 +1435,14 @@ function PersonSheet({
                     <Timeline
                       events={view.history.map((event, index) => ({
                         id: `${event.kind}-${event.finger}-${index}`,
-                        title: `${event.kind} · ${event.finger}`,
+                        title: `${label(event.kind)} · ${label(event.finger)}`,
                         // `null` actor is the automatic erasure on
                         // termination, which nobody decided — so it is named
                         // as that rather than left blank.
                         detail:
                           event.actor === null
                             ? "automatic, on termination"
-                            : `${event.actor}${event.reason === null ? "" : ` · ${event.reason}`}`,
+                            : `${nameOf(event.actor)}${event.reason === null ? "" : ` · ${event.reason}`}`,
                         at: moment(event.at),
                         state:
                           index === view.history.length - 1

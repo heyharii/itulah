@@ -100,6 +100,13 @@ function CodeBoard({ offers }: { offers: StoreOffers }) {
           onChange: (next) => setPhase(next as Phase),
         }}
       />
+      <Summary
+        parts={[
+          [running, "active"],
+          [coded.length - running, "scheduled"],
+        ]}
+      />
+
       <Toolbar>
         <PhaseFilter
           value={phase}
@@ -113,13 +120,6 @@ function CodeBoard({ offers }: { offers: StoreOffers }) {
           placeholder="Search codes"
         />
       </Toolbar>
-
-      <Summary
-        parts={[
-          [running, "active"],
-          [coded.length - running, "scheduled"],
-        ]}
-      />
 
       {shown.length === 0 ? (
         <EmptyState>

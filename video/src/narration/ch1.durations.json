@@ -1,0 +1,42 @@
+{
+  "intro": {
+    "seconds": 4.64975,
+    "say": "Ini alur Purchase Order di Central, dari dibuat sampai selesai."
+  },
+  "menu": {
+    "seconds": 4.96325,
+    "say": "Dari menu Procurement, buka Purchase Orders, lalu tekan New order."
+  },
+  "header": {
+    "seconds": 7.9935,
+    "say": "Pilih supplier, tanggal kirim, dan cara bayar. Satu P O untuk satu supplier dan satu tujuan."
+  },
+  "newitem": {
+    "seconds": 2.50775,
+    "say": "Tambahkan barang lewat New item."
+  },
+  "units": {
+    "seconds": 6.03425,
+    "say": "Jumlahnya boleh lusin, kodi, atau pieces. Harganya mengikuti satuan yang disepakati."
+  },
+  "pieces": {
+    "seconds": 8.04575,
+    "say": "Di P O, jumlah selalu dihitung dalam pieces. 50 lusin jadi 600 pieces, dan nilainya dibulatkan sekali."
+  },
+  "review": {
+    "seconds": 4.51925,
+    "say": "Sebelum dikirim, Review order menampilkan semuanya sekali lagi."
+  },
+  "submit": {
+    "seconds": 7.39275,
+    "say": "Tekan Submit, dan P O langsung aktif. Tidak ada draft, tidak ada approval. Gudang langsung bisa melihatnya."
+  },
+  "offline": {
+    "seconds": 7.20975,
+    "say": "Kalau sedang offline, Submit tetap bisa. P O disimpan di perangkat, dan terkirim sendiri begitu koneksi kembali."
+  },
+  "cancel": {
+    "seconds": 3.7095,
+    "say": "Cancel hanya bisa selama belum ada barang yang diterima."
+  }
+}

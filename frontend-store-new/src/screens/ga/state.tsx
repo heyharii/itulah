@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query"
 
 import { Button } from "@/components/ui/button"
 import { LoadingState } from "@/components/ui/states"
-import { hrKeys, teamAt, useReach } from "@/lib/queries/hr"
+import { teamQuery, useReach } from "@/lib/queries/hr"
 import { ApiError } from "@itulah/contract/client"
 import type { EmployeeList } from "@itulah/contract"
 
@@ -89,8 +89,7 @@ export function useGaTeam(enabled: boolean): EmployeeList | undefined {
   const reach = useReach(enabled)
   const unit = reach.data?.scope === "ONE_UNIT" ? reach.data.unit_id : null
   const team = useQuery({
-    queryKey: hrKeys.team(unit ?? ""),
-    queryFn: ({ signal }) => teamAt(unit ?? "", signal),
+    ...teamQuery(unit ?? ""),
     enabled: unit !== null,
   })
   return team.data

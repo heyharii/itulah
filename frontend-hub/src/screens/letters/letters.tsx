@@ -1,9 +1,9 @@
 import type { JSONContent } from "@tiptap/react"
 import {
-  useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
+  useSuspenseInfiniteQuery,
 } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import {
@@ -15,7 +15,7 @@ import {
   Printer,
   Trash2,
 } from "lucide-react"
-import { useMemo, useState } from "react"
+import { Suspense, useDeferredValue, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { DockTools } from "@/components/shell/dock-tools"
@@ -30,7 +30,12 @@ import { RecordPanel } from "@/components/ui/record-panel"
 import { KeyValue } from "@/components/ui/rows"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { Sheet } from "@/components/ui/sheet"
-import { Banner, EmptyState, LoadMore } from "@/components/ui/states"
+import {
+  Banner,
+  EmptyState,
+  LoadingState,
+  LoadMore,
+} from "@/components/ui/states"
 import { count, day } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import { queryState } from "@/lib/query-state"
@@ -42,12 +47,12 @@ import {
   issueLetter,
   letterKeys,
   letterKindLabel,
+  letterListQuery,
   letterSources,
   letterTemplates,
   letterTone,
   LETTER_KINDS,
   LETTER_STATUS_LABEL,
-  listLetters,
   readLetter,
   saveLetter,
   saveTemplate,
@@ -138,22 +143,10 @@ function Register({ onOpen }: { onOpen: (id: string) => void }) {
     [kind, status, needle]
   )
 
-  /// The register, a page at a time as its foot nears view. It used to stop
-  /// at the two-hundredth letter without saying so, and the count beside it
-  /// counted what had loaded.
-  const letters = useInfiniteQuery({
-    queryKey: letterKeys.list(query),
-    queryFn: ({ pageParam, signal }) =>
-      listLetters(query, { cursor: pageParam }, signal),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) => last.next_cursor ?? undefined,
-    placeholderData: (previous) => previous,
-  })
-  const rows = useMemo(
-    () => letters.data?.pages.flatMap((page) => page.rows) ?? [],
-    [letters.data]
-  )
-  const head = letters.data?.pages[0]
+  /// Read for the question as it was a moment ago while a new one is on its
+  /// way: the rows stay on screen instead of the register emptying to a
+  /// loading line on every search.
+  const asked = useDeferredValue(query)
 
   return (
     <PageContent>
@@ -169,6 +162,7 @@ function Register({ onOpen }: { onOpen: (id: string) => void }) {
               <Input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search"
                 className="h-8 w-56"
               />
               <Button variant="primary" onClick={() => setWriting(true)}>
@@ -223,72 +217,25 @@ function Register({ onOpen }: { onOpen: (id: string) => void }) {
           onChange={setStatus}
         />
         <Toolbar.Spacer />
-        {/* Read straight off the query rather than through `queryState`: this
-            is a caption on a toolbar, and a toolbar that says "Loading…" where
-            a number goes is furniture that moves while somebody reads it. */}
-        {head !== undefined && (
-          <span className="text-meta text-body">
-            <b className="font-medium text-ink">{count(head.total)}</b>{" "}
-            {head.total === 1 ? "letter" : "letters"}
-            {head.drafts > 0 && (
-              <>
-                {" · "}
-                <b className="font-medium text-ink">
-                  {count(head.drafts)}
-                </b>{" "}
-                awaiting issue
-              </>
-            )}
-          </span>
-        )}
+        {/* A caption on a toolbar: until the register has said, it says
+            nothing, rather than "Loading…" where a number goes — furniture
+            that moves while somebody reads it. */}
+        <Suspense fallback={null}>
+          <LetterTally query={asked} />
+        </Suspense>
       </div>
 
-      {queryState(letters, {
-        loading: "Opening the letters list…",
-        render: () =>
-          rows.length === 0 ? (
-            <Card>
-              <EmptyState
-                action={
-                  <Button variant="ghost" onClick={() => setWriting(true)}>
-                    New letter
-                  </Button>
-                }
-              >
-                No letters yet. Create one from a delivery, a surat jalan to a
-                store, or start with a blank letter.
-              </EmptyState>
-            </Card>
-          ) : phone ? (
-            <PhoneCards
-              rows={rows}
-              rowId={(row) => row.letter_id}
-              spec={LETTER_CARD}
-              onOpen={(row) => onOpen(row.letter_id)}
-              more={letters}
-            />
-          ) : (
-            <Card className="overflow-hidden">
-              <div className="grid h-10 grid-cols-[9rem_minmax(0,1fr)_9rem_5rem_6rem_6rem] items-center gap-3 border-b border-hairline bg-soft px-3.5 text-eyebrow font-medium text-body">
-                <span>Number</span>
-                <span>Letter</span>
-                <span>Recipient</span>
-                <span className="text-right">Quantity</span>
-                <span>Status</span>
-                <span className="text-right">Issued</span>
-              </div>
-              {rows.map((row) => (
-                <LetterRowLine
-                  key={row.letter_id}
-                  row={row}
-                  onOpen={() => onOpen(row.letter_id)}
-                />
-              ))}
-              {/* The page scrolls, not this card — see `<LoadMore>`. */}
-              <LoadMore query={letters} />
-            </Card>
-          ),
-      })}
+      <Suspense
+        fallback={<LoadingState>Opening the letters list…</LoadingState>}
+      >
+        <LetterRows
+          query={asked}
+          stale={asked !== query}
+          phone={phone}
+          onOpen={onOpen}
+          onWrite={() => setWriting(true)}
+        />
+      </Suspense>
 
       <SourceSheet
         open={writing}
@@ -299,6 +246,96 @@ function Register({ onOpen }: { onOpen: (id: string) => void }) {
         }}
       />
     </PageContent>
+  )
+}
+
+/// How many letters the register holds, and how many still wait to be issued.
+function LetterTally({ query }: { query: LetterQuery }) {
+  const letters = useSuspenseInfiniteQuery(letterListQuery(query))
+  const head = letters.data.pages[0]
+  if (head === undefined) return null
+  return (
+    <span className="text-meta text-body">
+      <b className="font-medium text-ink">{count(head.total)}</b>{" "}
+      {head.total === 1 ? "letter" : "letters"}
+      {head.drafts > 0 && (
+        <>
+          {" · "}
+          <b className="font-medium text-ink">{count(head.drafts)}</b> awaiting
+          issue
+        </>
+      )}
+    </span>
+  )
+}
+
+/// The register's rows: a phone's cards, or a table.
+function LetterRows({
+  query,
+  stale,
+  phone,
+  onOpen,
+  onWrite,
+}: {
+  query: LetterQuery
+  /// The question on screen is one behind the one the person has asked.
+  stale: boolean
+  phone: boolean
+  onOpen: (id: string) => void
+  onWrite: () => void
+}) {
+  /// The register, a page at a time as its foot nears view.
+  const letters = useSuspenseInfiniteQuery(letterListQuery(query))
+  const rows = useMemo(
+    () => letters.data.pages.flatMap((page) => page.rows),
+    [letters.data]
+  )
+
+  return (
+    <div aria-busy={stale || undefined} className="list-swap">
+      {rows.length === 0 ? (
+        <Card>
+          <EmptyState
+            action={
+              <Button variant="ghost" onClick={onWrite}>
+                New letter
+              </Button>
+            }
+          >
+            No letters yet. Create one from a delivery, a surat jalan to a
+            store, or start with a blank letter.
+          </EmptyState>
+        </Card>
+      ) : phone ? (
+        <PhoneCards
+          rows={rows}
+          rowId={(row) => row.letter_id}
+          spec={LETTER_CARD}
+          onOpen={(row) => onOpen(row.letter_id)}
+          more={letters}
+        />
+      ) : (
+        <Card className="overflow-hidden">
+          <div className="grid h-10 grid-cols-[9rem_minmax(0,1fr)_9rem_5rem_6rem_6rem] items-center gap-3 border-b border-hairline bg-soft px-3.5 text-eyebrow font-medium text-body">
+            <span>Number</span>
+            <span>Letter</span>
+            <span>Recipient</span>
+            <span className="text-right">Quantity</span>
+            <span>Status</span>
+            <span className="text-right">Issued</span>
+          </div>
+          {rows.map((row) => (
+            <LetterRowLine
+              key={row.letter_id}
+              row={row}
+              onOpen={() => onOpen(row.letter_id)}
+            />
+          ))}
+          {/* The page scrolls, not this card — see `<LoadMore>`. */}
+          <LoadMore query={letters} />
+        </Card>
+      )}
+    </div>
   )
 }
 
@@ -556,7 +593,7 @@ function SourceSheet({
           onChange={setKind}
         />
 
-        <p className="text-[0.875rem] leading-relaxed text-body">
+        <p className="text-[0.9375rem] leading-relaxed text-body">
           {chosen?.english} — written against {chosen?.source}.{" "}
           {fromRecord
             ? "The figures come from that record; the number is taken when the letter is issued."
@@ -765,7 +802,7 @@ function OneLetter({ id, onBack }: { id: string; onBack: () => void }) {
       <button
         type="button"
         onClick={onBack}
-        className="srt-noprint mb-3 inline-flex items-center gap-1.5 text-[0.875rem] font-medium text-mute transition-colors hover:text-ink"
+        className="srt-noprint mb-3 inline-flex items-center gap-1.5 text-[0.9375rem] font-medium text-mute transition-colors hover:text-ink"
       >
         <ArrowLeft className="size-3.5" />
         Letters
@@ -865,7 +902,7 @@ function OneLetter({ id, onBack }: { id: string; onBack: () => void }) {
                     every part a person owns is edited in the document, at the
                     size it will print. What is left on this side is what
                     HAPPENS to the letter rather than what it says. */}
-                <div className="border-t border-hairline pt-3 text-[0.875rem]">
+                <div className="border-t border-hairline pt-3 text-[0.9375rem]">
                   {/* The record this letter was drawn from, as the brief §10.1
                       asks letters to point at one. The paper names it too, but
                       a printed reference is not clickable; the side panel is
@@ -962,7 +999,7 @@ function OneLetter({ id, onBack }: { id: string; onBack: () => void }) {
                 }
               >
                 <div className="flex flex-col gap-4">
-                  <p className="text-[0.875rem] leading-relaxed text-body">
+                  <p className="text-[0.9375rem] leading-relaxed text-body">
                     The next letter of this kind can be started from it, with
                     this wording already in place. What arrives in the goods
                     table always comes from the record, never from here.
@@ -1001,7 +1038,7 @@ function OneLetter({ id, onBack }: { id: string; onBack: () => void }) {
                 }
               >
                 <div className="flex flex-col gap-4">
-                  <p className="text-[0.875rem] leading-relaxed text-body">
+                  <p className="text-[0.9375rem] leading-relaxed text-body">
                     {open.letter_number} stays in the book and is never handed
                     out again — somebody may be holding a printed copy of it.
                     Voiding puts the record back on the list of things a letter

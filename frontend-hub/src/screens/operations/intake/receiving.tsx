@@ -1,5 +1,10 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Plus, RotateCcw, X } from "lucide-react"
+import {
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
+import { Plus, RotateCcw, Search, X } from "lucide-react"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { useEffect, useMemo, useRef, useState } from "react"
@@ -11,6 +16,8 @@ import { Pill } from "@/components/ui/pill"
 import { ConfirmButton } from "@/components/ui/dialog"
 import { DataTable } from "@/components/ui/data-table"
 import { Input, Select } from "@/components/ui/field"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
+import { SubTabs } from "@/components/ui/sub-tabs"
 import {
   IntakeHeader,
   useIntakeSearch,
@@ -26,7 +33,14 @@ import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { EmptyState, Problem } from "@/components/ui/states"
 import { dc } from "@/lib/api"
 import { wholeProduct } from "@/lib/decimal"
-import { count, decimal, label, quantity, recentMoment } from "@/lib/format"
+import {
+  count,
+  dayMonth,
+  decimal,
+  label,
+  quantity,
+  recentMoment,
+} from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import { pullIn, useSaid } from "@/lib/pull-in"
 import { keys } from "@/lib/operations/keys"
@@ -41,6 +55,12 @@ import { cn } from "@/lib/utils"
 import { useEdgeActor } from "@/lib/edge-session"
 import { useNameOfLogin } from "@/lib/queries/hr-employees"
 import { titled } from "@/screens/procurement/po-print"
+import { STAMP } from "@/screens/procurement/shared"
+import {
+  procurementKeys,
+  purchaseOrderPage,
+  supplierItemDetail,
+} from "@/lib/queries/procurement"
 import {
   VariantPhoto,
   variantKey,
@@ -86,7 +106,19 @@ export interface OrderRow {
   readonly lines: readonly PurchaseWorkLine[]
   /// Counts on this order waiting for a second pair of eyes.
   readonly awaiting: readonly PurchaseCountAwaitingVerification[]
+  /// Only on an order that has been received in full: what it came to, and
+  /// the day. It has no lines left to count and no count waiting.
+  readonly done?: { items: number; pieces: number; at: string | null }
 }
+
+/// Where an order stands on the bay (owner, 16 Oct 2026): still to count →
+/// counted, waiting for the buyer's review → completed (received in full).
+type Stage = "count" | "review" | "done"
+const stageOf = (row: OrderRow): Stage =>
+  row.done !== undefined ? "done" : row.awaiting.length > 0 ? "review" : "count"
+
+/// The lifecycles of an order that has nothing left to receive.
+const DONE_LIFECYCLES = ["FULLY_RECEIVED", "CLOSED"] as const
 
 /// The latest of the counts waiting on an order: who counted it and when are
 /// read from that one, and the pieces are all of them added.
@@ -181,7 +213,7 @@ function CardCounted({
   return (
     <span className="flex flex-col leading-6 tabular-nums">
       <span>
-        {"Counted "}
+        {"Received "}
         <span className="text-cell font-semibold text-ink">
           {`${count(pieces)} pcs`}
         </span>
@@ -263,19 +295,66 @@ export function Receiving() {
     }
     return [...byOrder.values()]
   }, [work.data, queue.data])
-  // What the search asks for: an order by its number or its supplier's name.
+  // The orders received in full, newest change first: head office's book, read
+  // for the Completed tab only. A failed read leaves that tab empty and the
+  // two working tabs untouched.
+  const received = useQuery({
+    queryKey: procurementKeys.ordersPage({
+      statuses: DONE_LIFECYCLES,
+      sort: "updated",
+    }),
+    queryFn: ({ signal }) =>
+      purchaseOrderPage({ statuses: DONE_LIFECYCLES, sort: "updated" }, signal),
+    refetchInterval: 10_000,
+  })
+  const [tab, setTab] = useState<Stage>("count")
+  const everyOrder = useMemo<OrderRow[]>(() => {
+    const open = new Set(all.map((row) => row.po_number))
+    const finished: OrderRow[] = (received.data?.rows ?? [])
+      .filter((one) => !open.has(one.po_number))
+      .map((one) => ({
+        po_number: one.po_number,
+        supplier_id: one.supplier_id,
+        supplier_name: one.supplier_name,
+        lines: [],
+        awaiting: [],
+        done: {
+          items: one.line_count,
+          pieces: one.received_stock_units,
+          at: one.fulfilled_at ?? one.updated_at,
+        },
+      }))
+    return [...all, ...finished]
+  }, [all, received.data])
+  const inStage = (stage: Stage) =>
+    everyOrder.filter((row) => stageOf(row) === stage)
+  const stages = {
+    count: inStage("count"),
+    review: inStage("review"),
+    done: inStage("done"),
+  }
+  const countedPieces = stages.review.reduce(
+    (sum, row) => sum + tallyOf(row.awaiting).pieces,
+    0
+  )
+  const receivedPieces = stages.done.reduce(
+    (sum, row) => sum + (row.done?.pieces ?? 0),
+    0
+  )
+  // What the search asks for: an order by its number or its supplier's name,
+  // within the tab on show.
   const rows = useMemo(
     () =>
-      search.needle === ""
-        ? all
-        : all.filter(
-            (row) =>
-              row.po_number.toLowerCase().includes(search.needle) ||
-              nameOf(row.supplier_id, row.supplier_name)
-                .toLowerCase()
-                .includes(search.needle)
-          ),
-    [all, search.needle, nameOf]
+      everyOrder.filter(
+        (row) =>
+          stageOf(row) === tab &&
+          (search.needle === "" ||
+            row.po_number.toLowerCase().includes(search.needle) ||
+            nameOf(row.supplier_id, row.supplier_name)
+              .toLowerCase()
+              .includes(search.needle))
+      ),
+    [everyOrder, tab, search.needle, nameOf]
   )
 
   const columns = useMemo<ColumnDef<TableSetup, OrderRow>[]>(
@@ -290,9 +369,12 @@ export function Receiving() {
         meta: { card: "title", grow: 320 },
         cell: ({ row }) => {
           // The buyer sent a count back: their reason, under the order.
-          const reason = row.original.lines.find(
+          // "Count again" is the note the Recount button sends by itself, not
+          // a reason anybody typed (owner, 2026-10-16): it is not shown.
+          const typed = row.original.lines.find(
             (line) => line.recount_reason !== null
           )?.recount_reason
+          const reason = typed?.trim() === "Count again" ? null : typed
           // The bay took its own count back before anybody reviewed it: what
           // it came to, so the next count is not made blind to it.
           const recalled = row.original.lines.filter((line) => line.recalled)
@@ -330,11 +412,12 @@ export function Receiving() {
         // the count is blind, and an ordered quantity on the list would hand
         // the checker the number the count is meant to produce.
         id: "items",
-        accessorFn: (row: OrderRow) => row.lines.length,
+        accessorFn: (row: OrderRow) => row.done?.items ?? row.lines.length,
         header: "Items",
         size: 100,
         meta: { align: "right", card: "hide" },
-        cell: ({ row }) => count(row.original.lines.length),
+        cell: ({ row }) =>
+          count(row.original.done?.items ?? row.original.lines.length),
       },
       // Two columns that exist only on a card (`cardLead`; a phone): the
       // figure it leads with — how many articles are owed, never how many
@@ -342,21 +425,24 @@ export function Receiving() {
       // counted (owner, 2026-10-06).
       {
         id: "lead",
-        accessorFn: (row: OrderRow) => row.lines.length,
+        accessorFn: (row: OrderRow) => row.done?.items ?? row.lines.length,
         header: "",
         enableHiding: false,
         enableSorting: false,
         meta: { card: "lead" },
-        cell: ({ row }) => (
-          <span className="flex flex-col items-end tabular-nums">
-            <span className="text-[1.5rem] leading-tight font-semibold tracking-tight text-ink">
-              {count(row.original.lines.length)}
+        cell: ({ row }) => {
+          const items = row.original.done?.items ?? row.original.lines.length
+          return (
+            <span className="flex flex-col items-end tabular-nums">
+              <span className="text-[1.5rem] leading-tight font-semibold tracking-tight text-ink">
+                {count(items)}
+              </span>
+              <span className="text-[0.9375rem] text-mute">
+                {items === 1 ? "item" : "items"}
+              </span>
             </span>
-            <span className="text-[0.875rem] text-mute">
-              {row.original.lines.length === 1 ? "item" : "items"}
-            </span>
-          </span>
-        ),
+          )
+        },
       },
       {
         id: "foot",
@@ -366,7 +452,9 @@ export function Receiving() {
         enableSorting: false,
         meta: { card: "foot" },
         cell: ({ row }) =>
-          row.original.awaiting.length > 0 ? (
+          row.original.done !== undefined ? (
+            <span>{`Received ${count(row.original.done.pieces)} pcs`}</span>
+          ) : row.original.awaiting.length > 0 ? (
             <CardCounted awaiting={row.original.awaiting} />
           ) : (
             <span>Not counted</span>
@@ -376,16 +464,28 @@ export function Receiving() {
         // One column for the count: what was counted, who and when, once it is
         // counted; the Count receive button while it is not (owner, 2026-10-05).
         id: "count",
-        accessorFn: (row: OrderRow) => tallyOf(row.awaiting).pieces,
+        accessorFn: (row: OrderRow) =>
+          row.done?.pieces ?? tallyOf(row.awaiting).pieces,
         header: "Count",
         size: 300,
         meta: { align: "right", card: "status" },
         cell: function Status({ row }) {
           const order = row.original
           const card = useLayout() === "phone"
+          if (order.done !== undefined)
+            return (
+              <span className={cn(STAMP, "text-ok-fg")}>
+                Completed
+                {order.done.at !== null && (
+                  <span className="block tabular-nums">
+                    {dayMonth(order.done.at)}
+                  </span>
+                )}
+              </span>
+            )
           if (order.awaiting.length > 0)
             return card ? (
-              <Pill tone="info">Counted</Pill>
+              <Pill tone="info">Received</Pill>
             ) : (
               <CountedCell awaiting={order.awaiting} />
             )
@@ -455,9 +555,60 @@ export function Receiving() {
       <IntakeHeader
         tab="orders"
         search={search}
-        searchLabel="Search Orders"
+        searchLabel="Search orders or suppliers"
         table={table}
+        stages={{
+          value: tab,
+          options: [
+            { value: "count", label: "To count", count: stages.count.length },
+            {
+              value: "review",
+              label: "In review",
+              count: stages.review.length,
+            },
+            { value: "done", label: "Completed", count: stages.done.length },
+          ],
+          onChange: (next) => setTab(next as Stage),
+        }}
       />
+      <KpiStrip className="grid-cols-3">
+        <Kpi
+          label="To count"
+          value={`${count(stages.count.length)} ${stages.count.length === 1 ? "PO" : "POs"}`}
+        />
+        <Kpi label="In review" value={quantity(countedPieces)} />
+        <Kpi label="Completed" value={quantity(receivedPieces)} />
+      </KpiStrip>
+      {/* On a phone the stages are the dock's status button. */}
+      <SubTabs
+        className="max-md:hidden"
+        value={tab}
+        onChange={(next) => setTab(next as Stage)}
+        tabs={[
+          { value: "count", label: `To count ${count(stages.count.length)}` },
+          {
+            value: "review",
+            label: `In review ${count(stages.review.length)}`,
+          },
+          { value: "done", label: `Completed ${count(stages.done.length)}` },
+        ]}
+      />
+      {/* On a desk the search sits over the table; on a phone it is the
+          dock's (owner, 2026-10-16: "search supplier di receiving po"). */}
+      <div className="relative mb-3.5 w-80 max-md:hidden">
+        <Search
+          aria-hidden
+          className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-mute"
+        />
+        <Input
+          type="search"
+          aria-label="Search orders or suppliers"
+          placeholder="Search orders or suppliers"
+          value={search.value}
+          onChange={(event) => search.onChange(event.target.value)}
+          className="pl-9"
+        />
+      </div>
 
       <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(work, {
@@ -465,17 +616,27 @@ export function Receiving() {
           render: () =>
             rows.length === 0 ? (
               <EmptyState>
-                {all.length === 0 ? "Nothing to count." : "No orders match."}
+                {search.needle !== ""
+                  ? "No orders match."
+                  : tab === "done"
+                    ? "Nothing completed yet."
+                    : tab === "review"
+                      ? "Nothing in review."
+                      : "Nothing to count."}
               </EmptyState>
             ) : (
               <DataTable<OrderRow>
                 refresh={[work, queue]}
                 table={table}
                 touch
-                onRowClick={(row) => counting.open(row.po_number)}
-                onRowIntent={(row) =>
-                  void prefetchReceivingDetail(client, row.po_number)
-                }
+                onRowClick={(row) => {
+                  // A completed order has nothing left to count.
+                  if (row.done === undefined) counting.open(row.po_number)
+                }}
+                onRowIntent={(row) => {
+                  if (row.done === undefined)
+                    void prefetchReceivingDetail(client, row.po_number)
+                }}
                 isSelected={(row) => row.po_number === counting.value}
                 pageScroll
                 cardSort={false}
@@ -506,12 +667,14 @@ export function Receiving() {
 ///
 /// On a phone the three do not fit beside each other: the item and its total
 /// share the first line, and the amounts take the whole of the line under it.
-const COUNT_ROW =
+// eslint-disable-next-line react-refresh/only-export-components
+export const COUNT_ROW =
   "grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 gap-y-2 px-4 sm:grid-cols-[minmax(0,1fr)_17rem_7rem]"
 
 /// A column heading as every hub table sets one (`DataTable`): sentence case,
 /// medium, the quiet body colour — not the old mono micro-caps.
-const COUNT_HEAD = "text-eyebrow font-medium whitespace-nowrap text-body"
+// eslint-disable-next-line react-refresh/only-export-components
+export const COUNT_HEAD = "text-eyebrow font-medium whitespace-nowrap text-body"
 
 /// One amount of a count, in one unit.
 type CountPart = { quantity: string; unit: string }
@@ -570,7 +733,7 @@ function CountRead({
       <Card className="overflow-hidden">
         <div className={cn(READ_ROW, "h-10 border-b border-hairline bg-soft")}>
           <span className={COUNT_HEAD}>Article</span>
-          <span className={cn(COUNT_HEAD, "text-right")}>Counted</span>
+          <span className={cn(COUNT_HEAD, "text-right")}>Received</span>
         </div>
         <div className="divide-y divide-hairline">
           {lines.map(({ one, pieces, unit }) => (
@@ -586,7 +749,7 @@ function CountRead({
                 </span>
                 {one.counted_unit_code !== null &&
                   one.counted_unit_quantity !== null && (
-                    <span className="text-[0.875rem] text-mute">
+                    <span className="text-[0.9375rem] text-mute">
                       {`${decimal(Number(one.counted_unit_quantity), 3)} ${one.counted_unit_code}`}
                     </span>
                   )}
@@ -689,13 +852,54 @@ export function CountSheet({
       (one) => one.po_line_id === line.po_line_id
     )
     if (found === undefined) return line.article_code
+    // Title Case, as the order shows it (owner, 2026-10-16).
     return [
       found.division_code === null
         ? "Unclassified"
         : label(found.division_code),
       ...found.tags.map((tag) => label(tag)),
-    ].join(" \u00b7 ")
+    ]
+      .join(" \u00b7 ")
+      .replace(/(^|[\s·/-])(\p{Ll})/gu, (_, gap: string, letter: string) =>
+        gap + letter.toUpperCase()
+      )
   }
+  // Each article's description from the supplier's catalogue ("4 warna:
+  // hitam, putih, abu, coklat"), under its name (owner, 2026-10-16).
+  const itemIds = [
+    ...new Set(
+      (kinds.data?.lines ?? [])
+        .map((one) => one.supplier_item_id)
+        .filter((id): id is string => id !== null)
+    ),
+  ]
+  const items = useQueries({
+    queries: itemIds.map((id) => ({
+      queryKey: procurementKeys.supplierItem(id),
+      queryFn: ({ signal }: { signal: AbortSignal }) =>
+        supplierItemDetail(id, signal),
+      enabled: open,
+      staleTime: 60_000,
+    })),
+  })
+  const descriptionOf = (line: { po_line_id: string }): string | null => {
+    const itemId = kinds.data?.lines.find(
+      (one) => one.po_line_id === line.po_line_id
+    )?.supplier_item_id
+    if (!itemId) return null
+    const text = items[itemIds.indexOf(itemId)]?.data?.description?.trim()
+    return text ? text : null
+  }
+  // The order's own description, as the buyer wrote it on the PO (owner,
+  // 2026-10-16: shown on the receiving sheet so the counter reads it too).
+  const poNotes = kinds.data?.notes?.trim() ?? ""
+  const notesBlock =
+    poNotes === "" ? null : (
+      <div className="flex flex-col gap-1">
+        <span className="text-[0.9375rem] text-mute">PO Notes</span>
+        <p className="text-[0.9375rem] whitespace-pre-line text-ink">{poNotes}</p>
+      </div>
+    )
   /// What has been written for each line: one amount or several, each in a
   /// unit the item can be counted in — "10 KODI + 50 PCS" is one count
   /// (the owner, 2026-09-29). Unset is one empty amount in the unit the order
@@ -704,6 +908,11 @@ export function CountSheet({
   /// A line ordered in variants is counted per variant (owner, 2026-10-10):
   /// one figure in pieces per colour × size, by line and by `variantKey`. The
   /// line's count is what they add up to.
+  /// The unit each variant was counted in, where it is not the stock unit
+  /// (owner, 2026-10-16: a variant may be counted in kodi or lusin as well).
+  const [variantUnit, setVariantUnit] = useState<
+    Record<string, Record<string, string>>
+  >({})
   const [variantText, setVariantText] = useState<
     Record<string, Record<string, string>>
   >({})
@@ -800,6 +1009,7 @@ export function CountSheet({
     onSuccess: (sent) => {
       setParts({})
       setVariantText({})
+      setVariantUnit({})
       setWrongText(null)
       setWrongUnit("")
       minted.current.clear()
@@ -876,6 +1086,28 @@ export function CountSheet({
         [key]: text,
       },
     }))
+  const variantUnitOf = (
+    line: Line,
+    variant: { colour_code: string | null; size_code: string | null }
+  ) => variantUnit[line.po_line_id]?.[variantKey(variant)] ?? unitsOf(line).stock
+  const writeVariantUnit = (line: Line, key: string, code: string) =>
+    setVariantUnit((current) => ({
+      ...current,
+      [line.po_line_id]: { ...current[line.po_line_id], [key]: code },
+    }))
+  /// One variant's count in pieces: blank is 0, a figure that is not whole
+  /// pieces in its unit is `null`.
+  const variantPiecesOf = (
+    line: Line,
+    variant: { colour_code: string | null; size_code: string | null }
+  ): number | null => {
+    const text = variantTextOf(line, variant).trim()
+    if (text === "") return 0
+    return wholeProduct(
+      text.replace(",", "."),
+      factorOf(line, variantUnitOf(line, variant))
+    )
+  }
   /// Another amount, in the first unit the line is not already counted in —
   /// pieces first, because "and fifty loose" is what a second amount almost
   /// always is.
@@ -972,10 +1204,10 @@ export function CountSheet({
       )
       if (typed.every((text) => text === "")) return undefined
       let total = 0
-      for (const text of typed) {
-        if (text === "") continue
-        if (!WHOLE.test(text)) return null
-        total += Number(text)
+      for (const variant of variantsOf(line)) {
+        const pieces = variantPiecesOf(line, variant)
+        if (pieces === null) return null
+        total += pieces
       }
       return total
     }
@@ -1075,11 +1307,10 @@ export function CountSheet({
       unitQuantity: inUnit ? only.quantity.trim().replace(",", ".") : null,
       variants: split
         ? variantsOf(line).map((variant) => {
-            const text = variantTextOf(line, variant).trim()
             return {
               colour_code: variant.colour_code,
               size_code: variant.size_code,
-              counted_quantity: text === "" ? 0 : Number(text),
+              counted_quantity: variantPiecesOf(line, variant) ?? 0,
             }
           })
         : [],
@@ -1166,11 +1397,13 @@ export function CountSheet({
           </div>
         ) : order.awaiting.length > 0 ? (
           <div className="flex min-w-0 flex-col gap-4">
+            {notesBlock}
             <CountRead awaiting={order.awaiting} kindOf={kindOf} />
             <Problem error={recall.error} />
           </div>
         ) : (
           <div className="flex flex-col gap-5">
+            {notesBlock}
             <div className="flex min-w-0 flex-col gap-4">
               {/* One grid, header and rows sharing the same three tracks, set
                 the way every hub table is (`Card` + `DataTable`'s heading
@@ -1207,17 +1440,24 @@ export function CountSheet({
                       return (
                         <div key={line.po_line_id} className="pb-3.5">
                           <div className={cn(COUNT_ROW, "py-3.5")}>
-                            <TwoLines
-                              top={line.article_name}
-                              bottom={`${kindOf(line)}${line.received_stock_units > 0 ? ` · ${count(line.received_stock_units)} already in` : ""}`}
-                              className="min-h-11"
-                            />
+                            <div className="flex min-w-0 flex-col gap-1">
+                              <TwoLines
+                                top={line.article_name}
+                                bottom={`${kindOf(line)}${line.received_stock_units > 0 ? ` · ${count(line.received_stock_units)} already in` : ""}`}
+                                className="min-h-11"
+                              />
+                              {descriptionOf(line) !== null && (
+                                <p className="text-[0.9375rem] whitespace-pre-line text-body">
+                                  {descriptionOf(line)}
+                                </p>
+                              )}
+                            </div>
                             <span className="max-sm:hidden" />
                             <span
                               className={cn(
                                 "flex min-h-11 items-center justify-end text-right tabular-nums",
                                 pieces === null
-                                  ? "text-[0.875rem] text-bad-fg"
+                                  ? "text-[0.9375rem] text-bad-fg"
                                   : pieces === undefined
                                     ? "text-mute"
                                     : "font-medium text-ink"
@@ -1243,7 +1483,7 @@ export function CountSheet({
                                   key={key}
                                   className={cn(COUNT_ROW, "items-center")}
                                 >
-                                  <span className="flex min-h-11 min-w-0 items-center gap-3">
+                                  <span className="flex min-h-11 min-w-0 items-center gap-3 max-sm:col-span-2">
                                     <VariantPhoto
                                       urls={variant.image_urls}
                                       fallback={line.image_url}
@@ -1254,15 +1494,14 @@ export function CountSheet({
                                       {name}
                                     </span>
                                   </span>
-                                  <div className="flex items-center gap-2">
+                                  <div className="flex items-center gap-2 max-sm:col-span-2">
                                     <Input
                                       className="h-11 w-24 text-center font-semibold"
                                       inputMode="numeric"
                                       autoComplete="off"
                                       aria-label={`Counted pieces of ${name}`}
                                       aria-invalid={
-                                        text.trim() !== "" &&
-                                        !WHOLE.test(text.trim())
+                                        variantPiecesOf(line, variant) === null
                                       }
                                       padLabel={name}
                                       value={text}
@@ -1274,9 +1513,26 @@ export function CountSheet({
                                         )
                                       }
                                     />
-                                    <span className="w-28 text-[0.875rem] text-body max-sm:w-auto">
-                                      {stock.toLowerCase()}
-                                    </span>
+                                    {units.length > 1 ? (
+                                      <Select
+                                        aria-label={`Unit counted for ${name}`}
+                                        value={variantUnitOf(line, variant)}
+                                        onChange={(code) =>
+                                          writeVariantUnit(line, key, code)
+                                        }
+                                        className="h-11 w-28"
+                                      >
+                                        {units.map((one) => (
+                                          <option key={one.code} value={one.code}>
+                                            {one.label}
+                                          </option>
+                                        ))}
+                                      </Select>
+                                    ) : (
+                                      <span className="w-28 text-[0.9375rem] text-body max-sm:w-auto">
+                                        {stock.toLowerCase()}
+                                      </span>
+                                    )}
                                     {/* The remove slot of a counted amount,
                                       so the boxes line up with the lines
                                       counted as a whole. */}
@@ -1295,11 +1551,29 @@ export function CountSheet({
                         key={line.po_line_id}
                         className={cn(COUNT_ROW, "py-3.5")}
                       >
-                        <TwoLines
-                          top={line.article_name}
-                          bottom={`${kindOf(line)}${line.received_stock_units > 0 ? ` · ${count(line.received_stock_units)} already in` : ""}`}
-                          className="min-h-11"
-                        />
+                        {/* A line counted as a whole has no variant rows to
+                            carry a picture, so its own sits beside the name
+                            (owner, 2026-10-16: "harusnya ada foto"). */}
+                        <div className="flex min-w-0 items-start gap-3">
+                          <VariantPhoto
+                            urls={[]}
+                            fallback={line.image_url}
+                            name={line.article_name}
+                            slot={line.image_url !== null}
+                          />
+                          <div className="flex min-w-0 flex-col gap-1">
+                            <TwoLines
+                              top={line.article_name}
+                              bottom={`${kindOf(line)}${line.received_stock_units > 0 ? ` · ${count(line.received_stock_units)} already in` : ""}`}
+                              className="min-h-11"
+                            />
+                            {descriptionOf(line) !== null && (
+                              <p className="text-[0.9375rem] whitespace-pre-line text-body">
+                                {descriptionOf(line)}
+                              </p>
+                            )}
+                          </div>
+                        </div>
 
                         <div className="flex flex-col gap-2 max-sm:order-last max-sm:col-span-2">
                           {lineParts.map((part, index) => (
@@ -1354,7 +1628,7 @@ export function CountSheet({
                                   ))}
                                 </Select>
                               ) : (
-                                <span className="w-28 text-[0.875rem] text-body">
+                                <span className="w-28 text-[0.9375rem] text-body">
                                   {stock.toLowerCase()}
                                 </span>
                               )}
@@ -1398,7 +1672,7 @@ export function CountSheet({
                           className={cn(
                             "flex min-h-11 items-center justify-end text-right tabular-nums",
                             pieces === null
-                              ? "text-[0.875rem] text-bad-fg"
+                              ? "text-[0.9375rem] text-bad-fg"
                               : pieces === undefined
                                 ? "text-mute"
                                 : "font-medium text-ink"
@@ -1426,7 +1700,7 @@ export function CountSheet({
                     className="flex min-h-11 flex-col justify-center"
                   >
                     <span className="font-medium text-ink">Not as Ordered</span>
-                    <span className="text-[0.875rem] text-mute">
+                    <span className="text-[0.9375rem] text-mute">
                       Damaged or wrong items
                     </span>
                   </label>
@@ -1460,7 +1734,7 @@ export function CountSheet({
                             ))}
                         </Select>
                       ) : (
-                        <span className="w-28 text-[0.875rem] text-body">
+                        <span className="w-28 text-[0.9375rem] text-body">
                           pieces
                         </span>
                       )}
@@ -1471,7 +1745,7 @@ export function CountSheet({
                     className={cn(
                       "flex min-h-11 items-center justify-end text-right tabular-nums",
                       wrongPieces === null
-                        ? "text-[0.875rem] text-bad-fg"
+                        ? "text-[0.9375rem] text-bad-fg"
                         : wrongPieces === undefined || wrongPieces === 0
                           ? "text-mute"
                           : "font-medium text-bad-fg"

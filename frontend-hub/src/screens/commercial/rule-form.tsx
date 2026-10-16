@@ -1410,7 +1410,7 @@ function TillPreview({
 }) {
   if (effect === null)
     return (
-      <p className="text-[0.875rem] leading-relaxed text-mute">
+      <p className="text-[0.9375rem] leading-relaxed text-mute">
         No discount set.
       </p>
     )
@@ -1446,7 +1446,7 @@ function TillPreview({
       : null
 
   return (
-    <div className="rounded-inner border border-hairline p-4 font-mono text-[0.875rem] text-text tabular-nums">
+    <div className="rounded-inner border border-hairline p-4 font-mono text-[0.9375rem] text-text tabular-nums">
       <div className="flex justify-between gap-3">
         <span className="min-w-0 truncate">
           {count(quantity)} × {item}

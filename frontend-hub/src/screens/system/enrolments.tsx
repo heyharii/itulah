@@ -377,10 +377,14 @@ const DOWNLOADS =
   "https://github.com/heyharii/itulah/releases?q=store-v&expanded=true"
 
 /// The address a new machine enrols against: head office's public address,
-/// else wherever this hub is being served from.
-const CLOUD_URL =
-  (import.meta.env.VITE_CLOUD_PUBLIC_URL as string | undefined) ??
-  window.location.origin
+/// else wherever this hub is being served from. Read at call time — a module
+/// constant would ask for `window` while the server imports the chunk.
+function cloudUrl(): string {
+  return (
+    (import.meta.env.VITE_CLOUD_PUBLIC_URL as string | undefined) ??
+    window.location.origin
+  )
+}
 
 type Step = "download" | "code" | "match" | "done"
 const STEPS: readonly { id: Step; title: string }[] = [
@@ -420,12 +424,12 @@ function InstallJourney({ issued }: { issued: IssuedEnrolment }) {
   const command =
     os === "windows"
       ? // PowerShell, in the folder the installer was saved to: the file name
-        // carries its version (itulah-store-<version>-x64.msi), so it is found
+        // carries its version (central-store-server-<version>-x64.msi), so it is found
         // rather than typed.
-        `msiexec /i (Get-ChildItem itulah-store-*-x64.msi)[0].FullName /qn ENROLL_CODE=${issued.code}`
+        `msiexec /i (Get-ChildItem central-store-server-*-x64.msi)[0].FullName /qn ENROLL_CODE=${issued.code}`
       : // From the unpacked tarball (deploy/edge/install-store.sh): installs
         // the service and stages the code, so the node claims it on start.
-        `sudo ./install-store.sh --code ${issued.code} --cloud ${CLOUD_URL}`
+        `sudo ./install-store.sh --code ${issued.code} --cloud ${cloudUrl()}`
 
   return (
     <div className="flex flex-col gap-5">
@@ -449,7 +453,7 @@ function InstallJourney({ issued }: { issued: IssuedEnrolment }) {
               <div className="flex flex-col items-center">
                 <span
                   className={cn(
-                    "grid size-8 shrink-0 place-items-center rounded-full text-[0.875rem] font-semibold tabular-nums transition-colors duration-300",
+                    "grid size-8 shrink-0 place-items-center rounded-full text-[0.9375rem] font-semibold tabular-nums transition-colors duration-300",
                     done
                       ? "bg-ok text-on-dark"
                       : here
@@ -500,7 +504,7 @@ function InstallJourney({ issued }: { issued: IssuedEnrolment }) {
                           )}
                         >
                           <span className="font-medium text-ink">{name}</span>
-                          <span className="text-[0.875rem] text-mute">
+                          <span className="text-[0.9375rem] text-mute">
                             {what}
                           </span>
                         </button>
@@ -510,7 +514,7 @@ function InstallJourney({ issued }: { issued: IssuedEnrolment }) {
                       href={DOWNLOADS}
                       target="_blank"
                       rel="noreferrer"
-                      className="inline-flex items-center gap-1.5 self-start text-[0.875rem] font-medium text-accent hover:underline"
+                      className="inline-flex items-center gap-1.5 self-start text-[0.9375rem] font-medium text-accent hover:underline"
                     >
                       <Download className="size-4" />
                       Download the{" "}
@@ -527,7 +531,7 @@ function InstallJourney({ issued }: { issued: IssuedEnrolment }) {
                       </span>
                       <CopyButton text={issued.code} />
                     </div>
-                    <p className="text-[0.875rem] text-body">
+                    <p className="text-[0.9375rem] text-body">
                       Type it on the machine&rsquo;s setup page,{" "}
                       <span className="font-mono">
                         http://localhost:8082/setup
@@ -538,7 +542,7 @@ function InstallJourney({ issued }: { issued: IssuedEnrolment }) {
                         : ", from the unpacked package:"}
                     </p>
                     <div className="flex items-center gap-2 rounded-inner bg-soft px-3 py-2">
-                      <code className="min-w-0 flex-1 truncate font-mono text-[0.875rem] text-ink">
+                      <code className="min-w-0 flex-1 truncate font-mono text-[0.9375rem] text-ink">
                         {command}
                       </code>
                       <CopyButton text={command} />
@@ -558,7 +562,7 @@ function InstallJourney({ issued }: { issued: IssuedEnrolment }) {
                       />
                     </div>
                   ) : at === "code" && !dead ? (
-                    <p className="mt-1.5 flex items-center gap-2 text-[0.875rem] text-mute">
+                    <p className="mt-1.5 flex items-center gap-2 text-[0.9375rem] text-mute">
                       <span className="relative flex size-2">
                         <span className="absolute inline-flex size-full animate-ping rounded-full bg-accent opacity-60" />
                         <span className="relative inline-flex size-2 rounded-full bg-accent" />
@@ -568,7 +572,7 @@ function InstallJourney({ issued }: { issued: IssuedEnrolment }) {
                   ) : null)}
 
                 {step.id === "done" && at === "done" && (
-                  <p className="mt-1.5 text-[0.875rem] text-body">
+                  <p className="mt-1.5 text-[0.9375rem] text-body">
                     {approved ??
                       "Enrolled. Catalogue, prices, users and promotions are on their way to the machine."}{" "}
                     It shows up on Servers and Sync within a minute.
@@ -614,7 +618,7 @@ function Expiry({ until }: { until: string }) {
   return (
     <p
       className={cn(
-        "text-[0.875rem]",
+        "text-[0.9375rem]",
         minutes <= 10 ? "text-warn-fg" : "text-mute"
       )}
     >

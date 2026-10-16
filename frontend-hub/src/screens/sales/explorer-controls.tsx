@@ -1,6 +1,3 @@
-import { Tabs } from "@base-ui/react/tabs"
-import { Toggle } from "@base-ui/react/toggle"
-import { ToggleGroup } from "@base-ui/react/toggle-group"
 import type { ExplorerOptions } from "@itulah/contract"
 import {
   CalendarDays,
@@ -13,7 +10,7 @@ import {
 } from "lucide-react"
 import { useMemo, useState } from "react"
 
-import { DockChoice, DockTools } from "@/components/shell/dock-tools"
+import { DockTools } from "@/components/shell/dock-tools"
 import { DockPortal } from "@/components/shell/dock"
 import { Button } from "@/components/ui/button"
 import { Checkbox, Input } from "@/components/ui/field"
@@ -33,7 +30,6 @@ import {
   deleteView,
   filterCount,
   FILTERS,
-  GROUPS,
   noun,
   PRESETS,
   periodLabel,
@@ -43,21 +39,21 @@ import {
   withoutFilters,
   type ExplorerState,
   type FilterKey,
-  type GroupKey,
   type Range,
-  type ViewMode,
+  viewOf,
 } from "@/screens/sales/explorer-model"
 import { useSavedViews, useSearchBox } from "@/screens/sales/explorer-state"
 
 /// Everything the Explorer is controlled with that is not the table: the
-/// period beside the title, the row of groupings (the "Navbar"), the tools over
-/// the results, the filter sheet, and on a phone the hub's dock.
+/// period, the tools over the results, the filter sheet, and on a phone the
+/// hub's dock. The groupings are the Sales sidebar's rows and the views the
+/// page's tabs (owner, 16 Oct 2026).
 ///
 /// The hub's dock exists on a phone only (`components/shell/dock.tsx` draws
 /// nothing at any other width), so a desk and a tablet get the same few
 /// controls in the card's own tools row, and a phone gets them in the dock: the
-/// grouping as its status button, the search with the filter button in it, and
-/// the period.
+/// tabs as its status button (`SubTabs`), the search with the filter button in
+/// it, and the period.
 
 export type Update = (
   next: (state: ExplorerState) => ExplorerState,
@@ -175,7 +171,7 @@ export function PeriodSheet({
           >
             <span className="flex-1">Pick dates</span>
             {custom && (
-              <span className="text-[0.875rem] font-normal text-mute tabular-nums">
+              <span className="text-[0.9375rem] font-normal text-mute tabular-nums">
                 {periodLabel(range)}
               </span>
             )}
@@ -194,50 +190,6 @@ export function PeriodSheet({
         }
       />
     </>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// The groupings
-// ---------------------------------------------------------------------------
-
-/// The row of groupings: pills in a white box, the lit one in ink. One word
-/// each, and on a tablet the two long ones say less.
-export function Navbar({
-  group,
-  short,
-  onChange,
-}: {
-  group: GroupKey
-  short: boolean
-  onChange: (group: GroupKey) => void
-}) {
-  return (
-    <Tabs.Root
-      value={group}
-      onValueChange={(next, details) => {
-        // Only a click or a key moves the tab; this root is always controlled.
-        if (details.reason === "none") onChange(next as GroupKey)
-      }}
-      className="contents"
-    >
-      <Tabs.List className="inline-flex max-w-full [scrollbar-width:none] gap-0.5 self-start overflow-x-auto rounded-xl border border-hairline bg-canvas p-1 shadow-soft [&::-webkit-scrollbar]:hidden">
-        {GROUPS.map((one) => (
-          <Tabs.Tab
-            key={one.value}
-            value={one.value}
-            className={cn(
-              "h-[2.125rem] shrink-0 rounded-inner px-3.5 text-[0.875rem] font-medium whitespace-nowrap transition-[background-color,color,scale] duration-(--t-press) ease-(--ease-out) outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent active:scale-[0.97]",
-              one.value === group
-                ? "bg-ink text-white"
-                : "text-body hover:bg-soft hover:text-ink"
-            )}
-          >
-            {short ? one.short : one.label}
-          </Tabs.Tab>
-        ))}
-      </Tabs.List>
-    </Tabs.Root>
   )
 }
 
@@ -290,47 +242,6 @@ export function SearchField({
   )
 }
 
-/// Totals or Per store. Per store is not offered for rows that are stores.
-export function ViewSwitch({
-  view,
-  perStore,
-  onChange,
-}: {
-  view: ViewMode
-  perStore: boolean
-  onChange: (view: ViewMode) => void
-}) {
-  const option = (value: ViewMode, label: string, off = false) => (
-    <Toggle
-      key={value}
-      value={value}
-      disabled={off}
-      className={cn(
-        "h-[1.75rem] shrink-0 rounded-[0.375rem] px-2.5 text-meta font-medium whitespace-nowrap transition-[background-color,color,box-shadow,scale] duration-(--t-press) ease-(--ease-out) pointer-coarse:h-10 pointer-coarse:px-3",
-        view === value
-          ? "bg-canvas text-ink shadow-soft"
-          : "text-body hover:text-ink",
-        off && "pointer-events-none opacity-45"
-      )}
-    >
-      {label}
-    </Toggle>
-  )
-  return (
-    <ToggleGroup
-      value={[view]}
-      onValueChange={(next) => {
-        const picked = next[0] as ViewMode | undefined
-        if (picked !== undefined && picked !== view) onChange(picked)
-      }}
-      className="inline-flex shrink-0 rounded-inner bg-soft-2 p-0.5"
-    >
-      {option("totals", "Totals")}
-      {option("stores", "Per store", !perStore)}
-    </ToggleGroup>
-  )
-}
-
 /// Export, as an icon alone on a tablet.
 export function ExportTool({
   build,
@@ -369,8 +280,8 @@ export function ExportTool({
   )
 }
 
-/// The tools row at the top of the results card: the search, how to read the
-/// rows, the heatmap, the filter and the export.
+/// The tools row at the top of the results card: the search, the heatmap (for
+/// the stores or the months laid side by side), the filter and the export.
 export function Tools({
   q,
   setQuery,
@@ -389,8 +300,7 @@ export function Tools({
   /// When the rows were read, and the reload (`RefreshStamp`).
   refresh?: React.ReactNode
 }) {
-  const perStore = state.group !== "store"
-  const stores = state.view === "stores" && perStore
+  const laidOut = viewOf(state) !== "totals"
   const filters = filterCount(state)
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-2.5 border-b border-hairline px-4 py-2.5">
@@ -402,22 +312,17 @@ export function Tools({
       />
       <div className="flex-1" />
       {refresh}
-      <ViewSwitch
-        view={stores ? "stores" : "totals"}
-        perStore={perStore}
-        onChange={(view) => update((s) => ({ ...s, view }), true)}
-      />
       <SwitchPill
         label="Heatmap"
         on={state.heat}
         onToggle={() => update((s) => ({ ...s, heat: !s.heat }))}
-        className={cn(!stores && "pointer-events-none opacity-45")}
+        className={cn(!laidOut && "pointer-events-none opacity-45")}
       />
-      <Button variant="ghost" onClick={onOpenFilter}>
+      <Button variant="ghost" className="filter-button" onClick={onOpenFilter}>
         <ListFilter />
         Filter
         {filters > 0 && (
-          <span className="grid h-[1.125rem] min-w-[1.125rem] place-items-center rounded-full bg-ink px-1 text-[0.875rem] leading-none text-white tabular-nums">
+          <span className="grid h-[1.125rem] min-w-[1.125rem] place-items-center rounded-full bg-ink px-1 text-[0.9375rem] leading-none text-white tabular-nums">
             {filters}
           </span>
         )}
@@ -452,7 +357,7 @@ export function Applied({
   })
   if (parts.length === 0) return null
   return (
-    <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-hairline px-4 py-2 text-[0.875rem] text-body max-md:rounded-card max-md:border max-md:bg-canvas">
+    <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-hairline px-4 py-2 text-[0.9375rem] text-body max-md:rounded-card max-md:border max-md:bg-canvas">
       <span>{parts.join(" · ")}</span>
       <button
         type="button"
@@ -520,10 +425,10 @@ function ChoicePane({
         />
       </label>
       {options === undefined && (
-        <p className="px-1.5 py-3 text-[0.875rem] text-mute">Loading…</p>
+        <p className="px-1.5 py-3 text-[0.9375rem] text-mute">Loading…</p>
       )}
       {options !== undefined && rows.length === 0 && (
-        <p className="px-1.5 py-3 text-[0.875rem] text-mute">
+        <p className="px-1.5 py-3 text-[0.9375rem] text-mute">
           Nothing matches.
         </p>
       )}
@@ -732,7 +637,7 @@ export function FilterSheet({
                   className={SHEET_ROW}
                 >
                   <span className="flex-1">{one.label}</span>
-                  <span className="text-[0.875rem] text-mute tabular-nums">
+                  <span className="text-[0.9375rem] text-mute tabular-nums">
                     {summary(state, one.pane, saved.length)}
                   </span>
                   <ChevronRight className="size-4 shrink-0 text-line-ico" />
@@ -754,14 +659,14 @@ export function FilterSheet({
                 aria-pressed={pane === one.pane}
                 onClick={() => setPane(one.pane)}
                 className={cn(
-                  "flex h-[2.625rem] w-full shrink-0 items-center rounded-inner px-3 text-[0.875rem] font-medium transition-[background-color,color,scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.98]",
+                  "flex h-[2.625rem] w-full shrink-0 items-center rounded-inner px-3 text-[0.9375rem] font-medium transition-[background-color,color,scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.98]",
                   pane === one.pane
                     ? "bg-soft-2 text-ink"
                     : "text-text hover:bg-soft"
                 )}
               >
                 {one.label}
-                <small className="ml-auto text-[0.875rem] font-normal text-mute tabular-nums">
+                <small className="ml-auto text-[0.9375rem] font-normal text-mute tabular-nums">
                   {summary(state, one.pane, saved.length)}
                 </small>
               </button>
@@ -778,13 +683,13 @@ export function FilterSheet({
 // The phone's dock
 // ---------------------------------------------------------------------------
 
-/// The hub's dock: the grouping as its status button, the search with the
-/// filter button in it, and the period. Nothing is drawn at the top.
+/// The hub's dock: the search with the filter button in it, and the period.
+/// The page's tabs are its status button (`SubTabs`). Nothing is drawn at the
+/// top.
 export function PhoneDock({
   q,
   onQuery,
   state,
-  update,
   periodText,
   custom,
   onOpenFilter,
@@ -793,17 +698,12 @@ export function PhoneDock({
   q: string
   onQuery: (value: string) => void
   state: ExplorerState
-  update: Update
   periodText: string
   custom: boolean
   onOpenFilter: () => void
   onOpenPeriod: () => void
 }) {
   const [needle, onNeedle] = useSearchBox(q, onQuery)
-  const options = useMemo(
-    () => GROUPS.map((one) => ({ value: one.value, label: one.label })),
-    []
-  )
   return (
     <>
       <DockTools
@@ -813,14 +713,6 @@ export function PhoneDock({
           label: `Search ${noun(state.group, 2)}`,
         }}
         filter={{ count: filterCount(state), onOpen: onOpenFilter }}
-      />
-      <DockChoice
-        title="Group by"
-        value={state.group}
-        options={options}
-        onChange={(next) =>
-          update((s) => ({ ...s, group: next as GroupKey }), true, "")
-        }
       />
       <DockPortal slot="action">
         <button

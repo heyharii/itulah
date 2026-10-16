@@ -11,6 +11,7 @@ import {
   receiptsOf,
   shareOf,
   type GroupKey,
+  type MatrixColumn,
   type ViewMode,
 } from "@/screens/sales/explorer-model"
 
@@ -25,6 +26,7 @@ export function exportSheet({
   rows,
   group,
   view,
+  columns,
   canCost,
   subtitle,
   filename,
@@ -33,6 +35,8 @@ export function exportSheet({
   rows: readonly ExplorerRow[]
   group: GroupKey
   view: ViewMode
+  /// The stores or the months on screen beside the rows.
+  columns: readonly MatrixColumn[]
   canCost: boolean
   subtitle: string
   filename: string
@@ -41,7 +45,9 @@ export function exportSheet({
   const coded = group === "article" || group === "sku"
   const pay = group === "payment"
   const stock = !noStock(group)
-  const perStore = view === "stores" && group !== "store"
+  const laidOut = view !== "totals"
+  // A month holds no stock: per month a column is its sales.
+  const cellStock = stock && view === "stores"
   const storeTotals = new Map(
     head.store_totals.map((cell) => [cell.site_id, cell.figures])
   )
@@ -72,23 +78,23 @@ export function exportSheet({
           ? [
               { header: "Stock", kind: "number" as const },
               ...(canCost
-                ? [{ header: "Stock at acquisition", kind: "money" as const }]
+                ? [{ header: "Stock value", kind: "money" as const }]
                 : []),
             ]
           : []),
         { header: "Share", kind: "percent" },
       ]
-  const stores: ExportColumn[] = perStore
-    ? head.stores.flatMap((store) => {
-        const name = (store.code ?? store.name).replace(/-TOKO$/i, "")
+  const stores: ExportColumn[] = laidOut
+    ? columns.flatMap((column) => {
+        const name = view === "months" ? column.title : column.head
         return [
-          ...(stock
+          ...(cellStock
             ? [
                 { header: `${name} Stock`, kind: "number" as const },
                 ...(canCost
                   ? [
                       {
-                        header: `${name} Stock at acquisition`,
+                        header: `${name} Stock value`,
                         kind: "money" as const,
                       },
                     ]
@@ -122,11 +128,11 @@ export function exportSheet({
   const storesOf = (
     cells: (id: string) => ExplorerFigures | undefined
   ): ExportCell[] =>
-    perStore
-      ? head.stores.flatMap((store) => {
-          const f = cells(store.site_id)
+    laidOut
+      ? columns.flatMap((column) => {
+          const f = cells(column.id)
           return [
-            ...(stock
+            ...(cellStock
               ? [
                   f?.stock ?? null,
                   ...(canCost ? [f?.stock_cost_minor ?? null] : []),

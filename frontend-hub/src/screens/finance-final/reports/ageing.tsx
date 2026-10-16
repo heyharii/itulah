@@ -176,7 +176,7 @@ export function Ageing() {
         {/* The effective answer, in words. A date box filled with today and a
             date box the server defaulted look identical to a reader, and an
             ageing is meaningless until you know the day it was struck. */}
-        <span className="text-[0.875rem] text-mute">
+        <span className="text-[0.9375rem] text-mute">
           {asOf.chip}
           {unit === "" ? (
             " · all units"
@@ -299,7 +299,7 @@ export function Ageing() {
                 <TotalRow>
                   <Td>
                     Total receivable
-                    <span className="mt-0.5 block text-[0.875rem] font-normal text-mute">
+                    <span className="mt-0.5 block text-[0.9375rem] font-normal text-mute">
                       Nothing counts it, so nothing is claimed
                     </span>
                   </Td>
@@ -406,9 +406,9 @@ function HalfRow({
         colSpan={COLUMNS}
         className="border-hairline-2 bg-soft py-1.5 align-middle"
       >
-        <span className="text-[0.875rem] font-semibold text-ink">{label}</span>
-        <span className="ml-2 text-[0.875rem] text-mute">{sub}</span>
-        <span className="ml-2 font-mono text-[0.875rem] text-faint">
+        <span className="text-[0.9375rem] font-semibold text-ink">{label}</span>
+        <span className="ml-2 text-[0.9375rem] text-mute">{sub}</span>
+        <span className="ml-2 font-mono text-[0.9375rem] text-faint">
           {detail}
         </span>
       </Td>

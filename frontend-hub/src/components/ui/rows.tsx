@@ -54,8 +54,8 @@ export function Section({
         <h4
           className={
             quiet
-              ? "text-[0.875rem] font-normal text-mute"
-              : "text-card-title font-semibold text-ink"
+              ? "text-[0.9375rem] font-normal text-mute"
+              : "section-title text-card-title font-semibold text-ink"
           }
         >
           {title}
@@ -126,7 +126,7 @@ export function TotalsLadder({
   return (
     <div
       className={cn(
-        "flex flex-col gap-1 border-t border-hairline pt-2.5 text-[0.875rem]",
+        "flex flex-col gap-1 border-t border-hairline pt-2.5 text-[0.9375rem]",
         className
       )}
     >
@@ -201,7 +201,7 @@ export function MiniTable({
                 // and an actions column) is two headers, not one key twice.
                 key={index}
                 className={cn(
-                  "pb-2.5 text-[0.875rem] font-medium text-body",
+                  "pb-2.5 text-[0.9375rem] font-medium text-body",
                   align === "right"
                     ? "pl-3 text-right"
                     : "pr-2 text-left [&:not(:first-child)]:pl-3"
@@ -248,7 +248,7 @@ export function MiniCell({
     <td
       colSpan={colSpan}
       className={cn(
-        "py-3 text-[0.875rem] text-text",
+        "py-3 text-[0.9375rem] text-text",
         // The gap belongs on the left of a right-aligned cell: padding on the
         // right would move the edge every figure in the column lines up on,
         // and two right-aligned cells with no gap at all run their contents
@@ -287,9 +287,11 @@ export function SubHead({
         className
       )}
     >
-      <h4 className="text-[0.9375rem] font-medium text-ink">{children}</h4>
+      <h4 className="section-title text-[0.9375rem] font-semibold text-ink">
+        {children}
+      </h4>
       {aside && (
-        <span className="text-[0.875rem] text-mute tabular-nums">{aside}</span>
+        <span className="text-[0.9375rem] text-mute tabular-nums">{aside}</span>
       )}
     </div>
   )

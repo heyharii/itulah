@@ -140,10 +140,7 @@ export function HrWorkspace({
         }
 
         return (
-          <>
-            <ScopeLine scope={here} />
-            {children(here)}
-          </>
+          children(here)
         )
       },
     })
@@ -169,20 +166,5 @@ export function HrWorkspace({
       )}
       {body()}
     </Screen>
-  )
-}
-
-/// Whose numbers these are, and where they came from — one quiet line.
-///
-/// Every other screen in this app is answered by the machine in the next room,
-/// so none of them has to say which machine. These do: a rota is not a fact
-/// about this shop's node, and somebody reading one is entitled to know they
-/// are looking at the centre — which is also why "head office is not
-/// reachable" has to be a sentence this module can say.
-function ScopeLine({ scope }: { scope: StoreScope }) {
-  return (
-    <p className="mb-3 truncate text-meta text-mute">
-      {scope.label} · from head office
-    </p>
   )
 }

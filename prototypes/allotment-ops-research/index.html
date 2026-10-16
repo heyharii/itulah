@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Allotment · Operations workbench</title><link rel="stylesheet" href="styles.css"></head><body>
+<div class="demo-bar"><span><b>Interactive prototype</b> · Sample data · Changes stay in this browser</span><button id="lab-toggle">Scenarios</button></div>
+<div class="shell"><aside class="sidebar"><a class="brand" href="#">itulah<span>Cloud Hub</span></a><div class="workspace">Head office <span>HO</span></div><div class="nav-label">WORKSPACE</div><button data-section="ops" class="nav-item">Operations <span>↗</span></button><button data-section="md" class="nav-item">Merchandising <span>↗</span></button><button data-section="research" class="nav-item">Research & rationale <span>↗</span></button><div class="sidebar-foot"><span class="avatar">HA</span><div>Hari<span>Prototype workspace</span></div></div></aside>
+<main><header class="page-header"><div><div class="eyebrow" id="eyebrow">OPERATIONS</div><h1 id="title">Allotment</h1></div><div class="role-switch" aria-label="View as"><button data-role="ops">Warehouse</button><button data-role="md">MD</button></div></header>
+<section id="lab" hidden aria-label="Demo scenarios"><div class="lab-top"><div><b>Try the difficult cases</b><p>Load a scenario, then act as MD or Warehouse. Each scenario resets the demo.</p></div><button id="reset">Reset all</button></div><div id="scenario-buttons" class="scenarios"></div><label class="offline-control"><input id="offline" type="checkbox"> Simulate warehouse offline</label><button id="sync" hidden>Warehouse reconnects · Apply requests</button></section>
+<div id="content"></div>
+<footer class="mobile-dock"><button data-role="ops">Warehouse</button><button data-role="md">MD</button><button data-section="research">Research</button><button id="mobile-lab">Scenarios</button></footer>
+</main></div>
+<dialog id="detail" aria-labelledby="detail-title"><div id="detail-body"></div></dialog><dialog id="action" aria-labelledby="action-title"><form id="action-form"><div id="action-body"></div></form></dialog><div id="toast" role="status" aria-live="polite" hidden></div>
+<script type="module" src="app.mjs"></script></body></html>

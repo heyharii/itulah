@@ -1,4 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import type { ColumnDef } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
 import { ArrowDown, ArrowUp, GripVertical, Plus, Trash2 } from "lucide-react"
 import { useMemo, useState } from "react"
 
@@ -6,10 +8,11 @@ import { PageContent } from "@/components/shell/app-shell"
 import { DockChoice } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { DataTable } from "@/components/ui/data-table"
 import { Checkbox, Field, Input, Select, Textarea } from "@/components/ui/field"
 import { Fab } from "@/components/ui/fab"
 import { PageHeader } from "@/components/ui/page-header"
-import { Pill, Status } from "@/components/ui/pill"
+import { Pill } from "@/components/ui/pill"
 import { Segmented } from "@/components/ui/segmented"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
@@ -40,9 +43,10 @@ import {
 } from "@/lib/queries/flows"
 import { queryState } from "@/lib/query-state"
 import { useIdentity } from "@/lib/session"
+import { tableSetup, type TableSetup } from "@/lib/table"
 import { useDebounced } from "@/lib/use-debounced"
 import { cn } from "@/lib/utils"
-import { CardFigure, CardName, PhoneCard } from "@/components/ui/phone-cards"
+import { CardFigure, CardName } from "@/components/ui/phone-cards"
 
 /// Goods flows — the flow templates.
 ///
@@ -154,6 +158,23 @@ export function Flows() {
 
   const stageLabel = useStageLabel(vocabulary.data)
 
+  const columns = useMemo(() => templateColumns(stageLabel), [stageLabel])
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: templates.data ?? [],
+        columns,
+        getRowId: (row: FlowTemplateSummary) => row.id,
+        // The server's order: a flow is found by its route, not re-sorted.
+        enableSorting: false,
+        // The card's own columns are drawn on a phone and never on a desk.
+        state: { columnVisibility: { lead: phone, foot: phone } },
+      }),
+      [templates.data, columns, phone]
+    )
+  )
+
   return (
     <PageContent>
       <PageHeader
@@ -201,35 +222,34 @@ export function Flows() {
           onChange={(next) => setShowRetired(next === "all")}
         />
         {!isAdmin && identity.data !== undefined && (
-          <span className="text-[0.875rem] text-mute">
+          <span className="text-[0.9375rem] text-mute">
             Only a head-office Admin can change a flow.
           </span>
         )}
       </div>
 
-      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+      <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(templates, {
           loading: "Reading the flows…",
           render: (rows) =>
             rows.length === 0 ? (
               <EmptyState>No flows yet.</EmptyState>
-            ) : phone ? (
-              <TemplateCards
-                rows={rows}
-                stageLabel={stageLabel}
-                onOpen={(id) => setEditing({ mode: "edit", id })}
-              />
             ) : (
-              <TemplateTable
-                rows={rows}
-                stageLabel={stageLabel}
-                onOpen={(id) => setEditing({ mode: "edit", id })}
+              <DataTable<FlowTemplateSummary>
+                refresh={[templates]}
+                table={table}
+                onRowClick={(row) => setEditing({ mode: "edit", id: row.id })}
+                roomy
+                pageScroll
+                cardSort={false}
+                cardsApart
+                cardLead
               />
             ),
         })}
       </Card>
       {!isAdmin && identity.data !== undefined && (
-        <p className="mt-3 text-[0.875rem] text-mute md:hidden">
+        <p className="mt-3 text-[0.9375rem] text-mute md:hidden">
           Only a head-office Admin can change a flow.
         </p>
       )}
@@ -254,151 +274,116 @@ function useStageLabel(vocabulary: FlowVocabulary | undefined) {
   }, [vocabulary])
 }
 
-/// The flows as a phone's cards: the name over its code, how many stages it
-/// runs, the route and version on the foot beside whether it is live, and the
-/// one button.
-function TemplateCards({
-  rows,
-  stageLabel,
-  onOpen,
-}: {
-  rows: readonly FlowTemplateSummary[]
+/// The flows as a table, and on a phone as cards: the name over its code, how
+/// many stages it runs as the figure, the route and its stages under the
+/// name, the version on the foot beside whether it is live.
+function templateColumns(
   stageLabel: (code: string) => string
-  onOpen: (id: string) => void
-}) {
-  return (
-    <ul className="flex flex-col gap-2.5">
-      {rows.map((row) => (
-        <PhoneCard
-          key={row.id}
-          onOpen={() => onOpen(row.id)}
-          head={
-            <CardName
-              name={row.name}
-              code={row.code}
-              muted={row.status === "RETIRED"}
-            />
-          }
-          lead={
-            <CardFigure
-              value={count(row.stages.length)}
-              caption={row.stages.length === 1 ? "stage" : "stages"}
-              tone={row.stages.length === 0 ? "quiet" : undefined}
-            />
-          }
-          body={
-            <div className="flex flex-col gap-1.5 text-[0.875rem]">
-              <span className="text-ink">
-                {END_LABEL[row.origin] ?? row.origin} →{" "}
-                {END_LABEL[row.destination] ?? row.destination}
-              </span>
-              {row.stages.length > 0 && (
-                <span className="text-body">
-                  {row.stages.map(stageLabel).join(" · ")}
-                </span>
-              )}
-            </div>
-          }
-          foot={
-            <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              {row.status === "RETIRED" ? (
-                <Status tone="neutral">Retired</Status>
-              ) : (
-                <Status tone="ok">Active</Status>
-              )}
-              {row.current_version !== null && (
-                <span className="tabular-nums">v{row.current_version}</span>
-              )}
-              {row.is_default && <span>Route default</span>}
-            </span>
-          }
-          action={
-            <Button
-              variant="tint"
-              size="card"
-              onClick={(event) => {
-                event.stopPropagation()
-                onOpen(row.id)
-              }}
-            >
-              Open
-            </Button>
-          }
+): ColumnDef<TableSetup, FlowTemplateSummary>[] {
+  return [
+    {
+      id: "flow",
+      accessorFn: (row) => `${row.name} ${row.code}`,
+      header: "Flow",
+      size: 240,
+      meta: { card: "title" },
+      cell: ({ row }) => (
+        <CardName
+          name={row.original.name}
+          code={row.original.code}
+          muted={row.original.status === "RETIRED"}
         />
-      ))}
-    </ul>
-  )
-}
-
-function TemplateTable({
-  rows,
-  stageLabel,
-  onOpen,
-}: {
-  rows: readonly FlowTemplateSummary[]
-  stageLabel: (code: string) => string
-  onOpen: (id: string) => void
-}) {
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-[0.875rem]">
-        <thead>
-          <tr className="border-b border-hairline text-left text-meta text-mute">
-            <th className="px-3 py-2 font-medium">Flow</th>
-            <th className="px-3 py-2 font-medium">Route</th>
-            <th className="px-3 py-2 font-medium">Stages</th>
-            <th className="px-3 py-2 text-right font-medium">Version</th>
-            <th className="px-3 py-2 font-medium">Status</th>
-            <th className="px-3 py-2" />
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr
-              key={row.id}
-              className="border-b border-hairline last:border-b-0"
-            >
-              <td className="px-3 py-2 align-top">
-                <div className="text-ink">{row.name}</div>
-                <div className="font-mono text-id text-mute">{row.code}</div>
-              </td>
-              <td className="px-3 py-2 align-top whitespace-nowrap text-body">
-                {END_LABEL[row.origin] ?? row.origin} →{" "}
-                {END_LABEL[row.destination] ?? row.destination}
-              </td>
-              <td className="px-3 py-2 align-top text-body">
-                {row.stages.length === 0
-                  ? "—"
-                  : row.stages.map(stageLabel).join(" · ")}
-              </td>
-              <td className="px-3 py-2 text-right align-top text-body tabular-nums">
-                {row.current_version === null ? "—" : `v${row.current_version}`}
-              </td>
-              <td className="px-3 py-2 align-top">
-                <div className="flex flex-wrap gap-1.5">
-                  {row.status === "RETIRED" ? (
-                    <Pill tone="neutral">Retired</Pill>
-                  ) : (
-                    <Pill tone="ok">Active</Pill>
-                  )}
-                  {row.is_default && <Pill tone="accent">Route default</Pill>}
-                </div>
-              </td>
-              <td className="px-3 py-2 text-right align-top">
-                <Button
-                  size="sm"
-                  variant="quiet"
-                  onClick={() => onOpen(row.id)}
-                >
-                  Open
-                </Button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )
+      ),
+    },
+    {
+      id: "route",
+      accessorFn: (row) =>
+        `${END_LABEL[row.origin] ?? row.origin} → ${END_LABEL[row.destination] ?? row.destination}`,
+      header: "Route",
+      size: 220,
+      meta: { card: "meta" },
+      cell: ({ row }) => (
+        <span className="whitespace-nowrap text-body">
+          {END_LABEL[row.original.origin] ?? row.original.origin} →{" "}
+          {END_LABEL[row.original.destination] ?? row.original.destination}
+        </span>
+      ),
+    },
+    {
+      id: "stages",
+      accessorFn: (row) => row.stages.map(stageLabel).join(" · "),
+      header: "Stages",
+      size: 300,
+      meta: { card: "meta", grow: 260 },
+      cell: ({ row }) => (
+        <span className="block whitespace-normal text-body">
+          {row.original.stages.length === 0
+            ? "—"
+            : row.original.stages.map(stageLabel).join(" · ")}
+        </span>
+      ),
+    },
+    {
+      id: "version",
+      accessorFn: (row) => row.current_version,
+      header: "Version",
+      size: 80,
+      meta: { align: "right", card: "hide" },
+      cell: ({ row }) => (
+        <span className="text-body tabular-nums">
+          {row.original.current_version === null
+            ? "—"
+            : `v${row.original.current_version}`}
+        </span>
+      ),
+    },
+    {
+      id: "status",
+      accessorFn: (row) => row.status,
+      header: "Status",
+      size: 250,
+      meta: { card: "status" },
+      cell: ({ row }) => (
+        <div className="flex flex-wrap gap-1.5">
+          {row.original.status === "RETIRED" ? (
+            <Pill tone="neutral">Retired</Pill>
+          ) : (
+            <Pill tone="ok">Active</Pill>
+          )}
+          {row.original.is_default && <Pill tone="neutral">Route default</Pill>}
+        </div>
+      ),
+    },
+    // Two columns that exist only on a card (a phone): how many stages the
+    // flow runs, as the figure it leads with, and its version on the foot.
+    {
+      id: "lead",
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "lead" },
+      accessorFn: (row) => row.stages.length,
+      cell: ({ row }) => (
+        <CardFigure
+          value={count(row.original.stages.length)}
+          caption={row.original.stages.length === 1 ? "stage" : "stages"}
+          tone={row.original.stages.length === 0 ? "quiet" : undefined}
+        />
+      ),
+    },
+    {
+      id: "foot",
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "foot" },
+      accessorFn: (row) => row.current_version,
+      cell: ({ row }) =>
+        row.original.current_version === null ? null : (
+          <span className="tabular-nums">v{row.original.current_version}</span>
+        ),
+    },
+  ]
 }
 
 function TemplateEditor({
@@ -762,7 +747,7 @@ function EditorBody({
         {onTemplate("route")
           .slice(1)
           .map((message) => (
-            <p key={message} className="text-[0.875rem] text-bad md:col-span-2">
+            <p key={message} className="text-[0.9375rem] text-bad md:col-span-2">
               {message}
             </p>
           ))}
@@ -793,10 +778,10 @@ function EditorBody({
           </Field>
         )}
         <div className="flex flex-col gap-2 md:col-span-2">
-          <span className="text-[0.875rem] font-medium text-text">
+          <span className="text-[0.9375rem] font-medium text-text">
             Who may start it
           </span>
-          <span className="text-[0.875rem] text-mute">
+          <span className="text-[0.9375rem] text-mute">
             Who may raise its plan for this route: an allotment, or a PO from a
             supplier.
           </span>
@@ -819,7 +804,7 @@ function EditorBody({
             ))}
           </div>
           {onTemplate("starters").map((message) => (
-            <p key={message} className="text-[0.875rem] text-bad">
+            <p key={message} className="text-[0.9375rem] text-bad">
               {message}
             </p>
           ))}
@@ -832,7 +817,7 @@ function EditorBody({
           <h4 className="text-card-title font-semibold text-ink">
             Stages, in order
           </h4>
-          <span className="text-[0.875rem] text-mute">
+          <span className="text-[0.9375rem] text-mute">
             Drag, or use the arrows, to change the order.
           </span>
         </div>
@@ -979,7 +964,7 @@ function EditorBody({
 
                   <div className="mt-2 flex flex-col gap-2 pl-[3.25rem]">
                     {entry !== undefined && (
-                      <p className="text-[0.875rem] text-body">
+                      <p className="text-[0.9375rem] text-body">
                         {entry.meaning}
                       </p>
                     )}
@@ -1042,7 +1027,7 @@ function EditorBody({
                     {rowProblems.map((problem) => (
                       <p
                         key={`${problem.rule}-${problem.message}`}
-                        className="text-[0.875rem] text-bad"
+                        className="text-[0.9375rem] text-bad"
                       >
                         {problem.message}
                       </p>
@@ -1112,7 +1097,7 @@ function EditorBody({
               />
             )}
             <div className="flex gap-2">
-              <Button variant="quiet" onClick={onDone}>
+              <Button data-cancel variant="quiet" onClick={onDone}>
                 Cancel
               </Button>
               <Button
@@ -1165,7 +1150,7 @@ function EditorBody({
             </div>
           )}
           <h4 className="text-card-title font-semibold text-ink">Versions</h4>
-          <ul className="flex flex-col gap-1.5 text-[0.875rem]">
+          <ul className="flex flex-col gap-1.5 text-[0.9375rem]">
             {detail.versions.map((version) => (
               <li
                 key={version.id}

@@ -2134,7 +2134,11 @@ fn apply_auth_policy(tx: &Transaction<'_>, snapshot: &AuthPolicySnapshot) -> Res
         // and blocked the whole command stream behind it: nobody else on the
         // policy could sign in, and no catalogue or price reached the node.
         // The local account is the one that must keep working with the line
-        // down, so it keeps the name and the cloud's namesake is left out.
+        // down, so it keeps the name. The cloud's namesake is still projected,
+        // under `<name>.cloud`: left out, it could never sign in here through
+        // the Cloud session either (the exchange finds a user by id, and there
+        // was none — "the Cloud user is inactive or has no current DC lease",
+        // owner, 14 Oct). The suffix only names the row on this node.
         let local_namesake: bool = tx
             .prepare_cached(
                 "SELECT EXISTS(SELECT 1 FROM edge_user
@@ -2145,14 +2149,16 @@ fn apply_auth_policy(tx: &Transaction<'_>, snapshot: &AuthPolicySnapshot) -> Res
                 row.get(0)
             })
             .map_err(err)?;
-        if local_namesake {
+        let username = if local_namesake {
             tracing::warn!(
                 username = %user.username,
                 "auth policy: a LOCAL account here already holds this name; the cloud's \
-                 namesake is not projected onto this node"
+                 namesake is projected as <name>.cloud"
             );
-            continue;
-        }
+            format!("{}.cloud", user.username)
+        } else {
+            user.username.clone()
+        };
         tx.prepare_cached(
             "INSERT INTO edge_user
                  (id,username,display_name,password_hash,role,active,auth_version,source,
@@ -2180,7 +2186,7 @@ fn apply_auth_policy(tx: &Transaction<'_>, snapshot: &AuthPolicySnapshot) -> Res
         .map_err(err)?
         .execute(params![
             user.user_id.to_string(),
-            user.username,
+            username,
             user.display_name,
             user.credential_hash,
             user.role,

@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
+import { useHydrated } from "@tanstack/react-router"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -244,9 +245,17 @@ function poolCards(display: DisplayUnit): ColumnDef<TableSetup, Pool>[] {
 export function AsOf() {
   const phone = useLayout() === "phone"
   const [query, setQuery] = useState("")
-  const [when, setWhen] = useState(() =>
-    localInput(new Date(Date.now() - 24 * 60 * 60 * 1000))
+  // The moment asked about opens on "this time yesterday", which is the
+  // browser's clock: the page is drawn without one until it is hydrated, so
+  // what the browser's first render draws is what the server sent.
+  const hydrated = useHydrated()
+  const [picked, setWhen] = useState<string | null>(null)
+  const yesterday = useMemo(
+    () =>
+      hydrated ? localInput(new Date(Date.now() - 24 * 60 * 60 * 1000)) : "",
+    [hydrated]
   )
+  const when = picked ?? yesterday
   const [site, setSite] = useState("")
   const [pool, setPool] = useState("")
   const [sorting, setSorting] = useState<SortingState>([
@@ -439,7 +448,7 @@ export function AsOf() {
                     />
                   )}
                 </MetricRow>
-                <p className="mt-3 text-[0.875rem] text-mute">
+                <p className="mt-3 text-[0.9375rem] text-mute">
                   {data.inventory_equation} · observations counted over the{" "}
                   {data.observed_window_hours}h before that moment.
                   {/* The totals are the replay's, and the clauses below do not

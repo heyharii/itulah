@@ -111,13 +111,13 @@ export function SalesPostings() {
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-[0.875rem] font-semibold text-ink">
+                <h2 className="text-[0.9375rem] font-semibold text-ink">
                   {day(selected.business_date)} ·{" "}
                   <SiteName id={selected.site_id} />
                 </h2>
                 <Status status={selected.status} />
               </div>
-              <p className="mt-1 text-[0.875rem] text-mute">
+              <p className="mt-1 text-[0.9375rem] text-mute">
                 Generated {moment(selected.generated_at)} by{" "}
                 {selected.generated_by}
                 {selected.entry_number
@@ -128,7 +128,7 @@ export function SalesPostings() {
             {selected.status === "DRAFT" &&
               (confirmPostId === selected.posting_id ? (
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-[0.875rem] text-warn-fg">
+                  <span className="text-[0.9375rem] text-warn-fg">
                     This creates the day's journal entry.
                   </span>
                   <Button
@@ -165,7 +165,7 @@ export function SalesPostings() {
           </div>
 
           <div className="flex flex-col gap-2">
-            <h3 className="text-[0.875rem] font-semibold text-ink">
+            <h3 className="text-[0.9375rem] font-semibold text-ink">
               Tender split
             </h3>
             <Grid>
@@ -214,7 +214,7 @@ export function SalesPostings() {
               </tbody>
             </Grid>
           </div>
-          <p className="text-[0.875rem] text-mute">
+          <p className="text-[0.9375rem] text-mute">
             VAT source: {selected.vat_source} · rate{" "}
             {percentBps(selected.vat_rate_bps)} · generated{" "}
             {moment(selected.generated_at)}
@@ -226,21 +226,15 @@ export function SalesPostings() {
 
   return (
     <PageContent>
-      {/* A phone: "Generate draft" is the round + (its business date one of
-          the Filters), and a posting's detail is a sheet over the list. */}
+      {/* The one action stands in the head; the business date it is for is the
+          scope bar's, with the store and the month. A phone has "Generate
+          draft" as the round +, and a posting's detail is a sheet over the
+          list. */}
       <PageHeader
-        className="max-md:hidden"
         crumb="Finance · Receivables"
         title="Sales Postings"
         actions={
-          <>
-            <Day
-              value={businessDate}
-              onChange={setBusinessDate}
-              label="Business date"
-              clearable={false}
-              className="w-44"
-            />
+          phone ? undefined : (
             <Button
               variant="primary"
               pending={generate.isPending || register.isPending}
@@ -251,7 +245,7 @@ export function SalesPostings() {
             >
               {generate.isPending ? "Generating…" : "Generate draft"}
             </Button>
-          </>
+          )
         }
       />
 
@@ -274,27 +268,25 @@ export function SalesPostings() {
           emptyLabel="Choose a store"
           className="h-control w-44"
         />
-        <div className="md:hidden">
-          <Day
-            value={businessDate}
-            onChange={setBusinessDate}
-            label="Business date for the draft"
-            clearable={false}
-            className="w-full"
-          />
-        </div>
-        <label className="flex items-center gap-2 text-[0.875rem] text-mute">
+        <Day
+          value={businessDate}
+          onChange={setBusinessDate}
+          label="Business date for the draft"
+          clearable={false}
+          className="w-44 max-md:w-full"
+        />
+        <label className="flex items-center gap-2 text-[0.9375rem] text-mute">
           Month
           <Input
             aria-label="Sales posting month"
             type="month"
             value={month}
             onChange={(event) => setMonth(event.target.value)}
-            className="h-control w-40 px-2 text-[0.875rem]"
+            className="h-control w-40 px-2 text-[0.9375rem]"
           />
         </label>
         <Toolbar.Spacer />
-        <span className="text-[0.875rem] text-mute">
+        <span className="text-[0.9375rem] text-mute">
           {count(rows.length)} posting documents
         </span>
       </Toolbar>
@@ -322,10 +314,7 @@ export function SalesPostings() {
         ) : list.isPending ? (
           <LoadingState>Reading the sales postings…</LoadingState>
         ) : rows.length === 0 ? (
-          <EmptyState>
-            No sales posting for this site and month yet. Pick a business date
-            and generate a draft.
-          </EmptyState>
+          <EmptyState>No sales posting for this site and month yet.</EmptyState>
         ) : phone ? (
           <PhoneList
             rows={rows.map((row) => ({
@@ -449,8 +438,8 @@ function Status({ status }: { status: string }) {
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-inner border border-hairline bg-soft px-3 py-2">
-      <div className="text-[0.875rem] text-mute">{label}</div>
-      <div className="mt-0.5 text-[0.875rem] font-semibold text-ink tabular-nums">
+      <div className="text-[0.9375rem] text-mute">{label}</div>
+      <div className="mt-0.5 text-[0.9375rem] font-semibold text-ink tabular-nums">
         {value}
       </div>
     </div>

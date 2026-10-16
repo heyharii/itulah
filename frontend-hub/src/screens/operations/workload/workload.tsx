@@ -43,7 +43,7 @@ const NUM =
   "text-[2.5rem] leading-none font-semibold tracking-tight text-ink tabular-nums"
 
 const CARD_TITLE = "text-card-title font-medium text-ink"
-const SUB = "mt-2 text-[0.875rem] text-mute"
+const SUB = "mt-2 text-[0.9375rem] text-mute"
 
 /// **Workload** — the Operations landing, laid out as the bento the owner
 /// picked (ops-workload-bento-prototype.html, "Flow utama"): the four flows
@@ -211,7 +211,7 @@ export function WorkloadScreen() {
                 <span className={NUM}>
                   {jobs.isPending ? "—" : count(tagsPending)}
                 </span>
-                <span className="text-[0.875rem] text-mute">tags</span>
+                <span className="text-[0.9375rem] text-mute">tags</span>
               </div>
               <p className={SUB}>
                 {jobs.isPending ? "—" : `${count(tagPoCount)} POs ready to tag`}
@@ -222,7 +222,7 @@ export function WorkloadScreen() {
                 <span className={NUM}>
                   {receipts.isPending ? "—" : count(grnReady)}
                 </span>
-                <span className="text-[0.875rem] text-mute">GRN</span>
+                <span className="text-[0.9375rem] text-mute">GRN</span>
               </div>
               <p className={SUB}>receipt notes ready to print</p>
             </div>
@@ -231,7 +231,7 @@ export function WorkloadScreen() {
 
         <Card className="p-4">
           <div className="flex items-center justify-between gap-2.5">
-            <span className="text-[0.875rem] font-medium text-body">
+            <span className="text-[0.9375rem] font-medium text-body">
               Arriving today
             </span>
             <PackagePlus className="size-4 text-mute" />
@@ -241,7 +241,7 @@ export function WorkloadScreen() {
               <span className={NUM}>
                 {arriving.isPending ? "—" : count(arriving.data?.length ?? 0)}
               </span>
-              <span className="text-[0.875rem] text-mute">POs</span>
+              <span className="text-[0.9375rem] text-mute">POs</span>
             </div>
             <p className={SUB}>
               {book.isPending ? (
@@ -260,7 +260,7 @@ export function WorkloadScreen() {
 
         <AppLink to="/operations/intake" className={cn(CARD, "group p-4")}>
           <div className="flex items-center justify-between gap-2.5">
-            <span className="text-[0.875rem] font-medium text-body">
+            <span className="text-[0.9375rem] font-medium text-body">
               Waiting for decision
             </span>
             <Hourglass className="size-4 text-mute" />
@@ -270,7 +270,7 @@ export function WorkloadScreen() {
               <span className={NUM}>
                 {waiting === null ? "—" : count(waiting)}
               </span>
-              <span className="text-[0.875rem] text-mute">documents</span>
+              <span className="text-[0.9375rem] text-mute">documents</span>
             </div>
             <p className={SUB}>
               {po && rts
@@ -282,7 +282,7 @@ export function WorkloadScreen() {
 
         <Card className="p-4 md:col-span-2">
           <div className="flex items-center justify-between gap-2.5">
-            <span className="text-[0.875rem] font-medium text-body">
+            <span className="text-[0.9375rem] font-medium text-body">
               Ready work
             </span>
             <ListTodo className="size-4 text-mute" />
@@ -290,7 +290,7 @@ export function WorkloadScreen() {
           <div className="mt-auto pt-4">
             <div className="flex items-baseline gap-1.5">
               <span className={NUM}>{ready === null ? "—" : count(ready)}</span>
-              <span className="text-[0.875rem] text-mute">Ready now</span>
+              <span className="text-[0.9375rem] text-mute">Ready now</span>
             </div>
             <p className={SUB}>
               {po && outbox
@@ -302,7 +302,7 @@ export function WorkloadScreen() {
 
         <Card className="p-4 md:col-span-2">
           <div className="flex items-center justify-between gap-2.5">
-            <span className="text-[0.875rem] font-medium text-body">More</span>
+            <span className="text-[0.9375rem] font-medium text-body">More</span>
             <LayoutGrid className="size-4 text-mute" />
           </div>
           <nav
@@ -313,7 +313,7 @@ export function WorkloadScreen() {
               <AppLink
                 key={to}
                 to={to}
-                className="inline-flex items-center gap-1.5 rounded-inner bg-soft px-2.5 py-1.5 text-[0.875rem] text-ink transition-colors hover:bg-soft-2"
+                className="inline-flex items-center gap-1.5 rounded-inner bg-soft px-2.5 py-1.5 text-[0.9375rem] text-ink transition-colors hover:bg-soft-2"
               >
                 <Icon className="size-4 text-mute" />
                 {label}
@@ -323,7 +323,7 @@ export function WorkloadScreen() {
         </Card>
       </div>
 
-      <p className="mt-3 text-[0.875rem] text-mute">
+      <p className="mt-3 text-[0.9375rem] text-mute">
         Numbers come from the ops boards and the order book — nothing estimated.
       </p>
     </PageContent>
@@ -355,13 +355,13 @@ function FlowCard({
       </div>
       <div className="mt-auto flex items-baseline gap-1.5 pt-4">
         <span className={NUM}>{total === null ? "—" : count(total)}</span>
-        <span className="text-[0.875rem] text-mute">{unit}</span>
+        <span className="text-[0.9375rem] text-mute">{unit}</span>
       </div>
       <ul className="mt-3 border-t border-hairline">
         {stages.map(([label, value]) => (
           <li
             key={label}
-            className="flex items-baseline justify-between gap-3 border-b border-hairline py-[0.3125rem] text-[0.875rem] text-body last:border-b-0"
+            className="flex items-baseline justify-between gap-3 border-b border-hairline py-[0.3125rem] text-[0.9375rem] text-body last:border-b-0"
           >
             <span>{label}</span>
             <span className="font-medium text-ink tabular-nums">

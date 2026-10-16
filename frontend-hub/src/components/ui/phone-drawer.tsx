@@ -37,7 +37,7 @@ export function PhoneDrawer({
           <Drawer.Viewport className="fixed inset-0 z-50 flex items-end pb-[var(--drawer-keyboard-inset,0px)]">
             <Drawer.Popup
               className={cn(
-                "flex w-full flex-col overflow-hidden rounded-t-sheet border-t border-hairline bg-canvas pb-[env(safe-area-inset-bottom)] shadow-float outline-none",
+                "sheet-drawer flex w-full flex-col overflow-hidden rounded-t-sheet border-t border-hairline bg-canvas pb-[env(safe-area-inset-bottom)] shadow-float outline-none",
                 // Written whole: Tailwind reads class names, it does not run
                 // template strings. Up to 12px under the notch, less whatever
                 // the keyboard takes.

@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Allotment flow · hub today</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+/* Hub tokens (frontend-hub/src/styles/index.css). Nothing under 15px. */
+:root{--ink:#20242c;--text:#394150;--body:#565f6d;--mute:#666f7d;--canvas:#fff;--soft-2:#f0f0f2;--soft-3:#f6f6f7;
+  --hairline:#e6e6e9;--accent:#2563eb;--accent-bg:#eff5ff;--r-card:10px;--r-inner:8px;--ease-out:cubic-bezier(.23,1,.32,1)}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font:15px/22px Inter,system-ui,sans-serif;color:var(--text);background:var(--soft-3);-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;cursor:pointer;background:none;border:0}
+.top{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 20px;background:var(--canvas);border-bottom:1px solid var(--hairline);position:sticky;top:0;z-index:20}
+.top h1{font-size:16px;font-weight:600;color:var(--ink);margin-right:auto}
+.seg{display:flex;gap:2px;background:var(--soft-2);padding:3px;border-radius:999px}
+.seg button{border-radius:999px;padding:4px 14px;color:var(--body);transition:background-color 120ms var(--ease-out),color 120ms var(--ease-out),scale 120ms var(--ease-out)}
+.seg button:active{scale:.97}
+.seg button.on{background:var(--ink);color:#fff;font-weight:500}
+.seg button:disabled{opacity:.35;cursor:default}
+.wrap{display:grid;grid-template-columns:280px minmax(0,1fr);gap:20px;padding:20px;align-items:start}
+.list{position:sticky;top:76px;max-height:calc(100vh - 96px);overflow:auto;background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-card);padding:8px 8px 12px}
+.list h3{font-size:15px;font-weight:500;color:var(--mute);padding:12px 10px 4px}
+.list button{display:flex;width:100%;align-items:center;justify-content:space-between;gap:8px;text-align:left;padding:7px 10px;border-radius:var(--r-inner);transition:background-color 120ms var(--ease-out)}
+.list button:hover{background:var(--soft-2)}
+.list button.on{background:var(--accent-bg);color:var(--accent);font-weight:500}
+.list button i{font-style:normal;color:var(--mute)}
+.bar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:14px}
+.bar h2{font-size:18px;line-height:24px;font-weight:600;color:var(--ink);margin-right:auto}
+.bar .g{color:var(--mute)}
+.shot{background:var(--canvas);border:1px solid var(--hairline);border-radius:16px;overflow:hidden;line-height:0}
+.shot img{width:100%;height:auto;display:block}
+.shot.phone{width:414px;margin:0 auto;border-radius:28px;border:6px solid var(--ink)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
+.grid.phone{grid-template-columns:repeat(auto-fill,minmax(180px,1fr))}
+.grid h4{grid-column:1/-1;font-size:15px;font-weight:500;color:var(--mute);margin-top:8px}
+.card{text-align:left;background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden;transition:scale 150ms var(--ease-out),box-shadow 150ms var(--ease-out)}
+.card:hover{box-shadow:0 4px 16px rgb(24 39 60/8%)}
+.card:active{scale:.98}
+.card div{height:200px;overflow:hidden;border-bottom:1px solid var(--hairline)}
+.grid.phone .card div{height:320px}
+.card img{width:100%;display:block}
+.card span{display:block;padding:10px 12px;color:var(--ink);font-weight:500}
+@media (max-width:820px){.wrap{grid-template-columns:1fr}.list{position:static;max-height:none}.shot.phone{width:100%}}
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>Allotment flow · hub today</h1>
+  <div class="seg" id="mode"><button data-v="one">One</button><button data-v="all">All</button></div>
+  <div class="seg" id="dev"><button data-v="desk">Desk</button><button data-v="phone">Phone</button></div>
+</header>
+<div class="wrap">
+  <nav class="list" id="list"></nav>
+  <main><div class="bar" id="bar"></div><div id="stage"></div></main>
+</div>
+<script>
+/* Real frontend-hub screens (cloud-hosted Gudang rig, 16 Oct 2026): MD allots,
+   the warehouse picks, packs and dispatches, MD edits and cancels, the warehouse
+   puts back. Pictures live in allotment-flow-hub-today/. */
+const DIR = 'allotment-flow-hub-today/'
+const CASES = [{"id": "board", "g": "Ops \u00b7 board", "n": "Board (Pick \u00b7 Pack \u00b7 Dispatch)", "d": ["desk", "phone"]}, {"id": "board-attention", "g": "Ops \u00b7 board", "n": "Needs attention on", "d": ["desk"]}, {"id": "board-drag", "g": "Ops \u00b7 board", "n": "Dragging a Pick card (lane hints)", "d": ["desk"]}, {"id": "pick", "g": "Ops \u00b7 Pick", "n": "Pick sheet", "d": ["desk", "phone"]}, {"id": "pick-later", "g": "Ops \u00b7 Pick", "n": "Picked less \u00b7 Continue later", "d": ["desk", "phone"]}, {"id": "pick-cannot", "g": "Ops \u00b7 Pick", "n": "Cannot pick the rest \u00b7 why", "d": ["desk", "phone"]}, {"id": "pick-print", "g": "Ops \u00b7 Pick", "n": "Picklist paper (Print)", "d": ["desk"]}, {"id": "pick-edited", "g": "Ops \u00b7 Pick", "n": "Edited by MD", "d": ["desk", "phone"]}, {"id": "pick-short", "g": "Ops \u00b7 Pick", "n": "Short pick (rest)", "d": ["desk", "phone"]}, {"id": "article", "g": "Ops \u00b7 Pick", "n": "Article (no stock)", "d": ["desk", "phone"]}, {"id": "pack", "g": "Ops \u00b7 Pack", "n": "Pack sheet", "d": ["desk", "phone"]}, {"id": "pack-add", "g": "Ops \u00b7 Pack", "n": "Add koli", "d": ["desk", "phone"]}, {"id": "pack-packed", "g": "Ops \u00b7 Pack", "n": "Packed koli (accordion open)", "d": ["desk", "phone"]}, {"id": "putback-picked", "g": "Ops \u00b7 Pack", "n": "Put back (Picked \u2192 Picklist)", "d": ["desk", "phone"]}, {"id": "putback-koli", "g": "Ops \u00b7 Dispatch", "n": "Put back from a koli (MD took 2 out)", "d": ["desk"]}, {"id": "dispatch", "g": "Ops \u00b7 Dispatch", "n": "Dispatch sheet", "d": ["desk", "phone"]}, {"id": "dispatched", "g": "Ops \u00b7 Dispatch", "n": "Dispatched (trips by day)", "d": ["desk", "phone"]}, {"id": "md-unallotted", "g": "MD \u00b7 Allotments", "n": "Unallotted", "d": ["desk", "phone"]}, {"id": "md-new", "g": "MD \u00b7 Allotments", "n": "New allotment (grid)", "d": ["desk"]}, {"id": "md-progress", "g": "MD \u00b7 Allotments", "n": "In progress (warehouse steps \u00b7 store rings)", "d": ["desk", "phone"]}, {"id": "md-completed", "g": "MD \u00b7 Allotments", "n": "Completed (stamp)", "d": ["desk"]}, {"id": "md-cancelled", "g": "MD \u00b7 Allotments", "n": "Cancelled (stamp)", "d": ["desk"]}, {"id": "md-sheet", "g": "MD \u00b7 Allotment sheet", "n": "Per store", "d": ["desk", "phone"]}, {"id": "md-sheet-open", "g": "MD \u00b7 Allotment sheet", "n": "Store opened (articles)", "d": ["desk"]}, {"id": "md-edit", "g": "MD \u00b7 Allotment sheet", "n": "Edit (totals per store)", "d": ["desk"]}, {"id": "md-cancel-store", "g": "MD \u00b7 Allotment sheet", "n": "Cancel one store", "d": ["desk"]}, {"id": "md-cancel-all", "g": "MD \u00b7 Allotment sheet", "n": "Cancel allotment", "d": ["desk"]}, {"id": "md-putback", "g": "MD \u00b7 Allotment sheet", "n": "Warehouse still putting back", "d": ["desk", "phone"]}, {"id": "md-cancelled-store", "g": "MD \u00b7 Allotment sheet", "n": "A store cancelled", "d": ["desk", "phone"]}, {"id": "receiving", "g": "Around the flow", "n": "Receiving PO", "d": ["desk", "phone"]}, {"id": "qc", "g": "Around the flow", "n": "Quantity Checks", "d": ["desk", "phone"]}, {"id": "return-po", "g": "Around the flow", "n": "Return PO", "d": ["desk", "phone"]}, {"id": "receiving-return", "g": "Around the flow", "n": "Receiving Return", "d": ["desk", "phone"]}, {"id": "return-store", "g": "Around the flow", "n": "Return Store", "d": ["desk", "phone"]}, {"id": "return-ho", "g": "Around the flow", "n": "Return HO", "d": ["desk", "phone"]}, {"id": "surat-jalan", "g": "Ops \u00b7 Dispatch", "n": "Submit \u2192 delivery note", "d": ["desk"]}]
+const S = {id: CASES[0].id, dev: 'desk', mode: 'one'}
+try { const h = location.hash.slice(1).split('/'); if (CASES.some(c => c.id === h[0])) { S.id = h[0]; S.dev = h[1] || 'desk' } if (h[0] === 'all') { S.mode = 'all'; S.dev = h[1] || 'desk' } } catch {}
+const $ = s => document.querySelector(s)
+const file = (c, dev) => `${DIR}${dev}-${c.id}.png?v=1`
+const has = (c, dev) => c.d.includes(dev)
+
+function render(){
+  let c = CASES.find(x => x.id === S.id)
+  if (S.mode === 'one' && !has(c, S.dev)) S.dev = c.d[0]
+  document.querySelectorAll('#dev button').forEach(x => x.classList.toggle('on', x.dataset.v === S.dev))
+  document.querySelectorAll('#mode button').forEach(x => x.classList.toggle('on', x.dataset.v === S.mode))
+  const groups = [...new Set(CASES.map(x => x.g))]
+  $('#list').innerHTML = groups.map(g => `<h3>${g}</h3>` + CASES.filter(x => x.g === g).map(x =>
+    `<button data-id="${x.id}" class="${x.id === S.id && S.mode === 'one' ? 'on' : ''}">${x.n}${has(x, 'phone') ? '' : '<i>desk</i>'}</button>`).join('')).join('')
+  if (S.mode === 'all') {
+    history.replaceState(null, '', `#all/${S.dev}`)
+    $('#bar').innerHTML = `<h2>Every screen · ${S.dev === 'desk' ? 'Desk' : 'Phone'}</h2>`
+    $('#stage').innerHTML = `<div class="grid ${S.dev}">${groups.map(g => {
+      const shown = CASES.filter(x => x.g === g && has(x, S.dev))
+      return shown.length ? `<h4>${g}</h4>` + shown.map(x => `<button class="card" data-id="${x.id}"><div><img loading="lazy" src="${file(x, S.dev)}" alt="${x.n}"></div><span>${x.n}</span></button>`).join('') : ''
+    }).join('')}</div>`
+    return
+  }
+  history.replaceState(null, '', `#${S.id}/${S.dev}`)
+  $('#bar').innerHTML = `<h2><span class="g">${c.g} ·</span> ${c.n}</h2>`
+  $('#stage').innerHTML = `<div class="shot ${S.dev}"><img src="${file(c, S.dev)}" alt="${c.n}"></div>`
+}
+
+document.addEventListener('click', e => {
+  const t = e.target.closest('button'); if (!t || t.disabled) return
+  if (t.dataset.id) { S.id = t.dataset.id; S.mode = 'one' }
+  else if (t.closest('#dev')) S.dev = t.dataset.v
+  else if (t.closest('#mode')) S.mode = t.dataset.v
+  else return
+  render()
+})
+document.addEventListener('keydown', e => {
+  if (S.mode !== 'one' || (e.key !== 'ArrowDown' && e.key !== 'ArrowUp')) return
+  const i = CASES.findIndex(x => x.id === S.id)
+  S.id = CASES[Math.min(CASES.length - 1, Math.max(0, i + (e.key === 'ArrowDown' ? 1 : -1)))].id
+  e.preventDefault(); render()
+})
+render()
+</script>
+</body>
+</html>

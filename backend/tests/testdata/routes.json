@@ -642,6 +642,7 @@ cloud	POST	/api/v1/sourcing-basket/clear	Supervisor	-
 cloud	POST	/api/v1/sourcing-basket/{supplier_item_id}/remove	Supervisor	supplier_item
 cloud	POST	/api/v1/stores/{unit}/actions/{key}	Supervisor	unit
 cloud	POST	/api/v1/stores/{unit}/open	Admin	unit
+cloud	POST	/api/v1/stores/{unit}/server/disconnect	Admin	unit
 cloud	POST	/api/v1/stores/{unit}/server/install	Admin	unit
 cloud	POST	/api/v1/supplier-items/{id}/activate	Supervisor	supplier_item
 cloud	POST	/api/v1/supplier-items/{id}/deactivate	Supervisor	supplier_item
@@ -770,6 +771,7 @@ store	GET	/api/v1/store/catalog	-	-
 store	GET	/api/v1/store/central/{*path}	-	-
 store	GET	/api/v1/store/checkouts/unresolved	-	-
 store	GET	/api/v1/store/expenses	-	-
+store	GET	/api/v1/store/final-prices	-	-
 store	GET	/api/v1/store/inbound	-	-
 store	GET	/api/v1/store/inbound/{delivery_id}	-	-
 store	GET	/api/v1/store/offers	-	-
@@ -787,10 +789,12 @@ store	GET	/api/v1/store/reports/sales/series	-	-
 store	GET	/api/v1/store/reports/sales/window	-	-
 store	GET	/api/v1/store/return-requests	-	-
 store	GET	/api/v1/store/sales/{sale_id}/receipt	-	-
+store	GET	/api/v1/store/shifts	-	-
 store	GET	/api/v1/store/shifts/active	-	-
 store	GET	/api/v1/store/shifts/mine	-	-
 store	GET	/api/v1/store/shifts/open	-	-
 store	GET	/api/v1/store/shifts/{shift_id}	-	-
+store	GET	/api/v1/store/shifts/{shift_id}/sales	-	-
 store	GET	/api/v1/store/tills	-	-
 store	PATCH	/api/v1/store/central/{*path}	-	-
 store	POST	/api/v1/store/approvals	-	-
@@ -801,6 +805,7 @@ store	POST	/api/v1/store/checkouts/tender	-	-
 store	POST	/api/v1/store/expenses	-	-
 store	POST	/api/v1/store/inbound/{delivery_id}/receive	-	-
 store	POST	/api/v1/store/movements	-	-
+store	POST	/api/v1/store/movements/by-sku	-	-
 store	POST	/api/v1/store/outbound/dispatches	-	-
 store	POST	/api/v1/store/outbound/dispatches/{dispatch_id}/depart	-	-
 store	POST	/api/v1/store/outbound/koli	-	-

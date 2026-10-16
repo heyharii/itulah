@@ -6,8 +6,8 @@ import { PageContent } from "@/components/shell/app-shell"
 import { AppLink } from "@/components/ui/app-link"
 import { SHOW_MISSING } from "@/lib/features"
 import { count, money } from "@/lib/format"
-import { useBrief, type Brief } from "@/lib/queries/assistant"
-import { queryState } from "@/lib/query-state"
+import { briefQueryOptions, type Brief } from "@/lib/queries/assistant"
+import { Suspended } from "@/screens/people/suspended"
 import { SetupCard } from "@/screens/setup/setup-card"
 
 /// The morning brief: the four figures worth knowing before anybody opens a
@@ -23,13 +23,17 @@ import { SetupCard } from "@/screens/setup/setup-card"
 /// already had; the assistant is beside them for the questions they raise.
 
 export function Morning() {
-  const brief = useBrief()
+  // The server starts the brief before it renders (`prefetch.ts`), so the
+  // figures are in the first HTML when they are quick and stream in behind it
+  // when they are not.
   return (
     <PageContent>
-      {queryState(brief, {
-        loading: "Reading the night's figures…",
-        render: (data) => <Brief data={data} />,
-      })}
+      <Suspended
+        query={briefQueryOptions()}
+        loading="Reading the night's figures…"
+      >
+        {(data) => <Brief data={data} />}
+      </Suspended>
     </PageContent>
   )
 }
@@ -47,7 +51,7 @@ function Brief({ data }: { data: Brief }) {
       <h1 className="pt-6 text-[1.75rem] leading-none font-semibold tracking-[-0.024em] text-ink">
         {greetings[data.greeting]} <span className="text-mute">{data.who}</span>
       </h1>
-      <p className="mt-2 text-[0.875rem] text-body">
+      <p className="mt-2 text-[0.9375rem] text-body">
         Here is how things are going.
       </p>
 
@@ -218,7 +222,7 @@ function BriefCard({
       {foot && <div className="mt-auto pt-3">{foot}</div>}
       <AppLink
         to={link.to}
-        className={`text-[0.875rem] text-mute hover:text-ink ${foot ? "pt-3" : "mt-auto pt-3"}`}
+        className={`text-[0.9375rem] text-mute hover:text-ink ${foot ? "pt-3" : "mt-auto pt-3"}`}
       >
         {link.label}
       </AppLink>

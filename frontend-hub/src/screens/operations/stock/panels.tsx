@@ -523,7 +523,7 @@ function CardTile({
           {pcs(card.pcs)}
         </span>
       </div>
-      <div className="mt-1 flex justify-between gap-3 text-[0.875rem] leading-[1.4] text-mute">
+      <div className="mt-1 flex justify-between gap-3 text-[0.9375rem] leading-[1.4] text-mute">
         <span className={cn("min-w-0 truncate", withStore && "font-mono")}>
           {withStore ? card.doc : ""}
         </span>
@@ -579,7 +579,7 @@ function OutboundBody({
                   )}
                 >
                   <div className="font-medium">{STAGE_LABEL[s]}</div>
-                  <div className="mt-1 text-[0.875rem] text-mute">
+                  <div className="mt-1 text-[0.9375rem] text-mute">
                     {pcs(sum?.pcs ?? 0)}
                   </div>
                 </div>

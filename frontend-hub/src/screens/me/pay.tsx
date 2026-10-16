@@ -257,7 +257,7 @@ function AnnualTaxRows({ form }: { form: AnnualTaxSlip }) {
   return (
     <div className="flex flex-col gap-2">
       {!form.settled && (
-        <p className="rounded-inner bg-warn-bg px-3.5 py-2.5 text-[0.875rem] leading-relaxed text-warn-fg">
+        <p className="rounded-inner bg-warn-bg px-3.5 py-2.5 text-[0.9375rem] leading-relaxed text-warn-fg">
           The year so far. It is settled in December, or the month you leave.
         </p>
       )}
@@ -303,7 +303,7 @@ function LoanRows({ loan }: { loan: LoanView }) {
       <Row label="Repaid">{money(loan.repaid_minor)}</Row>
       <Row label="Still owed">{money(loan.outstanding_minor)}</Row>
       {loan.status === "APPROVED" && (
-        <p className="text-[0.875rem] text-mute">
+        <p className="text-[0.9375rem] text-mute">
           Approved; nothing comes off your pay until it has been paid out to
           you.
         </p>

@@ -1,0 +1,525 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Finance Menu Simplify</title>
+<style>
+@font-face{font-family:Inter;src:url('/frontend-hub/node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2') format('woff2');font-weight:100 900;font-display:swap}
+/* the hub shell (white.css, Fog) with the Ink text tone */
+:root{--ink:#1d1d1f;--mute:#6e6e73;--line:#ececf0;--blue:#2563eb;--blue-soft:#eef3fd;--red:#d70015;--amber:#b25000;--green:#1f8a3b;
+ --stone:#e8ebf0;--panel:#f4f6f9;--side-ink:#1d1d1f;--side-mute:#6e6e73;--hover:rgb(0 0 0 / 5%);--edge:rgb(0 0 0 / 5%);
+ --ring:0 0 0 1px rgb(0 0 0 / 5%),0 2px 8px rgb(0 0 0 / 4%),0 24px 72px rgb(0 0 0 / 8%);
+ --ease:cubic-bezier(.23,1,.32,1)}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;font:15px/1.45 Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:var(--ink);background:var(--stone);-webkit-font-smoothing:antialiased;overflow:hidden}
+svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+button{font:inherit;color:inherit;border:0;background:none;cursor:pointer;text-align:left}
+.num{font-variant-numeric:tabular-nums}
+
+.shell{display:flex;height:100vh}
+.rail{width:64px;flex:none;display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 0;color:#5a6271}
+.rail .ic{width:40px;height:40px;border-radius:10px;display:grid;place-items:center}
+.rail .ic.on{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgb(0 0 0 / 7%)}
+
+.panel{width:236px;flex:none;display:flex;flex-direction:column;margin:12px 12px 12px 0;border-radius:16px;background:var(--panel);box-shadow:0 0 0 1px var(--edge),0 2px 6px rgb(0 0 0 / 4%);overflow:hidden}
+.panel h2{margin:0;padding:18px 20px 10px;font-size:20px;font-weight:650;letter-spacing:-.015em;display:flex;justify-content:space-between;align-items:baseline}
+.panel h2 small{font-size:15px;font-weight:500;color:var(--side-mute)}
+.list{flex:1;min-height:0;overflow-y:auto;padding:2px 10px 16px;scrollbar-width:none;
+ mask-image:linear-gradient(to bottom,transparent 0,#000 8px,#000 calc(100% - 24px),transparent 100%)}
+.list::-webkit-scrollbar{display:none}
+.list.swap{animation:swap .16s var(--ease)}
+@keyframes swap{from{opacity:0;transform:translateY(4px)}}
+
+.item{display:flex;width:100%;justify-content:space-between;align-items:center;gap:8px;height:34px;padding:0 10px;border-radius:8px;color:var(--side-ink);font-weight:450;white-space:nowrap;transition:background-color .15s ease}
+.item>span:first-child{overflow:hidden;text-overflow:ellipsis}
+@media(hover:hover) and (pointer:fine){.item:not(.on):hover{background:var(--hover)}}
+.item.on{background:#fff;font-weight:600;box-shadow:0 0 0 1px rgb(0 0 0 / 6%),0 1px 3px rgb(0 0 0 / 6%)}
+.item.step{box-shadow:0 0 0 2px var(--blue)}
+.badge{display:grid;place-items:center;min-width:20px;height:20px;padding:0 5px;border-radius:999px;background:var(--red);color:#fff;font-size:15px;line-height:1;font-weight:600}
+.glabel{display:flex;align-items:center;justify-content:space-between;width:100%;height:30px;margin-top:14px;padding:0 10px;color:var(--side-mute);font-weight:600;white-space:nowrap;border-radius:8px}
+.group:first-child>.glabel{margin-top:0}
+.fold .glabel{height:34px;margin-top:2px;color:var(--side-ink);font-weight:450}
+.fold.open .glabel{font-weight:600}
+.glabel .chev{width:14px;height:14px;opacity:.6;transition:transform .2s var(--ease)}
+.fold.open .glabel .chev{transform:rotate(90deg)}
+@media(hover:hover) and (pointer:fine){button.glabel:hover{background:var(--hover)}}
+.fold .rows{display:grid;grid-template-rows:0fr;opacity:0;transition:grid-template-rows .2s var(--ease),opacity .15s ease}
+.fold.open .rows{grid-template-rows:1fr;opacity:1}
+.fold .rows>div{min-height:0;overflow:hidden;padding-left:10px}
+.foot{flex:none;padding:6px 10px 12px;border-top:1px solid rgb(0 0 0 / 6%)}
+.foot .item span{display:flex;align-items:center;gap:8px}
+
+.page{flex:1;min-width:0;background:#fff;margin:12px 12px 12px 0;border-radius:16px;box-shadow:var(--ring);overflow:hidden;display:flex;flex-direction:column}
+.page-in{flex:1;overflow:auto;padding:26px 32px 120px}
+.page-in.swap{animation:swap .16s var(--ease)}
+.crumb{color:var(--mute)}
+.crumb button{color:var(--mute)}
+.crumb button:hover{color:var(--ink)}
+h1{margin:2px 0 20px;font-size:20px;line-height:26px;font-weight:650;letter-spacing:-.015em}
+h3{margin:28px 0 8px;font-size:15px;font-weight:600}
+.wrap{max-width:1000px}
+
+table.t{width:100%;border-collapse:collapse}
+.t th{text-align:left;font-weight:500;color:var(--mute);height:40px;border-bottom:1px solid var(--line);padding:0 14px 0 0;white-space:nowrap}
+.t td{padding:10px 14px 10px 0;border-bottom:1px solid #f3f3f6;vertical-align:top}
+.t .r{text-align:right;white-space:nowrap}
+.mock .t td,.mock .t th{white-space:nowrap}
+.t .mute{color:var(--mute)}
+.t tr.gh td{padding-top:18px;font-weight:600;border-bottom:1px solid var(--line)}
+.t tr.on td{background:#f6f8fc}
+.t td.go{cursor:pointer}
+.t td.go:hover{color:var(--blue)}
+.warn{color:var(--amber)}
+.bad{color:var(--red)}
+.ok{color:var(--green)}
+.dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:currentColor;margin-right:7px;vertical-align:2px}
+
+/* mocks */
+.mock{border-radius:12px;box-shadow:0 0 0 1px var(--line);padding:6px 18px 14px;margin-bottom:8px;overflow-x:auto}
+.bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 0 4px}
+.ctl{height:36px;padding:0 12px;border-radius:8px;box-shadow:0 0 0 1px #e3e5ea;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.btn{height:36px;padding:0 14px;border-radius:8px;background:var(--blue);color:#fff;font-weight:600;display:inline-flex;align-items:center;transition:transform .12s ease}
+.btn:active,.ctl:active{transform:scale(.97)}
+.tabs{display:flex;gap:22px;border-bottom:1px solid var(--line);margin:4px 0 2px}
+.tabs span{padding:10px 0;color:var(--mute);font-weight:500}
+.tabs span.on{color:var(--ink);box-shadow:inset 0 -2px 0 var(--ink)}
+.check{list-style:none;margin:0;padding:0}
+.check li{display:flex;align-items:center;gap:12px;height:48px;border-bottom:1px solid #f3f3f6}
+.check li>b{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-size:15px;font-weight:600;flex:none;background:#f0f1f4;color:var(--mute)}
+.check li.done>b{background:#e7f5ec;color:var(--green)}
+.check li .w{flex:1}
+.check li .s{color:var(--mute)}
+.small{height:30px;padding:0 12px;border-radius:999px;background:#f0f1f4;color:var(--blue);font-weight:600;white-space:nowrap}
+.small:active{transform:scale(.97)}
+
+/* flow strip (7Soft's module front page, as a strip) */
+.strip{display:flex;align-items:stretch;gap:0;margin:0 0 22px;overflow-x:auto;padding:2px}
+.node{min-width:150px;padding:12px 14px;border-radius:12px;box-shadow:0 0 0 1px var(--line);background:#fff;transition:box-shadow .15s ease,transform .12s ease}
+.node:active{transform:scale(.98)}
+@media(hover:hover) and (pointer:fine){.node:hover{box-shadow:0 0 0 1px #cfd6e4,0 2px 8px rgb(0 0 0 / 5%)}}
+.node.on{box-shadow:0 0 0 2px var(--ink)}
+.node b{display:block;font-weight:600}
+.node span{color:var(--mute)}
+.node span.warn{color:var(--amber)}
+.arrow{display:grid;place-items:center;width:30px;flex:none;color:#b9bec8}
+.side{display:flex;gap:10px;margin:-10px 0 22px;color:var(--mute);align-items:center;flex-wrap:wrap}
+
+/* C overview map */
+.map{display:grid;grid-template-columns:repeat(5,minmax(140px,1fr));gap:14px 0;align-items:center;min-width:820px}
+.map .node{margin:0 8px}
+.lane{grid-column:1/-1;color:var(--mute);font-weight:500;margin-top:8px}
+
+/* walk bar */
+.walk{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 16px;margin:0 0 22px;border-radius:12px;background:var(--blue-soft)}
+.walk .steps{display:flex;gap:6px;flex-wrap:wrap;flex:1}
+.walk .steps span{padding:3px 10px;border-radius:999px;background:#fff;color:var(--mute);white-space:nowrap}
+.walk .steps span.on{background:var(--blue);color:#fff}
+.walk .steps span.done{color:var(--ink)}
+.walk .ctl{background:#fff}
+
+/* setup page */
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px}
+.card{border-radius:12px;box-shadow:0 0 0 1px var(--line);padding:6px}
+.card .glabel{margin:4px 0 2px}
+.card .item{height:36px}
+
+/* switch */
+.switch{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);display:flex;gap:4px;padding:6px;border-radius:14px;background:rgb(255 255 255 / 88%);backdrop-filter:blur(16px) saturate(1.4);-webkit-backdrop-filter:blur(16px) saturate(1.4);box-shadow:0 0 0 1px rgb(0 0 0 / 7%),0 8px 30px rgb(0 0 0 / 12%);z-index:10;max-width:calc(100vw - 32px);overflow-x:auto}
+.switch button{height:40px;padding:0 14px;border-radius:9px;white-space:nowrap;color:var(--mute);font-weight:500;transition:background-color .15s ease,color .15s ease,transform .12s ease}
+.switch button:active{transform:scale(.97)}
+@media(hover:hover) and (pointer:fine){.switch button:hover{background:rgb(0 0 0 / 4%)}}
+.switch button[aria-pressed="true"]{background:#1d1d1f;color:#fff}
+.switch b{font-weight:600;margin-right:6px;opacity:.55}
+.switch .n{margin-left:6px;opacity:.6}
+.switch .sep{width:1px;margin:6px 4px;background:rgb(0 0 0 / 10%);flex:none}
+
+@media(max-width:760px){
+ body{overflow:auto}
+ .shell{flex-direction:column;height:auto}
+ .rail{display:none}
+ .panel{width:auto;margin:12px 12px 0;max-height:46vh}
+ .page{margin:12px}
+ .page-in{padding:20px 16px 110px}
+}
+@media(prefers-reduced-motion:reduce){.list.swap,.page-in.swap{animation:none}.fold .rows{transition:none}}
+</style>
+</head>
+<body>
+<div class="shell">
+ <nav class="rail" id="rail" aria-label="Departments"></nav>
+ <nav class="panel" id="panel"><h2>Finance <small id="count" class="num"></small></h2><div class="list" id="list"></div><div id="foot"></div></nav>
+ <main class="page"><div class="page-in" id="page"></div></main>
+</div>
+<div class="switch" id="switch" role="group" aria-label="Version"></div>
+
+<script>
+const I = {
+ home:'<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1Z"/>',
+ cart:'<circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M2 3h3l2.6 12.4a2 2 0 0 0 2 1.6h8.2a2 2 0 0 0 2-1.6L21 7H6"/>',
+ box:'<path d="M21 8 12 3 3 8v8l9 5 9-5Z"/><path d="m3 8 9 5 9-5M12 13v8"/>',
+ bank:'<path d="M3 21h18M4 10h16M12 3l8 5H4Z"/><path d="M6 10v8M10 10v8M14 10v8M18 10v8"/>',
+ people:'<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M21.5 20a6.5 6.5 0 0 0-4-6"/>',
+ tag:'<path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9Z"/><circle cx="7.5" cy="7.5" r="1.3"/>',
+ gear:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/>',
+ chev:'<path d="m9 6 6 6-6 6"/>',
+ arrow:'<path d="M5 12h14M13 6l6 6-6 6"/>',
+}
+const svg = (k, c = "") => `<svg class="${c}" viewBox="0 0 24 24">${I[k]}</svg>`
+
+// ── Today, read from frontend-hub/src/screens/finance/nav.ts (15 Oct 2026) ──
+const TODAY = [
+ ["", [["ov","Overview"]]],
+ ["Stores", [["s_ov","Overview"],["s_day","Sales by Day"],["s_coh","Cash on Hand"],["s_pc","Petty Cash"],["s_fl","Cashier Float"],["s_cc","Cash Counts"]]],
+ ["Inventory", [["i_val","Inventory Valuation"],["i_svl","Stock vs Ledger"],["i_git","Goods in Transit"],["i_cogs","Cost of Goods Sold"],["i_adj","Stock Adjustments"]]],
+ ["Payables", [["pi","Purchase Invoice"],["cn","Credit Note"],["rb","Recurring Bills"],["acc","Accruals"],["ap","Accounts Payable"],["sb","Supplier Bills"],["proj","Payment Projection"],["loans","Loans"]]],
+ ["Receivables", [["edc","Card & EDC Settlement"]]],
+ ["Payments", [["bkk","BKK"],["bkm","BKM"],["je","Journal Entry"],["rj","Recurring Journal"],["mop","Mode of Payment"]]],
+ ["Banking", [["ba","Bank Account"],["giro","Giro Board"],["btx","Bank Transactions"],["brec","Bank Reconciliation"],["brule","Bank Rules"]]],
+ ["Financial Reports", [["gl","General Ledger"],["tb","Trial Balance"],["pl","Profit and Loss"],["bs","Balance Sheet"],["cf","Cash Flow"],["plu","Profit and Loss by Unit"],["bs2","Balance Sheet 2 Years"],["sdiv","Sales by Division"],["eq","Statement of Changes in Equity"],["exm","Expenses by Month"],["brs","Bank Reconciliation Summary"]]],
+ ["Assets", [["as","Asset"],["cp","Contractor Projects"],["acat","Asset Category"],["far","Fixed Asset Register"],["adis","Asset Disposals"]]],
+ ["Tax", [["twh","Tax Withholding"],["twd","Tax Withholding Details"],["tp","Tax Payables"],["tt","Tax Types"]]],
+ ["Accounting Masters", [["coa","Chart of Accounts"],["aset","Accounts Settings"],["per","Accounting Period"],["paycomp","Pay Components"]]],
+ ["Closing", [["pc","Period Close"],["pcv","Period Closing Voucher"]]],
+]
+const MORE = [["x_sp","Sales Postings"],["x_ar","Accounts Receivable"],["x_adv","Employee Advances"],["x_ctx","Cash Transactions"],["x_pc","Petty Cash (Payments)"],["x_pdash","Payments Dashboard"],["x_dep","Deposits"],["x_gt","Giro Templates"],["x_dim","Dimension Results"],["x_cb","Cash & Bank report"],["x_ad","Accounting Dimension"],["x_al","Account Links"],["x_pr","Posting Readiness"],["x_spm","Shop Payment Methods"],["x_edc","EDC & MDR"],["x_ec","Expense Categories"],["x_lc","Line Categories"],["x_pp","Posting Policies"],["x_perm","Permissions"],["x_pa","Prepaids & Accruals"],["x_pre","Prepaids"]]
+const HIDDEN = [["h_sl","Supplier Ledger"],["h_pe","Payment Entry"],["h_bc","Bank Clearance"]]
+const NAME = Object.fromEntries([...TODAY.flatMap(([, r]) => r), ...MORE, ...HIDDEN])
+const TGROUP = Object.fromEntries(TODAY.flatMap(([g, r]) => r.map(([k]) => [k, g])))
+const BADGE = {pi:3, brec:12, per:1, me:1, close:1}
+
+// R(key, label, from) — from: [todayKey, how]; no how = the same screen
+const R = (k, l, from = [[k]], x = {}) => ({k, l, from, ...x})
+
+const STORES = R("stores","Stores",[["s_ov","Shop table on top"],["s_day","A shop's day"],["s_coh","Click a shop's Cash on hand"],["s_pc","Click a shop's Petty cash"],["s_fl","Click a shop's Cashier float"],["s_cc","Last count column"],["edc","Drawer and Bank columns on the day"],["x_sp","Posted column on the day"],["x_cb","Last count column"],["x_pc","Click a shop's Petty cash"],["x_dep","In the bag column"],["x_ctx","A shop's money, all boxes"]],{mock:"stores"})
+const REPORTS = [
+ R("gl","General Ledger",[["gl"]]),
+ R("tb","Trial Balance",[["tb"]]),
+ R("pl","Profit and Loss",[["pl"],["plu","Compare: last year, % of sales"],["exm","Monthly, expenses only"],["i_cogs","COGS line, monthly"],["x_dim","Compare: dimension"]],{mock:"pl"}),
+ R("bs","Balance Sheet",[["bs"],["bs2","Compare: last year"],["eq","Equity view"]]),
+ R("cf","Cash Flow",[["cf"]]),
+ R("sdiv","Sales by Division",[["sdiv"]]),
+]
+const SETUP = [
+ ["Accounts",[R("coa","Chart of Accounts",[["coa"]]),R("aset","Accounts Settings",[["aset"]]),R("x_ad","Accounting Dimension",[["x_ad"]]),R("x_pp","Posting Policies",[["x_pp"]]),R("x_perm","Permissions",[["x_perm"]])]],
+ ["Account links",[R("x_al","Account Links",[["x_al"],["paycomp","Pay component links"],["x_pr","Gaps filter"]]),R("x_ec","Expense Categories",[["x_ec"]]),R("x_lc","Line Categories",[["x_lc"]])]],
+ ["Money",[R("mop","Mode of Payment",[["mop"],["x_spm","Shops column"],["x_edc","MDR column, terminals"]]),R("x_gt","Giro Templates",[["x_gt"]]),R("brule","Bank Rules",[["brule"]])]],
+ ["Tax",[R("tt","Tax Types",[["tt"],["twh","Withholding rates"]])]],
+ ["Assets",[R("acat","Asset Category",[["acat"]])]],
+]
+
+const V = {
+ today:{l:"Today", fold:true, groups:TODAY.map(([g, r]) => ({l:g, rows:r.map(([k, l]) => R(k, l))}))},
+ a:{l:"Duplicates out", fold:true, groups:[
+  {l:"", rows:[R("ov","Overview",[["ov"],["x_pdash","Its cards are already here"]])]},
+  {l:"Stores", rows:[R("s_ov","Overview",[["s_ov"],["s_coh","Click a box"],["s_pc","Click a box"],["s_fl","Click a box"],["x_pc","Click a box"],["x_cb","Last count column"]]),R("s_day","Sales by Day",[["s_day"],["edc","Drawer and Bank columns"],["x_sp","Posted column"]]),R("s_cc","Cash Counts",[["s_cc"]])]},
+  {l:"Inventory", rows:[R("i_val","Inventory Valuation",[["i_val"],["i_svl","Ledger and Difference columns"],["i_git","In transit section"]]),R("i_adj","Stock Adjustments",[["i_adj"]])]},
+  {l:"Payables", rows:[R("pi","Purchase Invoice",[["pi"],["cn","Credit notes tab, and on the bill"]]),R("rb","Recurring Bills",[["rb"]]),R("acc","Accruals",[["acc"],["x_pa","Balances tab"]]),R("ap","Accounts Payable",[["ap"],["sb","Group by supplier"],["h_sl","Click a supplier"]]),R("proj","Payment Projection",[["proj"]]),R("loans","Loans",[["loans"]])]},
+  {l:"Payments", rows:[R("bkk","BKK",[["bkk"],["h_pe","Its register"]]),R("bkm","BKM",[["bkm"]]),R("je","Journal Entry",[["je"],["rj","Repeat… on an entry"]])]},
+  {l:"Banking", rows:[R("ba","Bank Account",[["ba"]]),R("giro","Giro Board",[["giro"],["h_bc","Clear on the card"]]),R("brec","Bank Reconciliation",[["brec"],["btx","An account's lines"],["brule","Rules… button"],["brs","Month view"],["x_dep","Deposits tab"]])]},
+  {l:"Financial Reports", rows:[...REPORTS, R("eq","Statement of Changes in Equity",[["eq"]])].map((r) => r.k === "bs" ? R("bs","Balance Sheet",[["bs"],["bs2","Compare: last year"]]) : r)},
+  {l:"Assets", rows:[R("as","Asset",[["as"],["far","Group by category"],["adis","Disposed filter"]]),R("cp","Contractor Projects",[["cp"]])]},
+  {l:"Tax", rows:[R("tp","Tax Payables",[["tp"]]),R("twd","Tax Withholding Details",[["twd"]])]},
+  {l:"Accounting Masters", rows:[R("coa","Chart of Accounts"),R("aset","Accounts Settings"),R("mop","Mode of Payment"),R("tt","Tax Types"),R("twh","Tax Withholding"),R("acat","Asset Category"),R("paycomp","Pay Components")]},
+  {l:"Closing", rows:[R("pc","Period Close",[["pc"],["per","Month list: open, close, undo"]]),R("pcv","Period Closing Voucher",[["pcv"]])]},
+ ]},
+ b:{l:"Daily · Month end", star:true, setup:SETUP, gone:{x_ar:"Off — no debtor book"}, groups:[
+  {l:"", rows:[R("ov","Overview",[["ov"],["x_pdash","Its cards are already here"]])]},
+  {l:"Daily", rows:[
+   STORES,
+   R("pi","Purchase Invoice",[["pi"],["cn","Credit notes tab, and on the bill"],["rb","Repeat… on a bill"]],{mock:"pi"}),
+   R("ap","Accounts Payable",[["ap"],["sb","Group by supplier"],["proj","Calendar view"],["h_sl","Click a supplier"]],{mock:"ap"}),
+   R("bkk","BKK",[["bkk"],["h_pe","Its register"]]),
+   R("bkm","BKM",[["bkm"]]),
+   R("giro","Giro Board",[["giro"],["h_bc","Clear on the card"]]),
+   R("brec","Bank Reconciliation",[["brec"],["ba","Accounts on top"],["btx","An account's lines"],["brs","Month view"]],{mock:"brec"}),
+   R("je","Journal Entry",[["je"],["rj","Repeat… on an entry"]]),
+  ]},
+  {l:"Month end", rows:[
+   R("inv","Inventory",[["i_val"],["i_svl","Ledger and Difference columns"],["i_git","In transit section"],["i_adj","Adjustments tab"]],{mock:"inv"}),
+   R("assets","Assets",[["as"],["cp","Being built filter, project sheet"],["far","Group by category"],["adis","Disposed filter"]]),
+   R("tax","Tax",[["tp"],["twd","Withheld tab"]]),
+   R("loans","Loans",[["loans"]]),
+   R("me","Month End",[["pc"],["per","Month list: open, close, undo"],["acc","Accruals step"],["x_pa","Accruals step"],["x_pre","Prepaids step"],["pcv","December: Closing voucher"]],{mock:"me"}),
+  ]},
+  {l:"Reports", rows:REPORTS},
+ ]},
+ c:{l:"Flow pages", setup:SETUP, gone:{x_ar:"Off — no debtor book"}, groups:[
+  {l:"", rows:[
+   R("ov","Overview",[["ov"],["x_pdash","Its cards are already here"]],{mock:"map"}),
+   STORES,
+   R("payables","Payables",[],{flow:[
+    R("pi","Purchase Invoice",[["pi"],["cn","Credit notes tab, and on the bill"],["rb","Repeat… on a bill"]],{n:"3 to post"}),
+    R("ap","Accounts Payable",[["ap"],["sb","Group by supplier"],["proj","Calendar view"],["h_sl","Click a supplier"]],{n:"6 due this week",mock:"ap"}),
+    R("bkk","BKK",[["bkk"],["h_pe","Its register"]],{n:"2 drafts"}),
+    R("giro","Giro Board",[["giro"],["h_bc","Clear on the card"]],{n:"4 due in 7 days"}),
+   ]}),
+   R("bkm","BKM",[["bkm"]]),
+   R("brec","Bank Reconciliation",[["brec"],["ba","Accounts on top"],["btx","An account's lines"],["brs","Month view"]],{mock:"brec"}),
+   R("je","Journal Entry",[["je"],["rj","Repeat… on an entry"]]),
+   R("monthend","Month End",[],{flow:[
+    R("accr","Accruals",[["acc"],["x_pa","Balances tab"],["x_pre","Prepaids tab"]],{n:"3 waiting"}),
+    R("inv","Inventory",[["i_val"],["i_svl","Ledger and Difference columns"],["i_git","In transit section"],["i_adj","Adjustments tab"]],{n:"Off 1.240.000",mock:"inv"}),
+    R("assets","Assets",[["as"],["cp","Being built filter, project sheet"],["far","Group by category"],["adis","Disposed filter"]],{n:"Depreciation due"}),
+    R("tax","Tax",[["tp"],["twd","Withheld tab"]],{n:"PPh 23 open"}),
+    R("loans","Loans",[["loans"]],{n:"1 instalment"}),
+    R("close","Close the month",[["pc"],["per","Month list: open, close, undo"],["pcv","December: Closing voucher"]],{n:"October",mock:"me"}),
+   ]}),
+  ]},
+  {l:"Reports", rows:REPORTS},
+ ]},
+}
+
+// every place a key can land in a version: rows, flow nodes, setup items
+function places(v) {
+ const out = []
+ for (const g of V[v].groups) for (const r of g.rows) {
+  out.push({r, g:g.l})
+  if (r.flow) for (const n of r.flow) out.push({r:n, g:g.l, flow:r})
+ }
+ for (const [s, items] of V[v].setup ?? []) for (const r of items) out.push({r, g:"Setup", setup:s})
+ return out
+}
+const findPlace = (v, k) => places(v).find((p) => p.r.k === k)
+function menuCount(v) { return V[v].groups.reduce((a, g) => a + g.rows.length, 0) + (V[v].setup ? 1 : 0) }
+function dest(v, t) {
+ if (v === "today") return null
+ if (V[v].gone?.[t]) return {txt:V[v].gone[t], off:true}
+ for (const p of places(v)) {
+  const f = p.r.from.find((x) => x[0] === t)
+  if (f) return {k:p.r.k, txt:(p.setup ? "Setup › " : p.flow ? p.flow.l + " › " : "") + p.r.l, how:f[1]}
+ }
+ return {txt: t.startsWith("x_") ? "⌘K, as today" : t.startsWith("h_") ? "Hidden, as today" : "—", mute:true}
+}
+
+// ── jobs, walked step by step ──
+const FLOWS = [
+ {k:"pay", l:"Pay a supplier by giro", s:{
+  today:[["proj"],["ap"],["bkk"],["giro"],["btx"],["brec"]],
+  a:[["proj"],["ap"],["bkk"],["giro"],["brec"]],
+  b:[["ap","Calendar view"],["bkk","Pay from the bill"],["giro"],["brec"]],
+  c:[["ap","Calendar view"],["bkk","Pay from the bill"],["giro"],["brec"]]}},
+ {k:"store", l:"Check a shop's day", s:{
+  today:[["s_ov"],["s_day"],["edc"],["s_cc"],["s_coh"],["brec"]],
+  a:[["s_ov"],["s_day","Drawer and Bank columns"],["s_cc"],["brec"]],
+  b:[["stores","Click the shop"],["brec"]],
+  c:[["stores","Click the shop"],["brec"]]}},
+ {k:"bank", l:"Reconcile the bank", s:{
+  today:[["btx","Upload the statement"],["brec"],["brule"],["brs"]],
+  a:[["brec","Upload, match, Rules…, Month view"]],
+  b:[["brec","Upload, match, Month view"]],
+  c:[["brec","Upload, match, Month view"]]}},
+ {k:"month", l:"Close the month", s:{
+  today:[["pc"],["acc"],["i_svl"],["i_adj"],["as"],["tp"],["loans"],["per","Close"]],
+  a:[["pc"],["acc"],["i_val"],["i_adj"],["as"],["tp"],["loans"],["pc","Close"]],
+  b:[["me"],["inv"],["assets"],["tax"],["loans"],["me","Close"]],
+  c:[["accr"],["inv"],["assets"],["tax"],["loans"],["close"]]}},
+ {k:"stock", l:"Stock value against the books", s:{
+  today:[["i_val"],["i_svl"],["i_git"],["i_cogs"]],
+  a:[["i_val"],["pl","COGS line"]],
+  b:[["inv"],["pl","COGS line"]],
+  c:[["inv"],["pl","COGS line"]]}},
+]
+function clicks(v, steps) {
+ let c = 0, g = "", flow = null
+ for (const [k] of steps) {
+  const p = findPlace(v, k); if (!p) continue
+  if (V[v].fold) { c += p.g && p.g !== g ? 2 : 1; g = p.g }
+  else if (p.setup) { c += 2; flow = null }
+  else if (p.flow) { c += flow === p.flow ? 1 : 2; flow = p.flow }
+  else { c += 1; flow = null }
+ }
+ return c
+}
+const screens = (steps) => new Set(steps.map((s) => s[0])).size
+
+// ── state ──
+const st = {v:"b", k:"ov", view:"", open:{}, walk:null}
+
+// ── menu ──
+function item(r, on) {
+ const b = BADGE[r.k] ? `<span class="badge num">${BADGE[r.k]}</span>` : ""
+ const stp = st.walk && on ? " step" : ""
+ return `<button class="item${on ? " on" : ""}${stp}" data-k="${r.k}"><span>${r.l}</span>${b}</button>`
+}
+function activeRowKey(v) {
+ const p = findPlace(v, st.k); if (!p) return null
+ return p.flow ? p.flow.k : p.setup ? "__setup" : p.r.k
+}
+function renderMenu(swap) {
+ const v = st.v, ver = V[v], on = st.view ? null : activeRowKey(v)
+ let h = ""
+ for (const g of ver.groups) {
+  const rows = g.rows.map((r) => item(r, r.k === on)).join("")
+  if (ver.fold && g.l) {
+   const inside = g.rows.some((r) => r.k === on)
+   const open = st.open[v + g.l] ?? inside
+   const sum = g.rows.reduce((a, r) => a + (BADGE[r.k] ?? 0), 0)
+   h += `<div class="group fold ${open ? "open" : ""}"><button class="glabel" data-fold="${g.l}"><span>${g.l}</span>${!open && sum ? `<span class="badge num">${sum}</span>` : svg("chev", "chev")}</button><div class="rows"><div>${rows}</div></div></div>`
+  } else h += `<div class="group">${g.l ? `<div class="glabel">${g.l}</div>` : ""}${rows}</div>`
+ }
+ const list = document.getElementById("list")
+ list.innerHTML = h
+ if (swap) { list.classList.remove("swap"); void list.offsetWidth; list.classList.add("swap") }
+ document.getElementById("foot").innerHTML = ver.setup ? `<div class="foot"><button class="item${on === "__setup" ? " on" : ""}" data-k="__setup"><span>${svg("gear")}Setup</span></button></div>` : ""
+ document.getElementById("count").textContent = `${menuCount(v)} rows`
+}
+
+// ── page ──
+const fmt = (n) => n.toLocaleString("id-ID")
+function fromTable(r) {
+ if (!r.from.length) return ""
+ const rows = r.from.map(([t, how]) => `<tr><td>${NAME[t]}<span class="mute">${TGROUP[t] ? " · " + TGROUP[t] : t.startsWith("x_") ? " · ⌘K" : t.startsWith("h_") ? " · hidden" : ""}</span></td><td class="${how ? "" : "mute"}">${how ?? "Same screen"}</td></tr>`).join("")
+ return `<h3>From today</h3><table class="t"><tr><th style="width:46%">Today</th><th>Here</th></tr>${rows}</table>`
+}
+function strip(flowRow, onKey) {
+ const nodes = flowRow.flow.map((n, i) => `${i ? `<span class="arrow">${svg("arrow")}</span>` : ""}<button class="node${n.k === onKey ? " on" : ""}" data-k="${n.k}"><b>${n.l}</b><span class="${/due|Off|open|waiting/.test(n.n) ? "warn" : ""}">${n.n}</span></button>`).join("")
+ return `<div class="strip">${nodes}</div>`
+}
+const MOCK = {
+ stores:() => `<div class="mock"><div class="bar"><span class="ctl">Thu 15 Oct 2026</span><span class="ctl">All shops</span></div>
+  <table class="t num"><tr><th>Shop</th><th class="r">Sales</th><th class="r">Drawer</th><th class="r">Bank</th><th>Posted</th><th class="r">Cash on hand</th><th class="r">Petty cash</th><th class="r">Cashier float</th><th>Last count</th></tr>
+  ${[["Cikupa",18450000,6120000,12330000,1,4250000,1500000,500000,"Today · ok"],["Cirebon",12980000,4410000,8570000,1,3870000,1200000,500000,"Today · ok"],["Karawaci",21300000,7015000,14100000,0,5310000,980000,500000,"Mon · −185.000"],["Bekasi",9870000,3020000,6850000,1,2440000,1500000,500000,"Today · ok"]]
+   .map(([s,a,b,c,p,d,e,f,cnt]) => `<tr><td><b style="font-weight:550">${s}</b></td><td class="r">${fmt(a)}</td><td class="r">${fmt(b)}</td><td class="r">${fmt(c)}</td><td class="${p ? "ok" : "warn"}"><span class="dot"></span>${p ? "Posted" : "Draft"}</td><td class="r">${fmt(d)}</td><td class="r">${fmt(e)}</td><td class="r">${fmt(f)}</td><td class="${cnt.includes("−") ? "bad" : "mute"}">${cnt}</td></tr>`).join("")}</table></div>`,
+ ap:() => `<div class="mock"><div class="tabs"><span>Aging</span><span>By supplier</span><span class="on">Calendar</span></div>
+  <div class="bar"><span class="ctl">October 2026</span><span class="ctl">All units</span></div>
+  <table class="t num"><tr><th>Due</th><th>Supplier</th><th>Document</th><th>From</th><th class="r">Amount</th><th></th></tr>
+  ${[["Fri 16 Oct","PT Sinar Garmen","PINV-26-10-0112","Bill",48250000],["Fri 16 Oct","CV Tiga Benang","Giro BCA 772134","Giro",21000000],["Mon 19 Oct","PT Mitra Label","PINV-26-10-0120","Bill",6400000],["Tue 20 Oct","Ruko Cikupa rent","Repeat of PINV-26-09-0044","Recurring",15000000],["Thu 22 Oct","PT Sinar Garmen","PO-26-10-0031","Ordered",62800000]]
+   .map(([d,s,doc,src,a]) => `<tr><td>${d}</td><td>${s}</td><td class="mute">${doc}</td><td>${src}</td><td class="r">${fmt(a)}</td><td>${src === "Bill" ? `<button class="small">Pay</button>` : ""}</td></tr>`).join("")}</table></div>`,
+ brec:() => `<div class="mock"><div class="bar"><span class="ctl">September 2026</span><button class="ctl">Upload statement</button><button class="ctl">Rules…</button></div>
+  <table class="t num"><tr><th>Account</th><th class="r">Bank closing</th><th class="r">Books at that date</th><th class="r">Difference</th><th class="r">Unmatched</th><th>Status</th></tr>
+  ${[["BCA 0123 Operasional",412500000,412500000,0,0],["BCA 0456 Penerimaan",188240000,186920000,1320000,12],["Mandiri 1301",64100000,64100000,0,0]]
+   .map(([a,b,c,d,u]) => `<tr><td>${a}</td><td class="r">${fmt(b)}</td><td class="r">${fmt(c)}</td><td class="r ${d ? "bad" : ""}">${fmt(d)}</td><td class="r">${u}</td><td class="${d ? "warn" : "ok"}"><span class="dot"></span>${d ? "Open" : "Agreed"}</td></tr>`).join("")}</table></div>`,
+ inv:() => `<div class="mock"><div class="tabs"><span class="on">By site</span><span>By article</span><span>Adjustments</span></div>
+  <table class="t num"><tr><th>Site</th><th class="r">On hand</th><th class="r">In transit</th><th class="r">Stock value</th><th class="r">Ledger</th><th class="r">Difference</th></tr>
+  ${[["Head office",842000000,61200000,903200000,903200000],["Cikupa",212400000,0,212400000,212400000],["Karawaci",198300000,8900000,207200000,205960000]]
+   .map(([s,a,b,c,d]) => `<tr><td>${s}</td><td class="r">${fmt(a)}</td><td class="r">${fmt(b)}</td><td class="r">${fmt(c)}</td><td class="r">${fmt(d)}</td><td class="r ${c - d ? "bad" : ""}">${fmt(c - d)}</td></tr>`).join("")}</table></div>`,
+ pi:() => `<div class="mock"><div class="tabs"><span class="on">Merchandise</span><span>Expenses</span><span>From GA</span><span>Unbilled deliveries</span><span>Credit notes</span></div>
+  <table class="t num"><tr><th>Invoice</th><th>Supplier</th><th>Status</th><th>Due</th><th class="r">Outstanding</th></tr>
+  ${[["PINV-26-10-0112","PT Sinar Garmen","Posted",48250000],["PINV-26-10-0120","PT Mitra Label","Posted",6400000],["PINV-26-10-0125","CV Tiga Benang","Draft",12150000]]
+   .map(([n,s,st2,a]) => `<tr><td>${n}</td><td>${s}</td><td class="${st2 === "Draft" ? "mute" : "ok"}"><span class="dot"></span>${st2}</td><td>16 Oct</td><td class="r">${fmt(a)}</td></tr>`).join("")}</table></div>`,
+ pl:() => `<div class="mock"><div class="bar"><span class="ctl">Jan – Sep 2026</span><span class="ctl">All units</span><span class="ctl">Compare: last year ▾</span></div>
+  <table class="t num"><tr><th>Account</th><th class="r">2026</th><th class="r">%</th><th class="r">2025</th><th class="r">%</th></tr>
+  ${[["Net sales",4820000000,100,4410000000,100],["Cost of goods sold",2650000000,55,2470000000,56],["Gross profit",2170000000,45,1940000000,44],["Operating expenses",1310000000,27,1250000000,28]]
+   .map(([a,b,c,d,e]) => `<tr><td>${a}</td><td class="r">${fmt(b)}</td><td class="r mute">${c}</td><td class="r">${fmt(d)}</td><td class="r mute">${e}</td></tr>`).join("")}</table></div>`,
+ me:() => `<div class="mock"><div class="bar"><span class="ctl">October 2026</span></div><ul class="check">
+  ${[["Sales days posted","31 of 31",1,""],["Bills posted","All",1,""],["Accruals","3 waiting",0,"accr"],["Prepaids","Posted",1,""],["Depreciation","Not run",0,"assets"],["Stock against the books","Off 1.240.000",0,"inv"],["Tax","PPh 23 open",0,"tax"],["Bank agreed","1 account open",0,"brec"]]
+   .map(([w,s,d,go],i) => `<li class="${d ? "done" : ""}"><b>${d ? "✓" : i + 1}</b><span class="w">${w}</span><span class="s">${s}</span>${go && findPlace(st.v, go) ? `<button class="small" data-k="${go}">Open</button>` : ""}</li>`).join("")}
+  </ul><div class="bar" style="padding-top:14px"><button class="btn">Close October</button></div></div>`,
+ map:() => {
+  const n = (k, l, s) => `<button class="node" data-k="${k}"><b>${l}</b><span class="${/due|Off|open|waiting|Draft/.test(s) ? "warn" : ""}">${s}</span></button>`
+  const ar = `<span class="arrow">${svg("arrow")}</span>`
+  return `<div class="mock" style="padding:18px"><div style="overflow-x:auto"><div style="display:flex;flex-direction:column;gap:12px;min-width:820px">
+  <div class="lane">Shops</div><div style="display:flex;align-items:center">${n("stores","Stores","1 day in Draft")}${ar}${n("brec","Bank Reconciliation","12 unmatched")}</div>
+  <div class="lane">Suppliers</div><div style="display:flex;align-items:center">${n("pi","Purchase Invoice","3 to post")}${ar}${n("ap","Accounts Payable","6 due this week")}${ar}${n("bkk","BKK","2 drafts")}${ar}${n("giro","Giro Board","4 due in 7 days")}</div>
+  <div class="lane">Month end</div><div style="display:flex;align-items:center">${n("accr","Accruals","3 waiting")}${ar}${n("inv","Inventory","Off 1.240.000")}${ar}${n("assets","Assets","Depreciation due")}${ar}${n("tax","Tax","PPh 23 open")}${ar}${n("close","Close the month","October")}</div>
+  </div></div></div>`
+ },
+}
+function walkBar() {
+ const w = st.walk; if (!w) return ""
+ const f = FLOWS.find((x) => x.k === w.f), steps = f.s[st.v]
+ const chips = steps.map(([k, note], i) => { const p = findPlace(st.v, k); return `<span class="${i === w.i ? "on" : i < w.i ? "done" : ""}">${i + 1} ${p ? p.r.l : k}${note && i === w.i ? " · " + note : ""}</span>` }).join("")
+ return `<div class="walk"><b>${f.l}</b><div class="steps">${chips}</div><span class="mute num">${screens(steps)} screens · ${clicks(st.v, steps)} clicks</span><button class="ctl" data-walk="-1">Back</button><button class="ctl" data-walk="1">${w.i === steps.length - 1 ? "Done" : "Next"}</button></div>`
+}
+function renderPage(swap) {
+ const pg = document.getElementById("page"), v = st.v
+ let h = ""
+ if (st.view === "compare") h = comparePage()
+ else if (st.view === "flows") h = flowsPage()
+ else if (st.k === "__setup") h = setupPage()
+ else {
+  const p = findPlace(v, st.k) ?? findPlace(v, "ov")
+  const r = p.r
+  const crumb = ["Finance", p.g || null, p.setup ? null : null].filter(Boolean)
+  let crumbH = crumb.join(" · ")
+  if (p.setup) crumbH = `Finance · <button data-k="__setup">Setup</button> · ${p.setup}`
+  if (p.flow) crumbH = `Finance · <button data-k="${p.flow.k}">${p.flow.l}</button>`
+  h = walkBar() + `<div class="crumb">${crumbH}</div><h1>${r.l}</h1>`
+  if (r.flow) h += strip(r, null) + `<h3>From today</h3><table class="t"><tr><th style="width:46%">Today</th><th>Here</th></tr>${r.flow.flatMap((n) => n.from.map(([t, how]) => `<tr><td>${NAME[t]}<span class="mute">${TGROUP[t] ? " · " + TGROUP[t] : " · ⌘K"}</span></td><td class="go" data-k="${n.k}">${n.l}${how ? ` <span class="mute">· ${how}</span>` : ""}</td></tr>`)).join("")}</table>`
+  else {
+   if (p.flow) h += strip(p.flow, r.k)
+   if (r.mock && MOCK[r.mock]) h += MOCK[r.mock]()
+   h += fromTable(r)
+  }
+ }
+ pg.innerHTML = `<div class="wrap">${h}</div>`
+ if (swap) { pg.classList.remove("swap"); void pg.offsetWidth; pg.classList.add("swap"); pg.scrollTop = 0 }
+}
+function setupPage() {
+ const cards = V[st.v].setup.map(([s, items]) => `<div class="card"><div class="glabel">${s}</div>${items.map((r) => item(r, false)).join("")}</div>`).join("")
+ const n = V[st.v].setup.reduce((a, [, i]) => a + i.length, 0)
+ return walkBar() + `<div class="crumb">Finance</div><h1>Setup</h1><div class="cards">${cards}</div>
+  <h3>From today</h3><table class="t"><tr><th style="width:46%">Today</th><th>Here</th></tr>${V[st.v].setup.flatMap(([s, items]) => items.flatMap((r) => r.from.map(([t, how]) => `<tr><td>${NAME[t]}<span class="mute">${TGROUP[t] ? " · " + TGROUP[t] : " · ⌘K"}</span></td><td>${s} › ${r.l}${how ? ` <span class="mute">· ${how}</span>` : ""}</td></tr>`))).join("")}</table>`
+}
+const VS = ["today","a","b","c"]
+function comparePage() {
+ const head = `<tr><th>Today</th>${VS.slice(1).map((v) => `<th>${v.toUpperCase()} · ${V[v].l}</th>`).join("")}</tr>`
+ const cell = (v, t) => { const d = dest(v, t); return `<td class="${d.off ? "bad" : d.mute ? "mute" : "go"}" ${d.k ? `data-v="${v}" data-k="${d.k}"` : ""}>${d.txt}${d.how ? `<span class="mute"> · ${d.how}</span>` : ""}</td>` }
+ let body = ""
+ for (const [g, rows] of TODAY) {
+  body += `<tr class="gh"><td colspan="4">${g || "Overview"} <span class="mute num">${rows.length}</span></td></tr>`
+  body += rows.map(([t, l]) => `<tr><td>${l}</td>${VS.slice(1).map((v) => cell(v, t)).join("")}</tr>`).join("")
+ }
+ body += `<tr class="gh"><td colspan="4">⌘K only <span class="mute num">${MORE.length}</span></td></tr>` + MORE.map(([t, l]) => `<tr><td>${l}</td>${VS.slice(1).map((v) => cell(v, t)).join("")}</tr>`).join("")
+ body += `<tr class="gh"><td colspan="4">Hidden <span class="mute num">${HIDDEN.length}</span></td></tr>` + HIDDEN.map(([t, l]) => `<tr><td>${l}</td>${VS.slice(1).map((v) => cell(v, t)).join("")}</tr>`).join("")
+ const sum = `<table class="t num" style="max-width:760px"><tr><th></th>${VS.map((v) => `<th class="r">${v === "today" ? "Today" : v.toUpperCase()}</th>`).join("")}</tr>
+  <tr><td>Menu rows</td>${VS.map((v) => `<td class="r"><b>${menuCount(v)}</b></td>`).join("")}</tr>
+  <tr><td>Groups</td>${VS.map((v) => `<td class="r">${V[v].groups.filter((g) => g.l).length}${V[v].fold ? " folds" : " labels"}</td>`).join("")}</tr>
+  <tr><td>Reached only by ⌘K</td>${VS.map((v) => `<td class="r">${v === "today" ? MORE.length : MORE.filter(([t]) => dest(v, t).mute).length}</td>`).join("")}</tr>
+  <tr><td>Clicks, all five jobs</td>${VS.map((v) => `<td class="r">${FLOWS.reduce((a, f) => a + clicks(v, f.s[v]), 0)}</td>`).join("")}</tr></table>`
+ return `<div class="crumb">Finance</div><h1>Compare</h1>${sum}<h3>Where every row goes</h3><table class="t">${head}${body}</table>`
+}
+function flowsPage() {
+ const rows = FLOWS.map((f) => `<tr><td><b style="font-weight:550">${f.l}</b></td>${VS.map((v) => `<td class="r num"><button class="small" data-walkstart="${f.k}" data-v="${v}">${screens(f.s[v])} screens · ${clicks(v, f.s[v])} clicks</button></td>`).join("")}</tr>`).join("")
+ return `<div class="crumb">Finance</div><h1>Five jobs</h1><table class="t" style="max-width:860px"><tr><th>Job</th>${VS.map((v) => `<th class="r">${v === "today" ? "Today" : v.toUpperCase() + " · " + V[v].l}</th>`).join("")}</tr>${rows}</table>`
+}
+
+// ── switch + rail ──
+document.getElementById("rail").innerHTML = ["home","cart","tag","box","people","bank"].map((k) => `<span class="ic${k === "bank" ? " on" : ""}">${svg(k)}</span>`).join("")
+const sw = document.getElementById("switch")
+sw.innerHTML = VS.map((v, i) => `<button data-v="${v}">${v === "today" ? "" : `<b>${v.toUpperCase()}</b>`}${V[v].l}${V[v].star ? " ★" : ""}<span class="n num">${menuCount(v)}</span></button>`).join("") +
+ `<span class="sep"></span><button data-view="flows">Five jobs</button><button data-view="compare">Compare</button>`
+function render(swap) {
+ renderMenu(swap); renderPage(swap)
+ for (const b of sw.querySelectorAll("[data-v]")) b.setAttribute("aria-pressed", !st.view && b.dataset.v === st.v)
+ for (const b of sw.querySelectorAll("[data-view]")) b.setAttribute("aria-pressed", st.view === b.dataset.view)
+ const u = new URL(location); u.searchParams.set("v", st.v); u.searchParams.set("r", st.k)
+ st.view ? u.searchParams.set("view", st.view) : u.searchParams.delete("view"); history.replaceState(null, "", u)
+}
+function goWalk() {
+ const f = FLOWS.find((x) => x.k === st.walk.f), s = f.s[st.v][st.walk.i]
+ st.k = s[0]; st.view = ""
+ const p = findPlace(st.v, st.k); st.open = {}
+ render(true)
+}
+document.addEventListener("click", (e) => {
+ const t = e.target.closest("button,td.go"); if (!t) return
+ if (t.dataset.walkstart) { st.v = t.dataset.v; st.open = {}; st.walk = {f:t.dataset.walkstart, i:0}; goWalk(); return }
+ if (t.dataset.walk) {
+  const steps = FLOWS.find((x) => x.k === st.walk.f).s[st.v], i = st.walk.i + Number(t.dataset.walk)
+  if (i >= steps.length) { st.walk = null; st.view = "flows"; render(true); return }
+  st.walk.i = Math.max(0, i); goWalk(); return
+ }
+ if (t.dataset.fold) { const key = st.v + t.dataset.fold, g = t.parentElement; const open = !g.classList.contains("open"); st.open[key] = open; g.classList.toggle("open", open); return }
+ if (t.dataset.view) { st.view = st.view === t.dataset.view ? "" : t.dataset.view; st.walk = null; render(true); return }
+ if (t.dataset.v && !t.dataset.k) { st.v = t.dataset.v; st.view = ""; st.walk = null; st.open = {}; if (!findPlace(st.v, st.k) && st.k !== "__setup") st.k = "ov"; if (st.k === "__setup" && !V[st.v].setup) st.k = "ov"; render(true); return }
+ if (t.dataset.k) { if (t.dataset.v) st.v = t.dataset.v; st.k = t.dataset.k; st.view = ""; if (st.walk && !t.closest(".walk")) st.walk = null; render(!t.classList.contains("item")) }
+})
+addEventListener("keydown", (e) => {
+ if (e.target.closest?.("input,textarea")) return
+ const i = "0123".indexOf(e.key); if (i >= 0) { sw.querySelector(`[data-v="${VS[i]}"]`).click(); return }
+ if (e.key === "c") sw.querySelector('[data-view="compare"]').click()
+ if (e.key === "j") sw.querySelector('[data-view="flows"]').click()
+ if (st.walk && (e.key === "ArrowRight" || e.key === "ArrowLeft")) document.querySelector(`[data-walk="${e.key === "ArrowRight" ? 1 : -1}"]`)?.click()
+ if (st.walk && e.key === "Escape") { st.walk = null; render() }
+})
+const q = new URLSearchParams(location.search)
+if (V[q.get("v")]) st.v = q.get("v")
+if (q.get("r")) st.k = q.get("r")
+if (["compare","flows"].includes(q.get("view"))) st.view = q.get("view")
+render()
+</script>
+</body>
+</html>

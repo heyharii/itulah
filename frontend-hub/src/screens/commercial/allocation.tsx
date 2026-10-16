@@ -68,7 +68,7 @@ export function HardCap({
       <SubHead
         aside={
           <span className="flex items-center gap-3">
-            <span className="text-[0.875rem] text-body">
+            <span className="text-[0.9375rem] text-body">
               {enabled ? "On" : "Off"}
             </span>
             <Switch

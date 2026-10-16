@@ -1,30 +1,38 @@
 import { Checkbox as BaseCheckbox } from "@base-ui/react/checkbox"
-import { useMutation, useQueryClient } from "@tanstack/react-query"
+import {
+  useMutation,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query"
 import type { ColumnDef } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { Check } from "lucide-react"
-import { useCallback, useMemo, useState } from "react"
+import { Suspense, useCallback, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
-import { Card, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Fab } from "@/components/ui/fab"
 import { Field, Input, Select, Textarea } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { Pill } from "@/components/ui/pill"
 import { Sheet } from "@/components/ui/sheet"
+import { EmptyState } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import {
   createUnit,
   createUnitConversion,
+  BASE_UNIT,
   unitKeys,
+  unitsBookQuery,
   updateUnit,
   updateUnitConversion,
-  useUnits,
   type UnitConversion,
   type UnitOfMeasure,
 } from "@/lib/queries/units"
+import { count } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import { useIdentity } from "@/lib/session"
 import { tableSetup, type TableSetup } from "@/lib/table"
@@ -49,36 +57,112 @@ type Editing =
   | { readonly kind: "conversion"; readonly conversion: UnitConversion | null }
 
 export function Units() {
-  const book = useUnits()
+  // The title stands at once; the units wait for the book and stream in with
+  // it (the server starts the read too). The head's buttons follow the tab and
+  // the number of units, so they arrive with the book.
+  return (
+    <PageContent>
+      <Suspense
+        fallback={
+          <>
+            <PageHeader title="Units & Conversions" />
+            <Card className="px-4 py-10 text-center text-[0.9375rem] text-body">
+              Reading the unit list…
+            </Card>
+          </>
+        }
+      >
+        <UnitBook />
+      </Suspense>
+    </PageContent>
+  )
+}
+
+function UnitBook() {
+  const query = useSuspenseQuery(unitsBookQuery())
+  const units = query.data.units
+  const conversions = query.data.conversions
+  const baseUnit = units.find((unit) => unit.is_base)?.code ?? BASE_UNIT
   const identity = useIdentity()
   const isAdmin = identity.data?.role === "ADMIN"
   const [editing, setEditing] = useState<Editing | null>(null)
   const close = useCallback(() => setEditing(null), [])
   const phone = useLayout() === "phone"
-  /// A phone shows one of the two lists at a time, as the dock's one button.
+  /// The two lists are two tabs: the strip on a desk, the dock's one button
+  /// on a phone.
   const [view, setView] = useState<"units" | "conversions">("units")
 
-  const retiredUnits = book.units.filter((unit) => !unit.active).length
+  const retiredUnits = units.filter((unit) => !unit.active).length
+
+  /// The card's own columns are drawn on a phone and never on a desk.
+  const cardsOnly = { head: phone, lead: phone, foot: phone, state: phone }
+  const unitTable = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: units as UnitOfMeasure[],
+        columns: UNIT_COLUMNS,
+        getRowId: (unit: UnitOfMeasure) => unit.code,
+        // The list's own order: the main unit first, the rest as declared.
+        enableSorting: false,
+        state: { columnVisibility: cardsOnly },
+      }),
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      [units, phone]
+    )
+  )
+  const conversionColumns = useMemo(() => conversionColumnsFor(units), [units])
+  const conversionTable = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: conversions as UnitConversion[],
+        columns: conversionColumns,
+        getRowId: (one: UnitConversion) => one.conversion_id,
+        enableSorting: false,
+        state: { columnVisibility: cardsOnly },
+      }),
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      [conversions, conversionColumns, phone]
+    )
+  )
 
   return (
-    <PageContent>
-      <PageHeader title="Units & Conversions" />
-      <p className="-mt-3 mb-5 max-w-[46rem] text-[0.875rem] leading-[1.375rem] text-body max-md:hidden">
-        Stock is kept in the main unit. A conversion says how many of the main
-        unit one other unit is worth — one LUSIN is 12 PCS — so an order typed
-        in lusin or kodi is sent in pieces.
-      </p>
+    <>
+      {/* The screen's one action stands in its head, and follows the tab; a
+          phone has the + at the thumb instead (`Fab` below). */}
+      <PageHeader
+        title="Units & Conversions"
+        actions={
+          phone ? undefined : view === "units" ? (
+            <Button
+              variant="primary"
+              onClick={() => setEditing({ kind: "unit", unit: null })}
+            >
+              New unit
+            </Button>
+          ) : (
+            <Button
+              variant="primary"
+              disabled={units.length < 2}
+              onClick={() =>
+                setEditing({ kind: "conversion", conversion: null })
+              }
+            >
+              New conversion
+            </Button>
+          )
+        }
+      />
 
-      {book.isLoading ? (
-        <Card className="px-4 py-10 text-center text-[0.875rem] text-body">
-          Reading the unit list…
-        </Card>
-      ) : book.error ? (
-        <Card className="px-4 py-10 text-center text-[0.875rem] text-bad">
-          {said(book.error)}
-        </Card>
-      ) : phone ? (
+      {
         <>
+          <KpiStrip className="grid-cols-2 md:grid-cols-3 xl:grid-cols-3">
+            <Kpi label="Units" value={count(units.length)} />
+            <Kpi label="Cancelled" value={count(retiredUnits)} />
+            <Kpi label="Conversions" value={count(conversions.length)} />
+          </KpiStrip>
+
           <SubTabs
             tabs={[
               { value: "units", label: "Units" },
@@ -87,116 +171,68 @@ export function Units() {
             value={view}
             onChange={(next) => setView(next as "units" | "conversions")}
           />
-          {view === "units" ? (
-            <>
-              <p className="mb-3 text-[0.875rem] text-mute tabular-nums">
-                <b className="font-medium text-ink">{book.units.length}</b>{" "}
-                {book.units.length === 1 ? "unit" : "units"}
-                {retiredUnits > 0 && ` · ${retiredUnits} cancelled`}
-              </p>
-              <PhoneUnits
-                units={book.units}
-                selected={
-                  editing?.kind === "unit" ? (editing.unit?.code ?? null) : null
-                }
-                onPick={(unit) => setEditing({ kind: "unit", unit })}
-              />
-              <Fab
-                label="New Unit"
-                onClick={() => setEditing({ kind: "unit", unit: null })}
-              />
-            </>
-          ) : (
-            <>
-              <p className="mb-3 text-[0.875rem] text-mute tabular-nums">
-                <b className="font-medium text-ink">
-                  {book.conversions.length}
-                </b>{" "}
-                {book.conversions.length === 1 ? "conversion" : "conversions"}
-              </p>
-              <PhoneConversions
-                conversions={book.conversions}
-                units={book.units}
-                selected={
-                  editing?.kind === "conversion"
-                    ? (editing.conversion?.conversion_id ?? null)
-                    : null
-                }
-                onPick={(conversion) =>
+
+          <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+            {view === "units" ? (
+              units.length === 0 ? (
+                <EmptyState>No unit has been declared yet.</EmptyState>
+              ) : (
+                <DataTable<UnitOfMeasure>
+                  refresh={[query]}
+                  table={unitTable}
+                  onRowClick={(unit) => setEditing({ kind: "unit", unit })}
+                  isSelected={(unit) =>
+                    editing?.kind === "unit" && unit.code === editing.unit?.code
+                  }
+                  roomy
+                  pageScroll
+                  cardSort={false}
+                  cardsApart
+                  cardLead
+                />
+              )
+            ) : conversions.length === 0 ? (
+              <EmptyState>
+                No conversion yet. Add one to let an order be typed in another
+                unit.
+              </EmptyState>
+            ) : (
+              <DataTable<UnitConversion>
+                refresh={[query]}
+                table={conversionTable}
+                onRowClick={(conversion) =>
                   setEditing({ kind: "conversion", conversion })
                 }
+                isSelected={(one) =>
+                  editing?.kind === "conversion" &&
+                  one.conversion_id === editing.conversion?.conversion_id
+                }
+                roomy
+                pageScroll
+                cardSort={false}
+                cardsApart
+                cardLead
               />
-              {book.units.length >= 2 && (
-                <Fab
-                  label="New Conversion"
-                  onClick={() =>
-                    setEditing({ kind: "conversion", conversion: null })
-                  }
-                />
-              )}
-            </>
-          )}
-        </>
-      ) : (
-        <div className="flex min-w-0 flex-col gap-5">
-          <Card className="overflow-hidden">
-            <CardHeader>
-              <CardTitle>
-                Units
-                <span className="ml-2 text-[0.875rem] font-normal text-body">
-                  {book.units.length}
-                  {retiredUnits > 0 && ` · ${retiredUnits} cancelled`}
-                </span>
-              </CardTitle>
-              <Button
-                className="text-[0.875rem]"
-                onClick={() => setEditing({ kind: "unit", unit: null })}
-              >
-                New unit
-              </Button>
-            </CardHeader>
-            <UnitsTable
-              units={book.units}
-              selected={
-                editing?.kind === "unit" ? (editing.unit?.code ?? null) : null
-              }
-              onPick={(unit) => setEditing({ kind: "unit", unit })}
-            />
+            )}
           </Card>
 
-          <Card className="overflow-hidden">
-            <CardHeader>
-              <CardTitle>
-                Conversions
-                <span className="ml-2 text-[0.875rem] font-normal text-body">
-                  {book.conversions.length}
-                </span>
-              </CardTitle>
-              <Button
-                className="text-[0.875rem]"
-                disabled={book.units.length < 2}
+          {view === "units" ? (
+            <Fab
+              label="New Unit"
+              onClick={() => setEditing({ kind: "unit", unit: null })}
+            />
+          ) : (
+            units.length >= 2 && (
+              <Fab
+                label="New Conversion"
                 onClick={() =>
                   setEditing({ kind: "conversion", conversion: null })
                 }
-              >
-                New conversion
-              </Button>
-            </CardHeader>
-            <ConversionsTable
-              conversions={book.conversions}
-              units={book.units}
-              selected={
-                editing?.kind === "conversion"
-                  ? (editing.conversion?.conversion_id ?? null)
-                  : null
-              }
-              onPick={(conversion) =>
-                setEditing({ kind: "conversion", conversion })
-              }
-            />
-          </Card>
-        </div>
-      )}
+              />
+            )
+          )}
+        </>
+      }
 
       <Sheet
         open={editing !== null}
@@ -209,7 +245,7 @@ export function Units() {
           <UnitForm
             key={editing.unit?.code ?? "new"}
             unit={editing.unit}
-            units={book.units}
+            units={units}
             isAdmin={isAdmin}
             onSaved={close}
           />
@@ -218,15 +254,22 @@ export function Units() {
           <ConversionForm
             key={editing.conversion?.conversion_id ?? "new"}
             conversion={editing.conversion}
-            units={book.units}
-            conversions={book.conversions}
-            baseUnit={book.baseUnit}
+            units={units}
+            conversions={conversions}
+            baseUnit={baseUnit}
             onSaved={close}
           />
         )}
       </Sheet>
-    </PageContent>
+    </>
   )
+}
+
+/// The server's own sentence about why a write was refused.
+function said(error: unknown): string {
+  return error instanceof Error
+    ? error.message
+    : "The server could not be reached."
 }
 
 function sheetTitle(editing: Editing | null): string {
@@ -238,207 +281,8 @@ function sheetTitle(editing: Editing | null): string {
     : `1 ${one.from_unit} = ${one.factor} ${one.to_unit}`
 }
 
-/// The server's own sentence about why a write was refused.
-function said(error: unknown): string {
-  return error instanceof Error
-    ? error.message
-    : "The server could not be reached."
-}
-
 // ---------------------------------------------------------------------------
-// Tables
-
-const TH =
-  "px-4 py-2.5 text-left text-[0.875rem] font-medium whitespace-nowrap text-body"
-const TD = "px-4 py-3 text-[0.875rem] text-ink"
-
-function Status({ active }: { active: boolean }) {
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center rounded-inner border px-2 py-0.5 text-[0.875rem] font-medium whitespace-nowrap",
-        active ? "border-ok-fg/30 text-ok-fg" : "border-hairline-2 text-body"
-      )}
-    >
-      {active ? "Active" : "Cancelled"}
-    </span>
-  )
-}
-
-function Row({
-  selected,
-  onPick,
-  children,
-}: {
-  selected: boolean
-  onPick: () => void
-  children: React.ReactNode
-}) {
-  return (
-    <tr
-      tabIndex={0}
-      onClick={onPick}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault()
-          onPick()
-        }
-      }}
-      aria-selected={selected}
-      className={cn(
-        "cursor-pointer border-t border-hairline transition-colors outline-none hover:bg-soft-2 focus-visible:bg-soft-2",
-        selected && "bg-accent-bg hover:bg-accent-bg"
-      )}
-    >
-      {children}
-    </tr>
-  )
-}
-
-function UnitsTable({
-  units,
-  selected,
-  onPick,
-}: {
-  units: readonly UnitOfMeasure[]
-  selected: string | null
-  onPick: (unit: UnitOfMeasure) => void
-}) {
-  if (units.length === 0) {
-    return (
-      <p className="px-4 pt-2 pb-6 text-[0.875rem] text-body">
-        No unit has been declared yet.
-      </p>
-    )
-  }
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[32rem] border-collapse">
-        <thead>
-          <tr className="bg-soft">
-            <th className={TH}>Code</th>
-            <th className={TH}>Label</th>
-            <th className={TH}>Aliases</th>
-            <th className={cn(TH, "text-right")}>Worth</th>
-            <th className={TH}>Category</th>
-            <th className={TH}>Whole Number</th>
-            <th className={TH}>Main Unit</th>
-            <th className={TH}>Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {units.map((unit) => (
-            <Row
-              key={unit.code}
-              selected={selected === unit.code}
-              onPick={() => onPick(unit)}
-            >
-              <td className={cn(TD, "font-mono font-medium")}>{unit.code}</td>
-              <td className={TD}>{unit.label}</td>
-              <td className={cn(TD, "max-w-[16rem] truncate text-body")}>
-                {unit.aliases.length > 0 ? unit.aliases.join(", ") : "—"}
-              </td>
-              <td className={cn(TD, "text-right tabular-nums")}>
-                {unit.is_base
-                  ? "1 pcs"
-                  : unit.pieces === null
-                    ? "—"
-                    : `${unit.pieces} pcs`}
-              </td>
-              <td className={cn(TD, "text-body")}>
-                {categoryLabel(unit.category)}
-              </td>
-              <td className={cn(TD, "text-body")}>
-                {unit.whole_number ? "Yes" : "No"}
-              </td>
-              <td className={TD}>
-                {unit.is_base ? (
-                  <span className="font-medium text-accent">Main unit</span>
-                ) : (
-                  <span className="text-body">—</span>
-                )}
-              </td>
-              <td className={TD}>
-                <Status active={unit.active} />
-              </td>
-            </Row>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )
-}
-
-function ConversionsTable({
-  conversions,
-  units,
-  selected,
-  onPick,
-}: {
-  conversions: readonly UnitConversion[]
-  units: readonly UnitOfMeasure[]
-  selected: string | null
-  onPick: (conversion: UnitConversion) => void
-}) {
-  const labels = useMemo(
-    () => new Map(units.map((unit) => [unit.code, unit.label])),
-    [units]
-  )
-  if (conversions.length === 0) {
-    return (
-      <p className="px-4 pt-2 pb-6 text-[0.875rem] text-body">
-        No conversion yet. Add one to let an order be typed in another unit.
-      </p>
-    )
-  }
-  const unitCell = (code: string) => (
-    <>
-      <span className="font-mono font-medium">{code}</span>
-      {labels.get(code) && labels.get(code) !== code && (
-        <span className="ml-2 text-body">{labels.get(code)}</span>
-      )}
-    </>
-  )
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[40rem] border-collapse">
-        <thead>
-          <tr className="bg-soft">
-            <th className={TH}>Other Unit</th>
-            <th className={TH}>Main Unit</th>
-            <th className={cn(TH, "text-right")}>Conversion Value</th>
-            <th className={TH}>Note</th>
-            <th className={TH}>Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {conversions.map((one) => (
-            <Row
-              key={one.conversion_id}
-              selected={selected === one.conversion_id}
-              onPick={() => onPick(one)}
-            >
-              <td className={TD}>{unitCell(one.from_unit)}</td>
-              <td className={TD}>{unitCell(one.to_unit)}</td>
-              <td className={cn(TD, "text-right font-medium tabular-nums")}>
-                {one.factor}
-              </td>
-              <td className={cn(TD, "max-w-[20rem] truncate text-body")}>
-                {one.note ?? "—"}
-              </td>
-              <td className={TD}>
-                <Status active={one.active} />
-              </td>
-            </Row>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// The phone's cards
+// Columns: a table on a desk, cards on a phone
 
 /// What a unit is worth, as the card's figure: "12 pcs".
 function worthOf(unit: UnitOfMeasure): string {
@@ -449,7 +293,105 @@ function worthOf(unit: UnitOfMeasure): string {
       : `${unit.pieces} pcs`
 }
 
-const UNIT_CARDS: ColumnDef<TableSetup, UnitOfMeasure>[] = [
+function ActiveWord({ active }: { active: boolean }) {
+  return (
+    <Pill tone={active ? "ok" : "neutral"}>
+      {active ? "Active" : "Cancelled"}
+    </Pill>
+  )
+}
+
+const UNIT_COLUMNS: ColumnDef<TableSetup, UnitOfMeasure>[] = [
+  {
+    id: "code",
+    accessorFn: (unit) => unit.code,
+    header: "Code",
+    size: 100,
+    meta: { card: "hide" },
+    cell: ({ row }) => (
+      <span className="font-mono font-medium text-ink">
+        {row.original.code}
+      </span>
+    ),
+  },
+  {
+    id: "label",
+    accessorFn: (unit) => unit.label,
+    header: "Label",
+    size: 170,
+    meta: { card: "hide" },
+    cell: ({ row }) => <span className="text-ink">{row.original.label}</span>,
+  },
+  {
+    id: "aliases",
+    accessorFn: (unit) => unit.aliases.join(", "),
+    header: "Aliases",
+    size: 200,
+    meta: { card: "hide", grow: 160 },
+    cell: ({ row }) => (
+      <span className="block whitespace-normal text-body">
+        {row.original.aliases.length > 0
+          ? row.original.aliases.join(", ")
+          : "—"}
+      </span>
+    ),
+  },
+  {
+    id: "worth",
+    accessorFn: (unit) => unit.pieces,
+    header: "Worth",
+    size: 100,
+    meta: { align: "right", card: "hide" },
+    cell: ({ row }) => (
+      <span className="tabular-nums">{worthOf(row.original)}</span>
+    ),
+  },
+  {
+    id: "category",
+    accessorFn: (unit) => unit.category,
+    header: "Category",
+    size: 110,
+    meta: { card: "hide" },
+    cell: ({ row }) => (
+      <span className="text-body">{categoryLabel(row.original.category)}</span>
+    ),
+  },
+  {
+    id: "whole",
+    accessorFn: (unit) => unit.whole_number,
+    header: "Whole Number",
+    size: 140,
+    meta: { card: "hide" },
+    cell: ({ row }) => (
+      <span className="text-body">
+        {row.original.whole_number ? "Yes" : "No"}
+      </span>
+    ),
+  },
+  {
+    id: "base",
+    accessorFn: (unit) => unit.is_base,
+    header: "Main Unit",
+    size: 120,
+    meta: { card: "hide" },
+    cell: ({ row }) =>
+      row.original.is_base ? (
+        <span className="font-medium text-ink">Main unit</span>
+      ) : (
+        <span className="text-body">—</span>
+      ),
+  },
+  {
+    id: "status",
+    accessorFn: (unit) => unit.active,
+    header: "Status",
+    size: 120,
+    meta: { card: "hide" },
+    cell: ({ row }) => <ActiveWord active={row.original.active} />,
+  },
+  // Four columns that exist only on a card (`cardLead`; a phone): the unit over
+  // its code, what it is worth as the figure, its category and aliases on the
+  // foot, and whether it is live.
   {
     id: "head",
     accessorFn: (unit) => unit.label,
@@ -464,7 +406,7 @@ const UNIT_CARDS: ColumnDef<TableSetup, UnitOfMeasure>[] = [
         </span>
         {/* The code only where it says more than the label does. */}
         {row.original.label.toUpperCase() !== row.original.code && (
-          <span className="font-mono text-[0.875rem] font-normal text-mute">
+          <span className="font-mono text-[0.9375rem] font-normal text-mute">
             {row.original.code}
           </span>
         )}
@@ -486,7 +428,7 @@ const UNIT_CARDS: ColumnDef<TableSetup, UnitOfMeasure>[] = [
           <span className="text-[1.5rem] leading-tight font-semibold tracking-tight text-ink">
             {worthOf(row.original)}
           </span>
-          <span className="text-[0.875rem] text-mute">worth</span>
+          <span className="text-[0.9375rem] text-mute">worth</span>
         </span>
       ),
   },
@@ -504,7 +446,7 @@ const UNIT_CARDS: ColumnDef<TableSetup, UnitOfMeasure>[] = [
           {row.original.whole_number ? " · whole numbers" : ""}
           {row.original.is_base ? " · " : ""}
           {row.original.is_base && (
-            <span className="font-medium text-accent">Main unit</span>
+            <span className="font-medium text-ink">Main unit</span>
           )}
         </span>
         {row.original.aliases.length > 0 && (
@@ -520,150 +462,137 @@ const UNIT_CARDS: ColumnDef<TableSetup, UnitOfMeasure>[] = [
     enableHiding: false,
     enableSorting: false,
     meta: { align: "right", card: "status" },
-    cell: ({ row }) => (
-      <Pill tone={row.original.active ? "ok" : "neutral"}>
-        {row.original.active ? "Active" : "Cancelled"}
-      </Pill>
-    ),
+    cell: ({ row }) => <ActiveWord active={row.original.active} />,
   },
 ]
 
-function PhoneUnits({
-  units,
-  selected,
-  onPick,
-}: {
+function conversionColumnsFor(
   units: readonly UnitOfMeasure[]
-  selected: string | null
-  onPick: (unit: UnitOfMeasure) => void
-}) {
-  const table = useTable(
-    useMemo(
-      () => ({
-        features: tableSetup,
-        data: units as UnitOfMeasure[],
-        columns: UNIT_CARDS,
-        getRowId: (unit: UnitOfMeasure) => unit.code,
-      }),
-      [units]
-    )
+): ColumnDef<TableSetup, UnitConversion>[] {
+  const labels = new Map(units.map((unit) => [unit.code, unit.label]))
+  const unitCell = (code: string) => (
+    <>
+      <span className="font-mono font-medium">{code}</span>
+      {labels.get(code) && labels.get(code) !== code && (
+        <span className="ml-2 text-body">{labels.get(code)}</span>
+      )}
+    </>
   )
-  return (
-    <DataTable<UnitOfMeasure>
-      table={table}
-      onRowClick={onPick}
-      isSelected={(unit) => unit.code === selected}
-      empty="No unit has been declared yet."
-      cardSort={false}
-      cardsApart
-      cardLead
-    />
-  )
-}
-
-function PhoneConversions({
-  conversions,
-  units,
-  selected,
-  onPick,
-}: {
-  conversions: readonly UnitConversion[]
-  units: readonly UnitOfMeasure[]
-  selected: string | null
-  onPick: (conversion: UnitConversion) => void
-}) {
-  const columns = useMemo<ColumnDef<TableSetup, UnitConversion>[]>(() => {
-    const labels = new Map(units.map((unit) => [unit.code, unit.label]))
-    return [
-      {
-        id: "head",
-        accessorFn: (one) => one.from_unit,
-        header: "",
-        enableHiding: false,
-        enableSorting: false,
-        meta: { card: "title" },
-        cell: ({ row }) => {
-          const label = labels.get(row.original.from_unit)
-          return (
-            <span className="flex min-w-0 flex-col gap-1">
-              <span className="min-w-0 text-[1rem] font-semibold break-words text-ink">
-                1 {row.original.from_unit}
+  return [
+    {
+      id: "from",
+      accessorFn: (one) => one.from_unit,
+      header: "Other Unit",
+      size: 200,
+      meta: { card: "hide" },
+      cell: ({ row }) => (
+        <span className="text-ink">{unitCell(row.original.from_unit)}</span>
+      ),
+    },
+    {
+      id: "to",
+      accessorFn: (one) => one.to_unit,
+      header: "Main Unit",
+      size: 200,
+      meta: { card: "hide" },
+      cell: ({ row }) => (
+        <span className="text-ink">{unitCell(row.original.to_unit)}</span>
+      ),
+    },
+    {
+      id: "factor",
+      accessorFn: (one) => one.factor,
+      header: "Conversion Value",
+      size: 160,
+      meta: { align: "right", card: "hide" },
+      cell: ({ row }) => (
+        <span className="font-medium tabular-nums">{row.original.factor}</span>
+      ),
+    },
+    {
+      id: "note",
+      accessorFn: (one) => one.note ?? "",
+      header: "Note",
+      size: 240,
+      meta: { card: "hide", grow: 160 },
+      cell: ({ row }) => (
+        <span className="block whitespace-normal text-body">
+          {row.original.note ?? "—"}
+        </span>
+      ),
+    },
+    {
+      id: "status",
+      accessorFn: (one) => one.active,
+      header: "Status",
+      size: 120,
+      meta: { card: "hide" },
+      cell: ({ row }) => <ActiveWord active={row.original.active} />,
+    },
+    // The card's own columns, as the units' are: "1 LUSIN" over its name, what
+    // it is worth as the figure, the note on the foot, and whether it is live.
+    {
+      id: "head",
+      accessorFn: (one) => one.from_unit,
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "title" },
+      cell: ({ row }) => {
+        const label = labels.get(row.original.from_unit)
+        return (
+          <span className="flex min-w-0 flex-col gap-1">
+            <span className="min-w-0 text-[1rem] font-semibold break-words text-ink">
+              1 {row.original.from_unit}
+            </span>
+            {label !== undefined && label !== row.original.from_unit && (
+              <span className="text-[0.9375rem] font-normal text-mute">
+                {label}
               </span>
-              {label !== undefined && label !== row.original.from_unit && (
-                <span className="text-[0.875rem] font-normal text-mute">
-                  {label}
-                </span>
-              )}
-            </span>
-          )
-        },
-      },
-      {
-        id: "lead",
-        accessorFn: (one) => one.factor,
-        header: "",
-        enableHiding: false,
-        enableSorting: false,
-        meta: { card: "lead" },
-        cell: ({ row }) => (
-          <span className="flex flex-col items-end tabular-nums">
-            <span className="text-[1.5rem] leading-tight font-semibold tracking-tight text-ink">
-              {row.original.factor}
-            </span>
-            <span className="font-mono text-[0.875rem] text-mute">
-              {row.original.to_unit}
-            </span>
+            )}
           </span>
-        ),
+        )
       },
-      {
-        id: "foot",
-        accessorFn: (one) => one.note,
-        header: "",
-        enableHiding: false,
-        enableSorting: false,
-        meta: { card: "foot" },
-        cell: ({ row }) => (
-          <span className="block truncate">{row.original.note ?? ""}</span>
-        ),
-      },
-      {
-        id: "state",
-        accessorFn: (one) => one.active,
-        header: "",
-        enableHiding: false,
-        enableSorting: false,
-        meta: { align: "right", card: "status" },
-        cell: ({ row }) => (
-          <Pill tone={row.original.active ? "ok" : "neutral"}>
-            {row.original.active ? "Active" : "Cancelled"}
-          </Pill>
-        ),
-      },
-    ]
-  }, [units])
-  const table = useTable(
-    useMemo(
-      () => ({
-        features: tableSetup,
-        data: conversions as UnitConversion[],
-        columns,
-        getRowId: (one: UnitConversion) => one.conversion_id,
-      }),
-      [conversions, columns]
-    )
-  )
-  return (
-    <DataTable<UnitConversion>
-      table={table}
-      onRowClick={onPick}
-      isSelected={(one) => one.conversion_id === selected}
-      empty="No conversion yet."
-      cardSort={false}
-      cardsApart
-      cardLead
-    />
-  )
+    },
+    {
+      id: "lead",
+      accessorFn: (one) => one.factor,
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "lead" },
+      cell: ({ row }) => (
+        <span className="flex flex-col items-end tabular-nums">
+          <span className="text-[1.5rem] leading-tight font-semibold tracking-tight text-ink">
+            {row.original.factor}
+          </span>
+          <span className="font-mono text-[0.9375rem] text-mute">
+            {row.original.to_unit}
+          </span>
+        </span>
+      ),
+    },
+    {
+      id: "foot",
+      accessorFn: (one) => one.note,
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "foot" },
+      cell: ({ row }) => (
+        <span className="block truncate">{row.original.note ?? ""}</span>
+      ),
+    },
+    {
+      id: "state",
+      accessorFn: (one) => one.active,
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { align: "right", card: "status" },
+      cell: ({ row }) => <ActiveWord active={row.original.active} />,
+    },
+  ]
 }
 
 // ---------------------------------------------------------------------------
@@ -698,7 +627,7 @@ function Toggle({
     <div className="flex flex-col gap-1">
       <label
         className={cn(
-          "inline-flex items-center gap-2.5 text-[0.875rem] text-ink capitalize",
+          "inline-flex items-center gap-2.5 text-[0.9375rem] text-ink capitalize",
           disabled ? "opacity-55" : "cursor-pointer"
         )}
       >
@@ -718,7 +647,7 @@ function Toggle({
         {label}
       </label>
       {hint && (
-        <span className="pl-7 text-[0.875rem] leading-[1.375rem] text-body">
+        <span className="pl-7 text-[0.9375rem] leading-[1.375rem] text-body">
           {hint}
         </span>
       )}
@@ -730,7 +659,7 @@ function Refusal({ error }: { error: unknown }) {
   return (
     <div
       role="alert"
-      className="rounded-inner bg-bad-bg px-3.5 py-2.5 text-[0.875rem] leading-[1.375rem] text-bad-fg"
+      className="rounded-inner bg-bad-bg px-3.5 py-2.5 text-[0.9375rem] leading-[1.375rem] text-bad-fg"
     >
       {said(error)}
     </div>
@@ -912,7 +841,7 @@ function UnitForm({
       )}
 
       {unit !== null && !unit.is_base && (
-        <p className="text-[0.875rem] text-body">
+        <p className="text-[0.9375rem] text-body">
           Worth{" "}
           {unit.pieces === null
             ? "— (no conversion yet)"
@@ -946,15 +875,17 @@ function UnitForm({
         />
       )}
 
-      <Button
-        type="submit"
-        variant="primary"
-        className="h-10 text-[0.875rem]"
-        pending={save.isPending}
-        disabled={invalid}
-      >
-        {save.isPending ? "Submitting…" : unit === null ? "Submit" : "Submit"}
-      </Button>
+      <div className="submit-row flex justify-end">
+        <Button
+          type="submit"
+          variant="primary"
+          className="h-10 text-[0.9375rem]"
+          pending={save.isPending}
+          disabled={invalid}
+        >
+          {save.isPending ? "Submitting…" : unit === null ? "Submit" : "Submit"}
+        </Button>
+      </div>
     </form>
   )
 }
@@ -1120,7 +1051,7 @@ function ConversionForm({
         </Field>
       </div>
       {problems.from && (
-        <span role="alert" className="-mt-2 text-[0.875rem] text-bad">
+        <span role="alert" className="-mt-2 text-[0.9375rem] text-bad">
           {problems.from}
         </span>
       )}
@@ -1158,19 +1089,21 @@ function ConversionForm({
         />
       )}
 
-      <Button
-        type="submit"
-        variant="primary"
-        className="h-10 text-[0.875rem]"
-        pending={save.isPending}
-        disabled={invalid}
-      >
-        {save.isPending
-          ? "Submitting…"
-          : conversion === null
-            ? "Submit"
-            : "Submit"}
-      </Button>
+      <div className="submit-row flex justify-end">
+        <Button
+          type="submit"
+          variant="primary"
+          className="h-10 text-[0.9375rem]"
+          pending={save.isPending}
+          disabled={invalid}
+        >
+          {save.isPending
+            ? "Submitting…"
+            : conversion === null
+              ? "Submit"
+              : "Submit"}
+        </Button>
+      </div>
     </form>
   )
 }

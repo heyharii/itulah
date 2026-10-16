@@ -474,7 +474,7 @@ function AlertSettingsFields({
 
       <Problem error={update.error} />
       <div className="flex justify-end gap-2">
-        <Button variant="quiet" onClick={onDone}>
+        <Button data-cancel variant="quiet" onClick={onDone}>
           Cancel
         </Button>
         <Button

@@ -1,6 +1,9 @@
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
+import {
+  useSuspenseInfiniteQuery,
+  useSuspenseQuery,
+} from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { useMemo, useState } from "react"
+import { Suspense, useDeferredValue, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { DockChoice } from "@/components/shell/dock-tools"
@@ -9,7 +12,7 @@ import { Card } from "@/components/ui/card"
 import { PageHeader } from "@/components/ui/page-header"
 import { Status } from "@/components/ui/pill"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
-import { EmptyState, LoadMore } from "@/components/ui/states"
+import { EmptyState, LoadingState, LoadMore } from "@/components/ui/states"
 import { count, moment } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import {
@@ -18,8 +21,7 @@ import {
   type PriceEvent,
   type PriceEventKind,
 } from "@/lib/queries/changes"
-import { commercialFleet, commercialKeys } from "@/lib/queries/commercial"
-import { queryState } from "@/lib/query-state"
+import { commercialFleetQuery } from "@/lib/queries/commercial"
 import { useSheet } from "@/lib/sheets"
 import {
   CardFigure,
@@ -81,6 +83,19 @@ function kindsOf(lens: string): readonly PriceEventKind[] {
 }
 
 export function History() {
+  // The title stands at once; the log waits for its first page and the shops
+  // and streams in with them (the server starts the reads too).
+  return (
+    <PageContent>
+      <PageHeader crumb="Marketing" title="History" />
+      <Suspense fallback={<LoadingState>Loading…</LoadingState>}>
+        <PriceLog />
+      </Suspense>
+    </PageContent>
+  )
+}
+
+function PriceLog() {
   // A phone draws each entry as a card and keeps the kind of event in the
   // drawer over the bottom bar (`DockChoice`).
   const phone = useLayout() === "phone"
@@ -104,18 +119,21 @@ export function History() {
   /// The log a page at a time, the next asked for as its foot nears view. The
   /// shop and the kind lens both go to the server, so every page is already
   /// the answer and nothing loaded is thrown away.
-  const kinds = kindsOf(lens.value ?? "ALL")
+  const lensValue = lens.value ?? "ALL"
   const siteId = shop.value ?? null
-  const events = useInfiniteQuery(priceEventPagesQuery(siteId, kinds))
+  // Another shop or kind: the entries in hand stay, dimmed (`list-swap`),
+  // until the next are read — the deferred question keeps them on screen.
+  const askedSite = useDeferredValue(siteId)
+  const askedLens = useDeferredValue(lensValue)
+  const events = useSuspenseInfiniteQuery(
+    priceEventPagesQuery(askedSite, kindsOf(askedLens))
+  )
 
-  const fleet = useQuery({
-    queryKey: commercialKeys.fleet(),
-    queryFn: ({ signal }) => commercialFleet(signal),
-  })
+  const fleet = useSuspenseQuery(commercialFleetQuery())
 
   const shopName = useMemo(() => {
     const map = new Map<string, string>()
-    for (const one of fleet.data?.items ?? []) {
+    for (const one of fleet.data.items) {
       if (one.site_id !== null) map.set(one.site_id, one.label ?? one.site_id)
     }
     return map
@@ -125,7 +143,7 @@ export function History() {
   /// rollout whose thirteen shops straddle a page boundary is still one entry,
   /// and a day split across two pages is still one heading.
   const shown = useMemo<PriceEvent[]>(
-    () => events.data?.pages.flatMap((page) => page.rows) ?? [],
+    () => events.data.pages.flatMap((page) => page.rows),
     [events.data]
   )
 
@@ -175,9 +193,7 @@ export function History() {
   }, [entries])
 
   return (
-    <PageContent>
-      <PageHeader crumb="Marketing" title="History" />
-
+    <>
       {phone ? (
         <>
           <DockChoice
@@ -222,71 +238,70 @@ export function History() {
             <button
               type="button"
               onClick={shop.close}
-              className="text-[0.875rem] text-mute underline underline-offset-2 hover:text-ink"
+              className="text-[0.9375rem] text-mute underline underline-offset-2 hover:text-ink"
             >
               {shopName.get(shop.value) ?? shop.value} · show every store
             </button>
           )}
-          <span className="text-[0.875rem] text-mute tabular-nums">
+          <span className="text-[0.9375rem] text-mute tabular-nums">
             {count(entries.length)} entries
           </span>
         </Toolbar>
       )}
 
-      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-        {queryState(events, {
-          loading: "Loading…",
-          render: () =>
-            entries.length === 0 ? (
-              filtered ? (
-                <EmptyState
-                  action={
-                    <Button variant="ghost" onClick={clearFilters}>
-                      Clear filters
-                    </Button>
-                  }
-                >
-                  Nothing matches these filters.
-                </EmptyState>
-              ) : (
-                <EmptyState>No history.</EmptyState>
-              )
-            ) : (
-              <div className="flex flex-col">
-                {days.map(([date, rows]) => (
-                  <section key={date}>
-                    <h3 className="sticky top-0 z-10 border-b border-hairline bg-soft-3 px-6 py-3 text-[0.875rem] font-medium text-mute max-md:-mx-1 max-md:border-b-0 max-md:px-1 max-md:py-2 max-md:not-first:mt-3">
-                      {moment(rows[0].lead.at).split(",")[0] ?? date}
-                    </h3>
-                    <div className="max-md:flex max-md:flex-col max-md:gap-2.5">
-                      {rows.map((entry) =>
-                        phone ? (
-                          <PhoneEntry
-                            key={entry.lead.id}
-                            entry={entry}
-                            shopName={shopName}
-                            onPickShop={(siteId) => shop.open(siteId)}
-                          />
-                        ) : (
-                          <Row
-                            key={entry.lead.id}
-                            entry={entry}
-                            shopName={shopName}
-                            onPickShop={(siteId) => shop.open(siteId)}
-                          />
-                        )
-                      )}
-                    </div>
-                  </section>
-                ))}
-                {/* The log scrolls with the page, so its foot is watched
-                    here, inside the box that scrolls — see `<LoadMore>`. */}
-                <LoadMore query={events} className="py-5" />
-              </div>
-            ),
-        })}
+      <Card
+        aria-busy={askedSite !== siteId || askedLens !== lensValue || undefined}
+        className="list-swap overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none"
+      >
+        {entries.length === 0 ? (
+          filtered ? (
+            <EmptyState
+              action={
+                <Button variant="ghost" onClick={clearFilters}>
+                  Clear filters
+                </Button>
+              }
+            >
+              Nothing matches these filters.
+            </EmptyState>
+          ) : (
+            <EmptyState>No history.</EmptyState>
+          )
+        ) : (
+          <div className="flex flex-col">
+            {days.map(([date, rows]) => (
+              <section key={date}>
+                <h3 className="sticky top-0 z-10 border-b border-hairline bg-canvas px-6 py-3 text-[0.9375rem] font-medium text-mute max-md:-mx-1 max-md:border-b-0 max-md:px-1 max-md:py-2 max-md:not-first:mt-3">
+                  {moment(rows[0].lead.at).split(",")[0] ?? date}
+                </h3>
+                <div className="max-md:flex max-md:flex-col max-md:gap-2.5">
+                  {rows.map((entry) =>
+                    phone ? (
+                      <PhoneEntry
+                        key={entry.lead.id}
+                        entry={entry}
+                        shopName={shopName}
+                        onPickShop={(siteId) => shop.open(siteId)}
+                      />
+                    ) : (
+                      <Row
+                        key={entry.lead.id}
+                        entry={entry}
+                        shopName={shopName}
+                        onPickShop={(siteId) => shop.open(siteId)}
+                      />
+                    )
+                  )}
+                </div>
+              </section>
+            ))}
+            {/* The log scrolls with the page, so its foot is watched
+                here, inside the box that scrolls — see `<LoadMore>`. */}
+            <LoadMore query={events} className="py-5" />
+          </div>
+        )}
       </Card>
-    </PageContent>
+    </>
   )
 }
 
@@ -324,18 +339,18 @@ function Row({
   return (
     <div className="border-b border-hairline-2 last:border-b-0">
       <div className="flex min-h-16 items-center gap-5 px-6 py-3.5 hover:bg-soft">
-        <span className="w-16 shrink-0 text-[0.875rem] text-mute tabular-nums">
+        <span className="w-16 shrink-0 text-[0.9375rem] text-mute tabular-nums">
           {moment(lead.at).split(", ").pop()}
         </span>
         <Status tone={toneOf(lead.kind)} className="shrink-0">
           {describeEventKind(lead.kind)}
         </Status>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[0.875rem] text-ink">
+          <span className="block truncate text-[0.9375rem] text-ink">
             {lead.publication_name}
           </span>
           {lead.detail !== null && (
-            <span className="block text-[0.875rem] text-bad">
+            <span className="block text-[0.9375rem] text-bad">
               {lead.detail}
             </span>
           )}
@@ -347,7 +362,7 @@ function Row({
           <button
             type="button"
             onClick={() => onPickShop(shops[0])}
-            className="shrink-0 text-[0.875rem] text-body underline-offset-2 hover:underline"
+            className="shrink-0 text-[0.9375rem] text-body underline-offset-2 hover:underline"
           >
             {shopName.get(shops[0]) ?? shops[0]}
           </button>
@@ -357,18 +372,18 @@ function Row({
             type="button"
             onClick={() => setOpen((was) => !was)}
             aria-expanded={open}
-            className="shrink-0 text-[0.875rem] text-body underline-offset-2 hover:underline"
+            className="shrink-0 text-[0.9375rem] text-body underline-offset-2 hover:underline"
           >
             {count(shops.length)} stores
           </button>
         )}
 
-        <span className="w-28 shrink-0 text-right text-[0.875rem] text-mute tabular-nums">
+        <span className="w-28 shrink-0 text-right text-[0.9375rem] text-mute tabular-nums">
           {prices > 0 ? `${count(prices)} prices` : ""}
         </span>
         {/* Who did it, and only where a PERSON did. On a shop event the actor
             is the till's origin, which the shop name beside it already says. */}
-        <span className="w-32 shrink-0 truncate text-right text-[0.875rem] text-mute">
+        <span className="w-32 shrink-0 truncate text-right text-[0.9375rem] text-mute">
           {shops.length === 0 ? (lead.actor ?? "") : ""}
         </span>
       </div>
@@ -380,7 +395,7 @@ function Row({
               key={siteId}
               type="button"
               onClick={() => onPickShop(siteId)}
-              className="rounded-inner border border-hairline-2 px-3 py-1 text-[0.875rem] text-body transition-colors hover:border-hairline-strong hover:text-ink"
+              className="rounded-inner border border-hairline-2 px-3 py-1 text-[0.9375rem] text-body transition-colors hover:border-hairline-strong hover:text-ink"
             >
               {shopName.get(siteId) ?? siteId}
             </button>
@@ -427,7 +442,7 @@ function PhoneEntry({
           </div>
         )}
       </div>
-      <div className="flex items-center justify-between gap-3 rounded-b-card border-t border-hairline px-4 py-3 text-[0.875rem] text-mute">
+      <div className="flex items-center justify-between gap-3 rounded-b-card border-t border-hairline px-4 py-3 text-[0.9375rem] text-mute">
         <CardFoot
           status={
             <Status tone={toneOf(lead.kind)}>
@@ -469,7 +484,7 @@ function PhoneEntry({
               key={siteId}
               type="button"
               onClick={() => onPickShop(siteId)}
-              className="rounded-inner border border-hairline-2 px-3 py-1.5 text-[0.875rem] text-body active:bg-soft"
+              className="rounded-inner border border-hairline-2 px-3 py-1.5 text-[0.9375rem] text-body active:bg-soft"
             >
               {shopName.get(siteId) ?? siteId}
             </button>

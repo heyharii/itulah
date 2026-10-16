@@ -16,7 +16,7 @@ import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { Meter } from "@/components/ui/meter"
 import { PageHeader } from "@/components/ui/page-header"
 import { Status } from "@/components/ui/pill"
-import { MiniCell, MiniRow, MiniTable, SubHead } from "@/components/ui/rows"
+import { SubHead } from "@/components/ui/rows"
 import { EmptyState } from "@/components/ui/states"
 import { Thumbnail } from "@/components/ui/thumbnail"
 import { BAND_NEUTRAL, BAND_TONES } from "@/lib/chart-bands"
@@ -26,6 +26,7 @@ import {
   describeChangeKind,
   listPriceChanges,
   needsAttention,
+  type PriceChange,
 } from "@/lib/queries/changes"
 import {
   campaignCatalogue,
@@ -47,6 +48,7 @@ import { consumed, delta, fold } from "@/screens/commercial/shared"
 import { useLayout } from "@/lib/layout"
 import { cn } from "@/lib/utils"
 import { CardFigure, CardName, PhoneCard } from "@/components/ui/phone-cards"
+import { CardTable, field } from "@/screens/executive/card-table"
 
 /// Commercial's front door.
 ///
@@ -112,6 +114,9 @@ const WINDOW_DAYS = 30
 /// campaign" is not a sixth campaign, it is everything that is not one — the
 /// same reading `BAND_NEUTRAL` has everywhere else.
 const SOLO = "__solo"
+
+const ruleKey = (rule: RulePerformance) => rule.rule_id
+const changeKey = (change: PriceChange) => change.publication_id
 
 export function CommercialOverview() {
   // A phone gets the four figures in a two-by-two and the promotions that gave
@@ -200,6 +205,11 @@ export function CommercialOverview() {
   )
   const ledger = vouchers.data?.ledger
 
+  /// The eight promotions that gave most away and the six changes most in need
+  /// of somebody — the rest are a link away.
+  const earning = useMemo(() => stack.earning.slice(0, 8), [stack.earning])
+  const unfinished = useMemo(() => attention.slice(0, 6), [attention])
+
   const leadFigures = (
     <>
       <Kpi
@@ -244,6 +254,98 @@ export function CommercialOverview() {
       />
     </>
   )
+
+  /// The promotions that gave most away, one to a row. The campaign's poster
+  /// stands beside a rule: see the module note — a rule has no picture, and
+  /// borrowing its envelope's is the truthful way to show which one it runs
+  /// under.
+  const earningColumns = [
+    field<RulePerformance>("promotion", "Promotion", (rule) => (
+      <div className="flex items-center gap-3">
+        <Thumbnail
+          url={
+            rule.campaign_id === null
+              ? null
+              : (board.posterOf(rule.campaign_id) ?? null)
+          }
+          className="size-8 shrink-0 rounded-inner"
+        />
+        <span className="min-w-0 max-w-[14rem]">
+          <span className="block truncate text-ink">
+            {rule.name ?? rule.rule_id}
+          </span>
+          <span className="block truncate text-[0.9375rem] text-mute">
+            {rule.campaign_id === null
+              ? "No campaign"
+              : (board.nameOf(rule.campaign_id) ?? rule.campaign_id)}
+          </span>
+        </span>
+      </div>
+    )),
+    field<RulePerformance>(
+      "shape",
+      "Shape",
+      (rule) => (
+        <Sparkline
+          values={rule.series.map((one) => one.benefit_minor)}
+          colour={
+            rule.campaign_id === null
+              ? BAND_NEUTRAL
+              : board.colourOf(rule.campaign_id)
+          }
+          className="w-16"
+        />
+      ),
+      { priority: 3 }
+    ),
+    field<RulePerformance>(
+      "given",
+      "Given Away",
+      (rule) => money(rule.benefit_minor),
+      { right: true, by: (rule) => rule.benefit_minor }
+    ),
+    field<RulePerformance>(
+      "baskets",
+      "Baskets",
+      (rule) => count(rule.sale_count),
+      { right: true, by: (rule) => rule.sale_count, priority: 2 }
+    ),
+  ]
+
+  /// The price changes still waiting on somebody. Two different problems,
+  /// never merged into "late": a failure is a till that tried and could not;
+  /// a closed window with shops waiting is work the calendar did not do.
+  const unfinishedColumns = [
+    field<PriceChange>("change", "Unfinished", (change) => (
+      <>
+        <span className="block truncate text-ink">{change.name}</span>
+        <span className="block truncate text-[0.9375rem] text-mute">
+          {describeChangeKind(change.kind)} · {day(change.effective_from)}
+        </span>
+      </>
+    )),
+    field<PriceChange>(
+      "why",
+      "Why",
+      (change) =>
+        change.rollout.failed > 0 ? (
+          <Status tone="bad">Reported a failure</Status>
+        ) : (
+          <Status tone="warn">Closed, stores waiting</Status>
+        ),
+      { card: "status" }
+    ),
+    field<PriceChange>(
+      "stores",
+      "Stores",
+      (change) => (
+        <span className="tabular-nums">
+          {count(change.rollout.activated)}/{count(change.rollout.target)}
+        </span>
+      ),
+      { right: true, by: (change) => change.rollout.activated }
+    ),
+  ]
 
   return (
     <PageContent>
@@ -424,80 +526,29 @@ export function CommercialOverview() {
                 stack.earning.length === 0 ? (
                   <EmptyState>Nothing discounted.</EmptyState>
                 ) : (
-                  // The table scrolls inside the card; the PAGE never scrolls
-                  // sideways. Four columns and a 32px thumbnail do not fit a
-                  // phone, and the alternative — dropping a column below some
-                  // width — would hide the figure somebody came for.
-                  <div className="-mx-1 overflow-x-auto px-1">
-                    <MiniTable
-                      className="min-w-[26rem]"
-                      head={[
-                        "Promotion",
-                        { label: "Shape", align: "left" },
-                        "Given Away",
-                        "Baskets",
-                      ]}
-                    >
-                      {stack.earning.slice(0, 8).map((rule) => (
-                        <MiniRow key={rule.rule_id}>
-                          <MiniCell>
-                            <div className="flex items-center gap-3">
-                              {/* The campaign's poster, not the promotion's. See
-                              the module note: a rule has no picture, and
-                              borrowing its envelope's is the truthful way to
-                              show which one it runs under. */}
-                              <Thumbnail
-                                url={
-                                  rule.campaign_id === null
-                                    ? null
-                                    : (board.posterOf(rule.campaign_id) ?? null)
-                                }
-                                className="size-8 shrink-0 rounded-inner"
-                              />
-                              <span className="min-w-0">
-                                <AppLink
-                                  to="/commercial/promotions"
-                                  sheet={{ key: "rule", value: rule.rule_id }}
-                                  className="block truncate text-ink hover:text-accent"
-                                >
-                                  {rule.name ?? rule.rule_id}
-                                </AppLink>
-                                <span className="block truncate text-[0.875rem] text-mute">
-                                  {rule.campaign_id === null
-                                    ? "No campaign"
-                                    : (board.nameOf(rule.campaign_id) ??
-                                      rule.campaign_id)}
-                                </span>
-                              </span>
-                            </div>
-                          </MiniCell>
-                          <MiniCell>
-                            <Sparkline
-                              values={rule.series.map(
-                                (one) => one.benefit_minor
-                              )}
-                              colour={
-                                rule.campaign_id === null
-                                  ? BAND_NEUTRAL
-                                  : board.colourOf(rule.campaign_id)
-                              }
-                              className="w-16"
-                            />
-                          </MiniCell>
-                          <MiniCell align="right">
-                            {money(rule.benefit_minor)}
-                          </MiniCell>
-                          <MiniCell align="right">
-                            {count(rule.sale_count)}
-                          </MiniCell>
-                        </MiniRow>
-                      ))}
-                    </MiniTable>
+                  <>
+                    {/* Under the card's own padding, so a row's text stands
+                        where the heading's does. */}
+                    <div className="-mx-3.5">
+                      <CardTable<RulePerformance>
+                        columns={earningColumns}
+                        rows={earning}
+                        getRowId={ruleKey}
+                        apart={false}
+                        // The promotion, on its own screen.
+                        onRowClick={(rule) =>
+                          void navigate({
+                            to: "/commercial/promotions",
+                            search: { rule: rule.rule_id },
+                          } as never)
+                        }
+                      />
+                    </div>
                     <More
                       hidden={stack.earning.length - 8}
                       to="/commercial/promotions"
                     />
-                  </div>
+                  </>
                 ),
             })}
           </Card>
@@ -523,7 +574,7 @@ export function CommercialOverview() {
                   <div className="mb-2 text-[1.375rem] leading-none font-semibold tracking-[-0.02em] text-ink tabular-nums">
                     {money(book.ledger.outstanding_minor)}
                   </div>
-                  <div className="mb-5 text-[0.875rem] text-mute">
+                  <div className="mb-5 text-[0.9375rem] text-mute">
                     {count(book.ledger.outstanding_count)} live cards of{" "}
                     {count(book.ledger.issued_count)} issued
                   </div>
@@ -556,7 +607,7 @@ export function CommercialOverview() {
                       that reason. It is a slice of "still owed" above, never a
                       fourth segment beside it. */}
                   {book.ledger.expired_count > 0 && (
-                    <p className="mt-5 border-t border-hairline pt-4 text-[0.875rem] text-bad-fg">
+                    <p className="mt-5 border-t border-hairline pt-4 text-[0.9375rem] text-bad-fg">
                       {money(book.ledger.expired_minor)} on{" "}
                       {count(book.ledger.expired_count)} cards past their date.
                     </p>
@@ -625,7 +676,7 @@ export function CommercialOverview() {
                     {[...silent, ...behind].slice(0, 5).map((shop) => (
                       <li
                         key={shop.origin_id}
-                        className="flex items-baseline justify-between gap-3 text-[0.875rem]"
+                        className="flex items-baseline justify-between gap-3 text-[0.9375rem]"
                       >
                         {shop.site_id === null ? (
                           <span className="truncate text-text">
@@ -640,7 +691,7 @@ export function CommercialOverview() {
                             {shop.label ?? shop.site_id}
                           </AppLink>
                         )}
-                        <span className="shrink-0 text-[0.875rem] text-mute">
+                        <span className="shrink-0 text-[0.9375rem] text-mute">
                           {shop.has_ever_activated
                             ? `${count(shop.behind_by ?? 0)} price change${(shop.behind_by ?? 0) === 1 ? "" : "s"} behind · ${moment(shop.activated_at)}`
                             : "never reported"}
@@ -667,58 +718,27 @@ export function CommercialOverview() {
                     : `${count(outstanding.length)} rolling out.`}
                 </EmptyState>
               ) : (
-                <div className="-mx-1 overflow-x-auto px-1">
-                  <MiniTable
-                    className="min-w-[24rem]"
-                    head={[
-                      "Unfinished",
-                      { label: "Why", align: "left" },
-                      { label: "Stores", align: "right" },
-                    ]}
-                  >
-                    {attention.slice(0, 6).map((change) => (
-                      <MiniRow key={change.publication_id}>
-                        <MiniCell>
-                          <AppLink
-                            to="/commercial/changes"
-                            sheet={{
-                              key: "book",
-                              value: change.publication_id,
-                            }}
-                            className="block truncate text-ink hover:text-accent"
-                          >
-                            {change.name}
-                          </AppLink>
-                          <span className="block truncate text-[0.875rem] text-mute">
-                            {describeChangeKind(change.kind)} ·{" "}
-                            {day(change.effective_from)}
-                          </span>
-                        </MiniCell>
-                        <MiniCell>
-                          {/* Two different problems, never merged into "late". A
-                            failure is a till that tried and could not; a closed
-                            window with shops waiting is work the calendar did
-                            not do. */}
-                          {change.rollout.failed > 0 ? (
-                            <Status tone="bad">Reported a failure</Status>
-                          ) : (
-                            <Status tone="warn">Closed, stores waiting</Status>
-                          )}
-                        </MiniCell>
-                        <MiniCell align="right">
-                          <span className="tabular-nums">
-                            {count(change.rollout.activated)}/
-                            {count(change.rollout.target)}
-                          </span>
-                        </MiniCell>
-                      </MiniRow>
-                    ))}
-                  </MiniTable>
+                <>
+                  <div className="-mx-3.5">
+                    <CardTable<PriceChange>
+                      columns={unfinishedColumns}
+                      rows={unfinished}
+                      getRowId={changeKey}
+                      apart={false}
+                      // The change, on its own screen.
+                      onRowClick={(change) =>
+                        void navigate({
+                          to: "/commercial/changes",
+                          search: { book: change.publication_id },
+                        } as never)
+                      }
+                    />
+                  </div>
                   <More
                     hidden={attention.length - 6}
                     to="/commercial/changes"
                   />
-                </div>
+                </>
               ),
           })}
         </div>
@@ -923,10 +943,10 @@ function CampaignCard({ row }: { row: BoardRow }) {
       <div className="p-5">
         <div className="mb-4 flex items-start justify-between gap-2">
           <span className="min-w-0">
-            <span className="block truncate text-[0.875rem] font-semibold text-ink">
+            <span className="block truncate text-[0.9375rem] font-semibold text-ink">
               {row.headline ?? row.name ?? row.campaign_id}
             </span>
-            <span className="block truncate text-[0.875rem] text-mute">
+            <span className="block truncate text-[0.9375rem] text-mute">
               {row.headline && row.name ? `${row.name} · ` : ""}
               {span(row.valid_from, row.valid_to)}
             </span>
@@ -937,10 +957,10 @@ function CampaignCard({ row }: { row: BoardRow }) {
         </div>
 
         {row.sale_count === 0 ? (
-          <p className="text-[0.875rem] text-mute">No sales.</p>
+          <p className="text-[0.9375rem] text-mute">No sales.</p>
         ) : (
           <>
-            <div className="grid grid-cols-3 gap-4 text-[0.875rem]">
+            <div className="grid grid-cols-3 gap-4 text-[0.9375rem]">
               <Figure label="Given away" value={money(row.benefit_minor)} />
               {/* Per campaign, this IS the server's own figure rather than a
                   sum of overlapping rows — so it can be drawn here and not in
@@ -958,7 +978,7 @@ function CampaignCard({ row }: { row: BoardRow }) {
                   value={spend}
                   tone={spend > 0.9 ? "bad" : spend > 0.7 ? "warn" : "accent"}
                 />
-                <span className="shrink-0 text-[0.875rem] text-mute tabular-nums">
+                <span className="shrink-0 text-[0.9375rem] text-mute tabular-nums">
                   {Math.round(spend * 100)}% of {money(row.budget_minor)}
                 </span>
               </div>
@@ -973,7 +993,7 @@ function CampaignCard({ row }: { row: BoardRow }) {
 function Figure({ label, value }: { label: string; value: string }) {
   return (
     <span className="block min-w-0">
-      <span className="block truncate text-[0.875rem] text-mute">{label}</span>
+      <span className="block truncate text-[0.9375rem] text-mute">{label}</span>
       <span className="block truncate font-semibold text-ink tabular-nums">
         {value}
       </span>
@@ -995,7 +1015,7 @@ function More({ hidden, to }: { hidden: number; to: string }) {
   return (
     <AppLink
       to={to}
-      className="mt-4 inline-block text-[0.875rem] text-accent hover:underline"
+      className="mt-4 inline-block text-[0.9375rem] text-accent hover:underline"
     >
       +{count(hidden)} more
     </AppLink>
@@ -1073,7 +1093,7 @@ function Share({
           <div
             key={part.key}
             className={cn(
-              "flex items-baseline justify-between gap-3 text-[0.875rem]",
+              "flex items-baseline justify-between gap-3 text-[0.9375rem]",
               part.value === 0 && "text-mute"
             )}
           >

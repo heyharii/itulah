@@ -410,7 +410,7 @@ export function PostEditor({
                   }
                 }
               }}
-              className="block max-h-[28rem] w-full resize-none overflow-y-auto rounded-b-inner bg-transparent px-3.5 py-2.5 text-[0.875rem] leading-relaxed text-ink outline-none placeholder:text-mute disabled:cursor-not-allowed"
+              className="block max-h-[28rem] w-full resize-none overflow-y-auto rounded-b-inner bg-transparent px-3.5 py-2.5 text-[0.9375rem] leading-relaxed text-ink outline-none placeholder:text-mute disabled:cursor-not-allowed"
             />
           ) : (
             <div
@@ -418,7 +418,7 @@ export function PostEditor({
               style={{ minHeight: `${rows * 1.625 + 1.25}rem` }}
             >
               {value.trim() === "" ? (
-                <p className="text-[0.875rem] text-mute">Nothing to preview.</p>
+                <p className="text-[0.9375rem] text-mute">Nothing to preview.</p>
               ) : (
                 <Markdown text={value} me={me} />
               )}
@@ -444,7 +444,7 @@ export function PostEditor({
                   }}
                   onMouseEnter={() => setHighlight(index)}
                   className={cn(
-                    "flex h-9 cursor-default items-center gap-2 rounded-inner px-2 text-[0.875rem]",
+                    "flex h-9 cursor-default items-center gap-2 rounded-inner px-2 text-[0.9375rem]",
                     index === highlight ? "bg-soft-2 text-ink" : "text-text"
                   )}
                 >

@@ -1,6 +1,6 @@
-import { useQuery } from "@tanstack/react-query"
+import { useSuspenseQuery } from "@tanstack/react-query"
 import { ListFilter, Plus } from "lucide-react"
-import { useMemo, useState } from "react"
+import { Suspense, useDeferredValue, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { DockTools } from "@/components/shell/dock-tools"
@@ -12,14 +12,13 @@ import { ChoiceMenu } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { Toolbar } from "@/components/ui/segmented"
-import { EmptyState } from "@/components/ui/states"
+import { EmptyState, LoadingState } from "@/components/ui/states"
 import { count, money, moneyCompact } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
-import { gaKeys, gaLocations } from "@/lib/queries/ga"
-import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { FinanceMark } from "@/screens/contracts/parts"
 import { LocationHubSheet } from "@/screens/locations/hub"
+import { placesQuery } from "@/screens/locations/places-data"
 import {
   CardFigure,
   CardName,
@@ -43,11 +42,11 @@ import type { GaLocationRow } from "@itulah/contract"
 /// the details that exist, which is exactly the list that cannot answer "what
 /// have we not filled in yet".
 ///
-/// # Open store, and no "Tambah site"
+/// # Add store, and no "Tambah site"
 ///
 /// A place is made by a store or the warehouse being opened, not by GA
 /// writing a row here, and adding a second head office is the owner's decision
-/// (brief §2.5). So the one way to add a place is Open store — the same list
+/// (brief §2.5). So the one way to add a place is Add store — the same list
 /// and the same write as the setup wizard's second step, which makes the unit,
 /// its shop site and its pools together (`screens/setup/open-stores-sheet.tsx`).
 /// Everything else written here is the facilities detail BESIDE a place that
@@ -60,6 +59,24 @@ import type { GaLocationRow } from "@itulah/contract"
 /// tagihan rides the same way and wears the Finance mark, because the posted
 /// bills behind it are the other desk's ledger (brief §2.1, §10.2).
 export function Locations() {
+  // The title stands at once; the places wait for the list and stream in with
+  // it (the server starts the read too). The head's search and button come
+  // with it.
+  return (
+    <Suspense
+      fallback={
+        <PageContent>
+          <PageHeader crumb="GA" title="Sites" />
+          <LoadingState>Opening the list of places…</LoadingState>
+        </PageContent>
+      }
+    >
+      <LocationBook />
+    </Suspense>
+  )
+}
+
+function LocationBook() {
   const open = useSheet("location")
   const opening = useSheet("new-stores")
   const [search, setSearch] = useState("")
@@ -72,12 +89,12 @@ export function Locations() {
     [search]
   )
 
-  const places = useQuery({
-    queryKey: gaKeys.locations(scope),
-    queryFn: ({ signal }) => gaLocations(scope, signal),
-  })
+  // The deferred scope keeps the places in hand on screen while a new search
+  // is read, so a keystroke does not empty the list.
+  const asked = useDeferredValue(scope)
+  const places = useSuspenseQuery(placesQuery(asked))
 
-  const rows = places.data ?? []
+  const rows = places.data
   // `kind` is a free-text facility type on the server, so the choices are the
   // kinds actually in use rather than a closed list this screen would have to
   // keep in step with the data. Sorting them keeps the menu stable as rows
@@ -85,7 +102,7 @@ export function Locations() {
   // re-create the menu on every render.
   const kinds = useMemo(() => {
     const seen = new Set<string>()
-    for (const row of places.data ?? []) {
+    for (const row of places.data) {
       const value = row.kind ?? row.site_kind
       if (value !== "") seen.add(value)
     }
@@ -111,18 +128,19 @@ export function Locations() {
               <Input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search"
                 className="h-8 w-56"
               />
               <Button variant="primary" onClick={() => opening.open(true)}>
                 <Plus />
-                Open store
+                Add store
               </Button>
             </>
           )
         }
       />
 
-      <Fab label="Open store" onClick={() => opening.open(true)} />
+      <Fab label="Add store" onClick={() => opening.open(true)} />
       <DockTools
         search={{ value: search, onChange: setSearch, label: "Search sites" }}
         filter={{
@@ -170,57 +188,53 @@ export function Locations() {
         )}
       </div>
 
-      {queryState(places, {
-        loading: "Opening the list of places…",
-        render: () =>
-          shown.length === 0 ? (
-            <Card>
-              <EmptyState>
-                {kind === null
-                  ? "No sites yet. Offices and the warehouse are created during setup; stores are opened with Open store."
-                  : "No places of that type."}
-              </EmptyState>
-            </Card>
-          ) : phone ? (
-            <PhoneCards
-              rows={shown}
-              rowId={(row) => row.site_id}
-              spec={LOCATION_CARD}
-              onOpen={(row) => open.open(row.site_id)}
-            />
-          ) : (
-            <Card className="overflow-hidden">
-              {/* The list scrolls INSIDE its own box rather than squashing the
+      {shown.length === 0 ? (
+        <Card>
+          <EmptyState>
+            {kind === null
+              ? "No sites yet. Offices and the warehouse are created during setup; stores are added with Add store."
+              : "No places of that type."}
+          </EmptyState>
+        </Card>
+      ) : phone ? (
+        <PhoneCards
+          rows={shown}
+          rowId={(row) => row.site_id}
+          spec={LOCATION_CARD}
+          onOpen={(row) => open.open(row.site_id)}
+        />
+      ) : (
+        <Card className="overflow-hidden">
+          {/* The list scrolls INSIDE its own box rather than squashing the
                   columns: eight columns of places, contacts and figures do not
                   fit a phone, and a squeezed table overlaps its own cells while
                   the page starts scrolling sideways. */}
-              <div className="overflow-x-auto">
-                <div className="md:min-w-[74rem]">
-                  <div className="grid h-10 items-center gap-3 border-b border-hairline bg-soft px-3.5 text-eyebrow font-medium text-body max-md:hidden md:grid-cols-[minmax(14rem,1.4fr)_8.5rem_minmax(13rem,1fr)_11rem_5.5rem_5.5rem_7.5rem_9rem]">
-                    <span>Site</span>
-                    <span>Type</span>
-                    <span>Address</span>
-                    <span>Contact</span>
-                    <span className="text-right">Assets</span>
-                    <span className="text-right">Contracts</span>
-                    <span className="text-right">Open repairs</span>
-                    <span className="text-right">
-                      Billed this month{" "}
-                      <FinanceMark className="ml-1 align-[0.0625rem]" />
-                    </span>
-                  </div>
-                  {shown.map((row) => (
-                    <LocationLine
-                      key={row.site_id}
-                      row={row}
-                      onOpen={() => open.open(row.site_id)}
-                    />
-                  ))}
-                </div>
+          <div className="overflow-x-auto">
+            <div className="md:min-w-[74rem]">
+              <div className="grid h-10 items-center gap-3 border-b border-hairline bg-soft px-3.5 text-eyebrow font-medium text-body max-md:hidden md:grid-cols-[minmax(14rem,1.4fr)_8.5rem_minmax(13rem,1fr)_11rem_5.5rem_5.5rem_7.5rem_9rem]">
+                <span>Site</span>
+                <span>Type</span>
+                <span>Address</span>
+                <span>Contact</span>
+                <span className="text-right">Assets</span>
+                <span className="text-right">Contracts</span>
+                <span className="text-right">Open repairs</span>
+                <span className="text-right">
+                  Billed this month{" "}
+                  <FinanceMark className="ml-1 align-[0.0625rem]" />
+                </span>
               </div>
-            </Card>
-          ),
-      })}
+              {shown.map((row) => (
+                <LocationLine
+                  key={row.site_id}
+                  row={row}
+                  onOpen={() => open.open(row.site_id)}
+                />
+              ))}
+            </div>
+          </div>
+        </Card>
+      )}
 
       <OpenStoresSheet open={opening.isOpen} onClose={opening.close} />
 
@@ -339,7 +353,7 @@ function LocationLine({
 /// A figure's name above it on a phone, where the header row is not drawn.
 function Figure({ children }: { children: React.ReactNode }) {
   return (
-    <span className="block text-[0.875rem] text-mute md:hidden">
+    <span className="block text-[0.9375rem] text-mute md:hidden">
       {children}
     </span>
   )

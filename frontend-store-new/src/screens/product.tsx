@@ -10,9 +10,12 @@ import { EmptyState, LoadingState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { count, label } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
+import { reaches } from "@/lib/deals"
 import { isDown } from "@/lib/prices"
-import { fetchSkuStock, skuStockKey } from "@/lib/queries"
+import { skuStockQuery } from "@/lib/queries"
 import { cn } from "@/lib/utils"
+import { shapeArticle, swatchBackground } from "@/lib/variants"
+import { percentOff, type Item } from "@/screens/catalogue-model"
 import { Photograph } from "@/screens/catalogue-parts"
 import { OfferDetail, OfferPill } from "@/screens/promotions/parts"
 import { describeEffect } from "@/screens/promotions/shared"
@@ -44,6 +47,7 @@ import { money } from "@itulah/contract/money"
 export function ProductSheet({
   sku,
   rows,
+  items,
   loaded,
   offers,
   currency,
@@ -54,6 +58,8 @@ export function ProductSheet({
   sku: string | undefined
   /// The whole resident book.
   rows: readonly CatalogRow[]
+  /// The same book joined with its final prices — what a walk-in pays.
+  items: readonly Item[]
   /// The book has arrived.
   loaded: boolean
   /// The running offers, once they have arrived — `null` before, so a card can
@@ -118,6 +124,7 @@ export function ProductSheet({
                 content: (
                   <Details
                     row={record}
+                    items={items}
                     siblings={siblings}
                     currency={currency}
                     onSku={onSku}
@@ -163,27 +170,35 @@ export function ProductSheet({
 /// facts, and the article's sizes and colours with their prices.
 function Details({
   row,
+  items,
   siblings,
   currency,
   onSku,
 }: {
   row: CatalogRow
+  items: readonly Item[]
   /// Every SKU of the same article, this one included.
   siblings: readonly CatalogRow[]
   currency: string
   onSku: (sku: string) => void
 }) {
-  const down = isDown(row)
-  // Whole percent, rounded down: "21% off" on something that is 20.6% off is
-  // a promise the till will not keep to the rupiah.
-  const percentOff =
-    down && row.base_unit_price_minor > 0
-      ? Math.floor(
-          ((row.base_unit_price_minor - row.unit_price_minor) /
-            row.base_unit_price_minor) *
-            100,
-        )
-      : 0
+  const finals = useMemo(
+    () => new Map(items.map((item) => [item.row.sku_code, item] as const)),
+    [items],
+  )
+  /// What a walk-in pays for one: the counter's own figure, the catalogue's.
+  const finalOf = (one: CatalogRow) =>
+    finals.get(one.sku_code)?.final ?? one.unit_price_minor
+  /// Nothing left of it — known only once the shop's stock has arrived.
+  const soldOut = (one: CatalogRow) => {
+    const held = finals.get(one.sku_code)?.stock
+    return held !== null && held !== undefined && held.total <= 0
+  }
+  const final = finalOf(row)
+  const applied = finals.get(row.sku_code)?.applied ?? []
+  const was = row.base_unit_price_minor
+  const down = final < was
+  const off = percentOff(final, was)
   const division =
     row.division_code !== null && row.division_code !== ""
       ? row.division_code
@@ -204,22 +219,27 @@ function Details({
               struck through is just a smaller price. */}
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
             <span className="text-[1.5rem] leading-tight font-semibold tracking-tight text-ink tabular-nums">
-              {money(row.unit_price_minor, currency)}
+              {money(final, currency)}
             </span>
             {down && (
               <span className="text-cell text-mute tabular-nums line-through">
-                {money(row.base_unit_price_minor, currency)}
+                {money(was, currency)}
               </span>
             )}
           </div>
           {down && (
             <p className="mt-1 text-meta font-medium text-bad-fg tabular-nums">
-              {money(
-                row.base_unit_price_minor - row.unit_price_minor,
-                currency,
-              )}{" "}
-              off
-              {percentOff > 0 && ` · ${percentOff}%`}
+              {money(was - final, currency)} off
+              {off > 0 && ` · ${off}%`}
+            </p>
+          )}
+          {/* What brought it down, by the names the till prints. */}
+          {(applied.length > 0 || isDown(row)) && (
+            <p className="mt-1 text-meta text-body">
+              {[
+                ...(isDown(row) ? ["Markdown"] : []),
+                ...applied.map((one) => one.name),
+              ].join(" · ")}
             </p>
           )}
 
@@ -266,9 +286,10 @@ function Details({
               return {
                 active: here,
                 onPress: here ? undefined : () => onSku(item.sku_code),
+                quiet: soldOut(item),
                 content: (
                   <>
-                    {isDown(item) && (
+                    {finalOf(item) < item.base_unit_price_minor && (
                       <span
                         className={cn(
                           "text-[0.875rem] line-through",
@@ -279,8 +300,22 @@ function Details({
                       </span>
                     )}
                     <span className="font-medium">
-                      {money(item.unit_price_minor, currency)}
+                      {money(finalOf(item), currency)}
                     </span>
+                    {/* Which colour in which size is gone, in the grid
+                        somebody reads the sizes from. */}
+                    {soldOut(item) && (
+                      <span
+                        className={cn(
+                          "text-[0.875rem]",
+                          // The open SKU's cell is ink on a desk and white on
+                          // a phone's accent tile: inherit, a little quieter.
+                          here ? "opacity-80" : "text-bad-fg",
+                        )}
+                      >
+                        Sold out
+                      </span>
+                    )}
                   </>
                 ),
               }
@@ -308,8 +343,7 @@ function StockTab({
   const [room, setRoom] = useState<Room>("total")
   const grid = useMemo(() => variantGrid(siblings), [siblings])
   const stock = useQuery({
-    queryKey: skuStockKey(),
-    queryFn: ({ signal }) => fetchSkuStock(signal),
+    ...skuStockQuery(),
     refetchInterval: 60_000,
   })
   // A node that does not serve the read yet costs this tab, not the sheet.
@@ -447,62 +481,37 @@ function sourceSentence(source: string): string {
   }
 }
 
-/// Whether an offer's scope reaches this garment.
-///
-/// Scope only — see the note where this is called. `null` applicability is the
-/// whole cart, which reaches everything.
-function reaches(offer: StoreOffer, row: CatalogRow): boolean {
-  const scope = offer.applies_to
-  if (scope === null) return true
-  switch (scope.on) {
-    case "SKU":
-      return scope.sku_codes.includes(row.sku_code)
-    case "ARTICLE":
-      return (
-        row.article_code !== null &&
-        scope.article_codes.includes(row.article_code)
+/// The article's SKUs as colours down and sizes across, read by
+/// `shapeArticle` — the reader the Catalogue's tiles use, so a tile's swatches
+/// and these rows are the same colours. Colours keep the order the book sent
+/// them in; sizes run smallest first.
+function variantGrid(items: readonly CatalogRow[]) {
+  const shape = shapeArticle(items)
+  const cells = new Map<string, CatalogRow>()
+  const colours = shape.colours.map((colour) => {
+    const name = colour.label ?? "—"
+    for (const item of colour.skus)
+      cells.set(
+        `${name}|${shape.variant.get(item.sku_code)?.size ?? "—"}`,
+        item,
       )
-    case "DIVISION":
-      return (
-        row.division_code !== null &&
-        scope.divisions.includes(row.division_code)
-      )
-    case "TAG":
-      return row.tags.some((tag) => scope.tags.includes(tag))
-    case "WHOLE_CART":
-      return true
-  }
+    return { name, paint: colour.paint }
+  })
+  // A SKU whose name carries no size still needs a column to sit in.
+  const sizeless = [...shape.variant.values()].some((one) => one.size === null)
+  const sizes = sizeless ? [...shape.sizes, "—"] : shape.sizes
+  return { colours, sizes, cells }
 }
 
-/// The article's SKUs as colours down and sizes across.
-///
-/// The catalogue carries one name per SKU — "Kaos Basic Katun Combed Black S" —
-/// and no separate colour or size. What every SKU of the article shares is the
-/// article's name; the last word is the size; whatever is left between is the
-/// colour. Both axes keep the order they first appear in, which is the order
-/// the book was sent in.
-function variantGrid(items: readonly CatalogRow[]) {
-  const words = items.map((item) => item.name.split(/\s+/))
-  let shared = 0
-  while (
-    words.every(
-      (one) => one.length > shared + 1 && one[shared] === words[0]?.[shared],
-    )
+/// A colour's dot, before its name in the grid.
+function Dot({ paint }: { paint: readonly string[] }) {
+  return (
+    <span
+      aria-hidden
+      style={{ background: swatchBackground(paint) }}
+      className="size-3.5 shrink-0 rounded-full shadow-[inset_0_0_0_1px_rgb(0_0_0/0.14)]"
+    />
   )
-    shared += 1
-  const colours: string[] = []
-  const sizes: string[] = []
-  const cells = new Map<string, CatalogRow>()
-  items.forEach((item, index) => {
-    const one = words[index] ?? []
-    const size = one.length > shared ? (one[one.length - 1] ?? "—") : "—"
-    const joined = one.slice(shared, -1).join(" ")
-    const colour = joined === "" ? "—" : joined
-    if (!colours.includes(colour)) colours.push(colour)
-    if (!sizes.includes(size)) sizes.push(size)
-    cells.set(`${colour}|${size}`, item)
-  })
-  return { colours, sizes, cells }
 }
 
 /// What a variant's cell shows and does.
@@ -533,9 +542,12 @@ function VariantMatrix({
   if (phone)
     return (
       <div className="flex flex-col gap-5">
-        {grid.colours.map((colour) => (
+        {grid.colours.map(({ name: colour, paint }) => (
           <div key={colour}>
-            <h3 className="mb-2 text-cell font-medium text-ink">{colour}</h3>
+            <h3 className="mb-2 flex items-center gap-2 text-cell font-medium text-ink">
+              <Dot paint={paint} />
+              {colour}
+            </h3>
             <div className="grid grid-cols-3 gap-2">
               {grid.sizes.map((size) => {
                 const item = grid.cells.get(`${colour}|${size}`)
@@ -597,13 +609,16 @@ function VariantMatrix({
           </tr>
         </thead>
         <tbody>
-          {grid.colours.map((colour) => (
+          {grid.colours.map(({ name: colour, paint }) => (
             <tr key={colour} className="border-t border-hairline">
               <th
                 scope="row"
                 className="h-14 px-4 text-left font-medium whitespace-nowrap text-ink"
               >
-                {colour}
+                <span className="flex items-center gap-2">
+                  <Dot paint={paint} />
+                  {colour}
+                </span>
               </th>
               {grid.sizes.map((size) => {
                 const item = grid.cells.get(`${colour}|${size}`)

@@ -389,9 +389,9 @@ export function ArticleForm({
       <form.Field name="tags">
         {(field) => (
           <div className="flex flex-col gap-1.5">
-            <span className="text-[0.875rem] font-medium text-text">Tags</span>
+            <span className="text-[0.9375rem] font-medium text-text">Tags</span>
             {(vocabulary?.tags ?? []).length === 0 && !needsTags ? (
-              <span className="text-[0.875rem] text-mute">
+              <span className="text-[0.9375rem] text-mute">
                 The vocabulary has no tags in it yet.
               </span>
             ) : (
@@ -415,8 +415,8 @@ export function ArticleForm({
                       }}
                       className={
                         on
-                          ? "inline-flex h-[1.625rem] items-center rounded-full bg-accent-bg px-2.5 text-[0.875rem] font-medium text-info-fg"
-                          : "inline-flex h-[1.625rem] items-center rounded-full bg-soft-2 px-2.5 text-[0.875rem] font-medium text-body transition-colors hover:bg-hairline hover:text-ink"
+                          ? "inline-flex h-[1.625rem] items-center rounded-full bg-accent-bg px-2.5 text-[0.9375rem] font-medium text-info-fg"
+                          : "inline-flex h-[1.625rem] items-center rounded-full bg-soft-2 px-2.5 text-[0.9375rem] font-medium text-body transition-colors hover:bg-hairline hover:text-ink"
                       }
                     >
                       {term.label}
@@ -443,7 +443,7 @@ export function ArticleForm({
                         )
                         setAccepted(false)
                       }}
-                      className="inline-flex h-[1.625rem] items-center gap-1.5 rounded-full border border-dashed border-hairline-2 px-2.5 text-[0.875rem] font-medium text-body"
+                      className="inline-flex h-[1.625rem] items-center gap-1.5 rounded-full border border-dashed border-hairline-2 px-2.5 text-[0.9375rem] font-medium text-body"
                     >
                       {retiredLabel(retiredTags.data, code)}
                       <span className="text-mute">Cancelled</span>
@@ -481,7 +481,7 @@ export function ArticleForm({
       <form.Field name="active">
         {(field) => (
           <div className="flex flex-col gap-1.5">
-            <span className="text-[0.875rem] font-medium text-text">Sold</span>
+            <span className="text-[0.9375rem] font-medium text-text">Sold</span>
             <Segmented
               options={[
                 { value: "active", label: "Active" },
@@ -515,7 +515,7 @@ export function ArticleForm({
                   <ConsequenceLine key={one.rule_id} one={one} />
                 ))}
               </ul>
-              <p className="mt-1.5 text-[0.875rem] text-warn-fg">
+              <p className="mt-1.5 text-[0.9375rem] text-warn-fg">
                 Their articles are worked out when they start, so they will be
                 worked out against this article as it is then.
               </p>
@@ -531,7 +531,7 @@ export function ArticleForm({
                 scheduled.length > 0 ? "border-t border-hairline pt-2.5" : ""
               }
             >
-              <p className="text-[0.875rem] text-body">
+              <p className="text-[0.9375rem] text-body">
                 {consequences.data?.started_note}
               </p>
               <ul className="mt-1.5 flex flex-col gap-1">
@@ -571,7 +571,7 @@ export function ArticleForm({
             )
           }}
         </form.Subscribe>
-        <Button variant="quiet" onClick={onCancel} pending={save.isPending}>
+        <Button data-cancel variant="quiet" onClick={onCancel} pending={save.isPending}>
           Cancel
         </Button>
       </div>

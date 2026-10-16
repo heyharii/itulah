@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sidebar Greys</title>
+<style>
+@font-face{font-family:Inter;src:url('/frontend-hub/node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2') format('woff2');font-weight:100 900;font-display:swap}
+:root{--ink:#1d1d1f;--mute:#6e6e73;--line:#ececf0;--row:#f0f0f3;--blue:#2563eb;--red:#d70015;--green:#248a3d;
+ --ring:0 0 0 1px rgb(0 0 0 / 5%),0 2px 8px rgb(0 0 0 / 4%),0 24px 72px rgb(0 0 0 / 8%);
+ --ease:cubic-bezier(.23,1,.32,1);
+ /* the grey being tried — set per option below */
+ --stone:#e9e9ed;--panel:#f5f5f7;--side-ink:#636366;--side-mute:#8e8e93;--hover:rgb(0 0 0 / 5%);--edge:rgb(0 0 0 / 5%)}
+
+/* A · Today — the hub's stone and Mist */
+[data-g="a"]{--stone:#e9e9ed;--panel:#f5f5f7;--side-ink:#636366;--side-mute:#8e8e93}
+/* B · Pearl — lighter, Apple Mail */
+[data-g="b"]{--stone:#efeff2;--panel:#f9f9fb;--side-ink:#636366;--side-mute:#8e8e93;--edge:rgb(0 0 0 / 6%)}
+/* C · Graphite — cool neutral, a touch of blue in the grey */
+[data-g="c"]{--stone:#e7e8ec;--panel:#f4f5f7;--side-ink:#5c6370;--side-mute:#8a909b}
+/* D · Porcelain — warm grey, paper-like */
+[data-g="d"]{--stone:#ebeae7;--panel:#f7f6f4;--side-ink:#67635d;--side-mute:#8f8a83;--hover:rgb(60 45 20 / 5%);--edge:rgb(60 45 20 / 6%)}
+/* E · Titanium — deeper, Apple Pro apps */
+[data-g="e"]{--stone:#dfe0e4;--panel:#eeeff2;--side-ink:#55565c;--side-mute:#86878d;--hover:rgb(0 0 0 / 6%);--edge:rgb(0 0 0 / 7%)}
+/* F · Fog — the faintest blue tint, macOS sidebar */
+[data-g="f"]{--stone:#e8ebf0;--panel:#f4f6f9;--side-ink:#5a6271;--side-mute:#8a92a0}
+/* G · Flush — one grey, the panel does not float */
+[data-g="g"]{--stone:#f0f0f2;--panel:transparent;--side-ink:#636366;--side-mute:#8e8e93}
+
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;font:15px/1.45 Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:var(--ink);background:var(--stone);-webkit-font-smoothing:antialiased;overflow:hidden;transition:background-color .25s ease}
+svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
+.num{font-variant-numeric:tabular-nums}
+
+/* ── the shell: stone · rail · floating panel · white page ── */
+.shell{display:flex;height:100vh}
+.rail{width:64px;flex:none;display:flex;flex-direction:column;align-items:center;gap:6px;padding:16px 0;color:var(--side-ink)}
+.logo{width:32px;height:32px;border-radius:9px;background:#1d1d1f;color:#fff;display:grid;place-items:center;font-weight:700;margin-bottom:18px}
+.rail .ic{width:40px;height:40px;border-radius:10px;display:grid;place-items:center;transition:background-color .15s ease}
+.rail .ic:not(.on):hover{background:var(--hover)}
+.rail .ic.on{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgb(0 0 0 / 7%)}
+.rail .rail-end{margin-top:auto}
+.panel{width:216px;flex:none;display:flex;flex-direction:column;padding:16px 10px;margin:12px 12px 12px 0;border-radius:16px;background:var(--panel);box-shadow:0 0 0 1px var(--edge),0 2px 6px rgb(0 0 0 / 4%);transition:background-color .25s ease,box-shadow .25s ease}
+[data-g="g"] .panel{box-shadow:none;margin-right:4px}
+.panel h2{margin:4px 10px 14px;font-size:15px;font-weight:650}
+.group{margin:14px 10px 4px;font-size:15px;font-weight:500;color:var(--side-mute)}
+.item{display:flex;justify-content:space-between;align-items:center;height:34px;padding:0 10px;border-radius:8px;color:var(--side-ink);transition:background-color .15s ease}
+.item:not(.on):hover{background:var(--hover)}
+.item.on{background:#fff;color:var(--ink);font-weight:550;box-shadow:0 0 0 1px rgb(0 0 0 / 6%),0 1px 3px rgb(0 0 0 / 6%)}
+.badge{display:grid;place-items:center;min-width:20px;height:20px;padding:0 5px;border-radius:999px;background:var(--red);color:#fff;font-size:15px;line-height:1;font-weight:600}
+.panel .time{margin-top:auto;padding:0 10px;color:var(--side-mute)}
+.page{flex:1;min-width:0;background:#fff;margin:12px 12px 12px 0;border-radius:16px;box-shadow:var(--ring);overflow:hidden;display:flex;flex-direction:column}
+.page-in{flex:1;overflow:auto;padding:26px 32px 120px}
+
+/* ── page content: the PO list, the same in every option ── */
+.head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px}
+.path{color:var(--mute)}
+h1{margin:0;font-size:17px;line-height:22px;font-weight:650;letter-spacing:-.2px}
+.kpis{display:flex;margin:0 0 20px}
+.kpi{padding:0 24px;border-left:1px solid var(--line)}
+.kpi:first-child{padding-left:0;border:0}
+.kpi>span{display:block;color:var(--mute)}
+.kpi strong{display:block;font-size:16px;line-height:22px;font-weight:600}
+.tabs{display:flex;gap:4px;box-shadow:inset 0 -1px 0 var(--line);margin-bottom:14px}
+.tab{padding:8px 12px 10px;color:var(--mute);font-weight:500;border-bottom:2px solid transparent}
+.tab.on{color:var(--ink);border-color:var(--ink)}
+.tab i{font-style:normal;color:var(--mute);margin-left:4px;font-weight:400}
+.bar{display:flex;align-items:center;gap:8px;margin-bottom:14px}
+.field{height:34px;display:flex;align-items:center;gap:8px;padding:0 11px;border:1px solid #e2e2e7;border-radius:8px;color:var(--mute);min-width:220px}
+.primary{height:34px;padding:0 14px;border-radius:8px;background:var(--blue);color:#fff;font-weight:600}
+.tbl{border:1px solid #e5e5ea;border-radius:12px;overflow:hidden;box-shadow:0 1px 2px rgb(0 0 0 / 5%)}
+table{width:100%;border-collapse:collapse}
+th{height:40px;text-align:left;padding:0 16px;color:var(--mute);font-weight:500;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:12px 16px;border-bottom:1px solid var(--row);white-space:nowrap}
+tbody tr:hover td{background:#fafafb}
+tr:last-child td{border-bottom:0}
+.r{text-align:right}
+td .s{display:block;color:var(--mute)}
+.late{color:var(--red)}
+.ok{color:var(--green)}
+.rc{display:inline-flex;height:30px;align-items:center;padding:0 12px;border-radius:8px;background:#f0f1f4;color:var(--blue);font-weight:600}
+
+/* ── the option switch ── */
+.switch{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);display:flex;gap:4px;padding:6px;border-radius:14px;background:rgb(255 255 255 / 86%);backdrop-filter:blur(16px) saturate(1.4);-webkit-backdrop-filter:blur(16px) saturate(1.4);box-shadow:0 0 0 1px rgb(0 0 0 / 7%),0 8px 30px rgb(0 0 0 / 12%);z-index:10;max-width:calc(100vw - 32px);overflow-x:auto}
+.switch button{display:flex;align-items:center;gap:8px;height:40px;padding:0 12px 0 8px;border-radius:9px;white-space:nowrap;color:var(--mute);font-weight:500;transition:background-color .15s ease,color .15s ease,transform .12s ease}
+.switch button:active{transform:scale(.97)}
+.switch button:hover{background:rgb(0 0 0 / 4%)}
+.switch button[aria-pressed="true"]{background:#1d1d1f;color:#fff}
+.sw{display:flex;width:26px;height:26px;border-radius:7px;overflow:hidden;box-shadow:inset 0 0 0 1px rgb(0 0 0 / 10%)}
+.sw i{flex:1}
+.switch small{font-size:15px;opacity:.6;font-weight:400;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+@media(max-width:1200px){.switch small{display:none}}
+</style>
+</head>
+<body data-g="a">
+<div class="shell">
+ <nav class="rail" aria-label="Departments">
+  <div class="logo">C</div>
+  <span class="ic on"><svg viewBox="0 0 24 24"><circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M2 3h3l2.6 12.4a2 2 0 0 0 2 1.6h8.2a2 2 0 0 0 2-1.6L21 7H6"/></svg></span>
+  <span class="ic"><svg viewBox="0 0 24 24"><path d="M8 3 4 6v4h3v11h10V10h3V6l-4-3a4 4 0 0 1-8 0Z"/></svg></span>
+  <span class="ic"><svg viewBox="0 0 24 24"><path d="M3 7h11v9H3zM14 10h4l3 3v3h-7"/><circle cx="7" cy="18" r="1.6"/><circle cx="17" cy="18" r="1.6"/></svg></span>
+  <span class="ic"><svg viewBox="0 0 24 24"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9Z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/></svg></span>
+  <span class="ic"><svg viewBox="0 0 24 24"><path d="M3 11v2a1 1 0 0 0 1 1h3l5 4V6L7 10H4a1 1 0 0 0-1 1ZM16 8a5 5 0 0 1 0 8"/></svg></span>
+  <span class="ic"><svg viewBox="0 0 24 24"><path d="M3 21h18M5 21V10M19 21V10M9 21v-6h6v6M3 10l9-6 9 6"/></svg></span>
+  <span class="ic"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 20a6 6 0 0 1 12 0M16 4a3 3 0 0 1 0 6M21 20a5 5 0 0 0-4-5"/></svg></span>
+  <span class="ic rail-end"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2"/></svg></span>
+ </nav>
+ <nav class="panel" aria-label="Procurement">
+  <h2>Procurement</h2>
+  <span class="item on">Purchase Orders <span class="badge">4</span></span>
+  <span class="item">Suppliers</span>
+  <span class="item">Return PO</span>
+  <div class="group">Articles</div>
+  <span class="item">New Articles <span class="badge">7</span></span>
+  <span class="item">Articles</span>
+  <span class="item">Pricelist</span>
+  <span class="time">Wed 14 Oct 2026 · 09:10</span>
+ </nav>
+ <main class="page">
+  <div class="page-in">
+   <div class="head"><div><div class="path">Procurement</div><h1>Purchase Orders</h1></div><button class="primary" type="button">+ New order</button></div>
+   <div class="kpis num">
+    <div class="kpi"><span>Orders</span><strong>15</strong></div>
+    <div class="kpi"><span>Still open</span><strong>15</strong></div>
+    <div class="kpi"><span>Overdue</span><strong>0</strong></div>
+    <div class="kpi"><span>On order</span><strong>Rp 40,9 M</strong></div>
+   </div>
+   <div class="tabs"><span class="tab on">Active<i>15</i></span><span class="tab">Completed<i>5</i></span><span class="tab">Cancelled<i>13</i></span></div>
+   <div class="bar"><span class="field"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>Search orders</span></div>
+   <div class="tbl">
+    <table class="num">
+     <thead><tr><th>PO</th><th>Delivery Date</th><th class="r">Ordered</th><th class="r">Received</th><th>Status</th></tr></thead>
+     <tbody>
+      <tr><td>Garmen Nusantara, PT<span class="s">PO-0001-OPE5 · 2 items</span></td><td>12 Nov 2026</td><td class="r">30 pcs<span class="s">Rp 2.844.000</span></td><td class="r late">28 pcs<span class="s">Rp 2.700.000</span></td><td><span class="rc">Review Count</span></td></tr>
+      <tr><td>Garmen Nusantara, PT<span class="s">PO-0001-OPE4 · 3 items</span></td><td>06 Nov 2026</td><td class="r">36 pcs<span class="s">Rp 3.012.000</span></td><td class="r">36 pcs<span class="s">Rp 3.012.000</span></td><td><span class="rc">Review Count</span></td></tr>
+      <tr><td>Garmen Nusantara, PT<span class="s">PO-0001-OPE3 · 2 items</span></td><td>31 Oct 2026</td><td class="r">24 pcs<span class="s">Rp 1.698.000</span></td><td class="r">24 pcs<span class="s">Rp 1.698.000</span></td><td><span class="rc">Review Count</span></td></tr>
+      <tr><td>Sepatu Sejahtera, CV<span class="s">PO-0002-REC1 · 2 items</span></td><td>20 Oct 2026</td><td class="r">18 pcs<span class="s">Rp 2.310.000</span></td><td class="r">0 pcs</td><td class="ok">Active</td></tr>
+      <tr><td>Sepatu Sejahtera, CV<span class="s">PO-0002-OPE6 · 3 items</span></td><td>19 Nov 2026</td><td class="r">36 pcs<span class="s">Rp 4.470.000</span></td><td class="r">0 pcs</td><td class="ok">Active</td></tr>
+      <tr><td>Sepatu Sejahtera, CV<span class="s">PO-0002-OPE5 · 2 items</span></td><td>13 Nov 2026</td><td class="r">30 pcs<span class="s">Rp 4.710.000</span></td><td class="r">0 pcs</td><td class="ok">Active</td></tr>
+     </tbody>
+    </table>
+   </div>
+  </div>
+ </main>
+</div>
+
+<div class="switch" role="group" aria-label="Sidebar grey" id="switch"></div>
+
+<script>
+const OPTIONS = [
+  ["a", "Today", "#e9e9ed", "#f5f5f7"],
+  ["b", "Pearl", "#efeff2", "#f9f9fb"],
+  ["c", "Graphite", "#e7e8ec", "#f4f5f7"],
+  ["d", "Porcelain", "#ebeae7", "#f7f6f4"],
+  ["e", "Titanium", "#dfe0e4", "#eeeff2"],
+  ["f", "Fog", "#e8ebf0", "#f4f6f9"],
+  ["g", "Flush", "#f0f0f2", "#f0f0f2"],
+]
+const sw = document.getElementById("switch")
+const pick = (g) => {
+  document.body.dataset.g = g
+  for (const b of sw.children) b.setAttribute("aria-pressed", b.dataset.g === g)
+  const u = new URL(location); u.searchParams.set("g", g); history.replaceState(null, "", u)
+}
+OPTIONS.forEach(([g, name, stone, panel], i) => {
+  const b = document.createElement("button")
+  b.type = "button"; b.dataset.g = g
+  b.title = `${i + 1} · ${stone} / ${panel}`
+  b.innerHTML = `<span class="sw"><i style="background:${stone}"></i><i style="background:${panel}"></i></span>${name} <small>${stone}</small>`
+  b.onclick = () => pick(g)
+  sw.append(b)
+})
+addEventListener("keydown", (e) => {
+  const o = OPTIONS[Number(e.key) - 1]; if (o) pick(o[0])
+})
+pick(new URLSearchParams(location.search).get("g") ?? "a")
+</script>
+</body>
+</html>

@@ -2,6 +2,7 @@ import { Pill } from "@/components/ui/pill"
 import { KeyValue, SubHead } from "@/components/ui/rows"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { money } from "@/lib/format"
+import { taxMonths } from "@/screens/people/tax-report-columns"
 import type { AnnualTaxSlip } from "@itulah/contract"
 
 /// The form, line by line, numbered as DJP numbers it.
@@ -67,9 +68,7 @@ export function AnnualTaxSheet({
       </Pill>
       <Facts>
         <Fact term="Year">{slip.year}</Fact>
-        <Fact term="Masa perolehan">
-          {slip.from_month}–{slip.to_month}
-        </Fact>
+        <Fact term="Masa perolehan">{taxMonths(slip)}</Fact>
         <Fact term="NIK">{slip.nik ?? "—"}</Fact>
         <Fact term="NPWP">{slip.npwp ?? "—"}</Fact>
       </Facts>

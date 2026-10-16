@@ -1,3 +1,4 @@
+import { monthName } from "@/lib/format"
 import type { AnnualTaxSlip, TaxReportRow } from "@itulah/contract"
 
 /// The columns of the two tax exports, kept out of the page files: a `.tsx`
@@ -75,6 +76,28 @@ export const YEAR_COLUMNS = [
     value: (row: AnnualTaxSlip) => (row.settled ? "yes" : "no"),
   },
 ] as const
+
+/// The months a 1721-A1 covers, named: `Jan–Dec`, or one month on its own.
+/// The slip carries them as 1 to 12.
+export function taxMonths(slip: AnnualTaxSlip): string {
+  const name = (month: number) => monthName(new Date(slip.year, month - 1, 1))
+  return slip.from_month === slip.to_month
+    ? name(slip.from_month)
+    : `${name(slip.from_month)}–${name(slip.to_month)}`
+}
+
+/// A tax method in one word, for a cell: the long form is `taxMethodLabel`.
+/// Withholding from pay is the usual way and needs no word.
+export function taxMethodWord(method: string | null): string | null {
+  switch (method) {
+    case "GROSS_UP":
+      return "Gross up"
+    case "NETTO":
+      return "Netto"
+    default:
+      return null
+  }
+}
 
 /// The month before this one, `YYYY-MM` — the month whose payroll has
 /// usually been worked out by the time somebody asks for its tax.

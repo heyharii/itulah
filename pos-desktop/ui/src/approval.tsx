@@ -130,7 +130,7 @@ function ApprovalSheet({
       idempotency_key: key.current,
     })
     if (!reply.ok) {
-      setProblem(reply.problem ?? "Persetujuan tidak tercatat di node.")
+      setProblem(reply.problem ?? "The node did not record the approval.")
       return
     }
     onApproved({
@@ -141,7 +141,7 @@ function ApprovalSheet({
 
   async function withPin() {
     if (username.trim() === "" || pin.current === "") {
-      setProblem("Isi kode supervisor dan PIN.")
+      setProblem("Enter the supervisor code and PIN.")
       return
     }
     setBusy(true)
@@ -150,7 +150,7 @@ function ApprovalSheet({
     setPin("")
     if (answer.authorization === null) {
       setBusy(false)
-      setProblem(answer.problem ?? "PIN ditolak.")
+      setProblem(answer.problem ?? "PIN refused.")
       return
     }
     await record({
@@ -166,7 +166,7 @@ function ApprovalSheet({
     const answer = await supervisorByFinger()
     if (answer.authorization === null) {
       setBusy(false)
-      setProblem(answer.problem ?? "Sidik jari ditolak.")
+      setProblem(answer.problem ?? "Fingerprint refused.")
       return
     }
     await record({
@@ -178,7 +178,7 @@ function ApprovalSheet({
 
   async function withPassword() {
     if (username.trim() === "" || password === "") {
-      setProblem("Isi kode supervisor dan kata sandi.")
+      setProblem("Enter the supervisor code and password.")
       return
     }
     setBusy(true)
@@ -203,12 +203,12 @@ function ApprovalSheet({
 
   return (
     <Sheet
-      title="Persetujuan kepala toko"
+      title="Store manager approval"
       onClose={onClose}
       foot={
         <>
           <button className="btn" onClick={onClose} disabled={busy}>
-            Batal
+            Cancel
           </button>
           <button
             className="btn primary"
@@ -217,10 +217,10 @@ function ApprovalSheet({
           >
             {quick && stepUp === "FINGERPRINT" && <Icon name="finger" />}
             {busy
-              ? "Memeriksa…"
+              ? "Checking…"
               : quick && stepUp === "FINGERPRINT"
-                ? "Pindai sidik jari"
-                : "Setujui"}
+                ? "Scan fingerprint"
+                : "Approve"}
           </button>
         </>
       }
@@ -235,10 +235,10 @@ function ApprovalSheet({
         </div>
       </div>
 
-      {stepUp === null && <p className="muted">Memuat…</p>}
+      {stepUp === null && <p className="muted">Loading…</p>}
 
       {!isWeb && stepUp !== null && stepUp !== "NONE" && (
-        <div className="segmented" role="radiogroup" aria-label="Cara menyetujui">
+        <div className="segmented" role="radiogroup" aria-label="How to approve">
           <button
             type="button"
             role="radio"
@@ -246,7 +246,7 @@ function ApprovalSheet({
             aria-pressed={mode === "quick"}
             onClick={() => setMode("quick")}
           >
-            {stepUp === "FINGERPRINT" ? "Sidik jari" : "PIN"}
+            {stepUp === "FINGERPRINT" ? "Fingerprint" : "PIN"}
           </button>
           <button
             type="button"
@@ -255,7 +255,7 @@ function ApprovalSheet({
             aria-pressed={mode === "password"}
             onClick={() => setMode("password")}
           >
-            Kata sandi
+            Password
           </button>
         </div>
       )}
@@ -269,7 +269,7 @@ function ApprovalSheet({
           }}
         >
           <label className="field">
-            Kode supervisor
+            Supervisor code
             <input
               value={username}
               onChange={(event) => setUsername(event.target.value)}
@@ -287,7 +287,7 @@ function ApprovalSheet({
             />
           ) : (
             <label className="field">
-              Kata sandi
+              Password
               <input
                 type="password"
                 value={password}

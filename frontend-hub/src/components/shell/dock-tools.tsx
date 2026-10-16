@@ -9,6 +9,11 @@ import {
   SheetSortRows,
   type SortChoices,
 } from "@/components/ui/list-chrome"
+import {
+  isStatus,
+  useGiveDoorStatus,
+  useInDoor,
+} from "@/components/ui/door-status"
 import { BottomSheet } from "@/components/ui/picker-sheet"
 import type { FilterState } from "@/lib/filters"
 import { count } from "@/lib/format"
@@ -106,6 +111,10 @@ export function DockTools({
   const proxy = useRef<HTMLInputElement>(null)
   const several = filter !== undefined || sort !== undefined
   const current = status?.options.find((one) => one.value === status.value)
+  // In a door on a phone the status is a section of the door's button
+  // (`door-status.ts`), not a button of its own.
+  const toDoor = useInDoor() && dock?.phone === true && status !== undefined
+  useGiveDoorStatus(status ? { title: "Status", ...status } : null, toDoor)
 
   const toSearch = () => {
     proxy.current?.focus()
@@ -128,14 +137,14 @@ export function DockTools({
 
   return (
     <>
-      {status !== undefined && (
+      {status !== undefined && !toDoor && (
         <DockPortal slot="tabs">
           <button
             type="button"
             onClick={() => setSheet("status")}
             aria-haspopup="dialog"
             aria-label={`Status: ${current?.label ?? ""}`}
-            className="inline-flex h-11 max-w-full items-center gap-1 rounded-full bg-soft-2 pr-3 pl-4 text-[0.875rem] font-medium text-ink transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.97]"
+            className="inline-flex h-11 max-w-full items-center gap-1 rounded-full bg-soft-2 pr-3 pl-4 text-[0.9375rem] font-medium text-ink transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.97]"
           >
             <span className="truncate">{current?.label}</span>
             <ChevronDown className="size-4 shrink-0 text-line-ico" />
@@ -175,7 +184,7 @@ export function DockTools({
               type="button"
               onClick={toSearch}
               aria-label={query.label}
-              className="flex h-full min-w-0 flex-1 items-center gap-2 text-left text-[0.875rem]"
+              className="flex h-full min-w-0 flex-1 items-center gap-2 text-left text-[0.9375rem]"
             >
               <Search
                 className={cn(
@@ -401,6 +410,11 @@ export function DockChoice({
   const dock = useDock()
   const [open, setOpen] = useState(false)
   const current = options.find((one) => one.value === value)
+  // A status in a door on a phone joins the door's button (`door-status.ts`);
+  // a unit or a day stays a button of its own.
+  const toDoor = useInDoor() && dock?.phone === true && isStatus(title)
+  useGiveDoorStatus({ title, value, options, onChange }, toDoor)
+  if (toDoor) return null
   return (
     <>
       <DockPortal slot="tabs">
@@ -409,7 +423,7 @@ export function DockChoice({
           onClick={() => setOpen(true)}
           aria-haspopup="dialog"
           aria-label={`Status: ${current?.short ?? ""}`}
-          className="inline-flex h-11 max-w-full items-center gap-1 rounded-full bg-soft-2 pr-3 pl-4 text-[0.875rem] font-medium text-ink transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.97]"
+          className="inline-flex h-11 max-w-full items-center gap-1 rounded-full bg-soft-2 pr-3 pl-4 text-[0.9375rem] font-medium text-ink transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.97]"
         >
           <span className="truncate">{current?.short ?? current?.label}</span>
           <ChevronDown className="size-4 shrink-0 text-line-ico" />

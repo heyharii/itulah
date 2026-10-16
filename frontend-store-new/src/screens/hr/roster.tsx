@@ -1,34 +1,49 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useQuery } from "@tanstack/react-query"
 import { ArrowLeftRight, ChevronLeft, ChevronRight } from "lucide-react"
-import { useState } from "react"
+import { useRef, useState } from "react"
+import { toast } from "sonner"
 
-import { DockChoice } from "@/components/shell/dock-tools"
+import { DockChoice, DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
-import { Field, Input, Select } from "@/components/ui/field"
-import { LeadFigure } from "@/components/ui/lead-card"
-import { PeopleSheet, SheetSection } from "@/components/ui/people-sheet"
-import { Pill } from "@/components/ui/pill"
-import { EmptyState } from "@/components/ui/states"
-import { CENTRAL_KEY_PREFIX } from "@/lib/cloud"
-import { dateText } from "@/lib/format"
+import { Segmented } from "@/components/ui/segmented"
+import { Stat, StatStrip } from "@/components/ui/stat-strip"
+import { Banner, EmptyState } from "@/components/ui/states"
 import { useLayout } from "@/lib/layout"
 import { useParam } from "@/lib/params"
 import {
   addDays,
-  hrKeys,
   isoDay,
-  planDay,
-  planWord,
   readDate,
-  readMinutes,
-  rosterAt,
-  shifts,
+  rosterQuery,
+  shiftsQuery,
   type StoreScope,
 } from "@/lib/queries/hr"
-import { cn } from "@/lib/utils"
-import { centreState } from "@/screens/hr/centre"
-import { Facts, Heading, Submit } from "@/screens/hr/parts"
+import {
+  cellKey,
+  choiceOfRow,
+  choiceOfSlot,
+  choiceWord,
+  daysBefore,
+  daysOfWeek,
+  isAlready,
+  mondayOf,
+  splitKey,
+  usePlanner,
+  weekSheet,
+  type Change,
+  type Choice,
+  type Outcome,
+} from "@/lib/queries/schedule"
+import { centreState, describeCentre } from "@/screens/hr/centre"
+import { Heading } from "@/screens/hr/parts"
+import { Board, type Lane } from "@/screens/hr/schedule-board"
+import { Cards, Grid, type Picking } from "@/screens/hr/schedule-grid"
+import { dayName, spanOf, tintsOf, weekRange } from "@/screens/hr/schedule-look"
+import {
+  ShiftPicker,
+  type PickTarget,
+  type Session,
+} from "@/screens/hr/schedule-picker"
 import { SwapSheet } from "@/screens/hr/swaps"
 import {
   personByLogin,
@@ -37,28 +52,41 @@ import {
   useTeam,
 } from "@/screens/hr/words"
 import { HrWorkspace } from "@/screens/hr/workspace"
-import type {
-  EmployeeList,
-  RosterDayView,
-  RosterSwapView,
-  ShiftView,
-} from "@itulah/contract"
+import type { RosterSwapView } from "@itulah/contract"
 
-/// The week, per person — the prototype's store Roster.
+/// The week, per person — the prototype's store Schedule.
 ///
 /// "Toko menyusun roster dari jenis shift HO": the shop builds its rota out of
-/// head office's shift patterns, and cannot invent one. So a cell here opens a
-/// sheet that plans that one day — a shift from the catalogue, a day off, or a
-/// public holiday — under `POST /employees/{id}/roster`, which a store head may
-/// call for their own people. Every re-plan is kept as a revision and the
-/// centre counts them; a day planned more than once is marked, because a rota
-/// changed under somebody is a governance signal rather than an edit.
+/// head office's shift patterns, and cannot invent one. A press on a cell, a
+/// name (their whole week) or a day heading (everyone that day) opens a small
+/// picker where it landed, listing those shifts with their hours, a day off and
+/// a public holiday; Shift- or Cmd-click adds cells to the selection first.
+/// Each day it sets is one `POST /employees/{id}/roster` — a store head may
+/// plan their own people — and every re-plan is kept as a revision, which the
+/// centre counts and the cell marks (↻): a rota changed under somebody is a
+/// governance signal rather than an edit.
 ///
-/// The two rows under the grid count cover per day, as the prototype's do.
+/// # What the prototype had that the centre does not
+///
+///  - **Publish.** A plan is in force the moment it is saved; there is no
+///    draft and no approval state, so there is no button for one.
+///  - **Custom hours.** Shifts are head office's and global, so the picker has
+///    none.
+///  - **Taking a plan away.** A day can be revised, never removed, so Undo
+///    puts a day back to what it was and is offered only when every day in the
+///    batch HAD a plan (see `lib/queries/schedule.ts`).
+///  - **8 hours a day.** Hari's rule, drawn in red where a shift falls under
+///    it and counted over the grid; the centre does not know it.
+///
+/// "Same as last week" fills the days of this week that have no plan from the
+/// same weekday of last week and touches nothing already planned — what the
+/// centre's own weekly job does, on demand. It cannot overwrite: that would be
+/// a revision of every day, each needing a reason.
+///
 /// Pending shift swaps sit over the grid, where the prototype puts them: they
 /// are changes to the very week being read.
 ///
-/// Seven days in one read — `GET /api/v1/roster?place&from&to` — rather than
+/// Seven days in one read — `GET /api/v1/roster?unit&from&to` — rather than
 /// seven, because the centre answers a range and one request per day would be
 /// seven chances for one of them to fail.
 ///
@@ -68,51 +96,18 @@ import type {
 /// sideways, so the same week is one card per person — the name, the hours
 /// planned as the figure, and their seven days as rows a thumb can land on —
 /// with a last card for the cover. The week is the dock's choice (a sheet of
-/// weeks); on a desk it is the arrows over the grid.
+/// weeks), the view and "Same as last week" are rows of its ⚙ sheet, and the
+/// picker rises from the bottom; on a desk they are the controls over the grid.
 export function HrRoster() {
   return <HrWorkspace>{(scope) => <Roster scope={scope} />}</HrWorkspace>
 }
 
-/// Monday. A retail week here is read Monday to Sunday; starting it on Sunday
-/// puts the weekend at both ends of the strip.
-function mondayOf(date: Date): Date {
-  return addDays(date, -((date.getDay() + 6) % 7))
-}
+type View = "person" | "shift"
 
-/// What a planned day is called in a cell a seventh of a desk wide.
-function cellWord(day: RosterDayView | undefined): string {
-  if (day === undefined) return "—"
-  if (day.plan === "REST_DAY") return "Off"
-  if (day.plan === "PUBLIC_HOLIDAY") return "Hol"
-  return day.shift_name ?? "Shift"
-}
-
-/// What a planned day is called in a row of a phone's card: the whole word and
-/// the hours.
-function dayWord(day: RosterDayView | undefined): string {
-  if (day === undefined) return "Not planned"
-  if (day.plan !== "SCHEDULED") return planWord(day.plan)
-  return `${day.shift_name ?? "Shift"}${day.starts_at === null ? "" : ` ${day.starts_at}–${day.ends_at ?? ""}`}`
-}
-
-/// `06–12 Oct 2026`, `29 Sep – 05 Oct 2026`: the week that starts on `start`.
-function weekRange(start: string): string {
-  const first = new Date(`${start}T00:00:00`)
-  const last = addDays(first, 6)
-  const sameMonth = first.getMonth() === last.getMonth()
-  const sameYear = first.getFullYear() === last.getFullYear()
-  const from = dateText(first, {
-    day: "2-digit",
-    ...(sameMonth && sameYear ? {} : { month: "short" }),
-    ...(sameYear ? {} : { year: "numeric" }),
-  })
-  const to = dateText(last, {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  })
-  return `${from}${sameMonth && sameYear ? "–" : " – "}${to}`
-}
+const VIEWS = [
+  { value: "person", label: "By person" },
+  { value: "shift", label: "By shift" },
+] as const
 
 /// The weeks the dock offers: four back, six forward, and the one in the URL
 /// when it is none of them.
@@ -145,16 +140,28 @@ function weekChoices(from: string, thisWeek: string) {
   })
 }
 
-/// `Mon 06`, for a row or a column.
-function dayName(date: string): string {
-  const parsed = new Date(`${date}T00:00:00`)
-  return `${dateText(parsed, { weekday: "short" })} ${date.slice(8)}`
+function plural(count: number, word: string): string {
+  return `${count} ${word}${count === 1 ? "" : "s"}`
 }
 
-interface Target {
-  readonly employeeId: string
-  readonly date: string
-  readonly day: RosterDayView | undefined
+function toggled(set: ReadonlySet<string>, key: string): Set<string> {
+  const next = new Set(set)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  return next
+}
+
+/// What went wrong with a batch, for the banner over the grid.
+interface Failure {
+  readonly count: number
+  readonly error: unknown
+}
+
+function failureOf(outcome: Outcome): Failure | null {
+  const first = outcome.failed[0]
+  return first === undefined
+    ? null
+    : { count: outcome.failed.length, error: first.error }
 }
 
 function Roster({ scope }: { scope: StoreScope }) {
@@ -162,29 +169,263 @@ function Roster({ scope }: { scope: StoreScope }) {
   const week = useParam("week")
   const thisWeek = isoDay(mondayOf(new Date()))
   const from = week.value ?? thisWeek
-  const days = Array.from({ length: 7 }, (_, index) =>
-    isoDay(addDays(new Date(`${from}T00:00:00`), index)),
-  )
+  const days = daysOfWeek(from)
   const to = days[6] as string
   const today = isoDay(new Date())
+  const lastDays = daysBefore(from)
 
-  const roster = useQuery({
-    queryKey: hrKeys.roster(scope.unit_id, from, to),
-    queryFn: ({ signal }) => rosterAt(scope.unit_id, from, to, signal),
-  })
+  const roster = useQuery(rosterQuery(scope.unit_id, from, to))
+  // Last week, for "Same as last week".
+  const last = useQuery(
+    rosterQuery(scope.unit_id, lastDays[0] as string, lastDays[6] as string),
+  )
   const team = useTeam(scope)
-  const catalogue = useQuery({
-    queryKey: hrKeys.shifts(),
-    queryFn: ({ signal }) => shifts(signal),
-    staleTime: 5 * 60_000,
-  })
+  const catalogue = useQuery(shiftsQuery())
   const swaps = usePendingSwaps(scope)
-  const [target, setTarget] = useState<Target | null>(null)
-  const [swap, setSwap] = useState<RosterSwapView | null>(null)
+  const planner = usePlanner()
 
+  const [view, setView] = useState<View>("person")
+  /// The days the picker is open for — `date|employee` keys.
+  const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set())
+  const [session, setSession] = useState<Session | null>(null)
+  const [swap, setSwap] = useState<RosterSwapView | null>(null)
+  const [failure, setFailure] = useState<Failure | null>(null)
+  const serial = useRef(0)
+
+  const shiftList = catalogue.data ?? []
+  const tint = tintsOf(shiftList)
+  const sheet = weekSheet({
+    days,
+    rows: roster.data ?? [],
+    pending: planner.pending,
+    active: (team.data?.rows ?? [])
+      .filter((person) => person.status === "ACTIVE")
+      .map((person) => person.employee_id),
+  })
+
+  const closeAll = () => {
+    setSession(null)
+    setSelected(new Set())
+  }
+  const go = (next: string | undefined) => {
+    closeAll()
+    week.set(next)
+  }
   const move = (by: number) =>
-    week.set(isoDay(addDays(new Date(`${from}T00:00:00`), by)))
+    go(isoDay(addDays(new Date(`${from}T00:00:00`), by)))
+  // One line for the Schedule: a new change replaces the last and restarts
+  // its clock — long enough to read a sentence and reach for Undo.
+  const say = (text: string, undo?: () => void) =>
+    toast(text, {
+      id: "hr-schedule",
+      duration: 7000,
+      action: undo === undefined ? undefined : { label: "Undo", onClick: undo },
+    })
   const asked = swaps.data?.rows ?? []
+
+  // ── aiming the picker ─────────────────────────────────────────────────────
+
+  const targetsOf = (keys: ReadonlySet<string>): PickTarget[] =>
+    [...keys].map(splitKey).map(({ employeeId, date }) => ({
+      employeeId,
+      date,
+      slot: sheet.slot(employeeId, date),
+    }))
+
+  /// What the picker says under its title when it is open for one day: who
+  /// planned it, and that it was changed since.
+  const captionOf = (targets: readonly PickTarget[]): string | undefined => {
+    const one = targets.length === 1 ? targets[0] : undefined
+    const slot = one?.slot
+    if (slot === undefined || slot.saving) return undefined
+    const again =
+      slot.revisions > 1
+        ? ` · re-planned ${plural(slot.revisions - 1, "time")}`
+        : ""
+    return `Planned by ${personByLogin(team.data, slot.plannedBy)}${again}`
+  }
+
+  const aim = (
+    anchor: HTMLElement,
+    keys: ReadonlySet<string>,
+    title: string,
+    more: boolean,
+  ) => {
+    if (keys.size === 0) {
+      closeAll()
+      return
+    }
+    // A shift-press keeps the popup where it is; a plain one draws it afresh
+    // at the new target.
+    if (!more || session === null) serial.current += 1
+    const targets = targetsOf(keys)
+    setSelected(keys)
+    setSession({
+      kind: "set",
+      anchor,
+      title,
+      caption: captionOf(targets),
+      serial: serial.current,
+      targets,
+    })
+  }
+
+  const picking: Picking = {
+    selected,
+    onCell: (event, employeeId, date) => {
+      const key = cellKey(employeeId, date)
+      const more = event.shiftKey || event.metaKey || event.ctrlKey
+      const keys = more ? toggled(selected, key) : new Set([key])
+      aim(
+        event.currentTarget,
+        keys,
+        keys.size > 1
+          ? plural(keys.size, "day")
+          : `${personName(team.data, employeeId)} · ${readDate(date, true)}`,
+        more,
+      )
+    },
+    onPerson: (event, employeeId) =>
+      aim(
+        event.currentTarget,
+        new Set(days.map((date) => cellKey(employeeId, date))),
+        `${personName(team.data, employeeId)} · whole week`,
+        false,
+      ),
+    onDay: (event, date) =>
+      aim(
+        event.currentTarget,
+        new Set(sheet.people.map((employeeId) => cellKey(employeeId, date))),
+        `Everyone · ${readDate(date, true)}`,
+        false,
+      ),
+  }
+
+  /// The board's "+": who could go on this shift this day.
+  const onAdd = (
+    event: React.MouseEvent<HTMLElement>,
+    date: string,
+    lane: Lane,
+  ) => {
+    // A shift head office has retired cannot take anybody new.
+    const shift = shiftList.find((one) => one.id === lane.id)
+    if (shift === undefined) return
+    serial.current += 1
+    setSelected(new Set())
+    setSession({
+      kind: "add",
+      anchor: event.currentTarget,
+      title: `Add to ${shift.name}`,
+      caption: `${spanOf(shift)} · ${readDate(date, true)}`,
+      serial: serial.current,
+      shift,
+      date,
+      people: sheet.people
+        .map((employeeId) => ({
+          employeeId,
+          name: personName(team.data, employeeId),
+          slot: sheet.slot(employeeId, date),
+        }))
+        .filter(
+          (one) => one.slot === undefined || one.slot.plan !== "SCHEDULED",
+        ),
+    })
+  }
+
+  // ── writing ───────────────────────────────────────────────────────────────
+
+  const take = (outcome: Outcome) => setFailure(failureOf(outcome))
+
+  /// Put the days back as they were: a revision each, filed as such.
+  const undo = async (changes: readonly Change[], back: readonly Choice[]) => {
+    const outcome = await planner.apply(
+      changes.map((one, index) => ({
+        employeeId: one.employeeId,
+        date: one.date,
+        choice: back[index] as Choice,
+        reason: "Change taken back",
+      })),
+    )
+    take(outcome)
+  }
+
+  const apply = async (
+    targets: readonly PickTarget[],
+    choice: Choice,
+    why: string,
+  ) => {
+    const moving = targets.filter((one) => !isAlready(one.slot, choice))
+    closeAll()
+    if (moving.length === 0) return
+    setFailure(null)
+    // A first plan is filed as the weekly rota; a revision carries the
+    // sentence the person gave.
+    const reason = why.trim() === "" ? "Weekly rota" : why.trim()
+    const changes: Change[] = moving.map((one) => ({
+      employeeId: one.employeeId,
+      date: one.date,
+      choice,
+      reason,
+    }))
+    // What each day was, to go back to. Undo is only honest when every day had
+    // a plan: the centre cannot unplan one.
+    const back = moving.map((one) => choiceOfSlot(one.slot, shiftList))
+    const outcome = await planner.apply(changes)
+    take(outcome)
+
+    const first = moving[0]
+    const text =
+      outcome.failed.length > 0
+        ? `${outcome.saved} of ${plural(changes.length, "day")} saved`
+        : moving.length === 1 && first !== undefined
+          ? `${personName(team.data, first.employeeId)} · ${dayName(first.date)} set to ${choiceWord(choice)}`
+          : `${plural(moving.length, "day")} set to ${choiceWord(choice)}`
+    const restorable = back.every((one): one is Choice => one !== null)
+    say(
+      text,
+      outcome.failed.length === 0 && restorable
+        ? () => void undo(changes, back as Choice[])
+        : undefined,
+    )
+  }
+
+  /// Days of this week with no plan whose weekday last week had one.
+  const fillable: Change[] = []
+  if (last.data !== undefined) {
+    const before = new Map(
+      last.data.map((row) => [cellKey(row.employee_id, row.on_date), row]),
+    )
+    for (const employeeId of sheet.people) {
+      days.forEach((date, index) => {
+        if (sheet.slot(employeeId, date) !== undefined) return
+        const source = before.get(
+          cellKey(employeeId, lastDays[index] as string),
+        )
+        const choice =
+          source === undefined ? null : choiceOfRow(source, shiftList)
+        if (choice === null) return
+        fillable.push({
+          employeeId,
+          date,
+          choice,
+          reason: "Same as last week",
+        })
+      })
+    }
+  }
+
+  const copy = async () => {
+    closeAll()
+    setFailure(null)
+    const outcome = await planner.apply(fillable)
+    take(outcome)
+    // No Undo: these days had no plan, and a day cannot be unplanned.
+    say(
+      outcome.saved === 0
+        ? "Nothing was copied"
+        : `Copied ${plural(outcome.saved, "day")} from last week`,
+    )
+  }
 
   return (
     <>
@@ -193,8 +434,52 @@ function Roster({ scope }: { scope: StoreScope }) {
         title="Week"
         value={from}
         options={weekChoices(from, thisWeek)}
-        onChange={(next) => week.set(next === thisWeek ? undefined : next)}
+        onChange={(next) => go(next === thisWeek ? undefined : next)}
       />
+      <DockTools
+        views={[
+          {
+            title: "View",
+            value: view,
+            options: VIEWS,
+            onChange: (next) => setView(next as View),
+          },
+        ]}
+        actions={
+          fillable.length > 0
+            ? [{ label: "Same as last week", onClick: () => void copy() }]
+            : undefined
+        }
+      />
+
+      <StatStrip>
+        <Stat
+          label="Working today"
+          value={
+            roster.data === undefined || !days.includes(today)
+              ? "—"
+              : sheet.working(today)
+          }
+        />
+        <Stat
+          label="Planned this week"
+          value={
+            roster.data === undefined
+              ? "—"
+              : sheet.people.filter((id) => sheet.minutesOf(id) > 0).length
+          }
+        />
+        <Stat
+          label="Shifts under 8 hours"
+          value={roster.data === undefined ? "—" : sheet.short}
+          tone={sheet.short > 0 ? "bad" : undefined}
+        />
+        <Stat
+          label="Swap requests"
+          value={swaps.data === undefined ? "—" : asked.length}
+          tone={asked.length > 0 ? "warn" : undefined}
+        />
+      </StatStrip>
 
       {asked.length > 0 && (
         <div className="mb-4 flex items-start gap-2.5 rounded-card border border-warn-fg/25 bg-warn-bg/50 px-3.5 py-2">
@@ -220,13 +505,26 @@ function Roster({ scope }: { scope: StoreScope }) {
         </div>
       )}
 
-      {/* The desk's week: the range, and the arrows. */}
+      {/* The desk's week: the range, the view, the copy, and the arrows. */}
       <div className="max-md:hidden">
         <Heading
           action={
             <div className="flex items-center gap-1.5">
+              <Segmented
+                options={VIEWS}
+                value={view}
+                onChange={setView}
+                className="mr-1.5"
+              />
+              <Button
+                disabled={fillable.length === 0}
+                title={fillable.length === 0 ? "Nothing to copy" : undefined}
+                onClick={() => void copy()}
+              >
+                Same as last week
+              </Button>
               {from !== thisWeek && (
-                <Button variant="quiet" onClick={() => week.set(undefined)}>
+                <Button variant="quiet" onClick={() => go(undefined)}>
                   This week
                 </Button>
               )}
@@ -251,42 +549,55 @@ function Roster({ scope }: { scope: StoreScope }) {
         </Heading>
       </div>
 
+      {failure !== null && (
+        <Banner tone="bad" className="mb-4" onDismiss={() => setFailure(null)}>
+          {plural(failure.count, "day")} could not be saved.{" "}
+          {describeCentre(failure.error)}
+        </Banner>
+      )}
+
       {centreState(roster, {
         loading: "Reading the rota…",
         what: "this shop's rota",
-        render: (rows) => {
-          const sheet = weekOf(rows, team.data)
-          return sheet.people.length === 0 ? (
+        render: () =>
+          sheet.people.length === 0 ? (
             <EmptyState>Nobody is rostered this week.</EmptyState>
-          ) : phone ? (
-            <Cards
-              sheet={sheet}
-              days={days}
+          ) : view === "shift" ? (
+            <Board
+              week={sheet}
               today={today}
               team={team.data}
-              onPick={setTarget}
+              shifts={shiftList}
+              tint={tint}
+              picking={picking}
+              onAdd={onAdd}
+            />
+          ) : phone ? (
+            <Cards
+              week={sheet}
+              today={today}
+              team={team.data}
+              picking={picking}
             />
           ) : (
             <Grid
-              sheet={sheet}
-              days={days}
+              week={sheet}
               today={today}
               team={team.data}
-              onPick={setTarget}
+              tint={tint}
+              picking={picking}
+              plannedBy={(login) => personByLogin(team.data, login)}
             />
-          )
-        },
+          ),
       })}
 
-      {target !== null && (
-        <PlanSheet
-          key={`${target.employeeId}-${target.date}`}
-          target={target}
-          team={team.data}
-          catalogue={catalogue.data ?? []}
-          onClose={() => setTarget(null)}
-        />
-      )}
+      <ShiftPicker
+        session={session}
+        phone={phone}
+        catalogue={shiftList}
+        onApply={(targets, choice, why) => void apply(targets, choice, why)}
+        onClose={closeAll}
+      />
       {swap !== null && (
         <SwapSheet
           key={swap.id}
@@ -296,486 +607,5 @@ function Roster({ scope }: { scope: StoreScope }) {
         />
       )}
     </>
-  )
-}
-
-/// What a week is made of, read once for both of its shapes.
-interface WeekSheet {
-  readonly people: readonly string[]
-  readonly find: (employeeId: string, date: string) => RosterDayView | undefined
-  readonly minutesOf: (employeeId: string) => number
-  /// How many are on a shift that day — all of them, or the ones on `name`.
-  readonly working: (date: string, name?: string) => number
-  readonly shiftNames: readonly string[]
-}
-
-function weekOf(
-  rows: readonly RosterDayView[],
-  team: EmployeeList | undefined,
-): WeekSheet {
-  // Everybody active at this shop, plus anybody rostered who is not on the
-  // list (a posting can move mid-week) — so an unplanned person still has a
-  // row to plan them in.
-  const active = (team?.rows ?? [])
-    .filter((person) => person.status === "ACTIVE")
-    .map((person) => person.employee_id)
-  const people = [
-    ...new Set([...active, ...rows.map((row) => row.employee_id)]),
-  ]
-  return {
-    people,
-    find: (employeeId, date) =>
-      rows.find(
-        (row) => row.employee_id === employeeId && row.on_date === date,
-      ),
-    minutesOf: (employeeId) =>
-      rows
-        .filter((row) => row.employee_id === employeeId)
-        .reduce((total, row) => total + (row.planned_work_minutes ?? 0), 0),
-    working: (date, name) =>
-      rows.filter(
-        (row) =>
-          row.on_date === date &&
-          row.plan === "SCHEDULED" &&
-          (name === undefined || (row.shift_name ?? "Shift") === name),
-      ).length,
-    shiftNames: [
-      ...new Set(
-        rows
-          .filter((row) => row.plan === "SCHEDULED")
-          .map((row) => row.shift_name ?? "Shift"),
-      ),
-    ].sort(),
-  }
-}
-
-/// The matrix: a person per row, a day per column, and cover at the foot.
-///
-/// A matrix and not a list on a desk, because the thing read here is the week
-/// *across*. A tablet scrolls it inside its own card; a phone does not draw it
-/// at all (see `Cards`).
-function Grid({
-  sheet,
-  days,
-  today,
-  team,
-  onPick,
-}: {
-  sheet: WeekSheet
-  days: readonly string[]
-  today: string
-  team: EmployeeList | undefined
-  onPick: (target: Target) => void
-}) {
-  return (
-    <Card>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[40rem] border-collapse text-cell">
-          <thead>
-            <tr>
-              <th className="sticky left-0 z-10 h-10 border-b border-hairline bg-soft px-3.5 text-left text-eyebrow font-medium text-body">
-                Employee
-              </th>
-              {days.map((date) => {
-                const parsed = new Date(`${date}T00:00:00`)
-                return (
-                  <th
-                    key={date}
-                    className={cn(
-                      "h-10 border-b border-hairline px-1 text-center text-eyebrow font-medium text-body",
-                      date === today ? "bg-accent-bg text-accent" : "bg-soft",
-                    )}
-                  >
-                    {dateText(parsed, { weekday: "short" })}{" "}
-                    <span className="tabular-nums">{date.slice(8)}</span>
-                  </th>
-                )
-              })}
-              <th className="h-10 border-b border-hairline bg-soft px-3.5 text-right text-eyebrow font-medium text-body">
-                Planned
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {sheet.people.map((employeeId) => (
-              <tr key={employeeId} className="border-b border-hairline">
-                <th className="sticky left-0 z-10 max-w-[11rem] truncate bg-canvas px-3.5 py-1.5 text-left text-cell font-medium text-ink">
-                  {personName(team, employeeId)}
-                </th>
-                {days.map((date) => {
-                  const day = sheet.find(employeeId, date)
-                  return (
-                    <td key={date} className="px-1 py-1.5 text-center">
-                      <button
-                        type="button"
-                        onClick={() => onPick({ employeeId, date, day })}
-                        title={
-                          day === undefined
-                            ? "Not planned"
-                            : `${planWord(day.plan)}${day.starts_at === null ? "" : ` ${day.starts_at}–${day.ends_at ?? ""}`}${day.revision_count > 1 ? ` · re-planned ${day.revision_count} times` : ""}`
-                        }
-                        className={cn(
-                          "inline-flex h-9 w-full min-w-[3.25rem] items-center justify-center gap-0.5 truncate rounded-inner px-1 text-meta font-medium transition-colors pointer-coarse:h-11",
-                          day === undefined &&
-                            "border border-dashed border-hairline-2 text-faint hover:bg-soft",
-                          day?.plan === "SCHEDULED" &&
-                            "bg-accent-bg text-accent hover:brightness-95",
-                          day?.plan === "REST_DAY" &&
-                            "bg-soft-2 text-body hover:brightness-95",
-                          day?.plan === "PUBLIC_HOLIDAY" &&
-                            "bg-warn-bg text-warn-fg hover:brightness-95",
-                          date === today && "ring-2 ring-accent/40",
-                        )}
-                      >
-                        {cellWord(day)}
-                        {day !== undefined && day.revision_count > 1 && (
-                          <span aria-label="Re-planned">↻</span>
-                        )}
-                      </button>
-                    </td>
-                  )
-                })}
-                <td className="px-3.5 py-1.5 text-right text-meta whitespace-nowrap text-body tabular-nums">
-                  {readMinutes(sheet.minutesOf(employeeId))}
-                </td>
-              </tr>
-            ))}
-            {/* Cover, per shift and in all. Red when nobody is on — the
-                prototype's minimum is two, but the minimum is head office's
-                rule and this build has no route that states it, so the only
-                line drawn here is the one nobody could argue with. */}
-            {sheet.shiftNames.map((name) => (
-              <tr key={name} className="border-b border-hairline bg-soft/60">
-                <th className="sticky left-0 z-10 bg-soft px-3.5 py-1.5 text-left text-meta font-medium text-body">
-                  {name}
-                </th>
-                {days.map((date) => {
-                  const count = sheet.working(date, name)
-                  return (
-                    <td
-                      key={date}
-                      className={cn(
-                        "px-1 py-1.5 text-center text-meta tabular-nums",
-                        count === 0 ? "font-semibold text-bad-fg" : "text-body",
-                      )}
-                    >
-                      {count}
-                    </td>
-                  )
-                })}
-                <td />
-              </tr>
-            ))}
-            <tr className="bg-soft/60">
-              <th className="sticky left-0 z-10 bg-soft px-3.5 py-1.5 text-left text-meta font-semibold text-ink">
-                On the rota
-              </th>
-              {days.map((date) => {
-                const count = sheet.working(date)
-                return (
-                  <td
-                    key={date}
-                    className={cn(
-                      "px-1 py-1.5 text-center text-meta font-semibold tabular-nums",
-                      count === 0 ? "text-bad-fg" : "text-ink",
-                    )}
-                  >
-                    {count}
-                  </td>
-                )
-              })}
-              <td />
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </Card>
-  )
-}
-
-/// The week on a phone: one card per person, the hours planned as the figure,
-/// the seven days as rows of 44px — then the cover. Nothing scrolls sideways.
-function Cards({
-  sheet,
-  days,
-  today,
-  team,
-  onPick,
-}: {
-  sheet: WeekSheet
-  days: readonly string[]
-  today: string
-  team: EmployeeList | undefined
-  onPick: (target: Target) => void
-}) {
-  return (
-    <div className="flex flex-col gap-3">
-      {sheet.people.map((employeeId) => {
-        const row = team?.rows.find(
-          (person) => person.employee_id === employeeId,
-        )
-        const minutes = sheet.minutesOf(employeeId)
-        return (
-          <section
-            key={employeeId}
-            className="overflow-hidden rounded-card border border-hairline bg-canvas shadow-soft"
-          >
-            <div className="flex items-start gap-3 p-4">
-              <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                <h3 className="line-clamp-2 text-card-title font-semibold break-words text-ink">
-                  {personName(team, employeeId)}
-                </h3>
-                {row?.position ? (
-                  <p className="text-[0.875rem] text-mute">{row.position}</p>
-                ) : null}
-              </div>
-              <div className="min-w-0 shrink-0">
-                <LeadFigure
-                  value={minutes === 0 ? "—" : readMinutes(minutes)}
-                  caption="planned"
-                  muted={minutes === 0}
-                />
-              </div>
-            </div>
-            <ul className="border-t border-hairline">
-              {days.map((date) => {
-                const day = sheet.find(employeeId, date)
-                return (
-                  <li
-                    key={date}
-                    className="border-b border-hairline last:border-b-0"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => onPick({ employeeId, date, day })}
-                      className={cn(
-                        "flex min-h-11 w-full items-center gap-3 px-4 py-2 text-left transition-colors duration-(--t-press) ease-(--ease-out) active:bg-soft",
-                        date === today && "bg-accent-bg/60",
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          "w-[4.5rem] shrink-0 text-[0.875rem] tabular-nums",
-                          date === today
-                            ? "font-semibold text-accent"
-                            : "text-body",
-                        )}
-                      >
-                        {dayName(date)}
-                      </span>
-                      <span
-                        className={cn(
-                          "min-w-0 flex-1 truncate text-cell",
-                          day === undefined
-                            ? "text-mute"
-                            : day.plan === "SCHEDULED"
-                              ? "font-medium text-ink"
-                              : "text-body",
-                        )}
-                      >
-                        {dayWord(day)}
-                      </span>
-                      {day !== undefined && day.revision_count > 1 && (
-                        <span className="shrink-0 text-[0.875rem] text-warn-fg">
-                          Re-planned
-                        </span>
-                      )}
-                    </button>
-                  </li>
-                )
-              })}
-            </ul>
-          </section>
-        )
-      })}
-
-      {/* Cover: who is on, per day — red when nobody is. */}
-      <section className="overflow-hidden rounded-card border border-hairline bg-canvas shadow-soft">
-        <h3 className="p-4 pb-3 text-card-title font-semibold text-ink">
-          On the rota
-        </h3>
-        <ul className="border-t border-hairline">
-          {days.map((date) => {
-            const count = sheet.working(date)
-            return (
-              <li
-                key={date}
-                className={cn(
-                  "flex min-h-11 items-center gap-3 border-b border-hairline px-4 py-2 last:border-b-0",
-                  date === today && "bg-accent-bg/60",
-                )}
-              >
-                <span
-                  className={cn(
-                    "w-[4.5rem] shrink-0 text-[0.875rem] tabular-nums",
-                    date === today ? "font-semibold text-accent" : "text-body",
-                  )}
-                >
-                  {dayName(date)}
-                </span>
-                <span className="min-w-0 flex-1 truncate text-[0.875rem] text-mute">
-                  {sheet.shiftNames
-                    .map((name) => `${name} ${sheet.working(date, name)}`)
-                    .join(" · ")}
-                </span>
-                <span
-                  className={cn(
-                    "shrink-0 text-cell font-semibold tabular-nums",
-                    count === 0 ? "text-bad-fg" : "text-ink",
-                  )}
-                >
-                  {count}
-                </span>
-              </li>
-            )
-          })}
-        </ul>
-      </section>
-    </div>
-  )
-}
-
-/// Plan one day of one person's week.
-function PlanSheet({
-  target,
-  team,
-  catalogue,
-  onClose,
-}: {
-  target: Target
-  team: EmployeeList | undefined
-  catalogue: readonly ShiftView[]
-  onClose: () => void
-}) {
-  const client = useQueryClient()
-  const current = target.day
-  const [plan, setPlan] = useState<"SCHEDULED" | "REST_DAY" | "PUBLIC_HOLIDAY">(
-    (current?.plan as
-      "SCHEDULED" | "REST_DAY" | "PUBLIC_HOLIDAY" | undefined) ?? "SCHEDULED",
-  )
-  const [shiftId, setShiftId] = useState(current?.shift_id ?? "")
-  const [reason, setReason] = useState("")
-
-  const save = useMutation({
-    mutationFn: () =>
-      planDay({
-        employeeId: target.employeeId,
-        onDate: target.date,
-        plan,
-        shiftId: plan === "SCHEDULED" ? shiftId : undefined,
-        reason,
-      }),
-    onSuccess: () => {
-      client.invalidateQueries({
-        queryKey: [CENTRAL_KEY_PREFIX, "hr", "roster"],
-      })
-      client.invalidateQueries({ queryKey: hrKeys.attendance() })
-      onClose()
-    },
-  })
-
-  const person = team?.rows.find((one) => one.employee_id === target.employeeId)
-
-  return (
-    <PeopleSheet
-      open
-      onOpenChange={(next) => {
-        if (!next) onClose()
-      }}
-      id={person?.full_name ? person.employee_code : undefined}
-      crumb="Roster"
-      title={personName(team, target.employeeId)}
-      sub={readDate(target.date, true)}
-      status={
-        current === undefined ? (
-          <Pill tone="neutral">Not planned</Pill>
-        ) : (
-          <Pill tone={current.plan === "SCHEDULED" ? "accent" : "neutral"}>
-            {planWord(current.plan)}
-          </Pill>
-        )
-      }
-      foot={
-        <Submit
-          label={current === undefined ? "Create plan" : "Save changes"}
-          pendingLabel={current === undefined ? "Creating…" : "Saving…"}
-          pending={save.isPending}
-          disabled={
-            reason.trim() === "" || (plan === "SCHEDULED" && shiftId === "")
-          }
-          error={save.error}
-          onSubmit={() => save.mutate()}
-          onCancel={onClose}
-        />
-      }
-    >
-      {current !== undefined && (
-        <SheetSection title="As planned">
-          <Facts
-            rows={[
-              ["Plan", planWord(current.plan)],
-              current.shift_name !== null && [
-                "Shift",
-                `${current.shift_name} ${current.starts_at ?? ""}–${current.ends_at ?? ""}${current.crosses_midnight ? " +1" : ""}`,
-              ],
-              current.planned_work_minutes !== null && [
-                "Paid time",
-                readMinutes(current.planned_work_minutes),
-              ],
-              ["Planned by", personByLogin(team, current.planned_by)],
-              current.revision_count > 1 && [
-                "Re-planned",
-                <span className="text-warn-fg">
-                  {current.revision_count} times
-                </span>,
-              ],
-            ]}
-          />
-        </SheetSection>
-      )}
-
-      <SheetSection title={current === undefined ? "Plan" : "New plan"}>
-        <div className="flex flex-col gap-3">
-          <Field label="Day type" required>
-            <Select
-              value={plan}
-              onChange={(value) => setPlan(value as typeof plan)}
-            >
-              <option value="SCHEDULED">A working day</option>
-              <option value="REST_DAY">A day off</option>
-              <option value="PUBLIC_HOLIDAY">A public holiday</option>
-            </Select>
-          </Field>
-          {plan === "SCHEDULED" && (
-            <Field
-              label="Shift"
-              required
-              hint={
-                catalogue.length === 0 ? "No shift patterns yet." : undefined
-              }
-            >
-              <Select value={shiftId} onChange={setShiftId}>
-                <option value="">Choose a shift…</option>
-                {catalogue.map((shift) => (
-                  <option key={shift.id} value={shift.id}>
-                    {shift.name} · {shift.starts_at}–{shift.ends_at}
-                    {shift.crosses_midnight ? " +1" : ""}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-          )}
-          <Field label="Reason" required>
-            <Input
-              value={reason}
-              placeholder={
-                current === undefined ? "Weekly rota" : "Covering for Sari"
-              }
-              onChange={(event) => setReason(event.target.value)}
-            />
-          </Field>
-        </div>
-      </SheetSection>
-    </PeopleSheet>
   )
 }

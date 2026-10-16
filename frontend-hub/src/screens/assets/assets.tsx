@@ -1,6 +1,6 @@
-import { useInfiniteQuery } from "@tanstack/react-query"
+import { useSuspenseInfiniteQuery } from "@tanstack/react-query"
 import { ListFilter, Plus } from "lucide-react"
-import { useMemo, useState } from "react"
+import { Suspense, useDeferredValue, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { DockTools } from "@/components/shell/dock-tools"
@@ -13,12 +13,11 @@ import { ChoiceMenu } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
-import { EmptyState, LoadMore } from "@/components/ui/states"
+import { EmptyState, LoadingState, LoadMore } from "@/components/ui/states"
 import { buildOf, BUILDS, BUILD_VIEWS } from "@/lib/builds"
 import { count } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
-import { gaKeys, gaAssets } from "@/lib/queries/ga"
-import { queryState } from "@/lib/query-state"
+import { gaAssetBookQuery } from "@/lib/queries/ga"
 import { useSheet } from "@/lib/sheets"
 import { useDebounced } from "@/lib/use-debounced"
 import { cn } from "@/lib/utils"
@@ -74,10 +73,6 @@ import type { GaAssetRow } from "@itulah/contract"
 /// group they named was never sent. So there is one Assets row, and every
 /// reading is a chip whose value rides in `?asset-view=`: a facilities person
 /// who only ever wants the vehicles can still bookmark it and send it.
-/// How many assets one page of the register asks for. A step, not a ceiling:
-/// the rest arrive as the list is scrolled.
-const PAGE = 100
-
 export function Assets() {
   const reading = useSheet("asset-view")
   const view = BUILD_VIEWS.find((one) => one.value === reading.value)
@@ -116,30 +111,6 @@ export function Assets() {
     [needle, book, site, condition, view]
   )
 
-  /// The register, a page at a time, the next one fetched as the foot of the
-  /// list nears view. Its own key under the register's prefix: the pickers
-  /// read the same scope as one plain page, and an infinite answer and a plain
-  /// one cannot share a cache entry. `gaKeys.all` still reaches it.
-  const register = useInfiniteQuery({
-    queryKey: [...gaKeys.assets(scope), "pages"] as const,
-    queryFn: ({ pageParam, signal }) =>
-      gaAssets({ ...scope, limit: PAGE, cursor: pageParam }, signal),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) => last.next_cursor ?? undefined,
-    // The previous answer stays on screen while the next is fetched. Without
-    // it every search empties the register to a loading line.
-    placeholderData: (previous) => previous,
-  })
-
-  const rows = useMemo(
-    () => register.data?.pages.flatMap((page) => page.rows) ?? [],
-    [register.data]
-  )
-  // Total and facets are the same on every page; the first one says them.
-  const head = register.data?.pages[0]
-  const sites = head?.facets.sites ?? []
-  const conditions = head?.facets.conditions ?? []
-
   return (
     <PageContent>
       <PageHeader
@@ -157,6 +128,7 @@ export function Assets() {
               <Input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search"
                 className="h-8 w-56"
               />
               <Button variant="primary" onClick={() => setAdding(true)}>
@@ -188,6 +160,151 @@ export function Assets() {
           onChange: (next) => setBook(next as typeof book),
         }}
       />
+      <Suspense
+        fallback={
+          <>
+            <div className={DESK_BAR}>
+              <StatusTabs book={book} onChange={setBook} />
+            </div>
+            <LoadingState>Loading assets…</LoadingState>
+          </>
+        }
+      >
+        <AssetRegister
+          scope={scope}
+          view={view}
+          reading={reading}
+          book={book}
+          setBook={setBook}
+          condition={condition}
+          setCondition={setCondition}
+          site={site}
+          setSite={setSite}
+          filtering={filtering}
+          setFiltering={setFiltering}
+          phone={phone}
+          onOpen={open.open}
+          onAdd={() => setAdding(true)}
+        />
+      </Suspense>
+
+      <RegisterAssetSheet
+        open={adding}
+        // The builds the reading means, so a licence is not offered from the
+        // vehicles; every build when nothing is narrowed.
+        builds={view?.builds ?? BUILDS.map((one) => one.value)}
+        onClose={() => setAdding(false)}
+        onRegistered={(assetId) => {
+          setAdding(false)
+          open.open(assetId)
+        }}
+      />
+
+      <AssetHubSheet
+        assetId={open.value}
+        open={open.isOpen}
+        onClose={open.close}
+        onProposeReplacement={replacement.open}
+        onRequestDisposal={disposal.open}
+      />
+
+      {/* The key remounts the sheet when a different record is opened, so its
+          local state does not follow the id. It is prefixed because the two
+          sheets are siblings and both are closed most of the time — two bare
+          "none" keys are one duplicate key, and React says so. */}
+      <ReplacementSheet
+        key={`replacement:${replacement.value ?? "none"}`}
+        replacementId={replacement.value}
+        open={replacement.isOpen}
+        onClose={replacement.close}
+      />
+
+      <DisposalSheet
+        key={`disposal:${disposal.value ?? "none"}`}
+        disposalId={disposal.value}
+        open={disposal.isOpen}
+        onClose={disposal.close}
+      />
+    </PageContent>
+  )
+}
+
+/// The status tabs of the register: all of it, what still needs details, what
+/// is registered.
+function StatusTabs({
+  book,
+  onChange,
+}: {
+  book: "ALL" | "DRAFT" | "REGISTERED"
+  onChange: (book: "ALL" | "DRAFT" | "REGISTERED") => void
+}) {
+  return (
+    <Segmented
+      options={[
+        { value: "ALL" as const, label: "All" },
+        { value: "DRAFT" as const, label: "Needs details" },
+        { value: "REGISTERED" as const, label: "Registered" },
+      ]}
+      value={book}
+      onChange={onChange}
+    />
+  )
+}
+
+/// The register and everything drawn from its answer: the filter sheet, the
+/// chips with their counts, the menus of conditions and places, and the rows.
+/// The page's head, its search and its status tabs stand outside, so they paint
+/// before the answer arrives.
+function AssetRegister({
+  scope,
+  view,
+  reading,
+  book,
+  setBook,
+  condition,
+  setCondition,
+  site,
+  setSite,
+  filtering,
+  setFiltering,
+  phone,
+  onOpen,
+  onAdd,
+}: {
+  scope: Parameters<typeof gaAssetBookQuery>[0]
+  view: (typeof BUILD_VIEWS)[number] | undefined
+  reading: ReturnType<typeof useSheet<"asset-view">>
+  book: "ALL" | "DRAFT" | "REGISTERED"
+  setBook: (book: "ALL" | "DRAFT" | "REGISTERED") => void
+  condition: string | null
+  setCondition: (condition: string | null) => void
+  site: string | null
+  setSite: (site: string | null) => void
+  filtering: boolean
+  setFiltering: (open: boolean) => void
+  phone: boolean
+  onOpen: (assetId: string) => void
+  onAdd: () => void
+}) {
+  /// The register, a page at a time, the next one fetched as the foot of the
+  /// list nears view. Read for the scope as it was a moment ago while a new one
+  /// is on its way: the rows stay on screen instead of the register emptying to
+  /// a loading line on every search.
+  const asked = useDeferredValue(scope)
+  const stale = asked !== scope
+  const register = useSuspenseInfiniteQuery(gaAssetBookQuery(asked))
+
+  const rows = useMemo(
+    () => register.data.pages.flatMap((page) => page.rows),
+    [register.data]
+  )
+  // Total and facets are the same on every page; the first one says them.
+  const head = register.data.pages[0]
+  const sites = head?.facets.sites ?? []
+  const conditions = head?.facets.conditions ?? []
+
+  return (
+    <>
       <FilterSheet
         open={filtering}
         onOpenChange={setFiltering}
@@ -257,15 +374,7 @@ export function Assets() {
       </div>
 
       <div className={DESK_BAR}>
-        <Segmented
-          options={[
-            { value: "ALL" as const, label: "All" },
-            { value: "DRAFT" as const, label: "Needs details" },
-            { value: "REGISTERED" as const, label: "Registered" },
-          ]}
-          value={book}
-          onChange={setBook}
-        />
+        <StatusTabs book={book} onChange={setBook} />
         <ChoiceMenu
           heading="Condition"
           icon={ListFilter}
@@ -301,105 +410,65 @@ export function Assets() {
         )}
       </div>
 
-      {queryState(register, {
-        loading: "Loading assets…",
-        render: () =>
-          rows.length === 0 ? (
-            <Card>
-              <EmptyState
-                action={
-                  <Button variant="ghost" onClick={() => setAdding(true)}>
-                    Register the first one
-                  </Button>
-                }
-              >
-                No assets in this reading yet. Register an asset when it
-                arrives, then fill in where it is and what state it is in.
-              </EmptyState>
-            </Card>
-          ) : phone ? (
-            <PhoneCards
-              rows={rows}
-              rowId={(row) => row.asset_id}
-              spec={ASSET_CARD}
-              onOpen={(row) => open.open(row.asset_id)}
-              more={register}
-            />
-          ) : (
-            <Card className="overflow-hidden">
-              {/* The register scrolls INSIDE its own box rather than squashing
+      <div aria-busy={stale || undefined} className="list-swap">
+        {rows.length === 0 ? (
+          <Card>
+            <EmptyState
+              action={
+                <Button variant="ghost" onClick={onAdd}>
+                  Register the first one
+                </Button>
+              }
+            >
+              No assets in this reading yet. Register an asset when it arrives,
+              then fill in where it is and what state it is in.
+            </EmptyState>
+          </Card>
+        ) : phone ? (
+          <PhoneCards
+            rows={rows}
+            rowId={(row) => row.asset_id}
+            spec={ASSET_CARD}
+            onOpen={(row) => onOpen(row.asset_id)}
+            more={register}
+          />
+        ) : (
+          <Card className="overflow-hidden">
+            {/* The register scrolls INSIDE its own box rather than squashing
                   the columns. Nine columns of codes, names and serials do not
                   fit a phone, and the two wrong answers are both worse than a
                   scrollbar: squeezed, the cells overlap and the page itself
                   starts scrolling sideways, which takes the sidebar with it. */}
-              <div className="overflow-x-auto">
-                <div className="min-w-[72rem]">
-                  <div className="grid h-10 grid-cols-[7rem_minmax(14rem,1fr)_11rem_6rem_9rem_9rem_7rem_9rem_9rem] items-center gap-3 border-b border-hairline bg-soft px-3.5 text-eyebrow font-medium text-body">
-                    <span>Code</span>
-                    <span>Asset</span>
-                    <span>Class</span>
-                    <span>Location</span>
-                    <span>Area</span>
-                    <span>Holder</span>
-                    <span>Condition</span>
-                    <span>GA status</span>
-                    <span>Finance status</span>
-                  </div>
-                  {rows.map((row) => (
-                    <AssetLine
-                      key={row.asset_id}
-                      asset={row}
-                      onOpen={() => open.open(row.asset_id)}
-                    />
-                  ))}
+            <div className="overflow-x-auto">
+              <div className="min-w-[72rem]">
+                <div className="grid h-10 grid-cols-[7rem_minmax(14rem,1fr)_11rem_6rem_9rem_9rem_7rem_9rem_9rem] items-center gap-3 border-b border-hairline bg-soft px-3.5 text-eyebrow font-medium text-body">
+                  <span>Code</span>
+                  <span>Asset</span>
+                  <span>Class</span>
+                  <span>Location</span>
+                  <span>Area</span>
+                  <span>Holder</span>
+                  <span>Condition</span>
+                  <span>GA status</span>
+                  <span>Finance status</span>
                 </div>
+                {rows.map((row) => (
+                  <AssetLine
+                    key={row.asset_id}
+                    asset={row}
+                    onOpen={() => onOpen(row.asset_id)}
+                  />
+                ))}
               </div>
-              {/* Outside the sideways-scrolling box: that box computes as a
+            </div>
+            {/* Outside the sideways-scrolling box: that box computes as a
                   vertical scroller too, and a marker inside it would always
                   be "in view" and pull every page. The page scrolls. */}
-              <LoadMore query={register} />
-            </Card>
-          ),
-      })}
-
-      <RegisterAssetSheet
-        open={adding}
-        // The builds the reading means, so a licence is not offered from the
-        // vehicles; every build when nothing is narrowed.
-        builds={view?.builds ?? BUILDS.map((one) => one.value)}
-        onClose={() => setAdding(false)}
-        onRegistered={(assetId) => {
-          setAdding(false)
-          open.open(assetId)
-        }}
-      />
-
-      <AssetHubSheet
-        assetId={open.value}
-        open={open.isOpen}
-        onClose={open.close}
-        onProposeReplacement={replacement.open}
-        onRequestDisposal={disposal.open}
-      />
-
-      {/* The key remounts the sheet when a different record is opened, so its
-          local state does not follow the id. It is prefixed because the two
-          sheets are siblings and both are closed most of the time — two bare
-          "none" keys are one duplicate key, and React says so. */}
-      <ReplacementSheet
-        key={`replacement:${replacement.value ?? "none"}`}
-        replacementId={replacement.value}
-        open={replacement.isOpen}
-        onClose={replacement.close}
-      />
-
-      <DisposalSheet
-        key={`disposal:${disposal.value ?? "none"}`}
-        disposalId={disposal.value}
-        open={disposal.isOpen}
-        onClose={disposal.close}
-      />
-    </PageContent>
+            <LoadMore query={register} />
+          </Card>
+        )}
+      </div>
+    </>
   )
 }
 

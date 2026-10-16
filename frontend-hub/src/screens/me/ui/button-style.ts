@@ -17,7 +17,7 @@ export const button = cva(
         sm: "h-[1.75rem] px-2 text-meta [&_svg]:size-3.5",
         icon: "size-control [&_svg]:size-4",
         // The thumb floor: this app is used one-handed on a phone.
-        tap: "h-tap px-4 text-[0.875rem] [&_svg]:size-4",
+        tap: "h-tap px-4 text-[0.9375rem] [&_svg]:size-4",
       },
     },
     defaultVariants: { variant: "ghost", size: "default" },

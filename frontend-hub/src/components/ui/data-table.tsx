@@ -189,6 +189,10 @@ export interface DataTableProps<TRow> {
   /// `refresh={[orders, suppliers]}`. A table drawn from the cache first may
   /// be minutes or hours old, and says so (owner, 2026-10-09).
   readonly refresh?: readonly Refreshable[]
+  /// The stamp is drawn above the table on a phone only. For a screen whose
+  /// head already carries it (`ListHead`): from a tablet up the table opens on
+  /// its own heading.
+  readonly refreshOnPhoneOnly?: boolean
   /// A summary row pinned under the rows — a count, a sum — keyed by column
   /// id. It floats at the foot of the table's own scroll box, so the totals
   /// stay in view however far down the list somebody has scrolled. Columns
@@ -242,7 +246,10 @@ export function DataTable<TRow>(props: DataTableProps<TRow>) {
   return (
     <RowIntentContext.Provider value={intent}>
       {props.refresh !== undefined && props.refresh.length > 0 && (
-        <RefreshStrip queries={props.refresh} />
+        <RefreshStrip
+          queries={props.refresh}
+          className={props.refreshOnPhoneOnly ? "md:hidden" : undefined}
+        />
       )}
       <DataTableBody {...props} />
     </RowIntentContext.Provider>
@@ -375,8 +382,10 @@ function DataTableBody<TRow>({
   useLayoutEffect(() => {
     const node = scrollRef.current
     if (!node || cards) return
-    const total = (table as AnyTable).getAllLeafColumns().length
-    const expected = total - Math.min(dropped, droppable.length)
+    // What the DOM should hold once it has caught up: the columns visible
+    // now, which counts the ones the reader switched off as well as the
+    // ones given up for room.
+    const expected = (table as AnyTable).getVisibleLeafColumns().length
     if (node.querySelectorAll("thead th").length !== expected) return
     // The one place this component sets state from an effect, and the reason
     // it has to: what fits is a fact about the laid-out DOM, and nothing but
@@ -401,6 +410,12 @@ function DataTableBody<TRow>({
   ///
   /// Layout rather than passive for the same reason as the pass above: the two
   /// take turns, and one of them painting between turns is the flash.
+  /// What this pass last wrote, and what the reader has set since (a Columns
+  /// menu writes the same visibility). A column the reader switched keeps
+  /// their choice; the pass only decides the ones nobody touched (owner,
+  /// 14 Oct: the Columns menu was undone by the fit).
+  const written = useRef<Record<string, boolean> | null>(null)
+  const chosen = useRef<Record<string, boolean>>({})
   useLayoutEffect(() => {
     const instance = table as AnyTable
     if (instance.options.state?.columnVisibility !== undefined) return
@@ -408,13 +423,21 @@ function DataTableBody<TRow>({
     // horizontal, and a card is laid out down the page.
     const hidden = new Set(cards ? [] : droppable.slice(0, dropped))
     const current = instance.store.state.columnVisibility ?? {}
+    if (written.current !== null) {
+      for (const [id, value] of Object.entries(current)) {
+        if ((written.current[id] ?? true) !== value) chosen.current[id] = value
+      }
+    }
     const budget: Record<string, boolean> = {}
     let differs = false
     for (const column of instance.getAllLeafColumns()) {
-      const visible = !hidden.has(column.id)
+      const visible = cards
+        ? !hidden.has(column.id)
+        : (chosen.current[column.id] ?? !hidden.has(column.id))
       budget[column.id] = visible
       if ((current[column.id] ?? true) !== visible) differs = true
     }
+    written.current = budget
     if (differs) instance.setColumnVisibility(budget)
   }, [cards, dropped, droppable, table])
 
@@ -605,7 +628,10 @@ function DataTableBody<TRow>({
             // extra columns switched on. Then the heading no longer sticks
             // (a box that scrolls sideways is a scroll box), which is the
             // price of every column staying reachable.
-            cn("min-w-0", wide && "overflow-x-auto")
+            // Its headings then stick to the top of that box, not under the
+            // page head (`.dt-wide` in white.css; owner, 14 Oct: the PO
+            // headings stood 90px down the table).
+            cn("min-w-0", wide && "dt-wide overflow-x-auto")
           : "min-h-0 overflow-auto",
         className
       )}
@@ -613,7 +639,7 @@ function DataTableBody<TRow>({
       <table
         ref={tableRef}
         className={cn(
-          "w-full border-collapse text-cell",
+          "dt w-full border-collapse text-cell",
           (virtualise || pageScroll) && "table-fixed"
         )}
         style={pageScroll ? { minWidth: pageMinWidth } : undefined}
@@ -721,12 +747,19 @@ function DataTableBody<TRow>({
                       // than `<thead>` — a sticky thead does nothing in a
                       // table, the cells are what stick — and opaque, or the
                       // rows show through as they pass underneath.
-                      // Tinted, not white: the heading row is chrome over the
-                      // rows, and the tint is what says so now that the
-                      // vertical rules are gone.
-                      "sticky z-10 bg-soft",
+                      // White, like the page (owner, 2026-10-11): the hairline under
+                      // the heading row is what says it is chrome over the rows.
+                      "sticky z-10 bg-canvas",
                       // The second heading row sticks under the first (h-10).
-                      level > 0 ? "top-10" : "top-0",
+                      // A table the page scrolls sticks under the page's own
+                      // head, which stays too (`--page-head-h`, PageHeader).
+                      pageScroll
+                        ? level > 0
+                          ? "top-[calc(var(--page-head-h,0px)+2.5rem)]"
+                          : "top-[var(--page-head-h,0px)]"
+                        : level > 0
+                          ? "top-10"
+                          : "top-0",
                       // A group heading ("Ordered") is underlined by a rule of
                       // its own, inset a column's padding at both ends, so two
                       // neighbouring groups read as two spans and not as one
@@ -776,7 +809,10 @@ function DataTableBody<TRow>({
                           // the arrow in FRONT, so what stops at the column's
                           // edge is the heading — flush with the figures under
                           // it, rather than pushed an arrow's width off them.
-                          "inline-flex items-center transition-colors hover:text-ink",
+                          // `align-middle`: a right-aligned heading's reversed row
+                          // took its baseline from the arrow and sat 0.6px above
+                          // the left-aligned ones in the same heading row.
+                          "inline-flex items-center align-middle transition-colors hover:text-ink",
                           pageScroll ? "gap-0.5" : "gap-1",
                           align === "right" && "flex-row-reverse"
                         )}
@@ -790,7 +826,12 @@ function DataTableBody<TRow>({
                         ) : sorted === "desc" ? (
                           <ChevronDown className="size-3 text-ink" />
                         ) : (
-                          <ChevronsUpDown className="size-3 text-faint" />
+                          // Only on hover until the column is sorted: an
+                          // arrow on every heading is noise (owner, 14 Oct).
+                          <ChevronsUpDown
+                            data-sort-hint=""
+                            className="size-3 text-mute"
+                          />
                         )}
                       </button>
                     ) : (
@@ -825,7 +866,7 @@ function DataTableBody<TRow>({
                         : undefined
                     }
                     className={cn(
-                      "h-11 text-[0.875rem] font-medium whitespace-nowrap text-ink tabular-nums",
+                      "h-11 text-cell font-medium whitespace-nowrap text-ink tabular-nums",
                       roomy ? "px-5" : pageScroll ? "px-3" : "px-3.5",
                       align === "right" ? "text-right" : "text-left"
                     )}
@@ -1019,14 +1060,14 @@ function HeadingSortMenu({
     <Menu.Root>
       <Menu.Trigger
         className={cn(
-          "inline-flex items-center transition-colors hover:text-ink data-[popup-open]:text-ink",
+          "inline-flex items-center align-middle transition-colors hover:text-ink data-[popup-open]:text-ink",
           tight ? "gap-0.5" : "gap-1",
           right && "flex-row-reverse"
         )}
       >
         {children}
         {current === undefined ? (
-          <ChevronsUpDown className="size-3 text-faint" />
+          <ChevronsUpDown data-sort-hint="" className="size-3 text-mute" />
         ) : current.desc ? (
           <ChevronDown className="size-3 text-ink" />
         ) : (
@@ -1060,7 +1101,7 @@ function HeadingSortMenu({
                         table.setSorting(on ? [] : [{ id: option.id, desc }])
                       }
                       className={cn(
-                        "flex min-h-8 cursor-default items-center gap-2 rounded-inner px-2 text-[0.875rem] outline-none select-none data-[highlighted]:bg-soft-2",
+                        "flex min-h-8 cursor-default items-center gap-2 rounded-inner px-2 text-[0.9375rem] outline-none select-none data-[highlighted]:bg-soft-2",
                         on ? "text-ink" : "text-text"
                       )}
                     >
@@ -1115,7 +1156,7 @@ function CardSort({
 
   return (
     <div className="flex items-center gap-2 border-b border-hairline bg-soft px-3 py-2">
-      <span className="shrink-0 text-[0.875rem] font-medium text-body">
+      <span className="shrink-0 text-[0.9375rem] font-medium text-body">
         Sort by
       </span>
       <div className="min-w-0 flex-1">
@@ -1259,7 +1300,7 @@ function RowCard<TRow>({
         <dl className="mt-1 grid grid-cols-2 gap-x-4 gap-y-2.5">
           {parts.metric.map((cell) => (
             <div key={cell.id} className="min-w-0">
-              <dt className="text-[0.875rem] leading-4 text-mute">
+              <dt className="text-[0.9375rem] leading-4 text-mute">
                 {headerText(cell.column)}
               </dt>
               <dd className="mt-0.5 min-w-0 text-cell text-ink tabular-nums [&>*]:max-w-full [&>*]:items-start [&>*]:justify-start [&>*]:text-left">
@@ -1299,7 +1340,7 @@ function RowCard<TRow>({
                 </div>
               ))}
               {parts.meta.map((cell) => (
-                <div key={cell.id} className="text-[0.875rem] text-mute">
+                <div key={cell.id} className="text-[0.9375rem] text-mute">
                   {render(cell)}
                 </div>
               ))}
@@ -1400,7 +1441,7 @@ function RowCard<TRow>({
           </div>
 
           {parts.meta.length > 0 && (
-            <div className="flex flex-wrap items-center gap-x-1.5 text-[0.875rem] text-mute">
+            <div className="flex flex-wrap items-center gap-x-1.5 text-[0.9375rem] text-mute">
               {parts.meta.map((cell, index) => (
                 <span
                   key={cell.id}

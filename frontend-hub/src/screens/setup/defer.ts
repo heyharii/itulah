@@ -37,6 +37,7 @@ export function useSetupDeferred(): boolean {
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
-    () => memory
+    () => memory,
+    () => false
   )
 }

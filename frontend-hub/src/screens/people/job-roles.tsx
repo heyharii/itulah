@@ -1,5 +1,9 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
+import {
+  useMutation,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query"
+import { useState, Suspense } from "react"
 
 import type { Role } from "@itulah/contract"
 
@@ -10,7 +14,7 @@ import { Card } from "@/components/ui/card"
 import { Checkbox, Field, Input, Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Sheet } from "@/components/ui/sheet"
-import { Banner, EmptyState } from "@/components/ui/states"
+import { Banner, EmptyState, LoadingState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import {
   deleteRole,
@@ -20,11 +24,10 @@ import {
   roleKeys,
   sectionsOf,
   updateRole,
-  useRoles,
   type JobRole,
   type SectionCode,
+  rolesQuery,
 } from "@/lib/queries/invitations"
-import { queryState } from "@/lib/query-state"
 import { useCanWrite } from "@/lib/session"
 import { useSheet } from "@/lib/sheets"
 import {
@@ -54,117 +57,140 @@ export function JobRoles() {
 }
 
 function RolesTab() {
-  const roleList = useRoles()
   const canWrite = useCanWrite()
-  const phone = useLayout() === "phone"
   const role = useSheet("role")
 
   return (
     <>
-      <p className="mb-3.5 text-[0.875rem] text-body">
+      <p className="mb-3.5 text-[0.9375rem] text-body">
         Every job role a person can be invited as, and the sections of this app
         each one may see. OWNER and ADMIN see every section regardless of what
         is ticked here — that bypass is not editable.
       </p>
       <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-        {queryState(roleList, {
-          loading: "Loading job roles…",
-          render: () =>
-            (roleList.data ?? []).length === 0 ? (
-              <EmptyState>No job role is seeded on this node yet.</EmptyState>
-            ) : phone ? (
-              <PhoneCards
-                rows={roleList.data ?? []}
-                onOpen={canWrite ? (item) => role.open(item.code) : undefined}
-                rowId={(item) => item.code}
-                spec={{
-                  title: (item) => (
-                    <CardName
-                      name={item.name}
-                      line={[item.code, item.builtin ? "Built in" : null]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    />
-                  ),
-                  lead: (item) => (
-                    <CardFigure
-                      value={item.holders}
-                      caption={item.holders === 1 ? "holder" : "holders"}
-                      tone={item.holders === 0 ? "quiet" : undefined}
-                    />
-                  ),
-                  foot: (item) => (
-                    <>
-                      {item.rung} · {sectionsOf(item.sections).length}{" "}
-                      {sectionsOf(item.sections).length === 1
-                        ? "section"
-                        : "sections"}
-                    </>
-                  ),
-                  action: canWrite
-                    ? (item) => (
-                        <CardButton
-                          label="Edit"
-                          ariaLabel={`Edit ${item.name}`}
-                          onClick={() => role.open(item.code)}
-                        />
-                      )
-                    : undefined,
-                }}
-              />
-            ) : (
-              <div className="divide-y divide-hairline">
-                {(roleList.data ?? []).map((item) => (
-                  <button
-                    key={item.code}
-                    type="button"
-                    onClick={() => canWrite && role.open(item.code)}
-                    disabled={!canWrite}
-                    className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-soft disabled:cursor-default disabled:hover:bg-transparent"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <b className="font-medium text-ink">{item.name}</b>
-                        <span className="font-mono text-id text-mute">
-                          {item.code}
-                        </span>
-                        {item.builtin && <Tag>Built in</Tag>}
-                      </div>
-                      {roleHint(item) && (
-                        <p className="mt-0.5 truncate text-meta text-body">
-                          {roleHint(item)}
-                        </p>
-                      )}
-                    </div>
-                    <span className="shrink-0 text-meta text-mute">
-                      {item.rung} · {item.holders}{" "}
-                      {item.holders === 1 ? "holder" : "holders"}
-                    </span>
-                    <div className="flex max-w-64 shrink-0 flex-wrap justify-end gap-1">
-                      {sectionsOf(item.sections).length === 0 ? (
-                        <span className="text-meta text-mute">No sections</span>
-                      ) : (
-                        sectionsOf(item.sections).map((section) => (
-                          <Tag key={section}>{SECTION_LABEL[section]}</Tag>
-                        ))
-                      )}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            ),
-        })}
+        <Suspense fallback={<LoadingState>Loading job roles…</LoadingState>}>
+          <RoleRows canWrite={canWrite} onOpen={role.open} />
+        </Suspense>
       </Card>
 
-      <RoleSheet
-        key={role.value ?? "none"}
-        role={
-          (roleList.data ?? []).find((item) => item.code === role.value) ?? null
-        }
-        open={role.value !== undefined}
-        onClose={role.close}
-      />
+      {/* The sheet finds its role in the list, so it reads the list itself. */}
+      <Suspense fallback={null}>
+        <RoleSheetFromList
+          key={role.value ?? "none"}
+          code={role.value}
+          onClose={role.close}
+        />
+      </Suspense>
     </>
+  )
+}
+
+/// The roles, as rows. Here and not in the tab so the head paints at once and
+/// this waits alone for its answer.
+function RoleRows({
+  canWrite,
+  onOpen,
+}: {
+  canWrite: boolean
+  onOpen: (code: string) => void
+}) {
+  const roleList = useSuspenseQuery(rolesQuery())
+  const phone = useLayout() === "phone"
+  return roleList.data.length === 0 ? (
+    <EmptyState>No job role is seeded on this node yet.</EmptyState>
+  ) : phone ? (
+    <PhoneCards
+      rows={roleList.data}
+      onOpen={canWrite ? (item) => onOpen(item.code) : undefined}
+      rowId={(item) => item.code}
+      spec={{
+        title: (item) => (
+          <CardName
+            name={item.name}
+            line={[item.code, item.builtin ? "Built in" : null]
+              .filter(Boolean)
+              .join(" · ")}
+          />
+        ),
+        lead: (item) => (
+          <CardFigure
+            value={item.holders}
+            caption={item.holders === 1 ? "holder" : "holders"}
+            tone={item.holders === 0 ? "quiet" : undefined}
+          />
+        ),
+        foot: (item) => (
+          <>
+            {item.rung} · {sectionsOf(item.sections).length}{" "}
+            {sectionsOf(item.sections).length === 1 ? "section" : "sections"}
+          </>
+        ),
+        action: canWrite
+          ? (item) => (
+              <CardButton
+                label="Edit"
+                ariaLabel={`Edit ${item.name}`}
+                onClick={() => onOpen(item.code)}
+              />
+            )
+          : undefined,
+      }}
+    />
+  ) : (
+    <div className="divide-y divide-hairline">
+      {roleList.data.map((item) => (
+        <button
+          key={item.code}
+          type="button"
+          onClick={() => canWrite && onOpen(item.code)}
+          disabled={!canWrite}
+          className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-soft disabled:cursor-default disabled:hover:bg-transparent"
+        >
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <b className="font-medium text-ink">{item.name}</b>
+              <span className="font-mono text-id text-mute">{item.code}</span>
+              {item.builtin && <Tag>Built in</Tag>}
+            </div>
+            {roleHint(item) && (
+              <p className="mt-0.5 truncate text-meta text-body">
+                {roleHint(item)}
+              </p>
+            )}
+          </div>
+          <span className="shrink-0 text-meta text-mute">
+            {item.rung} · {item.holders}{" "}
+            {item.holders === 1 ? "holder" : "holders"}
+          </span>
+          <div className="flex max-w-64 shrink-0 flex-wrap justify-end gap-1">
+            {sectionsOf(item.sections).length === 0 ? (
+              <span className="text-meta text-mute">No sections</span>
+            ) : (
+              sectionsOf(item.sections).map((section) => (
+                <Tag key={section}>{SECTION_LABEL[section]}</Tag>
+              ))
+            )}
+          </div>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function RoleSheetFromList({
+  code,
+  onClose,
+}: {
+  code: string | undefined
+  onClose: () => void
+}) {
+  const roleList = useSuspenseQuery(rolesQuery())
+  return (
+    <RoleSheet
+      role={roleList.data.find((item) => item.code === code) ?? null}
+      open={code !== undefined}
+      onClose={onClose}
+    />
   )
 }
 
@@ -259,7 +285,7 @@ function RoleSheet({
             </Button>
           )}
           <span className="flex-1" />
-          <Button variant="quiet" onClick={onClose}>
+          <Button data-cancel variant="quiet" onClick={onClose}>
             Cancel
           </Button>
           <Button

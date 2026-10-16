@@ -106,7 +106,7 @@ export function receiptTarget(config: NodeConfig | null): {
         : {
             target: null,
             here: null,
-            why: "Printer struk belum dipilih di Perangkat kasir.",
+            why: "No receipt printer is chosen in the till's devices.",
           }
     case "USB": {
       const name = (peripherals.usb_printer_name ?? "").trim()
@@ -116,8 +116,8 @@ export function receiptTarget(config: NodeConfig | null): {
             target: null,
             here: null,
             why:
-              "Printer USB kasir ini belum dipilih di Perangkat kasir, jadi " +
-              "struk belum bisa dicetak.",
+              "No USB printer is chosen for this till in its devices, so " +
+              "the receipt cannot be printed yet.",
           }
     }
     case "NONE":

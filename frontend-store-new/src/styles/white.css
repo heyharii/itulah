@@ -1,0 +1,1643 @@
+/* The hub's All white look, copied (frontend-hub/src/styles/white.css,
+   16 Oct 2026) so the shop's back office reads as the same product: one
+   white shell, a small sticky page head, KPIs in one row with hairlines.
+   Keep it in step with the hub's file rather than editing it here. */
+
+/* ─────────────────────────────────────────────────────────────────────────
+   ALL WHITE — the hub's look since 2026-10-13.
+
+   The owner picked "D · All white" on `po-detail-variants.html` (PO detail
+   and PO list, 13 Oct) and asked for the whole hub in it, Lark set aside:
+   "migrate semua frontend-hub ke all white … abaikan lark look".
+
+   What it is:
+   - One white surface, edge to edge. No tinted shell, no grey wells, no grey
+     header bands, no cards of colour. A box only where a box is needed, and
+     then a hairline, not a shadow.
+   - Apple's ink: #1d1d1f for names and figures, #6e6e73 for everything
+     secondary. Colour only where it means something — the one solid primary,
+     a late date in red, a status's dot.
+   - Status is a dot and a word, never a chip.
+   - Figures (KPIs) sit together in one row with hairlines between them,
+     never spread across the page in equal boxes ("aneh kalau kpi nya
+     berjarak").
+   - Tables have no frame: a white heading with a hairline under it, a
+     hairline between rows.
+   - Sheets float 12px off the window on a white veil, edged by a soft ring.
+
+   What it keeps from the owner's earlier rulings (they were about behaviour,
+   not colour): one solid primary per screen and plain tint words for the
+   rest; every button says what it does; large titles; filters at the left of
+   a toolbar; a record's verbs in its foot; sentence case.
+
+   Drawn over the components' own classes, keyed on <html data-look="white">
+   (`lib/look.ts`). Unlayered on purpose: Tailwind's utilities live in
+   `@layer utilities`, and an unlayered rule beats a layered one whatever its
+   specificity — so a component's `bg-soft` gives way here without a fight.
+   ───────────────────────────────────────────────────────────────────────── */
+
+html[data-look="white"] {
+  /* Apple's ink. Two greys, not four: a name or a figure is ink, everything
+     that supports it is one quieter grey. */
+  --ink: #1d1d1f;
+  --text: #1d1d1f;
+  --body: #6e6e73;
+  --mute: #6e6e73;
+  --faint: #c7c7cc;
+  --line-ico: #8e8e93;
+
+  /* One white; the greys are for a hover, a pressed control, a photo tile.
+     The hairlines are NEUTRAL: the shell is Apple's premium grey since
+     14 Oct (owner: "sekarang stone kan coba ganti abu abu yg premium"), and
+     the warm stone values were swapped one for one. */
+  --canvas: #ffffff;
+  --soft: #fafafb;
+  --soft-2: #f2f2f5;
+  --soft-3: #f5f5f7;
+  --hairline: #e8e8ec;
+  --hairline-2: #dcdce1;
+  --hairline-strong: #c7c7cc;
+  /* The veil (hub-ui-patterns, 14 Oct): a neutral grey at 48% with a 2px
+     blur, so what is behind a sheet is still there and plainly not the
+     thing being worked on. `.sheet-veil` adds the blur. */
+  --scrim: rgb(208 208 213 / 48%);
+
+  /* One blue, for the one thing to press and for "this one" (hub-ui-patterns). */
+  --accent: #2862dc;
+  --accent-bg: #eef3fc;
+  --cta: #2862dc;
+  --cta-hover: #2055c7;
+  /* A button's word: 15, the floor (owner, 14 Oct). */
+  --text-control: 0.9375rem;
+  /* A form's box: 40 tall (hub-ui-patterns), 44 under a finger (below). */
+  --form-box: 2.5rem;
+
+  /* the readable words of a state */
+  --ok-fg: #248a3d;
+  --bad-fg: #d70015;
+  --warn-fg: #a66c1f;
+  --info-fg: #496b9c;
+  --bad: #d70015;
+
+  /* the rail is white too: ink words, a grey wash for the row you are on */
+  --rail: #ffffff;
+  --rail-2: #f5f5f7;
+  --rail-3: #efeff2;
+  --rail-ink: #1d1d1f;
+  --rail-text: #3a3a3c;
+  --rail-mute: #8e8e93;
+  --rail-hair: #ececf0;
+
+  --wt-row-line: #eeeef1;
+  /* the grey band a table's heading and its totals stand on */
+  --wt-band: #fafafb;
+  --wt-ring: 0 0 0 1px rgb(0 0 0 / 5%), 0 2px 8px rgb(0 0 0 / 5%),
+    0 24px 64px rgb(0 0 0 / 14%);
+  --wt-r-chip: 6px;
+}
+
+/* ── The shell: rail, panel and page on one white, a hairline between the
+   panel and the page ──────────────────────────────────────────────────── */
+html[data-look="white"] .app-shell,
+html[data-look="white"] .shell-page {
+  background: #ffffff;
+}
+html[data-look="white"] .shell-rail {
+  border-right: 1px solid var(--hairline);
+}
+html[data-look="white"] .app-shell:has(.shell-panel) .shell-rail {
+  border-right-color: transparent;
+}
+html[data-look="white"] .shell-rail [class~="border-b"],
+html[data-look="white"] .shell-rail [class~="border-t"] {
+  border-color: transparent;
+}
+html[data-look="white"] .shell-panel {
+  border-right-color: var(--hairline);
+}
+html[data-look="white"] .shell-panel > div {
+  border-color: transparent;
+}
+html[data-look="white"] .shell-panel [data-status="active"],
+html[data-look="white"] .shell-panel .bg-accent-bg {
+  background: var(--rail-3);
+  color: var(--ink);
+  font-weight: 500;
+}
+html[data-look="white"] .shell-panel [data-status="active"] * {
+  color: inherit;
+}
+@media (hover: hover) and (pointer: fine) {
+  html[data-look="white"] .shell-panel a:not([data-status="active"]):hover,
+  html[data-look="white"] .shell-panel button:hover {
+    background: var(--rail-2);
+  }
+}
+
+/* ── The page head (hub-ui-patterns, 14 Oct): Apple's small header — the
+   department in grey, the screen's name at 17, the screen's one action at the
+   right — on a hairline, and it stays while the page scrolls under it ───── */
+html[data-look="white"] .page-title {
+  font-size: 1.0625rem;
+  line-height: 1.5rem;
+  font-weight: 600;
+  letter-spacing: -0.3px;
+  color: var(--ink);
+}
+html[data-look="white"] .page-crumb {
+  margin-bottom: 0.5rem;
+  font-size: 0.9375rem;
+  line-height: 1.125rem;
+  font-weight: 400;
+  color: var(--mute);
+}
+/* The page's own gutters: 28 a side, 24 under the head (hub-ui-patterns) */
+@media (min-width: 48rem) {
+  html[data-look="white"] .page-content {
+    padding-inline: 1.75rem;
+    padding-top: 1.5rem;
+  }
+  /* Sticky, bled to the page's edges: the white and the hairline under it
+     reach both sides whatever the content's own max width — a border image
+     drawn out sideways, which moves no box; the page's rounded edge clips it.
+     The tables' heading rows stick under it (`--page-head-h`, kept by
+     `PageHeader`). */
+  html[data-look="white"] .page-head {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    margin: -1.5rem -1.75rem 1.5rem;
+    padding: 1.5rem 1.75rem 1rem;
+    border-image: linear-gradient(#ffffff calc(100% - 1px), var(--hairline) 0)
+      fill 0 / 0 / 0 100vmax;
+  }
+  /* A door's head ends on its tabs: their rule is the head's own. */
+  html[data-look="white"] .page-head-door {
+    padding-bottom: 0;
+  }
+}
+
+/* Sentence case everywhere (Apple): no shouting eyebrows. A printed
+   document copied from the client's own forms keeps its capitals. */
+html[data-look="white"] [class~="uppercase"]:not(.cashdoc-print *, .giro-print *) {
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* ── One font in a table (owner, 13 Oct, calm tables): a PO number or a
+   code under a name reads in the same face as the name, quieter by colour ── */
+html[data-look="white"] :is(.shell-page, .sheet-pop, .sheet-drawer) :is(span, b, strong, small, div, p, td, th, dd, dt, a, li, button, h3, h4)[class~="font-mono"],
+html[data-look="white"] :is(.shell-page, .sheet-pop, .sheet-drawer) :is(td, th) code {
+  font-family: inherit;
+  letter-spacing: 0;
+}
+
+/* ── Buttons (hub-ui-patterns, 14 Oct; UI-PATTERNS.md §4) ─────────────────
+   The main action is filled blue. A supporting action — Filter, Columns,
+   Print, Recount, a row's edit and bin — is a NEUTRAL GHOST: dark word and
+   glyph on white, a thin warm hairline, a soft grey under the pointer. Cancel,
+   and anything that calls something off, is filled red. 36px, radius 8, 15px.
+   Pressed, every one gives: `scale(.97)` (button-style.ts). */
+html[data-look="white"] .btn-primary {
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgb(20 50 100 / 10%);
+}
+html[data-look="white"] :is(.btn-ghost, .btn-soft) {
+  border: 1px solid var(--hairline-2);
+  background: #ffffff;
+  box-shadow: none;
+  color: var(--ink);
+}
+html[data-look="white"] .btn-quiet {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink);
+}
+html[data-look="white"] :is(.btn-ghost, .btn-soft, .btn-quiet) svg {
+  color: var(--ink);
+}
+@media (hover: hover) and (pointer: fine) {
+  html[data-look="white"] :is(.btn-ghost, .btn-soft, .btn-quiet):hover {
+    background: var(--soft-2);
+    color: var(--ink);
+  }
+}
+html[data-look="white"] :is(.btn-ghost, .btn-soft, .btn-quiet):is([aria-pressed="true"], [aria-expanded="true"], [data-popup-open]) {
+  background: var(--soft-2);
+}
+/* the record card's foot button (Edit, Pick …) is a clear solid primary */
+html[data-look="white"] .btn-tint {
+  background: var(--cta);
+  color: var(--cta-fg);
+}
+html[data-look="white"] .btn-tint svg {
+  color: var(--cta-fg);
+}
+@media (hover: hover) and (pointer: fine) {
+  html[data-look="white"] .btn-tint:hover {
+    background: var(--cta-hover);
+  }
+}
+/* Calling something off, or taking it away for good: filled red */
+html[data-look="white"] :is(.btn-danger, .btn-destructive) {
+  border-color: transparent;
+  background: var(--bad-fg);
+  color: #ffffff;
+  font-weight: 600;
+}
+html[data-look="white"] :is(.btn-danger, .btn-destructive) svg {
+  color: #ffffff;
+}
+@media (hover: hover) and (pointer: fine) {
+  html[data-look="white"] :is(.btn-danger, .btn-destructive):hover {
+    background: #b80013;
+    filter: none;
+  }
+}
+/* a ghost that takes something away keeps its frame, the word in red */
+html[data-look="white"] :is(.btn-quiet, .btn-ghost, .btn-soft).btn-takes-away,
+html[data-look="white"] :is(.btn-quiet, .btn-ghost, .btn-soft).btn-takes-away svg {
+  color: var(--bad-fg);
+}
+/* …but a row's bin is a plain ghost glyph (UI-PATTERNS.md §4: "ikon hapus
+   pada baris adalah ghost"); the red is for the word that confirms */
+html[data-look="white"] :is(.btn-quiet, .btn-ghost, .btn-soft).btn-takes-away.btn-iconly,
+html[data-look="white"] :is(.btn-quiet, .btn-ghost, .btn-soft).btn-takes-away.btn-iconly svg {
+  color: var(--ink);
+}
+/* An icon button is its glyph again (hub-ui-patterns: × closes, a pencil
+   edits, a bin removes), always with its name for a screen reader. */
+html[data-look="white"] .btn-iconly > .btn-word {
+  display: none;
+}
+
+/* ── What can be clicked (owner, 14 Oct: "bisa di klik … warna biru atau
+   tidak ini membingungkan"; layout-templates.html, "Row opens", Apple's
+   rule): a row or card that opens is ONE target — nothing in it is blue, and
+   under the pointer a › shows at its end. Blue is a word that opens something
+   else (a supplier in a sheet's title, an item in an editable row), and
+   nothing else is blue but the one main button. ─────────────────────────── */
+html[data-look="white"] .record-link {
+  border-radius: 4px;
+  font: inherit;
+  color: var(--accent);
+  text-decoration-line: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 3px;
+  transition: text-decoration-color var(--t-hover) var(--ease-out),
+    color var(--t-hover) var(--ease-out);
+  cursor: pointer;
+}
+@media (hover: hover) and (pointer: fine) {
+  html[data-look="white"] .record-link:hover {
+    color: var(--accent);
+    text-decoration-color: currentColor;
+  }
+}
+html[data-look="white"] .record-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+html[data-look="white"] [data-opens] .record-link {
+  color: inherit;
+}
+@media (hover: hover) and (pointer: fine) {
+  /* Not where the last cell holds its own control (an Edit button): the ›
+     sat over it (owner, 2026-10-14). The control is the row's action. */
+  html[data-look="white"] tr[data-opens] > td:last-child:not(:has(button, a)) {
+    position: relative;
+    padding-right: 2.25rem;
+  }
+  html[data-look="white"] tr[data-opens] > td:last-child:not(:has(button, a))::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    right: 0.75rem;
+    width: 1rem;
+    height: 1rem;
+    margin-top: -0.5rem;
+    background: var(--mute);
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 6 6 6-6 6'/%3E%3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 6 6 6-6 6'/%3E%3C/svg%3E") center / contain no-repeat;
+    opacity: 0;
+    transition: opacity var(--t-hover) var(--ease-out);
+  }
+  html[data-look="white"] tr[data-opens]:hover > td:last-child:not(:has(button, a))::after {
+    opacity: 1;
+  }
+}
+
+/* ── Status: a dot and a word ─────────────────────────────────────────── */
+html[data-look="white"] .pill {
+  height: auto;
+  min-height: 1.5rem;
+  gap: 0.4375rem;
+  padding: 0;
+  border-color: transparent;
+  border-radius: 0;
+  background: transparent;
+}
+html[data-look="white"] .pill:not(:has(> span:first-child:empty))::before {
+  content: "";
+  flex: none;
+  width: 0.375rem;
+  height: 0.375rem;
+  border-radius: 999px;
+  background: currentColor;
+}
+html[data-look="white"] .pill-ok { color: var(--ok-fg); }
+html[data-look="white"] .pill-warn { color: var(--warn-fg); }
+html[data-look="white"] .pill-bad { color: var(--bad-fg); }
+html[data-look="white"] .pill-info { color: var(--info-fg); }
+html[data-look="white"] .pill-accent { color: var(--accent); }
+html[data-look="white"] .pill-neutral { color: var(--body); }
+html[data-look="white"] .pill-new { color: var(--new-fg); }
+html[data-look="white"] .pill-done { color: var(--body); }
+/* hand-written status words in an outline: the word alone, in its colour */
+html[data-look="white"] :is([class~="border-ok-fg/30"], [class~="border-warn-fg/30"], [class~="border-bad-fg/30"], [class~="border-info-fg/30"]):is([class~="text-ok-fg"], [class~="text-warn-fg"], [class~="text-bad-fg"], [class~="text-info-fg"]):not([class~="bg-ok-bg"], [class~="bg-warn-bg"], [class~="bg-bad-bg"], [class~="bg-info-bg"], [class~="bg-warn-bg/40"]) {
+  border-color: transparent;
+  background: transparent;
+}
+/* a tinted note keeps its tint and loses the outline */
+html[data-look="white"] :is([class~="border-ok-fg/30"][class~="bg-ok-bg"], [class~="border-warn-fg/30"]:is([class~="bg-warn-bg"], [class~="bg-warn-bg/40"]), [class~="border-bad-fg/30"][class~="bg-bad-bg"], [class~="border-info-fg/30"]:is([class~="bg-info-bg"], [class~="bg-soft"])) {
+  border-color: transparent;
+}
+
+/* a small tag (a code, a category, a contract type): outlined, not filled;
+   a coloured one keeps its colour in the word */
+html[data-look="white"] span[class~="rounded-md"]:is([class~="bg-soft"], [class~="bg-soft-2"], [class~="bg-warn-bg"], [class~="bg-ok-bg"], [class~="bg-bad-bg"], [class~="bg-info-bg"], [class~="bg-accent-bg"]):not(:has(input)),
+html[data-look="white"] :is(.shell-page, .sheet-pop, .sheet-drawer) span[class~="rounded-full"]:is([class~="bg-warn-bg"], [class~="bg-ok-bg"], [class~="bg-bad-bg"], [class~="bg-info-bg"], [class~="bg-accent-bg"]):not([class*="size-"], :has(input)) {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--hairline-2);
+}
+
+/* an outlined capsule (a place or record link) that was also filled: the
+   outline alone */
+html[data-look="white"] :is(a, span, button)[class~="rounded-full"][class~="border"]:is([class~="bg-soft"], [class~="bg-soft-2"], [class~="bg-soft-3"]) {
+  background: transparent;
+}
+
+/* ── Tabs: words with a short ink rule under the chosen one ───────────── */
+/* every tab list, whatever it was drawn as (a boxed pill row on some
+   screens): words on a hairline, the chosen one with an ink rule */
+/* hub-ui-patterns: 15px words 20px apart, the count after each in grey */
+html[data-look="white"] .sub-tabs {
+  gap: 1.25rem;
+  margin-bottom: 1rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: inset 0 -1px 0 var(--hairline);
+}
+/* A door's tabs stand on the page head's own rule (`.page-head-door`). */
+html[data-look="white"] .door-tabs .sub-tabs {
+  margin-bottom: 0;
+  box-shadow: none;
+}
+html[data-look="white"] .sub-tab {
+  height: auto;
+  min-height: 2.5rem;
+  padding: 0.5rem 0 0.6875rem;
+  border-radius: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--mute);
+  font-size: 0.9375rem;
+  font-weight: 500;
+}
+html[data-look="white"] .sub-tab :is(.text-body, .text-mute) {
+  margin-left: 0.375rem;
+  color: var(--mute);
+  font-weight: 400;
+}
+@media (hover: hover) and (pointer: fine) {
+  html[data-look="white"] .sub-tab:not([aria-selected="true"], [class~="border-ink"], [class~="bg-ink"]):hover {
+    background: transparent;
+    color: var(--ink);
+  }
+}
+html[data-look="white"] .sub-tab[class~="border-ink"],
+html[data-look="white"] .sub-tab[aria-selected="true"] {
+  color: var(--ink);
+}
+/* The chosen tab's rule is the list's sliding indicator (sub-tabs.tsx), not
+   the tab's own border — a border would jump while the indicator travels. */
+html[data-look="white"] .sub-tab[class~="border-ink"]:not(.sub-tabs:has(.sub-tab-indicator) > *) {
+  border-bottom-color: var(--ink);
+}
+html[data-look="white"] .sub-tab[class~="bg-ink"] {
+  background: transparent;
+  border-bottom: 2px solid var(--ink);
+  color: var(--ink);
+}
+/* A tab list with one tab chooses nothing: not drawn */
+html[data-look="white"] .sub-tabs:has(> .sub-tab:only-child),
+html[data-look="white"] .sheet-tabs:has(> .sheet-tab:only-child) {
+  display: none;
+}
+/* a row of fused buttons and Base UI's segmented control: Apple's control —
+   a light track, the chosen one white on it */
+html[data-look="white"] :is(.button-group, .segmented) {
+  gap: 2px;
+  padding: 3px;
+  border: 0;
+  border-radius: 9px;
+  background: #f2f2f4;
+}
+html[data-look="white"] .button-group > button {
+  height: 1.875rem;
+  border: 0 !important;
+  border-radius: 7px;
+  color: var(--body);
+}
+html[data-look="white"] .button-group > button:is([aria-pressed="true"], [data-pressed], [class~="bg-soft-2"], [class~="bg-soft"]),
+html[data-look="white"] .segmented > [data-pressed] {
+  background: #ffffff;
+  color: var(--ink);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 12%);
+}
+/* the sliding ground (segmented.tsx) wears the chosen look; the segment over
+   it stays clear, or the ground would be drawn twice */
+html[data-look="white"] .segmented.has-thumb > [data-pressed] {
+  background: transparent;
+  box-shadow: none;
+}
+/* …and the segments fade only their words: a ground fading out under the
+   ground that slides in drew the choice twice for a moment */
+.segmented.has-thumb > [aria-pressed] {
+  transition-property: color;
+}
+html[data-look="white"] .segmented-thumb {
+  border-radius: 7px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 12%);
+}
+
+/* ── Fields: white with a hairline, the tint ring only while typing ────── */
+@media (pointer: coarse) {
+  html[data-look="white"] {
+    --form-box: 2.75rem;
+  }
+}
+/* …except where two boxes are one field ("10 | Kodi"): the side they share
+   stays square, as the screen drew it (owner, 2026-10-14). */
+html[data-look="white"] .ui-field:not([class*="rounded-l-none"], [class*="rounded-r-none"]) {
+  border-radius: var(--r-inner);
+}
+html[data-look="white"] .ui-field,
+html[data-look="white"] :is(input, textarea, select)[class~="border-hairline-2"]:not([type="checkbox"], [type="radio"]),
+html[data-look="white"] :is(div, span, label)[class~="border-hairline-2"]:has(> input:not([type="checkbox"], [type="radio"])) {
+  background: #ffffff;
+  border-color: var(--hairline-2);
+  box-shadow: none;
+}
+/* the grey search box and the capsule a screen drew itself */
+html[data-look="white"] :is(label, div, span):is([class~="bg-soft"], [class~="bg-soft-2"], [class~="bg-soft-3"]):has(> input:not([type="checkbox"], [type="radio"])),
+html[data-look="white"] [class~="rounded-[1.25rem]"][class~="bg-soft-2"] {
+  background: #ffffff;
+  border: 1px solid var(--hairline-2);
+  border-radius: var(--r-inner);
+}
+html[data-look="white"] :is(input, textarea)[class~="bg-soft"]:not([type="checkbox"], [type="radio"]),
+html[data-look="white"] :is(input, textarea)[class~="bg-soft-2"]:not([type="checkbox"], [type="radio"]) {
+  background: #ffffff;
+}
+html[data-look="white"] .ui-field:is(:focus, :focus-within, :focus-visible, [data-popup-open]),
+html[data-look="white"] :is(input, textarea, select)[class~="border-hairline-2"]:not([type="checkbox"], [type="radio"]):focus,
+html[data-look="white"] :is(div, span, label)[class~="border-hairline-2"]:has(> input:focus) {
+  background: #ffffff;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgb(40 98 220 / 12%);
+}
+html[data-look="white"] .ui-field[aria-invalid="true"] {
+  border-color: var(--bad);
+}
+
+/* ── Filters at the left of every toolbar (owner, 2026-10-12): search, then
+   Filter and its chips, then the space, then the view controls ────────── */
+html[data-look="white"] :has(> :is(.filter-panel, .filter-button)) > :is(.bar-search, :has(> input:not([type="checkbox"], [type="radio"])), :has(input[type="search"]), input:not([type="checkbox"], [type="radio"])) { order: -2; }
+html[data-look="white"] :has(> :is(.filter-panel, .filter-button)) > :is(.filter-panel, .filter-button) { order: -1; }
+/* Filter is a supporting action: the neutral ghost, glyph and word */
+html[data-look="white"] .filter-button {
+  border: 1px solid var(--hairline-2);
+  background: #ffffff;
+  color: var(--ink);
+}
+@media (hover: hover) and (pointer: fine) {
+  html[data-look="white"] .filter-button:hover {
+    background: var(--soft-2);
+  }
+}
+html[data-look="white"] .filter-button[aria-expanded="true"] {
+  background: var(--soft-2);
+  color: var(--ink);
+}
+/* The search box: a field 280 wide at most, its hairline turning blue while
+   typing (hub-ui-patterns) */
+@media (min-width: 64rem) {
+  html[data-look="white"] .bar-search {
+    flex: 0 1 17.5rem;
+  }
+}
+@media (pointer: fine) {
+  html[data-look="white"] .bar-search > input {
+    height: var(--spacing-control);
+  }
+}
+html[data-look="white"] .bar-search > input {
+  border-color: var(--hairline-2);
+  box-shadow: none;
+  font-size: 0.9375rem;
+}
+html[data-look="white"] .bar-search > input::placeholder {
+  color: #8e8e93;
+}
+/* the white chip around a filter's word */
+html[data-look="white"] span[class~="rounded-full"][class~="border-hairline-2"][class~="bg-canvas"] {
+  background: var(--soft-2);
+  border-color: transparent;
+}
+/* The desk's "Filter and sort" square: the same plain Filter word, at the left */
+html[data-look="white"] .list-options {
+  /* not `display`: the screen's own `lg:hidden` must still win */
+  grid-auto-flow: column;
+  width: auto;
+  height: var(--spacing-control);
+  gap: 0.375rem;
+  padding: 0 0.75rem;
+  border: 1px solid var(--hairline-2);
+  border-radius: var(--r-inner);
+  background: #ffffff;
+  box-shadow: none;
+  color: var(--ink);
+  font-size: 0.9375rem;
+  font-weight: 500;
+}
+html[data-look="white"] .list-options > svg { width: 0.875rem; height: 0.875rem; }
+html[data-look="white"] .list-options > .btn-word { display: inline; }
+html[data-look="white"] :has(> .list-options) > .list-options { order: -1; }
+html[data-look="white"] :has(> .list-options) > :is(.bar-search, :has(> input:not([type="checkbox"], [type="radio"])), input:not([type="checkbox"], [type="radio"])) { order: -2; }
+html[data-look="white"] .list-options.keep-options { display: grid; }
+@media (hover: hover) and (pointer: fine) {
+  html[data-look="white"] .list-options:hover {
+    background: var(--soft-2);
+  }
+}
+
+/* ── KPIs: one row of figures, hairlines between, no boxes ────────────── */
+/* Every figure carries a rule at its left; the strip reaches one gutter
+   past the page edge and clips it, so whichever figure starts a line — the
+   first, or the first after a wrap — shows no rule and lines up with the
+   title. */
+html[data-look="white"] .kpi-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 1rem 0;
+  /* 32 to the tabs under it (owner, 2026-10-15: "spacing tabsnya dikebawin
+     dikit lagi"; was 24) */
+  margin-bottom: 2rem;
+  margin-left: calc(-1.5rem - 1px);
+  clip-path: inset(-0.5rem -0.5rem -0.5rem calc(1.5rem + 1px));
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+/* `display` is set above, unlayered, so a strip a screen hides at some width
+   (`md:hidden` on the phone's copy …) has to be hidden here again */
+html[data-look="white"] .kpi-strip[class~="hidden"] { display: none; }
+@media (min-width: 48rem) {
+  html[data-look="white"] .kpi-strip[class~="md:hidden"] { display: none; }
+}
+@media (max-width: 47.99rem) {
+  html[data-look="white"] .kpi-strip[class~="max-md:hidden"] { display: none; }
+}
+@media (min-width: 64rem) {
+  html[data-look="white"] .kpi-strip[class~="lg:hidden"] { display: none; }
+}
+@media (max-width: 63.99rem) {
+  html[data-look="white"] .kpi-strip[class~="max-lg:hidden"] { display: none; }
+}
+@media (min-width: 40rem) {
+  html[data-look="white"] .kpi-strip[class~="sm:hidden"] { display: none; }
+}
+@media (min-width: 80rem) {
+  html[data-look="white"] .kpi-strip[class~="xl:hidden"] { display: none; }
+}
+html[data-look="white"] .kpi-strip > * {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+html[data-look="white"] .kpi-card {
+  position: relative;
+  height: auto;
+  min-height: 0;
+  padding: 0 1.5rem;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+html[data-look="white"] .kpi-card::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--hairline);
+}
+html[data-look="white"] .kpi-label {
+  font-size: 0.9375rem;
+  line-height: 1.25rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--mute);
+}
+html[data-look="white"] .kpi-value {
+  margin-top: 0;
+  padding-top: 0.25rem;
+  font-size: 1rem;
+  line-height: 1.375rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  white-space: nowrap;
+  color: var(--ink);
+}
+html[data-look="white"] .kpi-strip:has(.kpi-card [data-kpi-delta]) .kpi-card {
+  min-height: 0;
+}
+/* a phone: two figures to a row, no rules (hub-ui-patterns) */
+@media (max-width: 47.99rem) {
+  html[data-look="white"] .kpi-strip {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem 1.5rem;
+    margin-left: 0;
+    clip-path: none;
+  }
+  html[data-look="white"] .kpi-card {
+    padding: 0;
+  }
+  html[data-look="white"] .kpi-card::before {
+    display: none;
+  }
+}
+/* the list head's one box: the same figures and rules, no box */
+html[data-look="white"] .kpi-box {
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+html[data-look="white"] .kpi-box-cell {
+  position: relative;
+  padding: 0 1.5rem;
+  border-left: 0 !important;
+}
+html[data-look="white"] .kpi-box-cell > :first-child {
+  font-size: 0.9375rem;
+  color: var(--mute);
+}
+html[data-look="white"] .kpi-box-cell > :nth-child(2) {
+  padding-top: 0.25rem;
+  font-size: 1rem;
+  line-height: 1.375rem;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+html[data-look="white"] .kpi-box-cell:first-child {
+  padding-left: 0;
+}
+html[data-look="white"] .kpi-box-cell + .kpi-box-cell::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.25rem;
+  bottom: 0.25rem;
+  width: 1px;
+  background: var(--hairline);
+}
+/* the phone's row: figure over name, hairlines between, no box round it */
+html[data-look="white"] .kpi-row {
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+html[data-look="white"] .kpi-row-cell {
+  text-align: left;
+  padding-left: 0.875rem;
+  padding-right: 0.5rem;
+}
+html[data-look="white"] .kpi-row-cell:first-child,
+html[data-look="white"] .kpi-row-cell[class~="border-l-0"] {
+  padding-left: 0;
+}
+html[data-look="white"] .kpi-row-cell[class~="border-t"] {
+  border-top-color: transparent;
+  margin-top: 0.25rem;
+}
+
+/* ── Finance's figure cards: the same one row of figures, hairlines between;
+   a figure that needs somebody keeps its colour in the words ──────────── */
+html[data-look="white"] :has(> .number-card) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.75rem 0;
+  margin-left: calc(-1.5rem - 1px);
+  clip-path: inset(-0.5rem -0.5rem -0.5rem calc(1.5rem + 1px));
+}
+html[data-look="white"] .number-card {
+  position: relative;
+  flex: 0 0 auto;
+  min-width: 0;
+  padding: 0 1.5rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+html[data-look="white"] .number-card::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.375rem;
+  bottom: 0.375rem;
+  width: 1px;
+  background: var(--hairline);
+}
+html[data-look="white"] .number-card > :first-child {
+  font-size: 0.9375rem;
+  color: var(--mute);
+}
+html[data-look="white"] .number-card > :nth-child(2) {
+  font-size: 1rem;
+  line-height: 1.375rem;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+/* a screen's own box of figures with rules between: the same row, no box */
+html[data-look="white"] .figure-box {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+html[data-look="white"] .figure-box > dl > * {
+  flex: 0 0 auto;
+  padding: 0 1.5rem;
+}
+html[data-look="white"] .figure-box > dl > :first-child {
+  padding-left: 0;
+}
+html[data-look="white"] .figure-box dt {
+  font-size: 0.9375rem;
+  color: var(--mute);
+}
+html[data-look="white"] .figure-box dd {
+  font-size: 1rem;
+  line-height: 1.375rem;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+/* ── Tables (hub-ui-patterns, 14 Oct): FRAMED — a hairline round the table
+   and a 10px corner, the heading row on a light warm band in 15px grey, a
+   hairline between rows, the totals on the same band ──────────────────── */
+html[data-look="white"] :is(.shell-page, .sheet-pop, .sheet-drawer) table:not(.ui-matrix table) > thead > tr > th {
+  background: var(--wt-band);
+  border-bottom: 1px solid var(--hairline);
+  color: var(--mute);
+  font-size: 0.9375rem;
+  font-weight: 500;
+}
+html[data-look="white"] :is(.shell-page, .sheet-pop, .sheet-drawer) table > tbody > tr > :is(td, th) {
+  border-bottom-color: var(--wt-row-line);
+}
+html[data-look="white"] :is(.shell-page, .sheet-pop, .sheet-drawer) table > tfoot :is(td, th),
+html[data-look="white"] :is(.shell-page, .sheet-pop, .sheet-drawer) table > tfoot > tr {
+  background: var(--wt-band);
+}
+html[data-look="white"] :is(.shell-page, .sheet-pop, .sheet-drawer) table > tfoot > tr:first-child > :is(td, th) {
+  border-top: 1px solid var(--hairline);
+}
+/* The box a table stands in: a hairline and a 10px corner, no shadow; the
+   corner clips the heading band (`clip`, so the heading still sticks to the
+   page as it scrolls) */
+html[data-look="white"] :is(.shell-page, .sheet-pop, .sheet-drawer) :is(.card, [class~="rounded-card"][class~="border"]):has(table):not([class~="shadow-pop"], [class~="shadow-float"], .board-card) {
+  border-color: var(--hairline);
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: none;
+}
+/* …and clips its corners — unless it is the box a wide table scrolls
+   sideways in, which must keep its scroll */
+html[data-look="white"] :is(.shell-page, .sheet-pop, .sheet-drawer) :is(.card, [class~="rounded-card"][class~="border"]):has(table):not([class~="shadow-pop"], [class~="shadow-float"], .board-card, [class~="overflow-x-auto"], [class~="overflow-auto"]) {
+  overflow: clip;
+}
+/* A list table's cells (DataTable): 12 over 16, the heading 40 tall */
+html[data-look="white"] table.dt > thead > tr > th {
+  height: 2.5rem;
+  padding-inline: 1rem;
+  letter-spacing: 0;
+  /* the rule under the heading drawn on the cell itself, so it goes where
+     the heading goes once it sticks (a collapsed border stays behind) */
+  box-shadow: inset 0 -1px 0 var(--hairline);
+}
+html[data-look="white"] table.dt > tbody > tr > td {
+  padding: 0.75rem 1rem;
+}
+html[data-look="white"] table.dt > tfoot > tr > td {
+  padding-inline: 1rem;
+}
+/* the name that leads a row is the row's one medium word; what is under it
+   stays quiet */
+html[data-look="white"] table.dt > tbody > tr > td:first-child {
+  font-weight: 500;
+}
+html[data-look="white"] table.dt > tbody > tr > td:first-child :is(.text-body, .text-mute) {
+  font-weight: 400;
+}
+/* Sorting shows itself only where it is (improvement 2, owner 14 Oct): an
+   arrow on the sorted column, the others on hover */
+html[data-look="white"] th [data-sort-hint] {
+  opacity: 0;
+  transition: opacity var(--t-hover) var(--ease-out);
+}
+@media (hover: hover) and (pointer: fine) {
+  html[data-look="white"] th:hover [data-sort-hint] {
+    opacity: 1;
+  }
+}
+
+/* a total row or a sticky band a screen filled grey itself: the band */
+html[data-look="white"] :is(.shell-page, .sheet-pop, .sheet-drawer) :is(tr, td, th):is([class~="bg-soft"], [class~="bg-soft-2"], [class~="bg-soft-3"]) {
+  background: var(--wt-band);
+}
+html[data-look="white"] :is(.shell-page, .sheet-pop, .sheet-drawer) [class~="sticky"]:is([class~="bg-soft"], [class~="bg-soft-2"], [class~="bg-soft-3"]),
+html[data-look="white"] :is(.shell-page, .sheet-pop, .sheet-drawer) div:is([class~="border-b"], [class~="border-t"]):is([class~="bg-soft"], [class~="bg-soft-2"], [class~="bg-soft-3"]) {
+  background: var(--wt-band);
+}
+
+/* ── Cards: a hairline, no shadow; a box around boxes is one too many ─── */
+/* These reach every box in the app, so they are written in `:where()` —
+   no weight of their own — and any rule naming a particular box wins. */
+html[data-look="white"] :where(.card, [class~="rounded-card"][class~="border"][class~="bg-canvas"]:not([class~="shadow-pop"], [class~="shadow-float"], .kpi-card, .kpi-box, .kpi-row, .sheet-pop)) {
+  border-color: var(--hairline);
+  box-shadow: none;
+}
+html[data-look="white"] :where(:is(.card, [class~="rounded-card"][class~="border"]):has([class~="rounded-card"][class~="border"]):not([class~="shadow-pop"], [class~="shadow-float"], .sheet-pop, .board-lane, .kpi-strip *)) {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+/* a soft box with a hairline (a form's summary, a note): white, the line kept */
+html[data-look="white"] :where([class~="rounded-card"]:is([class~="bg-soft"], [class~="bg-soft-2"], [class~="bg-soft-3"]):not([class~="shadow-pop"], [class~="shadow-float"], .board-lane)) {
+  background: #ffffff;
+  border: 1px solid var(--hairline);
+}
+html[data-look="white"] :where([class~="shadow-soft"]:not(.sheet-pop, [class~="shadow-pop"], [class~="shadow-float"])) {
+  box-shadow: none;
+}
+/* a section head a screen wrote itself (an icon, a title, a rule): the word */
+html[data-look="white"] div[class~="border-b"]:has(> svg + :is(h3, h4)) {
+  border-bottom-color: transparent;
+  padding-bottom: 0;
+}
+html[data-look="white"] div[class~="border-b"]:has(> svg + :is(h3, h4)) > svg {
+  display: none;
+}
+html[data-look="white"] div[class~="border-b"]:has(> svg + :is(h3, h4)) > :is(h3, h4) {
+  font-size: 0.9375rem;
+  line-height: 1.25rem;
+  font-weight: 600;
+}
+
+/* a note a screen drew in a soft box with a hairline: white, the line kept */
+html[data-look="white"] [class~="border"]:is([class~="bg-soft"], [class~="bg-soft-2"], [class~="bg-soft-3"]):is([class~="rounded-inner"], [class~="rounded-md"], [class~="rounded-lg"], [class~="rounded-xl"]):not(button, input, [role="switch"]) {
+  background: #ffffff;
+  border-color: var(--hairline);
+}
+/* A list in a card (rows with rules between): the rows stand on the page,
+   like a table's — no frame round them */
+html[data-look="white"] :is(.card, [class~="rounded-card"][class~="border"]):has(> :is(ul, ol, div)[class~="divide-y"]:only-child):not(.sheet-pop, [class~="shadow-pop"], [class~="shadow-float"]) {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+html[data-look="white"] :is(.shell-page, .sheet-pop, .sheet-drawer) [class~="divide-y"] > * {
+  border-color: var(--wt-row-line);
+}
+/* A card that only holds facts (a `dl` of label and value): the facts stand
+   on the page as a property list — never a bordered card of rows */
+html[data-look="white"] :is(.card, [class~="rounded-card"][class~="border"]):has(> dl:only-child):not(.sheet-pop, [class~="shadow-pop"], [class~="shadow-float"]) {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  padding-left: 0;
+  padding-right: 0;
+}
+/* the foot band of a card (a phone's order card, a record card): white on a
+   rule — the words in it carry any warning, not a wash */
+html[data-look="white"] [class~="rounded-b-card"][class~="border-t"] {
+  background: transparent;
+  border-top-color: var(--wt-row-line);
+}
+
+/* ── Sheets (hub-ui-patterns, 14 Oct): a white surface floating 12px off the
+   window, radius 16, over a grey veil with a 2px blur. Head on a hairline —
+   where it sits in grey ("Purchase Orders / PO-0002-OPE6"), the name at 17,
+   its state and one line under it, × at the right — the body scrolls, the
+   foot stands on a hairline with the main action last ──────────────────── */
+@media (min-width: 48rem) {
+  html[data-look="white"] .sheet-pop {
+    top: 12px;
+    right: 12px;
+    bottom: 12px;
+    max-width: calc(100vw - 1.5rem);
+    border-color: transparent;
+    border-radius: 16px;
+    box-shadow: var(--wt-ring);
+  }
+}
+html[data-look="white"] .sheet-veil {
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+/* over another sheet the page is already behind a veil: a clear one */
+html[data-look="white"] .sheet-veil[data-quiet] {
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html[data-look="white"] .sheet-head {
+  align-items: flex-start;
+  border-bottom-color: var(--hairline);
+}
+@media (min-width: 48rem) {
+  html[data-look="white"] .sheet-head {
+    padding: 1.5rem 1.75rem 1rem;
+  }
+}
+html[data-look="white"] .sheet-head > div:last-child {
+  align-self: flex-start;
+}
+html[data-look="white"] .sheet-headtext {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.5rem;
+}
+html[data-look="white"] .sheet-back {
+  order: 0;
+  flex-basis: 100%;
+  margin-bottom: 0.25rem;
+  font-size: 0.9375rem;
+  color: var(--mute);
+}
+/* where the record sits, in grey: the list it belongs to, then its number */
+html[data-look="white"] .sheet-id {
+  order: 0;
+  flex-basis: 100%;
+  overflow: visible;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.25rem;
+  font-family: inherit;
+  font-size: 0.9375rem;
+  line-height: 1.125rem;
+  color: var(--mute);
+}
+html[data-look="white"] .sheet-crumb {
+  color: inherit;
+}
+@media (hover: hover) and (pointer: fine) {
+  html[data-look="white"] .sheet-crumb:hover {
+    color: var(--ink);
+    text-decoration: underline;
+  }
+}
+html[data-look="white"] .sheet-crumb-sep {
+  color: #aeaeb2;
+}
+/* The state beside the name, on its line (owner, 2026-10-15: "Active di po
+   detail bisa disebelah nama cv nya"): one row of title and badge, the
+   caption under it. */
+html[data-look="white"] .sheet-titlerow {
+  order: 1;
+  display: flex;
+  flex-direction: row;
+  flex-basis: 100%;
+  align-items: center;
+  gap: 0.625rem;
+  min-width: 0;
+}
+html[data-look="white"] .sheet-title {
+  flex-basis: auto;
+  font-size: 1.0625rem;
+  line-height: 1.5rem;
+  font-weight: 600;
+  letter-spacing: -0.3px;
+  color: var(--ink);
+}
+html[data-look="white"] .sheet-badge {
+  font-size: 0.9375rem;
+}
+html[data-look="white"] .sheet-badge .pill {
+  min-height: 1.25rem;
+  font-size: 0.9375rem;
+}
+html[data-look="white"] .sheet-caption {
+  order: 3;
+  margin-top: 0;
+  font-size: 0.9375rem;
+  line-height: 1.25rem;
+  color: var(--mute);
+}
+/* ×: the glyph, ink, on nothing until the pointer is over it */
+html[data-look="white"] .sheet-close {
+  display: grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  margin: -0.25rem -0.375rem 0 0;
+  padding: 0;
+  border-radius: var(--r-inner);
+  color: var(--ink);
+}
+html[data-look="white"] .sheet-close svg {
+  width: 1.0625rem;
+  height: 1.0625rem;
+}
+@media (hover: hover) and (pointer: fine) {
+  html[data-look="white"] .sheet-close:hover {
+    background: var(--soft-2);
+    color: var(--ink);
+  }
+}
+@media (min-width: 48rem) {
+  html[data-look="white"] .sheet-body {
+    padding: 1.5rem 1.75rem;
+  }
+}
+/* The foot: a hairline over it, 64 tall, 36px buttons, main action last */
+html[data-look="white"] .sheet-foot {
+  display: grid;
+  align-content: center;
+  border-top-color: var(--hairline);
+}
+@media (min-width: 48rem) {
+  html[data-look="white"] .sheet-foot {
+    min-height: 4rem;
+    padding: 0.75rem 1.75rem;
+  }
+}
+/* A sheet opened over another: the one under it dims in place (the same
+   veil, on its own glass), and the new one stands 12px further in */
+html[data-look="white"] .sheet-pop[data-under]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  border-radius: inherit;
+  background: var(--scrim);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+  animation: fade-in-only var(--t-sheet) var(--ease-out) both;
+}
+@media (min-width: 48rem) {
+  html[data-look="white"] .sheet-pop[data-over] {
+    top: 24px;
+    right: 24px;
+    bottom: 24px;
+  }
+}
+/* a sheet's own tabs: the same words and ink rule as a page's */
+html[data-look="white"] .sheet-tabs {
+  border-bottom-color: var(--hairline);
+}
+html[data-look="white"] .sheet-tab {
+  color: var(--body);
+  font-weight: 500;
+}
+html[data-look="white"] .sheet-tab[aria-selected="true"] {
+  border-bottom-color: var(--ink);
+  color: var(--ink);
+  font-weight: 600;
+}
+@media (min-width: 48rem) {
+  html[data-look="white"] .sheet-body {
+    padding-top: 1.25rem;
+  }
+}
+/* A small form that writes its own Submit row: that row is the sheet's foot */
+html[data-look="white"] .sheet-body:has(> form > .submit-row) {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 0;
+}
+html[data-look="white"] .sheet-body > form:has(> .submit-row) {
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+html[data-look="white"] .sheet-body > form > .submit-row {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  margin: auto -1rem 0;
+  padding: 0.75rem 1rem;
+  background: var(--canvas);
+}
+@media (min-width: 48rem) {
+  html[data-look="white"] .sheet-body > form > .submit-row {
+    margin-inline: -1.75rem;
+    padding: 0.875rem 1.75rem;
+  }
+}
+/* A record's verbs, in its foot: at the right, the first one the clear
+   primary and last in line (Apple's order), the rest tint words before it */
+html[data-look="white"] .foot-lifted {
+  justify-content: flex-end;
+}
+html[data-look="white"] .foot-lifted:not(:has(.btn-primary)) > :is(button, a):first-of-type:not(.btn-takes-away, .btn-primary, .btn-destructive, .btn-danger, [data-support], :has(svg.lucide-printer)) {
+  order: 2;
+  background: var(--cta);
+  color: var(--cta-fg);
+  padding-inline: 1rem;
+}
+html[data-look="white"] .foot-lifted:not(:has(.btn-primary)) > :is(button, a):first-of-type:not(.btn-takes-away, .btn-primary, .btn-destructive, .btn-danger, [data-support], :has(svg.lucide-printer)) svg {
+  color: var(--cta-fg);
+}
+
+/* Edit is the foot's main verb when nothing else is (owner, 14 Oct: "edit
+   di po harusnya biru ya jika dia sendiri aja"): with no primary beside it,
+   it is the one blue button; with one (Review Count, Save), a white one. */
+html[data-look="white"] .sheet-foot:not(:has(.btn-primary)) [data-support="edit"] {
+  border-color: transparent;
+  background: var(--cta);
+  color: var(--cta-fg);
+  box-shadow: none;
+}
+html[data-look="white"] .sheet-foot:not(:has(.btn-primary)) [data-support="edit"]:hover {
+  background: var(--cta-hover);
+}
+html[data-look="white"] .sheet-foot:not(:has(.btn-primary)) [data-support="edit"] svg {
+  color: var(--cta-fg);
+}
+/* Print stands at the right with the other verbs, first of them (owner,
+   14 Oct: "print jg button itu selalu sebelah kanan") — for the feet that
+   still put it first in the row. */
+html[data-look="white"] .sheet-foot :is(button, a):has(> svg.lucide-printer):first-child {
+  margin-left: auto;
+}
+html[data-look="white"] .sheet-foot :is(button, a):has(> svg.lucide-printer):first-child + .ml-auto {
+  margin-left: 0;
+}
+
+/* A page-scrolled table too wide for its card scrolls sideways in a box of
+   its own; its headings stick to the top of that box, not under the page
+   head (they stood 90px down the rows, owner 14 Oct). */
+html[data-look="white"] .dt-wide > table > thead > tr > th {
+  top: 0;
+}
+html[data-look="white"] .dt-wide > table > thead > tr + tr > th {
+  top: 2.5rem;
+}
+
+/* Every button in a sheet's foot stands at the right (owner, 15 Oct:
+   "button selalu sebelah kanan ya jangan ada button yg sebelah kiri"): a
+   verb pushed left by a spacer or an auto margin is brought back to the
+   others. The note line above a foot, which is text, is untouched. */
+html[data-look="white"] .sheet-foot :is(div, span):has(> :is(button, a, [role="button"])) {
+  justify-content: flex-end;
+}
+html[data-look="white"] .sheet-foot :is(button, a, [role="button"]).mr-auto {
+  margin-right: 0;
+}
+html[data-look="white"] .sheet-foot :is(.flex-1, .grow, .sp):empty {
+  display: none;
+}
+
+/* ── Forms ────────────────────────────────────────────────────────────── */
+/* a section head: the word alone — no glyph, no rule under it */
+html[data-look="white"] .form-section-head {
+  border-bottom-color: transparent;
+  padding-bottom: 0;
+}
+html[data-look="white"] .form-section-head > svg {
+  display: none;
+}
+html[data-look="white"] .form-section-head h4 {
+  font-size: 0.9375rem;
+  line-height: 1.25rem;
+}
+/* a section's title in a record or a form: 14 semibold, its count after it
+   in grey (hub-ui-patterns) */
+html[data-look="white"] .section-title,
+html[data-look="white"] :is(.sheet-pop, .sheet-drawer) :is(h3, h4)[class~="text-card-title"] {
+  font-size: 0.9375rem;
+  line-height: 1.25rem;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+/* choice tiles: white with a hairline, the chosen one in the tint with a ring */
+html[data-look="white"] .choice-tile {
+  border-color: var(--hairline-2);
+  background: #ffffff;
+}
+html[data-look="white"] .choice-tile[class~="border-accent"] {
+  background: var(--accent-bg);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+html[data-look="white"] .choice-tile > span:first-child:not(:only-child) {
+  background: transparent;
+  box-shadow: none;
+}
+/* a switch with its sentence: white with a hairline, tinted while on */
+html[data-look="white"] .switch-row {
+  border-color: var(--hairline);
+  background: #ffffff;
+}
+html[data-look="white"] .switch-row[class~="border-accent"] {
+  background: var(--accent-bg);
+}
+
+/* ── An order's lines (PO detail, review, form): the same framed table ── */
+html[data-look="white"] .items-box {
+  overflow: clip;
+  border-color: var(--hairline);
+  border-radius: 10px;
+}
+html[data-look="white"] .items-head,
+html[data-look="white"] .items-box thead th {
+  height: 2.5rem;
+  padding-top: 0;
+  padding-bottom: 0;
+  background: var(--wt-band);
+  font-size: 0.9375rem;
+  color: var(--mute);
+}
+html[data-look="white"] .items-box tfoot tr {
+  background: transparent;
+}
+html[data-look="white"] .items-list {
+  border-color: transparent;
+  border-radius: 0;
+}
+html[data-look="white"] .items-totals {
+  border-color: transparent;
+  border-top: 1px solid var(--hairline);
+  border-radius: 0;
+  background: transparent;
+}
+html[data-look="white"] .order-totals > dt,
+html[data-look="white"] .order-totals > dd {
+  min-height: 1.75rem;
+}
+html[data-look="white"] .order-sum {
+  background: #ffffff;
+}
+/* photo tiles: Apple's light grey, no outline */
+html[data-look="white"] .thumb-tile {
+  border-color: transparent;
+  background: var(--soft-2);
+}
+
+/* A colour × size grid: white heading, rules across only */
+html[data-look="white"] .ui-matrix {
+  border-color: transparent;
+  border-radius: 0;
+}
+html[data-look="white"] .ui-matrix thead th {
+  background: #ffffff;
+  border-color: transparent;
+  border-bottom: 1px solid var(--hairline);
+  color: var(--body);
+}
+html[data-look="white"] .ui-matrix tbody th {
+  background: var(--canvas);
+}
+html[data-look="white"] .ui-matrix :is(td, tbody th) {
+  border-left-color: transparent;
+  border-right-color: transparent;
+}
+html[data-look="white"] .ui-matrix tfoot :is(td, th) {
+  background: transparent;
+  font-weight: 600;
+}
+
+/* ── Boards (Ops): lanes on the white, cards edged by a hairline, the step a
+   small solid button ─────────────────────────────────────────────────── */
+html[data-look="white"] .board-lane {
+  border-color: transparent;
+  background: transparent;
+}
+html[data-look="white"] .board-lane-foot {
+  border-top-color: transparent;
+  color: var(--mute);
+}
+html[data-look="white"] .board-card {
+  border-color: var(--hairline);
+  box-shadow: none;
+}
+@media (hover: hover) and (pointer: fine) {
+  html[data-look="white"] .board-card:hover {
+    border-color: var(--hairline-2);
+    box-shadow: 0 4px 14px rgb(0 0 0 / 5%);
+  }
+}
+html[data-look="white"] .board-flag {
+  align-self: flex-start;
+  min-height: 0;
+  margin: 0 1rem 0.5rem;
+  padding: 0;
+  border-top: 0;
+  background: transparent;
+  color: var(--bad-fg);
+}
+html[data-look="white"] .board-act {
+  justify-content: flex-end;
+  min-height: 0;
+  padding: 0 0.75rem 0.75rem;
+  border-top: 0;
+}
+html[data-look="white"] .board-act-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  height: 1.875rem;
+  padding: 0 0.875rem;
+  border-radius: var(--r-inner);
+  background: var(--cta);
+  color: var(--cta-fg);
+  font-weight: 600;
+}
+html[data-look="white"] .board-act-btn svg {
+  display: none;
+}
+@media (hover: hover) and (pointer: fine) {
+  html[data-look="white"] .board-card:hover .board-act-btn {
+    background: var(--cta-hover);
+  }
+}
+html[data-look="white"] .board-card .board-card,
+html[data-look="white"] .board-card .board-card:hover {
+  box-shadow: none;
+}
+
+/* ── Aids still being chosen (owner, 2026-10-14: "all white agak
+   membingungkan jg kalau banyak data") ─────────────────────────────────
+   Each is an attribute on <html> switched from the Look picker
+   (`lib/look.ts`); they combine. The ones the owner keeps move up into the
+   sections above and the switch goes. */
+
+/* First column stays: a table wider than its page scrolls under the column
+   that names the row */
+html[data-look="white"][data-aid-freeze] .shell-page table > :is(thead, tbody, tfoot) > tr > :first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: #ffffff;
+  box-shadow: inset -1px 0 0 var(--hairline);
+}
+/* …and takes the row's own colour under the pointer or when chosen: white
+   on its own, it left the first column out of the hovered row (owner,
+   2026-10-14). */
+@media (hover: hover) and (pointer: fine) {
+  html[data-look="white"][data-aid-freeze] .shell-page table > tbody > tr:hover > :first-child {
+    background: inherit;
+  }
+}
+html[data-look="white"][data-aid-freeze] .shell-page table > tbody > tr[class~="bg-accent-bg"] > :first-child {
+  background: inherit;
+}
+/* The heading's corner sticks both ways and stands over everything: at z 1,
+   like the rows' first cells, the rows passing under it painted over "PO"
+   while the rest of the heading covered them (owner, 2026-10-14). The rows'
+   first cells stay under the heading too. */
+html[data-look="white"][data-aid-freeze] .shell-page table > :is(thead, tfoot) > tr > :first-child {
+  z-index: 11;
+}
+
+/* Row stripes: every other row faintly grey, the row under the pointer
+   tinted, so a row can be followed across eight columns */
+html[data-look="white"][data-aid-zebra] :is(.shell-page, .sheet-pop, .sheet-drawer) table > tbody > tr:nth-child(even) > :is(td, th) {
+  background: #f4f4f7;
+}
+@media (hover: hover) and (pointer: fine) {
+  html[data-look="white"][data-aid-zebra] :is(.shell-page, .sheet-pop, .sheet-drawer) table > tbody > tr:hover > :is(td, th) {
+    background: #eef3fd;
+  }
+}
+/* the stripes are the rule between rows, so the hairlines go */
+html[data-look="white"][data-aid-zebra] :is(.shell-page, .sheet-pop, .sheet-drawer) table > tbody > tr,
+html[data-look="white"][data-aid-zebra] :is(.shell-page, .sheet-pop, .sheet-drawer) table > tbody > tr > :is(td, th) {
+  border-bottom-color: transparent;
+}
+
+/* Tables on a panel: the page Apple's grouped grey, each table (and any card)
+   a white panel on it */
+html[data-look="white"][data-aid-panel] .shell-page {
+  background: #f5f5f7;
+}
+html[data-look="white"][data-aid-panel] .shell-page :is(.card, [class~="rounded-card"][class~="border"]):not(.kpi-card, .kpi-box, .kpi-row, .number-card, .figure-box, [class~="shadow-pop"], [class~="shadow-float"]) {
+  border-color: var(--hairline);
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 3%);
+}
+/* `clip`, not `hidden`: it rounds the table's corners the same, but `hidden`
+   makes the card a scroll box, and the table's sticky headings then stuck
+   90px down INSIDE the card, over its first rows (owner, 14 Oct). */
+html[data-look="white"][data-aid-panel] .shell-page :is(.card, [class~="rounded-card"][class~="border"]):has(table):not([class~="shadow-pop"], [class~="shadow-float"], .board-card) {
+  overflow: clip;
+}
+html[data-look="white"][data-aid-panel] .shell-page :is(.card, [class~="rounded-card"][class~="border"]) :is(.card, [class~="rounded-card"][class~="border"]) {
+  box-shadow: none;
+}
+
+/* ── The shell (owner, 2026-10-14: "list purchase order seperti sheet … sidebarnya
+   stone … kecilkan Purchase Orders text di menu … hide Updated dan refresh";
+   later the same day the stone became a premium grey, #e9e9ed; then Fog,
+   the faintest blue tint, from sidebar-grey-options.html F)
+   The menu stands on a warm stone; the page is a white sheet floating on it,
+   12px off the window and ringed like a record's sheet. */
+html[data-look="white"] {
+  --wt-stone: #e8ebf0;
+  --wt-panel: #f4f6f9;
+  --rail: transparent;
+  --rail-2: rgb(0 0 0 / 5%);
+  --rail-3: #ffffff;
+  --rail-ink: #1d1d1f;
+  --rail-text: #5a6271;
+  --rail-mute: #8a92a0;
+  --rail-hair: transparent;
+}
+html[data-look="white"] .app-shell {
+  background: var(--wt-stone);
+}
+html[data-look="white"] :is(.shell-rail, .shell-panel) {
+  background: transparent;
+  border-right-color: transparent;
+}
+html[data-look="white"] .shell-panel [data-status="active"],
+html[data-look="white"] .shell-panel .bg-accent-bg {
+  background: #ffffff;
+  color: var(--ink);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 7%);
+}
+@media (hover: hover) and (pointer: fine) {
+  html[data-look="white"] .shell-panel a:not([data-status="active"]):hover,
+  html[data-look="white"] .shell-panel button:hover {
+    background: var(--rail-2);
+  }
+}
+html[data-look="white"] .shell-panel :is(a, button) {
+  font-size: 0.9375rem;
+}
+html[data-look="white"] .app-shell:has(> .shell-rail) > .shell-page {
+  margin: 12px 12px 12px 0;
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 5%), 0 2px 8px rgb(0 0 0 / 4%),
+    0 24px 72px rgb(0 0 0 / 8%);
+  overflow: hidden;
+}
+/* a list says nothing about when it last read: it stays live on its own */
+html[data-look="white"] .refresh-stamp {
+  display: none;
+}
+/* …nor keeps the strip it stood in over the table */
+html[data-look="white"] div:has(> .refresh-stamp:only-child) {
+  display: none;
+}
+/* Floating sheets (owner, 14 Oct, `po-shell-layers.html` A; hub-ui-patterns):
+   stone, then the screens panel as a lighter sheet floating on it, then the
+   white page — three layers, each 12px apart, the panel 216 wide */
+html[data-look="white"] .app-shell .shell-panel {
+  width: 13.5rem;
+  margin: 12px 12px 12px 0;
+  height: calc(100% - 24px);
+  border-radius: 16px;
+  background: var(--wt-panel);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 5%), 0 2px 6px rgb(0 0 0 / 4%);
+}
+/* on the lighter sheet the row you are on needs its own edge to stand out */
+html[data-look="white"] .shell-panel [data-status="active"],
+html[data-look="white"] .shell-panel .bg-accent-bg {
+  background: #ffffff;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 6%), 0 1px 3px rgb(0 0 0 / 6%);
+}
+/* Ask AI's own tile in the rail: soft violet (hub-ui-patterns) */
+html[data-look="white"] .rail-ai {
+  border: 1px solid rgb(107 70 158 / 12%);
+  background: #ece6f6;
+  color: #6b469e;
+}
+@media (hover: hover) and (pointer: fine) {
+  html[data-look="white"] .rail-ai:hover {
+    background: #e3daf2;
+  }
+}
+/* What is waiting for somebody: a strong red pill with a white number
+   (UI-PATTERNS.md) — at a rail icon's corner, ringed in the stone so it
+   sits ON the icon; at the end of a screen's row */
+html[data-look="white"] .nav-badge {
+  display: grid;
+  place-items: center;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 0.3125rem;
+  border-radius: 999px;
+  background: var(--bad-fg);
+  color: #ffffff;
+  font-size: 0.9375rem;
+  line-height: 1;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 0 0 2px var(--wt-stone);
+  --tw-ring-shadow: 0 0 #0000;
+}
+html[data-look="white"] .nav-count,
+html[data-look="white"] .shell-panel [data-status="active"] .nav-count,
+html[data-look="white"] .shell-panel [aria-current="page"] .nav-count {
+  display: grid;
+  place-items: center;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 0.3125rem;
+  border-radius: 999px;
+  background: var(--bad-fg);
+  /* white on the red, also on the row you are on (whose words go ink) */
+  color: #ffffff;
+  line-height: 1;
+  font-weight: 600;
+  box-shadow: 0 0 0 2px var(--wt-panel);
+}
+
+/* ── Bold blue (owner, 15 Oct: sidebar-color-prototypes.html, Paper D).
+   The screens panel is white paper with slate words; the screen you are on
+   is a light blue tint with blue words (owner, 16 Oct: B · Tint in
+   sidebar-blue-options.html) — the page's main button stays the one solid
+   blue on screen; the solid #2563eb row outshone it.
+   A count keeps its red there, ringed white, so a notification never takes
+   the selection's colour. The department you are in is a white tile on the
+   stone with a blue icon; a department's waiting count is a dot — the number
+   is in its panel. ───────────────────────────────────────────────────── */
+html[data-look="white"] {
+  --wt-panel: #ffffff;
+  --rail-text: #344054;
+  --rail-mute: #475467;
+}
+html[data-look="white"] .shell-panel {
+  --ink: #1d2939;
+  --body: #344054;
+  --mute: #667085;
+}
+html[data-look="white"] .shell-panel h2 {
+  font-size: 1.25rem;
+  line-height: 1.75rem;
+  letter-spacing: -0.02em;
+}
+html[data-look="white"] .shell-panel [data-status="active"],
+html[data-look="white"] .shell-panel .bg-accent-bg {
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-weight: 600;
+  box-shadow: none;
+}
+@media (hover: hover) and (pointer: fine) {
+  html[data-look="white"] .shell-panel a:not([data-status="active"]):hover,
+  html[data-look="white"] .shell-panel button:hover {
+    background: #f2f4f7;
+  }
+}
+html[data-look="white"] .shell-rail .bg-rail-3 {
+  box-shadow: 0 0 0 1px rgb(16 24 40 / 7%), 0 1px 2px rgb(16 24 40 / 8%);
+}
+html[data-look="white"] .shell-rail .bg-rail-3 > svg {
+  color: var(--accent);
+}
+html[data-look="white"] .nav-badge.nav-dot {
+  top: 0.375rem;
+  right: 0.375rem;
+  width: 0.5rem;
+  min-width: 0.5rem;
+  height: 0.5rem;
+  padding: 0;
+  overflow: hidden;
+  font-size: 0;
+}
+html[data-look="white"] .bg-rail-3 .nav-badge.nav-dot {
+  box-shadow: 0 0 0 2px #ffffff;
+}

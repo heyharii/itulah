@@ -1,0 +1,18 @@
+[
+  {
+    "id": "return",
+    "text": "Kelebihan dan barang yang tidak sesuai pesanan masuk ke **Return PO**. Nilainya **Rp 0**, karena PO hanya membayar barang yang cocok."
+  },
+  {
+    "id": "sheet",
+    "text": "Setiap order punya Return PO sendiri, lengkap dengan alasannya."
+  },
+  {
+    "id": "note",
+    "text": "Gudang membuat **surat jalan retur**, lalu mencetaknya untuk ditandatangani supplier."
+  },
+  {
+    "id": "confirm",
+    "text": "Saat barang diserahkan, Gudang menekan **Confirm**, dan Return PO selesai."
+  }
+]

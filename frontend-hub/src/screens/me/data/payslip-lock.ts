@@ -38,7 +38,9 @@ export function usePayslipGeneration(): number {
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
-    () => generation
+    () => generation,
+    // The server holds no password: its render is the locked one.
+    () => 0
   )
 }
 

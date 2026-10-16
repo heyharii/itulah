@@ -140,9 +140,11 @@ async function reload(): Promise<void> {
   }
 }
 
-/// Other tabs write to the same store; tell this one to look again.
+/// Other tabs write to the same store; tell this one to look again. Browser
+/// only: Node has a global BroadcastChannel too, and a server import of this
+/// module must not open one.
 const channel =
-  typeof BroadcastChannel === "undefined"
+  typeof window === "undefined" || typeof BroadcastChannel === "undefined"
     ? null
     : new BroadcastChannel("po-outbox")
 channel?.addEventListener("message", () => void reload())
@@ -180,12 +182,15 @@ function subscribe(listener: () => void): () => void {
   }
 }
 
+/// What the server — and the hydrating render — sees: no device, no queue.
+const NO_JOBS: readonly OutboxJob[] = []
+
 /// React's window onto the held orders, oldest first.
 export function useOutbox(): readonly OutboxJob[] {
   return useSyncExternalStore(
     subscribe,
     () => jobs,
-    () => jobs
+    () => NO_JOBS
   )
 }
 

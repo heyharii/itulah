@@ -1,0 +1,114 @@
+[
+  {
+    "id": "intro",
+    "text": "Setelah dihitung, jalannya PO ditentukan oleh selisihnya. Ada tujuh kemungkinan."
+  },
+  {
+    "id": "match-map",
+    "text": "Pertama, hitungannya **pas**."
+  },
+  {
+    "id": "match-ui",
+    "text": "PO **diterima otomatis** atas nama pembuatnya, tanpa Review Count."
+  },
+  {
+    "id": "shortKeep-map",
+    "text": "Kedua, barangnya **kurang**: datang 580 dari 600."
+  },
+  {
+    "id": "shortKeep-review",
+    "text": "Selisihnya muncul di daftar PO sebagai **Review Count**."
+  },
+  {
+    "id": "shortKeep-partial",
+    "text": "**Partial Receive** menerima yang datang, dan sisanya tetap ditunggu."
+  },
+  {
+    "id": "shortKeep-next",
+    "text": "Kiriman berikutnya dihitung lagi. Kalau pas dengan sisanya, PO selesai sendiri."
+  },
+  {
+    "id": "shortClose-map",
+    "text": "Ketiga, **kurang**, dan sisanya tidak akan datang."
+  },
+  {
+    "id": "shortClose-choose",
+    "text": "Buyer memilih **Close Short** dan menulis alasannya."
+  },
+  {
+    "id": "shortClose-removed",
+    "text": "20 pcs dihapus dari order. Langkah ini tidak bisa dibatalkan."
+  },
+  {
+    "id": "shortClose-notcancel",
+    "text": "Ini bukan Cancel. Nama dan alasannya tetap tercatat di PO."
+  },
+  {
+    "id": "over-map",
+    "text": "Keempat, barangnya **lebih**: datang 620 untuk pesanan 600."
+  },
+  {
+    "id": "over-review",
+    "text": "Yang dipesan diterima. Kelebihannya **selalu dikembalikan** ke supplier."
+  },
+  {
+    "id": "over-return",
+    "text": "**Return PO** dibuat otomatis untuk 20 pcs itu."
+  },
+  {
+    "id": "wrong-map",
+    "text": "Kelima, ada 15 barang yang **tidak sesuai pesanan**."
+  },
+  {
+    "id": "wrong-review",
+    "text": "Yang tidak sesuai pesanan dikembalikan. Kekurangannya ditunggu, atau ditutup."
+  },
+  {
+    "id": "wrong-return",
+    "text": "**Return PO** dibuat untuk 15 pcs, dan PO tetap menunggu sisanya."
+  },
+  {
+    "id": "wrong-reject",
+    "text": "Mau menolak seluruh kiriman? Artikelnya diisi 0, dan semua barangnya dicatat sebagai **Not as Ordered**."
+  },
+  {
+    "id": "wrong-reject-result",
+    "text": "Di Review Count, semua 600 pcs itu dikembalikan ke supplier, dan PO tetap menunggu barang yang benar, atau ditutup dengan **Close Short**."
+  },
+  {
+    "id": "mixed-map",
+    "text": "Keenam, **lebih dan tidak sesuai**, dalam satu kiriman tiga artikel."
+  },
+  {
+    "id": "mixed-review",
+    "text": "Ada yang pas, ada yang lebih 10, dan ada 20 yang tidak sesuai pesanan."
+  },
+  {
+    "id": "mixed-hide",
+    "text": "**Hide matched** menyembunyikan baris yang sudah pas."
+  },
+  {
+    "id": "mixed-return",
+    "text": "Kelebihan dan yang tidak sesuai pesanan jadi satu **Return PO**: 30 pcs."
+  },
+  {
+    "id": "recount-map",
+    "text": "Ketujuh, **Recount**: buyer ragu dengan hitungannya."
+  },
+  {
+    "id": "recount-review",
+    "text": "Kurang 40. Mungkin rak belakang belum dihitung."
+  },
+  {
+    "id": "recount-send",
+    "text": "**Recount**: centang barisnya, tulis alasannya, lalu kirim kembali ke Gudang."
+  },
+  {
+    "id": "recount-again",
+    "text": "Di Gudang, tombolnya berubah jadi **Count again**."
+  },
+  {
+    "id": "recount-loop",
+    "text": "Hasil hitungan barunya masuk ke salah satu jalur tadi."
+  }
+]

@@ -6,22 +6,21 @@ import { Stat, StatStrip } from "@/components/ui/stat-strip"
 import { LoadingState } from "@/components/ui/states"
 import { useGo } from "@/lib/go"
 import {
-  applicantsAt,
-  attendanceToday,
-  claimsAt,
+  applicantsQuery,
+  attendanceTodayQuery,
+  claimsQuery,
   clockOf,
-  correctionsAt,
-  hrKeys,
+  correctionsQuery,
   isoDay,
-  isoMonth,
-  pendingLeaveAt,
-  pendingSwapsAt,
-  periodAt,
+  monthBefore,
+  pendingLeaveQuery,
+  pendingSwapsQuery,
+  periodQuery,
   planWord,
   readDate,
   readMonth,
-  rosterAt,
-  storeTasks,
+  rosterQuery,
+  storeTasksQuery,
   type StoreScope,
 } from "@/lib/queries/hr"
 import { centreState } from "@/screens/hr/centre"
@@ -84,45 +83,18 @@ function Today({ scope }: { scope: StoreScope }) {
   const go = useGo()
   const today = isoDay(new Date())
   const now = new Date()
-  const lastMonth = isoMonth(new Date(now.getFullYear(), now.getMonth() - 1, 1))
+  const lastMonth = monthBefore(now)
 
   const team = useTeam(scope)
-  const roster = useQuery({
-    queryKey: hrKeys.roster(scope.unit_id, today, today),
-    queryFn: ({ signal }) => rosterAt(scope.unit_id, today, today, signal),
-  })
-  const attendance = useQuery({
-    queryKey: hrKeys.attendanceToday(scope.unit_id, today),
-    queryFn: ({ signal }) => attendanceToday(scope.unit_id, today, signal),
-  })
-  const leave = useQuery({
-    queryKey: hrKeys.leave(scope.unit_id),
-    queryFn: ({ signal }) => pendingLeaveAt(scope.unit_id, signal),
-  })
-  const corrections = useQuery({
-    queryKey: hrKeys.corrections(scope.unit_id, true),
-    queryFn: ({ signal }) => correctionsAt(scope.unit_id, true, signal),
-  })
-  const swaps = useQuery({
-    queryKey: hrKeys.swaps(),
-    queryFn: ({ signal }) => pendingSwapsAt(scope.unit_id, signal),
-  })
-  const claims = useQuery({
-    queryKey: hrKeys.claimsAt(scope.unit_id),
-    queryFn: ({ signal }) => claimsAt(scope.unit_id, signal),
-  })
-  const period = useQuery({
-    queryKey: hrKeys.period(scope.unit_id, lastMonth),
-    queryFn: ({ signal }) => periodAt(scope.unit_id, lastMonth, signal),
-  })
-  const applicants = useQuery({
-    queryKey: hrKeys.applicants(),
-    queryFn: ({ signal }) => applicantsAt(scope.unit_id, signal),
-  })
-  const tasks = useQuery({
-    queryKey: hrKeys.tasks(),
-    queryFn: ({ signal }) => storeTasks(signal),
-  })
+  const roster = useQuery(rosterQuery(scope.unit_id, today, today))
+  const attendance = useQuery(attendanceTodayQuery(scope.unit_id, today))
+  const leave = useQuery(pendingLeaveQuery(scope.unit_id))
+  const corrections = useQuery(correctionsQuery(scope.unit_id, true))
+  const swaps = useQuery(pendingSwapsQuery(scope.unit_id))
+  const claims = useQuery(claimsQuery(scope.unit_id))
+  const period = useQuery(periodQuery(scope.unit_id, lastMonth))
+  const applicants = useQuery(applicantsQuery(scope.unit_id))
+  const tasks = useQuery(storeTasksQuery())
 
   // ── the store head's queue ────────────────────────────────────────────────
   const waiting: Waiting[] = [

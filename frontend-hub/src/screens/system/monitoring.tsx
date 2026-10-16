@@ -212,7 +212,7 @@ export function Monitoring() {
                       </span>
                     </span>
                   </span>
-                  <span className="text-right font-mono text-[0.875rem] text-ink tabular-nums md:order-none">
+                  <span className="text-right font-mono text-[0.9375rem] text-ink tabular-nums md:order-none">
                     {percent(month?.percent ?? null)}
                   </span>
                   <DayBars
@@ -261,7 +261,7 @@ export function Monitoring() {
 
 function OutageRows({ outages }: { outages: readonly Outage[] }) {
   if (outages.length === 0)
-    return <p className="text-[0.875rem] text-body">No incidents.</p>
+    return <p className="text-[0.9375rem] text-body">No incidents.</p>
   return (
     <ul className="divide-y divide-hairline">
       {outages.slice(0, 30).map((outage) => (
@@ -273,7 +273,7 @@ function OutageRows({ outages }: { outages: readonly Outage[] }) {
             {outage.kind === "DOWN" ? "Down" : "Maintenance"}
           </Pill>
           <span className="min-w-0">
-            <span className="block text-[0.875rem] text-ink">
+            <span className="block text-[0.9375rem] text-ink">
               {outage.cause}
             </span>
             <span className="block font-mono text-meta text-mute">
@@ -466,10 +466,10 @@ export function Incidents({
                 <Pill tone={outage.kind === "DOWN" ? "bad" : "info"}>
                   {outage.kind === "DOWN" ? "Down" : "Maintenance"}
                 </Pill>
-                <span className="font-mono text-[0.875rem] text-ink">
+                <span className="font-mono text-[0.9375rem] text-ink">
                   {origin}
                 </span>
-                <span className="text-[0.875rem] text-text">
+                <span className="text-[0.9375rem] text-text">
                   {outage.cause}
                 </span>
                 <span className="font-mono text-meta text-mute sm:text-right">
@@ -609,7 +609,7 @@ function Diagnoses({ originId }: { originId: string }) {
             className="grid grid-cols-[7.5rem_minmax(0,1fr)] gap-3 py-2"
           >
             <Pill tone={tone[check.verdict]}>{word[check.verdict]}</Pill>
-            <span className="text-[0.875rem] text-text">{check.saying}</span>
+            <span className="text-[0.9375rem] text-text">{check.saying}</span>
           </li>
         ))}
       </ul>

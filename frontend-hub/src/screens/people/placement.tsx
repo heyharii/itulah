@@ -1,3 +1,4 @@
+import { ActivityFold } from "@/components/ui/activity-fold"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
@@ -108,8 +109,7 @@ export function PlacementPanel({ employeeId }: { employeeId: string }) {
                 {rows[0]?.reports_to_name ?? "nobody"}
               </KeyValue>
               {rows.length > 1 && (
-                <div className="mt-3">
-                  <SubHead>History</SubHead>
+                <ActivityFold count={rows.length}>
                   <Timeline
                     events={rows.map((row, index) => ({
                       id: row.effective_from,
@@ -122,7 +122,7 @@ export function PlacementPanel({ employeeId }: { employeeId: string }) {
                       state: index === 0 ? "current" : "done",
                     }))}
                   />
-                </div>
+                </ActivityFold>
               )}
             </div>
           ),

@@ -5,13 +5,12 @@ import {
   ChevronsRight,
   Flag,
 } from "lucide-react"
-import { useState } from "react"
 
 import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
-import { ErrorState, LoadingState } from "@/components/ui/states"
+import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states"
 import { count } from "@/lib/format"
 import type { SheetKey } from "@/lib/sheets"
 import { useOpenHere } from "@/screens/operations/board/open-here"
@@ -22,6 +21,12 @@ import {
   ViewSwitch,
 } from "@/screens/operations/board/stage-table"
 import { useLayout } from "@/lib/layout"
+import { DraggableCard } from "@/screens/operations/board/drag"
+import {
+  useDropRef,
+  useDropTarget,
+  type DraggedCard,
+} from "@/screens/operations/board/drag-state"
 
 /// The page header. The two boards are different datasets and different
 /// menus (Allotment, Return to supplier), so there is nothing to switch here.
@@ -108,15 +113,7 @@ export function Lanes({
   )
 }
 
-/// What a drag carries: the lane the card came from and the card's own value —
-/// the same string the sheets that own the work open with (a picklist's
-/// `allotment~shop`, a shop id, a koli id, a shipment id).
-export interface DraggedCard {
-  lane: string
-  card: string
-}
-
-const DRAG_TYPE = "application/x-board-card"
+export type { DraggedCard } from "@/screens/operations/board/drag-state"
 
 /// A lane: its title and how many cards, then the cards, then its total in
 /// pieces. Empty, it folds to a strip.
@@ -129,10 +126,15 @@ export function Lane({
   cards,
   summary,
   footer,
+  foot,
   problem,
   loading,
   onFold,
   onDropCard,
+  accepts,
+  folds = true,
+  total = true,
+  empty,
   children,
 }: {
   /// Stable across renders and reloads.
@@ -147,6 +149,8 @@ export function Lane({
   footer?: React.ReactNode
   /// A line under the title, for a column that has something to say there.
   summary?: React.ReactNode
+  /// The total along the bottom, when pieces alone do not say it: "5 koli · 128 pcs".
+  foot?: React.ReactNode
   problem?: unknown
   loading?: boolean
   /// A lane that can fold away to the `DoneRail`: this folds it.
@@ -155,41 +159,42 @@ export function Lane({
   /// here. The drop never writes — what it opens (a sheet, a form) asks
   /// first. Without it the lane ignores drags.
   onDropCard?: (card: DraggedCard, lane: string) => void
+  /// From which lanes a card may land here, and what the lane says while it
+  /// is up: `{ pick: "Pick" }`.
+  accepts?: Record<string, string>
+  /// Empty, the lane folds to a strip. The Allotment board's three lanes
+  /// never fold and share the width (owner, 16 Oct 2026: nothing written
+  /// sideways).
+  folds?: boolean
+  /// The total along the lane's foot. The Allotment board has none (owner,
+  /// 16 Oct 2026).
+  total?: boolean
+  /// What an empty lane says, when it does not fold: "Nothing to pick".
+  empty?: string
   children: React.ReactNode
 }) {
-  const [over, setOver] = useState(false)
-  const dropProps = onDropCard
-    ? {
-        onDragOver: (event: React.DragEvent) => {
-          if (!event.dataTransfer.types.includes(DRAG_TYPE)) return
-          event.preventDefault()
-          event.dataTransfer.dropEffect = "move"
-          setOver(true)
-        },
-        onDragLeave: (event: React.DragEvent) => {
-          // dragleave fires for every child the pointer leaves; only the
-          // lane itself being left ends the highlight.
-          if (event.currentTarget.contains(event.relatedTarget as Node | null))
-            return
-          setOver(false)
-        },
-        onDrop: (event: React.DragEvent) => {
-          event.preventDefault()
-          setOver(false)
-          const raw = event.dataTransfer.getData(DRAG_TYPE)
-          if (raw === "") return
-          try {
-            onDropCard(JSON.parse(raw) as DraggedCard, id)
-          } catch {
-            // A payload this board did not write is not a move.
-          }
-        },
-      }
-    : {}
-  const dropClass = over
-    ? "border-accent shadow-[0_0_0_1px_var(--color-accent)]"
-    : "border-hairline"
-  if (cards === 0 && !problem && !loading) {
+  const target =
+    onDropCard === undefined || accepts === undefined
+      ? undefined
+      : { accepts, onDrop: onDropCard }
+  const dropRef = useDropRef(id, target)
+  const drop = useDropTarget(id, target)
+  const dropProps = { ref: dropRef }
+  const dropClass = cn(
+    drop.mode === "over"
+      ? "border-accent bg-accent-bg shadow-[0_0_0_1px_var(--color-accent)]"
+      : drop.mode === "can"
+        ? "border-hairline-strong"
+        : "border-hairline",
+    drop.mode === "no" && "opacity-45"
+  )
+  const hint =
+    drop.mode === "can" || drop.mode === "over" ? (
+      <DropHint over={drop.mode === "over"} upright={cards === 0}>
+        {drop.hint}
+      </DropHint>
+    ) : null
+  if (cards === 0 && !problem && !loading && folds) {
     return (
       <section
         data-lane={id}
@@ -197,7 +202,7 @@ export function Lane({
         title={`${title}: empty`}
         {...dropProps}
         className={cn(
-          "flex min-h-64 w-[3.25rem] shrink-0 flex-col items-center gap-3 rounded-card border bg-soft-2 py-4 transition-colors",
+          "board-lane relative flex min-h-64 w-[3.25rem] shrink-0 flex-col items-center gap-3 rounded-card border bg-soft-2 py-4 transition-[border-color,background-color,opacity]",
           dropClass
         )}
       >
@@ -206,6 +211,7 @@ export function Lane({
           {title}
         </span>
         <span className="rounded-full bg-canvas px-2 text-mute">0</span>
+        {hint}
       </section>
     )
   }
@@ -215,7 +221,10 @@ export function Lane({
       aria-label={title}
       {...dropProps}
       className={cn(
-        "flex min-h-0 w-[19rem] shrink-0 flex-col rounded-card border bg-soft-2 min-[112.5rem]:w-[21rem] transition-colors",
+        folds
+          ? "w-[19rem] shrink-0 min-[112.5rem]:w-[21rem]"
+          : "w-[19rem] min-w-[19rem] flex-1",
+        "board-lane relative flex min-h-0 flex-col rounded-card border bg-soft-2 transition-[border-color,background-color,opacity]",
         dropClass
       )}
     >
@@ -246,35 +255,92 @@ export function Lane({
           <ErrorState error={problem} />
         ) : loading ? (
           <LoadingState />
+        ) : cards === 0 && empty !== undefined ? (
+          // A lane that never folds says it is empty (owner, 16 Oct 2026).
+          <div className="grid flex-1 place-items-center py-10">
+            <EmptyState>{empty}</EmptyState>
+          </div>
         ) : (
           children
         )}
       </div>
       {footer && <div className="px-2 pb-2">{footer}</div>}
-      <footer className="border-t border-hairline px-4 py-3 text-body tabular-nums">
-        {count(pieces)} {unit ?? (pieces === 1 ? "pc" : "pcs")}
-      </footer>
+      {total && (
+        <footer className="board-lane-foot border-t border-hairline px-4 py-3 text-body tabular-nums">
+          {foot ?? `${count(pieces)} ${unit ?? (pieces === 1 ? "pc" : "pcs")}`}
+        </footer>
+      )}
+      {hint}
     </section>
+  )
+}
+
+/// What a drop on a lane does, over the lane's foot while a card is up: a
+/// dashed box ("Pack", "Put back"), blue while the card is above it.
+function DropHint({
+  over,
+  upright,
+  children,
+}: {
+  over: boolean
+  upright: boolean
+  children: React.ReactNode
+}) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "pointer-events-none absolute grid place-items-center rounded-card border-[1.5px] border-dashed bg-canvas/95 font-medium transition-[opacity,color,border-color] duration-150 ease-(--ease-out) starting:opacity-0",
+        upright
+          ? "inset-x-1 top-28 bottom-3 [writing-mode:vertical-rl]"
+          : "inset-x-2 bottom-14 h-12",
+        over ? "border-accent text-accent" : "border-hairline-strong text-body"
+      )}
+    >
+      {children}
+    </span>
   )
 }
 
 /// A finished lane, folded to the right edge of the board: its name and how
 /// many it holds. Pressing it opens the lane in full.
 export function DoneRail({
+  id,
   title,
   cards,
   onOpen,
+  accepts,
+  onDropCard,
 }: {
+  id?: string
   title: string
   cards: number
   onOpen: () => void
+  /// As a lane's: what may be dropped on the rail and what it says.
+  accepts?: Record<string, string>
+  onDropCard?: (card: DraggedCard, lane: string) => void
 }) {
+  const target =
+    accepts === undefined || onDropCard === undefined
+      ? undefined
+      : { accepts, onDrop: onDropCard }
+  const dropRef = useDropRef(id ?? title, target)
+  const drop = useDropTarget(id ?? title, target)
   return (
     <button
       type="button"
+      ref={dropRef}
       onClick={onOpen}
       aria-label={`Show ${title}, ${count(cards)}`}
-      className="sticky right-0 flex min-h-64 w-[3.25rem] shrink-0 flex-col items-center gap-3 rounded-card border border-hairline bg-soft-2 py-4 text-body transition-[border-color,transform] duration-(--t-press) ease-(--ease-out) hover:border-hairline-strong active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100"
+      className={cn(
+        "board-lane sticky right-0 flex min-h-64 w-[3.25rem] shrink-0 flex-col items-center gap-3 rounded-card border bg-soft-2 py-4 text-body transition-[border-color,background-color,opacity,transform] duration-(--t-press) ease-(--ease-out) hover:border-hairline-strong active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100",
+        drop.mode === "over"
+          ? "border-accent bg-accent-bg"
+          : drop.mode === "can"
+            ? "border-hairline-strong"
+            : "border-hairline",
+        drop.mode === "no" && "opacity-45"
+      )}
     >
       <ChevronsLeft className="size-4 text-mute" aria-hidden />
       <span className="font-medium whitespace-nowrap [writing-mode:vertical-rl]">
@@ -283,6 +349,11 @@ export function DoneRail({
       <span className="rounded-full bg-canvas px-2 text-mute tabular-nums">
         {count(cards)}
       </span>
+      {(drop.mode === "can" || drop.mode === "over") && (
+        <DropHint over={drop.mode === "over"} upright>
+          {drop.hint}
+        </DropHint>
+      )}
     </button>
   )
 }
@@ -334,7 +405,7 @@ function Card({
 }
 
 const CARD_FRAME =
-  "group/card relative flex flex-col overflow-hidden rounded-[0.625rem] border border-hairline bg-canvas text-left shadow-soft"
+  "board-card group/card relative flex flex-col overflow-hidden rounded-[0.625rem] border border-hairline bg-canvas text-left shadow-soft"
 
 const CARD = `${CARD_FRAME} transition-[border-color,transform] duration-(--t-press) ease-(--ease-out) hover:border-hairline-strong active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100`
 
@@ -383,6 +454,9 @@ export function Tile({
   onAction,
   tags,
   ack,
+  dot = false,
+  lines,
+  photos,
 }: {
   to: string
   sheet?: { key: SheetKey; value: string }
@@ -421,7 +495,7 @@ export function Tile({
   className?: string
   /// A band across the top of the card: amber "Short pick", red "Edited −50".
   /// `title` is the tooltip: the reason, never on the card itself.
-  strip?: { tone: "warn" | "bad"; label: string; title?: string }
+  strip?: { tone: "warn" | "bad" | "info"; label: string; title?: string }
   /// "was → now": replaces the pieces line with `300 → 250 pcs −50`.
   change?: { from: number; to: number }
   /// The big rotated stamp across the card: "CANCELLED".
@@ -434,11 +508,34 @@ export function Tile({
   onAction?: () => void
   /// MD's changes the warehouse has not acknowledged: small facts under the
   /// pieces line.
-  tags?: readonly { tone: "warn" | "bad"; label: string }[]
-  /// The acknowledging button along the foot ("Got it", "Remove").
+  tags?: readonly {
+    tone: "warn" | "bad"
+    label: string
+    was?: number
+    now?: number
+  }[]
+  /// The one button a leftover cancelled card has ("OK"): it clears it.
+  /// Other cards have none — opening the work is seeing the change.
   ack?: { label: string; onClick: () => void; pending?: boolean }
+  /// A blue dot at the card's left: MD changed it and nobody opened it yet.
+  dot?: boolean
+  /// The articles on the card, as pictures, under the second line.
+  photos?: React.ReactNode
+  /// What the card holds, one row each, under a dashed rule: a store's koli
+  /// ("Koli 1 · KOLI-0003 — 30 pcs"). `owed` is what has to come out first.
+  lines?: readonly {
+    key: string
+    label: string
+    code?: string
+    pieces: number
+    owed?: number
+  }[]
 }) {
   const short = of !== undefined && flag !== undefined
+  /// MD's changes, said under the figure as the difference ("−2 pcs by MD"):
+  /// what the server reports covers only the lines MD touched, so it is never
+  /// struck on the card's own figure.
+  const shownTags = tags
   const acting =
     (onAction !== undefined && actionLabel !== undefined) || ack !== undefined
   const boxed = pick !== undefined
@@ -450,8 +547,12 @@ export function Tile({
         <span
           title={strip.title}
           className={cn(
-            "flex h-7 shrink-0 items-center px-4 text-[0.875rem] font-semibold text-white",
-            strip.tone === "bad" ? "bg-bad-fg" : "bg-warn-fg"
+            "flex h-7 shrink-0 items-center px-4 text-[0.9375rem] font-semibold text-white",
+            strip.tone === "bad"
+              ? "bg-bad-fg"
+              : strip.tone === "info"
+                ? "bg-accent"
+                : "bg-warn-fg"
           )}
         >
           {strip.label}
@@ -464,6 +565,14 @@ export function Tile({
           stamp !== undefined && "pb-16"
         )}
       >
+        {dot && (
+          <span
+            title="Changed by MD"
+            className="absolute top-[1.5625rem] left-1.5 size-[7px] rounded-full bg-accent"
+          >
+            <span className="sr-only">Changed by MD</span>
+          </span>
+        )}
         <span
           className={cn(
             "flex flex-col gap-1",
@@ -491,6 +600,7 @@ export function Tile({
               {sub}
             </span>
           )}
+          {photos}
           <span className="mt-2 flex items-center justify-between gap-3">
             {change === undefined ? (
               <span className="font-semibold whitespace-nowrap text-ink tabular-nums">
@@ -516,17 +626,64 @@ export function Tile({
             )}
             {pill}
           </span>
-          {tags !== undefined && tags.length > 0 && stamp === undefined && (
-            <span className="mt-1 flex flex-wrap gap-x-3">
-              {tags.map((tag) => (
+          {shownTags !== undefined &&
+            shownTags.length > 0 &&
+            stamp === undefined && (
+              <span className="mt-1 flex flex-wrap gap-x-3">
+                {shownTags.map((tag) =>
+                  tag.was !== undefined && tag.now !== undefined ? (
+                    // The change itself, signed (owner, 16 Oct 2026): "−2 pcs
+                    // by MD". The server's was/now cover only the lines MD
+                    // touched, so they are never the card's own figure.
+                    <span key={tag.label} className="text-body tabular-nums">
+                      <span
+                        className={cn(
+                          "font-semibold",
+                          tag.now < tag.was ? "text-bad-fg" : "text-accent"
+                        )}
+                      >
+                        {tag.now < tag.was ? "−" : "+"}
+                        {count(Math.abs(tag.now - tag.was))}
+                      </span>{" "}
+                      {Math.abs(tag.now - tag.was) === 1 ? "pc" : "pcs"} by MD
+                    </span>
+                  ) : (
+                    <span
+                      key={tag.label}
+                      className={cn(
+                        "font-semibold tabular-nums",
+                        tag.tone === "bad" ? "text-bad-fg" : "text-accent"
+                      )}
+                    >
+                      {tag.label}
+                    </span>
+                  )
+                )}
+              </span>
+            )}
+          {lines !== undefined && lines.length > 0 && (
+            <span className="mt-2 flex flex-col gap-1 border-t border-dashed border-hairline pt-2">
+              {lines.map((line) => (
                 <span
-                  key={tag.label}
-                  className={cn(
-                    "font-semibold tabular-nums",
-                    tag.tone === "bad" ? "text-bad-fg" : "text-warn-fg"
-                  )}
+                  key={line.key}
+                  className="flex items-baseline justify-between gap-3 tabular-nums"
                 >
-                  {tag.label}
+                  <span className="min-w-0 truncate text-body">
+                    {line.label}
+                    {line.code !== undefined && (
+                      <span className="ml-1.5 font-mono text-mute">
+                        {line.code}
+                      </span>
+                    )}
+                  </span>
+                  <span className="shrink-0 whitespace-nowrap text-body">
+                    {line.owed !== undefined && line.owed > 0 && (
+                      <span className="mr-2 font-medium text-bad-fg">
+                        take out {count(line.owed)}
+                      </span>
+                    )}
+                    {count(line.pieces)} {line.pieces === 1 ? "pc" : "pcs"}
+                  </span>
                 </span>
               ))}
             </span>
@@ -539,18 +696,22 @@ export function Tile({
         )}
       </span>
       {flag !== undefined && (
-        <span className="flex min-h-11 items-center gap-2 border-t border-hairline px-4 py-2 text-bad-fg">
+        <span className="board-flag flex min-h-11 items-center gap-2 border-t border-hairline px-4 py-2 text-bad-fg">
           <Flag className="size-4 shrink-0" aria-hidden />
           <span className="min-w-0">{flag}</span>
         </span>
       )}
       {act !== undefined && !switchedOff && (
         <span
-          className="flex min-h-11 items-center justify-between gap-2 border-t border-hairline px-4 py-2 text-body transition-colors group-hover/card:text-ink"
+          className="board-act flex min-h-11 items-center justify-between gap-2 border-t border-hairline px-4 py-2 text-body transition-colors group-hover/card:text-ink"
           aria-hidden
         >
-          {act}
-          <ArrowRight className="size-4 shrink-0" />
+          {/* The step as a word and an arrow along the foot; in the All white look
+              the same two as a small solid button at the foot's end. */}
+          <span className="board-act-btn contents">
+            {act}
+            <ArrowRight className="size-4 shrink-0" />
+          </span>
         </span>
       )}
       {switchedOff && <span aria-hidden className={SWITCHED_OFF} />}
@@ -574,7 +735,7 @@ export function Tile({
         sheet={sheet}
         onOpen={onOpen}
         inert={switchedOff}
-        className="rounded-none border-0 bg-transparent shadow-none active:scale-100 hover:border-transparent"
+        className="rounded-none border-0 bg-transparent shadow-none hover:border-transparent active:scale-100"
       >
         {inside}
       </Card>
@@ -590,7 +751,8 @@ export function Tile({
           </Button>
         )}
         {onAction !== undefined && actionLabel !== undefined && (
-          <Button variant="tint" className="w-full" onClick={onAction}>
+          // The only card action is Put back: red, as in the prototype.
+          <Button variant="danger" className="w-full" onClick={onAction}>
             {actionLabel}
           </Button>
         )}
@@ -611,16 +773,9 @@ export function Tile({
     drag === undefined ? (
       card
     ) : (
-      <div
-        draggable
-        onDragStart={(event) => {
-          event.dataTransfer.setData(DRAG_TYPE, JSON.stringify(drag))
-          event.dataTransfer.effectAllowed = "move"
-        }}
-        className="cursor-grab active:cursor-grabbing"
-      >
+      <DraggableCard card={drag} node={card}>
         {card}
-      </div>
+      </DraggableCard>
     )
   if (pick === undefined) return dragged
   return (

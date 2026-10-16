@@ -28,7 +28,7 @@ export function SheetLoading({
       aria-live="polite"
       className={cn("flex flex-col gap-3", className)}
     >
-      <p className="text-[0.875rem] text-mute">Reading the {what}…</p>
+      <p className="text-[0.9375rem] text-mute">Reading the {what}…</p>
       <div
         aria-hidden
         className="flex flex-col gap-2.5 motion-safe:animate-pulse"
@@ -53,7 +53,7 @@ export function SheetEmpty({
 }) {
   return (
     <div className={cn("flex flex-col items-start gap-3", className)}>
-      <p className="text-[0.875rem] text-mute">{children}</p>
+      <p className="text-[0.9375rem] text-mute">{children}</p>
       {action}
     </div>
   )

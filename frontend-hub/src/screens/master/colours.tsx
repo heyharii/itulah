@@ -1,9 +1,13 @@
 import { useForm } from "@tanstack/react-form"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  useMutation,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { EyeOff, Pencil } from "lucide-react"
-import { useCallback, useMemo, useState } from "react"
+import { EyeOff } from "lucide-react"
+import { Suspense, useCallback, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
@@ -23,7 +27,7 @@ import { PageHeader } from "@/components/ui/page-header"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { SwitchPill } from "@/components/ui/form"
 import { Sheet } from "@/components/ui/sheet"
-import { Banner, EmptyState } from "@/components/ui/states"
+import { Banner, EmptyState, LoadingState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { useFilters } from "@/lib/filters"
 import { count } from "@/lib/format"
@@ -34,11 +38,10 @@ import {
   colourUsage,
   createColour,
   deleteColour,
-  listColours,
+  coloursQuery,
   updateColour,
   type ColourTerm,
 } from "@/lib/queries/colours"
-import { queryState } from "@/lib/query-state"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { readColour } from "@/lib/colour-parse"
 import { ColourField } from "@/screens/master/colour-field"
@@ -182,7 +185,7 @@ const baseColumns: ColumnDef<TableSetup, ColourRow>[] = [
     cell: ({ row }) => {
       const n = row.original.term.in_use
       return (
-        <span className="text-[0.875rem] tabular-nums">
+        <span className="text-[0.9375rem] tabular-nums">
           <span className={n === 0 ? "text-mute" : "text-ink"}>{count(n)}</span>{" "}
           <span className="text-mute">{n === 1 ? "SKU" : "SKUs"}</span>
         </span>
@@ -191,7 +194,7 @@ const baseColumns: ColumnDef<TableSetup, ColourRow>[] = [
   },
   {
     id: "action",
-    header: "Action",
+    header: "",
     size: 80,
     enableSorting: false,
     meta: { align: "right", card: "hide" },
@@ -219,10 +222,7 @@ const baseColumns: ColumnDef<TableSetup, ColourRow>[] = [
         }
       >
         {!row.original.active && (
-          <EyeOff
-            aria-label="Inactive"
-            className="size-4 shrink-0 text-mute"
-          />
+          <EyeOff aria-label="Inactive" className="size-4 shrink-0 text-mute" />
         )}
         {/* No code: BLACK under Black says it twice. The sheet has it. */}
         <ColourSwatch
@@ -252,7 +252,7 @@ const baseColumns: ColumnDef<TableSetup, ColourRow>[] = [
           >
             {count(n)}
           </span>
-          <span className="text-[0.875rem] text-mute">
+          <span className="text-[0.9375rem] text-mute">
             {n === 1 ? "SKU" : "SKUs"}
           </span>
         </span>
@@ -307,14 +307,9 @@ function footColumns(
 /// and Delete live in the sheet (owner, 2026-10-05).
 function RowActions({ label }: { label: string }) {
   return (
-    <button
-      type="button"
-      aria-label={`Edit ${label}`}
-      title="Edit"
-      className="inline-flex size-8 cursor-pointer items-center justify-center rounded-inner text-mute transition-colors hover:bg-soft-2 hover:text-ink"
-    >
-      <Pencil className="size-4" />
-    </button>
+    <Button size="sm" aria-label={`Edit ${label}`}>
+      Edit
+    </Button>
   )
 }
 
@@ -330,10 +325,59 @@ function TabLabel({ text, n }: { text: string; n: number }) {
 }
 
 export function Colours() {
-  const [query, setQuery] = useState("")
-  const [sorting, setSorting] = useState<SortingState>([])
   const [editing, setEditing] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
+  const phone = useLayout() === "phone"
+  const create = () => {
+    setEditing(null)
+    setCreating(true)
+  }
+
+  return (
+    <PageContent>
+      {/* The screen's one action stands in its head; a phone has the + at the
+          thumb (`Fab` below). Both stand while the list is read: the list
+          waits for its colours and streams in with them (the server starts the
+          read too). */}
+      <PageHeader
+        title="Colors"
+        small
+        actions={
+          phone ? undefined : (
+            <Button variant="primary" onClick={create}>
+              New Color
+            </Button>
+          )
+        }
+      />
+
+      <Fab label="New Color" onClick={create} />
+
+      <Suspense fallback={<LoadingState>Reading the vocabulary…</LoadingState>}>
+        <ColourList
+          editing={editing}
+          setEditing={setEditing}
+          creating={creating}
+          setCreating={setCreating}
+        />
+      </Suspense>
+    </PageContent>
+  )
+}
+
+function ColourList({
+  editing,
+  setEditing,
+  creating,
+  setCreating,
+}: {
+  editing: string | null
+  setEditing: (code: string | null) => void
+  creating: boolean
+  setCreating: (creating: boolean) => void
+}) {
+  const [query, setQuery] = useState("")
+  const [sorting, setSorting] = useState<SortingState>([])
   const [tab, setTab] = useState<StatusTab>("ACTIVE")
   const [inUseOnly, setInUseOnly] = useState(false)
 
@@ -341,15 +385,9 @@ export function Colours() {
   // hundred thousand, so there is nothing to page and nothing to re-ask the
   // server for — which is also what lets the duplicate-label check below answer
   // while somebody is still typing.
-  const colours = useQuery({
-    queryKey: colourKeys.list(),
-    queryFn: ({ signal }) => listColours(signal),
-  })
+  const colours = useSuspenseQuery(coloursQuery())
 
-  const all = useMemo(
-    () => curated(colours.data?.colours ?? []),
-    [colours.data]
-  )
+  const all = useMemo(() => curated(colours.data.colours), [colours.data])
 
   // Every colour reaches the table. What narrows it is the panel beside it,
   // and only that — a second sieve in front of the table is how a status
@@ -364,14 +402,14 @@ export function Colours() {
     [all, tab, inUseOnly]
   )
 
-  const edit = useCallback((code: string) => {
-    setCreating(false)
-    setEditing(code)
-  }, [])
-  const columns = useMemo(
-    () => [...baseColumns, ...footColumns(edit)],
-    [edit]
+  const edit = useCallback(
+    (code: string) => {
+      setCreating(false)
+      setEditing(code)
+    },
+    [setCreating, setEditing]
   )
+  const columns = useMemo(() => [...baseColumns, ...footColumns(edit)], [edit])
   const filters = useFilters(columns)
   const phone = useLayout() === "phone"
 
@@ -387,7 +425,12 @@ export function Colours() {
           globalFilter: query,
           sorting,
           // The card's own columns are drawn on a phone and never on a desk.
-          columnVisibility: { head: phone, lead: phone, foot: phone, edit: phone },
+          columnVisibility: {
+            head: phone,
+            lead: phone,
+            foot: phone,
+            edit: phone,
+          },
         },
         onSortingChange: setSorting,
         onGlobalFilterChange: setQuery,
@@ -412,12 +455,10 @@ export function Colours() {
   const close = useCallback(() => {
     setCreating(false)
     setEditing(null)
-  }, [])
+  }, [setCreating, setEditing])
 
   return (
-    <PageContent>
-      <PageHeader title="Colors" small />
-
+    <>
       <KpiStrip className="grid-cols-2 md:grid-cols-4 xl:grid-cols-4">
         {kpis.map((one) => (
           <div key={one.label} title={one.note}>
@@ -467,25 +508,8 @@ export function Colours() {
         <div className="hidden md:contents">
           <ColumnsMenu table={table} />
         </div>
-        <Button
-          variant="primary"
-          className="max-md:hidden"
-          onClick={() => {
-            setEditing(null)
-            setCreating(true)
-          }}
-        >
-          New Color
-        </Button>
       </div>
 
-      <Fab
-        label="New Color"
-        onClick={() => {
-          setEditing(null)
-          setCreating(true)
-        }}
-      />
       <DockTools
         search={{ value: query, onChange: setQuery, label: "Search Colors" }}
         filter={{
@@ -505,37 +529,33 @@ export function Colours() {
       />
 
       <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-        {queryState(colours, {
-          loading: "Reading the vocabulary…",
-          render: () =>
-            all.length === 0 ? (
-              <EmptyState
-                action={
-                  <Button variant="primary" onClick={() => setCreating(true)}>
-                    New Color
-                  </Button>
-                }
-              >
-                No color has been declared yet, so there is nothing for an
-                article to pick.
-              </EmptyState>
-            ) : (
-              <DataTable<ColourRow>
-                refresh={[colours]}
-                table={table}
-                onRowClick={(row) => {
-                  setCreating(false)
-                  setEditing(row.term.code)
-                }}
-                isSelected={(row) => row.term.code === editing}
-                empty="No color matches that search."
-                pageScroll
-                cardSort={false}
-                cardsApart
-                cardLead
-              />
-            ),
-        })}
+        {all.length === 0 ? (
+          <EmptyState
+            action={
+              <Button variant="primary" onClick={() => setCreating(true)}>
+                New Color
+              </Button>
+            }
+          >
+            No color has been declared yet, so there is nothing for an article
+            to pick.
+          </EmptyState>
+        ) : (
+          <DataTable<ColourRow>
+            refresh={[colours]}
+            table={table}
+            onRowClick={(row) => {
+              setCreating(false)
+              setEditing(row.term.code)
+            }}
+            isSelected={(row) => row.term.code === editing}
+            empty="No color matches that search."
+            pageScroll
+            cardSort={false}
+            cardsApart
+            cardLead
+          />
+        )}
       </Card>
 
       <ColourSheet
@@ -544,7 +564,7 @@ export function Colours() {
         existing={all}
         onClose={close}
       />
-    </PageContent>
+    </>
   )
 }
 
@@ -577,9 +597,9 @@ function ColourSheet({
     <Sheet
       open={open}
       onOpenChange={(next) => !next && onClose()}
-      id={
-        colour === null ? undefined : <span className="font-sans">Color</span>
-      }
+      // The breadcrumb names the colour by its code — "Colors / 07" —
+      // as a PO's sheet names it by its number (owner, 2026-10-14).
+      id={colour === null ? undefined : colour.term.code}
       title={colour ? colour.term.label : "New Color"}
     >
       {form}
@@ -894,7 +914,7 @@ function ColourForm({
                           label={twin.label}
                           code={twin.code}
                         />
-                        <span className="text-[0.875rem] leading-relaxed text-warn-fg">
+                        <span className="text-[0.9375rem] leading-relaxed text-warn-fg">
                           Reads the same as this at a glance. Two colours a
                           person cannot tell apart split every report that
                           groups by colour — pick a different one, or be sure

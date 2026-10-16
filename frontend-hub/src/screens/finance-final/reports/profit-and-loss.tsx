@@ -1,5 +1,5 @@
-import { useQueries, useQuery } from "@tanstack/react-query"
-import { useMemo, useState } from "react"
+import { useSuspenseQueries } from "@tanstack/react-query"
+import { Suspense, useDeferredValue, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { ExportButton } from "@/components/ui/export-button"
@@ -8,12 +8,23 @@ import { EmptyState } from "@/components/ui/states"
 import { monthStamp, type ExportSheet } from "@/lib/export-xlsx"
 import { money } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
-import { financeKeys, statement } from "@/lib/queries/finance"
+import { resultStatementQuery } from "@/lib/queries/finance"
 import { unitLabel } from "@/lib/queries/organisation"
 import { queryState } from "@/lib/query-state"
-import { Code, Grid, Td, Th, TotalRow } from "@/screens/finance-final/parts"
+import {
+  Code,
+  Grid,
+  Td,
+  Th,
+  TotalRow,
+  useAskedWindow,
+} from "@/screens/finance-final/parts"
 import { asPresented, ladderLevel, periodResult } from "@/screens/finance/chart"
-import { useLocations, useUnitName, useWindow } from "@/screens/finance/hooks"
+import {
+  useLocations,
+  useSettledWindow,
+  useUnitName,
+} from "@/screens/finance/hooks"
 import { UnitName, UnitSelect, WindowControl } from "@/screens/finance/parts"
 import {
   PhoneStatement,
@@ -29,6 +40,7 @@ import {
   type Periodicity,
   type ReportChartRow,
 } from "@/screens/finance/report"
+import { ScreenPending } from "@/screens/finance/pending"
 
 import type { Statement } from "@itulah/contract"
 
@@ -57,8 +69,25 @@ import type { Statement } from "@itulah/contract"
 /// flipped for reading by `asPresented()` and `periodResult()`, shared with
 /// every other statement so no two can disagree about a sign.
 export function ProfitAndLoss() {
+  return (
+    <Suspense
+      fallback={
+        <ScreenPending
+          crumb="Finance · Financial Reports"
+          title="Profit and Loss Statement"
+        >
+          Reading what was earned and what it cost…
+        </ScreenPending>
+      }
+    >
+      <ProfitAndLossScreen />
+    </Suspense>
+  )
+}
+
+function ProfitAndLossScreen() {
   const phone = useLayout() === "phone"
-  const range = useWindow()
+  const range = useSettledWindow()
   const [unit, setUnit] = useState("")
   const [periodicity, setPeriodicity] = useState<Periodicity>("Yearly")
   const [accumulated, setAccumulated] = useState(false)
@@ -68,22 +97,39 @@ export function ProfitAndLoss() {
   const locations = useLocations()
   const unitName = useUnitName()
 
+  // The boxes answer at once; the statements trail them, and the figures in
+  // hand stay on screen (dimmed) until the next are read.
+  const asked = useAskedWindow(range)
+  const askedUnit = useDeferredValue(unit)
+  const askedPeriodicity = useDeferredValue(periodicity)
+  const askedAccumulated = useDeferredValue(accumulated)
+  const askedCompare = useDeferredValue(compareUnits)
+  const stale =
+    asked.stale ||
+    askedUnit !== unit ||
+    askedPeriodicity !== periodicity ||
+    askedAccumulated !== accumulated ||
+    askedCompare !== compareUnits
+
   // Comparing units and filtering to one unit is a filter fighting the thing
   // it filters, so the unit select goes dead while units are compared.
-  const effectiveUnit = compareUnits ? "" : unit
+  const effectiveUnit = askedCompare ? "" : askedUnit
 
   const periods = useMemo(
-    () => periodsOf(range.from, range.to, periodicity, accumulated),
-    [range.from, range.to, periodicity, accumulated]
+    () => periodsOf(asked.from, asked.to, askedPeriodicity, askedAccumulated),
+    [asked.from, asked.to, askedPeriodicity, askedAccumulated]
   )
 
-  const columns = useMemo<readonly ReportColumn[]>(() => {
-    if (compareUnits) {
+  // The units arrive on their own clock (a plain read); the columns they make
+  // are held back like every other answer, so a late list does not reach for
+  // statements that are not here yet.
+  const wanted = useMemo<readonly ReportColumn[]>(() => {
+    if (askedCompare) {
       return (locations.data?.locations ?? []).map((location) => ({
         key: `unit:${location.unit_id}`,
         label: unitLabel(location),
-        from: range.from,
-        to: range.to,
+        from: asked.from,
+        to: asked.to,
         unit: location.unit_id,
       }))
     }
@@ -97,13 +143,14 @@ export function ProfitAndLoss() {
       unit: effectiveUnit,
     }))
   }, [
-    compareUnits,
+    askedCompare,
     locations.data,
     periods,
-    range.from,
-    range.to,
+    asked.from,
+    asked.to,
     effectiveUnit,
   ])
+  const columns = useDeferredValue(wanted)
 
   // Past this many the table stops being readable and the fan-out stops being
   // polite. Refused outright rather than silently truncated.
@@ -112,40 +159,17 @@ export function ProfitAndLoss() {
   /// The whole window at the chosen unit: the summary, the Total column, and
   /// the check on the columns — the server computes it from `journal_line`
   /// rather than by adding them up.
-  const total = useQuery({
-    queryKey: financeKeys.statement(
-      "PROFIT_LOSS",
-      range.from,
-      range.to,
-      effectiveUnit || null
-    ),
-    queryFn: ({ signal }) =>
-      statement(
-        "PROFIT_LOSS",
-        { from: range.from, to: range.to, unit: effectiveUnit || undefined },
-        signal
+  const [total, ...cellResults] = useSuspenseQueries({
+    queries: [
+      resultStatementQuery(asked.from, asked.to, effectiveUnit || null),
+      ...(tooWide ? [] : columns).map((column) =>
+        resultStatementQuery(column.from, column.to, column.unit || null)
       ),
+    ],
   })
-
-  const cells = useQueries({
-    queries: (tooWide ? [] : columns).map((column) => ({
-      queryKey: financeKeys.statement(
-        "PROFIT_LOSS",
-        column.from,
-        column.to,
-        column.unit || null
-      ),
-      queryFn: ({ signal }: { signal: AbortSignal }) =>
-        statement(
-          "PROFIT_LOSS",
-          { from: column.from, to: column.to, unit: column.unit || undefined },
-          signal
-        ),
-    })),
-    combine: (results) => ({
-      readings: results.map((result) => readingOf(result.data)),
-    }),
-  })
+  const cells = {
+    readings: cellResults.map((result) => readingOf(result.data)),
+  }
 
   /// The columns and rows the table draws for a given answer — shared by the
   /// screen and by Export, so the file is the table.
@@ -161,12 +185,12 @@ export function ProfitAndLoss() {
           })),
           // Accumulated, the last period IS the window, and ERPNext
           // prints no Total beside it.
-          ...(accumulated && !compareUnits
+          ...(askedAccumulated && !askedCompare
             ? []
             : [
                 {
                   key: "total",
-                  label: compareUnits ? "All units" : "Total",
+                  label: askedCompare ? "All units" : "Total",
                   reading: anchor,
                 },
               ]),
@@ -186,7 +210,6 @@ export function ProfitAndLoss() {
   }
 
   const build = (): ExportSheet | null => {
-    if (total.data === undefined) return null
     const { shown, rows } = layout(total.data)
     const at = (column: ShownColumn, row: TreeRow) =>
       presented(
@@ -196,16 +219,16 @@ export function ProfitAndLoss() {
       )
     const result = periodResult(total.data.result_minor)
     return {
-      filename: `Profit-and-Loss-${monthStamp(range.to)}`,
+      filename: `Profit-and-Loss-${monthStamp(asked.to)}`,
       sheet: "Profit and Loss",
       title: "Profit and Loss Statement",
       subtitle: `${range.chip} · ${
-        compareUnits
+        askedCompare
           ? "all units, side by side"
-          : unit === ""
+          : askedUnit === ""
             ? "all units"
-            : unitName(unit)
-      } · ${periodicity}${accumulated ? " · accumulated" : ""}`,
+            : unitName(askedUnit)
+      } · ${askedPeriodicity}${askedAccumulated ? " · accumulated" : ""}`,
       columns: [
         { header: "Code", kind: "text", width: 12 },
         { header: "Account", kind: "text", width: 48 },
@@ -252,11 +275,7 @@ export function ProfitAndLoss() {
         title="Profit and Loss Statement"
         // On a phone Export is a row of the Filters sheet, not a button at the
         // top of the page.
-        actions={
-          phone ? undefined : (
-            <ExportButton build={build} disabled={total.data === undefined} />
-          )
-        }
+        actions={phone ? undefined : <ExportButton build={build} />}
       />
 
       <ReportFilters
@@ -295,191 +314,200 @@ export function ProfitAndLoss() {
           checked={compareUnits}
           onChange={setCompareUnits}
         />
-        {phone && (
-          <ExportButton build={build} disabled={total.data === undefined} />
-        )}
+        {phone && <ExportButton build={build} />}
       </ReportFilters>
 
-      {queryState(total, {
-        loading: "Reading what was earned and what it cost…",
-        render: (report) => {
-          const { anchor, periodColumns, shown, rows } = layout(report)
-          const result = periodResult(report.result_minor)
-          const income = sectionOf(anchor, "4")
-          const silent =
-            report.result_minor === 0 &&
-            report.sections.every((section) => section.total_minor === 0)
+      <div className="list-swap" aria-busy={stale || undefined}>
+        {!asked.valid ? (
+          <EmptyState>
+            Choose a From date that is on or before the To date.
+          </EmptyState>
+        ) : (
+          queryState(total, {
+            render: (report) => {
+              const { anchor, periodColumns, shown, rows } = layout(report)
+              const result = periodResult(report.result_minor)
+              const income = sectionOf(anchor, "4")
+              const silent =
+                report.result_minor === 0 &&
+                report.sections.every((section) => section.total_minor === 0)
 
-          const chartColumns = periodColumns
-            ? shown.filter((column) => column.key !== "total")
-            : shown
-          const chartRows: ReportChartRow[] = chartColumns.map((column) => {
-            const earned = sectionOf(column.reading, "4") ?? 0
-            const net =
-              column.reading.report === undefined
-                ? 0
-                : periodResult(column.reading.report.result_minor).minor
-            return {
-              label: column.label,
-              income: earned,
-              expense: earned - net,
-              net,
-            }
-          })
+              const chartColumns = periodColumns
+                ? shown.filter((column) => column.key !== "total")
+                : shown
+              const chartRows: ReportChartRow[] = chartColumns.map((column) => {
+                const earned = sectionOf(column.reading, "4") ?? 0
+                const net =
+                  column.reading.report === undefined
+                    ? 0
+                    : periodResult(column.reading.report.result_minor).minor
+                return {
+                  label: column.label,
+                  income: earned,
+                  expense: earned - net,
+                  net,
+                }
+              })
 
-          return (
-            <>
-              <ReportSummary
-                items={[
-                  {
-                    label: "Total Income",
-                    value: income,
-                  },
-                  {
-                    label: "Total Expense",
-                    value: income === null ? null : income - result.minor,
-                  },
-                  {
-                    label: "Net Profit",
-                    value: result.minor,
-                    indicator: result.minor > 0 ? "Green" : "Red",
-                  },
-                ]}
-              />
+              return (
+                <>
+                  <ReportSummary
+                    items={[
+                      {
+                        label: "Total Income",
+                        value: income,
+                      },
+                      {
+                        label: "Total Expense",
+                        value: income === null ? null : income - result.minor,
+                      },
+                      {
+                        label: "Net Profit",
+                        value: result.minor,
+                        indicator: result.minor > 0 ? "Green" : "Red",
+                      },
+                    ]}
+                  />
 
-              {!silent && (
-                <ReportChart
-                  kind={accumulated ? "line" : "bar"}
-                  rows={chartRows}
-                  series={[
-                    { key: "income", label: "Income" },
-                    { key: "expense", label: "Expense" },
-                    { key: "net", label: "Net Profit/Loss" },
-                  ]}
-                />
-              )}
+                  {!silent && (
+                    <ReportChart
+                      kind={askedAccumulated ? "line" : "bar"}
+                      rows={chartRows}
+                      series={[
+                        { key: "income", label: "Income" },
+                        { key: "expense", label: "Expense" },
+                        { key: "net", label: "Net Profit/Loss" },
+                      ]}
+                    />
+                  )}
 
-              {tooWide && (
-                <p className="mb-3 text-[0.875rem] text-mute">
-                  {columns.length} columns is more than {MAX_COLUMNS}, so the
-                  window is shown as one. Narrow the dates or choose a longer
-                  periodicity.
-                </p>
-              )}
+                  {tooWide && (
+                    <p className="mb-3 text-[0.9375rem] text-mute">
+                      {columns.length} columns is more than {MAX_COLUMNS}, so
+                      the window is shown as one. Narrow the dates or choose a
+                      longer periodicity.
+                    </p>
+                  )}
 
-              {silent ? (
-                <EmptyState>
-                  Nothing was posted to the income and expense classes in this
-                  window, so there is no profit and loss to draw.
-                </EmptyState>
-              ) : phone ? (
-                <PhoneStatement lines={phoneLines(rows, shown, result)} />
-              ) : (
-                <Grid>
-                  <thead>
-                    <tr>
-                      <Th width="24rem">Account</Th>
-                      {shown.map((column) => (
-                        <Th key={column.key} align="right" width="10rem">
-                          {column.label}
-                        </Th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((row) => (
-                      <tr
-                        key={`${row.rootClass}:${row.code}`}
-                        // The class opens on a tinted band, its groups are a
-                        // weight heavier than their accounts: the tree reads
-                        // from the left edge without counting indents.
-                        className={
-                          row.kind === "section" ? "bg-soft" : undefined
-                        }
-                      >
-                        <Td
-                          className={
-                            row.kind === "section"
-                              ? "font-semibold text-ink"
-                              : row.level === 1
-                                ? "font-medium text-ink"
-                                : undefined
-                          }
-                        >
-                          <span
-                            className="flex items-baseline gap-1.5"
-                            style={{ paddingLeft: indentOf(row.level) }}
-                          >
-                            <Code>{row.code}</Code>
-                            <span className="min-w-0">{row.name}</span>
-                          </span>
-                        </Td>
-                        {shown.map((column) => (
-                          <Td
-                            key={column.key}
-                            align="right"
+                  {silent ? (
+                    <EmptyState>
+                      Nothing was posted to the income and expense classes in
+                      this window, so there is no profit and loss to draw.
+                    </EmptyState>
+                  ) : phone ? (
+                    <PhoneStatement lines={phoneLines(rows, shown, result)} />
+                  ) : (
+                    <Grid>
+                      <thead>
+                        <tr>
+                          <Th width="24rem">Account</Th>
+                          {shown.map((column) => (
+                            <Th key={column.key} align="right" width="10rem">
+                              {column.label}
+                            </Th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map((row) => (
+                          <tr
+                            key={`${row.rootClass}:${row.code}`}
+                            // The class opens on a tinted band, its groups are a
+                            // weight heavier than their accounts: the tree reads
+                            // from the left edge without counting indents.
                             className={
-                              row.kind === "section"
-                                ? "font-semibold text-ink"
-                                : row.level === 1
-                                  ? "font-medium"
-                                  : undefined
+                              row.kind === "section" ? "bg-soft" : undefined
                             }
                           >
-                            {money(
-                              presented(
-                                column.reading,
-                                row.kind === "section"
-                                  ? sectionKey(row.rootClass)
-                                  : row.code,
-                                row.rootClass
-                              )
-                            )}
-                          </Td>
-                        ))}
-                      </tr>
-                    ))}
-
-                    {/* The client's layer: income less cost of goods sold,
-                        from two totals the server computed. */}
-                    <tr className="border-t border-hairline-strong">
-                      <Td className="font-medium text-ink">Gross profit</Td>
-                      {shown.map((column) => (
-                        <Td key={column.key} align="right">
-                          <span className="font-medium text-ink">
-                            {money(grossOf(column.reading))}
-                          </span>
-                        </Td>
-                      ))}
-                    </tr>
-
-                    <TotalRow>
-                      <Td>{result.label}</Td>
-                      {shown.map((column) => {
-                        const line =
-                          column.reading.report === undefined
-                            ? null
-                            : periodResult(column.reading.report.result_minor)
-                        return (
-                          <Td key={column.key} align="right">
-                            <span
+                            <Td
                               className={
-                                line?.loss === true ? "text-bad-fg" : undefined
+                                row.kind === "section"
+                                  ? "font-semibold text-ink"
+                                  : row.level === 1
+                                    ? "font-medium text-ink"
+                                    : undefined
                               }
                             >
-                              {money(line === null ? null : line.minor)}
-                            </span>
-                          </Td>
-                        )
-                      })}
-                    </TotalRow>
-                  </tbody>
-                </Grid>
-              )}
-            </>
-          )
-        },
-      })}
+                              <span
+                                className="flex items-baseline gap-1.5"
+                                style={{ paddingLeft: indentOf(row.level) }}
+                              >
+                                <Code>{row.code}</Code>
+                                <span className="min-w-0">{row.name}</span>
+                              </span>
+                            </Td>
+                            {shown.map((column) => (
+                              <Td
+                                key={column.key}
+                                align="right"
+                                className={
+                                  row.kind === "section"
+                                    ? "font-semibold text-ink"
+                                    : row.level === 1
+                                      ? "font-medium"
+                                      : undefined
+                                }
+                              >
+                                {money(
+                                  presented(
+                                    column.reading,
+                                    row.kind === "section"
+                                      ? sectionKey(row.rootClass)
+                                      : row.code,
+                                    row.rootClass
+                                  )
+                                )}
+                              </Td>
+                            ))}
+                          </tr>
+                        ))}
+
+                        {/* The client's layer: income less cost of goods sold,
+                        from two totals the server computed. */}
+                        <tr className="border-t border-hairline-strong">
+                          <Td className="font-medium text-ink">Gross profit</Td>
+                          {shown.map((column) => (
+                            <Td key={column.key} align="right">
+                              <span className="font-medium text-ink">
+                                {money(grossOf(column.reading))}
+                              </span>
+                            </Td>
+                          ))}
+                        </tr>
+
+                        <TotalRow>
+                          <Td>{result.label}</Td>
+                          {shown.map((column) => {
+                            const line =
+                              column.reading.report === undefined
+                                ? null
+                                : periodResult(
+                                    column.reading.report.result_minor
+                                  )
+                            return (
+                              <Td key={column.key} align="right">
+                                <span
+                                  className={
+                                    line?.loss === true
+                                      ? "text-bad-fg"
+                                      : undefined
+                                  }
+                                >
+                                  {money(line === null ? null : line.minor)}
+                                </span>
+                              </Td>
+                            )
+                          })}
+                        </TotalRow>
+                      </tbody>
+                    </Grid>
+                  )}
+                </>
+              )
+            },
+          })
+        )}
+      </div>
     </PageContent>
   )
 }

@@ -4,6 +4,18 @@
 //! The protocol and its reasons are in `crate::sync::enrolment`; the table in
 //! migration 0397. This module is the storage half and nothing else.
 //!
+//! # The code is the proof
+//!
+//! Since 10 Oct 2026 nobody matches a number: a claim of an unexpired, unused
+//! code is approved in the same flow ([`claim_and_approve_node_enrolment`]),
+//! as the Admin who issued the code. The decision is committed first; the
+//! first data is queued after it (a stream that fails is recorded, not
+//! fatal), the server is `SYNCING` until it has acknowledged all of it, and
+//! the Admins are told when it is connected and when it is ready (0966).
+//! Approving and refusing by hand stay for a claim that could not be let in by
+//! itself — typically a replacement whose predecessor still has sales head
+//! office never received.
+//!
 //! # Every refusal to a machine says the same thing
 //!
 //! A claim with an unknown code, a spent code, an expired code or a withdrawn
@@ -12,6 +24,7 @@
 //! has been told which codes exist.
 
 use super::sync::{publish_current_catalog_to, register_origin_digest_tx};
+use super::{raise_notification, NewNotification};
 use crate::cloud::application::AppError;
 use crate::edge::{EdgeRole, NodeContext, SiteId};
 use crate::security;
@@ -22,7 +35,7 @@ use crate::sync::enrolment::{
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sqlx::{PgPool, Row};
+use sqlx::{PgPool, Postgres, Row, Transaction};
 use std::str::FromStr;
 use uuid::Uuid;
 
@@ -423,6 +436,97 @@ pub async fn approve_node_enrolment(
     enrolment_id: Uuid,
     decided_by: &str,
 ) -> Result<ApprovedNodeEnrolment, AppError> {
+    let origin_id = decide_approval(pool, enrolment_id, decided_by).await?;
+    let bootstrap = after_approval(pool, &origin_id, decided_by).await?;
+    Ok(ApprovedNodeEnrolment {
+        enrolment: node_enrolment_view(pool, enrolment_id).await?,
+        bootstrap,
+    })
+}
+
+/// An enrolment that was approved by the claim itself.
+#[derive(Debug, Clone)]
+pub struct LetInEnrolment {
+    pub enrolment_id: Uuid,
+    pub origin_id: String,
+    /// The Admin who issued the code, to whom the decision is attributed.
+    pub decided_by: String,
+}
+
+/// A machine spends a code, and is let in at once.
+///
+/// The code is the proof, and it was issued by an Admin from the store's page:
+/// the claim is approved as that Admin, in the same request, so the machine's
+/// first poll already finds itself approved. What the claim answers is what it
+/// always answered — the six-digit `verification` stays in it for the nodes
+/// that show it — but nobody has to read it to anybody.
+///
+/// The claim commits first, on its own; the approval is a second transaction.
+/// When it cannot be made (a replacement while the machine before it still has
+/// sales head office never received, say) the enrolment stays `CLAIMED` and is
+/// decided by hand where it always was, and the answer carries `None`.
+///
+/// What follows the decision — who signs in there, the first data — is
+/// [`finish_node_approval`], left to the caller so the machine is not made to
+/// wait on a catalogue being queued.
+pub async fn claim_and_approve_node_enrolment(
+    pool: &PgPool,
+    request: ClaimRequest,
+    claimed_from: Option<&str>,
+) -> Result<(ClaimAnswer, Option<LetInEnrolment>), AppError> {
+    let answer = claim_node_enrolment(pool, request, claimed_from).await?;
+    let issued_by: Option<String> =
+        sqlx::query_scalar("SELECT issued_by FROM node_enrolment WHERE enrolment_id = $1")
+            .bind(answer.enrolment_id)
+            .fetch_optional(pool)
+            .await
+            .unwrap_or_else(|error| {
+                tracing::warn!(%error, "the Admin who issued a claimed code could not be read");
+                None
+            });
+    let Some(decided_by) = issued_by else {
+        return Ok((answer, None));
+    };
+    match decide_approval(pool, answer.enrolment_id, &decided_by).await {
+        Ok(origin_id) => {
+            let let_in = LetInEnrolment {
+                enrolment_id: answer.enrolment_id,
+                origin_id,
+                decided_by,
+            };
+            Ok((answer, Some(let_in)))
+        }
+        Err(error) => {
+            tracing::warn!(
+                enrolment_id = %answer.enrolment_id,
+                %error,
+                "a claimed code could not be approved by itself; it waits for a decision"
+            );
+            Ok((answer, None))
+        }
+    }
+}
+
+/// Everything after the decision for an enrolment [`claim_and_approve_node_enrolment`]
+/// let in: who signs in at the new server, then the first data. Returns the
+/// bootstrap report; a stream that failed is in it, and recorded on the
+/// enrolment for the retry.
+pub async fn finish_node_approval(
+    pool: &PgPool,
+    let_in: &LetInEnrolment,
+) -> Result<Value, AppError> {
+    after_approval(pool, &let_in.origin_id, &let_in.decided_by).await
+}
+
+/// The decision: register the claimed key as the origin and mark the enrolment
+/// approved, in one transaction. Returns the origin. The Admins are told the
+/// server is connected afterwards, and only as news: a notification that
+/// cannot be written never undoes a decision.
+async fn decide_approval(
+    pool: &PgPool,
+    enrolment_id: Uuid,
+    decided_by: &str,
+) -> Result<String, AppError> {
     let mut tx = pool.begin().await?;
     let row = sqlx::query(
         "SELECT origin_id, site_id, node_role, label, key_sha256, claimed_at, outcome, expires_at
@@ -474,6 +578,11 @@ pub async fn approve_node_enrolment(
         Some(true),
     )
     .await?;
+    // A machine that was disconnected (`stores.rs`) has its credential back.
+    sqlx::query("UPDATE sync_origin_credential SET revoked_at = NULL WHERE origin_id = $1")
+        .bind(&origin_id)
+        .execute(&mut *tx)
+        .await?;
     sqlx::query(
         "UPDATE node_enrolment
             SET outcome = 'APPROVED', decided_by = $2, decided_at = now(),
@@ -487,23 +596,32 @@ pub async fn approve_node_enrolment(
     .await?;
     tx.commit().await?;
 
-    // Who signs in at the new server follows from role and posting (0635);
-    // derive it now, so the bootstrap's policy already names them rather
-    // than the sweep adding them up to five minutes later. Any other server
-    // whose list the derivation changed is told here; this one is told by
-    // the bootstrap.
-    let changed = super::follow_new_server(pool, &origin_id, decided_by).await;
+    if let Err(error) = tell_connected(pool, enrolment_id).await {
+        tracing::warn!(%enrolment_id, %error, "the Admins were not told a server is connected");
+    }
+    Ok(origin_id)
+}
+
+/// What follows a decision: who signs in at the new server (0635), then the
+/// first data.
+///
+/// Who signs in at the new server follows from role and posting; derive it
+/// now, so the bootstrap's policy already names them rather than the sweep
+/// adding them up to five minutes later. Any other server whose list the
+/// derivation changed is told here; this one is told by the bootstrap.
+async fn after_approval(
+    pool: &PgPool,
+    origin_id: &str,
+    decided_by: &str,
+) -> Result<Value, AppError> {
+    let changed = super::follow_new_server(pool, origin_id, decided_by).await;
     let others: Vec<String> = changed
         .into_iter()
-        .filter(|changed| changed != &origin_id)
+        .filter(|changed| changed.as_str() != origin_id)
         .collect();
     super::publish_node_access(pool, &others, decided_by).await;
 
-    let bootstrap = bootstrap_origin(pool, &origin_id, decided_by).await?;
-    Ok(ApprovedNodeEnrolment {
-        enrolment: node_enrolment_view(pool, enrolment_id).await?,
-        bootstrap,
-    })
+    bootstrap_origin(pool, origin_id, decided_by).await
 }
 
 /// Say no. A claimed enrolment is `REJECTED`; one nobody claimed yet is
@@ -561,6 +679,10 @@ pub async fn bootstrap_origin(
         .get::<Option<String>, _>("node_role")
         .is_some_and(|role| role.eq_ignore_ascii_case("STORE"));
     let target = [origin_id.to_owned()];
+    // Where the node's command lane stands before anything is queued: what is
+    // queued from here is the first data, and the node is ready once it has
+    // acknowledged it.
+    let queued_from = command_position(pool, origin_id).await?;
     let outcome = |result: Result<Value, AppError>| match result {
         Ok(value) => value,
         Err(error) => json!({ "error": error.to_string() }),
@@ -613,7 +735,325 @@ pub async fn bootstrap_origin(
                 .map(|(command_id, _)| json!({ "command_id": command_id })),
         );
     }
+    // Written on the enrolment this node was let in by, so that a stream that
+    // failed is not lost and the node's progress can be read. Never allowed to
+    // fail the bootstrap: the commands are queued either way.
+    if let Err(error) = record_bootstrap(pool, origin_id, queued_from, &report).await {
+        tracing::warn!(%origin_id, %error, "the first data sent to a node was not written down");
+    }
     Ok(report)
+}
+
+/// Whether any stream of a bootstrap report failed.
+fn bootstrap_failed(report: &Value) -> bool {
+    report
+        .as_object()
+        .is_some_and(|streams| streams.values().any(|stream| stream.get("error").is_some()))
+}
+
+/// How far the cloud has written to a node's command lane.
+async fn command_position(pool: &PgPool, origin_id: &str) -> Result<i64, AppError> {
+    Ok(sqlx::query_scalar(
+        "SELECT COALESCE((SELECT next_seq FROM sync_command_cursor WHERE origin_id = $1), 0)::bigint",
+    )
+    .bind(origin_id)
+    .fetch_one(pool)
+    .await?)
+}
+
+/// Write down on the node's latest approved enrolment what a bootstrap queued:
+/// when, the range of the node's lane it took (`from` exclusive, `to`
+/// inclusive), whether a stream failed, and the report with a few counts for
+/// the store's page. The range's start is kept from the first attempt, so a
+/// retry's commands count with the first's.
+async fn record_bootstrap(
+    pool: &PgPool,
+    origin_id: &str,
+    from_seq: i64,
+    report: &Value,
+) -> Result<(), AppError> {
+    let to_seq = command_position(pool, origin_id).await?;
+    // Articles in the catalogue snapshot this node was sent, counted once, here
+    // — the page reads the number, not the snapshot.
+    let articles: i64 = sqlx::query_scalar(
+        "SELECT count(DISTINCT COALESCE(item ->> 'article_code', item ->> 'sku_code'))::bigint
+           FROM sync_command_delivery d
+           JOIN sync_command c ON c.command_id = d.command_id
+          CROSS JOIN LATERAL jsonb_array_elements(
+                  CASE WHEN jsonb_typeof(c.payload -> 'items') = 'array'
+                       THEN c.payload -> 'items' ELSE '[]'::jsonb END) AS item
+          WHERE d.origin_id = $1 AND d.seq > $2 AND d.seq <= $3
+            AND c.command_type = $4",
+    )
+    .bind(origin_id)
+    .bind(from_seq)
+    .bind(to_seq)
+    .bind(crate::cloud::domain::COMMAND_CATALOG_CHUNK)
+    .fetch_one(pool)
+    .await?;
+    let mut stored = report.clone();
+    stored["counts"] = json!({
+        "articles": articles,
+        "price_books": report["price_books"]["published"],
+        "staff": report["attendance_book"]["employees"],
+    });
+    sqlx::query(
+        "UPDATE node_enrolment
+            SET bootstrap_at = now(),
+                bootstrap_from_seq = COALESCE(bootstrap_from_seq, $2),
+                bootstrap_seq = $3,
+                bootstrap_failed = $4,
+                bootstrap_report = $5
+          WHERE enrolment_id = (SELECT x.enrolment_id FROM node_enrolment x
+                                 WHERE x.origin_id = $1 AND x.outcome = 'APPROVED'
+                                   AND x.disconnected_at IS NULL
+                                 ORDER BY x.decided_at DESC LIMIT 1)",
+    )
+    .bind(origin_id)
+    .bind(from_seq)
+    .bind(to_seq)
+    .bind(bootstrap_failed(report))
+    .bind(&stored)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// The one automatic second attempt at a node's first data.
+///
+/// Asked after every heartbeat. Does something only for a node that was let in
+/// by a code and is not ready yet, and only once: when a stream of its
+/// bootstrap failed, or when no bootstrap was ever written down although the
+/// approval is minutes old (the request that was to queue it was cut short).
+/// The attempt is claimed by an update that only one caller can win, then run
+/// in the background so the heartbeat is not kept waiting. A second failure is
+/// left for a person: *Kirim ulang data awal*.
+pub(super) async fn retry_first_data(pool: &PgPool, origin_id: &str) {
+    let claimed = sqlx::query(
+        "UPDATE node_enrolment
+            SET bootstrap_retried_at = now()
+          WHERE enrolment_id = (SELECT x.enrolment_id FROM node_enrolment x
+                                 WHERE x.origin_id = $1 AND x.outcome = 'APPROVED'
+                                   AND x.disconnected_at IS NULL
+                                 ORDER BY x.decided_at DESC LIMIT 1)
+            AND bootstrap_retried_at IS NULL
+            AND ready_at IS NULL
+            AND (bootstrap_failed
+                 OR (bootstrap_at IS NULL AND decided_at < now() - interval '5 minutes'))
+      RETURNING COALESCE(decided_by, issued_by) AS decided_by",
+    )
+    .bind(origin_id)
+    .fetch_optional(pool)
+    .await;
+    match claimed {
+        Ok(Some(row)) => {
+            let Ok(decided_by) = row.try_get::<String, _>("decided_by") else {
+                return;
+            };
+            let pool = pool.clone();
+            let origin_id = origin_id.to_owned();
+            tokio::spawn(async move {
+                tracing::info!(%origin_id, "sending a new server its first data once more");
+                if let Err(error) = bootstrap_origin(&pool, &origin_id, &decided_by).await {
+                    tracing::warn!(%origin_id, %error, "the second attempt at a server's first data failed");
+                }
+            });
+        }
+        Ok(None) => {}
+        Err(error) => {
+            tracing::warn!(%origin_id, %error, "a server's first data could not be checked for a retry");
+        }
+    }
+}
+
+// ── telling the Admins ──────────────────────────────────────────────────
+
+/// Mark a server ready the first time it has acknowledged all its first data,
+/// and tell the Admins once. Asked after every heartbeat, so a server is
+/// ready only while it is being heard from. Never fails the heartbeat.
+pub(super) async fn settle_first_data(pool: &PgPool, origin_id: &str) {
+    if let Err(error) = mark_ready(pool, origin_id).await {
+        tracing::warn!(%origin_id, %error, "a server's first data was not settled");
+    }
+}
+
+async fn mark_ready(pool: &PgPool, origin_id: &str) -> Result<(), AppError> {
+    let mut tx = pool.begin().await?;
+    let ready = sqlx::query(
+        "UPDATE node_enrolment e
+            SET ready_at = now()
+          WHERE e.enrolment_id = (SELECT x.enrolment_id FROM node_enrolment x
+                                   WHERE x.origin_id = $1 AND x.outcome = 'APPROVED'
+                                     AND x.disconnected_at IS NULL
+                                   ORDER BY x.decided_at DESC LIMIT 1)
+            AND e.ready_at IS NULL
+            AND e.bootstrap_at IS NOT NULL
+            AND NOT e.bootstrap_failed
+            AND COALESCE((SELECT c.acked_seq FROM sync_command_cursor c
+                           WHERE c.origin_id = e.origin_id), 0)
+                >= COALESCE(e.bootstrap_seq, 9223372036854775807)
+      RETURNING e.enrolment_id, e.site_id, e.issued_by",
+    )
+    .bind(origin_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    if let Some(row) = ready {
+        let enrolment_id: Uuid = row.try_get("enrolment_id")?;
+        let site_id: String = row.try_get("site_id")?;
+        let issued_by: String = row.try_get("issued_by")?;
+        let store = store_words(&mut tx, &site_id).await?;
+        let time = store
+            .local_time
+            .clone()
+            .unwrap_or_else(|| Utc::now().format("%H:%M").to_string());
+        raise_server_news(
+            &mut tx,
+            "store.server.ready",
+            format!("{}'s server is ready", store.name),
+            format!("Data up to {time}"),
+            &store,
+            &site_id,
+            origin_id,
+            enrolment_id,
+            &issued_by,
+        )
+        .await?;
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
+/// The store a server belongs to, in the words a notification uses.
+struct StoreWords {
+    unit_id: Option<String>,
+    name: String,
+    /// The time at the store now, `HH:MM`.
+    local_time: Option<String>,
+}
+
+async fn store_words(
+    tx: &mut Transaction<'_, Postgres>,
+    site_id: &str,
+) -> Result<StoreWords, AppError> {
+    let row = sqlx::query(
+        "SELECT u.id AS unit_id,
+                COALESCE(u.name, s.name, s.id) AS store_name,
+                to_char(now() AT TIME ZONE site_business_timezone(s.id), 'HH24:MI') AS local_time
+           FROM site s
+           LEFT JOIN unit u ON u.id = s.unit_id
+          WHERE s.id = $1",
+    )
+    .bind(site_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+    Ok(match row {
+        Some(row) => StoreWords {
+            unit_id: row.try_get("unit_id")?,
+            name: row.try_get("store_name")?,
+            local_time: row.try_get("local_time")?,
+        },
+        None => StoreWords {
+            unit_id: None,
+            name: site_id.to_owned(),
+            local_time: None,
+        },
+    })
+}
+
+/// "KASIR-PC · windows x86_64": what the machine said about itself, for a
+/// line under a title.
+fn machine_words(machine: Option<&Value>) -> Option<String> {
+    let field = |key: &str| {
+        machine
+            .and_then(|machine| machine.get(key))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    };
+    let parts: Vec<&str> = [field("hostname"), field("os")]
+        .into_iter()
+        .flatten()
+        .collect();
+    (!parts.is_empty()).then(|| parts.join(" · "))
+}
+
+/// Tell every Admin, and the Admin who issued the code, a store's server is
+/// connected. Its own transaction: this is news about a decision already made.
+async fn tell_connected(pool: &PgPool, enrolment_id: Uuid) -> Result<(), AppError> {
+    let Some(row) = sqlx::query(
+        "SELECT site_id, origin_id, issued_by, machine
+           FROM node_enrolment WHERE enrolment_id = $1 AND outcome = 'APPROVED'",
+    )
+    .bind(enrolment_id)
+    .fetch_optional(pool)
+    .await?
+    else {
+        return Ok(());
+    };
+    let site_id: String = row.try_get("site_id")?;
+    let origin_id: String = row.try_get("origin_id")?;
+    let issued_by: String = row.try_get("issued_by")?;
+    let machine: Option<Value> = row.try_get("machine")?;
+    let mut tx = pool.begin().await?;
+    let store = store_words(&mut tx, &site_id).await?;
+    raise_server_news(
+        &mut tx,
+        "store.server.connected",
+        format!("{}'s server is connected", store.name),
+        machine_words(machine.as_ref())
+            .unwrap_or_else(|| "A machine has claimed the install code".into()),
+        &store,
+        &site_id,
+        origin_id.as_str(),
+        enrolment_id,
+        &issued_by,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// One notification about a store's server, to every Admin and to the Admin
+/// who issued its code.
+#[allow(clippy::too_many_arguments)]
+async fn raise_server_news(
+    tx: &mut Transaction<'_, Postgres>,
+    kind: &str,
+    title: String,
+    body: String,
+    store: &StoreWords,
+    site_id: &str,
+    origin_id: &str,
+    enrolment_id: Uuid,
+    issued_by: &str,
+) -> Result<(), AppError> {
+    let recipients: Vec<String> = sqlx::query_scalar(
+        "SELECT username FROM app_user
+          WHERE active AND (role = 'ADMIN' OR username = $1)
+          ORDER BY username",
+    )
+    .bind(issued_by)
+    .fetch_all(&mut **tx)
+    .await?;
+    raise_notification(
+        tx,
+        NewNotification {
+            kind,
+            title,
+            body,
+            subject: store.unit_id.clone().map(|unit_id| ("unit", unit_id)),
+            origin_id: Some(origin_id),
+            payload: json!({
+                "unit_id": store.unit_id,
+                "site_id": site_id,
+                "origin_id": origin_id,
+                "enrolment_id": enrolment_id,
+            }),
+        },
+        &recipients,
+    )
+    .await?;
+    Ok(())
 }
 
 /// Every published price book, oldest first, shaped for this shop.

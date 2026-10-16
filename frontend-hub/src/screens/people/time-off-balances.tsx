@@ -1,36 +1,176 @@
 import { useQuery } from "@tanstack/react-query"
+import type { ColumnDef } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { useLayout } from "@/lib/layout"
 import { DockTools } from "@/components/shell/dock-tools"
 import { Card } from "@/components/ui/card"
-import { Input, Select } from "@/components/ui/field"
+import { DataTable } from "@/components/ui/data-table"
+import { Select } from "@/components/ui/field"
+import { ExpandingSearch } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { MiniCell, MiniTable } from "@/components/ui/rows"
 import { Sheet } from "@/components/ui/sheet"
 import { Toolbar } from "@/components/ui/segmented"
 import { EmptyState } from "@/components/ui/states"
-import { useActiveEmployees } from "@/lib/queries/hr-time"
+import {
+  everyoneBalances,
+  everyoneBalancesKey,
+  useActiveEmployees,
+} from "@/lib/queries/hr-time"
 import { leaveBalances, leaveKeys, readDays } from "@/lib/queries/people"
 import { queryState } from "@/lib/query-state"
-import { cn } from "@/lib/utils"
+import { tableSetup, type TableSetup } from "@/lib/table"
 import {
   AdjustBalanceForm,
   HolidayWorkedForm,
   PayOutForm,
 } from "@/screens/people/leave-extras"
 import { Quiet } from "@/screens/people/parts"
-import { CardButton, CardName, PhoneCards } from "@/components/ui/phone-cards"
+import { CardFigure, CardName } from "@/components/ui/phone-cards"
 import { usePeopleAudience } from "@/screens/people/scope"
-import type { EmployeeSummary } from "@itulah/contract"
+import type { EmployeeSummary, LeaveBalanceRow } from "@itulah/contract"
 
 /// Time off › Balances — everyone working here, and what each has left.
 ///
-/// The list is people, because a balance is read about a person. Opening one
-/// shows their balances per kind, and — for head office, whose acts they are —
-/// the three things done to a balance by hand: correct or grant days, pay days
-/// out into a month's payroll, and give a day back for a holiday worked.
+/// The list is people, because a balance is read about a person, and it says
+/// the figures somebody plans around — days left per kind, and days asked for
+/// and not yet decided — read for everybody at once (`GET /leave-balances`,
+/// owner, 2026-10-16: "figures in the list, not only in the sheet"). Opening
+/// one shows their balances per kind, and — for head office, whose acts they
+/// are — the three things done to a balance by hand: correct or grant days,
+/// pay days out into a month's payroll, and give a day back for a holiday
+/// worked.
+
+/// A person, with their balances once the read has answered. `undefined`
+/// while it has not — and for good if it failed, when the figures say "—"
+/// and the list still opens each person's own.
+type BalanceRow = EmployeeSummary & {
+  readonly balances: readonly LeaveBalanceRow[] | undefined
+}
+
+/// One kind that draws on a balance, as the columns name it.
+interface Kind {
+  readonly code: string
+  readonly name: string
+}
+
+/// Days asked for and not yet decided, across every kind.
+function waitingOf(row: BalanceRow): number | null {
+  if (row.balances === undefined) return null
+  return row.balances.reduce((sum, one) => sum + one.pending_centidays, 0)
+}
+
+/// The Waiting column, beside the kinds' days left.
+const waitingColumn: ColumnDef<TableSetup, BalanceRow> = {
+  id: "waiting",
+  accessorFn: (row) => waitingOf(row),
+  header: "Waiting",
+  size: 150,
+  meta: { align: "right", card: "hide" },
+  cell: ({ row }) => {
+    const waiting = waitingOf(row.original)
+    return waiting === null || waiting === 0 ? "—" : readDays(waiting)
+  },
+}
+
+function columnsFor(
+  kinds: readonly Kind[]
+): ColumnDef<TableSetup, BalanceRow>[] {
+  return [
+    {
+      id: "who",
+      accessorFn: (row) => row.full_name ?? row.employee_code,
+      header: "Employee",
+      size: 280,
+      meta: { card: "hide" },
+    },
+    {
+      id: "unit",
+      accessorFn: (row) => row.unit_name ?? row.unit_id ?? "",
+      header: "Unit",
+      size: 200,
+      meta: { card: "hide" },
+      cell: ({ row }) => row.original.unit_name ?? row.original.unit_id ?? "—",
+    },
+    // A column per kind that draws on a balance, named as the catalogue
+    // names it: two kinds' days added together are no figure anybody plans by.
+    ...kinds.map((kind): ColumnDef<TableSetup, BalanceRow> => ({
+      id: `left:${kind.code}`,
+      accessorFn: (row) =>
+        row.balances?.find((one) => one.leave_type === kind.code)?.centidays ??
+        null,
+      header: kind.name,
+      size: 170,
+      meta: { align: "right", card: "hide" },
+      cell: ({ row }) => {
+        const left = row.original.balances?.find(
+          (one) => one.leave_type === kind.code
+        )
+        return left === undefined ? "—" : readDays(left.centidays)
+      },
+    })),
+    // Only once the figures have answered: before that, or on a server that
+    // does not serve them yet, a column of dashes says nothing.
+    ...(kinds.length === 0 ? [] : [waitingColumn]),
+    // The columns that exist only on a card (`cardLead`; a phone): the person
+    // over their position and place, the first kind's days left as the
+    // figure, and what is waiting under it.
+    {
+      id: "head",
+      accessorFn: (row) => row.full_name ?? row.employee_code,
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "title" },
+      cell: ({ row }) => (
+        <CardName
+          name={row.original.full_name ?? row.original.employee_code}
+          line={[
+            row.original.position,
+            row.original.unit_name ?? row.original.unit_id,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+        />
+      ),
+    },
+    {
+      id: "lead",
+      accessorFn: (row) => row.balances?.[0]?.centidays ?? null,
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "lead" },
+      cell: ({ row }) => {
+        const first = row.original.balances?.[0]
+        return first === undefined ? null : (
+          <CardFigure
+            value={readDays(first.centidays).split(" ")[0]}
+            caption={`${first.name} left`}
+          />
+        )
+      },
+    },
+    {
+      id: "foot",
+      accessorFn: (row) => waitingOf(row),
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "foot" },
+      cell: ({ row }) => {
+        const waiting = waitingOf(row.original)
+        return waiting === null || waiting === 0
+          ? null
+          : `${readDays(waiting)} waiting`
+      },
+    },
+  ]
+}
+
 export function TimeOffBalances() {
   const phone = useLayout() === "phone"
   const { people, team } = useActiveEmployees()
@@ -48,24 +188,63 @@ export function TimeOffBalances() {
     return [...seen.entries()].sort((a, b) => a[1].localeCompare(b[1]))
   }, [people])
 
+  /// Everybody's figures in one read. Not a reason to hold the list back:
+  /// the people draw at once, and the figures fill in when they come.
+  const figures = useQuery({
+    queryKey: everyoneBalancesKey(),
+    queryFn: ({ signal }) => everyoneBalances(signal),
+  })
+  const byPerson = useMemo(
+    () =>
+      new Map(
+        (figures.data ?? []).map((one) => [one.employee_id, one.balances])
+      ),
+    [figures.data]
+  )
+  /// The kinds the columns name, off the answer itself: every person carries
+  /// the same balance-backed kinds, so the first one says which.
+  const kinds = useMemo<Kind[]>(
+    () =>
+      (figures.data?.[0]?.balances ?? []).map((one) => ({
+        code: one.leave_type,
+        name: one.name,
+      })),
+    [figures.data]
+  )
+  const columns = useMemo(() => columnsFor(kinds), [kinds])
+
   const needle = search.trim().toLowerCase()
-  const rows = people
-    .filter((one) => unit === "" || one.unit_id === unit)
-    .filter(
-      (one) =>
-        needle === "" ||
-        (one.full_name ?? "").toLowerCase().includes(needle) ||
-        one.employee_code.toLowerCase().includes(needle) ||
-        (one.position ?? "").toLowerCase().includes(needle)
+  const rows = useMemo<BalanceRow[]>(
+    () =>
+      people
+        .filter((one) => unit === "" || one.unit_id === unit)
+        .filter(
+          (one) =>
+            needle === "" ||
+            (one.full_name ?? "").toLowerCase().includes(needle) ||
+            one.employee_code.toLowerCase().includes(needle) ||
+            (one.position ?? "").toLowerCase().includes(needle)
+        )
+        .map((one) => ({ ...one, balances: byPerson.get(one.employee_id) })),
+    [people, unit, needle, byPerson]
+  )
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: rows,
+        columns,
+        getRowId: (row: BalanceRow) => row.employee_id,
+        // The card's own columns are drawn on a phone and never on a desk.
+        state: { columnVisibility: { head: phone, lead: phone, foot: phone } },
+      }),
+      [rows, columns, phone]
     )
+  )
 
   return (
     <PageContent>
-      <PageHeader
-        crumb="People"
-        title="Leave Balances"
-        sub="What each person has left per kind of leave. Open one to see it, correct it or pay days out."
-      />
+      <PageHeader title="Balances" />
 
       {/* On a phone the search and the unit are in the dock over the bottom
           bar. */}
@@ -93,12 +272,11 @@ export function TimeOffBalances() {
           }
         />
       ) : (
-        <Toolbar>
-          <Input
+        <Toolbar className="group/bar">
+          <ExpandingSearch
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            className="h-8 w-64"
-            aria-label="Search people"
+            onChange={setSearch}
+            label="Search people"
           />
           {units.length > 1 && (
             <Select value={unit} onChange={setUnit} className="h-8 w-52">
@@ -120,73 +298,19 @@ export function TimeOffBalances() {
             rows.length === 0 ? (
               <EmptyState>
                 {people.length === 0
-                  ? "Nobody is employed here yet, so there are no balances to read."
+                  ? "Nobody is employed here yet."
                   : "Nobody matches that search."}
               </EmptyState>
-            ) : phone ? (
-              <PhoneCards
-                rows={rows}
-                onOpen={(one) => setOpened(one)}
-                rowId={(one) => one.employee_id}
-                spec={{
-                  title: (one) => (
-                    <CardName
-                      name={one.full_name ?? one.employee_code}
-                      line={[one.position, one.unit_name ?? one.unit_id]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    />
-                  ),
-                  foot: (one) => (
-                    <span className="font-mono text-id">
-                      {one.employee_code}
-                    </span>
-                  ),
-                  action: (one) => (
-                    <CardButton
-                      label="Open"
-                      ariaLabel={`Open ${one.full_name ?? one.employee_code}’s balances`}
-                      onClick={() => setOpened(one)}
-                    />
-                  ),
-                }}
-              />
             ) : (
-              <div className="px-4 pt-3 pb-4">
-                <MiniTable
-                  head={[
-                    "Employee",
-                    { label: "Unit", align: "left" },
-                    { label: "Position", align: "left" },
-                  ]}
-                >
-                  {rows.map((one) => (
-                    <tr
-                      key={one.employee_id}
-                      tabIndex={0}
-                      onClick={() => setOpened(one)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") setOpened(one)
-                      }}
-                      className={cn(
-                        "cursor-pointer border-t border-hairline transition-colors hover:bg-soft",
-                        opened?.employee_id === one.employee_id && "bg-soft"
-                      )}
-                    >
-                      <MiniCell>
-                        <span className="font-medium text-ink">
-                          {one.full_name ?? one.employee_code}
-                        </span>
-                        <span className="block font-mono text-id text-mute">
-                          {one.employee_code}
-                        </span>
-                      </MiniCell>
-                      <MiniCell>{one.unit_name ?? one.unit_id ?? "—"}</MiniCell>
-                      <MiniCell>{one.position ?? "—"}</MiniCell>
-                    </tr>
-                  ))}
-                </MiniTable>
-              </div>
+              <DataTable<BalanceRow>
+                refresh={[team, figures]}
+                table={table}
+                onRowClick={(one) => setOpened(one)}
+                isSelected={(one) => one.employee_id === opened?.employee_id}
+                cardsApart
+                cardLead
+                cardSort={false}
+              />
             ),
         })}
       </Card>
@@ -217,18 +341,9 @@ function BalanceSheet({
     loading: "Reading the balances…",
     render: (rows) =>
       rows.length === 0 ? (
-        <Quiet>
-          No balance-backed leave for this person. Sick leave and the like draw
-          on nothing, so they never appear here.
-        </Quiet>
+        <Quiet>No leave with a balance for this person.</Quiet>
       ) : (
-        <MiniTable
-          head={[
-            { label: "Kind", align: "left" },
-            "Left",
-            "Waiting on a Decision",
-          ]}
-        >
+        <MiniTable head={[{ label: "Kind", align: "left" }, "Left", "Waiting"]}>
           {rows.map((row) => (
             <tr key={row.leave_type} className="border-t border-hairline">
               <MiniCell>{row.name}</MiniCell>

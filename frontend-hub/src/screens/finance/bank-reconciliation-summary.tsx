@@ -416,7 +416,7 @@ export function BankReconciliationSummary() {
                   >
                     <Td>
                       <span className="text-ink">{line.accountName}</span>
-                      <span className="block text-[0.875rem] text-mute">
+                      <span className="block text-[0.9375rem] text-mute">
                         {unitName(line.unitId)}
                       </span>
                     </Td>
@@ -462,7 +462,7 @@ export function BankReconciliationSummary() {
                       ) : (
                         <>
                           {money(line.openNet)}
-                          <span className="block text-[0.875rem] text-mute">
+                          <span className="block text-[0.9375rem] text-mute">
                             {count(line.openCount)}{" "}
                             {line.openCount === 1 ? "posting" : "postings"}
                           </span>
@@ -494,10 +494,6 @@ export function BankReconciliationSummary() {
               </tbody>
             </Grid>
           )}
-          <p className="mt-3 px-1 text-[0.875rem] text-mute">
-            Totals cover accounts with a statement. Open items are measured to
-            each statement&rsquo;s last day, not to the end of the month.
-          </p>
         </>
       )}
     </PageContent>

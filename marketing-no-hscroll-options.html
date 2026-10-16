@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Marketing tables without side scroll</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet" />
+<style>
+/* Marketing › Promotions · Campaigns · Vouchers — the list tables today run
+   1150–1400px of fixed columns in a ~1080px page and scroll sideways.
+   Today + A–E: every option keeps the table, and fits the page.
+   Tokens: frontend-hub/src/styles/white.css (All white, 16 Oct 2026). */
+:root{
+  --ink:#1d1d1f; --body:#6e6e73; --mute:#6e6e73; --faint:#c7c7cc; --line-ico:#8e8e93;
+  --canvas:#fff; --soft:#fafafb; --soft-2:#f2f2f5; --soft-3:#f5f5f7;
+  --hairline:#e8e8ec; --hairline-2:#dcdce1; --row-line:#eeeef1; --band:#fafafb;
+  --accent:#2862dc; --accent-bg:#eef3fc; --cta:#2862dc; --cta-hover:#2055c7;
+  --ok-fg:#248a3d; --bad-fg:#d70015; --warn-fg:#a66c1f; --info-fg:#496b9c;
+  --ring:0 0 0 1px rgb(0 0 0 / 5%),0 2px 8px rgb(0 0 0 / 5%),0 12px 32px rgb(0 0 0 / 8%);
+  --r-card:10px; --r-inner:8px;
+  --ease-out:cubic-bezier(.23,1,.32,1); --ease-drawer:cubic-bezier(.32,.72,0,1);
+  --font:"Inter",system-ui,-apple-system,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font-family:var(--font);font-size:15px;color:var(--ink);background:#e9e9ec;letter-spacing:-.006em;-webkit-font-smoothing:antialiased;overflow:hidden}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+.i{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.num{font-variant-numeric:tabular-nums}
+
+/* ── prototype chrome ── */
+.proto{height:50px;background:#141518;color:#fff;display:flex;align-items:center;gap:12px;padding:0 14px 0 18px}
+.proto .t{font-weight:600;white-space:nowrap}
+.seg{display:flex;gap:2px;background:#24262b;border-radius:9px;padding:3px}
+.seg button{height:32px;padding:0 11px;border-radius:7px;font-size:15px;color:#b9bcc3;white-space:nowrap;transition:background-color .15s ease,color .15s ease}
+.seg button b{font-weight:600;color:#fff;margin-right:5px}
+.seg button.on{background:#fff;color:var(--ink)}
+.seg button.on b{color:var(--ink)}
+.seg .star{color:#f4b740;margin-left:4px}
+.proto .sp{flex:1}
+.note{min-height:36px;background:#1c1e22;color:#a7abb3;font-size:15px;display:flex;align-items:center;padding:6px 18px;border-top:1px solid #26282d}
+.note b{color:#fff;font-weight:500}
+.stagewrap{height:calc(100vh - 86px);overflow:hidden;display:flex;justify-content:center}
+
+/* ── hub shell (All white) ── */
+.app{height:100%;display:grid;grid-template-columns:68px 232px minmax(0,1fr);background:var(--canvas);position:relative;transform-origin:top center;flex:none}
+.rail{background:var(--soft-3);display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:4px}
+.logo{width:28px;height:28px;border-radius:7px;background:var(--ink);color:#fff;display:grid;place-items:center;font-weight:600;margin-bottom:10px}
+.rail .ri{width:40px;height:36px;border-radius:8px;display:grid;place-items:center;color:#3a3a3c}
+.rail .ri.on{background:#fff;box-shadow:0 0 0 1px var(--hairline)}
+.dept{background:var(--soft-3);border-right:1px solid var(--hairline);display:flex;flex-direction:column}
+.dept h2{margin:0;height:52px;display:flex;align-items:center;padding:0 18px;font-size:15px;font-weight:600}
+.rows{padding:2px 10px;display:flex;flex-direction:column;gap:2px}
+.row{height:38px;display:flex;align-items:center;padding:0 10px;border-radius:8px;color:#3a3a3c;text-align:left;width:100%;transition:background-color .15s ease}
+.row.on{background:#fff;color:var(--ink);font-weight:500;box-shadow:0 0 0 1px var(--hairline)}
+.main{overflow-y:auto;min-width:0}
+.page{padding:24px 32px 64px}
+
+.ph{display:flex;align-items:flex-start;gap:24px;margin-bottom:18px}
+.ph h1{margin:0;flex:1;font-size:22px;font-weight:600;letter-spacing:-.015em;line-height:30px}
+.figs{display:flex;margin-bottom:18px}
+.fig{padding:2px 28px 2px 20px;border-left:1px solid var(--hairline)}
+.fig:first-child{border-left:0;padding-left:0}
+.fig .l{color:var(--body);white-space:nowrap}
+.fig .v{font-size:20px;font-weight:600;margin-top:4px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.fig .v.warn{color:var(--warn-fg)}
+.tabs{display:flex;gap:6px;border-bottom:1px solid var(--hairline);margin-bottom:14px}
+.tab{height:40px;padding:0 8px;color:var(--body);position:relative;white-space:nowrap}
+.tab .c{margin-left:5px;font-variant-numeric:tabular-nums}
+.tab.on{color:var(--ink);font-weight:500}
+.tab.on::after{content:"";position:absolute;left:6px;right:6px;bottom:-1px;height:2px;border-radius:2px;background:var(--ink)}
+.bar{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.bar .l{display:flex;gap:8px;flex:1;min-width:0}
+.search{position:relative;display:flex;align-items:center}
+.search .i{position:absolute;left:11px;color:var(--line-ico);width:16px;height:16px}
+.search input{height:38px;width:240px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);padding:0 10px 0 34px;font:inherit;background:#fff;color:var(--ink);outline:none}
+.search input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
+.btn{height:38px;padding:0 14px;border-radius:var(--r-inner);font-weight:500;display:inline-flex;align-items:center;gap:7px;white-space:nowrap;transition:transform .16s var(--ease-out),background-color .15s ease}
+.btn:active,.row:active,.tab:active,.seg button:active{transform:scale(.97)}
+.btn-p{background:var(--cta);color:#fff}
+.btn-t{color:var(--accent);padding:0 8px}
+.colpick{position:relative}
+.pop{position:absolute;right:0;top:44px;width:240px;background:#fff;border-radius:12px;box-shadow:var(--ring);padding:6px;z-index:5;transform-origin:top right;animation:pop .18s var(--ease-out)}
+@keyframes pop{from{opacity:0;transform:scale(.96)}}
+.pop label{display:flex;align-items:center;gap:10px;height:38px;padding:0 10px;border-radius:8px;cursor:pointer}
+.pop label:hover{background:var(--soft-2)}
+.pop input{width:17px;height:17px;accent-color:var(--accent);margin:0}
+
+/* ── the table ── */
+.tbox{border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden}
+.tbox.scroll{overflow-x:auto}
+table{border-collapse:collapse;table-layout:fixed}
+.fit table{width:100%}
+th{height:40px;background:var(--band);color:var(--body);font-weight:500;text-align:left;padding:0 16px;white-space:nowrap;border-bottom:1px solid var(--hairline)}
+td{padding:12px 16px;border-top:1px solid var(--row-line);vertical-align:middle;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+tbody tr:first-child td{border-top:0}
+.two td{padding:11px 16px}
+.wrap td{white-space:normal;overflow:visible;line-height:21px}
+.wrap th{white-space:normal;line-height:20px;padding:9px 16px;height:auto}
+.r{text-align:right}
+tbody tr{cursor:pointer;transition:background-color .12s ease}
+@media (hover:hover){tbody tr:hover td{background:#fafafb}.row:not(.on):hover{background:rgb(0 0 0 / 4%)}.btn-p:hover{background:var(--cta-hover)}}
+.name{font-weight:500}
+.sub{color:var(--mute);display:block;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.wrap .sub{white-space:normal}
+.m{color:var(--mute)}
+.warn{color:var(--warn-fg)} .bad{color:var(--bad-fg)}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:15px;letter-spacing:0}
+.st{display:inline-flex;align-items:center;gap:7px}
+.st::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--faint)}
+.st.Live::before{background:var(--ok-fg)} .st.Paused::before{background:var(--warn-fg)} .st.Scheduled::before{background:var(--info-fg)}
+.sw{width:34px;height:20px;border-radius:10px;background:var(--faint);position:relative;flex:none;display:inline-block;vertical-align:middle;margin-right:8px}
+.sw::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgb(0 0 0/.2);transition:transform .2s var(--ease-out)}
+.sw.on{background:var(--ok-fg)} .sw.on::after{transform:translateX(14px)}
+.meter{display:inline-block;width:56px;height:6px;border-radius:3px;background:var(--soft-2);vertical-align:middle;margin-right:10px;overflow:hidden}
+.meter i{display:block;height:100%;background:var(--accent)}
+.meter.warn i{background:var(--warn-fg)} .meter.bad i{background:var(--bad-fg)}
+
+/* ── record sheet ── */
+.veil{position:absolute;inset:0;background:rgb(255 255 255 / 55%);opacity:0;pointer-events:none;transition:opacity .25s ease;z-index:8}
+.veil.open{opacity:1;pointer-events:auto}
+.sheet{position:absolute;top:12px;right:12px;bottom:12px;width:440px;background:#fff;border-radius:14px;box-shadow:var(--ring);z-index:9;display:flex;flex-direction:column;transform:translateX(calc(100% + 24px));transition:transform .32s var(--ease-drawer)}
+.sheet.open{transform:none}
+.sheet .hd{display:flex;align-items:flex-start;gap:12px;padding:20px 20px 8px}
+.sheet h3{margin:0;flex:1;font-size:20px;font-weight:600;letter-spacing:-.012em;line-height:27px}
+.sheet .x{width:32px;height:32px;border-radius:8px;display:grid;place-items:center;color:var(--body)}
+.sheet .bd{padding:4px 20px 20px;overflow-y:auto;flex:1}
+.fact{display:grid;grid-template-columns:130px 1fr;gap:12px;padding:11px 0;border-top:1px solid var(--row-line)}
+.fact:first-child{border-top:0}
+.fact .k{color:var(--body)}
+.sheet .ft{padding:14px 20px;border-top:1px solid var(--hairline);display:flex;gap:8px;justify-content:flex-end}
+</style>
+</head>
+<body>
+<div class="proto">
+  <div class="t">No side scroll</div>
+  <div class="seg" id="opts"></div>
+  <div class="sp"></div>
+  <div class="seg" id="widths"></div>
+</div>
+<div class="note" id="note"></div>
+<div class="stagewrap" id="stagewrap">
+  <div class="app" id="app">
+    <nav class="rail">
+      <div class="logo">C</div>
+      <div class="ri"><svg class="i" viewBox="0 0 24 24"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg></div>
+      <div class="ri on"><svg class="i" viewBox="0 0 24 24"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg></div>
+      <div class="ri"><svg class="i" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/></svg></div>
+      <div class="ri"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></div>
+    </nav>
+    <aside class="dept">
+      <h2>Marketing</h2>
+      <div class="rows" id="menu"></div>
+    </aside>
+    <main class="main"><div class="page" id="page"></div></main>
+    <div class="veil" id="veil"></div>
+    <aside class="sheet" id="sheet"></aside>
+  </div>
+</div>
+
+<script>
+const $ = (s) => document.querySelector(s)
+const OF = 13 // stores in the estate
+const rp = (n) => "Rp " + n.toLocaleString("id-ID")
+const n = (v) => v.toLocaleString("id-ID")
+const st = (w) => `<span class="st ${w}">${w}</span>`
+
+// ── demo data ──────────────────────────────────────────────────────────
+const PROMOS = [
+  {name:"Payday 25% off", st:"Live", scope:"Division PRIA", ben:"25% off", r:13, p:0, f:0, uses:412, spent:18450000, from:"25 Oct", to:"31 Oct"},
+  {name:"Buy 2 get 1 basics", st:"Live", scope:"3 articles", ben:"Cheapest item free", r:11, p:2, f:0, uses:96, spent:4320000, from:"1 Oct", to:"31 Oct"},
+  {name:"Member Tuesday", st:"Paused", scope:"The whole basket", mem:true, ben:"10% off", r:13, p:0, f:0, uses:1204, spent:27900000, from:"1 Sep", to:null},
+  {name:"Denim week bundle", st:"Scheduled", scope:"Division DENIM", ben:"Rp 50.000 off over Rp 500.000", r:0, p:13, f:0, uses:0, spent:0, from:"1 Nov", to:"7 Nov"},
+  {name:"Kids back to school", st:"Live", scope:"Division ANAK", ben:"15% off", r:12, p:0, f:1, uses:58, spent:1930000, from:"14 Oct", to:"27 Oct"},
+  {name:"Free tote over Rp 750.000", st:"Live", scope:"The whole basket", mem:true, ben:"Free gift", r:13, p:0, f:0, uses:0, spent:0, from:"10 Oct", to:"30 Nov"},
+  {name:"Weekend flash sale Grand Indonesia and Senayan City", st:"Scheduled", scope:"Division WANITA", ben:"30% off", r:0, p:13, f:0, uses:0, spent:0, from:"8 Nov", to:"9 Nov"},
+  {name:"Clearance Lebaran 2026", st:"Ended", scope:"184 articles", ben:"Fixed price Rp 99.000", r:13, p:0, f:0, uses:3310, spent:96200000, from:"10 Mar", to:"20 Apr"},
+]
+const CAMPS = [
+  {name:"Payday October", st:"Live", obj:"Grow baskets", target:"≥ 2.000 baskets", offers:3, spent:36400000, budget:50000000, r:13, from:"25 Oct", to:"31 Oct"},
+  {name:"Back to school 2026", st:"Live", obj:"Clear stock", target:"≥ 60% sell-through", offers:2, spent:9100000, budget:10000000, r:12, from:"14 Oct", to:"27 Oct"},
+  {name:"Member month", st:"Paused", obj:"Win members", target:"≥ 800 sign-ups", offers:4, spent:27900000, budget:null, r:13, from:"1 Sep", to:null},
+  {name:"Year end sale", st:"Scheduled", obj:"Grow sales", target:"≥ Rp 2.400.000.000", offers:6, spent:0, budget:180000000, r:0, from:"1 Dec", to:"31 Dec"},
+  {name:"Denim week", st:"Scheduled", obj:null, target:null, offers:1, spent:0, budget:15000000, r:0, from:"1 Nov", to:"7 Nov"},
+  {name:"Lebaran 2026 clearance across every store", st:"Ended", obj:"Clear stock", target:"≥ 75% sell-through", offers:5, spent:96200000, budget:100000000, r:13, from:"10 Mar", to:"20 Apr"},
+]
+const VOUCHERS = [
+  {code:"GV-7Q2K-91LM", kind:"Gift card", mem:"Dewi Anggraini", face:500000, left:150000, st:"Live", exp:false, issued:"12 Oct"},
+  {code:"RF-3HT8-0QZ2", kind:"Refund", mem:"Budi Santoso", face:349000, left:349000, st:"Live", exp:false, issued:"15 Oct"},
+  {code:"GW-P2M4-77AC", kind:"Goodwill", mem:null, face:100000, left:100000, st:"Live", exp:true, issued:"2 Aug"},
+  {code:"GV-91XX-4K0D", kind:"Gift card", mem:"Maria Kristina Wulandari Siregar", face:1000000, left:0, st:"Spent", exp:false, issued:"1 Sep"},
+  {code:"GV-L0Q1-PP8E", kind:"Gift card", mem:"Andi Pratama", face:250000, left:40000, st:"Live", exp:false, issued:"30 Sep"},
+  {code:"RF-88AB-ZZ10", kind:"Refund", mem:"Siti Rahmawati", face:189000, left:0, st:"Cancelled", exp:false, issued:"20 Sep"},
+  {code:"GW-0K2L-MM91", kind:"Goodwill", mem:"Rizky Hidayat", face:50000, left:50000, st:"Live", exp:false, issued:"16 Oct"},
+]
+
+// ── shared cell pieces ─────────────────────────────────────────────────
+const storesTone = (x) => x.f ? "bad" : (x.r === 0 || x.p) ? "warn" : ""
+const storesWord = (x) => x.f ? `${x.f} failed` : x.p ? `${x.p} pending` : "All in"
+const storesFull = (x) => `<span class="${x.r===0?'warn':''}">${x.r}</span><span class="m"> / ${OF}</span>${x.p?` <span class="warn">· ${x.p} pending</span>`:""}${x.f?` <span class="bad">· ${x.f} failed</span>`:""}`
+const lever = (w) => (w==="Live"||w==="Paused") ? `<span class="sw ${w==="Live"?"on":""}"></span>` : ""
+const share = (c) => c.budget ? c.spent / c.budget : null
+const shareTone = (s) => s === null ? "" : s >= .9 ? "bad" : s >= .7 ? "warn" : ""
+const two = (a, b) => `${a}<span class="sub">${b}</span>`
+const vst = (v) => st(v.st) + (v.exp ? ` <span class="warn">· Expired</span>` : "")
+const leftTone = (v) => v.left === 0 ? "m" : v.left / v.face < .25 ? "warn" : ""
+
+// every column a screen has, by key; options pick from these
+const COLS = {
+  promotions: {
+    name:   {h:"Promotion", c:x=>`<span class="name">${x.name}</span>`},
+    status: {h:"Status", c:x=>st(x.st)},
+    statusSw:{h:"Status", c:x=>lever(x.st)+st(x.st)},
+    scope:  {h:"Applies to", c:x=>x.scope+(x.mem?` <span class="m">· members only</span>`:"")},
+    ben:    {h:"Benefit", c:x=>x.ben},
+    stores: {h:"Stores", a:"r", c:x=>storesFull(x)},
+    storesN:{h:"Stores", a:"r", c:x=>`<span class="${storesTone(x)}">${x.r} / ${OF}</span>`},
+    usage:  {h:"Usage", c:x=>x.uses?`${n(x.uses)} uses <span class="m">· ${rp(x.spent)}</span>`:`<span class="m">Never used</span>`},
+    used:   {h:"Used", a:"r", c:x=>x.uses?n(x.uses):`<span class="m">Never</span>`},
+    period: {h:"Period", c:x=>`${x.from} → ${x.to??"no end"}`},
+    ends:   {h:"Ends", a:"r", c:x=>x.to??`<span class="m">No end</span>`},
+    // two lines
+    name2:  {h:"Promotion", c:x=>two(`<span class="name">${x.name}</span>`, x.scope+(x.mem?" · members only":""))},
+    stores2:{h:"Stores", a:"r", c:x=>two(`${x.r} / ${OF}`, `<span class="${storesTone(x)}">${storesWord(x)}</span>`)},
+    used2:  {h:"Used", a:"r", c:x=>x.uses?two(n(x.uses), rp(x.spent)):`<span class="m">Never</span>`},
+    ends2:  {h:"Ends", a:"r", c:x=>two(x.to??"No end", "from "+x.from)},
+  },
+  campaigns: {
+    name:   {h:"Campaign", c:x=>`<span class="name">${x.name}</span>`},
+    status: {h:"Status", c:x=>st(x.st)},
+    statusSw:{h:"Status", c:x=>lever(x.st)+st(x.st)},
+    obj:    {h:"Objective", c:x=>x.obj??`<span class="warn">Not stated</span>`},
+    target: {h:"Target", c:x=>x.target??`<span class="m">—</span>`},
+    offers: {h:"Offers", a:"r", c:x=>x.offers},
+    budgetBar:{h:"Budget Used", c:x=>{const s=share(x);return s===null?`${rp(x.spent)} <span class="m">· no limit</span>`:`<span class="meter ${shareTone(s)}"><i style="width:${Math.min(s,1)*100}%"></i></span><span class="${shareTone(s)}">${rp(x.spent)}</span><span class="m"> / ${rp(x.budget)}</span>`}},
+    budget: {h:"Budget used", a:"r", c:x=>{const s=share(x);return s===null?`<span class="m">No limit</span>`:`<span class="${shareTone(s)}">${Math.round(s*100)}%</span>`}},
+    stores: {h:"Stores", a:"r", c:x=>`<span class="${x.r===0?'warn':''}">${x.r}</span><span class="m"> / ${OF}</span>`},
+    runs:   {h:"Runs", c:x=>`${x.from} → ${x.to??"open"}`},
+    ends:   {h:"Ends", a:"r", c:x=>x.to??`<span class="m">Open</span>`},
+    name2:  {h:"Campaign", c:x=>two(`<span class="name">${x.name}</span>`, `${x.obj??"Objective not stated"} · ${x.offers} offer${x.offers===1?"":"s"}`)},
+    budget2:{h:"Spent", a:"r", c:x=>{const s=share(x);return two(`<span class="${shareTone(s)}">${rp(x.spent)}</span>`, s===null?"no limit":"of "+rp(x.budget))}},
+    ends2:  {h:"Ends", a:"r", c:x=>two(x.to??"Open", "from "+x.from)},
+  },
+  vouchers: {
+    codeToday:{h:"Voucher", c:x=>two(`<span class="mono">${x.code}</span>`, x.kind)},
+    code:   {h:"Voucher", c:x=>`<span class="name">${x.code}</span>`},
+    kind:   {h:"Kind", c:x=>x.kind},
+    mem:    {h:"Member", c:x=>x.mem??`<span class="m">Anyone</span>`},
+    face:   {h:"Face Value", a:"r", c:x=>rp(x.face)},
+    leftBar:{h:"Left on It", a:"r", c:x=>`<span class="meter ${x.left===0?'bad':x.left/x.face<.25?'warn':''}"><i style="width:${x.left/x.face*100}%;background:${x.left?'':'none'}"></i></span>${rp(x.left)}`},
+    left:   {h:"Left on it", a:"r", c:x=>`<span class="${leftTone(x)}">${rp(x.left)}</span>`},
+    status: {h:"Status", c:vst},
+    issued: {h:"Issued", a:"r", c:x=>x.issued},
+    code2:  {h:"Voucher", c:x=>two(`<span class="name">${x.code}</span>`, x.kind)},
+    left2:  {h:"Left on it", a:"r", c:x=>two(`<span class="${leftTone(x)}">${rp(x.left)}</span>`, "of "+rp(x.face))},
+  },
+}
+
+// option → screen → [column key, width]. Today's widths are the hub's px
+// `size`s (promotions.tsx, campaigns.tsx, vouchers.tsx); A–E are shares.
+const OPTIONS = [
+  {id:"today", label:"Today", note:"<b>Today</b> · fixed px columns (Promotions 1400, Campaigns 1370, Vouchers 1150) in a page about 1080 wide, so the table scrolls sideways and Usage, Period, Runs fall off the right edge.",
+   px:true, set:{
+    promotions:[["name",260],["statusSw",170],["scope",190],["ben",180],["stores",220],["usage",200],["period",180]],
+    campaigns:[["name",240],["statusSw",130],["obj",180],["target",210],["offers",90],["budgetBar",220],["stores",110],["runs",190]],
+    vouchers:[["codeToday",260],["mem",200],["face",150],["leftBar",240],["status",160],["issued",140]]}},
+  {id:"A", label:"Six that fit", star:true, narrow:true, note:"<b>A · Six that fit</b> · at most six one-line columns, each one figure. The pause switch, Applies to, Target, Offers, money given away and Face value move into the row's sheet. Problems only by colour (amber pending, red failed). On a 1024 laptop the sixth column steps out too.",
+   set:{
+    promotions:[["name",28],["ben",26],["status",12],["storesN",10],["used",12],["ends",12]],
+    campaigns:[["name",30],["obj",18],["status",12],["budget",14],["stores",12],["ends",14]],
+    vouchers:[["code",19],["kind",13],["mem",24],["left",16],["status",14],["issued",14]]}},
+  {id:"B", label:"Two lines", note:"<b>B · Two lines</b> · five columns; the quieter fact sits in grey under the first (Applies to under the name, money under uses, start under end). Same facts as today minus the switch, no side scroll.",
+   two:true, set:{
+    promotions:[["name2",32],["ben",21],["status",13],["stores2",11],["used2",12],["ends2",11]],
+    campaigns:[["name2",36],["status",13],["budget2",19],["stores",13],["ends2",13]],
+    vouchers:[["code2",24],["mem",28],["left2",18],["status",17],["issued",13]]}},
+  {id:"C", label:"Four + sheet", note:"<b>C · Four + sheet</b> · the list answers only “which one, is it on, is it working, until when”; everything else is in the sheet the row opens (click any row).",
+   set:{
+    promotions:[["name",42],["status",18],["used",20],["ends",20]],
+    campaigns:[["name",42],["status",18],["budget",20],["ends",20]],
+    vouchers:[["code",30],["mem",34],["left",18],["status",18]]}},
+  {id:"D", label:"Wrap", note:"<b>D · Wrap</b> · keep every column and the switch, but columns share the width and long text wraps instead of pushing the table wider. Rows grow taller when a cell is long.",
+   wrap:true, set:{
+    promotions:[["name",17],["statusSw",14],["scope",15],["ben",15],["stores",14],["usage",14],["period",11]],
+    campaigns:[["name",16],["statusSw",13],["obj",12],["target",14],["offers",7],["budget",11],["stores",10],["runs",17]],
+    vouchers:[["code2",20],["mem",22],["face",14],["left",15],["status",16],["issued",13]]}},
+  {id:"E", label:"Choose columns", note:"<b>E · Choose columns</b> · A's six by default; <b>Columns</b> in the bar adds or drops any of today's columns, and the chosen ones always share the width (they never scroll).",
+   pick:true, narrow:true, set:{
+    promotions:[["name",26,1],["ben",22,1],["status",12,1],["scope",20,0],["storesN",10,1],["used",10,1],["ends",11,1],["period",17,0]],
+    campaigns:[["name",26,1],["obj",16,1],["status",12,1],["target",18,0],["offers",8,0],["budget",13,1],["stores",10,1],["ends",12,1]],
+    vouchers:[["code",19,1],["kind",12,0],["mem",24,1],["face",14,0],["left",15,1],["status",14,1],["issued",12,1]]}},
+]
+
+const SCREENS = {
+  promotions:{title:"Promotions", one:"promotion", rows:PROMOS,
+    tabs:["All","Live","Paused","Scheduled","Ended"],
+    figs:[["Live","4"],["Given away · Oct","Rp 24.700.000"],["Never used","1",1],["Not in every store","3",1]]},
+  campaigns:{title:"Campaigns", one:"campaign", rows:CAMPS,
+    tabs:["All","Live","Scheduled","Paused","Ended"],
+    figs:[["Live","2"],["Spent · Oct","Rp 45.500.000"],["Near budget","1",1],["No objective","1",1]]},
+  vouchers:{title:"Vouchers", one:"voucher", rows:VOUCHERS,
+    tabs:["All","Live","Spent","Cancelled"],
+    figs:[["Live","4"],["Left on them","Rp 689.000"],["Expired with balance","1",1]]},
+}
+
+const S = {opt:"A", screen:"promotions", tab:"All", width:1440, pick:{}, popOpen:false}
+const WIDTHS = [1440, 1280, 1024]
+try{ Object.assign(S, JSON.parse(localStorage.getItem("mk-noh") || "{}"), {popOpen:false}) }catch{}
+
+function save(){ try{ localStorage.setItem("mk-noh", JSON.stringify({opt:S.opt, screen:S.screen, width:S.width, pick:S.pick})) }catch{} }
+
+function drawChrome(){
+  $("#opts").innerHTML = OPTIONS.map(o => `<button data-o="${o.id}" class="${o.id===S.opt?"on":""}">${o.id==="today"?"":`<b>${o.id}</b>`}${o.label}${o.star?'<span class="star">★</span>':""}</button>`).join("")
+  $("#widths").innerHTML = WIDTHS.map(w => `<button data-w="${w}" class="${w===S.width?"on":""}">${w}</button>`).join("")
+  $("#note").innerHTML = OPTIONS.find(o => o.id===S.opt).note
+  $("#menu").innerHTML = ["Pricelist","Promotions","Campaigns","Vouchers"].map(m => `<button class="row ${m.toLowerCase()===S.screen?"on":""}" data-s="${m.toLowerCase()}">${m}</button>`).join("")
+  fit()
+}
+
+function fit(){
+  const app = $("#app"), wrap = $("#stagewrap")
+  app.style.width = S.width + "px"
+  const z = Math.min(1, wrap.clientWidth / S.width)
+  app.style.zoom = z
+  app.style.height = (wrap.clientHeight / z) + "px"
+}
+
+function columnsFor(o){
+  let cols = o.set[S.screen]
+  if (o.pick){
+    const chosen = S.pick[S.screen] ?? cols.filter(c => c[2]).map(c => c[0])
+    cols = cols.filter(c => chosen.includes(c[0]))
+  }
+  // a narrow page (a 1024 laptop) drops the columns the sheet repeats
+  const DROP = {promotions:["storesN","scope","period"], campaigns:["obj","stores","target","offers"], vouchers:["kind","issued","face"]}
+  if (o.narrow && S.width - 364 < 820) cols = cols.filter(c => !DROP[S.screen].includes(c[0]))
+  if (!o.px){ // shares → percentages that always add to 100
+    const sum = cols.reduce((a, c) => a + c[1], 0)
+    cols = cols.map(c => [c[0], (c[1] / sum * 100).toFixed(2) + "%"])
+  } else cols = cols.map(c => [c[0], c[1] + "px"])
+  return cols
+}
+
+function drawPage(){
+  if (S.screen === "pricelist"){ $("#page").innerHTML = `<div class="ph"><h1>Pricelist</h1></div><p class="m">Not part of this question.</p>`; return }
+  const sc = SCREENS[S.screen], o = OPTIONS.find(x => x.id===S.opt)
+  const rows = sc.rows.filter(r => S.tab==="All" || r.st===S.tab)
+  const cols = columnsFor(o), def = COLS[S.screen]
+  const width = o.px ? `style="width:${o.set[S.screen].reduce((a,c)=>a+c[1],0)}px"` : ""
+  const picker = o.pick ? `<div class="colpick"><button class="btn btn-t" id="colbtn">Columns</button>${S.popOpen?`<div class="pop">${o.set[S.screen].map(c=>`<label><input type="checkbox" data-c="${c[0]}" ${cols.some(k=>k[0]===c[0])?"checked":""} ${c[0]===o.set[S.screen][0][0]?"disabled":""}>${def[c[0]].h}</label>`).join("")}</div>`:""}</div>` : ""
+  $("#page").innerHTML = `
+    <div class="ph"><h1>${sc.title}</h1></div>
+    <div class="figs">${sc.figs.map(f=>`<div class="fig"><div class="l">${f[0]}</div><div class="v ${f[2]?"warn":""}">${f[1]}</div></div>`).join("")}</div>
+    <div class="tabs">${sc.tabs.map(t=>`<button class="tab ${t===S.tab?"on":""}" data-t="${t}">${t}<span class="c m">${t==="All"?sc.rows.length:sc.rows.filter(r=>r.st===t).length}</span></button>`).join("")}</div>
+    <div class="bar">
+      <div class="l"><label class="search"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input placeholder="Search ${sc.title}" /></label></div>
+      ${picker}
+      <button class="btn btn-p">New ${sc.one}</button>
+    </div>
+    <div class="tbox ${o.px?"scroll":"fit"} ${o.two?"two":""} ${o.wrap?"wrap":""}">
+      <table ${width}>
+        <colgroup>${cols.map(c=>`<col style="width:${c[1]}">`).join("")}</colgroup>
+        <thead><tr>${cols.map(c=>`<th class="${def[c[0]].a||""}">${def[c[0]].h}</th>`).join("")}</tr></thead>
+        <tbody>${rows.map((r,i)=>`<tr data-i="${sc.rows.indexOf(r)}">${cols.map(c=>`<td class="${def[c[0]].a||""}">${def[c[0]].c(r)}</td>`).join("")}</tr>`).join("")}</tbody>
+      </table>
+    </div>`
+}
+
+// the row's sheet: every fact, label over value, the switch's verb in the foot
+function openSheet(i){
+  const sc = SCREENS[S.screen], x = sc.rows[i]
+  let facts = [], verb = null
+  if (S.screen==="promotions"){
+    facts = [["Status",st(x.st)],["Applies to",x.scope+(x.mem?" · members only":"")],["Benefit",x.ben],["Stores",storesFull(x)],["Used",x.uses?n(x.uses)+" times":"Never"],["Given away",rp(x.spent)],["Period",`${x.from} → ${x.to??"no end"}`]]
+    verb = x.st==="Live"?"Pause":x.st==="Paused"?"Resume":null
+  } else if (S.screen==="campaigns"){
+    const s = share(x)
+    facts = [["Status",st(x.st)],["Objective",x.obj??`<span class="warn">Not stated</span>`],["Target",x.target??"—"],["Offers",x.offers],["Spent",`<span class="${shareTone(s)}">${rp(x.spent)}</span>`],["Budget",x.budget?rp(x.budget):"No limit"],["Stores",`${x.r} / ${OF}`],["Runs",`${x.from} → ${x.to??"open"}`]]
+    verb = x.st==="Live"?"Pause":x.st==="Paused"?"Resume":null
+  } else {
+    facts = [["Status",vst(x)],["Kind",x.kind],["Member",x.mem??"Anyone"],["Face value",rp(x.face)],["Left on it",rp(x.left)],["Issued",x.issued]]
+  }
+  $("#sheet").innerHTML = `
+    <div class="hd"><h3>${x.name??x.code}</h3><button class="x" id="close" aria-label="Close"><svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+    <div class="bd">${facts.map(f=>`<div class="fact"><div class="k">${f[0]}</div><div>${f[1]}</div></div>`).join("")}</div>
+    ${verb?`<div class="ft"><button class="btn btn-p">${verb}</button></div>`:""}`
+  $("#sheet").classList.add("open"); $("#veil").classList.add("open")
+}
+function closeSheet(){ $("#sheet").classList.remove("open"); $("#veil").classList.remove("open") }
+
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("[data-o],[data-w],[data-s],[data-t],tbody tr,#colbtn,#close,#veil,.pop")
+  if (!t){ if (S.popOpen){ S.popOpen=false; drawPage() } return }
+  if (t.dataset.o){ S.opt=t.dataset.o; S.popOpen=false }
+  else if (t.dataset.w){ S.width=+t.dataset.w }
+  else if (t.dataset.s){ S.screen=t.dataset.s; S.tab="All"; closeSheet() }
+  else if (t.dataset.t){ S.tab=t.dataset.t }
+  else if (t.id==="colbtn"){ S.popOpen=!S.popOpen }
+  else if (t.id==="close"||t.id==="veil"){ closeSheet(); return }
+  else if (t.classList.contains("pop")) return
+  else if (t.matches("tbody tr")){ openSheet(+t.dataset.i); return }
+  save(); drawChrome(); drawPage()
+})
+document.addEventListener("change", (e) => {
+  if (!e.target.dataset.c) return
+  S.pick[S.screen] = [...document.querySelectorAll(".pop input:checked")].map(i => i.dataset.c)
+  save(); drawPage()
+})
+document.addEventListener("keydown", (e) => { if (e.key==="Escape") closeSheet() })
+addEventListener("resize", fit)
+drawChrome(); drawPage()
+</script>
+</body>
+</html>

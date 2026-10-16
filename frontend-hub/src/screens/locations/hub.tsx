@@ -318,7 +318,7 @@ function LocationEditForm({
         <Button variant="primary" pending={save.isPending} onClick={submit}>
           {save.isPending ? "Submitting…" : "Submit"}
         </Button>
-        <Button variant="ghost" onClick={onCancel}>
+        <Button data-cancel variant="ghost" onClick={onCancel}>
           Cancel
         </Button>
       </div>

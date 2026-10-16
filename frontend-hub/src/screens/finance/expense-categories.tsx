@@ -1,23 +1,38 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { useMemo, useState } from "react"
+import {
+  useMutation,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query"
+import type { ColumnDef, SortingState } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
+import { Suspense, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { Checkbox, Field, Input } from "@/components/ui/field"
+import { Fab } from "@/components/ui/fab"
+import {
+  BarSpacer,
+  ColumnsMenu,
+  ExpandingSearch,
+} from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
-import { Toolbar } from "@/components/ui/segmented"
 import { EmptyState, Problem } from "@/components/ui/states"
-import { DockTools } from "@/components/shell/dock-tools"
-import { Fab } from "@/components/ui/fab"
 import { count } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
-import { financeKeys, saveExpenseCategory } from "@/lib/queries/finance"
+import {
+  expenseCategoriesQuery,
+  financeKeys,
+  saveExpenseCategory,
+} from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
-import { Code, Grid, Td, Th } from "@/screens/finance-final/parts"
-import { useExpenseCategories } from "@/screens/finance/master-data"
-import { PhoneCard, PhoneList } from "@/components/ui/phone-cards"
+import { tableSetup, type TableSetup } from "@/lib/table"
+import { Code } from "@/screens/finance-final/parts"
+import { useColumnFit } from "@/screens/finance/column-fit"
 import {
   EditorCard,
   LinkAccountsButton,
@@ -25,7 +40,78 @@ import {
   Reach,
   YesNo,
 } from "@/screens/finance/master-parts"
+import { ScreenPending } from "@/screens/finance/pending"
 import type { ExpenseCategory } from "@itulah/contract"
+
+/// One category per row. On a phone the same columns are the card: the name
+/// over its code and note, what it is for and where it lands under them, and
+/// the Link accounts button at the right.
+const columns: ColumnDef<TableSetup, ExpenseCategory>[] = [
+  {
+    accessorKey: "code",
+    header: "Code",
+    size: 210,
+    meta: { card: "meta" },
+    cell: ({ row }) => <Code>{row.original.code}</Code>,
+  },
+  {
+    accessorKey: "name",
+    header: "Name",
+    size: 300,
+    meta: { card: "title", grow: 200 },
+    cell: ({ row }) => (
+      <span className="flex items-center gap-2 whitespace-normal">
+        <span className="text-ink">{row.original.name}</span>
+        {!row.original.is_active && <Pill tone="neutral">Inactive</Pill>}
+      </span>
+    ),
+  },
+  {
+    id: "for_stores",
+    accessorFn: (row) => (row.for_stores ? "Yes" : ""),
+    header: "Shops",
+    size: 100,
+    meta: { align: "center", card: "metric" },
+    cell: ({ row }) => <YesNo on={row.original.for_stores} />,
+  },
+  {
+    id: "for_claims",
+    accessorFn: (row) => (row.for_claims ? "Yes" : ""),
+    header: "Claims",
+    size: 100,
+    meta: { align: "center", card: "metric" },
+    cell: ({ row }) => <YesNo on={row.original.for_claims} />,
+  },
+  {
+    accessorKey: "linked_units",
+    header: "Account",
+    size: 190,
+    meta: { card: "metric" },
+    cell: ({ row }) => <Reach units={row.original.linked_units} />,
+  },
+  {
+    accessorKey: "note",
+    header: "Note",
+    size: 240,
+    meta: { card: "meta", priority: 3 },
+    cell: ({ row }) => <span className="text-mute">{row.original.note}</span>,
+  },
+  {
+    id: "link",
+    header: "",
+    size: 150,
+    enableSorting: false,
+    enableHiding: false,
+    meta: { align: "right", card: "status" },
+    cell: ({ row }) => (
+      <LinkAccountsButton
+        role="expense"
+        sourceType="EXPENSE_CATEGORY"
+        sourceId={row.original.code}
+      />
+    ),
+  },
+]
 
 /// The kinds of cost a shop or an employee files under (ERPNext Expense
 /// Claim Type, and a store's petty-cash heads).
@@ -36,191 +122,155 @@ import type { ExpenseCategory } from "@itulah/contract"
 /// about where money goes. A category with no link is refused at posting, by
 /// name, which is why the reach column is the one to watch.
 export function ExpenseCategories() {
+  return (
+    <Suspense
+      fallback={
+        <ScreenPending crumb="Finance · Setup" title="Expense Categories">
+          Reading the categories…
+        </ScreenPending>
+      }
+    >
+      <ExpenseCategoriesScreen />
+    </Suspense>
+  )
+}
+
+function ExpenseCategoriesScreen() {
   const phone = useLayout() === "phone"
-  const list = useExpenseCategories()
+  const list = useSuspenseQuery(expenseCategoriesQuery())
   const [editing, setEditing] = useState<ExpenseCategory | "new" | null>(null)
   const [needle, setNeedle] = useState("")
   const [inactive, setInactive] = useState(false)
+  const [sorting, setSorting] = useState<SortingState>([])
 
-  const rows = useMemo(() => {
-    const text = needle.trim().toLowerCase()
-    return (list.data ?? []).filter(
-      (row) =>
-        (inactive || row.is_active) &&
-        (text === "" ||
-          row.code.toLowerCase().includes(text) ||
-          row.name.toLowerCase().includes(text))
-    )
-  }, [list.data, needle, inactive])
+  const rows = useMemo(
+    () => list.data.filter((row) => inactive || row.is_active),
+    [list.data, inactive]
+  )
 
-  const unlinked = (list.data ?? []).filter(
+  const unlinked = rows.filter(
     (row) => row.is_active && row.linked_units === 0
   ).length
+
+  const [measure, fit] = useColumnFit(columns, phone)
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: rows,
+        columns,
+        getRowId: (row: ExpenseCategory) => row.code,
+        state: {
+          globalFilter: needle,
+          sorting,
+          columnVisibility: fit.visibility,
+        },
+        onSortingChange: setSorting,
+        onGlobalFilterChange: setNeedle,
+        onColumnVisibilityChange: fit.onChange,
+      }),
+      // `fit` is new each render: the room is measured, and the columns the
+      // card has no room for are given up.
+      [rows, needle, sorting, fit]
+    )
+  )
+  const shown = table.getRowModel().rows.length
 
   return (
     <PageContent>
       <PageHeader
         crumb="Finance · Setup"
         title="Expense Categories"
-        sub="What a shop's expense or an employee's claim is filed under. The account each lands on is an account link."
-        // Search, the status and the new category are in the dock on a phone.
+        // The new category is the dock's + on a phone.
         actions={
           phone ? undefined : (
-            <>
-              <Input
-                value={needle}
-                onChange={(event) => setNeedle(event.target.value)}
-                className="h-8 w-48"
-              />
-              <Button variant="primary" onClick={() => setEditing("new")}>
-                New category
-              </Button>
-            </>
+            <Button variant="primary" onClick={() => setEditing("new")}>
+              New category
+            </Button>
           )
         }
       />
 
-      {phone ? (
-        <>
-          <Fab label="New category" onClick={() => setEditing("new")} />
-          <DockTools
-            search={{
-              value: needle,
-              onChange: setNeedle,
-              label: "Search categories",
-            }}
-            status={{
-              value: inactive ? "all" : "active",
-              options: [
-                {
-                  value: "active",
-                  label: "Active",
-                  count: (list.data ?? []).filter((row) => row.is_active)
-                    .length,
-                },
-                { value: "all", label: "All", count: (list.data ?? []).length },
-              ],
-              onChange: (next) => setInactive(next === "all"),
-            }}
-          />
-        </>
-      ) : (
-        <Toolbar>
-          <Checkbox
-            label="Show inactive"
-            checked={inactive}
-            onChange={setInactive}
-          />
-          <Toolbar.Spacer />
-          <span className="text-[0.875rem] text-mute">
-            {count(rows.length)} categories
-            {unlinked > 0 && ` · ${count(unlinked)} with no account yet`}
-          </span>
-        </Toolbar>
-      )}
+      <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2 max-md:hidden">
+        <ExpandingSearch
+          value={needle}
+          onChange={setNeedle}
+          label="Search categories"
+        />
+        <Checkbox
+          label="Show inactive"
+          checked={inactive}
+          onChange={setInactive}
+        />
+        <BarSpacer />
+        <ColumnsMenu table={table} />
+      </div>
+
+      <Fab label="New category" onClick={() => setEditing("new")} />
+      <DockTools
+        search={{
+          value: needle,
+          onChange: setNeedle,
+          label: "Search categories",
+        }}
+        sort={dockSortOf(table)}
+        status={{
+          value: inactive ? "all" : "active",
+          options: [
+            {
+              value: "active",
+              label: "Active",
+              count: list.data.filter((row) => row.is_active).length,
+            },
+            { value: "all", label: "All", count: list.data.length },
+          ],
+          onChange: (next) => setInactive(next === "all"),
+        }}
+      />
 
       <MasterLayout
         list={
-          <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-            {queryState(list, {
-              loading: "Reading the categories…",
-              render: () =>
-                rows.length === 0 ? (
-                  <EmptyState>
-                    {needle.trim() === ""
-                      ? "No expense category yet. Nothing can be filed by a shop or claimed by an employee until one exists."
-                      : "No category matches the search."}
-                  </EmptyState>
-                ) : phone ? (
-                  <PhoneList>
-                    {rows.map((row) => (
-                      <PhoneCard
-                        key={row.code}
-                        title={row.name}
-                        muted={!row.is_active}
-                        line={
-                          <>
-                            <div>
-                              {[
-                                row.code,
-                                row.for_stores ? "Shops" : null,
-                                row.for_claims ? "Claims" : null,
-                                row.is_active ? null : "Inactive",
-                              ]
-                                .filter(Boolean)
-                                .join(" · ")}
-                            </div>
-                            {row.note && <div>{row.note}</div>}
-                          </>
-                        }
-                        foot={<Reach units={row.linked_units} />}
-                        action={
-                          <LinkAccountsButton
-                            role="expense"
-                            sourceType="EXPENSE_CATEGORY"
-                            sourceId={row.code}
-                          />
-                        }
-                        onOpen={() => setEditing(row)}
-                      />
-                    ))}
-                  </PhoneList>
-                ) : (
-                  <Grid>
-                    <thead>
-                      <tr>
-                        <Th>Code</Th>
-                        <Th>Name</Th>
-                        <Th align="center">Shops</Th>
-                        <Th align="center">Claims</Th>
-                        <Th>Account</Th>
-                        <Th />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.map((row) => (
-                        <tr
-                          key={row.code}
-                          onClick={() => setEditing(row)}
-                          className="cursor-pointer hover:bg-soft"
-                        >
-                          <Td>
-                            <Code>{row.code}</Code>
-                          </Td>
-                          <Td>
-                            <span className="text-ink">{row.name}</span>
-                            {!row.is_active && (
-                              <Pill tone="neutral" className="ml-2">
-                                Inactive
-                              </Pill>
-                            )}
-                            {row.note && (
-                              <div className="text-mute">{row.note}</div>
-                            )}
-                          </Td>
-                          <Td align="center">
-                            <YesNo on={row.for_stores} />
-                          </Td>
-                          <Td align="center">
-                            <YesNo on={row.for_claims} />
-                          </Td>
-                          <Td>
-                            <Reach units={row.linked_units} />
-                          </Td>
-                          <Td align="right">
-                            <LinkAccountsButton
-                              role="expense"
-                              sourceType="EXPENSE_CATEGORY"
-                              sourceId={row.code}
-                            />
-                          </Td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </Grid>
-                ),
-            })}
-          </Card>
+          <div ref={measure}>
+            <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+              {queryState(list, {
+                render: () =>
+                  rows.length === 0 ? (
+                    <EmptyState>No expense category yet.</EmptyState>
+                  ) : (
+                    <DataTable<ExpenseCategory>
+                      table={table}
+                      refresh={[list]}
+                      onRowClick={(row) => setEditing(row)}
+                      isSelected={(row) =>
+                        editing !== null &&
+                        editing !== "new" &&
+                        editing.code === row.code
+                      }
+                      empty="No category matches the search."
+                      pageScroll
+                      cardsApart
+                      cardSort={false}
+                      summary={{
+                        name: (
+                          <span>
+                            {count(shown)}{" "}
+                            <span className="font-normal text-body">
+                              {shown === 1 ? "category" : "categories"}
+                            </span>
+                          </span>
+                        ),
+                        linked_units:
+                          unlinked > 0 ? (
+                            <span className="font-normal text-bad-fg">
+                              {count(unlinked)} with no account yet
+                            </span>
+                          ) : undefined,
+                      }}
+                    />
+                  ),
+              })}
+            </Card>
+          </div>
         }
         editor={
           editing !== null && (

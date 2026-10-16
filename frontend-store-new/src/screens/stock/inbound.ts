@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query"
+import { queryOptions, useQuery } from "@tanstack/react-query"
 
 import { count } from "@/lib/format"
 import {
@@ -25,16 +25,18 @@ export const INBOUND_POLL_MS = 15_000
 /// One read rather than one per filter: the stat strip needs both halves at
 /// once, and two reads polled on two timers could disagree about the same
 /// delivery for fifteen seconds. The filter is applied in the browser.
-export function useInbound() {
-  return useQuery({
+export const inboundQuery = () =>
+  queryOptions({
     queryKey: inboundListKey("ALL"),
     queryFn: ({ signal }) => fetchInbound("ALL", signal),
-    refetchInterval: INBOUND_POLL_MS,
     // The app's five-minute default is for a price book. A delivery flips to
     // received while somebody is looking, so coming back to this screen asks
     // again rather than drawing a list from before the sweep.
     staleTime: INBOUND_POLL_MS,
   })
+
+export function useInbound() {
+  return useQuery({ ...inboundQuery(), refetchInterval: INBOUND_POLL_MS })
 }
 
 /// One delivery's lines. Only asked for once the delivery is received: in

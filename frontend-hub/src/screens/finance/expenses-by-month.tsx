@@ -1,6 +1,6 @@
-import { useQuery } from "@tanstack/react-query"
+import { useSuspenseQuery } from "@tanstack/react-query"
 import { ChevronDown, ChevronRight } from "lucide-react"
-import { useMemo, useState } from "react"
+import { Suspense, useDeferredValue, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Card } from "@/components/ui/card"
@@ -11,19 +11,17 @@ import { fileSafe, type ExportSheet } from "@/lib/export-xlsx"
 import { count, day } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import { queryState } from "@/lib/query-state"
-import {
-  expensesByMonth,
-  financeReportKeys,
-} from "@/lib/queries/finance-reports"
+import { expensesByMonthQuery } from "@/lib/queries/finance-reports"
 import { cn } from "@/lib/utils"
 import { Code, Grid, Td, TotalRow } from "@/screens/finance-final/parts"
-import { todayIso } from "@/screens/finance/chart"
+import { yearToDate } from "@/screens/finance/chart"
 import { useUnitName, type DateWindow } from "@/screens/finance/hooks"
 import { UnitSelect, WindowControl } from "@/screens/finance/parts"
 import {
   PhoneStatement,
   type StatementLine,
 } from "@/screens/finance/phone-parts"
+import { ScreenPending } from "@/screens/finance/pending"
 import { ReportFilters, ReportSummary } from "@/screens/finance/report"
 import type {
   ExpensesByMonth as Report,
@@ -53,6 +51,23 @@ import type {
 /// the ledger takes only the account in its address, not a window, so the link
 /// would open the wrong dates; there is none.
 export function ExpensesByMonth() {
+  return (
+    <Suspense
+      fallback={
+        <ScreenPending
+          crumb="Finance · Financial Reports"
+          title="Expenses by Month"
+        >
+          Adding up the months…
+        </ScreenPending>
+      }
+    >
+      <ExpensesByMonthScreen />
+    </Suspense>
+  )
+}
+
+function ExpensesByMonthScreen() {
   const phone = useLayout() === "phone"
   const range = useYearToDate()
   const [unit, setUnit] = useState("")
@@ -69,19 +84,23 @@ export function ExpensesByMonth() {
           ? `${span} months is more than one report can lay side by side; choose ${MAX_MONTHS} or fewer.`
           : null
 
-  const report = useQuery({
-    queryKey: financeReportKeys.expensesByMonth(
-      range.from,
-      range.to,
-      unit || null
-    ),
-    queryFn: ({ signal }) =>
-      expensesByMonth(
-        { from: range.from, to: range.to, unit: unit || undefined },
-        signal
-      ),
-    enabled: refusal === null,
-  })
+  // A window the server would refuse asks for nothing new: the read stays on
+  // the window the page opened on, which is already held. The boxes answer at
+  // once; the report trails them, and the figures in hand stay on screen
+  // (dimmed) until the next are read.
+  const [opened] = useState(() => yearToDate())
+  const askedFrom = useDeferredValue(
+    refusal === null ? range.from : opened.from
+  )
+  const askedTo = useDeferredValue(refusal === null ? range.to : opened.to)
+  const askedUnit = useDeferredValue(unit)
+  const stale =
+    askedFrom !== (refusal === null ? range.from : opened.from) ||
+    askedTo !== (refusal === null ? range.to : opened.to) ||
+    askedUnit !== unit
+  const report = useSuspenseQuery(
+    expensesByMonthQuery(askedFrom, askedTo, askedUnit)
+  )
 
   const note = [
     range.chip,
@@ -175,12 +194,13 @@ export function ExpensesByMonth() {
           <EmptyState>{refusal}</EmptyState>
         </Card>
       ) : (
-        queryState(report, {
-          loading: "Adding up the months…",
-          render: (data) => (
-            <Body report={data} collapsed={collapsed} onToggle={toggle} />
-          ),
-        })
+        <div className="list-swap" aria-busy={stale || undefined}>
+          {queryState(report, {
+            render: (data) => (
+              <Body report={data} collapsed={collapsed} onToggle={toggle} />
+            ),
+          })}
+        </div>
       )}
     </PageContent>
   )
@@ -487,8 +507,7 @@ function monthsIn(from: string, to: string): number {
 /// somebody edits one.
 function useYearToDate(): DateWindow {
   const [draft, setDraft] = useState<{ from: string; to: string } | null>(null)
-  const today = todayIso()
-  const value = draft ?? { from: `${today.slice(0, 4)}-01-01`, to: today }
+  const value = draft ?? yearToDate()
   return {
     from: value.from,
     to: value.to,

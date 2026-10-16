@@ -64,7 +64,7 @@ export function Screen({
     >
       <div
         className={cn(
-          "mx-auto w-full px-4 pt-4 md:px-[1.875rem] md:pt-6",
+          "page-content mx-auto w-full px-4 pt-4 md:px-[1.875rem] md:pt-6",
           counter ? "max-w-[100rem]" : "max-w-[72rem]",
           className,
         )}

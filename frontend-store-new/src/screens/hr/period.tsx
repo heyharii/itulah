@@ -28,9 +28,10 @@ import {
   closePeriod,
   hrKeys,
   isoMonth,
+  monthBefore,
   monthBounds,
-  periodAt,
-  punchReadinessAt,
+  periodQuery,
+  punchReadinessQuery,
   readMinutes,
   readMonth,
   type StoreScope,
@@ -117,20 +118,11 @@ function Period({
   // the one after it, and every other month is either closed or has not
   // happened.
   const now = new Date()
-  const period =
-    which === "this"
-      ? isoMonth(now)
-      : isoMonth(new Date(now.getFullYear(), now.getMonth() - 1, 1))
+  const period = which === "this" ? isoMonth(now) : monthBefore(now)
 
   const team = useTeam(scope)
-  const month = useQuery({
-    queryKey: hrKeys.period(scope.unit_id, period),
-    queryFn: ({ signal }) => periodAt(scope.unit_id, period, signal),
-  })
-  const punches = useQuery({
-    queryKey: hrKeys.punchReadiness(scope.unit_id, period),
-    queryFn: ({ signal }) => punchReadinessAt(scope.unit_id, period, signal),
-  })
+  const month = useQuery(periodQuery(scope.unit_id, period))
+  const punches = useQuery(punchReadinessQuery(scope.unit_id, period))
 
   return (
     <>

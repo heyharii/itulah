@@ -96,11 +96,11 @@ export function TimeTravelPanel({
                   <p className="text-[1.125rem] leading-tight font-semibold tracking-[-0.01em] text-space-ink">
                     <Moment ms={business} jump={jump} wrap />
                   </p>
-                  <p className="text-[0.875rem] text-space-ink-2">
+                  <p className="text-[0.9375rem] text-space-ink-2">
                     {aheadLabel(status).replace("Virtual · ", "")}
                   </p>
                   {speed && (
-                    <p className="text-[0.875rem] text-space-ink-2">{speed}</p>
+                    <p className="text-[0.9375rem] text-space-ink-2">{speed}</p>
                   )}
                 </div>
                 <SpaceClock
@@ -128,8 +128,8 @@ export function TimeTravelPanel({
               <p className="text-[1.125rem] leading-tight font-semibold tracking-[-0.01em] text-ink">
                 <Moment ms={business} jump={jump} />
               </p>
-              <p className="text-[0.875rem] text-mute">{aheadLabel(status)}</p>
-              {speed && <p className="text-[0.875rem] text-mute">{speed}</p>}
+              <p className="text-[0.9375rem] text-mute">{aheadLabel(status)}</p>
+              {speed && <p className="text-[0.9375rem] text-mute">{speed}</p>}
             </div>
           </div>
         )}
@@ -165,7 +165,7 @@ export function TimeTravelPanel({
         />
 
         {problem && (
-          <p role="alert" className="text-[0.875rem] text-bad-fg">
+          <p role="alert" className="text-[0.9375rem] text-bad-fg">
             {problem}
           </p>
         )}
@@ -183,7 +183,7 @@ export function TimeTravelPanel({
       </div>
 
       <details className="group border-t border-hairline">
-        <summary className="flex h-10 cursor-pointer list-none items-center gap-1.5 px-5 text-[0.875rem] text-mute select-none hover:text-ink [&::-webkit-details-marker]:hidden">
+        <summary className="flex h-10 cursor-pointer list-none items-center gap-1.5 px-5 text-[0.9375rem] text-mute select-none hover:text-ink [&::-webkit-details-marker]:hidden">
           <ChevronRight className="size-4 stroke-[1.7] transition-transform group-open:rotate-90" />
           Advanced
         </summary>

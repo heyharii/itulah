@@ -7,6 +7,7 @@ import {
   Columns3,
   History,
   Layers,
+  PackageOpen,
   PackageSearch,
   PanelsTopLeft,
   ListChecks,
@@ -17,6 +18,7 @@ import {
 } from "lucide-react"
 
 import type { AppModule } from "@/lib/navigation"
+import { storeInboundQuery } from "@/lib/operations/queries"
 import { useWaiting } from "@/lib/operations/waiting"
 import {
   listOpenQuantityChecks,
@@ -75,6 +77,10 @@ import { useFlowCounts } from "@/screens/operations/workload/use-flow-counts"
 /// not counted here.
 const useReceiving = () => useWaiting().owed
 const useTagging = () => useWaiting().tagging
+/// Receiving Return's badge: store returns on the road to the DC, the same
+/// query its list reads, so the number never lags it.
+const useReturnsOnTheWay = () =>
+  useQuery(storeInboundQuery("IN_TRANSIT")).data?.length ?? null
 /// Counts head office asked for by colour and size, still unanswered.
 const useQuantityChecks = () =>
   useQuery({
@@ -189,11 +195,21 @@ export const operationsNav: AppModule = {
         /// Receiving is the table again (owner, 4 Oct 2026: "balikin ke
         /// receiving table"): the board that stood here as PO receiving is
         /// gone, and its old path lands on the module's home.
+        /// Two menus, not one screen with two tabs (owner, 2026-10-15: "pisah
+        /// receiving po dan receiving return"): what a supplier delivers, and
+        /// what a store sends back.
         {
           path: "/operations/intake",
-          label: "Receiving",
+          label: "Receiving PO",
           icon: Truck,
           useCount: useReceiving,
+          badge: "warn",
+        },
+        {
+          path: "/operations/intake/returns",
+          label: "Receiving Return",
+          icon: PackageOpen,
+          useCount: useReturnsOnTheWay,
           badge: "warn",
         },
         /// Asked from New articles; answered here with colour, size and
@@ -219,7 +235,7 @@ export const operationsNav: AppModule = {
         /// A store's return, from the road to the return pool.
         {
           path: "/operations/board/returns",
-          label: "Return from Store",
+          label: "Return Store",
           icon: Store,
           useCount: useFromStore,
           badge: "warn",
@@ -234,10 +250,12 @@ export const operationsNav: AppModule = {
           badge: "warn",
           hidden: true,
         },
+        /// Off the menu (owner, 2026-10-11); still routed for old links.
         {
           path: "/operations/activity",
           label: "Activity Log",
           icon: History,
+          hidden: true,
         },
       ],
     },
@@ -247,13 +265,6 @@ export const operationsNav: AppModule = {
       /// sidebar draws the row (owner's six-row menu, 4 Oct 2026).
       label: "Stations",
       items: [
-        /// Store returns is a tab of Receiving, not a screen of its own.
-        {
-          path: "/operations/intake/returns",
-          label: "Receiving",
-          icon: Truck,
-          hidden: true,
-        },
         {
           path: "/operations/tagging",
           label: "Printing",

@@ -1,20 +1,23 @@
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useSuspenseQuery } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
+import type { ColumnDef } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
 import { RotateCcw, Search } from "lucide-react"
-import { useEffect, useMemo, useState } from "react"
+import { Suspense, useEffect, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { DockTools } from "@/components/shell/dock-tools"
 import { Card } from "@/components/ui/card"
+import { DataTable } from "@/components/ui/data-table"
 import { Day } from "@/components/ui/day"
 import { ExportButton } from "@/components/ui/export-button"
 import { Select } from "@/components/ui/field"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { BottomSheet } from "@/components/ui/picker-sheet"
-import { Segmented, Toolbar } from "@/components/ui/segmented"
+import { Segmented } from "@/components/ui/segmented"
 import { Sheet } from "@/components/ui/sheet"
-import { EmptyState } from "@/components/ui/states"
-import { node } from "@/lib/api"
+import { EmptyState, LoadingState } from "@/components/ui/states"
 import { fileSafe, type ExportSheet } from "@/lib/export-xlsx"
 import {
   count,
@@ -27,21 +30,25 @@ import {
   quantity,
 } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
-import { queryState } from "@/lib/query-state"
 import { listTerms, vocabularyKeys } from "@/lib/queries/vocabulary"
+import { tableSetup, type TableSetup } from "@/lib/table"
 import { cn } from "@/lib/utils"
 import {
   CardFigure,
   CardName,
   Fig,
-  PhoneCard,
   Sentence,
 } from "@/components/ui/phone-cards"
+import {
+  breakdownQuery,
+  type BreakdownQuestion,
+} from "@/screens/sales/breakdown-data"
 import { Td, TotalRow } from "@/screens/finance-final/parts"
 import { share } from "@/screens/finance-final/reports/two-year"
 import { isoDay, todayIso } from "@/screens/finance/chart"
 import { useUnitName, type DateWindow } from "@/screens/finance/hooks"
 import { UnitSelect, WindowControl } from "@/screens/finance/parts"
+import { ReportFilters } from "@/screens/finance/report"
 import type {
   BreakdownCell,
   BreakdownRow,
@@ -234,20 +241,7 @@ export function SalesBreakdownScreen({ by, title }: { by: By; title: string }) {
 
   const divisionCode = filterable ? division : ""
   const ready = from !== "" && to !== "" && from <= to
-  const report = useQuery({
-    queryKey: [
-      "sales",
-      "breakdown",
-      by,
-      from,
-      to,
-      unit || null,
-      divisionCode || null,
-    ],
-    queryFn: ({ signal }) =>
-      salesBreakdown({ by, from, to, unit, division: divisionCode }, signal),
-    enabled: ready,
-  })
+  const question = { by, from, to, unit, division: divisionCode }
 
   const divisionName =
     divisions.data?.terms.find((term) => term.code === division)?.label ??
@@ -261,31 +255,43 @@ export function SalesBreakdownScreen({ by, title }: { by: By; title: string }) {
   // one shop; a per-store switch there would repeat the same table.
   const perStore = !ONE_SHOP.has(by) && view === "stores"
 
-  const build = (): ExportSheet | null => {
-    const data = report.data
-    if (data === undefined) return null
-    return exportSheet({
-      data,
-      kind,
-      by,
-      perStore,
-      subtitle: `${windowLabel(from, to)} · ${note}`,
-      filename: `Sales-by-${kind.noun}-${unit === "" ? "All-Units" : fileSafe(unitName(unit))}-${from}-${to}`,
-    })
-  }
+  /// What the export writes, once the report is known (`ExportReport`).
+  const subtitle = `${windowLabel(from, to)} · ${note}`
+  const filename = `Sales-by-${kind.noun}-${unit === "" ? "All-Units" : fileSafe(unitName(unit))}-${from}-${to}`
 
   return (
     <PageContent>
-      <PageHeader crumb="Sales" title={title} />
+      <PageHeader
+        crumb="Sales"
+        title={title}
+        // On a phone Export is a row of the Filters sheet, not a button at the
+        // top of the page.
+        actions={
+          phone ? undefined : (
+            <ExportReport
+              ready={ready}
+              question={question}
+              kind={kind}
+              perStore={perStore}
+              subtitle={subtitle}
+              filename={filename}
+            />
+          )
+        }
+      />
 
+      {/* The scope bar: what to look for, over which dates, for which unit and
+          division, and how to read the rows; the sentence at its far end says
+          what is on screen. */}
       {!phone && (
-        <Toolbar className="mb-6 gap-3">
-          <label className="flex h-control w-72 items-center gap-2 rounded-inner border border-hairline-2 bg-soft px-3 focus-within:border-accent">
+        <ReportFilters note={`${windowLabel(from, to)} · ${note}`}>
+          <label className="ui-field flex h-control w-72 items-center gap-2 rounded-inner border border-hairline-2 bg-soft px-3 focus-within:border-accent">
             <Search className="size-4 shrink-0 text-line-ico" />
             <input
               value={needle}
               onChange={(event) => setNeedle(event.target.value)}
               aria-label={kind.search}
+              placeholder={kind.search}
               className="min-w-0 flex-1 bg-transparent text-ink outline-none placeholder:text-mute"
             />
           </label>
@@ -312,14 +318,15 @@ export function SalesBreakdownScreen({ by, title }: { by: By; title: string }) {
               ))}
             </Select>
           )}
-          <Toolbar.Spacer />
-          <ExportButton
-            build={build}
-            disabled={
-              report.data === undefined || report.data.rows.length === 0
-            }
-          />
-        </Toolbar>
+          {!ONE_SHOP.has(by) && (
+            <Segmented
+              options={VIEWS}
+              value={view}
+              onChange={setView}
+              className="shrink-0"
+            />
+          )}
+        </ReportFilters>
       )}
 
       {/* On a phone the search, the cut and the filters live in the drawer over
@@ -343,7 +350,7 @@ export function SalesBreakdownScreen({ by, title }: { by: By; title: string }) {
           <BottomSheet open={options} onOpenChange={setOptions} title="Filters">
             <div className="flex min-h-0 flex-col gap-4 overflow-y-auto overscroll-contain px-4 pb-4">
               <div className="grid grid-cols-2 gap-3">
-                <label className="flex min-w-0 flex-col gap-1.5 text-[0.875rem] text-mute">
+                <label className="flex min-w-0 flex-col gap-1.5 text-[0.9375rem] text-mute">
                   From
                   <Day
                     value={range.from}
@@ -352,7 +359,7 @@ export function SalesBreakdownScreen({ by, title }: { by: By; title: string }) {
                     label="From"
                   />
                 </label>
-                <label className="flex min-w-0 flex-col gap-1.5 text-[0.875rem] text-mute">
+                <label className="flex min-w-0 flex-col gap-1.5 text-[0.9375rem] text-mute">
                   To
                   <Day
                     value={range.to}
@@ -362,7 +369,7 @@ export function SalesBreakdownScreen({ by, title }: { by: By; title: string }) {
                   />
                 </label>
               </div>
-              <label className="flex flex-col gap-1.5 text-[0.875rem] text-mute">
+              <label className="flex flex-col gap-1.5 text-[0.9375rem] text-mute">
                 Unit
                 <UnitSelect
                   value={unit}
@@ -373,7 +380,7 @@ export function SalesBreakdownScreen({ by, title }: { by: By; title: string }) {
                 />
               </label>
               {filterable && (
-                <label className="flex flex-col gap-1.5 text-[0.875rem] text-mute">
+                <label className="flex flex-col gap-1.5 text-[0.9375rem] text-mute">
                   Division
                   <Select
                     value={division}
@@ -391,12 +398,14 @@ export function SalesBreakdownScreen({ by, title }: { by: By; title: string }) {
                 </label>
               )}
               <div className="[&>button]:h-11 [&>button]:w-full">
-                <ExportButton
+                <ExportReport
+                  ready={ready}
                   variant="ghost"
-                  build={build}
-                  disabled={
-                    report.data === undefined || report.data.rows.length === 0
-                  }
+                  question={question}
+                  kind={kind}
+                  perStore={perStore}
+                  subtitle={subtitle}
+                  filename={filename}
                 />
               </div>
             </div>
@@ -409,25 +418,118 @@ export function SalesBreakdownScreen({ by, title }: { by: By; title: string }) {
           <EmptyState>Pick a start and an end date.</EmptyState>
         </Card>
       ) : (
-        queryState(report, {
-          loading: "Adding up the sales…",
-          render: (data) => (
-            <Body
-              // A new window is a new race: back to the last step.
-              key={`${by}|${from}|${to}|${unit}|${divisionCode}`}
-              report={data}
-              by={by}
-              title={title}
-              kind={kind}
-              perStore={perStore}
-              needle={needle}
-              view={view}
-              setView={setView}
-            />
-          ),
-        })
+        <Suspense fallback={<LoadingState>Adding up the sales…</LoadingState>}>
+          <BreakdownReport
+            question={question}
+            title={title}
+            kind={kind}
+            perStore={perStore}
+            needle={needle}
+          />
+        </Suspense>
       )}
     </PageContent>
+  )
+}
+
+/// The report itself, read under its own boundary: the head, the filters and
+/// the dock stand while a new window is added up. Also the server's: the
+/// prefetcher asks the default window (`prefetch.ts`).
+function BreakdownReport({
+  question,
+  title,
+  kind,
+  perStore,
+  needle,
+}: {
+  question: BreakdownQuestion
+  title: string
+  kind: Kind
+  perStore: boolean
+  needle: string
+}) {
+  const { data } = useSuspenseQuery(breakdownQuery(question))
+  return (
+    <Body
+      // A new window is a new race: back to the last step.
+      key={`${question.by}|${question.from}|${question.to}|${question.unit}|${question.division}`}
+      report={data}
+      by={question.by}
+      title={title}
+      kind={kind}
+      perStore={perStore}
+      needle={needle}
+    />
+  )
+}
+
+/// The Export button, enabled once the report is in. Its own boundary: the
+/// button stands in the head while the report loads, disabled, and the
+/// workbook is built from the same answer the table shows.
+function ExportReport({
+  ready,
+  variant,
+  question,
+  kind,
+  perStore,
+  subtitle,
+  filename,
+}: {
+  ready: boolean
+  variant?: "quiet" | "ghost"
+  question: BreakdownQuestion
+  kind: Kind
+  perStore: boolean
+  subtitle: string
+  filename: string
+}) {
+  const waiting = <ExportButton variant={variant} build={() => null} disabled />
+  if (!ready) return waiting
+  return (
+    <Suspense fallback={waiting}>
+      <ExportReady
+        variant={variant}
+        question={question}
+        kind={kind}
+        perStore={perStore}
+        subtitle={subtitle}
+        filename={filename}
+      />
+    </Suspense>
+  )
+}
+
+function ExportReady({
+  variant,
+  question,
+  kind,
+  perStore,
+  subtitle,
+  filename,
+}: {
+  variant?: "quiet" | "ghost"
+  question: BreakdownQuestion
+  kind: Kind
+  perStore: boolean
+  subtitle: string
+  filename: string
+}) {
+  const { data } = useSuspenseQuery(breakdownQuery(question))
+  return (
+    <ExportButton
+      variant={variant}
+      build={() =>
+        exportSheet({
+          data,
+          kind,
+          by: question.by,
+          perStore,
+          subtitle,
+          filename,
+        })
+      }
+      disabled={data.rows.length === 0}
+    />
   )
 }
 
@@ -478,8 +580,6 @@ function Body({
   kind,
   perStore,
   needle,
-  view,
-  setView,
 }: {
   report: Report
   by: By
@@ -487,8 +587,6 @@ function Body({
   kind: Kind
   perStore: boolean
   needle: string
-  view: "all" | "stores"
-  setView: (view: "all" | "stores") => void
 }) {
   const { voided } = report
   const phone = useLayout() === "phone"
@@ -505,6 +603,8 @@ function Body({
           },
     [report, query]
   )
+  /// The row whose figures, store by store, are open.
+  const [open, setOpen] = useState<BreakdownRow | null>(null)
 
   if (report.rows.length === 0) {
     return (
@@ -514,197 +614,344 @@ function Body({
     )
   }
 
+  const footnotes = (
+    <div
+      className={cn(
+        "mt-6 flex flex-col gap-2 text-[0.9375rem] text-mute tabular-nums",
+        phone ? "px-1" : "px-2"
+      )}
+    >
+      {report.rows_total > report.rows.length && (
+        <p>
+          Top {count(report.rows.length)} of {count(report.rows_total)} by net
+          sales.
+        </p>
+      )}
+      <p>
+        Voided sales: {count(voided.count)} · {money(voided.gross_minor)}
+      </p>
+    </div>
+  )
+
+  // Only the groupings that overlap or are not retroactive have a line to say.
+  const split = !ONE_SHOP.has(by)
+  const rows =
+    shown.rows.length === 0 ? (
+      <Card>
+        <EmptyState>No match.</EmptyState>
+      </Card>
+    ) : perStore && !phone ? (
+      <FigureTable report={shown} kind={kind} perStore />
+    ) : (
+      <FlatTable
+        report={shown}
+        full={report}
+        by={by}
+        kind={kind}
+        onOpen={split ? setOpen : undefined}
+      />
+    )
+
   // A phone reads ranked cards, biggest first, not a replaying chart and a
   // table wider than the glass.
   if (phone)
     return (
       <>
-        <PhoneRows report={shown} full={report} by={by} kind={kind} />
-        <div className="mt-6 flex flex-col gap-2 px-1 text-[0.875rem] text-mute tabular-nums">
-          {report.rows_total > report.rows.length && (
-            <p>
-              Top {count(report.rows.length)} of {count(report.rows_total)} by
-              net sales.
-            </p>
-          )}
-          <p>
-            Voided sales: {count(voided.count)} · {money(voided.gross_minor)}
-          </p>
-        </div>
+        <Sentence>
+          <Fig>{money(report.total.net_minor)}</Fig> net sales,{" "}
+          <Fig>{quantity(report.total.quantity)}</Fig>, across{" "}
+          <Fig>{count(report.rows.length)}</Fig>{" "}
+          {plural(kind, report.rows.length)}. Biggest first.
+        </Sentence>
+        {rows}
+        {footnotes}
+        <SplitSheet
+          open={open}
+          onClose={() => setOpen(null)}
+          full={report}
+          kind={kind}
+        />
       </>
     )
 
   return (
     <>
+      <KpiStrip className="xl:grid-cols-4">
+        <Kpi label="Net sales" value={money(report.total.net_minor)} />
+        <Kpi label="Quantity sold" value={quantity(report.total.quantity)} />
+        {report.has_stock && (
+          <Kpi label="Stock" value={quantity(report.total.stock)} />
+        )}
+        <Kpi label={`${kind.noun}s`} value={count(report.rows_total)} />
+      </KpiStrip>
+
       <RaceCard report={report} title={title} kind={kind} />
 
-      {!ONE_SHOP.has(by) && (
-        <Toolbar className="mb-6">
-          <Toolbar.Spacer />
-          <Segmented
-            options={VIEWS}
-            value={view}
-            onChange={setView}
-            className="shrink-0"
-          />
-        </Toolbar>
-      )}
-
-      {shown.rows.length === 0 ? (
-        <Card>
-          <EmptyState>No match.</EmptyState>
-        </Card>
-      ) : (
-        <FigureTable report={shown} kind={kind} perStore={perStore} />
-      )}
-
-      <div className="mt-6 flex flex-col gap-2 px-2 text-[0.875rem] text-mute tabular-nums">
-        {report.rows_total > report.rows.length && (
-          <p>
-            Top {count(report.rows.length)} of {count(report.rows_total)} by net
-            sales.
-          </p>
-        )}
-        <p>
-          Voided sales: {count(voided.count)} · {money(voided.gross_minor)}
-        </p>
-      </div>
+      {rows}
+      {footnotes}
+      <SplitSheet
+        open={open}
+        onClose={() => setOpen(null)}
+        full={report}
+        kind={kind}
+      />
     </>
   )
 }
 
-/// The rows of a report as a phone's ranked cards, biggest first (the order the
-/// server sends them in): net sales is the figure with its share of the total
-/// under it, and what was sold and what is left on the shelves sit under the
-/// name. There is nothing to press on the card but the card: one tap opens the
-/// sheet that says it again for every store — Stock · Quantity · Sales — which
-/// the wide table spread across the screen. A report whose rows are stores
-/// already, or sessions at one store, has no such sheet to open.
-function PhoneRows({
+/// "tags", "SKUs", "stores" — the grouping's name in the plural, said the way a
+/// sentence says it.
+const plural = (kind: Kind, n: number) =>
+  `${kind.noun === "PO" || kind.noun === "SKU" ? kind.noun : kind.noun.toLowerCase()}${n === 1 ? "" : "s"}`
+
+/// What one row is as figures of its own: the card's name over what was sold
+/// and what is left, and the net sales with its share of the whole.
+function flatColumns(
+  kind: Kind,
+  hasStock: boolean,
+  total: number,
+  coded: boolean
+): ColumnDef<TableSetup, BreakdownRow>[] {
+  return [
+    {
+      id: "name",
+      accessorFn: (row) => (row.code === "" ? kind.none : row.name),
+      header: kind.noun,
+      size: 320,
+      meta: { grow: 240, card: "hide" },
+      cell: ({ row }) => {
+        const none = row.original.code === ""
+        return (
+          <span
+            title={none ? undefined : row.original.name}
+            className={cn(
+              "block whitespace-normal",
+              none ? "text-mute" : "font-medium text-ink"
+            )}
+          >
+            {none ? kind.none : row.original.name}
+          </span>
+        )
+      },
+    },
+    ...(hasStock
+      ? [
+          {
+            id: "stock",
+            accessorFn: (row: BreakdownRow) => row.stock,
+            header: () => <span title={STOCK_TITLE}>Stock</span>,
+            size: 130,
+            meta: { align: "right", card: "hide" },
+            cell: ({ row }: { row: { original: BreakdownRow } }) => (
+              <span className={cn(row.original.code === "" && "text-mute")}>
+                {count(row.original.stock)}
+              </span>
+            ),
+          } as ColumnDef<TableSetup, BreakdownRow>,
+        ]
+      : []),
+    {
+      id: "quantity",
+      accessorFn: (row) => row.quantity,
+      header: "Quantity sold",
+      size: 150,
+      meta: { align: "right", card: "hide" },
+      cell: ({ row }) => (
+        <span className={cn(row.original.code === "" && "text-mute")}>
+          {count(row.original.quantity)}
+        </span>
+      ),
+    },
+    {
+      id: "sales",
+      accessorFn: (row) => row.net_minor,
+      header: "Sales",
+      size: 190,
+      meta: { align: "right", card: "hide" },
+      cell: ({ row }) => (
+        <span className={cn(row.original.code === "" && "text-mute")}>
+          {money(row.original.net_minor)}
+        </span>
+      ),
+    },
+    // Two columns that exist only on a card (`cardLead`; a phone): the name
+    // over what was sold and what is left, and the net sales as the figure
+    // with its share of the total under it.
+    {
+      id: "head",
+      accessorFn: (row) => row.name,
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "title" },
+      cell: ({ row }) => {
+        const none = row.original.code === ""
+        return (
+          <CardName
+            name={none ? kind.none : row.original.name}
+            code={
+              coded && !none && row.original.code !== row.original.name
+                ? row.original.code
+                : undefined
+            }
+            line={
+              <>
+                {count(row.original.quantity)} sold
+                {hasStock && <> · {count(row.original.stock)} in stock</>}
+              </>
+            }
+            muted={none}
+          />
+        )
+      },
+    },
+    {
+      id: "lead",
+      accessorFn: (row) => row.net_minor,
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "lead" },
+      cell: ({ row }) => (
+        <CardFigure
+          value={money(row.original.net_minor)}
+          caption={`${total > 0 ? Math.round((row.original.net_minor / total) * 100) : 0}% of total`}
+          tone={row.original.net_minor === 0 ? "quiet" : undefined}
+        />
+      ),
+    },
+  ]
+}
+
+/// The rows of a report, one to a row: Name | Stock | Quantity sold | Sales on
+/// a desk, and on a phone the same rows as ranked cards, biggest first (the
+/// order the server sends them in). A report whose rows are stores already, or
+/// sessions at one store, has nothing to open; any other opens the sheet that
+/// says it again for every store — Stock · Quantity · Sales — which the
+/// per-store view spreads across the screen.
+function FlatTable({
   report,
   full,
   by,
   kind,
+  onOpen,
 }: {
   report: Report
-  /// The report before the search narrowed it: the sentence is about all of it.
+  /// The report before the search narrowed it: the shares and the total row are
+  /// about all of it.
   full: Report
   by: By
   kind: Kind
+  onOpen: ((row: BreakdownRow) => void) | undefined
 }) {
-  const [open, setOpen] = useState<BreakdownRow | null>(null)
-  const split = !ONE_SHOP.has(by)
+  const phone = useLayout() === "phone"
+  const total = full.total
+  const coded = by === "article" || by === "sku" || by === "po"
+  const columns = useMemo(
+    () => flatColumns(kind, report.has_stock, total.net_minor, coded),
+    [kind, report.has_stock, total.net_minor, coded]
+  )
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: report.rows as BreakdownRow[],
+        columns,
+        getRowId: (row: BreakdownRow) => row.code || noneKey,
+        // The card's own columns are drawn on a phone and never on a desk.
+        state: { columnVisibility: { head: phone, lead: phone } },
+      }),
+      [report.rows, columns, phone]
+    )
+  )
+
+  return (
+    <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+      <DataTable<BreakdownRow>
+        table={table}
+        onRowClick={onOpen}
+        cardSort={false}
+        cardsApart
+        cardLead
+        // The server's own total, never the rows added up: a row can sit under
+        // two tags.
+        summary={{
+          name: "Total",
+          ...(report.has_stock ? { stock: count(total.stock) } : {}),
+          quantity: count(total.quantity),
+          sales: money(total.net_minor),
+        }}
+        pageScroll
+      />
+    </Card>
+  )
+}
+
+/// One row, store by store: Stock · Quantity · Sales for every shop, then for
+/// all of them.
+function SplitSheet({
+  open,
+  onClose,
+  full,
+  kind,
+}: {
+  open: BreakdownRow | null
+  onClose: () => void
+  full: Report
+  kind: Kind
+}) {
   const cells = useMemo(() => {
     const map = new Map<string, BreakdownCell>()
     for (const cell of full.cells)
       map.set(cellKey(cell.code, cell.site_id), cell)
     return map
   }, [full.cells])
-  const total = full.total.net_minor
-  const plural = (n: number) =>
-    `${kind.noun === "PO" || kind.noun === "SKU" ? kind.noun : kind.noun.toLowerCase()}${n === 1 ? "" : "s"}`
-  const coded = by === "article" || by === "sku" || by === "po"
 
   return (
-    <>
-      <Sentence>
-        <Fig>{money(full.total.net_minor)}</Fig> net sales,{" "}
-        <Fig>{quantity(full.total.quantity)}</Fig>, across{" "}
-        <Fig>{count(full.rows.length)}</Fig> {plural(full.rows.length)}. Biggest
-        first.
-      </Sentence>
-
-      {report.rows.length === 0 ? (
-        <Card>
-          <EmptyState>No match.</EmptyState>
-        </Card>
-      ) : (
-        <ul className="flex flex-col gap-2.5">
-          {report.rows.map((row) => {
-            const none = row.code === ""
-            const pct =
-              total > 0 ? Math.round((row.net_minor / total) * 100) : 0
+    <Sheet
+      open={open !== null}
+      onOpenChange={(next) => !next && onClose()}
+      title={open === null ? "" : open.code === "" ? kind.none : open.name}
+      id={kind.noun}
+    >
+      {open !== null && (
+        <ul>
+          {full.sites.map((site) => {
+            const cell = cells.get(cellKey(open.code, site.site_id))
+            if (cell === undefined) return null
             return (
-              <PhoneCard
-                key={row.code || noneKey}
-                onOpen={split ? () => setOpen(row) : undefined}
-                head={
-                  <CardName
-                    name={none ? kind.none : row.name}
-                    code={
-                      coded && !none && row.code !== row.name
-                        ? row.code
-                        : undefined
-                    }
-                    line={
-                      <>
-                        {count(row.quantity)} sold
-                        {report.has_stock && (
-                          <> · {count(row.stock)} in stock</>
-                        )}
-                      </>
-                    }
-                    muted={none}
-                  />
-                }
-                lead={
-                  <CardFigure
-                    value={money(row.net_minor)}
-                    caption={`${pct}% of total`}
-                    tone={row.net_minor === 0 ? "quiet" : undefined}
-                  />
-                }
-              />
+              <li
+                key={site.site_id}
+                className="flex items-start justify-between gap-3 border-b border-hairline py-3"
+              >
+                <span className="flex min-w-0 flex-col">
+                  <span className="text-ink">{site.name}</span>
+                  <span className="text-[0.9375rem] text-mute tabular-nums">
+                    {count(cell.quantity)} sold
+                    {full.has_stock && <> · {count(cell.stock)} in stock</>}
+                  </span>
+                </span>
+                <span className="shrink-0 text-ink tabular-nums">
+                  {money(cell.net_minor)}
+                </span>
+              </li>
             )
           })}
+          <li className="flex items-start justify-between gap-3 py-3 font-semibold text-ink">
+            <span className="flex min-w-0 flex-col">
+              <span>All stores</span>
+              <span className="text-[0.9375rem] font-normal text-mute tabular-nums">
+                {count(open.quantity)} sold
+                {full.has_stock && <> · {count(open.stock)} in stock</>}
+              </span>
+            </span>
+            <span className="shrink-0 tabular-nums">
+              {money(open.net_minor)}
+            </span>
+          </li>
         </ul>
       )}
-
-      <Sheet
-        open={open !== null}
-        onOpenChange={(next) => !next && setOpen(null)}
-        title={open === null ? "" : open.code === "" ? kind.none : open.name}
-        id={kind.noun}
-      >
-        {open !== null && (
-          <ul>
-            {full.sites.map((site) => {
-              const cell = cells.get(cellKey(open.code, site.site_id))
-              if (cell === undefined) return null
-              return (
-                <li
-                  key={site.site_id}
-                  className="flex items-start justify-between gap-3 border-b border-hairline py-3"
-                >
-                  <span className="flex min-w-0 flex-col">
-                    <span className="text-ink">{site.name}</span>
-                    <span className="text-[0.875rem] text-mute tabular-nums">
-                      {count(cell.quantity)} sold
-                      {full.has_stock && <> · {count(cell.stock)} in stock</>}
-                    </span>
-                  </span>
-                  <span className="shrink-0 text-ink tabular-nums">
-                    {money(cell.net_minor)}
-                  </span>
-                </li>
-              )
-            })}
-            <li className="flex items-start justify-between gap-3 py-3 font-semibold text-ink">
-              <span className="flex min-w-0 flex-col">
-                <span>All stores</span>
-                <span className="text-[0.875rem] font-normal text-mute tabular-nums">
-                  {count(open.quantity)} sold
-                  {full.has_stock && <> · {count(open.stock)} in stock</>}
-                </span>
-              </span>
-              <span className="shrink-0 tabular-nums">
-                {money(open.net_minor)}
-              </span>
-            </li>
-          </ul>
-        )}
-      </Sheet>
-    </>
+    </Sheet>
   )
 }
 
@@ -813,7 +1060,7 @@ function RaceCard({
   return (
     <Card className="mb-6 px-5 py-5">
       <h3 className="text-card-title font-semibold text-ink">{title}</h3>
-      <p className="mt-0.5 text-[0.875rem] text-mute">
+      <p className="mt-0.5 text-[0.9375rem] text-mute">
         {windowLabel(report.from, report.to)}
       </p>
 
@@ -821,7 +1068,7 @@ function RaceCard({
         <div className="text-[2rem] leading-none font-semibold tracking-tight text-ink tabular-nums">
           {bigLabel(race.starts[pos], report.step, race.multiYear)}
         </div>
-        <div className="text-[0.875rem] text-mute tabular-nums">
+        <div className="text-[0.9375rem] text-mute tabular-nums">
           Total {compactMoney(race.total[pos] ?? 0)}
         </div>
       </div>
@@ -835,7 +1082,7 @@ function RaceCard({
               <span
                 key={tick}
                 style={{ left: `${(tick / axis.max) * 100}%` }}
-                className="absolute top-0 -translate-x-1/2 text-[0.875rem] text-mute tabular-nums"
+                className="absolute top-0 -translate-x-1/2 text-[0.9375rem] text-mute tabular-nums"
               >
                 {tickMoney(tick)}
               </span>
@@ -890,7 +1137,7 @@ function RaceCard({
                 <span
                   title={runner.name}
                   className={cn(
-                    "w-28 shrink-0 truncate pr-3 text-right text-[0.875rem] sm:w-40",
+                    "w-28 shrink-0 truncate pr-3 text-right text-[0.9375rem] sm:w-40",
                     first ? "font-medium text-ink" : "text-body"
                   )}
                 >
@@ -917,7 +1164,7 @@ function RaceCard({
                     />
                     <span
                       className={cn(
-                        "absolute top-1/2 left-full -translate-y-1/2 pl-2 text-[0.875rem] whitespace-nowrap tabular-nums",
+                        "absolute top-1/2 left-full -translate-y-1/2 pl-2 text-[0.9375rem] whitespace-nowrap tabular-nums",
                         first ? "font-medium text-ink" : "text-body"
                       )}
                     >
@@ -931,7 +1178,7 @@ function RaceCard({
         </div>
 
         {more > 0 && (
-          <p className="mt-2 text-[0.875rem] text-mute">
+          <p className="mt-2 text-[0.9375rem] text-mute">
             +{more} more in the table
           </p>
         )}
@@ -959,7 +1206,7 @@ function RaceCard({
               setAt(next)
             }}
           />
-          <div className="mt-0.5 flex justify-between gap-4 text-[0.875rem] text-mute">
+          <div className="mt-0.5 flex justify-between gap-4 text-[0.9375rem] text-mute">
             <span>
               {shortLabel(race.starts[0], report.step, race.multiYear)}
             </span>
@@ -1213,14 +1460,14 @@ function niceAxis(peak: number): { max: number; ticks: number[] } {
 // The table
 // ---------------------------------------------------------------------------
 
-/// Name | Stock | Qty sold | Sales — or, with the switch on, those three for
-/// every store and then for all of them.
+/// The per-store view: Name, then Stock | Qty sold | Sales for every store and
+/// then for all of them.
 ///
-/// A plain table and not `DataTable`: the per-store view needs two header rows
-/// (a store spanning its three columns) and the list is already in the order
-/// the server ranked it, so nothing here sorts. It scrolls sideways inside its
-/// card and the name column stays put while it does; down the page it grows
-/// with the page, like every long list in the hub.
+/// A plain table and not `DataTable`, and only here: it is a matrix, stores
+/// across and the measures under each, which needs two header rows (a store
+/// spanning its three columns) and a name column that stays put while the
+/// figures scroll sideways inside the card — `DataTable` has neither. The
+/// plain view, which is a list, is `FlatTable`.
 function FigureTable({
   report,
   kind,
@@ -1607,7 +1854,7 @@ function exportSheet({
       { header: "Discount", kind: "money" },
       { header: "Returns", kind: "money" },
       { header: "Net Sales", kind: "money" },
-      { header: "HPP", kind: "money" },
+      { header: "COGS", kind: "money" },
       { header: "Gross Profit", kind: "money" },
       { header: "Margin %", kind: "percent" },
       ...(hasStock ? [{ header: "Stock", kind: "number" as const }] : []),
@@ -1669,30 +1916,4 @@ function useYearToDate(carry = false): DateWindow {
     setTo: (to) => write({ ...value, to }),
     chip: windowLabel(value.from, value.to),
   }
-}
-
-/// Query string from what is set; an empty filter is left off.
-function salesBreakdown(
-  params: {
-    by: By
-    from: string
-    to: string
-    unit: string
-    division: string
-  },
-  signal?: AbortSignal
-): Promise<Report> {
-  const query = new URLSearchParams({
-    by: params.by,
-    from: params.from,
-    to: params.to,
-  })
-  if (params.unit !== "") query.set("unit", params.unit)
-  if (params.division !== "") query.set("division", params.division)
-  return node.get<Report>(
-    `/api/v1/reports/sales/breakdown?${query.toString()}`,
-    {
-      signal,
-    }
-  )
 }

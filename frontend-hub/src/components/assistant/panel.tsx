@@ -46,7 +46,7 @@ export function AssistantPanel() {
               <Dialog.Title className="truncate text-card-title font-semibold text-ink">
                 Assistant
               </Dialog.Title>
-              <div className="mt-0.5 truncate text-[0.875rem] text-mute">
+              <div className="mt-0.5 truncate text-[0.9375rem] text-mute">
                 Reads this node. Never writes.
               </div>
             </div>
@@ -102,7 +102,7 @@ export function AssistantPanel() {
           {!barred && (
             <div className="shrink-0 border-t border-hairline px-4 py-3">
               <Composer autoFocus />
-              <p className="mt-2 px-1 text-[0.875rem] text-mute">
+              <p className="mt-2 px-1 text-[0.9375rem] text-mute">
                 {spent ? (
                   <BudgetSpent />
                 ) : busy ? (
@@ -158,7 +158,7 @@ function Opening() {
         {data?.tools.map((tool) => (
           <span
             key={tool.name}
-            className="rounded-full border border-hairline bg-soft px-2 py-0.5 text-[0.875rem] text-body"
+            className="rounded-full border border-hairline bg-soft px-2 py-0.5 text-[0.9375rem] text-body"
           >
             {tool.title}
           </span>

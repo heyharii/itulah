@@ -1,27 +1,73 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { Check } from "lucide-react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { Link, type LinkProps } from "@tanstack/react-router"
+import { ArrowUpRight, Check, ChevronRight } from "lucide-react"
 
-import { Card } from "@/components/ui/card"
+import { AppLink } from "@/components/ui/app-link"
+import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { ConfirmButton } from "@/components/ui/dialog"
 import { Fact, Facts } from "@/components/ui/sheet"
 import { Banner } from "@/components/ui/states"
 import { day } from "@/lib/format"
+import { encodeFilters } from "@/lib/filters"
 import {
   openStore,
+  serverExtras,
+  storeDetail,
   storesKeys,
   type StoreCheck,
   type StoreDetail as StoreDetailAnswer,
+  type StoreSummary,
 } from "@/lib/queries/stores"
+import { inventoryKeys } from "@/lib/queries/inventory"
+import { organisationKeys } from "@/lib/queries/organisation"
 import { cn } from "@/lib/utils"
 import { ExceptionsCard } from "@/screens/stores/exceptions-shared"
+import { serverStateLabel } from "@/screens/stores/shared"
+import { TillSeatsValue } from "@/screens/stores/till-seats"
 import { FleetStoreStrip } from "@/screens/system/fleet-shared"
-import { Section } from "@/screens/stores/shared"
+
+/// Where a store page's tabs can be switched to from inside a tab.
+export type StoreTab = "overview" | "server" | "status"
+
+/// Who answers for each line of the checklist, and where it is dealt with.
+/// `tab` stays on this page; `people`, `payments` and `stock` are other
+/// departments' screens. A line with no `go` is done at the store itself.
+const CHECKS: Readonly<
+  Record<
+    string,
+    { owner: string; go?: "server" | "people" | "payments" | "stock" }
+  >
+> = {
+  server: { owner: "Admin", go: "server" },
+  tills: { owner: "Store" },
+  team: { owner: "HR", go: "people" },
+  payments: { owner: "Finance", go: "payments" },
+  first_stock: { owner: "MD", go: "stock" },
+}
 
 /// Name, address, PIC, the checklist, and the one button this whole module
 /// exists for — the mock's Overview tab.
-export function OverviewTab({ detail }: { detail: StoreDetailAnswer }) {
+export function OverviewTab({
+  detail,
+  onOpenTab,
+}: {
+  detail: StoreDetailAnswer
+  onOpenTab: (tab: StoreTab) => void
+}) {
   const client = useQueryClient()
-  const { store, address, checks, can_open, can_manage } = detail
+  const unit = detail.store.unit_id
+
+  // The page already holds this detail; a second observer on the same key is
+  // here only to keep it fresh while the store is still getting ready — the
+  // shop joins tills, HR invites the manager, Finance picks payment methods,
+  // and each of them ticks a line on this list.
+  const live = useQuery({
+    queryKey: storesKeys.detail(unit),
+    queryFn: ({ signal }) => storeDetail(unit, signal),
+    refetchInterval: (query) =>
+      query.state.data?.store.status === "GETTING_READY" ? 5_000 : false,
+  })
+  const { store, address, checks, can_open, can_manage } = live.data ?? detail
 
   const open = useMutation({
     mutationFn: (note: string) =>
@@ -31,26 +77,37 @@ export function OverviewTab({ detail }: { detail: StoreDetailAnswer }) {
         queryKey: storesKeys.detail(store.unit_id),
       })
       void client.invalidateQueries({ queryKey: storesKeys.list() })
+      void client.invalidateQueries({ queryKey: organisationKeys.all })
+      void client.invalidateQueries({ queryKey: inventoryKeys.fleet() })
     },
   })
 
+  const done = checks.filter((check) => check.ok).length
+  const toGo = checks.filter((check) => !check.ok && check.required).length
+
   return (
-    <div className="flex max-w-2xl flex-col gap-5">
-      {/* The same row the fleet page draws for this store
-          (`screens/system/fleet-health.tsx`), one line — its server, its
-          sync and its devices are the Server, Devices and Sync tabs; the
-          full detail is System › Store servers. */}
-      <FleetStoreStrip unitId={store.unit_id} />
+    <div className="flex max-w-3xl flex-col gap-4">
+      {/* Once trading, the same row the fleet page draws for this store; the
+          Status tab has the whole page. While the store is getting ready the
+          checklist is the subject. */}
+      {store.status === "OPEN" && <FleetStoreStrip unitId={store.unit_id} />}
 
       <ExceptionsCard unitId={store.unit_id} />
 
       <Card className="p-4">
-        <Facts>
+        <Facts className="md:grid-cols-3">
           <Fact term="Code">{store.code}</Fact>
           <Fact term="City">{store.city ?? "—"}</Fact>
           <Fact term="Timezone">{store.timezone ?? "—"}</Fact>
           <Fact term="PIC">{store.pic?.name ?? "Not appointed yet"}</Fact>
           <Fact term="Address">{address ?? "Not entered yet"}</Fact>
+          <Fact term="Till seats">
+            <TillSeatsValue
+              unit={store.unit_id}
+              seats={store.tills.seats}
+              canManage={can_manage}
+            />
+          </Fact>
           {store.status === "OPEN" && (
             <Fact term="Open since">{day(store.opened_at)}</Fact>
           )}
@@ -63,26 +120,39 @@ export function OverviewTab({ detail }: { detail: StoreDetailAnswer }) {
           {store.opened_at ? ` since ${day(store.opened_at)}` : ""}. 🎉
         </Banner>
       ) : (
-        <Card className="p-4">
-          <Section title="Ready to open">
-            <div className="flex flex-col gap-3">
-              {checks.map((check) => (
-                <CheckRow key={check.key} check={check} />
-              ))}
-            </div>
-          </Section>
+        <Card className="overflow-hidden">
+          <CardHeader className="border-b border-hairline">
+            <CardTitle>Ready to open</CardTitle>
+            <span className="text-[0.9375rem] text-mute tabular-nums">
+              {done} of {checks.length}
+            </span>
+          </CardHeader>
+          <ul className="divide-y divide-hairline">
+            {checks.map((check) => (
+              <li key={check.key}>
+                <CheckRow
+                  check={check}
+                  store={store}
+                  onOpenTab={onOpenTab}
+                />
+              </li>
+            ))}
+          </ul>
           {/* Opening is an Admin's alone (`can_manage` — `screens/system/servers.tsx`
               doc, `lib/queries/stores.ts`); a store's own manager reads this
               checklist but the button is not theirs to press, and the server
               would refuse it either way. */}
-          {can_manage && (
-            <div className="mt-4">
+          <div className="flex items-center gap-3 border-t border-hairline bg-soft px-4 py-3.5">
+            <span className="flex-1 text-[0.9375rem] text-body">
+              {can_open ? "Everything is ready." : `${toGo} to go`}
+            </span>
+            {can_manage && (
               <ConfirmButton
-                label={<>Open store 🎉</>}
+                label="Open store"
                 variant="primary"
                 disabled={!can_open}
                 title={`Open ${store.name}?`}
-                description="This turns the store on for trading — tills can start ringing up sales the moment it is open. There is no undo; closing a store again is a separate decision."
+                description="Tills can sell from the moment it is open."
                 confirmLabel="Open store"
                 reason={{
                   label: "Note (optional)",
@@ -90,48 +160,132 @@ export function OverviewTab({ detail }: { detail: StoreDetailAnswer }) {
                 }}
                 onConfirm={(note) => open.mutateAsync(note)}
               />
-              {!can_open && (
-                <p className="mt-2 text-meta text-mute">
-                  Available once every check marked required above is green.
-                </p>
-              )}
-            </div>
-          )}
+            )}
+          </div>
         </Card>
       )}
     </div>
   )
 }
 
-function CheckRow({ check }: { check: StoreCheck }) {
-  return (
-    <div className="flex items-start gap-2.5">
+const ROW =
+  "grid w-full grid-cols-[1.375rem_minmax(0,1fr)_auto_1rem] items-center gap-3 px-4 py-3 text-left"
+const ROW_LINK = `${ROW} transition-colors hover:bg-soft`
+
+/// What a line says under its title. The tills and the server are read off the
+/// store itself, so they speak the same words as the list and the Server tab.
+function detailOf(check: StoreCheck, store: StoreSummary): string {
+  if (check.key === "tills" && store.tills.seats > 0)
+    return `${store.tills.active} of ${store.tills.seats} seats joined at the store`
+  if (check.key === "server") {
+    const machine = serverExtras(store.server).machine
+    return `${serverStateLabel(store.server.state)}${
+      machine ? ` · ${machine.hostname}` : ""
+    }`
+  }
+  return check.detail
+}
+
+function CheckRow({
+  check,
+  store,
+  onOpenTab,
+}: {
+  check: StoreCheck
+  store: StoreSummary
+  onOpenTab: (tab: StoreTab) => void
+}) {
+  const rule = CHECKS[check.key]
+  const detail = detailOf(check, store)
+
+  const body = (
+    <>
       <span
         className={cn(
-          "mt-0.5 grid size-5 shrink-0 place-items-center rounded-full border-[1.5px]",
-          check.ok ? "border-ok bg-ok text-cta-fg" : "border-hairline-strong"
+          "grid size-5 shrink-0 place-items-center rounded-full border-[1.5px] transition-colors",
+          check.ok
+            ? "border-ok bg-ok text-cta-fg"
+            : "border-hairline-strong"
         )}
       >
         {check.ok && <Check className="size-3" strokeWidth={3} />}
       </span>
-      <span className="min-w-0 flex-1">
-        <b
-          className={cn(
-            "block text-[0.9375rem]",
-            check.ok ? "font-medium text-mute" : "font-semibold text-ink"
-          )}
-        >
+      <span className="min-w-0">
+        <b className="block font-medium text-ink">
           {check.title}
           {!check.ok && !check.required && (
-            <span className="ml-1.5 text-meta font-normal text-mute">
+            <span className="ml-1.5 text-[0.9375rem] font-normal text-mute">
               optional
             </span>
           )}
         </b>
-        {check.detail && (
-          <span className="block text-meta text-body">{check.detail}</span>
+        {detail && (
+          <span className="block text-[0.9375rem] text-body">{detail}</span>
         )}
       </span>
-    </div>
+      {rule ? (
+        <span className="rounded-[0.375rem] bg-soft-2 px-2 py-0.5 text-[0.9375rem] text-body">
+          {rule.owner}
+        </span>
+      ) : (
+        <span />
+      )}
+      {rule?.go === "server" ? (
+        <ChevronRight className="size-4 text-line-ico" />
+      ) : rule?.go ? (
+        <ArrowUpRight className="size-4 text-line-ico" />
+      ) : (
+        <span />
+      )}
+    </>
   )
+
+  switch (rule?.go) {
+    case "server":
+      return (
+        <button
+          type="button"
+          className={ROW_LINK}
+          onClick={() => onOpenTab("server")}
+        >
+          {body}
+        </button>
+      )
+    case "people":
+      // The Employee List, narrowed to this store: the same `unit` clause the
+      // list's own "Posted to" chip writes.
+      return (
+        <Link
+          to={"/people" as LinkProps["to"]}
+          search={
+            {
+              f: encodeFilters([
+                {
+                  column: "unit",
+                  operator: "isAnyOf",
+                  values: [store.unit_id],
+                },
+              ]),
+            } as never
+          }
+          className={ROW_LINK}
+        >
+          {body}
+        </Link>
+      )
+    case "payments":
+      return (
+        <AppLink to="/finance/setup/shop-payment-methods" className={ROW_LINK}>
+          {body}
+        </AppLink>
+      )
+    case "stock":
+      return (
+        <AppLink to="/allotment/new" className={ROW_LINK}>
+          {body}
+        </AppLink>
+      )
+    default:
+      return <div className={ROW}>{body}</div>
+  }
 }

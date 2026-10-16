@@ -98,21 +98,21 @@ export function AllocationRow({
           {name}
         </span>
         {sub && (
-          <span className="block truncate text-[0.875rem] text-mute">
+          <span className="block truncate text-[0.9375rem] text-mute">
             {sub}
           </span>
         )}
       </span>
-      <span className="w-14 shrink-0 text-right text-[0.875rem] text-body tabular-nums">
+      <span className="w-14 shrink-0 text-right text-[0.9375rem] text-body tabular-nums">
         {expected}
       </span>
-      <span className="w-14 shrink-0 text-right text-[0.875rem] font-medium text-ink tabular-nums">
+      <span className="w-14 shrink-0 text-right text-[0.9375rem] font-medium text-ink tabular-nums">
         {found}
       </span>
       {difference && (
         <span
           className={cn(
-            "w-16 shrink-0 text-right text-[0.875rem] font-semibold tabular-nums",
+            "w-16 shrink-0 text-right text-[0.9375rem] font-semibold tabular-nums",
             difference.agrees ? "text-ok-fg" : "text-bad-fg"
           )}
         >

@@ -1,10 +1,13 @@
-//! One-shot Chainway R3 USB access for the Windows till.
+//! Chainway R3 USB access for the Windows till.
 //!
 //! The vendor SDK is loaded from the packaged `rfid-native` resource folder.
-//! Before every operation this module opens the reader, disables its buzzer,
+//! The reader is opened once and kept open: opening it disables the buzzer,
 //! verifies the buzzer is off, and confirms the firmware identifies as R3.
-//! Inventory is one-shot; the till never leaves the reader in a continuous
-//! polling loop.
+//! Each read then costs one buzzer check and one single-tag inventory, instead
+//! of a USB open/close and a DLL load per scan. A failed buzzer check means the
+//! reader went away (unplugged, asleep), so the session is closed and reopened
+//! once before the read gives up. Inventory is one-shot; the till never leaves
+//! the reader in a continuous polling loop.
 
 use tauri::AppHandle;
 
@@ -24,14 +27,10 @@ pub fn reader_state(app: &AppHandle) -> Result<String, String> {
 pub fn read_single(app: &AppHandle) -> Result<String, String> {
     #[cfg(target_os = "windows")]
     {
-        return windows::with_silent_r3(app, |api| {
-            let inventory: windows::InventorySingle = unsafe {
-                *api.get(b"UHFInventorySingle\0")
-                    .map_err(|error| format!("Fungsi inventory R3 tidak tersedia: {error}"))?
-            };
+        return windows::with_silent_r3(app, |reader| {
             let mut length = 0_u8;
             let mut data = [0_u8; 256];
-            let code = unsafe { inventory(&mut length, data.as_mut_ptr()) };
+            let code = unsafe { (reader.inventory_single)(&mut length, data.as_mut_ptr()) };
             if code != 0 {
                 return Err(format!("Pembacaan satu tag gagal (kode SDK {code})."));
             }
@@ -88,23 +87,45 @@ fn epc_hex(data: &[u8]) -> Result<String, String> {
 mod windows {
     use std::os::raw::c_int;
     use std::path::PathBuf;
+    use std::sync::{Mutex, MutexGuard};
 
     use libloading::Library;
     use tauri::{AppHandle, Manager};
 
-    pub(super) type InventorySingle = unsafe extern "C" fn(*mut u8, *mut u8) -> c_int;
+    type InventorySingle = unsafe extern "C" fn(*mut u8, *mut u8) -> c_int;
     type UsbOpen = unsafe extern "C" fn() -> c_int;
     type UsbClose = unsafe extern "C" fn();
     type SetBeep = unsafe extern "C" fn(u8) -> c_int;
     type GetBeep = unsafe extern "C" fn(*mut u8) -> c_int;
     type GetReaderVersion = unsafe extern "C" fn(*mut u8) -> c_int;
 
-    struct OpenReader(UsbClose);
+    /// The open reader. The function pointers come out of `api`, which this
+    /// struct owns, so they stay valid exactly as long as the session does.
+    pub(super) struct Session {
+        pub(super) inventory_single: InventorySingle,
+        close: UsbClose,
+        set_beep: SetBeep,
+        get_beep: GetBeep,
+        version: String,
+        // Field order is drop order: UHFAPI.dll unloads before libusb, and
+        // both only after `Drop` below has closed the USB handle.
+        _api: Library,
+        _libusb: Library,
+    }
 
-    impl Drop for OpenReader {
+    impl Drop for Session {
         fn drop(&mut self) {
-            unsafe { (self.0)() };
+            unsafe { (self.close)() };
         }
+    }
+
+    /// One reader per till, shared by every command.
+    static SESSION: Mutex<Option<Session>> = Mutex::new(None);
+
+    fn session_slot() -> MutexGuard<'static, Option<Session>> {
+        // A panic mid-read leaves nothing half-written worth refusing over:
+        // the next buzzer check decides whether the session is still good.
+        SESSION.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     fn sdk_directory(app: &AppHandle) -> Result<PathBuf, String> {
@@ -130,19 +151,16 @@ mod windows {
         Err("SDK Chainway R3 belum ada di paket POS Windows.".into())
     }
 
-    pub(super) fn with_silent_r3<T>(
-        app: &AppHandle,
-        action: impl FnOnce(&Library) -> Result<T, String>,
-    ) -> Result<(String, T), String> {
+    fn open(app: &AppHandle) -> Result<Session, String> {
         let directory = sdk_directory(app)?;
         // Load libusb from this exact directory before UHFAPI.dll so Windows
         // cannot resolve a same-named library from an unrelated search path.
-        let _libusb = unsafe { Library::new(directory.join("libusb-1.0.dll")) }
+        let libusb = unsafe { Library::new(directory.join("libusb-1.0.dll")) }
             .map_err(|error| format!("Library USB Chainway R3 gagal dimuat: {error}"))?;
         let api = unsafe { Library::new(directory.join("UHFAPI.dll")) }
             .map_err(|error| format!("SDK Chainway R3 gagal dimuat: {error}"))?;
 
-        let open: UsbOpen = unsafe { *api.get(b"UsbOpen\0") }
+        let usb_open: UsbOpen = unsafe { *api.get(b"UsbOpen\0") }
             .map_err(|error| format!("Fungsi koneksi USB R3 tidak tersedia: {error}"))?;
         let close: UsbClose = unsafe { *api.get(b"UsbClose\0") }
             .map_err(|error| format!("Fungsi penutup USB R3 tidak tersedia: {error}"))?;
@@ -152,14 +170,25 @@ mod windows {
             .map_err(|error| format!("Fungsi verifikasi buzzer R3 tidak tersedia: {error}"))?;
         let get_version: GetReaderVersion = unsafe { *api.get(b"UHFGetReaderVersion\0") }
             .map_err(|error| format!("Fungsi identitas R3 tidak tersedia: {error}"))?;
+        let inventory_single: InventorySingle = unsafe { *api.get(b"UHFInventorySingle\0") }
+            .map_err(|error| format!("Fungsi inventory R3 tidak tersedia: {error}"))?;
 
-        let open_code = unsafe { open() };
+        let open_code = unsafe { usb_open() };
         if open_code != 0 {
             return Err(format!(
                 "Chainway R3 belum bisa dibuka lewat USB (kode SDK {open_code})."
             ));
         }
-        let _reader = OpenReader(close);
+        // From here on, dropping the session closes the reader.
+        let mut session = Session {
+            inventory_single,
+            close,
+            set_beep,
+            get_beep,
+            version: String::new(),
+            _api: api,
+            _libusb: libusb,
+        };
 
         let set_code = unsafe { set_beep(0) };
         let mut beep_mode = u8::MAX;
@@ -190,16 +219,60 @@ mod windows {
             ));
         }
 
-        let result = action(&api);
-        let mut beep_after = u8::MAX;
-        let verify_after_code = unsafe { get_beep(&mut beep_after) };
-        if verify_after_code != 0 || beep_after != 0 {
-            return Err(format!(
-                "Pembacaan dihentikan: buzzer R3 tidak lagi terverifikasi mati (get={verify_after_code}, mode={beep_after})."
-            ));
-        }
+        session.version = version;
+        Ok(session)
+    }
 
-        result.map(|value| (version, value))
+    /// Whether the open reader still answers and its buzzer is still off.
+    /// `Err` with no message means the reader stopped answering at all.
+    fn buzzer_verified_off(session: &Session) -> Result<(), Option<String>> {
+        let mut mode = u8::MAX;
+        let code = unsafe { (session.get_beep)(&mut mode) };
+        if code != 0 {
+            return Err(None);
+        }
+        if mode == 0 {
+            return Ok(());
+        }
+        // Answering but beeping again (a power blip resets the setting):
+        // mute it once more and insist on reading it back as off.
+        let set_code = unsafe { (session.set_beep)(0) };
+        let mut again = u8::MAX;
+        let get_code = unsafe { (session.get_beep)(&mut again) };
+        if set_code != 0 || get_code != 0 || again != 0 {
+            return Err(Some(format!(
+                "POS menghentikan pembacaan: buzzer R3 belum terverifikasi mati (set={set_code}, get={get_code}, mode={again})."
+            )));
+        }
+        Ok(())
+    }
+
+    /// Run `action` on the kept-open R3, opening it on first use and
+    /// reopening it once if it stopped answering since the last read.
+    pub(super) fn with_silent_r3<T>(
+        app: &AppHandle,
+        action: impl FnOnce(&Session) -> Result<T, String>,
+    ) -> Result<(String, T), String> {
+        let mut slot = session_slot();
+
+        if let Some(session) = slot.as_ref() {
+            match buzzer_verified_off(session) {
+                Ok(()) => {}
+                Err(Some(refusal)) => {
+                    *slot = None;
+                    return Err(refusal);
+                }
+                // Unplugged or asleep: close the dead handle, reopen below.
+                Err(None) => *slot = None,
+            }
+        }
+        if slot.is_none() {
+            *slot = Some(open(app)?);
+        }
+        let session = slot.as_ref().expect("session was just opened");
+
+        let result = action(session);
+        result.map(|value| (session.version.clone(), value))
     }
 }
 

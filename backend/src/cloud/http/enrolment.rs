@@ -89,14 +89,37 @@ fn claimed_from(headers: &HeaderMap) -> Option<String> {
         .map(str::to_owned)
 }
 
+/// A machine spends a code. The code is the proof, so the claim is approved
+/// in the same request, as the Admin who issued it; the machine's first poll
+/// finds itself approved. What follows the decision — who signs in there, the
+/// first data — is queued in the background so the machine is not kept
+/// waiting on a catalogue; a stream that fails is recorded on the enrolment
+/// and sent once more by the first heartbeats after it. The answer still
+/// carries the six-digit `verification`, for the nodes that show it.
 pub async fn claim(
     State(state): State<AppState>,
     headers: HeaderMap,
     Json(request): Json<ClaimRequest>,
 ) -> Result<(StatusCode, Json<ClaimAnswer>), AppError> {
-    let answer =
-        infrastructure::claim_node_enrolment(&state.db, request, claimed_from(&headers).as_deref())
-            .await?;
+    let (answer, let_in) = infrastructure::claim_and_approve_node_enrolment(
+        &state.db,
+        request,
+        claimed_from(&headers).as_deref(),
+    )
+    .await?;
+    if let Some(let_in) = let_in {
+        let pool = state.db.clone();
+        tokio::spawn(async move {
+            if let Err(error) = infrastructure::finish_node_approval(&pool, &let_in).await {
+                tracing::warn!(
+                    enrolment_id = %let_in.enrolment_id,
+                    %error,
+                    "a new server was let in but its first data was not queued; \
+                     its heartbeats will try again"
+                );
+            }
+        });
+    }
     Ok((StatusCode::CREATED, Json(answer)))
 }
 

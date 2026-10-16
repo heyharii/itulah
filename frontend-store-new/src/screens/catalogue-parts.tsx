@@ -68,3 +68,22 @@ export function Photograph({
     />
   )
 }
+
+/// The stamp on a garment nothing is left of — a rubber stamp's double ring,
+/// set at a tilt so it reads as marked on, not printed in. `large` sits on a
+/// tile's picture; `small` in a table's stock cell.
+export function SoldOutStamp({ size = "large" }: { size?: "large" | "small" }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center rounded-[0.3125rem] border-2 border-current leading-none font-bold tracking-[0.1em] whitespace-nowrap text-bad-fg uppercase select-none",
+        "shadow-[0_0_0_2px_var(--canvas),0_0_0_3.5px_currentColor]",
+        size === "large"
+          ? "-rotate-[9deg] px-2.5 py-1.5 text-[1rem]"
+          : "-rotate-[5deg] px-1.5 py-1 text-[0.875rem]",
+      )}
+    >
+      Sold out
+    </span>
+  )
+}

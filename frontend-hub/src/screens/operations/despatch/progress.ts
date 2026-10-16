@@ -45,7 +45,7 @@ export async function advanceEach(
     failed,
     message:
       failed.length === 0
-        ? `${units(moved)} cartons ${verb}.`
-        : `${units(moved)} of ${units(koliIds.length)} cartons ${verb}; ${failed.length} did not move and are still where they were.`,
+        ? `${units(moved)} koli ${verb}.`
+        : `${units(moved)} of ${units(koliIds.length)} koli ${verb}; ${failed.length} did not move and are still where they were.`,
   }
 }

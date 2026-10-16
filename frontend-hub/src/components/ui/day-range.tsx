@@ -3,7 +3,7 @@ import { CalendarDays, ChevronLeft, ChevronRight, X } from "lucide-react"
 import { useRef, useState } from "react"
 
 import { dateOf, monthGrid, today, WEEKDAYS } from "@/lib/calendar"
-import { readRange, untilText } from "@/lib/day-parse"
+import { readRange, untilText, warmDayParser } from "@/lib/day-parse"
 import { POPUP } from "@/lib/filter-chrome"
 import { day, dayMonth, monthYear, weekday } from "@/lib/format"
 import { cn } from "@/lib/utils"
@@ -88,6 +88,8 @@ export function DayRange({
   /// A toolbar control: set, it takes the accent look of an active filter.
   quiet?: boolean
 }) {
+  // See `day.tsx`: a range box on screen starts chrono's import too.
+  warmDayParser()
   const [open, setOpen] = useState(false)
   const [month, setMonth] = useState(() =>
     dateOf(value.from !== "" ? value.from : today())
@@ -167,7 +169,7 @@ export function DayRange({
             changeOpen(true, event.key)
           }}
           className={cn(
-            "flex h-10 w-full items-center gap-2 rounded-inner border border-hairline-2 bg-canvas pl-3 text-left text-[0.875rem] transition-colors outline-none",
+            "ui-field flex h-10 w-full items-center gap-2 rounded-inner border border-hairline-2 bg-canvas pl-3 text-left text-[0.9375rem] transition-colors outline-none",
             "hover:border-hairline-strong focus-visible:border-accent data-[popup-open]:border-accent",
             set ? "pr-14" : "pr-9",
             quiet && set && "border-accent/40 bg-accent-bg",
@@ -220,13 +222,13 @@ export function DayRange({
               aria-invalid={typed.trim() !== "" && read === null}
               autoComplete="off"
               spellCheck={false}
-              className="h-10 w-full rounded-inner border border-hairline-2 bg-canvas px-2.5 text-[0.875rem] text-ink transition-colors outline-none placeholder:text-mute focus:border-accent aria-[invalid=true]:border-bad"
+              className="ui-field h-10 w-full rounded-inner border border-hairline-2 bg-canvas px-2.5 text-[0.9375rem] text-ink transition-colors outline-none placeholder:text-mute focus:border-accent aria-[invalid=true]:border-bad"
             />
             {typed.trim() !== "" && (
               <p
                 aria-live="polite"
                 className={cn(
-                  "mt-2 min-h-5 px-0.5 text-[0.875rem]",
+                  "mt-2 min-h-5 px-0.5 text-[0.9375rem]",
                   read === null ? "text-bad" : "text-body"
                 )}
               >
@@ -259,7 +261,7 @@ export function DayRange({
               >
                 <ChevronLeft className="size-4" />
               </button>
-              <span className="text-[0.875rem] font-medium text-ink">
+              <span className="text-[0.9375rem] font-medium text-ink">
                 {monthYear(month, true)}
               </span>
               <button
@@ -295,7 +297,7 @@ export function DayRange({
                     onClick={() => click(iso)}
                     onPointerEnter={() => setHover(iso)}
                     className={cn(
-                      "grid h-9 place-items-center text-[0.875rem] tabular-nums transition-colors",
+                      "grid h-9 place-items-center text-[0.9375rem] tabular-nums transition-colors",
                       end
                         ? "rounded-full bg-ink font-medium text-white"
                         : between

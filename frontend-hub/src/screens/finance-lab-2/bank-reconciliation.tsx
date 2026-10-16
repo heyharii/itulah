@@ -326,7 +326,7 @@ export function BankReconciliation({
               className="h-8 w-[9.5rem]"
             />
             <Toolbar.Spacer />
-            <span className="text-[0.875rem] text-mute">
+            <span className="text-[0.9375rem] text-mute">
               {statement === undefined
                 ? null
                 : `${shown.length} of ${statement.line_count} lines · ${unagreed} unreconciled`}
@@ -503,12 +503,12 @@ function Row({
       <Td>
         <span className="text-ink">{row.description}</span>
         {row.note !== "" && (
-          <span className="mt-0.5 block text-[0.875rem] text-body italic">
+          <span className="mt-0.5 block text-[0.9375rem] text-body italic">
             {row.note}
           </span>
         )}
         {row.allocations.length > 0 && (
-          <span className="mt-0.5 block text-[0.875rem] text-mute">
+          <span className="mt-0.5 block text-[0.9375rem] text-mute">
             {row.allocations
               .map(
                 (claim) =>
@@ -525,7 +525,7 @@ function Row({
           {money(row.unallocated_minor)}
         </span>
       </Td>
-      <Td className="font-mono text-[0.875rem] text-mute">
+      <Td className="font-mono text-[0.9375rem] text-mute">
         {row.reference ?? "—"}
       </Td>
       <Td>
@@ -653,8 +653,8 @@ function ReconcileDialog({
       {line === null ? null : (
         <div className="flex flex-col gap-4">
           <div className="rounded-inner border border-hairline p-3">
-            <div className="text-[0.875rem] text-ink">{line.description}</div>
-            <div className="mt-0.5 text-[0.875rem] text-mute">
+            <div className="text-[0.9375rem] text-ink">{line.description}</div>
+            <div className="mt-0.5 text-[0.9375rem] text-mute">
               {line.reference ?? "no reference"}
             </div>
           </div>
@@ -666,16 +666,16 @@ function ReconcileDialog({
                   key={claim.match_id}
                   className="flex items-center gap-2.5 rounded-inner border border-hairline bg-soft px-3 py-2"
                 >
-                  <span className="min-w-0 flex-1 text-[0.875rem]">
+                  <span className="min-w-0 flex-1 text-[0.9375rem]">
                     <span className="font-medium text-ink">
                       {claim.entry_number ?? "an entry"}
                     </span>
-                    <span className="block text-[0.875rem] text-mute">
+                    <span className="block text-[0.9375rem] text-mute">
                       {claim.reasons.join(" · ")} · {claim.decided_by_kind} ·{" "}
                       {claim.matched_by}
                     </span>
                   </span>
-                  <span className="text-[0.875rem] tabular-nums">
+                  <span className="text-[0.9375rem] tabular-nums">
                     {money(claim.allocated_minor)}
                   </span>
                   <Button
@@ -739,7 +739,7 @@ function ReconcileDialog({
                   />
                 </span>
               </div>
-              <p className="-mt-2 text-[0.875rem] text-mute">
+              <p className="-mt-2 text-[0.9375rem] text-mute">
                 Only journal entries can be matched today: a payment and a bill
                 both reach the bank account through one, so the ledger is where
                 every candidate already is. Turning off{" "}
@@ -784,7 +784,7 @@ function ReconcileDialog({
                           </Td>
                           <Td>
                             <Reasons reasons={candidate.reasons} />
-                            <span className="mt-1 block font-mono text-[0.875rem] text-mute">
+                            <span className="mt-1 block font-mono text-[0.9375rem] text-mute">
                               {candidate.journal_line_id}
                             </span>
                             {candidate.auto_match && (
@@ -818,7 +818,7 @@ function ReconcileDialog({
               )}
 
               <div className="flex items-center gap-3 border-t border-hairline pt-3">
-                <span className="text-[0.875rem] text-body">
+                <span className="text-[0.9375rem] text-body">
                   Allocated{" "}
                   <b className="font-medium text-ink tabular-nums">
                     {money(allocated)}
@@ -859,7 +859,7 @@ function ReconcileDialog({
 
           {action === "create" && (
             <div className="flex flex-col gap-3">
-              <p className="text-[0.875rem] leading-relaxed text-body">
+              <p className="text-[0.9375rem] leading-relaxed text-body">
                 The bank did something the books never recorded — a charge,
                 interest, a transfer that arrived without a document. This posts
                 a journal entry for what is left of the line and agrees it in
@@ -873,7 +873,7 @@ function ReconcileDialog({
                   account's family demands, or nothing at all when it demands
                   nothing. */}
               <div className="flex flex-col gap-[0.4375rem]">
-                <span className="text-[0.875rem] font-medium text-text">
+                <span className="text-[0.9375rem] font-medium text-text">
                   Account
                 </span>
                 <AccountAndCategory
@@ -913,7 +913,7 @@ function ReconcileDialog({
 
           {action === "update" && (
             <div className="flex flex-col gap-3">
-              <p className="text-[0.875rem] leading-relaxed text-body">
+              <p className="text-[0.9375rem] leading-relaxed text-body">
                 Saying who the other side was makes the line recognisable, and
                 is what somebody reads before agreeing it.
               </p>

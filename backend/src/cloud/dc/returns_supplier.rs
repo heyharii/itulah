@@ -39,6 +39,7 @@ async fn load_returns(
         "SELECT pr.return_id, pr.return_number, po.po_number, pr.supplier_id, po.supplier_name,
                 pr.note, pr.raised_by, pr.raised_at, pr.status, pr.handed_over_by,
                 h.handed_over_to, pr.handed_over_at, pr.note_pic, pr.note_generated_at,
+                pr.note_line_notes,
                 COALESCE((SELECT jsonb_agg(jsonb_build_object(
                                      'receipt_line_id', x.receipt_line_id,
                                      'po_line_id', x.po_line_id,
@@ -88,6 +89,7 @@ async fn load_returns(
                 note_generated_at: row
                     .try_get::<Option<DateTime<Utc>>, _>("note_generated_at")?
                     .map(time_text),
+                line_notes: serde_json::from_value(row.try_get::<Value, _>("note_line_notes")?)?,
                 quantity: lines.iter().map(|line| line.quantity).sum(),
                 lines,
             })
@@ -337,6 +339,10 @@ pub(super) async fn hand_over(
 pub(super) struct GenerateNoteRequest {
     pub return_ids: Vec<Uuid>,
     pub pic: String,
+    /// A few words per item, by article code ("*" for the not-as-ordered
+    /// pieces); none required. Blank ones are dropped.
+    #[serde(default)]
+    pub notes: BTreeMap<String, String>,
 }
 
 pub(super) async fn generate_note(
@@ -354,16 +360,24 @@ pub(super) async fn generate_note(
     if request.return_ids.is_empty() {
         return Err(AppError::Validation("no returns were named".into()));
     }
+    let notes: BTreeMap<String, String> = request
+        .notes
+        .into_iter()
+        .map(|(sku, text)| (sku, text.trim().to_string()))
+        .filter(|(_, text)| !text.is_empty())
+        .collect();
     let site = common::gudang_site(&state.db).await?;
     let done = sqlx::query(
         "UPDATE purchase_return
-            SET note_pic = $1, note_generated_at = now(), note_generated_by = $2
+            SET note_pic = $1, note_generated_at = now(), note_generated_by = $2,
+                note_line_notes = $5
           WHERE return_id = ANY($3) AND site_id = $4 AND status = 'OPEN'",
     )
     .bind(&pic)
     .bind(&principal.username)
     .bind(&request.return_ids)
     .bind(&site)
+    .bind(serde_json::to_value(&notes)?)
     .execute(&state.db)
     .await?;
     if done.rows_affected() as usize != request.return_ids.len() {

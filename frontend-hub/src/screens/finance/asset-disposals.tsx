@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query"
-import { useMemo, useState } from "react"
+import { useSuspenseQuery } from "@tanstack/react-query"
+import { Suspense, useDeferredValue, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { AppLink } from "@/components/ui/app-link"
@@ -9,17 +9,18 @@ import { Banner, EmptyState } from "@/components/ui/states"
 import { monthStamp, type ExportSheet } from "@/lib/export-xlsx"
 import { count, day, money } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
-import { financeKeys, listAllAssets } from "@/lib/queries/finance"
+import { assetsAllQuery } from "@/lib/queries/finance"
 import { useSiteLabel } from "@/lib/queries/organisation"
 import { queryState } from "@/lib/query-state"
 import { button } from "@/components/ui/button-style"
 import { cn } from "@/lib/utils"
 import { Code, Grid, Td, Th, TotalRow } from "@/screens/finance-final/parts"
-import { todayIso } from "@/screens/finance/chart"
+import { yearToDate } from "@/screens/finance/chart"
 import type { DateWindow } from "@/screens/finance/hooks"
 import { PhoneCard, PhoneList } from "@/components/ui/phone-cards"
 import { SiteSelect, WindowControl } from "@/screens/finance/parts"
 import { FactsSheet } from "@/screens/finance/phone-parts"
+import { ScreenPending } from "@/screens/finance/pending"
 import { ReportFilters, ReportSummary } from "@/screens/finance/report"
 
 import type { AssetRow } from "@itulah/contract"
@@ -47,10 +48,28 @@ import type { AssetRow } from "@itulah/contract"
 /// set is a small one — a handful a year.
 
 export function AssetDisposals() {
+  return (
+    <Suspense
+      fallback={
+        <ScreenPending
+          crumb="Finance · Financial Reports"
+          title="Asset Disposals"
+        >
+          Reading the disposed assets…
+        </ScreenPending>
+      }
+    >
+      <AssetDisposalsScreen />
+    </Suspense>
+  )
+}
+
+function AssetDisposalsScreen() {
   const phone = useLayout() === "phone"
   const [shown, setShown] = useState<AssetRow | null>(null)
-  const [from, setFrom] = useState(() => `${new Date().getFullYear()}-01-01`)
-  const [to, setTo] = useState(todayIso)
+  const [opened] = useState(() => yearToDate())
+  const [from, setFrom] = useState(opened.from)
+  const [to, setTo] = useState(opened.to)
   const [site, setSite] = useState("")
   const siteName = useSiteLabel()
 
@@ -62,15 +81,14 @@ export function AssetDisposals() {
     chip: `${day(from)} – ${day(to)}`,
   }
 
-  const register = useQuery({
-    queryKey: financeKeys.assetsAll(null, "DISPOSED", site || null),
-    queryFn: ({ signal }) =>
-      listAllAssets({ status: "DISPOSED", site: site || undefined }, signal),
-  })
+  // The site select answers at once; the register trails it, and the rows in
+  // hand stay on screen (dimmed) until the next are read.
+  const askedSite = useDeferredValue(site)
+  const register = useSuspenseQuery(assetsAllQuery(null, "DISPOSED", askedSite))
 
   const rows = useMemo(
     () =>
-      (register.data?.rows ?? [])
+      register.data.rows
         .filter(
           (row) =>
             row.disposed_on !== null &&
@@ -176,188 +194,196 @@ export function AssetDisposals() {
         )}
       </ReportFilters>
 
-      {queryState(register, {
-        loading: "Reading the disposed assets…",
-        render: (data) => (
-          <>
-            {!data.complete && (
-              <Banner tone="warn" className="mb-3">
-                The register is larger than this report reads in one go, so
-                disposals may be missing. Narrow the site.
-              </Banner>
-            )}
-            <ReportSummary
-              items={[
-                { label: "Assets disposed", display: count(rows.length) },
-                { label: "Book value at disposal", value: total.book },
-                { label: "Proceeds", value: total.proceeds },
-                {
-                  label: "Gain / (Loss)",
-                  value: total.result,
-                  indicator:
-                    rows.length === 0
-                      ? undefined
-                      : total.result >= 0
-                        ? "Green"
-                        : "Red",
-                },
-              ]}
-            />
-            {rows.length === 0 ? (
-              <EmptyState>
-                No asset was sold or written off between {day(from)} and{" "}
-                {day(to)}.
-              </EmptyState>
-            ) : phone ? (
-              <>
-                <PhoneList>
-                  {rows.map((row) => (
-                    <PhoneCard
-                      key={row.asset.asset_id}
-                      title={row.asset.name}
-                      line={
-                        <span className="font-mono">
-                          {row.asset.asset_number}
-                        </span>
-                      }
-                      lead={money(row.result)}
-                      caption="gain / (loss)"
-                      tone={row.result < 0 ? "bad" : undefined}
-                      foot={`${day(row.asset.disposed_on)} · ${methodLabel(row.asset.disposal_method)}`}
-                      action={
-                        row.asset.disposal_journal_entry_id ===
-                        null ? undefined : (
-                          <AppLink
-                            to="/finance/accounting/journal-entries"
-                            sheet={{
-                              key: "entry",
-                              value: row.asset.disposal_journal_entry_id,
-                            }}
-                            className={button({
-                              variant: "tint",
-                              size: "card",
-                            })}
-                          >
-                            Open entry
-                          </AppLink>
-                        )
-                      }
-                      onOpen={() => setShown(row.asset)}
-                    />
-                  ))}
-                </PhoneList>
-                <FactsSheet
-                  open={shown !== null}
-                  onClose={() => setShown(null)}
-                  title={shown?.name ?? ""}
-                  id={shown?.asset_number}
-                  caption={shown?.category_name}
-                  facts={
-                    shown === null
-                      ? []
-                      : (() => {
-                          const one = figuresOf(shown)
-                          return [
-                            {
-                              label: "Disposed",
-                              value: day(shown.disposed_on),
-                            },
-                            {
-                              label: "Method",
-                              value: methodLabel(shown.disposal_method),
-                            },
-                            { label: "Cost", value: money(one.cost) },
-                            {
-                              label: "Accumulated depreciation",
-                              value: money(one.accumulated),
-                            },
-                            {
-                              label: "Book value at disposal",
-                              value: money(one.book),
-                            },
-                            { label: "Proceeds", value: money(one.proceeds) },
-                            {
-                              label: "Gain / (Loss)",
-                              value: money(one.result),
-                            },
-                          ]
-                        })()
-                  }
-                />
-              </>
-            ) : (
-              <Grid>
-                <thead>
-                  <tr>
-                    <Th>Date</Th>
-                    <Th>Asset No</Th>
-                    <Th>Name</Th>
-                    <Th>Category</Th>
-                    <Th>Method</Th>
-                    <Th align="right">Cost</Th>
-                    <Th align="right">Accumulated depreciation</Th>
-                    <Th align="right">Book value at disposal</Th>
-                    <Th align="right">Proceeds</Th>
-                    <Th align="right">Gain / (Loss)</Th>
-                    <Th>Journal</Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map(
-                    ({ asset, cost, accumulated, book, proceeds, result }) => (
-                      <tr key={asset.asset_id}>
-                        <Td>{day(asset.disposed_on)}</Td>
-                        <Td>
-                          <Code>{asset.asset_number}</Code>
-                        </Td>
-                        <Td className="max-w-[20rem] truncate">
-                          <span title={asset.name}>{asset.name}</span>
-                        </Td>
-                        <Td>{asset.category_name}</Td>
-                        <Td>{methodLabel(asset.disposal_method)}</Td>
-                        <Td align="right">{money(cost)}</Td>
-                        <Td align="right">{money(accumulated)}</Td>
-                        <Td align="right">{money(book)}</Td>
-                        <Td align="right">{money(proceeds)}</Td>
-                        <Td align="right">
-                          <span className={cn(result < 0 && "text-bad-fg")}>
-                            {money(result)}
+      <div className="list-swap" aria-busy={askedSite !== site || undefined}>
+        {queryState(register, {
+          render: (data) => (
+            <>
+              {!data.complete && (
+                <Banner tone="warn" className="mb-3">
+                  The register is larger than this report reads in one go, so
+                  disposals may be missing. Narrow the site.
+                </Banner>
+              )}
+              <ReportSummary
+                items={[
+                  { label: "Assets disposed", display: count(rows.length) },
+                  { label: "Book value at disposal", value: total.book },
+                  { label: "Proceeds", value: total.proceeds },
+                  {
+                    label: "Gain / (Loss)",
+                    value: total.result,
+                    indicator:
+                      rows.length === 0
+                        ? undefined
+                        : total.result >= 0
+                          ? "Green"
+                          : "Red",
+                  },
+                ]}
+              />
+              {rows.length === 0 ? (
+                <EmptyState>
+                  No asset was sold or written off between {day(from)} and{" "}
+                  {day(to)}.
+                </EmptyState>
+              ) : phone ? (
+                <>
+                  <PhoneList>
+                    {rows.map((row) => (
+                      <PhoneCard
+                        key={row.asset.asset_id}
+                        title={row.asset.name}
+                        line={
+                          <span className="font-mono">
+                            {row.asset.asset_number}
                           </span>
-                        </Td>
-                        <Td>
-                          {asset.disposal_journal_entry_id === null ? (
-                            <span className="text-faint">—</span>
-                          ) : (
+                        }
+                        lead={money(row.result)}
+                        caption="gain / (loss)"
+                        tone={row.result < 0 ? "bad" : undefined}
+                        foot={`${day(row.asset.disposed_on)} · ${methodLabel(row.asset.disposal_method)}`}
+                        action={
+                          row.asset.disposal_journal_entry_id ===
+                          null ? undefined : (
                             <AppLink
                               to="/finance/accounting/journal-entries"
                               sheet={{
                                 key: "entry",
-                                value: asset.disposal_journal_entry_id,
+                                value: row.asset.disposal_journal_entry_id,
                               }}
-                              className="text-accent hover:underline"
+                              className={button({
+                                variant: "tint",
+                                size: "card",
+                              })}
                             >
                               Open entry
                             </AppLink>
-                          )}
-                        </Td>
-                      </tr>
-                    )
-                  )}
-                  <TotalRow>
-                    <Td colSpan={5}>Total</Td>
-                    <Td align="right">{money(total.cost)}</Td>
-                    <Td align="right">{money(total.accumulated)}</Td>
-                    <Td align="right">{money(total.book)}</Td>
-                    <Td align="right">{money(total.proceeds)}</Td>
-                    <Td align="right">{money(total.result)}</Td>
-                    <Td />
-                  </TotalRow>
-                </tbody>
-              </Grid>
-            )}
-          </>
-        ),
-      })}
+                          )
+                        }
+                        onOpen={() => setShown(row.asset)}
+                      />
+                    ))}
+                  </PhoneList>
+                  <FactsSheet
+                    open={shown !== null}
+                    onClose={() => setShown(null)}
+                    title={shown?.name ?? ""}
+                    id={shown?.asset_number}
+                    caption={shown?.category_name}
+                    facts={
+                      shown === null
+                        ? []
+                        : (() => {
+                            const one = figuresOf(shown)
+                            return [
+                              {
+                                label: "Disposed",
+                                value: day(shown.disposed_on),
+                              },
+                              {
+                                label: "Method",
+                                value: methodLabel(shown.disposal_method),
+                              },
+                              { label: "Cost", value: money(one.cost) },
+                              {
+                                label: "Accumulated depreciation",
+                                value: money(one.accumulated),
+                              },
+                              {
+                                label: "Book value at disposal",
+                                value: money(one.book),
+                              },
+                              { label: "Proceeds", value: money(one.proceeds) },
+                              {
+                                label: "Gain / (Loss)",
+                                value: money(one.result),
+                              },
+                            ]
+                          })()
+                    }
+                  />
+                </>
+              ) : (
+                <Grid>
+                  <thead>
+                    <tr>
+                      <Th>Date</Th>
+                      <Th>Asset No</Th>
+                      <Th>Name</Th>
+                      <Th>Category</Th>
+                      <Th>Method</Th>
+                      <Th align="right">Cost</Th>
+                      <Th align="right">Accumulated depreciation</Th>
+                      <Th align="right">Book value at disposal</Th>
+                      <Th align="right">Proceeds</Th>
+                      <Th align="right">Gain / (Loss)</Th>
+                      <Th>Journal</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map(
+                      ({
+                        asset,
+                        cost,
+                        accumulated,
+                        book,
+                        proceeds,
+                        result,
+                      }) => (
+                        <tr key={asset.asset_id}>
+                          <Td>{day(asset.disposed_on)}</Td>
+                          <Td>
+                            <Code>{asset.asset_number}</Code>
+                          </Td>
+                          <Td className="max-w-[20rem] truncate">
+                            <span title={asset.name}>{asset.name}</span>
+                          </Td>
+                          <Td>{asset.category_name}</Td>
+                          <Td>{methodLabel(asset.disposal_method)}</Td>
+                          <Td align="right">{money(cost)}</Td>
+                          <Td align="right">{money(accumulated)}</Td>
+                          <Td align="right">{money(book)}</Td>
+                          <Td align="right">{money(proceeds)}</Td>
+                          <Td align="right">
+                            <span className={cn(result < 0 && "text-bad-fg")}>
+                              {money(result)}
+                            </span>
+                          </Td>
+                          <Td>
+                            {asset.disposal_journal_entry_id === null ? (
+                              <span className="text-faint">—</span>
+                            ) : (
+                              <AppLink
+                                to="/finance/accounting/journal-entries"
+                                sheet={{
+                                  key: "entry",
+                                  value: asset.disposal_journal_entry_id,
+                                }}
+                                className="text-accent hover:underline"
+                              >
+                                Open entry
+                              </AppLink>
+                            )}
+                          </Td>
+                        </tr>
+                      )
+                    )}
+                    <TotalRow>
+                      <Td colSpan={5}>Total</Td>
+                      <Td align="right">{money(total.cost)}</Td>
+                      <Td align="right">{money(total.accumulated)}</Td>
+                      <Td align="right">{money(total.book)}</Td>
+                      <Td align="right">{money(total.proceeds)}</Td>
+                      <Td align="right">{money(total.result)}</Td>
+                      <Td />
+                    </TotalRow>
+                  </tbody>
+                </Grid>
+              )}
+            </>
+          ),
+        })}
+      </div>
     </PageContent>
   )
 }

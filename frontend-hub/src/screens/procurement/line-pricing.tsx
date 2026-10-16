@@ -66,7 +66,7 @@ export function PricingFields({
             className="pr-8 text-right tabular-nums"
             onChange={(event) => set({ markup: event.target.value })}
           />
-          <span className="pointer-events-none absolute right-3.5 text-[0.875rem] text-mute">
+          <span className="pointer-events-none absolute right-3.5 text-[0.9375rem] text-mute">
             %
           </span>
         </span>
@@ -88,7 +88,7 @@ export function PricingFields({
 }
 
 const TYPED =
-  "h-9 rounded-inner border border-hairline-2 bg-canvas px-2.5 text-right text-[0.875rem] tabular-nums hover:border-hairline-strong focus:border-accent"
+  "h-9 rounded-inner border border-hairline-2 bg-canvas px-2.5 text-right text-[0.9375rem] tabular-nums hover:border-hairline-strong focus:border-accent"
 
 /// Up and down move between the SKUs' quantities, Enter goes down a row, as in
 /// a sheet. A number field would otherwise spend the arrows on changing the
@@ -128,6 +128,7 @@ export function VariantGrid({
   priced = true,
   articleName = "",
   photos = false,
+  articlePhoto = null,
 }: {
   variants: readonly VariantDraft[]
   onChange: (next: VariantDraft[]) => void
@@ -145,6 +146,9 @@ export function VariantGrid({
   articleName?: string
   /// Whether each SKU may carry photographs of its own (0961) — on an order.
   photos?: boolean
+  /// The article's photograph, shown on a SKU that has none of its own until
+  /// one is chosen for it; the order sends it the same way (`variantsForWire`).
+  articlePhoto?: string | null
 }) {
   const patch = (index: number, change: Partial<VariantDraft>) =>
     onChange(
@@ -199,7 +203,11 @@ export function VariantGrid({
                 {photos && (
                   <td className="px-3 py-1.5">
                     <VariantPhotos
-                      photos={one.photos ?? []}
+                      photos={
+                        (one.photos ?? []).length > 0 || !articlePhoto
+                          ? (one.photos ?? [])
+                          : [articlePhoto]
+                      }
                       onChange={(next) => patch(index, { photos: next })}
                       name={nameOf(one)}
                     />
@@ -237,7 +245,7 @@ export function VariantGrid({
             <tr className="border-t border-hairline bg-soft">
               <td
                 colSpan={photos ? 2 : 1}
-                className="px-3 py-2.5 text-[0.875rem] font-medium text-body"
+                className="px-3 py-2.5 text-[0.9375rem] font-medium text-body"
               >
                 {count(
                   variants.filter((one) => (digits(one.quantity) ?? 0) > 0)
@@ -245,11 +253,11 @@ export function VariantGrid({
                 )}{" "}
                 SKUs
               </td>
-              <td className="px-3 py-2.5 text-right text-[0.875rem] font-medium text-ink tabular-nums">
+              <td className="px-3 py-2.5 text-right text-[0.9375rem] font-medium text-ink tabular-nums">
                 {count(pieces)}
               </td>
               {priced && (
-                <td className="px-3 py-2.5 text-right text-[0.875rem] font-medium text-ink tabular-nums">
+                <td className="px-3 py-2.5 text-right text-[0.9375rem] font-medium text-ink tabular-nums">
                   {money(value)}
                 </td>
               )}

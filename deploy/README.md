@@ -47,6 +47,8 @@ add subscription or usage fees later; none is required by the current design.
 
 ## Two credentials per shop, and why both
 
+> **Developer-only legacy.** A store server is now installed with the install code from Central > Stores > your store > Server (see `deploy/edge/README-store-install.md`); this section is kept for the old tailnet/master-key way of working.
+
 This is the part worth reading twice.
 
 | Credential | Proves | Issued by |
@@ -94,6 +96,8 @@ the box's ordinary internet access.
 ## Install
 
 ### 1. Control server
+
+> **Developer-only legacy.** A store server is now installed with the install code from Central > Stores > your store > Server (see `deploy/edge/README-store-install.md`); this section is kept for the old tailnet/master-key way of working.
 
 ```bash
 install -m755 headscale /usr/local/bin/headscale
@@ -176,6 +180,8 @@ Each host must have its own SQLite path and `INVENTORY_NODE_ID`; never share
 one database file between DC and Store nodes.
 
 ### 5. Each shop
+
+> **Developer-only legacy.** A store server is now installed with the install code from Central > Stores > your store > Server (see `deploy/edge/README-store-install.md`); this section, with `deploy/scripts/provision-store.sh` is kept for the old tailnet/master-key way of working.
 
 ```bash
 # Authenticated Cloud (obtain an opaque ADMIN bearer from /api/v1/auth/login):

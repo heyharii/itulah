@@ -292,6 +292,36 @@ pub async fn awaiting_consent(
     rows.iter().map(decode).collect()
 }
 
+/// Every order at a place in a window, in any state or one — the Overtime
+/// list's Agreed, Declined and All, beside the queue above.
+///
+/// `unit_id` is `None` for every place, which is head office's; `state` is one
+/// of the four codes or `None` for all of them. The window is inclusive at
+/// both ends, like [`overtime_orders_of`]'s. Newest first.
+pub async fn overtime_orders_in(
+    pool: &PgPool,
+    unit_id: Option<&str>,
+    state: Option<&str>,
+    from: Option<NaiveDate>,
+    to: Option<NaiveDate>,
+) -> Result<Vec<OvertimeRecord>, AppError> {
+    let rows = sqlx::query(&format!(
+        "SELECT {ORDER_COLUMNS} FROM overtime_order
+          WHERE ($1::text IS NULL OR unit_id = $1)
+            AND ($2::text IS NULL OR state = $2)
+            AND ($3::date IS NULL OR on_date >= $3)
+            AND ($4::date IS NULL OR on_date <= $4)
+          ORDER BY on_date DESC, id"
+    ))
+    .bind(unit_id)
+    .bind(state)
+    .bind(from)
+    .bind(to)
+    .fetch_all(pool)
+    .await?;
+    rows.iter().map(decode).collect()
+}
+
 /// Issue an order, having checked the week it lands in.
 ///
 /// The weekly check runs against the employee's other orders in the same

@@ -210,7 +210,7 @@ export function PeriodClose() {
           </Select>
         </span>
         <Toolbar.Spacer />
-        <span className="text-[0.875rem] text-mute">
+        <span className="text-[0.9375rem] text-mute">
           {count(
             rows.filter((row) => row.status.toUpperCase() === "OPEN").length
           )}{" "}
@@ -253,13 +253,13 @@ export function PeriodClose() {
               <Pill tone={toneFor(period.status)}>{label(period.status)}</Pill>
             )}
             {period !== undefined && (
-              <span className="text-[0.875rem] text-mute">
+              <span className="text-[0.9375rem] text-mute">
                 {count(period.entry_count)}{" "}
                 {period.entry_count === 1 ? "entry" : "entries"} posted
               </span>
             )}
             {period?.closed_at != null && (
-              <span className="text-[0.875rem] text-mute">
+              <span className="text-[0.9375rem] text-mute">
                 sealed by {period.closed_by ?? "—"} · {moment(period.closed_at)}
               </span>
             )}
@@ -267,7 +267,7 @@ export function PeriodClose() {
 
           {period === undefined ? (
             <div className="px-3.5 py-4">
-              <p className="mb-3 text-[0.875rem] text-body">
+              <p className="mb-3 text-[0.9375rem] text-body">
                 No accounting period exists for {monthLabel(year, month)}, so
                 nothing can be posted into it at all — the database refuses the
                 entry and names the month. That refusal is the same trigger the
@@ -306,7 +306,7 @@ export function PeriodClose() {
 
               <div className="flex flex-wrap items-center justify-between gap-3 border-t border-hairline px-3.5 py-3">
                 {!isOpen ? (
-                  <p className="text-[0.875rem] text-body">
+                  <p className="text-[0.9375rem] text-body">
                     This month is sealed. There is no reopen and there is no
                     endpoint for one — a correction is posted into an open
                     month, the way a wrong entry is answered by its mirror
@@ -314,7 +314,7 @@ export function PeriodClose() {
                   </p>
                 ) : confirming ? (
                   <>
-                    <p className="min-w-0 flex-1 text-[0.875rem] text-body">
+                    <p className="min-w-0 flex-1 text-[0.9375rem] text-body">
                       Seal {count(period.entry_count)}{" "}
                       {period.entry_count === 1 ? "entry" : "entries"} in{" "}
                       {monthLabel(year, month)}? Nothing can be posted into this
@@ -324,7 +324,7 @@ export function PeriodClose() {
                       number that will be sealed.
                     </p>
                     <div className="flex shrink-0 gap-1.5">
-                      <Button
+                      <Button data-cancel
                         variant="quiet"
                         onClick={() => setConfirming(false)}
                       >
@@ -341,7 +341,7 @@ export function PeriodClose() {
                   </>
                 ) : (
                   <>
-                    <p className="min-w-0 flex-1 text-[0.875rem] text-body">
+                    <p className="min-w-0 flex-1 text-[0.9375rem] text-body">
                       {clear
                         ? "The server has nothing outstanding. Sealing is irreversible."
                         : "The cloud's close checklist still has an unresolved or unassessed item. Resolve it before sealing the month."}
@@ -533,7 +533,7 @@ function Checklist({
 
   return (
     <div>
-      <div className="border-b border-hairline px-3.5 py-2 text-[0.875rem] font-medium text-mute">
+      <div className="border-b border-hairline px-3.5 py-2 text-[0.9375rem] font-medium text-mute">
         Before sealing {monthLabel(year, month)}
       </div>
 
@@ -617,7 +617,7 @@ function Checklist({
         }
       />
 
-      <div className="border-t border-hairline bg-soft px-3.5 py-2.5 text-[0.875rem] leading-relaxed text-body">
+      <div className="border-t border-hairline bg-soft px-3.5 py-2.5 text-[0.9375rem] leading-relaxed text-body">
         The close button uses the cloud&rsquo;s full checklist, including asset
         depreciation. A check the node cannot evaluate remains pending and
         prevents the month from being sealed.
@@ -658,11 +658,11 @@ function Line({
     <div className="flex items-start gap-2.5 border-b border-hairline px-3.5 py-2.5 last:border-b-0">
       <span className="min-w-0 flex-1">
         <span className="flex flex-wrap items-center gap-2">
-          <span className="text-[0.875rem] font-medium text-ink">{title}</span>
+          <span className="text-[0.9375rem] font-medium text-ink">{title}</span>
           <Pill tone={pill.tone}>{pill.text}</Pill>
-          <span className="text-[0.875rem] text-mute">{scope}</span>
+          <span className="text-[0.9375rem] text-mute">{scope}</span>
         </span>
-        <span className="mt-0.5 block text-[0.875rem] leading-relaxed text-body">
+        <span className="mt-0.5 block text-[0.9375rem] leading-relaxed text-body">
           {note}
         </span>
       </span>

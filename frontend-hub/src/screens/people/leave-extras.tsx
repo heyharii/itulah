@@ -9,8 +9,13 @@ import { PickOne } from "@/components/ui/pick"
 import { Pill } from "@/components/ui/pill"
 import { MiniCell, MiniRow, MiniTable, SubHead } from "@/components/ui/rows"
 import { Banner, EmptyState } from "@/components/ui/states"
-import { day, money } from "@/lib/format"
-import { BALANCE_EVENTS, moveLeaveBalance } from "@/lib/queries/hr-time"
+import { day, money, monthYear } from "@/lib/format"
+import {
+  BALANCE_EVENTS,
+  everyoneBalancesKey,
+  moveLeaveBalance,
+  useActiveEmployees,
+} from "@/lib/queries/hr-time"
 import {
   blockLeave,
   encashLeave,
@@ -79,10 +84,7 @@ export function BlockedDatesCard() {
           loading: "Reading the closed dates…",
           render: (rows) =>
             rows.length === 0 ? (
-              <EmptyState>
-                No date is closed. Close the Eid rush or stock-take week so
-                nobody can take leave on them.
-              </EmptyState>
+              <EmptyState>No date is closed.</EmptyState>
             ) : (
               <MiniTable head={["Dates", "Where", "Why", ""]}>
                 {rows.map((row) => (
@@ -115,7 +117,7 @@ export function BlockedDatesCard() {
               </MiniTable>
             ),
         })}
-        <Field label="Why lift one" aside="asked before Lift">
+        <Field label="Why lift one">
           <Input value={liftWhy} onChange={(e) => setLiftWhy(e.target.value)} />
         </Field>
         <SubHead>Close dates</SubHead>
@@ -185,6 +187,7 @@ function useBalanceKinds(employeeId: string) {
 export function PayOutForm({ employeeId }: { employeeId: string }) {
   const client = useQueryClient()
   const { kinds } = useBalanceKinds(employeeId)
+  const { nameOf } = useActiveEmployees()
   const encashments = useQuery({
     queryKey: leaveExtraKeys.encashments(employeeId),
     queryFn: ({ signal }) => leaveEncashments(employeeId, signal),
@@ -210,6 +213,7 @@ export function PayOutForm({ employeeId }: { employeeId: string }) {
       void client.invalidateQueries({
         queryKey: leaveKeys.balances(employeeId),
       })
+      void client.invalidateQueries({ queryKey: everyoneBalancesKey() })
       void client.invalidateQueries({
         queryKey: leaveExtraKeys.encashments(employeeId),
       })
@@ -225,19 +229,23 @@ export function PayOutForm({ employeeId }: { employeeId: string }) {
             <Quiet>No days have been paid out for this person.</Quiet>
           ) : (
             <MiniTable
-              head={["Month", "Days", { label: "Paid", align: "right" }, "By"]}
+              head={[
+                "Month",
+                "Days",
+                { label: "Paid", align: "right" },
+                { label: "Wage ÷ days", align: "right" },
+                "By",
+              ]}
             >
               {rows.map((row) => (
                 <MiniRow key={row.id}>
-                  <MiniCell>{row.period}</MiniCell>
+                  <MiniCell>{monthYear(row.period)}</MiniCell>
                   <MiniCell>{row.centidays / 100}</MiniCell>
+                  <MiniCell align="right">{money(row.amount_minor)}</MiniCell>
                   <MiniCell align="right">
-                    {money(row.amount_minor)}
-                    <span className="block text-[0.875rem] text-mute">
-                      {money(row.wage_minor)} ÷ {row.divisor_days} a day
-                    </span>
+                    {money(row.wage_minor)} ÷ {row.divisor_days}
                   </MiniCell>
-                  <MiniCell>{row.encashed_by}</MiniCell>
+                  <MiniCell>{nameOf(row.encashed_by)}</MiniCell>
                 </MiniRow>
               ))}
             </MiniTable>
@@ -325,10 +333,6 @@ export function HolidayWorkedForm({ employeeId }: { employeeId: string }) {
 
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-[0.875rem] text-mute">
-        Earns one day back into the kind chosen. The day must be a public
-        holiday or a rest day on their roster.
-      </p>
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         <Field label="Day back goes into" required>
           <PickOne
@@ -338,7 +342,7 @@ export function HolidayWorkedForm({ employeeId }: { employeeId: string }) {
             onChange={setKind}
           />
         </Field>
-        <Field label="Day worked" required>
+        <Field label="Day worked" aside="a public holiday or rest day" required>
           <Day value={workedOn} onChange={setWorkedOn} />
         </Field>
         <Field label="Why" required>
@@ -446,9 +450,7 @@ export function AdjustBalanceForm({ employeeId }: { employeeId: string }) {
       {event === "ALLOCATION" && (policy.data ?? []).length > 0 && (
         <Banner tone="warn">
           The leave policy already grants the yearly entitlement on its own
-          schedule (Settings › Time off types). Granting it here as well gives
-          the days twice — use a correction for anything the policy does not
-          cover.
+          schedule, so granting it here gives the days twice.
         </Banner>
       )}
       {move.error !== null && <Banner tone="bad">{move.error.message}</Banner>}

@@ -1,3 +1,5 @@
+import { useDeferredValue, useState } from "react"
+
 import { count, money } from "@/lib/format"
 import { useStackLabels } from "@/lib/stack-table"
 import { cn } from "@/lib/utils"
@@ -47,7 +49,7 @@ export function NumberCard({
   return (
     <div
       className={cn(
-        "rounded-card border p-3",
+        "number-card rounded-card border p-3",
         tone === "bad"
           ? "border-bad-fg/25 bg-bad-bg"
           : tone === "warn"
@@ -59,7 +61,7 @@ export function NumberCard({
     >
       <div
         className={cn(
-          "text-[0.875rem]",
+          "text-[0.9375rem]",
           tone === "bad"
             ? "text-bad-fg"
             : tone === "warn"
@@ -88,7 +90,7 @@ export function NumberCard({
       {note !== undefined && (
         <div
           className={cn(
-            "mt-0.5 text-[0.875rem]",
+            "mt-0.5 text-[0.9375rem]",
             tone === "bad"
               ? "text-bad-fg"
               : tone === "warn"
@@ -240,7 +242,9 @@ export function TotalRow({ children }: { children: React.ReactNode }) {
 /// An account code, printed the way a code should be: monospaced, quiet, and
 /// never the widest thing in its cell.
 export function Code({ children }: { children: React.ReactNode }) {
-  return <span className="font-mono text-[0.875rem] text-mute">{children}</span>
+  return (
+    <span className="font-mono text-[0.9375rem] text-mute">{children}</span>
+  )
 }
 
 /// Says plainly what a screen is standing on when it is not standing on an
@@ -251,7 +255,7 @@ export function Code({ children }: { children: React.ReactNode }) {
 /// misleads the person deciding whether to build it.
 export function Note({ children }: { children: React.ReactNode }) {
   return (
-    <p className="rounded-inner border border-hairline bg-soft px-3 py-2 text-[0.875rem] leading-relaxed text-body">
+    <p className="rounded-inner border border-hairline bg-soft px-3 py-2 text-[0.9375rem] leading-relaxed text-body">
       {children}
     </p>
   )
@@ -288,4 +292,30 @@ export function DebitCredit({
       </Td>
     </>
   )
+}
+
+/// The window a report reads, while the boxes above it are still being worked.
+///
+/// The boxes answer at once; the report trails them (`useDeferredValue`), and
+/// the figures in hand stay on screen, dimmed, until the next are read. A
+/// window the boxes cannot make sense of — a date emptied, an end before the
+/// start — asks for nothing new: the read stays on the window the page opened
+/// on, and `valid` tells the screen to say so instead of drawing it.
+///
+/// A suspended read hands a refused request to the route's error page, so
+/// nothing malformed may reach one; this is where the dates are kept sane.
+export function useAskedWindow(range: { from: string; to: string }): {
+  from: string
+  to: string
+  valid: boolean
+  /// The boxes are ahead of what is drawn.
+  stale: boolean
+} {
+  const [opened] = useState(() => ({ from: range.from, to: range.to }))
+  const valid = range.from !== "" && range.to !== "" && range.from <= range.to
+  const wantedFrom = valid ? range.from : opened.from
+  const wantedTo = valid ? range.to : opened.to
+  const from = useDeferredValue(wantedFrom)
+  const to = useDeferredValue(wantedTo)
+  return { from, to, valid, stale: from !== wantedFrom || to !== wantedTo }
 }

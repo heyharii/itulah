@@ -19,7 +19,7 @@ import type { PrintableNote } from "@/screens/procurement/return-print"
 /// is `{origin}/n/{token}`, with `?business=<slug>` on a sandbox server.
 export function useReturnNoteLink(
   note: PrintableNote | null
-): string | undefined {
+): NoteLink | undefined {
   const tenancy = useTenancy()
   const business =
     tenancy.mode === "sandbox" ? (tenancy.business?.slug ?? null) : null
@@ -35,13 +35,24 @@ export function useReturnNoteLink(
   })
   if (!ready || link.data === undefined) return undefined
   const path = `${window.location.origin}/n/${encodeURIComponent(link.data.token)}`
-  return business === null ? path : `${path}?business=${business}`
+  return {
+    url: business === null ? path : `${path}?business=${business}`,
+    number: link.data.number,
+  }
 }
 
-/// The note with its link, when it has one.
+/// What the server gives a note once: its public link and its number.
+export interface NoteLink {
+  readonly url: string
+  readonly number: string
+}
+
+/// The note with its link and number, when it has them.
 export function withNoteLink(
   note: PrintableNote,
-  qrUrl: string | undefined
+  link: NoteLink | undefined
 ): PrintableNote {
-  return qrUrl === undefined ? note : { ...note, qrUrl }
+  return link === undefined
+    ? note
+    : { ...note, qrUrl: link.url, number: link.number }
 }

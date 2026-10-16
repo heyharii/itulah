@@ -1,3 +1,5 @@
+import { queryOptions } from "@tanstack/react-query"
+
 import { node } from "@/lib/api"
 import type { SalesBucket, SalesRange } from "@itulah/contract/reporting"
 
@@ -255,6 +257,15 @@ export function dailyReport(
     signal,
   })
 }
+
+/// One shop's day, as Finance › Stores › Sales reads it: fourteen of these
+/// are the rail.
+export const dailyReportQuery = (siteId: string, date: string) =>
+  queryOptions({
+    queryKey: [...analyticsKeys.all, "daily", siteId, date] as const,
+    queryFn: ({ signal }) => dailyReport({ siteId, date }, signal),
+    staleTime: 60_000,
+  })
 
 // ---- Arithmetic the screens share --------------------------------------
 

@@ -35,7 +35,7 @@ export function YearMonthControl({
           </option>
         ))}
       </Select>
-      <span className="text-[0.875rem] text-mute">up to</span>
+      <span className="text-[0.9375rem] text-mute">up to</span>
       <Select
         value={String(month)}
         onChange={(next) => onMonth(Number(next))}

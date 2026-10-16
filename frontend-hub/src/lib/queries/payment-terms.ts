@@ -7,6 +7,8 @@ import type {
   UpdatePaymentTermsTemplateRequest,
 } from "@itulah/contract"
 
+import { queryOptions } from "@tanstack/react-query"
+
 import { node } from "@/lib/api"
 import { paymentTermsBook, procurementKeys } from "@/lib/queries/procurement"
 
@@ -24,6 +26,14 @@ export { paymentTermsBook }
 export const paymentTermsKeys = {
   book: procurementKeys.paymentTerms,
 }
+
+/// The book as a query, for the master screen and for the prefetcher
+/// (`screens/master/prefetch.ts`).
+export const paymentTermsQuery = () =>
+  queryOptions({
+    queryKey: paymentTermsKeys.book(),
+    queryFn: ({ signal }) => paymentTermsBook(signal),
+  })
 
 function guarded(
   idempotencyKey: string,

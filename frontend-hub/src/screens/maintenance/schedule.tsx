@@ -1,11 +1,12 @@
 import {
-  useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
+  useSuspenseInfiniteQuery,
 } from "@tanstack/react-query"
+import { useHydrated } from "@tanstack/react-router"
 import { CalendarCheck, CalendarPlus, ClipboardCheck, Plus } from "lucide-react"
-import { useMemo, useState } from "react"
+import { Suspense, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { DockChoice } from "@/components/shell/dock-tools"
@@ -19,6 +20,7 @@ import { Sheet } from "@/components/ui/sheet"
 import {
   Banner,
   EmptyState,
+  LoadingState,
   LoadMore,
   type Pageable,
 } from "@/components/ui/states"
@@ -27,9 +29,9 @@ import { useLayout } from "@/lib/layout"
 import { procurementKeys, supplierPage } from "@/lib/queries/procurement"
 import {
   gaAssets,
-  gaInspections,
+  gaInspectionBookQuery,
   gaKeys,
-  gaMaintenanceTasks,
+  gaTaskBookQuery,
   recordGaInspection,
   recordGaRepair,
   recordGaTask,
@@ -64,9 +66,6 @@ import type { GaInspectionRow, GaMaintenanceTaskRow } from "@itulah/contract"
 ///
 /// A schedule row is a date and a thing; no figure belongs to it. The costs
 /// live on the repairs the tasks produce, in the Perbaikan book.
-/// How many rows one page of either list asks for.
-const PAGE = 100
-
 export function Schedule() {
   const [addingTask, setAddingTask] = useState(false)
   const [addingInspection, setAddingInspection] = useState(false)
@@ -76,34 +75,6 @@ export function Schedule() {
   // stacked on one page cannot both scroll with the page.
   const phone = useLayout() === "phone"
   const [view, setView] = useState<"tasks" | "inspections">("tasks")
-
-  // Both lists page from the server in the order they are read — tasks
-  // soonest due first (undated last), inspections newest first — so neither
-  // is re-sorted here: a sort over the loaded rows would reshuffle as more
-  // arrived.
-  const tasks = useInfiniteQuery({
-    queryKey: [...gaKeys.maintenanceTasks({}), "pages"] as const,
-    queryFn: ({ pageParam, signal }) =>
-      gaMaintenanceTasks({ limit: PAGE, cursor: pageParam }, signal),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) => last.next_cursor ?? undefined,
-  })
-  const inspections = useInfiniteQuery({
-    queryKey: [...gaKeys.inspections({}), "pages"] as const,
-    queryFn: ({ pageParam, signal }) =>
-      gaInspections({ limit: PAGE, cursor: pageParam }, signal),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) => last.next_cursor ?? undefined,
-  })
-
-  const taskRows = useMemo(
-    () => tasks.data?.pages.flatMap((page) => page.rows) ?? [],
-    [tasks.data]
-  )
-  const inspectionRows = useMemo(
-    () => inspections.data?.pages.flatMap((page) => page.rows) ?? [],
-    [inspections.data]
-  )
 
   return (
     <PageContent>
@@ -132,22 +103,11 @@ export function Schedule() {
         }
       />
 
-      <DockChoice
-        value={view}
-        onChange={(next) => setView(next as typeof view)}
-        options={[
-          {
-            value: "tasks",
-            label: `Tasks · ${formatCount(tasks.data?.pages[0]?.total ?? 0)}`,
-            short: "Tasks",
-          },
-          {
-            value: "inspections",
-            label: `Inspections · ${formatCount(inspections.data?.pages[0]?.total ?? 0)}`,
-            short: "Inspections",
-          },
-        ]}
-      />
+      {/* The counts in the dock's two buttons come from the two books; until
+          they arrive the buttons say only what they are. */}
+      <Suspense fallback={<ViewChoice view={view} onChange={setView} />}>
+        <CountedViewChoice view={view} onChange={setView} />
+      </Suspense>
       {view === "tasks" ? (
         <Fab label="Add task" onClick={() => setAddingTask(true)} />
       ) : (
@@ -157,180 +117,38 @@ export function Schedule() {
         />
       )}
 
+      {/* Both lists page from the server in the order they are read — tasks
+          soonest due first (undated last), inspections newest first — so
+          neither is re-sorted here: a sort over the loaded rows would
+          reshuffle as more arrived. Each stands in its own boundary, so the
+          one that is ready is not held for the other. */}
       {phone ? (
-        view === "tasks" ? (
-          taskRows.length === 0 ? (
-            tasks.isPending ? null : (
-              <Card>
-                <EmptyState
-                  action={
-                    <Button variant="ghost" onClick={() => setAddingTask(true)}>
-                      Add the first task
-                    </Button>
-                  }
-                >
-                  No recurring tasks yet. A task is recorded for one asset
-                  (genset service) or one location (AC wash across 13 stores).
-                </EmptyState>
-              </Card>
-            )
-          ) : (
-            <PhoneCards
-              rows={taskRows}
-              rowId={(row) => row.task_id}
-              spec={taskCard(setDoing)}
-              more={tasks}
+        <Suspense fallback={<LoadingState>Opening the schedule…</LoadingState>}>
+          {view === "tasks" ? (
+            <TaskBook
+              phone
+              onAdd={() => setAddingTask(true)}
+              onDone={setDoing}
             />
-          )
-        ) : inspectionRows.length === 0 ? (
-          inspections.isPending ? null : (
-            <Card>
-              <EmptyState
-                action={
-                  <Button
-                    variant="ghost"
-                    onClick={() => setAddingInspection(true)}
-                  >
-                    Record the first inspection
-                  </Button>
-                }
-              >
-                No inspections yet. Inspection results are recorded here, and a
-                finding can become a repair right away.
-              </EmptyState>
-            </Card>
-          )
-        ) : (
-          <PhoneCards
-            rows={inspectionRows}
-            rowId={(row) => row.inspection_id}
-            spec={INSPECTION_CARD}
-            more={inspections}
-          />
-        )
+          ) : (
+            <InspectionBook phone onAdd={() => setAddingInspection(true)} />
+          )}
+        </Suspense>
       ) : (
         <>
-          <TableCard
-            title="Tasks"
-            count={taskRows.length}
-            total={tasks.data?.pages[0]?.total ?? 0}
-            more={tasks}
-            empty="No recurring tasks yet. A task is recorded for one asset (genset service) or one location (AC wash across 13 stores)."
-            emptyAction={
-              <Button variant="ghost" onClick={() => setAddingTask(true)}>
-                Add the first task
-              </Button>
-            }
-            loading={tasks.isPending}
-          >
-            <div className="min-w-[74rem]">
-              <div className="grid h-10 grid-cols-[minmax(13rem,1fr)_minmax(13rem,1fr)_9rem_9rem_10rem_9rem_8rem] items-center gap-3 border-b border-hairline bg-soft px-3.5 text-eyebrow font-medium text-body">
-                <span>Task</span>
-                <span>Asset / location</span>
-                <span>Interval</span>
-                <span>Next due</span>
-                <span>Contract</span>
-                <span>Status</span>
-                <span />
-              </div>
-              {taskRows.map((row) => (
-                <div
-                  key={row.task_id}
-                  className="grid grid-cols-[minmax(13rem,1fr)_minmax(13rem,1fr)_9rem_9rem_10rem_9rem_8rem] items-center gap-3 border-b border-hairline px-3.5 py-2.5 last:border-b-0"
-                >
-                  <div className="min-w-0">
-                    <span className="block truncate text-cell font-medium text-ink">
-                      {row.title}
-                    </span>
-                    {row.notes !== null && (
-                      <span className="block truncate text-pill text-mute">
-                        {row.notes}
-                      </span>
-                    )}
-                  </div>
-                  <div className="min-w-0">
-                    <span className="block truncate text-meta text-body">
-                      {row.asset_name ?? row.site_id}
-                    </span>
-                    <span className="block truncate text-pill text-mute">
-                      {row.asset_name !== null
-                        ? "per asset"
-                        : "per location · every point at the location"}
-                    </span>
-                  </div>
-                  <span className="truncate text-meta text-body tabular-nums">
-                    {intervalLabel(row.interval_kind, row.interval_value)}
-                  </span>
-                  <span className="truncate text-meta text-body tabular-nums">
-                    {row.next_due === null ? "—" : day(row.next_due)}
-                  </span>
-                  <span className="min-w-0 truncate font-mono text-id text-body">
-                    {row.contract_number ??
-                      (row.contract_id === null
-                        ? "—"
-                        : row.contract_id.slice(0, 8))}
-                  </span>
-                  <span>
-                    <TaskStatePill nextDue={row.next_due} />
-                  </span>
-                  <span className="flex justify-end">
-                    {row.status === "ACTIVE" && (
-                      <Button variant="ghost" onClick={() => setDoing(row)}>
-                        <CalendarCheck />
-                        Record done
-                      </Button>
-                    )}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </TableCard>
-
-          <TableCard
-            title="Inspections"
-            count={inspectionRows.length}
-            total={inspections.data?.pages[0]?.total ?? 0}
-            more={inspections}
-            empty="No inspections yet. Inspection results are recorded here, and a finding can become a repair right away."
-            emptyAction={
-              <Button variant="ghost" onClick={() => setAddingInspection(true)}>
-                Record the first inspection
-              </Button>
-            }
-            loading={inspections.isPending}
-          >
-            <div className="min-w-[64rem]">
-              <div className="grid h-10 grid-cols-[minmax(14rem,1fr)_9rem_12rem_minmax(14rem,1fr)_10rem] items-center gap-3 border-b border-hairline bg-soft px-3.5 text-eyebrow font-medium text-body">
-                <span>Asset</span>
-                <span>Date</span>
-                <span>By</span>
-                <span>Finding</span>
-                <span>Result</span>
-              </div>
-              {inspectionRows.map((row) => (
-                <div
-                  key={row.inspection_id}
-                  className="grid grid-cols-[minmax(14rem,1fr)_9rem_12rem_minmax(14rem,1fr)_10rem] items-center gap-3 border-b border-hairline px-3.5 py-2.5 last:border-b-0"
-                >
-                  <span className="min-w-0 truncate text-cell font-medium text-ink">
-                    {row.asset_name ?? "—"}
-                  </span>
-                  <span className="truncate text-meta text-body tabular-nums">
-                    {day(row.inspected_on)}
-                  </span>
-                  <span className="min-w-0 truncate text-meta text-body">
-                    {row.inspected_by}
-                  </span>
-                  <span className="min-w-0 truncate text-meta text-body">
-                    {row.findings}
-                  </span>
-                  <span>
-                    <ResultPill result={row.result} />
-                  </span>
-                </div>
-              ))}
-            </div>
-          </TableCard>
+          <Suspense fallback={<TableCardHead title="Tasks" />}>
+            <TaskBook
+              phone={false}
+              onAdd={() => setAddingTask(true)}
+              onDone={setDoing}
+            />
+          </Suspense>
+          <Suspense fallback={<TableCardHead title="Inspections" />}>
+            <InspectionBook
+              phone={false}
+              onAdd={() => setAddingInspection(true)}
+            />
+          </Suspense>
         </>
       )}
 
@@ -358,6 +176,271 @@ export function Schedule() {
         onClose={() => setDoing(null)}
       />
     </PageContent>
+  )
+}
+
+/// The dock's choice between the two lists, without their counts.
+function ViewChoice({
+  view,
+  onChange,
+  tasks,
+  inspections,
+}: {
+  view: "tasks" | "inspections"
+  onChange: (view: "tasks" | "inspections") => void
+  tasks?: number
+  inspections?: number
+}) {
+  // The dock is the browser's: a boundary that streams in after the page has
+  // hydrated finds the dock already there and would draw into it, where the
+  // server drew nothing.
+  const hydrated = useHydrated()
+  if (!hydrated) return null
+  return (
+    <DockChoice
+      value={view}
+      onChange={(next) => onChange(next as typeof view)}
+      options={[
+        {
+          value: "tasks",
+          label:
+            tasks === undefined ? "Tasks" : `Tasks · ${formatCount(tasks)}`,
+          short: "Tasks",
+        },
+        {
+          value: "inspections",
+          label:
+            inspections === undefined
+              ? "Inspections"
+              : `Inspections · ${formatCount(inspections)}`,
+          short: "Inspections",
+        },
+      ]}
+    />
+  )
+}
+
+/// The same choice with how many of each the server holds.
+function CountedViewChoice({
+  view,
+  onChange,
+}: {
+  view: "tasks" | "inspections"
+  onChange: (view: "tasks" | "inspections") => void
+}) {
+  const tasks = useSuspenseInfiniteQuery(gaTaskBookQuery())
+  const inspections = useSuspenseInfiniteQuery(gaInspectionBookQuery())
+  return (
+    <ViewChoice
+      view={view}
+      onChange={onChange}
+      tasks={tasks.data.pages[0]?.total ?? 0}
+      inspections={inspections.data.pages[0]?.total ?? 0}
+    />
+  )
+}
+
+/// The recurring tasks: a phone's cards, or a table in its own box.
+function TaskBook({
+  phone,
+  onAdd,
+  onDone,
+}: {
+  phone: boolean
+  onAdd: () => void
+  onDone: (row: GaMaintenanceTaskRow) => void
+}) {
+  const tasks = useSuspenseInfiniteQuery(gaTaskBookQuery())
+  const taskRows = useMemo(
+    () => tasks.data.pages.flatMap((page) => page.rows),
+    [tasks.data]
+  )
+  const total = tasks.data.pages[0]?.total ?? 0
+
+  if (phone) {
+    return taskRows.length === 0 ? (
+      <Card>
+        <EmptyState
+          action={
+            <Button variant="ghost" onClick={onAdd}>
+              Add the first task
+            </Button>
+          }
+        >
+          No recurring tasks yet. A task is recorded for one asset (genset
+          service) or one location (AC wash across 13 stores).
+        </EmptyState>
+      </Card>
+    ) : (
+      <PhoneCards
+        rows={taskRows}
+        rowId={(row) => row.task_id}
+        spec={taskCard(onDone)}
+        more={tasks}
+      />
+    )
+  }
+
+  return (
+    <TableCard
+      title="Tasks"
+      count={taskRows.length}
+      total={total}
+      more={tasks}
+      empty="No recurring tasks yet. A task is recorded for one asset (genset service) or one location (AC wash across 13 stores)."
+      emptyAction={
+        <Button variant="ghost" onClick={onAdd}>
+          Add the first task
+        </Button>
+      }
+    >
+      <div className="min-w-[74rem]">
+        <div className="grid h-10 grid-cols-[minmax(13rem,1fr)_minmax(13rem,1fr)_9rem_9rem_10rem_9rem_8rem] items-center gap-3 border-b border-hairline bg-soft px-3.5 text-eyebrow font-medium text-body">
+          <span>Task</span>
+          <span>Asset / location</span>
+          <span>Interval</span>
+          <span>Next due</span>
+          <span>Contract</span>
+          <span>Status</span>
+          <span />
+        </div>
+        {taskRows.map((row) => (
+          <div
+            key={row.task_id}
+            className="grid grid-cols-[minmax(13rem,1fr)_minmax(13rem,1fr)_9rem_9rem_10rem_9rem_8rem] items-center gap-3 border-b border-hairline px-3.5 py-2.5 last:border-b-0"
+          >
+            <div className="min-w-0">
+              <span className="block truncate text-cell font-medium text-ink">
+                {row.title}
+              </span>
+              {row.notes !== null && (
+                <span className="block truncate text-pill text-mute">
+                  {row.notes}
+                </span>
+              )}
+            </div>
+            <div className="min-w-0">
+              <span className="block truncate text-meta text-body">
+                {row.asset_name ?? row.site_id}
+              </span>
+              <span className="block truncate text-pill text-mute">
+                {row.asset_name !== null
+                  ? "per asset"
+                  : "per location · every point at the location"}
+              </span>
+            </div>
+            <span className="truncate text-meta text-body tabular-nums">
+              {intervalLabel(row.interval_kind, row.interval_value)}
+            </span>
+            <span className="truncate text-meta text-body tabular-nums">
+              {row.next_due === null ? "—" : day(row.next_due)}
+            </span>
+            <span className="min-w-0 truncate font-mono text-id text-body">
+              {row.contract_number ??
+                (row.contract_id === null ? "—" : row.contract_id.slice(0, 8))}
+            </span>
+            <span>
+              <TaskStatePill nextDue={row.next_due} />
+            </span>
+            <span className="flex justify-end">
+              {row.status === "ACTIVE" && (
+                <Button variant="ghost" onClick={() => setDoing(row)}>
+                  <CalendarCheck />
+                  Record done
+                </Button>
+              )}
+            </span>
+          </div>
+        ))}
+      </div>
+    </TableCard>
+  )
+}
+
+/// The inspections: a phone's cards, or a table in its own box.
+function InspectionBook({
+  phone,
+  onAdd,
+}: {
+  phone: boolean
+  onAdd: () => void
+}) {
+  const inspections = useSuspenseInfiniteQuery(gaInspectionBookQuery())
+  const inspectionRows = useMemo(
+    () => inspections.data.pages.flatMap((page) => page.rows),
+    [inspections.data]
+  )
+  const total = inspections.data.pages[0]?.total ?? 0
+
+  if (phone) {
+    return inspectionRows.length === 0 ? (
+      <Card>
+        <EmptyState
+          action={
+            <Button variant="ghost" onClick={onAdd}>
+              Record the first inspection
+            </Button>
+          }
+        >
+          No inspections yet. Inspection results are recorded here, and a
+          finding can become a repair right away.
+        </EmptyState>
+      </Card>
+    ) : (
+      <PhoneCards
+        rows={inspectionRows}
+        rowId={(row) => row.inspection_id}
+        spec={INSPECTION_CARD}
+        more={inspections}
+      />
+    )
+  }
+
+  return (
+    <TableCard
+      title="Inspections"
+      count={inspectionRows.length}
+      total={total}
+      more={inspections}
+      empty="No inspections yet. Inspection results are recorded here, and a finding can become a repair right away."
+      emptyAction={
+        <Button variant="ghost" onClick={onAdd}>
+          Record the first inspection
+        </Button>
+      }
+    >
+      <div className="min-w-[64rem]">
+        <div className="grid h-10 grid-cols-[minmax(14rem,1fr)_9rem_12rem_minmax(14rem,1fr)_10rem] items-center gap-3 border-b border-hairline bg-soft px-3.5 text-eyebrow font-medium text-body">
+          <span>Asset</span>
+          <span>Date</span>
+          <span>By</span>
+          <span>Finding</span>
+          <span>Result</span>
+        </div>
+        {inspectionRows.map((row) => (
+          <div
+            key={row.inspection_id}
+            className="grid grid-cols-[minmax(14rem,1fr)_9rem_12rem_minmax(14rem,1fr)_10rem] items-center gap-3 border-b border-hairline px-3.5 py-2.5 last:border-b-0"
+          >
+            <span className="min-w-0 truncate text-cell font-medium text-ink">
+              {row.asset_name ?? "—"}
+            </span>
+            <span className="truncate text-meta text-body tabular-nums">
+              {day(row.inspected_on)}
+            </span>
+            <span className="min-w-0 truncate text-meta text-body">
+              {row.inspected_by}
+            </span>
+            <span className="min-w-0 truncate text-meta text-body">
+              {row.findings}
+            </span>
+            <span>
+              <ResultPill result={row.result} />
+            </span>
+          </div>
+        ))}
+      </div>
+    </TableCard>
   )
 }
 
@@ -433,7 +516,6 @@ function TableCard({
   more,
   empty,
   emptyAction,
-  loading,
   children,
 }: {
   title: string
@@ -444,7 +526,6 @@ function TableCard({
   more: Pageable
   empty: string
   emptyAction?: React.ReactNode
-  loading: boolean
   children: React.ReactNode
 }) {
   return (
@@ -453,7 +534,7 @@ function TableCard({
         <b className="text-card-title font-semibold text-ink">{title}</b>
         <span className="text-pill text-mute">{formatCount(total)}</span>
       </div>
-      {loading ? null : count === 0 ? (
+      {count === 0 ? (
         <EmptyState action={emptyAction}>{empty}</EmptyState>
       ) : (
         <div className="max-h-[36rem] overflow-auto">
@@ -461,6 +542,17 @@ function TableCard({
           <LoadMore query={more} />
         </div>
       )}
+    </Card>
+  )
+}
+
+/// A table's head while its rows are on the way.
+function TableCardHead({ title }: { title: string }) {
+  return (
+    <Card className="overflow-hidden">
+      <div className="flex items-baseline justify-between gap-3 border-b border-hairline bg-soft px-3.5 py-2.5">
+        <b className="text-card-title font-semibold text-ink">{title}</b>
+      </div>
     </Card>
   )
 }
@@ -565,7 +657,7 @@ function TaskComposer({
                 : "Task for one location"}
           </span>
           <div className="flex items-center gap-2">
-            <Button variant="ghost" onClick={onClose}>
+            <Button data-cancel variant="ghost" onClick={onClose}>
               Cancel
             </Button>
             <Button variant="primary" pending={save.isPending} onClick={submit}>
@@ -850,7 +942,7 @@ function InspectionComposer({
                 : "Recorded; the repair follows later if needed"}
           </span>
           <div className="flex items-center gap-2">
-            <Button variant="ghost" onClick={onClose}>
+            <Button data-cancel variant="ghost" onClick={onClose}>
               Cancel
             </Button>
             <Button variant="primary" pending={save.isPending} onClick={submit}>
@@ -1026,7 +1118,7 @@ function TaskDoneSheet({
       caption="A task for a whole location: the next due date moves on from the day the work was done."
       footer={
         <div className="flex items-center justify-end gap-2">
-          <Button variant="ghost" onClick={onClose}>
+          <Button data-cancel variant="ghost" onClick={onClose}>
             Cancel
           </Button>
           <Button

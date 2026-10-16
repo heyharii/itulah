@@ -2,6 +2,7 @@ import { useState } from "react"
 
 import { DockTools } from "@/components/shell/dock-tools"
 import { CardList } from "@/components/ui/card-list"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { LeadCard } from "@/components/ui/lead-card"
 import { Screen } from "@/components/ui/screen"
 import { Segmented } from "@/components/ui/segmented"
@@ -13,12 +14,11 @@ import { queryState } from "@/lib/query-state"
 import { CountSheet } from "@/screens/stock/count-sheet"
 import { kindLabel, poolName, statusOf } from "@/screens/stock/count-words"
 import { useOpenRecord } from "@/screens/stock/open-record"
-import { Figures } from "@/screens/stock/parts"
 
 /// Count — what head office asked this store to count, and the counts already
 /// sent. The count itself is blind and lives in the sheet.
 ///
-/// Nothing at the top but the title (the top bar's) and one line of figures. To
+/// Nothing at the top but the title (the top bar's) and the figures. To
 /// count / Done is the dock's status chip on a phone and a `Segmented` on a
 /// desk. A count is a card — the pool and the kind of count, the pieces filed so
 /// far as the one figure, and in the foot when it was asked beside a word
@@ -34,6 +34,8 @@ export function Count() {
   const all = counts.data ?? []
   const todo = all.filter((one) => one.status === "ACTIVE")
   const done = all.filter((one) => one.status !== "ACTIVE")
+  const ready = counts.data !== undefined
+  const counted = all.reduce((sum, one) => sum + one.counted, 0)
   const rows = view === "todo" ? todo : done
 
   return (
@@ -49,15 +51,16 @@ export function Count() {
         }}
       />
 
+      <KpiStrip>
+        <Kpi label="To count" value={ready ? count(todo.length) : "—"} />
+        <Kpi label="Done" value={ready ? count(done.length) : "—"} />
+        <Kpi label="Pieces counted" value={ready ? count(counted) : "—"} />
+      </KpiStrip>
+
       {queryState(counts, {
         loading: "Reading the counts…",
         render: () => (
           <>
-            <Figures>
-              <b className="font-medium text-ink">{count(todo.length)}</b> to
-              count · {count(done.length)} done
-            </Figures>
-
             {/* The desk's switch; on a phone it is the dock's status chip. */}
             <div className="mb-3.5 flex items-center max-md:hidden">
               <Segmented<View>

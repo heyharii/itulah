@@ -239,6 +239,11 @@ fn is_public(path: &str) -> bool {
     if path.starts_with("/api/v1/public/return-notes/") {
         return true;
     }
+    // The page a printed PO's QR opens (0971): read-only, the order cut down to
+    // what the paper shows; the token is the credential (`http::purchase_order_links`).
+    if path.starts_with("/api/v1/public/purchase-orders/") {
+        return true;
+    }
     matches!(
         path,
         "/api/v1/health"

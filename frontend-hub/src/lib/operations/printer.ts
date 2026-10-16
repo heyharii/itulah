@@ -112,7 +112,7 @@ export const TAG_PRESETS: readonly {
   { widthMm: 45, heightMm: 18, offsetMm: 2, note: "RFID type 2" },
   { widthMm: 58, heightMm: 40, note: "Tuned by hand" },
   { widthMm: 40, heightMm: 30 },
-  { widthMm: 100, heightMm: 50, note: "Cartons" },
+  { widthMm: 100, heightMm: 50, note: "Koli" },
 ]
 
 function read(): Printer {

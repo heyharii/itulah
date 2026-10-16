@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query"
-import { useMemo, useState } from "react"
+import { useSuspenseQueries } from "@tanstack/react-query"
+import { Suspense, useDeferredValue, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { ExportButton } from "@/components/ui/export-button"
@@ -7,13 +7,21 @@ import { PageHeader } from "@/components/ui/page-header"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { monthStamp, type ExportSheet } from "@/lib/export-xlsx"
 import { count, day, money } from "@/lib/format"
-import { financeKeys, trialBalance } from "@/lib/queries/finance"
+import { trialBalanceQuery } from "@/lib/queries/finance"
 import { useLayout } from "@/lib/layout"
 import { queryState } from "@/lib/query-state"
-import { Code, Grid, Td, Th, TotalRow } from "@/screens/finance-final/parts"
+import {
+  Code,
+  Grid,
+  Td,
+  Th,
+  TotalRow,
+  useAskedWindow,
+} from "@/screens/finance-final/parts"
 import { isoDay, ladderLevel } from "@/screens/finance/chart"
-import { useUnitName, useWindow } from "@/screens/finance/hooks"
+import { useSettledWindow, useUnitName } from "@/screens/finance/hooks"
 import { UnitName, UnitSelect, WindowControl } from "@/screens/finance/parts"
+import { ScreenPending } from "@/screens/finance/pending"
 import {
   PhoneStatement,
   type StatementLine,
@@ -62,37 +70,50 @@ import type { TrialBalanceRow } from "@itulah/contract"
 /// anything on this screen. Both must agree, and drawing only the first would
 /// mean a report that balances because of what it left out.
 export function TrialBalance() {
+  return (
+    <Suspense
+      fallback={
+        <ScreenPending
+          crumb="Finance · Financial Reports"
+          title="Trial Balance"
+        >
+          Adding up every account the book has touched…
+        </ScreenPending>
+      }
+    >
+      <TrialBalanceScreen />
+    </Suspense>
+  )
+}
+
+function TrialBalanceScreen() {
   const phone = useLayout() === "phone"
-  const range = useWindow()
+  const range = useSettledWindow()
   const [unit, setUnit] = useState("")
   // One row per account, as ERPNext's Trial Balance reads; "Split by Unit"
   // is the option, not the default.
   const [grain, setGrain] = useState<"unit" | "account">("account")
 
+  // The boxes answer at once; the two readings trail them, and the figures in
+  // hand stay on screen (dimmed) until the next are read.
+  const asked = useAskedWindow(range)
+  const askedUnit = useDeferredValue(unit)
+  const stale = asked.stale || askedUnit !== unit
+
   // The day before the window opens. A balance "as at 31 August" is what the
   // books carried into September, and asking for 1 September instead would put
   // the first day's postings into the opening column.
-  const before = useMemo(() => dayBefore(range.from), [range.from])
+  const before = useMemo(() => dayBefore(asked.from), [asked.from])
 
-  const opening = useQuery({
-    queryKey: financeKeys.trialBalance(before, unit || null),
-    queryFn: ({ signal }) =>
-      trialBalance(
-        { as_of: before, unit: unit || undefined, limit: 2000 },
-        signal
-      ),
-  })
-  const closing = useQuery({
-    queryKey: financeKeys.trialBalance(range.to, unit || null),
-    queryFn: ({ signal }) =>
-      trialBalance(
-        { as_of: range.to, unit: unit || undefined, limit: 2000 },
-        signal
-      ),
+  const [opening, closing] = useSuspenseQueries({
+    queries: [
+      trialBalanceQuery(before, askedUnit || null),
+      trialBalanceQuery(asked.to, askedUnit || null),
+    ],
   })
 
   const lines = useMemo(
-    () => join(opening.data?.rows ?? [], closing.data?.rows ?? [], grain),
+    () => join(opening.data.rows, closing.data.rows, grain),
     [opening.data, closing.data, grain]
   )
 
@@ -101,7 +122,7 @@ export function TrialBalance() {
   // should read as their chart does.
   const className = useMemo(() => {
     const table = new Map<string, string>()
-    for (const facet of closing.data?.facets.classes ?? []) {
+    for (const facet of closing.data.facets.classes) {
       if (facet.label !== null) table.set(facet.value, facet.label)
     }
     return table
@@ -115,21 +136,19 @@ export function TrialBalance() {
   // net-by-side identity over the lines actually drawn. They test different
   // things and a report that passed one and failed the other would be a report
   // hiding rows.
-  const proved = closing.data?.balanced ?? true
+  const proved = closing.data.balanced
   const footFolds =
     foot.closeDebit === foot.closeCredit && foot.openDebit === foot.openCredit
   const cut =
-    (closing.data !== undefined &&
-      closing.data.rows.length < closing.data.total) ||
-    (opening.data !== undefined &&
-      opening.data.rows.length < opening.data.total)
+    closing.data.rows.length < closing.data.total ||
+    opening.data.rows.length < opening.data.total
 
   const unitName = useUnitName()
 
   /// What is on screen, as a sheet: each class as a heading, its lines, its
   /// subtotal, then the foot.
   const build = (): ExportSheet | null => {
-    if (closing.data === undefined || lines.length === 0) return null
+    if (lines.length === 0) return null
     const rows: (string | number | null)[][] = []
     const rowStyles: { bold?: boolean; indent?: number }[] = []
     const split = grain === "unit"
@@ -168,11 +187,11 @@ export function TrialBalance() {
       rowStyles.push({ bold: true })
     }
     return {
-      filename: `Trial-Balance-${monthStamp(range.to)}`,
+      filename: `Trial-Balance-${monthStamp(asked.to)}`,
       sheet: "Trial Balance",
       title: "Trial Balance",
       subtitle: `${day(before)} → ${day(closing.data.as_of)} · ${
-        unit === "" ? "all units" : unitName(unit)
+        askedUnit === "" ? "all units" : unitName(askedUnit)
       }${split ? " · split by unit" : ""}`,
       columns: [
         { header: "Code", kind: "text", width: 12 },
@@ -207,26 +226,21 @@ export function TrialBalance() {
         // top of the page.
         actions={
           phone ? undefined : (
-            <ExportButton
-              build={build}
-              disabled={closing.data === undefined || lines.length === 0}
-            />
+            <ExportButton build={build} disabled={lines.length === 0} />
           )
         }
       />
 
       <ReportFilters
         note={
-          closing.data && (
-            <>
-              {day(before)} → {day(closing.data.as_of)} ·{" "}
-              {closing.data.unit_id === null ? (
-                "all units"
-              ) : (
-                <UnitName id={closing.data.unit_id} />
-              )}
-            </>
-          )
+          <>
+            {day(before)} → {day(closing.data.as_of)} ·{" "}
+            {closing.data.unit_id === null ? (
+              "all units"
+            ) : (
+              <UnitName id={closing.data.unit_id} />
+            )}
+          </>
         }
       >
         <UnitSelect
@@ -241,12 +255,7 @@ export function TrialBalance() {
           checked={grain === "unit"}
           onChange={(split) => setGrain(split ? "unit" : "account")}
         />
-        {phone && (
-          <ExportButton
-            build={build}
-            disabled={closing.data === undefined || lines.length === 0}
-          />
-        )}
+        {phone && <ExportButton build={build} disabled={lines.length === 0} />}
       </ReportFilters>
 
       {/* The one thing this report exists to say, said before anything else on
@@ -293,18 +302,23 @@ export function TrialBalance() {
         </Banner>
       )}
 
-      <div className="flex flex-col gap-4">
+      <div
+        className="list-swap flex flex-col gap-4"
+        aria-busy={stale || undefined}
+      >
         {queryState(closing, {
-          loading: "Adding up every account the book has touched…",
           render: () =>
             queryState(opening, {
-              loading: "Reading what the book carried in…",
               render: () =>
-                lines.length === 0 ? (
+                !asked.valid ? (
                   <EmptyState>
-                    Nothing has been posted as at {day(range.to)}
-                    {unit === "" ? ", in any unit" : " in this unit"}. There is
-                    no trial balance to draw yet.
+                    Choose a From date that is on or before the To date.
+                  </EmptyState>
+                ) : lines.length === 0 ? (
+                  <EmptyState>
+                    Nothing has been posted as at {day(asked.to)}
+                    {askedUnit === "" ? ", in any unit" : " in this unit"}.
+                    There is no trial balance to draw yet.
                   </EmptyState>
                 ) : phone ? (
                   <PhoneStatement
@@ -510,7 +524,7 @@ function phoneLines(
         name: split ? (
           <>
             {line.name}
-            <span className="block text-[0.875rem] font-normal text-mute">
+            <span className="block text-[0.9375rem] font-normal text-mute">
               {unitName(line.unitId)}
             </span>
           </>

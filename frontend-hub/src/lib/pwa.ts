@@ -22,6 +22,12 @@ import { registerSW } from "virtual:pwa-register"
 /// for a whole shift.
 export function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return
+  // The device's copy of the app — the worker's shell and the answers in
+  // IndexedDB — is what opens when there is no line, so ask the browser to
+  // mark this origin's storage persistent: without it a full disk can evict
+  // exactly the data the offline open depends on. An installed PWA is
+  // already exempt from Safari's seven-day cap; this covers the rest.
+  void navigator.storage?.persist?.().catch(() => undefined)
   const update = registerSW({
     immediate: true,
     onNeedRefresh() {

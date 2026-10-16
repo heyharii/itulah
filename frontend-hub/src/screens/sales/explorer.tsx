@@ -1,14 +1,21 @@
+import {
+  useSuspenseInfiniteQuery,
+  useSuspenseQuery,
+} from "@tanstack/react-query"
+import { useLocation } from "@tanstack/react-router"
 import type { ExplorerRow } from "@itulah/contract"
 import { ChevronRight } from "lucide-react"
-import { useMemo, useState } from "react"
+import { Suspense, useDeferredValue, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Card } from "@/components/ui/card"
 import { ExportButton } from "@/components/ui/export-button"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
+import { PageHeader } from "@/components/ui/page-header"
 import { RefreshStamp } from "@/components/ui/refresh-stamp"
-import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states"
-import { dateOf, isoOf, today } from "@/lib/calendar"
+import { EmptyState, LoadingState } from "@/components/ui/states"
+import { SubTabs } from "@/components/ui/sub-tabs"
+import { today } from "@/lib/calendar"
 import { fileSafe, type ExportSheet } from "@/lib/export-xlsx"
 import {
   count,
@@ -24,18 +31,16 @@ import { cn } from "@/lib/utils"
 import {
   ExportTool,
   FilterSheet,
-  Navbar,
   PeriodBar,
   PeriodSheet,
   PhoneDock,
   Applied,
   Tools,
-  ViewSwitch,
   type Update,
 } from "@/screens/sales/explorer-controls"
 import {
-  useExplorerOptions,
-  useExplorerRows,
+  explorerOptionsQuery,
+  explorerRowsQuery,
   type ExplorerQuery,
   type SalesExplorer,
 } from "@/screens/sales/explorer-data"
@@ -51,29 +56,40 @@ import {
   DRILL,
   drillInto,
   groupLabel,
+  groupOfPage,
   labelOf,
   marginOf,
+  monthColumns,
   noun,
+  pageTitle,
   perReceipt,
   periodLabel,
   receiptsOf,
   resolvePeriod,
   rangeOf,
+  storeColumns,
   unwind,
+  VIEW_LABEL,
+  viewOf,
+  viewsOf,
   type ExplorerState,
   type GroupKey,
+  type MatrixColumn,
 } from "@/screens/sales/explorer-model"
 import { useExplorerState } from "@/screens/sales/explorer-state"
 
-/// **Sales** — the department's one screen (owner, 9 Oct 2026, the "Navbar"
-/// prototype).
+/// **Sales** — one page per grouping, each a row of the department's sidebar
+/// (owner, 16 Oct 2026, `sales-sidebar-tabs-prototype.html` A · Views; before,
+/// one page with the groupings as a row of pills).
 ///
-/// The period over the top, the totals under it, then the groupings as a row of
-/// pills and, in a card, the rows they make. Totals reads each row once; Per
-/// store lays every store beside it, with the Totals pinned at the right and the
-/// stores tinted against each other. A division, a tag, a store or a supplier is
-/// stepped into (the way back is above the rows); an article or a SKU opens its
-/// sheet; a month narrows the period.
+/// The totals over the top, then the tabs — Totals · Per store · Per month —
+/// and, in a card, the rows. Totals reads each row once; Per store lays every
+/// store beside it and Per month every month of the period, with the Totals
+/// pinned at the right and the columns tinted against each other. Summary is
+/// time itself, its tabs the months and the days. A division, a tag, a store or
+/// a supplier is stepped into (the way back is above the rows, on the page of
+/// the rows it lands on); an article or a SKU opens its sheet; a month or a day
+/// narrows the period.
 ///
 /// `GET /api/v1/reports/sales/explorer`, a hundred rows a page as the table
 /// scrolls. Every figure is the server's: the browser only divides one by
@@ -86,64 +102,92 @@ import { useExplorerState } from "@/screens/sales/explorer-state"
 const ARTICLE_COUNTS: ReadonlySet<GroupKey> = new Set()
 
 export function SalesExplorer() {
+  const phone = useLayout() === "phone"
+  const pathname = useLocation({ select: (location) => location.pathname })
+  const group = groupOfPage(pathname)
+  // The title stands at once; the figures, the controls and the rows wait for
+  // the days there are sales for and the first page of the default view, and
+  // stream in with them (the server starts both reads too).
+  return (
+    <PageContent fill={!phone}>
+      {/* The page head, like every list's. On a phone the top bar already says
+          the page, so only the line under it stays: what period and how many
+          stores are on screen, with the reload in the dock. A desk has that
+          line at the foot of the results card, and the period beside the
+          search in the one bar over the rows. */}
+      <PageHeader title={group === null ? "Sales" : pageTitle(group)} />
+      <Suspense fallback={<LoadingState>Adding up the sales…</LoadingState>}>
+        <ExplorerBody />
+      </Suspense>
+    </PageContent>
+  )
+}
+
+function ExplorerBody() {
   const layout = useLayout()
   const phone = layout === "phone"
   const tablet = layout === "tablet"
   const { state, q, update, setQuery } = useExplorerState()
-  const options = useExplorerOptions()
+  const options = useSuspenseQuery(explorerOptionsQuery())
   const [filterOpen, setFilterOpen] = useState(false)
   const [periodOpen, setPeriodOpen] = useState(false)
   const [open, setOpen] = useState<ExplorerRow | null>(null)
 
   // -- the question ----------------------------------------------------------
-  const latest = options.data?.latest_day ?? null
-  const earliest = options.data?.earliest_day ?? null
+  const latest = options.data.latest_day ?? null
+  const earliest = options.data.earliest_day ?? null
   const now = today()
   const range = useMemo(
-    () =>
-      options.data === undefined
-        ? null
-        : resolvePeriod(state.period, now, latest, earliest),
-    [options.data, state.period, now, latest, earliest]
+    () => resolvePeriod(state.period, now, latest, earliest),
+    [state.period, now, latest, earliest]
   )
-  // Per store is offered for everything but the stores themselves.
-  const perStore = state.group !== "store"
-  const stores = state.view === "stores" && perStore
-  const query = useMemo<ExplorerQuery | null>(
-    () =>
-      range === null
-        ? null
-        : {
-            from: range.from,
-            to: range.to,
-            group: state.group,
-            stores: state.stores,
-            divisions: state.divisions,
-            suppliers: state.suppliers,
-            tags: state.tags,
-            colours: state.colours,
-            sizes: state.sizes,
-            q,
-            matrix: stores,
-            articles: ARTICLE_COUNTS.has(state.group),
-          },
-    [range, state, q, stores]
+  // The tab: Totals, Per store or Per month, where the page has them.
+  const view = viewOf(state)
+  const stores = view === "stores"
+  const months = view === "months"
+  const query = useMemo<ExplorerQuery>(
+    () => ({
+      from: range.from,
+      to: range.to,
+      group: state.group,
+      stores: state.stores,
+      divisions: state.divisions,
+      suppliers: state.suppliers,
+      tags: state.tags,
+      colours: state.colours,
+      sizes: state.sizes,
+      q,
+      matrix: stores,
+      months,
+      articles: ARTICLE_COUNTS.has(state.group),
+    }),
+    [range, state, q, stores, months]
   )
-  const rows = useExplorerRows(query)
-  const pages = rows.data?.pages
-  const head = pages?.[0]
-  const all = useMemo(() => pages?.flatMap((page) => page.rows) ?? [], [pages])
+  // The table under a new question stays as it was until the answer comes: a
+  // search typed one letter at a time must not blank the screen. The deferred
+  // question keeps the rows in hand on screen while the next are read.
+  const asked = useDeferredValue(query)
+  const stale = asked !== query
+  const rows = useSuspenseInfiniteQuery(explorerRowsQuery(asked))
+  const pages = rows.data.pages
+  const head = pages[0]
+  const all = useMemo(() => pages.flatMap((page) => page.rows), [pages])
 
   // The rows still on screen came from a question that did not ask for the
-  // stores (the totals'), and the per-store table cannot be drawn from them:
-  // say so rather than draw a grid of dashes.
-  const awaitingStores =
-    rows.isPlaceholderData &&
-    stores &&
-    all.length > 0 &&
-    all.every((row) => row.cells.length === 0)
+  // stores or the months (the totals'), and the table beside them cannot be
+  // drawn from them: say so rather than draw a grid of dashes. Asked the other
+  // way (stores, now months) the cells are the wrong ones: the same.
+  const laidOut = view !== "totals"
+  const awaitingCells =
+    stale && laidOut && (asked.matrix !== stores || asked.months !== months)
+  // The stores, or the months of the period, beside the rows.
+  const columns = useMemo<readonly MatrixColumn[]>(
+    () =>
+      months ? monthColumns(range) : stores ? storeColumns(head.stores) : [],
+    [months, stores, range, head.stores]
+  )
 
-  const canCost = head?.can_see_cost ?? options.data?.can_see_cost ?? true
+  const canCost = head.can_see_cost ?? options.data.can_see_cost ?? true
   const customRange = rangeOf(state.period) !== null
 
   // -- what pressing does ----------------------------------------------------
@@ -153,12 +197,6 @@ export function SalesExplorer() {
     // A row with no key (Unclassified, No supplier) has nothing to narrow to.
     if (filter !== undefined && row.key !== "")
       return update((s) => drillInto(s, filter, row.key, label), true, "")
-    if (state.group === "month" && range !== null)
-      return update(
-        (s) => drillInto(s, "period", monthOf(row.key, range), label),
-        true,
-        ""
-      )
     if (state.group === "article" || state.group === "sku") setOpen(row)
   }
 
@@ -176,10 +214,13 @@ export function SalesExplorer() {
       head,
       rows: all,
       group: state.group,
-      view: stores ? "stores" : "totals",
+      view,
+      columns,
       canCost,
       subtitle: periodLabel(range),
-      filename: `Sales-by-${fileSafe(groupLabel(state.group))}-${range.from}-${range.to}`,
+      filename: `Sales-by-${fileSafe(groupLabel(state.group))}${
+        laidOut ? `-${fileSafe(VIEW_LABEL[view])}` : ""
+      }-${range.from}-${range.to}`,
     })
   }
   const nothingToExport = head === undefined || all.length === 0
@@ -198,44 +239,36 @@ export function SalesExplorer() {
       </>
     ) : null
 
-  const grid: GridProps | null =
-    head === undefined
-      ? null
-      : {
-          head,
-          rows: all,
-          group: state.group,
-          view: stores ? "stores" : "totals",
-          heat: state.heat,
-          canCost,
-          more: rows,
-          onOpen,
-        }
+  const grid: GridProps = {
+    head,
+    rows: all,
+    group: state.group,
+    view,
+    columns,
+    heat: state.heat,
+    canCost,
+    more: rows,
+    onOpen,
+  }
 
   // What is under the tools: the rows, or the sentence for when there are none.
-  const body =
-    head === undefined ? (
-      rows.isError ? (
-        <ErrorState error={rows.error} onRetry={() => rows.refetch()} />
-      ) : (
-        <LoadingState>Adding up the sales…</LoadingState>
-      )
-    ) : awaitingStores ? (
-      <LoadingState>Adding up the sales…</LoadingState>
-    ) : all.length === 0 ? (
-      <EmptyState>
-        {emptyText({
-          searching: q.trim() !== "",
-          from: range?.from ?? "",
-          to: range?.to ?? "",
-          latest,
-          earliest: head.earliest_day,
-        })}
-      </EmptyState>
-    ) : (
-      grid !== null &&
-      (phone ? <PhoneGrid {...grid} /> : <DeskGrid {...grid} />)
-    )
+  const body = awaitingCells ? (
+    <LoadingState>Adding up the sales…</LoadingState>
+  ) : all.length === 0 ? (
+    <EmptyState>
+      {emptyText({
+        searching: q.trim() !== "",
+        from: range?.from ?? "",
+        to: range?.to ?? "",
+        latest,
+        earliest: head.earliest_day,
+      })}
+    </EmptyState>
+  ) : phone ? (
+    <PhoneGrid {...grid} />
+  ) : (
+    <DeskGrid {...grid} />
+  )
 
   const filterSheet = (
     <FilterSheet
@@ -256,54 +289,22 @@ export function SalesExplorer() {
     />
   )
 
-  if (options.isError)
-    return (
-      <PageContent>
-        <ErrorState error={options.error} onRetry={() => options.refetch()} />
-      </PageContent>
-    )
-
   return (
-    <PageContent fill={!phone}>
-      {/* The title and the line under it say what is on screen; on a phone the
-          top bar already says "Sales", so only the line stays. */}
-      <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-3 md:-mt-1">
-        <div className="min-w-0 flex-1">
-          <h1 className="text-[0.9375rem] leading-5 font-semibold text-ink max-md:hidden">
-            Sales
-          </h1>
-          <div className="flex flex-wrap items-center gap-x-3">
-            <p className="min-h-5 text-[0.875rem] text-mute tabular-nums">
-              {quiet}
-            </p>
-            {/* On a phone the words stay here and the reload is in the dock;
-                a desk has both in the tools row of the results card. */}
-            {phone && <RefreshStamp queries={[options, rows]} />}
-          </div>
+    <>
+      {phone && (
+        <div className="mb-4 flex flex-wrap items-center gap-x-3">
+          <p className="min-h-5 text-[0.9375rem] text-mute tabular-nums">
+            {quiet}
+          </p>
+          <RefreshStamp queries={[options, rows]} />
         </div>
-        {!phone && range !== null && (
-          <PeriodBar
-            state={state}
-            update={update}
-            range={range}
-            bounds={bounds}
-          />
-        )}
-      </div>
+      )}
 
       {head !== undefined && (
         <Strip head={head} canCost={canCost} phone={phone} />
       )}
 
-      {!phone && (
-        <div className="mb-3 flex">
-          <Navbar
-            group={state.group}
-            short={tablet}
-            onChange={(group) => update((s) => ({ ...s, group }), true, "")}
-          />
-        </div>
-      )}
+      <PageTabs state={state} update={update} />
 
       {phone ? (
         <>
@@ -311,22 +312,16 @@ export function SalesExplorer() {
             <b className="text-[0.9375rem] font-semibold text-ink">
               {groupLabel(state.group)}
             </b>
-            <span className="text-[0.875rem] text-mute tabular-nums">
+            <span className="text-[0.9375rem] text-mute tabular-nums">
               {head === undefined ? "" : rowsText}
             </span>
-            <div className="flex-1" />
-            <ViewSwitch
-              view={stores ? "stores" : "totals"}
-              perStore={perStore}
-              onChange={(view) => update((s) => ({ ...s, view }), true)}
-            />
           </div>
           <Applied state={state} update={update} options={options.data} />
           <Crumbs state={state} update={update} phone />
           <div
             className={cn(
               "transition-opacity duration-150 ease-out",
-              rows.isPlaceholderData && "opacity-60"
+              stale && "opacity-60"
             )}
           >
             {head !== undefined && all.length === 0 ? (
@@ -344,7 +339,21 @@ export function SalesExplorer() {
             state={state}
             update={update}
             onOpenFilter={() => setFilterOpen(true)}
-            refresh={<RefreshStamp queries={[options, rows]} />}
+            // The period joins the bar: one row over the rows, not one beside
+            // the title and another over the card.
+            refresh={
+              <>
+                {range !== null && (
+                  <PeriodBar
+                    state={state}
+                    update={update}
+                    range={range}
+                    bounds={bounds}
+                  />
+                )}
+                <RefreshStamp queries={[options, rows]} />
+              </>
+            }
             exporter={
               <ExportTool
                 build={build}
@@ -358,17 +367,18 @@ export function SalesExplorer() {
           <div
             className={cn(
               "flex min-h-0 flex-1 flex-col transition-opacity duration-150 ease-out",
-              rows.isPlaceholderData && "opacity-60"
+              stale && "opacity-60"
             )}
           >
             {body}
           </div>
           {head !== undefined && (
-            <div className="flex shrink-0 items-center gap-3 border-t border-hairline px-4 py-3 text-[0.875rem] text-mute tabular-nums">
+            <div className="flex shrink-0 items-center gap-3 border-t border-hairline px-4 py-3 text-[0.9375rem] text-mute tabular-nums">
               <span>{rowsText}</span>
-              {stores && state.heat && (
+              {quiet !== null && <span>{quiet}</span>}
+              {laidOut && state.heat && (
                 <span className="inline-flex items-center gap-1.5">
-                  · Lowest store
+                  · Lowest {months ? "month" : "store"}
                   <span
                     aria-hidden
                     className="inline-block h-2.5 w-[4.5rem] rounded-full"
@@ -377,7 +387,7 @@ export function SalesExplorer() {
                         "linear-gradient(90deg, color-mix(in srgb, var(--accent) 4%, transparent), color-mix(in srgb, var(--accent) 32%, transparent))",
                     }}
                   />
-                  highest store, per row
+                  highest {months ? "month" : "store"}, per row
                 </span>
               )}
             </div>
@@ -391,7 +401,6 @@ export function SalesExplorer() {
             q={q}
             onQuery={setQuery}
             state={state}
-            update={update}
             periodText={periodLabel(range)}
             custom={customRange}
             onOpenFilter={() => setFilterOpen(true)}
@@ -418,7 +427,24 @@ export function SalesExplorer() {
           onClose={() => setOpen(null)}
         />
       )}
-    </PageContent>
+    </>
+  )
+}
+
+/// The page's tabs: Totals · Per store · Per month (owner, 16 Oct 2026). A page
+/// read only one way has none. On a phone they are the dock's status button
+/// (`SubTabs`).
+function PageTabs({ state, update }: { state: ExplorerState; update: Update }) {
+  const views = viewsOf(state.group)
+  if (views.length === 0) return null
+  return (
+    <SubTabs
+      tabs={views.map((one) => ({ value: one, label: VIEW_LABEL[one] }))}
+      value={viewOf(state)}
+      onChange={(next) =>
+        update((s) => ({ ...s, view: next as ExplorerState["view"] }), true)
+      }
+    />
   )
 }
 
@@ -504,7 +530,7 @@ function Strip({
       />
       {canCost && t.cost_minor !== null && (
         <Kpi
-          label="Acquisition cost"
+          label="COGS"
           value={compact(t.cost_minor)}
           delta={
             t.uncosted_qty > 0 ? (
@@ -535,7 +561,7 @@ function Strip({
         value={t.stock === null ? "—" : quantity(t.stock)}
         delta={
           canCost && t.stock_cost_minor !== null ? (
-            <Sub>{`${moneyCompact(t.stock_cost_minor)} at acquisition`}</Sub>
+            <Sub>{`worth ${moneyCompact(t.stock_cost_minor)}`}</Sub>
           ) : undefined
         }
         tone="flat"
@@ -564,7 +590,7 @@ function Crumbs({
     <nav
       aria-label="Where you are"
       className={cn(
-        "flex shrink-0 flex-wrap items-center gap-1.5 text-[0.875rem] text-mute",
+        "flex shrink-0 flex-wrap items-center gap-1.5 text-[0.9375rem] text-mute",
         phone
           ? "mb-3 rounded-card border border-hairline bg-canvas px-4 py-2.5"
           : "border-b border-hairline px-4 py-2.5"
@@ -617,13 +643,4 @@ function emptyText({
   if (outside)
     return `Nothing sold in this period. The latest sales day is ${day(latest)}.`
   return "Nothing sold in this period."
-}
-
-/// The days a month row stands for, kept inside the period.
-function monthOf(key: string, range: { from: string; to: string }): string {
-  const at = dateOf(key)
-  const last = isoOf(new Date(at.getFullYear(), at.getMonth() + 1, 0))
-  const from = key < range.from ? range.from : key
-  const to = last > range.to ? range.to : last
-  return `${from}..${to}`
 }

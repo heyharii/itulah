@@ -45,7 +45,7 @@ export function TeamTab({ store }: { store: StoreSummary }) {
           actions={
             <AppLink
               to="/master/organisation"
-              className="text-[0.875rem] font-medium text-accent"
+              className="text-[0.9375rem] font-medium text-accent"
             >
               Change in Master › Units
             </AppLink>
@@ -60,7 +60,7 @@ export function TeamTab({ store }: { store: StoreSummary }) {
               {store.pic.name}
             </AppLink>
           ) : (
-            <p className="text-[0.875rem] text-body">
+            <p className="text-[0.9375rem] text-body">
               Nobody is appointed yet.
             </p>
           )}
@@ -231,7 +231,7 @@ export function FacilitiesTab({ siteId }: { siteId: string }) {
   return (
     <div className="flex max-w-2xl flex-col gap-4">
       <Card className="flex items-center justify-between gap-3 p-4">
-        <p className="text-[0.875rem] text-body">
+        <p className="text-[0.9375rem] text-body">
           The address, floor area, contact and everything GA keeps about this
           shop&rsquo;s premises.
         </p>

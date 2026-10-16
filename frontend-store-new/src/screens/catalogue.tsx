@@ -1,33 +1,65 @@
 import { Menu } from "@base-ui/react/menu"
 import { useQuery } from "@tanstack/react-query"
 import { useNavigate, useRouter } from "@tanstack/react-router"
-import { ArrowUpDown, Check, Plus, Search, Sparkles, X } from "lucide-react"
+import {
+  ArrowUpDown,
+  Check,
+  ListFilter,
+  Search,
+  Sparkles,
+  X,
+} from "lucide-react"
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react"
 
 import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
-import { CardList } from "@/components/ui/card-list"
-import { LeadCard } from "@/components/ui/lead-card"
-import { PickerSheet } from "@/components/ui/picker-sheet"
-import { Pill } from "@/components/ui/pill"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { Screen } from "@/components/ui/screen"
 import { Segmented } from "@/components/ui/segmented"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { count, label } from "@/lib/format"
 import { useGo } from "@/lib/go"
+import { useLayout } from "@/lib/layout"
 import { useParam, type Search as UrlSearch } from "@/lib/params"
 import {
-  catalogueKey,
-  fetchCatalogue,
-  fetchOffers,
-  offersKey,
+  catalogueQuery,
+  finalPricesQuery,
+  offersQuery,
+  skuStockQuery,
 } from "@/lib/queries"
-import { isDown } from "@/lib/prices"
 import { queryState } from "@/lib/query-state"
 import { cn } from "@/lib/utils"
-import { Photograph } from "@/screens/catalogue-parts"
+import {
+  shapeBook,
+  sizeLine,
+  sortSizes,
+  swatchBackground,
+  type ArticleColour,
+} from "@/lib/variants"
+import { FilterDock, FilterSheet } from "@/screens/catalogue-filters"
+import {
+  cardsOf,
+  dealsOfCard,
+  facetsOf,
+  filterCount,
+  holdingsOf,
+  itemsOf,
+  NO_FILTERS,
+  ORDERS,
+  passes,
+  percentOff,
+  sizesLeft,
+  sortCards,
+  type Card,
+  type Filters,
+  type Holding,
+  type Item,
+  type Order,
+} from "@/screens/catalogue-model"
+import { Photograph, SoldOutStamp } from "@/screens/catalogue-parts"
+import { CatalogueTable, Sizes } from "@/screens/catalogue-table"
 import { ProductSheet } from "@/screens/product"
-import type { CatalogRow } from "@itulah/contract"
+import type { CatalogRow, StoreOffer } from "@itulah/contract"
 import { money } from "@itulah/contract/money"
 
 /// The range, as somebody standing in front of it sees it — and the TEMPLATE
@@ -35,17 +67,30 @@ import { money } from "@itulah/contract/money"
 ///
 /// ## What is on the page
 ///
-/// Nothing at the top but the title and one line of figures. Everything that
+/// Nothing at the top but the title and the figures. Everything that
 /// searches, narrows or orders the list lives in the DOCK over the phone's
 /// bottom bar (`DockTools`): the search, the division as the status chip
-/// (Everything / Pria / Wanita…), and in its ⚙ sheet the order ("Range") and
-/// the By article / By SKU view, and the tags as the filter. On a desk the same
-/// controls are a toolbar and a docked panel, because a mouse has the room.
+/// (Everything / Pria / Wanita…), and in its ⚙ sheet the filters (sold out,
+/// deals, colour, size, tags), the order, By article / By SKU and Grid /
+/// Table. On a desk the same controls are a toolbar and a docked panel,
+/// because a mouse has the room; a tablet held upright, with no room for the
+/// panel, opens the same filters as a sheet.
 ///
-/// The records are the uniform lead-figure card (`LeadCard`): a thumbnail, the
-/// name over its code, the price as the one figure, and "N SKUs" in the foot —
-/// one column on a phone, the same cards in a grid on a desk. An article opens
-/// as a sheet over the list (`ProductSheet`, `?sku=` in the URL).
+/// The records are a shop's product tiles, as any online shop draws them: the
+/// garment, its colours as swatches, the article's name, the price and the
+/// sizes — two across on a phone, as many as fit on a desk — or the same
+/// records as a table. Pointing at a swatch shows that colour; pressing one
+/// opens the article on it. An article opens as a sheet over the list
+/// (`ProductSheet`, `?sku=` in the URL).
+///
+/// ## The price is the counter's
+///
+/// What a tile says an article costs is what the till takes from a walk-in
+/// shopper for one piece right now: the shelf price, less the markdown, less
+/// every promotion that reaches a single piece (`/store/final-prices`, the
+/// engine's own answer). Struck under it, the price before any of that. A
+/// voucher or a members' price is not in it — those need a code or a card —
+/// and is said as a deal instead.
 ///
 /// The shop already had a price *list* — `/sell` searches the resident book
 /// when a scan fails, and answers with rows of text. This is the other half of
@@ -55,21 +100,26 @@ import { money } from "@itulah/contract/money"
 ///
 /// **Everything on this screen is decided in the browser.** One request fetches
 /// the whole resident book — which `lib/queries.ts` already does for the till —
-/// and the search, the division filter, the counts and the sort all run over
-/// what is in hand. On the console that would be wrong and the server counts
-/// its own facets; here it is the entire point. A shop's catalogue is thousands
-/// of rows, not millions, it is already cached for the counter, and a screen
-/// that asked the node for each keystroke would stop working in exactly the
-/// hour the shop needs it: the line down, the customer still standing there.
+/// and the search, the filters, the counts and the sort all run over what is
+/// in hand (`catalogue-model.ts`). On the console that would be wrong and the
+/// server counts its own facets; here it is the entire point. A shop's
+/// catalogue is thousands of rows, not millions, it is already cached for the
+/// counter, and a screen that asked the node for each keystroke would stop
+/// working in exactly the hour the shop needs it: the line down, the customer
+/// still standing there.
 export function Catalogue() {
   const go = useGo()
   const router = useRouter()
   const navigate = useNavigate()
+  const phone = useLayout() === "phone"
   const search = useParam("q")
   const division = useParam("division")
   const viewParam = useParam("view")
+  const layoutParam = useParam("layout")
   const sku = useParam("sku")
   const view = viewParam.value ?? "article"
+  const bySku = view === "sku"
+  const layout = layoutParam.value ?? "grid"
 
   /// What is being typed, held locally and pushed to the URL as it settles.
   ///
@@ -95,8 +145,7 @@ export function Catalogue() {
   const needle = useDeferredValue(typed).trim().toLowerCase()
 
   const catalogue = useQuery({
-    queryKey: catalogueKey(),
-    queryFn: ({ signal }) => fetchCatalogue(signal),
+    ...catalogueQuery(),
     /// A minute, and it overrides the app's five-minute staleness.
     ///
     /// The rest of the till is right to be lazy: a basket is priced from the
@@ -109,115 +158,124 @@ export function Catalogue() {
     refetchInterval: 60_000,
   })
 
-  /// Only to put a number on the promotions line and to say which promotions
-  /// reach an article. A failure here must not take the catalogue down with it
-  /// — the prices are the point, and an offers endpoint an older node does not
-  /// serve should cost the line and nothing else.
-  const offers = useQuery({
-    queryKey: offersKey(),
-    queryFn: ({ signal }) => fetchOffers(signal),
-  })
+  /// The promotions line, and which deals reach an article. A failure here
+  /// must not take the catalogue down with it — the prices are the point, and
+  /// an offers endpoint an older node does not serve should cost the deals
+  /// and nothing else.
+  const offers = useQuery(offersQuery())
   const running = offers.data?.running.length ?? 0
   const soon = offers.data?.upcoming.length ?? 0
 
+  /// The price a walk-in pays. Refetched each minute for the catalogue's own
+  /// reason, and more: a promotion's hour starts with no new publication. A
+  /// node that does not serve it yet costs the promotions their place in the
+  /// price, and the shelf price shows — never an error over the range.
+  const finals = useQuery({
+    ...finalPricesQuery(),
+    refetchInterval: 60_000,
+  })
+
+  /// What the shop holds of each SKU — the stamps, the struck sizes, the
+  /// figures. Until it arrives nothing is known to be sold out.
+  const stock = useQuery({
+    ...skuStockQuery(),
+    refetchInterval: 60_000,
+  })
+
   const book = catalogue.data
   const rows = useMemo(() => book?.items ?? [], [book])
+  /// Every article's colours and sizes, read once per book rather than per
+  /// tile per keystroke — and over the whole book, so a search for "navy"
+  /// still shows the article's other colours on its tile.
+  const shapes = useMemo(() => shapeBook(rows), [rows])
+  const finalMap = useMemo(
+    () =>
+      new Map(
+        (finals.data?.items ?? []).map((one) => [one.sku_code, one] as const),
+      ),
+    [finals.data],
+  )
+  const stockMap = useMemo(
+    () =>
+      stock.data === undefined
+        ? null
+        : new Map(stock.data.items.map((one) => [one.sku_code, one] as const)),
+    [stock.data],
+  )
+  const runningOffers = offers.data?.running ?? NO_OFFERS
+  const items = useMemo(
+    () =>
+      itemsOf({
+        rows,
+        shapes,
+        finals: finalMap,
+        stock: stockMap,
+        offers: runningOffers,
+      }),
+    [rows, shapes, finalMap, stockMap, runningOffers],
+  )
+  /// Each article's pieces by size and colour, over all its SKUs whatever is
+  /// filtered — a size is sold out whether or not it is being looked at.
+  const holdings = useMemo(() => holdingsOf(items), [items])
 
-  /// Everything the *words* match, before a division narrows it.
-  ///
-  /// The base the facets and the two figures in the panel are counted over —
-  /// the distinction the console's facets make and it matters as much here:
-  /// if choosing Menswear made every other division read zero, the list of
-  /// divisions would stop being a map of the shop and become a description of
-  /// the filter already applied.
+  /// Everything the *words* match. The base every facet is counted over.
   const wordMatched = useMemo(
-    () => rows.filter((row) => matchesWords(row, needle)),
-    [rows, needle],
+    () => items.filter((item) => matchesWords(item.row, needle)),
+    [items, needle],
   )
 
-  /// Tags the range is narrowed to; a row must carry every one.
-  const [chosenTags, setChosenTags] = useState<readonly string[]>([])
-  const [tagsOpen, setTagsOpen] = useState(false)
-  const searchable = useMemo(
-    () =>
-      chosenTags.length === 0
-        ? wordMatched
-        : wordMatched.filter((row) =>
-            chosenTags.every((tag) => row.tags.includes(tag)),
-          ),
-    [wordMatched, chosenTags],
+  /// The filters. The division is in the URL — it is the dock's status, a
+  /// place rather than a filter — and the rest is this visit's.
+  const [chosen, setChosen] = useState<Omit<Filters, "division">>(NO_FILTERS)
+  const filters = useMemo<Filters>(
+    () => ({ ...chosen, division: division.value }),
+    [chosen, division.value],
   )
-  const tagCounts = useMemo(() => {
-    const counts = new Map<string, number>()
-    for (const row of wordMatched)
-      for (const tag of row.tags) counts.set(tag, (counts.get(tag) ?? 0) + 1)
-    return [...counts.entries()].sort((a, b) =>
-      a[1] === b[1] ? a[0].localeCompare(b[0]) : b[1] - a[1],
-    )
-  }, [wordMatched])
+  const setFilters = (next: Filters) => {
+    const { division: place, ...rest } = next
+    setChosen(rest)
+    if (place !== division.value) division.set(place)
+  }
+  const [filterOpen, setFilterOpen] = useState(false)
 
-  /// What each division holds, counted in the unit the list is showing —
-  /// articles in the article view, SKUs in the SKU view — so a division's
-  /// figure and the cards it narrows to cannot disagree.
-  const divisions = useMemo(() => {
-    const units = new Map<string, Set<string>>()
-    for (const row of searchable) {
-      const code = row.division_code
-      if (code === null || code === "") continue
-      const unit =
-        view === "sku" ? row.sku_code : (row.article_code ?? row.sku_code)
-      const set = units.get(code)
-      if (set === undefined) units.set(code, new Set([unit]))
-      else set.add(unit)
-    }
-    return [...units.entries()]
-      .map(([code, set]) => [code, set.size] as const)
-      .sort((a, b) => (a[1] === b[1] ? a[0].localeCompare(b[0]) : b[1] - a[1]))
-  }, [searchable, view])
-
-  /// An article is a style; a SKU is one of its sizes or colours. A row
-  /// without an article code stands alone.
-  const articles = useMemo(
+  /// Each facet counted in the unit the list shows — articles, or SKUs — with
+  /// every filter but its own applied, so choosing Navy does not make every
+  /// other colour read zero and stop being a way to look.
+  const facets = useMemo(
     () =>
-      new Set(searchable.map((row) => row.article_code ?? row.sku_code)).size,
-    [searchable],
+      facetsOf(
+        wordMatched,
+        filters,
+        bySku ? (item) => item.row.sku_code : (item) => item.key,
+        sortSizes,
+      ),
+    [wordMatched, filters, bySku],
+  )
+  const matched = useMemo(
+    () => wordMatched.filter((item) => passes(item, filters)),
+    [wordMatched, filters],
   )
 
   const [order, setOrder] = useState<Order>("range")
+  const cards = useMemo(
+    () => sortCards(cardsOf(matched, shapes, bySku), order),
+    [matched, shapes, bySku, order],
+  )
 
-  const shown = useMemo(() => {
-    const picked =
-      division.value === undefined
-        ? searchable
-        : searchable.filter((row) => row.division_code === division.value)
-    return sorted(picked, order)
-  }, [searchable, division.value, order])
-
-  /// One card per article: its SKUs folded into the cheapest of them, in the
-  /// order the first of them appeared. A row with no article code stands alone.
-  const cards = useMemo(() => {
-    if (view === "sku")
-      return shown.map((row) => ({ row, skus: 1, from: false }))
-    const groups = new Map<string, CatalogRow[]>()
-    for (const row of shown) {
-      const key = row.article_code ?? row.sku_code
-      const group = groups.get(key)
-      if (group === undefined) groups.set(key, [row])
-      else group.push(row)
+  /// What is on the glass, in the panel's three figures.
+  const figures = useMemo(() => {
+    let pieces: number | null = 0
+    for (const item of matched)
+      pieces =
+        item.stock === null || pieces === null
+          ? null
+          : pieces + item.stock.total
+    return {
+      articles: new Set(matched.map((item) => item.key)).size,
+      skus: matched.length,
+      pieces,
     }
-    return [...groups.values()].map((group) => {
-      const row = group.reduce((a, b) =>
-        b.unit_price_minor < a.unit_price_minor ? b : a,
-      )
-      return {
-        row,
-        skus: group.length,
-        from: group.some(
-          (one) => one.unit_price_minor !== row.unit_price_minor,
-        ),
-      }
-    })
-  }, [shown, view])
+  }, [matched])
 
   /// How many cards are in the document.
   ///
@@ -233,24 +291,20 @@ export function Catalogue() {
   /// then throw them away, which on a counter tablet is a visible stutter every
   /// time somebody types.
   const [limit, setLimit] = useState(PAGE)
-  const scope = `${needle}|${division.value ?? ""}|${order}|${view}|${chosenTags.join(",")}`
+  const scope = `${needle}|${order}|${view}|${layout}|${JSON.stringify(filters)}`
   const [lastScope, setLastScope] = useState(scope)
   if (scope !== lastScope) {
     setLastScope(scope)
     setLimit(PAGE)
   }
 
-  const filtered =
-    needle !== "" || division.value !== undefined || chosenTags.length > 0
-  const pick = (code: string | undefined) => division.set(code)
-  const noun =
-    view === "sku"
-      ? cards.length === 1
-        ? "SKU"
-        : "SKUs"
-      : cards.length === 1
-        ? "article"
-        : "articles"
+  const narrowed = filterCount(filters) + (division.value === undefined ? 0 : 1)
+  const filtered = needle !== "" || narrowed > 0
+  const clearAll = () => {
+    setTyped("")
+    setFilters({ ...NO_FILTERS })
+  }
+  const currency = book?.currency ?? "IDR"
 
   // An article opens as a sheet over the list. Opening pushes a history entry
   // so the phone's back gesture closes the sheet instead of leaving the screen;
@@ -271,12 +325,19 @@ export function Catalogue() {
     } else sku.set(undefined)
   }
 
+  const sections = {
+    facets,
+    filters,
+    onChange: setFilters,
+    stockKnown: stockMap !== null,
+  }
+
   return (
     <Screen
       counter
       // Named, because the grid below is a container too and the two questions
       // are different: THIS one asks whether the page has room for the
-      // division panel, that one how many cards fit beside it.
+      // filter panel, that one how many cards fit beside it.
       className="@container/page"
     >
       {/* The dock, on a phone: renders nothing anywhere else. */}
@@ -284,23 +345,19 @@ export function Catalogue() {
         search={{
           value: typed,
           onChange: setTyped,
-          label: view === "sku" ? "Search SKUs" : "Search articles",
+          label: bySku ? "Search SKUs" : "Search articles",
         }}
         status={{
           value: division.value ?? "",
           options: [
-            {
-              value: "",
-              label: "Everything",
-              count: view === "sku" ? searchable.length : articles,
-            },
-            ...divisions.map(([code, howMany]) => ({
+            { value: "", label: "Everything", count: facets.everything },
+            ...facets.divisions.map(([code, howMany]) => ({
               value: code,
               label: label(code),
               count: howMany,
             })),
           ],
-          onChange: (next) => pick(next === "" ? undefined : next),
+          onChange: (next) => division.set(next === "" ? undefined : next),
         }}
         sort={{
           label: orderName(order),
@@ -313,47 +370,35 @@ export function Catalogue() {
           },
         }}
         filter={{
-          count: chosenTags.length,
-          label: "Tags",
-          onOpen: () => setTagsOpen(true),
+          count: filterCount(filters),
+          label: "Filter",
+          onOpen: () => setFilterOpen(true),
         }}
         views={[
           {
             title: "View",
             value: view,
-            options: [
-              { value: "article", label: "By article" },
-              { value: "sku", label: "By SKU" },
-            ],
+            options: VIEWS,
             onChange: (next) =>
               viewParam.set(next === "article" ? undefined : (next as View)),
           },
+          {
+            title: "Layout",
+            value: layout,
+            options: LAYOUTS,
+            onChange: (next) =>
+              layoutParam.set(next === "grid" ? undefined : (next as Layout)),
+          },
         ]}
       />
-      <PickerSheet
-        open={tagsOpen}
-        onOpenChange={setTagsOpen}
-        title="Tags"
-        multiple
-        searchable
-        options={tagCounts.map(([tag, howMany]) => ({
-          value: tag,
-          text: `${tag} ${label(tag)}`,
-          label: (
-            <span className="flex items-baseline gap-2">
-              <span className="min-w-0 flex-1 truncate">{label(tag)}</span>
-              <span className="text-body tabular-nums">{count(howMany)}</span>
-            </span>
-          ),
-        }))}
-        selected={chosenTags}
-        onPick={(tag) =>
-          setChosenTags((was) =>
-            was.includes(tag)
-              ? was.filter((one) => one !== tag)
-              : [...was, tag],
-          )
-        }
+      {/* A phone's dock and an upright tablet's toolbar open the same sheet;
+          only the tablet's carries the divisions, which on a phone are the
+          dock's status chip. */}
+      <FilterSheet
+        open={filterOpen}
+        onOpenChange={setFilterOpen}
+        withDivision={!phone}
+        {...sections}
       />
 
       {/* The Sourcing page's shape: what is on the glass at the left, what
@@ -364,10 +409,26 @@ export function Catalogue() {
           of the page column; this shell does not publish it yet. The page's
           own width is the same question asked of the same box, with nothing to
           clean up. 60rem of page is the hub's threshold. */}
+      <KpiStrip>
+        <Kpi
+          label="Articles"
+          value={book === undefined ? "—" : count(figures.articles)}
+        />
+        <Kpi
+          label="SKUs"
+          value={book === undefined ? "—" : count(figures.skus)}
+        />
+        <Kpi
+          label="Pieces on hand"
+          value={figures.pieces === null ? "—" : count(figures.pieces)}
+        />
+      </KpiStrip>
+
       <div className="grid min-w-0 items-start gap-5 @min-[60rem]/page:grid-cols-[minmax(0,1fr)_16rem]">
         <div className="flex min-w-0 flex-col">
-          {/* The desk's toolbar: search at the left, the view and the order at
-              the right. On a phone all three are the dock's. */}
+          {/* The desk's toolbar: search at the left; the filters (where the
+              panel has no room), the view, the layout and the order at the
+              right. On a phone all of it is the dock's. */}
           <div className="mb-3.5 flex flex-wrap items-center gap-[0.4375rem] max-md:hidden">
             <label className="relative min-w-0 flex-[0_1_18rem]">
               <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-line-ico" />
@@ -391,59 +452,43 @@ export function Catalogue() {
               )}
             </label>
             <span className="flex-1" />
+            <button
+              type="button"
+              onClick={() => setFilterOpen(true)}
+              className={cn(
+                "inline-flex h-9 items-center gap-1.5 rounded-inner px-3 text-[0.875rem] font-medium transition-colors @min-[60rem]/page:hidden pointer-coarse:h-11",
+                narrowed > 0
+                  ? "bg-accent-bg text-accent"
+                  : "text-body hover:bg-soft-2 hover:text-ink",
+              )}
+            >
+              <ListFilter className="size-4" />
+              Filter
+              {narrowed > 0 && (
+                <span className="tabular-nums">{count(narrowed)}</span>
+              )}
+            </button>
             <Segmented<View>
               value={view}
               onChange={(next) =>
                 viewParam.set(next === "article" ? undefined : next)
               }
-              options={[
-                { value: "article", label: "By article" },
-                { value: "sku", label: "By SKU" },
-              ]}
+              options={VIEWS}
+            />
+            <Segmented<Layout>
+              value={layout}
+              onChange={(next) =>
+                layoutParam.set(next === "grid" ? undefined : next)
+              }
+              options={LAYOUTS}
             />
             <OrderMenu value={order} onChange={setOrder} />
           </div>
 
-          {/* The divisions across the top where the panel has no room — a
-              tablet held upright. Wrapping, never scrolling sideways. On a
-              phone they are the dock's status chip. */}
-          {divisions.length > 0 && (
-            <div className="mb-3.5 flex flex-wrap gap-2 max-md:hidden @min-[60rem]/page:hidden">
-              <FacetChip
-                on={division.value === undefined}
-                onClick={() => pick(undefined)}
-              >
-                Everything
-              </FacetChip>
-              {divisions.map(([code, howMany]) => (
-                <FacetChip
-                  key={code}
-                  on={division.value === code}
-                  onClick={() =>
-                    pick(division.value === code ? undefined : code)
-                  }
-                >
-                  {label(code)}
-                  <span className="ml-1.5 tabular-nums opacity-60">
-                    {count(howMany)}
-                  </span>
-                </FacetChip>
-              ))}
-            </div>
-          )}
-
-          {/* One line of figures — what is on the glass — and, when something
-              is on offer, where to read it. A promotion is not a price, so no
-              card can show one; hidden entirely at zero rather than shown as "0
-              promotions": a shop running nothing does not need to be told so
-              every time it looks up a price. */}
-          <div className="mb-3 flex items-center gap-3">
-            <p className="min-w-0 flex-1 truncate text-meta text-body">
-              <b className="font-medium text-ink">{count(cards.length)}</b>{" "}
-              {noun}
-              {filtered && " match"}
-            </p>
-            {running + soon > 0 && (
+          {/* Where to read the offers, when something is on or due. Hidden
+              entirely at zero rather than shown as "0 promotions". */}
+          {running + soon > 0 && (
+            <div className="mb-3 flex items-center justify-end">
               <button
                 type="button"
                 onClick={() => go("/promotions")}
@@ -454,8 +499,8 @@ export function Catalogue() {
                   ? `${count(running)} ${running === 1 ? "promotion" : "promotions"} on`
                   : `${count(soon)} starting soon`}
               </button>
-            )}
-          </div>
+            </div>
+          )}
 
           {/* A shop with no price book is not a shop with an empty range, and
               the difference is whose problem it is: one is a sync that has not
@@ -470,19 +515,11 @@ export function Catalogue() {
           {queryState(catalogue, {
             loading: "Reading this shop's range…",
             render: () =>
-              shown.length === 0 ? (
+              cards.length === 0 ? (
                 <EmptyState
                   action={
                     filtered ? (
-                      <Button
-                        onClick={() => {
-                          setTyped("")
-                          setChosenTags([])
-                          pick(undefined)
-                        }}
-                      >
-                        Show everything
-                      </Button>
+                      <Button onClick={clearAll}>Show everything</Button>
                     ) : undefined
                   }
                 >
@@ -492,18 +529,38 @@ export function Catalogue() {
                 </EmptyState>
               ) : (
                 <>
-                  <CardList grid>
-                    {cards.slice(0, limit).map(({ row, skus, from }) => (
-                      <ProductCard
-                        key={row.sku_code}
-                        row={row}
-                        skus={view === "article" ? skus : undefined}
-                        from={from}
-                        currency={book?.currency ?? "IDR"}
-                        onOpen={() => open(row.sku_code)}
-                      />
-                    ))}
-                  </CardList>
+                  {layout === "table" ? (
+                    <CatalogueTable
+                      cards={cards.slice(0, limit)}
+                      bySku={bySku}
+                      currency={currency}
+                      holdings={holdings}
+                      onOpen={open}
+                    />
+                  ) : (
+                    // Columns by the room the list has (a container query, so
+                    // the docked panel and a folded sidebar count): two on a
+                    // phone, three on a tablet held upright, four to six on a
+                    // desk.
+                    <div className="@container min-w-0">
+                      <div className="grid grid-cols-2 gap-2.5 @lg:grid-cols-3 @lg:gap-3.5 @3xl:grid-cols-4 @5xl:grid-cols-5 @7xl:grid-cols-6">
+                        {cards.slice(0, limit).map((card) => (
+                          <ProductTile
+                            key={card.key}
+                            card={card}
+                            bySku={bySku}
+                            holding={
+                              bySku
+                                ? null
+                                : (holdings.get(card.lead.key) ?? null)
+                            }
+                            currency={currency}
+                            onOpen={open}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   {cards.length > limit && (
                     <div className="mt-5 flex justify-center">
                       <Button onClick={() => setLimit((was) => was + PAGE)}>
@@ -516,17 +573,11 @@ export function Catalogue() {
           })}
         </div>
 
-        <DivisionPanel
-          divisions={divisions}
-          chosen={division.value}
-          onPick={pick}
-          loaded={book !== undefined}
-          articles={articles}
-          skus={searchable.length}
-          everything={view === "sku" ? searchable.length : articles}
-          tags={tagCounts}
-          chosenTags={chosenTags}
-          onTags={setChosenTags}
+        {/* The filters, docked beside the list where the page is wide —
+            the hub's Procurement panel (`FilterDock`). */}
+        <FilterDock
+          {...sections}
+          figures={[]}
           className="hidden @min-[60rem]/page:flex"
         />
       </div>
@@ -534,9 +585,10 @@ export function Catalogue() {
       <ProductSheet
         sku={sku.value}
         rows={rows}
+        items={items}
         loaded={book !== undefined}
         offers={offers.data?.running ?? null}
-        currency={book?.currency ?? "IDR"}
+        currency={currency}
         onSku={(next) => sku.set(next)}
         onClose={close}
       />
@@ -547,36 +599,23 @@ export function Catalogue() {
 /// How many cards are drawn before somebody asks for more.
 const PAGE = 48
 
-type View = "article" | "sku"
-type Order = "range" | "cheapest" | "dearest" | "name"
+const NO_OFFERS: readonly StoreOffer[] = []
 
-const ORDERS: readonly (readonly [Order, string])[] = [
-  ["range", "Range"],
-  ["cheapest", "Cheapest"],
-  ["dearest", "Dearest"],
-  ["name", "A–Z"],
+type View = "article" | "sku"
+type Layout = "grid" | "table"
+
+const VIEWS: readonly { readonly value: View; readonly label: string }[] = [
+  { value: "article", label: "By article" },
+  { value: "sku", label: "By SKU" },
+]
+
+const LAYOUTS: readonly { readonly value: Layout; readonly label: string }[] = [
+  { value: "grid", label: "Grid" },
+  { value: "table", label: "Table" },
 ]
 
 function orderName(order: Order): string {
   return (ORDERS.find(([one]) => one === order) ?? ORDERS[0])[1]
-}
-
-function sorted(
-  rows: readonly CatalogRow[],
-  order: Order,
-): readonly CatalogRow[] {
-  switch (order) {
-    // The order the node sent them in — by SKU code, which is the order the
-    // range is numbered in, which is how a shop's own people talk about it.
-    case "range":
-      return rows
-    case "cheapest":
-      return [...rows].sort((a, b) => a.unit_price_minor - b.unit_price_minor)
-    case "dearest":
-      return [...rows].sort((a, b) => b.unit_price_minor - a.unit_price_minor)
-    case "name":
-      return [...rows].sort((a, b) => a.name.localeCompare(b.name))
-  }
 }
 
 /// Whether the typed words describe this product.
@@ -591,63 +630,283 @@ function matchesWords(row: CatalogRow, needle: string): boolean {
   return needle.split(/\s+/).every((word) => haystack.includes(word))
 }
 
-/// One article — or one SKU — as the uniform card: the photograph at the left
-/// of the name, the code under it, the price as the one figure, and how many
-/// SKUs it folds in the foot. A marked-down price says so in the foot's one
-/// status and strikes the old price under the figure.
-function ProductCard({
-  row,
-  skus,
-  from = false,
+/// One article — or one SKU — as a shop's product tile.
+///
+///   ┌──────────────┐
+///   │ −20%         │  what comes off, when something does
+///   │      👕      │  the garment, in the colour pointed at — and a
+///   │              │  SOLD OUT stamp across it when none is left
+///   ├──────────────┤
+///   │ ● ● ○ ●  +2  │  its colours, four and a count; a sold-out one slashed
+///   │ Kemeja Oxford│  the article's name
+///   │ Gajian Okt…  │  the deal it is in
+///   │ Rp 46.400    │  what a walk-in pays — red, with the shelf price struck
+///   │ M L XL  9 pcs│  its sizes (struck where none is left) and its stock
+///   └──────────────┘
+///
+/// Pointing at a swatch (or tabbing to it) shows that colour in the picture;
+/// pressing it opens the article on that colour. The rest of the tile opens it
+/// on the SKU the tile stands for. By SKU, a tile is one colour and one size.
+function ProductTile({
+  card,
+  bySku,
+  holding,
   currency,
   onOpen,
 }: {
-  row: CatalogRow
-  /// Set when the card stands for an article: how many SKUs it folds.
-  skus?: number
-  /// The article's SKUs are not all the same price, so this is the lowest.
-  from?: boolean
+  card: Card
+  bySku: boolean
+  /// The article's pieces by size and colour; `null` while unknown, or by SKU.
+  holding: Holding | null
   currency: string
-  onOpen: () => void
+  onOpen: (sku: string) => void
 }) {
-  const down = isDown(row)
-  const division =
-    row.division_code !== null && row.division_code !== ""
-      ? label(row.division_code)
-      : undefined
-  const info =
-    skus === undefined
-      ? division
-      : `${count(skus)} ${skus === 1 ? "SKU" : "SKUs"}${division === undefined ? "" : ` · ${division}`}`
+  const { lead, shape } = card
+  const ownColour = shape.colours.find((one) => sameColour(one, lead.colour))
+  const colours = bySku && ownColour !== undefined ? [ownColour] : shape.colours
+  const sizes = bySku ? (lead.size === null ? [] : [lead.size]) : shape.sizes
+
+  /// The colour the picture shows while a swatch is pointed at.
+  const [preview, setPreview] = useState<ArticleColour | null>(null)
+  const pictured = preview?.skus[0] ?? lead.row
+  const showing = preview ?? ownColour
+
+  /// While a colour is pointed at, the tile speaks for that colour alone: its
+  /// sizes (struck where that colour has none left), its pieces, and the
+  /// stamp when it is gone — so "no Navy in M, but there is an L", and "Navy
+  /// is gone but Black is not", are both on the tile.
+  const looked =
+    preview === null || holding === null
+      ? null
+      : {
+          sizes: shape.sizes.filter((size) =>
+            preview.skus.some(
+              (one) => shape.variant.get(one.sku_code)?.size === size,
+            ),
+          ),
+          held: holding.byColour.get((preview.label ?? "").toLowerCase()),
+        }
+  const lookedPieces =
+    looked === null
+      ? null
+      : [...(looked.held?.values() ?? [])].reduce((a, b) => a + b, 0)
+  const stamped = lookedPieces === null ? card.soldOut : lookedPieces <= 0
+  const pieces = lookedPieces ?? card.stock?.total ?? null
+
+  const was = lead.row.base_unit_price_minor
+  const down = lead.final < was
+  const off = percentOff(lead.final, was)
+  const deals = dealsOfCard(card.items)
+  const voucher = deals.voucher[0]?.coupon_code
+  const deal =
+    deals.applied[0]?.name ??
+    deals.promotion[0]?.name ??
+    (voucher != null ? `Code ${voucher}` : undefined)
+  const hidden = colours.length - SWATCHES
+  const gone = (colour: ArticleColour) =>
+    holding !== null &&
+    (holding.colours.get((colour.label ?? "").toLowerCase()) ?? 0) <= 0
+  /// What a swatch says when pointed at or read aloud: which sizes of it are
+  /// left.
+  const left = (colour: ArticleColour) => {
+    if (holding === null) return undefined
+    const sizes = sizesLeft(holding, colour.label, shape.sizes)
+    return sizes.length === 0
+      ? "sold out"
+      : sizes.length === 1 && sizes[0] === ""
+        ? "in stock"
+        : `${sizes.join(", ")} left`
+  }
 
   return (
-    <LeadCard
-      onOpen={onOpen}
-      media={
-        <Photograph sku={row.sku_code} has={row.has_image} name={row.name} />
-      }
-      title={row.name}
-      code={
-        skus === undefined ? row.sku_code : (row.article_code ?? row.sku_code)
-      }
-      lead={{
-        figure: money(row.unit_price_minor, currency),
-        // Both numbers when it is marked down, because a was-price with
-        // nothing struck through is just a smaller price and reads as a
-        // mistake.
-        caption: from ? (
-          "from"
-        ) : down ? (
-          <span className="line-through">
-            {money(row.base_unit_price_minor, currency)}
+    <div
+      tabIndex={0}
+      onClick={() => onOpen(lead.row.sku_code)}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault()
+          onOpen(lead.row.sku_code)
+        }
+      }}
+      onPointerLeave={() => setPreview(null)}
+      className="@container/tile flex min-w-0 cursor-pointer flex-col overflow-hidden rounded-card border border-hairline bg-canvas shadow-soft transition-[border-color,scale] duration-(--t-press) ease-(--ease-out) outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent active:scale-[0.98] motion-reduce:active:scale-100 [@media(hover:hover)]:hover:border-hairline-strong"
+    >
+      <div className="relative aspect-square bg-soft-2">
+        <div
+          className={cn(
+            "size-full transition-opacity duration-(--t-panel)",
+            stamped && "opacity-35 grayscale",
+          )}
+        >
+          <Photograph
+            sku={pictured.sku_code}
+            has={pictured.has_image}
+            name={pictured.name}
+          />
+        </div>
+        {off > 0 && (
+          <span className="absolute top-2 left-2 rounded-full bg-bad px-2 py-0.5 text-[0.875rem] font-semibold text-on-dark tabular-nums">
+            −{off}%
           </span>
-        ) : undefined,
+        )}
+        {stamped && (
+          <span className="pointer-events-none absolute inset-0 grid place-items-center">
+            <SoldOutStamp />
+          </span>
+        )}
+      </div>
+
+      <div className="flex flex-1 flex-col gap-1 px-3 pt-2.5 pb-3">
+        {colours.length > 0 && (
+          <div className="-ml-0.5 flex min-h-7 min-w-0 items-center">
+            {colours.slice(0, SWATCHES).map((colour, at) => (
+              <Swatch
+                key={colour.label ?? ""}
+                colour={colour}
+                on={colours.length > 1 && colour === showing}
+                gone={!bySku && gone(colour)}
+                note={bySku ? undefined : left(colour)}
+                onPreview={() => setPreview(colour)}
+                onPick={() => onOpen((colour.skus[0] ?? lead.row).sku_code)}
+                // A tile two across on a 320px phone has room for three.
+                className={
+                  at === SWATCHES - 1 ? "@max-[9rem]/tile:hidden" : undefined
+                }
+              />
+            ))}
+            {colours.length === 1 && (colours[0]?.label ?? null) !== null && (
+              <span className="ml-1 min-w-0 truncate text-[0.875rem] text-mute">
+                {colours[0]?.label}
+              </span>
+            )}
+            {hidden > 0 && (
+              <span className="ml-1 text-[0.875rem] text-mute tabular-nums @max-[9rem]/tile:hidden">
+                +{count(hidden)}
+              </span>
+            )}
+            {colours.length >= SWATCHES && (
+              <span className="ml-1 hidden text-[0.875rem] text-mute tabular-nums @max-[9rem]/tile:inline">
+                +{count(hidden + 1)}
+              </span>
+            )}
+          </div>
+        )}
+
+        <p className="line-clamp-2 text-[0.9375rem] leading-snug font-medium break-words text-ink">
+          {shape.name}
+        </p>
+        {deal !== undefined && (
+          <p className="truncate text-[0.875rem] text-accent">{deal}</p>
+        )}
+
+        <p className="mt-auto flex flex-wrap items-baseline gap-x-1.5 pt-1 tabular-nums">
+          {card.from && <span className="text-[0.875rem] text-mute">From</span>}
+          <span
+            className={cn(
+              "text-[0.9375rem] font-semibold",
+              down ? "text-bad-fg" : "text-ink",
+            )}
+          >
+            {money(lead.final, currency)}
+          </span>
+          {/* Both numbers when it is brought down: a was-price with nothing
+              struck through is just a smaller price. */}
+          {down && (
+            <span className="text-[0.875rem] text-mute line-through">
+              {money(was, currency)}
+            </span>
+          )}
+        </p>
+
+        <div className="flex items-baseline justify-between gap-2 text-[0.875rem] text-mute">
+          <span className="min-w-0 truncate">
+            {looked !== null ? (
+              <Sizes
+                sizes={looked.sizes}
+                holding={{
+                  sizes: looked.held ?? new Map(),
+                  colours: holding?.colours ?? new Map(),
+                  byColour: holding?.byColour ?? new Map(),
+                }}
+              />
+            ) : (
+              sizes.length > 0 &&
+              (sizes.length <= 5 ? (
+                <Sizes sizes={sizes} holding={holding} />
+              ) : (
+                sizeLine(sizes)
+              ))
+            )}
+          </span>
+          {pieces !== null && !stamped && (
+            <span className="shrink-0 tabular-nums">{count(pieces)} pcs</span>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/// Swatches drawn on a tile before the rest are a count.
+const SWATCHES = 4
+
+function sameColour(colour: ArticleColour, label: Item["colour"] | undefined) {
+  return (colour.label ?? "").toLowerCase() === (label ?? "").toLowerCase()
+}
+
+/// One colour on a tile: an 18px dot, ringed while it is the one pictured and
+/// slashed when none of it is left. The button is 24px and its hit area a
+/// little more — four of them and a "+N" still fit a tile two across on a
+/// 320px phone.
+function Swatch({
+  colour,
+  on,
+  gone,
+  note,
+  onPreview,
+  onPick,
+  className,
+}: {
+  colour: ArticleColour
+  on: boolean
+  gone: boolean
+  /// Which of its sizes are left: "L, XL left", "sold out".
+  note?: string
+  onPreview: () => void
+  onPick: () => void
+  className?: string
+}) {
+  const name = `${colour.label ?? "No colour"}${note === undefined ? "" : ` · ${note}`}`
+  return (
+    <button
+      type="button"
+      aria-label={name}
+      title={name}
+      onClick={(event) => {
+        event.stopPropagation()
+        onPick()
       }}
-      foot={{
-        info,
-        status: down ? <Pill tone="bad">Price down</Pill> : undefined,
+      onPointerEnter={(event) => {
+        if (event.pointerType === "mouse") onPreview()
       }}
-    />
+      onFocus={onPreview}
+      className={cn(
+        "relative grid size-6 shrink-0 place-items-center rounded-full outline-none after:absolute after:-inset-0.5 after:content-[''] focus-visible:outline-2 focus-visible:outline-accent",
+        className,
+      )}
+    >
+      <span
+        style={{ background: swatchBackground(colour.paint) }}
+        className={cn(
+          "relative size-[1.125rem] rounded-full shadow-[inset_0_0_0_1px_rgb(0_0_0/0.14)] transition-[box-shadow] duration-(--t-hover) ease-(--ease-out)",
+          on &&
+            "shadow-[inset_0_0_0_1px_rgb(0_0_0/0.14),0_0_0_2px_var(--canvas),0_0_0_3.5px_var(--ink)]",
+          gone &&
+            "before:absolute before:top-1/2 before:left-1/2 before:h-[1.5px] before:w-[125%] before:-translate-1/2 before:-rotate-45 before:bg-canvas before:shadow-[0_0_0_0.75px_rgb(0_0_0/0.55)] before:content-['']",
+        )}
+      />
+    </button>
   )
 }
 
@@ -704,264 +963,5 @@ function OrderMenu({
         </Menu.Positioner>
       </Menu.Portal>
     </Menu.Root>
-  )
-}
-
-/// The divisions, docked beside the list — the hub's `DockedFilters` for a list
-/// that has exactly one thing to narrow by.
-///
-/// A list of every division with its count rather than a select: a catalogue is
-/// browsed rather than queried, and the counts are how somebody discovers that
-/// what they are after is filed under a division they had not thought of. The
-/// two figures above it are counted over the same base as the list, so a figure
-/// and the rows under it cannot disagree.
-function DivisionPanel({
-  divisions,
-  chosen,
-  onPick,
-  loaded,
-  articles,
-  skus,
-  everything,
-  tags,
-  chosenTags,
-  onTags,
-  className,
-}: {
-  /// Every tag on the words-matched range, commonest first, with its count.
-  tags: readonly (readonly [string, number])[]
-  chosenTags: readonly string[]
-  onTags: (next: readonly string[]) => void
-  divisions: readonly (readonly [string, number])[]
-  chosen: string | undefined
-  onPick: (code: string | undefined) => void
-  /// False until the book has arrived, so the figures read "—" rather than a
-  /// confident zero while the request is still in flight.
-  loaded: boolean
-  articles: number
-  skus: number
-  /// What "Everything" holds in the unit the list shows.
-  everything: number
-  className?: string
-}) {
-  return (
-    <aside
-      aria-label="Divisions"
-      className={cn(
-        "sticky top-5 flex-col gap-2.5 self-start rounded-card border border-hairline bg-canvas p-4 shadow-soft",
-        className,
-      )}
-    >
-      <dl className="-mx-1 mb-1 grid grid-cols-2 gap-x-3 gap-y-2 border-b border-hairline px-1 pb-3">
-        <div className="min-w-0">
-          <dt className="truncate text-[0.875rem] text-body">Articles</dt>
-          <dd className="truncate text-[1.125rem] leading-tight font-semibold text-ink tabular-nums">
-            {loaded ? count(articles) : "—"}
-          </dd>
-        </div>
-        <div className="min-w-0">
-          <dt className="truncate text-[0.875rem] text-body">SKUs</dt>
-          <dd className="truncate text-[1.125rem] leading-tight font-semibold text-ink tabular-nums">
-            {loaded ? count(skus) : "—"}
-          </dd>
-        </div>
-      </dl>
-
-      <div className="flex items-center justify-between gap-2">
-        <h4 className="text-[0.9375rem] font-medium text-body">Division</h4>
-        {chosen !== undefined && (
-          <button
-            type="button"
-            onClick={() => onPick(undefined)}
-            className="text-[0.875rem] font-medium text-body transition-colors hover:text-ink pointer-coarse:min-h-tap"
-          >
-            Clear
-          </button>
-        )}
-      </div>
-
-      <div className="-mx-1 flex flex-col gap-px">
-        <DivisionRow
-          on={chosen === undefined}
-          onClick={() => onPick(undefined)}
-          name="Everything"
-          howMany={loaded ? everything : undefined}
-        />
-        {divisions.map(([code, howMany]) => (
-          <DivisionRow
-            key={code}
-            on={chosen === code}
-            onClick={() => onPick(chosen === code ? undefined : code)}
-            name={label(code)}
-            howMany={howMany}
-          />
-        ))}
-      </div>
-
-      <TagPicker tags={tags} chosen={chosenTags} onChange={onTags} />
-    </aside>
-  )
-}
-
-/// Tags, without listing them all: the ones in use as removable chips, and a
-/// "+ Tags" button that opens a search over the rest. A range can carry
-/// hundreds of tags, so the list only ever shows what matches what is typed.
-function TagPicker({
-  tags,
-  chosen,
-  onChange,
-}: {
-  tags: readonly (readonly [string, number])[]
-  chosen: readonly string[]
-  onChange: (next: readonly string[]) => void
-}) {
-  const [open, setOpen] = useState(false)
-  const [typed, setTyped] = useState("")
-  const needle = typed.trim().toLowerCase()
-  const matches = tags
-    .filter(
-      ([tag]) =>
-        !chosen.includes(tag) &&
-        (needle === "" ||
-          `${tag} ${label(tag)}`.toLowerCase().includes(needle)),
-    )
-    .slice(0, 6)
-  const add = (tag: string) => {
-    onChange([...chosen, tag])
-    setTyped("")
-  }
-
-  return (
-    <div className="mt-2 flex flex-col gap-2 border-t border-hairline pt-3">
-      <div className="flex items-center justify-between gap-2">
-        <h4 className="text-[0.9375rem] font-medium text-body">Tags</h4>
-        {chosen.length > 0 && (
-          <button
-            type="button"
-            onClick={() => onChange([])}
-            className="text-[0.875rem] font-medium text-body transition-colors hover:text-ink"
-          >
-            Clear
-          </button>
-        )}
-      </div>
-      <div className="flex flex-wrap gap-1.5">
-        {chosen.map((tag) => (
-          <button
-            key={tag}
-            type="button"
-            onClick={() => onChange(chosen.filter((one) => one !== tag))}
-            aria-label={`Remove ${label(tag)}`}
-            className="inline-flex h-8 items-center gap-1 rounded-full bg-accent px-3 text-[0.875rem] font-medium text-on-dark"
-          >
-            {label(tag)}
-            <X className="size-3.5" />
-          </button>
-        ))}
-        <button
-          type="button"
-          onClick={() => setOpen((was) => !was)}
-          aria-expanded={open}
-          className="inline-flex h-8 items-center gap-1 rounded-full border border-dashed border-hairline-2 px-3 text-[0.875rem] font-medium text-body transition-colors hover:text-ink"
-        >
-          <Plus className="size-3.5" />
-          Tags
-        </button>
-      </div>
-      {open && (
-        <div className="flex flex-col gap-1 rounded-inner border border-hairline p-1.5">
-          <input
-            autoFocus
-            value={typed}
-            onChange={(event) => setTyped(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") setOpen(false)
-              if (event.key === "Enter" && matches[0] !== undefined)
-                add(matches[0][0])
-            }}
-            placeholder="Search tags"
-            aria-label="Search tags"
-            className="h-9 w-full rounded-inner bg-soft-2 px-2.5 text-[0.875rem] text-ink outline-none placeholder:text-mute"
-          />
-          {matches.length === 0 ? (
-            <span className="px-2 py-1.5 text-[0.875rem] text-mute">
-              No tag matches
-            </span>
-          ) : (
-            matches.map(([tag, howMany]) => (
-              <button
-                key={tag}
-                type="button"
-                onClick={() => add(tag)}
-                className="flex min-h-9 items-center justify-between gap-2 rounded-inner px-2 text-left text-[0.875rem] text-body transition-colors hover:bg-soft-2 hover:text-ink"
-              >
-                <span className="truncate">{label(tag)}</span>
-                <span className="text-mute tabular-nums">{count(howMany)}</span>
-              </button>
-            ))
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
-/// One division in the panel. Chosen is the panel's own grammar — the accent's
-/// wash and the heavier weight — the same as a screen's row in the light
-/// sidebar.
-function DivisionRow({
-  on,
-  onClick,
-  name,
-  howMany,
-}: {
-  on: boolean
-  onClick: () => void
-  name: string
-  howMany: number | undefined
-}) {
-  return (
-    <button
-      type="button"
-      aria-pressed={on}
-      onClick={onClick}
-      className={cn(
-        "flex min-h-9 w-full items-center gap-2 rounded-inner px-2.5 text-left text-[0.875rem] transition-colors pointer-coarse:min-h-tap",
-        on
-          ? "bg-accent-bg font-medium text-accent"
-          : "text-body hover:bg-soft-2 hover:text-ink",
-      )}
-    >
-      <span className="min-w-0 flex-1 truncate">{name}</span>
-      <span className="shrink-0 text-[0.875rem] font-normal text-mute tabular-nums">
-        {count(howMany)}
-      </span>
-    </button>
-  )
-}
-
-function FacetChip({
-  on,
-  onClick,
-  children,
-}: {
-  on: boolean
-  onClick: () => void
-  children: React.ReactNode
-}) {
-  return (
-    <button
-      type="button"
-      aria-pressed={on}
-      onClick={onClick}
-      className={cn(
-        "h-9 shrink-0 rounded-inner px-3.5 text-[0.875rem] font-medium whitespace-nowrap transition-colors pointer-coarse:h-tap",
-        on
-          ? "bg-accent text-on-dark"
-          : "border border-hairline-2 bg-canvas text-body shadow-soft",
-      )}
-    >
-      {children}
-    </button>
   )
 }

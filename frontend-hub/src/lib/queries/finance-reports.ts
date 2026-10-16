@@ -1,8 +1,11 @@
+import { queryOptions } from "@tanstack/react-query"
+
 import { node } from "@/lib/api"
 import type {
   CashDocumentRepeat,
   CashDocumentRepeatSweep,
   ExpensesByMonth,
+  SalesByDivision,
   SaveCashDocumentRepeatRequest,
   WithholdingRow,
 } from "@itulah/contract"
@@ -38,6 +41,12 @@ export const financeReportKeys = {
     ["finance", "cash-document-repeats", direction] as const,
   /// Every direction at once, for invalidation after a save or a sweep.
   cashRepeatsAll: () => ["finance", "cash-document-repeats"] as const,
+  salesByDivision: (
+    from: string,
+    to: string,
+    unit: string | null,
+    category: string | null
+  ) => ["finance", "sales-by-division", from, to, unit, category] as const,
 }
 
 /// What was kept back from suppliers in the window, payment by payment
@@ -105,3 +114,69 @@ export function runCashDocumentRepeats(): Promise<CashDocumentRepeatSweep> {
     {}
   )
 }
+
+/// Sales by division, the way 7Soft's summary read them: one row per division
+/// and a total. `unit` and `category` are left off the wire when empty.
+export function salesByDivision(
+  params: { from: string; to: string; unit: string; category: string },
+  signal?: AbortSignal
+): Promise<SalesByDivision> {
+  return node.get<SalesByDivision>(
+    `/api/v1/finance/reports/sales-by-division${search({
+      from: params.from,
+      to: params.to,
+      unit: params.unit,
+      category: params.category,
+    })}`,
+    { signal }
+  )
+}
+
+export const salesByDivisionQuery = (
+  from: string,
+  to: string,
+  unit = "",
+  category = ""
+) =>
+  queryOptions({
+    queryKey: financeReportKeys.salesByDivision(
+      from,
+      to,
+      unit || null,
+      category || null
+    ),
+    queryFn: ({ signal }) =>
+      salesByDivision({ from, to, unit, category }, signal),
+  })
+
+export const withholdingReportQuery = (
+  from: string,
+  to: string,
+  unit = "",
+  template = ""
+) =>
+  queryOptions({
+    queryKey: financeReportKeys.withholding(
+      from,
+      to,
+      unit || null,
+      template || null
+    ),
+    queryFn: ({ signal }) =>
+      withholdingReport(
+        {
+          from,
+          to,
+          unit: unit || undefined,
+          template: template || undefined,
+        },
+        signal
+      ),
+  })
+
+export const expensesByMonthQuery = (from: string, to: string, unit = "") =>
+  queryOptions({
+    queryKey: financeReportKeys.expensesByMonth(from, to, unit || null),
+    queryFn: ({ signal }) =>
+      expensesByMonth({ from, to, unit: unit || undefined }, signal),
+  })

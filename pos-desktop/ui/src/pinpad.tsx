@@ -73,7 +73,7 @@ export function PinPad({
       <div
         className="pin-dots"
         role="img"
-        aria-label={`${digits.length} dari ${MAX} angka PIN sudah ditekan`}
+        aria-label={`${digits.length} of ${MAX} PIN digits entered`}
       >
         {Array.from({ length: MAX }, (_, at) => (
           <i key={at} className={at < digits.length ? "on" : undefined} />
@@ -100,8 +100,8 @@ export function PinPad({
           className="del"
           disabled={disabled || empty}
           onClick={() => onChange(digits.slice(0, -1))}
-          aria-label="Hapus satu angka"
-          title="Hapus satu angka"
+          aria-label="Delete one digit"
+          title="Delete one digit"
         >
           ⌫
         </button>
@@ -112,8 +112,8 @@ export function PinPad({
           type="button"
           disabled={disabled || empty}
           onClick={onSubmit}
-          aria-label="Kirim PIN"
-          title="Kirim PIN"
+          aria-label="Submit PIN"
+          title="Submit PIN"
         >
           ⏎
         </button>

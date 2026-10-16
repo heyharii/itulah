@@ -11,6 +11,9 @@
 /// which are the same rows laid out as cards.
 export function openable(open: () => void) {
   return {
+    // Marks the row or card as one target: `white.css` keeps a name inside
+    // it ink and shows a › under the pointer (owner, 14 Oct, "Row opens").
+    "data-opens": "",
     tabIndex: 0,
     onKeyDown: (event: React.KeyboardEvent<HTMLElement>) => {
       if (event.target !== event.currentTarget) return

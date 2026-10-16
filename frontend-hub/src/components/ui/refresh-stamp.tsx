@@ -1,12 +1,13 @@
 import { useQueryClient } from "@tanstack/react-query"
 import { RefreshCw } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import { DockPortal, useDock } from "@/components/shell/dock"
 import { dayTime, recentMoment, time } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import { useOnline } from "@/lib/offline/reference"
 import { isRestored } from "@/lib/query-persist"
+import { useMounted } from "@/lib/use-mounted"
 import { cn } from "@/lib/utils"
 
 /// How old the rows on screen are, and the way to ask again.
@@ -30,7 +31,19 @@ import { cn } from "@/lib/utils"
 /// One word is added when it matters, never two: `· offline` when the device
 /// has no connection (what is shown is all there is), `· saved` when the rows
 /// are the copy restored from the last visit and nothing has read them since.
-/// While a read is in flight the words stay and the arrow turns.
+/// While a read somebody asked for is in flight the words stay and the arrow
+/// turns.
+///
+/// ## Live
+///
+/// Every table stays live (owner, 2026-10-11): while its screen is open and
+/// looked at, the stamp reads its queries again every 10 seconds — quietly,
+/// the arrow does not turn for it, only the time moves. Not while the tab is
+/// hidden (it catches up the moment it is looked at again), not offline, never
+/// two reads of one query at once, and a query that already read itself in
+/// the last few seconds (its own `refetchInterval`, a second stamp, a save
+/// that invalidated it) is left alone. A slow list is not hammered: the next
+/// read waits at least three times as long as the last one took.
 ///
 /// ## Where it goes
 ///
@@ -96,6 +109,10 @@ function oldest(queries: readonly Refreshable[]): number | null {
 /// result does not carry its hash.
 function useRestored(queries: readonly Refreshable[]): boolean {
   const client = useQueryClient()
+  // The device's copy is a browser fact the server never has: until this
+  // stamp has mounted it reads as the server drew it (`lib/use-mounted.ts`).
+  const mounted = useMounted()
+  if (!mounted) return false
   const settled = queries.filter(
     (query) => !reading(query) && query.data !== undefined
   )
@@ -118,29 +135,80 @@ function useNow(): number {
   return now
 }
 
+/// How often a table on screen reads itself again.
+const LIVE_MS = 10_000
+
+/// Read the queries again every `LIVE_MS` while the page is looked at and
+/// online. Quiet: it does not touch the arrow.
+function useLive(queries: readonly Refreshable[], online: boolean): void {
+  const latest = useRef(queries)
+  latest.current = queries
+  useEffect(() => {
+    if (!online) return
+    let timer = 0
+    let stopped = false
+    const due = (query: Refreshable) =>
+      !query.isFetching && Date.now() - query.dataUpdatedAt >= LIVE_MS * 0.8
+    const schedule = (ms: number) => {
+      window.clearTimeout(timer)
+      timer = window.setTimeout(() => void tick(), ms)
+    }
+    const tick = async () => {
+      if (stopped || document.visibilityState !== "visible") return
+      const stale = latest.current.filter(due)
+      const started = performance.now()
+      if (stale.length > 0)
+        await Promise.all(
+          stale.map((query) => query.refetch({ cancelRefetch: false }))
+        )
+      if (stopped) return
+      schedule(Math.max(LIVE_MS, (performance.now() - started) * 3))
+    }
+    // Back in view: catch up at once if the rows went stale meanwhile.
+    const onVisible = () => {
+      if (document.visibilityState === "visible") schedule(0)
+    }
+    schedule(LIVE_MS)
+    document.addEventListener("visibilitychange", onVisible)
+    return () => {
+      stopped = true
+      window.clearTimeout(timer)
+      document.removeEventListener("visibilitychange", onVisible)
+    }
+  }, [online])
+}
+
 export function RefreshStamp({
   queries,
   className,
+  deskOnly = false,
 }: {
   /// The screen's queries. Their results as they stand — `[orders, suppliers]`.
   queries: readonly Refreshable[]
   className?: string
+  /// For a toolbar that is only shown from a tablet up but is mounted on a
+  /// phone too: draws nothing there, or the dock would get a second reload.
+  deskOnly?: boolean
 }) {
   const layout = useLayout()
   const dock = useDock()
   const online = useOnline()
   const now = useNow()
   const restored = useRestored(queries)
+  useLive(queries, online)
 
   const at = oldest(queries)
   const fetching = queries.some(reading)
+  // The arrow answers a press; the live reads every few seconds are silent.
+  const [asked, setAsked] = useState(false)
   const note = !online ? "offline" : restored ? "saved" : null
   const words =
     at === null ? null : `${stampWords(at, now)}${note ? ` · ${note}` : ""}`
 
-  // Turning: from the moment a read starts until the turn it is in is done.
+  // Turning: from the moment an asked-for read starts until the turn it is in
+  // is done.
   const [turning, setTurning] = useState(false)
-  if (fetching && !turning) setTurning(true)
+  if (asked && fetching && !turning) setTurning(true)
   useEffect(() => {
     if (fetching || !turning) return
     // The turn ends on `animationiteration`; this is for the case it never
@@ -153,12 +221,15 @@ export function RefreshStamp({
     // A press while a read is on would cancel it and start another: two round
     // trips for one answer.
     if (fetching) return
+    setAsked(true)
+    setTurning(true)
     void Promise.all(
       queries.map((query) => query.refetch({ cancelRefetch: false }))
-    )
+    ).finally(() => setAsked(false))
   }
 
   const phone = layout === "phone" && dock !== null
+  if (deskOnly && layout === "phone") return null
   const button = (
     <button
       type="button"
@@ -168,6 +239,7 @@ export function RefreshStamp({
       title="Reload"
       className={cn(
         "grid shrink-0 place-items-center text-body transition-[scale,background-color,color] duration-(--t-press) ease-(--ease-out) active:scale-[0.92]",
+        !phone && "btn-iconly",
         phone
           ? // The dock's round 44, beside the other things it carries.
             "order-first size-11 rounded-full bg-soft-2"
@@ -184,13 +256,18 @@ export function RefreshStamp({
           turning && "motion-safe:animate-spin motion-reduce:opacity-50"
         )}
       />
+      {!phone && (
+        <span aria-hidden className="btn-word hidden">
+          Refresh
+        </span>
+      )}
     </button>
   )
 
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 text-[0.875rem] text-mute tabular-nums",
+        "refresh-stamp inline-flex items-center gap-1 text-[0.9375rem] text-mute tabular-nums",
         className
       )}
     >

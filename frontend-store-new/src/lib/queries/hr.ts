@@ -1,5 +1,6 @@
-import { useQuery } from "@tanstack/react-query"
+import { queryOptions, useQuery, type QueryClient } from "@tanstack/react-query"
 
+import { cacheKey } from "@/lib/api"
 import { CENTRAL_KEY_PREFIX, cloud, relayAccess } from "@/lib/cloud"
 import { dateText } from "@/lib/format"
 import { useIdentity } from "@/lib/session"
@@ -37,6 +38,7 @@ import type {
   TrainingParticipantView,
   UniformIssuanceView,
 } from "@itulah/contract"
+import type { Identity } from "@itulah/contract/client"
 
 /// Everything the HR screens ask head office, and the key each answer is
 /// cached under.
@@ -201,17 +203,40 @@ export function useCloudIdentity() {
 /// one place, no posting reaches nothing — is enforced on every route; a browser that re-implemented it would be a
 /// second place it is decided, and when the two disagreed the screen would be
 /// the one that looked right.
+export function reachQuery() {
+  return queryOptions({
+    queryKey: hrKeys.reach(),
+    queryFn: ({ signal }) =>
+      cloud.get<ReachView>("/api/v1/employees/me/reach", { signal }),
+    staleTime: Infinity,
+  })
+}
+
 /// `enabled` is the gate's, not a convenience: asking before there is a
 /// head-office session is a guaranteed 401, and a 401 on boot is how a
 /// perfectly healthy till acquires a red line in the console every morning.
 export function useReach(enabled: boolean) {
-  return useQuery({
-    queryKey: hrKeys.reach(),
-    queryFn: ({ signal }) =>
-      cloud.get<ReachView>("/api/v1/employees/me/reach", { signal }),
-    enabled,
-    staleTime: Infinity,
-  })
+  return useQuery({ ...reachQuery(), enabled })
+}
+
+/// Whether the person signed in can be relayed for — the gate's first
+/// question (`useCloudIdentity`), asked of the cache because a prefetcher has
+/// no hook to ask it with. No answer yet is a no: nothing is guessed at, and a
+/// break-glass account never sends head office a read it can only refuse.
+export function relayReady(client: QueryClient): boolean {
+  const me = client.getQueryData<Identity | null>(cacheKey.me())
+  return relayAccess(me) === "ready"
+}
+
+/// The one unit the gate would settle on (`HrWorkspace`), or `null` when it
+/// would not open: nobody this node can relay for, or a reach that is not
+/// exactly one unit. A line that does not answer throws, and the prefetch is
+/// dropped. For a prefetcher; the screens get the same unit from the same
+/// `reachQuery`, so an answer fetched here is the one the gate finds.
+export async function relayedUnit(client: QueryClient): Promise<string | null> {
+  if (!relayReady(client)) return null
+  const reach = await client.ensureQueryData(reachQuery())
+  return reach.scope === "ONE_UNIT" ? reach.unit_id : null
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -329,6 +354,164 @@ export function periodAt(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// The reads as query options
+//
+// One function per read, used by the screen's hook and by the route's
+// prefetcher (`prefetch/hr.ts`), so both ask the same question under the same
+// key and the answer a hover fetched is the one the screen finds. A hook adds
+// only what matters to a mounted screen (`enabled`, `refetchInterval`).
+
+/// Who works here. The one list every People screen names people from.
+export function teamQuery(place: string) {
+  return queryOptions({
+    queryKey: hrKeys.team(place),
+    queryFn: ({ signal }) => teamAt(place, signal),
+  })
+}
+
+export function rosterQuery(place: string, from: string, to: string) {
+  return queryOptions({
+    queryKey: hrKeys.roster(place, from, to),
+    queryFn: ({ signal }) => rosterAt(place, from, to, signal),
+  })
+}
+
+export function attendanceTodayQuery(place: string, date: string) {
+  return queryOptions({
+    queryKey: hrKeys.attendanceToday(place, date),
+    queryFn: ({ signal }) => attendanceToday(place, date, signal),
+  })
+}
+
+export function pendingLeaveQuery(place: string) {
+  return queryOptions({
+    queryKey: hrKeys.leave(place),
+    queryFn: ({ signal }) => pendingLeaveAt(place, signal),
+  })
+}
+
+export function correctionsQuery(place: string, pending: boolean) {
+  return queryOptions({
+    queryKey: hrKeys.corrections(place, pending),
+    queryFn: ({ signal }) => correctionsAt(place, pending, signal),
+  })
+}
+
+export function pendingSwapsQuery(place: string) {
+  return queryOptions({
+    queryKey: hrKeys.swaps(),
+    queryFn: ({ signal }) => pendingSwapsAt(place, signal),
+  })
+}
+
+export function claimsQuery(place: string) {
+  return queryOptions({
+    queryKey: hrKeys.claimsAt(place),
+    queryFn: ({ signal }) => claimsAt(place, signal),
+  })
+}
+
+export function periodQuery(place: string, period: string) {
+  return queryOptions({
+    queryKey: hrKeys.period(place, period),
+    queryFn: ({ signal }) => periodAt(place, period, signal),
+  })
+}
+
+export function punchReadinessQuery(place: string, period: string) {
+  return queryOptions({
+    queryKey: hrKeys.punchReadiness(place, period),
+    queryFn: ({ signal }) => punchReadinessAt(place, period, signal),
+  })
+}
+
+export function awaitingOvertimeQuery(place: string) {
+  return queryOptions({
+    queryKey: hrKeys.overtime(place),
+    queryFn: ({ signal }) => awaitingOvertimeAt(place, signal),
+  })
+}
+
+export function applicantsQuery(place: string) {
+  return queryOptions({
+    queryKey: hrKeys.applicants(),
+    queryFn: ({ signal }) => applicantsAt(place, signal),
+  })
+}
+
+/// The checklist rows this shop owns (`?owner=STORE`).
+export function storeTasksQuery() {
+  return queryOptions({
+    queryKey: hrKeys.tasks(),
+    queryFn: ({ signal }) => storeTasks(signal),
+  })
+}
+
+/// Every checklist row the shop's reach covers.
+export function lifecycleTasksQuery() {
+  return queryOptions({
+    queryKey: hrKeys.lifecycle(),
+    queryFn: ({ signal }) => lifecycleTasks(signal),
+  })
+}
+
+/// Head office's rule numbers for one group. Five minutes: a rule changes by
+/// a decision at head office, not by the hour.
+export function rulesQuery(group: string) {
+  return queryOptions({
+    queryKey: hrKeys.rules(group),
+    queryFn: ({ signal }) => rules(group, signal),
+    staleTime: 5 * 60_000,
+  })
+}
+
+/// Head office's shift patterns, which the Schedule is built out of.
+export function shiftsQuery() {
+  return queryOptions({
+    queryKey: hrKeys.shifts(),
+    queryFn: ({ signal }) => shifts(signal),
+    staleTime: 5 * 60_000,
+  })
+}
+
+export function adjustmentsQuery(place: string, period: string) {
+  return queryOptions({
+    queryKey: hrKeys.adjustments(place, period),
+    queryFn: ({ signal }) => adjustmentsAt(place, period, signal),
+  })
+}
+
+/// The pay components a one-off can be filed under.
+export function payComponentsQuery() {
+  return queryOptions({
+    queryKey: hrKeys.components(),
+    queryFn: ({ signal }) => payComponents(signal),
+    staleTime: 5 * 60_000,
+  })
+}
+
+export function changeProposalsQuery(place: string) {
+  return queryOptions({
+    queryKey: hrKeys.changes(place),
+    queryFn: ({ signal }) => changeProposalsAt(place, signal),
+  })
+}
+
+export function staffingPlansQuery(place: string) {
+  return queryOptions({
+    queryKey: hrKeys.plans(place),
+    queryFn: ({ signal }) => staffingPlansAt(place, signal),
+  })
+}
+
+export function hireProposalsQuery(place: string) {
+  return queryOptions({
+    queryKey: hrKeys.hires(place),
+    queryFn: ({ signal }) => hireProposalsAt(place, signal),
+  })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // The two writes a shop makes
 
 /// Approve or reject one leave request.
@@ -385,6 +568,12 @@ export function isoDay(date: Date): string {
 /// `2026-09`, the month a period is named by.
 export function isoMonth(date: Date): string {
   return isoDay(date).slice(0, 7)
+}
+
+/// The month before the one `date` is in: `2026-08` for any day of September.
+/// The one a shop signs off while the new one is under way.
+export function monthBefore(date: Date): string {
+  return isoMonth(new Date(date.getFullYear(), date.getMonth() - 1, 1))
 }
 
 /// `n` days after `from`, as a date.

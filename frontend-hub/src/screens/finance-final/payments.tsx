@@ -4,12 +4,15 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query"
+import type { ColumnDef } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
+import { Card } from "@/components/ui/card"
+import { DataTable } from "@/components/ui/data-table"
 import { Day } from "@/components/ui/day"
-import { Panel } from "@/components/ui/dialog"
 import { Fab } from "@/components/ui/fab"
 import {
   Checkbox,
@@ -19,15 +22,16 @@ import {
   Select,
   Textarea,
 } from "@/components/ui/field"
+import { ExpandingSearch } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill, Status } from "@/components/ui/pill"
 import { SubHead } from "@/components/ui/rows"
 import { Toolbar } from "@/components/ui/segmented"
-import { Fact, Facts } from "@/components/ui/sheet"
+import { SheetFooter } from "@/components/ui/sheet-footer"
+import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import {
   Banner,
   EmptyState,
-  LoadMore,
   NoAccessState,
   NoMatch,
 } from "@/components/ui/states"
@@ -45,6 +49,7 @@ import {
 import { useUnits } from "@/lib/queries/organisation"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
+import { tableSetup, type TableSetup } from "@/lib/table"
 import { useDebounced } from "@/lib/use-debounced"
 import { cn } from "@/lib/utils"
 import { Grid, Td, Th, TotalRow } from "@/screens/finance-final/parts"
@@ -56,7 +61,6 @@ import {
   useMoneyAccountChoices,
   useSupplierName,
 } from "@/screens/finance/hooks"
-import { CardFigure, PhoneList } from "@/components/ui/phone-cards"
 import {
   AccountMeaning,
   SupplierName,
@@ -138,6 +142,110 @@ function allocated(payment: SupplierPayment): number {
   return payment.allocations.reduce((sum, row) => sum + row.amount_minor, 0)
 }
 
+/// The register. On a card the number leads, the parties name it, the amount
+/// stands at the right and the day and the mode sit in the foot with the status.
+const columns: ColumnDef<TableSetup, SupplierPayment>[] = [
+  {
+    id: "date",
+    accessorFn: (row) => row.payment_date,
+    header: "Date",
+    size: 120,
+    enableSorting: false,
+    meta: { card: "foot" },
+    cell: ({ row }) => day(row.original.payment_date),
+  },
+  {
+    id: "number",
+    accessorFn: (row) => row.payment_number,
+    header: "Payment",
+    size: 140,
+    enableSorting: false,
+    meta: { card: "id" },
+    cell: ({ row }) => (
+      <span className="font-mono text-[0.9375rem] text-ink">
+        {row.original.payment_number}
+      </span>
+    ),
+  },
+  {
+    id: "party",
+    accessorFn: (row) => row.allocations[0]?.supplier_name ?? "",
+    header: "Party",
+    size: 200,
+    enableSorting: false,
+    meta: { card: "title", grow: 180 },
+    cell: ({ row }) => <Parties payment={row.original} />,
+  },
+  {
+    id: "paid_from",
+    accessorFn: (row) => `${row.account_key} ${row.account_qualifier}`,
+    header: "Paid from",
+    size: 190,
+    enableSorting: false,
+    meta: { card: "meta", priority: 2 },
+    cell: ({ row }) => (
+      <AccountMeaning
+        meaning={row.original.account_key}
+        qualifier={row.original.account_qualifier}
+        code={row.original.account_code}
+        name={row.original.account_name}
+      />
+    ),
+  },
+  // ERPNext's Mode of Payment, its own column rather than a tail on the
+  // account.
+  {
+    id: "mode",
+    accessorFn: (row) => row.method,
+    header: "Mode",
+    size: 95,
+    enableSorting: false,
+    meta: { card: "foot", priority: 3 },
+    cell: ({ row }) => label(row.original.method),
+  },
+  {
+    id: "reference",
+    accessorFn: (row) => row.reference,
+    header: "Reference",
+    size: 150,
+    enableSorting: false,
+    meta: { card: "meta", priority: 2 },
+    cell: ({ row }) => (
+      <span
+        className={cn(
+          "block truncate",
+          row.original.reference === null ? "text-faint" : "text-body"
+        )}
+        title={row.original.reference ?? undefined}
+      >
+        {row.original.reference ?? "—"}
+      </span>
+    ),
+  },
+  {
+    id: "amount",
+    accessorFn: (row) => row.total_minor,
+    header: "Paid amount",
+    size: 140,
+    enableSorting: false,
+    meta: { align: "right", card: "lead" },
+    cell: ({ row }) => money(row.original.total_minor),
+  },
+  {
+    id: "status",
+    accessorFn: (row) => row.status,
+    header: "Status",
+    size: 110,
+    enableSorting: false,
+    meta: { card: "status" },
+    cell: ({ row }) => (
+      <Status tone={toneFor(row.original.status)}>
+        {label(row.original.status)}
+      </Status>
+    ),
+  },
+]
+
 export function Payments() {
   const [unit, setUnit] = useState("")
   const [status, setStatus] = useState("")
@@ -182,38 +290,39 @@ export function Payments() {
   const matched = head?.total ?? rows.length
   const paid = head?.total_minor ?? 0
 
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: rows,
+        columns,
+        getRowId: (row: SupplierPayment) => row.payment_id,
+      }),
+      [rows]
+    )
+  )
+
   return (
     <PageContent>
-      {/* A phone: the search is one of the Filters, "Record payment" the
-          round +. */}
+      {/* The one action stands in the head; a phone has the + at the thumb. */}
       <PageHeader
-        className="max-md:hidden"
         crumb="Finance · Payments"
         title="Payment Entry"
         actions={
-          <>
-            <Input
-              value={needle}
-              onChange={(event) => setNeedle(event.target.value)}
-              aria-label="Search payments"
-              placeholder="Search payments"
-              className="h-control w-48"
-            />
+          phone ? undefined : (
             <Button variant="primary" onClick={() => setComposing(true)}>
               Record payment
             </Button>
-          </>
+          )
         }
       />
       <Fab label="Record payment" onClick={() => setComposing(true)} />
 
-      <Toolbar>
-        <Input
+      <Toolbar className="group/bar">
+        <ExpandingSearch
           value={needle}
-          onChange={(event) => setNeedle(event.target.value)}
-          aria-label="Search payments"
-          placeholder="Search payments"
-          className="h-control md:hidden"
+          onChange={setNeedle}
+          label="Search payments"
         />
         <UnitSelect
           value={unit}
@@ -234,14 +343,14 @@ export function Payments() {
           </Select>
         </span>
         <Toolbar.Spacer />
-        <span className="text-[0.875rem] text-mute">
+        <span className="text-[0.9375rem] text-mute">
           {unit === "" ? "All units" : <UnitName id={unit} />}
           {status !== "" && ` · ${label(status)}`}
           {` · ${count(matched)} ${matched === 1 ? "payment" : "payments"}`}
         </span>
       </Toolbar>
 
-      <div className="flex flex-col gap-4">
+      <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(payments, {
           loading: "Reading the payment register…",
           refused: (
@@ -261,133 +370,32 @@ export function Payments() {
               </EmptyState>
             ) : rows.length === 0 ? (
               <NoMatch what="payments" onClear={() => setNeedle("")} />
-            ) : phone ? (
-              <>
-                <PhoneList
-                  rows={rows.map((row) => ({
-                    key: row.payment_id,
-                    title: <Parties payment={row} />,
-                    code: row.payment_number,
-                    lead: <CardFigure value={money(row.total_minor)} />,
-                    foot: (
-                      <span className="flex flex-col">
-                        <span>
-                          {day(row.payment_date)} · {label(row.method)}
-                        </span>
-                        <AccountMeaning
-                          meaning={row.account_key}
-                          qualifier={row.account_qualifier}
-                          code={row.account_code}
-                          name={row.account_name}
-                        />
-                        {row.reference !== null && (
-                          <span className="truncate">{row.reference}</span>
-                        )}
-                      </span>
-                    ),
-                    action: (
-                      <Status tone={toneFor(row.status)}>
-                        {label(row.status)}
-                      </Status>
-                    ),
-                    onOpen: () => reading.open(row.payment_id),
-                  }))}
-                />
-                <LoadMore query={payments} />
-              </>
             ) : (
-              <>
-                <Grid>
-                  <thead>
-                    <tr>
-                      <Th width="7.5rem">Date</Th>
-                      <Th width="10rem">Payment</Th>
-                      <Th>Party</Th>
-                      <Th width="11rem">Paid from</Th>
-                      <Th width="7rem">Mode</Th>
-                      <Th>Reference</Th>
-                      <Th align="right" width="9.5rem">
-                        Paid amount
-                      </Th>
-                      <Th width="7rem">Status</Th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((row) => (
-                      <tr
-                        key={row.payment_id}
-                        onClick={() => reading.open(row.payment_id)}
-                        className="cursor-pointer"
-                      >
-                        <Td className="whitespace-nowrap">
-                          {day(row.payment_date)}
-                        </Td>
-                        <Td className="whitespace-nowrap">
-                          <span className="font-mono text-[0.875rem] text-ink">
-                            {row.payment_number}
-                          </span>
-                        </Td>
-                        <Td>
-                          <Parties payment={row} />
-                        </Td>
-                        <Td className="whitespace-nowrap">
-                          <AccountMeaning
-                            meaning={row.account_key}
-                            qualifier={row.account_qualifier}
-                            code={row.account_code}
-                            name={row.account_name}
-                          />
-                        </Td>
-                        {/* ERPNext's Mode of Payment, its own column rather than
-                            a tail on the account. */}
-                        <Td className="whitespace-nowrap">
-                          {label(row.method)}
-                        </Td>
-                        <Td className="max-w-0">
-                          <span
-                            className={cn(
-                              "block truncate",
-                              row.reference === null
-                                ? "text-faint"
-                                : "text-body"
-                            )}
-                            title={row.reference ?? undefined}
-                          >
-                            {row.reference ?? "—"}
-                          </span>
-                        </Td>
-                        <Td align="right" className="whitespace-nowrap">
-                          {money(row.total_minor)}
-                        </Td>
-                        <Td>
-                          <Status tone={toneFor(row.status)}>
-                            {label(row.status)}
-                          </Status>
-                        </Td>
-                      </tr>
-                    ))}
-                    {/* The server's own total over everything the search and the
-                      filters match — not a sum of the pages scrolled so far.
-                      Unallocated is summed over what is loaded, and says so. */}
-                    <TotalRow>
-                      <Td>Total</Td>
-                      <Td className="font-normal whitespace-nowrap text-mute">
-                        {count(matched)} payments
-                      </Td>
-                      <Td />
-                      <Td />
-                      <Td />
-                      <Td />
-                      <Td align="right">{money(paid)}</Td>
-                      <Td />
-                    </TotalRow>
-                  </tbody>
-                </Grid>
-                <LoadMore query={payments} />
-              </>
+              <DataTable<SupplierPayment>
+                refresh={[payments]}
+                table={table}
+                onRowClick={(row) => reading.open(row.payment_id)}
+                isSelected={(row) => row.payment_id === reading.value}
+                more={payments}
+                // The server's own total over everything the search and the
+                // filters match — not a sum of the pages scrolled so far.
+                summary={{
+                  date: "Total",
+                  number: (
+                    <span className="font-normal text-mute">
+                      {count(matched)} payments
+                    </span>
+                  ),
+                  amount: money(paid),
+                }}
+                pageScroll
+                cardSort={false}
+                cardsApart
+                cardLead
+              />
             ),
         })}
-      </div>
+      </Card>
 
       <PaymentPanel id={reading.value ?? null} onClose={reading.close} />
       <ComposerPanel open={composing} onClose={() => setComposing(false)} />
@@ -477,8 +485,11 @@ function PaymentPanel({
     },
   })
 
+  const shown = detail.data
+  const draft = shown !== undefined && shown.status !== "POSTED"
+
   return (
-    <Panel
+    <Sheet
       open={id !== null}
       onOpenChange={(open) => {
         if (!open) {
@@ -487,8 +498,43 @@ function PaymentPanel({
           onClose()
         }
       }}
-      title={detail.data?.payment_number ?? "Payment"}
-      sub="What left the bank, and which debts it answered."
+      // The number is the crumb's second half, the parties the title; the
+      // status and how many bills it answered stand on the caption line.
+      id={shown?.payment_number}
+      title={shown === undefined ? "Payment" : <Parties payment={shown} />}
+      caption={
+        shown === undefined
+          ? undefined
+          : `${label(shown.status)} · ${count(shown.allocations.length)} ${shown.allocations.length === 1 ? "bill" : "bills"}`
+      }
+      size="wide"
+      footer={
+        shown === undefined ? undefined : (
+          <SheetFooter
+            onCancel={() => {
+              setReceipt(null)
+              setPostingDate("")
+              onClose()
+            }}
+            cancelLabel={draft ? "Cancel" : "Close"}
+            note={
+              draft
+                ? "Money that left on the 31st and was keyed on the 2nd belongs to the month it left."
+                : undefined
+            }
+            primary={
+              draft
+                ? {
+                    label: "Post to the books",
+                    pending: post.isPending,
+                    pendingLabel: "Posting…",
+                    onClick: () => post.mutate(),
+                  }
+                : undefined
+            }
+          />
+        )
+      }
     >
       {queryState(detail, {
         loading: "Reading the payment…",
@@ -539,7 +585,7 @@ function PaymentPanel({
                       payable is not an expense bill's — so the honest answer is
                       the rule, and the References grid below shows which of the
                       two each line will debit. */}
-                  <span className="text-[0.875rem]">
+                  <span className="text-[0.9375rem]">
                     the payable each bill sits in
                   </span>
                 </Fact>
@@ -555,7 +601,7 @@ function PaymentPanel({
                 )}
                 {payment.entry_number !== null && (
                   <Fact term="Journal entry">
-                    <span className="font-mono text-[0.875rem]">
+                    <span className="font-mono text-[0.9375rem]">
                       {payment.entry_number}
                     </span>
                   </Fact>
@@ -563,7 +609,7 @@ function PaymentPanel({
               </Facts>
 
               {payment.note !== null && (
-                <p className="text-[0.875rem] text-body">{payment.note}</p>
+                <p className="text-[0.9375rem] text-body">{payment.note}</p>
               )}
 
               <div>
@@ -596,13 +642,13 @@ function PaymentPanel({
                       <tr key={allocation.invoice_id}>
                         <Td>{label(allocation.kind)} bill</Td>
                         <Td>
-                          <span className="block font-mono text-[0.875rem] text-ink">
+                          <span className="block font-mono text-[0.9375rem] text-ink">
                             {allocation.invoice_number}
                           </span>
                           <SupplierName
                             id={allocation.supplier_id}
                             name={allocation.supplier_name}
-                            className="block truncate text-[0.875rem] text-mute"
+                            className="block truncate text-[0.9375rem] text-mute"
                           />
                         </Td>
                         <Td>{day(allocation.due_date)}</Td>
@@ -652,12 +698,12 @@ function PaymentPanel({
               </div>
 
               {posted ? (
-                <p className="text-[0.875rem] text-body">
+                <p className="text-[0.9375rem] text-body">
                   Posted. To correct it, reverse its journal entry and record
                   the payment again.
                 </p>
               ) : (
-                <div className="flex flex-wrap items-end justify-between gap-3 border-t border-hairline pt-4">
+                <div className="border-t border-hairline pt-4">
                   <Field
                     label="Posting date"
                     hint="Empty posts it on the payment date."
@@ -665,26 +711,13 @@ function PaymentPanel({
                   >
                     <Day value={postingDate} onChange={setPostingDate} />
                   </Field>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[0.875rem] text-mute">
-                      Money that left on the 31st and was keyed on the 2nd
-                      belongs to the month it left.
-                    </span>
-                    <Button
-                      variant="primary"
-                      pending={post.isPending}
-                      onClick={() => post.mutate()}
-                    >
-                      {post.isPending ? "Posting…" : "Post to the books"}
-                    </Button>
-                  </div>
                 </div>
               )}
             </div>
           )
         },
       })}
-    </Panel>
+    </Sheet>
   )
 }
 
@@ -909,8 +942,34 @@ function ComposerPanel({
     ])
   }
 
+  /// A disabled button with nothing beside it reads as broken, so what is
+  /// still wrong is always one sentence — and the last two arms name the field
+  /// rather than saying "not ready", which is what somebody who has filled in
+  /// the grid and cannot press Record actually needs to read.
+  const why = ready
+    ? `Allocated in full at ${money(allocatedMinor)}`
+    : unit === ""
+      ? "No unit chosen yet"
+      : references.length === 0
+        ? "No bill chosen yet"
+        : over.length > 0
+          ? "One bill is allocated more than it has left"
+          : paidMinor === null
+            ? "The paid amount is not a number"
+            : unallocatedMinor !== 0
+              ? `${money(unallocatedMinor)} unallocated — this ledger keeps no money on account`
+              : account === ""
+                ? "Say which account the money left by"
+                : method === "GIRO" && giroNumber.trim() === ""
+                  ? "A giro needs the number printed on it"
+                  : method === "GIRO" && giroDueDate === ""
+                    ? "A giro needs the date on its face"
+                    : method === "GIRO" && giroDueDate < paymentDate
+                      ? "The giro falls due before the payment date"
+                      : "The payment date is missing"
+
   return (
-    <Panel
+    <Sheet
       open={open}
       onOpenChange={(next) => {
         if (!next) {
@@ -919,7 +978,22 @@ function ComposerPanel({
         }
       }}
       title="Record a payment"
-      sub="It is written down here, and not in the books until somebody posts it."
+      size="wide"
+      footer={
+        <SheetFooter
+          onCancel={() => {
+            setReceipt(null)
+            onClose()
+          }}
+          note={why}
+          primary={{
+            label: "Submit",
+            pending: record.isPending,
+            disabled: !ready,
+            onClick: () => record.mutate(),
+          }}
+        />
+      }
     >
       <div className="flex flex-col gap-4">
         {receipt !== null && (
@@ -1033,14 +1107,14 @@ function ComposerPanel({
           </SubHead>
 
           {bills.isPending || register.isPending ? (
-            <p className="text-[0.875rem] text-mute">Reading the bills…</p>
+            <p className="text-[0.9375rem] text-mute">Reading the bills…</p>
           ) : unit === "" ? (
-            <p className="text-[0.875rem] text-mute">
+            <p className="text-[0.9375rem] text-mute">
               Choose a unit first — a payment answers that unit&rsquo;s debts,
               and the database refuses one that crosses units.
             </p>
           ) : candidates.length === 0 ? (
-            <p className="text-[0.875rem] text-mute">
+            <p className="text-[0.9375rem] text-mute">
               Nothing posted at this unit is still outstanding. A bill that has
               only been recorded is not in the books yet and cannot be paid.
             </p>
@@ -1083,19 +1157,19 @@ function ComposerPanel({
                         />
                       </Td>
                       <Td>
-                        <span className="block font-mono text-[0.875rem] text-ink">
+                        <span className="block font-mono text-[0.9375rem] text-ink">
                           {bill.invoice_number}
                         </span>
                         <SupplierName
                           id={bill.supplier_id}
                           name={bill.supplier_name}
-                          className="block truncate text-[0.875rem] text-mute"
+                          className="block truncate text-[0.9375rem] text-mute"
                         />
                       </Td>
                       <Td>
                         {day(bill.next_due_date ?? bill.due_date)}
                         {bill.overdue && (
-                          <span className="block text-[0.875rem] text-bad-fg">
+                          <span className="block text-[0.9375rem] text-bad-fg">
                             {count(bill.days_overdue)} days late
                           </span>
                         )}
@@ -1133,7 +1207,7 @@ function ComposerPanel({
                           <span className="text-hairline-strong">·</span>
                         )}
                         {on && typed !== null && typed > free && (
-                          <span className="mt-0.5 block text-[0.875rem] text-bad-fg">
+                          <span className="mt-0.5 block text-[0.9375rem] text-bad-fg">
                             more than the {money(free)} left on this bill
                           </span>
                         )}
@@ -1178,46 +1252,8 @@ function ComposerPanel({
           />
         </Field>
 
-        <div className="flex items-center justify-between gap-3 border-t border-hairline pt-3">
-          <span className="text-[0.875rem] text-mute tabular-nums">
-            {/* A disabled button with nothing beside it reads as broken, so
-                what is still wrong is always one sentence — and the last two
-                arms name the field rather than saying "not ready", which is
-                what somebody who has filled in the grid and cannot press
-                Record actually needs to read. */}
-            {ready
-              ? `Allocated in full at ${money(allocatedMinor)}`
-              : unit === ""
-                ? "No unit chosen yet"
-                : references.length === 0
-                  ? "No bill chosen yet"
-                  : over.length > 0
-                    ? "One bill is allocated more than it has left"
-                    : paidMinor === null
-                      ? "The paid amount is not a number"
-                      : unallocatedMinor !== 0
-                        ? `${money(unallocatedMinor)} unallocated — this ledger keeps no money on account`
-                        : account === ""
-                          ? "Say which account the money left by"
-                          : method === "GIRO" && giroNumber.trim() === ""
-                            ? "A giro needs the number printed on it"
-                            : method === "GIRO" && giroDueDate === ""
-                              ? "A giro needs the date on its face"
-                              : method === "GIRO" && giroDueDate < paymentDate
-                                ? "The giro falls due before the payment date"
-                                : "The payment date is missing"}
-          </span>
-          <Button
-            variant="primary"
-            pending={record.isPending}
-            disabled={!ready}
-            onClick={() => record.mutate()}
-          >
-            {record.isPending ? "Submitting…" : "Submit"}
-          </Button>
-        </div>
       </div>
-    </Panel>
+    </Sheet>
   )
 }
 

@@ -25,7 +25,7 @@ const PAPERS: readonly { readonly value: Paper; readonly label: string }[] = [
 let remembered: Paper = "A5"
 
 const ITEM =
-  "flex min-h-8 cursor-default items-center gap-2 rounded-inner px-2 text-[0.875rem] text-ink outline-none select-none data-[highlighted]:bg-soft-2"
+  "flex min-h-8 cursor-default items-center gap-2 rounded-inner px-2 text-[0.9375rem] text-ink outline-none select-none data-[highlighted]:bg-soft-2"
 
 /// Print, as a menu: print, or download a PDF, on the paper chosen below them.
 ///

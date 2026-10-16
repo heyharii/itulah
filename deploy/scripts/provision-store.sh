@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 #
+# DEVELOPER-ONLY LEGACY: shops are now enrolled with the install code from Central
+# (Stores > the store > Server); this tailnet + master-key script is kept as it was.
+#
 # Enrol one shop into the fleet.
 #
 # A shop needs two separate credentials, and conflating them is the mistake

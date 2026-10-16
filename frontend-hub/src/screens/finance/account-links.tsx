@@ -3,10 +3,15 @@ import {
   useMutation,
   useQuery,
   useQueryClient,
+  useSuspenseQuery,
 } from "@tanstack/react-query"
-import type { ColumnDef, SortingState } from "@tanstack/react-table"
+import type {
+  ColumnDef,
+  SortingState,
+  VisibilityState,
+} from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { useMemo, useState } from "react"
+import { Suspense, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { AppLink } from "@/components/ui/app-link"
@@ -17,9 +22,13 @@ import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { Checkbox, Field, Input, Select } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
+import {
+  BarSpacer,
+  ColumnsMenu,
+  ExpandingSearch,
+} from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
-import { Toolbar } from "@/components/ui/segmented"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState, LoadMore, Problem } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
@@ -28,8 +37,9 @@ import { useLayout } from "@/lib/layout"
 import { problemOf } from "@/lib/problem"
 import {
   accountLinkHistory,
-  accountLinks,
+  accountLinksQuery,
   financeKeys,
+  postingReadinessQuery,
   removeAccountLink,
   setAccountLink,
 } from "@/lib/queries/finance"
@@ -54,6 +64,7 @@ import {
   accountChoiceReady,
   type AccountChoice,
 } from "@/screens/finance/parts"
+import { ScreenPending } from "@/screens/finance/pending"
 import { ApiError } from "@itulah/contract/client"
 import type {
   AccountLink,
@@ -177,7 +188,7 @@ const columns: ColumnDef<TableSetup, RoleRow>[] = [
         <span className="text-[1rem] font-semibold break-words text-ink">
           {row.original.label}
         </span>
-        <span className="font-mono text-[0.875rem] font-normal break-all text-mute">
+        <span className="font-mono text-[0.9375rem] font-normal break-all text-mute">
           {row.original.key}
         </span>
       </span>
@@ -201,7 +212,7 @@ const columns: ColumnDef<TableSetup, RoleRow>[] = [
         >
           {row.original.gaps === 0 ? "None" : count(row.original.gaps)}
         </span>
-        <span className="text-[0.875rem] text-mute">
+        <span className="text-[0.9375rem] text-mute">
           {row.original.gaps === 1 ? "gap" : "gaps"}
         </span>
       </span>
@@ -258,10 +269,7 @@ function sourceKey(row: { source_type: string; source_id: string }): string {
 }
 
 function useLinkPage() {
-  return useQuery({
-    queryKey: financeKeys.accountLinks(null, null),
-    queryFn: ({ signal }) => accountLinks({}, signal),
-  })
+  return useQuery(accountLinksQuery())
 }
 
 /// Every role the rules name, plus any role a link names that the rules no
@@ -291,6 +299,20 @@ function roleRows(
 }
 
 export function AccountLinks() {
+  return (
+    <Suspense
+      fallback={
+        <ScreenPending crumb="Finance" title="Account Links">
+          Loading the links…
+        </ScreenPending>
+      }
+    >
+      <AccountLinksScreen />
+    </Suspense>
+  )
+}
+
+function AccountLinksScreen() {
   const phone = useLayout() === "phone"
   const [query, setQuery] = useState("")
   const [onlyGaps, setOnlyGaps] = useState(false)
@@ -300,9 +322,10 @@ export function AccountLinks() {
   const [sorting, setSorting] = useState<SortingState>([
     { id: "gaps", desc: true },
   ])
+  const [visibility, setVisibility] = useState<VisibilityState>({})
 
-  const page = useLinkPage()
-  const readiness = usePostingReadiness()
+  const page = useSuspenseQuery(accountLinksQuery())
+  const readiness = useSuspenseQuery(postingReadinessQuery())
 
   // The roles the narrowed-to source already answers. Empty means the record
   // has no link at all yet, and then every role is offered: which one it
@@ -344,12 +367,26 @@ export function AccountLinks() {
           globalFilter: query,
           sorting,
           // The card's own columns are drawn on a phone and never on a desk.
-          columnVisibility: { head: phone, lead: phone, foot: phone },
+          columnVisibility: {
+            ...visibility,
+            head: phone,
+            lead: phone,
+            foot: phone,
+          },
         },
         onSortingChange: setSorting,
         onGlobalFilterChange: setQuery,
+        onColumnVisibilityChange: setVisibility,
       }),
-      [rows, filters.columns, filters.columnFilters, query, sorting, phone]
+      [
+        rows,
+        filters.columns,
+        filters.columnFilters,
+        query,
+        sorting,
+        phone,
+        visibility,
+      ]
     )
   )
 
@@ -357,23 +394,50 @@ export function AccountLinks() {
 
   return (
     <PageContent>
-      <PageHeader
-        crumb="Finance"
-        title="Account Links"
-        sub="The posting rules name roles; the client's chart has accounts. A link says which account answers, for every unit, one kind of unit, or one unit."
-        // Search, the status, the filters and the order are the dock's on a
-        // phone.
-        actions={
-          phone ? undefined : (
-            <Input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              className="h-8 w-48"
-            />
-          )
-        }
-      />
+      <PageHeader crumb="Finance" title="Account Links" />
 
+      {page.data && (
+        <KpiStrip className="md:grid-cols-4 xl:grid-cols-4">
+          <Kpi label="Roles" value={count(rows.length)} />
+          <Kpi label="Links" value={count(page.data.total)} />
+          <Kpi label="Units" value={count(page.data.locations.length)} />
+          <Kpi label="Gaps" value={count(gaps)} />
+        </KpiStrip>
+      )}
+
+      {preset !== null && presetRoles !== null && (
+        <Banner tone="info" className="mb-3" onDismiss={linkSource.close}>
+          {presetRoles.size === 0 ? (
+            <>
+              {sourceWords(preset)} has no link yet, so every role is listed.
+              Open the role it should answer — the source is filled in on the
+              add form.
+            </>
+          ) : (
+            <>
+              Showing the {count(presetRoles.size)}{" "}
+              {presetRoles.size === 1 ? "role" : "roles"} linked from{" "}
+              <span className="font-medium">{sourceWords(preset)}</span>.
+            </>
+          )}
+        </Banner>
+      )}
+
+      {page.data && gaps > 0 && (
+        <Banner tone="warn" className="mb-3">
+          {count(gaps)} role-and-unit combinations reach no account. Every
+          posting that needs one is refused, and the refusal names the role.{" "}
+          <AppLink
+            to="/finance/setup/posting-readiness"
+            className="underline underline-offset-2"
+          >
+            See them on Posting readiness
+          </AppLink>
+        </Banner>
+      )}
+
+      {/* Search, the status, the filters and the order are the dock's on a
+          phone. */}
       {phone ? (
         <DockTools
           search={{
@@ -396,66 +460,30 @@ export function AccountLinks() {
           }}
         />
       ) : (
-        <Toolbar>
+        <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2">
+          <ExpandingSearch
+            value={query}
+            onChange={setQuery}
+            label="Search roles"
+          />
           <Checkbox
             label="Only roles with gaps"
             checked={onlyGaps}
             onChange={(next) => setOnlyGaps(next)}
           />
           <FilterPanel model={filters} table={table} />
-          <Toolbar.Spacer />
-          <span className="text-[0.875rem] text-mute">
+          <BarSpacer />
+          <span className="text-[0.9375rem] text-mute">
             {count(page.data?.total ?? 0)} links · {count(gaps)} role-and-unit
             gaps
             {onlyGaps ? " · showing only what is left" : ""}
           </span>
-        </Toolbar>
+          <ColumnsMenu table={table} />
+        </div>
       )}
 
-      {preset !== null && presetRoles !== null && (
-        <Banner tone="info" className="mb-3" onDismiss={linkSource.close}>
-          {presetRoles.size === 0 ? (
-            <>
-              {sourceWords(preset)} has no link yet, so every role is listed.
-              Open the role it should answer — the source is filled in on the
-              add form.
-            </>
-          ) : (
-            <>
-              Showing the {count(presetRoles.size)}{" "}
-              {presetRoles.size === 1 ? "role" : "roles"} linked from{" "}
-              <span className="font-medium">{sourceWords(preset)}</span>.
-            </>
-          )}
-        </Banner>
-      )}
-
-      {page.data && (
-        <>
-          {gaps > 0 && (
-            <Banner tone="warn" className="mb-3">
-              {count(gaps)} role-and-unit combinations reach no account. Every
-              posting that needs one is refused, and the refusal names the role.{" "}
-              <AppLink
-                to="/finance/setup/posting-readiness"
-                className="underline underline-offset-2"
-              >
-                See them on Posting readiness
-              </AppLink>
-            </Banner>
-          )}
-          <KpiStrip className="md:grid-cols-4 xl:grid-cols-4">
-            <Kpi label="Roles" value={count(rows.length)} />
-            <Kpi label="Links" value={count(page.data.total)} />
-            <Kpi label="Units" value={count(page.data.locations.length)} />
-            <Kpi label="Gaps" value={count(gaps)} />
-          </KpiStrip>
-        </>
-      )}
-
-      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+      <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(page, {
-          loading: "Loading the links…",
           render: () =>
             rows.length === 0 ? (
               <EmptyState>
@@ -465,12 +493,12 @@ export function AccountLinks() {
               </EmptyState>
             ) : (
               <DataTable<RoleRow>
+                refresh={[page, readiness]}
                 table={table}
                 onRowClick={(row) => mapping.open(row.key)}
                 isSelected={(row) => row.key === mapping.value}
                 empty="No role matches the search and filters in force."
-                className="max-h-[calc(100dvh-22rem)] max-md:max-h-none"
-                pageScroll={phone}
+                pageScroll
                 cardsApart
                 cardLead
                 cardSort={false}
@@ -577,11 +605,11 @@ function RoleSheet({
           <div className="flex flex-col gap-5">
             {doc !== undefined ? (
               <div className="flex flex-col gap-2">
-                <p className="text-[0.875rem] text-body">
+                <p className="text-[0.9375rem] text-body">
                   Without this, {doc.needed_for.toLowerCase()} stops working —
                   the posting is refused and names the role.
                 </p>
-                <p className="rounded-inner bg-soft px-3 py-2 text-[0.875rem] text-body">
+                <p className="rounded-inner bg-soft px-3 py-2 text-[0.9375rem] text-body">
                   Expected to be{" "}
                   <span className="font-medium text-ink">{doc.expects}</span>
                 </p>
@@ -621,7 +649,7 @@ function RoleSheet({
             )}
 
             {sources.length === 0 ? (
-              <p className="text-[0.875rem] text-bad-fg">
+              <p className="text-[0.9375rem] text-bad-fg">
                 No link names this role. Every posting that needs it is refused
                 in every unit.
               </p>
@@ -657,7 +685,7 @@ function RoleSheet({
                 render: (data) => {
                   const changes = data.pages.flat()
                   return changes.length === 0 ? (
-                    <p className="text-[0.875rem] text-mute">
+                    <p className="text-[0.9375rem] text-mute">
                       Nobody has changed these links since they were set.
                     </p>
                   ) : (
@@ -665,7 +693,7 @@ function RoleSheet({
                       {changes.map((change) => (
                         <div
                           key={change.history_id}
-                          className="flex flex-wrap items-baseline gap-x-2 text-[0.875rem]"
+                          className="flex flex-wrap items-baseline gap-x-2 text-[0.9375rem]"
                         >
                           <span className="font-medium text-ink">
                             {label(change.action)}
@@ -869,7 +897,7 @@ function AddLinkForm({
             explain
           />
           <div className="flex items-center justify-end gap-2.5">
-            <span className="min-w-0 flex-1 text-[0.875rem] text-mute">
+            <span className="min-w-0 flex-1 text-[0.9375rem] text-mute">
               {!sourceReady
                 ? `Choose the ${sourceTypeLabel(sourceType).toLowerCase()} this link is for.`
                 : !scopeReady
@@ -923,7 +951,7 @@ function SourceGroup({
     >
       <div className="flex items-center gap-2">
         {source.source_type === "COMPANY" && source.source_id === "" ? (
-          <span className="text-[0.875rem] font-medium text-ink">
+          <span className="text-[0.9375rem] font-medium text-ink">
             {showSource ? "Company default" : "The role"}
           </span>
         ) : (
@@ -941,8 +969,8 @@ function SourceGroup({
           <span
             className={
               resolved.gaps > 0
-                ? "text-[0.875rem] font-medium text-bad-fg"
-                : "text-[0.875rem] text-ok-fg"
+                ? "text-[0.9375rem] font-medium text-bad-fg"
+                : "text-[0.9375rem] text-ok-fg"
             }
           >
             {resolved.gaps > 0
@@ -953,7 +981,7 @@ function SourceGroup({
       </div>
 
       {links.length === 0 ? (
-        <p className="text-[0.875rem] text-bad-fg">No link for this source.</p>
+        <p className="text-[0.9375rem] text-bad-fg">No link for this source.</p>
       ) : (
         <div className="flex flex-col divide-y divide-hairline">
           {links.map((link) => (
@@ -969,14 +997,14 @@ function SourceGroup({
 
       {resolved !== undefined && (
         <div>
-          <div className="mb-1.5 text-[0.875rem] font-medium text-text">
+          <div className="mb-1.5 text-[0.9375rem] font-medium text-text">
             What each unit posts to
           </div>
           <div className="grid grid-cols-2 gap-x-3 gap-y-1">
             {resolved.cells.map((cell) => (
               <div
                 key={cell.unit_id}
-                className="flex min-w-0 items-center gap-2 text-[0.875rem]"
+                className="flex min-w-0 items-center gap-2 text-[0.9375rem]"
               >
                 <span className="min-w-0 flex-1 truncate text-body">
                   {unitName(cell.unit_id)}
@@ -1055,7 +1083,7 @@ function LinkRow({
 
   return (
     <div className="flex flex-col gap-1.5 py-2 first:pt-0 last:pb-0">
-      <div className="flex items-center gap-2 text-[0.875rem]">
+      <div className="flex items-center gap-2 text-[0.9375rem]">
         <Pill tone={link.scope_type === "ALL" ? "neutral" : "info"}>
           {scope}
         </Pill>
@@ -1072,7 +1100,7 @@ function LinkRow({
           )}
         </span>
       </div>
-      <div className="flex flex-wrap items-center gap-x-2 text-[0.875rem] text-faint">
+      <div className="flex flex-wrap items-center gap-x-2 text-[0.9375rem] text-faint">
         <span className={link.decides_units === 0 ? "text-warn-fg" : ""}>
           {link.decides_units === 0
             ? "Decides no unit — every one it covers has a more specific link"
@@ -1139,7 +1167,7 @@ function LinkRow({
             explain
           />
           <div className="flex items-center justify-end gap-2.5">
-            <span className="min-w-0 flex-1 text-[0.875rem] text-mute">
+            <span className="min-w-0 flex-1 text-[0.9375rem] text-mute">
               {accountChoiceProblem(choice) ??
                 `${scope} will post to ${choice?.account_code}.`}
             </span>

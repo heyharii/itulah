@@ -1,42 +1,53 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useMemo, useState } from "react"
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query"
+import type { ColumnDef } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
+import { Suspense, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
-import { Card, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card } from "@/components/ui/card"
+import { DataTable } from "@/components/ui/data-table"
 import { Fab } from "@/components/ui/fab"
-import { Panel, ConfirmButton } from "@/components/ui/dialog"
+import { ConfirmButton } from "@/components/ui/dialog"
 import { Checkbox, Field, Input, Money } from "@/components/ui/field"
+import { ExpandingSearch } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Status } from "@/components/ui/pill"
 import { Toolbar } from "@/components/ui/segmented"
+import { Fact, Facts, Sheet } from "@/components/ui/sheet"
+import { SheetFooter } from "@/components/ui/sheet-footer"
 import { EmptyState, Problem } from "@/components/ui/states"
 import { count, money, percentBps } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import {
   accountDetail,
+  billTemplatesQuery,
   financeKeys,
-  listBillTemplates,
   recordBillTemplate,
   retireBillTemplate,
   type BillTemplateRow,
 } from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
-import { Code, Grid, Td, Th } from "@/screens/finance-final/parts"
+import { tableSetup, type TableSetup } from "@/lib/table"
+import { Code } from "@/screens/finance-final/parts"
 import { EXPENSE_LINE_CLASSES } from "@/screens/finance/chart"
 import { useCategoryName, useSupplierName } from "@/screens/finance/hooks"
-import { CardFigure, PhoneList } from "@/components/ui/phone-cards"
 import {
   AccountAndCategory,
   accountChoiceProblem,
   accountChoiceReady,
-  PhoneChoice,
   SiteName,
   SiteSelect,
   SupplierName,
   SupplierPicker,
   type AccountChoice,
 } from "@/screens/finance/parts"
+import { ScreenPending } from "@/screens/finance/pending"
 
 /// Recurring Bills: what a supplier is expected to invoice every month.
 ///
@@ -54,10 +65,21 @@ import {
 /// pointing at what was expected when they were.
 
 export function RecurringBills() {
-  const templates = useQuery({
-    queryKey: financeKeys.billTemplates(),
-    queryFn: ({ signal }) => listBillTemplates(signal),
-  })
+  return (
+    <Suspense
+      fallback={
+        <ScreenPending crumb="Finance · Payables" title="Recurring Bills">
+          Reading the recurring bills…
+        </ScreenPending>
+      }
+    >
+      <RecurringBillsScreen />
+    </Suspense>
+  )
+}
+
+function RecurringBillsScreen() {
+  const templates = useSuspenseQuery(billTemplatesQuery())
   const [retired, setRetired] = useState(false)
   const [opened, setOpened] = useState<string | "new" | null>(null)
   const [needle, setNeedle] = useState("")
@@ -66,7 +88,7 @@ export function RecurringBills() {
 
   const rows = useMemo(() => {
     const text = needle.trim().toLowerCase()
-    return (templates.data ?? []).filter(
+    return templates.data.filter(
       (row) =>
         (retired || row.active) &&
         (text === "" ||
@@ -81,157 +103,173 @@ export function RecurringBills() {
   const open =
     opened === null || opened === "new"
       ? null
-      : ((templates.data ?? []).find((row) => row.template_id === opened) ??
-        null)
+      : (templates.data.find((row) => row.template_id === opened) ?? null)
+
+  /// The promises, and what each is worth every month. On a card the label
+  /// names it, who and where follow and the day and the amount stand under it.
+  const columns = useMemo<ColumnDef<TableSetup, BillTemplateRow>[]>(
+    () => [
+      {
+        id: "label",
+        accessorFn: (row) => row.label,
+        header: "Label",
+        size: 220,
+        enableSorting: false,
+        meta: { card: "title", grow: 200 },
+        // Prose, so it wraps: at 1440 the table has no slack to spare and a
+        // label or an account name is the only thing that can give way without
+        // hiding either.
+        cell: ({ row }) => (
+          <span className="whitespace-normal text-ink">
+            {row.original.label}
+          </span>
+        ),
+      },
+      {
+        id: "supplier",
+        accessorFn: (row) => supplierName(row.supplier_id, row.supplier_name),
+        header: "Supplier",
+        size: 190,
+        enableSorting: false,
+        meta: { card: "meta" },
+        cell: ({ row }) => (
+          <span className="whitespace-normal">
+            <SupplierName
+              id={row.original.supplier_id}
+              name={row.original.supplier_name}
+            />
+          </span>
+        ),
+      },
+      {
+        id: "unit",
+        accessorFn: (row) => row.site_id,
+        header: "Unit",
+        size: 130,
+        enableSorting: false,
+        meta: { card: "meta", priority: 3 },
+        cell: ({ row }) => <SiteName id={row.original.site_id} />,
+      },
+      {
+        id: "account",
+        accessorFn: (row) => row.expense_account_code,
+        header: "Expense account",
+        size: 240,
+        enableSorting: false,
+        meta: { card: "meta", priority: 2 },
+        cell: ({ row }) => (
+          <span className="whitespace-normal">
+            <AccountLabel code={row.original.expense_account_code} />
+          </span>
+        ),
+      },
+      {
+        id: "day",
+        accessorFn: (row) => row.due_day,
+        header: "Every month on day",
+        size: 170,
+        enableSorting: false,
+        meta: { align: "right", card: "metric" },
+        cell: ({ row }) => count(row.original.due_day),
+      },
+      {
+        id: "amount",
+        accessorFn: (row) =>
+          row.expected_subtotal_minor + row.expected_tax_minor,
+        header: "Expected amount",
+        size: 150,
+        enableSorting: false,
+        meta: { align: "right", card: "metric" },
+        cell: ({ row }) =>
+          money(
+            row.original.expected_subtotal_minor +
+              row.original.expected_tax_minor
+          ),
+      },
+      {
+        id: "status",
+        accessorFn: (row) => row.active,
+        header: "Status",
+        size: 110,
+        enableSorting: false,
+        meta: { card: "status" },
+        cell: ({ row }) => (
+          <Status tone={row.original.active ? "ok" : "done"}>
+            {row.original.active ? "Active" : "Retired"}
+          </Status>
+        ),
+      },
+    ],
+    [supplierName]
+  )
+
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: rows,
+        columns,
+        getRowId: (row: BillTemplateRow) => row.template_id,
+      }),
+      [rows, columns]
+    )
+  )
 
   return (
     <PageContent>
+      {/* The one action stands in the head; a phone has the + at the thumb. */}
       <PageHeader
-        className="max-md:hidden"
         crumb="Finance · Payables"
         title="Recurring Bills"
         actions={
-          <Button variant="primary" onClick={() => setOpened("new")}>
-            New recurring bill
-          </Button>
+          phone ? undefined : (
+            <Button variant="primary" onClick={() => setOpened("new")}>
+              New recurring bill
+            </Button>
+          )
         }
-      />
-      {/* A phone: "Show retired" is a chip in the dock, the new bill the
-          round +. */}
-      <PhoneChoice
-        title="Show"
-        value={retired ? "all" : "active"}
-        onChange={(next) => setRetired(next === "all")}
-        options={[
-          { value: "active", label: "Active" },
-          { value: "all", label: "Active and retired", short: "All" },
-        ]}
       />
       <Fab label="New recurring bill" onClick={() => setOpened("new")} />
 
-      <Toolbar>
-        <Input
+      <Toolbar className="group/bar">
+        <ExpandingSearch
           value={needle}
-          onChange={(event) => setNeedle(event.target.value)}
-          aria-label="Search recurring bills"
-          placeholder="Search recurring bills"
-          className="h-control w-64"
+          onChange={setNeedle}
+          label="Search recurring bills"
+        />
+        <Checkbox
+          label="Show retired"
+          checked={retired}
+          onChange={setRetired}
         />
         <Toolbar.Spacer />
-        <span className="text-[0.875rem] text-mute">
+        <span className="text-[0.9375rem] text-mute">
           {count(rows.length)}{" "}
           {rows.length === 1 ? "recurring bill" : "recurring bills"}
         </span>
       </Toolbar>
 
-      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-        <CardHeader className="max-md:hidden">
-          <CardTitle>Recurring bills</CardTitle>
-          <Checkbox
-            label="Show retired"
-            checked={retired}
-            onChange={setRetired}
-          />
-        </CardHeader>
+      <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(templates, {
-          loading: "Reading the recurring bills…",
           render: () =>
             rows.length === 0 ? (
               <EmptyState>
                 {needle.trim() !== ""
                   ? `No recurring bill matches “${needle.trim()}”.`
-                  : retired || (templates.data ?? []).length === 0
+                  : retired || templates.data.length === 0
                     ? "No recurring bill yet. Add the charges a supplier sends every month — rent, internet, freight — and a draft bill is raised for each one."
                     : "Nothing is active. Tick Show retired to see the ones that were stopped."}
               </EmptyState>
-            ) : phone ? (
-              <PhoneList
-                rows={rows.map((row) => ({
-                  key: row.template_id,
-                  title: row.label,
-                  line: (
-                    <SupplierName
-                      id={row.supplier_id}
-                      name={row.supplier_name}
-                    />
-                  ),
-                  lead: (
-                    <CardFigure
-                      value={money(
-                        row.expected_subtotal_minor + row.expected_tax_minor
-                      )}
-                      caption={`on day ${count(row.due_day)}`}
-                    />
-                  ),
-                  foot: (
-                    <span className="flex flex-col">
-                      <SiteName id={row.site_id} />
-                      <span className="truncate">
-                        <AccountLabel code={row.expense_account_code} />
-                      </span>
-                    </span>
-                  ),
-                  action: (
-                    <Status tone={row.active ? "ok" : "done"}>
-                      {row.active ? "Active" : "Retired"}
-                    </Status>
-                  ),
-                  onOpen: () => setOpened(row.template_id),
-                }))}
-              />
             ) : (
-              <Grid>
-                <thead>
-                  <tr>
-                    <Th>Label</Th>
-                    <Th>Supplier</Th>
-                    <Th>Unit</Th>
-                    <Th>Expense account</Th>
-                    <Th align="right">Every month on day</Th>
-                    <Th align="right">Expected amount</Th>
-                    <Th>Status</Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row) => (
-                    <tr
-                      key={row.template_id}
-                      onClick={() => setOpened(row.template_id)}
-                      className="cursor-pointer"
-                    >
-                      {/* Prose, so it wraps: at 1440 the table has no slack to
-                          spare and a label or an account name is the only
-                          thing that can give way without hiding either. */}
-                      <Td className="min-w-[11rem] whitespace-normal">
-                        <span className="text-ink">{row.label}</span>
-                      </Td>
-                      <Td className="min-w-[10rem] whitespace-normal">
-                        <SupplierName
-                          id={row.supplier_id}
-                          name={row.supplier_name}
-                        />
-                      </Td>
-                      <Td>
-                        <SiteName id={row.site_id} />
-                      </Td>
-                      <Td className="min-w-[12rem] whitespace-normal">
-                        <AccountLabel code={row.expense_account_code} />
-                      </Td>
-                      <Td align="right">{count(row.due_day)}</Td>
-                      <Td align="right">
-                        {money(
-                          row.expected_subtotal_minor + row.expected_tax_minor
-                        )}
-                      </Td>
-                      <Td>
-                        <Status tone={row.active ? "ok" : "done"}>
-                          {row.active ? "Active" : "Retired"}
-                        </Status>
-                      </Td>
-                    </tr>
-                  ))}
-                </tbody>
-              </Grid>
+              <DataTable<BillTemplateRow>
+                refresh={[templates]}
+                table={table}
+                onRowClick={(row) => setOpened(row.template_id)}
+                isSelected={(row) => row.template_id === opened}
+                pageScroll
+                cardSort={false}
+                cardsApart
+              />
             ),
         })}
       </Card>
@@ -321,47 +359,51 @@ function RecurringBillDetail({
   ]
 
   return (
-    <Panel
+    <Sheet
       open
       onOpenChange={(next) => {
         if (!next) onClose()
       }}
       title={template.label}
-      sub={
-        <Status tone={template.active ? "ok" : "done"}>
-          {template.active ? "Active" : "Retired"}
-        </Status>
+      caption={template.active ? "Active" : "Retired"}
+      size="rail"
+      footer={
+        <SheetFooter
+          onCancel={onClose}
+          cancelLabel="Close"
+          note={
+            template.active
+              ? "Drafts already raised stay as they are."
+              : undefined
+          }
+          danger={
+            template.active ? (
+              <ConfirmButton
+                label="Retire"
+                variant="danger"
+                title="Retire this recurring bill?"
+                description="No further draft bill is raised from it and it leaves Payment Projection. Drafts already raised are kept."
+                confirmLabel="Retire"
+                tone="danger"
+                pending={retire.isPending}
+                onConfirm={() => retire.mutateAsync()}
+              />
+            ) : undefined
+          }
+        />
       }
     >
       <div className="flex flex-col gap-4">
         <Problem error={retire.error} />
-        <dl className="grid grid-cols-[11rem_minmax(0,1fr)] gap-x-4 gap-y-2.5 text-[0.9375rem]">
+        <Facts>
           {facts.map(([term, value]) => (
-            <div key={term} className="contents">
-              <dt className="text-mute">{term}</dt>
-              <dd className="min-w-0 text-ink">{value}</dd>
-            </div>
+            <Fact key={term} term={term}>
+              {value}
+            </Fact>
           ))}
-        </dl>
-        {template.active && (
-          <div className="flex items-center justify-between gap-3 border-t border-hairline pt-3">
-            <span className="text-[0.875rem] text-mute">
-              Drafts already raised stay as they are.
-            </span>
-            <ConfirmButton
-              label="Retire"
-              variant="danger"
-              title="Retire this recurring bill?"
-              description="No further draft bill is raised from it and it leaves Payment Projection. Drafts already raised are kept."
-              confirmLabel="Retire"
-              tone="danger"
-              pending={retire.isPending}
-              onConfirm={() => retire.mutateAsync()}
-            />
-          </div>
-        )}
+        </Facts>
       </div>
-    </Panel>
+    </Sheet>
   )
 }
 
@@ -427,13 +469,24 @@ function NewRecurringBill({ onClose }: { onClose: () => void }) {
     !toleranceBad
 
   return (
-    <Panel
+    <Sheet
       open
       onOpenChange={(next) => {
         if (!next) onClose()
       }}
       title="New recurring bill"
-      sub="A charge that comes back every month. A draft bill is raised from it; nobody is paid until a person posts the bill."
+      size="wide"
+      footer={
+        <SheetFooter
+          onCancel={onClose}
+          primary={{
+            label: "Submit",
+            pending: save.isPending,
+            disabled: !ready,
+            onClick: () => save.mutate(),
+          }}
+        />
+      }
     >
       <div className="flex flex-col gap-4">
         <Problem error={save.error} />
@@ -516,20 +569,7 @@ function NewRecurringBill({ onClose }: { onClose: () => void }) {
             />
           </Field>
         </div>
-        <div className="flex items-center justify-end gap-3 border-t border-hairline pt-3">
-          <Button variant="quiet" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            pending={save.isPending}
-            disabled={!ready}
-            onClick={() => save.mutate()}
-          >
-            {save.isPending ? "Submitting…" : "Submit"}
-          </Button>
-        </div>
       </div>
-    </Panel>
+    </Sheet>
   )
 }

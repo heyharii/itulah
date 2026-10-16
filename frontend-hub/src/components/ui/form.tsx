@@ -58,15 +58,15 @@ export function Section({
   return (
     <section className={className}>
       {Icon ? (
-        <div className="mb-6 flex items-center gap-3 border-b border-hairline pb-4">
+        <div className="form-section-head mb-6 flex items-center gap-3 border-b border-hairline pb-4">
           <Icon className="size-5 shrink-0 text-line-ico" strokeWidth={1.7} />
           <h4 className="flex-1 text-base font-semibold text-ink">{title}</h4>
-          {aside && <span className="text-[0.875rem] text-mute">{aside}</span>}
+          {aside && <span className="text-[0.9375rem] text-mute">{aside}</span>}
         </div>
       ) : (
-        <div className="mb-3.5 flex items-baseline justify-between gap-2 border-b border-hairline pb-2">
+        <div className="form-section-head mb-3.5 flex items-baseline justify-between gap-2 border-b border-hairline pb-2">
           <h4 className="text-card-title font-semibold text-ink">{title}</h4>
-          {aside && <span className="text-[0.875rem] text-mute">{aside}</span>}
+          {aside && <span className="text-[0.9375rem] text-mute">{aside}</span>}
         </div>
       )}
       {/* 20px between questions since the fields grew to 47px (airy
@@ -166,7 +166,7 @@ export function Choices<T extends string>({
             value={one.value}
             disabled={dead}
             className={cn(
-              "flex min-w-0 cursor-pointer items-center gap-2.5 rounded-inner border px-3 py-2.5 text-left transition-colors",
+              "choice-tile flex min-w-0 cursor-pointer items-center gap-2.5 rounded-inner border px-3 py-2.5 text-left transition-colors",
               "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
               // Locked but not refused: the answer stays legible — the chosen
               // tile keeps its accent — and nothing invites a press.
@@ -203,7 +203,7 @@ export function Choices<T extends string>({
             <span className="min-w-0 flex-1">
               <span
                 className={cn(
-                  "block text-[0.875rem] font-medium",
+                  "block text-[0.9375rem] font-medium",
                   refused
                     ? "text-mute"
                     : one.value === value
@@ -216,7 +216,7 @@ export function Choices<T extends string>({
               {one.tag !== undefined && (
                 <span
                   className={cn(
-                    "mt-0.5 block font-mono text-[0.875rem]",
+                    "mt-0.5 block font-mono text-[0.9375rem]",
                     one.value === value && !refused
                       ? "text-accent"
                       : "text-mute"
@@ -226,7 +226,7 @@ export function Choices<T extends string>({
                 </span>
               )}
               {(one.refused ?? one.note) && (
-                <span className="block text-[0.875rem] leading-relaxed text-mute">
+                <span className="block text-[0.9375rem] leading-relaxed text-mute">
                   {one.refused ?? one.note}
                 </span>
               )}
@@ -283,8 +283,10 @@ export function Switch({
     >
       <span
         className={cn(
-          "absolute size-3.5 rounded-full bg-canvas shadow-soft transition-[left]",
-          on ? "left-[0.875rem]" : "left-0.5"
+          // The knob travels by transform, not `left` (Emil: transform and
+          // opacity only), at --t-pop on the strong ease-out.
+          "absolute left-0.5 size-3.5 rounded-full bg-canvas shadow-soft transition-transform duration-(--t-pop) ease-(--ease-out)",
+          on ? "translate-x-3" : "translate-x-0"
         )}
       />
     </button>
@@ -311,7 +313,7 @@ export function SwitchPill({
   return (
     <label
       className={cn(
-        "inline-flex h-[2.125rem] shrink-0 cursor-pointer items-center gap-2 rounded-inner border border-hairline-2 bg-canvas px-2.5 text-[0.875rem] whitespace-nowrap text-ink capitalize shadow-soft select-none pointer-coarse:h-11",
+        "inline-flex h-[2.125rem] shrink-0 cursor-pointer items-center gap-2 rounded-inner border border-hairline-2 bg-canvas px-2.5 text-[0.9375rem] whitespace-nowrap text-ink capitalize shadow-soft select-none pointer-coarse:h-11",
         className
       )}
     >
@@ -349,7 +351,7 @@ export function Toggle({
   return (
     <div
       className={cn(
-        "flex items-start gap-2.5 rounded-inner border border-hairline-2 px-3 py-2.5",
+        "switch-row flex items-start gap-2.5 rounded-inner border border-hairline-2 px-3 py-2.5",
         on && "border-accent bg-accent-bg",
         disabled === true && "opacity-60",
         className
@@ -365,10 +367,10 @@ export function Toggle({
         />
       </span>
       <span className="min-w-0">
-        <span className="block text-[0.875rem] font-medium text-ink capitalize">
+        <span className="block text-[0.9375rem] font-medium text-ink capitalize">
           {label}
         </span>
-        <span className="block text-[0.875rem] leading-relaxed text-body">
+        <span className="block text-[0.9375rem] leading-relaxed text-body">
           {note}
         </span>
       </span>
@@ -529,7 +531,7 @@ export function Dial({
             className={cn("h-10 text-right tabular-nums", suffix && "pr-8")}
           />
           {suffix && (
-            <span className="pointer-events-none absolute right-3.5 text-[0.875rem] text-mute">
+            <span className="pointer-events-none absolute right-3.5 text-[0.9375rem] text-mute">
               {suffix}
             </span>
           )}
@@ -546,7 +548,7 @@ export function Dial({
               disabled={disabled}
               className={cn(
                 "disabled:pointer-events-none disabled:opacity-50",
-                "rounded-full px-2 py-0.5 text-[0.875rem] font-medium tabular-nums transition-colors",
+                "rounded-full px-2 py-0.5 text-[0.9375rem] font-medium tabular-nums transition-colors",
                 typed === one
                   ? "bg-accent-bg text-accent"
                   : "bg-soft-2 text-body hover:bg-hairline hover:text-ink"
@@ -634,12 +636,12 @@ export function Stepper({
             aria-label={label}
             {...aria}
             className={cn(
-              "w-full bg-transparent text-center text-[0.875rem] text-ink tabular-nums outline-none",
+              "w-full bg-transparent text-center text-[0.9375rem] text-ink tabular-nums outline-none",
               "placeholder:text-mute"
             )}
           />
           {suffix && typed !== null && (
-            <span className="pointer-events-none pl-1 text-[0.875rem] text-mute">
+            <span className="pointer-events-none pl-1 text-[0.9375rem] text-mute">
               {suffix}
             </span>
           )}

@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
@@ -12,16 +12,16 @@ import { day } from "@/lib/format"
 import {
   delegate,
   delegationKeys,
-  delegations,
-  essModules,
   revokeDelegation,
   setEssModules,
+  essModulesQuery,
+  delegationsQuery,
 } from "@/lib/queries/people"
-import { queryState } from "@/lib/query-state"
 import { useCanWrite } from "@/lib/session"
 import { ESS_MODULES, useSheetTarget } from "@/screens/people/settings-hooks"
 import { FormSheet } from "@/screens/people/settings-parts"
 import type { DelegationView, EssModulesView } from "@itulah/contract"
+import { awaiting } from "@/screens/people/awaiting"
 
 /// Modul ESS: which parts of the employee app the company uses, read-only
 /// rows. A module turned off is not offered in the app. The page that shows
@@ -31,17 +31,13 @@ export function EssModulesList({
 }: {
   edit: ReturnType<typeof useSheetTarget<null>>
 }) {
-  const current = useQuery({
-    queryKey: delegationKeys.ess(),
-    queryFn: ({ signal }) => essModules(signal),
-  })
   return (
     <Card className="px-4 py-3">
-      {queryState(current, {
+      {awaiting(essModulesQuery(), {
         loading: "Reading the modules…",
         render: (view) => (
           <>
-            <p className="mb-2 text-[0.875rem] text-mute">
+            <p className="mb-2 text-[0.9375rem] text-mute">
               What employees see in their app. A module turned off is hidden
               there; head office and managers keep their own screens.
             </p>
@@ -97,7 +93,7 @@ function EssSheet({
       canSave={reason.trim() !== ""}
       onSave={() => save.mutate()}
     >
-      <p className="text-[0.875rem] text-mute">
+      <p className="text-[0.9375rem] text-mute">
         Turning a module off hides it in the employee app.
       </p>
       <div className="flex flex-col gap-3">
@@ -154,14 +150,10 @@ export function DelegationsList({
   administrator: boolean
   handOver: ReturnType<typeof useSheetTarget<null>>
 }) {
-  const rows = useQuery({
-    queryKey: delegationKeys.all(),
-    queryFn: ({ signal }) => delegations(signal),
-  })
   const detail = useSheetTarget<DelegationView>()
   return (
     <Card className="px-4 py-3">
-      {queryState(rows, {
+      {awaiting(delegationsQuery(), {
         loading: "Reading the hand-overs…",
         render: (list) => (
           <>
@@ -194,7 +186,7 @@ export function DelegationsList({
                     <MiniCell>{row.delegate_name}</MiniCell>
                     <MiniCell>
                       {day(row.from_date)} – {day(row.to_date)}
-                      <span className="block text-[0.875rem] text-mute">
+                      <span className="block text-[0.9375rem] text-mute">
                         {row.reason}
                       </span>
                     </MiniCell>
@@ -273,7 +265,7 @@ function DelegationSheet({
             {row.revoked ? "Revoked" : row.active ? "Running" : "Not running"}
           </KeyValue>
           {!row.revoked && (
-            <p className="mt-3 text-[0.875rem] text-mute">
+            <p className="mt-3 text-[0.9375rem] text-mute">
               Revoking returns the decisions to {row.delegator_name} at once.
             </p>
           )}

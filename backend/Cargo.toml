@@ -113,7 +113,11 @@ tokio = { version = "=1.45.1", features = ["macros", "net", "process", "rt-multi
 tower = { version = "=0.5.2", features = ["util"] }
 # `compression-gzip` is the till's catalog/price-book pulls (Phase 2.2):
 # a 5,000-SKU JSON book is ~10:1 under gzip, and the desk pulls it whole.
-tower-http = { version = "=0.6.6", features = ["cors", "fs", "trace", "compression-gzip"] }
+# `compression-br` (2026-10-10, owner: "brotli sudah?") offers the same
+# responses in Brotli — typically 15–20% smaller again on JSON, and every
+# browser this fleet runs accepts it. Both nodes negotiate it; the cloud's
+# layer is in `cloud/http/mod.rs`, the edge's in `edge/http.rs`.
+tower-http = { version = "=0.6.6", features = ["cors", "fs", "trace", "compression-gzip", "compression-br"] }
 tracing = "=0.1.41"
 # Daily log files for an installed node, kept 14 days, one JSON object per
 # line so a support bundle can be filtered by level and module without a
@@ -151,3 +155,12 @@ proptest = "=1.6.0"
 # Decodes what the encoder produced, so the QR is proven readable by
 # something that did not write it.
 rqrr = "=0.10.1"
+
+# A full debug build of this crate with full debuginfo took rustc to 10 GB on
+# an 8 GB Mac and stalled in swap. Without debuginfo it fits; panics still name
+# file and line, only debugger stepping is lost.
+[profile.dev]
+debug = 0
+
+[profile.dev.package."*"]
+debug = 0

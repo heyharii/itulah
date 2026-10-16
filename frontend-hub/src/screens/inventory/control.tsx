@@ -2,15 +2,16 @@ import { useForm } from "@tanstack/react-form"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { FlaskConical } from "lucide-react"
+import { FlaskConical, Play } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { DockTools } from "@/components/shell/dock-tools"
 import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
-import { Card, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card } from "@/components/ui/card"
 import { DataTable, dockSortOf } from "@/components/ui/data-table"
+import { Fab } from "@/components/ui/fab"
 import { Field, Input } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
@@ -461,12 +462,64 @@ export function Control() {
     [fleet.data, site]
   )
 
+  /// What the ⚙ menu over a phone's bottom bar adds: the run's other two
+  /// acts, which a desk has in the head.
+  const phoneActions = [
+    {
+      label: repost.isPending ? "Rebuilding…" : "Repost the projection",
+      onClick: () => {
+        if (actor !== "" && !repost.isPending) repost.mutate()
+      },
+    },
+    { label: "Test controls", onClick: () => setTesting(true) },
+  ]
+
   return (
     <PageContent>
+      {/* The run is the page's act, so it stands in the head, at the right:
+          replay reads, repost writes (it aborts rather than commit if the
+          ledger moves while it is working, and refuses to commit a rebuild
+          that does not reproduce the comparison exactly). A phone has them at
+          the thumb: replay as the round button, the rest in the ⚙ menu. */}
       <PageHeader
         crumb="Inventory"
         title="Ledger Control"
         sub="Whether the projection every other screen reads still equals the movements underneath it."
+        actions={
+          phone ? undefined : (
+            <>
+              <Button variant="quiet" onClick={() => setTesting(true)}>
+                <FlaskConical />
+                Test controls
+              </Button>
+              <Button
+                variant="ghost"
+                pending={repost.isPending}
+                disabled={actor === ""}
+                title="Rebuilds the projection from the ledger. Aborts rather than commit if the ledger moves meanwhile."
+                onClick={() => repost.mutate()}
+              >
+                {repost.isPending ? "Rebuilding…" : "Repost the projection"}
+              </Button>
+              <Button
+                variant="primary"
+                pending={replay.isPending}
+                disabled={actor === ""}
+                title="Re-folds the ledger and compares. Reads only: nothing is written."
+                onClick={() => replay.mutate()}
+              >
+                {replay.isPending ? "Replaying…" : "Replay and compare"}
+              </Button>
+            </>
+          )
+        }
+      />
+      <Fab
+        label="Replay and compare"
+        icon={Play}
+        onClick={() => {
+          if (actor !== "" && !replay.isPending) replay.mutate()
+        }}
       />
 
       {replay.isError || repost.isError ? (
@@ -544,76 +597,6 @@ export function Control() {
               />
             </KpiStrip>
 
-            <Card className="mb-[1.125rem] overflow-hidden">
-              <CardHeader>
-                <CardTitle>Run a check</CardTitle>
-                <Button
-                  variant="quiet"
-                  size="sm"
-                  className="max-md:hidden"
-                  onClick={() => setTesting(true)}
-                >
-                  <FlaskConical />
-                  Test controls
-                </Button>
-              </CardHeader>
-              <div className="border-t border-hairline px-4 py-3.5">
-                {/* A plain row, not a `Toolbar`: on a phone a toolbar goes into
-                    the dock's Filters sheet, and these are the run itself. They
-                    stack, the one that writes above the one that reads. */}
-                <div className="mb-3 flex flex-wrap items-center gap-[0.4375rem] max-md:flex-col max-md:items-stretch [&>*]:max-md:w-full [&>*]:max-md:max-w-none">
-                  <Choice
-                    value={site}
-                    onChange={(value) => {
-                      setSite(value)
-                      setPool("")
-                    }}
-                    options={sites}
-                  />
-                  <Choice
-                    value={pool}
-                    onChange={setPool}
-                    options={pools}
-                    className="max-w-72"
-                  />
-                  <div className="flex-1 max-md:hidden" />
-                  <Button
-                    variant="ghost"
-                    pending={repost.isPending}
-                    disabled={actor === ""}
-                    onClick={() => repost.mutate()}
-                  >
-                    {repost.isPending ? "Rebuilding…" : "Repost the projection"}
-                  </Button>
-                  <Button
-                    variant="primary"
-                    pending={replay.isPending}
-                    disabled={actor === ""}
-                    onClick={() => replay.mutate()}
-                  >
-                    {replay.isPending ? "Replaying…" : "Replay and compare"}
-                  </Button>
-                </div>
-                <p className="text-[0.875rem] text-mute">
-                  Replay reads; repost writes. Repost aborts rather than commit
-                  if the ledger moves while it is working, and refuses to commit
-                  a rebuild that does not reproduce the comparison exactly.
-                </p>
-                {/* What the figures below are read in, and the test sheet: a
-                    phone has neither a toolbar nor a card header to hold them. */}
-                <div className="mt-3 flex flex-col items-start gap-3 md:hidden">
-                  <DisplayUnitPicker display={display} />
-                  <Button
-                    variant="tint"
-                    size="card"
-                    onClick={() => setTesting(true)}
-                  >
-                    Test controls
-                  </Button>
-                </div>
-              </div>
-            </Card>
-
             <SubTabs
               tabs={[
                 { value: "rows", label: `Rows · ${count(rows.length)}` },
@@ -643,6 +626,7 @@ export function Control() {
                   panel: { model: rowFilters, table: rowTable },
                 }}
                 sort={dockSortOf(rowTable)}
+                actions={phoneActions}
               />
             ) : (
               <DockTools
@@ -656,14 +640,38 @@ export function Control() {
                   panel: { model: stageFilters, table: stageTable },
                 }}
                 sort={dockSortOf(stageTable)}
+                actions={phoneActions}
               />
             )}
-            <Toolbar className="max-md:hidden">
-              {tab === "rows" ? (
-                <FilterPanel model={rowFilters} table={rowTable} />
-              ) : (
-                <FilterPanel model={stageFilters} table={stageTable} />
-              )}
+            {/* One bar: the scope a run is made over and what narrows the
+                table, then the unit the figures are read in. A plain row, not
+                the dock's Filters sheet: the scope is the run itself. On a
+                phone they stack. */}
+            <Toolbar
+              inline
+              className="max-md:flex-col max-md:items-stretch [&>*]:max-md:w-full [&>*]:max-md:max-w-none"
+            >
+              <Choice
+                value={site}
+                onChange={(value) => {
+                  setSite(value)
+                  setPool("")
+                }}
+                options={[{ value: "", label: "Every site" }, ...sites]}
+              />
+              <Choice
+                value={pool}
+                onChange={setPool}
+                options={[{ value: "", label: "Every pool" }, ...pools]}
+                className="max-w-72"
+              />
+              <span className="contents max-md:hidden">
+                {tab === "rows" ? (
+                  <FilterPanel model={rowFilters} table={rowTable} />
+                ) : (
+                  <FilterPanel model={stageFilters} table={stageTable} />
+                )}
+              </span>
               <Toolbar.Spacer />
               <DisplayUnitPicker display={display} />
             </Toolbar>
@@ -677,9 +685,10 @@ export function Control() {
                   </EmptyState>
                 ) : (
                   <DataTable<ProjectionDifference>
+                    refresh={[status]}
                     table={rowTable}
                     empty="No disagreement matches the filters in force."
-                    className="max-h-[calc(100dvh-32rem)]"
+                    className="max-h-[calc(100dvh-23rem)]"
                     cardSort={false}
                     cardsApart
                     cardLead
@@ -692,9 +701,10 @@ export function Control() {
                 </EmptyState>
               ) : (
                 <DataTable<RollupDifference>
+                  refresh={[status]}
                   table={stageTable}
                   empty="No stage rollup matches the filters in force."
-                  className="max-h-[calc(100dvh-32rem)]"
+                  className="max-h-[calc(100dvh-23rem)]"
                   cardSort={false}
                   cardsApart
                   cardLead

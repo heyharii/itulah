@@ -32,7 +32,7 @@ export function DockSelection({
           >
             <X className="size-4" />
           </button>
-          <span className="ml-1 truncate text-[0.875rem] font-medium text-ink tabular-nums">
+          <span className="ml-1 truncate text-[0.9375rem] font-medium text-ink tabular-nums">
             {summary}
           </span>
         </div>
@@ -41,7 +41,7 @@ export function DockSelection({
         <button
           type="button"
           onClick={action.onClick}
-          className="dock-wide inline-flex h-11 w-full items-center justify-center rounded-full bg-cta px-4 text-[0.875rem] font-semibold text-cta-fg shadow-soft transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.96]"
+          className="dock-wide inline-flex h-11 w-full items-center justify-center rounded-full bg-cta px-4 text-[0.9375rem] font-semibold text-cta-fg shadow-soft transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.96]"
         >
           <span className="truncate">{action.label}</span>
         </button>

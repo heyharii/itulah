@@ -81,6 +81,226 @@ export function changeOf(line: AllotmentLine, to: number): AmendChange | null {
   return { line, was, to, released, owed: take - released }
 }
 
+// ── MD's sheet: stores, then articles, never sizes ─────────────────────────
+//
+// MD is a policy maker (allotment-ops-prototype, "MD · Allotments", 15 Oct
+// 2026): the sheet shows STORES, an article only when a store is opened, and a
+// size never. An edit is a store's total or one article's total for a store;
+// the app spreads it over the sizes underneath, in proportion, and the server
+// takes the result as per-line `to` targets on `/amend`.
+
+/// What a line has already left the warehouse with — on a delivery note or
+/// beyond — unclamped: the figure the Dispatched column reads.
+export function sentOf(line: AllotmentLine): number {
+  return (
+    line.sent_quantity ??
+    line.at_shipment_qty +
+      line.at_loaded_qty +
+      line.at_in_transit_qty +
+      line.received_quantity
+  )
+}
+
+/// Where a slice of the allotment's pieces stand, by stage — one store, one
+/// article for a store, or a set of stores for a cancel. Picked and Packed are
+/// only what is still wanted; what MD already took out is the warehouse's to
+/// put back and is not counted again.
+export interface Stages {
+  readonly allotted: number
+  readonly toPick: number
+  readonly picked: number
+  readonly packed: number
+  readonly dispatched: number
+  readonly received: number
+}
+
+export function stagesOf(lines: readonly AllotmentLine[]): Stages {
+  let allotted = 0
+  let toPick = 0
+  let picked = 0
+  let packed = 0
+  let dispatched = 0
+  let received = 0
+  for (const line of lines) {
+    const target = targetOf(line)
+    const sent = sentOf(line)
+    const wanted = Math.max(0, target - sent)
+    const inKoli = Math.min(Math.max(0, line.at_packed_qty), wanted)
+    // `picked_quantity` counts every piece ever picked, packed and gone ones
+    // too (the delivery cards read it the same way).
+    const worked = Math.max(line.picked_quantity, line.at_packed_qty + sent)
+    const inPickArea = Math.max(0, worked - line.at_packed_qty - sent)
+    allotted += target
+    picked += Math.min(inPickArea, wanted - inKoli)
+    packed += inKoli
+    // A close short (a DC's cancel, a short pick closed) gives pieces up
+    // without moving the target: they are not to pick any more.
+    toPick += Math.max(0, target - worked - (line.closed_short_qty ?? 0))
+    dispatched += sent
+    received += line.received_quantity
+  }
+  return { allotted, toPick, picked, packed, dispatched, received }
+}
+
+/// A shop's own id, shortened the way the allotment lists shorten it —
+/// `store-04` → `04` — for the line that has no name (§14 #17).
+function nameOf(line: AllotmentLine): string {
+  return (
+    line.destination_name ??
+    (line.destination_id.replace(/^store-?/i, "") || line.destination_id)
+  )
+}
+
+export interface StoreArticle {
+  readonly id: string
+  readonly name: string
+  readonly code: string
+  readonly image: string | null
+  readonly colour: string | null
+  readonly lines: AllotmentLine[]
+}
+
+export interface StoreGroup {
+  readonly id: string
+  readonly name: string
+  readonly lines: AllotmentLine[]
+  readonly articles: StoreArticle[]
+}
+
+/// The lines as stores, each with its articles, in reading order.
+export function storesOf(lines: readonly AllotmentLine[]): StoreGroup[] {
+  const byStore = new Map<string, AllotmentLine[]>()
+  for (const line of lines)
+    byStore.set(line.destination_id, [
+      ...(byStore.get(line.destination_id) ?? []),
+      line,
+    ])
+  return [...byStore.entries()]
+    .sort(([left], [right]) =>
+      left.localeCompare(right, undefined, { numeric: true })
+    )
+    .map(([id, mine]) => {
+      const byArticle = new Map<string, AllotmentLine[]>()
+      for (const line of mine)
+        byArticle.set(line.article_id, [
+          ...(byArticle.get(line.article_id) ?? []),
+          line,
+        ])
+      return {
+        id,
+        name: nameOf(mine[0]),
+        lines: mine,
+        articles: [...byArticle.entries()]
+          .map(([articleId, group]) => ({
+            id: articleId,
+            name: group[0].article_name,
+            code: group[0].article_code,
+            image: group[0].image_url,
+            colour: group[0].colour,
+            lines: group,
+          }))
+          .sort((left, right) => left.name.localeCompare(right.name)),
+      }
+    })
+}
+
+/// A new total for these lines, spread over them in proportion to what each
+/// holds above its floor (what is dispatched) — the prototype's `spread`. A
+/// total at or under the sum of the floors leaves every line at its floor;
+/// lines with nothing above their floor share an increase evenly, or by what
+/// they hold. The pieces a division leaves over go to the largest remainders,
+/// so the lines always add up to the total.
+export function spreadOf(
+  lines: readonly AllotmentLine[],
+  total: number,
+  current: (line: AllotmentLine) => number
+): Map<string, number> {
+  const floors = lines.map(floorOf)
+  const least = floors.reduce((sum, n) => sum + n, 0)
+  if (total <= least)
+    return new Map(lines.map((line, at) => [line.id, floors[at]]))
+  const now = lines.map(current)
+  let weights = now.map((n, at) => Math.max(0, n - floors[at]))
+  if (weights.every((n) => n === 0)) weights = now.map((n) => n || 1)
+  const whole = weights.reduce((sum, n) => sum + n, 0)
+  const extra = total - least
+  const raw = weights.map((n) => (extra * n) / whole)
+  const base = raw.map(Math.floor)
+  let left = extra - base.reduce((sum, n) => sum + n, 0)
+  const order = raw
+    .map((n, at) => [n - base[at], at] as const)
+    .sort((left, right) => right[0] - left[0])
+  for (const [, at] of order) {
+    if (left === 0) break
+    base[at] += 1
+    left -= 1
+  }
+  return new Map(lines.map((line, at) => [line.id, floors[at] + base[at]]))
+}
+
+/// The edit as MD's draft makes it (line id → the line's new target): the
+/// request's `lines`, and the one sentence the foot and the toast say about it.
+export interface DraftEdit {
+  readonly lines: { allotment_line_id: string; to: number }[]
+  /// Each changed line's target before the edit — what Undo goes back to.
+  readonly before: Map<string, number>
+  readonly more: number
+  readonly fewer: number
+  /// Pieces already in koli the warehouse puts back.
+  readonly putBack: number
+}
+
+export function draftEditOf(
+  lines: readonly AllotmentLine[],
+  draft: ReadonlyMap<string, number>
+): DraftEdit {
+  const changed: DraftEdit["lines"] = []
+  const before = new Map<string, number>()
+  let more = 0
+  let fewer = 0
+  let putBack = 0
+  for (const line of lines) {
+    const asked = draft.get(line.id)
+    if (asked === undefined) continue
+    const to = Math.max(asked, floorOf(line))
+    const change = changeOf(line, to)
+    if (change === null) continue
+    changed.push({ allotment_line_id: line.id, to })
+    before.set(line.id, change.was)
+    more += Math.max(0, to - change.was)
+    fewer += Math.max(0, change.was - to)
+    putBack += change.owed
+  }
+  return { lines: changed, before, more, fewer, putBack }
+}
+
+/// "+20 to pick · 30 fewer · 10 put back by the warehouse", or "No changes".
+export function draftNoteOf(edit: DraftEdit): string {
+  const parts: string[] = []
+  if (edit.more > 0) parts.push(`+${count(edit.more)} to pick`)
+  if (edit.fewer > 0) parts.push(`${count(edit.fewer)} fewer`)
+  if (edit.putBack > 0)
+    parts.push(`${count(edit.putBack)} put back by the warehouse`)
+  return parts.length === 0 ? "No changes" : parts.join(" · ")
+}
+
+/// Undo of MD's Save or store cancel: each line back to what it was, read
+/// against the allotment as it stands NOW — never under what has been
+/// dispatched since, and a line already where it was is left out.
+export function undoLinesOf(
+  lines: readonly AllotmentLine[],
+  before: ReadonlyMap<string, number>
+): { allotment_line_id: string; to: number }[] {
+  const back: { allotment_line_id: string; to: number }[] = []
+  for (const line of lines) {
+    const was = before.get(line.id)
+    if (was === undefined) continue
+    const to = Math.max(was, floorOf(line))
+    if (to !== targetOf(line)) back.push({ allotment_line_id: line.id, to })
+  }
+  return back
+}
+
 // ── The grid ───────────────────────────────────────────────────────────────
 //
 // Edit opens the same grid as New allotment, filled with the allotment (owner,
@@ -116,7 +336,9 @@ export function gridFloorsOf(
 /// What the allotment holds of each SKU now, over its stores. The pool already
 /// counts these pieces as allotted, so the grid gives them back to the SKU's
 /// free figure while the allotment is edited.
-export function gridOwnOf(lines: readonly AllotmentLine[]): Map<string, number> {
+export function gridOwnOf(
+  lines: readonly AllotmentLine[]
+): Map<string, number> {
   const own = new Map<string, number>()
   for (const line of lines)
     own.set(line.sku_id, (own.get(line.sku_id) ?? 0) + targetOf(line))
@@ -242,7 +464,10 @@ export function latestOf(
   let latest: AllotmentAmendment | null = null
   for (const one of record.amendments ?? []) {
     if (kind !== undefined && one.kind !== kind) continue
-    if (latest === null || Date.parse(one.created_at) > Date.parse(latest.created_at))
+    if (
+      latest === null ||
+      Date.parse(one.created_at) > Date.parse(latest.created_at)
+    )
       latest = one
   }
   return latest

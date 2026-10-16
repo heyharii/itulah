@@ -176,7 +176,7 @@ function ClaimForm({ onDone }: { onDone: () => void }) {
     <Panel
       title="New claim"
       action={
-        <Button size="sm" variant="quiet" onClick={onDone}>
+        <Button data-cancel size="sm" variant="quiet" onClick={onDone}>
           Cancel
         </Button>
       }

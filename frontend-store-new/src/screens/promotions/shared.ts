@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query"
 import { useEffect, useState } from "react"
 
 import { count, label, moment } from "@/lib/format"
-import { fetchOffers, offersKey } from "@/lib/queries"
+import { offersQuery } from "@/lib/queries"
 import type {
   Applicability,
   Effect,
@@ -32,8 +32,7 @@ import { money } from "@itulah/contract/money"
 /// read the `status` column would advertise every one of those.
 export function useOffers() {
   return useQuery({
-    queryKey: offersKey(),
-    queryFn: ({ signal }) => fetchOffers(signal),
+    ...offersQuery(),
     /// A minute, unlike the rest of this app's five.
     ///
     /// Everything else here is a fact that changes when a publication lands.

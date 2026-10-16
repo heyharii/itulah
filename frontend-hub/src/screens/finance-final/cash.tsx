@@ -1,25 +1,19 @@
-import { useQuery } from "@tanstack/react-query"
-import { Fragment, useMemo, useState } from "react"
+import { useSuspenseQueries } from "@tanstack/react-query"
+import { Fragment, Suspense, useDeferredValue, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { Toolbar } from "@/components/ui/segmented"
-import { EmptyState } from "@/components/ui/states"
+import { EmptyState, LoadingState } from "@/components/ui/states"
 import { day, money } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
-import {
-  financeKeys,
-  listCashCounts,
-  moneyOverview,
-} from "@/lib/queries/finance"
-import { useUnits } from "@/lib/queries/organisation"
-import { queryState } from "@/lib/query-state"
+import { cashCountsQuery, moneyOverviewQuery } from "@/lib/queries/finance"
+import { unitsQuery } from "@/lib/queries/organisation"
 import {
   CardRow,
   Code,
   Grid,
-  Note,
   NumberCard,
   Td,
   Th,
@@ -98,58 +92,57 @@ interface Unit {
 }
 
 export function Cash() {
+  return (
+    <Suspense
+      fallback={
+        <PageContent>
+          <PageHeader
+            crumb="Finance · Reports"
+            title="Cash"
+            sub="Tills, floats and petty cash — where the notes are, according to the books."
+          />
+          <LoadingState>
+            Reading where the money sits, and when it was last counted…
+          </LoadingState>
+        </PageContent>
+      }
+    >
+      <CashScreen />
+    </Suspense>
+  )
+}
+
+function CashScreen() {
   const phone = useLayout() === "phone"
   const [unit, setUnit] = useState("")
   const [shown, setShown] = useState<Drawer | null>(null)
 
-  const overview = useQuery({
-    queryKey: financeKeys.money(null, unit === "" ? null : unit),
-    queryFn: ({ signal }) => moneyOverview(unit === "" ? {} : { unit }, signal),
+  // The picker answers at once; the books trail it, and the drawers in hand
+  // stay on screen (dimmed) until the next are read.
+  //
+  // The count history is not decoration here — it is the column the screen was
+  // built for — so drawing the balances while it silently fails would leave
+  // every drawer reading "never counted" and send somebody to a till that was
+  // counted this morning. All three reads are therefore settled before
+  // anything is drawn: the money, the counts (the same list the Cash Counts
+  // screen reads, never narrowed — the header says why) and the unit register,
+  // which says which unit owns each site: what puts a count, taken at a site,
+  // beside the drawer it counted in that unit's books.
+  const askedUnit = useDeferredValue(unit)
+  const [overview, counts, register] = useSuspenseQueries({
+    queries: [
+      moneyOverviewQuery(askedUnit === "" ? null : askedUnit),
+      cashCountsQuery(),
+      unitsQuery(),
+    ],
   })
-  // The same list the Cash Counts screen reads, under its own key: one request
-  // for both screens, and no chance of the two disagreeing about when a drawer
-  // was last counted. Never narrowed — the header says why.
-  const counts = useQuery({
-    queryKey: financeKeys.cashCounts(null, null),
-    queryFn: ({ signal }) => listCashCounts(signal),
-  })
-  // Which unit owns each site: what puts a count, taken at a site, beside the
-  // drawer it counted in that unit's books.
-  const register = useUnits()
 
-  /// Loading and error for EVERY read, in one place.
-  ///
-  /// The count history is not decoration here — it is the column the screen was
-  /// built for — so drawing the balances while it silently fails would leave
-  /// every drawer reading "never counted" and send somebody to a till that was
-  /// counted this morning. A screen that can lie that way has to wait for all
-  /// the answers or show none — the unit register too, without which no count
-  /// finds its drawer.
-  const view = {
-    isPending: overview.isPending || counts.isPending || register.isPending,
-    isError: overview.isError || counts.isError || register.isError,
-    error: overview.error ?? counts.error ?? register.error,
-    data:
-      overview.data === undefined ||
-      counts.data === undefined ||
-      register.data === undefined
-        ? undefined
-        : ([overview.data.rows, counts.data] as const),
-    refetch: () => {
-      void overview.refetch()
-      void counts.refetch()
-      void register.refetch()
-    },
-  }
-
-  // Keyed on the query results and not on `view.data`, which is rebuilt every
-  // render and would make the memo never hold.
   const units = useMemo(() => {
     const owner = new Map<string, string>()
-    for (const one of register.data ?? []) {
+    for (const one of register.data) {
       for (const site of one.sites) owner.set(site.id, one.id)
     }
-    return group(overview.data?.rows ?? [], counts.data ?? [], owner)
+    return group(overview.data.rows, counts.data, owner)
   }, [overview.data, counts.data, register.data])
 
   const drawers = units.flatMap((unit) => unit.drawers)
@@ -187,150 +180,137 @@ export function Cash() {
         <UnitSelect value={unit} onChange={setUnit} className="w-52" />
       </Toolbar>
 
-      {queryState(view, {
-        loading: "Reading where the money sits, and when it was last counted…",
-        render: () =>
-          drawers.length === 0 ? (
-            <EmptyState>
-              {unit === ""
-                ? "No cash account is mapped yet. A place money can sit is a meaning bound to an account on the Account map."
-                : "This unit has no cash account mapped. A drawer becomes visible here once a meaning is bound to an account for it."}
-            </EmptyState>
-          ) : (
-            <div className="flex flex-col gap-4">
-              <CardRow>
-                <NumberCard
-                  label="Held per the books"
-                  value={held}
-                  note={`${drawers.length} ${drawers.length === 1 ? "drawer" : "drawers"} at ${units.length} ${units.length === 1 ? "unit" : "units"}`}
-                />
-                <NumberCard
-                  label="In drawers nobody has counted"
-                  value={uncounted.reduce(
-                    (sum, drawer) => sum + drawer.account.per_books_minor,
-                    0
-                  )}
-                  tone={uncounted.length === 0 ? "ok" : "bad"}
-                  note={
-                    uncounted.length === 0
-                      ? "every drawer has been counted at least once"
-                      : `${uncounted.length} of ${drawers.length} — nothing has ever contradicted them`
-                  }
-                />
-                <NumberCard
-                  label="Off at the last count"
-                  value={off}
-                  tone={off === null ? undefined : off === 0 ? "ok" : "warn"}
-                  note={
-                    off === null
-                      ? "no drawer in scope has ever been counted"
-                      : `${disagreed.length} of ${drawers.length} disagreed${unposted === 0 ? "" : `, ${unposted} still not in the books`}`
-                  }
-                />
-              </CardRow>
+      <div className="list-swap" aria-busy={askedUnit !== unit || undefined}>
+        {drawers.length === 0 ? (
+          <EmptyState>
+            {askedUnit === ""
+              ? "No cash account is mapped yet. A place money can sit is a meaning bound to an account on the Account map."
+              : "This unit has no cash account mapped. A drawer becomes visible here once a meaning is bound to an account for it."}
+          </EmptyState>
+        ) : (
+          <div className="flex flex-col gap-4">
+            <CardRow>
+              <NumberCard
+                label="Held per the books"
+                value={held}
+                note={`${drawers.length} ${drawers.length === 1 ? "drawer" : "drawers"} at ${units.length} ${units.length === 1 ? "unit" : "units"}`}
+              />
+              <NumberCard
+                label="In drawers nobody has counted"
+                value={uncounted.reduce(
+                  (sum, drawer) => sum + drawer.account.per_books_minor,
+                  0
+                )}
+                tone={uncounted.length === 0 ? "ok" : "bad"}
+                note={
+                  uncounted.length === 0
+                    ? "every drawer has been counted at least once"
+                    : `${uncounted.length} of ${drawers.length} — nothing has ever contradicted them`
+                }
+              />
+              <NumberCard
+                label="Off at the last count"
+                value={off}
+                tone={off === null ? undefined : off === 0 ? "ok" : "warn"}
+                note={
+                  off === null
+                    ? "no drawer in scope has ever been counted"
+                    : `${disagreed.length} of ${drawers.length} disagreed${unposted === 0 ? "" : `, ${unposted} still not in the books`}`
+                }
+              />
+            </CardRow>
 
-              {phone ? (
-                <>
-                  <PhoneList>
-                    {units.map((one) => (
-                      <Fragment key={one.unitId}>
-                        <PhoneHeading
-                          title={<UnitName id={one.unitId} />}
-                          total={money(one.held)}
-                        />
-                        {one.drawers.map((drawer) => (
-                          <DrawerCard
-                            key={drawer.account.account_code}
-                            drawer={drawer}
-                            onOpen={() => setShown(drawer)}
-                          />
-                        ))}
-                      </Fragment>
-                    ))}
-                  </PhoneList>
-                  <FactsSheet
-                    open={shown !== null}
-                    onClose={() => setShown(null)}
-                    title={shown?.account.account_name ?? ""}
-                    id={shown?.account.account_code}
-                    caption={
-                      shown?.account.qualifier === ""
-                        ? undefined
-                        : shown?.account.qualifier
-                    }
-                    facts={factsOf(shown)}
-                  />
-                </>
-              ) : (
-                <Grid>
-                  <thead>
-                    <tr>
-                      <Th>Unit / drawer</Th>
-                      <Th width="9rem">Type</Th>
-                      <Th width="10rem">Account</Th>
-                      <Th align="right" width="11rem">
-                        Balance per books
-                      </Th>
-                      <Th width="12rem">Last counted</Th>
-                      <Th align="right" width="9rem">
-                        Off by
-                      </Th>
-                    </tr>
-                  </thead>
-                  {units.map((unit) => (
-                    <tbody key={unit.unitId}>
-                      {/* The unit's name once, and its total in the column the
-                        eye is already scanning — the thing a flat list with a
-                        unit column cannot give you without arithmetic. */}
-                      <tr>
-                        <Td className="bg-soft font-medium text-ink">
-                          <UnitName id={unit.unitId} />
-                        </Td>
-                        <Td className="bg-soft" />
-                        <Td className="bg-soft" />
-                        <Td
-                          align="right"
-                          className="bg-soft font-medium text-ink"
-                        >
-                          {money(unit.held)}
-                        </Td>
-                        <Td className="bg-soft" />
-                        <Td className="bg-soft" />
-                      </tr>
-                      {unit.drawers.map((drawer) => (
-                        <DrawerRow
+            {phone ? (
+              <>
+                <PhoneList>
+                  {units.map((one) => (
+                    <Fragment key={one.unitId}>
+                      <PhoneHeading
+                        title={<UnitName id={one.unitId} />}
+                        total={money(one.held)}
+                      />
+                      {one.drawers.map((drawer) => (
+                        <DrawerCard
                           key={drawer.account.account_code}
                           drawer={drawer}
+                          onOpen={() => setShown(drawer)}
                         />
                       ))}
-                    </tbody>
+                    </Fragment>
                   ))}
-                  <tfoot>
-                    <TotalRow>
-                      <Td>All units in scope</Td>
-                      <Td />
-                      <Td />
-                      <Td align="right">{money(held)}</Td>
-                      <Td />
-                      <Td />
-                    </TotalRow>
-                  </tfoot>
-                </Grid>
-              )}
-
-              <Note>
-                <b>Last counted</b> is the column this screen exists to make
-                somebody look at: a drawer whose last count says <b>never</b> is
-                a drawer nothing has ever contradicted, and the balance beside
-                it is an assertion rather than a fact. A count is an{" "}
-                <i>observation</i> — recording one changes no books. Putting its
-                difference in the ledger is a second act, by somebody who has
-                read the reason, and <b>Off by</b> says which counts have had
-                that second act and which are still only a note.
-              </Note>
-            </div>
-          ),
-      })}
+                </PhoneList>
+                <FactsSheet
+                  open={shown !== null}
+                  onClose={() => setShown(null)}
+                  title={shown?.account.account_name ?? ""}
+                  id={shown?.account.account_code}
+                  caption={
+                    shown?.account.qualifier === ""
+                      ? undefined
+                      : shown?.account.qualifier
+                  }
+                  facts={factsOf(shown)}
+                />
+              </>
+            ) : (
+              <Grid>
+                <thead>
+                  <tr>
+                    <Th>Unit / drawer</Th>
+                    <Th width="9rem">Type</Th>
+                    <Th width="10rem">Account</Th>
+                    <Th align="right" width="11rem">
+                      Balance per books
+                    </Th>
+                    <Th width="12rem">Last counted</Th>
+                    <Th align="right" width="9rem">
+                      Off by
+                    </Th>
+                  </tr>
+                </thead>
+                {units.map((unit) => (
+                  <tbody key={unit.unitId}>
+                    {/* The unit's name once, and its total in the column the
+                        eye is already scanning — the thing a flat list with a
+                        unit column cannot give you without arithmetic. */}
+                    <tr>
+                      <Td className="bg-soft font-medium text-ink">
+                        <UnitName id={unit.unitId} />
+                      </Td>
+                      <Td className="bg-soft" />
+                      <Td className="bg-soft" />
+                      <Td
+                        align="right"
+                        className="bg-soft font-medium text-ink"
+                      >
+                        {money(unit.held)}
+                      </Td>
+                      <Td className="bg-soft" />
+                      <Td className="bg-soft" />
+                    </tr>
+                    {unit.drawers.map((drawer) => (
+                      <DrawerRow
+                        key={drawer.account.account_code}
+                        drawer={drawer}
+                      />
+                    ))}
+                  </tbody>
+                ))}
+                <tfoot>
+                  <TotalRow>
+                    <Td>All units in scope</Td>
+                    <Td />
+                    <Td />
+                    <Td align="right">{money(held)}</Td>
+                    <Td />
+                    <Td />
+                  </TotalRow>
+                </tfoot>
+              </Grid>
+            )}
+          </div>
+        )}
+      </div>
     </PageContent>
   )
 }
@@ -424,7 +404,7 @@ function DrawerRow({ drawer }: { drawer: Drawer }) {
       <Td>
         <span className="font-medium text-ink">{account.account_name}</span>
         {account.qualifier !== "" && (
-          <span className="block text-[0.875rem] text-mute">
+          <span className="block text-[0.9375rem] text-mute">
             {account.qualifier}
           </span>
         )}
@@ -446,7 +426,7 @@ function DrawerRow({ drawer }: { drawer: Drawer }) {
         ) : (
           <>
             {day(last.counted_on)}
-            <span className="block text-[0.875rem] text-mute">
+            <span className="block text-[0.9375rem] text-mute">
               {last.counted_by === ""
                 ? "counted by nobody named"
                 : last.counted_by}
@@ -468,7 +448,7 @@ function DrawerRow({ drawer }: { drawer: Drawer }) {
               {last.variance_minor > 0 ? "+" : ""}
               {money(last.variance_minor)}
             </span>
-            <span className="block text-[0.875rem] text-mute">
+            <span className="block text-[0.9375rem] text-mute">
               {last.entry_id === null ? "not in the books" : last.entry_number}
             </span>
           </>

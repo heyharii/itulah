@@ -6,11 +6,12 @@ import { Field, Input } from "@/components/ui/field"
 import { PeopleSheet, SheetSection } from "@/components/ui/people-sheet"
 import { PeopleTable } from "@/components/ui/people-table"
 import { PeopleTabs } from "@/components/ui/people-tabs"
+import { Stat, StatStrip } from "@/components/ui/stat-strip"
 import { Pill, Status } from "@/components/ui/pill"
 import {
   completeTask,
   hrKeys,
-  lifecycleTasks,
+  lifecycleTasksQuery,
   type StoreScope,
 } from "@/lib/queries/hr"
 import { cn } from "@/lib/utils"
@@ -93,10 +94,7 @@ function checklistState(list: Checklist): { label: string; tone: Tone } {
 
 function Tasks({ scope }: { scope: StoreScope }) {
   const team = useTeam(scope)
-  const tasks = useQuery({
-    queryKey: hrKeys.lifecycle(),
-    queryFn: ({ signal }) => lifecycleTasks(signal),
-  })
+  const tasks = useQuery(lifecycleTasksQuery())
   const [tab, setTab] = useState<Tab>("ONBOARDING")
   const [open, setOpen] = useState<string | null>(null)
   /// The row being closed. While it is set its form stands in for the
@@ -128,8 +126,20 @@ function Tasks({ scope }: { scope: StoreScope }) {
   const shown = lists.filter((list) => list.kind === tab)
   const current = lists.find((list) => list.key === open)
 
+  const toDoHere = lists.filter((list) => ownRows(list).length > 0).length
+  const reading = tasks.data === undefined
+
   return (
     <>
+      <StatStrip>
+        <Stat label="Onboarding" value={reading ? "—" : countOf("ONBOARDING")} />
+        <Stat label="Exit" value={reading ? "—" : countOf("SEPARATION")} />
+        <Stat
+          label="To do here"
+          value={reading ? "—" : toDoHere}
+          tone={toDoHere > 0 ? "warn" : undefined}
+        />
+      </StatStrip>
       <PeopleTabs
         value={tab}
         onChange={setTab}
@@ -158,7 +168,10 @@ function Tasks({ scope }: { scope: StoreScope }) {
               const state = checklistState(list)
               return {
                 ...personCard(team.data, list.employeeId),
-                lead: { figure: `${done}/${list.tasks.length}`, caption: "done" },
+                lead: {
+                  figure: `${done}/${list.tasks.length}`,
+                  caption: "done",
+                },
                 foot: {
                   info: <Status tone={state.tone}>{state.label}</Status>,
                   action: { label: "Open", onClick: () => setOpen(list.key) },

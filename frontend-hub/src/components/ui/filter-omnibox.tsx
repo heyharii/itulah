@@ -553,7 +553,8 @@ export function FilterOmnibox({
               aria-label={
                 editing ? `Value for ${editing.field.label}` : "Filter"
               }
-              className="h-7 min-w-[6rem] flex-1 self-center border-none bg-transparent px-2 text-[0.875rem] text-ink outline-none placeholder:text-mute"
+              placeholder={editing ? undefined : "Search or filter"}
+              className="h-7 min-w-[6rem] flex-1 self-center border-none bg-transparent px-2 text-[0.9375rem] text-ink outline-none placeholder:text-mute"
             />
 
             {/* The way back, visible. A draft with no values is not a filter
@@ -636,7 +637,7 @@ export function FilterOmnibox({
                           arrow keys can land on. */}
                       {row.group === "fields" &&
                         rows[at - 1]?.group !== "fields" && (
-                          <div className="px-2.5 pt-2 pb-1 text-[0.875rem] font-semibold tracking-wide text-mute uppercase">
+                          <div className="px-2.5 pt-2 pb-1 text-[0.9375rem] font-semibold tracking-wide text-mute uppercase">
                             Filter by
                           </div>
                         )}
@@ -821,7 +822,7 @@ function Bounds({
                 type === "number" ? numberText(typed, true) : typed
               )
             }}
-            className="h-8 w-full rounded-full border border-transparent bg-soft-2 px-3 text-[0.875rem] text-ink outline-none placeholder:text-mute"
+            className="h-8 w-full rounded-full border border-transparent bg-soft-2 px-3 text-[0.9375rem] text-ink outline-none placeholder:text-mute"
           />
         </span>
       ))}

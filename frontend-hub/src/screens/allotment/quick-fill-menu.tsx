@@ -109,7 +109,7 @@ export function QuickFillMenu({
                   onClick={() => run({ kind: "even" })}
                 >
                   <span className="flex-1">Split evenly across all stores</span>
-                  <span className="text-[0.875rem] text-mute tabular-nums">
+                  <span className="text-[0.9375rem] text-mute tabular-nums">
                     {count(stores.length)}
                   </span>
                 </button>
@@ -159,7 +159,7 @@ export function QuickFillMenu({
                 </div>
                 <div className="max-h-[16rem] overflow-y-auto">
                   {found.length === 0 ? (
-                    <p className="px-3 py-2.5 text-[0.875rem] text-mute">
+                    <p className="px-3 py-2.5 text-[0.9375rem] text-mute">
                       No store matches.
                     </p>
                   ) : (

@@ -213,7 +213,7 @@ function SetPassword({
           )}
         </form.Subscribe>
 
-        {problem && <p className="text-[0.875rem] text-bad">{problem}</p>}
+        {problem && <p className="text-[0.9375rem] text-bad">{problem}</p>}
 
         <form.Subscribe
           selector={(state) =>

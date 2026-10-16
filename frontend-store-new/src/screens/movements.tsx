@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { CardList } from "@/components/ui/card-list"
 import { LeadCard } from "@/components/ui/lead-card"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { ListTable, type ListColumn } from "@/components/ui/list-table"
 import { Status } from "@/components/ui/pill"
 import { Screen } from "@/components/ui/screen"
@@ -18,7 +19,7 @@ import { useParam } from "@/lib/params"
 import { queryState } from "@/lib/query-state"
 import { MovementSheet } from "@/screens/stock/movement-sheet"
 import { useOpenRecord } from "@/screens/stock/open-record"
-import { DeskSearch, Figures, Route } from "@/screens/stock/parts"
+import { DeskSearch, Route } from "@/screens/stock/parts"
 import {
   LEDGER_LIMIT,
   LEDGER_MAX,
@@ -43,7 +44,7 @@ import type { CatalogRow, MovementView } from "@itulah/contract"
 /// correcting, and this is where both of them show up. That is also why there
 /// is nothing to write from here.
 ///
-/// Nothing at the top but the title (the top bar's) and one line of figures.
+/// Nothing at the top but the title (the top bar's) and the figures.
 /// The search and In / Out / Inside are the dock's on a phone and a toolbar on a
 /// desk. On a phone a movement is a card — the action over its route, the
 /// quantity it leads with, when and by whom in the foot, the SKU at the foot's
@@ -100,7 +101,7 @@ export function Movements() {
       (way === "all" || directionOf(row) === way) &&
       matchesRow(needle, row, bySku),
   )
-  const filtered = way !== "all" || needle !== ""
+  const ready = ledger.data !== undefined
 
   // A new narrowing starts at the top, not at the depth the last one was read
   // to — compared during render so no stale frame is drawn first.
@@ -135,6 +136,13 @@ export function Movements() {
         }}
       />
 
+      <KpiStrip>
+        <Kpi label="Movements" value={ready ? count(rows.length) : "—"} />
+        <Kpi label="In" value={ready ? count(counts.in) : "—"} />
+        <Kpi label="Out" value={ready ? count(counts.out) : "—"} />
+        <Kpi label="Inside" value={ready ? count(counts.inside) : "—"} />
+      </KpiStrip>
+
       {queryState(ledger, {
         loading: "Reading the ledger…",
         render: () =>
@@ -151,25 +159,6 @@ export function Movements() {
             </EmptyState>
           ) : (
             <>
-              <Figures>
-                {filtered ? (
-                  <>
-                    <b className="font-medium text-ink">
-                      {count(shown.length)}
-                    </b>{" "}
-                    of {count(rows.length)} movements match
-                  </>
-                ) : (
-                  <>
-                    {capped && "Newest "}
-                    <b className="font-medium text-ink">
-                      {count(rows.length)}
-                    </b>{" "}
-                    movements
-                  </>
-                )}
-              </Figures>
-
               {/* The desk's toolbar: the search at the left, the direction at
                   the right. On a phone both are the dock's. */}
               <div className="mb-3.5 flex flex-wrap items-center gap-[0.4375rem] max-md:hidden">

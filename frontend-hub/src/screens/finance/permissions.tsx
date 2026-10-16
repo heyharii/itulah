@@ -1,27 +1,41 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useMemo, useState } from "react"
+import {
+  useMutation,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query"
+import type { ColumnDef, SortingState } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
+import { Suspense, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { Field, Input, Select } from "@/components/ui/field"
+import { Fab } from "@/components/ui/fab"
+import {
+  BarSpacer,
+  ColumnsMenu,
+  ExpandingSearch,
+} from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
-import { EmptyState, Problem } from "@/components/ui/states"
-import { DockTools } from "@/components/shell/dock-tools"
-import { Fab } from "@/components/ui/fab"
 import { Sheet } from "@/components/ui/sheet"
-import { label, moment } from "@/lib/format"
+import { EmptyState, Problem } from "@/components/ui/states"
+import { count, label, moment } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import {
   financeKeys,
-  listRolePermissions,
   removeRolePermission,
+  rolePermissionsQuery,
   setRolePermission,
 } from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
-import { Code, Grid, Td, Th } from "@/screens/finance-final/parts"
-import { PhoneCard, PhoneList } from "@/components/ui/phone-cards"
+import { tableSetup, type TableSetup } from "@/lib/table"
+import { useColumnFit } from "@/screens/finance/column-fit"
+import { Code } from "@/screens/finance-final/parts"
+import { ScreenPending } from "@/screens/finance/pending"
 import type { RolePermission } from "@itulah/contract"
 
 /// Who may call what, on top of the built-in roles (ERPNext Role Permission
@@ -40,15 +54,117 @@ function roleTone(role: string): "neutral" | "info" | "warn" {
   return "neutral"
 }
 
+/// What an override says: its method and path at the left, the least rung it
+/// asks for, who set it and when, and the Remove button at the right. On a
+/// phone the same columns are the card, the rung as its lead.
+function columnsFor(
+  remove: (row: RolePermission) => void,
+  removing: boolean,
+  phone: boolean
+): ColumnDef<TableSetup, RolePermission>[] {
+  return [
+    {
+      id: "method",
+      accessorFn: (row) => (row.method === "*" ? "ANY" : row.method),
+      header: "Method",
+      size: 110,
+      meta: { card: "meta" },
+      cell: ({ row }) => (
+        <Code>{row.original.method === "*" ? "ANY" : row.original.method}</Code>
+      ),
+    },
+    {
+      accessorKey: "path_prefix",
+      header: "Path prefix",
+      size: 380,
+      meta: { card: "title", grow: 240 },
+      cell: ({ row }) => (
+        <span className="font-mono break-all text-ink">
+          {row.original.path_prefix}
+        </span>
+      ),
+    },
+    {
+      accessorKey: "min_role",
+      header: "Least rung",
+      size: 150,
+      meta: { card: "lead" },
+      cell: ({ row }) => (
+        <Pill tone={roleTone(row.original.min_role)}>
+          {label(row.original.min_role)}
+        </Pill>
+      ),
+    },
+    {
+      id: "note",
+      accessorFn: (row) => row.note ?? "",
+      header: "Note",
+      size: 260,
+      meta: { card: "meta", priority: 3 },
+      cell: ({ row }) => (
+        <span className="text-mute">{row.original.note ?? ""}</span>
+      ),
+    },
+    {
+      id: "set",
+      accessorFn: (row) =>
+        row.set_by || row.set_at
+          ? `${row.set_by ?? ""}${row.set_at ? ` · ${moment(row.set_at)}` : ""}`
+          : "",
+      header: "Set",
+      size: 240,
+      meta: { card: "foot", priority: 2 },
+      cell: ({ row }) => (
+        <span className="text-faint">
+          {row.original.set_by ?? ""}
+          {row.original.set_at ? ` · ${moment(row.original.set_at)}` : ""}
+        </span>
+      ),
+    },
+    {
+      id: "remove",
+      header: "",
+      size: 110,
+      enableSorting: false,
+      enableHiding: false,
+      meta: { align: "right", card: "status" },
+      cell: ({ row }) => (
+        <Button
+          size={phone ? "card" : "sm"}
+          variant={phone ? "tint" : "quiet"}
+          pending={removing}
+          onClick={(event) => {
+            event.stopPropagation()
+            remove(row.original)
+          }}
+        >
+          Remove
+        </Button>
+      ),
+    },
+  ]
+}
+
 export function Permissions() {
+  return (
+    <Suspense
+      fallback={
+        <ScreenPending crumb="Finance · Settings" title="Rung Permissions">
+          Reading the overrides…
+        </ScreenPending>
+      }
+    >
+      <PermissionsScreen />
+    </Suspense>
+  )
+}
+
+function PermissionsScreen() {
   const phone = useLayout() === "phone"
   /// The phone's form is a sheet the dock's + opens.
   const [adding, setAdding] = useState(false)
   const client = useQueryClient()
-  const list = useQuery({
-    queryKey: financeKeys.permissions(),
-    queryFn: ({ signal }) => listRolePermissions(signal),
-  })
+  const list = useSuspenseQuery(rolePermissionsQuery())
   const [needle, setNeedle] = useState("")
   const [method, setMethod] = useState<string>("POST")
   const [prefix, setPrefix] = useState("/api/v1/finance/")
@@ -80,7 +196,7 @@ export function Permissions() {
 
   const rows = useMemo(() => {
     const text = needle.trim().toLowerCase()
-    return [...(list.data ?? [])]
+    return [...list.data]
       .filter(
         (row) =>
           text === "" ||
@@ -93,6 +209,35 @@ export function Permissions() {
           a.method.localeCompare(b.method)
       )
   }, [list.data, needle])
+
+  const [sorting, setSorting] = useState<SortingState>([])
+  const columns = useMemo(
+    () => columnsFor((row) => remove.mutate(row), remove.isPending, phone),
+    // `remove.mutate` is stable; its pending state is what the button shows.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [remove.isPending, phone]
+  )
+  const [measure, fit] = useColumnFit(columns, phone)
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: rows,
+        columns,
+        getRowId: (row: RolePermission) => `${row.method}\t${row.path_prefix}`,
+        state: {
+          sorting,
+          columnVisibility: fit.visibility,
+        },
+        onSortingChange: setSorting,
+        onColumnVisibilityChange: fit.onChange,
+      }),
+      // `fit` is new each render: the room is measured, and the columns the
+      // card has no room for are given up.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      [rows, columns, sorting, phone, fit]
+    )
+  )
 
   /// The form's fields, once: in a card beside the list on a desk, in a sheet
   /// on a phone.
@@ -146,21 +291,17 @@ export function Permissions() {
 
   return (
     <PageContent>
-      <PageHeader
-        crumb="Finance · Settings"
-        title="Rung Permissions"
-        sub="The least rung that may call a route, on top of the built-in rules. The longest matching path wins; removing an override restores the built-in rule."
-        // Search and the new override are in the dock on a phone.
-        actions={
-          phone ? undefined : (
-            <Input
-              value={needle}
-              onChange={(event) => setNeedle(event.target.value)}
-              className="h-8 w-56"
-            />
-          )
-        }
-      />
+      <PageHeader crumb="Finance · Settings" title="Rung Permissions" />
+
+      <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2 max-md:hidden">
+        <ExpandingSearch
+          value={needle}
+          onChange={setNeedle}
+          label="Search overrides"
+        />
+        <BarSpacer />
+        <ColumnsMenu table={table} />
+      </div>
 
       {phone && (
         <>
@@ -171,6 +312,7 @@ export function Permissions() {
               onChange: setNeedle,
               label: "Search overrides",
             }}
+            sort={dockSortOf(table)}
           />
           <Sheet
             open={adding}
@@ -184,107 +326,41 @@ export function Permissions() {
       )}
 
       <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
-        <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-          {queryState(list, {
-            loading: "Reading the overrides…",
-            render: () =>
-              rows.length === 0 ? (
-                <EmptyState>
-                  {needle.trim() === ""
-                    ? "No override: every route answers to its built-in rule."
-                    : "No override matches the search."}
-                </EmptyState>
-              ) : phone ? (
-                <PhoneList>
-                  {rows.map((row) => (
-                    <PhoneCard
-                      key={`${row.method}\t${row.path_prefix}`}
-                      title={
-                        <span className="font-mono text-[0.9375rem] break-all">
-                          {row.path_prefix}
+        <div ref={measure} className="min-w-0">
+          <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+            {queryState(list, {
+              render: () =>
+                rows.length === 0 ? (
+                  <EmptyState>
+                    {needle.trim() === ""
+                      ? "No override: every route answers to its built-in rule."
+                      : "No override matches the search."}
+                  </EmptyState>
+                ) : (
+                  <DataTable<RolePermission>
+                    table={table}
+                    refresh={[list]}
+                    empty="No override matches the search."
+                    pageScroll
+                    cardsApart
+                    cardLead
+                    cardSort={false}
+                    summary={{
+                      path_prefix: (
+                        <span>
+                          {count(rows.length)}{" "}
+                          <span className="font-normal text-body">
+                            {rows.length === 1 ? "override" : "overrides"}
+                          </span>
                         </span>
-                      }
-                      line={[row.method === "*" ? "ANY" : row.method, row.note]
-                        .filter(Boolean)
-                        .join(" · ")}
-                      lead={
-                        <Pill tone={roleTone(row.min_role)}>
-                          {label(row.min_role)}
-                        </Pill>
-                      }
-                      foot={
-                        row.set_by || row.set_at
-                          ? `${row.set_by ?? ""}${row.set_at ? ` · ${moment(row.set_at)}` : ""}`
-                          : undefined
-                      }
-                      action={
-                        <Button
-                          size="card"
-                          variant="tint"
-                          pending={remove.isPending}
-                          onClick={() => remove.mutate(row)}
-                        >
-                          Remove
-                        </Button>
-                      }
-                    />
-                  ))}
-                </PhoneList>
-              ) : (
-                <Grid>
-                  <thead>
-                    <tr>
-                      <Th>Method</Th>
-                      <Th>Path prefix</Th>
-                      <Th>Least rung</Th>
-                      <Th>Note</Th>
-                      <Th>Set</Th>
-                      <Th />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((row) => (
-                      <tr key={`${row.method}\t${row.path_prefix}`}>
-                        <Td>
-                          <Code>{row.method === "*" ? "ANY" : row.method}</Code>
-                        </Td>
-                        <Td>
-                          <span className="font-mono text-ink">
-                            {row.path_prefix}
-                          </span>
-                        </Td>
-                        <Td>
-                          <Pill tone={roleTone(row.min_role)}>
-                            {label(row.min_role)}
-                          </Pill>
-                        </Td>
-                        <Td>
-                          <span className="text-mute">{row.note ?? ""}</span>
-                        </Td>
-                        <Td>
-                          <span className="text-faint">
-                            {row.set_by ?? ""}
-                            {row.set_at ? ` · ${moment(row.set_at)}` : ""}
-                          </span>
-                        </Td>
-                        <Td align="right">
-                          <Button
-                            size="sm"
-                            variant="quiet"
-                            pending={remove.isPending}
-                            onClick={() => remove.mutate(row)}
-                          >
-                            Remove
-                          </Button>
-                        </Td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </Grid>
-              ),
-          })}
-          <Problem error={remove.error} className="m-3" />
-        </Card>
+                      ),
+                    }}
+                  />
+                ),
+            })}
+            <Problem error={remove.error} className="m-3" />
+          </Card>
+        </div>
 
         {!phone && (
           <Card className="flex flex-col gap-3 p-4">

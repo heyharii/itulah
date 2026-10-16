@@ -1,26 +1,25 @@
-import { useQuery } from "@tanstack/react-query"
+import { useSuspenseQueries } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { useMemo, useState } from "react"
+import { Suspense, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { DockTools } from "@/components/shell/dock-tools"
 import { Card } from "@/components/ui/card"
 import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { FilterPanel } from "@/components/ui/filter-panel"
+import { ExpandingSearch } from "@/components/ui/list-chrome"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
-import { EmptyState } from "@/components/ui/states"
+import { EmptyState, LoadingState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { useFilters } from "@/lib/filters"
 import { count } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import {
-  listPurchaseOrders,
-  procurementKeys,
-  purchaseDestinations,
+  orderListQuery,
+  purchaseDestinationsQuery,
 } from "@/lib/queries/procurement"
-import { queryState } from "@/lib/query-state"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { cn } from "@/lib/utils"
 import { LinkButton } from "@/screens/procurement/controls"
@@ -58,7 +57,7 @@ const columns: ColumnDef<TableSetup, DestinationRow>[] = [
     cell: ({ row }) => (
       <span className="flex flex-col">
         <span className="font-medium text-ink">{row.original.label}</span>
-        <span className="font-mono text-[0.875rem] text-mute">
+        <span className="font-mono text-[0.9375rem] text-mute">
           {row.original.site_id}
         </span>
       </span>
@@ -131,7 +130,7 @@ const columns: ColumnDef<TableSetup, DestinationRow>[] = [
         <span className="min-w-0 text-[1rem] font-semibold break-words text-ink">
           {row.original.label}
         </span>
-        <span className="font-mono text-[0.875rem] font-normal text-mute">
+        <span className="font-mono text-[0.9375rem] font-normal text-mute">
           {row.original.site_id}
         </span>
       </span>
@@ -154,7 +153,7 @@ const columns: ColumnDef<TableSetup, DestinationRow>[] = [
         >
           {count(row.original.outstanding)}
         </span>
-        <span className="text-[0.875rem] text-mute">pcs owed</span>
+        <span className="text-[0.9375rem] text-mute">pcs owed</span>
       </span>
     ),
   },
@@ -190,23 +189,47 @@ const columns: ColumnDef<TableSetup, DestinationRow>[] = [
 ]
 
 export function Destinations() {
+  const phone = useLayout() === "phone"
+  // The title stands at once; the places wait for where a delivery can go and
+  // what is on its way, and stream in with them (the server starts the reads
+  // too).
+  return (
+    <PageContent>
+      <PageHeader
+        crumb="Procurement"
+        title="Destinations"
+        sub="Sites a purchase order can name, and what is already on its way to each."
+        // The phone's bar and dock carry the way on: only the title and the
+        // figures stand at the top.
+        actions={
+          phone ? undefined : (
+            <LinkButton to="/procurement/outstanding">
+              What is still owed
+            </LinkButton>
+          )
+        }
+      />
+      <Suspense
+        fallback={<LoadingState>Asking where a delivery can go…</LoadingState>}
+      >
+        <DestinationBook />
+      </Suspense>
+    </PageContent>
+  )
+}
+
+function DestinationBook() {
   const [sorting, setSorting] = useState<SortingState>([
     { id: "outstanding", desc: true },
   ])
 
-  const destinations = useQuery({
-    queryKey: procurementKeys.destinations(),
-    queryFn: ({ signal }) => purchaseDestinations(signal),
-  })
-
-  const orders = useQuery({
-    queryKey: procurementKeys.orders(),
-    queryFn: ({ signal }) => listPurchaseOrders(undefined, signal),
+  const [destinations, orders] = useSuspenseQueries({
+    queries: [purchaseDestinationsQuery(), orderListQuery()],
   })
 
   const rows = useMemo<DestinationRow[]>(() => {
-    const book = orders.data ?? []
-    return (destinations.data ?? []).map((destination) => {
+    const book = orders.data
+    return destinations.data.map((destination) => {
       const routed = book.filter(
         (order) => order.destination_site_id === destination.site_id
       )
@@ -238,7 +261,7 @@ export function Destinations() {
         getRowId: (row: DestinationRow) => row.site_id,
         state: {
           columnFilters: filters.columnFilters,
-          globalFilter: phone ? query : "",
+          globalFilter: query,
           sorting,
           // The card's own columns are drawn on a phone and never on a desk.
           columnVisibility: {
@@ -256,22 +279,7 @@ export function Destinations() {
   )
 
   return (
-    <PageContent>
-      <PageHeader
-        crumb="Procurement"
-        title="Destinations"
-        sub="Sites a purchase order can name, and what is already on its way to each."
-        // The phone's bar and dock carry the way on: only the title and the
-        // figures stand at the top.
-        actions={
-          phone ? undefined : (
-            <LinkButton to="/procurement/outstanding">
-              What is still owed
-            </LinkButton>
-          )
-        }
-      />
-
+    <>
       <KpiStrip className="grid-cols-2 md:grid-cols-3 xl:grid-cols-3">
         <Kpi label="Places a Delivery Can Go" value={count(rows.length)} />
         <Kpi label="Warehouses" value={count(warehouses)} />
@@ -285,7 +293,12 @@ export function Destinations() {
           the table: a strip that moved with the chips would be a second,
           quieter answer to "how many places can a delivery go", and the
           question this screen exists to answer is the unnarrowed one. */}
-      <div className="mb-3.5 flex flex-wrap items-center gap-[0.4375rem] max-md:hidden">
+      <div className="group/bar mb-3.5 flex min-h-[2.25rem] flex-wrap items-center gap-2 max-md:hidden">
+        <ExpandingSearch
+          value={query}
+          onChange={setQuery}
+          label="Search destinations"
+        />
         <FilterPanel model={filters} table={table} />
       </div>
       <DockTools
@@ -302,27 +315,23 @@ export function Destinations() {
       />
 
       <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-        {queryState(destinations, {
-          loading: "Asking where a delivery can go…",
-          render: () =>
-            rows.length === 0 ? (
-              <EmptyState>
-                No node carries inventory for a named site, so there is nowhere
-                an order can be delivered.
-              </EmptyState>
-            ) : (
-              <DataTable<DestinationRow>
-                refresh={[destinations, orders]}
-                table={table}
-                empty="No destination matches the filters in force."
-                className="max-h-[calc(100dvh-20rem)]"
-                cardSort={false}
-                cardsApart
-                cardLead
-              />
-            ),
-        })}
+        {rows.length === 0 ? (
+          <EmptyState>
+            No node carries inventory for a named site, so there is nowhere an
+            order can be delivered.
+          </EmptyState>
+        ) : (
+          <DataTable<DestinationRow>
+            refresh={[destinations, orders]}
+            table={table}
+            empty="No destination matches the filters in force."
+            className="max-h-[calc(100dvh-20rem)]"
+            cardSort={false}
+            cardsApart
+            cardLead
+          />
+        )}
       </Card>
-    </PageContent>
+    </>
   )
 }

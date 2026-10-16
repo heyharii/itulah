@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PO detail · Scenario preview</title>
+<style>
+@font-face{font-family:Inter;src:url('/frontend-hub/node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2') format('woff2');font-weight:100 900;font-display:swap}
+*{box-sizing:border-box}
+:root{font:15px/1.45 Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#242830;background:#eef0f3;--ease-out:cubic-bezier(.23,1,.32,1)}
+body{margin:0;min-width:320px;height:100dvh;overflow:hidden}
+iframe{display:block;width:100%;height:100%;border:0;background:#eef1f5}
+svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
+button:focus-visible{outline:2px solid #1d4ed8;outline-offset:2px}
+/* The preview controls float at the left, so the sheet keeps the full screen height. */
+.dock{position:fixed;top:12px;left:12px;z-index:5}
+.dock-card{width:220px;max-height:calc(100dvh - 24px);overflow-y:auto;overscroll-behavior:contain;padding:10px;border:1px solid #e4e7ec;border-radius:14px;background:rgb(255 255 255 / 94%);backdrop-filter:blur(12px);box-shadow:0 1px 3px rgb(27 39 60 / 6%),0 12px 32px rgb(27 39 60 / 14%);transform-origin:top left;transition:opacity 160ms var(--ease-out),transform 160ms var(--ease-out),visibility 0s}
+.dock[data-open="false"] .dock-card{opacity:0;transform:scale(.97);visibility:hidden;pointer-events:none;transition:opacity 120ms ease,transform 120ms ease,visibility 0s 120ms}
+.dock-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:2px 2px 6px 10px}
+.dock-head h1{margin:0;font-size:15px;line-height:22px;font-weight:600}
+.icon-button{display:grid;place-items:center;width:36px;height:36px;border-radius:9px;color:#697383}
+/* Hidden controls leave a small handle on the left edge, clear of the page's own title. */
+.dock-open{position:fixed;left:0;top:50%;transform:translateY(-50%);display:grid;place-items:center;width:22px;height:56px;border:1px solid #e4e7ec;border-left:0;border-radius:0 10px 10px 0;background:rgb(255 255 255 / 94%);backdrop-filter:blur(12px);box-shadow:0 1px 3px rgb(27 39 60 / 6%),0 8px 24px rgb(27 39 60 / 12%);color:#6e6e73}
+.dock-open:before{content:'';position:absolute;inset:-8px -16px -8px 0}
+.dock-open svg{width:16px;height:16px}
+.dock[data-open="true"] .dock-open{opacity:0;visibility:hidden}
+.group{display:grid;gap:2px}
+.group+.group{margin-top:10px;padding-top:10px;border-top:1px solid #eef0f3}
+.group-label{padding:4px 10px 6px;color:#697383;font-size:15px}
+.group button{display:flex;align-items:center;gap:8px;min-height:36px;padding:0 10px;border-radius:9px;color:#424b59;text-align:left;white-space:nowrap}
+.group button b{width:14px;font-weight:inherit;color:#9aa2ad}
+.group button[aria-pressed=true]{background:#edf3ff;color:#1d4ed8;font-weight:550}
+.group button[aria-pressed=true] b{color:inherit}
+.group button,.icon-button,.dock-open{transition:transform 120ms var(--ease-out),background-color 120ms ease,opacity 120ms ease}
+@media(hover:hover) and (pointer:fine){.group button:not([aria-pressed=true]):hover,.icon-button:hover{background:#f3f4f6}.dock-open:hover{color:#1d4ed8}}
+.dock button:active{transform:scale(.97)}
+.dock .dock-open:active{transform:translateY(-50%) scale(.97)}
+@media(prefers-reduced-motion:reduce){.dock-card,.dock[data-open="false"] .dock-card{transform:none}.dock button:active{transform:none}.dock .dock-open:active{transform:translateY(-50%)}}
+</style>
+</head>
+<body>
+<iframe id="scenario" title="Purchase order detail scenario"></iframe>
+<aside class="dock" id="dock" data-open="true">
+ <button type="button" class="dock-open" id="dock-open" aria-label="Show preview controls" aria-controls="dock-card"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
+ <div class="dock-card" id="dock-card">
+  <div class="dock-head"><h1>Purchase Orders</h1><button type="button" class="icon-button" id="dock-close" aria-label="Hide preview controls"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></button></div>
+  <div class="group" role="group" aria-label="Pilih layar">
+   <span class="group-label">Screen</span>
+   <button type="button" data-screen="list" aria-pressed="false">PO list</button>
+   <button type="button" data-screen="detail" aria-pressed="true">PO detail</button>
+  </div>
+  <div class="group" role="group" aria-label="Pilih bentuk halaman">
+   <span class="group-label">Page</span>
+   <button type="button" data-page="plain" aria-pressed="true">Plain</button>
+   <button type="button" data-page="sheet" aria-pressed="false">Sheet · Stone</button>
+  </div>
+  <div class="group" role="group" aria-label="Pilih kondisi PO">
+   <span class="group-label">Scenario</span>
+   <button type="button" data-case="ten-items" aria-pressed="true" title="10 item, belum diterima">10 items</button>
+   <button type="button" data-case="partial" aria-pressed="false" title="Penerimaan sebagian · 225 dari 900 pcs">Partial receipt</button>
+   <button type="button" data-case="not-as-ordered" aria-pressed="false" title="Ada 10 pcs tidak sesuai pesanan dan akan dikembalikan">Not as ordered</button>
+   <button type="button" data-case="overdue" aria-pressed="false" title="PO aktif dengan tanggal pengiriman terlewat">Overdue</button>
+   <button type="button" data-case="completed" aria-pressed="false" title="Semua 900 pcs sudah diterima">Completed</button>
+   <button type="button" data-case="cancelled" aria-pressed="false" title="PO dibatalkan dengan alasan dari supplier">Cancelled</button>
+  </div>
+  <div class="group" role="group" aria-label="Pilih tampilan sheet">
+   <span class="group-label">Look</span>
+   <button type="button" data-look="today" aria-pressed="true"><b></b>Today</button>
+   <button type="button" data-look="hairline" aria-pressed="false"><b>A</b>Hairline</button>
+   <button type="button" data-look="paper" aria-pressed="false"><b>B</b>Paper</button>
+   <button type="button" data-look="air" aria-pressed="false"><b>C</b>Air</button>
+   <button type="button" data-look="white" aria-pressed="false"><b>D</b>All white</button>
+   <button type="button" data-look="airwhite" aria-pressed="false"><b>E</b>Air + White</button>
+   <button type="button" data-look="whitewrap" aria-pressed="false"><b>F</b>White, wrapped</button>
+   <button type="button" data-look="whitewrap-shadow" aria-pressed="false"><b>G</b>Wrapped + shadow</button>
+   <button type="button" data-look="whitewrap-band" aria-pressed="false"><b>H</b>Shadow + header</button>
+   <button type="button" data-look="whitewrap-lift" aria-pressed="false"><b>I</b>Lifted</button>
+   <button type="button" data-look="whitewrap-polish" aria-pressed="false"><b>J</b>H, polished</button>
+  </div>
+ </div>
+</aside>
+<script>
+const screens=['list','detail'],cases=['ten-items','partial','not-as-ordered','overdue','completed','cancelled'],looks=['today','hairline','paper','air','white','airwhite','whitewrap','whitewrap-shadow','whitewrap-band','whitewrap-lift','whitewrap-polish'];
+const frame=document.getElementById('scenario'),dock=document.getElementById('dock'),params=new URLSearchParams(location.search);
+let current={page:params.get('page')==='sheet'?'sheet':'plain',screen:screens.includes(params.get('screen'))?params.get('screen'):'detail',case:cases.includes(params.get('case'))?params.get('case'):'ten-items',look:looks.includes(params.get('look'))?params.get('look'):'today'};
+function press(attr,key){document.querySelectorAll('['+attr+']').forEach(b=>b.setAttribute('aria-pressed',String(b.getAttribute(attr)===key)))}
+function remember(){history.replaceState(null,'','?'+(current.page==='sheet'?'page=sheet&':'')+(current.screen==='list'?'screen=list&':'')+'case='+encodeURIComponent(current.case)+(current.look==='today'?'':'&look='+encodeURIComponent(current.look)))}
+function load(){frame.src='po-list-refined.html?'+(current.screen==='detail'?'view=detail&':'')+'frame=float&case='+encodeURIComponent(current.case)+'&look='+encodeURIComponent(current.look)+(current.page==='sheet'?'&page=sheet':'');remember()}
+function selectPage(key){current.page=key;press('data-page',key);frame.contentWindow&&frame.contentWindow.postMessage({page:key},'*');remember()}
+function selectScreen(key){current.screen=key;press('data-screen',key);load()}
+function selectCase(key){current.case=key;press('data-case',key);load()}
+// A look switch restyles the open sheet in place, so the same rows stay under the eye.
+function selectLook(key){current.look=key;press('data-look',key);frame.contentWindow&&frame.contentWindow.postMessage({look:key},'*');remember()}
+function setDock(open){dock.dataset.open=String(open);document.getElementById('dock-open').setAttribute('aria-expanded',String(open));try{localStorage.setItem('po-detail-variants-dock',open?'1':'0')}catch{}}
+document.querySelectorAll('[data-page]').forEach(b=>b.addEventListener('click',()=>selectPage(b.dataset.page)));
+document.querySelectorAll('[data-screen]').forEach(b=>b.addEventListener('click',()=>selectScreen(b.dataset.screen)));
+document.querySelectorAll('[data-case]').forEach(b=>b.addEventListener('click',()=>selectCase(b.dataset.case)));
+document.querySelectorAll('[data-look]').forEach(b=>b.addEventListener('click',()=>selectLook(b.dataset.look)));
+document.getElementById('dock-open').addEventListener('click',()=>setDock(true));
+document.getElementById('dock-close').addEventListener('click',()=>setDock(false));
+let saved=null;try{saved=localStorage.getItem('po-detail-variants-dock')}catch{}
+dock.dataset.open=String(saved?saved==='1':current.screen==='detail'&&innerWidth>=1320);
+press('data-look',current.look);press('data-screen',current.screen);press('data-page',current.page);selectCase(current.case);
+</script>
+</body>
+</html>

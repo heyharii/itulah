@@ -1,4 +1,11 @@
+import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query"
+
 import { node } from "@/lib/api"
+import {
+  listPurchaseOrders,
+  paymentTermsBook,
+  procurementKeys,
+} from "@/lib/queries/procurement"
 import type {
   AccountBalance,
   AccountDetail,
@@ -41,6 +48,7 @@ import type {
   CreditNoteRefundRequest,
   CreditNoteRequest,
   DepreciationRun,
+  EdcTerminal,
   DisposeAssetRequest,
   CreateGiroPrintTemplateRequest,
   GeneralLedger,
@@ -149,6 +157,8 @@ export const financeKeys = {
   inventoryValuation: (unit: string | null) =>
     ["finance", "inventory-valuation", unit] as const,
   stockVsLedger: () => ["finance", "stock-vs-ledger"] as const,
+  /// The card terminals each shop holds and the bank each one settles to.
+  edcTerminals: () => ["finance", "edc-terminals"] as const,
   goodsInTransit: () => ["finance", "goods-in-transit"] as const,
   cogs: (year: number) => ["finance", "cogs", year] as const,
   stockAdjustments: () => ["finance", "stock-adjustments"] as const,
@@ -3101,3 +3111,716 @@ export function stockAdjustments(
     { signal }
   )
 }
+
+// ---------------------------------------------------------------------------
+// Query options
+// ---------------------------------------------------------------------------
+
+/// What a screen asks for, written once. A screen reads these with
+/// `useSuspenseQuery` and `screens/finance/prefetch.ts` warms them, so the
+/// server's first HTML and the browser's first render are the same read under
+/// the same key (`lib/prefetch.ts`). Held as long as the data moves: lists the
+/// client edits about once a year for five minutes, anything a posting changes
+/// for thirty seconds (the client's default).
+
+const FIVE_MINUTES = 5 * 60 * 1000
+
+/// The month calendar, as the rows every reader of this key holds. `useWindow`
+/// filters it as an array, so the envelope is unwrapped once, here.
+export const periodsQuery = () =>
+  queryOptions({
+    queryKey: financeKeys.periods(),
+    queryFn: ({ signal }) => listPeriods(signal).then((page) => page.rows),
+    staleTime: 60_000,
+  })
+
+/// The client's asset classes, with how many assets each holds.
+export const assetClassesQuery = () =>
+  queryOptions({
+    queryKey: financeKeys.assetClasses(),
+    queryFn: ({ signal }) => listAssetClasses(signal),
+    staleTime: FIVE_MINUTES,
+  })
+
+/// Finance's master data lists, each one answer fetched whole.
+export const expenseCategoriesQuery = () =>
+  queryOptions({
+    queryKey: financeKeys.expenseCategories(),
+    queryFn: ({ signal }) => listExpenseCategories(signal),
+    staleTime: FIVE_MINUTES,
+  })
+
+export const payComponentsQuery = () =>
+  queryOptions({
+    queryKey: financeKeys.payComponents(),
+    queryFn: ({ signal }) => listPayComponentPostings(signal),
+    staleTime: FIVE_MINUTES,
+  })
+
+export const paymentMethodsQuery = () =>
+  queryOptions({
+    queryKey: financeKeys.paymentMethods(),
+    queryFn: ({ signal }) => listPaymentMethods(signal),
+    staleTime: FIVE_MINUTES,
+  })
+
+export const taxTemplatesQuery = () =>
+  queryOptions({
+    queryKey: financeKeys.taxTemplates(),
+    queryFn: ({ signal }) => listTaxTemplates(signal),
+    staleTime: FIVE_MINUTES,
+  })
+
+export const dimensionsQuery = () =>
+  queryOptions({
+    queryKey: financeKeys.dimensions(),
+    queryFn: ({ signal }) => listDimensions(signal),
+    staleTime: FIVE_MINUTES,
+  })
+
+/// The taxes the company owes or claims per period, each named by the role its
+/// account answers to.
+export const taxTypesQuery = () =>
+  queryOptions({
+    queryKey: financeKeys.taxTypes(),
+    queryFn: ({ signal }) => listTaxTypeSettings(signal),
+  })
+
+/// The saved journal templates and the schedules that repeat them.
+export const journalTemplatesQuery = () =>
+  queryOptions({
+    queryKey: financeKeys.journalTemplates(),
+    queryFn: ({ signal }) => listJournalTemplates(signal),
+  })
+
+export const journalRepeatsQuery = () =>
+  queryOptions({
+    queryKey: financeKeys.journalRepeats(),
+    queryFn: ({ signal }) => listJournalRepeats(signal),
+  })
+
+/// The numbers Finance's rules read — tolerances, windows, thresholds.
+export const financeSettingsQuery = () =>
+  queryOptions({
+    queryKey: financeKeys.settings(),
+    queryFn: ({ signal }) => listFinanceSettings(signal),
+  })
+
+/// The route-rung overrides.
+export const rolePermissionsQuery = () =>
+  queryOptions({
+    queryKey: financeKeys.permissions(),
+    queryFn: ({ signal }) => listRolePermissions(signal),
+  })
+
+/// Which document kinds post by themselves, and the master switch over them.
+export const postingSwitchesQuery = () =>
+  queryOptions({
+    queryKey: financeKeys.postingSwitches(),
+    queryFn: ({ signal }) => postingSwitches(signal),
+  })
+
+/// Which bank each shop's card terminals belong to.
+export const edcTerminalsQuery = () =>
+  queryOptions({
+    queryKey: financeKeys.edcTerminals(),
+    queryFn: ({ signal }) =>
+      node.get<EdcTerminal[]>("/api/v1/finance/edc-terminals", { signal }),
+  })
+
+/// Where the words go on each bank's giro leaf.
+export const giroPrintTemplatesQuery = (includeRetired = false) =>
+  queryOptions({
+    queryKey: financeKeys.giroPrintTemplates(includeRetired),
+    queryFn: ({ signal }) => giroPrintTemplates(includeRetired, signal),
+  })
+
+/// Which (role, source, unit) resolves to no account — the readiness matrix.
+/// Read under this one key by the Posting readiness screen, the Account links
+/// screen and the sidebar's badge.
+export const postingReadinessQuery = () =>
+  queryOptions({
+    queryKey: financeKeys.postingReadiness(),
+    queryFn: ({ signal }) => postingReadiness(signal),
+    staleTime: 60_000,
+  })
+
+/// Every account link with the roles the posting rules name and the units the
+/// books are kept for. One key for the lot: the Account links screen, every
+/// unit picker and `useUnitName` read it, so a module full of them is one
+/// request. Held for five minutes — the client opens a store about once a
+/// year — and a save invalidates it (`financeKeys.accountLinksAll`).
+export const accountLinksQuery = (
+  q: string | null = null,
+  role: string | null = null
+) =>
+  queryOptions({
+    queryKey: financeKeys.accountLinks(q, role),
+    queryFn: ({ signal }) =>
+      accountLinks({ q: q ?? undefined, role: role ?? undefined }, signal),
+    staleTime: FIVE_MINUTES,
+  })
+
+/// The ranges closed into retained earnings, newest first.
+export const periodClosingsQuery = () =>
+  queryOptions({
+    queryKey: financeKeys.periodClosings(),
+    queryFn: ({ signal }) => listPeriodClosings(signal),
+  })
+
+/// The recurring-bill promises, retired ones included.
+export const billTemplatesQuery = () =>
+  queryOptions({
+    queryKey: financeKeys.billTemplates(),
+    queryFn: ({ signal }) => listBillTemplates(signal),
+  })
+
+/// A cost booked before its bill — the month's telephone, electricity — that
+/// waits until the supplier's bill replaces it.
+export interface AccrualRow {
+  readonly entry_id: string
+  readonly entry_number: string
+  readonly posting_date: string
+  readonly unit_id: string
+  readonly account_code: string
+  readonly account_name: string
+  readonly expense_code: string | null
+  readonly expense_name: string | null
+  readonly amount_minor: number
+  readonly memo: string | null
+  readonly status: "OPEN" | "SETTLED"
+  readonly settled_on: string | null
+  readonly invoice_id: string | null
+  readonly invoice_number: string | null
+  readonly supplier_name: string | null
+  readonly invoice_total_minor: number | null
+}
+
+export const accrualKeys = {
+  all: ["finance", "accruals"] as const,
+  list: (status: string) => ["finance", "accruals", status] as const,
+}
+
+export function listAccruals(status: string, signal?: AbortSignal) {
+  return node.get<AccrualRow[]>(
+    `/api/v1/finance/accruals${status === "ALL" ? "" : `?status=${status}`}`,
+    { signal }
+  )
+}
+
+/// Every accrual in one read, so each tab can say how many it holds.
+export const accrualsQuery = () =>
+  queryOptions({
+    queryKey: accrualKeys.list("ALL"),
+    queryFn: ({ signal }) => listAccruals("ALL", signal),
+  })
+
+/// Work paid ahead to a contractor — a renovation, a fit-out — invoiced over
+/// the months it takes and split at the end into assets and expense.
+export interface ContractorProject {
+  readonly project_id: string
+  readonly project_number: string
+  readonly name: string
+  readonly supplier_id: string
+  readonly supplier_name: string | null
+  readonly unit_id: string
+  readonly note: string | null
+  readonly status: "OPEN" | "CLOSED"
+  readonly opened_at: string
+  readonly closed_on: string | null
+  readonly advanced_minor: number
+  readonly invoiced_minor: number
+  readonly applied_minor: number
+  readonly advance_left_minor: number
+  readonly owed_minor: number
+  readonly advance_count: number
+  readonly invoice_count: number
+}
+
+export const contractorProjectKeys = {
+  all: ["finance", "contractor-projects"] as const,
+  one: (id: string) => ["finance", "contractor-projects", id] as const,
+}
+
+export const contractorProjectsQuery = () =>
+  queryOptions({
+    queryKey: contractorProjectKeys.all,
+    queryFn: ({ signal }) =>
+      node.get<ContractorProject[]>("/api/v1/finance/contractor-projects", {
+        signal,
+      }),
+  })
+
+/// The credit notes, narrowed by status on the server.
+export const creditNotesQuery = (status = "") =>
+  queryOptions({
+    queryKey: financeKeys.creditNotes(status || null, null),
+    queryFn: ({ signal }) =>
+      listCreditNotes({ status: status || undefined }, signal),
+  })
+
+/// Every bill in one status, followed to the last page, as the Payment
+/// Projection and the Overview read them: what is due and what is coming.
+/// `site` is a unit's sites, comma-separated; absent means every unit.
+export const projectionBillsQuery = (
+  status: "POSTED" | "DRAFT",
+  site?: string
+) =>
+  queryOptions({
+    queryKey: [...financeKeys.bills(status, site ?? null), "projection"],
+    queryFn: ({ signal }) => listAllBills(status, site, signal),
+    staleTime: 30_000,
+  })
+
+/// The giros we wrote, whatever their status — the projection drops the
+/// cleared ones itself.
+export const projectionGirosQuery = () =>
+  queryOptions({
+    queryKey: ["finance", "giros", "projection", "OUT"] as const,
+    queryFn: ({ signal }) =>
+      listGiros({ direction: "OUT", limit: 1000 }, signal),
+    staleTime: 30_000,
+  })
+
+/// Goods received that no bill covers yet.
+export const projectionUnbilledQuery = () =>
+  queryOptions({
+    queryKey: ["finance", "unbilled", "projection"] as const,
+    queryFn: ({ signal }) => unbilledReceipts(signal),
+    staleTime: 30_000,
+  })
+
+/// The purchase orders, for the "ordered, not received" estimate.
+export const projectionOrdersQuery = () =>
+  queryOptions({
+    queryKey: procurementKeys.orders(),
+    queryFn: ({ signal }) => listPurchaseOrders(undefined, signal),
+    staleTime: 30_000,
+  })
+
+/// The payment terms the estimate reads a payment date from.
+export const projectionTermsQuery = () =>
+  queryOptions({
+    queryKey: procurementKeys.paymentTerms(),
+    queryFn: ({ signal }) => paymentTermsBook(signal),
+    staleTime: 5 * 60_000,
+  })
+
+/// What the bank accounts held at one date, in the books, as one figure — the
+/// Overview's balance chart draws twelve of these, and the whole overview of
+/// each (a hundred kilobytes of accounts) would be twelve times too much to
+/// send. Under the overview's own key, so a posting that refreshes the
+/// overview refreshes this too.
+export const bankTotalQuery = (asOf: string) =>
+  queryOptions({
+    queryKey: [...financeKeys.money(asOf, null), "bank-total"] as const,
+    queryFn: ({ signal }) =>
+      moneyOverview({ as_of: asOf }, signal).then((overview) =>
+        overview.rows
+          .filter((row) => row.pot === "BANK")
+          .reduce((sum, row) => sum + row.per_books_minor, 0)
+      ),
+  })
+
+/// What is owed to suppliers as at a day, for all units or one: the server's
+/// own ageing, so every screen that says "payables" says the same figure.
+export const payablesAgingQuery = (asOf: string, unit: string | null = null) =>
+  queryOptions({
+    queryKey: financeKeys.payablesAging(asOf, unit),
+    queryFn: ({ signal }) =>
+      payablesAging({ as_of: asOf, unit: unit ?? undefined }, signal),
+  })
+
+/// The deliveries inside that figure, one row each.
+export const openDeliveriesQuery = (asOf: string, unit: string | null = null) =>
+  queryOptions({
+    queryKey: financeKeys.openDeliveries(asOf, unit),
+    queryFn: ({ signal }) =>
+      openDeliveries({ as_of: asOf, unit: unit ?? undefined }, signal),
+  })
+
+/// Stock on hand against what the ledger carries, per unit.
+export const stockVsLedgerQuery = () =>
+  queryOptions({
+    queryKey: financeKeys.stockVsLedger(),
+    queryFn: ({ signal }) => stockVsLedger(signal),
+  })
+
+/// Boxes sent and not yet counted in.
+export const goodsInTransitQuery = () =>
+  queryOptions({
+    queryKey: financeKeys.goodsInTransit(),
+    queryFn: ({ signal }) => goodsInTransit(signal),
+  })
+
+/// What one of a shop's cash boxes holds on a day (`limit: 1`: only the
+/// balance is wanted, not the movements). Finance › Stores draws one per shop
+/// and box.
+export const storeBoxQuery = (
+  unit: string,
+  role: string,
+  code: string,
+  day: string
+) =>
+  queryOptions({
+    queryKey: [...financeKeys.all, "store-box", unit, role, day] as const,
+    queryFn: ({ signal }) =>
+      accountLedger(code, { unit, from: day, to: day, limit: 1 }, signal),
+    staleTime: 60_000,
+  })
+
+/// One cash box's movements over a month, a page at a time.
+export const storeBoxLedgerQuery = (
+  unit: string,
+  role: string,
+  code: string,
+  from: string,
+  to: string,
+  q: string
+) =>
+  infiniteQueryOptions({
+    queryKey: [...financeKeys.all, "store-box-ledger", unit, role, from, to, q],
+    queryFn: ({ pageParam, signal }) =>
+      accountLedger(
+        code,
+        {
+          unit,
+          from,
+          to,
+          q: q === "" ? undefined : q,
+          limit: 100,
+          cursor: pageParam,
+        },
+        signal
+      ),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+  })
+
+/// Every cash count, held under the shop it is being read for.
+export const storeCashCountsQuery = (unit: string) =>
+  queryOptions({
+    queryKey: [...financeKeys.all, "cash-counts", "unit", unit] as const,
+    queryFn: ({ signal }) => listCashCounts(signal),
+  })
+
+/// Stock at cost, per article and site; `unit` narrows it to one unit.
+export const inventoryValuationQuery = (unit: string | null = null) =>
+  queryOptions({
+    queryKey: financeKeys.inventoryValuation(unit),
+    queryFn: ({ signal }) => inventoryValuation({ unit }, signal),
+  })
+
+/// The cost of goods sold, month by month, for one year.
+export const cogsQuery = (year: number) =>
+  queryOptions({
+    queryKey: financeKeys.cogs(year),
+    queryFn: ({ signal }) => cogsByMonth(year, signal),
+  })
+
+/// Stock value changed by anything other than buying, moving or selling.
+export const stockAdjustmentsQuery = () =>
+  queryOptions({
+    queryKey: financeKeys.stockAdjustments(),
+    queryFn: ({ signal }) => stockAdjustments(signal),
+  })
+
+/// The profit and loss cut by one accounting dimension over a window.
+export const dimensionResultsQuery = (
+  dimension: string,
+  from: string,
+  to: string,
+  unit: string | null = null
+) =>
+  queryOptions({
+    queryKey: financeKeys.dimensionResults(dimension, from, to, unit),
+    queryFn: ({ signal }) =>
+      dimensionResults({ dimension, from, to, unit }, signal),
+  })
+
+/// The balance sheet at one date. No `from`: a balance sheet is cumulative,
+/// and the server drops it. Under `financeKeys.statement` with the window's
+/// start left null, so it never shares an entry with a profit and loss.
+export const balanceStatementQuery = (at: string, unit: string | null = null) =>
+  queryOptions({
+    queryKey: financeKeys.statement("BALANCE_SHEET", null, at, unit),
+    queryFn: ({ signal }) =>
+      statement("BALANCE_SHEET", { to: at, unit: unit ?? undefined }, signal),
+  })
+
+/// The profit and loss over a window, as a statement.
+export const resultStatementQuery = (
+  from: string,
+  to: string,
+  unit: string | null = null
+) =>
+  queryOptions({
+    queryKey: financeKeys.statement("PROFIT_LOSS", from, to, unit),
+    queryFn: ({ signal }) =>
+      statement("PROFIT_LOSS", { from, to, unit: unit ?? undefined }, signal),
+  })
+
+/// Every asset the register holds under one narrowing, followed to the last
+/// page (the Fixed Asset Register and Asset Disposals both total over it).
+export const assetsAllQuery = (
+  decision: string | null,
+  status: string | null,
+  site = ""
+) =>
+  queryOptions({
+    queryKey: financeKeys.assetsAll(decision, status, site || null),
+    queryFn: ({ signal }) =>
+      listAllAssets(
+        {
+          decision: decision ?? undefined,
+          status: status ?? undefined,
+          site: site || undefined,
+        },
+        signal
+      ),
+  })
+
+/// The giros in one status — the server filters, so each status is its own
+/// request. `limit` is the screen's: the Giro Board pages 300 of each, Bank
+/// Clearance asks for 500.
+export const girosQuery = (status: string, limit: number) =>
+  queryOptions({
+    queryKey: financeKeys.giros(status),
+    queryFn: ({ signal }) => listGiros({ status, limit }, signal),
+  })
+
+/// The Giro Board's reads: one per status the board has a lane for, 300 of
+/// each.
+export const giroBoardQueries = () =>
+  ["ISSUED", "DELIVERED", "DUE", "CLEARED", "REJECTED"].map((status) =>
+    girosQuery(status, 300)
+  )
+
+/// Bank Clearance's reads: the giros written and not yet taken by the bank,
+/// and — when "Include reconciled" is ticked — the cleared ones.
+export const giroClearanceQueries = (withCleared: boolean) =>
+  ["ISSUED", "DELIVERED", "DUE", ...(withCleared ? ["CLEARED"] : [])].map(
+    (status) => girosQuery(status, 500)
+  )
+
+/// The rules that recognise a bank line. Retired ones are a separate entry:
+/// the server hides them unless asked.
+export const bankRulesQuery = (includeRetired = false) =>
+  queryOptions({
+    queryKey: financeKeys.bankRules(includeRetired),
+    queryFn: ({ signal }) =>
+      listBankRules({ include_retired: includeRetired }, signal),
+  })
+
+/// The asset register, a page at a time. The location, the search and the
+/// order are the server's — `treatment` included, so the not-assessed rows are
+/// still the first screenful — and the table reads on as somebody scrolls.
+export const assetPagesQuery = (
+  site: string,
+  scope: { q?: string; sort?: string; dir?: string }
+) => {
+  const ask = {
+    site: site || undefined,
+    q: scope.q,
+    sort: scope.sort,
+    dir: scope.dir,
+    limit: 100,
+  }
+  return infiniteQueryOptions({
+    queryKey: [...financeKeys.assets(false, site || null), "pages", ask],
+    queryFn: ({ pageParam, signal }) =>
+      listAssets({ ...ask, cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+  })
+}
+
+/// How many assets nobody has assessed yet at a location, counted by the
+/// server (the register's facets ignore the location).
+export const unassessedAssetsQuery = (site: string) =>
+  queryOptions({
+    queryKey: [...financeKeys.assets(true, site || null), "count"],
+    queryFn: ({ signal }) =>
+      listAssets(
+        { site: site || undefined, decision: "UNASSESSED", limit: 1 },
+        signal
+      ),
+  })
+
+/// The accounts directly under one heading (or the eight roots when `parent`
+/// is null). A branch is safely whole: no heading in this client's chart has
+/// more than 36 children, against a page of 200. The chart is imported once
+/// and then sits for months, so a branch reopened twice in a session does not
+/// ask twice.
+export const accountChildrenQuery = (
+  parent: string | null,
+  inactive: boolean
+) =>
+  queryOptions({
+    queryKey: financeKeys.accountChildren(parent, inactive),
+    queryFn: ({ signal }) =>
+      accountChildren({ parent: parent ?? undefined, inactive }, signal).then(
+        (page) => page.rows
+      ),
+    staleTime: 10 * 60 * 1000,
+  })
+
+/// The balance beside every account of one level, by account code. Beside the
+/// rows rather than inside them: the chart sits for months, the balances move
+/// with every posting, so they are read on their own clock. A plain record and
+/// not a `Map`, so it crosses from the server to the browser as it is.
+export const accountBalancesQuery = (
+  parent: string | null,
+  unit: string | null
+) =>
+  queryOptions({
+    queryKey: financeKeys.accountBalances(parent, unit),
+    queryFn: ({ signal }) =>
+      accountBalances(
+        { parent: parent ?? undefined, unit: unit ?? undefined },
+        signal
+      ).then((rows) =>
+        Object.fromEntries(
+          rows.map((row) => [row.account_code, row.balance_minor])
+        )
+      ),
+    staleTime: 30_000,
+  })
+
+/// A search of the chart, a page at a time, read on as the card scrolls. 101
+/// matches 1,248 accounts in this client's chart.
+export const accountSearchPagesQuery = (needle: string, inactive: boolean) =>
+  infiniteQueryOptions({
+    queryKey: [...financeKeys.accountSearch(needle, inactive), "pages"],
+    queryFn: ({ pageParam, signal }) =>
+      searchAccounts(
+        needle,
+        { inactive, limit: 100, cursor: pageParam },
+        signal
+      ),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    staleTime: 60_000,
+  })
+
+/// The trial balance as at one day, for all units or one. The report reads two
+/// of these (the day before its window opens, and the day it closes) and
+/// subtracts, so each is the same endpoint under its own date.
+export const trialBalanceQuery = (asOf: string, unit: string | null = null) =>
+  queryOptions({
+    queryKey: financeKeys.trialBalance(asOf, unit),
+    queryFn: ({ signal }) =>
+      trialBalance(
+        { as_of: asOf, unit: unit ?? undefined, limit: 2000 },
+        signal
+      ),
+  })
+
+/// The cash flow statement over a window: every entry that touched a cash or
+/// bank account, with its other side filed by activity.
+export const cashFlowStatementQuery = (
+  from: string,
+  to: string,
+  unit: string | null = null
+) =>
+  queryOptions({
+    queryKey: financeKeys.statement("CASH_FLOW", from, to, unit),
+    queryFn: ({ signal }) =>
+      statement("CASH_FLOW", { from, to, unit: unit ?? undefined }, signal),
+  })
+
+/// What the money accounts hold, for all units or one: the Cash report, Cash
+/// Transactions, Petty Cash, Deposits and the bank screens all read it, so a
+/// posting that refreshes one refreshes the rest.
+export const moneyOverviewQuery = (
+  unit: string | null = null,
+  asOf: string | null = null
+) =>
+  queryOptions({
+    queryKey: financeKeys.money(asOf, unit),
+    queryFn: ({ signal }) =>
+      moneyOverview(
+        { as_of: asOf ?? undefined, unit: unit ?? undefined },
+        signal
+      ),
+  })
+
+/// One account's ledger window, for all units or one, as the report screens
+/// read it: `closing_minor` and the window's totals are properties of the
+/// window and not of the page, so `limit: 1` keeps the movements nobody is
+/// reading off the wire. A one-day window (`from == to`) is how a balance is
+/// asked for "as at" a day. The key carries the unit, so two units are two
+/// entries and never one answer wearing both names.
+export const ledgerWindowQuery = (
+  code: string,
+  unit: string | null,
+  from: string,
+  to: string
+) =>
+  queryOptions({
+    queryKey: financeKeys.ledger(code, unit, from, to),
+    queryFn: ({ signal }) =>
+      accountLedger(
+        code,
+        { unit: unit ?? undefined, from, to, limit: 1 },
+        signal
+      ),
+  })
+
+/// Every physical count, newest first and never narrowed: the Cash report,
+/// Deposits and Cash Counts all read the one list.
+export const cashCountsQuery = () =>
+  queryOptions({
+    queryKey: financeKeys.cashCounts(null, null),
+    queryFn: ({ signal }) => listCashCounts(signal),
+  })
+
+/// The posted bills a page at a time, as Accounts Payable reads them: narrowed
+/// to a unit's sites by the server (a comma-joined list, empty for every
+/// site), and read on as the table scrolls.
+export const postedBillPagesQuery = (sites: string) =>
+  infiniteQueryOptions({
+    queryKey: [...financeKeys.bills("POSTED", sites || null), "pages"],
+    queryFn: ({ pageParam, signal }) =>
+      listBills(
+        {
+          status: "POSTED",
+          site: sites || undefined,
+          limit: 100,
+          cursor: pageParam,
+        },
+        signal
+      ),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+  })
+
+/// The bank statements that have arrived, newest first: the first page, for
+/// all units or one (the unit is part of the key, so a unit's list never
+/// overwrites the company's). Bank Reconciliation, Deposits and the sidebar's
+/// count of lines nobody has agreed yet all read it.
+export const bankStatementsQuery = (unit: string | null = null) =>
+  queryOptions({
+    queryKey: financeKeys.bankStatements(unit),
+    queryFn: ({ signal }) =>
+      listBankStatements(signal, unit === null ? {} : { unit }),
+  })
+
+/// What our own bank accounts are — the bank, the number, the holder — as
+/// opposed to where they post. Small and edited about once a year.
+export const companyBankAccountsQuery = () =>
+  queryOptions({
+    queryKey: financeKeys.companyBankAccounts(null),
+    queryFn: ({ signal }) => listCompanyBankAccounts(signal),
+    staleTime: 5 * 60_000,
+  })
+
+/// Every category a journal line may carry, with the family each belongs to.
+/// The line-category reference reads it; the journal's pickers read the same
+/// list a family at a time under their own keys.
+export const lineCategoriesQuery = () =>
+  queryOptions({
+    queryKey: financeKeys.lineCategories(null),
+    queryFn: ({ signal }) => listLineCategories(null, signal),
+    staleTime: 5 * 60 * 1000,
+  })

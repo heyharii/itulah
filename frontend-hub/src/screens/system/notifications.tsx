@@ -1,9 +1,10 @@
 import {
-  useInfiniteQuery,
   useMutation,
   useQueryClient,
+  useSuspenseInfiniteQuery,
 } from "@tanstack/react-query"
-import { useMemo, useState } from "react"
+import { useHydrated } from "@tanstack/react-router"
+import { Suspense, useDeferredValue, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { DockPortal } from "@/components/shell/dock"
@@ -14,19 +15,23 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { PageHeader } from "@/components/ui/page-header"
 import { Segmented } from "@/components/ui/segmented"
-import { Banner, EmptyState, LoadMore } from "@/components/ui/states"
+import {
+  Banner,
+  EmptyState,
+  LoadingState,
+  LoadMore,
+} from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { count, label, moment } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import {
   markAllNotificationsRead,
   markNotificationRead,
-  notificationsPage,
   systemKeys,
 } from "@/lib/queries/system"
-import { queryState } from "@/lib/query-state"
 import { recordRoute } from "@/lib/record-route"
 import type { SheetKey } from "@/lib/sheets"
+import { notificationFeedQuery } from "@/screens/system/data"
 import { saying } from "@/screens/system/units"
 import type { Notification } from "@itulah/contract"
 
@@ -62,21 +67,10 @@ export function Notifications() {
   const client = useQueryClient()
   const [slice, setSlice] = useState<Slice>("all")
   const phone = useLayout() === "phone"
-
-  /// Walked a page at a time. The Unread slice is asked of the server, so it
-  /// is every unread notification and not the unread ones among the newest
-  /// fifty.
-  const page = useInfiniteQuery({
-    queryKey: systemKeys.notificationFeed(slice === "unread"),
-    queryFn: ({ pageParam, signal }) =>
-      notificationsPage(
-        { unread: slice === "unread", cursor: pageParam },
-        signal
-      ),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) => last.next_cursor ?? undefined,
-    placeholderData: (previous) => previous,
-  })
+  /// The slice as it was a moment ago while a new one is on its way: the
+  /// notifications stay on screen instead of the list emptying to a loading
+  /// line.
+  const asked = useDeferredValue(slice)
 
   const read = useMutation({
     mutationFn: (id: string) => markNotificationRead(id),
@@ -90,44 +84,36 @@ export function Notifications() {
       client.invalidateQueries({ queryKey: systemKeys.notifications() }),
   })
 
-  const shown = useMemo(
-    () => page.data?.pages.flatMap((one) => one.items) ?? [],
-    [page.data]
-  )
-
-  /// The server's own count of everything unread, whatever is loaded.
-  const unread = page.data?.pages[0]?.unread ?? 0
-
   return (
     <PageContent>
       <PageHeader
         crumb="System"
         title="Notifications"
-        sub={
-          unread === 0
-            ? "Nothing is waiting for you."
-            : `${count(unread)} still waiting for you.`
-        }
         actions={
           phone ? undefined : (
-          <>
-            <Segmented<Slice>
-              options={[
-                { value: "all", label: "All" },
-                { value: "unread", label: "Unread" },
-              ]}
-              value={slice}
-              onChange={setSlice}
-            />
-            <Button
-              variant="primary"
-              pending={readAll.isPending}
-              disabled={unread === 0}
-              onClick={() => readAll.mutate()}
-            >
-              {readAll.isPending ? "Clearing…" : "Mark all read"}
-            </Button>
-          </>
+            <>
+              <Segmented<Slice>
+                options={[
+                  { value: "all", label: "All" },
+                  { value: "unread", label: "Unread" },
+                ]}
+                value={slice}
+                onChange={setSlice}
+              />
+              <Suspense
+                fallback={
+                  <Button variant="primary" disabled>
+                    Mark all read
+                  </Button>
+                }
+              >
+                <MarkAllRead
+                  slice={asked}
+                  pending={readAll.isPending}
+                  onClick={() => readAll.mutate()}
+                />
+              </Suspense>
+            </>
           )
         }
       />
@@ -142,16 +128,13 @@ export function Notifications() {
           { value: "unread", label: "Unread", short: "Unread" },
         ]}
       />
-      <DockPortal slot="action">
-        <button
-          type="button"
-          disabled={unread === 0 || readAll.isPending}
+      <Suspense fallback={null}>
+        <MarkAllReadDock
+          slice={asked}
+          pending={readAll.isPending}
           onClick={() => readAll.mutate()}
-          className="dock-wide inline-flex h-9 w-full items-center justify-center rounded-full bg-cta px-5 text-[0.875rem] font-semibold whitespace-nowrap text-cta-fg shadow-soft transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.96] disabled:opacity-50"
-        >
-          {readAll.isPending ? "Clearing…" : "Mark all read"}
-        </button>
-      </DockPortal>
+        />
+      </Suspense>
 
       {(readAll.isError || read.isError) && (
         <Banner tone="bad" className="mb-3">
@@ -165,160 +148,262 @@ export function Notifications() {
         <PushControl />
       </Card>
 
-      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-        {queryState(page, {
-          loading: "Loading what is waiting…",
-          render: () =>
-            shown.length === 0 ? (
-              slice === "unread" ? (
-                <EmptyState>
-                  Nothing is unread. Switch to All to see what has already been
-                  dealt with.
-                </EmptyState>
-              ) : (
-                <EmptyState>
-                  Nothing has been raised for you. Notifications are written by
-                  the work that caused them, so an empty list means an
-                  uneventful week rather than a missing feed.
-                </EmptyState>
-              )
-            ) : (
-              <ul className="max-md:flex max-md:flex-col max-md:gap-2.5">
-                {shown.map((item) => {
-                  const to = target(item)
-                  const isUnread = item.read_at === null
-                  if (phone) {
-                    // A card, as every record list is on a phone: the sentence
-                    // somebody wrote, and under a hairline when it came, where
-                    // it leads and the one button.
-                    return (
-                      <li
-                        key={item.notification_id}
-                        className="flex flex-col rounded-card border border-hairline bg-canvas shadow-soft"
-                      >
-                        <div className="flex min-w-0 flex-col gap-1 p-4">
-                          <span className="flex items-start gap-2">
-                            {isUnread && (
-                              <span
-                                aria-hidden
-                                className="mt-2 size-[0.375rem] shrink-0 rounded-full bg-accent"
-                              />
-                            )}
-                            <span
-                              className={
-                                isUnread
-                                  ? "text-card-title font-semibold text-ink"
-                                  : "text-card-title font-medium text-body"
-                              }
-                            >
-                              {item.title}
-                            </span>
-                          </span>
-                          <p className="text-[0.875rem] text-body">{item.body}</p>
-                          <div className="mt-1 flex flex-wrap items-center gap-2">
-                            <Tag tone={isUnread ? "accent" : "neutral"}>
-                              {label(item.kind)}
-                            </Tag>
-                            {item.origin_id && <Tag>{item.origin_id}</Tag>}
-                          </div>
-                        </div>
-                        <div className="flex items-center justify-between gap-3 border-t border-hairline px-4 py-3 text-[0.875rem] text-mute">
-                          <span className="flex min-w-0 flex-col">
-                            <span className="tabular-nums">
-                              {moment(item.created_at)}
-                            </span>
-                            {to && (
-                              <AppLink
-                                to={to.to}
-                                sheet={to.sheet}
-                                className="font-medium text-accent hover:underline"
-                              >
-                                Open the record
-                              </AppLink>
-                            )}
-                          </span>
-                          {isUnread && (
-                            <Button
-                              variant="tint"
-                              size="card"
-                              pending={read.isPending}
-                              onClick={() => read.mutate(item.notification_id)}
-                            >
-                              Mark read
-                            </Button>
-                          )}
-                        </div>
-                      </li>
-                    )
-                  }
-                  return (
-                    <li
-                      key={item.notification_id}
-                      className="flex items-start gap-3 border-b border-hairline px-4 py-3 last:border-b-0"
-                    >
+      <Suspense
+        fallback={<LoadingState>Loading what is waiting…</LoadingState>}
+      >
+        <NotificationList
+          slice={asked}
+          stale={asked !== slice}
+          phone={phone}
+          pendingRead={read.isPending}
+          onRead={(id) => read.mutate(id)}
+        />
+      </Suspense>
+    </PageContent>
+  )
+}
+
+/// How many notifications still wait for the person, by the server's own
+/// count of everything unread whatever is loaded.
+function useUnread(slice: Slice): number {
+  /// Walked a page at a time. The Unread slice is asked of the server, so it
+  /// is every unread notification and not the unread ones among the newest
+  /// fifty.
+  const page = useSuspenseInfiniteQuery(
+    notificationFeedQuery(slice === "unread")
+  )
+  return page.data.pages[0]?.unread ?? 0
+}
+
+/// The head's button: clears everything unread, and is dim when nothing is.
+function MarkAllRead({
+  slice,
+  pending,
+  onClick,
+}: {
+  slice: Slice
+  pending: boolean
+  onClick: () => void
+}) {
+  const unread = useUnread(slice)
+  return (
+    <Button
+      variant="primary"
+      pending={pending}
+      disabled={unread === 0}
+      onClick={onClick}
+    >
+      {pending ? "Clearing…" : "Mark all read"}
+    </Button>
+  )
+}
+
+/// The same act as the wide button over the bottom bar on a phone.
+function MarkAllReadDock({
+  slice,
+  pending,
+  onClick,
+}: {
+  slice: Slice
+  pending: boolean
+  onClick: () => void
+}) {
+  const unread = useUnread(slice)
+  // The dock is the browser's: a boundary that streams in after the page has
+  // hydrated finds the dock already there and would draw into it, where the
+  // server drew nothing.
+  const hydrated = useHydrated()
+  if (!hydrated) return null
+  return (
+    <DockPortal slot="action">
+      <button
+        type="button"
+        disabled={unread === 0 || pending}
+        onClick={onClick}
+        className="dock-wide inline-flex h-9 w-full items-center justify-center rounded-full bg-cta px-5 text-[0.9375rem] font-semibold whitespace-nowrap text-cta-fg shadow-soft transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.96] disabled:opacity-50"
+      >
+        {pending ? "Clearing…" : "Mark all read"}
+      </button>
+    </DockPortal>
+  )
+}
+
+/// The feed, newest first.
+function NotificationList({
+  slice,
+  stale,
+  phone,
+  pendingRead,
+  onRead,
+}: {
+  slice: Slice
+  /// The slice on screen is one behind the one the person has asked for.
+  stale: boolean
+  phone: boolean
+  pendingRead: boolean
+  onRead: (id: string) => void
+}) {
+  const page = useSuspenseInfiniteQuery(
+    notificationFeedQuery(slice === "unread")
+  )
+  const shown = useMemo(
+    () => page.data.pages.flatMap((one) => one.items),
+    [page.data]
+  )
+
+  return (
+    <Card
+      aria-busy={stale || undefined}
+      className="list-swap overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none"
+    >
+      {shown.length === 0 ? (
+        slice === "unread" ? (
+          <EmptyState>
+            Nothing is unread. Switch to All to see what has already been dealt
+            with.
+          </EmptyState>
+        ) : (
+          <EmptyState>
+            Nothing has been raised for you. Notifications are written by the
+            work that caused them, so an empty list means an uneventful week
+            rather than a missing feed.
+          </EmptyState>
+        )
+      ) : (
+        <ul className="max-md:flex max-md:flex-col max-md:gap-2.5">
+          {shown.map((item) => {
+            const to = target(item)
+            const isUnread = item.read_at === null
+            if (phone) {
+              // A card, as every record list is on a phone: the sentence
+              // somebody wrote, and under a hairline when it came, where
+              // it leads and the one button.
+              return (
+                <li
+                  key={item.notification_id}
+                  className="flex flex-col rounded-card border border-hairline bg-canvas shadow-soft"
+                >
+                  <div className="flex min-w-0 flex-col gap-1 p-4">
+                    <span className="flex items-start gap-2">
+                      {isUnread && (
+                        <span
+                          aria-hidden
+                          className="mt-2 size-[0.375rem] shrink-0 rounded-full bg-accent"
+                        />
+                      )}
                       <span
-                        aria-hidden
                         className={
                           isUnread
-                            ? "mt-1.5 size-[0.375rem] shrink-0 rounded-full bg-accent"
-                            : "mt-1.5 size-[0.375rem] shrink-0 rounded-full bg-hairline-strong"
+                            ? "text-card-title font-semibold text-ink"
+                            : "text-card-title font-medium text-body"
                         }
-                      />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span
-                            className={
-                              isUnread
-                                ? "text-[0.875rem] font-medium text-ink"
-                                : "text-[0.875rem] text-body"
-                            }
-                          >
-                            {item.title}
-                          </span>
-                          <Tag tone={isUnread ? "accent" : "neutral"}>
-                            {label(item.kind)}
-                          </Tag>
-                          {item.origin_id && <Tag>{item.origin_id}</Tag>}
-                        </div>
-                        <p className="mt-0.5 text-[0.875rem] text-body">
-                          {item.body}
-                        </p>
-                        <div className="mt-1.5 flex flex-wrap items-center gap-3 text-[0.875rem] text-mute">
-                          <span className="tabular-nums">
-                            {moment(item.created_at)}
-                          </span>
-                          {to && (
-                            <AppLink
-                              to={to.to}
-                              sheet={to.sheet}
-                              className="font-medium text-accent hover:underline"
-                            >
-                              Open the record
-                            </AppLink>
-                          )}
-                        </div>
-                      </div>
-                      {isUnread && (
-                        <Button
-                          variant="quiet"
-                          size="sm"
-                          pending={read.isPending}
-                          onClick={() => read.mutate(item.notification_id)}
+                      >
+                        {item.title}
+                      </span>
+                    </span>
+                    <p className="text-[0.9375rem] text-body">{item.body}</p>
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      <Tag tone={isUnread ? "accent" : "neutral"}>
+                        {label(item.kind)}
+                      </Tag>
+                      {item.origin_id && <Tag>{item.origin_id}</Tag>}
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between gap-3 border-t border-hairline px-4 py-3 text-[0.9375rem] text-mute">
+                    <span className="flex min-w-0 flex-col">
+                      <span className="tabular-nums">
+                        {moment(item.created_at)}
+                      </span>
+                      {to && (
+                        <AppLink
+                          to={to.to}
+                          sheet={to.sheet}
+                          className="font-medium text-accent hover:underline"
                         >
-                          Mark read
-                        </Button>
+                          Open the record
+                        </AppLink>
                       )}
-                    </li>
-                  )
-                })}
-                {/* The page scrolls, not this card — see `<LoadMore>`. */}
-                <li className="list-none">
-                  <LoadMore query={page} />
+                    </span>
+                    {isUnread && (
+                      <Button
+                        variant="tint"
+                        size="card"
+                        pending={pendingRead}
+                        onClick={() => onRead(item.notification_id)}
+                      >
+                        Mark read
+                      </Button>
+                    )}
+                  </div>
                 </li>
-              </ul>
-            ),
-        })}
-      </Card>
-    </PageContent>
+              )
+            }
+            return (
+              <li
+                key={item.notification_id}
+                className="flex items-start gap-3 border-b border-hairline px-4 py-3 last:border-b-0"
+              >
+                <span
+                  aria-hidden
+                  className={
+                    isUnread
+                      ? "mt-1.5 size-[0.375rem] shrink-0 rounded-full bg-accent"
+                      : "mt-1.5 size-[0.375rem] shrink-0 rounded-full bg-hairline-strong"
+                  }
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span
+                      className={
+                        isUnread
+                          ? "text-[0.9375rem] font-medium text-ink"
+                          : "text-[0.9375rem] text-body"
+                      }
+                    >
+                      {item.title}
+                    </span>
+                    <Tag tone={isUnread ? "accent" : "neutral"}>
+                      {label(item.kind)}
+                    </Tag>
+                    {item.origin_id && <Tag>{item.origin_id}</Tag>}
+                  </div>
+                  <p className="mt-0.5 text-[0.9375rem] text-body">
+                    {item.body}
+                  </p>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-3 text-[0.9375rem] text-mute">
+                    <span className="tabular-nums">
+                      {moment(item.created_at)}
+                    </span>
+                    {to && (
+                      <AppLink
+                        to={to.to}
+                        sheet={to.sheet}
+                        className="font-medium text-accent hover:underline"
+                      >
+                        Open the record
+                      </AppLink>
+                    )}
+                  </div>
+                </div>
+                {isUnread && (
+                  <Button
+                    variant="quiet"
+                    size="sm"
+                    pending={pendingRead}
+                    onClick={() => onRead(item.notification_id)}
+                  >
+                    Mark read
+                  </Button>
+                )}
+              </li>
+            )
+          })}
+          {/* The page scrolls, not this card — see `<LoadMore>`. */}
+          <li className="list-none">
+            <LoadMore query={page} />
+          </li>
+        </ul>
+      )}
+    </Card>
   )
 }

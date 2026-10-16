@@ -107,7 +107,7 @@ const columns: ColumnDef<TableSetup, VaultRow>[] = [
           <span className="block truncate font-medium text-ink">
             {row.original.title}
           </span>
-          <span className="block truncate font-mono text-[0.875rem] text-mute">
+          <span className="block truncate font-mono text-[0.9375rem] text-mute">
             {row.original.source === "FILED" && row.original.folder.length > 0
               ? folderOf(row.original)
               : row.original.name}
@@ -195,7 +195,7 @@ const columns: ColumnDef<TableSetup, VaultRow>[] = [
     size: 120,
     meta: { filter: { kind: "option" } },
     cell: ({ row }) => (
-      <span className="font-mono text-[0.875rem] text-body">
+      <span className="font-mono text-[0.9375rem] text-body">
         {fileKind(row.original.name)}
       </span>
     ),
@@ -494,6 +494,7 @@ export function Library() {
                 ) : (
                   <Card className="overflow-hidden">
                     <DataTable<VaultRow>
+                      refresh={[documents, attachments]}
                       table={table}
                       onRowClick={(row) =>
                         row.source === "FILED"

@@ -1,6 +1,8 @@
+import { POP_MOTION } from "@/lib/filter-chrome"
 import { Menu } from "@base-ui/react/menu"
 import { useForm } from "@tanstack/react-form"
 import {
+  keepPreviousData,
   useInfiniteQuery,
   useMutation,
   useQuery,
@@ -343,6 +345,9 @@ function Board({
     initialPageParam: 0,
     getNextPageParam: (last, pages) =>
       last.length < THREAD_PAGE ? undefined : pages.length * THREAD_PAGE,
+    // Another feed or filter: the threads in hand stay, dimmed (`list-swap`),
+    // until the next are read.
+    placeholderData: keepPreviousData,
   })
 
   const subjects = useQuery({
@@ -412,6 +417,7 @@ function Board({
               <Input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search"
                 className="h-8 w-56"
               />
               <Button variant="primary" onClick={() => setOpening(true)}>
@@ -614,84 +620,92 @@ function Board({
             </div>
           )}
 
-          {threads.isPending ? (
-            <LoadingState>Loading the discussions…</LoadingState>
-          ) : threads.isError ? (
-            <ErrorState
-              error={threads.error}
-              onRetry={() => void threads.refetch()}
-            />
-          ) : rows.length === 0 ? (
-            <Card>
-              <EmptyState
-                action={
-                  filtered || subjectId !== null ? (
-                    <div className="flex flex-wrap justify-center gap-2">
-                      {filtered && (
-                        <Button variant="ghost" onClick={clear}>
-                          Clear the filters
-                        </Button>
-                      )}
-                      {subjectId !== null && (
-                        <Button
-                          variant="primary"
-                          onClick={() => setOpening(true)}
-                        >
-                          Discuss {subjectId}
-                        </Button>
-                      )}
-                    </div>
-                  ) : undefined
-                }
-              >
-                {subjectId !== null
-                  ? "Nobody has opened a discussion about this record yet."
-                  : feed === "unread"
-                    ? "Nothing has moved since you last read. You are caught up."
-                    : feed === "new"
-                      ? "You have opened every thread there is."
-                      : filtered
-                        ? "No thread matches these filters."
-                        : "Nobody has opened a discussion yet."}
-              </EmptyState>
-            </Card>
-          ) : phone ? (
-            <>
-              <PhoneCards
-                rows={rows}
-                rowId={(row) => row.thread_id}
-                spec={threadCard(me)}
-                onOpen={(row) => onOpen(row.thread_id)}
-                more={threads}
+          <div
+            aria-busy={threads.isPlaceholderData || undefined}
+            className="list-swap"
+          >
+            {threads.isPending ? (
+              <LoadingState>Loading the discussions…</LoadingState>
+            ) : threads.isError ? (
+              <ErrorState
+                error={threads.error}
+                onRetry={() => void threads.refetch()}
               />
-              {feed === "unread" && (
-                <Button
-                  variant="ghost"
-                  className="mt-3 w-full"
-                  pending={dismiss.isPending}
-                  onClick={() => dismiss.mutate()}
+            ) : rows.length === 0 ? (
+              <Card>
+                <EmptyState
+                  action={
+                    filtered || subjectId !== null ? (
+                      <div className="flex flex-wrap justify-center gap-2">
+                        {filtered && (
+                          <Button variant="ghost" onClick={clear}>
+                            Clear the filters
+                          </Button>
+                        )}
+                        {subjectId !== null && (
+                          <Button
+                            variant="primary"
+                            onClick={() => setOpening(true)}
+                          >
+                            Discuss {subjectId}
+                          </Button>
+                        )}
+                      </div>
+                    ) : undefined
+                  }
                 >
-                  <CheckCheck />
-                  Mark all read
-                </Button>
-              )}
-            </>
-          ) : (
-            <Card className="overflow-hidden">
-              <BoardHeader order={order} onOrder={setOrder} />
-              <VirtualList
-                items={rows}
-                more={threads}
-                estimate={82}
-                getKey={(row) => row.thread_id}
-                className="max-h-[calc(100dvh-17rem)]"
-              >
-                {(row) => (
-                  <TopicRow thread={row} onOpen={() => onOpen(row.thread_id)} />
+                  {subjectId !== null
+                    ? "Nobody has opened a discussion about this record yet."
+                    : feed === "unread"
+                      ? "Nothing has moved since you last read. You are caught up."
+                      : feed === "new"
+                        ? "You have opened every thread there is."
+                        : filtered
+                          ? "No thread matches these filters."
+                          : "Nobody has opened a discussion yet."}
+                </EmptyState>
+              </Card>
+            ) : phone ? (
+              <>
+                <PhoneCards
+                  rows={rows}
+                  rowId={(row) => row.thread_id}
+                  spec={threadCard(me)}
+                  onOpen={(row) => onOpen(row.thread_id)}
+                  more={threads}
+                />
+                {feed === "unread" && (
+                  <Button
+                    variant="ghost"
+                    className="mt-3 w-full"
+                    pending={dismiss.isPending}
+                    onClick={() => dismiss.mutate()}
+                  >
+                    <CheckCheck />
+                    Mark all read
+                  </Button>
                 )}
-              </VirtualList>
-            </Card>
-          )}
+              </>
+            ) : (
+              <Card className="overflow-hidden">
+                <BoardHeader order={order} onOrder={setOrder} />
+                <VirtualList
+                  items={rows}
+                  more={threads}
+                  estimate={82}
+                  getKey={(row) => row.thread_id}
+                  className="max-h-[calc(100dvh-17rem)]"
+                >
+                  {(row) => (
+                    <TopicRow
+                      thread={row}
+                      onOpen={() => onOpen(row.thread_id)}
+                    />
+                  )}
+                </VirtualList>
+              </Card>
+            )}
+          </div>
         </div>
       </div>
 
@@ -1086,7 +1100,7 @@ function TopicRow({
           )}
           <span
             className={cn(
-              "line-clamp-2 min-w-0 text-[0.875rem] leading-snug text-ink",
+              "line-clamp-2 min-w-0 text-[0.9375rem] leading-snug text-ink",
               fresh !== null ? "font-semibold" : "font-medium"
             )}
           >
@@ -1095,7 +1109,7 @@ function TopicRow({
           {fresh === "unread" && (
             <span
               title={`${thread.unread_count} new since you last read it`}
-              className="mt-px inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-accent px-1 text-[0.875rem] leading-none font-semibold text-canvas tabular-nums"
+              className="mt-px inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-accent px-1 text-[0.9375rem] leading-none font-semibold text-canvas tabular-nums"
             >
               {thread.unread_count > 99 ? "99+" : thread.unread_count}
             </span>
@@ -1560,7 +1574,7 @@ function OneThread({
       <button
         type="button"
         onClick={onBack}
-        className="mb-3 inline-flex items-center gap-1.5 text-[0.875rem] font-medium text-mute transition-colors hover:text-ink"
+        className="mb-3 inline-flex items-center gap-1.5 text-[0.9375rem] font-medium text-mute transition-colors hover:text-ink"
       >
         <ArrowLeft className="size-3.5" />
         Discussions
@@ -1892,7 +1906,7 @@ function OneThread({
                   </p>
                 </div>
 
-                <div className="text-[0.875rem]">
+                <div className="text-[0.9375rem]">
                   <KeyValue term="Opened by">{open.created_by}</KeyValue>
                   <KeyValue term="Opened">
                     <span title={moment(open.created_at)}>
@@ -2305,7 +2319,7 @@ function RetitleForm({
         <Input value={tags} onChange={(event) => setTags(event.target.value)} />
       </Field>
       <div className="flex justify-end gap-2 md:col-span-2">
-        <Button variant="ghost" onClick={onCancel}>
+        <Button data-cancel variant="ghost" onClick={onCancel}>
           Cancel
         </Button>
         <Button
@@ -2366,7 +2380,7 @@ function Revisions({
 }
 
 const MENU_ITEM =
-  "flex min-h-8 cursor-default items-center gap-2 rounded-inner px-2 text-[0.875rem] text-text outline-none select-none data-[highlighted]:bg-soft-2 [&_svg]:size-3.5 [&_svg]:text-mute"
+  "flex min-h-8 cursor-default items-center gap-2 rounded-inner px-2 text-[0.9375rem] text-text outline-none select-none data-[highlighted]:bg-soft-2 [&_svg]:size-3.5 [&_svg]:text-mute"
 
 /// One post, in the shape a forum draws it: the face in a gutter on the left,
 /// who and when on the first line, and the words at full width under them. No
@@ -2507,7 +2521,7 @@ function Post({
           )}
 
           {withdrawn ? (
-            <p className="mt-1.5 text-[0.875rem] text-mute italic">
+            <p className="mt-1.5 text-[0.9375rem] text-mute italic">
               Withdrawn
               {post.withdrawn_by !== null && post.withdrawn_by !== post.author
                 ? ` by ${post.withdrawn_by}`
@@ -2526,7 +2540,12 @@ function Post({
                 onSubmit={onSaveEdit}
                 footer={
                   <>
-                    <Button variant="ghost" size="sm" onClick={onCancelEdit}>
+                    <Button
+                      data-cancel
+                      variant="ghost"
+                      size="sm"
+                      onClick={onCancelEdit}
+                    >
                       Cancel
                     </Button>
                     <Button
@@ -2592,7 +2611,12 @@ function Post({
                       sideOffset={4}
                       className="z-50"
                     >
-                      <Menu.Popup className="flex gap-0.5 rounded-full border border-hairline bg-canvas p-1 shadow-pop">
+                      <Menu.Popup
+                        className={cn(
+                          "flex gap-0.5 rounded-full border border-hairline bg-canvas p-1 shadow-pop",
+                          POP_MOTION
+                        )}
+                      >
                         {REACTIONS.map((reaction) => {
                           const mine =
                             post.reactions.find(
@@ -2658,7 +2682,12 @@ function Post({
                     sideOffset={4}
                     className="z-50"
                   >
-                    <Menu.Popup className="min-w-[12rem] rounded-card border border-hairline bg-canvas p-1.5 shadow-pop">
+                    <Menu.Popup
+                      className={cn(
+                        "min-w-[12rem] rounded-card border border-hairline bg-canvas p-1.5 shadow-pop",
+                        POP_MOTION
+                      )}
+                    >
                       <Menu.Item
                         className={MENU_ITEM}
                         onClick={() =>
@@ -3045,7 +3074,7 @@ function OpenThreadSheet({
             // the editor's Write tab, so clicking the preview flipped it back
             // to the textarea. Same look, drawn without the label.
             <div className="flex flex-col gap-[0.4375rem] md:col-span-2">
-              <span className="text-[0.875rem] font-medium text-text">
+              <span className="text-[0.9375rem] font-medium text-text">
                 The opening post
                 <span aria-hidden className="ml-0.5 text-bad">
                   *
@@ -3067,7 +3096,7 @@ function OpenThreadSheet({
                 onRemoveAttachment={attachments.remove}
                 onSubmit={submit}
               />
-              <span className="text-[0.875rem] text-mute">
+              <span className="text-[0.9375rem] text-mute">
                 A thread with no opening argument is a title.
               </span>
             </div>

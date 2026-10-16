@@ -95,7 +95,7 @@ function inline(
         out.push(
           <code
             key={next()}
-            className="rounded-[0.25rem] bg-soft-2 px-1 py-px font-mono text-[0.875rem] text-ink"
+            className="rounded-[0.25rem] bg-soft-2 px-1 py-px font-mono text-[0.9375rem] text-ink"
           >
             {text.slice(i + 1, close)}
           </code>
@@ -388,7 +388,7 @@ function render(
         return (
           <pre
             key={key}
-            className="overflow-x-auto rounded-inner bg-soft-2 px-3 py-2 font-mono text-[0.875rem] leading-relaxed text-ink"
+            className="overflow-x-auto rounded-inner bg-soft-2 px-3 py-2 font-mono text-[0.9375rem] leading-relaxed text-ink"
           >
             <code>{block.text}</code>
           </pre>
@@ -438,7 +438,7 @@ export function Markdown({
   return (
     <div
       className={cn(
-        "flex flex-col gap-2.5 text-[0.875rem] leading-[1.65] break-words text-text",
+        "flex flex-col gap-2.5 text-[0.9375rem] leading-[1.65] break-words text-text",
         className
       )}
     >

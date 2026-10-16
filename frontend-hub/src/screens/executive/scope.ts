@@ -166,17 +166,20 @@ export function spanLabel(span: Span): string {
   return `${from.getDate()} ${monthName(from)} – ${to.getDate()} ${monthName(to)} ${to.getFullYear()}`
 }
 
-export function useReportScope(): ReportScope {
-  const termParam = useSheet("term")
-  const storeParam = useSheet("store")
-
-  const term: Term = termParam.value ?? "month"
-  const { current, before } = spansOf(term, new Date())
+/// Everything a report is read over, for a period and a shop on a given day.
+/// Pure, so the prefetcher (`prefetch.ts`) asks for exactly what the screen
+/// will: `useReportScope` below is this plus the two setters.
+export function scopeFor(
+  term: Term,
+  store: string | undefined,
+  today: Date
+): Omit<ReportScope, "setTerm" | "setStore"> {
+  const { current, before } = spansOf(term, today)
   const bucket = BUCKET[term]
 
   return {
     term,
-    store: storeParam.value,
+    store,
     current,
     before,
     bucket,
@@ -190,6 +193,15 @@ export function useReportScope(): ReportScope {
       month: "short",
       year: "numeric",
     }),
+  }
+}
+
+export function useReportScope(): ReportScope {
+  const termParam = useSheet("term")
+  const storeParam = useSheet("store")
+
+  return {
+    ...scopeFor(termParam.value ?? "month", storeParam.value, new Date()),
     // The default is left out of the URL rather than written into it, so the
     // plain address stays the plain report.
     setTerm: (next) =>

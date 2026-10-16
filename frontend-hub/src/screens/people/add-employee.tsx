@@ -321,7 +321,7 @@ export function AddEmployeeSheet({
               ))}
             </Select>
           </Field>
-          <p className="text-[0.875rem] text-mute">
+          <p className="text-[0.9375rem] text-mute">
             Fixed allowances, BPJS numbers, NPWP and the bank account are added
             on the person's Pay tab.
           </p>

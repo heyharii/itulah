@@ -1,0 +1,30 @@
+{
+  "pick": {
+    "seconds": 6.45225,
+    "say": "Di jalur DC ke toko, barang yang sudah di-pick atau di-pack masih bisa dikembalikan gudang dengan Move back."
+  },
+  "part": {
+    "seconds": 5.6685,
+    "say": "Bisa juga sebagian. Kalau 40 sudah berangkat, 40 itu tetap terkirim."
+  },
+  "rest": {
+    "seconds": 5.12,
+    "say": "Sisa 60 masih bisa di-Move back, atau ditutup MD dengan Close remaining."
+  },
+  "transit": {
+    "seconds": 5.355,
+    "say": "Garis merahnya di In transit. Yang sudah berangkat tidak bisa ditarik."
+  },
+  "count": {
+    "seconds": 4.1535,
+    "say": "Kalau ada yang salah di kiriman, ketahuannya saat toko menghitung."
+  },
+  "receipt": {
+    "seconds": 7.027,
+    "say": "Receipt toko langsung tercatat begitu di-Submit, jadi tidak ada Recall. Jalannya Recount atau koreksi baru."
+  },
+  "closed": {
+    "seconds": 6.11275,
+    "say": "Allotment yang sudah selesai tidak dibuka lagi. Gantinya Return to H O atau allotment baru."
+  }
+}

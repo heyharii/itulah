@@ -110,11 +110,11 @@ export function Bills() {
               value={needle}
               onChange={(event) => setNeedle(event.target.value)}
               aria-label="Search bills"
-              className="h-8 w-64 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.875rem] text-ink outline-none placeholder:text-body focus:border-accent"
+              className="h-8 w-64 rounded-inner border border-hairline-2 bg-canvas pr-2.5 pl-8 text-[0.9375rem] text-ink outline-none placeholder:text-body focus:border-accent"
             />
           </span>
           <Toolbar.Spacer />
-          <span className="text-[0.875rem] text-mute">
+          <span className="text-[0.9375rem] text-mute">
             {count(rows.length)} bill(s) · {money(owed)} outstanding
           </span>
         </Toolbar>
@@ -152,11 +152,11 @@ export function Bills() {
                       <span className="text-ink">
                         {supplierName(row.supplier_id, row.supplier_name)}
                       </span>
-                      <span className="block text-[0.875rem] text-mute">
+                      <span className="block text-[0.9375rem] text-mute">
                         {siteName(row.site_id)}
                       </span>
                     </Td>
-                    <Td className="font-mono text-[0.875rem]">
+                    <Td className="font-mono text-[0.9375rem]">
                       {row.invoice_number}
                     </Td>
                     <Td>{day(row.invoice_date)}</Td>

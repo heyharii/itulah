@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Allotment grid · article details</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+/* Hub tokens (frontend-hub/src/styles/index.css). Inter 14, nothing under 14px. */
+:root{--ink:#20242c;--text:#394150;--body:#626b78;--mute:#737c89;--faint:#b9c0c9;--line-ico:#89919d;--canvas:#fff;--soft:#f8f8f9;--soft-2:#f0f0f2;
+  --hairline:#e6e6e9;--hairline-2:#dadade;--backdrop:#e0e0e4;
+  --accent:#2563eb;--accent-bg:#eff5ff;--ok-fg:#15803d;--ok-bg:#e7f7e3;--warn-fg:#b45309;--warn-bg:#faeacd;
+  --r-card:10px;--r-inner:7px;--shadow-soft:0 1px 3px rgb(24 39 60/4%);
+  /* the grid's own measurements (matrix.tsx) */
+  --idw:17.5rem;--stock:5rem;--col:7rem;--left:5.5rem;--vw:1010px}
+*{box-sizing:border-box;margin:0;padding:0}
+html{font-size:16px}
+body{font:14px/20px Inter,system-ui,sans-serif;color:var(--text);background:var(--backdrop);-webkit-font-smoothing:antialiased;padding:16px 16px 48px}
+button{font:inherit;color:inherit;cursor:pointer}
+.num{font-variant-numeric:tabular-nums}
+svg.i{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+/* prototype chrome */
+.top{max-width:98rem;margin:0 auto 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;position:sticky;top:0;z-index:5;background:var(--backdrop);padding:4px 0 8px}
+.top h1{font-size:15px;font-weight:600;color:var(--ink)}
+.seg{display:flex;gap:2px;background:var(--canvas);padding:3px;border-radius:999px;box-shadow:0 0 0 1px var(--hairline)}
+.seg button{border:0;background:none;border-radius:999px;padding:5px 14px;color:var(--body)}
+.seg button.on{background:var(--ink);color:#fff;font-weight:500}
+.sp{flex:1}
+.opt{max-width:98rem;margin:0 auto 28px}
+.opt header{display:flex;align-items:baseline;gap:12px;margin-bottom:8px;flex-wrap:wrap}
+.opt h2{font-size:15px;font-weight:600;color:var(--ink)}
+.opt .cost{color:var(--body)}
+.opt .keep{color:var(--ok-fg)}
+.frame{width:var(--vw);max-width:100%;background:var(--canvas);border-radius:var(--r-card);box-shadow:0 0 0 1px var(--hairline),var(--shadow-soft);overflow:hidden}
+
+/* the grid */
+.row{display:flex;align-items:stretch;position:relative}
+.row>*{flex:none}
+.head{height:4.75rem;border-bottom:1px solid var(--hairline);color:var(--mute);font-weight:500}
+.identity{width:var(--idw);padding:0 12px;display:flex;align-items:center;gap:12px;min-width:0}
+.head .identity{flex-direction:column;align-items:flex-start;justify-content:center;gap:0}
+.head .identity small,.head .stock small{font-weight:400;font-size:14px}
+.stock{width:var(--stock);padding:0 8px;display:flex;flex-direction:column;align-items:flex-end;justify-content:center;font-weight:500;color:var(--ink)}
+.head .stock{color:var(--mute)}
+.col{width:var(--col);padding:0 8px;display:flex;align-items:center;justify-content:center}
+.head .col{font-weight:600;color:var(--body)}
+.left{width:var(--left);padding:0 8px;display:flex;align-items:center;justify-content:center}
+.head .left{color:var(--mute)}
+.art{background:var(--soft)}
+.art .stock{color:var(--ink)}
+.sku{height:56px;background:var(--canvas)}
+.sku .identity{padding-left:2.5rem}
+.sku .stock{font-weight:400;color:var(--body)}
+.chev{color:var(--mute);width:16px;display:grid;place-items:center}
+.thumb{width:32px;height:32px;border-radius:var(--r-inner);background:var(--soft-2);border:1px solid var(--hairline);display:grid;place-items:center;color:#8a8f98}
+.thumb svg{width:22px;height:22px;fill:currentColor}
+.txt{min-width:0;flex:1}
+.name{display:block;font-weight:500;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.meta{display:flex;align-items:center;gap:8px;min-width:0;color:var(--mute);white-space:nowrap}
+.meta .div{color:var(--body);overflow:hidden;text-overflow:ellipsis;flex:none;max-width:55%}
+.meta .tg{display:flex;align-items:center;gap:4px;min-width:0;flex:0 1 auto;overflow:hidden}
+.meta .tg span{overflow:hidden;text-overflow:ellipsis}
+.meta .code{min-width:0;flex:0 3 auto;overflow:hidden;text-overflow:ellipsis}
+.line{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--mute)}
+.rule{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--warn-fg)}
+.wand{width:28px;height:28px;border-radius:var(--r-inner);display:grid;place-items:center;color:var(--line-ico);border:0;background:none}
+.box{width:100%;height:44px;border:1px solid var(--hairline);border-radius:var(--r-inner);background:var(--canvas);display:grid;place-items:center}
+.box.on{background:var(--accent-bg);color:var(--accent);font-weight:500}
+.subtotal{color:var(--accent)}
+.chip{display:inline-grid;place-items:center;min-width:36px;height:24px;border-radius:999px;padding:0 10px;font-weight:500}
+.chip.warn{background:var(--warn-bg);color:var(--warn-fg)}.chip.ok{background:var(--ok-bg);color:var(--ok-fg)}
+.faint{color:var(--faint)}
+.submit{height:36px;padding:0 10px;border:0;border-radius:var(--r-inner);background:var(--accent);color:#fff;opacity:.5;font-weight:500}
+svg.tag{width:14px;height:14px}
+
+/* option C: a strip under the article */
+.strip{height:32px;background:var(--soft);display:flex;align-items:center}
+.strip .pin{position:sticky;left:0;max-width:100%;min-width:0;padding:0 12px 0 calc(12px + 16px + 12px);display:flex;align-items:center;gap:8px;color:var(--mute);white-space:nowrap}
+.strip .pin .div{flex:none}
+.strip .pin .tgs{display:inline-flex;align-items:center;gap:4px;min-width:0;overflow:hidden}
+.strip .pin .tgs span{overflow:hidden;text-overflow:ellipsis}
+.strip .pin .div{color:var(--body)}
+/* option E: a division heading */
+.group{height:36px;background:var(--canvas);border-top:1px solid var(--hairline);display:flex;align-items:center;padding:0 12px;gap:8px;font-weight:600;color:var(--ink)}
+.group span{font-weight:400;color:var(--mute)}
+.row.art .identity{padding-top:8px;padding-bottom:8px}
+.meta.wrap{flex-wrap:wrap;white-space:normal;gap:0 8px;align-items:flex-start}
+.meta.wrap .div{max-width:none;overflow:visible;text-overflow:clip;flex:none}
+.meta.wrap .tg{flex:0 1 auto;overflow:visible;align-items:flex-start;white-space:normal}
+.meta.wrap .tg svg{margin-top:3px}
+.meta.wrap .tg span{overflow:visible;text-overflow:clip;white-space:normal}
+.cut{font-weight:500}.cut.no{color:var(--ok-fg)}.cut.yes{color:var(--warn-fg)}
+</style>
+</head>
+<body>
+<div class="top">
+  <h1>Allotment grid · how an article shows its division and tags</h1>
+  <div class="sp"></div>
+  <div class="seg" id="data"><button class="on" data-v="normal">Real data</button><button data-v="worst">Worst case</button></div>
+  <div class="seg" id="dev"><button class="on" data-v="desk">Desk</button><button data-v="phone">Phone 414</button></div>
+  <div class="seg" id="ph"><button class="on" data-v="none">No photos</button><button data-v="on">With photos</button></div>
+</div>
+<main id="out"></main>
+
+<script>
+const SHIRT = '<svg viewBox="0 0 24 24"><path d="M8 3 3 6l2 4 2-1v12h10V9l2 1 2-4-5-3c-.6 1.6-2 2.5-4 2.5S8.6 4.6 8 3z"/></svg>'
+const TAG = '<svg class="i tag" viewBox="0 0 24 24"><path d="M3 12V4h8l10 10-8 8L3 12z"/><circle cx="7.5" cy="8.5" r="1"/></svg>'
+const CHEV = '<svg class="i" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>'
+const WAND = '<svg class="i" viewBox="0 0 24 24"><path d="m15 4 1 2 2 1-2 1-1 2-1-2-2-1 2-1zM4 20 14 10M18 14l.7 1.3L20 16l-1.3.7L18 18l-.7-1.3L16 16l1.3-.7z"/></svg>'
+
+const DATA = {
+  normal: [
+    {code:'00000004', name:'Gamis', division:'WANITA', tags:['Blus'], stock:40, open:true, typed:12, rule:'Allot all 40 pieces — 28 left',
+      skus:[{n:'Grey · One Size', sku:'00000004008', free:10, cells:[0,0,4,0,0], left:6},{n:'White · One Size', sku:'00000004108', free:10, cells:[0,0,8,0,0], left:2}]},
+    {code:'00000002', name:'Kemeja Oxford', division:'Pria', tags:['Kemeja','Lengan Pendek'], stock:240, open:false, typed:0, skus:[]}
+  ],
+  worst: [
+    {code:'00000004', name:'Gamis Batik Premium Lengan Panjang', division:'WOMENSWEAR & MODEST', tags:['Blus','Batik','Lengan Panjang','Premium','Musim Hujan'], stock:40, open:true, typed:12, rule:'Allot all 40 pieces — 28 left',
+      skus:[{n:'Grey · One Size', sku:'00000004008', free:10, cells:[0,0,4,0,0], left:6},{n:'White · One Size', sku:'00000004108', free:10, cells:[0,0,8,0,0], left:2}]},
+    {code:'00000002', name:'Kemeja Oxford Slim Fit', division:'MENSWEAR', tags:['Kemeja','Lengan Pendek','Formal','Katun'], stock:240, open:false, typed:0, skus:[]}
+  ]
+}
+const STORES = ['C001','C002','C003','C004','C005']
+let state = {data:'normal', dev:'desk', drop:0, ph:'none'}
+
+/// The first tags that fit a budget of characters, then "+n": what a line can say without cutting a word.
+const fit = (tags, budget) => { let used = 0, shown = []; for (const t of tags) { if (shown.length && used + t.length + 2 > budget) break; shown.push(t); used += t.length + 2 } const rest = tags.length - shown.length; return shown.join(', ') + (rest ? ` +${rest}` : '') }
+
+const cols = () => (state.dev === 'phone' ? 1 : 5) - (state.drop || 0)
+const storeCells = (cellsFn) => STORES.slice(0, cols()).map((c, i) => `<div class="col">${cellsFn(i)}</div>`).join('')
+const stockCell = (v, cls = '') => state.dev === 'phone' ? '' : `<div class="stock ${cls}num">${v}</div>`
+
+function header(n) {
+  return `<div class="row head"><div class="identity"><span>Article</span><small class="num">${n} articles</small></div>${state.dev === 'phone' ? '' : '<div class="stock"><span>Stock</span><small class="num">280 pcs</small></div>'}${STORES.slice(0, cols()).map(c => `<div class="col">${c}</div>`).join('')}<div class="left">Left</div></div>`
+}
+
+function skuRow(s) {
+  return `<div class="row sku"><div class="identity"><div class="txt"><span class="name" style="font-weight:400">${s.n}</span><span class="line num">${s.sku}</span></div></div>${stockCell(s.free)}${storeCells(i => { const v = s.cells[i]; return `<div class="box ${v ? 'on' : ''} num">${v || ''}</div>` })}<div class="left"><span class="chip ${s.left ? 'warn' : 'ok'} num">${s.left}</span></div></div>`
+}
+
+function artRight(a) {
+  return `${stockCell(a.stock)}${storeCells(i => (a.typed && i === 2) ? `<span class="subtotal num">${a.typed}</span>` : '')}<div class="left">${a.typed ? '<button class="submit">Submit</button>' : `<span class="faint num">${a.stock}</span>`}</div>`
+}
+
+const lead = (a, textHtml, h, o = {}) => `<div class="identity" ${h ? `style="min-height:${h}px"` : ''}>${o.chev === false ? '' : `<span class="chev">${CHEV}</span>`}${state.ph === 'on' ? `<span class="thumb">${SHIRT}</span>` : ''}<div class="txt">${textHtml}</div>${o.wand === false ? '' : `<button class="wand" aria-label="Quick fill">${WAND}</button>`}</div>`
+
+/// The article's own Left cell when the rule becomes a chip: what is still to give, or Submit once nothing is.
+const leftChip = (a, withWand) => `<div class="left" style="gap:6px">${withWand ? `<button class="wand" aria-label="Quick fill">${WAND}</button>` : ''}${a.typed ? '<span class="chip warn num" title="Every piece has to go to a store before this can be submitted">28</span>' : `<span class="faint num">${a.stock}</span>`}</div>`
+const artRight2 = (a, withWand) => `${stockCell(a.stock)}${storeCells(i => (a.typed && i === 2) ? `<span class="subtotal num">${a.typed}</span>` : '')}${leftChip(a, withWand)}`
+
+const OPTIONS = {
+  A: {
+    title:'A · Now', cost:'Cost: nothing', keep:'',
+    render: (arts) => header(arts.length) + arts.map(a => `<div class="row art" style="height:64px">${lead(a, `<span class="name">${a.name}</span><span class="meta"><span class="div">${a.division}</span><span class="tg">${TAG}<span>${a.tags.join(', ')}</span></span><span class="code num">${a.code}</span></span>${a.rule ? `<span class="rule">${a.rule}</span>` : ''}`)}${artRight(a)}</div>` + (a.open ? a.skus.map(skuRow).join('') : '')).join('')
+  },
+  B: {
+    title:'B · Two meta lines', cost:'Cost: +20px per article row · hides nothing but the 5th+ tag', keep:'Division and tags each get a line of their own',
+    render: (arts) => header(arts.length) + arts.map(a => `<div class="row art" style="height:${a.rule ? 88 : 68}px">${lead(a, `<span class="name">${a.name}</span><span class="meta"><span class="div" style="max-width:none;flex:0 1 auto;min-width:0">${a.division}</span><span class="code num">· ${a.code}</span></span><span class="meta">${TAG}<span style="overflow:hidden;text-overflow:ellipsis">${fit(a.tags, state.dev === 'phone' ? 14 : 26)}</span></span>${a.rule ? `<span class="rule">${a.rule}</span>` : ''}`)}${artRight(a)}</div>` + (a.open ? a.skus.map(skuRow).join('') : '')).join('')
+  },
+  C: {
+    title:'C · A strip under the article', cost:'Cost: +32px per article · uses the empty width beside it', keep:'Reads in full; sticks to the left while the stores scroll',
+    render: (arts) => header(arts.length) + arts.map(a => `<div class="row art" style="height:64px">${lead(a, `<span class="name">${a.name}</span><span class="line num">${a.code}</span>${a.rule ? `<span class="rule">${a.rule}</span>` : ''}`)}${artRight(a)}</div><div class="row strip"><div class="pin"><span class="div">${a.division}</span><span class="tgs">${TAG}<span>${a.tags.join(', ')}</span></span></div></div>` + (a.open ? a.skus.map(skuRow).join('') : '')).join('')
+  },
+  D: {
+    title:'D · A wider article column', cost:'Cost: 4.5rem wider → one store column less on screen (4 of 5 shown)', keep:'One line, no extra rows',
+    css:'--idw:22rem', cssPhone:'--idw:15rem', drop:1,
+    render: (arts) => header(arts.length) + arts.map(a => `<div class="row art" style="height:64px">${lead(a, `<span class="name">${a.name}</span><span class="meta"><span class="div">${a.division}</span><span class="tg">${TAG}<span>${fit(a.tags, state.dev === 'phone' ? 8 : 18)}</span></span><span class="code num">${a.code}</span></span>${a.rule ? `<span class="rule">${a.rule}</span>` : ''}`)}${artRight(a)}</div>` + (a.open ? a.skus.map(skuRow).join('') : '')).join('')
+  },
+  F: {
+    title:'F · The rule becomes a chip, text wraps', cost:'Cost: rows grow only when the tags need a second line · the sentence "Allot all 40 pieces — 28 left" goes (the amber chip says it, as on the SKU rows)', keep:'Three clean lines: name / division · tags / code',
+    render: (arts) => header(arts.length) + arts.map(a => `<div class="row art" style="min-height:64px">${lead(a, `<span class="name">${a.name}</span><span class="meta wrap"><span class="div">${a.division}</span><span class="tg">${TAG}<span>${a.tags.join(', ')}</span></span></span><span class="line num">${a.code}</span>`)}${artRight2(a, false)}</div>` + (a.open ? a.skus.map(skuRow).join('') : '')).join('')
+  },
+  G: {
+    title:'G · F, and the controls leave the cell (widest)', cost:'Cost: fold by clicking the row; quick fill moves beside the chip', keep:'About 56px more room for the text',
+    render: (arts) => header(arts.length) + arts.map(a => `<div class="row art" style="min-height:64px;cursor:pointer">${lead(a, `<span class="name">${a.name}</span><span class="meta wrap"><span class="div">${a.division}</span><span class="tg">${TAG}<span>${a.tags.join(', ')}</span></span></span><span class="line num">${a.code}</span>`, 0, {chev:false, wand:false})}${artRight2(a, true)}</div>` + (a.open ? a.skus.map(skuRow).join('') : '')).join('')
+  },
+  H: {
+    title:'H · G on two lines', cost:'Cost: nothing · the code rides at the right of the name', keep:'Name + code / division · tags',
+    render: (arts) => header(arts.length) + arts.map(a => `<div class="row art" style="min-height:56px;cursor:pointer">${lead(a, `<span class="meta"><span class="name" style="flex:1;min-width:0">${a.name}</span><span class="code num" style="flex:none;overflow:visible">${a.code}</span></span><span class="meta wrap"><span class="div">${a.division}</span><span class="tg">${TAG}<span>${a.tags.join(', ')}</span></span></span>`, 0, {chev:false, wand:false})}${artRight2(a, true)}</div>` + (a.open ? a.skus.map(skuRow).join('') : '')).join('')
+  },
+  E: {
+    title:'E · Division as a heading', cost:'Cost: +36px per division · repeats nothing', keep:'Each article line then only needs tags and code',
+    render: (arts) => header(arts.length) + [...new Set(arts.map(a => a.division))].map(d => { const own = arts.filter(a => a.division === d); return `<div class="row group"><span style="color:var(--ink);font-weight:600">${d}</span><span>${own.length} ${own.length === 1 ? 'article' : 'articles'}</span></div>` + own.map(a => `<div class="row art" style="height:64px">${lead(a, `<span class="name">${a.name}</span><span class="meta"><span class="tg">${TAG}<span>${fit(a.tags, state.dev === 'phone' ? 10 : 22)}</span></span><span class="code num">${a.code}</span></span>${a.rule ? `<span class="rule">${a.rule}</span>` : ''}`)}${artRight(a)}</div>` + (a.open ? a.skus.map(skuRow).join('') : '')).join('') }).join('')
+  }
+}
+
+function draw() {
+  const arts = DATA[state.data]
+  document.documentElement.style.setProperty('--vw', state.dev === 'phone' ? '414px' : '1010px')
+  document.documentElement.style.setProperty('--idw', state.dev === 'phone' ? '12rem' : '17.5rem')
+  document.documentElement.style.setProperty('--col', state.dev === 'phone' ? '5rem' : '7rem')
+  document.getElementById('out').innerHTML = Object.entries(OPTIONS).map(([k, o]) => {
+    state.drop = state.dev === 'phone' ? 0 : (o.drop || 0)
+    const css = state.dev === 'phone' ? (o.cssPhone || '') : (o.css || '')
+    return `<section class="opt"><header><h2>${o.title}</h2><span class="cutbadge"></span><span class="room" style="color:var(--ink);font-weight:500"></span><span class="cost">${o.cost}</span>${o.keep ? `<span class="keep">${o.keep}</span>` : ''}</header><div class="frame" style="${css}">${o.render(arts)}</div></section>`
+  }).join('')
+  document.querySelectorAll('.opt').forEach(sec => {
+    const t = sec.querySelector('.art .txt'); const w = t ? Math.round(t.getBoundingClientRect().width) : 0
+    sec.querySelector('.room').textContent = w ? `text room ${w}px` : ''
+    const cutOff = [...sec.querySelectorAll('.art .meta .div, .art .meta .tg span, .strip .pin .div, .strip .pin .tgs span')].filter(el => el.scrollWidth > el.clientWidth + 1).length
+    const badge = sec.querySelector('.cutbadge'); badge.textContent = cutOff ? `✗ ${cutOff} cut off` : '✓ nothing cut'; badge.className = 'cutbadge cut ' + (cutOff ? 'yes' : 'no')
+  })
+}
+for (const id of ['data', 'dev', 'ph']) document.getElementById(id).addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return
+  state[id] = b.dataset.v
+  document.querySelectorAll(`#${id} button`).forEach(x => x.classList.toggle('on', x === b))
+  draw()
+})
+draw()
+</script>
+</body>
+</html>

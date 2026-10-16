@@ -1,0 +1,38 @@
+{
+  "short": {
+    "seconds": 2.48175,
+    "say": "Kadang barangnya tidak ada di rak."
+  },
+  "report": {
+    "seconds": 3.7095,
+    "say": "Gudang mengisi yang terambil, lalu memilih alasannya."
+  },
+  "goes": {
+    "seconds": 6.191,
+    "say": "Yang sudah terambil jalan terus sampai dikirim. Sisanya tetap di To pick, dengan strip Short pick."
+  },
+  "md": {
+    "seconds": 5.72075,
+    "say": "MD melihatnya di Still needed: Target 100, Sent 95, To pick 5."
+  },
+  "close": {
+    "seconds": 4.51925,
+    "say": "Kalau sisanya tidak dibutuhkan lagi, MD menekan Close remaining."
+  },
+  "inv": {
+    "seconds": 3.84,
+    "say": "Kalau masalahnya soal stok, Inventory mengecek di Stock checks."
+  },
+  "found": {
+    "seconds": 6.47825,
+    "say": "Kalau Found, stripnya hilang dan barangnya bisa di-pick lagi. Kalau Lost, MD menutup sisanya."
+  },
+  "revive": {
+    "seconds": 5.72075,
+    "say": "Allotment yang sudah dibatalkan tidak hidup lagi. Barangnya kembali ke stok."
+  },
+  "received": {
+    "seconds": 9.6915,
+    "say": "Di toko, 214 dari 220 tercatat Received short, bukan Completed. Yang sisanya ditutup tercatat Closed short."
+  }
+}

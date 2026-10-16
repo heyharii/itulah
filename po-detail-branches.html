@@ -1,0 +1,863 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PO detail · every branch</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet" />
+<style>
+/* Hub tokens (frontend-hub/src/styles/index.css). Inter 14, nothing under 14px. */
+:root{--ink:#20242c;--text:#394150;--body:#565f6d;--mute:#666f7d;--faint:#b9c0c9;--line-ico:#89919d;
+  --canvas:#fff;--soft:#f8f8f9;--soft-2:#f0f0f2;--soft-3:#f6f6f7;--hairline:#e6e6e9;--hairline-2:#dadade;--backdrop:#e0e0e4;
+  --accent:#2563eb;--accent-bg:#eff5ff;--ok-fg:#137a37;--ok-bg:#d9f4d2;--warn-fg:#a64a08;--warn-bg:#faeacd;--bad-fg:#be123c;--bad-bg:#fbeaea;
+  --r-card:10px;--r-inner:8px;--shadow-soft:0 1px 3px rgb(24 39 60/4%);--shadow-pop:0 4px 8px rgb(24 39 60/4%),0 12px 32px rgb(24 39 60/8%);
+  --ease-out:cubic-bezier(.23,1,.32,1)}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font:14px/20px Inter,system-ui,sans-serif;color:var(--text);background:var(--soft-3);-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;cursor:pointer;background:none;border:0}
+.num{font-variant-numeric:tabular-nums}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:14px;letter-spacing:-.02em}
+svg.i{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+/* ── prototype chrome ── */
+.top{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 20px;background:var(--canvas);border-bottom:1px solid var(--hairline);position:sticky;top:0;z-index:20}
+.top h1{font-size:15px;font-weight:600;color:var(--ink);margin-right:auto}
+.seg{display:flex;gap:2px;background:var(--soft-2);padding:3px;border-radius:999px}
+.seg button{border-radius:999px;padding:4px 14px;color:var(--body);transition:background-color 120ms var(--ease-out),color 120ms var(--ease-out),scale 120ms var(--ease-out)}
+.seg button:active{scale:.97}
+.seg button.on{background:var(--ink);color:#fff;font-weight:500}
+.tog{height:32px;padding:0 14px;border:1px solid var(--hairline-2);border-radius:999px;background:var(--canvas);color:var(--body);transition:scale 120ms var(--ease-out)}
+.tog:active{scale:.97}
+.tog.on{background:var(--warn-bg);border-color:#ecd29b;color:var(--warn-fg);font-weight:500}
+.wrap{display:grid;grid-template-columns:268px minmax(0,1fr);gap:20px;padding:20px;align-items:start}
+.list{position:sticky;top:68px;max-height:calc(100vh - 88px);overflow:auto;background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-card);padding:8px 8px 12px}
+.list h3{font-size:14px;font-weight:500;color:var(--mute);padding:12px 10px 4px}
+.list button{display:flex;width:100%;align-items:center;justify-content:space-between;gap:8px;text-align:left;padding:7px 10px;border-radius:var(--r-inner);color:var(--text);transition:background-color 120ms var(--ease-out)}
+.list button:hover{background:var(--soft-2)}
+.list button.on{background:var(--accent-bg);color:var(--accent);font-weight:500}
+.list button i{font-style:normal;color:var(--mute);font-size:14px}
+.bar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:14px}
+.bar h2{font-size:18px;line-height:24px;font-weight:600;color:var(--ink)}
+.bar .hint{color:var(--mute)}
+.bar .seg{margin-left:auto}
+
+/* ── the desk: the list behind on a white veil ── */
+.screen{position:relative;height:min(900px,calc(100vh - 150px));min-height:640px;background:var(--canvas);border:1px solid var(--hairline);border-radius:16px;overflow:hidden}
+.behind{position:absolute;inset:0;padding:28px 32px}
+.behind i{display:block;height:52px;border-radius:var(--r-inner);border:1px solid var(--hairline);margin-bottom:10px;background:var(--canvas)}
+.veil{position:absolute;inset:0;background:rgb(255 255 255/.62)}
+.screen.phone{width:414px;height:896px;margin:0 auto;border-radius:36px;border:8px solid var(--ink);min-height:0}
+.screen.phone .behind{padding:60px 16px}
+
+/* ── the sheet (as built: supplier title, meta line, figures box, print icon, ×) ── */
+.sheet{position:absolute;top:16px;right:16px;bottom:16px;width:min(928px,calc(100% - 32px));background:var(--canvas);border-radius:16px;box-shadow:var(--shadow-pop),0 0 0 1px var(--hairline);display:flex;flex-direction:column;overflow:hidden}
+.phone .sheet{top:36px;left:0;right:0;bottom:0;width:auto;border-radius:16px 16px 0 0}
+.phone .sheet:before{content:"";position:absolute;top:8px;left:50%;width:36px;height:4px;margin-left:-18px;border-radius:2px;background:var(--hairline-2)}
+.shd{flex:none;display:flex;align-items:center;gap:16px;padding:12px 28px;border-bottom:1px solid var(--hairline)}
+.phone .shd{flex-wrap:wrap;align-items:flex-start;padding:22px 16px 12px;gap:10px 8px}
+.who{min-width:0;flex:1}
+.who h2{font-size:18px;line-height:24px;font-weight:600;letter-spacing:-.01em;color:var(--ink);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
+.meta{display:flex;flex-wrap:wrap;gap:0 16px;margin-top:2px;color:var(--mute)}
+.meta b{font-weight:500;color:var(--ink)}
+.meta b.late{color:var(--bad-fg)}
+.meta .mono{font-size:14px;color:var(--mute)}
+.chip{display:inline-flex;align-items:center;height:22px;padding:0 8px;border-radius:7px;font-weight:500;border:1px solid #ecd29b;color:var(--warn-fg);background:#fdf7ea}
+.kbox{display:flex;flex:none;border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden;background:var(--canvas);box-shadow:var(--shadow-soft)}
+.kbox div{padding:8px 20px;min-width:0}
+.kbox div+div{border-left:1px solid var(--hairline)}
+.kbox dt{color:var(--body);white-space:nowrap}
+.kbox dd{font-size:18px;line-height:24px;font-weight:600;letter-spacing:-.02em;color:var(--ink);white-space:nowrap}
+.kbox dd small{font-size:14px;font-weight:400;letter-spacing:0;color:var(--body);margin-left:4px}
+.kbox dd .d{font-size:14px;font-weight:500;letter-spacing:0;margin-left:6px;color:var(--warn-fg)}
+.kbox dd.bad{color:var(--bad-fg)}
+.phone .kbox div{flex:1;padding:8px 14px}
+.tools{display:flex;align-items:center;gap:4px;flex:none}
+.ibtn{width:32px;height:32px;display:grid;place-items:center;border-radius:var(--r-inner);color:var(--line-ico);transition:background-color 120ms var(--ease-out),color 120ms var(--ease-out),scale 120ms var(--ease-out)}
+.ibtn:hover{background:var(--soft-2);color:var(--ink)}
+.ibtn:active{scale:.94}
+.sbd{flex:1;min-height:0;overflow:auto;padding:28px;display:flex;flex-direction:column;gap:20px;position:relative}
+.sbd>*{flex:none}
+.phone .sbd{padding:16px}
+.sft{flex:none;display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:12px 28px;border-top:1px solid var(--hairline)}
+.phone .sft{padding:12px 16px;flex-wrap:wrap}
+.sft .sp{flex:1}
+.btn{height:36px;display:inline-flex;align-items:center;gap:6px;padding:0 16px;border-radius:var(--r-inner);font-weight:500;white-space:nowrap;color:var(--text);border:1px solid transparent;transition:background-color 120ms var(--ease-out),scale 120ms var(--ease-out)}
+.btn:hover{background:var(--soft-2)}
+.btn:active{scale:.97}
+.btn.line{border-color:var(--hairline-2);background:var(--canvas);box-shadow:var(--shadow-soft)}
+.btn.pri{background:var(--accent);color:#fff}
+.btn.pri:hover{background:#1f56cf}
+.btn.bad{color:var(--bad-fg)}
+.btn[disabled]{opacity:.45;pointer-events:none}
+.btn.sm{height:32px;padding:0 12px}
+/* 12 Oct: every button in the foot is solid blue (owner) */
+.sft.clear .btn{border-color:var(--accent);color:#fff;background:var(--accent)}
+.sft.clear .btn:hover{background:#1f56cf}
+.sft.clear .btn.pri{background:var(--accent);color:#fff}
+.sft.clear .btn.pri:hover{background:#1f56cf}
+/* Print stays white: it changes nothing on the order (owner, 12 Oct) */
+.sft.clear .btn.print{background:var(--canvas);color:var(--ink);border-color:var(--hairline-2);box-shadow:var(--shadow-soft)}
+.sft.clear .btn.print:hover{background:var(--soft-2)}
+/* Cancel is not blue: it calls the order off (owner, 12 Oct) — solid red (owner) */
+.sft.clear .btn.cancel{background:var(--bad-fg);color:#fff;border-color:transparent}
+.sft.clear .btn.cancel:hover{background:#a50f33}
+.sft.clear .btn[disabled]{border-color:var(--hairline-2);color:var(--mute)}
+
+
+/* stamp */
+.stamp{position:absolute;top:14px;right:24px;z-index:3;pointer-events:none;transform:rotate(-6deg);border:2px solid;border-radius:var(--r-inner);padding:2px 12px;font-size:18px;line-height:24px;font-weight:700;letter-spacing:.14em;opacity:.4}
+.stamp.ok{color:var(--ok-fg);border-color:var(--ok-fg)}
+.stamp.bad{color:var(--bad-fg);border-color:var(--bad-fg)}
+.phone .stamp{right:12px;top:8px;font-size:14px;padding:0 8px}
+
+/* parts */
+.banner{display:flex;gap:12px;align-items:flex-start;border-radius:var(--r-card);padding:12px 16px}
+.banner.warn{background:var(--warn-bg);color:var(--warn-fg)}
+.banner.bad{background:var(--bad-bg);color:var(--bad-fg)}
+.banner b{display:block;font-weight:600}
+.quiet{color:var(--body)}
+.quiet b{font-weight:500;color:var(--ink)}
+.facts{display:grid;grid-template-columns:1fr 1fr;gap:16px 40px;padding-right:150px}
+.phone .facts{padding-right:0;gap:12px 16px}
+.facts dt{color:var(--body)}
+.facts dd{color:var(--ink);margin-top:4px}
+.sect>h3{font-size:14px;font-weight:500;color:var(--body);margin-bottom:8px}
+.prose{color:var(--ink);line-height:22px;white-space:pre-wrap}
+details.act{border-top:1px solid var(--hairline);padding-top:14px;color:var(--body)}
+details.act summary{cursor:pointer;list-style:none;display:flex;gap:6px;align-items:center}
+details.act summary::-webkit-details-marker{display:none}
+details.act summary:before{content:"›";display:inline-block;transition:rotate 160ms var(--ease-out)}
+details.act[open] summary:before{rotate:90deg}
+details.act ul{list-style:none;display:grid;gap:8px;margin-top:12px;color:var(--ink)}
+details.act li span{color:var(--mute)}
+
+/* items table (header white, as built) */
+.itw{border:1px solid var(--hairline);border-radius:var(--r-inner);overflow:hidden}
+.itw .sc{overflow-x:auto}
+table.items{width:100%;border-collapse:collapse;table-layout:fixed;min-width:52rem}
+.items th{height:44px;padding:0 16px;text-align:right;font-weight:500;color:var(--body);background:var(--canvas);border-bottom:1px solid var(--hairline);white-space:nowrap}
+.items th:first-child,.items td:first-child{text-align:left}
+.items td{padding:14px 16px;text-align:right;color:var(--ink);border-top:1px solid var(--hairline);vertical-align:top;font-variant-numeric:tabular-nums;white-space:nowrap}
+.items tbody tr:first-child td{border-top:0}
+.it{display:flex;gap:12px;align-items:flex-start;white-space:normal}
+.th{width:40px;height:40px;border-radius:8px;background:var(--soft-2);display:grid;place-items:center;color:#a0a6af;flex:none}
+.th svg{width:24px;height:24px;fill:currentColor}
+.it .nm{min-width:0;overflow-wrap:anywhere}
+.it small{display:block;color:var(--body);font-size:14px;line-height:20px}
+.it .rcp{margin-top:4px}
+.vr td{border-top:0;padding-top:0;padding-bottom:8px;color:var(--body);font-size:14px}
+.vr td:first-child{padding-left:68px}
+.under{color:var(--body);font-size:14px;display:block}
+.ok{color:var(--ok-fg)}
+.bad{color:var(--bad-fg)}
+.warn{color:var(--warn-fg)}
+.dim{opacity:.55}
+.strike{text-decoration:line-through;text-decoration-color:var(--faint)}
+.dash{color:var(--faint)}
+.rlink{color:var(--accent);font-weight:500;margin-left:6px}
+
+/* phone cards */
+.cards{display:none;flex-direction:column;border:1px solid var(--hairline);border-radius:var(--r-inner);overflow:hidden}
+.phone .cards{display:flex}.phone .itw{display:none}
+.cards li{list-style:none;border-top:1px solid var(--hairline);padding:14px}
+.cards li:first-child{border-top:0}
+.cards dl{display:grid;grid-template-columns:1fr 1fr;gap:10px 16px;margin-top:12px}
+.cards dt{color:var(--body)}
+.cards dd{color:var(--ink);font-variant-numeric:tabular-nums}
+.cards .vl{display:grid;gap:4px;margin:10px 0 0 52px;color:var(--body)}
+.cards .vl span{display:flex;justify-content:space-between;gap:12px}
+
+/* totals box (as Review Count draws its totals) */
+.tw{display:flex;justify-content:flex-end}
+.tbox{display:grid;grid-template-columns:auto auto;gap:8px 40px;background:var(--soft);border:1px solid var(--hairline);border-radius:var(--r-card);padding:10px 16px;font-size:15px;font-variant-numeric:tabular-nums}
+.phone .tbox{width:100%;grid-template-columns:1fr auto}
+.tbox dt{color:var(--ink)}
+.tbox dd{text-align:right;font-weight:600;color:var(--ink)}
+.tbox.m dt.l{color:var(--body)}
+.tbox.m dd.l{color:var(--ink);font-weight:400}
+.tbox dt.l{color:var(--body);font-weight:400}
+.tbox dd.l{font-weight:400}
+.tbox dt small{display:block;color:var(--mute);font-size:14px}
+.tbox hr{grid-column:1/-1;border:0;border-top:1px solid var(--hairline-2)}
+
+/* 12 Oct rules (owner): payment at the far left, on the totals' row; one box at the right in two
+   halves — pieces, then money, so Grand Total stands under Amount */
+/* Payment on the line of the pieces cells: its label beside "Total Order", its value beside the figure */
+.trow{display:flex;align-items:flex-start;justify-content:flex-end;gap:24px}
+.kbox.bare{border-color:transparent;box-shadow:none;background:none}
+.kbox.bare{border:0}
+.kbox.bare div{padding:9px 0}
+.phone .trow .kbox.bare{width:auto}
+/* Payment is a fact, not a figure: regular weight, same line as the figures (owner, 12 Oct) */
+.kbox.pay dd{font-size:14px;font-weight:400;letter-spacing:0}
+.kbox.pay dd small{font-size:14px;color:var(--ink);margin-left:0}
+.kbox.pay dd small:before{content:" · "}
+/* owner, 12 Oct: the pieces stand bare beside the money box, parted by a hairline — facts, not a second bill */
+.kbox.figs div{padding:9px 20px}
+.kbox.figs div:last-child{padding-right:24px}
+.kbox.figs div+div{border-left:1px solid var(--hairline)}
+.phone .tright .kbox.figs div:first-child{padding-left:0}
+.trow .facts.one dd{line-height:24px;margin-top:0;white-space:nowrap}
+.phone .trow .facts.one{padding-top:0}
+.tsplit{display:flex;align-items:stretch;background:var(--soft);border:1px solid var(--hairline);border-radius:var(--r-card);font-size:15px;font-variant-numeric:tabular-nums}
+.tsplit dl{display:grid;grid-template-columns:auto auto;gap:8px 40px;align-content:start;padding:10px 16px}
+.tsplit dl+dl{border-left:1px solid var(--hairline-2)}
+.tsplit dt{color:var(--ink)}
+.tsplit dd{text-align:right;font-weight:600;color:var(--ink)}
+.tsplit dt.l{color:var(--body);font-weight:400}
+.tsplit dd.l{font-weight:400}
+.tsplit dt small{color:var(--mute);font-size:14px;margin-left:6px}
+.tsplit hr{grid-column:1/-1;border:0;border-top:1px solid var(--hairline-2)}
+.tright{display:flex;align-items:flex-start;gap:12px}
+.phone .tright{flex-direction:column;align-items:stretch}
+.phone .tright .kbox div{flex:1}
+.phone .trow{flex-direction:column-reverse;align-items:stretch;gap:12px}
+.phone .tsplit{flex-direction:column}
+.phone .tsplit dl{grid-template-columns:1fr auto}
+.phone .tsplit dl+dl{border-left:0;border-top:1px solid var(--hairline-2)}
+/* Review Count dialog: centred over the PO sheet, scrim behind (not a second full sheet) */
+.scrim{position:absolute;inset:0;z-index:30;background:rgb(32 36 44/.34);border:0;cursor:default;animation:scrimIn 160ms var(--ease-out)}
+.dlg{position:absolute;z-index:31;top:50%;left:50%;translate:-50% -50%;width:min(880px,calc(100% - 48px));max-height:calc(100% - 48px);background:var(--canvas);border-radius:16px;box-shadow:var(--shadow-pop),0 0 0 1px var(--hairline);display:flex;flex-direction:column;overflow:hidden;animation:dlgIn 180ms var(--ease-out)}
+.dlg .sbd{min-height:0;overflow:auto;flex:1}
+.phone .dlg{width:calc(100% - 16px);max-height:calc(100% - 32px);border-radius:16px}
+@keyframes scrimIn{from{opacity:0}}
+@keyframes dlgIn{from{opacity:0;scale:.96}}
+@media(prefers-reduced-motion:reduce){.scrim,.dlg{animation:none}}
+/* Review Count table: the Not as Ordered row at the foot, as the hub draws it */
+.items tfoot td{background:var(--soft);border-top:1px solid var(--hairline);font-weight:500;color:var(--body);text-align:right}
+.items tfoot td:first-child{text-align:left}
+table.items.rv{min-width:44rem}
+.scrim.over{z-index:40}
+.dlg.over{z-index:41}
+.sft.clear .btn.ghostb{background:none;border-color:transparent;color:var(--body);box-shadow:none}
+.sft.clear .btn.ghostb:hover{background:var(--soft-2)}
+.was{text-decoration:line-through;text-decoration-color:var(--faint);color:var(--mute)}
+.ok{color:var(--ok-fg)}
+/* Return PO card (12 Oct) */
+.rcard{position:relative}
+/* a return that has gone back is stamped, not worded (owner, 12 Oct) */
+.rstamp{display:inline-block;transform:rotate(-4deg);border:2px solid var(--ink);color:var(--ink);border-radius:var(--r-inner);padding:0 10px;font-size:14px;line-height:22px;font-weight:700;letter-spacing:.14em;opacity:.55;user-select:none}
+
+.rcard{border:1px solid var(--hairline);border-radius:var(--r-inner);overflow:hidden}
+.rhead{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 16px;background:var(--soft);border-bottom:1px solid var(--hairline)}
+.rhead a{color:var(--accent);font-weight:500}
+.rhead .rno{color:var(--ink);font-weight:500}
+.rstate{color:var(--body)}
+table.rtab{width:100%;border-collapse:collapse;table-layout:fixed}
+.rtab th{height:36px;padding:0 16px;text-align:right;font-weight:500;color:var(--body);background:var(--canvas);border-bottom:1px solid var(--hairline)}
+.rtab td{padding:10px 16px;text-align:right;color:var(--ink);border-top:1px solid var(--hairline);font-variant-numeric:tabular-nums}
+.rtab tbody tr:first-child td{border-top:0}
+.rtab th:first-child,.rtab td:first-child{text-align:left;width:50%}
+.rtab tfoot td{background:var(--soft);font-weight:600;border-top:1px solid var(--hairline)}
+.ract{padding:12px 16px;border-top:1px solid var(--hairline)}
+.two{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.phone .two{flex-direction:column}
+.phone .two .tbox{width:100%}
+.facts.paid{padding-right:0;grid-template-columns:auto auto;gap:16px 32px;margin-top:4px}
+.bubbles{display:flex;align-items:stretch;gap:8px;flex:none}
+.phone .bubbles{order:3;width:100%}
+.phone .bubbles .kbox{flex:1}
+.cmp{background:var(--canvas);border:1px solid var(--hairline);border-radius:16px;padding:24px 28px;display:grid;gap:28px;max-width:928px}
+.cmp.phone{max-width:414px;padding:20px 16px}
+.cmp h4{font-size:14px;font-weight:500;color:var(--mute);margin-bottom:10px}
+.cmp h4 b{color:var(--ink);font-weight:600;margin-right:8px}
+.lbl{color:var(--mute)}
+.grp{display:flex;align-items:center;gap:8px}
+
+/* Return PO */
+.rs{border:1px solid var(--hairline);border-radius:var(--r-inner);padding:12px;display:grid;gap:6px}
+.rs .r1{display:flex;justify-content:space-between;gap:12px}
+.rs .r1 a{color:var(--accent);font-weight:500}
+.rs .r1 span,.rs .r2 span:last-child{color:var(--mute)}
+.rs .r2{display:flex;justify-content:space-between;gap:12px;color:var(--ink)}
+.rs .r2 span:last-child{color:var(--body)}
+.exl{display:grid;gap:6px;margin-bottom:12px}
+.exl li{list-style:none;display:flex;justify-content:space-between;gap:12px;color:var(--ink)}
+.exl li b{font-weight:500;color:var(--warn-fg)}
+
+/* held (offline) sheet */
+.held li{list-style:none;display:flex;justify-content:space-between;gap:16px;padding:10px 0;border-top:1px solid var(--hairline);color:var(--ink)}
+.held li:first-child{border-top:0}
+.held li span:last-child{color:var(--mute);white-space:nowrap}
+
+/* ── map ── */
+.mapw{background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-card);overflow:auto}
+table.map{width:100%;border-collapse:collapse;min-width:1100px}
+.map th{height:44px;padding:0 14px;text-align:left;font-weight:500;color:var(--body);border-bottom:1px solid var(--hairline);background:var(--canvas);position:sticky;top:0}
+.map td{padding:10px 14px;border-top:1px solid var(--hairline);color:var(--ink);vertical-align:top}
+.map tr.g td{background:var(--soft);color:var(--body);font-weight:500;border-top:1px solid var(--hairline-2)}
+.map tbody tr:not(.g){cursor:pointer;transition:background-color 120ms var(--ease-out)}
+.map tbody tr:not(.g):hover td{background:var(--soft)}
+.map td.mu{color:var(--body)}
+.map .dot{display:inline-block;width:5px;height:5px;border-radius:50%;background:currentColor;margin-right:6px;vertical-align:middle}
+@media(max-width:1000px){.wrap{grid-template-columns:1fr}.list{position:static;max-height:none}}
+@media(prefers-reduced-motion:reduce){*{transition-duration:0ms!important}}
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>PO detail · every branch</h1>
+  <div class="seg" id="view"><button data-v="sheet" class="on">Sheet</button><button data-v="map">Map</button></div>
+  <div class="seg" id="dev"><button data-v="desk" class="on">Desk</button><button data-v="phone">Phone</button></div>
+  <div class="seg" id="lines"><button data-v="plain" class="on">Plain</button><button data-v="var">Colour &amp; size</button><button data-v="kodi">Per kodi</button></div>
+  <div class="grp"><span class="lbl">Rules</span><div class="seg" id="rules"><button data-v="new" class="on">12 Oct</button><button data-v="hub">Hub today</button></div></div>
+  <div class="grp" id="totalsGrp"><span class="lbl">Totals</span><div class="seg" id="totals"><button data-v="today" class="on">Today</button><button data-v="all">Before and now</button></div></div>
+  <button class="tog" id="worst">Worst case</button>
+</header>
+<div class="wrap">
+  <nav class="list" id="list"></nav>
+  <main><div class="bar" id="bar"></div><div id="stage"></div></main>
+</div>
+
+<script>
+/* ───────────── formatting (hub rules: Rp 1.234, pcs, signed differences, dates with year) ───────────── */
+const rp = n => 'Rp ' + Math.round(n).toLocaleString('id-ID')
+const money = n => n < 0 ? '–' + rp(-n) : rp(n)
+const num = n => Math.round(n).toLocaleString('id-ID')
+const pcs = n => num(n) + ' pcs'
+const esc = s => String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))
+const ICON = {
+  print:'<svg class="i" viewBox="0 0 24 24"><path d="M6 9V3h12v6M6 18H4a1 1 0 0 1-1-1v-6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v6a1 1 0 0 1-1 1h-2"/><path d="M6 14h12v7H6z"/></svg>',
+  x:'<svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>',
+  shirt:'<svg viewBox="0 0 24 24"><path d="M8 3 3 6l2 5 3-1v11h8V10l3 1 2-5-5-3a4 4 0 0 1-8 0z"/></svg>',
+  recall:'<svg class="i" viewBox="0 0 24 24" style="width:20px;height:20px;margin-top:1px"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>'
+}
+
+/* ───────────── the order, and what each branch changes in it ───────────── */
+const SUP = 'Indorama, PT'
+const BASE_LINES = [
+  {name:'Kemeja Gelambir', filed:'Pria · Celana', q:200, price:40000, kodi:'10 kodi', kodiPrice:800000, vars:[['Black','M',80],['Black','L',70],['Sand','M',50]]},
+  {name:'Kaos Uji UJI3',   filed:'Pria · Kaos',   q:120, price:35000, kodi:'6 kodi',  kodiPrice:700000, vars:[['White','M',60],['White','L',60]]},
+  {name:'Celana Chino Slim', filed:'Pria · Celana', q:80, price:90000, kodi:'4 kodi', kodiPrice:1800000, vars:[['Navy','30',40],['Navy','32',40]]}
+]
+const GRN = n => 'GRN-HO-GUDANG-0000' + n
+
+function fresh() {
+  return {
+    po:'PO-041026-012', sup:SUP, deliv:'14 Oct 2026', late:false, life:'ACTIVE', terms:'30 days', method:'Giro', disc:.025,
+    lines: BASE_LINES.map(l => ({...l, rec:0, cnt:null, extra:0, wrong:0, short:0, rc:[]})),
+    notes:null, returns:[], stamp:null, banner:null, reason:null, closedBy:null, activity:[], actOpen:false, held:null, countedBy:null
+  }
+}
+const set = (o, key, arr) => arr.forEach((v, i) => o.lines[i][key] = v)
+const rcpt = (o, i, d, n, q) => o.lines[i].rc.push({d, g:GRN(n), q})
+const created = '05 Oct 2026'
+
+const GROUPS = ['Not sent', 'Not counted', 'Counting', 'Receiving', 'Complete', 'Return PO', 'Ended']
+/* v: the open choices for the branch — "Today" is what the hub shows now. */
+const COUNT_V = [['today','Today','Nothing in the body, Review Count in the foot'],['a','A','Counted in the figures box'],['b','B','Counted column in the table']]
+const RECV_V  = [['today','Today','Receive box under the table, receivings under the item'],['a','A','Receivings as a strip, none under the item'],['b','B','Still expected column in the table']]
+const RET_V   = [['today','Today','Return PO section with its button'],['a','A','To-return chip in the head'],['b','B','Extra in the table, Return in the foot']]
+const SHORT_V = [['today','Today','Closed Short line, Short in the Receive box'],['a','A','Who and why under the head']]
+const CANCEL_V= [['today','Today','Stamp and Cancel Reason at the end'],['a','A','Reason in a banner on top'],['b','B','Lines struck through']]
+/* Under the 12 Oct rules the count and the receiving are decided (a Count column; receivings stay under
+   the item; no Still Expected), and nothing extra stands in the table — so those choices go. */
+const RET_V_NEW = [['today','Today','Return in the foot, bottom right'],['a','A','To-return chip in the head']]
+const NEW = () => S.rules === 'new'
+const variantsOf = b => !NEW() ? b.v : (b.v === COUNT_V || b.v === RECV_V) ? null : b.v === RET_V ? RET_V_NEW : b.v
+
+const BR = [
+ {id:'offline', g:0, n:'Offline', list:'Offline', held:'offline'},
+ {id:'refused', g:0, n:'Refused by the server', list:'Not sent', held:'refused'},
+ {id:'new', g:1, n:'New order', list:'Active', mod(o){ o.activity=['created'] }},
+ {id:'late', g:1, n:'New order, late', list:'Active · red date', mod(o){ o.deliv='10 Oct 2026'; o.late=true; o.notes='Deliver to the Main warehouse, gate 2, before 15:00.'; o.activity=['created'] }},
+ {id:'edited', g:1, n:'Edited', list:'Active', mod(o){ o.activity=['edited','created']; o.actOpen=true }},
+ {id:'counted', g:2, n:'Counted, waiting for review', list:'Active · Review Count', v:COUNT_V, mod(o){ set(o,'cnt',[200,100,80]); o.countedBy='Dedi Santoso · 10 Oct 2026'; o.activity=['counted','created'] }},
+ {id:'countedmatch', g:2, n:'Counted, matches', list:'Active · Review Count', mod(o){ set(o,'cnt',[200,120,80]); o.countedBy='Dedi Santoso · 10 Oct 2026'; o.activity=['counted','created'] }},
+ {id:'countedmore', g:2, n:'Counted, more or not as ordered', list:'Active · Review Count', v:COUNT_V, mod(o){ set(o,'cnt',[230,120,80]); set(o,'wrong',[0,12,0]); o.countedBy='Dedi Santoso · 10 Oct 2026'; o.activity=['counted','created'] }},
+ {id:'countedagain', g:2, n:'Counted again after a recount', list:'Active · Review Count', mod(o){ set(o,'cnt',[200,120,80]); o.prev=[230,100,80]; o.recount={reason:'Kaos looked short', first:'10 Oct 2026'}; o.countedBy='Dedi Santoso · 11 Oct 2026'; o.activity=['counted','recount','created'] }},
+ {id:'recalled', g:2, n:'Recalled by the warehouse', list:'Active', mod(o){ o.banner={kind:'recalled', by:'Dedi Santoso', at:'10 Oct, 16:40', was:430}; o.activity=['recalled','counted','created'] }},
+ {id:'recount', g:2, n:'Recount, sheet unchanged', list:'Active', mod(o){ o.activity=['created'] }},
+ {id:'part', g:3, n:'Part received', list:'Part received', v:RECV_V, mod(o){ o.life='PART'; set(o,'rec',[200,60,0]); rcpt(o,0,'11 Oct 2026',22,200); rcpt(o,1,'11 Oct 2026',22,60); o.activity=['receiving22','created'] }},
+ {id:'partlate', g:3, n:'Part received, late', list:'Part received · red date', v:RECV_V, mod(o){ o.life='PART'; o.deliv='10 Oct 2026'; o.late=true; set(o,'rec',[200,60,0]); rcpt(o,0,'11 Oct 2026',22,200); rcpt(o,1,'11 Oct 2026',22,60); o.activity=['receiving22','created'] }},
+ {id:'part2', g:3, n:'Part received, two receivings', list:'Part received', v:RECV_V, mod(o){ o.life='PART'; set(o,'rec',[200,60,0]); rcpt(o,0,'08 Oct 2026',19,120); rcpt(o,0,'11 Oct 2026',22,80); rcpt(o,1,'11 Oct 2026',22,60); o.activity=['receiving22','receiving19','created'] }},
+ {id:'partcount', g:3, n:'Part received, a new count waiting', list:'Part received · Review Count', v:COUNT_V, mod(o){ o.life='PART'; set(o,'rec',[200,60,0]); rcpt(o,0,'08 Oct 2026',19,200); rcpt(o,1,'08 Oct 2026',19,60); set(o,'cnt',[0,60,40]); o.countedBy='Dedi Santoso · 11 Oct 2026'; o.activity=['counted','receiving19','created'] }},
+ {id:'full', g:4, n:'Fully received', list:'Fully received', mod(o){ o.life='FULL'; set(o,'rec',[200,120,80]); rcpt(o,0,'11 Oct 2026',22,200); rcpt(o,1,'11 Oct 2026',22,120); rcpt(o,2,'11 Oct 2026',22,80); o.stamp=['FULLY RECEIVED','ok']; o.activity=['receiving22','created'] }},
+ {id:'extra', g:4, n:'Extra arrived, return pending', list:'Fully received · +30', v:RET_V, mod(o){ o.life='FULL'; set(o,'rec',[200,120,80]); set(o,'extra',[30,0,0]); rcpt(o,0,'11 Oct 2026',22,230); rcpt(o,1,'11 Oct 2026',22,120); rcpt(o,2,'11 Oct 2026',22,80); o.stamp=['FULLY RECEIVED','ok']; o.activity=['receiving22','created'] }},
+ {id:'nao', g:4, n:'Not as ordered, item unknown', list:'Fully received · +12', v:RET_V, mod(o){ o.life='FULL'; set(o,'rec',[200,120,80]); set(o,'wrong',[0,12,0]); set(o,'extra',[0,12,0]); rcpt(o,0,'11 Oct 2026',22,200); rcpt(o,1,'11 Oct 2026',22,132); rcpt(o,2,'11 Oct 2026',22,80); o.stamp=['FULLY RECEIVED','ok']; o.activity=['receiving22','created'] }},
+ {id:'ret1', g:5, n:'Return raised, not generated', list:'Fully received', v:RET_V, mod(o){ retBase(o); o.returns=[{no:'RS-00000004', state:'To Be Returned', parts:[['Kemeja Gelambir',30,1200000]]}]; o.activity=['return','receiving22','created'] }},
+ {id:'ret2', g:5, n:'Return generated', list:'Fully received', v:RET_V, mod(o){ retBase(o); o.returns=[{no:'RS-00000004', state:'Hand Over', parts:[['Kemeja Gelambir',30,1200000]]}]; o.activity=['return','receiving22','created'] }},
+ {id:'ret3', g:5, n:'Return confirmed', list:'Fully received', v:RET_V, mod(o){ retBase(o); o.returns=[{no:'RS-00000004', state:'Confirmed', parts:[['Kemeja Gelambir',30,1200000],['Item unknown',12,null]]}]; o.activity=['handover','return','receiving22','created'] }},
+ {id:'short', g:6, n:'Closed short', list:'Closed short', v:SHORT_V, mod(o){ o.life='SHORT'; set(o,'rec',[200,120,40]); o.lines[2].short=40; rcpt(o,0,'11 Oct 2026',22,200); rcpt(o,1,'11 Oct 2026',22,120); rcpt(o,2,'11 Oct 2026',22,40); o.stamp=['CLOSED SHORT','ok']; o.closedBy='Rina Kusuma · 11 Oct 2026'; o.reason='Supplier is out of stock'; o.activity=['short','receiving22','created'] }},
+ {id:'cancel', g:6, n:'Cancelled', list:'Cancelled', v:CANCEL_V, mod(o){ o.life='CANCELLED'; o.stamp=['CANCELLED','bad']; o.reason='Supplier cannot deliver before 14 Oct'; o.closedBy='Rina Kusuma · 08 Oct 2026'; o.activity=['cancelled','created'] }}
+]
+function retBase(o){ o.life='FULL'; set(o,'rec',[200,120,80]); rcpt(o,0,'11 Oct 2026',22,230); rcpt(o,1,'11 Oct 2026',22,120); rcpt(o,2,'11 Oct 2026',22,80); o.stamp=['FULLY RECEIVED','ok'] }
+
+/* what the foot offers, by the hub's own rules (actionsOf) */
+function footOf(b, o) {
+  if (b.held === 'offline') return {left:['Delete Order'], right:['Edit|line','Send Now|pri|off']}
+  if (b.held === 'refused') return {left:['Delete Order'], right:['Edit|pri']}
+  const f = []
+  const reviewing = o.lines.some(l => l.cnt !== null)
+  if (o.life === 'PART' && !(NEW() && reviewing)) f.push('Close Short')
+  if (o.life === 'ACTIVE' && !(NEW() && reviewing)) f.push(reviewing ? 'Cancel|off' : 'Cancel') // 12 Oct: no dead Cancel while a count waits
+  if (o.life === 'ACTIVE') f.push(reviewing ? 'Edit|line' : 'Edit|pri')
+  if (reviewing) f.push('Review Count|pri')
+  return {left:[], right:f}
+}
+
+/* ───────────── numbers ───────────── */
+function figures(o) {
+  const L = o.lines
+  const pieces = L.reduce((s, l) => s + l.q, 0)
+  const gross = L.reduce((s, l) => s + l.q * l.price * o.pm, 0)
+  const recd = L.reduce((s, l) => s + l.rec, 0)
+  const counted = L.some(l => l.cnt !== null) ? L.reduce((s, l) => s + (l.cnt ?? 0), 0) : null
+  const shortPcs = L.reduce((s, l) => s + l.short, 0)
+  const discount = Math.round(gross * o.disc)
+  const shortValue = Math.round(L.reduce((s, l) => s + l.short * l.price * o.pm, 0) * (1 - o.disc))
+  const owed = pieces - recd - shortPcs
+  const extra = L.reduce((s, l) => s + l.extra, 0)
+  return {pieces, gross, recd, counted, shortPcs, discount, shortValue, grand: gross - discount - shortValue, owed, extra}
+}
+const latest = o => {
+  const all = o.lines.flatMap(l => l.rc)
+  if (!all.length) return null
+  const seen = [...new Set(all.sort((a, b) => new Date(a.d) - new Date(b.d)).map(r => r.g))]
+  return seen.at(-1) + (seen.length > 1 ? ' +' + (seen.length - 1) : '')
+}
+const priceText = (l, o, mode) => mode === 'kodi' ? rp(l.kodiPrice * o.pm) + ' / kodi' : rp(l.price * o.pm) + ' / pc'
+const unit = (n, kodi) => kodi ? n / 20 + ' kodi' : null
+
+/* ───────────── state ───────────── */
+const S = {view:'sheet', dev:'desk', lines:'plain', worst:false, branch:'new', ver:'today', totals:'today', rules:'new', review:false, lastRecv:false}
+const $ = s => document.querySelector(s)
+const branch = () => BR.find(b => b.id === S.branch)
+function orderOf(b) {
+  const o = fresh()
+  o.pm = S.worst ? 600 : 1
+  b.mod && b.mod(o)
+  if (S.worst) {
+    o.sup = 'PT Sumber Tekstil Nusantara Indah Makmur Sejahtera Abadi Jaya Tbk (Persero) Cabang Surabaya'
+    o.lines.forEach((l, i) => { l.name = ['Kemeja Gelambir Lengan Panjang Katun Combed 30s Premium Edisi Ramadan Limited Collection XXL', 'Kaos', 'Celana Chino Slim Fit Stretch Water Repellent Dark Navy Edisi Khusus'][i]; l.filed = i === 1 ? 'Pria' : 'Pria · Celana · Musim Hujan · Koleksi Terbatas' })
+    o.lines.forEach(l => { if (l.rc.length) for (let k = 0; k < 6; k++) l.rc.push({d:'0' + (2 + k) + ' Oct 2026', g:GRN(30 + k), q:1}) })
+  }
+  // 12 Oct: Received is always what the PO took in. A receiving under an item says the pieces it
+  // brought to the order — the extra went to Return PO — so the lots add up to the column.
+  if (NEW()) o.lines.forEach(l => {
+    if (!l.rc.length) return
+    if (S.worst && l.rec >= 7) { const n = 7, each = Math.floor(l.rec / n); l.rc = Array.from({length:n}, (_, k) => ({d:'0' + (2 + k) + ' Oct 2026', g:GRN(30 + k), q:k === n - 1 ? l.rec - each * (n - 1) : each})); return }
+    let over = l.rc.reduce((s, r) => s + r.q, 0) - l.rec
+    for (let k = l.rc.length - 1; over > 0 && k >= 0; k--) { const take = Math.min(over, l.rc[k].q); l.rc[k].q -= take; over -= take }
+    l.rc = l.rc.filter(r => r.q > 0)
+  })
+  return o
+}
+
+/* ───────────── pieces of the sheet ───────────── */
+function head(b, o, v, f) {
+  const chip = (v === 'a' && (b.v === RET_V) && (f.extra > 0 || o.returns.length)) ? `<span class="chip">${pcs(Math.max(f.extra, 0) || 30)} to return</span>` : ''
+  const meta = `<span class="mono">${o.po}</span><span>Delivery <b class="${o.late ? 'late' : ''}">${o.deliv}</b></span>${chip}`
+  const cell = (t, val, extra = '') => `<div><dt>${t}</dt><dd class="num ${extra}">${val}<small>pcs</small></dd></div>`
+  const redShort = f.recd < f.pieces && (o.late || o.life === 'SHORT')
+  let cells = cell('Ordered', num(f.pieces))
+  if (f.counted !== null && v === 'a' && b.v === COUNT_V) cells += cell('Counted', num(f.counted) + (f.counted !== f.pieces ? `<span class="d">${f.counted > f.pieces ? '+' : '–'}${num(Math.abs(f.counted - f.pieces))}</span>` : ''))
+  if (f.recd > 0) {
+    cells += cell('Received', num(f.recd), redShort ? 'bad' : '')
+  }
+  return `<div class="shd"><div class="who"><h2>${esc(o.sup)}</h2><div class="meta">${meta}</div></div>${NEW() ? '' : `<div class="bubbles"><dl class="kbox">${cells}</dl></div>`}<div class="tools"><button class="ibtn" aria-label="Close">${ICON.x}</button></div></div>`
+}
+/* 12 Oct: a column only once it has something in it — Received after a receiving, Count while a count
+   waits for review (Received first, then Count: what came, then what is being counted now). Plain
+   pieces in both, never a +30 or a –20 under them. */
+// Green when the count matches what the line still expects, red when it is over or under (owner, 12 Oct).
+const countText = l => l.cnt === null || l.cnt === 0 ? '<span class="dash">—</span>' : `<span class="${l.cnt === l.q - l.rec - l.short ? 'ok' : 'bad'}">${pcs(l.cnt)}</span>`
+function itemRowsNew(b, o, v, f) {
+  const mode = S.lines
+  const cols = {rec: f.recd > 0, cnt: false} // 12 Oct: the PO detail never shows the count — only Review Count does
+  const widths = ['', '8.5rem', cols.rec ? '9rem' : null, cols.cnt ? '9rem' : null, '10rem', '10rem'].filter(w => w !== null)
+  const th = `<th>Item</th><th>Ordered</th>${cols.rec ? '<th>Received</th>' : ''}${cols.cnt ? '<th>Counted</th>' : ''}<th>Unit Price</th><th>Amount</th>`
+  const cancelledB = v === 'b' && b.id === 'cancel'
+  const rows = o.lines.map(l => {
+    const rcLines = !l.rc.length ? '' : `<small class="rcp">Received${l.rc.map(r => `<span class="under">${l.rc.length > 1 ? '• ' : ''}${r.d.slice(0, 6)} · ${pcs(r.q)}</span>`).join('')}</small>`
+    const said = mode === 'kodi' ? `<span class="under">${unit(l.q, true)}</span>` : ''
+    const tone = l.rec <= 0 ? '' : (l.rec < l.q ? (o.late || o.life === 'SHORT' ? 'bad' : '') : 'ok')
+    const recCell = l.rec > 0 ? `<span class="${tone}">${pcs(l.rec)}</span>` : '<span class="dash">—</span>'
+    const cls = cancelledB ? 'dim strike' : ''
+    const main = `<tr class="${cls}"><td><div class="it"><span class="th">${ICON.shirt}</span><div class="nm">${esc(l.name)}<small>${esc(l.filed)}</small>${rcLines}</div></div></td><td>${pcs(l.q)}${said}</td>${cols.rec ? `<td>${recCell}</td>` : ''}${cols.cnt ? `<td>${countText(l)}</td>` : ''}<td>${priceText(l, o, mode)}</td><td style="font-weight:500">${rp(l.q * l.price * o.pm)}</td></tr>`
+    const span = 4 + (cols.rec ? 1 : 0) + (cols.cnt ? 1 : 0)
+    const vr = mode === 'var' ? l.vars.map(x => `<tr class="vr ${cls}"><td>${x[0]} · ${x[1]}</td><td>${pcs(x[2])}</td><td colspan="${span - 2}"></td></tr>`).join('') : ''
+    return main + vr
+  }).join('')
+  return {th, rows, widths, cols}
+}
+function itemCardsNew(b, o, v, f) {
+  const mode = S.lines
+  const cols = {rec: f.recd > 0, cnt: false} // 12 Oct: the PO detail never shows the count — only Review Count does
+  const cancelledB = v === 'b' && b.id === 'cancel'
+  return `<ul class="cards">${o.lines.map(l => {
+    const rcs = !l.rc.length ? '' : `<small class="rcp">Received${l.rc.map(r => `<span class="under">${l.rc.length > 1 ? '• ' : ''}${r.d.slice(0, 6)} · ${pcs(r.q)}</span>`).join('')}</small>`
+    return `<li class="${cancelledB ? 'dim strike' : ''}"><div class="it"><span class="th">${ICON.shirt}</span><div class="nm">${esc(l.name)}<small>${esc(l.filed)}</small>${rcs}</div></div>
+      ${mode === 'var' ? `<div class="vl">${l.vars.map(x => `<span><span>${x[0]} · ${x[1]}</span><span class="num">${pcs(x[2])}</span></span>`).join('')}</div>` : ''}
+      <dl><div><dt>Ordered</dt><dd>${pcs(l.q)}${mode === 'kodi' ? `<span class="under">${unit(l.q, true)}</span>` : ''}</dd></div>
+      ${cols.rec ? `<div><dt>Received</dt><dd class="${l.rec <= 0 ? '' : l.rec < l.q ? (o.late || o.life === 'SHORT' ? 'bad' : '') : 'ok'}">${l.rec > 0 ? pcs(l.rec) : '<span class="dash">—</span>'}</dd></div>` : ''}
+      ${cols.cnt ? `<div><dt>Counted</dt><dd>${countText(l)}</dd></div>` : ''}
+      <div><dt>Unit Price</dt><dd>${priceText(l, o, mode)}</dd></div><div><dt>Amount</dt><dd style="font-weight:500">${rp(l.q * l.price * o.pm)}</dd></div></dl></li>`
+  }).join('')}</ul>`
+}
+/* 12 Oct totals. Pieces: Total Order (and Total Received once something came); while a count waits,
+   what the count would do instead — against what is left of the order, To Be Accepted, Not as Ordered.
+   Money: Total, Discount, Closed Short, Grand Total. Payment at the far left of the same row. */
+function piecesNew(o, f) {
+  const r = (t, v) => `<dt>${t}</dt><dd>${v}</dd>`
+  return r('Total Ordered', pcs(f.pieces)) + (f.recd > 0 ? r('Total Received', pcs(f.recd)) : '')
+}
+function totalsNew(o, f) {
+  const disc = String(o.disc * 100).replace('.', ',') + '%'
+  const r = (t, v, c = '') => `<dt class="${c}">${t}</dt><dd class="${c}">${v}</dd>`
+  let m = ''
+  if (o.disc || f.shortPcs) {
+    m += r('Total', money(f.gross), 'l')
+    if (o.disc) m += r('Discount · ' + disc, money(-f.discount), 'l')
+    if (f.shortPcs) m += r(`Closed Short<small>${pcs(f.shortPcs)}</small>`, money(-f.shortValue), 'l')
+    m += '<hr>'
+  }
+  m += r('Grand Total', money(f.grand))
+  // Owner's sketch (12 Oct): pieces as cells side by side, like the head box; money in its own box; both bottom right.
+  const cells = [...piecesNew(o, f).matchAll(/<dt>([^<]+)<\/dt><dd>([\d.]+) pcs<\/dd>/g)].map(x => `<div><dt>${x[1]}</dt><dd class="num">${x[2]}<small>pcs</small></dd></div>`).join('')
+  // Payment Terms and Method as one fact, bottom left (owner, 12 Oct).
+  // Drawn as a cell of the same box family as the pieces, so label and value sit on the same lines.
+  const pay = `<dl class="kbox bare pay"><div><dt>Payment</dt><dd>${o.method}<small>${o.terms}</small></dd></div></dl>`
+  return `<div class="trow"><div class="tright"><dl class="kbox bare figs">${cells}</dl><div class="tsplit"><dl>${m}</dl></div></div></div>`
+}
+function itemRows(b, o, v, f) {
+  if (NEW()) return itemRowsNew(b, o, v, f)
+  const mode = S.lines
+  const cols = {cnt: f.counted !== null && v === 'b' && b.v === COUNT_V, rec: f.recd > 0, still: v === 'b' && b.v === RECV_V && f.recd > 0 && o.life === 'PART'}
+  const widths = ['', '8.5rem', cols.cnt ? '9rem' : null, cols.rec ? '9rem' : null, cols.still ? '9rem' : null, '10rem', '10rem'].filter(w => w !== null)
+  const th = `<th>Item</th><th>Quantity</th>${cols.cnt ? '<th>Counted</th>' : ''}${cols.rec ? '<th>Received</th>' : ''}${cols.still ? '<th>Still expected</th>' : ''}<th>Unit Price</th><th>Amount</th>`
+  const cancelledB = v === 'b' && b.id === 'cancel'
+  const retInline = v === 'b' && b.v === RET_V
+  const rows = o.lines.map(l => {
+    const rcLines = (v === 'a' && b.v === RECV_V) || !l.rc.length ? '' : `<small class="rcp">Received${l.rc.length > 1 ? '' : ''}${l.rc.map(r => `<span class="under">${l.rc.length > 1 ? '• ' : ''}${r.d.slice(0, 6)} · ${pcs(r.q)}</span>`).join('')}</small>`
+    const kodi = mode === 'kodi'
+    const said = kodi ? `<span class="under">${unit(l.q, true)}</span>` : ''
+    const diff = l.cnt === null ? '' : (l.cnt === 0 ? '<span class="dash">—</span>' : `${pcs(l.cnt)}${l.cnt !== l.q ? `<span class="under ${l.cnt > l.q ? 'warn' : ''}">${l.cnt > l.q ? '+' : '–'}${num(Math.abs(l.cnt - l.q))}</span>` : ''}`)
+    const tone = l.rec <= 0 ? '' : (l.rec < l.q ? (o.late || o.life === 'SHORT' ? 'bad' : '') : 'ok')
+    const recCell = l.rec > 0 ? `<span class="${tone}">${pcs(l.rec)}</span>${retInline && l.extra ? `<span class="under warn">+${num(l.extra)} extra</span>` : ''}` : '<span class="dash">—</span>'
+    const owed = l.q - l.rec - l.short
+    const stillCell = owed > 0 ? `<span class="${o.late ? 'bad' : ''}">${pcs(owed)}</span>` : '<span class="dash">—</span>'
+    const amt = rp(l.q * l.price * o.pm)
+    const cls = cancelledB ? 'dim strike' : ''
+    const main = `<tr class="${cls}"><td><div class="it"><span class="th">${ICON.shirt}</span><div class="nm">${esc(l.name)}<small>${esc(l.filed)}</small>${rcLines}</div></div></td><td>${pcs(l.q)}${said}</td>${cols.cnt ? `<td>${diff}</td>` : ''}${cols.rec ? `<td>${recCell}</td>` : ''}${cols.still ? `<td>${stillCell}</td>` : ''}<td>${priceText(l, o, mode)}</td><td style="font-weight:500">${amt}</td></tr>`
+    const span = 4 + (cols.cnt ? 1 : 0) + (cols.rec ? 1 : 0) + (cols.still ? 1 : 0)
+    const vr = mode === 'var' ? l.vars.map(x => `<tr class="vr ${cls}"><td>${x[0]} · ${x[1]}</td><td>${pcs(x[2])}</td><td colspan="${span - 2}"></td></tr>`).join('') : ''
+    return main + vr
+  }).join('')
+  return {th, rows, widths, cols}
+}
+function itemCards(b, o, v, f) {
+  if (NEW()) return itemCardsNew(b, o, v, f)
+  const mode = S.lines
+  const cols = {cnt: f.counted !== null && v === 'b' && b.v === COUNT_V, rec: f.recd > 0, still: v === 'b' && b.v === RECV_V && f.recd > 0 && o.life === 'PART'}
+  const retInline = v === 'b' && b.v === RET_V
+  const cancelledB = v === 'b' && b.id === 'cancel'
+  return `<ul class="cards">${o.lines.map(l => {
+    const owed = l.q - l.rec - l.short
+    const rcs = (v === 'a' && b.v === RECV_V) || !l.rc.length ? '' : `<small class="rcp">Received${l.rc.map(r => `<span class="under">${l.rc.length > 1 ? '• ' : ''}${r.d.slice(0, 6)} · ${pcs(r.q)}</span>`).join('')}</small>`
+    return `<li class="${cancelledB ? 'dim strike' : ''}"><div class="it"><span class="th">${ICON.shirt}</span><div class="nm">${esc(l.name)}<small>${esc(l.filed)}</small>${rcs}</div></div>
+      ${mode === 'var' ? `<div class="vl">${l.vars.map(x => `<span><span>${x[0]} · ${x[1]}</span><span class="num">${pcs(x[2])}</span></span>`).join('')}</div>` : ''}
+      <dl><div><dt>Quantity</dt><dd>${pcs(l.q)}${mode === 'kodi' ? `<span class="under">${unit(l.q, true)}</span>` : ''}</dd></div>
+      ${cols.cnt ? `<div><dt>Counted</dt><dd>${l.cnt === null || l.cnt === 0 ? '<span class="dash">—</span>' : pcs(l.cnt) + (l.cnt !== l.q ? `<span class="under ${l.cnt > l.q ? 'warn' : ''}">${l.cnt > l.q ? '+' : '–'}${num(Math.abs(l.cnt - l.q))}</span>` : '')}</dd></div>` : ''}
+      ${cols.rec ? `<div><dt>Received</dt><dd class="${l.rec <= 0 ? '' : l.rec < l.q ? (o.late || o.life === 'SHORT' ? 'bad' : '') : 'ok'}">${l.rec > 0 ? pcs(l.rec) : '<span class="dash">—</span>'}${retInline && l.extra ? `<span class="under warn">+${num(l.extra)} extra</span>` : ''}</dd></div>` : ''}
+      ${cols.still ? `<div><dt>Still expected</dt><dd class="${o.late && owed > 0 ? 'bad' : ''}">${owed > 0 ? pcs(owed) : '<span class="dash">—</span>'}</dd></div>` : ''}
+      <div><dt>Unit Price</dt><dd>${priceText(l, o, mode)}</dd></div><div><dt>Amount</dt><dd style="font-weight:500">${rp(l.q * l.price * o.pm)}</dd></div></dl></li>`
+  }).join('')}</ul>`
+}
+const TOTALS = [['today','Today','Two boxes: Order in money at the left, Receive in pieces at the right'],['before','Before','One box with pieces, a per-piece line and the received rows']]
+function totalsBox(o, f, which = S.totals) {
+  if (which === 'all') which = 'today'
+  const disc = String(o.disc * 100).replace('.', ',') + '%'
+  if (which === 'before') {
+    const bad = f.recd < f.pieces && (o.late || o.life === 'SHORT')
+    const row = (t, d, cls = '') => `<dt class="${cls}">${t}</dt><dd class="${cls}">${d}</dd>`
+    let h = row(`Total · ${pcs(f.pieces)}`, money(f.gross))
+    if (o.disc) h += `<dt class="l">Discount · ${disc}<small>${money(Math.round(f.discount / f.pieces))} / pc</small></dt><dd class="l" style="color:var(--ink);font-weight:400">${money(-f.discount)}</dd>`
+    if (f.shortPcs) h += row(`Closed Short · ${pcs(f.shortPcs)}`, money(-f.shortValue), 'l')
+    h += '<hr>' + row('Grand Total', money(f.grand))
+    if (f.recd > 0) h += '<hr>' + row('Total Received', pcs(f.recd)) + `<dt>${o.life === 'SHORT' ? 'Short' : 'Still Expected'}</dt><dd class="${bad ? 'bad' : ''}">${pcs(o.life === 'SHORT' ? f.shortPcs : Math.max(0, f.pieces - f.recd))}</dd>`
+    return `<div class="tw"><dl class="tbox">${h}</dl></div>`
+  }
+  const adj = o.disc || f.shortPcs
+  const r = (t, v, c = '') => `<dt class="${c}">${t}</dt><dd class="${c}">${v}</dd>`
+  let h = ''
+  if (adj) {
+    h += r('Total', money(f.gross), 'l')
+    if (o.disc) h += r('Discount · ' + disc, money(-f.discount), 'l')
+    if (f.shortPcs) h += r('Closed Short', money(-f.shortValue), 'l')
+    h += '<hr>'
+  }
+  h += r('Grand Total', money(f.grand))
+  const bad = (o.late || o.life === 'SHORT')
+  let rcv = ''
+  if (f.recd > 0) {
+    rcv = r('Total Received', pcs(f.recd))
+    if (f.recd < f.pieces) rcv += `<dt>${o.life === 'SHORT' ? 'Short' : 'Still Expected'}</dt><dd class="${bad ? 'bad' : ''}">${pcs(f.pieces - f.recd)}</dd>`
+    rcv = `<dl class="tbox r">${rcv}</dl>`
+  }
+  return `<div class="two"><dl class="tbox m">${h}</dl>${rcv}</div>`
+}
+function paidFacts(o) {
+  return `<dl class="facts paid"><div><dt>Payment Terms</dt><dd>${o.terms}</dd></div><div><dt>Payment Method</dt><dd>${o.method}</dd></div></dl>`
+}
+/* the two boxes side by side, on the current branch's numbers */
+function compare(b) {
+  const o = orderOf(b), f = figures(o)
+  return `<div class="cmp ${S.dev === 'phone' ? 'phone' : ''}">${TOTALS.map(t => `<div><h4><b>${t[1]}</b>${t[2]}</h4>${totalsBox(o, f, t[0])}</div>`).join('')}</div>`
+}
+/* 12 Oct: each return is one card in the items table's own dress — the RS number and where it stands on
+   a head line, then Item | Pieces | Value rows, then a Total row. Pieces waiting for a return are the same
+   card, headed "Not raised yet", with the button under it (or in the foot). */
+function returnSectionNew(b, o, v, f, rows, total, inFoot, partName) {
+  const card = (head, state, lines, tot, action = '') => `<div class="rcard"><div class="rhead">${head}<span class="rstate">${state}</span></div>
+    <table class="rtab"><thead><tr><th>Item</th><th>Pieces</th><th>Value</th></tr></thead><tbody>${lines.map(l => `<tr><td>${l[0]}</td><td>${pcs(l[1])}</td><td>${l[2] === null ? '<span class="dash">—</span>' : money(l[2])}</td></tr>`).join('')}</tbody>
+    <tfoot><tr><td>Total</td><td>${pcs(tot)}</td><td></td></tr></tfoot></table>${action}</div>`
+  let out = ''
+  if (!o.returns.length) {
+    const lines = rows.map(x => [esc(x[0]), x[1], x[0] === 'Not as Ordered' ? null : (o.lines.find(l => l.name === x[0]) ? x[1] * o.lines.find(l => l.name === x[0]).price * o.pm : null)])
+    out += card('<span class="rno">Not raised yet</span>', 'To Be Returned', lines, total, inFoot ? '' : `<div class="ract"><button class="btn line sm">Return ${pcs(total)} to supplier</button></div>`)
+  }
+  out += o.returns.map(r => card(`<a>${r.no}</a>`, r.state === 'Confirmed' ? '<span class="rstamp" aria-hidden="true">RETURNED</span>' : r.state, r.parts.map(p => [partName(p[0]), p[1], p[2] === null ? null : p[2] * (S.worst ? 1 : 1)]), r.parts.reduce((s, p) => s + p[1], 0))).join('')
+  return `<div class="sect"><h3>Return PO</h3><div style="display:grid;gap:12px">${out}</div></div>`
+}
+function returnSection(b, o, v, f) {
+  const pending = o.lines.filter(l => l.extra > 0 && !o.returns.length)
+  if (!pending.length && !o.returns.length) return ''
+  const total = pending.reduce((s, l) => s + l.extra, 0)
+  const inFoot = v === 'b' && b.v === RET_V
+  // 12 Oct: Not as Ordered matches no article, so it is its own row — never under one, never "Item unknown".
+  const rows = !NEW() ? pending.map(l => [l.name, l.extra]) : [...pending.filter(l => l.extra - l.wrong > 0).map(l => [l.name, l.extra - l.wrong]), ...(o.lines.some(l => l.wrong) ? [['Not as Ordered', o.lines.reduce((s, l) => s + l.wrong, 0)]] : [])]
+  const list = pending.length ? `<ul class="exl">${rows.map(x => `<li><span>${esc(x[0])}</span><b class="num">${x[0] === 'Not as Ordered' ? '' : '+'}${pcs(x[1])}</b></li>`).join('')}</ul>${inFoot ? '' : `<button class="btn line sm" style="align-self:flex-start">Return ${pcs(total)} to supplier</button>`}` : ''
+  const partName = p => NEW() && p === 'Item unknown' ? 'Not as Ordered' : esc(p) + (p === 'Item unknown' ? '<span style="color:var(--mute)"> · Item unknown</span>' : '')
+  const cards = o.returns.map(r => `<div class="rs"><div class="r1"><a>${r.no}</a><span>${r.state}</span></div>${r.parts.map(p => `<div class="r2"><span>${partName(p[0])}</span><span class="num">${p[2] === null ? pcs(p[1]) : pcs(p[1]) + ' · ' + money(p[2])}</span></div>`).join('')}</div>`).join('')
+  if (NEW()) return returnSectionNew(b, o, v, f, rows, total, true, partName) // 12 Oct: the button is the foot's, bottom right
+  if (inFoot && !o.returns.length) return `<div class="sect"><h3>Return PO</h3>${list}</div>`
+  return `<div class="sect"><h3>Return PO</h3><div style="display:grid;gap:12px">${list}${cards}</div></div>`
+}
+const ACT = {
+  created:'Rina Kusuma created this PO', edited:'Rina Kusuma edited the order: Kemeja Gelambir 180 → 200 pcs · Delivery 12 → 14 Oct 2026',
+  counted:'Dedi Santoso submitted a count', recalled:'The warehouse recalled the count', receiving22:'Receiving ' + GRN(22) + ' accepted', receiving19:'Receiving ' + GRN(19) + ' accepted',
+  return:'Rina Kusuma raised a return · RS-00000004', handover:'The warehouse handed the goods back to the supplier', short:'Rina Kusuma closed the order short', cancelled:'Rina Kusuma cancelled the order'
+}
+const ACT_AT = {created:'05 Oct 2026', edited:'07 Oct 2026', counted:'10 Oct 2026', recalled:'10 Oct 2026', receiving22:'11 Oct 2026', receiving19:'08 Oct 2026', return:'11 Oct 2026', handover:'11 Oct 2026', short:'11 Oct 2026', cancelled:'08 Oct 2026'}
+function activity(o) {
+  return `<details class="act" ${o.actOpen ? 'open' : ''}><summary>Activity (${o.activity.length})</summary><ul>${o.activity.map(k => `<li><span>${ACT_AT[k]} · </span>${ACT[k]}</li>`).join('')}</ul></details>`
+}
+function foot(b, o, v) {
+  const f = footOf(b, o)
+  if (((v === 'b' && b.v === RET_V) || NEW()) && o.lines.some(l => l.extra > 0) && !o.returns.length) f.right.push(`Return ${pcs(o.lines.reduce((s, l) => s + l.extra, 0))}|pri`)
+  const btn = s => { const [t, k, d] = s.split('|'); return `<button ${t === 'Review Count' ? 'data-review="1" ' : ''}class="btn ${t === 'Cancel' ? 'cancel ' : ''}${k === 'pri' ? 'pri' : k === 'line' ? 'line' : k === 'bad' ? 'bad' : ''}" ${k === 'off' || d === 'off' ? 'disabled title="' + (t === 'Cancel' ? 'A count is waiting. Review it first.' : 'You are offline') + '"' : ''}>${t}</button>` }
+  return `<div class="sft ${NEW() ? 'clear' : ''}">${NEW() ? `<button class="btn print">${ICON.print}Print</button>` : `<button class="ibtn" aria-label="Print">${ICON.print}</button>`}${f.left.map(btn).join('')}<span class="sp"></span>${f.right.map(btn).join('')}</div>`
+}
+
+/* ───────────── sheets ───────────── */
+function heldSheet(b) {
+  const refused = b.held === 'refused'
+  const items = [['Kemeja Gelambir', '200 pcs'], ['Kaos Uji UJI3', '120 pcs'], ['Celana Chino Slim', '80 pcs']]
+  const banner = refused
+    ? `<div class="banner bad"><div>The order was not accepted: the supplier has no catalogue price for Celana Chino Slim. Edit it and submit again.</div></div>`
+    : `<div class="banner warn"><div>This order is on this device. It will be sent by itself when you are back online.</div></div>`
+  const f = footOf(b, null)
+  const btn = s => { const [t, k, d] = s.split('|'); return `<button class="btn ${k === 'pri' ? 'pri' : k === 'line' ? 'line' : k === 'bad' ? 'bad' : ''}" ${d === 'off' ? 'disabled title="You are offline"' : ''}>${t}</button>` }
+  return `<div class="sheet"><div class="shd"><div class="who"><h2>${esc(SUP)}</h2><div class="meta"><span>${refused ? 'Not sent' : 'Offline'}</span></div></div><div class="tools"><button class="ibtn">${ICON.x}</button></div></div>
+  <div class="sbd">${banner}<dl class="facts" style="padding-right:0"><div><dt>Delivery Date</dt><dd>14 Oct 2026</dd></div><div><dt>Items</dt><dd>3</dd></div><div><dt>Quantity</dt><dd>400 pcs</dd></div><div><dt>Value</dt><dd>${rp(19400000 * (S.worst ? 600 : 1))}</dd></div></dl>
+  <ul class="held">${items.map(i => `<li><span>${i[0]}</span><span class="num">${i[1]}</span></li>`).join('')}</ul></div>
+  <div class="sft">${f.left.map(btn).join('')}<span class="sp"></span>${f.right.map(btn).join('')}</div></div>`
+}
+/* ───────────── Review Count (12 Oct rules; the dialog the foot's Review Count opens) ─────────────
+   Item | Ordered (Left) | Counted — Ordered Left once something was received, so the count is read
+   against what is still expected; Counted green when it matches, red when over or under. Not as Ordered
+   stands at the foot of the table (it matches no article). Below: Total Ordered (Left) · Total Accepted ·
+   Not as Ordered · Over, and for a short count the money as it would be if closed short. The way out is
+   at the foot: Recount · Close Short (red) · Partial Receive / Submit. */
+const hasCount = b => orderOf(b).lines.some(l => l.cnt !== null)
+function reviewSheet(b) {
+  const o = orderOf(b), f = figures(o)
+  const left = l => Math.max(0, l.q - l.rec - l.short)
+  const part = f.recd > 0
+  const rows = o.lines.filter(l => left(l) > 0 || (l.cnt ?? 0) > 0)
+  const accepted = rows.reduce((s, l) => s + Math.min(l.cnt ?? 0, left(l)), 0)
+  const over = rows.reduce((s, l) => s + Math.max(0, (l.cnt ?? 0) - left(l)), 0)
+  const shortPcs = rows.reduce((s, l) => s + Math.max(0, left(l) - (l.cnt ?? 0)), 0)
+  const nao = o.lines.reduce((s, l) => s + l.wrong, 0)
+  const ordHead = part ? 'Ordered Left' : 'Ordered'
+  const diffLine = l => { const c = l.cnt ?? 0, d = c - left(l); return d === 0 ? '' : `<span class="under bad">${d > 0 ? '+' + num(d) + ' over' : num(-d) + ' short'}</span>` }
+  // After a recount: the count it replaces, struck through above the new one — only where it changed (owner, 12 Oct)
+  const was = l => { const pv = o.prev && o.prev[o.lines.indexOf(l)]; return pv != null && pv !== l.cnt ? `<span class="under was" title="Count before the recount">${pcs(pv)}</span>` : '' }
+  const cnt = l => (l.cnt ?? 0) === 0 ? '<span class="dash">—</span>' : `${was(l)}<span class="${l.cnt === left(l) ? 'ok' : 'bad'}">${pcs(l.cnt)}</span>${diffLine(l)}`
+  const got = l => part && l.rec > 0 ? `<small class="rcp">Received ${num(l.rec)} of ${num(l.q)} pcs</small>` : ''
+  // Amount = what this count would bring in: the matched pieces at the agreed price. The over is not valued.
+  const amt = l => (l.cnt ?? 0) === 0 ? '<span class="dash">—</span>' : rp(Math.min(l.cnt, left(l)) * l.price * o.pm)
+  const trs = rows.map(l => `<tr><td><div class="it"><span class="th">${ICON.shirt}</span><div class="nm">${esc(l.name)}<small>${esc(l.filed)}</small>${got(l)}</div></div></td><td>${pcs(left(l))}</td><td>${cnt(l)}</td><td>${priceText(l, o, S.lines)}</td><td style="font-weight:500">${amt(l)}</td></tr>`).join('')
+  const tfoot = nao ? `<tfoot><tr><td>Not as Ordered</td><td></td><td class="bad">${pcs(nao)}</td><td></td><td><span class="dash">—</span></td></tr></tfoot>` : ''
+  const table = `<div class="itw"><div class="sc"><table class="items rv"><colgroup><col><col style="width:8.5rem"><col style="width:9rem"><col style="width:9.5rem"><col style="width:9.5rem"></colgroup><thead><tr><th>Item</th><th>${ordHead}</th><th>Counted</th><th>Unit Price</th><th>Amount</th></tr></thead><tbody>${trs}</tbody>${tfoot}</table></div></div>`
+  const cards = `<ul class="cards">${rows.map(l => `<li><div class="it"><span class="th">${ICON.shirt}</span><div class="nm">${esc(l.name)}<small>${esc(l.filed)}</small>${got(l)}</div></div><dl><div><dt>${ordHead}</dt><dd>${pcs(left(l))}</dd></div><div><dt>Counted</dt><dd>${cnt(l)}</dd></div><div><dt>Unit Price</dt><dd>${priceText(l, o, S.lines)}</dd></div><div><dt>Amount</dt><dd style="font-weight:500">${amt(l)}</dd></div></dl></li>`).join('')}${nao ? `<li><dl><div><dt>Not as Ordered</dt><dd class="bad">${pcs(nao)}</dd></div></dl></li>` : ''}</ul>`
+  const cell = (t, v, cls = '') => `<div><dt>${t}</dt><dd class="num ${cls}">${num(v)}<small>pcs</small></dd></div>`
+  const cells = cell(part ? 'Total Ordered Left' : 'Total Ordered', rows.reduce((s, l) => s + left(l), 0)) + cell('Total Accepted', accepted) + (nao ? cell('Not as Ordered', nao, 'bad') : '') + (over ? cell('Over', over, 'bad') : '')
+  // The money as it would stand once this count is submitted: always shown — Procurement reviews, and
+  // every choice at the foot has a cost. Short: Closed Short at gross, the Discount on what stays.
+  // Partial: the box is about what is still LEFT of the order (the same pieces the table shows), so its first
+  // line is the value of those pieces — never the whole PO. Same discount rate, on what stays.
+  const baseGross = part ? rows.reduce((s, l) => s + left(l) * l.price * o.pm, 0) : f.gross
+  const sg = rows.reduce((s, l) => s + Math.max(0, left(l) - (l.cnt ?? 0)) * l.price * o.pm, 0)
+  const disc = Math.round((baseGross - sg) * o.disc)
+  const mr = (t, v, c = '') => `<dt class="${c}">${t}</dt><dd class="${c}">${v}</dd>`
+  const money = `<div class="tsplit"><dl>${mr(part ? 'Total Left' : 'Total', rp(baseGross), 'l') + mr('Discount · ' + String(o.disc * 100).replace('.', ',') + '%', money_(-disc), 'l') + (shortPcs ? mr(`Closed Short<small>${pcs(shortPcs)}</small>`, money_(-sg), 'l') : '')}<hr>${mr(part ? 'Grand Total Left' : 'Grand Total', rp(baseGross - sg - disc))}</dl></div>`
+  const sub = `<span>${esc(o.sup)}</span><span class="mono">${o.po}</span> <span>${o.recount ? 'Recounted' : 'Counted'} by <b>${(o.countedBy || '').split(' · ')[0]}</b>, ${(o.countedBy || '').split(' · ')[1]}</span>${o.recount ? `<span>First count ${o.recount.first}</span><span>Recount reason: ${esc(o.recount.reason)}</span>` : ''}`
+  const gotAny = o.lines.some(l => l.rc.length)
+  const foot = `<div class="sft clear">${gotAny ? '<button class="btn ghostb" data-lastrecv="1">Last Receiving</button>' : ''}<span class="sp"></span><button class="btn print">Recount</button>${shortPcs ? '<button class="btn cancel">Close Short</button>' : ''}<button class="btn pri">${shortPcs ? 'Partial Receive' : 'Submit'}</button></div>`
+  return `<div class="dlg" role="dialog" aria-label="Review Count"><div class="shd"><div class="who"><h2>Review Count</h2><div class="meta">${sub}</div></div><div class="tools"><button class="ibtn" data-review-close="1" aria-label="Close">${ICON.x}</button></div></div><div class="sbd"><div class="sect">${table}${cards}</div><div class="trow"><div class="tright"><dl class="kbox bare figs">${cells}</dl>${money}</div></div></div>${foot}</div>`
+}
+const money_ = n => money(n)
+/* Last Receiving: a small dialog over Review Count (owner, 12 Oct: a dialog, not a popover) — the most recent
+   receiving only: its GRN, the day, and the pieces it brought per item. Earlier ones are on the PO detail. */
+function lastReceivingDialog(b) {
+  const o = orderOf(b)
+  const all = o.lines.flatMap(l => l.rc.map(r => ({...r, l})))
+  if (!all.length) return ''
+  const t = x => new Date(x.d).getTime()
+  const latest = all.reduce((a, x) => t(x) > t(a) || (t(x) === t(a) && x.g > a.g) ? x : a)
+  const mine = all.filter(x => x.g === latest.g)
+  const grns = new Set(all.map(x => x.g)).size
+  // The same dress as Review Count, with Received where it says Counted. Ordered Left = what was still
+  // expected going into this receiving; plain figures — an earlier receiving falling short is not an error.
+  const first = grns === 1
+  const before = x => x.l.rec - x.q
+  const leftThen = x => Math.max(0, x.l.q - before(x))
+  const rows = mine.map(x => `<tr><td><div class="it"><span class="th">${ICON.shirt}</span><div class="nm">${esc(x.l.name)}<small>${esc(x.l.filed)}</small></div></div></td><td>${pcs(leftThen(x))}</td><td>${pcs(x.q)}</td><td>${priceText(x.l, o, S.lines)}</td><td style="font-weight:500">${rp(x.q * x.l.price * o.pm)}</td></tr>`).join('')
+  const table = `<div class="itw"><div class="sc"><table class="items rv"><colgroup><col><col style="width:8.5rem"><col style="width:9rem"><col style="width:9.5rem"><col style="width:9.5rem"></colgroup><thead><tr><th>Item</th><th>${first ? 'Ordered' : 'Ordered Left'}</th><th>Received</th><th>Unit Price</th><th>Amount</th></tr></thead><tbody>${rows}</tbody></table></div></div>`
+  const cards = `<ul class="cards">${mine.map(x => `<li><div class="it"><span class="th">${ICON.shirt}</span><div class="nm">${esc(x.l.name)}<small>${esc(x.l.filed)}</small></div></div><dl><div><dt>${first ? 'Ordered' : 'Ordered Left'}</dt><dd>${pcs(leftThen(x))}</dd></div><div><dt>Received</dt><dd>${pcs(x.q)}</dd></div><div><dt>Unit Price</dt><dd>${priceText(x.l, o, S.lines)}</dd></div><div><dt>Amount</dt><dd style="font-weight:500">${rp(x.q * x.l.price * o.pm)}</dd></div></dl></li>`).join('')}</ul>`
+  const cell = (tt, v) => `<div><dt>${tt}</dt><dd class="num">${num(v)}<small>pcs</small></dd></div>`
+  const cells = cell(first ? 'Total Ordered' : 'Total Ordered Left', mine.reduce((s, x) => s + leftThen(x), 0)) + cell('Total Received', mine.reduce((s, x) => s + x.q, 0))
+  const gross = mine.reduce((s, x) => s + x.q * x.l.price * o.pm, 0), disc = Math.round(gross * o.disc)
+  const mr = (tt, v, c = '') => `<dt class="${c}">${tt}</dt><dd class="${c}">${v}</dd>`
+  const money = `<div class="tsplit"><dl>${mr('Total', rp(gross), 'l') + mr('Discount · ' + String(o.disc * 100).replace('.', ',') + '%', money_(-disc), 'l')}<hr>${mr('Grand Total', rp(gross - disc))}</dl></div>`
+  const meta = `<span>${esc(o.sup)}</span><span class="mono">${o.po}</span><span>Received by <b>Rina Kusuma</b>, ${latest.d}</span>`
+  return `<div class="dlg over" role="dialog" aria-label="Last Receiving"><div class="shd"><div class="who"><h2>Last Receiving</h2><div class="meta">${meta}</div></div><div class="tools"><button class="ibtn" data-lastrecv-close="1" aria-label="Close">${ICON.x}</button></div></div>
+  <div class="sbd"><div class="sect">${table}${cards}</div><div class="trow"><div class="tright"><dl class="kbox bare figs">${cells}</dl>${money}</div></div>${grns > 1 ? `<p class="quiet">${grns - 1} earlier receiving${grns > 2 ? 's' : ''} on the PO detail.</p>` : ''}</div>
+  <div class="sft clear"><span class="sp"></span><button class="btn pri" data-lastrecv-close="1">Done</button></div></div>`
+}
+/* The PO detail is the sheet at the right; Review Count is a dialog over it (centred, scrim behind). */
+function sheet(b, v) {
+  const base = sheetBase(b, v)
+  return NEW() && S.review && hasCount(b) ? base + `<button class="scrim" data-review-close="1" aria-label="Close"></button>` + reviewSheet(b) + (S.lastRecv ? `<button class="scrim over" data-lastrecv-close="1" aria-label="Close"></button>` + lastReceivingDialog(b) : '') : base
+}
+function sheetBase(b, v) {
+  if (b.held) return heldSheet(b)
+  const o = orderOf(b), f = figures(o)
+  const t = itemRows(b, o, v, f)
+  const banners = []
+  if (o.banner && o.banner.kind === 'recalled') banners.push(`<div class="banner warn">${ICON.recall}<div><b>Recalled by the warehouse</b>${o.banner.by}, ${o.banner.at} · was ${num(o.banner.was)} pcs</div></div>`)
+  if (b.id === 'cancel' && v === 'a') banners.push(`<div class="banner bad"><div><b>Cancelled</b>${o.closedBy} · ${esc(o.reason)}</div></div>`)
+  if (b.id === 'short' && v === 'a') banners.push(`<div class="quiet">Closed short by <b>${o.closedBy.split(' · ')[0]}</b>, ${o.closedBy.split(' · ')[1]} · ${esc(o.reason)}</div>`)
+  const stamp = o.stamp ? `<span class="stamp ${o.stamp[1]}">${o.stamp[0]}</span>` : ''
+  const sectionNotes = o.notes ? `<div class="sect"><h3>Notes</h3><p class="prose">${esc(o.notes)}</p></div>` : ''
+  const cancelReason = b.id === 'cancel' && v === 'today' ? `<div class="sect"><h3>Cancel Reason</h3><p class="prose">${esc(o.reason)}</p></div>` : ''
+  return `<div class="sheet">${head(b, o, v, f)}<div class="sbd">${stamp}${banners.join('')}
+    <div class="sect"><h3>Items (${o.lines.length})</h3>
+      <div class="itw"><div class="sc"><table class="items"><colgroup>${t.widths.map(w => `<col ${w ? `style="width:${w}"` : ''}>`).join('')}</colgroup><thead><tr>${t.th}</tr></thead><tbody>${t.rows}</tbody></table></div></div>
+      ${itemCards(b, o, v, f)}
+    </div>
+    ${NEW() ? totalsNew(o, f) : totalsBox(o, f) + paidFacts(o)}
+    ${returnSection(b, o, v, f)}
+    ${v === 'a' && b.v === RECV_V && o.lines.some(l => l.rc.length) ? receivingsStrip(o) : ''}
+    ${NEW() ? `<dl class="facts paid"><div><dt>Payment</dt><dd>${o.method} · ${o.terms}</dd></div></dl>` : ''}<div class="sect"><h3>Terms and Conditions</h3><p class="prose">Goods are received Monday to Saturday, 08:00–15:00, with a break from 12:00 to 13:00. On Fridays the break is from 11:30 to 13:00.</p></div>
+    ${cancelReason}${sectionNotes}${activity(o)}</div>${foot(b, o, v)}</div>`
+}
+function receivingsStrip(o) {
+  const all = o.lines.flatMap((l, i) => l.rc.map(r => ({...r, name: l.name})))
+  const byG = {}
+  all.forEach(r => { (byG[r.g] = byG[r.g] || {g:r.g, d:r.d, q:0}).q += r.q })
+  return `<div class="sect"><h3>Receivings (${Object.keys(byG).length})</h3><div class="itw"><table class="items" style="min-width:0"><tbody>${Object.values(byG).map(r => `<tr><td><span class="mono" style="color:var(--ink)">${r.g}</span></td><td style="color:var(--body)">${r.d}</td><td>${pcs(r.q)}</td></tr>`).join('')}</tbody></table></div></div>`
+}
+
+/* ───────────── map: every branch at a glance, read off the same data ───────────── */
+function map() {
+  let last = -1
+  const rows = BR.map(b => {
+    const g = b.g !== last ? (last = b.g, `<tr class="g"><td colspan="8">${GROUPS[b.g]}</td></tr>`) : ''
+    if (b.held) {
+      const f = footOf(b, null)
+      return g + `<tr data-id="${b.id}"><td>${b.n}</td><td class="mu">${b.list}</td><td class="mu">${b.held === 'offline' ? 'Warn banner' : 'Bad banner'}</td><td class="mu">Delivery Date · Items · Quantity · Value</td><td class="mu">No table, lines as a list</td><td class="mu">—</td><td>${[...f.left, ...f.right].map(x => x.split('|')[0]).join(' · ')}</td><td class="mu">—</td></tr>`
+    }
+    const o = orderOf(b), f = figures(o)
+    if (NEW()) {
+      const ft = footOf(b, o), vs = variantsOf(b)
+      const box = ['Ordered', f.recd > 0 ? 'Received' : null].filter(Boolean).join(' · ')
+      const cols = ['Quantity', f.recd > 0 ? 'Received' : null, ].filter(Boolean).join(' · ')
+      const under = [piecesNew(o, f).match(/<dt>[^<]+/g).map(x => x.slice(4)).join(' · '), f.shortPcs ? 'Closed Short in money' : null, o.returns.length || f.extra ? 'Return PO' : null, o.reason ? 'Reason' : null].filter(Boolean).join(' · ')
+      return g + `<tr data-id="${b.id}"><td>${b.n}</td><td class="mu">${b.list}</td><td class="mu">${o.stamp ? o.stamp[0] : o.banner ? 'Recalled banner' : '—'}</td><td class="mu">${box}</td><td class="mu">${cols}</td><td class="mu">${under}</td><td>${[...ft.left, ...ft.right].map(x => x.split('|')[0]).join(' · ') || '—'}</td><td class="mu">${vs ? vs.length - 1 + ' options' : '—'}</td></tr>`
+    }
+    const box = ['Ordered', f.counted !== null && b.v === COUNT_V ? 'Counted (A)' : null, f.recd > 0 ? 'Received' : null].filter(Boolean).join(' · ')
+    const cols = ['Quantity', f.counted !== null ? 'Counted (B)' : null, f.recd > 0 ? 'Received' : null, b.v === RECV_V && f.recd > 0 && o.life === 'PART' ? 'Still expected (B)' : null].filter(Boolean).join(' · ')
+    const top = o.stamp ? o.stamp[0] : o.banner ? 'Recalled banner' : '—'
+    const extra = []
+    extra.push('Order box')
+    if (f.recd > 0) extra.push('Receive box')
+    if (f.shortPcs) extra.push('Closed Short line')
+    if (o.returns.length || f.extra) extra.push('Return PO')
+    if (o.reason) extra.push('Reason')
+    const ft = footOf(b, o)
+    return g + `<tr data-id="${b.id}"><td>${b.n}</td><td class="mu">${b.list}</td><td class="mu">${top}</td><td class="mu">${box}</td><td class="mu">${cols}</td><td class="mu">${extra.join(' · ') || '—'}</td><td>${[...ft.left, ...ft.right].map(x => x.split('|')[0]).join(' · ') || '—'}</td><td class="mu">${b.v ? b.v.length - 1 + ' options' : '—'}</td></tr>`
+  }).join('')
+  return `<div class="mapw"><table class="map"><thead><tr><th>Branch</th><th>In the list</th><th>Stamp or banner</th><th>Figures box</th><th>Table columns</th><th>Under the table adds</th><th>Foot</th><th>Versions</th></tr></thead><tbody>${rows}</tbody></table></div>`
+}
+
+/* ───────────── render ───────────── */
+function render() {
+  const b = branch()
+  if (S.ver !== 'today' && !(variantsOf(b) || []).some(x => x[0] === S.ver)) S.ver = 'today'
+  document.querySelectorAll('#rules button').forEach(x => x.classList.toggle('on', x.dataset.v === S.rules))
+  $('#totalsGrp').style.display = NEW() ? 'none' : ''
+  document.querySelectorAll('#view button').forEach(x => x.classList.toggle('on', x.dataset.v === S.view))
+  document.querySelectorAll('#dev button').forEach(x => x.classList.toggle('on', x.dataset.v === S.dev))
+  document.querySelectorAll('#lines button').forEach(x => x.classList.toggle('on', x.dataset.v === S.lines))
+  document.querySelectorAll('#totals button').forEach(x => x.classList.toggle('on', x.dataset.v === S.totals))
+  $('#worst').classList.toggle('on', S.worst)
+  $('#list').innerHTML = GROUPS.map((g, gi) => `<h3>${g}</h3>${BR.filter(x => x.g === gi).map(x => `<button data-id="${x.id}" class="${x.id === S.branch && S.view === 'sheet' ? 'on' : ''}">${x.n}${variantsOf(x) ? '<i>' + (variantsOf(x).length - 1) + '</i>' : ''}</button>`).join('')}`).join('')
+  if (S.view === 'map') { $('#bar').innerHTML = '<h2>All branches</h2>'; $('#stage').innerHTML = map(); return }
+  const vs = variantsOf(b)
+  const versions = vs ? `<div class="seg" id="vers">${vs.map(x => `<button data-v="${x[0]}" class="${x[0] === S.ver ? 'on' : ''}">${x[1]}</button>`).join('')}</div>` : ''
+  const cur = vs && vs.find(x => x[0] === S.ver)
+  const rv = NEW() && hasCount(b) ? `<div class="seg" id="rv"><button data-v="detail" class="${S.review ? '' : 'on'}">PO detail</button><button data-v="review" class="${S.review ? 'on' : ''}">Review Count</button></div>` : ''
+  $('#bar').innerHTML = `<h2>${b.n}</h2>${cur ? `<span class="hint">${cur[2]}</span>` : ''}${versions}${rv}`
+  if (S.totals === 'all' && !b.held && !NEW()) { $('#bar').innerHTML = `<h2>${b.n}</h2><span class="hint">The totals box, before and now, on this branch's numbers</span>`; $('#stage').innerHTML = compare(b); return }
+  $('#stage').innerHTML = `<div class="screen ${S.dev === 'phone' ? 'phone' : ''}"><div class="behind">${'<i></i>'.repeat(10)}</div><div class="veil"></div>${sheet(b, S.ver)}</div>`
+  history.replaceState(null, '', '#' + S.branch + (S.review && NEW() && hasCount(b) ? '/review' : S.ver !== 'today' ? '/' + S.ver : ''))
+}
+document.addEventListener('click', e => {
+  const t = e.target.closest('button, tr[data-id]'); if (!t) return
+  if (t.dataset.lastrecv) { S.lastRecv = true }
+  else if (t.dataset.lastrecvClose) { S.lastRecv = false }
+  else if (t.dataset.review) { S.review = true }
+  else if (t.dataset.reviewClose) { S.review = false; S.lastRecv = false }
+  else if (t.closest('#rv')) { S.review = t.dataset.v === 'review' }
+  else if (t.closest('#rules')) { S.rules = t.dataset.v }
+  else if (t.closest('#view')) { S.view = t.dataset.v }
+  else if (t.closest('#dev')) { S.dev = t.dataset.v }
+  else if (t.closest('#lines')) { S.lines = t.dataset.v }
+  else if (t.closest('#totals')) { S.totals = t.dataset.v }
+  else if (t.id === 'worst') { S.worst = !S.worst }
+  else if (t.closest('#vers')) { S.ver = t.dataset.v }
+  else if (t.closest('#list') && t.dataset.id) { S.branch = t.dataset.id; S.ver = 'today'; S.view = 'sheet'; S.review = false; S.lastRecv = false }
+  else if (t.matches('tr[data-id]')) { S.branch = t.dataset.id; S.ver = 'today'; S.view = 'sheet' }
+  else return
+  render()
+})
+document.addEventListener('keydown', e => {
+  if (S.view !== 'sheet' || !['ArrowDown', 'ArrowUp'].includes(e.key)) return
+  const i = BR.findIndex(x => x.id === S.branch), n = BR[Math.min(BR.length - 1, Math.max(0, i + (e.key === 'ArrowDown' ? 1 : -1)))]
+  S.branch = n.id; S.ver = 'today'; S.review = false; e.preventDefault(); render()
+})
+function fromHash() {
+  const h = location.hash.slice(1).split('/')
+  if (BR.some(x => x.id === h[0])) { S.branch = h[0]; S.review = h[1] === 'review'; S.ver = h[1] === 'review' ? 'today' : (h[1] || 'today'); S.view = 'sheet' }
+}
+window.addEventListener('hashchange', () => { fromHash(); render() })
+fromHash()
+render()
+</script>
+</body>
+</html>

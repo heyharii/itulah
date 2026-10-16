@@ -1,17 +1,17 @@
 import {
-  createRootRoute,
   createRoute,
-  createRouter,
   lazyRouteComponent,
   redirect,
 } from "@tanstack/react-router"
 
-import { AppShell } from "@/components/shell/app-shell"
+import screenPreloads from "virtual:screen-preloads"
+
+import { deviceHint } from "@/lib/device"
 import { allNavItems, asides, landingPath, modules } from "@/lib/navigation"
-import { prefetchRoute } from "@/lib/prefetch"
-import { validateSheetSearch } from "@/lib/sheets"
+import { prefetchOnServer, prefetchRoute } from "@/lib/prefetch"
 import { Placeholder } from "@/screens/placeholder"
-import type { ScreenMap } from "@/screens/registry"
+import { screenOf, type ScreenMap } from "@/screens/registry"
+import { RootRoute } from "@/routes/__root"
 
 /// The route tree, built from the navigation registry.
 ///
@@ -22,16 +22,26 @@ import type { ScreenMap } from "@/screens/registry"
 /// they cannot disagree, because there is only one list.
 ///
 /// Routes are code-based rather than file-based: no codegen step, and the tree
-/// is derived rather than transcribed.
+/// is derived rather than transcribed. The tree root is the document route
+/// Start owns (`routes/__root.tsx`); `router.tsx` composes the two and owns
+/// the router instance (one per SSR request).
 
-/// Which sheet is open is a search parameter, declared here so it is legal on
-/// every route below. Router merges the validated search of every matched
-/// route, so a key the root claims survives on all of them, and a route with
-/// its own `validateSearch` adds to this rather than replacing it.
-const rootRoute = createRootRoute({
-  component: AppShell,
-  validateSearch: validateSheetSearch,
-})
+/// Every screen renders on the server, with its first data when its
+/// department's `prefetch.ts` names it (`prefetchOnServer`). The exceptions
+/// are screens whose work belongs to the device: Operations reads the
+/// warehouse node with a bearer token that lives in this tab's
+/// `sessionStorage`, which no server can see. Those routes are `ssr: false`
+/// (Start's selective SSR): the server renders the shell around them, and
+/// their loader and screen run in the browser, exactly as the SPA did.
+const CLIENT_ONLY_FOLDERS: ReadonlySet<string> = new Set(["operations"])
+const clientOnly = (path: string) =>
+  CLIENT_ONLY_FOLDERS.has(FOLDER_OF[path] ?? path.split("/")[1])
+
+/// Which sheet is open is a search parameter, declared on the root so it is
+/// legal on every route below. Router merges the validated search of every
+/// matched route, so a key the root claims survives on all of them, and a
+/// route with its own `validateSearch` adds to this rather than replacing it.
+/// (The root is `RootRoute` in `routes/__root.tsx`, which validates it.)
 
 /// Screens that are written, one module at a time and only when asked for.
 ///
@@ -40,7 +50,7 @@ const rootRoute = createRootRoute({
 /// opening Profile to read a payslip downloaded Finance, Marketing and HR
 /// first. Now each folder is its own chunk, fetched the first time one of its
 /// paths is visited — or a moment before, when a link is hovered or pressed
-/// (`defaultPreload: "intent"` below).
+/// (`defaultPreload: "intent"` in `router.tsx`).
 ///
 /// A path belongs to the folder named by its first segment; the four that do
 /// not are listed. Anything in the registry without a screen renders
@@ -68,37 +78,86 @@ function loaderFor(path: string) {
 
 const routes = allNavItems.map((item) =>
   createRoute({
-    getParentRoute: () => rootRoute,
+    getParentRoute: () => RootRoute,
     path: item.path,
+    ssr: clientOnly(item.path) ? false : undefined,
+    // The screen's own chunks, named in the response so the browser fetches
+    // them alongside the entry rather than after it (`vite.screen-preloads.ts`).
+    headers: () => screenPreloadHeader(item.path),
     // The screen's first data starts moving with its code: on a hover or a
-    // touch of any link to it (`intent`, after `defaultPreloadDelay` below)
-    // and again when it is really navigated to. Not awaited — the router must
-    // never wait for data the screen will ask for itself (`lib/prefetch.ts`).
-    loader: ({ preload, location }) => {
-      prefetchRoute(
-        item.path,
-        preload ? "intent" : "navigate",
-        location.search as Record<string, unknown>
-      )
+    // touch of any link to it (`intent`, after `defaultPreloadDelay` in
+    // `router.tsx`) and again when it is really navigated to. Not awaited in
+    // the browser — the router must never wait for data the screen will ask
+    // for itself (`lib/prefetch.ts`) — nor on the server, where the screen's
+    // sections stream in as their answers land.
+    loader: ({ context, preload, location }) => {
+      const search = location.search as Record<string, unknown>
+      if (typeof window === "undefined") {
+        void prefetchOnServer(context.queryClient, item.path, search)
+        return
+      }
+      prefetchRoute(item.path, preload ? "intent" : "navigate", search)
     },
     component: lazyRouteComponent(async () => {
-      const load = loaderFor(item.path)
-      const screen = load ? (await load()).screens[item.path] : undefined
-      return { default: screen ?? Placeholder }
+      const entry = await entryFor(item.path)
+      return { default: entry ? await screenOf(entry) : Placeholder }
     }),
   })
 )
 const routed = new Set(allNavItems.map((item) => item.path))
 
+/// A path's entry in its folder's screen map, loading the (small) map first.
+async function entryFor(path: string) {
+  const load = loaderFor(path)
+  if (!load) return undefined
+  // A map from a build that is gone resolves to nothing once the page is
+  // reloading for the new one (`boot-client.ts`): wait for it, don't throw.
+  const loaded = await load()
+  return loaded === undefined
+    ? new Promise<never>(() => {})
+    : loaded.screens[path]
+}
+
+/// `Link: <…>; rel=modulepreload` for a path's screen and its folder's map,
+/// or nothing. Server only in effect: the browser ignores a route's headers.
+async function screenPreloadHeader(
+  path: string
+): Promise<Record<string, string> | undefined> {
+  if (typeof window !== "undefined") return undefined
+  const folder = FOLDER_OF[path] ?? path.split("/")[1]
+  const entry = await entryFor(path)
+  const files = new Set([
+    ...(screenPreloads[`${folder}/index`] ?? []),
+    ...(entry !== undefined && typeof entry !== "function"
+      ? (screenPreloads[entry.module] ?? [])
+      : []),
+  ])
+  if (files.size === 0) return undefined
+  return {
+    Link: [...files].map((file) => `<${file}>; rel=modulepreload`).join(", "),
+  }
+}
+
 /// A screen registered under a path no nav entry claims would be unreachable,
 /// and one filed in a folder its path does not name would never load — the
-/// failures this arrangement exists to prevent. Checked in development, where
-/// loading every folder costs nothing; a production build skips the block.
-if (import.meta.env.DEV) {
+/// failures this arrangement exists to prevent. Checked in development only,
+/// once per tab and when the browser is idle: it loads every screen folder —
+/// about a thousand modules through Vite's dev transform — and doing that on
+/// every page load is what made the dev server crawl, and left the screen
+/// blank after signing in while the shell waited behind it. A production
+/// build skips the block. Browser only: the server must never load every
+/// screen while rendering.
+function checkRegistry() {
+  try {
+    if (sessionStorage.getItem("registry-checked") !== null) return
+    sessionStorage.setItem("registry-checked", "1")
+  } catch {
+    return
+  }
   void Promise.all(
     Object.entries(folders).map(async ([file, load]) => {
       const folder = file.split("/")[2]
-      for (const path of Object.keys((await load()).screens)) {
+      for (const path of Object.keys((await load())?.screens ?? {})) {
         if (!routed.has(path)) {
           console.error(
             `screens["${path}"] has no entry in lib/navigation.ts, so nothing links to it`
@@ -112,6 +171,11 @@ if (import.meta.env.DEV) {
     })
   )
 }
+if (import.meta.env.DEV && typeof window !== "undefined") {
+  if ("requestIdleCallback" in window)
+    window.requestIdleCallback(checkRegistry, { timeout: 10_000 })
+  else setTimeout(checkRegistry, 5000)
+}
 
 /// `/` is not a screen of its own — it is a redirect into the first module in
 /// the registry, which is Home. That indirection is kept rather than routing
@@ -119,16 +183,31 @@ if (import.meta.env.DEV) {
 /// address screens by the paths in the registry, and a page reachable at two
 /// URLs is a page whose nav highlight is right half the time.
 const indexRoute = createRoute({
-  getParentRoute: () => rootRoute,
+  getParentRoute: () => RootRoute,
   path: "/",
   beforeLoad: () => {
     // A phone starts on its launcher (the bottom bar's first tab); a desk on
-    // the first module, as it always has. Asked of the window rather than of
-    // the layout hook because this runs before anything renders.
-    const phone = window.matchMedia("(width < 48rem)").matches
+    // the first module, as it always has. The browser asks the window; the
+    // server has only the request's own word for it (`lib/device.ts`).
+    const phone =
+      typeof window === "undefined"
+        ? deviceHint().width < 768
+        : window.matchMedia("(width < 48rem)").matches
     throw redirect({ to: phone ? "/apps" : landingPath })
   },
 })
+
+/// The public links: an invitation (`/join/{token}`), a Surat Jalan Retur's QR
+/// (`/n/{token}`) and a printed PO's QR (`/p/{token}`). `App` reads the token from the router's
+/// location and renders the page outside the shell; the routes exist so the
+/// server answers them as pages rather than 404s.
+const publicRoutes = ["/join/$token", "/n/$token", "/p/$token"].map((path) =>
+  createRoute({
+    getParentRoute: () => RootRoute,
+    path,
+    component: () => null,
+  })
+)
 
 /// A module whose URL prefix is not itself a screen, sent to the screen it
 /// used to be.
@@ -155,7 +234,7 @@ const baseRedirects = [...modules, ...asides]
   .filter((module) => !routed.has(module.base!))
   .map((module) =>
     createRoute({
-      getParentRoute: () => rootRoute,
+      getParentRoute: () => RootRoute,
       path: module.base!,
       beforeLoad: () => {
         throw redirect({ to: module.home })
@@ -172,7 +251,7 @@ const baseRedirects = [...modules, ...asides]
 const movedRedirects = [...modules, ...asides].flatMap((module) =>
   (module.moved ?? []).map((path) =>
     createRoute({
-      getParentRoute: () => rootRoute,
+      getParentRoute: () => RootRoute,
       path,
       beforeLoad: ({ search }) => {
         throw redirect({ to: module.home, search })
@@ -191,7 +270,7 @@ const movedRedirects = [...modules, ...asides].flatMap((module) =>
 const movedItemRedirects = allNavItems.flatMap((item) =>
   (item.moved ?? []).map((path) =>
     createRoute({
-      getParentRoute: () => rootRoute,
+      getParentRoute: () => RootRoute,
       path,
       beforeLoad: ({ search }) => {
         throw redirect({ to: item.path, search })
@@ -200,36 +279,13 @@ const movedItemRedirects = allNavItems.flatMap((item) =>
   )
 )
 
-export const router = createRouter({
-  routeTree: rootRoute.addChildren([
-    indexRoute,
-    ...baseRedirects,
-    ...movedRedirects,
-    ...movedItemRedirects,
-    ...routes,
-  ]),
-  defaultPreload: "intent",
-  // A pointer must rest on a link this long before its code and data are asked
-  // for (the router's default is 50): a sweep across the menu fetches nothing.
-  defaultPreloadDelay: 70,
-  // The screens read the signed-in user's own data; a stale answer shown for a
-  // moment is better than a spinner, and Query owns freshness anyway.
-  defaultPreloadStaleTime: 0,
-  // Turning a page is a page turn; opening a sheet is not.
-  //
-  // This hands a navigation to the browser's own view transition, which is why
-  // the page turn costs no library and no wrapper component. What it looks
-  // like is in `styles/index.css`.
-  //
-  // The predicate is the reason this is an object rather than `true`. Most
-  // No page transition. One was tried — the incoming screen faded up over 4px
-  // — and removed once Commercial began navigating itself by tabs: a screen
-  // that changes several times a minute reads as considered on the first click
-  // and as lag on the tenth. The router commits navigations directly.
-})
-
-declare module "@tanstack/react-router" {
-  interface Register {
-    router: typeof router
-  }
-}
+/// The tree's children, in match order: `/` first, then the redirects, then
+/// every registered screen. `router.tsx` hangs these off the document route.
+export const hubChildren = [
+  indexRoute,
+  ...publicRoutes,
+  ...baseRedirects,
+  ...movedRedirects,
+  ...movedItemRedirects,
+  ...routes,
+]

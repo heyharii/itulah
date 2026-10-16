@@ -223,7 +223,7 @@ export function PhotoSheet({
               className="h-11 w-full accent-ink"
             />
             <div className="flex gap-2">
-              <Button
+              <Button data-cancel
                 size="lg"
                 className="h-12 flex-1 justify-center"
                 onClick={() => setCropping(false)}
@@ -283,7 +283,7 @@ export function PhotoSheet({
             </div>
             <p
               role="status"
-              className="min-h-5 text-center text-[0.875rem] text-body"
+              className="min-h-5 text-center text-[0.9375rem] text-body"
             >
               {status}
             </p>

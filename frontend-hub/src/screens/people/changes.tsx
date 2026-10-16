@@ -1,5 +1,9 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
+import {
+  useMutation,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query"
+import { useState, Suspense } from "react"
 
 import type { PersonalDataRequestView } from "@itulah/contract"
 import { PageContent } from "@/components/shell/app-shell"
@@ -12,7 +16,7 @@ import { Card } from "@/components/ui/card"
 import { Day } from "@/components/ui/day"
 import { Field, Input, Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
-import { Pill } from "@/components/ui/pill"
+import { Pill, Status } from "@/components/ui/pill"
 import { KeyValue, MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
@@ -30,9 +34,10 @@ import {
   decideDataRequest,
   hrEmployeeKeys,
   nameOf,
-  useChangeProposals,
   useDataRequests,
   useEveryEmployee,
+  useNameOfLogin,
+  changeProposalsQuery,
 } from "@/lib/queries/hr-employees"
 import { useUnits } from "@/lib/queries/organisation"
 import {
@@ -44,6 +49,11 @@ import {
 import { problemOf } from "@/lib/problem"
 import { queryState } from "@/lib/query-state"
 import { useCanWrite } from "@/lib/session"
+import {
+  changeSummary,
+  FIELD_LABEL,
+  valueOf,
+} from "@/screens/people/change-words"
 import { EmployeePick } from "@/screens/people/employee-pick"
 import {
   CardButton,
@@ -55,19 +65,19 @@ import {
 type Slice = "PENDING" | "ALL"
 type Page = "EMPLOYMENT" | "DETAILS"
 
-const STATE_TONE: Readonly<Record<string, "warn" | "ok" | "bad" | "neutral">> =
-  {
-    PENDING: "warn",
-    APPROVED: "ok",
-    REJECTED: "bad",
-    WITHDRAWN: "neutral",
-  }
+/// Only a change waiting for a decision asks anything of somebody; a rejected
+/// or withdrawn one is settled, not a fault.
+const STATE_TONE: Readonly<Record<string, "warn" | "ok" | "neutral">> = {
+  PENDING: "warn",
+  APPROVED: "ok",
+  REJECTED: "neutral",
+  WITHDRAWN: "neutral",
+}
 
-function summary(change: ChangeProposalView): string {
-  const first = change.props[0]
-  if (first === undefined) return "—"
-  const more = change.props.length > 1 ? ` +${change.props.length - 1}` : ""
-  return `${first.field}: ${first.from || "—"} → ${first.to}${more}`
+/// A unit's name for its id, once the units have arrived.
+function useUnitName(): (id: string) => string {
+  const units = useUnits()
+  return (id) => units.data?.find((one) => one.id === id)?.name ?? id
 }
 
 /// Every proposed change to somebody's employment — a transfer, a promotion,
@@ -83,13 +93,24 @@ export function EmployeeChanges() {
   const [requested, setRequested] = useState<Slice>("PENDING")
   const waiting = useDataRequests(false)
   const waitingCount = waiting.data?.length ?? 0
+  const pages = (
+    <Segmented<Page>
+      options={[
+        { value: "EMPLOYMENT", label: "Employment" },
+        {
+          value: "DETAILS",
+          label: `Detail requests (${count(waitingCount)})`,
+        },
+      ]}
+      value={page}
+      onChange={setPage}
+    />
+  )
 
   return (
     <PageContent>
       <PageHeader
-        crumb="People"
-        title="Employee Changes"
-        sub="Transfers, promotions, salary changes and separations — proposed, then decided."
+        title="Changes"
         actions={
           !phone &&
           canWrite && (
@@ -101,8 +122,10 @@ export function EmployeeChanges() {
       />
 
       {/* On a phone the two lists and their two slices are one choice, the
-          chip over the bottom bar, and a new change is the round +. */}
-      {phone ? (
+          chip over the bottom bar, and a new change is the round +. On a
+          desk the choice of list stands first in each list's own toolbar,
+          before its slices. */}
+      {phone && (
         <>
           <DockChoice
             value={`${page}:${page === "EMPLOYMENT" ? employment : requested}`}
@@ -139,30 +162,18 @@ export function EmployeeChanges() {
             <Fab label="New change" onClick={() => setStarting(true)} />
           )}
         </>
-      ) : (
-        <Toolbar>
-          <Segmented<Page>
-            options={[
-              { value: "EMPLOYMENT", label: "Employment" },
-              {
-                value: "DETAILS",
-                label: `Detail requests (${count(waitingCount)})`,
-              },
-            ]}
-            value={page}
-            onChange={setPage}
-          />
-        </Toolbar>
       )}
 
       {page === "EMPLOYMENT" ? (
         <EmploymentChanges
+          pages={pages}
           canWrite={canWrite}
           slice={employment}
           onSlice={setEmployment}
         />
       ) : (
         <DetailRequests
+          pages={pages}
           canWrite={canWrite}
           slice={requested}
           onSlice={setRequested}
@@ -175,31 +186,25 @@ export function EmployeeChanges() {
 }
 
 function EmploymentChanges({
+  pages,
   canWrite,
   slice,
   onSlice: setSlice,
 }: {
+  /// The choice between this list and the other, first in the toolbar.
+  pages: React.ReactNode
   canWrite: boolean
   slice: Slice
   onSlice: (slice: Slice) => void
 }) {
-  const changes = useChangeProposals()
-  const people = useEveryEmployee()
   const phone = useLayout() === "phone"
   const [openId, setOpenId] = useState<string | null>(null)
-
-  const all = changes.data ?? []
-  const rows = (
-    slice === "PENDING" ? all.filter((one) => one.state === "PENDING") : all
-  )
-    .slice()
-    .sort((a, b) => b.effective_on.localeCompare(a.effective_on))
-  const open = all.find((one) => one.id === openId) ?? null
 
   return (
     <>
       {!phone && (
         <Toolbar>
+          {pages}
           <Segmented<Slice>
             options={[
               { value: "PENDING", label: "Waiting" },
@@ -209,98 +214,163 @@ function EmploymentChanges({
             onChange={setSlice}
           />
           <Toolbar.Spacer />
-          <span className="text-[0.875rem] text-mute tabular-nums">
-            {count(rows.length)} {rows.length === 1 ? "change" : "changes"}
-          </span>
+          <Suspense fallback={null}>
+            <ChangeCount slice={slice} />
+          </Suspense>
         </Toolbar>
       )}
 
       <Card className="overflow-hidden px-4 py-3 max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:p-0 max-md:shadow-none">
-        {changes.isPending ? (
-          <LoadingState>Loading changes…</LoadingState>
-        ) : changes.isError ? (
-          <Problem error={changes.error} />
-        ) : rows.length === 0 ? (
-          <EmptyState>
-            {slice === "PENDING"
-              ? "No change is waiting for a decision. “New change” in the header proposes one."
-              : "No change has been proposed yet."}
-          </EmptyState>
-        ) : phone ? (
-          <PhoneCards
-            rows={rows}
-            onOpen={(change) => setOpenId(change.id)}
-            rowId={(change) => change.id}
-            spec={{
-              title: (change) => (
-                <CardName
-                  name={nameOf(people.data, change.employee_id)}
-                  line={`${CHANGE_KIND_LABEL[change.kind] ?? change.kind} · ${summary(change)}`}
-                />
-              ),
-              lead: (change) => <CardDate iso={change.effective_on} />,
-              foot: (change) => (
-                <Pill tone={STATE_TONE[change.state] ?? "neutral"}>
-                  {CHANGE_STATE_LABEL[change.state] ?? change.state}
-                </Pill>
-              ),
-              action: (change) => (
-                <CardButton
-                  label={
-                    canWrite && change.state === "PENDING" ? "Decide" : "Open"
-                  }
-                  ariaLabel={`Open the change for ${nameOf(people.data, change.employee_id)}`}
-                  onClick={() => setOpenId(change.id)}
-                />
-              ),
-            }}
-          />
-        ) : (
-          <MiniTable head={["Who", "Kind", "What", "Effective", "State"]}>
-            {rows.map((change) => (
-              <MiniRow key={change.id}>
-                <MiniCell>
-                  <button
-                    type="button"
-                    onClick={() => setOpenId(change.id)}
-                    className="font-medium text-ink hover:underline"
-                  >
-                    {nameOf(people.data, change.employee_id)}
-                  </button>
-                </MiniCell>
-                <MiniCell align="right">
-                  {CHANGE_KIND_LABEL[change.kind] ?? change.kind}
-                </MiniCell>
-                <MiniCell align="right">{summary(change)}</MiniCell>
-                <MiniCell align="right">{day(change.effective_on)}</MiniCell>
-                <MiniCell align="right">
-                  <Pill tone={STATE_TONE[change.state] ?? "neutral"}>
-                    {CHANGE_STATE_LABEL[change.state] ?? change.state}
-                  </Pill>
-                </MiniCell>
-              </MiniRow>
-            ))}
-          </MiniTable>
-        )}
+        <Suspense fallback={<LoadingState>Loading changes…</LoadingState>}>
+          <ChangeRows slice={slice} canWrite={canWrite} onOpen={setOpenId} />
+        </Suspense>
       </Card>
 
-      <ChangeSheet
-        change={open}
-        canWrite={canWrite}
-        who={open === null ? "" : nameOf(people.data, open.employee_id)}
-        onClose={() => setOpenId(null)}
-      />
+      {/* The sheet finds its change in the list, so it reads the list itself. */}
+      <Suspense fallback={null}>
+        <ChangeSheetFromList
+          openId={openId}
+          canWrite={canWrite}
+          onClose={() => setOpenId(null)}
+        />
+      </Suspense>
     </>
+  )
+}
+
+/// What the slice shows: the changes waiting, or all of them, latest first.
+function shownChanges(
+  all: readonly ChangeProposalView[],
+  slice: Slice
+): ChangeProposalView[] {
+  return (
+    slice === "PENDING"
+      ? all.filter((one) => one.state === "PENDING")
+      : [...all]
+  ).sort((a, b) => b.effective_on.localeCompare(a.effective_on))
+}
+
+/// How many changes the slice shows, at the right of the toolbar.
+function ChangeCount({ slice }: { slice: Slice }) {
+  const changes = useSuspenseQuery(changeProposalsQuery())
+  const rows = shownChanges(changes.data, slice)
+  return (
+    <span className="text-[0.9375rem] text-mute tabular-nums">
+      {count(rows.length)} {rows.length === 1 ? "change" : "changes"}
+    </span>
+  )
+}
+
+/// The changes, as cards or a table. Here and not in the screen so the head
+/// paints at once and this waits alone for its answer.
+function ChangeRows({
+  slice,
+  canWrite,
+  onOpen: setOpenId,
+}: {
+  slice: Slice
+  canWrite: boolean
+  onOpen: (id: string) => void
+}) {
+  const changes = useSuspenseQuery(changeProposalsQuery())
+  const people = useEveryEmployee()
+  const unitName = useUnitName()
+  const phone = useLayout() === "phone"
+  const rows = shownChanges(changes.data, slice)
+  return rows.length === 0 ? (
+    <EmptyState>
+      {slice === "PENDING"
+        ? "No change is waiting."
+        : "No change has been proposed yet."}
+    </EmptyState>
+  ) : phone ? (
+    <PhoneCards
+      rows={rows}
+      onOpen={(change) => setOpenId(change.id)}
+      rowId={(change) => change.id}
+      spec={{
+        title: (change) => (
+          <CardName
+            name={nameOf(people.data, change.employee_id)}
+            line={`${CHANGE_KIND_LABEL[change.kind] ?? change.kind} · ${changeSummary(change, unitName)}`}
+          />
+        ),
+        lead: (change) => <CardDate iso={change.effective_on} />,
+        foot: (change) => (
+          <Status tone={STATE_TONE[change.state] ?? "neutral"}>
+            {CHANGE_STATE_LABEL[change.state] ?? change.state}
+          </Status>
+        ),
+        action: (change) => (
+          <CardButton
+            label={canWrite && change.state === "PENDING" ? "Decide" : "Open"}
+            ariaLabel={`Open the change for ${nameOf(people.data, change.employee_id)}`}
+            onClick={() => setOpenId(change.id)}
+          />
+        ),
+      }}
+    />
+  ) : (
+    <MiniTable head={["Who", "Kind", "What", "Effective", "State"]}>
+      {rows.map((change) => (
+        <MiniRow key={change.id}>
+          <MiniCell>
+            <button
+              type="button"
+              onClick={() => setOpenId(change.id)}
+              className="font-medium text-ink hover:underline"
+            >
+              {nameOf(people.data, change.employee_id)}
+            </button>
+          </MiniCell>
+          <MiniCell align="right">
+            {CHANGE_KIND_LABEL[change.kind] ?? change.kind}
+          </MiniCell>
+          <MiniCell align="right">{changeSummary(change, unitName)}</MiniCell>
+          <MiniCell align="right">{day(change.effective_on)}</MiniCell>
+          <MiniCell align="right">
+            <Status tone={STATE_TONE[change.state] ?? "neutral"}>
+              {CHANGE_STATE_LABEL[change.state] ?? change.state}
+            </Status>
+          </MiniCell>
+        </MiniRow>
+      ))}
+    </MiniTable>
+  )
+}
+
+function ChangeSheetFromList({
+  openId,
+  canWrite,
+  onClose,
+}: {
+  openId: string | null
+  canWrite: boolean
+  onClose: () => void
+}) {
+  const changes = useSuspenseQuery(changeProposalsQuery())
+  const people = useEveryEmployee()
+  const open = changes.data.find((one) => one.id === openId) ?? null
+  return (
+    <ChangeSheet
+      change={open}
+      canWrite={canWrite}
+      who={open === null ? "" : nameOf(people.data, open.employee_id)}
+      onClose={onClose}
+    />
   )
 }
 
 /// Employees' own requests to change their phone, email or address. Approving
 /// one changes the record; the person who filed it cannot decide it.
 function DetailRequests({
+  pages,
   canWrite,
   slice,
   onSlice: setSlice,
 }: {
+  /// The choice between this list and the other, first in the toolbar.
+  pages: React.ReactNode
   canWrite: boolean
   slice: Slice
   onSlice: (slice: Slice) => void
@@ -318,6 +388,7 @@ function DetailRequests({
     <>
       {!phone && (
         <Toolbar>
+          {pages}
           <Segmented<Slice>
             options={[
               { value: "PENDING", label: "Waiting" },
@@ -327,7 +398,7 @@ function DetailRequests({
             onChange={setSlice}
           />
           <Toolbar.Spacer />
-          <span className="text-[0.875rem] text-mute tabular-nums">
+          <span className="text-[0.9375rem] text-mute tabular-nums">
             {count(rows.length)} {rows.length === 1 ? "request" : "requests"}
           </span>
         </Toolbar>
@@ -340,7 +411,7 @@ function DetailRequests({
             rows.length === 0 ? (
               <EmptyState>
                 {slice === "PENDING"
-                  ? "No detail request is waiting for a decision."
+                  ? "No request is waiting."
                   : "Nobody has asked to change their details yet."}
               </EmptyState>
             ) : phone ? (
@@ -357,9 +428,9 @@ function DetailRequests({
                   ),
                   lead: (request) => <CardDate iso={request.filed_at} />,
                   foot: (request) => (
-                    <Pill tone={STATE_TONE[request.state] ?? "neutral"}>
+                    <Status tone={STATE_TONE[request.state] ?? "neutral"}>
                       {CHANGE_STATE_LABEL[request.state] ?? request.state}
-                    </Pill>
+                    </Status>
                   ),
                   action: (request) => (
                     <CardButton
@@ -407,9 +478,9 @@ function DetailRequests({
                     <MiniCell align="right">{asked(request)}</MiniCell>
                     <MiniCell align="right">{day(request.filed_at)}</MiniCell>
                     <MiniCell align="right">
-                      <Pill tone={STATE_TONE[request.state] ?? "neutral"}>
+                      <Status tone={STATE_TONE[request.state] ?? "neutral"}>
                         {CHANGE_STATE_LABEL[request.state] ?? request.state}
-                      </Pill>
+                      </Status>
                     </MiniCell>
                   </MiniRow>
                 ))}
@@ -431,7 +502,7 @@ function asked(request: PersonalDataRequestView): string {
   return request.value === "" ? "clear it" : request.value
 }
 
-function DataRequestSheet({
+export function DataRequestSheet({
   request,
   canWrite,
   onClose,
@@ -441,6 +512,7 @@ function DataRequestSheet({
   onClose: () => void
 }) {
   const client = useQueryClient()
+  const nameOfLogin = useNameOfLogin()
   const units = useReachableUnits().data ?? []
   const [note, setNote] = useState("")
   const decide = useMutation({
@@ -520,21 +592,23 @@ function DataRequestSheet({
           <div>
             <KeyValue term="Now">{request.current ?? "—"}</KeyValue>
             <KeyValue term="Asked">{asked(request)}</KeyValue>
-            <KeyValue term="Filed by">{request.filed_by}</KeyValue>
+            <KeyValue term="Filed by">{nameOfLogin(request.filed_by)}</KeyValue>
             {request.decided_by !== null && (
-              <KeyValue term="Decided by">{request.decided_by}</KeyValue>
+              <KeyValue term="Decided by">
+                {nameOfLogin(request.decided_by)}
+              </KeyValue>
             )}
           </div>
           <div>
-            <p className="mb-1 text-[0.875rem] text-mute">Their reason</p>
-            <p className="text-[0.875rem] whitespace-pre-wrap text-body">
+            <p className="mb-1 text-[0.9375rem] text-mute">Their reason</p>
+            <p className="text-[0.9375rem] whitespace-pre-wrap text-body">
               {request.reason}
             </p>
           </div>
           {request.decision_reason !== null && (
             <div>
-              <p className="mb-1 text-[0.875rem] text-mute">Decision note</p>
-              <p className="text-[0.875rem] whitespace-pre-wrap text-body">
+              <p className="mb-1 text-[0.9375rem] text-mute">Decision note</p>
+              <p className="text-[0.9375rem] whitespace-pre-wrap text-body">
                 {request.decision_reason}
               </p>
             </div>
@@ -556,7 +630,7 @@ function DataRequestSheet({
   )
 }
 
-function ChangeSheet({
+export function ChangeSheet({
   change,
   who,
   canWrite,
@@ -568,6 +642,8 @@ function ChangeSheet({
   onClose: () => void
 }) {
   const client = useQueryClient()
+  const nameOfLogin = useNameOfLogin()
+  const unitName = useUnitName()
   const [note, setNote] = useState("")
   const decide = useMutation({
     mutationFn: (approved: boolean) =>
@@ -640,36 +716,42 @@ function ChangeSheet({
               </AppLink>
             </KeyValue>
             <KeyValue term="Effective">{day(change.effective_on)}</KeyValue>
-            <KeyValue term="Filed by">{change.filed_by}</KeyValue>
+            <KeyValue term="Filed by">{nameOfLogin(change.filed_by)}</KeyValue>
             {change.decided_by !== null && (
-              <KeyValue term="Decided by">{change.decided_by}</KeyValue>
+              <KeyValue term="Decided by">
+                {nameOfLogin(change.decided_by)}
+              </KeyValue>
             )}
             {change.applied_at !== null && (
               <KeyValue term="Applied">{day(change.applied_at)}</KeyValue>
             )}
           </div>
           <div>
-            <p className="mb-1 text-[0.875rem] text-mute">What changes</p>
+            <p className="mb-1 text-[0.9375rem] text-mute">What changes</p>
             {change.props.length === 0 ? (
-              <p className="text-[0.875rem] text-body">No field named.</p>
+              <p className="text-[0.9375rem] text-body">No field named.</p>
             ) : (
               change.props.map((prop) => (
-                <KeyValue key={prop.field} term={prop.field}>
-                  {prop.from || "—"} → {prop.to}
+                <KeyValue
+                  key={prop.field}
+                  term={FIELD_LABEL[prop.field] ?? prop.field}
+                >
+                  {valueOf(prop.field, prop.from, unitName)} →{" "}
+                  {valueOf(prop.field, prop.to, unitName)}
                 </KeyValue>
               ))
             )}
           </div>
           <div>
-            <p className="mb-1 text-[0.875rem] text-mute">Why</p>
-            <p className="text-[0.875rem] whitespace-pre-wrap text-body">
+            <p className="mb-1 text-[0.9375rem] text-mute">Why</p>
+            <p className="text-[0.9375rem] whitespace-pre-wrap text-body">
               {change.reason}
             </p>
           </div>
           {change.decision_note !== null && (
             <div>
-              <p className="mb-1 text-[0.875rem] text-mute">Decision note</p>
-              <p className="text-[0.875rem] whitespace-pre-wrap text-body">
+              <p className="mb-1 text-[0.9375rem] text-mute">Decision note</p>
+              <p className="text-[0.9375rem] whitespace-pre-wrap text-body">
                 {change.decision_note}
               </p>
             </div>
@@ -689,9 +771,9 @@ function ChangeSheet({
   )
 }
 
-/// A change is proposed from the person's own sheet, where the forms for
-/// status, posting, contract and pay already live. This picks the person and
-/// takes you there, on the Change tab.
+/// Proposing a change: who, what kind, from when, and why. Somebody else
+/// decides it from the list; on approval the posting, contract, pay or exit is
+/// written for real.
 function NewChangeSheet({
   open,
   onClose,
@@ -773,7 +855,7 @@ function NewChangeSheet({
       title="New change"
       footer={
         <div className="flex justify-end gap-2">
-          <Button variant="quiet" onClick={close}>
+          <Button data-cancel variant="quiet" onClick={close}>
             Cancel
           </Button>
           <Button
@@ -788,10 +870,6 @@ function NewChangeSheet({
       }
     >
       <div className="flex flex-col gap-3.5">
-        <p className="text-[0.875rem] text-body">
-          Proposed here, decided by somebody else on the list; on approval the
-          posting, contract, pay or exit is written for real.
-        </p>
         <Field label="Employee" required>
           <EmployeePick
             value={who}

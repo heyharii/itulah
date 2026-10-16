@@ -198,17 +198,21 @@ export function Moment({
   ms,
   jump,
   wrap = false,
+  weekday = true,
 }: {
   ms: number
   jump: Jump | null
   /// May break between its groups when the room is short (the panel's card,
   /// on a phone), instead of running under whatever sits beside it.
   wrap?: boolean
+  /// Off where 15px leaves no room for it (the panel's foot, 216 wide).
+  weekday?: boolean
 }) {
   const p = momentParts(ms)
   return (
     <span className={cn("tabular-nums", !wrap && "whitespace-nowrap")}>
-      {p.weekday} <Roll value={p.day} order={0} jump={jump} />{" "}
+      {weekday && `${p.weekday} `}
+      <Roll value={p.day} order={0} jump={jump} />{" "}
       <Roll value={p.month} order={1} jump={jump} /> {p.year} ·{" "}
       <Roll value={p.hour} order={2} jump={jump} />:
       <Roll value={p.minute} order={3} jump={jump} />
@@ -229,7 +233,7 @@ export function VirtualLabel({
   return (
     <span
       className={cn(
-        "relative inline-flex items-center gap-2 text-[0.875rem] font-medium whitespace-nowrap text-space-ink",
+        "relative inline-flex items-center gap-2 text-[0.9375rem] font-medium whitespace-nowrap text-space-ink",
         className
       )}
     >

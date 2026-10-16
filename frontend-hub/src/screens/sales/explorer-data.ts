@@ -1,8 +1,6 @@
 import {
   infiniteQueryOptions,
-  keepPreviousData,
   queryOptions,
-  useInfiniteQuery,
   useQuery,
 } from "@tanstack/react-query"
 
@@ -35,6 +33,9 @@ export interface ExplorerQuery {
   readonly q: string
   /// Each row at each store, for the per-store table and a phone's cards.
   readonly matrix: boolean
+  /// Each row month by month, for the per-month table: the cells are months
+  /// (`YYYY-MM`) where the matrix has stores.
+  readonly months: boolean
   /// Count the articles in each row: only where a row says it — on a year by
   /// division it costs the server a second pass.
   readonly articles: boolean
@@ -58,6 +59,7 @@ function paramsOf(query: ExplorerQuery, offset: number, limit: number) {
   // The server's own order: biggest sales first, a month oldest first, a
   // cashier session newest first.
   if (query.matrix) out.set("matrix", "true")
+  else if (query.months) out.set("months", "true")
   // Stock is always asked for: the strip above the table says it.
   out.set("stock", "true")
   if (query.articles) out.set("articles", "true")
@@ -96,13 +98,13 @@ export const explorerOptionsQuery = () =>
     staleTime: 5 * 60_000,
   })
 
-export function useExplorerOptions() {
-  return useQuery(explorerOptionsQuery())
-}
-
 /// The rows of one question, a page at a time. The figures that are not rows —
 /// the totals, the stores, the dates — come with every page and are the same
 /// in each, so the first page speaks for them.
+///
+/// Read with `useSuspenseInfiniteQuery`, which takes no `placeholderData`: the
+/// table under a new question stays as it was until the answer comes because
+/// the screen asks through a deferred question (`useDeferredValue`).
 export const explorerRowsQuery = (query: ExplorerQuery) =>
   infiniteQueryOptions({
     queryKey: ["sales", "explorer", "rows", query],
@@ -115,20 +117,8 @@ export const explorerRowsQuery = (query: ExplorerQuery) =>
         ? loaded
         : undefined
     },
-    // The table under a new question stays as it was until the answer comes:
-    // a search typed one letter at a time must not blank the screen.
-    placeholderData: keepPreviousData,
     staleTime: 30_000,
   })
-
-export function useExplorerRows(query: ExplorerQuery | null) {
-  return useInfiniteQuery({
-    // No question yet: the options below are never run (`enabled`), they only
-    // give the key its shape.
-    ...explorerRowsQuery(query as ExplorerQuery),
-    enabled: query !== null,
-  })
-}
 
 /// One article's (or SKU's) SKUs and the stores they sold in, for its sheet.
 /// Asked with the same window and filters as the table, narrowed to the code.
@@ -138,6 +128,7 @@ export function useExplorerDetail(base: ExplorerQuery, code: string | null) {
     group: "sku",
     q: code ?? "",
     matrix: true,
+    months: false,
     articles: false,
   }
   return useQuery({

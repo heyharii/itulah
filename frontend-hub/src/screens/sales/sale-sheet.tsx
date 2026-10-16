@@ -213,7 +213,7 @@ function ShopSaleReceipt({
                     <span className="block text-ink">
                       {line.article_name ?? line.sku_code}
                     </span>
-                    <span className="font-mono text-[0.875rem] text-mute">
+                    <span className="font-mono text-[0.9375rem] text-mute">
                       {line.sku_code}
                     </span>
                   </MiniCell>
@@ -270,7 +270,7 @@ function ShopSaleReceipt({
             ]}
             total={{ label: "Total", value: money(record.total_minor) }}
           />
-          <p className="font-mono text-[0.875rem] break-all text-mute">
+          <p className="font-mono text-[0.9375rem] break-all text-mute">
             Cloud sale ID: {record.sale_id}
           </p>
         </div>
@@ -339,12 +339,12 @@ function SaleRecord({ sale }: { sale: SaleDetail }) {
             {sale.lines.map((line) => (
               <tr key={line.id} className="border-t border-hairline">
                 <td className="py-2 pr-2">
-                  <span className="block text-[0.875rem] text-ink">
+                  <span className="block text-[0.9375rem] text-ink">
                     {line.sku_code}
                   </span>
                   {/* The tag, not the SKU, is what was actually scanned: a line
                       here is one physical garment. */}
-                  <span className="font-mono text-[0.875rem] text-mute">
+                  <span className="font-mono text-[0.9375rem] text-mute">
                     {line.epc}
                   </span>
                 </td>
@@ -374,7 +374,7 @@ function SaleRecord({ sale }: { sale: SaleDetail }) {
                 <td className="py-2 pr-2">
                   <Tag>{payment.method}</Tag>
                 </td>
-                <td className="py-2 text-right text-[0.875rem] text-mute">
+                <td className="py-2 text-right text-[0.9375rem] text-mute">
                   {payment.reference ?? "—"}
                 </td>
                 <td className="py-2 text-right tabular-nums">
@@ -427,11 +427,11 @@ function ReceiptPanel({ saleId }: { saleId: string }) {
             {printed.lines.map((line) => (
               <tr key={line.sale_line_id} className="border-t border-hairline">
                 <td className="py-2 pr-2">
-                  <span className="block text-[0.875rem] text-ink">
+                  <span className="block text-[0.9375rem] text-ink">
                     {line.article_name}
                   </span>
                   <span className="flex items-center gap-1.5">
-                    <span className="font-mono text-[0.875rem] text-mute">
+                    <span className="font-mono text-[0.9375rem] text-mute">
                       {line.sku_code}
                     </span>
                     {/* A line some later return document names. The receipt
@@ -466,7 +466,7 @@ function ReceiptPanel({ saleId }: { saleId: string }) {
                   <td className="py-2 pr-2">
                     <Tag>{band.category}</Tag>
                     {band.inclusive && (
-                      <span className="ml-1.5 text-[0.875rem] text-mute">
+                      <span className="ml-1.5 text-[0.9375rem] text-mute">
                         inclusive
                       </span>
                     )}
@@ -486,7 +486,7 @@ function ReceiptPanel({ saleId }: { saleId: string }) {
             {/* The server's own sentence about how that tax was arrived at.
                 Quoted rather than paraphrased: it is the difference between
                 two totals that would otherwise look like a rounding bug. */}
-            <p className="mt-2 text-[0.875rem] text-mute">{printed.tax_note}</p>
+            <p className="mt-2 text-[0.9375rem] text-mute">{printed.tax_note}</p>
           </div>
         )}
 
@@ -504,7 +504,7 @@ function ReceiptPanel({ saleId }: { saleId: string }) {
                   <td className="py-2 pr-2">
                     <Tag>{payment.method}</Tag>
                   </td>
-                  <td className="py-2 text-right text-[0.875rem] text-mute">
+                  <td className="py-2 text-right text-[0.9375rem] text-mute">
                     {payment.reference ?? "—"}
                   </td>
                   <td className="py-2 text-right tabular-nums">
@@ -530,7 +530,7 @@ function ReceiptPanel({ saleId }: { saleId: string }) {
                   <td className="py-2 pr-2 font-mono text-id text-body">
                     {entry.return_number}
                   </td>
-                  <td className="py-2 text-right text-[0.875rem] text-mute">
+                  <td className="py-2 text-right text-[0.9375rem] text-mute">
                     {entry.reason}
                   </td>
                   <td className="py-2 text-right tabular-nums">
@@ -708,10 +708,10 @@ function RefundPanel({ sale }: { sale: SaleDetail }) {
                       className="flex items-center gap-2 border-b border-hairline py-2 last:border-b-0"
                     >
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[0.875rem] text-ink">
+                        <span className="block truncate text-[0.9375rem] text-ink">
                           {line.sku_code}
                         </span>
-                        <span className="font-mono text-[0.875rem] text-mute">
+                        <span className="font-mono text-[0.9375rem] text-mute">
                           {line.epc}
                         </span>
                       </span>
@@ -1040,7 +1040,7 @@ function PricingPanel({ saleId }: { saleId: string }) {
                   <span className="block text-ink">
                     {line.article_name ?? line.sku_code}
                   </span>
-                  <span className="font-mono text-[0.875rem] text-mute">
+                  <span className="font-mono text-[0.9375rem] text-mute">
                     {line.sku_code}
                   </span>
                 </MiniCell>
@@ -1049,7 +1049,7 @@ function PricingPanel({ saleId }: { saleId: string }) {
                   {money(line.unit_price_minor)}
                 </MiniCell>
                 <MiniCell align="right">
-                  <span className="text-[0.875rem] text-body">
+                  <span className="text-[0.9375rem] text-body">
                     {line.price_source ?? "—"}
                     {line.publication_version !== null &&
                       ` · v${line.publication_version}`}

@@ -530,7 +530,7 @@ function MoveForm({
           <ArrowRight />
           {move.isPending ? "Moving…" : "Move"}
         </Button>
-        <Button variant="ghost" onClick={onCancel}>
+        <Button data-cancel variant="ghost" onClick={onCancel}>
           Cancel
         </Button>
       </div>
@@ -669,7 +669,7 @@ function ReplaceForm({
         <Button variant="primary" pending={save.isPending} onClick={submit}>
           {save.isPending ? "Proposing…" : "Propose replacement"}
         </Button>
-        <Button variant="ghost" onClick={onCancel}>
+        <Button data-cancel variant="ghost" onClick={onCancel}>
           Cancel
         </Button>
       </div>
@@ -798,7 +798,7 @@ function DisposeForm({
         <Button variant="primary" pending={save.isPending} onClick={submit}>
           {save.isPending ? "Requesting…" : "Request disposal"}
         </Button>
-        <Button variant="ghost" onClick={onCancel}>
+        <Button data-cancel variant="ghost" onClick={onCancel}>
           Cancel
         </Button>
       </div>
@@ -977,7 +977,7 @@ function AttachForm({
         >
           {save.isPending ? "Submitting…" : "Submit"}
         </Button>
-        <Button variant="ghost" onClick={onCancel}>
+        <Button data-cancel variant="ghost" onClick={onCancel}>
           Cancel
         </Button>
       </div>

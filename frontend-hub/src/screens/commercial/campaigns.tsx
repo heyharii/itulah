@@ -1,8 +1,8 @@
 import {
-  useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
+  useSuspenseInfiniteQuery,
 } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
@@ -17,7 +17,15 @@ import {
   Percent,
   Store,
 } from "lucide-react"
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import {
+  Suspense,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { DockTools } from "@/components/shell/dock-tools"
@@ -30,14 +38,20 @@ import { RecordPanel } from "@/components/ui/record-panel"
 import { Field, Input, Money, Select, Textarea } from "@/components/ui/field"
 import { cn } from "@/lib/utils"
 import { Day } from "@/components/ui/day"
-import { Meter } from "@/components/ui/meter"
 import { ROOMY } from "@/screens/operations/roomy"
 import { PageHeader } from "@/components/ui/page-header"
 import { Status } from "@/components/ui/pill"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
 import { DeskFilterButton, DeskFilterChips } from "@/components/ui/desk-filter"
+import { SubTabs } from "@/components/ui/sub-tabs"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import { Banner, EmptyState, ErrorState } from "@/components/ui/states"
+import {
+  Banner,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+} from "@/components/ui/states"
 import { AppLink } from "@/components/ui/app-link"
 import {
   useFilters,
@@ -79,7 +93,6 @@ import {
   type PromotionUsage,
   type PublishReceipt,
 } from "@/lib/queries/commercial"
-import { queryState } from "@/lib/query-state"
 import { PerformanceHeader } from "@/screens/commercial/performance-header"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
@@ -361,54 +374,6 @@ const columns: ColumnDef<TableSetup, CampaignLine>[] = [
     ),
   },
   {
-    id: "live",
-    accessorFn: (row) => row.row.campaign.status,
-    header: "Status",
-    size: 130,
-    enableSorting: false,
-    // A switch only where a switch is safe — Live and Paused — and a pill for
-    // the other states, which all used to draw as "off" and flip to Live on
-    // one click. See `phaseOf`.
-    //
-    // Campaign keeps the clause a facet, where Promotions moved it to tabs:
-    // six states are what a facet is good at.
-    //
-    // Asked of the SERVER as the PHASE (`phase` on `GET /commercial/campaigns`)
-    // rather than the stored status, so "Ended" also finds the ACTIVE campaign
-    // whose window has closed — the word the row wears, not the one it was
-    // stored with. That is why it offers "is any of" and nothing else, as one
-    // clause: that is the question the request can carry. The screen lifts the
-    // clause out of the table's own filters and counts the options from the
-    // server's phase facets.
-    meta: {
-      card: "hide",
-      filter: {
-        kind: "option",
-        label: "Status",
-        format: (value: string) => stateOf(value).label,
-        operators: ["isAnyOf"],
-        single: true,
-      },
-    },
-    cell: ({ row, table }) => {
-      const meta = actionsOf<CampaignLine>(table)
-      const campaign = row.original.row.campaign
-      const phase = phaseOf(campaign, Date.now())
-      if (!phase.lever) return <Status tone={phase.tone}>{phase.label}</Status>
-      return (
-        <span className="flex min-w-0 items-center gap-3">
-          <Switch
-            on={campaign.status === "ACTIVE"}
-            busy={meta?.busy === campaign.campaign_id}
-            label={`${campaign.status === "ACTIVE" ? "Pause" : "Resume"} ${campaign.name}`}
-            onToggle={() => meta?.onToggle?.(row.original)}
-          />
-          <span className="truncate text-meta text-body">{phase.label}</span>
-        </span>
-      )
-    },
-  },
-  {
     id: "objective",
     accessorFn: (row) => row.intent?.objective ?? "",
     header: "Objective",
@@ -454,67 +419,50 @@ const columns: ColumnDef<TableSetup, CampaignLine>[] = [
     },
   },
   {
-    id: "target",
-    accessorFn: (row) => row.intent?.target_value ?? 0,
-    header: "Target",
-    size: 210,
+    id: "live",
+    accessorFn: (row) => row.row.campaign.status,
+    header: "Status",
+    size: 130,
     enableSorting: false,
-    meta: { card: "hide" },
-    // The LINE, not the distance from it. Where a campaign stands against its
-    // target is scored over that campaign's OWN window — Eid over
-    // Eid's dates — and a list cannot do that in one read: thirteen
-    // campaigns are thirteen different windows. It is on the row's panel, and a
-    // list-wide version wants a scorecard endpoint that scores each campaign
-    // over its own dates in one query.
-    cell: ({ row }) => {
-      const stated = row.original.intent
-      if (stated === null) return <span className="text-mute">—</span>
-      const metric = metricOf(stated.success_metric)
-      return (
-        <span className="text-text tabular-nums">
-          {stated.target_direction === "AT_MOST" ? "≤ " : "≥ "}
-          {drawMetric(metric?.unit ?? "count", stated.target_value)}{" "}
-          <span className="text-mute">
-            {metric?.label.toLowerCase() ?? stated.success_metric}
-          </span>
-        </span>
-      )
-    },
-  },
-  {
-    id: "rules",
-    accessorFn: (row) => row.offers,
-    header: "Offers",
-    size: 90,
-    // Sorted and filtered by the SERVER (`offers`, `offers_min`/`offers_max`),
-    // which counts the live promotions naming the campaign exactly as the
-    // `campaign` facet this cell reads does.
+    // A switch only where a switch is safe — Live and Paused — and a pill for
+    // the other states, which all used to draw as "off" and flip to Live on
+    // one click. See `phaseOf`.
     //
-    // "is 0" is a campaign with a window and a budget and nothing to spend it
-    // on — published, switchable, and incapable of doing anything. That is a
-    // fault, and it is invisible in a list sorted by spend.
+    // Campaign keeps the clause a facet, where Promotions moved it to tabs:
+    // six states are what a facet is good at.
+    //
+    // Asked of the SERVER as the PHASE (`phase` on `GET /commercial/campaigns`)
+    // rather than the stored status, so "Ended" also finds the ACTIVE campaign
+    // whose window has closed — the word the row wears, not the one it was
+    // stored with. That is why it offers "is any of" and nothing else, as one
+    // clause: that is the question the request can carry. The screen lifts the
+    // clause out of the table's own filters and counts the options from the
+    // server's phase facets.
     meta: {
-      priority: 3,
-      align: "right",
       card: "hide",
       filter: {
-        kind: "number",
-        label: "Offers",
-        unit: "offers",
-        operators: BAND_OPERATORS,
+        kind: "option",
+        label: "Status",
+        format: (value: string) => stateOf(value).label,
+        operators: ["isAnyOf"],
         single: true,
       },
     },
-    cell: ({ row }) => count(row.original.offers),
+    // The word only: Pause and Resume are in the row's sheet (owner, 16 Oct:
+    // the list fits its page, it does not scroll sideways).
+    cell: ({ row }) => {
+      const phase = phaseOf(row.original.row.campaign, Date.now())
+      return <Status tone={phase.tone}>{phase.label}</Status>
+    },
   },
   {
     id: "spent",
     accessorFn: (row) =>
       consumed(row.usage?.spent_minor ?? 0, row.row.campaign.budget_minor) ??
       UNLIMITED,
-    header: "Budget Used",
-    size: 220,
-    meta: { card: "hide" },
+    header: "Budget used",
+    size: 130,
+    meta: { card: "hide", align: "right" },
     // Sorted by the SERVER's `budget_used`: this accessor's share, spent ÷
     // budget off the same usage counter, with a campaign that has no limit
     // sorting last whichever way round. (Its `budget` sort is the limit, not
@@ -528,33 +476,23 @@ const columns: ColumnDef<TableSetup, CampaignLine>[] = [
     // and it carries the `UNLIMITED` sentinel. Somebody typing into it would
     // mean money, and "under 1.000" would answer with every campaign that may
     // spend without limit.
+    // One figure: the share of the budget gone, amber from 70%, red from
+    // 90%. The rupiah are in the sheet.
     cell: ({ row }) => {
       const spent = row.original.usage?.spent_minor ?? 0
-      const budget = row.original.row.campaign.budget_minor
-      const share = consumed(spent, budget)
-      if (share === null) {
-        return (
-          <span className="text-text tabular-nums">
-            {money(spent)} <span className="text-mute">· no limit</span>
-          </span>
-        )
-      }
+      const share = consumed(spent, row.original.row.campaign.budget_minor)
+      if (share === null) return <span className="text-mute">No limit</span>
       return (
-        <span className="flex items-center gap-3">
-          <Meter
-            value={share}
-            tone={share >= 0.9 ? "bad" : share >= 0.7 ? "warn" : "accent"}
-          />
-          <span
-            className={
-              share >= 0.9
-                ? "shrink-0 font-medium text-bad-fg tabular-nums"
-                : "shrink-0 text-body tabular-nums"
-            }
-          >
-            {money(spent)}
-            <span className="text-mute"> / {money(budget!)}</span>
-          </span>
+        <span
+          className={
+            share >= 0.9
+              ? "font-medium text-bad-fg tabular-nums"
+              : share >= 0.7
+                ? "text-warn-fg tabular-nums"
+                : "text-text tabular-nums"
+          }
+        >
+          {Math.round(share * 100)}%
         </span>
       )
     },
@@ -598,8 +536,8 @@ const columns: ColumnDef<TableSetup, CampaignLine>[] = [
   {
     id: "window",
     accessorFn: (row) => row.row.campaign.valid_to ?? "",
-    header: "Runs",
-    size: 190,
+    header: "Ends",
+    size: 140,
     // The accessor is the END of the window, so that is what the clause asks
     // about and what the label says. `is empty` is the open-ended campaign —
     // one running until somebody remembers to stop it, which is the row worth
@@ -616,6 +554,7 @@ const columns: ColumnDef<TableSetup, CampaignLine>[] = [
     meta: {
       priority: 2,
       card: "hide",
+      align: "right",
       filter: {
         kind: "date",
         label: "Ends",
@@ -630,17 +569,15 @@ const columns: ColumnDef<TableSetup, CampaignLine>[] = [
         single: true,
       },
     },
-    cell: ({ row }) => (
-      <span className="text-body">
-        {row.original.row.campaign.valid_from
-          ? day(row.original.row.campaign.valid_from)
-          : "always"}{" "}
-        →{" "}
-        {row.original.row.campaign.valid_to
-          ? day(row.original.row.campaign.valid_to)
-          : "open"}
-      </span>
-    ),
+    // The end only; the start is in the sheet.
+    cell: ({ row }) => {
+      const to = row.original.row.campaign.valid_to
+      return to ? (
+        <span className="text-text tabular-nums">{day(to)}</span>
+      ) : (
+        <span className="text-mute">Open</span>
+      )
+    },
   },
   // Four columns that exist only on a card (`cardLead`; a phone): the campaign
   // over what it is for, the budget it has used as the figure (in rupiah, the
@@ -822,6 +759,24 @@ const SORTS: Record<string, CampaignSort> = {
 const DEFAULT_SORT: SortingState = [{ id: "spent", desc: true }]
 
 export function Campaigns() {
+  // The title stands at once; the list waits for its first page and streams in
+  // with it (the server starts the read too). The head's search and button and
+  // the rest of the page come with the list.
+  return (
+    <Suspense
+      fallback={
+        <PageContent>
+          <PageHeader crumb="Marketing" title="Campaigns" />
+          <LoadingState>Loading campaigns…</LoadingState>
+        </PageContent>
+      }
+    >
+      <CampaignBook />
+    </Suspense>
+  )
+}
+
+function CampaignBook() {
   const client = useQueryClient()
   const actor = useActor()
   // A phone draws the rows as cards and keeps the search, the filter and New in
@@ -874,14 +829,23 @@ export function Campaigns() {
   /// The Status clause, lifted out for the server as the PHASE. At most one
   /// (`single`), and only "is any of" (`operators`) — the one question
   /// `phase=` can carry.
-  const phases = useMemo(() => {
-    const clause = filters.filters.find(
-      (one) =>
-        one.column === "live" &&
-        (one.operator === "isAnyOf" || one.operator === "is")
-    )
-    return clause === undefined ? [] : [...clause.values]
-  }, [filters.filters])
+  ///
+  /// No clause reads as Live (owner, 16 Oct: the list opens on Live) until
+  /// somebody picks All, or takes a Status clause away — then it is every
+  /// phase. Held here rather than written into the URL on arrival: a write
+  /// while the page hydrates is dropped.
+  const clause = filters.filters.find(
+    (one) =>
+      one.column === "live" &&
+      (one.operator === "isAnyOf" || one.operator === "is")
+  )
+  const [everyPhase, setEveryPhase] = useState(false)
+  if (clause !== undefined && !everyPhase) setEveryPhase(true)
+  const phases = useMemo(
+    () =>
+      clause !== undefined ? [...clause.values] : everyPhase ? [] : ["ACTIVE"],
+    [clause, everyPhase]
+  )
 
   /// The other clauses, as the server takes them.
   const objectives = useMemo(
@@ -919,8 +883,12 @@ export function Campaigns() {
 
   /// The campaigns, a page at a time, the next one fetched as the last rows
   /// come into view.
-  const list = useInfiniteQuery(campaignPagesQuery(scope))
-  const first = list.data?.pages[0]
+  ///
+  /// The deferred scope keeps the rows in hand on screen while the next
+  /// question is read, so a keystroke does not empty the table.
+  const asked = useDeferredValue(scope)
+  const list = useSuspenseInfiniteQuery(campaignPagesQuery(asked))
+  const first = list.data.pages[0]
 
   /// Every campaign the search leaves, whatever the status clause — the
   /// server's status facets, which are counted over the search alone. `null`
@@ -984,6 +952,26 @@ export function Campaigns() {
     return map
   }, [usage.data])
 
+  /// The KPI figures, over every campaign the usage counter knows — not only
+  /// the pages loaded (owner, 16 Oct: KPIs like Vouchers').
+  const totals = useMemo(() => {
+    let uses = 0
+    let spent = 0
+    let near = 0
+    for (const one of usage.data ?? []) {
+      if (one.kind !== "CAMPAIGN") continue
+      uses += one.uses
+      spent += one.spent_minor
+      if (
+        one.budget_minor !== null &&
+        one.budget_minor > 0 &&
+        one.spent_minor >= one.budget_minor * 0.9
+      )
+        near += 1
+    }
+    return { uses, spent, near }
+  }, [usage.data])
+
   /// Every stated objective, in ONE read rather than one per row. A column of
   /// objectives asked per campaign is the N+1 the promotions screen already
   /// documents as its own worst feature.
@@ -1029,7 +1017,7 @@ export function Campaigns() {
 
   /// The pages loaded so far — never "every campaign".
   const lines: CampaignLine[] = useMemo(
-    () => (list.data?.pages ?? []).flatMap((page) => page.rows.map(lineOf)),
+    () => list.data.pages.flatMap((page) => page.rows.map(lineOf)),
     [list.data, lineOf]
   )
 
@@ -1049,8 +1037,7 @@ export function Campaigns() {
   const openCampaign = useQuery({
     queryKey: commercialKeys.campaign(sheet.value ?? ""),
     queryFn: ({ signal }) => campaignById(sheet.value ?? "", signal),
-    enabled:
-      sheet.value !== undefined && list.isSuccess && loadedLine === undefined,
+    enabled: sheet.value !== undefined && loadedLine === undefined,
   })
   /// The offers inside the open campaign, asked of the server by campaign —
   /// the Offers tab and the checklist read these, not the loaded rules.
@@ -1199,6 +1186,33 @@ export function Campaigns() {
     setWriting(true)
   }
 
+  /// The Status clause as one-of-a-few — the desk's tabs and the phone's
+  /// dock button — with the counts the server gives per phase.
+  const statusValue = phases.length === 1 ? phases[0] : "ALL"
+  /// Live first — the tab the list opens on (owner, 16 Oct); All last.
+  const statusOptions = [
+    ...(first?.facets.phases ?? [])
+      .filter((one) => one.count > 0 || phases.includes(one.value))
+      .map((one) => ({
+        value: one.value,
+        label: stateOf(one.value).label,
+        count: one.count,
+      }))
+      .sort(
+        (a, b) => Number(b.value === "ACTIVE") - Number(a.value === "ACTIVE")
+      ),
+    { value: "ALL", label: "All", count: everyCount ?? undefined },
+  ]
+  const setStatus = (next: string) => {
+    setEveryPhase(true)
+    filters.set([
+      ...filters.filters.filter((one) => one.column !== "live"),
+      ...(next === "ALL"
+        ? []
+        : [{ column: "live", operator: "isAnyOf" as const, values: [next] }]),
+    ])
+  }
+
   return (
     <PageContent>
       <PageHeader
@@ -1228,6 +1242,43 @@ export function Campaigns() {
 
       {SHOW_PERFORMANCE && <PerformanceHeader of="campaigns" />}
 
+      {!phone && (
+        <KpiStrip className="xl:grid-cols-5">
+          <Kpi
+            label="Live"
+            value={
+              first === undefined
+                ? "—"
+                : count(
+                    first.facets.phases.find((one) => one.value === "ACTIVE")
+                      ?.count ?? 0
+                  )
+            }
+          />
+          <Kpi
+            label="Scheduled"
+            value={
+              first === undefined
+                ? "—"
+                : count(
+                    first.facets.phases.find((one) => one.value === "SCHEDULED")
+                      ?.count ?? 0
+                  )
+            }
+          />
+          <Kpi label="Spent" value={money(totals.spent)} />
+          <Kpi label="Transactions" value={count(totals.uses)} />
+          <Kpi
+            label="Near budget"
+            value={
+              <span className={cn(totals.near > 0 && "text-warn-fg")}>
+                {count(totals.near)}
+              </span>
+            }
+          />
+        </KpiStrip>
+      )}
+
       {toggle.isError && (
         <div className="mb-4">
           <ErrorState error={toggle.error} />
@@ -1245,6 +1296,26 @@ export function Campaigns() {
           stay visible while somebody reads the rows they produced. */}
       <div className="min-w-0">
         <div className="flex min-w-0 flex-col">
+          <SubTabs
+            className="max-md:hidden"
+            tabs={statusOptions.map((one) => ({
+              value: one.value,
+              label:
+                one.count === undefined ? (
+                  one.label
+                ) : (
+                  <>
+                    {one.label}{" "}
+                    <span className="text-mute tabular-nums">
+                      {count(one.count)}
+                    </span>
+                  </>
+                ),
+              short: one.label,
+            }))}
+            value={statusValue}
+            onChange={setStatus}
+          />
           {!phone && (
             <DeskFilterChips
               model={filters}
@@ -1252,46 +1323,42 @@ export function Campaigns() {
               table={table}
             />
           )}
-          <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-            {queryState(list, {
-              loading: "Loading campaigns…",
-              render: () =>
-                needle === "" && everyCount === 0 ? (
-                  <EmptyState
-                    action={
-                      <Button variant="soft" onClick={() => startForm(null)}>
-                        New campaign
-                      </Button>
-                    }
-                  >
-                    No campaigns.
-                  </EmptyState>
-                ) : (
-                  <DataTable<CampaignLine>
-                    refresh={[list]}
-                    table={table}
-                    onRowClick={(row) =>
-                      sheet.open(row.row.campaign.campaign_id)
-                    }
-                    isSelected={(row) =>
-                      row.row.campaign.campaign_id === sheet.value
-                    }
-                    more={list}
-                    empty={
-                      filters.filters.length > 0
-                        ? "No campaign matches those filters."
-                        : "No campaign matches that search."
-                    }
-                    cardSort={false}
-                    cardsApart
-                    cardLead
-                    className={`max-h-[calc(100dvh-15rem)] ${ROOMY}`}
-                  />
-                ),
-            })}
+          <Card
+            aria-busy={asked !== scope || undefined}
+            className="list-swap overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none"
+          >
+            {needle === "" && everyCount === 0 ? (
+              <EmptyState
+                action={
+                  <Button variant="soft" onClick={() => startForm(null)}>
+                    New campaign
+                  </Button>
+                }
+              >
+                No campaigns.
+              </EmptyState>
+            ) : (
+              <DataTable<CampaignLine>
+                refresh={[list]}
+                table={table}
+                onRowClick={(row) => sheet.open(row.row.campaign.campaign_id)}
+                isSelected={(row) =>
+                  row.row.campaign.campaign_id === sheet.value
+                }
+                more={list}
+                empty={
+                  filters.filters.length > 0
+                    ? "No campaign matches those filters."
+                    : "No campaign matches that search."
+                }
+                cardSort={false}
+                cardsApart
+                cardLead
+                className={`max-h-[calc(100dvh-15rem)] ${ROOMY}`}
+              />
+            )}
           </Card>
         </div>
-
       </div>
 
       <Fab label="New campaign" onClick={() => startForm(null)} />
@@ -1311,34 +1378,9 @@ export function Campaigns() {
         // The Status clause of the filter, as the one-of-a-few button the other
         // lists have: the phases the server counts, with their counts.
         status={{
-          value: phases.length === 1 ? phases[0] : "ALL",
-          options: [
-            {
-              value: "ALL",
-              label: "All",
-              count: everyCount ?? undefined,
-            },
-            ...(first?.facets.phases ?? [])
-              .filter((one) => one.count > 0 || phases.includes(one.value))
-              .map((one) => ({
-                value: one.value,
-                label: stateOf(one.value).label,
-                count: one.count,
-              })),
-          ],
-          onChange: (next) =>
-            filters.set([
-              ...filters.filters.filter((one) => one.column !== "live"),
-              ...(next === "ALL"
-                ? []
-                : [
-                    {
-                      column: "live",
-                      operator: "isAnyOf" as const,
-                      values: [next],
-                    },
-                  ]),
-            ]),
+          value: statusValue,
+          options: statusOptions,
+          onChange: setStatus,
         }}
       />
 
@@ -1548,7 +1590,7 @@ function Poster({ line }: { line: CampaignLine }) {
           {save.isPending ? "Submitting…" : "Submit"}
         </Button>
         {save.isSuccess && !changed && (
-          <span className="text-[0.875rem] text-mute">Sent to stores.</span>
+          <span className="text-[0.9375rem] text-mute">Sent to stores.</span>
         )}
       </div>
     </Block>

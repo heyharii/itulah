@@ -19,7 +19,11 @@ import { cn } from "@/lib/utils"
 ///
 ///  - The figure the field held is shown first, and the first key REPLACES it,
 ///    the way a picker does: correcting 12 to 18 is two taps, not a
-///    backspace-and-retype. After that keys append.
+///    backspace-and-retype. After that keys go in at the caret.
+///  - The caret moves like a phone keyboard's (owner, 2026-10-16): tap the
+///    figure to put it between two digits, or hold and slide. A key goes in
+///    there and delete takes the digit to its left; the thousands points are
+///    drawn, never typed, so the caret only stands between digits.
 ///  - Every key writes through at once, so the field behind the sheet is
 ///    already right when the sheet goes away — Done only puts it away, and a
 ///    pull down or × leaves what was entered.
@@ -48,47 +52,96 @@ export function NumberPad({
   onChange: (next: string) => void
 }) {
   const [text, setText] = useState("")
-  // The held figure is "selected": the first key replaces it.
+  // The held figure is "selected": the first key replaces it. Kept in state
+  // as well, so the figure can look selected until then.
   const fresh = useRef(true)
+  const [selected, setSelected] = useState(true)
+  /// Where the caret stands in `text`: how many of its characters are to the
+  /// left of it.
+  const [at, setAt] = useState(0)
+  /// Each typed character as drawn, for finding where a tap lands.
+  const chars = useRef<(HTMLSpanElement | null)[]>([])
 
   useEffect(() => {
     if (!open) return
-    setText(numberText(value, decimal))
+    const held = numberText(value, decimal)
+    setText(held)
+    setAt(held.length)
     fresh.current = true
+    setSelected(true)
     // Opened, not edited: what the field holds is read once, then this sheet
     // is the owner until it closes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
-  const put = (next: string) => {
-    setText(next)
-    onChange(next)
+  const put = (next: string, caret: number) => {
+    // No leading zeros: 0 then 5 is 5, not 05 — the caret moves with them.
+    let cleaned = next
+    let moved = caret
+    while (
+      cleaned.length > 1 &&
+      cleaned[0] === "0" &&
+      cleaned[1] !== "." &&
+      moved > 0
+    ) {
+      cleaned = cleaned.slice(1)
+      moved -= 1
+    }
+    setText(cleaned)
+    setAt(Math.min(moved, cleaned.length))
+    onChange(cleaned)
   }
   const press = (key: string) => {
-    const base = fresh.current ? "" : text
+    const replacing = fresh.current
+    const base = replacing ? "" : text
+    const where = replacing ? 0 : at
     fresh.current = false
+    setSelected(false)
     if (maxLength !== undefined && base.length >= maxLength) return
     if (key === ".") {
       if (!decimal || base.includes(".")) return
-      put(base === "" ? "0." : `${base}.`)
+      const piece = where === 0 ? "0." : "."
+      put(base.slice(0, where) + piece + base.slice(where), where + piece.length)
       return
     }
-    // No leading zeros: 0 then 5 is 5, not 05.
-    put(base === "0" ? key : `${base}${key}`)
+    put(base.slice(0, where) + key + base.slice(where), where + 1)
   }
   const erase = () => {
-    fresh.current = false
-    put(text.slice(0, -1))
+    if (fresh.current) {
+      fresh.current = false
+      setSelected(false)
+      put("", 0)
+      return
+    }
+    if (at === 0) return
+    put(text.slice(0, at - 1) + text.slice(at), at - 1)
+  }
+  /// The caret to the gap nearest the finger: before the first digit whose
+  /// middle is to the right of it, else at the end.
+  const placeAt = (x: number) => {
+    if (fresh.current) {
+      fresh.current = false
+      setSelected(false)
+    }
+    for (let index = 0; index < text.length; index += 1) {
+      const box = chars.current[index]?.getBoundingClientRect()
+      if (box !== undefined && x < box.left + box.width / 2) {
+        setAt(index)
+        return
+      }
+    }
+    setAt(text.length)
   }
 
   // A whole number reads grouped (125.000) as the money fields write it; one
   // with a fraction reads exactly as the field will hold it.
-  const shown =
-    text === ""
-      ? "0"
-      : decimal
-        ? text
-        : new Intl.NumberFormat("id-ID").format(Number(text))
+  // Each typed character with the thousands point drawn before it where one
+  // belongs; the points are drawing, not text, so the caret skips them.
+  const grouped = !decimal
+  const drawn = [...text].map((ch, index) => ({
+    ch,
+    point: grouped && index > 0 && (text.length - index) % 3 === 0,
+  }))
 
   return (
     <Drawer.Root open={open} onOpenChange={onOpenChange}>
@@ -125,14 +178,49 @@ export function NumberPad({
 
             {/* The figure, in the room a thumb's eyes need: it is what the
               keys below are answering. Empty reads as a faint 0. */}
+            {/* The whole row takes the finger: a tap right of the figure puts
+                the caret at the end, left of it at the start (owner,
+                2026-10-16). */}
             <output
               aria-live="polite"
+              onPointerDown={(event) => {
+                event.currentTarget.setPointerCapture(event.pointerId)
+                placeAt(event.clientX)
+              }}
+              onPointerMove={(event) => {
+                if (event.buttons > 0) placeAt(event.clientX)
+              }}
               className={cn(
+                "touch-none select-none",
                 "block truncate px-4 pt-1 pb-3 text-[2.5rem] leading-[1.1] font-semibold tracking-[-0.03em] tabular-nums",
                 text === "" ? "text-mute/50" : "text-ink"
               )}
             >
-              {shown}
+              {/* Selected while the first key would replace it; then a
+                caret that a tap, or a hold and slide, puts between digits —
+                a phone keyboard's (owner, 2026-10-16). */}
+              <span
+                className={cn(
+                  "inline-flex items-baseline rounded-[0.25rem]",
+                  selected && text !== "" && "bg-accent-bg"
+                )}
+              >
+                {text === "" && <span>0</span>}
+                {drawn.map((one, index) => (
+                  <span key={index} className="inline-flex items-baseline">
+                    {!selected && at === index && <Caret />}
+                    {one.point && <span>.</span>}
+                    <span
+                      ref={(node) => {
+                        chars.current[index] = node
+                      }}
+                    >
+                      {one.ch}
+                    </span>
+                  </span>
+                ))}
+                {!selected && at === text.length && <Caret />}
+              </span>
             </output>
 
             <div className="grid grid-cols-3 gap-2 px-4 pb-3">
@@ -167,6 +255,16 @@ export function NumberPad({
         </Drawer.Viewport>
       </Drawer.Portal>
     </Drawer.Root>
+  )
+}
+
+/// The blinking caret between two digits.
+function Caret() {
+  return (
+    <span
+      aria-hidden
+      className="mx-px inline-block h-[0.85em] w-[3px] translate-y-[0.08em] animate-pulse bg-accent motion-reduce:animate-none"
+    />
   )
 }
 

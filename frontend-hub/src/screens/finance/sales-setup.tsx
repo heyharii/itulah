@@ -1,14 +1,34 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query"
+import type { ColumnDef } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
+import { Plus } from "lucide-react"
+import { Suspense, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { DataTable } from "@/components/ui/data-table"
+import { Fab } from "@/components/ui/fab"
 import { Field, Input, Select } from "@/components/ui/field"
+import { SearchSuggest } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
-import { Banner } from "@/components/ui/states"
+import { KeyValue } from "@/components/ui/rows"
+import { Sheet } from "@/components/ui/sheet"
+import { Banner, LoadingState } from "@/components/ui/states"
+import { SubTabs } from "@/components/ui/sub-tabs"
 import { node } from "@/lib/api"
+import { useLayout } from "@/lib/layout"
+import { edcTerminalsQuery, financeKeys } from "@/lib/queries/finance"
+import { tableSetup, type TableSetup } from "@/lib/table"
 import { SiteName, SiteSelect } from "@/screens/finance/parts"
+import { SheetFooter } from "@/screens/people/settings-kit"
+import { useOpener } from "@/screens/people/settings-lib"
 import type {
   AcquirerFeeRate,
   AddBankOutcome,
@@ -24,7 +44,6 @@ import type {
 /// queue), the MDR rates a settlement is checked against, the tolerances and
 /// windows, and "Tambah bank" — the one act that makes a new bank postable.
 const keys = {
-  terminals: ["finance", "edc-terminals"] as const,
   rates: ["finance", "acquirer-fee-rates"] as const,
   settings: ["finance", "settings"] as const,
 }
@@ -32,13 +51,133 @@ const keys = {
 const problemText = (error: unknown) =>
   error instanceof Error ? error.message : String(error)
 
+/// The terminals tab: read inside its own boundary, so the head and the tabs
+/// stand while the list arrives.
+function Terminals({ needle }: { needle: string }) {
+  const terminals = useSuspenseQuery(edcTerminalsQuery())
+  const shown = useMemo(
+    () =>
+      terminals.data.filter(
+        (row) =>
+          needle === "" ||
+          `${row.site_id} ${row.terminal_id} ${row.bank_code}`
+            .toLowerCase()
+            .includes(needle)
+      ),
+    [terminals.data, needle]
+  )
+  return (
+    <ListTable
+      rows={shown}
+      columns={terminalColumns}
+      getRowId={terminalId}
+      empty="No EDC terminal yet."
+    />
+  )
+}
+
+/// A list as its tab's one body: the page scrolls, phones get cards.
+function ListTable<TRow>({
+  rows,
+  columns,
+  getRowId,
+  empty,
+}: {
+  rows: readonly TRow[]
+  columns: ColumnDef<TableSetup, TRow>[]
+  getRowId: (row: TRow) => string
+  empty: string
+}) {
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: rows as TRow[],
+        columns,
+        getRowId,
+      }),
+      [rows, columns, getRowId]
+    )
+  )
+  return <DataTable<TRow> table={table} empty={empty} cardSort={false} />
+}
+
+const terminalColumns: ColumnDef<TableSetup, EdcTerminal>[] = [
+  {
+    id: "site",
+    accessorFn: (row) => row.site_id,
+    header: "Site",
+    size: 220,
+    meta: { card: "title" },
+    cell: ({ row }) => <SiteName id={row.original.site_id} />,
+  },
+  {
+    accessorKey: "terminal_id",
+    header: "Terminal",
+    size: 160,
+    meta: { card: "meta" },
+    cell: ({ row }) => row.original.terminal_id,
+  },
+  {
+    accessorKey: "bank_code",
+    header: "Bank",
+    size: 120,
+    meta: { card: "meta" },
+    cell: ({ row }) => row.original.bank_code,
+  },
+]
+
+const rateColumns: ColumnDef<TableSetup, AcquirerFeeRate>[] = [
+  {
+    accessorKey: "bank_code",
+    header: "Bank",
+    size: 110,
+    meta: { card: "title" },
+    cell: ({ row }) => row.original.bank_code,
+  },
+  {
+    accessorKey: "fee_kind",
+    header: "Kind",
+    size: 150,
+    meta: { card: "meta" },
+    cell: ({ row }) => row.original.fee_kind,
+  },
+  {
+    accessorKey: "rate_percent",
+    header: "Rate %",
+    size: 100,
+    meta: { align: "right", card: "metric" },
+    cell: ({ row }) => row.original.rate_percent,
+  },
+  {
+    accessorKey: "effective_from",
+    header: "From",
+    size: 130,
+    meta: { card: "metric" },
+    cell: ({ row }) => row.original.effective_from,
+  },
+]
+
+const terminalId = (row: EdcTerminal) => `${row.site_id}/${row.terminal_id}`
+const rateId = (row: AcquirerFeeRate) =>
+  `${row.bank_code}/${row.fee_kind}/${row.effective_from}`
+const settingId = (row: FinanceSetting) => row.setting_key
+
+type SetupTab = "terminals" | "rates" | "settings"
+const TABS: { value: SetupTab; label: string }[] = [
+  { value: "terminals", label: "EDC terminals" },
+  { value: "rates", label: "MDR rates" },
+  { value: "settings", label: "Settings" },
+]
+
 export function SalesSetup() {
-  const client = useQueryClient()
-  const terminals = useQuery({
-    queryKey: keys.terminals,
-    queryFn: ({ signal }) =>
-      node.get<EdcTerminal[]>("/api/v1/finance/edc-terminals", { signal }),
-  })
+  const phone = useLayout() === "phone"
+  const [tab, setTab] = useState<SetupTab>("terminals")
+  const [search, setSearch] = useState("")
+  const bankSheet = useOpener()
+  const terminalSheet = useOpener()
+  const rateSheet = useOpener()
+
   const rates = useQuery({
     queryKey: keys.rates,
     queryFn: ({ signal }) =>
@@ -52,7 +191,136 @@ export function SalesSetup() {
       node.get<FinanceSetting[]>("/api/v1/finance/settings", { signal }),
   })
 
-  // ── Tambah bank ─────────────────────────────────────────────────────────
+  const needle = search.trim().toLowerCase()
+  const shownRates = useMemo(
+    () =>
+      (rates.data ?? []).filter(
+        (row) =>
+          needle === "" ||
+          `${row.bank_code} ${row.fee_kind}`.toLowerCase().includes(needle)
+      ),
+    [rates.data, needle]
+  )
+
+  const changeTab = (next: SetupTab) => {
+    setTab(next)
+    setSearch("")
+  }
+  const addLabel = tab === "terminals" ? "Add terminal" : "Add rate"
+  const addHere = () =>
+    tab === "terminals" ? terminalSheet.show() : rateSheet.show()
+  const searchLabel = tab === "terminals" ? "Search terminals" : "Search rates"
+
+  return (
+    <PageContent>
+      <PageHeader
+        crumb="Finance · Setup"
+        title="Sales & Banks"
+        actions={
+          <>
+            <Button variant="ghost" onClick={() => bankSheet.show()}>
+              Add bank
+            </Button>
+            {!phone && tab !== "settings" && (
+              <Button variant="primary" onClick={addHere}>
+                <Plus />
+                {addLabel}
+              </Button>
+            )}
+          </>
+        }
+      />
+
+      <SubTabs
+        tabs={TABS}
+        value={tab}
+        onChange={(next) => changeTab(next as SetupTab)}
+      />
+
+      {tab !== "settings" && !phone && (
+        <div className="mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2">
+          <SearchSuggest
+            value={search}
+            onChange={setSearch}
+            label={searchLabel}
+            suggestions={[]}
+            picked={null}
+            onPick={() => undefined}
+            onClear={() => undefined}
+          />
+        </div>
+      )}
+
+      {tab === "terminals" && (
+        <Suspense
+          fallback={<LoadingState>Reading the EDC terminals…</LoadingState>}
+        >
+          <Terminals needle={needle} />
+        </Suspense>
+      )}
+      {tab === "rates" && (
+        <>
+          <ListTable
+            rows={shownRates}
+            columns={rateColumns}
+            getRowId={rateId}
+            empty="No MDR rate yet."
+          />
+        </>
+      )}
+      {tab === "settings" && (
+        <Card className="overflow-hidden px-4 py-2">
+          {(settings.data ?? []).length === 0 ? (
+            <p className="py-3 text-[0.9375rem] text-mute">
+              No setting is kept on this node.
+            </p>
+          ) : (
+            (settings.data ?? []).map((one) => (
+              <div
+                key={settingId(one)}
+                className="border-b border-hairline py-2.5 last:border-b-0"
+              >
+                <KeyValue term={one.setting_key}>
+                  {one.value} {one.unit}
+                </KeyValue>
+                {one.note && (
+                  <p className="text-[0.9375rem] text-mute">{one.note}</p>
+                )}
+              </div>
+            ))
+          )}
+        </Card>
+      )}
+
+      {tab !== "settings" && (
+        <DockTools
+          search={{ value: search, onChange: setSearch, label: searchLabel }}
+        />
+      )}
+      {tab !== "settings" && <Fab label={addLabel} onClick={addHere} />}
+
+      <BankSheet
+        key={`bank${bankSheet.n}`}
+        open={bankSheet.isOpen}
+        onClose={bankSheet.hide}
+      />
+      <TerminalSheet
+        key={`terminal${terminalSheet.n}`}
+        open={terminalSheet.isOpen}
+        onClose={terminalSheet.hide}
+      />
+      <RateSheet
+        key={`rate${rateSheet.n}`}
+        open={rateSheet.isOpen}
+        onClose={rateSheet.hide}
+      />
+    </PageContent>
+  )
+}
+
+// ── Add bank ──────────────────────────────────────────────────────────────
+function BankSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const client = useQueryClient()
   const [bank, setBank] = useState({
     bank_code: "",
     bank_name: "",
@@ -67,10 +335,106 @@ export function SalesSetup() {
       node.post<AddBankOutcome>("/api/v1/finance/banks/add", request),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ["finance"] })
+      onClose()
     },
   })
+  return (
+    <Sheet
+      open={open}
+      onOpenChange={(next) => !next && onClose()}
+      title="Add bank"
+      footer={
+        <SheetFooter
+          onCancel={onClose}
+          saveLabel="Add bank"
+          pending={addBank.isPending}
+          disabled={!bank.bank_code || !bank.bank_name}
+          onSave={() =>
+            addBank.mutate({
+              bank_code: bank.bank_code,
+              bank_name: bank.bank_name,
+              giro: bank.giro,
+              savings: bank.savings,
+              debit_card: bank.debit_card,
+              account_no: bank.account_no || null,
+              account_holder: bank.account_holder || null,
+              account_unit_id: null,
+              terminals: [],
+            })
+          }
+        />
+      }
+    >
+      <div className="flex flex-col gap-3">
+        <p className="text-[0.9375rem] text-body">
+          Creates the bank&apos;s leaves in the right groups (Cash In Bank Giro
+          / Tabungan, Outstanding Giro, Penjualan Debit Card), maps them by the
+          bank&apos;s code, registers the account and — QRIS on this bank&apos;s
+          EDC posts to its debit-card pair.
+        </p>
+        <div className="grid grid-cols-2 gap-3 max-md:grid-cols-1">
+          <Field label="Bank code" required hint="e.g. BSI">
+            <Input
+              value={bank.bank_code}
+              onChange={(e) =>
+                setBank({ ...bank, bank_code: e.target.value.toUpperCase() })
+              }
+            />
+          </Field>
+          <Field label="Name in the chart" required hint="e.g. BSI">
+            <Input
+              value={bank.bank_name}
+              onChange={(e) => setBank({ ...bank, bank_name: e.target.value })}
+            />
+          </Field>
+          <Field label="Account number">
+            <Input
+              value={bank.account_no}
+              onChange={(e) => setBank({ ...bank, account_no: e.target.value })}
+            />
+          </Field>
+          <Field label="Account holder">
+            <Input
+              value={bank.account_holder}
+              onChange={(e) =>
+                setBank({ ...bank, account_holder: e.target.value })
+              }
+            />
+          </Field>
+        </div>
+        <div className="flex flex-wrap gap-4 text-[0.9375rem] text-text">
+          {(["giro", "savings", "debit_card"] as const).map((flag) => (
+            <label key={flag} className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={bank[flag]}
+                onChange={(e) => setBank({ ...bank, [flag]: e.target.checked })}
+              />
+              {flag === "giro"
+                ? "Giro"
+                : flag === "savings"
+                  ? "Savings"
+                  : "Debit card / QRIS"}
+            </label>
+          ))}
+        </div>
+        {addBank.isError && (
+          <Banner tone="bad">{problemText(addBank.error)}</Banner>
+        )}
+      </div>
+    </Sheet>
+  )
+}
 
-  // ── terminal ────────────────────────────────────────────────────────────
+// ── Add terminal ──────────────────────────────────────────────────────────
+function TerminalSheet({
+  open,
+  onClose,
+}: {
+  open: boolean
+  onClose: () => void
+}) {
+  const client = useQueryClient()
   const [terminal, setTerminal] = useState({
     site_id: "",
     terminal_id: "",
@@ -83,11 +447,63 @@ export function SalesSetup() {
         label: null,
         active: true,
       }),
-    onSuccess: () =>
-      void client.invalidateQueries({ queryKey: keys.terminals }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: financeKeys.edcTerminals() })
+      onClose()
+    },
   })
+  return (
+    <Sheet
+      open={open}
+      onOpenChange={(next) => !next && onClose()}
+      title="Add terminal"
+      footer={
+        <SheetFooter
+          onCancel={onClose}
+          saveLabel="Save terminal"
+          pending={saveTerminal.isPending}
+          onSave={() => saveTerminal.mutate()}
+        />
+      }
+    >
+      <div className="flex flex-col gap-3">
+        <Field label="Shop">
+          <SiteSelect
+            value={terminal.site_id}
+            onChange={(site_id) => setTerminal({ ...terminal, site_id })}
+            emptyLabel="Shop"
+          />
+        </Field>
+        <Field label="Terminal">
+          <Input
+            value={terminal.terminal_id}
+            onChange={(e) =>
+              setTerminal({ ...terminal, terminal_id: e.target.value })
+            }
+          />
+        </Field>
+        <Field label="Bank">
+          <Input
+            value={terminal.bank_code}
+            onChange={(e) =>
+              setTerminal({
+                ...terminal,
+                bank_code: e.target.value.toUpperCase(),
+              })
+            }
+          />
+        </Field>
+        {saveTerminal.isError && (
+          <Banner tone="bad">{problemText(saveTerminal.error)}</Banner>
+        )}
+      </div>
+    </Sheet>
+  )
+}
 
-  // ── rate ────────────────────────────────────────────────────────────────
+// ── Add rate ──────────────────────────────────────────────────────────────
+function RateSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const client = useQueryClient()
   const [rate, setRate] = useState({
     bank_code: "",
     fee_kind: "DEBIT_ON_US",
@@ -100,253 +516,69 @@ export function SalesSetup() {
         ...rate,
         note: null,
       }),
-    onSuccess: () => void client.invalidateQueries({ queryKey: keys.rates }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: keys.rates })
+      onClose()
+    },
   })
-
   return (
-    <PageContent>
-      <PageHeader
-        crumb="Finance · Setup"
-        title="Sales & Banks"
-        sub="EDC terminals, MDR rates, tolerances, and adding a bank"
-      />
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card className="flex flex-col gap-3 p-4">
-          <h2 className="text-[0.9375rem] font-semibold text-ink">Add bank</h2>
-          <p className="text-[0.875rem] text-body">
-            Creates the bank&apos;s leaves in the right groups (Cash In Bank
-            Giro / Tabungan, Outstanding Giro, Penjualan Debit Card), maps them
-            by the bank&apos;s code, registers the account and — QRIS on this
-            bank&apos;s EDC posts to its debit-card pair.
-          </p>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Bank code" required hint="e.g. BSI">
-              <Input
-                value={bank.bank_code}
-                onChange={(e) =>
-                  setBank({ ...bank, bank_code: e.target.value.toUpperCase() })
-                }
-              />
-            </Field>
-            <Field label="Name in the chart" required hint="e.g. BSI">
-              <Input
-                value={bank.bank_name}
-                onChange={(e) =>
-                  setBank({ ...bank, bank_name: e.target.value })
-                }
-              />
-            </Field>
-            <Field label="Account number">
-              <Input
-                value={bank.account_no}
-                onChange={(e) =>
-                  setBank({ ...bank, account_no: e.target.value })
-                }
-              />
-            </Field>
-            <Field label="Account holder">
-              <Input
-                value={bank.account_holder}
-                onChange={(e) =>
-                  setBank({ ...bank, account_holder: e.target.value })
-                }
-              />
-            </Field>
-          </div>
-          <div className="flex flex-wrap gap-4 text-[0.875rem] text-text">
-            {(["giro", "savings", "debit_card"] as const).map((flag) => (
-              <label key={flag} className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={bank[flag]}
-                  onChange={(e) =>
-                    setBank({ ...bank, [flag]: e.target.checked })
-                  }
-                />
-                {flag === "giro"
-                  ? "Giro"
-                  : flag === "savings"
-                    ? "Savings"
-                    : "Debit card / QRIS"}
-              </label>
+    <Sheet
+      open={open}
+      onOpenChange={(next) => !next && onClose()}
+      title="Add MDR rate"
+      footer={
+        <SheetFooter
+          onCancel={onClose}
+          saveLabel="Save rate"
+          pending={saveRate.isPending}
+          onSave={() => saveRate.mutate()}
+        />
+      }
+    >
+      <div className="flex flex-col gap-3">
+        <p className="text-[0.9375rem] text-body">
+          Final rates: the bank&apos;s MDR already includes VAT.
+        </p>
+        <Field label="Bank">
+          <Input
+            value={rate.bank_code}
+            onChange={(e) =>
+              setRate({ ...rate, bank_code: e.target.value.toUpperCase() })
+            }
+          />
+        </Field>
+        <Field label="Fee kind">
+          <Select
+            aria-label="Fee kind"
+            value={rate.fee_kind}
+            onChange={(fee_kind) => setRate({ ...rate, fee_kind })}
+          >
+            {["DEBIT_ON_US", "DEBIT_OFF_US", "CREDIT", "QRIS"].map((kind) => (
+              <option key={kind} value={kind}>
+                {kind}
+              </option>
             ))}
-          </div>
-          <div>
-            <Button
-              pending={addBank.isPending}
-              disabled={!bank.bank_code || !bank.bank_name}
-              onClick={() =>
-                addBank.mutate({
-                  bank_code: bank.bank_code,
-                  bank_name: bank.bank_name,
-                  giro: bank.giro,
-                  savings: bank.savings,
-                  debit_card: bank.debit_card,
-                  account_no: bank.account_no || null,
-                  account_holder: bank.account_holder || null,
-                  account_unit_id: null,
-                  terminals: [],
-                })
-              }
-            >
-              Add bank
-            </Button>
-          </div>
-          {addBank.isError && (
-            <Banner tone="bad">{problemText(addBank.error)}</Banner>
-          )}
-        </Card>
-
-        <Card className="flex flex-col gap-3 p-4">
-          <h2 className="text-[0.9375rem] font-semibold text-ink">
-            EDC terminals
-          </h2>
-          <table className="text-[0.875rem]">
-            <thead className="text-left text-mute">
-              <tr>
-                <th>Site</th>
-                <th>Terminal</th>
-                <th>Bank</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(terminals.data ?? []).map((row) => (
-                <tr key={`${row.site_id}/${row.terminal_id}`}>
-                  <td>
-                    <SiteName id={row.site_id} />
-                  </td>
-                  <td>{row.terminal_id}</td>
-                  <td>{row.bank_code}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <div className="grid grid-cols-3 gap-2 max-md:grid-cols-1">
-            <SiteSelect
-              value={terminal.site_id}
-              onChange={(site_id) => setTerminal({ ...terminal, site_id })}
-              emptyLabel="Shop"
-            />
-            <Input
-              value={terminal.terminal_id}
-              onChange={(e) =>
-                setTerminal({ ...terminal, terminal_id: e.target.value })
-              }
-            />
-            <Input
-              value={terminal.bank_code}
-              onChange={(e) =>
-                setTerminal({
-                  ...terminal,
-                  bank_code: e.target.value.toUpperCase(),
-                })
-              }
-            />
-          </div>
-          <div>
-            <Button
-              pending={saveTerminal.isPending}
-              onClick={() => saveTerminal.mutate()}
-            >
-              Save terminal
-            </Button>
-          </div>
-          {saveTerminal.isError && (
-            <Banner tone="bad">{problemText(saveTerminal.error)}</Banner>
-          )}
-        </Card>
-
-        <Card className="flex flex-col gap-3 p-4">
-          <h2 className="text-[0.9375rem] font-semibold text-ink">MDR rates</h2>
-          <p className="text-[0.875rem] text-body">
-            Final rates: the bank&apos;s MDR already includes VAT.
-          </p>
-          <table className="text-[0.875rem]">
-            <thead className="text-left text-mute">
-              <tr>
-                <th>Bank</th>
-                <th>Kind</th>
-                <th>Rate %</th>
-                <th>From</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(rates.data ?? []).map((row) => (
-                <tr
-                  key={`${row.bank_code}/${row.fee_kind}/${row.effective_from}`}
-                >
-                  <td>{row.bank_code}</td>
-                  <td>{row.fee_kind}</td>
-                  <td>{row.rate_percent}</td>
-                  <td>{row.effective_from}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <div className="grid grid-cols-4 gap-2 max-md:grid-cols-2">
-            <Input
-              value={rate.bank_code}
-              onChange={(e) =>
-                setRate({ ...rate, bank_code: e.target.value.toUpperCase() })
-              }
-            />
-            <Select
-              aria-label="Fee kind"
-              value={rate.fee_kind}
-              onChange={(fee_kind) => setRate({ ...rate, fee_kind })}
-            >
-              {["DEBIT_ON_US", "DEBIT_OFF_US", "CREDIT", "QRIS"].map((kind) => (
-                <option key={kind} value={kind}>
-                  {kind}
-                </option>
-              ))}
-            </Select>
-            <Input
-              value={rate.rate_percent}
-              onChange={(e) =>
-                setRate({ ...rate, rate_percent: e.target.value })
-              }
-            />
-            <Input
-              type="date"
-              value={rate.effective_from}
-              onChange={(e) =>
-                setRate({ ...rate, effective_from: e.target.value })
-              }
-            />
-          </div>
-          <div>
-            <Button
-              pending={saveRate.isPending}
-              onClick={() => saveRate.mutate()}
-            >
-              Save rate
-            </Button>
-          </div>
-          {saveRate.isError && (
-            <Banner tone="bad">{problemText(saveRate.error)}</Banner>
-          )}
-        </Card>
-
-        <Card className="flex flex-col gap-3 p-4">
-          <h2 className="text-[0.9375rem] font-semibold text-ink">
-            Finance settings
-          </h2>
-          <table className="text-[0.875rem] max-md:block max-md:[&_tbody]:block max-md:[&_td]:block max-md:[&_td]:pr-0 max-md:[&_tr]:block max-md:[&_tr]:border-b max-md:[&_tr]:border-hairline max-md:[&_tr]:py-2.5 max-md:[&_tr:last-child]:border-b-0">
-            <tbody>
-              {(settings.data ?? []).map((row) => (
-                <tr key={row.setting_key}>
-                  <td className="pr-3 font-medium">{row.setting_key}</td>
-                  <td className="pr-3">
-                    {row.value} {row.unit}
-                  </td>
-                  <td className="text-mute">{row.note}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Card>
+          </Select>
+        </Field>
+        <Field label="Rate %">
+          <Input
+            value={rate.rate_percent}
+            onChange={(e) => setRate({ ...rate, rate_percent: e.target.value })}
+          />
+        </Field>
+        <Field label="From">
+          <Input
+            type="date"
+            value={rate.effective_from}
+            onChange={(e) =>
+              setRate({ ...rate, effective_from: e.target.value })
+            }
+          />
+        </Field>
+        {saveRate.isError && (
+          <Banner tone="bad">{problemText(saveRate.error)}</Banner>
+        )}
       </div>
-    </PageContent>
+    </Sheet>
   )
 }

@@ -1,16 +1,23 @@
 import { useQuery } from "@tanstack/react-query"
 import { useState } from "react"
 
+import { AppLink } from "@/components/ui/app-link"
+import { Button } from "@/components/ui/button"
 import { useDirtyGuard } from "@/components/ui/dirty-guard"
+import { PhotoImg } from "@/components/ui/photo-img"
 import { Pill } from "@/components/ui/pill"
 import { Sheet } from "@/components/ui/sheet"
+import { Thumbnail } from "@/components/ui/thumbnail"
 import { SheetFooter } from "@/components/ui/sheet-footer"
 import { articleDetail, articleKeys } from "@/lib/queries/articles"
 import { catalogueVocabulary, procurementKeys } from "@/lib/queries/procurement"
 import { queryState } from "@/lib/query-state"
 import { ArticleEditForm, useArticleEditor } from "@/screens/master/article-edit"
 import { useArticlePictures } from "@/screens/master/article-pictures"
+import { purchaseOf } from "@/screens/master/article-grid"
 import { ArticleView } from "@/screens/master/article-view"
+import { termLabel } from "@/screens/procurement/shared"
+import { useSupplierName } from "@/screens/procurement/supplier-name"
 
 /// One article, whole.
 ///
@@ -33,12 +40,18 @@ export function ArticleSheet({
   open,
   onClose,
   edit = false,
+  stock = true,
+  readOnly = false,
 }: {
   articleCode: string | null
   open: boolean
   onClose: () => void
   /// Open on the edit form rather than the overview: the card's Edit button.
   edit?: boolean
+  /// False leaves the stock out (the Ops flow: owner, 16 Oct 2026).
+  stock?: boolean
+  /// True hides the Edit control.
+  readOnly?: boolean
 }) {
   const [editing, setEditing] = useState(edit)
 
@@ -79,6 +92,52 @@ export function ArticleSheet({
   // Cancel asks first when there is typed work, the same way ×, Esc and the
   // veil do (the sheet's own `dirty`).
   const guard = useDirtyGuard(editing && editor.dirty)
+  const supplierName = useSupplierName()
+
+  /// The head, as option F draws it (owner, 2026-10-15): the photo at 64px
+  /// beside the name, and under it division · tags · the supplier, a link.
+  const purchase = article === undefined ? null : purchaseOf(article)
+  const division =
+    article?.division_code == null
+      ? null
+      : termLabel(vocabulary.data?.divisions, article.division_code)
+  const tags = (article?.tags ?? []).map((code) =>
+    termLabel(vocabulary.data?.tags, code)
+  )
+  const filed = [division, ...tags].filter(Boolean).join(" · ")
+  const caption =
+    article === undefined || editing ? undefined : (
+      <>
+        {filed}
+        {purchase !== null && (
+          <>
+            {filed !== "" && " · "}
+            <AppLink
+              to="/procurement/suppliers"
+              sheet={{ key: "supplier", value: purchase.supplierId }}
+              className="text-accent hover:underline"
+            >
+              {supplierName(null, purchase.supplier, purchase.supplierId)}
+            </AppLink>
+          </>
+        )}
+      </>
+    )
+  const media =
+    article === undefined || editing ? undefined : pictures.main ? (
+      <PhotoImg
+        url={pictures.main}
+        alt={article.name}
+        className="size-full object-cover"
+      />
+    ) : (
+      <Thumbnail
+        url={null}
+        name={article.name}
+        division={division}
+        className="size-full"
+      />
+    )
 
   return (
     <>
@@ -102,13 +161,15 @@ export function ArticleSheet({
         dirty={editing && editor.dirty}
         id={article?.article_code ?? articleCode ?? undefined}
         title={article?.name ?? "Article"}
+        caption={caption}
+        media={media}
         badge={
           article !== undefined && !article.active ? (
             <Pill tone="neutral">Non-active</Pill>
           ) : undefined
         }
         footer={
-          article === undefined ? undefined : editing ? (
+          article === undefined || (readOnly && !editing) ? undefined : editing ? (
             <SheetFooter
               onCancel={() =>
                 guard.request(() => {
@@ -128,8 +189,14 @@ export function ArticleSheet({
               }}
             />
           ) : (
+            // Edit is a ghost, not the blue main act (hub-ui-patterns, 14 Oct):
+            // a read-only record has no main act.
             <SheetFooter
-              primary={{ label: "Edit", onClick: () => setEditing(true) }}
+              secondary={
+                <Button variant="ghost" onClick={() => setEditing(true)}>
+                  Edit
+                </Button>
+              }
             />
           )
         }
@@ -150,6 +217,7 @@ export function ArticleSheet({
                 article={one}
                 vocabulary={vocabulary.data}
                 pictures={pictures}
+                stock={stock}
               />
             ),
         })}

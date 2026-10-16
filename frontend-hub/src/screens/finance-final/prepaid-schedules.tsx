@@ -1,41 +1,36 @@
 import {
-  useInfiniteQuery,
   useMutation,
-  useQuery,
   useQueryClient,
+  useSuspenseInfiniteQuery,
+  useSuspenseQuery,
 } from "@tanstack/react-query"
-import { useMemo, useState } from "react"
+import type { ColumnDef } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
+import { Suspense, useDeferredValue, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { Button } from "@/components/ui/button"
+import { Card } from "@/components/ui/card"
+import { DataTable } from "@/components/ui/data-table"
 import { Fab } from "@/components/ui/fab"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { BottomSheet } from "@/components/ui/picker-sheet"
 import { Pill } from "@/components/ui/pill"
-import {
-  EmptyState,
-  ErrorState,
-  LoadMore,
-  LoadingState,
-} from "@/components/ui/states"
+import { Toolbar } from "@/components/ui/segmented"
+import { EmptyState } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { count, money } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import {
   allocatePrepaidMonth,
-  domainKeys,
-  prepaidSchedulePage,
+  prepaidDueQuery,
+  prepaidSchedulePagesQuery,
 } from "@/lib/queries/finance-domains"
-import {
-  Code,
-  Grid,
-  Note,
-  NumberCard,
-  Td,
-  Th,
-} from "@/screens/finance-final/parts"
-import { PhoneCard, PhoneList } from "@/components/ui/phone-cards"
+import { tableSetup, type TableSetup } from "@/lib/table"
+import { Code, Note } from "@/screens/finance-final/parts"
 import { FactsSheet } from "@/screens/finance/phone-parts"
+import { ScreenPending } from "@/screens/finance/pending"
 import type { PrepaidSchedule } from "@itulah/contract"
 
 /// Prepaid schedules — what was paid for in advance, and the months it belongs
@@ -45,7 +40,121 @@ import type { PrepaidSchedule } from "@itulah/contract"
 /// the plan for taking it back out. One button posts a month for every schedule
 /// that covers it, and pressing it twice is safe — the second press reports what
 /// it found rather than posting again.
+const statusTone = (status: string) =>
+  status === "ACTIVE" ? "info" : status === "COMPLETED" ? "ok" : "warn"
+
+/// One schedule: its number, what it is, the months it runs and where it
+/// stands. On a card the account names it, the number sits over it and the
+/// three figures follow, label over value.
+const columns: ColumnDef<TableSetup, PrepaidSchedule>[] = [
+  {
+    id: "number",
+    accessorFn: (row) => row.schedule_number,
+    header: "Number",
+    size: 130,
+    enableSorting: false,
+    meta: { card: "id" },
+    cell: ({ row }) => <Code>{row.original.schedule_number}</Code>,
+  },
+  {
+    id: "unit",
+    accessorFn: (row) => row.site_id,
+    header: "Unit",
+    size: 90,
+    enableSorting: false,
+    meta: { card: "meta", priority: 3 },
+    cell: ({ row }) => row.original.site_id,
+  },
+  {
+    id: "account",
+    accessorFn: (row) => row.prepaid_account_name,
+    header: "Account",
+    size: 240,
+    enableSorting: false,
+    meta: { card: "title", grow: 220 },
+    cell: ({ row }) => (
+      <span className="flex min-w-0 flex-col whitespace-normal">
+        <span>{row.original.prepaid_account_name}</span>
+        <span className="text-[0.9375rem] font-normal text-mute">
+          → {row.original.expense_account_name}
+        </span>
+      </span>
+    ),
+  },
+  {
+    id: "period",
+    accessorFn: (row) => row.start_period,
+    header: "Period",
+    size: 190,
+    enableSorting: false,
+    meta: { card: "meta" },
+    cell: ({ row }) => (
+      <span className="flex flex-col">
+        <span className="tabular-nums">
+          {row.original.start_period.slice(0, 7)} —{" "}
+          {row.original.end_period.slice(0, 7)}
+        </span>
+        <span className="text-[0.9375rem] text-mute">
+          {row.original.periods_allocated}/{row.original.periods} months
+        </span>
+      </span>
+    ),
+  },
+  {
+    id: "value",
+    accessorFn: (row) => row.amount_minor,
+    header: "Value",
+    size: 130,
+    enableSorting: false,
+    meta: { align: "right", card: "metric", priority: 2 },
+    cell: ({ row }) => money(row.original.amount_minor),
+  },
+  {
+    id: "expensed",
+    accessorFn: (row) => row.allocated_minor,
+    header: "Already Expensed",
+    size: 165,
+    enableSorting: false,
+    meta: { align: "right", card: "metric", priority: 2 },
+    cell: ({ row }) => money(row.original.allocated_minor),
+  },
+  {
+    id: "remaining",
+    accessorFn: (row) => row.remaining_minor,
+    header: "Remaining",
+    size: 130,
+    enableSorting: false,
+    meta: { align: "right", card: "metric" },
+    cell: ({ row }) => money(row.original.remaining_minor),
+  },
+  {
+    id: "status",
+    accessorFn: (row) => row.status,
+    header: "Status",
+    size: 120,
+    enableSorting: false,
+    meta: { card: "status" },
+    cell: ({ row }) => (
+      <Pill tone={statusTone(row.original.status)}>{row.original.status}</Pill>
+    ),
+  },
+]
+
 export function PrepaidSchedules() {
+  return (
+    <Suspense
+      fallback={
+        <ScreenPending crumb="Finance" title="Prepaid Expenses">
+          Reading the schedules…
+        </ScreenPending>
+      }
+    >
+      <PrepaidSchedulesScreen />
+    </Suspense>
+  )
+}
+
+function PrepaidSchedulesScreen() {
   const phone = useLayout() === "phone"
   /// The phone's "allocate a month" sheet, the dock's + opens it.
   const [allocating, setAllocating] = useState(false)
@@ -60,23 +169,20 @@ export function PrepaidSchedules() {
 
   const asked = `${month.year}-${String(month.month).padStart(2, "0")}`
 
+  // The tab and the month answer at once; the list trails them, and the rows
+  // in hand stay on screen (dimmed) until the next are read.
+  const askedStatus = useDeferredValue(status)
+  const askedMonth = useDeferredValue(asked)
+  const stale = askedStatus !== status || askedMonth !== asked
+
   // A page at a time, newest first. The cards read the server's figures over
   // every schedule the filter matches, never a sum of the pages loaded.
-  const schedules = useInfiniteQuery({
-    queryKey: [...domainKeys.prepaidSchedules(undefined, status), "pages"],
-    queryFn: ({ pageParam, signal }) =>
-      prepaidSchedulePage({ status, cursor: pageParam, limit: 100 }, signal),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) => last.next_cursor ?? undefined,
-    placeholderData: (previous) => previous,
-  })
+  const schedules = useSuspenseInfiniteQuery(
+    prepaidSchedulePagesQuery(askedStatus)
+  )
   // How many are due in the chosen month, asked separately so picking a month
   // re-asks one small question rather than reloading the list.
-  const dueIn = useQuery({
-    queryKey: [...domainKeys.prepaidSchedules(undefined, status), "due", asked],
-    queryFn: ({ signal }) =>
-      prepaidSchedulePage({ status, period: `${asked}-01`, limit: 1 }, signal),
-  })
+  const dueIn = useSuspenseQuery(prepaidDueQuery(askedStatus, askedMonth))
 
   const allocate = useMutation({
     mutationFn: () =>
@@ -88,49 +194,75 @@ export function PrepaidSchedules() {
   })
 
   const rows = useMemo(
-    () => schedules.data?.pages.flatMap((page) => page.rows) ?? [],
+    () => schedules.data.pages.flatMap((page) => page.rows),
     [schedules.data]
   )
-  const head = schedules.data?.pages[0]
-  const remaining = head?.remaining_minor ?? null
-  const due = dueIn.data?.due_in_period ?? null
+  const head = schedules.data.pages[0]
+  const remaining = head.remaining_minor
+  const due = dueIn.data.due_in_period
+
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: rows,
+        columns,
+        getRowId: (row: PrepaidSchedule) => row.schedule_id,
+      }),
+      [rows]
+    )
+  )
+
+  /// The month the schedules are allocated for, as the page's own picker.
+  const monthPicker = (
+    <input
+      type="month"
+      aria-label="Month"
+      className="ui-field h-control rounded-inner border border-hairline-2 bg-canvas px-3 text-[0.9375rem] text-ink"
+      value={`${month.year}-${String(month.month).padStart(2, "0")}`}
+      onChange={(event) => {
+        const [year, monthPart] = event.target.value.split("-")
+        if (year !== undefined && monthPart !== undefined) {
+          setMonth({ year: Number(year), month: Number(monthPart) })
+        }
+      }}
+    />
+  )
+
+  const statusTabs = (
+    <SubTabs
+      tabs={[
+        { value: "ACTIVE", label: "Active" },
+        { value: "COMPLETED", label: "Completed" },
+        { value: "CANCELLED", label: "Cancelled" },
+        { value: "ALL", label: "All" },
+      ]}
+      value={status ?? "ALL"}
+      onChange={(next) => setStatus(next === "ALL" ? undefined : next)}
+    />
+  )
 
   return (
     <PageContent>
       <PageHeader
         crumb="Finance"
         title="Prepaid Expenses"
-        sub="Schedules, and the months already taken from each."
-        // On a phone choosing the month and posting it is the dock's + and
-        // the sheet it opens.
+        // The one action stands in the head; on a phone choosing the month and
+        // posting it is the dock's + and the sheet it opens.
         actions={
           phone ? undefined : (
-            <div className="flex items-center gap-2">
-              <input
-                type="month"
-                className="rounded-control border border-hairline bg-canvas px-2 py-1 text-sm"
-                value={`${month.year}-${String(month.month).padStart(2, "0")}`}
-                onChange={(event) => {
-                  const [year, monthPart] = event.target.value.split("-")
-                  if (year !== undefined && monthPart !== undefined) {
-                    setMonth({ year: Number(year), month: Number(monthPart) })
-                  }
-                }}
-              />
-              <button
-                type="button"
-                className="rounded-control border border-hairline px-3 py-1 text-sm disabled:opacity-50"
-                disabled={allocate.isPending}
-                onClick={() => allocate.mutate()}
-              >
-                Allocate this month
-              </button>
-            </div>
+            <Button
+              variant="primary"
+              pending={allocate.isPending}
+              onClick={() => allocate.mutate()}
+            >
+              Allocate this month
+            </Button>
           )
         }
       />
 
-      {phone ? (
+      {phone && (
         <>
           <Fab
             label="Allocate this month"
@@ -154,33 +286,23 @@ export function PrepaidSchedules() {
                   }
                 }}
               />
-              <button
-                type="button"
-                className="h-11 rounded-inner bg-cta px-4 text-[0.9375rem] font-semibold text-cta-fg disabled:opacity-50"
-                disabled={allocate.isPending}
+              <Button
+                variant="primary"
+                pending={allocate.isPending}
                 onClick={() => allocate.mutate()}
               >
                 Allocate this month
-              </button>
+              </Button>
             </div>
           </BottomSheet>
-          <KpiStrip>
-            <Kpi label="Running schedules" value={count(head?.total ?? null)} />
-            <Kpi label="Left to expense" value={money(remaining)} />
-            <Kpi label="Waiting in the chosen month" value={count(due)} />
-          </KpiStrip>
         </>
-      ) : (
-        <Grid>
-          <NumberCard label="Running schedules" value={head?.total ?? null} />
-          <NumberCard label="Left to expense" value={remaining} />
-          <NumberCard
-            label="Waiting in the chosen month"
-            value={due}
-            tone={due === null ? undefined : due === 0 ? "ok" : "warn"}
-          />
-        </Grid>
       )}
+
+      <KpiStrip className="grid-cols-2 md:grid-cols-3 xl:grid-cols-3">
+        <Kpi label="Running schedules" value={count(head.total)} />
+        <Kpi label="Left to expense" value={money(remaining)} />
+        <Kpi label="Waiting in the chosen month" value={count(due)} />
+      </KpiStrip>
 
       {allocate.data === undefined ? null : (
         <Note>
@@ -191,169 +313,61 @@ export function PrepaidSchedules() {
         </Note>
       )}
 
-      {phone && (
-        // The status is the dock's button on a phone.
-        <SubTabs
-          tabs={[
-            { value: "ACTIVE", label: "ACTIVE" },
-            { value: "COMPLETED", label: "COMPLETED" },
-            { value: "CANCELLED", label: "CANCELLED" },
-            { value: "ALL", label: "All" },
-          ]}
-          value={status ?? "ALL"}
-          onChange={(next) => setStatus(next === "ALL" ? undefined : next)}
-        />
-      )}
+      {/* The status is the dock's button on a phone; on a desk it leads the
+          toolbar of the month the Waiting figure and Allocate this month are
+          for. On a phone that month is the one in the sheet the dock's +
+          opens. */}
+      {phone ? statusTabs : <Toolbar lead={statusTabs}>{monthPicker}</Toolbar>}
 
-      <div className="flex flex-wrap gap-2 max-md:hidden">
-        {["ACTIVE", "COMPLETED", "CANCELLED", undefined].map((option) => (
-          <button
-            key={option ?? "ALL"}
-            type="button"
-            className={
-              status === option
-                ? "rounded-control border border-accent px-2 py-1 text-sm text-accent"
-                : "rounded-control border border-hairline px-2 py-1 text-sm"
-            }
-            onClick={() => setStatus(option)}
-          >
-            {option ?? "All"}
-          </button>
-        ))}
-      </div>
-
-      {schedules.isPending ? (
-        <LoadingState />
-      ) : schedules.isError && schedules.data === undefined ? (
-        <ErrorState error={schedules.error} />
-      ) : rows.length === 0 ? (
-        <EmptyState>No schedules yet</EmptyState>
-      ) : phone ? (
-        <>
-          <PhoneList>
-            {rows.map((row) => (
-              <PhoneCard
-                key={row.schedule_id}
-                title={row.prepaid_account_name}
-                line={
-                  <>
-                    <div>→ {row.expense_account_name}</div>
-                    <div className="font-mono">{row.schedule_number}</div>
-                  </>
-                }
-                lead={money(row.remaining_minor)}
-                caption="remaining"
-                foot={
-                  <span className="tabular-nums">
-                    {row.start_period.slice(0, 7)} —{" "}
-                    {row.end_period.slice(0, 7)} · {row.periods_allocated}/
-                    {row.periods} months
-                  </span>
-                }
-                action={
-                  <Pill
-                    tone={
-                      row.status === "ACTIVE"
-                        ? "info"
-                        : row.status === "COMPLETED"
-                          ? "ok"
-                          : "warn"
-                    }
-                  >
-                    {row.status}
-                  </Pill>
-                }
-                onOpen={() => setShown(row)}
-              />
-            ))}
-          </PhoneList>
-          <FactsSheet
-            open={shown !== null}
-            onClose={() => setShown(null)}
-            title={shown?.prepaid_account_name ?? ""}
-            id={shown?.schedule_number}
-            caption={
-              shown === null ? undefined : `→ ${shown.expense_account_name}`
-            }
-            facts={
-              shown === null
-                ? []
-                : [
-                    { label: "Unit", value: shown.site_id },
-                    {
-                      label: "Period",
-                      value: `${shown.start_period.slice(0, 7)} — ${shown.end_period.slice(0, 7)}`,
-                    },
-                    {
-                      label: "Months",
-                      value: `${shown.periods_allocated}/${shown.periods}`,
-                    },
-                    { label: "Value", value: money(shown.amount_minor) },
-                    {
-                      label: "Already Expensed",
-                      value: money(shown.allocated_minor),
-                    },
-                    { label: "Remaining", value: money(shown.remaining_minor) },
-                    { label: "Status", value: shown.status },
-                  ]
-            }
+      <Card
+        aria-busy={stale || undefined}
+        className="list-swap overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none"
+      >
+        {rows.length === 0 ? (
+          <EmptyState>No schedules yet</EmptyState>
+        ) : (
+          <DataTable<PrepaidSchedule>
+            refresh={[schedules]}
+            table={table}
+            onRowClick={setShown}
+            isSelected={(row) => row.schedule_id === shown?.schedule_id}
+            more={schedules}
+            pageScroll
+            cardSort={false}
+            cardsApart
           />
-        </>
-      ) : (
-        <table className="w-full border-collapse text-sm">
-          <thead>
-            <tr>
-              <Th>Number</Th>
-              <Th>Unit</Th>
-              <Th>Account</Th>
-              <Th>Period</Th>
-              <Th align="right">Value</Th>
-              <Th align="right">Already Expensed</Th>
-              <Th align="right">Remaining</Th>
-              <Th>Status</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr key={row.schedule_id}>
-                <Td>
-                  <Code>{row.schedule_number}</Code>
-                </Td>
-                <Td>{row.site_id}</Td>
-                <Td>
-                  {row.prepaid_account_name}
-                  <div className="text-[0.875rem] text-mute">
-                    → {row.expense_account_name}
-                  </div>
-                </Td>
-                <Td>
-                  {row.start_period.slice(0, 7)} — {row.end_period.slice(0, 7)}
-                  <div className="text-[0.875rem] text-mute">
-                    {row.periods_allocated}/{row.periods} months
-                  </div>
-                </Td>
-                <Td align="right">{money(row.amount_minor)}</Td>
-                <Td align="right">{money(row.allocated_minor)}</Td>
-                <Td align="right">{money(row.remaining_minor)}</Td>
-                <Td>
-                  <Pill
-                    tone={
-                      row.status === "ACTIVE"
-                        ? "info"
-                        : row.status === "COMPLETED"
-                          ? "ok"
-                          : "warn"
-                    }
-                  >
-                    {row.status}
-                  </Pill>
-                </Td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-      <LoadMore query={schedules} />
+        )}
+      </Card>
+
+      <FactsSheet
+        open={shown !== null}
+        onClose={() => setShown(null)}
+        title={shown?.prepaid_account_name ?? ""}
+        id={shown?.schedule_number}
+        caption={shown === null ? undefined : `→ ${shown.expense_account_name}`}
+        facts={
+          shown === null
+            ? []
+            : [
+                { label: "Unit", value: shown.site_id },
+                {
+                  label: "Period",
+                  value: `${shown.start_period.slice(0, 7)} — ${shown.end_period.slice(0, 7)}`,
+                },
+                {
+                  label: "Months",
+                  value: `${shown.periods_allocated}/${shown.periods}`,
+                },
+                { label: "Value", value: money(shown.amount_minor) },
+                {
+                  label: "Already Expensed",
+                  value: money(shown.allocated_minor),
+                },
+                { label: "Remaining", value: money(shown.remaining_minor) },
+                { label: "Status", value: shown.status },
+              ]
+        }
+      />
     </PageContent>
   )
 }

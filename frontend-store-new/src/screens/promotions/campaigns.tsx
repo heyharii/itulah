@@ -119,6 +119,13 @@ function CampaignBoard({ offers }: { offers: StoreOffers }) {
           onChange: (next) => setPhase(next as Phase),
         }}
       />
+      <Summary
+        parts={[
+          [running, "active"],
+          [campaigns.length - running, "scheduled"],
+        ]}
+      />
+
       <Toolbar>
         <PhaseFilter
           value={phase}
@@ -132,13 +139,6 @@ function CampaignBoard({ offers }: { offers: StoreOffers }) {
           placeholder="Search campaigns"
         />
       </Toolbar>
-
-      <Summary
-        parts={[
-          [running, "active"],
-          [campaigns.length - running, "scheduled"],
-        ]}
-      />
 
       {shown.length === 0 ? (
         <EmptyState>

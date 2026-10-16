@@ -1,5 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
+import {
+  useMutation,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query"
+import { useState, Suspense } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { useLayout } from "@/lib/layout"
@@ -14,14 +18,13 @@ import { Sheet } from "@/components/ui/sheet"
 import { EmptyState, Problem } from "@/components/ui/states"
 import {
   attendanceSettingKeys,
-  geofences,
-  mobileSetting,
   removeGeofence,
   saveMobileSetting,
   setGeofence,
   useReachableUnits,
+  mobileSettingQuery,
+  geofencesQuery,
 } from "@/lib/queries/people"
-import { queryState } from "@/lib/query-state"
 import { useCanWrite } from "@/lib/session"
 import {
   CardFoot,
@@ -31,6 +34,7 @@ import {
 } from "@/screens/people/settings-kit"
 import { useOpener } from "@/screens/people/settings-lib"
 import type { GeofenceView, MobileAttendanceSetting } from "@itulah/contract"
+import { awaiting } from "@/screens/people/awaiting"
 
 /// Settings › Mobile attendance — whether the employee app may punch, whether
 /// it must say where it is, and the circle around each unit a phone punch has
@@ -38,14 +42,6 @@ import type { GeofenceView, MobileAttendanceSetting } from "@itulah/contract"
 export function MobileSettings() {
   const canWrite = useCanWrite()
   const phone = useLayout() === "phone"
-  const setting = useQuery({
-    queryKey: attendanceSettingKeys.mobile(),
-    queryFn: ({ signal }) => mobileSetting(signal),
-  })
-  const fences = useQuery({
-    queryKey: attendanceSettingKeys.geofences(),
-    queryFn: ({ signal }) => geofences(signal),
-  })
   const units = useReachableUnits()
   const named = new Map((units.data ?? []).map((one) => [one.id, one.name]))
 
@@ -63,9 +59,7 @@ export function MobileSettings() {
           !phone &&
           canWrite && (
             <>
-              <Button onClick={() => edit.show()} disabled={!setting.data}>
-                Edit
-              </Button>
+              <Button onClick={() => edit.show()}>Edit</Button>
               <Button variant="primary" onClick={() => fence.show()}>
                 Add location
               </Button>
@@ -79,7 +73,7 @@ export function MobileSettings() {
           <CardTitle>Punching from the employee app</CardTitle>
         </CardHeader>
         <div className="px-4 pb-3">
-          {queryState(setting, {
+          {awaiting(mobileSettingQuery(), {
             loading: "Reading the setting…",
             render: (current) => (
               <>
@@ -96,17 +90,11 @@ export function MobileSettings() {
             ),
           })}
         </div>
-        {canWrite && (
-          <CardFoot
-            label="Edit"
-            disabled={!setting.data}
-            onClick={() => edit.show()}
-          />
-        )}
+        {canWrite && <CardFoot label="Edit" onClick={() => edit.show()} />}
       </Card>
 
       <ListCard title="Attendance locations">
-        {queryState(fences, {
+        {awaiting(geofencesQuery(), {
           loading: "Reading the circles…",
           render: (rows) =>
             rows.length === 0 ? (
@@ -131,7 +119,7 @@ export function MobileSettings() {
                     </MiniCell>
                     <MiniCell>
                       <a
-                        className="font-mono text-[0.875rem] text-accent hover:underline"
+                        className="font-mono text-[0.9375rem] text-accent hover:underline"
                         href={`https://www.google.com/maps?q=${row.latitude},${row.longitude}`}
                         target="_blank"
                         rel="noreferrer"
@@ -147,22 +135,53 @@ export function MobileSettings() {
         })}
       </ListCard>
 
-      {setting.data && (
-        <EditSheet
+      {/* The sheets start from the setting and the circles in hand, so they
+          read them themselves: the buttons need no answer to be pressed. */}
+      <Suspense fallback={null}>
+        <EditSheetFromSetting
           key={`edit-${edit.n}`}
           open={edit.isOpen}
           onClose={edit.hide}
-          current={setting.data}
         />
-      )}
-      <FenceSheet
-        key={`fence-${fence.n}`}
-        open={fence.isOpen}
-        onClose={fence.hide}
-        row={fence.item}
-        taken={new Set((fences.data ?? []).map((one) => one.unit_id))}
-      />
+        <FenceSheetFromFences
+          key={`fence-${fence.n}`}
+          open={fence.isOpen}
+          onClose={fence.hide}
+          row={fence.item}
+        />
+      </Suspense>
     </PageContent>
+  )
+}
+
+function EditSheetFromSetting({
+  open,
+  onClose,
+}: {
+  open: boolean
+  onClose: () => void
+}) {
+  const setting = useSuspenseQuery(mobileSettingQuery())
+  return <EditSheet open={open} onClose={onClose} current={setting.data} />
+}
+
+function FenceSheetFromFences({
+  open,
+  onClose,
+  row,
+}: {
+  open: boolean
+  onClose: () => void
+  row: GeofenceView | null
+}) {
+  const fences = useSuspenseQuery(geofencesQuery())
+  return (
+    <FenceSheet
+      open={open}
+      onClose={onClose}
+      row={row}
+      taken={new Set(fences.data.map((one) => one.unit_id))}
+    />
   )
 }
 
@@ -366,7 +385,7 @@ function FenceSheet({
             onChange={(event) => setReason(event.target.value)}
           />
         </Field>
-        <p className="text-[0.875rem] text-mute">
+        <p className="text-[0.9375rem] text-mute">
           Copy the point from a map: in Google Maps, press and hold the
           shop&rsquo;s entrance and copy the two numbers.
         </p>

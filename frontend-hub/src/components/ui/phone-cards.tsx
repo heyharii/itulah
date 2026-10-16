@@ -95,14 +95,14 @@ export function CardName({
         {name}
       </span>
       {filled(code) && (
-        <span className="truncate font-mono text-[0.875rem] font-normal text-mute">
+        <span className="truncate font-mono text-[0.9375rem] font-normal text-mute">
           {code}
         </span>
       )}
       {linesOf(line).map((one, index) => (
         <span
           key={index}
-          className="min-w-0 text-[0.875rem] font-normal break-words text-mute"
+          className="min-w-0 text-[0.9375rem] font-normal break-words text-mute"
         >
           {one}
         </span>
@@ -134,7 +134,7 @@ export function CardFigure({
         {value}
       </span>
       {filled(caption) && (
-        <span className="max-w-[10rem] text-[0.875rem] text-mute">
+        <span className="max-w-[10rem] text-[0.9375rem] text-mute">
           {caption}
         </span>
       )}
@@ -395,7 +395,7 @@ export function PhoneCard({
             alert ? "border-bad/10 bg-bad-bg/50" : "border-hairline"
           )}
         >
-          <div className="min-w-0 text-[0.875rem] text-mute">{foot}</div>
+          <div className="min-w-0 text-[0.9375rem] text-mute">{foot}</div>
           <div className="flex shrink-0 items-center" onClick={ownClick}>
             {action}
           </div>
@@ -411,7 +411,7 @@ export function PhoneCard({
 /// the heading's margin, not its padding, so a heading stuck to the top takes
 /// no more room than its own line.
 export const STICKY_HEADING =
-  "sticky top-0 z-10 -mx-1 bg-soft-3 px-1 not-first:mt-3"
+  "sticky top-0 z-10 -mx-1 bg-canvas px-1 not-first:mt-3"
 
 /// The line that opens a group of cards: what the group is, how many it holds,
 /// what they come to, and — when `onToggle` is given — a chevron that folds the
@@ -448,7 +448,7 @@ export function GroupHeading({
       )}
       <span className="flex-1" />
       {filled(total) && (
-        <span className="shrink-0 text-[0.875rem] text-mute tabular-nums">
+        <span className="shrink-0 text-[0.9375rem] text-mute tabular-nums">
           {total}
         </span>
       )}
@@ -574,7 +574,7 @@ export function PhoneCards<T>({
                     ?.map((line) => line(row))
                     .filter(filled)
                     .map((line, index) => (
-                      <div key={index} className="text-[0.875rem] text-mute">
+                      <div key={index} className="text-[0.9375rem] text-mute">
                         {line}
                       </div>
                     ))}

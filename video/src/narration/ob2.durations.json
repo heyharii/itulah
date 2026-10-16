@@ -1,0 +1,30 @@
+{
+  "board": {
+    "seconds": 7.07925,
+    "say": "Gudang bekerja di satu papan: To pick, Picked, Packed, In transit, dan Received."
+  },
+  "card": {
+    "seconds": 3.68325,
+    "say": "Satu kartu adalah satu allotment untuk satu toko."
+  },
+  "pick": {
+    "seconds": 4.31025,
+    "say": "Barang diambil dari rak sesuai picklist, lalu ditandai Picked."
+  },
+  "pack": {
+    "seconds": 4.83275,
+    "say": "Di Pack, barang dimasukkan ke koli. Setiap Close koli mencetak labelnya."
+  },
+  "dispatch": {
+    "seconds": 7.1315,
+    "say": "Kartu Packed dicentang, lalu Dispatch. Surat jalan dicetak, dan kartunya pindah ke In transit."
+  },
+  "received": {
+    "seconds": 6.5305,
+    "say": "Toko menghitung barang yang datang. Kalau kurang, statusnya Received short, bukan Completed."
+  },
+  "md": {
+    "seconds": 7.00075,
+    "say": "MD melihat angka yang sama di allotment-nya: To pick, Picked, Packed, On the road, Received."
+  }
+}

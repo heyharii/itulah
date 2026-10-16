@@ -12,7 +12,7 @@ import { BottomSheet } from "@/components/ui/picker-sheet"
 import { POPUP } from "@/lib/filter-chrome"
 import { usePickerSheet } from "@/lib/layout"
 import { dateOf, monthGrid, startOfDay, today, WEEKDAYS } from "@/lib/calendar"
-import { readDay, untilText } from "@/lib/day-parse"
+import { readDay, untilText, warmDayParser } from "@/lib/day-parse"
 import { day, monthYear, weekday } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
@@ -88,6 +88,10 @@ export function Day({
   required?: boolean
   className?: string
 }) {
+  // A day box on screen is the signal that chrono may soon be asked for: the
+  // import starts at the first render, so the first keystroke already finds
+  // it (`lib/day-parse.ts`). Idempotent.
+  warmDayParser()
   const [open, setOpen] = useState(false)
   const aria = useFieldAria({ invalid, required })
   // On a form, the form's box (`FORM_BOX` in `field-state.ts`) — spelled out
@@ -195,9 +199,9 @@ export function Day({
         autoComplete="off"
         spellCheck={false}
         className={cn(
-          "w-full rounded-inner border border-hairline-2 bg-canvas px-2.5 text-ink transition-colors outline-none placeholder:text-mute focus:border-accent",
+          "ui-field w-full rounded-inner border border-hairline-2 bg-canvas px-2.5 text-ink transition-colors outline-none placeholder:text-mute focus:border-accent",
           "aria-[invalid=true]:border-bad",
-          touch ? "h-tap text-[1rem]" : "h-10 text-[0.875rem]"
+          touch ? "h-tap text-[1rem]" : "h-10 text-[0.9375rem]"
         )}
       />
       {typed.trim() !== "" && (
@@ -205,7 +209,7 @@ export function Day({
           id={`${typeId}-read`}
           aria-live="polite"
           className={cn(
-            "mt-2 min-h-5 px-0.5 text-[0.875rem]",
+            "mt-2 min-h-5 px-0.5 text-[0.9375rem]",
             read === null || outside ? "text-bad" : "text-body"
           )}
         >
@@ -258,8 +262,8 @@ export function Day({
               className={cn(
                 "rounded-full bg-soft-2 font-medium text-text transition-colors hover:bg-hairline hover:text-ink",
                 touch
-                  ? "px-3.5 py-2 text-[0.875rem]"
-                  : "px-2.5 py-1 text-[0.875rem]"
+                  ? "px-3.5 py-2 text-[0.9375rem]"
+                  : "px-2.5 py-1 text-[0.9375rem]"
               )}
               onClick={() => pick(one.value)}
             >
@@ -284,7 +288,7 @@ export function Day({
         <span
           className={cn(
             "font-medium text-ink",
-            touch ? "text-[0.9375rem]" : "text-[0.875rem]"
+            touch ? "text-[0.9375rem]" : "text-[0.9375rem]"
           )}
         >
           {monthYear(month, true)}
@@ -325,7 +329,7 @@ export function Day({
               disabled={dead}
               className={cn(
                 "grid place-items-center rounded-full tabular-nums transition-colors",
-                touch ? "h-11 text-[0.9375rem]" : "h-9 text-[0.875rem]",
+                touch ? "h-11 text-[0.9375rem]" : "h-9 text-[0.9375rem]",
                 dead
                   ? "cursor-default text-faint"
                   : iso === value
@@ -374,7 +378,7 @@ export function Day({
               // arrival beside a supplier read as two controls from two
               // different applications. A toolbar still compacts it with `h-8`,
               // and twMerge lets that win.
-              "flex h-10 w-full items-center gap-2 rounded-inner border border-hairline-2 bg-canvas pl-3 text-left text-[0.875rem] transition-colors outline-none",
+              "ui-field flex h-10 w-full items-center gap-2 rounded-inner border border-hairline-2 bg-canvas pl-3 text-left text-[0.9375rem] transition-colors outline-none",
               "hover:border-hairline-strong",
               "focus-visible:border-accent data-[popup-open]:border-accent",
               "disabled:opacity-50",
@@ -440,7 +444,7 @@ export function Day({
             // arrival beside a supplier read as two controls from two
             // different applications. A toolbar still compacts it with `h-8`,
             // and twMerge lets that win.
-            "flex h-10 w-full items-center gap-2 rounded-inner border border-hairline-2 bg-canvas pl-3 text-left text-[0.875rem] transition-colors outline-none",
+            "ui-field flex h-10 w-full items-center gap-2 rounded-inner border border-hairline-2 bg-canvas pl-3 text-left text-[0.9375rem] transition-colors outline-none",
             "hover:border-hairline-strong",
             "focus-visible:border-accent data-[popup-open]:border-accent",
             "disabled:opacity-50",

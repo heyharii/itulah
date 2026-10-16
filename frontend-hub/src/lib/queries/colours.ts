@@ -1,3 +1,5 @@
+import { queryOptions } from "@tanstack/react-query"
+
 import { node } from "@/lib/api"
 import type { TermUsage } from "@/lib/queries/vocabulary"
 
@@ -74,6 +76,19 @@ export const colourKeys = {
 export function listColours(signal?: AbortSignal) {
   return node.get<ColourVocabulary>("/api/v1/colours", { signal })
 }
+
+/// The whole colour list as a query, for the screens that read it and the
+/// prefetcher (`screens/master/prefetch.ts`).
+export const coloursQuery = () =>
+  queryOptions({
+    queryKey: colourKeys.list(),
+    queryFn: ({ signal }) => listColours(signal),
+  })
+
+/// The same list read for its labels — a facet's codes drawn as names — which
+/// the screens that only read it hold for half an hour.
+export const colourLabelsQuery = () =>
+  queryOptions({ ...coloursQuery(), staleTime: 30 * 60 * 1000 })
 
 function guarded(
   idempotencyKey: string,

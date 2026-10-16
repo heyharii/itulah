@@ -1,0 +1,22 @@
+[
+  {
+    "id": "receiving",
+    "text": "Di Gudang, daftar **Receiving** hanya menunjukkan berapa artikel yang ditunggu, tanpa jumlahnya."
+  },
+  {
+    "id": "blind",
+    "text": "Ini **blind count**: Gudang menghitung tanpa melihat jumlah pesanan."
+  },
+  {
+    "id": "mixed",
+    "text": "Satuannya boleh dicampur: **29 kodi** ditambah **20 pcs**, jadi 600."
+  },
+  {
+    "id": "wrong",
+    "text": "Barang yang tidak cocok dengan pesanan dicatat terpisah di **Not as Ordered**. Cukup jumlahnya, tanpa perlu tahu barang apa."
+  },
+  {
+    "id": "submit",
+    "text": "Setelah **Submit count**, hasilnya langsung sampai ke buyer."
+  }
+]

@@ -1,89 +1,92 @@
-import { Assets } from "@/screens/ga/assets"
-import { Contracts } from "@/screens/ga/contracts"
-import { GaOverview } from "@/screens/ga/overview"
-import { Repairs } from "@/screens/ga/repairs"
-import { Servicing } from "@/screens/ga/servicing"
-import { Supplies } from "@/screens/ga/supplies"
-import { Catalogue } from "@/screens/catalogue"
-import { CashCount } from "@/screens/money/cash-count"
-import { Expenses } from "@/screens/money/expenses"
-import { HrAttendance } from "@/screens/hr/attendance"
-import { HrBenefits } from "@/screens/hr/benefits"
-import { HrChanges } from "@/screens/hr/changes"
-import { HrExpenses } from "@/screens/hr/expenses"
-import { HrInterviews } from "@/screens/hr/interviews"
-import { HrOvertime } from "@/screens/hr/overtime"
-import { HrPeriod } from "@/screens/hr/period"
-import { HrTasks } from "@/screens/hr/tasks"
-import { HrLeave } from "@/screens/hr/requests"
-import { HrRoster } from "@/screens/hr/roster"
-import { HrTeam } from "@/screens/hr/team"
-import { HrToday } from "@/screens/hr/today"
-import { Count } from "@/screens/count"
-import { Movements } from "@/screens/movements"
-import { Discuss } from "@/screens/discuss"
-import { Campaigns } from "@/screens/promotions/campaigns"
-import { Vouchers } from "@/screens/promotions/vouchers"
-import { PriceDrops } from "@/screens/promotions/price-drops"
-import { Promotions } from "@/screens/promotions/promotions"
-import { Password } from "@/screens/password"
-import { ReconciliationSoon } from "@/screens/money/coming-soon"
-import { Receive } from "@/screens/receive"
-import { Reports } from "@/screens/money/reports"
-import { Sales } from "@/screens/money/sales"
-import { ReturnToHo } from "@/screens/return-to-ho"
-import { Stock } from "@/screens/stock"
-import { SyncScreen } from "@/screens/sync"
-import { TillApprovals } from "@/screens/till-approvals"
-import type { ScreenMap } from "@/screens/registry"
+import type { ScreenLoaders } from "@/screens/registry"
 
-/// Path → screen. `routes.tsx` builds the router from `lib/navigation.ts` and
-/// looks each path up here, and it throws at module load if either list has an
-/// entry the other does not. One screen per nav entry, and no
-/// placeholders: a tab that opens on "not built yet" in front of a customer is
-/// worse than no tab at all.
-export const screens: ScreenMap = {
-  // General affairs: head office's too, through the same gate as HR, and
-  // always about this node's own site.
-  "/ga": GaOverview,
-  "/ga/assets": Assets,
-  "/ga/contracts": Contracts,
-  "/ga/servicing": Servicing,
-  "/ga/repairs": Repairs,
-  "/ga/supplies": Supplies,
-  "/news": Discuss,
-  "/catalogue": Catalogue,
-  "/promotions": Promotions,
-  "/promotions/campaigns": Campaigns,
-  "/promotions/price-changes": PriceDrops,
-  "/promotions/vouchers": Vouchers,
-  "/receive": Receive,
-  "/stock": Stock,
-  "/stock/count": Count,
-  "/stock/returns": ReturnToHo,
-  "/stock/movements": Movements,
-  "/reports": Reports,
-  "/money/sales": Sales,
-  "/money/reconciliation": ReconciliationSoon,
-  "/money/expenses": Expenses,
-  "/money/cash-count": CashCount,
-  // The only screens in this app answered by head office rather than by the
-  // node behind the counter. They live in their own folder because they share
-  // a gate — relayed through this node, and locked to this node's own site —
-  // and because "which server answers this" is the sharpest line in the app.
-  "/hr/overview": HrToday,
-  "/hr/roster": HrRoster,
-  "/hr/leave": HrLeave,
-  "/hr/directory": HrTeam,
-  "/hr/overtime": HrOvertime,
-  "/hr/recruitment": HrInterviews,
-  "/hr/lifecycle": HrTasks,
-  "/hr/payroll": HrPeriod,
-  "/hr/attendance": HrAttendance,
-  "/hr/expenses": HrExpenses,
-  "/hr/benefits": HrBenefits,
-  "/hr/changes": HrChanges,
-  "/node/sync": SyncScreen,
-  "/node/password": Password,
-  "/node/tills": TillApprovals,
+/// Path → the screen's own chunk. `routes.tsx` builds the router from
+/// `lib/navigation.ts` and looks each path up here, and it throws at module
+/// load if either list has an entry the other does not.
+///
+/// **Every screen is fetched when it is opened, not with the entry.** This map
+/// used to import all 37 of them statically, which put every screen — and, through the
+/// money screens, the whole charting library (recharts + d3) — into the one
+/// chunk a till downloads before it can show anything. Measured 2026-10-10 at
+/// 456 KB gzipped; a counter tab does not need the HR screens or a line chart.
+/// The loaders are wrapped with `lazyRouteComponent` in `routes.tsx`, so the
+/// router treats a slow chunk like a slow render: the screen's own data starts
+/// moving when its code does.
+export const screens: ScreenLoaders = {
+  "/ga": () =>
+    import("@/screens/ga/overview").then((module) => ({ default: module.GaOverview })),
+  "/ga/assets": () =>
+    import("@/screens/ga/assets").then((module) => ({ default: module.Assets })),
+  "/ga/contracts": () =>
+    import("@/screens/ga/contracts").then((module) => ({ default: module.Contracts })),
+  "/ga/servicing": () =>
+    import("@/screens/ga/servicing").then((module) => ({ default: module.Servicing })),
+  "/ga/repairs": () =>
+    import("@/screens/ga/repairs").then((module) => ({ default: module.Repairs })),
+  "/ga/supplies": () =>
+    import("@/screens/ga/supplies").then((module) => ({ default: module.Supplies })),
+  "/news": () =>
+    import("@/screens/discuss").then((module) => ({ default: module.Discuss })),
+  "/catalogue": () =>
+    import("@/screens/catalogue").then((module) => ({ default: module.Catalogue })),
+  "/promotions": () =>
+    import("@/screens/promotions/promotions").then((module) => ({ default: module.Promotions })),
+  "/promotions/campaigns": () =>
+    import("@/screens/promotions/campaigns").then((module) => ({ default: module.Campaigns })),
+  "/promotions/price-changes": () =>
+    import("@/screens/promotions/price-drops").then((module) => ({ default: module.PriceDrops })),
+  "/promotions/vouchers": () =>
+    import("@/screens/promotions/vouchers").then((module) => ({ default: module.Vouchers })),
+  "/receive": () =>
+    import("@/screens/receive").then((module) => ({ default: module.Receive })),
+  "/stock": () =>
+    import("@/screens/stock").then((module) => ({ default: module.Stock })),
+  "/stock/count": () =>
+    import("@/screens/count").then((module) => ({ default: module.Count })),
+  "/stock/returns": () =>
+    import("@/screens/return-to-ho").then((module) => ({ default: module.ReturnToHo })),
+  "/stock/movements": () =>
+    import("@/screens/movements").then((module) => ({ default: module.Movements })),
+  "/dashboard": () =>
+    import("@/screens/dashboard/dashboard").then((module) => ({ default: module.Dashboard })),
+  "/money/sales": () =>
+    import("@/screens/money/sales").then((module) => ({ default: module.Sales })),
+  "/money/reconciliation": () =>
+    import("@/screens/money/reconciliation").then((module) => ({ default: module.Reconciliation })),
+  "/money/petty-cash": () =>
+    import("@/screens/money/petty-cash").then((module) => ({ default: module.PettyCash })),
+  "/money/cash-count": () =>
+    import("@/screens/money/cash-count").then((module) => ({ default: module.CashCount })),
+  "/hr/overview": () =>
+    import("@/screens/hr/today").then((module) => ({ default: module.HrToday })),
+  "/hr/roster": () =>
+    import("@/screens/hr/roster").then((module) => ({ default: module.HrRoster })),
+  "/hr/leave": () =>
+    import("@/screens/hr/requests").then((module) => ({ default: module.HrLeave })),
+  "/hr/directory": () =>
+    import("@/screens/hr/team").then((module) => ({ default: module.HrTeam })),
+  "/hr/overtime": () =>
+    import("@/screens/hr/overtime").then((module) => ({ default: module.HrOvertime })),
+  "/hr/recruitment": () =>
+    import("@/screens/hr/interviews").then((module) => ({ default: module.HrInterviews })),
+  "/hr/lifecycle": () =>
+    import("@/screens/hr/tasks").then((module) => ({ default: module.HrTasks })),
+  "/hr/pay": () =>
+    import("@/screens/hr/pay").then((module) => ({ default: module.HrPay })),
+  "/hr/payroll": () =>
+    import("@/screens/hr/period").then((module) => ({ default: module.HrPeriod })),
+  "/hr/attendance": () =>
+    import("@/screens/hr/attendance").then((module) => ({ default: module.HrAttendance })),
+  "/hr/expenses": () =>
+    import("@/screens/hr/expenses").then((module) => ({ default: module.HrExpenses })),
+  "/hr/benefits": () =>
+    import("@/screens/hr/benefits").then((module) => ({ default: module.HrBenefits })),
+  "/hr/changes": () =>
+    import("@/screens/hr/changes").then((module) => ({ default: module.HrChanges })),
+  "/node/sync": () =>
+    import("@/screens/sync").then((module) => ({ default: module.SyncScreen })),
+  "/node/password": () =>
+    import("@/screens/password").then((module) => ({ default: module.Password })),
+  "/node/tills": () =>
+    import("@/screens/till-approvals").then((module) => ({ default: module.TillApprovals })),
 }

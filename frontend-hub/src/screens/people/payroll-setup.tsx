@@ -122,7 +122,7 @@ export function ScheduleCard() {
                     ? "the last day of the month"
                     : `the ${current.pay_day}th (a short month pays on its last day)`}
                 </KeyValue>
-                <p className="mt-2 text-[0.875rem] text-mute">
+                <p className="mt-2 text-[0.9375rem] text-mute">
                   Leave, overtime and rostered days are counted over the
                   attendance month; salary is prorated over the calendar month.
                 </p>
@@ -238,7 +238,7 @@ export function StructuresCard() {
         <CardTitle>Salary structures</CardTitle>
       </CardHeader>
       <div className="flex flex-col gap-4 px-4 pb-4">
-        <p className="text-[0.875rem] text-body">
+        <p className="text-[0.9375rem] text-body">
           A named base and set of fixed allowances. Applying one on somebody's
           Pay tab copies it into their dated pay agreement — changing a
           structure later rewrites nobody's pay.
@@ -247,7 +247,7 @@ export function StructuresCard() {
           loading: "Reading the structures…",
           render: (rows) =>
             rows.length === 0 ? (
-              <p className="text-[0.875rem] text-mute">No structure yet.</p>
+              <p className="text-[0.9375rem] text-mute">No structure yet.</p>
             ) : (
               <MiniTable
                 head={[
@@ -349,7 +349,7 @@ export function AllowanceLines({
     )
   return (
     <div className="flex flex-col gap-2">
-      <span className="text-[0.875rem] font-medium text-ink">
+      <span className="text-[0.9375rem] font-medium text-ink">
         Fixed allowances
       </span>
       {lines.map((line, index) => (
@@ -551,7 +551,7 @@ export function ComponentsCard() {
         <CardTitle>Pay components</CardTitle>
       </CardHeader>
       <div className="flex flex-col gap-4 px-4 pb-4">
-        <p className="text-[0.875rem] text-body">
+        <p className="text-[0.9375rem] text-body">
           What a payslip may carry beyond base and fixed allowances: an
           allowance per day, overtime, a percentage, a one-off. A component is
           defined once and its figure is ratified from a date. PPh 21, BPJS and
@@ -752,7 +752,7 @@ export function ComponentsCard() {
           </Button>
         </div>
         {target?.rate !== null && target !== undefined && (
-          <p className="text-[0.875rem] text-mute">
+          <p className="text-[0.9375rem] text-mute">
             In force for {target.label}: {rateSummary(target)}
             {target.rate !== null ? ` since ${target.rate.effective_from}` : ""}
             {target.defined_at !== undefined

@@ -1,0 +1,605 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PO detail and form · layout</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet" />
+<style>
+/* Hub tokens (frontend-hub/src/styles/index.css). Inter 14, nothing under 14px. */
+:root{--ink:#20242c;--text:#394150;--body:#626b78;--mute:#737c89;--faint:#b9c0c9;--line-ico:#89919d;--canvas:#fff;--soft:#f8f8f9;--soft-2:#f0f0f2;--soft-3:#f6f6f7;
+  --hairline:#e6e6e9;--hairline-2:#dadade;--backdrop:#e0e0e4;
+  --accent:#2563eb;--accent-bg:#eff5ff;--ok-fg:#15803d;--ok-bg:#e7f7e3;--warn-fg:#b45309;--bad-fg:#be123c;
+  --rail:#242526;--rail-2:#303234;--rail-mute:#a1a3a8;
+  --r-card:10px;--r-inner:7px;--shadow-soft:0 1px 3px rgb(24 39 60/4%);--shadow-pop:0 4px 8px rgb(24 39 60/4%),0 12px 32px rgb(24 39 60/10%)}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font:14px/20px Inter,system-ui,sans-serif;color:var(--text);background:var(--backdrop);-webkit-font-smoothing:antialiased;padding:16px 16px 40px}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer}
+.num{font-variant-numeric:tabular-nums}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:14px;letter-spacing:-.02em}
+svg.i{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.sp{flex:1}
+
+/* prototype chrome */
+.top{max-width:90rem;margin:0 auto 10px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.top h1{font-size:15px;font-weight:600;color:var(--ink)}
+.seg{display:flex;gap:2px;background:var(--canvas);padding:3px;border-radius:999px;box-shadow:0 0 0 1px var(--hairline);flex-wrap:wrap}
+.seg button{border:0;background:none;border-radius:999px;padding:5px 14px;color:var(--body)}
+.seg button.on{background:var(--ink);color:#fff;font-weight:500}
+.note{max-width:90rem;margin:0 auto 12px;background:var(--canvas);border-radius:var(--r-card);padding:10px 16px;box-shadow:var(--shadow-soft);display:flex;gap:18px;align-items:baseline;flex-wrap:wrap}
+.note b{color:var(--ink);font-weight:600}
+.note .m{color:var(--ok-fg);font-weight:500}
+.note .m.no{color:var(--warn-fg)}
+
+/* the screen: a 1440 × 900 desk, the list behind on the white veil */
+.screen{width:1440px;height:900px;margin:0 auto;display:flex;background:var(--canvas);border-radius:16px;overflow:hidden;position:relative;box-shadow:0 10px 34px rgb(24 39 60/8%)}
+.rail{width:56px;flex:none;background:var(--rail)}
+.subnav{width:232px;flex:none;border-right:1px solid var(--hairline)}
+.behind{flex:1;background:var(--soft-3);padding:28px 32px}
+.behind i{display:block;height:52px;border-radius:8px;background:var(--canvas);margin-bottom:10px;border:1px solid var(--hairline)}
+.veil{position:absolute;inset:0;background:rgb(255 255 255/.62)}
+
+/* the sheet */
+.sheet{position:absolute;top:20px;right:20px;bottom:20px;background:var(--canvas);border-radius:16px;box-shadow:var(--shadow-pop),0 0 0 1px var(--hairline);display:flex;flex-direction:column;overflow:hidden}
+.sheet.detail{width:928px}
+.sheet.form{width:1248px}
+.shd{flex:none;display:flex;align-items:flex-start;gap:12px;padding:18px 24px 16px;border-bottom:1px solid var(--hairline)}
+.shd h2{font-size:20px;line-height:26px;font-weight:600;color:var(--ink);display:flex;align-items:center;gap:10px}
+.shd .cap{color:var(--body);margin-top:2px}
+.pill{display:inline-flex;align-items:center;height:24px;padding:0 9px;border-radius:7px;font-size:14px;font-weight:500;border:1px solid #bfe3b8;color:var(--ok-fg);background:#f3fbf1}
+.x{width:32px;height:32px;display:grid;place-items:center;border-radius:8px;color:var(--body)}
+.sbd{flex:1;min-height:0;overflow:auto;padding:22px 24px 28px}
+.sft{flex:none;display:flex;justify-content:flex-end;gap:8px;padding:12px 24px;border-top:1px solid var(--hairline)}
+.btn{height:36px;display:inline-flex;align-items:center;gap:6px;padding:0 14px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas);color:var(--ink);font-weight:500;white-space:nowrap}
+.btn.q{border-color:transparent;background:none;color:var(--text)}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.sm{height:32px;padding:0 12px}
+
+/* how the sheet stands: floating (inset), full height (flush to the edge), full page */
+.sheet.m-full{top:0;right:0;bottom:0;border-radius:0;box-shadow:-14px 0 34px rgb(24 39 60/10%);border-left:1px solid var(--hairline)}
+.sheet.m-page{top:0;right:0;bottom:0;left:288px;width:auto!important;border-radius:0;box-shadow:none}
+.screen.page .veil{display:none}
+.sheet.m-page .sbd{padding:28px 40px 36px}
+.sheet.m-page .shd{padding:22px 40px 18px}
+.sheet.m-page .sft{padding:12px 40px}
+
+/* tidy: totals sit in the table's own columns, under Amount */
+.items.tidy tfoot td{background:none;border-bottom:0;padding:5px 16px;font-weight:400;color:var(--ink)}
+.items.tidy tfoot tr:first-child td{border-top:1px solid var(--hairline-2);padding-top:12px}
+.items.tidy tfoot tr.gt td{font-weight:600;font-size:15px;padding:10px 16px 14px;border-top:1px solid var(--hairline)}
+.items.tidy tfoot .lbl{color:var(--body)}
+.items.tidy tfoot tr.gt .lbl{color:var(--ink)}
+.items .add td{color:var(--accent);font-weight:500;padding:11px 16px}
+.dsc{display:flex;gap:6px;justify-content:flex-end}
+.dsc .in{height:34px;box-shadow:none}
+
+/* ledger: one column of labels, one edge for everything */
+.ledger{display:grid;grid-template-columns:150px minmax(0,1fr);gap:14px 24px;align-items:center}
+.ledger dt{color:var(--body)}
+.ledger dd{color:var(--ink)}
+.ledger.top dt,.ledger.top dd{align-self:start}
+.rule{border:0;border-top:1px solid var(--hairline);margin:22px 0}
+.secttl{font-size:14px;font-weight:500;color:var(--body);margin-bottom:10px}
+
+/* the header carries the order's line */
+.meta{display:flex;flex-wrap:wrap;gap:6px 18px;margin-top:6px;color:var(--body)}
+.meta b{color:var(--ink);font-weight:500}
+
+/* three summary cards */
+.cards3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.cards3 div{border:1px solid var(--hairline);border-radius:var(--r-card);padding:12px 16px}
+.cards3 span{display:block;color:var(--body)}
+.cards3 b{display:block;font-size:17px;line-height:24px;font-weight:600;color:var(--ink);margin-top:2px}
+.cards3 small{display:block;color:var(--body);font-size:14px;margin-top:2px}
+
+/* sections as cards on a soft body */
+.sbd.soft{background:var(--soft-3)}
+.card{background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-card);padding:18px 20px}
+.card+.card{margin-top:14px}
+.card h3{font-size:15px;font-weight:600;color:var(--ink);margin-bottom:14px}
+.shd.tall{flex-direction:column;align-items:stretch;gap:14px}
+
+/* the facts box at the right of the head, as the list's KPI box */
+.shd.withbox{align-items:center}
+.shd.withbox h2{font-size:15px;line-height:20px;white-space:nowrap;gap:8px}
+.shd.withbox .cap{white-space:nowrap;margin-top:4px}
+.shd.withbox .pill{height:22px;padding:0 8px}
+.hbox{display:flex;flex:none;border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden;background:var(--canvas)}
+.hbox div{padding:8px 16px;white-space:nowrap}
+.hbox div+div{border-left:1px solid var(--hairline)}
+.hbox dt{color:var(--body)}
+.hbox dd{color:var(--ink);font-weight:600;font-size:15px;line-height:22px;margin-top:2px}
+.headacts{display:flex;flex-direction:column;align-items:flex-end;gap:6px;align-self:flex-start}
+.headacts .row{display:flex;gap:4px;align-items:center}
+
+/* the numbers box at the right of the head: Ordered · Count · Accepted */
+.shd.nums{align-items:center;gap:20px}
+.shd.nums h2{font-size:15px;line-height:20px;white-space:nowrap;gap:8px}
+.shd.nums .pill{height:22px;padding:0 8px}
+.shd.nums .sub{color:var(--ink);margin-top:4px;white-space:nowrap}
+.shd.nums .meta{margin-top:4px;gap:4px 14px}
+.nbox{display:flex;flex:none;border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden;background:var(--canvas)}
+.nbox div{padding:8px 18px;min-width:108px}
+.nbox div+div{border-left:1px solid var(--hairline)}
+.nbox dt{color:var(--body)}
+.nbox dd{color:var(--ink);font-weight:600;font-size:18px;line-height:24px;margin-top:2px;white-space:nowrap}
+.nbox dd small{font-size:14px;font-weight:400;color:var(--body);margin-left:3px}
+.nbox dd .dif{font-size:14px;font-weight:500;color:var(--bad-fg);margin-left:4px}
+.nbox dd.none{color:var(--faint)}
+.nbox .val{display:block;color:var(--body);font-size:14px;font-weight:400;line-height:18px}
+.hact{display:flex;align-items:center;gap:4px;align-self:flex-start}
+.factline{display:flex;gap:6px 24px;flex-wrap:wrap;color:var(--body);padding-bottom:16px;margin-bottom:18px;border-bottom:1px solid var(--hairline)}
+.factline b{color:var(--ink);font-weight:500}
+
+/* supplier first, delivery second, the PO number last */
+.shd.nums h2.big{font-size:17px;line-height:24px}
+.eyebrow{color:var(--body);font-size:14px;margin-bottom:2px}
+.due{color:var(--ink);margin-top:4px}
+.due .rel{color:var(--body)}
+.cal{width:48px;height:52px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);display:flex;flex-direction:column;align-items:center;justify-content:center;flex:none;background:var(--canvas)}
+.cal b{font-size:20px;line-height:22px;font-weight:600;color:var(--ink)}
+.cal span{font-size:14px;color:var(--body);line-height:18px}
+.items.tidy tfoot td.payf{color:var(--body);text-align:left}
+.items.tidy tfoot td.payf b{color:var(--ink);font-weight:500;margin-left:8px}
+
+/* record parts */
+.facts{display:grid;grid-template-columns:1fr 1fr;gap:16px 40px}
+.facts dt{color:var(--body)}
+.facts dd{color:var(--ink);margin-top:4px}
+.sect{margin-top:26px}
+.sect>h3{font-size:14px;font-weight:500;color:var(--body);margin-bottom:10px}
+.prose{color:var(--ink);line-height:22px}
+.fbox{display:flex;border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden;background:var(--canvas)}
+.fbox div{flex:1;min-width:0;padding:10px 16px}
+.fbox div+div{border-left:1px solid var(--hairline)}
+.fbox dt{color:var(--body)}
+.fbox dd{color:var(--ink);font-weight:500;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tbox{margin-left:auto;display:grid;grid-template-columns:auto auto;gap:8px 40px;background:var(--soft);border:1px solid var(--hairline);border-radius:var(--r-card);padding:12px 18px;width:max-content}
+.tbox dt{color:var(--text)}
+.tbox dd{text-align:right;color:var(--ink);font-weight:500}
+.tbox .gt{font-weight:600;color:var(--ink);font-size:15px}
+.tbox hr{grid-column:1/-1;border:0;border-top:1px solid var(--hairline-2);margin:2px 0}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+.act{display:flex;align-items:center;gap:6px;color:var(--body);border-top:1px solid var(--hairline);padding-top:14px;margin-top:26px}
+
+/* items table */
+.items{width:100%;border-collapse:separate;border-spacing:0;border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden}
+.items th{background:var(--soft);height:44px;font-weight:500;color:var(--body);text-align:left;padding:0 16px;border-bottom:1px solid var(--hairline)}
+.items td{padding:12px 16px;border-bottom:1px solid var(--hairline);color:var(--ink);vertical-align:middle}
+.items tr:last-child td{border-bottom:0}
+.items .r{text-align:right}
+.items tfoot td{background:var(--soft);font-weight:500}
+.items tfoot tr.gt td{font-weight:600;font-size:15px}
+.it{display:flex;gap:12px;align-items:center}
+.th{width:40px;height:40px;border-radius:8px;background:var(--soft-2);border:1px solid var(--hairline);display:grid;place-items:center;color:#9aa0a8;flex:none}
+.th svg{width:24px;height:24px;fill:currentColor}
+.it small{display:block;color:var(--body);font-size:14px}
+.qs{display:block;color:var(--body);font-size:14px}
+.dash{color:var(--faint)}
+
+/* two-column record */
+.cols{display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:28px}
+.side{border-left:1px solid var(--hairline);padding-left:24px}
+.side dl{display:grid;gap:16px}
+.side dt{color:var(--body)}
+.side dd{color:var(--ink);margin-top:3px}
+
+/* the printed order */
+.doc{display:grid;grid-template-columns:1fr auto;gap:24px;padding:18px 20px;border:1px solid var(--hairline);border-radius:var(--r-card);margin-bottom:22px}
+.doc .to span{display:block;color:var(--body)}
+.doc .to b{display:block;font-size:17px;line-height:24px;color:var(--ink);font-weight:600;margin-top:2px}
+.doc table{border-collapse:collapse}
+.doc td{padding:3px 0;color:var(--ink)}
+.doc td:first-child{color:var(--body);padding-right:28px}
+
+/* form fields */
+.fld label{display:block;color:var(--text);font-weight:500;margin-bottom:6px}
+.fld label i{color:var(--bad-fg);font-style:normal}
+.in{height:40px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas);display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 12px;color:var(--ink);box-shadow:var(--shadow-soft)}
+.in.ph{color:var(--mute)}
+.in.ta{height:76px;align-items:flex-start;padding-top:10px}
+.in.small{height:36px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px 24px}
+.grid4{display:grid;grid-template-columns:1.4fr 1fr 1fr 1fr;gap:16px}
+.shead{display:flex;align-items:center;justify-content:space-between;margin:28px 0 12px}
+.shead h3{font-size:15px;font-weight:600;color:var(--ink)}
+.cell-in{height:36px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);display:flex;align-items:center;justify-content:flex-end;padding:0 10px;background:var(--canvas)}
+.addrow td{color:var(--accent);font-weight:500;cursor:pointer}
+.cart{border:1px solid var(--hairline);border-radius:var(--r-card);background:var(--soft);padding:18px;display:grid;gap:14px;align-self:start;position:sticky;top:0}
+.cart h4{font-size:15px;font-weight:600;color:var(--ink)}
+.cart .tot{display:grid;grid-template-columns:1fr auto;gap:8px;border-top:1px solid var(--hairline-2);padding-top:12px}
+.cart .tot dd{text-align:right;color:var(--ink);font-weight:500}
+.cart .tot .gt{font-weight:600;font-size:16px}
+.sentence{font-size:17px;line-height:30px;color:var(--ink)}
+.sentence .tok{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 10px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas);font-size:15px;box-shadow:var(--shadow-soft);vertical-align:middle;margin:2px 0}
+.sentence .tok.ph{color:var(--mute)}
+.more{display:flex;gap:10px;margin-top:22px}
+.more span{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border:1px dashed var(--hairline-2);border-radius:var(--r-inner);color:var(--body)}
+
+/* New directions: supplier → delivery note → quantities → line items. */
+.top{max-width:1440px;gap:10px}.top h1{font-size:14px}.top #pick{order:5;width:100%;border-radius:10px;gap:4px;padding:5px;background:transparent;box-shadow:none}
+#pick button{border-radius:7px;background:#fff;border:1px solid var(--hairline-2);padding:8px 16px}#pick button.on{background:var(--ink);border-color:var(--ink)}
+.archive{margin-left:auto;border:1px solid var(--hairline-2);border-radius:7px;background:#fff;padding:7px 12px;color:var(--body);font:inherit;max-width:300px}
+.screen{width:min(1440px,100%);height:calc(100vh - 174px);min-height:660px}.sheet.fresh.detail{width:min(1120px,calc(100% - 40px))}.sheet.fresh.workspace,.sheet.fresh.form{width:min(1248px,calc(100% - 40px))}
+.fresh .shd{padding:22px 28px 18px;gap:24px;align-items:center}.fresh .sbd{padding:22px 28px 24px}.fresh .sft{justify-content:space-between;padding:12px 28px;align-items:center}.foot-actions{display:flex;gap:8px}.foot-hint{color:var(--body)}
+.fresh .supplier{min-width:0;flex:1}.supplier .label{display:block;color:var(--body);margin-bottom:5px}.fresh h2{font-size:24px;line-height:30px;gap:12px}.supplier .po-ref{margin-top:6px;color:var(--body);display:flex;align-items:center;gap:14px;flex-wrap:wrap}.fresh .pill{height:24px}
+.fresh .header-tools{display:flex;gap:4px;align-self:flex-start}.fresh .x{border:0;background:none;cursor:pointer}
+.qbox{display:flex;border:1px solid var(--hairline-2);border-radius:10px;overflow:hidden;background:#fff;flex:none}.qbox>div{padding:10px 18px;min-width:116px}.qbox>div+div{border-left:1px solid var(--hairline)}.qbox dt{color:var(--body);white-space:nowrap}.qbox dd{margin-top:4px;color:var(--ink);font-size:24px;line-height:30px;font-weight:600;white-space:nowrap}.qbox dd small{font-size:14px;font-weight:400;color:var(--body);margin-left:4px}.qbox .counted{background:#f9fafb}.qbox .substat{display:block;font-size:14px;color:var(--body);margin-top:2px}.qbox .pending{font-size:18px;color:var(--body);font-weight:500}.qbox .delta{color:var(--warn-fg)}
+.delivery-strip{display:flex;align-items:center;justify-content:space-between;gap:24px;background:var(--soft);border-bottom:1px solid var(--hairline);padding:12px 28px}.delivery-strip .delivery-note{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.delivery-strip .label{color:var(--body)}.delivery-strip b{font-weight:500;color:var(--ink)}.text-btn{border:0;background:none;color:var(--accent);padding:0;font:inherit;cursor:pointer;text-align:left}.delivery-date{color:var(--body);white-space:nowrap}.delivery-date b{margin-left:6px}
+.table-top{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:14px}.table-top h3{font-size:16px;font-weight:600;color:var(--ink)}.table-top h3 span{font-size:14px;font-weight:400;color:var(--body);margin-left:6px}.table-top .legend{color:var(--body)}
+.detail-table-wrap{overflow:auto;border:1px solid var(--hairline);border-radius:10px}.line-table{width:100%;border-collapse:collapse;min-width:900px;table-layout:fixed}.line-table th{font-weight:500;text-align:right;padding:12px;color:var(--body);background:var(--soft);border-bottom:1px solid var(--hairline);white-space:nowrap}.line-table th:first-child{text-align:left}.line-table td{padding:17px 12px;text-align:right;color:var(--ink);border-bottom:1px solid var(--hairline);font-variant-numeric:tabular-nums;vertical-align:top}.line-table td:first-child{text-align:left}.line-table .it{align-items:flex-start;gap:10px}.line-table .it b{font-weight:500}.line-table .it small{margin-top:3px}.line-table .variant-toggle{display:block;margin-top:6px;color:var(--body);text-decoration:underline;text-underline-offset:3px}.line-table .measure{display:block;color:var(--body);margin-top:3px}.line-table .count-col{background:#fafbfc}.line-table .over{display:block;color:var(--warn-fg);margin-top:3px}.line-table .waiting{color:var(--faint)}.line-table .variant-row td{background:var(--soft);padding:9px 12px;color:var(--body)}.line-table .variant-row td:first-child{padding-left:62px}.line-table tfoot td{padding:12px;font-weight:500;background:#fcfcfd;border-bottom:0}.line-table tfoot td:first-child{color:var(--body)}
+.below-table{display:flex;justify-content:space-between;gap:28px;padding:18px 0 20px}.below-table .small-note{flex:1;color:var(--body);max-width:490px}.small-note b{display:block;font-weight:500;color:var(--ink);margin-bottom:5px}.money-summary{display:grid;grid-template-columns:auto auto;gap:6px 28px;min-width:300px}.money-summary dt{color:var(--body)}.money-summary dd{text-align:right;color:var(--ink);font-variant-numeric:tabular-nums}.money-summary .grand{padding-top:9px;margin-top:3px;border-top:1px solid var(--hairline);font-weight:600;color:var(--ink)}
+.secondary{border-top:1px solid var(--hairline);padding:14px 0;color:var(--body)}.secondary summary{cursor:pointer;display:flex;justify-content:space-between;gap:20px;list-style:none}.secondary summary::-webkit-details-marker{display:none}.secondary summary:after{content:'+'}.secondary[open] summary:after{content:'−'}.secondary-content{padding-top:14px;color:var(--ink);line-height:22px}.secondary-content .two{gap:28px}.secondary-content b{font-weight:500;display:block;margin-bottom:5px}.receipt-link{border:0;background:none;color:var(--accent);font:inherit;cursor:pointer}.receipt-modal{margin:12px 28px 0;border:1px solid var(--hairline);border-radius:10px;padding:16px 18px;background:#fff;display:flex;align-items:center;justify-content:space-between;gap:20px}.receipt-modal b{display:block;color:var(--ink);font-weight:500}.receipt-modal p{color:var(--body);margin-top:4px}
+.fresh.band .shd{border-bottom:0;padding-bottom:12px}.band-summary{display:flex;align-items:stretch;padding:0 28px 20px;gap:24px;border-bottom:1px solid var(--hairline)}.band-summary .qbox{flex:1}.band-summary .qbox>div{flex:1}.band-summary .delivery-block{min-width:232px;display:flex;flex-direction:column;justify-content:center;gap:5px}.delivery-block .label{color:var(--body)}.delivery-block b{font-weight:500;color:var(--ink)}.fresh.band .detail-table-wrap{border:0;border-radius:0}.fresh.band .line-table td{padding-top:20px;padding-bottom:20px}.fresh.band .line-table th{background:#fff;border-top:1px solid var(--hairline)}
+.workspace-body{display:grid;grid-template-columns:214px minmax(0,1fr);flex:1;min-height:0}.order-sidebar{background:var(--soft);border-right:1px solid var(--hairline);padding:22px;overflow:auto}.order-sidebar section+section{border-top:1px solid var(--hairline);margin-top:22px;padding-top:20px}.order-sidebar .label{color:var(--body);display:block;margin-bottom:8px}.order-sidebar b{font-weight:500;color:var(--ink);display:block}.order-sidebar p{color:var(--body);margin-top:5px}.order-sidebar .mono{overflow-wrap:anywhere}.workspace .qbox{width:100%;margin-bottom:22px}.workspace .qbox>div{flex:1}.workspace .line-table{min-width:840px}.workspace .sbd{padding:22px}.workspace .below-table{gap:16px}.workspace .money-summary{min-width:270px}
+.new-form-head{display:grid;grid-template-columns:1.7fr 1fr 1.1fr;gap:20px;padding-bottom:22px;margin-bottom:22px;border-bottom:1px solid var(--hairline)}.new-form-head input{width:100%;height:40px;border:1px solid var(--hairline-2);border-radius:7px;padding:0 12px;background:#fff;font:inherit}.new-form-head .fld:first-child input{font-weight:500}.new-form-head .hint{color:var(--body);margin-top:5px}.fresh.form .sbd{padding-top:22px}.fresh.form .new-form-payment{display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:540px}.new-form-payment select{font:inherit;padding:8px;border:1px solid var(--hairline-2);border-radius:7px;background:#fff;width:100%}.form-low{margin-top:20px}
+@media(max-width:1100px){.rail,.subnav{display:none}.sheet.m-page{left:0}.fresh .shd{flex-wrap:wrap}.fresh .supplier{flex-basis:40%}.fresh .qbox>div{min-width:95px;padding:10px 12px}.workspace-body{grid-template-columns:190px minmax(0,1fr)}.note{gap:8px}.note .m{display:none}}
+@media(max-width:720px){body{padding:10px}.screen{min-height:750px;height:calc(100vh - 220px)}.sheet.fresh.detail,.sheet.fresh.workspace,.sheet.fresh.form{width:calc(100% - 16px);right:8px;top:8px;bottom:8px}.fresh .shd,.fresh .sbd{padding:18px}.fresh h2{font-size:20px}.fresh .shd{gap:14px}.fresh .qbox{order:3;width:100%}.fresh .qbox>div{flex:1}.delivery-strip{padding:12px 18px;align-items:flex-start;flex-direction:column;gap:6px}.band-summary{padding:0 18px 18px;flex-direction:column;gap:12px}.workspace-body{display:flex;flex-direction:column;overflow:auto}.workspace .sbd{overflow:visible;flex:none}.order-sidebar{border-right:0;border-bottom:1px solid var(--hairline);padding:16px 18px;display:flex;gap:20px;overflow:visible}.order-sidebar section+section{margin:0;padding:0;border:0}.order-sidebar section:last-child{display:none}.below-table{flex-direction:column}.money-summary{min-width:0}.fresh .sft{padding:12px 18px}.foot-hint{display:none}.table-top{align-items:flex-start;flex-direction:column;gap:5px}.new-form-head{grid-template-columns:1fr}.archive{max-width:100%;margin:0}.receipt-modal{margin:12px 18px 0}.fresh.form .two{grid-template-columns:1fr}}
+
+
+/* Balanced: one compact header, with a single secondary reference line. */
+.fresh.balanced .shd{padding:12px 24px;gap:16px;flex-wrap:nowrap}
+.balanced .supplier{flex-basis:auto}
+.fresh.balanced h2{font-size:17px;line-height:24px;font-weight:600}
+.balanced .header-meta{display:flex;align-items:center;flex-wrap:wrap;gap:4px 16px;margin-top:4px;color:var(--body)}
+.balanced .header-meta>span{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.balanced .header-meta b{font-weight:500;color:var(--ink)}
+.balanced .header-meta .receipt-link{color:var(--ink);font-family:Inter,system-ui,sans-serif;text-decoration:underline;text-decoration-color:var(--hairline-2);text-underline-offset:3px}
+.balanced .qbox{border-color:var(--hairline);border-radius:8px}
+.balanced .qbox>div{min-width:88px;padding:6px 12px}
+.balanced .qbox dd{font-size:18px;line-height:24px;margin-top:2px}
+.balanced .qbox dd small{margin-left:3px}
+.balanced .qbox .pending{font-size:18px;line-height:24px;color:var(--faint)}
+.balanced .qbox .counted{background:#fff}
+.balanced .qbox .inline-delta{font-size:14px;font-weight:400;color:var(--warn-fg);margin-left:6px}
+.balanced .header-tools{align-self:center}
+.balanced .print-icon{width:32px;height:32px;padding:0;justify-content:center;background:none;border-color:transparent;color:var(--body)}
+.balanced .sbd{padding:18px 24px 24px}
+.balanced .table-top{margin-bottom:10px}
+.balanced .table-top h3{font-size:14px;font-weight:500}
+.balanced .table-top .legend{display:none}
+.balanced .sft{justify-content:flex-end;padding:10px 24px}
+@media(max-width:900px){.balanced .header-meta{gap:4px 12px}.balanced .header-meta .po-number{display:none}}
+@media(max-width:720px){.fresh.balanced .shd{padding:12px 18px;gap:12px;flex-wrap:wrap}.balanced .supplier{flex-basis:calc(100% - 48px)}.balanced .qbox{order:3;width:100%}.balanced .header-tools{order:2}.balanced .header-meta .po-number{display:inline-flex}.balanced .qbox>div{flex:1}.balanced .sbd{padding:16px 18px}.balanced .sft{padding:10px 18px}}
+
+
+/* Column comparisons keep the compact Balanced header unchanged. */
+.column-switch{display:flex;align-items:center;gap:4px;flex-wrap:wrap}.column-switch button{font:inherit;padding:5px 10px;border:1px solid var(--hairline);border-radius:6px;background:#fff;color:var(--body)}.column-switch button.on{background:var(--ink);border-color:var(--ink);color:#fff}.table-example{margin-left:auto;display:flex;align-items:center;gap:8px;color:var(--body)}.table-example select{font:inherit;background:#fff;border:1px solid var(--hairline-2);border-radius:6px;padding:5px 8px}.note .column-description{flex-basis:100%;color:var(--body)}
+.balanced .column-table{min-width:900px;table-layout:fixed}
+.balanced .column-table th{height:48px;padding:8px 14px;vertical-align:middle;background:#f8f8f9}
+.column-table th .unit{font-size:14px;color:var(--body);font-weight:400;margin-left:4px}
+.balanced .column-table td{padding:14px;vertical-align:middle}
+.column-table .group-start{border-left:1px solid var(--hairline)}
+.column-table .count-col{background:transparent}
+.column-table .count-value{display:inline-flex;gap:6px;align-items:baseline}
+.column-table .difference{font-size:14px;color:var(--warn-fg)}
+.column-table .item-name{font:inherit;font-weight:500;color:var(--ink);display:flex;align-items:center;gap:6px;cursor:pointer;border:0;background:none;text-align:left}
+.column-table .item-name svg{width:14px;height:14px;color:var(--body)}
+.column-table .item-name[aria-expanded=true] svg{transform:rotate(90deg)}
+.column-table .it .th{width:32px;height:32px;border-radius:6px}.column-table .it .th svg{width:20px;height:20px}
+.column-table .it small{margin-top:4px}
+.column-table .price-unit{display:block;font-size:14px;color:var(--body);margin-top:3px}
+.balanced .column-table tfoot td{background:#fff;font-weight:400;border-bottom:0;padding:7px 14px}
+.balanced .column-table tfoot .subtotal td{border-top:1px solid var(--hairline-2);padding-top:12px;padding-bottom:10px;font-weight:500}
+.balanced .column-table tfoot .grand td{padding-top:10px;padding-bottom:14px;font-weight:600}
+.column-table .footer-label{color:var(--body)}
+.column-table .footer-detail{display:block;font-size:14px;font-weight:400;color:var(--body);margin-top:3px}
+.column-table .stage-qty{display:block;color:var(--ink);font-weight:500}
+.column-table .stage-qty small{font-size:14px;font-weight:400;color:var(--body);margin-left:3px}
+.column-table .stage-money{display:block;color:var(--body);margin-top:4px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.column-table .stage-qty .difference{font-weight:400;margin-left:6px}
+.balanced .stage-table td{padding-top:15px;padding-bottom:15px}
+.column-table .variant-row td:first-child{padding-left:56px}
+.table-value-note{padding:10px 0 0;color:var(--body)}
+.balanced .qty-caption{color:var(--body)}
+.balanced .table-extra{margin-top:18px}
+.balanced .table-extra .secondary{padding:12px 0}
+@media(max-width:720px){.table-example{margin-left:0}.column-switch{gap:5px}.note{padding:10px 12px}}
+
+
+.balanced .current-column-table{min-width:704px}
+.balanced .current-column-table td{padding:12px 16px}
+.balanced .current-column-table th{padding:12px 16px}
+.balanced .current-column-table tfoot .subtotal td,.balanced .current-column-table tfoot .grand td{background:var(--soft)}
+.balanced .current-column-table tfoot .grand td{border-top:1px solid var(--hairline);padding-top:14px;padding-bottom:14px}
+.balanced .current-column-table tfoot .discount td{border-top:1px solid var(--hairline);padding-top:12px;padding-bottom:12px}
+.current-receipt{color:var(--body);margin:6px 0 0 42px}
+
+.fresh .column-table{min-width:660px}
+.received-summary{display:flex;justify-content:space-between;align-items:baseline;gap:24px;border-top:1px solid var(--hairline);padding:14px;color:var(--ink);font-variant-numeric:tabular-nums}
+.received-summary strong{font-weight:600;white-space:nowrap}
+.received-discount{color:var(--body);margin-left:8px}
+.balanced .table-extra .received-summary{margin-bottom:12px}
+@media(max-width:720px){.received-summary{padding:12px 0}.received-discount{display:block;margin-left:0;margin-top:4px}}
+</style>
+</head>
+<body>
+<div class="top">
+  <h1>PO · supplier & receiving</h1>
+  <a href="po-order-received-summary-options.html" style="color:var(--accent);text-decoration:none">Order / Received summaries ↗</a>
+  <div class="sp"></div>
+  <div class="seg" id="kind"><button class="on" data-kind="detail">PO detail</button><button data-kind="form">PO form</button></div>
+  <div class="seg" id="mode"><button class="on" data-mode="float">Floating</button><button data-mode="full">Full height</button><button data-mode="page">Full page</button></div>
+  <div class="seg" id="pick"></div>
+</div>
+<div class="note" id="note"></div>
+<div class="screen"><div class="rail"></div><div class="subnav"></div><div class="behind">${'<i></i>'.repeat(10)}</div><div class="veil"></div><div id="sheet"></div></div>
+
+<script>
+document.querySelector('.behind').innerHTML = '<i></i>'.repeat(12)
+const I = {
+  x:'<svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>',
+  print:'<svg class="i" viewBox="0 0 24 24"><path d="M7 8V4h10v4M7 17H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2M7 14h10v6H7z"/></svg>',
+  chev:'<svg class="i" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>',
+  right:'<svg class="i" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>',
+  cal:'<svg class="i" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/></svg>',
+  plus:'<svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
+  dots:'<svg class="i" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>',
+  shirt:'<svg viewBox="0 0 24 24"><path d="M8 3 3 6l2 4 2-1v12h10V9l2 1 2-4-5-3c-.6 1.6-2 2.5-4 2.5S8.6 4.6 8 3z"/></svg>'
+}
+const PO = {
+  no:'PO-041026-012', created:'Created by Rina Kusuma · 04 Oct 2026',
+  facts:[['Supplier','Indorama, PT'],['Delivery Date','14 Oct 2026'],['Payment Terms','30 days'],['Payment Method','Giro']],
+  items:[
+    {name:'Kemeja Gelambir', filed:'Pria · Celana', qty:'200 pcs', said:'', price:'Rp 40.000 / pc', amount:'Rp 8.000.000', variants:'Navy, Khaki · M, L, XL'},
+    {name:'Blus Katun', filed:'Wanita · Blus', qty:'120 pcs', said:'10 lusin', price:'Rp 420.000 / lusin', amount:'Rp 4.200.000', variants:'White, Natural · One Size'},
+    {name:'Celana Chino', filed:'Pria · Celana', qty:'80 pcs', said:'', price:'Rp 65.000 / pc', amount:'Rp 5.200.000', variants:'Khaki · 30, 32, 34, 36'}
+  ],
+  total:['400 pcs','Rp 17.400.000'], discount:['Discount · 2,5%','Rp 1.088 / pc','−Rp 435.000'], grand:'Rp 16.965.000',
+  terms:'Penerimaan barang hari Senin–Sabtu pukul 08.00–15.00, istirahat pukul 12.00–13.00. Khusus hari Jumat, istirahat pukul 11.30–13.00.',
+  notes:'Kirim dalam dua batch: kemeja dulu, blus dan celana minggu berikutnya.'
+}
+
+// ── shared pieces ──────────────────────────────────────────────────────────
+const head = (title, cap, pill) => `<div class="shd"><div class="sp"><h2>${title}${pill ? `<span class="pill">${pill}</span>` : ''}</h2>${cap ? `<div class="cap">${cap}</div>` : ''}</div><button class="btn">${I.print}Print${I.chev}</button><span class="x">${I.x}</span></div>`
+const foot = (btns) => `<div class="sft">${btns}</div>`
+const detailFoot = foot('<button class="btn q">Cancel</button><button class="btn">Edit</button><button class="btn pri">Review Count</button>')
+const thumb = `<span class="th">${I.shirt}</span>`
+const itemRows = (withReceived) => PO.items.map(it => `<tr><td><div class="it">${thumb}<div>${it.name}<small>${it.filed}</small></div></div></td><td class="r num">${it.qty}${it.said ? `<span class="qs">${it.said}</span>` : ''}</td>${withReceived ? '<td class="r dash">—</td>' : ''}<td class="r num">${it.price}</td><td class="r num">${it.amount}</td></tr>`).join('')
+const itemsTable = (footRows) => `<table class="items"><thead><tr><th>Item</th><th class="r">Quantity</th><th class="r">Received</th><th class="r">Unit Price</th><th class="r">Amount</th></tr></thead><tbody>${itemRows(true)}</tbody>${footRows ? `<tfoot><tr><td>Total</td><td class="r num">${PO.total[0]}</td><td class="r dash">—</td><td></td><td class="r num">${PO.total[1]}</td></tr><tr><td colspan="4" style="background:var(--canvas);font-weight:400;color:var(--body)">${PO.discount[0]}<br>${PO.discount[1]}</td><td class="r num" style="background:var(--canvas);font-weight:400">${PO.discount[2]}</td></tr><tr class="gt"><td colspan="4">Grand Total</td><td class="r num">${PO.grand}</td></tr></tfoot>` : ''}</table>`
+const totalsBox = `<dl class="tbox num"><dt>Total · ${PO.total[0]}</dt><dd>${PO.total[1]}</dd><dt>${PO.discount[0]}</dt><dd>${PO.discount[2]}</dd><hr><dt class="gt">Grand Total</dt><dd class="gt">${PO.grand}</dd></dl>`
+const termsNotes = (stack) => stack
+  ? `<div class="sect"><h3>Terms and Conditions</h3><p class="prose">${PO.terms}</p></div><div class="sect"><h3>Notes</h3><p class="prose">${PO.notes}</p></div>`
+  : `<div class="two sect"><div><h3 style="font-size:14px;font-weight:500;color:var(--body);margin-bottom:10px">Notes</h3><p class="prose">${PO.notes}</p></div><div><h3 style="font-size:14px;font-weight:500;color:var(--body);margin-bottom:10px">Terms and Conditions</h3><p class="prose">${PO.terms}</p></div></div>`
+const activity = `<div class="act">${I.right}Activity <span class="num">(3)</span></div>`
+
+// ── PO detail ──────────────────────────────────────────────────────────────
+const tidyTotals = `<tfoot><tr><td colspan="3"></td><td class="r lbl num">Total · ${PO.total[0]}</td><td class="r num">${PO.total[1]}</td></tr><tr><td colspan="3"></td><td class="r lbl">Discount 2,5%</td><td class="r num">${PO.discount[2]}</td></tr><tr class="gt"><td colspan="3"></td><td class="r lbl">Grand Total</td><td class="r num">${PO.grand}</td></tr></tfoot>`
+const tidyItems = `<table class="items tidy"><thead><tr><th>Item</th><th class="r">Quantity</th><th class="r">Received</th><th class="r">Unit Price</th><th class="r">Amount</th></tr></thead><tbody>${itemRows(true)}</tbody>${tidyTotals}</table>`
+const twoText = `<div class="two"><div><div class="secttl">Notes</div><p class="prose">${PO.notes}</p></div><div><div class="secttl">Terms and Conditions</div><p class="prose">${PO.terms}</p></div></div>`
+
+/// Ordered · Count · Accepted. The count came in 30 over; Accepted is said once the buyer has reviewed it.
+const NUMS = (withValue) => `<dl class="nbox num"><div><dt>Ordered</dt><dd>400<small>pcs</small>${withValue ? '<span class="val">Rp 16.965.000</span>' : ''}</dd></div><div><dt>Count</dt><dd>430<small>pcs</small><span class="dif">(+30)</span>${withValue ? '<span class="val">Rp 18.237.000</span>' : ''}</dd></div><div><dt>Accepted</dt><dd class="none">—${withValue ? '<span class="val">&nbsp;</span>' : ''}</dd></div></dl>`
+const HACT = `<div class="hact"><button class="btn sm">${I.print}Print${I.chev}</button><span class="x">${I.x}</span></div>`
+
+const payTotals = `<tfoot><tr><td colspan="3" class="payf">Payment Terms<b>30 days</b></td><td class="r lbl num">Total · ${PO.total[0]}</td><td class="r num">${PO.total[1]}</td></tr><tr><td colspan="3" class="payf">Payment Method<b>Giro</b></td><td class="r lbl">Discount 2,5%</td><td class="r num">${PO.discount[2]}</td></tr><tr class="gt"><td colspan="3"></td><td class="r lbl">Grand Total</td><td class="r num">${PO.grand}</td></tr></tfoot>`
+const payItems = () => tidyItems.replace(tidyTotals, payTotals)
+const DNUMS = `<dl class="nbox num"><div><dt>Delivery</dt><dd>14 Oct<span class="val">in 3 days</span></dd></div><div><dt>Ordered</dt><dd>400<small>pcs</small><span class="val">&nbsp;</span></dd></div><div><dt>Count</dt><dd>430<small>pcs</small><span class="dif">(+30)</span><span class="val">&nbsp;</span></dd></div><div><dt>Accepted</dt><dd class="none">—<span class="val">&nbsp;</span></dd></div></dl>`
+const body = () => `<div class="sbd"><div class="secttl">Items (3)</div>${payItems()}<div style="height:24px"></div>${twoText}${activity}</div>`
+
+const DETAIL = {
+  now: {
+    name: 'Now', note: 'Facts 2 × 2 · totals inside the table on grey bands · terms, notes and activity stacked',
+    html: () => `<div class="sheet detail">${head(PO.no, PO.created, 'Active')}<div class="sbd"><dl class="facts">${PO.facts.map(([t, v]) => `<div><dt>${t}</dt><dd>${v}</dd></div>`).join('')}</dl><div class="sect"><h3>Items (3)</h3>${itemsTable(true)}</div>${termsNotes(true)}${activity}</div>${detailFoot}</div>`
+  },
+  D1: {
+    name: 'D1 · Facts in one box', note: 'Round one: the facts as one box · totals in a box of their own',
+    html: () => `<div class="sheet detail">${head(PO.no, PO.created, 'Active')}<div class="sbd"><dl class="fbox">${PO.facts.map(([t, v]) => `<div><dt>${t}</dt><dd>${v}</dd></div>`).join('')}</dl><div class="sect"><h3>Items (3)</h3>${itemsTable(false)}<div style="height:12px"></div>${totalsBox}</div>${termsNotes(false)}${activity}</div>${detailFoot}</div>`
+  },
+  D11: {
+    name: 'D11 · Supplier title, delivery under it', note: 'The supplier is the title · delivery date and how soon under it, the PO number last · Ordered · Count · Accepted at the right · payment terms and method beside the totals',
+    html: () => `<div class="sheet detail"><div class="shd nums"><div class="sp" style="min-width:0"><h2 class="big">Indorama, PT<span class="pill">Active</span></h2><div class="meta"><span style="color:var(--ink)">Delivery <b class="num">14 Oct 2026</b> <span style="color:var(--body)">· in 3 days</span></span><span class="mono">PO-041026-012</span></div></div>${NUMS(false)}${HACT}</div>${body()}${detailFoot}</div>`
+  },
+  D12: {
+    name: 'D12 · Delivery in the box', note: 'The supplier is the title with the PO number under it · the box opens with the delivery date, then Ordered · Count · Accepted',
+    html: () => `<div class="sheet detail"><div class="shd nums"><div class="sp" style="min-width:0"><h2 class="big">Indorama, PT<span class="pill">Active</span></h2><div class="sub mono" style="color:var(--body)">PO-041026-012</div></div>${DNUMS}${HACT}</div>${body()}${detailFoot}</div>`
+  },
+  D13: {
+    name: 'D13 · PO number as the small line above', note: 'The PO number small above, the supplier as the title, the delivery date as the line under it · Ordered · Count · Accepted at the right',
+    html: () => `<div class="sheet detail"><div class="shd nums"><div class="sp" style="min-width:0"><div class="eyebrow mono">PO-041026-012</div><h2 class="big">Indorama, PT<span class="pill">Active</span></h2><div class="due">Delivery <b class="num" style="font-weight:600">14 Oct 2026</b> <span class="rel">· in 3 days</span></div></div>${NUMS(false)}${HACT}</div>${body()}${detailFoot}</div>`
+  },
+  D14: {
+    name: 'D14 · A calendar leaf', note: 'The delivery date as a small calendar leaf beside the supplier, the PO number under the name · Ordered · Count · Accepted at the right',
+    html: () => `<div class="sheet detail"><div class="shd nums"><div class="cal num"><b>14</b><span>Oct</span></div><div class="sp" style="min-width:0"><h2 class="big">Indorama, PT<span class="pill">Active</span></h2><div class="meta"><span>Delivery 14 Oct 2026 · in 3 days</span><span class="mono">PO-041026-012</span></div></div>${NUMS(false)}${HACT}</div>${body()}${detailFoot}</div>`
+  },
+  D8: {
+    name: 'D8 · Numbers box, supplier under the number', note: 'Ordered · Count · Accepted as one box at the right, as the list\'s KPI box · the supplier under the number · delivery and payment as one line at the top of the body',
+    html: () => `<div class="sheet detail"><div class="shd nums"><div class="sp"><h2>${PO.no}<span class="pill">Active</span></h2><div class="sub">Indorama, PT</div></div>${NUMS(false)}${HACT}</div><div class="sbd"><div class="factline"><span>Delivery Date <b class="num">14 Oct 2026</b></span><span>Payment <b>Giro · 30 days</b></span></div><div class="secttl">Items (3)</div>${tidyItems}<div style="height:24px"></div>${twoText}${activity}</div>${detailFoot}</div>`
+  },
+  D9: {
+    name: 'D9 · Numbers box, the order\'s line under the number', note: 'The same box · supplier, delivery and payment as one line under the number · the body is only the items, their totals, notes and terms',
+    html: () => `<div class="sheet detail"><div class="shd nums"><div class="sp" style="min-width:0"><h2>${PO.no}<span class="pill">Active</span></h2><div class="meta"><b>Indorama, PT</b><span>Delivery <b class="num">14 Oct 2026</b></span><span>Giro · 30 days</span></div></div>${NUMS(false)}${HACT}</div><div class="sbd"><div class="secttl">Items (3)</div>${tidyItems}<div style="height:24px"></div>${twoText}${activity}</div>${detailFoot}</div>`
+  },
+  D10: {
+    name: 'D10 · Numbers box with the value', note: 'As D9, each figure with its value under it, as the list\'s Ordered column reads',
+    html: () => `<div class="sheet detail"><div class="shd nums"><div class="sp" style="min-width:0"><h2>${PO.no}<span class="pill">Active</span></h2><div class="meta"><b>Indorama, PT</b><span>Delivery <b class="num">14 Oct 2026</b></span><span>Giro · 30 days</span></div></div>${NUMS(true)}${HACT}</div><div class="sbd"><div class="secttl">Items (3)</div>${tidyItems}<div style="height:24px"></div>${twoText}${activity}</div>${detailFoot}</div>`
+  },
+  D7: {
+    name: 'D7 · Facts box at the right', note: 'The number at the left, the four facts as one box at the right of the head, as the list puts its KPI box · the body is the items with their totals in their columns, then notes and terms',
+    html: () => `<div class="sheet detail"><div class="shd withbox"><div class="sp"><h2>${PO.no}<span class="pill">Active</span></h2></div><dl class="hbox num">${PO.facts.map(([t, v]) => `<div><dt>${t}</dt><dd>${v}</dd></div>`).join('')}</dl><div class="headacts"><div class="row"><button class="btn" style="height:32px">${I.print}${I.chev}</button><span class="x">${I.x}</span></div></div></div><div class="sbd"><div class="secttl">Items (3)</div>${tidyItems}<div style="height:24px"></div>${twoText}${activity}</div>${detailFoot}</div>`
+  },
+  D4: {
+    name: 'D4 · One edge', note: 'Every label in one column, every value on one edge · totals in the table\'s own columns under Amount · one rule between the parts',
+    html: () => `<div class="sheet detail">${head(PO.no, PO.created, 'Active')}<div class="sbd"><dl class="ledger"><dt>Supplier</dt><dd>Indorama, PT</dd><dt>Delivery Date</dt><dd class="num">14 Oct 2026</dd><dt>Payment</dt><dd>Giro · 30 days</dd></dl><hr class="rule"><div class="secttl">Items (3)</div>${tidyItems}<hr class="rule"><dl class="ledger top"><dt>Notes</dt><dd class="prose">${PO.notes}</dd><dt>Terms and Conditions</dt><dd class="prose">${PO.terms}</dd></dl>${activity}</div>${detailFoot}</div>`
+  },
+  D5: {
+    name: 'D5 · The header says the order', note: 'Supplier, delivery and payment as one line under the number · the body is the items, their totals in their columns, then notes and terms',
+    html: () => `<div class="sheet detail"><div class="shd"><div class="sp"><h2>${PO.no}<span class="pill">Active</span></h2><div class="meta"><b>Indorama, PT</b><span>Delivery <b class="num">14 Oct 2026</b></span><span>Giro · 30 days</span></div><div class="cap" style="margin-top:4px">${PO.created}</div></div><button class="btn">${I.print}Print${I.chev}</button><span class="x">${I.x}</span></div><div class="sbd"><div class="secttl">Items (3)</div>${tidyItems}<div style="height:24px"></div>${twoText}${activity}</div>${detailFoot}</div>`
+  },
+  D6: {
+    name: 'D6 · Three cards, then the items', note: 'Who, when and how much as three equal cards, the amount the lead figure · the items with their totals in their columns · notes and terms side by side',
+    html: () => `<div class="sheet detail">${head(PO.no, PO.created, 'Active')}<div class="sbd"><div class="cards3"><div><span>Supplier</span><b>Indorama, PT</b><small>Giro · 30 days</small></div><div><span>Delivery Date</span><b class="num">14 Oct 2026</b><small>in 3 days</small></div><div><span>Grand Total</span><b class="num">${PO.grand}</b><small class="num">400 pcs · 3 items</small></div></div><div class="sect"><div class="secttl">Items (3)</div>${tidyItems}</div><div style="height:24px"></div>${twoText}${activity}</div>${detailFoot}</div>`
+  }
+}
+
+// ── PO form ────────────────────────────────────────────────────────────────
+const field = (label, value, req, cls = '') => `<div class="fld"><label>${label}${req ? '<i>*</i>' : ''}</label><div class="in ${cls}">${value}</div></div>`
+const formHead = `<div class="shd"><div class="sp"><h2>New PO</h2></div><span class="x">${I.x}</span></div>`
+const formFoot = foot('<button class="btn q">Cancel</button><button class="btn pri">Review order</button>')
+const F = {
+  supplier: field('Supplier', `Indorama, PT${I.chev}`, true),
+  delivery: field('Delivery Date', `14 Oct 2026${I.cal}`, true),
+  terms: field('Payment Terms', `30 days${I.chev}`),
+  method: field('Payment Method', `Giro${I.chev}`, true)
+}
+const editRows = PO.items.map(it => `<tr><td><div class="it">${thumb}<div>${it.name}<small>${it.filed} · ${it.variants}</small></div></div></td><td class="r"><div class="cell-in num">${it.said || it.qty}</div></td><td class="r"><div class="cell-in num">${it.price.replace(' / pc', '').replace(' / lusin', '')}</div></td><td class="r num">${it.amount}</td><td class="r" style="width:44px;color:var(--body)">${I.dots}</td></tr>`).join('')
+const editTable = (addRow) => `<table class="items"><thead><tr><th>Item</th><th class="r" style="width:150px">Quantity</th><th class="r" style="width:170px">Unit Price</th><th class="r">Amount</th><th></th></tr></thead><tbody>${editRows}${addRow ? `<tr class="addrow"><td colspan="5"><span style="display:inline-flex;align-items:center;gap:6px">${I.plus}Add item</span></td></tr>` : ''}</tbody></table>`
+const discountFields = `<div class="grid2">${field('Discount Amount', '<span style="color:var(--mute)">Rp</span><span class="num">435.000</span>')}${field('Discount Percentage', '<span class="num">2,5</span><span style="color:var(--mute)">%</span>')}</div>`
+const formTotals = `<tfoot><tr><td></td><td class="r lbl num" colspan="2">Total · ${PO.total[0]}</td><td class="r num">${PO.total[1]}</td><td></td></tr><tr><td></td><td class="r lbl">Discount</td><td class="r"><div class="dsc"><span class="in small" style="width:124px"><span style="color:var(--mute)">Rp</span><span class="num">435.000</span></span><span class="in small" style="width:74px"><span class="num">2,5</span><span style="color:var(--mute)">%</span></span></div></td><td class="r num">${PO.discount[2]}</td><td></td></tr><tr class="gt"><td></td><td class="r lbl" colspan="2">Grand Total</td><td class="r num">${PO.grand}</td><td></td></tr></tfoot>`
+const tidyEdit = `<table class="items tidy"><thead><tr><th>Item</th><th class="r" style="width:150px">Quantity</th><th class="r" style="width:230px">Unit Price</th><th class="r" style="width:170px">Amount</th><th style="width:44px"></th></tr></thead><tbody>${editRows}<tr class="add"><td colspan="5"><span style="display:inline-flex;align-items:center;gap:6px">${I.plus}Add item</span></td></tr></tbody>${formTotals}</table>`
+const smallField = (label, value, req, w) => `<div class="fld" style="${w ? `width:${w}` : ''}"><label>${label}${req ? '<i>*</i>' : ''}</label><div class="in small">${value}</div></div>`
+const ta = (ph) => `<div class="in ta ph">${ph}</div>`
+
+const FORM = {
+  now: {
+    name: 'Now', note: 'Supplier, dates and payment 2 × 2 · items · discount as a section of its own · notes and terms stacked',
+    html: () => `<div class="sheet form">${formHead}<div class="sbd"><div class="grid2">${F.supplier}${F.delivery}${F.terms}${F.method}</div><div class="shead"><h3>Items</h3><button class="btn sm">${I.plus}New item</button></div>${editTable(false)}<div class="shead"><h3>Discount</h3></div>${discountFields}<div class="shead"><h3>Notes</h3></div><div class="in ta ph">Notes</div><div class="shead"><h3>Terms and Conditions</h3></div><div class="in ta ph">Terms and conditions</div></div>${formFoot}</div>`
+  },
+  F1: {
+    name: 'F1 · One line, totals box', note: 'Round one: the four fields on one line · discount inside a totals box',
+    html: () => `<div class="sheet form">${formHead}<div class="sbd"><div class="grid4">${F.supplier}${F.delivery}${F.terms}${F.method}</div><div class="shead"><h3>Items (3)</h3></div>${editTable(true)}<div style="display:flex;gap:24px;margin-top:16px;align-items:flex-start"><div class="two" style="flex:1"><div class="fld"><label>Notes</label><div class="in ta ph">Notes</div></div><div class="fld"><label>Terms and Conditions</label><div class="in ta ph">Terms and conditions</div></div></div><dl class="tbox num" style="margin-left:0;align-items:center"><dt>Total · ${PO.total[0]}</dt><dd>${PO.total[1]}</dd><dt>Discount</dt><dd style="display:flex;gap:6px;justify-content:flex-end"><span class="in small" style="width:110px;box-shadow:none"><span style="color:var(--mute)">Rp</span>435.000</span><span class="in small" style="width:70px;box-shadow:none">2,5<span style="color:var(--mute)">%</span></span></dd><hr><dt class="gt">Grand Total</dt><dd class="gt">${PO.grand}</dd></dl></div></div>${formFoot}</div>`
+  },
+  F4: {
+    name: 'F4 · One edge', note: 'Labels in one column, every field on one edge · the discount in the table\'s totals, under Amount · notes and terms as the last two rows',
+    html: () => `<div class="sheet form">${formHead}<div class="sbd"><dl class="ledger"><dt>Supplier<i style="color:var(--bad-fg);font-style:normal">*</i></dt><dd><div class="in" style="max-width:520px">Indorama, PT${I.chev}</div></dd><dt>Delivery Date<i style="color:var(--bad-fg);font-style:normal">*</i></dt><dd><div class="in" style="max-width:250px">14 Oct 2026${I.cal}</div></dd><dt>Payment<i style="color:var(--bad-fg);font-style:normal">*</i></dt><dd style="display:flex;gap:12px"><div class="in" style="width:250px">Giro${I.chev}</div><div class="in" style="width:258px">30 days${I.chev}</div></dd></dl><hr class="rule"><div class="secttl">Items (3)</div>${tidyEdit}<hr class="rule"><dl class="ledger top"><dt>Notes</dt><dd>${ta('Notes')}</dd><dt>Terms and Conditions</dt><dd>${ta('Terms and conditions')}</dd></dl></div>${formFoot}</div>`
+  },
+  F5: {
+    name: 'F5 · The order\'s line stays on top', note: 'Supplier, delivery and payment in the sheet\'s head, always in view while the items scroll · the body is the items, totals in their columns, notes and terms',
+    html: () => `<div class="sheet form"><div class="shd tall"><div style="display:flex;align-items:center"><h2 class="sp">New PO</h2><span class="x">${I.x}</span></div><div style="display:flex;gap:14px;align-items:flex-end">${smallField('Supplier', `Indorama, PT${I.chev}`, true, '360px')}${smallField('Delivery Date', `14 Oct 2026${I.cal}`, true, '200px')}${smallField('Payment Method', `Giro${I.chev}`, true, '200px')}${smallField('Payment Terms', `30 days${I.chev}`, false, '200px')}</div></div><div class="sbd"><div class="secttl">Items (3)</div>${tidyEdit}<div style="height:24px"></div><div class="two"><div class="fld"><label>Notes</label>${ta('Notes')}</div><div class="fld"><label>Terms and Conditions</label>${ta('Terms and conditions')}</div></div></div>${formFoot}</div>`
+  },
+  F6: {
+    name: 'F6 · Three cards', note: 'The sheet\'s body on grey, each part a white card: the order, the items with their totals, notes and terms',
+    html: () => `<div class="sheet form">${formHead}<div class="sbd soft"><div class="card"><h3>Order</h3><div class="grid4">${F.supplier}${F.delivery}${F.method}${F.terms}</div></div><div class="card"><h3>Items (3)</h3>${tidyEdit}</div><div class="card"><div class="two"><div class="fld"><label>Notes</label>${ta('Notes')}</div><div class="fld"><label>Terms and Conditions</label>${ta('Terms and conditions')}</div></div></div></div>${formFoot}</div>`
+  }
+}
+
+
+// Three fresh alternatives share the same sample order and receiving facts.
+const receiving = [220, 120, 90]
+const breakdown = [
+  [['Navy · M',80,90],['Navy · L',70,80],['Khaki · XL',50,50]],
+  [['White · One Size',60,60],['Natural · One Size',60,60]],
+  [['Khaki · 30',20,20],['Khaki · 32',20,25],['Khaki · 34',20,25],['Khaki · 36',20,20]]
+]
+const openVariants = new Set()
+let receiptOpen = false
+const quantityBox = () => `<dl class="qbox num"><div><dt>Ordered</dt><dd>400<small>pcs</small></dd></div><div><dt>Received</dt><dd class="${sampleAccepted?'':'pending'}">${sampleAccepted?'400<small>pcs</small>':'—'}</dd></div></dl>`
+const supplierTitle = () => `<div class="supplier"><span class="label">Supplier</span><h2>Indorama, PT <span class="pill">Active</span></h2><div class="po-ref"><span class="mono">${PO.no}</span><span>04 Oct 2026</span></div></div>`
+const newTools = `<div class="header-tools"><button class="btn sm" data-print>${I.print}Print</button></div>`
+const receiptLink = () => `<button class="receipt-link mono" data-receipt aria-expanded="${receiptOpen}">SJ-101026-018</button>`
+const receiptPanel = () => receiptOpen ? `<div class="receipt-modal"><div><b>Delivery note · SJ-101026-018</b><p>10 Oct 2026 · 430 pcs counted by Dedi · Main warehouse</p></div><button class="btn sm" data-receipt>Close</button></div>` : ''
+const newFoot = `<div class="sft"><span class="foot-hint">Awaiting receiving review</span><div class="foot-actions"><button class="btn" data-edit-form>Edit PO</button><button class="btn pri" data-review-count>Review receiving ${I.right}</button></div></div>`
+const newLineTable = () => quantityColumnTable()
+const newBelow = () => `<div class="below-table"><div class="small-note"><b>Delivery instructions</b>${PO.notes}</div><dl class="money-summary"><dt>Discount · 2,5%</dt><dd>${PO.discount[2]}</dd><dt class="grand">Order total</dt><dd class="grand">${PO.grand}</dd></dl></div>${receivedAmountSummary()}<details class="secondary"><summary><span>Payment</span><span>Giro · 30 days</span></summary><div class="secondary-content">Payment method: Giro<br>Payment terms: 30 days</div></details><details class="secondary"><summary>Terms & activity</summary><div class="secondary-content"><div class="two"><div><b>Terms & conditions</b>${PO.terms}</div><div><b>Activity</b>10 Oct · Dedi submitted count of 430 pcs<br>10 Oct · Delivery note SJ-101026-018 recorded<br>04 Oct · Rina Kusuma created this PO</div></div></div></details>`
+const tableTitle = `<div class="table-top"><h3>Order details <span>3 items</span></h3><span class="legend">Quantities in pcs</span></div>`
+const COLUMN_LAYOUTS = {
+ now: {name:'Sekarang', note:'Susunan aplikasi saat ini: Item → Quantity → Received → Unit Price → Amount. Count dan Accepted belum menjadi dua kolom terpisah; Received berisi qty yang sudah diterima setelah review.'},
+ qty: {name:'1 · Qty → price', note:'Item → Quantity → Unit price → Amount. Received cukup di ringkasan header dan nilai total di bawah tabel.'},
+ price: {name:'2 · Price → qty', note:'Item → Unit price → Amount → Quantity. Nilai order dekat item; total quantity di ujung kanan.'},
+ value: {name:'3 · Qty + amount', note:'Item → Unit price → Order. Quantity dan amount ditumpuk dalam satu kolom; Received tetap di ringkasan.'}
+}
+let columnLayout = new URLSearchParams(location.search).get('table') || 'qty'
+if (!COLUMN_LAYOUTS[columnLayout]) columnLayout = 'qty'
+let sampleAccepted = new URLSearchParams(location.search).get('sample') === 'accepted'
+const pricesPerPiece = [40000,35000,65000]
+const acceptedQuantities = [200,120,80]
+const rupiah = value => 'Rp ' + Math.round(value).toLocaleString('id-ID')
+const orderedQuantities = PO.items.map(it => parseInt(it.qty))
+const stageQty = stage => stage === 'ordered' ? orderedQuantities : stage === 'count' ? receiving : sampleAccepted ? acceptedQuantities : null
+const stageGross = stage => stageQty(stage)?.reduce((sum,qty,i)=>sum+qty*pricesPerPiece[i],0) ?? null
+const stageTotal = stage => stageQty(stage)?.reduce((sum,qty)=>sum+qty,0) ?? null
+const stageMoney = (stage,kind) => {
+ const gross = stageGross(stage)
+ if (gross === null) return '—'
+ return kind === 'discount' ? '−' + rupiah(gross*.025) : kind === 'grand' ? rupiah(gross*.975) : rupiah(gross)
+}
+const columnItem = (it,i) => `<div class="it">${thumb}<div><button class="item-name" data-variant="${i}" aria-expanded="${openVariants.has(i)}">${it.name}${I.right}</button><small>${it.variants}</small></div></div>`
+const qtyCell = (stage,i) => {
+ const qty = stageQty(stage)?.[i]
+ if (qty === undefined) return '<span class="waiting">—</span>'
+ const difference = stage === 'count' ? qty-orderedQuantities[i] : 0
+ return `<span class="count-value">${qty}${difference ? `<span class="difference">+${difference}</span>` : ''}</span>`
+}
+const priceCell = it => `${it.price.split(' / ')[0]}<span class="price-unit">/ ${it.price.split(' / ')[1]}</span>`
+const columnFooter = columns => {
+ const totals = {item:'Total',price:'',amount:PO.total[1],ordered:'400',count:'430',accepted:sampleAccepted?'400':'—'}
+ const subtotal = `<tr class="subtotal">${columns.map(c=>`<td class="${c==='price'&&columnLayout==='qty'||c==='ordered'&&columnLayout==='price'?'group-start':''} ${c==='item'?'footer-label':''}">${totals[c]}</td>`).join('')}</tr>`
+ const row = (label,value,cls) => `<tr class="${cls}">${columns.map(c=>`<td class="${c==='item'?'footer-label':''} ${c==='price'&&columnLayout==='qty'||c==='ordered'&&columnLayout==='price'?'group-start':''}">${c==='item'?label:c==='amount'?value:''}</td>`).join('')}</tr>`
+ return `<tfoot>${subtotal}${row('Discount · 2,5%',PO.discount[2],'discount')}${row('Order total',PO.grand,'grand')}</tfoot>`
+}
+const quantityColumnTable = () => {
+ const columns = columnLayout === 'price' ? ['item','price','amount','ordered'] : ['item','ordered','price','amount']
+ const labels = {item:'Item',ordered:'Quantity',price:'Unit price',amount:'Amount'}
+ const widths = {ordered:100,count:112,accepted:104,price:140,amount:158}
+ const groupStart = c => c === (columnLayout==='price'?'ordered':'price') ? 'group-start' : ''
+ return `<div class="detail-table-wrap"><table class="line-table column-table"><colgroup>${columns.map(c=>`<col${c==='item'?'':` style="width:${widths[c]}px"`}>`).join('')}</colgroup><thead><tr>${columns.map(c=>`<th scope="col" class="${groupStart(c)}">${labels[c]}</th>`).join('')}</tr></thead><tbody>${PO.items.map((it,i)=>{
+  const cell = c => c==='item'?columnItem(it,i):c==='price'?priceCell(it):c==='amount'?it.amount:qtyCell(c,i)
+  return `<tr>${columns.map(c=>`<td class="${groupStart(c)}">${cell(c)}</td>`).join('')}</tr>${openVariants.has(i)?breakdown[i].map(([name,q,count])=>`<tr class="variant-row">${columns.map(c=>`<td class="${groupStart(c)}">${c==='item'?name:c==='ordered'?q:c==='count'?count:c==='accepted'?(sampleAccepted?q:'—'):''}</td>`).join('')}</tr>`).join(''):''}`
+ }).join('')}</tbody>${columnFooter(columns)}</table></div>`
+}
+const stageValueCell = (stage,i,variantQty) => {
+ const qty = variantQty !== undefined ? variantQty : stageQty(stage)?.[i]
+ if (qty === undefined || qty === null) return '<span class="waiting">—</span>'
+ const difference = stage==='count' && variantQty===undefined ? qty-orderedQuantities[i] : 0
+ return `<span class="stage-qty">${qty}<small>pcs</small>${difference?`<span class="difference">+${difference}</span>`:''}</span><span class="stage-money">${rupiah(qty*pricesPerPiece[i])}</span>`
+}
+const stageValueTable = () => `<div class="detail-table-wrap"><table class="line-table column-table stage-table"><colgroup><col><col style="width:160px"><col style="width:200px"></colgroup><thead><tr><th scope="col">Item</th><th scope="col">Unit price</th><th scope="col" class="group-start">Order</th></tr></thead><tbody>${PO.items.map((it,i)=>`<tr><td>${columnItem(it,i)}</td><td>${priceCell(it)}</td><td class="group-start">${stageValueCell('ordered',i)}</td></tr>${openVariants.has(i)?breakdown[i].map(([name,q])=>`<tr class="variant-row"><td>${name}</td><td></td><td class="group-start">${stageValueCell('ordered',i,q)}</td></tr>`).join(''):''}`).join('')}</tbody><tfoot><tr class="subtotal"><td class="footer-label">Total</td><td></td><td class="group-start"><span class="stage-qty">400<small>pcs</small></span><span class="stage-money">${PO.total[1]}</span></td></tr><tr class="discount"><td class="footer-label">Discount · 2,5%</td><td></td><td class="group-start">${PO.discount[2]}</td></tr><tr class="grand"><td>Order total</td><td></td><td class="group-start">${PO.grand}</td></tr></tfoot></table></div>`
+const receivedAmountSummary = () => sampleAccepted ? `<div class="received-summary"><span>Received total <span class="received-discount">after 2,5% discount</span></span><strong>${stageMoney('accepted','grand')}</strong></div>` : ''
+
+const currentColumnTable = () => `<div class="detail-table-wrap"><table class="line-table column-table current-column-table"><colgroup><col><col style="width:136px"><col style="width:144px"><col style="width:160px"><col style="width:152px"></colgroup><thead><tr><th scope="col">Item</th><th scope="col">Quantity</th><th scope="col">Received</th><th scope="col">Unit Price</th><th scope="col">Amount</th></tr></thead><tbody>${PO.items.map((it,i)=>`<tr><td>${columnItem(it,i)}${sampleAccepted?`<div class="current-receipt">Received<br>10 Oct · ${acceptedQuantities[i]} pcs</div>`:''}</td><td>${orderedQuantities[i]} pcs${it.said?`<span class="price-unit">${it.said}</span>`:''}</td><td>${sampleAccepted?acceptedQuantities[i]+' pcs':'<span class="waiting">—</span>'}</td><td>${it.price}</td><td>${it.amount}</td></tr>${openVariants.has(i)?breakdown[i].map(([name,q])=>`<tr class="variant-row"><td>${name}</td><td>${q} pcs</td><td></td><td></td><td></td></tr>`).join(''):''}`).join('')}</tbody><tfoot><tr class="subtotal"><td>Total</td><td>400 pcs</td><td>${sampleAccepted?'400 pcs':'—'}</td><td></td><td>${PO.total[1]}</td></tr><tr class="discount"><td colspan="4" class="footer-label">Discount · 2,5%<span class="footer-detail">Rp 1.088 / pc</span></td><td>${PO.discount[2]}</td></tr><tr class="grand"><td colspan="4">Grand Total</td><td>${PO.grand}</td></tr></tfoot></table></div>`
+const balancedTitle = () => `<div class="table-top"><h3>Order details <span>3 items</span></h3><span class="qty-caption">${columnLayout==='value'?'Qty + gross value':columnLayout==='now'?'':'Qty in pcs'}</span></div>`
+const balancedTable = () => columnLayout === 'now' ? currentColumnTable() : columnLayout === 'value' ? stageValueTable() : quantityColumnTable()
+const balancedExtra = () => `<div class="table-extra">${receivedAmountSummary()}<details class="secondary"><summary>Delivery instructions</summary><div class="secondary-content">${PO.notes}</div></details>${newBelow().slice(newBelow().indexOf('<details'))}</div>`
+const balancedHeader = () => `<header class="shd"><div class="supplier"><h2>Indorama, PT</h2><div class="header-meta"><span class="po-number mono">${PO.no}</span><span>Delivery note ${receiptLink()}</span><span>Delivery <b class="num">14 Oct</b></span></div></div>${quantityBox()}<div class="header-tools"><button class="btn print-icon" data-print aria-label="Print PO" title="Print PO">${I.print}</button></div></header>`
+const balancedFoot = () => `<div class="sft"><div class="foot-actions"><button class="btn" data-edit-form>Edit PO</button><button class="btn pri" data-review-count>${sampleAccepted?'View receiving':'Review receiving'}</button></div></div>`
+const FRESH_DETAIL = {
+  A: { name:'A · Balanced', note:'Header ringkas tetap sama. Bandingkan susunan saat ini dan tiga alternatif kolom qty dan harga lewat pilihan di atas.', html:()=>`<div class="sheet detail fresh balanced">${balancedHeader()}${receiptPanel()}<main class="sbd">${balancedTitle()}${balancedTable()}${balancedExtra()}</main>${balancedFoot()}</div>` },
+  B: { name:'B · Table first', note:'Header lebih ringan. Kotak qty memanjang di atas tabel, delivery note di sebelahnya. Baris item lebih lega tanpa kotak luar.', html:()=>`<div class="sheet detail fresh band"><header class="shd">${supplierTitle()}<span class="delivery-date">Delivery date <b>14 Oct 2026</b></span>${newTools}</header><div class="band-summary">${quantityBox()}<div class="delivery-block"><span class="label">Delivery note</span>${receiptLink()}<span class="label">10 Oct 2026 · Main warehouse</span></div></div>${receiptPanel()}<main class="sbd">${tableTitle}${newLineTable()}${balancedExtra()}</main>${newFoot}</div>` },
+  C: { name:'C · Receiving workspace', note:'Supplier tetap judul. Delivery note dan referensi di kiri; area kanan khusus kotak qty dan detail tabel. Cocok untuk layar lebar.', html:()=>`<div class="sheet detail fresh workspace"><header class="shd"><div class="supplier"><h2>Indorama, PT <span class="pill">Active</span></h2><div class="po-ref">Purchase order · Main warehouse</div></div>${newTools}</header>${receiptPanel()}<div class="workspace-body"><aside class="order-sidebar"><section><span class="label">Delivery note</span>${receiptLink()}<p>10 Oct 2026</p><p>Counted by Dedi</p></section><section><span class="label">Delivery date</span><b>14 Oct 2026</b><p>In 3 days</p></section><section><span class="label">PO number</span><b class="mono">${PO.no}</b><p>Created 04 Oct 2026<br>by Rina Kusuma</p></section></aside><main class="sbd">${quantityBox()}${tableTitle}${newLineTable()}${balancedExtra()}</main></div>${newFoot}</div>` }
+}
+const newFormFields = `<div class="new-form-head"><div class="fld"><label for="new-supplier">Supplier <i>*</i></label><input id="new-supplier" value="Indorama, PT"></div><div class="fld"><label for="new-date">Delivery date <i>*</i></label><input id="new-date" type="date" value="2026-10-14"></div><div class="fld"><label for="new-dn">Delivery note</label><input id="new-dn" placeholder="Add when goods arrive"><div class="hint">Optional at order creation</div></div></div>`
+const newFormExtra = `<div class="form-low"><details class="secondary"><summary><span>Payment</span><span>Giro · 30 days</span></summary><div class="secondary-content new-form-payment"><div class="fld"><label for="method">Method</label><select id="method"><option>Giro</option><option>Transfer</option><option>Cash</option></select></div><div class="fld"><label for="terms">Terms</label><select id="terms"><option>30 days</option><option>14 days</option><option>Due on receipt</option></select></div></div></details><details class="secondary"><summary>Notes & terms</summary><div class="secondary-content two"><div class="fld"><label>Notes</label>${ta('Delivery instructions')}</div><div class="fld"><label>Terms & conditions</label>${ta('Terms and conditions')}</div></div></details></div>`
+const FRESH_FORM = {
+ A: {name:'A · Focused form', note:'Supplier dan delivery date di atas. Delivery note opsional saat membuat order. Payment dilipat di bawah tabel.', html:()=>`<div class="sheet form fresh">${formHead}<main class="sbd">${newFormFields}<div class="table-top"><h3>Order details <span>3 items</span></h3></div>${tidyEdit}${newFormExtra}</main>${formFoot}</div>`},
+ B: {name:'B · Supplier in header', note:'Supplier menjadi judul sejak draft. Delivery date dan delivery note satu baris; tabel mendapat ruang paling besar.', html:()=>`<div class="sheet form fresh"><header class="shd"><div class="supplier"><span class="label">New purchase order</span><h2>Indorama, PT</h2></div></header><main class="sbd">${newFormFields}${tidyEdit}${newFormExtra}</main>${formFoot}</div>`}
+}
+
+let kind = new URLSearchParams(location.search).get('kind') || 'detail'
+let mode = new URLSearchParams(location.search).get('mode') || 'float'
+let pick = new URLSearchParams(location.search).get('pick') || 'A'
+const sets = () => kind === 'detail' ? {...FRESH_DETAIL, ...DETAIL} : {...FRESH_FORM, ...FORM}
+function draw() {
+  const set = sets(); if (!set[pick]) pick = 'A'
+  document.getElementById('sheet').innerHTML = set[pick].html()
+  const sheetEl = document.querySelector('#sheet .sheet'); if (mode !== 'float') sheetEl.classList.add('m-' + mode)
+  document.querySelector('.screen').classList.toggle('page', mode === 'page')
+  document.querySelectorAll('#mode button').forEach(b => b.classList.toggle('on', b.dataset.mode === mode))
+  document.querySelectorAll('#kind button').forEach(b => b.classList.toggle('on', b.dataset.kind === kind))
+  const fresh = kind === 'detail' ? FRESH_DETAIL : FRESH_FORM
+  const old = kind === 'detail' ? DETAIL : FORM
+  document.getElementById('pick').innerHTML = Object.entries(fresh).map(([k, o]) => `<button data-k="${k}" class="${k === pick ? 'on' : ''}">${o.name}</button>`).join('') + `<select class="archive" aria-label="Opsi sebelumnya" id="archive"><option value="">Opsi sebelumnya…</option>${Object.entries(old).map(([k,o])=>`<option value="${k}" ${pick===k?'selected':''}>${o.name}</option>`).join('')}</select>`
+  const body = document.querySelector('.sbd')
+  const extra = body.scrollHeight - body.clientHeight
+  document.getElementById('note').innerHTML = kind === 'detail' && pick === 'A' ? `<b>Table columns</b><div class="column-switch">${Object.entries(COLUMN_LAYOUTS).map(([key,x])=>`<button data-columns="${key}" class="${columnLayout===key?'on':''}" aria-pressed="${columnLayout===key}">${x.name}</button>`).join('')}</div><label class="table-example">Sample <select id="receiving-sample"><option value="pending" ${sampleAccepted?'':'selected'}>Awaiting receiving</option><option value="accepted" ${sampleAccepted?'selected':''}>Received</option></select></label><span class="column-description">${COLUMN_LAYOUTS[columnLayout].note}</span>` : `<b>${set[pick].name}</b><span>${set[pick].note}</span><span class="m ${extra > 0 ? 'no' : ''} num">${extra > 0 ? `${extra}px to scroll` : 'Everything in view, no scroll'}</span>`
+}
+document.addEventListener('click', (e) => {
+  const columns = e.target.closest('[data-columns]'); if (columns) { columnLayout = columns.dataset.columns; draw(); return }
+  const md = e.target.closest('[data-mode]'); if (md) { mode = md.dataset.mode; draw(); return }
+  const k = e.target.closest('[data-kind]'); if (k) { kind = k.dataset.kind; pick = 'A'; draw(); return }
+  const variant = e.target.closest('[data-variant]'); if (variant) { const id = Number(variant.dataset.variant); openVariants.has(id) ? openVariants.delete(id) : openVariants.add(id); const scroll = document.querySelector('.sbd').scrollTop; draw(); document.querySelector('.sbd').scrollTop = scroll; return }
+  if (e.target.closest('[data-receipt]')) { receiptOpen = !receiptOpen; draw(); return }
+  if (e.target.closest('[data-edit-form]')) { kind = 'form'; pick = 'A'; draw(); return }
+  if (e.target.closest('[data-print]')) { window.print(); return }
+  if (e.target.closest('[data-review-count]')) { document.querySelectorAll('[data-variant]').forEach(b => openVariants.add(Number(b.dataset.variant))); draw(); const title = document.querySelector('.table-top h3'); if (title) title.innerHTML = 'Review receiving <span>Sample preview</span>'; return }
+  const b = e.target.closest('[data-k]'); if (b) { pick = b.dataset.k; draw() }
+})
+document.addEventListener('change', (e) => { if (e.target.id === 'receiving-sample') { sampleAccepted = e.target.value === 'accepted'; draw(); return } if (e.target.id === 'archive' && e.target.value) { pick = e.target.value; draw() } })
+const zoom = new URLSearchParams(location.search).get('zoom'); if (zoom) document.body.style.zoom = zoom
+document.fonts.ready.then(draw)
+draw()
+</script>
+</body>
+</html>

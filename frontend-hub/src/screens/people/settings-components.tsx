@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -15,15 +15,14 @@ import { EmptyState, Problem } from "@/components/ui/states"
 import { money, moment } from "@/lib/format"
 import {
   defineComponent,
-  payComponents,
   payKeys,
   ratifyComponentRate,
   retireComponent,
   retireSalaryStructure,
-  salaryStructures,
   saveSalaryStructure,
+  salaryStructuresQuery,
+  payComponentsQuery,
 } from "@/lib/queries/people"
-import { queryState } from "@/lib/query-state"
 import { useCanWrite } from "@/lib/session"
 import { AllowanceLines } from "@/screens/people/payroll-setup"
 import {
@@ -35,6 +34,7 @@ import {
 import { bpOf, digits, useOpener } from "@/screens/people/settings-lib"
 import { percent } from "@/screens/people/slip-lines"
 import type { PayComponentView, SalaryStructureView } from "@itulah/contract"
+import { awaiting } from "@/screens/people/awaiting"
 
 /// Settings › Salary structures & components — what a payslip is made of.
 ///
@@ -47,14 +47,6 @@ import type { PayComponentView, SalaryStructureView } from "@itulah/contract"
 export function PayComponentSettings() {
   const canWrite = useCanWrite()
   const phone = useLayout() === "phone"
-  const structures = useQuery({
-    queryKey: payKeys.structures(),
-    queryFn: ({ signal }) => salaryStructures(signal),
-  })
-  const components = useQuery({
-    queryKey: payKeys.components(),
-    queryFn: ({ signal }) => payComponents(signal),
-  })
 
   const structure = useOpener<SalaryStructureView>()
   const component = useOpener<PayComponentView>()
@@ -82,7 +74,7 @@ export function PayComponentSettings() {
       />
 
       <ListCard title="Salary structures">
-        {queryState(structures, {
+        {awaiting(salaryStructuresQuery(), {
           loading: "Reading the structures…",
           render: (rows) =>
             rows.length === 0 ? (
@@ -141,7 +133,7 @@ export function PayComponentSettings() {
           ) : undefined
         }
       >
-        {queryState(components, {
+        {awaiting(payComponentsQuery(), {
           loading: "Reading the components…",
           render: (rows) =>
             rows.length === 0 ? (
@@ -303,7 +295,7 @@ function StructureSheet({
     >
       <div className="flex flex-col gap-3.5">
         <Problem error={save.error ?? retire.error} />
-        <p className="text-[0.875rem] text-body">
+        <p className="text-[0.9375rem] text-body">
           Applying a structure on somebody&rsquo;s Pay tab copies it into their
           dated pay agreement — changing it later rewrites nobody&rsquo;s pay.
         </p>
@@ -467,7 +459,7 @@ function NewComponentSheet({
     >
       <div className="flex flex-col gap-3.5">
         <Problem error={define.error} />
-        <p className="text-[0.875rem] text-body">
+        <p className="text-[0.9375rem] text-body">
           Defined once; its figure is ratified from a date afterwards, from the
           component&rsquo;s own row.
         </p>
@@ -644,7 +636,7 @@ function ComponentSheet({
             <Fact term="Defined">{moment(row.defined_at)}</Fact>
           </Facts>
           {row.retired && (
-            <p className="text-[0.875rem] text-mute">
+            <p className="text-[0.9375rem] text-mute">
               Retired{row.retired_by ? ` by ${row.retired_by}` : ""}
               {row.retired_reason ? ` — ${row.retired_reason}` : ""}.
             </p>

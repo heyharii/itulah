@@ -18,7 +18,7 @@ import { LoadingState } from "@/components/ui/states"
 import { moment } from "@/lib/format"
 import {
   advancesOf,
-  claimsAt,
+  claimsQuery,
   claimTypes,
   decideClaim,
   fileClaim,
@@ -26,7 +26,7 @@ import {
   isoDay,
   readDate,
   returnClaim,
-  rules,
+  rulesQuery,
   type ClaimRow,
   type StoreScope,
 } from "@/lib/queries/hr"
@@ -117,15 +117,8 @@ function Expenses({
 }) {
   const [tab, setTab] = useState<Tab>("claims")
   const team = useTeam(scope)
-  const claims = useQuery({
-    queryKey: hrKeys.claimsAt(scope.unit_id),
-    queryFn: ({ signal }) => claimsAt(scope.unit_id, signal),
-  })
-  const limits = useQuery({
-    queryKey: hrKeys.rules("claim"),
-    queryFn: ({ signal }) => rules("claim", signal),
-    staleTime: 5 * 60_000,
-  })
+  const claims = useQuery(claimsQuery(scope.unit_id))
+  const limits = useQuery(rulesQuery("claim"))
 
   return (
     <>
@@ -198,10 +191,7 @@ function Claims({
   team: EmployeeList | undefined
   limits: readonly PolicyView[]
 }) {
-  const claims = useQuery({
-    queryKey: hrKeys.claimsAt(scope.unit_id),
-    queryFn: ({ signal }) => claimsAt(scope.unit_id, signal),
-  })
+  const claims = useQuery(claimsQuery(scope.unit_id))
   const [open, setOpen] = useState<ClaimRow | null>(null)
 
   return centreState(claims, {

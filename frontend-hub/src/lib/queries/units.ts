@@ -1,4 +1,8 @@
-import { useQuery } from "@tanstack/react-query"
+import {
+  queryOptions,
+  useQuery,
+  type UseQueryResult,
+} from "@tanstack/react-query"
 import type {
   CreateUnitConversionRequest,
   CreateUnitRequest,
@@ -107,6 +111,15 @@ export function updateUnitConversion(
   )
 }
 
+/// The unit book as a query, for the master screen and for the prefetcher
+/// (`screens/inventory/prefetch.ts`). A unit list changes a few times a year.
+export const unitsBookQuery = () =>
+  queryOptions({
+    queryKey: unitKeys.book(),
+    queryFn: ({ signal }) => listUnits(signal),
+    staleTime: 5 * 60_000,
+  })
+
 export interface UseUnitsResult {
   /// Every unit, retired ones included — filter on `active` for a picker.
   readonly units: readonly UnitOfMeasure[]
@@ -117,6 +130,8 @@ export interface UseUnitsResult {
   readonly baseUnit: string
   readonly isLoading: boolean
   readonly error: unknown
+  /// The read itself, for a table's reload stamp (`refresh={[book.query]}`).
+  readonly query: UseQueryResult<UnitsBook>
 }
 
 const NO_UNITS: readonly UnitOfMeasure[] = []
@@ -125,12 +140,7 @@ const NO_CONVERSIONS: readonly UnitConversion[] = []
 /// The unit master, for a picker or a converter. One shared read: the master
 /// screen and every form that offers a unit are the same query.
 export function useUnits(): UseUnitsResult {
-  const query = useQuery({
-    queryKey: unitKeys.book(),
-    queryFn: ({ signal }) => listUnits(signal),
-    // A unit list changes a few times a year.
-    staleTime: 5 * 60_000,
-  })
+  const query = useQuery(unitsBookQuery())
   const units = query.data?.units ?? NO_UNITS
   return {
     units,
@@ -138,6 +148,7 @@ export function useUnits(): UseUnitsResult {
     baseUnit: units.find((unit) => unit.is_base)?.code ?? BASE_UNIT,
     isLoading: query.isLoading,
     error: query.error,
+    query,
   }
 }
 

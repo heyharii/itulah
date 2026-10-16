@@ -434,14 +434,14 @@ function UploadStep({
                 className="rounded-inner border border-hairline px-3 py-2"
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className="truncate text-[0.875rem] text-ink">
+                  <span className="truncate text-[0.9375rem] text-ink">
                     {report.file_name}
                   </span>
                   <Pill tone={report.status === "parsed" ? "ok" : "bad"}>
                     {report.status}
                   </Pill>
                 </div>
-                <p className="mt-1 text-[0.875rem] text-mute">
+                <p className="mt-1 text-[0.9375rem] text-mute">
                   {report.error ?? report.note ?? report.parser}
                 </p>
               </div>
@@ -466,7 +466,7 @@ function UploadStep({
     return (
       <div className="flex flex-col gap-4">
         <Section title={`Drafts from documents (${drafts.length})`}>
-          <p className="-mt-2 mb-3 text-[0.875rem] text-mute">
+          <p className="-mt-2 mb-3 text-[0.9375rem] text-mute">
             {reports
               .map(
                 (r) =>
@@ -483,7 +483,7 @@ function UploadStep({
                 className="flex items-center justify-between gap-3 rounded-inner border border-hairline px-4 py-3 text-left hover:bg-soft"
               >
                 <div className="min-w-0">
-                  <div className="truncate text-[0.875rem] text-ink">
+                  <div className="truncate text-[0.9375rem] text-ink">
                     {draft.supplier_name === null &&
                     draft.supplier_id === null ? (
                       "Supplier not set yet"
@@ -498,7 +498,7 @@ function UploadStep({
                       {draft.lines.length === 1 ? "line" : "lines"}
                     </span>
                   </div>
-                  <div className="text-[0.875rem] text-mute">
+                  <div className="text-[0.9375rem] text-mute">
                     {draft.source_files.join(", ")}
                   </div>
                 </div>
@@ -582,10 +582,10 @@ function PickFiles({
         className="flex flex-col items-center gap-2 rounded-inner border border-dashed border-hairline-strong px-6 py-12 text-center hover:bg-soft"
       >
         <Upload className="size-6 text-mute" />
-        <span className="text-[0.875rem] text-ink">
+        <span className="text-[0.9375rem] text-ink">
           Choose or drag files — several at once is fine
         </span>
-        <span className="text-[0.875rem] text-mute">
+        <span className="text-[0.9375rem] text-mute">
           Excel (.xlsx/.xls/.csv), PDF, or a photo of the order document
         </span>
       </button>
@@ -600,7 +600,7 @@ function PickFiles({
                 className="flex items-center gap-2.5 rounded-inner border border-hairline px-3 py-2"
               >
                 <Icon className="size-4 shrink-0 text-mute" />
-                <span className="min-w-0 flex-1 truncate text-[0.875rem] text-ink">
+                <span className="min-w-0 flex-1 truncate text-[0.9375rem] text-ink">
                   {file.name}
                 </span>
                 <button
@@ -608,7 +608,7 @@ function PickFiles({
                   onClick={() =>
                     setPicked(picked.filter((f) => f.name !== file.name))
                   }
-                  className="text-[0.875rem] text-mute hover:text-bad"
+                  className="text-[0.9375rem] text-mute hover:text-bad"
                 >
                   remove
                 </button>
@@ -689,7 +689,7 @@ function WizardStep({
   return (
     <div className="flex flex-col gap-5">
       <Section title="Fill In What Is Unclear">
-        <p className="-mt-2 mb-3 text-[0.875rem] text-mute">
+        <p className="-mt-2 mb-3 text-[0.9375rem] text-mute">
           {draft.source_files.join(", ")} · {draft.parser_note ?? draft.parser}
         </p>
         {draft.questions.length === 0 ? (
@@ -714,7 +714,7 @@ function WizardStep({
 
       <div className="flex items-center justify-end gap-2">
         {remaining.length > 0 && (
-          <span className="mr-auto text-[0.875rem] text-mute">
+          <span className="mr-auto text-[0.9375rem] text-mute">
             {remaining.length}{" "}
             {remaining.length === 1 ? "question" : "questions"} not answered —
             you can continue; they will be asked again in the summary.
@@ -818,7 +818,7 @@ function PickFromBook({
               onChange(choice.value, choice.label)
             }}
             className={cn(
-              "rounded-full border px-3 py-1 text-[0.875rem]",
+              "rounded-full border px-3 py-1 text-[0.9375rem]",
               chosen?.value === choice.value
                 ? "border-accent bg-soft text-ink"
                 : "border-hairline text-body hover:bg-soft"
@@ -991,7 +991,7 @@ function SummaryStep({
       <Section
         title={`Import summary — ${drafts.length} ${drafts.length === 1 ? "order" : "orders"}`}
       >
-        <p className="-mt-2 mb-3 text-[0.875rem] text-mute">
+        <p className="-mt-2 mb-3 text-[0.9375rem] text-mute">
           Check every order before it is created. A PO is only created when the
           button below is pressed.
         </p>
@@ -1036,7 +1036,7 @@ function SummaryStep({
 
         <div className="flex items-center justify-end gap-2">
           {incomplete.length > 0 && (
-            <span className="mr-auto text-[0.875rem] text-mute">
+            <span className="mr-auto text-[0.9375rem] text-mute">
               {incomplete.length}{" "}
               {incomplete.length === 1 ? "order is" : "orders are"} incomplete —
               finish the wizard for them before they can be created.
@@ -1151,7 +1151,7 @@ function SummaryDraftCard({
               />
             )}
           </div>
-          <div className="text-[0.875rem] text-mute">
+          <div className="text-[0.9375rem] text-mute">
             {draft.source_files.join(", ")} · {draft.lines.length}{" "}
             {draft.lines.length === 1 ? "line" : "lines"}
             {draft.expected_arrival !== null &&
@@ -1218,7 +1218,7 @@ function SummaryDraftCard({
               </div>
               <div className="grid grid-cols-2 gap-x-3 gap-y-2.5">
                 <label className="flex min-w-0 flex-col gap-1">
-                  <span className="text-[0.875rem] text-mute">Quantity</span>
+                  <span className="text-[0.9375rem] text-mute">Quantity</span>
                   <Input
                     type="number"
                     value={line.quantity ?? ""}
@@ -1234,7 +1234,7 @@ function SummaryDraftCard({
                   />
                 </label>
                 <div className="flex min-w-0 flex-col gap-1">
-                  <span className="text-[0.875rem] text-mute">Unit</span>
+                  <span className="text-[0.9375rem] text-mute">Unit</span>
                   <Select
                     aria-label="Unit"
                     value={line.unit_code ?? ""}
@@ -1251,7 +1251,7 @@ function SummaryDraftCard({
                   </Select>
                 </div>
                 <label className="flex min-w-0 flex-col gap-1">
-                  <span className="text-[0.875rem] text-mute">Price</span>
+                  <span className="text-[0.9375rem] text-mute">Price</span>
                   <Input
                     type="number"
                     value={line.unit_price_minor ?? ""}
@@ -1267,19 +1267,19 @@ function SummaryDraftCard({
                   />
                 </label>
                 <div className="flex min-w-0 flex-col gap-1">
-                  <span className="text-[0.875rem] text-mute">Total</span>
+                  <span className="text-[0.9375rem] text-mute">Total</span>
                   <span className="flex h-11 items-center justify-end text-[1rem] font-semibold text-ink tabular-nums">
                     {money((line.quantity ?? 0) * (line.unit_price_minor ?? 0))}
                   </span>
                 </div>
               </div>
               {needsUnit(line) ? (
-                <div className="text-[0.875rem] text-bad">
+                <div className="text-[0.9375rem] text-bad">
                   Unit "{line.unit}" is not recognised — choose a unit
                 </div>
               ) : (
                 line.unit && (
-                  <div className="text-[0.875rem] text-mute">
+                  <div className="text-[0.9375rem] text-mute">
                     written as "{line.unit}"
                   </div>
                 )
@@ -1289,7 +1289,7 @@ function SummaryDraftCard({
         </ul>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[40rem] table-fixed border-collapse text-[0.875rem]">
+          <table className="w-full min-w-[40rem] table-fixed border-collapse text-[0.9375rem]">
             <thead>
               <tr>
                 <th className={HEAD}>Article</th>
@@ -1346,12 +1346,12 @@ function SummaryDraftCard({
                       ))}
                     </Select>
                     {needsUnit(line) ? (
-                      <div className="mt-0.5 text-[0.875rem] text-bad">
+                      <div className="mt-0.5 text-[0.9375rem] text-bad">
                         Unit "{line.unit}" is not recognised — choose a unit
                       </div>
                     ) : (
                       line.unit && (
-                        <div className="mt-0.5 text-[0.875rem] text-mute">
+                        <div className="mt-0.5 text-[0.9375rem] text-mute">
                           written as "{line.unit}"
                         </div>
                       )
@@ -1400,8 +1400,8 @@ function SummaryDraftCard({
       )}
 
       <div className="flex items-center justify-between gap-3 px-4 py-3">
-        <span className="text-[0.875rem] text-mute">{draft.parser_note}</span>
-        <span className="text-[0.875rem] font-semibold text-ink tabular-nums">
+        <span className="text-[0.9375rem] text-mute">{draft.parser_note}</span>
+        <span className="text-[0.9375rem] font-semibold text-ink tabular-nums">
           {money(total)}
         </span>
       </div>

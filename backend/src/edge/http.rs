@@ -8,7 +8,8 @@ use crate::contract::{
 use crate::edge::{
     sync::EdgeSyncHandle, AdvanceKoliRequest, CreateKoliShipmentRequest, DeviceProof, EdgeAuth,
     EdgeAuthConfig, EdgeError, EdgeInventory, EdgeOfficialCountDetail, EdgeOfficialCountSummary,
-    EdgePermission, EdgePrincipal, EdgeRfid, EdgeRole, IntakeRequest, MoveRequest, NodeContext,
+    EdgePermission, EdgePrincipal, EdgeRfid, EdgeRole, IntakeRequest, MoveBySkuRequest, MoveRequest,
+    NodeContext,
     OfficialCountEntriesRequest, OfficialCountSubmitRequest, OpenGoodsReceiptRequest,
     OperationalPool, PackKoliRequest, PickRequest, PoolBalance, PurchaseCountBatchRequest,
     PurchaseCountRequest, PurchaseReturnHandoverRequest, PurchaseVerifyRequest,
@@ -150,6 +151,17 @@ pub fn dc_router_with_sync(
         .route("/api/v1/dc/koli/{koli_id}/label", post(dc_print_koli_label))
         .route("/api/v1/dc/picklist", get(dc_picklist))
         .route("/api/v1/dc/picklist/allotments", get(dc_picklists_to_pick))
+        .route("/api/v1/dc/move-back", post(dc_move_back))
+        .route("/api/v1/dc/owed", get(dc_owed))
+        .route(
+            "/api/v1/dc/short-picks",
+            get(dc_short_picks).post(dc_report_short_pick),
+        )
+        .route("/api/v1/dc/changes", get(dc_changes))
+        .route(
+            "/api/v1/dc/changes/acknowledge",
+            post(dc_acknowledge_change),
+        )
         .route("/api/v1/dc/dispatch-trips", post(dc_dispatch_trip))
         .route(
             "/api/v1/dc/picklists",
@@ -398,6 +410,9 @@ pub fn store_router_with_sync(
             post(store_inbound_receive_count),
         )
         .route("/api/v1/store/movements", post(move_stock))
+        // The Move stock screen: an SKU and a count, no scanning. The node
+        // chooses which pieces go.
+        .route("/api/v1/store/movements/by-sku", post(move_stock_by_sku))
         // The shop counts its own stock when head office asks (owner, 2 Oct
         // 2026): the same Official Count the Gudang walks, served blind — what
         // the book expects never leaves this node for a count in progress.
@@ -503,6 +518,7 @@ pub fn store_router_with_sync(
         // stays answerable with the line to the centre down — the shopper
         // asking whether the promo is still on is standing in the shop.
         .route("/api/v1/store/offers", get(store_offers))
+        .route("/api/v1/store/final-prices", get(store_final_prices))
         // A voucher hold: the one thing at this counter that CANNOT be answered
         // out of the shop's own SQLite. A card is a bearer instrument and one
         // card can be presented in two shops at once, so the lock that stops
@@ -573,7 +589,10 @@ pub fn store_router_with_sync(
         // Grouped here rather than under a `/pos` prefix because everything a
         // shop does is already `/store`, and a second word for the same node
         // is a second thing to remember at four in the afternoon.
-        .route("/api/v1/store/shifts", post(store_open_shift))
+        .route(
+            "/api/v1/store/shifts",
+            post(store_open_shift).get(store_shifts_on),
+        )
         // A supervisor's yes to a basket edit, spent on a row of its own —
         // the unsold basket has no sale to carry the signature.
         .route("/api/v1/store/approvals", post(store_record_approval))
@@ -591,6 +610,10 @@ pub fn store_router_with_sync(
         .route("/api/v1/store/shifts/open", get(store_open_shifts))
         .route("/api/v1/store/shifts/take-over", post(store_take_over_seat))
         .route("/api/v1/store/shifts/{shift_id}", get(store_shift_report))
+        .route(
+            "/api/v1/store/shifts/{shift_id}/sales",
+            get(store_shift_sales),
+        )
         .route(
             "/api/v1/store/shifts/{shift_id}/movements",
             post(store_cash_movement),
@@ -653,6 +676,13 @@ pub fn store_router_with_sync(
             require_auth,
         ))
         .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
+        // Compressed on the way out, as the DC router already was — the store
+        // router was the one that had none, which is backwards: the till is
+        // the node on the worst line in the fleet and its catalogue is the
+        // biggest answer it sends (5,000 SKUs, ~10:1 under gzip and smaller
+        // again under Brotli). The default predicate leaves SSE and small
+        // bodies alone.
+        .layer(CompressionLayer::new())
         .layer(TraceLayer::new_for_http())
         .with_state(state))
 }
@@ -1536,6 +1566,73 @@ async fn dc_picklists_to_pick(
     Ok(Json(serde_json::json!({ "items": result })))
 }
 
+/// The Gudang takes its own work back: out of an unsent carton, out of the
+/// pick area. See `EdgeInventory::move_back`.
+async fn dc_move_back(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Json(mut request): Json<crate::edge::outbound::MoveBackRequest>,
+) -> Result<Json<Value>, ApiError> {
+    if let Some(principal) = require_permission(&state, principal, outbound_permission(&state))? {
+        request.actor_id = principal.username;
+    }
+    name_the_actor(&mut request.actor_id);
+    let result = run_blocking(move || state.inventory.move_back(request)).await?;
+    Ok(Json(serde_json::to_value(result)?))
+}
+
+/// What MD took out that the Gudang still has to move back. MD's edit and
+/// cancel of an allotment run at head office and do not reach this node as
+/// owed work yet, so there is nothing to list: the board draws no strip.
+async fn dc_owed(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+) -> Result<Json<Value>, ApiError> {
+    require_permission(&state, principal, EdgePermission::InventoryRead)?;
+    Ok(Json(serde_json::json!({ "items": [] })))
+}
+
+/// MD's changes the Gudang has not acknowledged: none reach this node yet
+/// (see `dc_owed`).
+async fn dc_changes(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+) -> Result<Json<Value>, ApiError> {
+    require_permission(&state, principal, EdgePermission::InventoryRead)?;
+    Ok(Json(serde_json::json!({ "items": [] })))
+}
+
+async fn dc_acknowledge_change(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Json(_request): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    require_permission(&state, principal, EdgePermission::DcOperate)?;
+    Ok(Json(serde_json::json!({ "acknowledged": 0 })))
+}
+
+async fn dc_short_picks(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+) -> Result<Json<Value>, ApiError> {
+    require_permission(&state, principal, EdgePermission::InventoryRead)?;
+    let result = run_blocking(move || state.inventory.short_picks()).await?;
+    Ok(Json(serde_json::json!({ "items": result })))
+}
+
+async fn dc_report_short_pick(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Json(mut request): Json<crate::edge::outbound::ReportShortPickRequest>,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    if let Some(principal) = require_permission(&state, principal, outbound_permission(&state))? {
+        request.actor_id = principal.username;
+    }
+    name_the_actor(&mut request.actor_id);
+    let result = run_blocking(move || state.inventory.report_short_pick(request)).await?;
+    Ok((StatusCode::CREATED, Json(serde_json::to_value(result)?)))
+}
+
 /// Dispatch: sealed cartons onto one trip. Makes the surat jalan per shop and
 /// sends the goods in transit, in one act.
 /// What Merchandise asked this shop to send back.
@@ -2100,6 +2197,18 @@ async fn move_stock(
         request.actor_id = principal.username;
     }
     let result = run_blocking(move || state.inventory.move_stock(request)).await?;
+    Ok(Json(serde_json::to_value(result)?))
+}
+
+async fn move_stock_by_sku(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Json(mut request): Json<MoveBySkuRequest>,
+) -> Result<Json<Value>, ApiError> {
+    if let Some(principal) = require_permission(&state, principal, EdgePermission::InventoryMove)? {
+        request.actor_id = principal.username;
+    }
+    let result = run_blocking(move || state.inventory.move_stock_by_sku(request)).await?;
     Ok(Json(serde_json::to_value(result)?))
 }
 
@@ -3154,6 +3263,13 @@ struct ActiveShiftQuery {
     terminal_id: Option<String>,
 }
 
+/// Which business day's drawers to list.
+#[derive(Debug, Deserialize)]
+struct ShiftsOnQuery {
+    /// `YYYY-MM-DD`, the store's own date.
+    business_date: String,
+}
+
 async fn store_open_shift(
     State(state): State<EdgeState>,
     principal: Option<Extension<EdgePrincipal>>,
@@ -3687,6 +3803,55 @@ async fn store_open_shifts(
     Ok(Json(Value::Array(shifts)))
 }
 
+/// Every drawer that traded on one business day, open and closed — the sales
+/// screen's sessions. The same blind report as the other shift routes: a
+/// cashier gets the day's drawers with the expectation withheld.
+async fn store_shifts_on(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Query(query): Query<ShiftsOnQuery>,
+) -> Result<Json<Value>, ApiError> {
+    let principal = require_permission(&state, principal, EdgePermission::InventoryRead)?;
+    let business_date = chrono::NaiveDate::parse_from_str(query.business_date.trim(), "%Y-%m-%d")
+        .map_err(|_| {
+            ApiError(EdgeError::Validation(
+                "business_date must be a date as YYYY-MM-DD".into(),
+            ))
+        })?
+        .format("%Y-%m-%d")
+        .to_string();
+    let shifts = run_blocking(move || state.inventory.shifts_on(&business_date)).await?;
+    let shifts = shifts
+        .into_iter()
+        .map(|report| {
+            serde_json::to_value(report).map(|report| blind_for_cashier(principal.as_ref(), report))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(Json(Value::Array(shifts)))
+}
+
+/// The sales rung on one drawer, with how each was paid.
+///
+/// Refused to a cashier: a receipt list with its totals and tenders is the
+/// expectation written out, which is what a blind close keeps from them.
+async fn store_shift_sales(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Path(shift_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let principal = require_permission(&state, principal, EdgePermission::InventoryRead)?;
+    if principal
+        .as_ref()
+        .is_some_and(|principal| principal.role == crate::edge::domain::Role::Cashier)
+    {
+        return Err(ApiError(EdgeError::Forbidden(
+            "a drawer's sales are not shown to a cashier".into(),
+        )));
+    }
+    let sales = run_blocking(move || state.inventory.shift_sales(&shift_id)).await?;
+    Ok(Json(serde_json::to_value(sales)?))
+}
+
 /// Undo a whole sale.
 ///
 /// `StoreSale` rather than a supervisor-only permission: the cashier presses
@@ -3792,6 +3957,20 @@ async fn store_offers(
     require_permission(&state, principal, EdgePermission::InventoryRead)?;
     Ok(Json(
         run_blocking(move || state.inventory.store_offers()).await?,
+    ))
+}
+
+/// What one piece of each SKU costs a walk-in shopper this minute.
+///
+/// Never cached: unlike the catalogue, the answer moves when a promotion's
+/// hour starts, with no new publication to say so.
+async fn store_final_prices(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+) -> Result<Json<crate::edge::pricing::FinalUnitPrices>, ApiError> {
+    require_permission(&state, principal, EdgePermission::InventoryRead)?;
+    Ok(Json(
+        run_blocking(move || state.inventory.store_final_prices()).await?,
     ))
 }
 

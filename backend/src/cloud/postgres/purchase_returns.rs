@@ -81,6 +81,9 @@ pub struct PurchaseReturnView {
     pub note_pic: Option<String>,
     /// When the surat jalan was generated; `None` until it is.
     pub note_generated_at: Option<DateTime<Utc>>,
+    /// A few words per item on the surat jalan, by article code ("*" for the
+    /// not-as-ordered pieces) (0970).
+    pub line_notes: std::collections::BTreeMap<String, String>,
     /// Pieces, over every line.
     pub quantity: i64,
     pub lines: Vec<PurchaseReturnLineView>,
@@ -339,7 +342,7 @@ async fn load_returns(
         "SELECT pr.return_id, pr.return_number, pr.purchase_order_id, po.po_number,
                 pr.supplier_id, po.supplier_name, pr.site_id, pr.status, pr.note,
                 pr.raised_by, pr.raised_at, pr.handed_over_by, pr.handed_over_at,
-                pr.note_pic, pr.note_generated_at,
+                pr.note_pic, pr.note_generated_at, pr.note_line_notes,
                 COALESCE((SELECT sum(x.quantity) FROM purchase_return_line x
                            WHERE x.return_id = pr.return_id), 0)::bigint AS quantity,
                 COALESCE((SELECT jsonb_agg(jsonb_build_object(
@@ -385,6 +388,7 @@ async fn load_returns(
                 handed_over_at: row.try_get("handed_over_at")?,
                 note_pic: row.try_get("note_pic")?,
                 note_generated_at: row.try_get("note_generated_at")?,
+                line_notes: serde_json::from_value(row.try_get("note_line_notes")?)?,
                 quantity: row.try_get("quantity")?,
                 lines: serde_json::from_value(row.try_get("lines")?)?,
             })

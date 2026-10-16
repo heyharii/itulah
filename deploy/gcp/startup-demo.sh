@@ -39,6 +39,11 @@ if [ "$mode" = rollout ]; then image="${want_image:?rollout needs an image}"; fi
 # Set with
 #   gcloud compute instances add-metadata itulah-demo --metadata itulah-sandbox-image=<image>
 sandbox_image="$(meta instance/attributes/itulah-sandbox-image 2>/dev/null || echo "$image")"
+# The hub is a TanStack Start server since 16 Oct 2026 (SSR), not a folder of
+# files: its image runs as the `hub-ssr` container and Caddy proxies the hub's
+# pages to it. Unset, the hub is the static bundle in www/hub as before. Set with
+#   gcloud compute instances add-metadata itulah-demo --metadata itulah-hub-image=<image>
+hub_image="$(meta instance/attributes/itulah-hub-image 2>/dev/null || true)"
 # Ephemeral IP: the name follows the address at every boot.
 ip="$(meta instance/network-interfaces/0/access-configs/0/external-ip)"
 domain="${ip//./-}.sslip.io"
@@ -52,6 +57,16 @@ alias_domain="${ip//./-}.nip.io"
 public_domain="$(meta instance/attributes/itulah-public-domain 2>/dev/null || true)"
 hub_extra=""
 if [ -n "$public_domain" ]; then hub_extra=", $public_domain, www.$public_domain, hub.$public_domain"; fi
+# A self-hosted Next.js UI can sit on an explicit path without replacing the
+# existing Hub bundle or its API origin. Disabled unless a VM opts in.
+next_route=""
+if [ "$(meta instance/attributes/itulah-next-prototype 2>/dev/null || echo false)" = true ]; then
+  next_route='  handle /next-prototype/* {
+    reverse_proxy next:3100 {
+      import hold
+    }
+  }'
+fi
 # Where the Gudang's work is done: `edge` = a DC server (the dc container, its
 # own SQLite, syncing), `cloud` = by the cloud itself, in its own tables, no
 # sync (DC-CLOUD-NATIVE.md, backend/src/cloud/dc). Set with
@@ -81,12 +96,20 @@ if ! command -v docker >/dev/null; then
   systemctl enable --now docker
 fi
 
+# Four more shops of the demo, each with its own store node (owner, 16 Oct
+# 2026). Their units and shops were already in the database; each node is the
+# container of its own name, registered under its own origin.
+extra_stores="store-02 store-03 store-04 store-05"
+
 mkdir -p "$state"/{pg,dc,store,store-sandbox,caddy/data,caddy/config,home}
+for s in $extra_stores; do mkdir -p "$state/$s"; done
 chmod 700 "$state"
 chown 10001:10001 "$state/dc" "$state/store" "$state/store-sandbox"
+for s in $extra_stores; do chown 10001:10001 "$state/$s"; done
 
 export HOME="$state/home"
-gcloud secrets versions access latest --secret itulah-demo-env > "$state/shared.env"
+env_secret="$(meta instance/attributes/itulah-env-secret 2>/dev/null || echo itulah-demo-env)"
+gcloud secrets versions access latest --secret "$env_secret" > "$state/shared.env"
 chmod 600 "$state/shared.env"
 set -a; . "$state/shared.env"; set +a
 
@@ -114,6 +137,15 @@ SYNC_ENQUEUE=false
 SYNC_INGEST_KEY=$SYNC_INGEST_KEY
 # The demo's clock may be moved from the hub header (Admin only): Time travel.
 INVENTORY_ENABLE_TEST_CONTROLS=true
+# The hub's assistant: Gemma 4 on Vertex AI, signed in as the VM's service
+# account (needs roles/aiplatform.user), priced from tokens (15 Oct 2026).
+ASSISTANT_PROVIDER=vertex
+GOOGLE_CLOUD_PROJECT=$(meta project/project-id)
+# Jev, TypeSafe's model, reads product photos on a PO and on New articles
+# (15 Oct 2026). The key comes from the shared secret; without it the photo
+# forms answer "not configured" and simply offer no suggestions.
+TYPESAFE_API_KEY=${TYPESAFE_API_KEY:-}
+JEV_MODEL=${JEV_MODEL:-jev-1.14.0}
 $(if [ -n "${GCS_HMAC_ACCESS_ID:-}" ]; then cat <<E3
 STORAGE_ENDPOINT=https://storage.googleapis.com
 R2_BUCKET=itulah-media-21f41328
@@ -163,6 +195,15 @@ SYNC_ENQUEUE=false
 FRONTEND_DIR=/app/api-only
 BIND_ADDR=0.0.0.0:8080
 RUST_LOG=inventory_backend=info,tower_http=warn
+# The hub's assistant: Gemma 4 on Vertex AI, signed in as the VM's service
+# account (needs roles/aiplatform.user), priced from tokens (15 Oct 2026).
+ASSISTANT_PROVIDER=vertex
+GOOGLE_CLOUD_PROJECT=$(meta project/project-id)
+# Jev, TypeSafe's model, reads product photos on a PO and on New articles
+# (15 Oct 2026). The key comes from the shared secret; without it the photo
+# forms answer "not configured" and simply offer no suggestions.
+TYPESAFE_API_KEY=${TYPESAFE_API_KEY:-}
+JEV_MODEL=${JEV_MODEL:-jev-1.14.0}
 $(if [ "$dc_hosting" = cloud ]; then cat <<E3
 # Every business's Gudang is run by the cloud, in its own database.
 INVENTORY_DC_HOSTING=cloud
@@ -170,17 +211,18 @@ PRINT_BRIDGE_KEY=${PRINT_BRIDGE_KEY:-}
 E3
 fi)
 E2
-for n in dc store; do
+for n in dc store $extra_stores; do
   # The demo database was rebuilt on 3 Oct: the warehouse site is ho-gudang
   # (no site `dc`), the DC keeps origin id `dc`, and its SQLite was replaced
   # once, so its stream is generation 2 (register-demo-origins.sh).
   case $n in
     dc) site=ho-gudang; node=dc; role=DC; generation=2;;
     store) site=store-01; node=store-01; role=STORE; generation=1;;
+    store-*) site=$n; node=$n; role=STORE; generation=1;;
   esac
   cat > "$state/$n.env" <<E2
 $common
-APP_BIN=$n
+APP_BIN=${n%%-*}
 INVENTORY_ORIGIN_GENERATION=$generation
 INVENTORY_SITE_ID=$site
 INVENTORY_NODE_ID=$node
@@ -253,13 +295,21 @@ $1.$domain, $1.$alias_domain$([ "$1" = hub ] && printf "%s" "$hub_extra") {
   # The page is asked again every time; the hashed assets never change.
   @immutable path /assets/*
   header @immutable Cache-Control "public, max-age=31536000, immutable"
-  @page not path /assets/* /api/* /edge/* /rembg/*
+  @page not path /assets/* /api/* /edge/* /rembg/* /next-prototype/*
   header @page Cache-Control "no-cache"
 $2
   handle {
+$(if [ "$1" = hub ] && [ -n "$hub_image" ]; then cat <<E4
+    reverse_proxy hub-ssr:3000 {
+      import hold
+    }
+E4
+else cat <<E4
     root * /srv/$1
     try_files {path} /index.html
     file_server
+E4
+fi)
   }
 }
 E3
@@ -309,13 +359,16 @@ $edge_route
 E2
 site hub "$edge_route
 $rembg_route
+$next_route
   handle /api/* {
     reverse_proxy cloud-front:8080 {
       import hold
     }
   }"
+# The store app talks to the demo's own store node (store-01), not the sandbox's
+# (owner, 16 Oct 2026).
 site store "  handle /api/* {
-    reverse_proxy store-sandbox:8080 {
+    reverse_proxy store:8080 {
       import hold
     }
   }"
@@ -458,8 +511,10 @@ run_cloud() {  # run_cloud <name> <image> [cpu-shares]
     --label "itulah.stamp=$(stamp "$2" "$state/cloud.env")" \
     --env-file "$state/cloud.env" "$2" >/dev/null
 }
-run_edge() {  # run_edge <dc|store> <image>
-  docker run -d --name "$1" --restart unless-stopped --network itulah \
+run_edge() {  # run_edge <dc|store|store-NN> <image>
+  # The extra shops are capped, so four of them cannot take the demo's memory.
+  local cap=(); case $1 in store-*) cap=(--memory 150m);; esac
+  docker run -d --name "$1" --restart unless-stopped --network itulah "${cap[@]}" \
     --label "itulah.stamp=$(stamp "$2" "$state/$1.env")" \
     --env-file "$state/$1.env" -v "$state/$1:/data" "$2" >/dev/null
 }
@@ -515,6 +570,20 @@ ensure_sandbox() {
   else docker start store-sandbox >/dev/null; fi
 }
 
+# The hub's server. It asks the cloud for the page's data on the docker network
+# (`cloud`, the alias every live cloud carries); `cloud-front` is only on
+# Caddy's network.
+ensure_hub_ssr() {
+  [ -n "$hub_image" ] || return 0
+  if exists hub-ssr && [ "$(docker inspect hub-ssr --format '{{.Config.Image}}')" = "$hub_image" ]; then
+    docker start hub-ssr >/dev/null; return 0
+  fi
+  pull "$hub_image" || { echo "pull failed: $hub_image" >&2; return 1; }
+  docker rm -f hub-ssr >/dev/null 2>&1 || true
+  docker run -d --name hub-ssr --restart unless-stopped --network itulah --memory 400m \
+    -e ITULAH_CLOUD_URL=http://cloud:8080 "$hub_image" >/dev/null
+}
+
 ensure_caddy() {
   if exists caddy; then
     docker start caddy >/dev/null
@@ -546,7 +615,9 @@ if [ "$mode" = boot ]; then
   done
   if [ "$dc_hosting" != cloud ]; then swap_edge dc "$image"; else docker rm -f dc >/dev/null 2>&1 || true; fi
   swap_edge store "$image"
+  for s in $extra_stores; do swap_edge "$s" "$image"; done
   ensure_sandbox "$sandbox_image"
+  ensure_hub_ssr
   ensure_caddy
   docker image prune -af --filter "until=72h" >/dev/null 2>&1 || true
   echo "itulah demo up: $domain"
@@ -593,6 +664,7 @@ if [ "$mode" = rollout ]; then
   if [ "$dc_hosting" != cloud ]; then swap_edge dc "$image"; fi
   echo "$(date -u +%T) swapping store"
   swap_edge store "$image"
+  for s in $extra_stores; do swap_edge "$s" "$image"; done
   # No `docker image prune` here: on an e2-micro already in swap it starved
   # Caddy of disk for 20 s (soak test, 10 Oct 2026). Only the image just
   # replaced goes, if nothing else uses it; the boot prunes the rest.

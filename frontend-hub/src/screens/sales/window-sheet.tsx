@@ -160,7 +160,7 @@ export function WindowSheet({
                       </tr>
                     ))}
                   </MiniTable>
-                  <p className="mt-2 text-[0.875rem] text-mute">
+                  <p className="mt-2 text-[0.9375rem] text-mute">
                     {count(report.returns.count)} return
                     {report.returns.count === 1 ? "" : "s"},{" "}
                     {money(report.returns.refund_total_minor)} altogether.
@@ -179,12 +179,12 @@ export function WindowSheet({
                         <AppLink
                           to="/sales"
                           sheet={{ key: "sale", value: sale.id }}
-                          className="block font-mono text-[0.875rem] text-accent hover:underline"
+                          className="block font-mono text-[0.9375rem] text-accent hover:underline"
                         >
                           {sale.sale_number}
                         </AppLink>
                         {sale.source === "EDGE" && <Tag tone="info">POS</Tag>}
-                        <span className="text-[0.875rem] text-mute">
+                        <span className="text-[0.9375rem] text-mute">
                           {moment(sale.completed_at)}
                         </span>
                       </td>

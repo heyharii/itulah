@@ -3,12 +3,7 @@ import { useMemo } from "react"
 
 import { decodeEpc } from "@/lib/epc"
 import { label as humanise, type Tone } from "@/lib/format"
-import {
-  catalogueKey,
-  fetchCatalogue,
-  fetchMovements,
-  movementsKey,
-} from "@/lib/queries"
+import { catalogueQuery, movementsQuery } from "@/lib/queries"
 import type { CatalogRow, MovementView } from "@itulah/contract"
 
 /// The facts the three Stock screens share — the places, the ledger and the
@@ -20,9 +15,9 @@ import type { CatalogRow, MovementView } from "@itulah/contract"
 /// of the pool id the node mints (`store-01.floor`), which is why they are
 /// written once here and nowhere else.
 export const PLACES = [
-  { code: "warehouse", label: "Stockroom" },
-  { code: "floor", label: "Shop floor" },
-  { code: "reject", label: "Return stock" },
+  { code: "warehouse", label: "Store room" },
+  { code: "floor", label: "Sales floor" },
+  { code: "reject", label: "Reject" },
 ] as const
 
 export type PlaceCode = (typeof PLACES)[number]["code"]
@@ -44,7 +39,7 @@ export function placeLabel(code: PlaceCode): string {
 
 /// One end of a movement, read as words.
 export interface Place {
-  /// "Shop floor", "A customer", "Delivery".
+  /// "Sales floor", "A customer", "Delivery".
   readonly name: string
   /// Drawn only when it is not `on_hand` — a piece moved to the missing half
   /// of its own pool reads as a no-op if the suffix is dropped.
@@ -54,7 +49,7 @@ export interface Place {
   readonly inside: boolean
 }
 
-/// `store-01.floor:on_hand` → Shop floor. A place id is a wire format and
+/// `store-01.floor:on_hand` → Sales floor. A place id is a wire format and
 /// nobody standing at a counter should have to read one.
 ///
 /// `cause` is there for the one place whose name depends on why it was used:
@@ -105,8 +100,7 @@ export const LEDGER_MAX = 500
 /// sheet read from, and one write invalidates all three.
 export function useLedger(limit: number = LEDGER_LIMIT, enabled = true) {
   return useQuery({
-    queryKey: movementsKey(limit),
-    queryFn: ({ signal }) => fetchMovements(limit, signal),
+    ...movementsQuery(limit),
     enabled,
     // Asking for a longer page keeps the shorter one on screen while it
     // comes, rather than emptying the table to a loading line.
@@ -173,7 +167,7 @@ export const DIRECTION_WORD: Readonly<Record<Direction, string>> = {
   inside: "Inside",
 }
 
-/// "Stockroom → Shop floor": a movement's route as one line of words, for a
+/// "Store room → Sales floor": a movement's route as one line of words, for a
 /// card. The chips (`Route` in `parts.tsx`) are for a sheet, where there is
 /// room for two boxes and an arrow.
 export function routeText(from: string, to: string, cause?: string): string {
@@ -210,11 +204,7 @@ export function skuOf(epc: string): string | null {
 /// this costs nothing; on one that has not, it is one read of a SQLite file in
 /// the next room, and it answers with the line down.
 export function useRange(enabled = true) {
-  const catalogue = useQuery({
-    queryKey: catalogueKey(),
-    queryFn: ({ signal }) => fetchCatalogue(signal),
-    enabled,
-  })
+  const catalogue = useQuery({ ...catalogueQuery(), enabled })
   const bySku = useMemo(() => {
     const index = new Map<string, CatalogRow>()
     for (const row of catalogue.data?.items ?? []) index.set(row.sku_code, row)

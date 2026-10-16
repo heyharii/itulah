@@ -102,8 +102,8 @@ export function MasterLifecycle({
                 <dd
                   className={
                     one.count > 0
-                      ? "text-[0.875rem] font-medium text-ink tabular-nums"
-                      : "text-[0.875rem] text-mute tabular-nums"
+                      ? "text-[0.9375rem] font-medium text-ink tabular-nums"
+                      : "text-[0.9375rem] text-mute tabular-nums"
                   }
                 >
                   {count(one.count)}
@@ -133,7 +133,7 @@ export function MasterLifecycle({
                   >
                     {remove.isPending ? "Deleting…" : "Delete Permanently"}
                   </Button>
-                  <Button variant="quiet" onClick={() => setConfirming(false)}>
+                  <Button data-cancel variant="quiet" onClick={() => setConfirming(false)}>
                     Cancel
                   </Button>
                 </>

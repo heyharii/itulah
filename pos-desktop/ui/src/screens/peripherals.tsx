@@ -94,7 +94,7 @@ export function PeripheralsScreen({ onBack }: { onBack: () => void }) {
     const printed = await testUsbPrinter()
     setUsbTest(
       printed.ok
-        ? { bad: false, text: `Tes terkirim ke ${printed.value.printer}.` }
+        ? { bad: false, text: `Test sent to ${printed.value.printer}.` }
         : { bad: true, text: printed.problem },
     )
   }
@@ -171,7 +171,7 @@ export function PeripheralsScreen({ onBack }: { onBack: () => void }) {
       <div id="app" data-screen="sale">
         <Topbar />
         <div className="empty">
-          <p>Membaca setelan…</p>
+          <p>Reading settings…</p>
         </div>
       </div>
     )
@@ -216,12 +216,12 @@ export function PeripheralsScreen({ onBack }: { onBack: () => void }) {
     seed(peripheralsOf(saved.value.config))
     setNote(
       saved.value.reported
-        ? { bad: false, text: "Tersimpan di kasir ini dan sudah dilaporkan ke node." }
+        ? { bad: false, text: "Saved on this till and already reported to the node." }
         : {
             bad: true,
             text:
-              "Tersimpan di kasir ini, belum sampai ke node — dikirim ulang saat " +
-              `aplikasi dibuka lagi. ${saved.value.problem ?? ""}`,
+              "Saved on this till, not yet at the node — it is resent when " +
+              `the app is opened again. ${saved.value.problem ?? ""}`,
           },
     )
   }
@@ -239,8 +239,8 @@ export function PeripheralsScreen({ onBack }: { onBack: () => void }) {
     adoptConfig(sent.value.config)
     setNote(
       sent.value.reported
-        ? { bad: false, text: "Sudah dilaporkan ke node." }
-        : { bad: true, text: sent.value.problem ?? "Node belum menerima laporannya." },
+        ? { bad: false, text: "Already reported to the node." }
+        : { bad: true, text: sent.value.problem ?? "The node has not accepted the report yet." },
     )
   }
 
@@ -265,21 +265,21 @@ export function PeripheralsScreen({ onBack }: { onBack: () => void }) {
         >
           <div className="page-head">
             <div>
-              <h1>Perangkat kasir</h1>
+              <h1>Till devices</h1>
               <p>
-                Yang tersambung ke {config?.terminal_id ?? "kasir ini"}. Disimpan
-                di kasir ini dan dilaporkan ke node toko.
+                What is connected to {config?.terminal_id ?? "this till"}. Saved
+                on this till and reported to the store node.
               </p>
             </div>
             <button className="btn ghost" type="button" onClick={onBack}>
               <Icon name="back" />
-              Kembali
+              Back
             </button>
           </div>
 
           {/* ── the shopper's screen ── */}
           <section className="rows">
-            <span className="label">Layar pelanggan</span>
+            <span className="label">Customer display</span>
             <label className="check">
               <input
                 type="checkbox"
@@ -292,7 +292,7 @@ export function PeripheralsScreen({ onBack }: { onBack: () => void }) {
                   })
                 }
               />
-              Ada layar kedua yang menghadap pembeli
+              There is a second screen facing the shopper
             </label>
             <label className="check">
               <input
@@ -303,7 +303,7 @@ export function PeripheralsScreen({ onBack }: { onBack: () => void }) {
                   change({ customer_display_on_start: event.target.checked })
                 }
               />
-              Buka otomatis saat aplikasi kasir dibuka
+              Open automatically when the till app starts
             </label>
             <div>
               <button
@@ -316,16 +316,16 @@ export function PeripheralsScreen({ onBack }: { onBack: () => void }) {
                 }}
               >
                 <Icon name="monitor" />
-                Buka sekarang
+                Open now
               </button>
             </div>
           </section>
 
           {/* ── the desk reader ── */}
           <section className="rows">
-            <span className="label">Pembaca RFID meja</span>
+            <span className="label">Desk RFID reader</span>
             <label className="field">
-              Pembaca yang tersambung lewat USB
+              Reader connected over USB
               <select
                 value={readerChoice}
                 onChange={(event) => {
@@ -343,34 +343,34 @@ export function PeripheralsScreen({ onBack }: { onBack: () => void }) {
                   })
                 }}
               >
-                <option value="">Tidak ada</option>
+                <option value="">None</option>
                 <option value={R3}>{R3}</option>
-                <option value={OTHER}>Lainnya…</option>
+                <option value={OTHER}>Other…</option>
               </select>
             </label>
             {readerChoice === OTHER && (
               <label className="field">
-                Model pembaca
+                Reader model
                 <input
                   value={form.desk_reader ?? ""}
                   onChange={(event) => change({ desk_reader: event.target.value })}
-                  placeholder="Merek dan model, seperti tertulis di perangkat"
+                  placeholder="Make and model, as written on the device"
                   autoComplete="off"
                 />
               </label>
             )}
             <div className="kv">
               <span className="muted" style={{ fontSize: 12 }}>
-                {reader === null ? "Memeriksa pembaca…" : reader.detail}
+                {reader === null ? "Checking the reader…" : reader.detail}
               </span>
               <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
                 {reader !== null && (
                   <span className={reader.bound ? "badge ok" : "badge plain"}>
-                    {reader.bound ? "Terhubung" : "Tidak terbaca"}
+                    {reader.bound ? "Connected" : "Not readable"}
                   </span>
                 )}
                 <button className="btn ghost" type="button" onClick={() => void checkReader()}>
-                  Periksa
+                  Check
                 </button>
               </span>
             </div>
@@ -378,10 +378,10 @@ export function PeripheralsScreen({ onBack }: { onBack: () => void }) {
 
           {/* ── drawer and scanner ── */}
           <section className="rows">
-            <span className="label">Laci kas dan pemindai</span>
+            <span className="label">Cash drawer and scanner</span>
             <div style={{ display: "flex", gap: 10 }}>
               <label className="field" style={{ flex: 1 }}>
-                Laci kas
+                Cash drawer
                 <select
                   value={form.cash_drawer ?? ""}
                   onChange={(event) =>
@@ -390,13 +390,13 @@ export function PeripheralsScreen({ onBack }: { onBack: () => void }) {
                     })
                   }
                 >
-                  <option value="">Tidak ada laci</option>
-                  <option value="PRINTER_PULSE">Dibuka printer struk</option>
-                  <option value="MANUAL">Dibuka manual (kunci)</option>
+                  <option value="">No drawer</option>
+                  <option value="PRINTER_PULSE">Opened by the receipt printer</option>
+                  <option value="MANUAL">Opened by hand (key)</option>
                 </select>
               </label>
               <label className="field" style={{ flex: 1 }}>
-                Pemindai barcode
+                Barcode scanner
                 <select
                   value={form.scanner ?? ""}
                   onChange={(event) =>
@@ -405,8 +405,8 @@ export function PeripheralsScreen({ onBack }: { onBack: () => void }) {
                     })
                   }
                 >
-                  <option value="">Tidak ada pemindai</option>
-                  <option value="USB_KEYBOARD">USB — mengetik ke kolom pindai</option>
+                  <option value="">No scanner</option>
+                  <option value="USB_KEYBOARD">USB — types into the scan field</option>
                   <option value="SERIAL">Serial</option>
                 </select>
               </label>
@@ -415,19 +415,19 @@ export function PeripheralsScreen({ onBack }: { onBack: () => void }) {
 
           {/* ── the receipt printer ── */}
           <section className="rows">
-            <span className="label">Printer struk</span>
+            <span className="label">Receipt printer</span>
             <label className="field">
-              Struk dicetak ke
+              Receipts print to
               <select value={printerValue} onChange={(event) => choosePrinter(event.target.value)}>
-                <option value="NONE">Tanpa printer struk</option>
+                <option value="NONE">No receipt printer</option>
                 <option value="ADDRESS">
                   {config?.printer_host
-                    ? `Alamat di Setelan terminal — ${config.printer_host}:${config.printer_port}`
-                    : "Alamat di Setelan terminal (belum diisi)"}
+                    ? `Address in the terminal settings — ${config.printer_host}:${config.printer_port}`
+                    : "Address in the terminal settings (not set)"}
                 </option>
                 {form.printer_id !== null && !chosenListed && (
                   <option value={`RECORDED:${form.printer_id}`}>
-                    {form.printer_label ?? form.printer_id} — tercatat di node
+                    {form.printer_label ?? form.printer_id} — recorded on the node
                   </option>
                 )}
                 {(printers ?? []).map((printer) => (
@@ -437,27 +437,27 @@ export function PeripheralsScreen({ onBack }: { onBack: () => void }) {
                     {printer.purpose !== "RECEIPT" ? " (printer label)" : ""}
                   </option>
                 ))}
-                <option value="USB">Printer USB di kasir ini</option>
+                <option value="USB">USB printer on this till</option>
               </select>
             </label>
             {session.me === null && (
               <p className="muted" style={{ fontSize: 12 }}>
-                Masuk dulu untuk memilih printer jaringan yang tercatat di node.
+                Sign in first to choose a network printer recorded on the node.
               </p>
             )}
             {printersProblem !== null && (
               <p className="muted" style={{ fontSize: 12 }}>
-                Daftar printer node tidak bisa dibaca: {printersProblem}
+                The node's printer list could not be read: {printersProblem}
               </p>
             )}
             {form.receipt_printer === "USB" && (
               <>
                 <label className="field">
-                  Printer USB di komputer ini
+                  USB printer on this computer
                   <input
                     value={form.usb_printer_name ?? ""}
                     onChange={(event) => change({ usb_printer_name: event.target.value })}
-                    placeholder="Nama printer seperti di daftar printer sistem"
+                    placeholder="Printer name as in the system printer list"
                     list="usb-printers"
                     autoComplete="off"
                     spellCheck={false}
@@ -470,28 +470,28 @@ export function PeripheralsScreen({ onBack }: { onBack: () => void }) {
                 </label>
                 {usbPrinters !== null && usbPrinters.length > 0 && (
                   <p className="muted" style={{ fontSize: 12 }}>
-                    Printer di komputer ini: {usbPrinters.join(", ")}.
+                    Printers on this computer: {usbPrinters.join(", ")}.
                   </p>
                 )}
                 {usbProblem !== null && (
                   <p className="muted" style={{ fontSize: 12 }}>
-                    Daftar printer komputer ini tidak bisa dibaca: {usbProblem}
+                    This computer's printer list could not be read: {usbProblem}
                   </p>
                 )}
                 <label className="field">
-                  Model printer USB
+                  USB printer model
                   <input
                     value={form.usb_printer_model ?? ""}
                     onChange={(event) => change({ usb_printer_model: event.target.value })}
-                    placeholder="Misalnya Epson TM-T82"
+                    placeholder="For example Epson TM-T82"
                     autoComplete="off"
                   />
                 </label>
                 <div className="notice">
-                  Struk disusun oleh node lalu dikirim kasir ini langsung ke
-                  printer — di Windows lewat spooler sebagai cetakan RAW, di
-                  Mac atau Linux lewat antrean CUPS. Laci ikut terbuka bila
-                  dibuka lewat printer. Simpan dulu, lalu cetak tes.
+                  The node composes the receipt and this till sends it straight to
+                  the printer — on Windows through the spooler as a RAW job, on
+                  Mac or Linux through the CUPS queue. The drawer opens with it
+                  when it is opened through the printer. Save first, then print a test.
                 </div>
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                   <button
@@ -501,7 +501,7 @@ export function PeripheralsScreen({ onBack }: { onBack: () => void }) {
                     onClick={() => void testUsb()}
                   >
                     <Icon name="print" />
-                    Cetak tes
+                    Print test
                   </button>
                   {usbTest !== null && (
                     <span className={usbTest.bad ? "error" : "muted"} style={{ fontSize: 12 }}>
@@ -512,31 +512,31 @@ export function PeripheralsScreen({ onBack }: { onBack: () => void }) {
               </>
             )}
             <p className="muted" style={{ fontSize: 12 }}>
-              Lebar kertas ({config?.paper === "WIDE" ? "80 mm" : "58 mm"}) diatur
-              di Setelan terminal.
+              Paper width ({config?.paper === "WIDE" ? "80 mm" : "58 mm"}) is set
+              in the terminal settings.
             </p>
           </section>
 
           {/* ── what the node has been told ── */}
           <div className="kv">
-            <span className="muted">Laporan ke node</span>
+            <span className="muted">Report to the node</span>
             {!joined ? (
-              <span className="badge plain">Kasir belum tergabung — disimpan di sini</span>
+              <span className="badge plain">Till has not joined — saved here</span>
             ) : held.unsent ? (
               <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <span className="badge warn">Belum terkirim</span>
+                <span className="badge warn">Not sent</span>
                 <button
                   className="btn ghost"
                   type="button"
                   disabled={busy}
                   onClick={() => void resend()}
                 >
-                  Kirim ulang
+                  Resend
                 </button>
               </span>
             ) : (
               <span className="badge ok">
-                Terkirim{reportedAt !== null ? ` · ${reportedAt}` : ""}
+                Sent{reportedAt !== null ? ` · ${reportedAt}` : ""}
               </span>
             )}
           </div>
@@ -547,7 +547,7 @@ export function PeripheralsScreen({ onBack }: { onBack: () => void }) {
 
           <div className="action-bar">
             <button className="btn" type="button" onClick={onBack}>
-              Kembali
+              Back
             </button>
             <button
               className="btn primary"
@@ -555,7 +555,7 @@ export function PeripheralsScreen({ onBack }: { onBack: () => void }) {
               style={{ flex: 1 }}
               disabled={busy}
             >
-              {busy ? "Menyimpan…" : "Simpan"}
+              {busy ? "Saving…" : "Save"}
             </button>
           </div>
         </form>

@@ -1,4 +1,4 @@
-import * as en from "chrono-node/en"
+import type * as enModule from "chrono-node/en"
 
 import { dateOf, isoOf } from "@/lib/calendar"
 
@@ -940,6 +940,26 @@ function special(plain: string, reference: string): Found | null {
   return null
 }
 
+/// chrono, loaded when a day box first appears (`warmDayParser`, called from
+/// the day fields' modules) rather than with the entry chunk: its English
+/// parser is ~49 modules that a screen without a date box never needed, and
+/// it used to ride into every URL open on this file. Until it has arrived the
+/// typed-day reads that stay native — "15", "15/10", "akhir bulan", "30 hari
+/// lagi" — keep working; only the guesses that are chrono's alone ("jumat",
+/// "next fri", "natal") return nothing, and the import is on its way the
+/// moment a day field is even rendered.
+let en: typeof enModule | null = null
+let enLoading: Promise<void> | null = null
+
+export function warmDayParser(): void {
+  if (en !== null || enLoading !== null) return
+  enLoading = import("chrono-node/en")
+    .then((module) => {
+      en = module
+    })
+    .catch(() => undefined)
+}
+
 function own(said: string, reference: string): Found | null {
   const at = dateOf(reference)
 
@@ -982,6 +1002,7 @@ function chrono(said: string, reference: string): Found | null {
         ? `${day} ${month}${year ?? ""}`
         : whole
   )
+  if (en === null) return null
   const [result] = en.GB.parse(flipped, dateOf(reference))
   if (result === undefined) return null
   const start = result.start

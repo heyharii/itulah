@@ -62,7 +62,7 @@ export function Thumbnail({
           <Garment name={name.trim()} division={division} colours={colours} />
         </span>
       ) : (
-        <span className="grid size-full place-items-center px-1 text-center text-[0.875rem] text-mute">
+        <span className="grid size-full place-items-center px-1 text-center text-[0.9375rem] text-mute">
           {fallback}
         </span>
       )}

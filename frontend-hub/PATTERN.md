@@ -1,5 +1,11 @@
 # frontend-hub — how a screen is written
 
+For current UI consistency and page-layout decisions, read [UI-PATTERNS.md](./UI-PATTERNS.md).
+Similar jobs reuse the closest existing pattern; different jobs may have
+different layouts with the same components and behavior. Its visual rules
+supersede older design descriptions in this file. Existing screens still need
+to be checked and migrated; this document does not establish their compliance.
+
 This app covers the cloud node's ~147 endpoints in the Cloud Hub ("ollama")
 design language. It is deliberately consistent: one shell, one token vocabulary,
 one table grammar, one way to read and one way to write. Read this before
@@ -10,6 +16,7 @@ the reference implementation and every part of it is there on purpose.
 
 | Thing | Where |
 |---|---|
+| Current visual rules and page patterns | `UI-PATTERNS.md` |
 | Design language | `~/Documents/retail/cloud-app/ollama/DESIGN.md` |
 | Shell + component CSS | `~/Documents/retail/cloud-app/ollama/inventory-prototype.html` |
 | Settled conflicts | `/Users/hari/itulah/CLOUDHUB-BRIEF.md` §0 |
@@ -32,8 +39,11 @@ the reference implementation and every part of it is there on purpose.
    receiving. They never swap.
 5. **Nothing darkens.** Overlays sit on the white veil (`--scrim`). No black
    scrim anywhere.
-6. **One black CTA per screen** (`<Button variant="dark">`), and only one.
-7. **Pills for interactive, 16px for cards.** Nothing between.
+6. **Main actions use filled primary blue; supporting actions use neutral ghost; Cancel is filled red.** Navigation and
+   selection use their own semantic components. Confirmation stands last in a
+   sheet's footer. See `UI-PATTERNS.md` for the current rule and adoption status.
+7. **Shared geometry:** controls use the shared 8px radius and sheets 16px.
+   Do not invent radii or layout spacing per menu.
 8. **Never `slice()` a list to cap it.** `<DataTable>` virtualises past 150
    rows on its own.
 
@@ -308,7 +318,7 @@ before writing markup:
 | Record detail | `<Sheet>` + `<Facts>` / `<Fact>` |
 | State badge | `<Pill tone>` — tone from `toneFor(status)` |
 | Data label | `<Tag>` (mono micro-label; NOT a status) |
-| Action | `<Button variant="dark｜ghost｜soft｜quiet｜danger">` |
+| Action | `<Button variant="primary">` for the main action, `ghost` for supporting actions; cancellation/destructive confirmation uses `destructive`. |
 | Fused actions | `<ButtonGroup>` |
 | Slice of one dataset | `<Segmented>` |
 | Different dataset | `<SubTabs>` |

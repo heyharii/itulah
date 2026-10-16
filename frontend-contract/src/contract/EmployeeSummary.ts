@@ -26,4 +26,9 @@ contract_kind: string | null, contract_ends_on: string | null, position: string 
 /**
  * The login this record is bound to, when one is.
  */
-username: string | null, };
+username: string | null, 
+/**
+ * No login yet, and an invitation to make one is still open — the
+ * latest one, unanswered, unrevoked and unexpired.
+ */
+invited: boolean, };

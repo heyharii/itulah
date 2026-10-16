@@ -156,7 +156,11 @@ export function UnitChoice({
   // (one of a few, like a status), not a control at the top of the page.
   if (phone)
     return (
+      // "Show": a unit narrows the screen to one of a few, so inside a door
+      // it joins the door's button rather than standing beside it — the dock
+      // holds four (owner, 2026-10-16).
       <DockChoice
+        title="Show"
         value={unitId ?? ""}
         onChange={onChange}
         options={units.map((one) => ({

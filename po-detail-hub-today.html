@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PO detail · hub today</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+/* Hub tokens (frontend-hub/src/styles/index.css). Nothing under 15px. */
+:root{--ink:#20242c;--text:#394150;--body:#565f6d;--mute:#666f7d;--canvas:#fff;--soft-2:#f0f0f2;--soft-3:#f6f6f7;
+  --hairline:#e6e6e9;--accent:#2563eb;--accent-bg:#eff5ff;--r-card:10px;--r-inner:8px;--ease-out:cubic-bezier(.23,1,.32,1)}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font:15px/22px Inter,system-ui,sans-serif;color:var(--text);background:var(--soft-3);-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;cursor:pointer;background:none;border:0}
+.top{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 20px;background:var(--canvas);border-bottom:1px solid var(--hairline);position:sticky;top:0;z-index:20}
+.top h1{font-size:16px;font-weight:600;color:var(--ink);margin-right:auto}
+.seg{display:flex;gap:2px;background:var(--soft-2);padding:3px;border-radius:999px}
+.seg button{border-radius:999px;padding:4px 14px;color:var(--body);transition:background-color 120ms var(--ease-out),color 120ms var(--ease-out),scale 120ms var(--ease-out)}
+.seg button:active{scale:.97}
+.seg button.on{background:var(--ink);color:#fff;font-weight:500}
+.seg button:disabled{opacity:.35;cursor:default}
+.wrap{display:grid;grid-template-columns:260px minmax(0,1fr);gap:20px;padding:20px;align-items:start}
+.list{position:sticky;top:76px;max-height:calc(100vh - 96px);overflow:auto;background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-card);padding:8px 8px 12px}
+.list h3{font-size:15px;font-weight:500;color:var(--mute);padding:12px 10px 4px}
+.list button{display:flex;width:100%;align-items:center;justify-content:space-between;gap:8px;text-align:left;padding:7px 10px;border-radius:var(--r-inner);transition:background-color 120ms var(--ease-out)}
+.list button:hover{background:var(--soft-2)}
+.list button.on{background:var(--accent-bg);color:var(--accent);font-weight:500}
+.list button i{font-style:normal;color:var(--mute)}
+.bar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:14px}
+.bar h2{font-size:18px;line-height:24px;font-weight:600;color:var(--ink);margin-right:auto}
+.bar .po{color:var(--mute)}
+.shot{background:var(--canvas);border:1px solid var(--hairline);border-radius:16px;overflow:hidden;line-height:0}
+.shot img{width:100%;height:auto;display:block}
+.shot.phone{width:414px;margin:0 auto;border-radius:28px;border:6px solid var(--ink)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
+.grid.phone{grid-template-columns:repeat(auto-fill,minmax(180px,1fr))}
+.card{text-align:left;background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden;transition:scale 150ms var(--ease-out),box-shadow 150ms var(--ease-out)}
+.card:hover{box-shadow:0 4px 16px rgb(24 39 60/8%)}
+.card:active{scale:.98}
+.card div{height:200px;overflow:hidden;border-bottom:1px solid var(--hairline)}
+.grid.phone .card div{height:320px}
+.card img{width:100%;display:block}
+.card span{display:block;padding:10px 12px;color:var(--ink);font-weight:500}
+@media (max-width:820px){.wrap{grid-template-columns:1fr}.list{position:static;max-height:none}.shot.phone{width:100%}}
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>PO detail · hub today</h1>
+  <div class="seg" id="screen"><button data-v="detail">PO detail</button><button data-v="review">Review Count</button></div>
+  <div class="seg" id="mode"><button data-v="one">One</button><button data-v="all">All</button></div>
+  <div class="seg" id="dev"><button data-v="desk">Desk</button><button data-v="phone">Phone</button></div>
+</header>
+<div class="wrap">
+  <nav class="list" id="list"></nav>
+  <main><div class="bar" id="bar"></div><div id="stage"></div></main>
+</div>
+<script>
+/* Real frontend-hub screens (demo-hub, 16 Oct 2026), the API answered with
+   made-up orders for each branch. Pictures live in po-detail-hub-today/. */
+const DIR = 'po-detail-hub-today/'
+const BR = [
+  ['new','Open','New','PO-2610-0101'],
+  ['late','Open','Late','PO-2610-0102'],
+  ['variants','Open','Colour & size','PO-2610-0103'],
+  ['recalled','Open','Recalled by warehouse','PO-2610-0104'],
+  ['count-match','Count waiting','Counted · matches','PO-2610-0105'],
+  ['count-short','Count waiting','Counted · short','PO-2610-0106'],
+  ['count-over','Count waiting','Counted · extra','PO-2610-0107'],
+  ['count-nao','Count waiting','Counted · not as ordered','PO-2610-0108'],
+  ['count-mixed','Count waiting','Short + extra + NaO','PO-2610-0109'],
+  ['recount','Count waiting','Recounted','PO-2610-0110'],
+  ['part-count','Count waiting','Part received + count','PO-2610-0111'],
+  ['part','Partly received','Partially received','PO-2610-0112'],
+  ['part-late','Partly received','Partially received · late','PO-2610-0113'],
+  ['part-two','Partly received','Two receivings','PO-2610-0114'],
+  ['part-extra','Partly received','Partial + extra','PO-2610-0115'],
+  ['full','Received','Fully received','PO-2610-0116'],
+  ['full-extra','Received','Full + extra','PO-2610-0117'],
+  ['full-nao','Received','Full + not as ordered','PO-2610-0118'],
+  ['full-both','Received','Full + extra + NaO','PO-2610-0119'],
+  ['ret-raised','Return PO','Return raised','PO-2610-0120'],
+  ['ret-note','Return PO','Return note printed','PO-2610-0121'],
+  ['ret-done','Return PO','Returned','PO-2610-0122'],
+  ['short','Closed','Closed short','PO-2610-0123'],
+  ['cancelled','Closed','Cancelled','PO-2610-0124'],
+].map(([id,g,n,po]) => ({id,g,n,po}))
+const RC = [
+  ['count-match','First count','Matches'],
+  ['count-short','First count','Short'],
+  ['count-over','First count','Extra'],
+  ['count-nao','First count','Not as ordered'],
+  ['count-mixed','First count','Short + extra + NaO'],
+  ['rc-kodi','First count','Counted in kodi'],
+  ['rc-variants','First count','Per colour & size'],
+  ['rc-one','First count','One line counted'],
+  ['recount','Recount','Recounted · now matches'],
+  ['rc-recount-short','Recount','Recounted · still short'],
+  ['part-count','After a receiving','Short'],
+  ['rc-part-over','After a receiving','Extra'],
+  ['rc-part-nao','After a receiving','Short + NaO'],
+].map(([id,g,n], k) => ({id,g,n,po: id.startsWith('rc-') ? 'PO-2610-01' + (25 + ['rc-kodi','rc-variants','rc-one','rc-part-over','rc-part-nao','rc-recount-short'].indexOf(id)) : BR.find(x => x.id === id).po}))
+const REVIEW = new Set(RC.map(x => x.id))
+const LAST = new Set(['part-count','rc-part-over','rc-part-nao'])
+const HIDE = new Set(['count-mixed','rc-recount-short'])
+const CONFIRM = new Set(['count-short'])
+const VIEWS = {
+  detail: [['detail','PO detail'],['review','Review Count'],['last','Last Receiving']],
+  review: [['review','Review Count'],['hide','Hide matched'],['confirm','Close Short'],['last','Last Receiving'],['detail','PO detail']],
+}
+const has = (b, v) => v === 'detail' || (v === 'review' && REVIEW.has(b.id)) || (v === 'last' && LAST.has(b.id)) || (v === 'hide' && HIDE.has(b.id)) || (v === 'confirm' && CONFIRM.has(b.id))
+const file = (b, v, dev) => `${DIR}${dev}-${b.id}${v === 'detail' ? '' : '-' + v}.png`
+
+const S = {screen:'detail', id:'new', view:'detail', dev:'desk', mode:'one'}
+const items = () => S.screen === 'review' ? RC : BR
+try { const h = location.hash.slice(1).split('/'); if (h[0] === 'review' || h[0] === 'detail') { S.screen = h[0]; h.shift() } if (items().some(b => b.id === h[0])) { S.id = h[0]; S.view = h[1] || S.view; S.dev = h[2] || 'desk' } } catch {}
+const $ = s => document.querySelector(s)
+
+function render(){
+  const list = items()
+  if (!list.some(x => x.id === S.id)) S.id = list[0].id
+  const b = list.find(x => x.id === S.id)
+  if (!has(b, S.view)) S.view = S.screen === 'review' ? 'review' : 'detail'
+  document.querySelectorAll('#dev button').forEach(x => x.classList.toggle('on', x.dataset.v === S.dev))
+  document.querySelectorAll('#mode button').forEach(x => x.classList.toggle('on', x.dataset.v === S.mode))
+  document.querySelectorAll('#screen button').forEach(x => x.classList.toggle('on', x.dataset.v === S.screen))
+  const groups = [...new Set(list.map(x => x.g))]
+  $('#list').innerHTML = groups.map(g => `<h3>${g}</h3>` + list.filter(x => x.g === g).map(x => {
+    const more = VIEWS[S.screen].filter(([v]) => v !== VIEWS[S.screen][0][0] && has(x, v)).length
+    return `<button data-id="${x.id}" class="${x.id === S.id && S.mode === 'one' ? 'on' : ''}">${x.n}${more ? '<i>+' + more + '</i>' : ''}</button>`
+  }).join('')).join('')
+  const views = VIEWS[S.screen]
+  if (S.mode === 'all') {
+    $('#bar').innerHTML = `<h2>${S.screen === 'review' ? 'Every Review Count' : 'Every branch'}</h2><div class="seg" id="view">${views.map(([v,l]) => `<button data-v="${v}" class="${v === S.view ? 'on' : ''}">${l}</button>`).join('')}</div>`
+    const shown = list.filter(x => has(x, S.view))
+    $('#stage').innerHTML = `<div class="grid ${S.dev}">${shown.map(x => `<button class="card" data-id="${x.id}"><div><img loading="lazy" src="${file(x, S.view, S.dev)}?v=3" alt="${x.n}"></div><span>${S.screen === 'review' ? x.g + ' · ' : ''}${x.n}</span></button>`).join('')}</div>`
+    return
+  }
+  history.replaceState(null, '', `#${S.screen}/${S.id}/${S.view}/${S.dev}`)
+  $('#bar').innerHTML = `<h2>${S.screen === 'review' ? b.g + ' · ' : ''}${b.n} <span class="po">· ${b.po}</span></h2><div class="seg" id="view">${views.map(([v,l]) => `<button data-v="${v}" class="${v === S.view ? 'on' : ''}" ${has(b, v) ? '' : 'disabled'}>${l}</button>`).join('')}</div>`
+  $('#stage').innerHTML = `<div class="shot ${S.dev}"><img src="${file(b, S.view, S.dev)}?v=3" alt="${b.n} · ${S.view}"></div>`
+}
+
+document.addEventListener('click', e => {
+  const t = e.target.closest('button'); if (!t || t.disabled) return
+  if (t.dataset.id) { S.id = t.dataset.id; S.mode = 'one' }
+  else if (t.closest('#dev')) S.dev = t.dataset.v
+  else if (t.closest('#mode')) S.mode = t.dataset.v
+  else if (t.closest('#screen')) { S.screen = t.dataset.v; S.view = S.screen === 'review' ? 'review' : 'detail' }
+  else if (t.closest('#view')) S.view = t.dataset.v
+  else return
+  render()
+})
+document.addEventListener('keydown', e => {
+  if (S.mode !== 'one' || (e.key !== 'ArrowDown' && e.key !== 'ArrowUp')) return
+  const list = items(), i = list.findIndex(x => x.id === S.id)
+  S.id = list[Math.min(list.length - 1, Math.max(0, i + (e.key === 'ArrowDown' ? 1 : -1)))].id
+  e.preventDefault(); render()
+})
+render()
+</script>
+</body>
+</html>

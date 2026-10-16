@@ -19,6 +19,7 @@ import { DataTable } from "@/components/ui/data-table"
 import { Field, Input, Money, Textarea } from "@/components/ui/field"
 import { Switch } from "@/components/ui/form"
 import { FilterPanel } from "@/components/ui/filter-panel"
+import { ExpandingSearch } from "@/components/ui/list-chrome"
 import {
   MiniCell,
   MiniRow,
@@ -241,7 +242,7 @@ const deskBillColumns: ColumnDef<TableSetup, SupplierBill>[] = [
             {money(bill.outstanding_minor)}
           </span>
           {reserved > 0 && (
-            <span className="text-[0.875rem] text-warn-fg tabular-nums">
+            <span className="text-[0.9375rem] text-warn-fg tabular-nums">
               {money(reserved)} in draft
             </span>
           )}
@@ -431,7 +432,7 @@ function LineRefs({ line }: { line: SupplierBillLine }) {
 function LineSource({ line }: { line: SupplierBillLine }) {
   if (line.source === null && !line.account_overridden) return null
   return (
-    <span className="shrink-0 truncate rounded-inner bg-soft-2 px-[0.375rem] text-[0.875rem] text-body">
+    <span className="shrink-0 truncate rounded-inner bg-soft-2 px-[0.375rem] text-[0.9375rem] text-body">
       {line.source ?? "GA suggestion"}
       {line.account_overridden && (
         <span className="text-mute"> · changed by Finance</span>
@@ -487,7 +488,7 @@ const billCardColumns: ColumnDef<TableSetup, SupplierBill>[] = [
           className="block break-words"
         />
         <span className="flex flex-wrap items-center gap-1.5">
-          <span className="font-mono text-[0.875rem] font-normal text-mute">
+          <span className="font-mono text-[0.9375rem] font-normal text-mute">
             {row.original.invoice_number}
           </span>
           <BillMarks bill={row.original} />
@@ -509,7 +510,7 @@ const billCardColumns: ColumnDef<TableSetup, SupplierBill>[] = [
           <span className="text-[1.5rem] leading-tight font-semibold tracking-tight text-ink">
             {money(bill.outstanding_minor)}
           </span>
-          <span className="text-[0.875rem] text-mute">
+          <span className="text-[0.9375rem] text-mute">
             {reserved > 0 ? (
               <span className="text-warn-fg">{money(reserved)} in draft</span>
             ) : (
@@ -673,7 +674,7 @@ const unbilledCardColumns: ColumnDef<TableSetup, UnbilledReceipt>[] = [
           id={row.original.supplier_id}
           className="block break-words"
         />
-        <span className="font-mono text-[0.875rem] font-normal text-mute">
+        <span className="font-mono text-[0.9375rem] font-normal text-mute">
           {row.original.receipt_number}
         </span>
       </span>
@@ -690,7 +691,7 @@ const unbilledCardColumns: ColumnDef<TableSetup, UnbilledReceipt>[] = [
         <span className="text-[1.5rem] leading-tight font-semibold tracking-tight text-ink">
           {money(row.original.value_at_order_price_minor)}
         </span>
-        <span className="text-[0.875rem] text-mute">at order price</span>
+        <span className="text-[0.9375rem] text-mute">at order price</span>
       </span>
     ),
   },
@@ -1086,36 +1087,55 @@ export function SupplierBills() {
 
   return (
     <PageContent>
-      {/* A phone's header is the top bar; the search is one of its Filters
-          and "Record bill" is the round + over the bottom bar. */}
+      {/* The one action stands in the head; on a phone "Record bill" is the
+          round + over the bottom bar. */}
       <PageHeader
-        className="max-md:hidden"
         crumb="Finance · Payables"
         title="Purchase Invoice"
         actions={
-          <>
-            <Input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              aria-label="Search bills"
-              placeholder="Search bills"
-              className="h-control w-48"
-            />
+          phone ? undefined : (
             <Button variant="primary" onClick={() => setRecording(true)}>
               Record bill
             </Button>
-          </>
+          )
         }
       />
       <Fab label="Record bill" onClick={() => setRecording(true)} />
 
-      <Toolbar>
-        <Input
+      {/* Four datasets, not four slices of one. Goods for resale and the
+          electricity bill are settled out of different payables and posted by
+          different rules; an unbilled receipt is a document the supplier has
+          not sent at all; the GA inbox is a handover, asked for on the server
+          because it is a population rather than a page. */}
+
+      <Toolbar
+        className="group/bar"
+        lead={
+          <SubTabs
+            value={tab}
+            onChange={(next) => setTab(next as BillTab)}
+            tabs={[
+              { value: "merchandise", label: "Merchandise" },
+              {
+                value: "expenses",
+                label: `Expenses${expenseHeld > 0 ? ` · ${count(expenseHeld)}` : ""}`,
+              },
+              {
+                value: "ga",
+                label: `From GA${gaHeld > 0 ? ` · ${count(gaHeld)}` : ""}`,
+              },
+              {
+                value: "unbilled",
+                label: `Unbilled deliveries${waitRows.length > 0 ? ` · ${waitRows.length}` : ""}`,
+              },
+            ]}
+          />
+        }
+      >
+        <ExpandingSearch
           value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          aria-label="Search bills"
-          placeholder="Search bills"
-          className="h-control md:hidden"
+          onChange={setQuery}
+          label="Search bills"
         />
         <UnitSelect
           value={unit}
@@ -1147,34 +1167,12 @@ export function SupplierBills() {
         />
       </Toolbar>
 
-      {/* Four datasets, not four slices of one. Goods for resale and the
-          electricity bill are settled out of different payables and posted by
-          different rules; an unbilled receipt is a document the supplier has
-          not sent at all; the GA inbox is a handover, asked for on the server
-          because it is a population rather than a page. */}
-      <SubTabs
-        value={tab}
-        onChange={(next) => setTab(next as BillTab)}
-        tabs={[
-          { value: "merchandise", label: "Merchandise" },
-          {
-            value: "expenses",
-            label: `Expenses${expenseHeld > 0 ? ` · ${count(expenseHeld)}` : ""}`,
-          },
-          {
-            value: "ga",
-            label: `From GA${gaHeld > 0 ? ` · ${count(gaHeld)}` : ""}`,
-          },
-          {
-            value: "unbilled",
-            label: `Unbilled deliveries${waitRows.length > 0 ? ` · ${waitRows.length}` : ""}`,
-          },
-        ]}
-      />
-
       {tab === "merchandise" ? (
         <>
-          <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+          <Card
+            aria-busy={bills.isPlaceholderData || undefined}
+            className="list-swap overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none"
+          >
             {queryState(bills, {
               loading: "Loading the bills…",
               refused,
@@ -1204,6 +1202,7 @@ export function SupplierBills() {
                   </EmptyState>
                 ) : (
                   <DataTable<SupplierBill>
+                    refresh={[bills]}
                     table={billTable}
                     pageScroll={phone}
                     cardsApart
@@ -1242,7 +1241,10 @@ export function SupplierBills() {
             </AppLink>
             , not trade payable.
           </Banner>
-          <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+          <Card
+            aria-busy={expenses.isPlaceholderData || undefined}
+            className="list-swap overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none"
+          >
             {queryState(expenses, {
               loading: "Loading the bills…",
               refused,
@@ -1257,6 +1259,7 @@ export function SupplierBills() {
                   </EmptyState>
                 ) : (
                   <DataTable<SupplierBill>
+                    refresh={[expenses]}
                     table={expenseTable}
                     pageScroll={phone}
                     cardsApart
@@ -1276,17 +1279,10 @@ export function SupplierBills() {
         </>
       ) : tab === "ga" ? (
         <>
-          {/* What the tab is for, said once, because the actions on a GA draft
-              are not the actions on a bill Finance keyed itself: this one is
-              somebody else's paperwork to check, and the honest answer may be
-              that it goes back. */}
-          <Banner tone="info" className="mb-3 max-md:hidden">
-            Bill drafts submitted by GA — checked here, not posted by GA itself.
-            Open one to see its lines, post it once it is right, or send it back
-            to GA with a reason. The lines show the account GA proposed and a
-            reference to its record.
-          </Banner>
-          <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+          <Card
+            aria-busy={gaBills.isPlaceholderData || undefined}
+            className="list-swap overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none"
+          >
             {queryState(gaBills, {
               loading: "Reading the drafts from GA…",
               refused,
@@ -1300,15 +1296,11 @@ export function SupplierBills() {
                   )
                 }
                 if (gaHeld === 0) {
-                  return (
-                    <EmptyState>
-                      No drafts from GA. Bills GA submits will appear here for
-                      Finance to check.
-                    </EmptyState>
-                  )
+                  return <EmptyState>No drafts from GA.</EmptyState>
                 }
                 return (
                   <DataTable<SupplierBill>
+                    refresh={[gaBills]}
                     table={gaTable}
                     pageScroll={phone}
                     cardsApart
@@ -1355,6 +1347,7 @@ export function SupplierBills() {
                   </EmptyState>
                 ) : (
                   <DataTable<UnbilledReceipt>
+                    refresh={[unbilled]}
                     table={waitTable}
                     pageScroll={phone}
                     cardsApart
@@ -1496,7 +1489,7 @@ function BillSheet({
       footer={
         bill && !posted ? (
           <div className="flex items-center justify-between gap-3">
-            <span className="text-[0.875rem] text-mute">
+            <span className="text-[0.9375rem] text-mute">
               {held
                 ? "A held bill cannot be posted until it is released."
                 : "Posts on the invoice date unless the month is closed."}
@@ -1585,7 +1578,7 @@ function BillSheet({
                     What it was for
                   </SubHead>
                   {lines === null ? (
-                    <p className="text-[0.875rem] text-mute">
+                    <p className="text-[0.9375rem] text-mute">
                       {detail.isPending
                         ? "Reading the lines…"
                         : isMissingRead(detail.error)
@@ -1608,7 +1601,7 @@ function BillSheet({
                                     key: "account",
                                     value: line.account_code,
                                   }}
-                                  className="shrink-0 font-mono text-[0.875rem] text-mute hover:text-accent hover:underline"
+                                  className="shrink-0 font-mono text-[0.9375rem] text-mute hover:text-accent hover:underline"
                                 >
                                   {line.account_code}
                                 </AppLink>
@@ -1635,7 +1628,7 @@ function BillSheet({
                                 <LineSource line={line} />
                               </span>
                               {line.memo && (
-                                <span className="block text-[0.875rem] text-mute">
+                                <span className="block text-[0.9375rem] text-mute">
                                   {line.memo}
                                 </span>
                               )}
@@ -1692,7 +1685,7 @@ function BillSheet({
               </Facts>
 
               {bill.note && (
-                <p className="text-[0.875rem] text-body">{bill.note}</p>
+                <p className="text-[0.9375rem] text-body">{bill.note}</p>
               )}
 
               <TotalsLadder
@@ -1757,11 +1750,11 @@ function BillSheet({
                               key: "payment",
                               value: payment.payment_id,
                             }}
-                            className="block font-mono text-[0.875rem] text-accent hover:underline"
+                            className="block font-mono text-[0.9375rem] text-accent hover:underline"
                           >
                             {payment.payment_number}
                           </AppLink>
-                          <span className="text-[0.875rem] text-mute">
+                          <span className="text-[0.9375rem] text-mute">
                             {day(payment.payment_date)}
                           </span>
                         </MiniCell>
@@ -1880,10 +1873,10 @@ function BillHandover({ id, bill }: { id: string; bill: SupplierBill }) {
       <div className="rounded-inner border border-hairline p-3.5">
         <div className="flex items-start justify-between gap-3">
           <span className="min-w-0">
-            <span className="block text-[0.875rem] font-medium text-ink">
+            <span className="block text-[0.9375rem] font-medium text-ink">
               Hold
             </span>
-            <span className="mt-0.5 block text-[0.875rem] leading-relaxed text-body">
+            <span className="mt-0.5 block text-[0.9375rem] leading-relaxed text-body">
               {held
                 ? "On hold; no payment can take it until it is released."
                 : "Holding stops any payment against this bill until it is released."}
@@ -1902,8 +1895,8 @@ function BillHandover({ id, bill }: { id: string; bill: SupplierBill }) {
 
         {held ? (
           <div className="mt-3 flex flex-col gap-1">
-            <p className="text-[0.875rem] text-body">{bill.hold_reason}</p>
-            <p className="text-[0.875rem] text-mute">
+            <p className="text-[0.9375rem] text-body">{bill.hold_reason}</p>
+            <p className="text-[0.9375rem] text-mute">
               Planned release:{" "}
               {bill.release_date === null
                 ? "not decided yet"
@@ -1945,10 +1938,10 @@ function BillHandover({ id, bill }: { id: string; bill: SupplierBill }) {
           act on. */}
       {fromGa && !posted && (
         <div className="rounded-inner border border-hairline p-3.5">
-          <span className="block text-[0.875rem] font-medium text-ink">
+          <span className="block text-[0.9375rem] font-medium text-ink">
             Return to GA
           </span>
-          <span className="mt-0.5 block text-[0.875rem] leading-relaxed text-body">
+          <span className="mt-0.5 block text-[0.9375rem] leading-relaxed text-body">
             The draft goes back to GA to be fixed. Its id and GA mark stay, and
             it stays DRAFT — this is a return, not a deletion.
           </span>
@@ -2002,7 +1995,7 @@ function BillHandover({ id, bill }: { id: string; bill: SupplierBill }) {
             warnings.data.length === 0 ? (
               // A check that ran and found nothing has to say so: the reader
               // needs to know the check happened, not that it was skipped.
-              <p className="text-[0.875rem] text-body">No warnings.</p>
+              <p className="text-[0.9375rem] text-body">No warnings.</p>
             ) : (
               warnings.data.map((warning) => (
                 <Banner key={`${warning.code}:${warning.message}`} tone="warn">
@@ -2019,7 +2012,7 @@ function BillHandover({ id, bill }: { id: string; bill: SupplierBill }) {
               ))
             )
           ) : (
-            <p className="text-[0.875rem] text-mute">
+            <p className="text-[0.9375rem] text-mute">
               A warning is not a block: posting can still go ahead.
             </p>
           )}
@@ -2274,7 +2267,7 @@ function RecordSheet({
         <form.Subscribe selector={(state) => billTotals(state.values)}>
           {(totals) => (
             <div className="flex items-center justify-between gap-3">
-              <span className="text-[0.875rem] text-mute tabular-nums">
+              <span className="text-[0.9375rem] text-mute tabular-nums">
                 {totals.ready
                   ? money(totals.total)
                   : totals.expense && totals.subtotalMinor !== null
@@ -2564,7 +2557,7 @@ function ExpenseLines({
         What it was for
       </SubHead>
 
-      <p className="text-[0.875rem] text-mute">
+      <p className="text-[0.9375rem] text-mute">
         A cost — class 6 or 7 — or something that becomes one: prepaid expense,
         an advance, or a capital purchase under <code>10215</code>. Every line
         sits at the bill's own site:{" "}
@@ -2657,7 +2650,7 @@ function ExpenseLines({
         </Button>
         {/* Both halves of the comparison, always — a single "out by" figure
             would say something is wrong without saying which number to fix. */}
-        <span className="text-[0.875rem] text-mute tabular-nums">
+        <span className="text-[0.9375rem] text-mute tabular-nums">
           Lines{" "}
           <span className={agree ? "text-ink" : "font-medium text-bad-fg"}>
             {linesMinor === null ? "—" : money(linesMinor)}

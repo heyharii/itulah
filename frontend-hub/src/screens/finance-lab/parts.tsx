@@ -230,7 +230,7 @@ export function Cell({
     <MiniCell
       align={right ? "right" : "left"}
       colSpan={colSpan}
-      className={cn(mono && "font-mono text-[0.875rem]", className)}
+      className={cn(mono && "font-mono text-[0.9375rem]", className)}
     >
       {/* A cell that opens something is a button, so it is reached by Tab and
           pressed with Enter like every other control — a clickable `<div>`
@@ -320,7 +320,7 @@ export function EntryView({ entry }: { entry: JournalEntry }) {
   return (
     <Card className="mb-3 overflow-hidden">
       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded-t-card border-b border-hairline bg-soft px-4 py-2.5">
-        <span className="font-mono text-[0.875rem] font-semibold text-ink">
+        <span className="font-mono text-[0.9375rem] font-semibold text-ink">
           {entry.entry_number}
         </span>
         <Pill tone="accent">{entry.source_kind}</Pill>
@@ -337,7 +337,7 @@ export function EntryView({ entry }: { entry: JournalEntry }) {
           {entry.lines.map((l) => (
             <Row key={l.line_no}>
               <Cell>
-                <span className="font-mono text-[0.875rem] text-mute">
+                <span className="font-mono text-[0.9375rem] text-mute">
                   {l.account_code}
                 </span>
                 <div className="text-ink">{l.account_name}</div>
@@ -776,7 +776,7 @@ export function JournalGrid({
                 <Input
                   value={l.account_code}
                   onChange={(e) => set(i, { account_code: e.target.value })}
-                  className="font-mono text-[0.875rem]"
+                  className="font-mono text-[0.9375rem]"
                 />
                 <div
                   className={cn(

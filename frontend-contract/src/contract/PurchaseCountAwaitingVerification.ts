@@ -72,4 +72,22 @@ stock_unit_code: string | null,
  * The count variant by variant, when the line was ordered in variants
  * and counted per variant (0963). Empty for a count taken as a whole.
  */
-variants: Array<PurchaseReviewVariant>, };
+variants: Array<PurchaseReviewVariant>, 
+/**
+ * After a recount: what the count this one replaces came to for the
+ * ordered article (its count less its not-as-ordered pieces, so it reads
+ * against `counted_quantity − wrong_quantity`). Absent on a first count.
+ * The review shows it struck through beside the new figure, only where
+ * it changed (owner, 2026-10-12).
+ */
+previous_counted_quantity: number | null, 
+/**
+ * Why the buyer sent the count back, as they wrote it. Absent on a first
+ * count and when no reason was given.
+ */
+recount_reason: string | null, 
+/**
+ * When the first count of this line was taken, once there has been a
+ * recount.
+ */
+first_counted_at: string | null, };

@@ -1,5 +1,5 @@
-import { useQueries } from "@tanstack/react-query"
-import { useMemo, useState } from "react"
+import { useSuspenseQueries } from "@tanstack/react-query"
+import { Suspense, useDeferredValue, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { ExportButton } from "@/components/ui/export-button"
@@ -8,10 +8,17 @@ import { Banner, EmptyState } from "@/components/ui/states"
 import { monthStamp, type ExportSheet } from "@/lib/export-xlsx"
 import { money } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
-import { financeKeys, statement } from "@/lib/queries/finance"
-import { Code, Grid, Td, Th, TotalRow } from "@/screens/finance-final/parts"
+import { balanceStatementQuery } from "@/lib/queries/finance"
+import {
+  Code,
+  Grid,
+  Td,
+  Th,
+  TotalRow,
+  useAskedWindow,
+} from "@/screens/finance-final/parts"
 import { asPresented, ladderLevel, periodResult } from "@/screens/finance/chart"
-import { useUnitName, useWindow } from "@/screens/finance/hooks"
+import { useSettledWindow, useUnitName } from "@/screens/finance/hooks"
 import { UnitName, UnitSelect, WindowControl } from "@/screens/finance/parts"
 import {
   PhoneStatement,
@@ -25,6 +32,7 @@ import {
   periodsOf,
   type Periodicity,
 } from "@/screens/finance/report"
+import { ScreenPending } from "@/screens/finance/pending"
 
 import type { Statement } from "@itulah/contract"
 
@@ -47,53 +55,63 @@ import type { Statement } from "@itulah/contract"
 /// it is not zero the page says so before anything else: a sheet that does
 /// not balance is a defect in the books, not a rounding.
 export function BalanceSheet() {
+  return (
+    <Suspense
+      fallback={
+        <ScreenPending
+          crumb="Finance · Financial Reports"
+          title="Balance Sheet"
+        >
+          Reading what is held and what is owed…
+        </ScreenPending>
+      }
+    >
+      <BalanceSheetScreen />
+    </Suspense>
+  )
+}
+
+function BalanceSheetScreen() {
   const phone = useLayout() === "phone"
-  const range = useWindow()
+  const range = useSettledWindow()
   const [unit, setUnit] = useState("")
   const [periodicity, setPeriodicity] = useState<Periodicity>("Yearly")
 
+  // The boxes answer at once; the columns trail them, and the figures in hand
+  // stay on screen (dimmed) until the next are read.
+  const asked = useAskedWindow(range)
+  const askedUnit = useDeferredValue(unit)
+  const askedPeriodicity = useDeferredValue(periodicity)
+  const stale =
+    asked.stale || askedUnit !== unit || askedPeriodicity !== periodicity
+
   const periods = useMemo(
-    () => periodsOf(range.from, range.to, periodicity, true),
-    [range.from, range.to, periodicity]
+    () => periodsOf(asked.from, asked.to, askedPeriodicity, true),
+    [asked.from, asked.to, askedPeriodicity]
   )
   const tooWide = periods.length > MAX_COLUMNS
   const columns = tooWide ? periods.slice(-1) : periods
 
-  const readings = useQueries({
-    queries: columns.map((period) => ({
-      queryKey: financeKeys.statement(
-        "BALANCE_SHEET",
-        null,
-        period.to,
-        unit || null
-      ),
-      // No `from`: a balance sheet is cumulative, and the server drops it.
-      queryFn: ({ signal }: { signal: AbortSignal }) =>
-        statement(
-          "BALANCE_SHEET",
-          { to: period.to, unit: unit || undefined },
-          signal
-        ),
-    })),
-    combine: (results) => ({
-      sheets: results.map((result) => result.data),
-      pending: results.some((result) => result.isPending),
-      failed: results.some((result) => result.isError),
-    }),
+  // No `from`: a balance sheet is cumulative, and the server drops it.
+  const sheets = useSuspenseQueries({
+    queries: columns.map((period) =>
+      balanceStatementQuery(period.to, askedUnit || null)
+    ),
+    combine: (results) => results.map((result) => result.data),
   })
 
-  const last = readings.sheets[readings.sheets.length - 1]
+  const last = sheets[sheets.length - 1]
   const unitName = useUnitName()
 
   /// The table as drawn: one column per period, the tree, and the two derived
   /// rows the sheet closes on.
   const build = (): ExportSheet | null => {
-    if (readings.pending || readings.failed || last === undefined) return null
-    const figures = readings.sheets.map(figuresOf)
-    const rows = buildTree(readings.sheets)
+    if (last === undefined) return null
+    const figures = sheets.map(figuresOf)
+    const rows = buildTree(sheets)
     const labels = columns.map((period) => period.label)
     return {
-      filename: `Balance-Sheet-${monthStamp(range.to)}`,
+      filename: `Balance-Sheet-${monthStamp(asked.to)}`,
       sheet: "Balance Sheet",
       title: "Balance Sheet",
       subtitle: `${range.chip} · ${unit === "" ? "all units" : unitName(unit)} · ${periodicity}`,
@@ -155,12 +173,7 @@ export function BalanceSheet() {
         // top of the page.
         actions={
           phone ? undefined : (
-            <ExportButton
-              build={build}
-              disabled={
-                readings.pending || readings.failed || last === undefined
-              }
-            />
+            <ExportButton build={build} disabled={last === undefined} />
           )
         }
       />
@@ -188,27 +201,24 @@ export function BalanceSheet() {
         />
         <WindowControl range={range} />
         <PeriodicitySelect value={periodicity} onChange={setPeriodicity} />
-        {phone && (
-          <ExportButton
-            build={build}
-            disabled={readings.pending || readings.failed || last === undefined}
-          />
-        )}
+        {phone && <ExportButton build={build} disabled={last === undefined} />}
       </ReportFilters>
 
-      {readings.pending ? (
-        <p className="py-10 text-center text-[0.875rem] text-mute">
-          Reading what is held and what is owed…
-        </p>
-      ) : readings.failed || last === undefined ? (
-        <EmptyState>The balance sheet could not be read.</EmptyState>
-      ) : (
-        <Body
-          sheets={readings.sheets}
-          columns={columns.map((period) => period.label)}
-          tooWide={tooWide ? periods.length : null}
-        />
-      )}
+      <div className="list-swap" aria-busy={stale || undefined}>
+        {!asked.valid ? (
+          <EmptyState>
+            Choose a From date that is on or before the To date.
+          </EmptyState>
+        ) : last === undefined ? (
+          <EmptyState>The balance sheet could not be read.</EmptyState>
+        ) : (
+          <Body
+            sheets={sheets}
+            columns={columns.map((period) => period.label)}
+            tooWide={tooWide ? periods.length : null}
+          />
+        )}
+      </div>
     </PageContent>
   )
 }
@@ -275,7 +285,7 @@ function Body({
       )}
 
       {tooWide !== null && (
-        <p className="mb-3 text-[0.875rem] text-mute">
+        <p className="mb-3 text-[0.9375rem] text-mute">
           {tooWide} columns is more than {MAX_COLUMNS}, so only the last is
           shown. Narrow the dates or choose a longer periodicity.
         </p>

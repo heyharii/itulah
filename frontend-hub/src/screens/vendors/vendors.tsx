@@ -1,10 +1,10 @@
 import {
-  useInfiniteQuery,
   useMutation,
   useQueryClient,
+  useSuspenseInfiniteQuery,
 } from "@tanstack/react-query"
 import { Plus } from "lucide-react"
-import { useMemo, useState } from "react"
+import { Suspense, useDeferredValue, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import {
@@ -20,22 +20,26 @@ import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { Sheet } from "@/components/ui/sheet"
-import { Banner, EmptyState, LoadMore } from "@/components/ui/states"
+import {
+  Banner,
+  EmptyState,
+  LoadingState,
+  LoadMore,
+} from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { count } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
-import { queryState } from "@/lib/query-state"
 import {
   createSupplier,
   procurementKeys,
   setSupplierStatus,
-  supplierPage,
   updateSupplier,
   type SupplierCategory,
 } from "@/lib/queries/procurement"
 import { useSections } from "@/lib/session"
 import { useSheet } from "@/lib/sheets"
 import { useDebounced } from "@/lib/use-debounced"
+import { vendorBookQuery } from "@/screens/vendors/book-data"
 import { cn } from "@/lib/utils"
 import {
   CardName,
@@ -115,9 +119,6 @@ const CATEGORY_WORDS: Record<SupplierCategory, string> = {
   MERCHANDISE: "Merchandise",
 }
 
-/// How many suppliers one page of the book asks for.
-const PAGE = 100
-
 /// Whether this person may add or change a supplier. The book is Procurement's
 /// and Finance's to keep; GA reads it to pick a vendor and sees it here
 /// read-only, the same split the server's section gate makes.
@@ -129,7 +130,6 @@ function useMayEditSuppliers(): boolean {
 }
 
 export function Vendors() {
-  const editing = useSheet("supplier")
   const [book, setBook] = useState<SupplierCategory>("EXPENSE")
   const [search, setSearch] = useState("")
   const [adding, setAdding] = useState(false)
@@ -139,32 +139,8 @@ export function Vendors() {
   // The search is the server's, so it waits for the typing to stop.
   const needle = useDebounced(search.trim(), 300)
 
-  const scope = useMemo(
-    () => ({ category: book, q: needle === "" ? undefined : needle }),
-    [book, needle]
-  )
-
-  /// The book, a page at a time as its foot nears view — the same read and
-  /// the same key shape the supplier book uses, under the book's prefix so
-  /// `suppliers()` invalidation still reaches it. It used to be the first
-  /// page alone, with a count of what had loaded beside it.
-  const vendors = useInfiniteQuery({
-    queryKey: [...procurementKeys.suppliers(scope), "pages"] as const,
-    queryFn: ({ pageParam, signal }) =>
-      supplierPage({ ...scope, limit: PAGE, cursor: pageParam }, signal),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) => last.next_cursor ?? undefined,
-    placeholderData: (previous) => previous,
-  })
-
-  const rows = useMemo(
-    () => vendors.data?.pages.flatMap((page) => page.rows) ?? [],
-    [vendors.data]
-  )
-  const head = vendors.data?.pages[0]
-
-  const open = rows.find((row) => row.supplier_id === editing.value) ?? null
-
+  // The head, the + and the dock stand at once; the book waits for its first
+  // page and streams in with it (the server starts the read too).
   return (
     <PageContent>
       <PageHeader
@@ -183,6 +159,7 @@ export function Vendors() {
               <Input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search"
                 className="h-8 w-56"
               />
               {mayEdit && (
@@ -213,6 +190,63 @@ export function Vendors() {
         }}
       />
 
+      <Suspense fallback={<LoadingState>Loading suppliers…</LoadingState>}>
+        <VendorBook
+          book={book}
+          onBook={setBook}
+          needle={needle}
+          mayEdit={mayEdit}
+          adding={adding}
+          setAdding={setAdding}
+        />
+      </Suspense>
+    </PageContent>
+  )
+}
+
+function VendorBook({
+  book,
+  onBook,
+  needle,
+  mayEdit,
+  adding,
+  setAdding,
+}: {
+  book: SupplierCategory
+  onBook: (next: SupplierCategory) => void
+  needle: string
+  mayEdit: boolean
+  adding: boolean
+  setAdding: (adding: boolean) => void
+}) {
+  const editing = useSheet("supplier")
+  const phone = useLayout() === "phone"
+
+  const scope = useMemo(
+    () => ({ category: book, q: needle === "" ? undefined : needle }),
+    [book, needle]
+  )
+
+  /// The book, a page at a time as its foot nears view — the same read and
+  /// the same key shape the supplier book uses, under the book's prefix so
+  /// `suppliers()` invalidation still reaches it. It used to be the first
+  /// page alone, with a count of what had loaded beside it.
+  ///
+  /// The deferred scope keeps the rows in hand on screen while the next
+  /// question is read, so a keystroke does not empty the list.
+  const asked = useDeferredValue(scope)
+  const vendors = useSuspenseInfiniteQuery(vendorBookQuery(asked))
+
+  const rows = useMemo(
+    () => vendors.data.pages.flatMap((page) => page.rows),
+    [vendors.data]
+  )
+  const head = vendors.data.pages[0]
+
+  const open = rows.find((row) => row.supplier_id === editing.value) ?? null
+
+  return (
+    <>
       <div className={DESK_BAR}>
         {/* Two books, not three. Merchandise is the other menu's — a supplier
             list that could show garment factories would be the single list
@@ -223,7 +257,7 @@ export function Vendors() {
             { value: "AFFILIATE" as const, label: "Affiliate" },
           ]}
           value={book}
-          onChange={setBook}
+          onChange={onBook}
         />
         <Toolbar.Spacer />
         {head !== undefined && (
@@ -234,54 +268,50 @@ export function Vendors() {
         )}
       </div>
 
-      {queryState(vendors, {
-        loading: "Loading suppliers…",
-        render: () =>
-          rows.length === 0 ? (
-            <Card>
-              <EmptyState
-                action={
-                  mayEdit ? (
-                    <Button variant="ghost" onClick={() => setAdding(true)}>
-                      Add first supplier
-                    </Button>
-                  ) : undefined
-                }
-              >
-                {book === "EXPENSE"
-                  ? "No operating suppliers yet. Add a service provider or a party that sends bills."
-                  : "No affiliate suppliers yet. Add another unit in the company group that transacts with this company."}
-              </EmptyState>
-            </Card>
-          ) : phone ? (
-            <PhoneCards
-              rows={rows}
-              rowId={(row) => row.supplier_id}
-              spec={VENDOR_CARD}
-              onOpen={(row) => editing.open(row.supplier_id)}
-              more={vendors}
+      {rows.length === 0 ? (
+        <Card>
+          <EmptyState
+            action={
+              mayEdit ? (
+                <Button variant="ghost" onClick={() => setAdding(true)}>
+                  Add first supplier
+                </Button>
+              ) : undefined
+            }
+          >
+            {book === "EXPENSE"
+              ? "No operating suppliers yet. Add a service provider or a party that sends bills."
+              : "No affiliate suppliers yet. Add another unit in the company group that transacts with this company."}
+          </EmptyState>
+        </Card>
+      ) : phone ? (
+        <PhoneCards
+          rows={rows}
+          rowId={(row) => row.supplier_id}
+          spec={VENDOR_CARD}
+          onOpen={(row) => editing.open(row.supplier_id)}
+          more={vendors}
+        />
+      ) : (
+        <Card className="overflow-hidden">
+          <div className="grid h-10 grid-cols-[7rem_minmax(0,1fr)_11rem_9rem_6rem] items-center gap-3 border-b border-hairline bg-soft px-3.5 text-eyebrow font-medium text-body">
+            <span>Code</span>
+            <span>Supplier</span>
+            <span>Expense account</span>
+            <span>Contact</span>
+            <span>Status</span>
+          </div>
+          {rows.map((row) => (
+            <VendorRow
+              key={row.supplier_id}
+              vendor={row}
+              onOpen={() => editing.open(row.supplier_id)}
             />
-          ) : (
-            <Card className="overflow-hidden">
-              <div className="grid h-10 grid-cols-[7rem_minmax(0,1fr)_11rem_9rem_6rem] items-center gap-3 border-b border-hairline bg-soft px-3.5 text-eyebrow font-medium text-body">
-                <span>Code</span>
-                <span>Supplier</span>
-                <span>Expense account</span>
-                <span>Contact</span>
-                <span>Status</span>
-              </div>
-              {rows.map((row) => (
-                <VendorRow
-                  key={row.supplier_id}
-                  vendor={row}
-                  onOpen={() => editing.open(row.supplier_id)}
-                />
-              ))}
-              {/* The page scrolls, not this card — see `<LoadMore>`. */}
-              <LoadMore query={vendors} />
-            </Card>
-          ),
-      })}
+          ))}
+          {/* The page scrolls, not this card — see `<LoadMore>`. */}
+          <LoadMore query={vendors} />
+        </Card>
+      )}
 
       <VendorSheet
         open={adding || open !== null}
@@ -292,7 +322,7 @@ export function Vendors() {
           editing.close()
         }}
       />
-    </PageContent>
+    </>
   )
 }
 

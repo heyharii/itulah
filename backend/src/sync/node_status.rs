@@ -148,6 +148,13 @@ pub struct NodeStatus {
     /// actions (28 Sep 2026).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub action_results: Option<Vec<crate::sync::node_ops::ActionReport>>,
+    /// Where the shop's own screens answer on its network, by the stable name
+    /// the server advertises (`http://{node}.local:8082`,
+    /// `edge/discovery.rs`): what the hub shows, and draws as a QR, once the
+    /// server is ready. `None` from a server that predates it, or one that
+    /// listens on this machine only or does not advertise itself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app_address: Option<String>,
 }
 
 /// One spell without head office while the server stayed up.
@@ -670,6 +677,7 @@ mod tests {
             capabilities: None,
             link_outages: None,
             action_results: None,
+            app_address: None,
         }
     }
 

@@ -1,6 +1,8 @@
+import { DocStamp } from "@/components/ui/doc-stamp"
 import { Dialog as BaseDialog } from "@base-ui/react/dialog"
 import { Drawer } from "@base-ui/react/drawer"
 import { useForm } from "@tanstack/react-form"
+import { useRouterState } from "@tanstack/react-router"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   Check,
@@ -16,6 +18,7 @@ import { Button } from "@/components/ui/button"
 import { ConfirmButton } from "@/components/ui/dialog"
 import { Field, Input, Money } from "@/components/ui/field"
 import { Switch } from "@/components/ui/form"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { Pill } from "@/components/ui/pill"
 import { PhoneDrawer } from "@/components/ui/phone-drawer"
 import { Fact, Facts } from "@/components/ui/sheet"
@@ -23,8 +26,17 @@ import { Problem, Receipt } from "@/components/ui/states"
 import { dc } from "@/lib/api"
 import { useNameOfLogin } from "@/lib/queries/hr-employees"
 import { recordKeys } from "@/lib/queries/records"
-import { count, label, money, recentMoment } from "@/lib/format"
+import {
+  count,
+  day,
+  label,
+  money,
+  percentBps,
+  recentMoment,
+} from "@/lib/format"
 import { useLayout } from "@/lib/layout"
+import { screenForPath } from "@/lib/navigation"
+import { useSheetLayer } from "@/lib/sheet-stack"
 import { pullIn, useSaid, type PullIn } from "@/lib/pull-in"
 import { useEdgeActor, useEdgeNodeIdentity } from "@/lib/edge-session"
 import { keys } from "@/lib/operations/keys"
@@ -45,8 +57,15 @@ import {
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { cn } from "@/lib/utils"
-import { useSupplierName } from "@/screens/procurement/supplier-name"
+import { lineValue, unitPriceText } from "@/screens/procurement/shared"
+import {
+  useSupplierName,
+  useSupplierRecordId,
+} from "@/screens/procurement/supplier-name"
 import { useCountsAwaiting } from "@/screens/procurement/count-review-state"
+import { LineSheet } from "@/screens/procurement/line-sheet"
+import { SupplierSheet } from "@/screens/procurement/suppliers"
+import { OrderSheet } from "@/screens/procurement/purchase-orders"
 import { OperationsGate } from "@/screens/operations/gate"
 import { TwoLines } from "@/screens/operations/two-lines"
 import {
@@ -59,6 +78,7 @@ import type {
   InvoiceDocumentView,
   PurchaseCountAwaitingVerification,
 } from "@itulah/contract"
+import type { PurchaseOrderDetail } from "@/lib/queries/procurement"
 
 /// **Review count** — the buyer's half of a delivery.
 ///
@@ -133,6 +153,17 @@ export function ReviewCountButton({
   )
 }
 
+/// What the review's head says once the count is read: the supplier is the
+/// sheet's name (owner, 14 Oct: "yang utama ya supplier"), the line under it
+/// says what this is and who counted. Primitives, so the body can hand them
+/// up from an effect without re-rendering the head in a loop.
+interface ReviewHead {
+  readonly supplier: string | undefined
+  readonly supplierId: string | null
+  readonly orderId: string | null
+  readonly caption: string
+}
+
 /// The review, over the order's page. `po` is the order's number (`?verify=`);
 /// nothing is mounted while it is null.
 export function CountReview({
@@ -143,16 +174,70 @@ export function CountReview({
   onClose: () => void
 }) {
   const [flag, setFlag] = useState<"ok" | "warn" | null>(null)
+  const [heading, setHeading] = useState<ReviewHead | null>(null)
+  /// The sheet opens with the focus on ×, as every record sheet does.
+  const closeRef = useRef<HTMLButtonElement>(null)
+  // What the head names opens as a layer over the review, like every name
+  // here: the supplier, the order (back to it when it is the one underneath).
+  const [supplierShown, setSupplierShown] = useState<string | null>(null)
+  const [orderShown, setOrderShown] = useState<string | null>(null)
+  const orderUnder = useSheet("order").value
   const phone = useLayout() === "phone"
   const Parts: { Title: React.ElementType; Close: React.ElementType } = phone
     ? Drawer
     : BaseDialog
 
+  // The record sheet's anatomy (hub-ui-patterns): where it sits in grey — the
+  // screen, then the order's number — the name, × at the right.
+  const pathname = useRouterState({ select: (state) => state.location.pathname })
+  const where = screenForPath(pathname)?.label
+  const layer = useSheetLayer(po !== null && !phone, false)
   const head = (
-    <div className="flex items-center gap-3 border-b border-hairline px-4 py-4 md:px-7 md:py-3">
-      <div className="min-w-0 flex-1">
-        <Parts.Title className="flex items-center gap-2 text-card-title font-semibold text-ink">
-          Review Count
+    <div className="sheet-head flex shrink-0 items-center gap-x-4 border-b border-hairline px-4 py-4 max-md:items-start md:px-7 md:py-3">
+      <div className="sheet-headtext min-w-0 flex-1">
+        {po !== null && (
+          <div className="sheet-id mb-0.5 truncate text-id text-body">
+            {where && (
+              <>
+                <Parts.Close tabIndex={-1} className="sheet-crumb">
+                  {where}
+                </Parts.Close>
+                <span aria-hidden className="sheet-crumb-sep">
+                  /
+                </span>
+              </>
+            )}
+            {heading?.orderId != null ? (
+              <button
+                type="button"
+                className="record-link"
+                onClick={() =>
+                  orderUnder === heading.orderId
+                    ? onClose()
+                    : setOrderShown(heading.orderId)
+                }
+              >
+                {po}
+              </button>
+            ) : (
+              <span>{po}</span>
+            )}
+          </div>
+        )}
+        <Parts.Title className="sheet-title flex items-center gap-2 text-card-title font-semibold text-ink">
+          {heading?.supplier === undefined ? (
+            "Review Count"
+          ) : heading.supplierId === null ? (
+            heading.supplier
+          ) : (
+            <button
+              type="button"
+              className="record-link text-left"
+              onClick={() => setSupplierShown(heading.supplierId)}
+            >
+              {heading.supplier}
+            </button>
+          )}
           {/* What the count found, said once, by the title: a mark and no
             sentence — the table and the question below carry the numbers. */}
           {flag === "warn" && (
@@ -168,15 +253,19 @@ export function CountReview({
             />
           )}
         </Parts.Title>
-        {po !== null && (
-          <div className="font-mono text-[0.875rem] text-mute">{po}</div>
-        )}
+        <div className="sheet-caption mt-0.5 text-meta text-mute">
+          {heading?.caption ?? "Review Count"}
+        </div>
       </div>
       <Parts.Close
+        ref={closeRef}
         aria-label="Close"
-        className="grid size-8 shrink-0 place-items-center rounded-inner text-line-ico transition-colors hover:bg-soft-2 hover:text-ink pointer-coarse:size-tap"
+        className="sheet-close btn-iconly grid size-8 shrink-0 place-items-center self-start rounded-inner text-line-ico transition-colors hover:bg-soft-2 hover:text-ink pointer-coarse:size-tap"
       >
         <X className="size-4" />
+        <span aria-hidden className="btn-word hidden">
+          Close
+        </span>
       </Parts.Close>
     </div>
   )
@@ -187,8 +276,23 @@ export function CountReview({
         onClose={onClose}
         onSaved={(saved) => void pullIn(saved)}
         onFlag={setFlag}
+        onHead={setHeading}
       />
     </OperationsGate>
+  )
+  const layers = (
+    <>
+      <SupplierSheet
+        id={supplierShown}
+        context={po ?? undefined}
+        onClose={() => setSupplierShown(null)}
+      />
+      <OrderSheet
+        id={orderShown}
+        onClose={() => setOrderShown(null)}
+        onEdit={() => setOrderShown(null)}
+      />
+    </>
   )
 
   // A phone reviews in a sheet from the bottom, as every other overlay there.
@@ -203,6 +307,7 @@ export function CountReview({
           {head}
           {body}
         </PhoneDrawer>
+        {layers}
       </>
     )
   }
@@ -214,15 +319,25 @@ export function CountReview({
         onOpenChange={(next) => !next && onClose()}
       >
         <BaseDialog.Portal>
-          <BaseDialog.Backdrop className="fixed inset-0 z-40 bg-[var(--scrim)] transition-opacity duration-(--t-sheet) ease-(--ease-out) data-[ending-style]:opacity-0 data-[ending-style]:duration-(--t-exit) data-[starting-style]:opacity-0" />
-          {/* A sheet, like the order it is opened from: full height, so five or
-          ten articles read as a page instead of a cramped window. */}
-          <BaseDialog.Popup className="fixed top-5 right-5 bottom-5 z-40 flex w-[clamp(27.5rem,72vw,56rem)] max-w-[calc(100vw-2.5rem)] flex-col overflow-hidden rounded-shell border border-hairline bg-canvas shadow-float transition-[translate,opacity] duration-(--t-sheet) ease-(--ease-drawer) outline-none data-[ending-style]:translate-x-[calc(100%+1.25rem)] data-[ending-style]:duration-(--t-exit) data-[starting-style]:translate-x-[calc(100%+1.25rem)] motion-reduce:data-[ending-style]:translate-x-0 motion-reduce:data-[ending-style]:opacity-0 motion-reduce:data-[starting-style]:translate-x-0 motion-reduce:data-[starting-style]:opacity-0">
+          <BaseDialog.Backdrop
+            data-quiet={layer.over ? "" : undefined}
+            className="sheet-veil fixed inset-0 z-40 bg-[var(--scrim)] transition-opacity duration-(--t-sheet) ease-(--ease-out) data-[ending-style]:opacity-0 data-[ending-style]:duration-(--t-exit) data-[starting-style]:opacity-0"
+          />
+          {/* A record sheet from the right like every other (hub-ui-patterns,
+          14 Oct: one format, one motion) — over the list, or over the order's
+          own sheet, 12px further in. It was a dialog in the middle. */}
+          <BaseDialog.Popup
+            initialFocus={closeRef}
+            data-under={layer.under ? "" : undefined}
+            data-over={layer.over ? "" : undefined}
+            className="sheet-pop fixed top-5 right-5 bottom-5 z-40 flex w-[calc(100vw-5rem)] flex-col overflow-hidden rounded-shell border border-hairline bg-canvas shadow-float transition-[translate,opacity] duration-(--t-sheet) ease-(--ease-drawer) outline-none data-[ending-style]:translate-x-[calc(100%+1.25rem)] data-[ending-style]:duration-(--t-exit) data-[starting-style]:translate-x-[calc(100%+1.25rem)] motion-reduce:data-[ending-style]:translate-none motion-reduce:data-[ending-style]:opacity-0 motion-reduce:data-[starting-style]:translate-none motion-reduce:data-[starting-style]:opacity-0 xl:w-[min(60rem,calc(100vw-18.75rem))] min-[90rem]:w-[min(65rem,calc(100vw-22.5rem))]"
+          >
             {head}
             {body}
           </BaseDialog.Popup>
         </BaseDialog.Portal>
       </BaseDialog.Root>
+      {layers}
     </>
   )
 }
@@ -232,11 +347,13 @@ function ReviewBody({
   onClose,
   onSaved,
   onFlag,
+  onHead,
 }: {
   po: string
   onClose: () => void
   onSaved: (saved: PullIn) => void
   onFlag: (flag: "ok" | "warn" | null) => void
+  onHead: (head: ReviewHead | null) => void
 }) {
   const queue = useQuery({
     queryKey: keys.verifyQueue(),
@@ -252,6 +369,7 @@ function ReviewBody({
         onClose={onClose}
         onSaved={onSaved}
         onFlag={onFlag}
+        onHead={onHead}
       />
     ),
   })
@@ -319,12 +437,14 @@ function Review({
   onClose,
   onSaved,
   onFlag,
+  onHead,
 }: {
   po: string
   live: readonly Count[]
   onClose: () => void
   onSaved: (saved: PullIn) => void
   onFlag: (flag: "ok" | "warn" | null) => void
+  onHead: (head: ReviewHead | null) => void
 }) {
   const actor = useEdgeActor()
   const client = useQueryClient()
@@ -367,9 +487,35 @@ function Review({
     order === undefined || order.supplier_name === null
       ? undefined
       : nameOf(order.supplier_id, order.supplier_name)
+  // What the review names, each opening its own record as a layer over it
+  // (owner, 14 Oct: "item di review count bisa di klik keluar detailnya").
+  const [lineShown, setLineShown] = useState<
+    PurchaseOrderDetail["lines"][number] | null
+  >(null)
+  const recordOf = useSupplierRecordId()
+  const itemOf = (row: Count) =>
+    detail.data?.lines.find((one) => one.po_line_id === row.po_line_id) ??
+    null
+  /// The line's name, as a link to its record once the order is read.
+  const itemName = (row: Count, className: string) => {
+    const line = itemOf(row)
+    return line === null ? (
+      <div className={className}>{row.article_name}</div>
+    ) : (
+      <button
+        type="button"
+        onClick={() => setLineShown(line)}
+        className={cn("record-link block text-left", className)}
+      >
+        {row.article_name}
+      </button>
+    )
+  }
   const cancelled = order?.lifecycle === "CANCELLED"
 
   const [hideMatched, setHideMatched] = useState(false)
+  // The receiving that came before, read in a dialog over this one.
+  const [lastReceiving, setLastReceiving] = useState(false)
   // What was accepted, kept after the counts leave the queue: the buyer is
   // still owed the invoice box, and a retry still needs the rows.
   const [frozen, setFrozen] = useState<readonly Count[] | null>(null)
@@ -379,18 +525,67 @@ function Review({
 
   const shorts = rows.filter((row) => gap(row) < 0)
   const overs = rows.filter((row) => gap(row) > 0)
-  const wrongRows = rows.filter((row) => wrongOf(row) > 0)
-  // The extra on lines with no mismatch: a mismatched line's whole excess goes
-  // back with it, so only these are "just extra".
-  const cleanOvers = overs.filter((row) => wrongOf(row) === 0)
   const shortQty = shorts.reduce((sum, row) => sum - gap(row), 0)
   // Everything beyond the order leaves with the not-as-ordered pieces: a return
   // takes a receipt line's whole excess.
   const overQty = overs.reduce((sum, row) => sum + gap(row), 0)
-  const wrongQty = wrongRows.reduce((sum, row) => sum + wrongOf(row), 0)
   const totalWrong = rows.reduce((sum, row) => sum + wrongOf(row), 0)
   // A column's total is the sum of its rows: what was counted, as counted.
   const totalCounted = rows.reduce((sum, row) => sum + correct(row), 0)
+  // Once something has come in, the table says what is still LEFT of the order
+  // (the same pieces the count is compared with), and so do its totals;
+  // before that it is simply what was ordered (owner, 2026-10-12).
+  const part = (detail.data?.lines ?? []).some(
+    (line) => line.received_quantity > 0
+  )
+  const orderedHead = part ? "Ordered Left" : "Ordered"
+  // The money this count brings, at the agreed price: shown whenever every
+  // line carries one. Procurement reviews, and each choice at the foot has a
+  // cost — closing short takes the missing pieces at their price and leaves the
+  // discount on what stays.
+  const priced =
+    rows.length > 0 && rows.every((row) => row.unit_price_minor !== null)
+  const priceOf = (row: Count) => row.unit_price_minor ?? 0
+  const amountOf = (row: Count) =>
+    Math.min(correct(row), owed(row)) * priceOf(row)
+  const leftGross = rows.reduce((sum, row) => sum + owed(row) * priceOf(row), 0)
+  const shortGross = rows.reduce(
+    (sum, row) => sum + Math.max(0, owed(row) - correct(row)) * priceOf(row),
+    0
+  )
+  const orderGross = (detail.data?.lines ?? []).reduce(
+    (sum, line) => sum + lineValue(line, line.ordered_quantity),
+    0
+  )
+  const discountBps =
+    detail.data === undefined
+      ? 0
+      : (detail.data.discount_bps ??
+        (orderGross > 0
+          ? Math.round((detail.data.discount_minor * 10000) / orderGross)
+          : 0))
+  // The discount on what stays, as the centre bills it: the order's own
+  // rupiah discount in proportion to the value accepted (sync.rs shares it
+  // over the lines, then by matched pieces), not the rounded percentage —
+  // 1,38% of Rp 40.600.000 is Rp 280 off the Rp 560.000 the bill says.
+  const discountMinor =
+    detail.data !== undefined && orderGross > 0
+      ? Math.round(
+          (detail.data.discount_minor * (leftGross - shortGross)) / orderGross
+        )
+      : Math.round(((leftGross - shortGross) * discountBps) / 10000)
+  const totalOrdered = rows.reduce((sum, row) => sum + owed(row), 0)
+  // The discount per piece, as the order's page says it: the order's own
+  // discount over the pieces it ordered, so the two pages never differ by a
+  // rupiah of rounding.
+  const orderPieces = (detail.data?.lines ?? []).reduce(
+    (sum, line) => sum + line.ordered_quantity,
+    0
+  )
+  const discountPerPiece =
+    detail.data !== undefined && orderPieces > 0
+      ? Math.round(detail.data.discount_minor / orderPieces)
+      : 0
   const nameOfLogin = useNameOfLogin()
   // The delivery's unit, when the order was typed in one (kodi, lusin…), so
   // "not as ordered" can be said the way it was counted.
@@ -410,7 +605,6 @@ function Review({
     canHide && hideMatched
       ? rows.filter((row) => gap(row) !== 0 || wrongOf(row) > 0)
       : rows
-  const extraQty = rows.reduce((sum, row) => sum + Math.max(gap(row), 0), 0)
   const flagged = rows.some((row) => gap(row) !== 0 || wrongOf(row) > 0)
     ? "warn"
     : "ok"
@@ -419,10 +613,51 @@ function Review({
     return () => onFlag(null)
   }, [flagged, onFlag])
   const counters = [...new Set(rows.map((row) => row.counted_by))]
+  // A recount says so in the head: when the first count was taken, and why it
+  // was sent back.
+  const firstCounted = rows
+    .map((row) => row.first_counted_at)
+    .filter((at): at is string => at != null)
+    .sort()[0]
+  const recounted = firstCounted !== undefined
+  // The Recount button's own note ("Count again") is not a reason.
+  const recountReason = rows.find((row) => {
+    const said = (row.recount_reason ?? "").trim()
+    return said !== "" && said !== "Count again"
+  })?.recount_reason?.trim()
   const latest = rows.reduce(
     (newest, row) => (row.counted_at > newest ? row.counted_at : newest),
     rows[0]?.counted_at ?? ""
   )
+  // The head, as the record sheet draws it: the supplier is the name; under it
+  // what this is, who counted and when — and, for a recount, when the first
+  // count was and why it was sent back.
+  const counterNames =
+    counters.length === 1
+      ? nameOfLogin(counters[0])
+      : `${count(counters.length)} people`
+  const headCaption = [
+    "Review Count",
+    rows.length === 0
+      ? null
+      : `${recounted ? "Recounted" : "Counted"} by ${counterNames}, ${recentMoment(latest)}`,
+    firstCounted === undefined ? null : `First count ${day(firstCounted)}`,
+    recountReason === undefined ? null : `Recount reason: ${recountReason}`,
+  ]
+    .filter(Boolean)
+    .join(" \u00b7 ")
+  const headSupplierId =
+    order === undefined ? null : recordOf(order.supplier_id, order.supplier_name)
+  const headOrderId = order?.purchase_order_id ?? null
+  useEffect(() => {
+    onHead({
+      supplier,
+      supplierId: headSupplierId,
+      orderId: headOrderId,
+      caption: headCaption,
+    })
+  }, [supplier, headSupplierId, headOrderId, headCaption, onHead])
+  useEffect(() => () => onHead(null), [onHead])
 
   // Minted once per count and per verb and kept across a retry: the batch is a
   // loop, and a retry after the third line failed resends the first two.
@@ -631,71 +866,41 @@ function Review({
 
   return (
     <>
-      <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-4 pt-4 pb-6 md:gap-8 md:px-8 md:pt-5 md:pb-8 [&>*]:shrink-0">
+      <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-4 pt-4 pb-6 md:px-7 md:pt-6 md:pb-8 [&>*]:shrink-0">
         {unnamed && <NameTheVerifier />}
 
-        {/* The head of the report: who, when, which order — reference, not the
-          point of the screen. Label and value on one line, plain weight, so
-          the table below is what the eye lands on. */}
-        <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-2 text-[0.9375rem] md:grid-cols-[max-content_minmax(0,1fr)_max-content_minmax(0,1fr)] md:[&_dd]:mr-6">
-          {/* Two columns: who and when on the left, the totals on the right,
-            then what the count found — for a count of any length. */}
-          {(() => {
-            const fact = (
-              name: string,
-              value: React.ReactNode,
-              tone = "text-body"
-            ) => (
-              <Fragment key={name}>
-                <dt className="text-mute">{name}</dt>
-                <dd className={cn("tabular-nums", tone)}>{value}</dd>
-              </Fragment>
-            )
-            // Who and when are one fact: "Rina Kusuma · 04 Oct 2026, 17:12".
-            const counted = fact(
-              "Counted",
-              `${
-                counters.length === 1
-                  ? nameOfLogin(counters[0])
-                  : `${count(counters.length)} people`
-              } · ${recentMoment(latest)}`
-            )
-            const from =
-              supplier !== null && supplier !== undefined
-                ? fact("Supplier", supplier)
-                : null
-            // Who counted and whose goods: the two things the table cannot say.
-            return [from, counted]
-          })()}
-          {/* The table says it for a few items; for many, one line says what
-            kind of count this is before the table is read. */}
-          {rows.length > 4 && (
-            <>
-              <dt className="mt-1 text-mute">Difference</dt>
-              <dd
-                className={cn(
-                  "col-span-3 mt-1",
-                  offCount > 0 ? "text-bad-fg" : "text-ok-fg"
-                )}
-              >
-                {offCount === 0
-                  ? "Matches the order"
-                  : [
-                      `${count(offCount)} of ${count(rows.length)} items differ`,
-                      shortQty > 0 ? `${pcs(shortQty)} short` : null,
-                      extraQty > 0 ? `${pcs(extraQty)} extra` : null,
-                      totalWrong > 0
-                        ? `${pcs(totalWrong)} not as ordered`
-                        : null,
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")}
-              </dd>
-            </>
-          )}
-        </dl>
+        {/* The figures, first — the one format of every record (hub-ui-patterns:
+            head · figures · table · totals · foot): what was ordered, what
+            was counted, what goes into stock, and what is off — short, extra
+            or not as ordered, in red. Nothing is closed short yet: that is a
+            choice in the foot, not a figure. */}
+        {rows.length > 0 && (
+          <KpiStrip className="mb-0!">
+            <Kpi label={part ? "Ordered Left" : "Ordered"} value={pcs(totalOrdered)} />
+            <Kpi label="Received" value={pcs(totalCounted + totalWrong)} />
+            <Kpi label="Accepted" value={pcs(totalCounted - overQty)} />
+            {shortQty > 0 && (
+              <Kpi
+                label="Short"
+                value={<span className="text-bad-fg">{pcs(shortQty)}</span>}
+              />
+            )}
+            {overQty > 0 && (
+              <Kpi
+                label="Extra"
+                value={<span className="text-bad-fg">{pcs(overQty)}</span>}
+              />
+            )}
+            {totalWrong > 0 && (
+              <Kpi
+                label="Not as Ordered"
+                value={<span className="text-bad-fg">{pcs(totalWrong)}</span>}
+              />
+            )}
+          </KpiStrip>
+        )}
 
-        {/* The verdict, the table it is about and what it is worth read as
+                {/* The verdict, the table it is about and what it is worth read as
           one block: closer to each other than to the rest. */}
         <div className="flex flex-col gap-4">
           {canHide && (
@@ -711,51 +916,68 @@ function Review({
 
           <ul className="flex flex-col gap-3 md:hidden">
             {visible.map((row) => {
-              const index = rows.indexOf(row)
               const diff = gap(row)
               return (
                 <li
                   key={row.count_id}
                   className="flex flex-col gap-3 rounded-card border border-hairline p-4"
                 >
-                  <div className="flex items-start gap-3">
-                    <span className="w-5 shrink-0 pt-0.5 text-right text-body text-mute tabular-nums">
-                      {index + 1}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <TwoLines top={row.article_name} bottom={kindOf(row)} />
-                    </div>
+                  <div className="min-w-0">
+                    <TwoLines
+                      top={
+                        itemOf(row) === null ? (
+                          row.article_name
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setLineShown(itemOf(row))}
+                            className="record-link text-left"
+                          >
+                            {row.article_name}
+                          </button>
+                        )
+                      }
+                      bottom={kindOf(row)}
+                    />
                   </div>
-                  <dl className="grid grid-cols-3 gap-3 text-[0.9375rem]">
+                  <dl className="grid grid-cols-2 gap-3 text-[0.9375rem]">
                     <div className="flex flex-col gap-0.5">
-                      <dt className="text-mute">Ordered</dt>
+                      <dt className="text-mute">{orderedHead}</dt>
                       <dd className="text-body tabular-nums">
                         <Qty pieces={owed(row)} row={row} />
                       </dd>
                     </div>
                     <div className="flex flex-col gap-0.5">
-                      <dt className="text-mute">Counted</dt>
-                      <dd className="text-body tabular-nums">
-                        <Qty pieces={correct(row)} row={row} />
+                      <dt className="text-mute">Received</dt>
+                      <dd className="tabular-nums">
+                        <Qty
+                          pieces={correct(row)}
+                          row={row}
+                          tone={diff === 0 ? "text-ok-fg" : "text-bad-fg"}
+                        />
+                        {diff !== 0 && (
+                          <span className="block text-[0.9375rem] text-bad-fg">
+                            {diff < 0
+                              ? `${inUnit(-diff, row)} short`
+                              : `+${inUnit(diff, row)} over`}
+                          </span>
+                        )}
                       </dd>
                     </div>
                     <div className="flex flex-col gap-0.5">
-                      <dt className="text-mute">Difference</dt>
-                      <dd className="font-medium">
-                        {diff === 0 ? (
-                          <span className="inline-flex items-center gap-1 text-ok-fg">
-                            <Check className="size-4" />
-                            Matches
-                          </span>
-                        ) : diff < 0 ? (
-                          <span className="inline-block rounded-inner bg-bad-bg px-2.5 py-1 whitespace-nowrap text-bad-fg">
-                            {`−${inUnit(-diff, row)}`}
-                          </span>
-                        ) : (
-                          <span className="inline-block rounded-inner bg-bad-bg px-2.5 py-1 whitespace-nowrap text-bad-fg">
-                            {`+${inUnit(diff, row)}`}
-                          </span>
-                        )}
+                      <dt className="text-mute">Unit Price</dt>
+                      <dd className="text-ink tabular-nums">
+                        {row.unit_price_minor === null
+                          ? "—"
+                          : `${money(row.unit_price_minor)} / pc`}
+                      </dd>
+                    </div>
+                    <div className="flex flex-col gap-0.5">
+                      <dt className="text-mute">Amount</dt>
+                      <dd className="font-medium text-ink tabular-nums">
+                        {row.unit_price_minor === null || correct(row) === 0
+                          ? "—"
+                          : money(amountOf(row))}
                       </dd>
                     </div>
                   </dl>
@@ -788,7 +1010,7 @@ function Review({
                                 </dd>
                               </div>
                               <div className="flex flex-col">
-                                <dt className="sr-only">Counted</dt>
+                                <dt className="sr-only">Received</dt>
                                 <dd className="text-body tabular-nums">
                                   {pcs(variant.counted_quantity)}
                                 </dd>
@@ -817,66 +1039,77 @@ function Review({
 
           <div className="hidden overflow-clip rounded-card border border-hairline md:block">
             <div className="overflow-clip">
-              <table className="w-full table-fixed border-collapse">
+              <table className="w-full min-w-[44rem] table-fixed border-collapse">
                 <colgroup>
-                  <col className="w-[3.5rem]" />
                   <col />
-                  <col className="w-[8rem] lg:w-[10rem]" />
-                  <col className="w-[8rem] lg:w-[10rem]" />
+                  <col className="w-[8.5rem]" />
+                  <col className="w-[9.5rem]" />
+                  <col className="w-[9.5rem]" />
                   <col className="w-[9.5rem]" />
                 </colgroup>
                 <thead>
                   <tr>
-                    <th className={cn(HEAD, "text-right")}>No.</th>
-                    <th className={HEAD}>Article</th>
-                    <th className={HEAD}>Ordered Quantity</th>
-                    <th className={HEAD}>Counted Quantity</th>
-                    <th className={HEAD}>Difference</th>
+                    <th className={HEAD}>Item</th>
+                    <th className={cn(HEAD, "text-right")}>{orderedHead}</th>
+                    <th className={cn(HEAD, "text-right")}>Received</th>
+                    <th className={cn(HEAD, "text-right")}>Unit Price</th>
+                    <th className={cn(HEAD, "text-right")}>Amount</th>
                   </tr>
                 </thead>
                 <tbody>
                   {visible.map((row) => {
-                    const index = rows.indexOf(row)
                     const diff = gap(row)
                     return (
                       <Fragment key={row.count_id}>
                         <tr className="h-16 border-t border-hairline">
-                          <td className={cn(CELL, NUM, "text-right text-mute")}>
-                            {index + 1}
-                          </td>
                           <td className={CELL}>
                             <div
                               title={row.article_name}
                               className="min-w-0 py-1"
                             >
-                              <div className="line-clamp-2 leading-[1.4] font-medium text-ink">
-                                {row.article_name}
-                              </div>
-                              <div className="mt-1 truncate text-[0.875rem] leading-[1.4] text-mute">
+                              {itemName(
+                                row,
+                                "line-clamp-2 leading-[1.4] font-medium text-ink"
+                              )}
+                              <div className="mt-1 truncate text-[0.9375rem] leading-[1.4] text-mute">
                                 {kindOf(row)}
                               </div>
                             </div>
                           </td>
-                          <td className={cn(CELL, NUM)}>
-                            <Qty pieces={owed(row)} row={row} />
+                          <td className={cn(CELL, NUMR)}>
+                            <Qty pieces={owed(row)} row={row} end />
                           </td>
-                          <td className={cn(CELL, NUM)}>
-                            <Qty pieces={correct(row)} row={row} />
+                          <td className={cn(CELL, NUMR)}>
+                            {/* Green when the count is what was expected, red
+                                when it is over or under, and by how much
+                                (owner, 2026-10-12). */}
+                            <Qty
+                              pieces={correct(row)}
+                              row={row}
+                              end
+                              tone={diff === 0 ? "text-ok-fg" : "text-bad-fg"}
+                            />
+                            {diff !== 0 && (
+                              <span className="block text-[0.9375rem] text-bad-fg">
+                                {diff < 0
+                                  ? `${inUnit(-diff, row)} short`
+                                  : `+${inUnit(diff, row)} over`}
+                              </span>
+                            )}
                           </td>
-                          <td className={cn(CELL, NUM, "font-medium")}>
-                            {diff === 0 ? (
-                              <span className="inline-flex items-center gap-1.5 text-ok-fg">
-                                <Check className="size-4" />
-                                Matches
-                              </span>
-                            ) : diff < 0 ? (
-                              <span className="inline-block rounded-inner bg-bad-bg px-2.5 py-1 whitespace-nowrap text-bad-fg">
-                                {`−${inUnit(-diff, row)}`}
-                              </span>
+                          <td className={cn(CELL, NUMR, "text-ink")}>
+                            {row.unit_price_minor === null
+                              ? "—"
+                              : `${money(row.unit_price_minor)} / pc`}
+                          </td>
+                          <td
+                            className={cn(CELL, NUMR, "font-medium text-ink")}
+                          >
+                            {row.unit_price_minor === null ||
+                            correct(row) === 0 ? (
+                              <span className="text-faint">—</span>
                             ) : (
-                              <span className="inline-block rounded-inner bg-bad-bg px-2.5 py-1 whitespace-nowrap text-bad-fg">
-                                {`+${inUnit(diff, row)}`}
-                              </span>
+                              money(amountOf(row))
                             )}
                           </td>
                         </tr>
@@ -890,7 +1123,6 @@ function Review({
                               key={variantKey(variant)}
                               className="border-t border-hairline"
                             >
-                              <td className={CELL} />
                               <td className={CELL}>
                                 <div className="flex min-w-0 items-center gap-3">
                                   <VariantPhoto
@@ -906,20 +1138,22 @@ function Review({
                                   </span>
                                 </div>
                               </td>
-                              <td className={cn(CELL, NUM)}>
+                              <td className={cn(CELL, NUMR)}>
                                 {pcs(variant.outstanding_quantity)}
                               </td>
-                              <td className={cn(CELL, NUM)}>
+                              <td className={cn(CELL, NUMR)}>
                                 {pcs(variant.counted_quantity)}
+                                <span className="block font-medium">
+                                  <VariantDiff
+                                    diff={
+                                      variant.counted_quantity -
+                                      variant.outstanding_quantity
+                                    }
+                                  />
+                                </span>
                               </td>
-                              <td className={cn(CELL, NUM, "font-medium")}>
-                                <VariantDiff
-                                  diff={
-                                    variant.counted_quantity -
-                                    variant.outstanding_quantity
-                                  }
-                                />
-                              </td>
+                              <td className={CELL} />
+                              <td className={CELL} />
                             </tr>
                           )
                         })}
@@ -930,7 +1164,6 @@ function Review({
                 <tfoot>
                   {totalWrong > 0 && (
                     <tr className="border-t border-hairline bg-soft-2">
-                      <td className={CELL} />
                       <td
                         className={cn(
                           CELL,
@@ -939,15 +1172,17 @@ function Review({
                       >
                         Not as Ordered
                       </td>
-                      <td className={NUM_TOTAL} />
-                      <td className={NUM_TOTAL}>
+                      <td className={CELL} />
+                      <td className={cn(CELL, NUMR)}>
                         <Qty
                           pieces={totalWrong}
                           row={unitRow ?? rows[0]}
                           tone="text-bad-fg"
+                          end
                         />
                       </td>
-                      <td className={NUM_TOTAL} />
+                      <td className={CELL} />
+                      <td className={cn(CELL, NUMR, "text-faint")}>—</td>
                     </tr>
                   )}
                 </tfoot>
@@ -956,24 +1191,52 @@ function Review({
           </div>
         </div>
 
-        {/* What happens to the pieces, under the table and at the right
-          (owner, 2026-10-10): Accepted goes into stock, To Be Returned
-          goes back to the supplier. A return takes a line's whole excess,
-          so the extra on a line with not-as-ordered pieces goes with
-          them. */}
-        {(wrongRows.length > 0 || cleanOvers.length > 0) && (
-          // A totals box flush with the table's right edge, as wide as what
-          // it says (owner, 2026-10-10).
+        {/* Under the table, at the right: the money only — what the order
+          is worth and what this count accepts of it (owner, 14 Oct: "di total
+          bawah kanan ya harganya total berapa lalu accepted berapa"). The
+          pieces are the figures at the top. */}
+        {priced && (
           <div className="flex justify-end">
-            <dl className="grid w-full grid-cols-[1fr_auto] gap-x-10 gap-y-2 rounded-card border border-hairline bg-soft px-4 py-2.5 text-[0.9375rem] tabular-nums md:w-auto md:grid-cols-[auto_auto]">
-              <dt className="text-ink">Total Accepted</dt>
-              <dd className="text-right font-semibold text-ink">
-                {pcs(totalCounted - overQty)}
+            <dl className="order-totals grid w-full grid-cols-[1fr_auto] items-center gap-x-10 gap-y-2.5 text-[0.9375rem] tabular-nums md:w-[19rem]">
+              <dt className="text-body">
+                {part ? "Total PO Left" : "Total PO"}
+                <span className="text-mute"> · {pcs(totalOrdered)}</span>
+              </dt>
+              <dd className="text-right text-ink">{money(leftGross)}</dd>
+              {discountBps > 0 && (
+                <>
+                  <dt className="text-body">
+                    {`Discount \u00b7 ${percentBps(discountBps)}`}
+                    {/* Per piece, under it, as the order's page says it. */}
+                    {discountPerPiece > 0 && (
+                      <span className="block text-mute">
+                        {money(discountPerPiece)} / pc
+                      </span>
+                    )}
+                  </dt>
+                  <dd className="text-right text-ink">
+                    {money(-discountMinor)}
+                  </dd>
+                </>
+              )}
+              <div aria-hidden className="col-span-2 border-t border-hairline" />
+              {/* As the order's own totals say it: the pieces beside the word. */}
+              <dt className="font-semibold text-ink">
+                Accepted · {pcs(totalCounted - overQty)}
+              </dt>
+              <dd className="text-right text-base leading-[1.375rem] font-semibold text-ink">
+                {money(leftGross - shortGross - discountMinor)}
               </dd>
-              <dt className="text-ink">To Be Returned</dt>
-              <dd className="text-right font-semibold text-bad-fg">
-                {pcs(wrongQty + overQty)}
-              </dd>
+              {/* What goes back to the supplier on Submit: the extra and the
+                  not as ordered (owner, 2026-10-16). */}
+              {overQty + totalWrong > 0 && (
+                <>
+                  <dt className="mt-3 text-body">To Be Returned</dt>
+                  <dd className="mt-3 text-right text-bad-fg">
+                    {pcs(overQty + totalWrong)}
+                  </dd>
+                </>
+              )}
             </dl>
           </div>
         )}
@@ -985,7 +1248,14 @@ function Review({
           with it on top and full width, and a row on a desk with it at the
           right (the owner, 2026-10-05: "jangan dibedakan"). It wraps only when
           the buttons cannot share the width. */}
-      <div className="flex flex-wrap items-center gap-2 border-t border-hairline px-4 py-3 md:gap-3 md:px-6 md:py-4 [&_button]:h-9">
+      <div className="flex flex-wrap items-center gap-2 border-t border-hairline px-4 py-3 md:min-h-16 md:px-7 md:py-3 [&_button]:h-9 max-md:[&_button]:h-11 max-md:[&>*]:flex-1">
+        {/* Once something has already come in: what it was, from the left of
+          the foot — read-only, so quiet (owner, 2026-10-12). */}
+        {part && (
+          <Button variant="ghost" onClick={() => setLastReceiving(true)}>
+            Last Receiving
+          </Button>
+        )}
         <span className="flex-1" />
         {/* A short count's one decision is the button itself: no choice to
           set and then confirm. Primary is the one that keeps the order
@@ -1001,8 +1271,62 @@ function Review({
             <ConfirmButton
               label="Close Short"
               tone="danger"
+              variant="destructive"
               title="Close This Short?"
-              description={`${pcs(shortQty)} will be removed from the order, and the PO completes as received. This can't be undone.`}
+              // What closing short does, worked out before it is done (owner,
+              // 2026-10-16): the order, what is closed, what is accepted.
+              description={
+                <div className="flex flex-col gap-4">
+                  <span>
+                    The PO completes as received. This can&apos;t be undone.
+                  </span>
+                  <dl className="grid grid-cols-[1fr_auto] items-center gap-x-8 gap-y-2 text-[0.9375rem] tabular-nums">
+                    <dt className="text-body">{`${part ? "Total PO Left" : "Total PO"} \u00b7 ${pcs(totalOrdered)}`}</dt>
+                    <dd className="text-right text-ink">
+                      {priced ? money(leftGross) : ""}
+                    </dd>
+                    <dt className="text-body">{`Closed Short \u00b7 ${pcs(shortQty)}`}</dt>
+                    <dd className="text-right text-bad-fg">
+                      {priced ? money(-shortGross) : ""}
+                    </dd>
+                    {priced && discountBps > 0 && (
+                      <>
+                        <dt className="text-body">
+                          {`Discount \u00b7 ${percentBps(discountBps)}`}
+                          {discountPerPiece > 0 && (
+                            <span className="block text-mute">
+                              {money(discountPerPiece)} / pc
+                            </span>
+                          )}
+                        </dt>
+                        <dd className="text-right text-ink">
+                          {money(-discountMinor)}
+                        </dd>
+                      </>
+                    )}
+                    <div
+                      aria-hidden
+                      className="col-span-2 border-t border-hairline"
+                    />
+                    <dt className="font-semibold text-ink">
+                      {`Accepted \u00b7 ${pcs(totalCounted - overQty)}`}
+                    </dt>
+                    <dd className="text-right font-semibold text-ink">
+                      {priced
+                        ? money(leftGross - shortGross - discountMinor)
+                        : ""}
+                    </dd>
+                    {overQty + totalWrong > 0 && (
+                      <>
+                        <dt className="text-body">To Be Returned</dt>
+                        <dd className="text-right text-bad-fg">
+                          {pcs(overQty + totalWrong)}
+                        </dd>
+                      </>
+                    )}
+                  </dl>
+                </div>
+              }
               confirmLabel="Close Short"
               reason={{ label: "Reason for Closing", optional: true }}
               disabled={unnamed || rows.length === 0 || accept.isPending}
@@ -1046,6 +1370,17 @@ function Review({
           </>
         )}
       </div>
+      <LastReceiving
+        open={lastReceiving}
+        onOpenChange={setLastReceiving}
+        order={detail.data}
+        supplier={supplier}
+      />
+      <LineSheet
+        line={lineShown}
+        po={po}
+        onClose={() => setLineShown(null)}
+      />
     </>
   )
 }
@@ -1054,9 +1389,8 @@ function Review({
 const HEAD =
   "border-b border-hairline bg-soft px-4 py-2.5 text-left text-eyebrow leading-tight font-medium text-body lg:whitespace-nowrap"
 const CELL = "px-4 py-3.5 align-middle"
-/// Figures line up on the right in tabular digits.
-const NUM = "text-left text-[0.9375rem] text-body tabular-nums"
-const NUM_TOTAL = `${CELL} ${NUM}`
+/// A figure set against the right edge of its column, in tabular digits.
+const NUMR = "text-right text-[0.9375rem] text-body tabular-nums"
 
 /// Raise the return for what came beyond the order, once head office holds the
 /// receipt. The acceptance is written at the DC and reaches head office a few
@@ -1201,10 +1535,10 @@ function InvoiceBlock({
   return (
     <div className="rounded-inner border border-hairline p-3.5">
       <div className="mb-3 flex items-baseline justify-between gap-3">
-        <h3 className="text-[0.875rem] font-semibold text-ink">
+        <h3 className="text-[0.9375rem] font-semibold text-ink">
           Invoice for this order
         </h3>
-        <span className="font-mono text-[0.875rem] text-mute">
+        <span className="font-mono text-[0.9375rem] text-mute">
           {receipt?.receipt_number}
         </span>
       </div>
@@ -1290,7 +1624,7 @@ function InvoiceBlock({
               )}
             </form.Field>
             <div className="flex items-center gap-3">
-              <p className="flex-1 text-[0.875rem] text-mute">
+              <p className="flex-1 text-[0.9375rem] text-mute">
                 {nothingAccepted && "Accept the goods first."}
               </p>
               <Button
@@ -1381,7 +1715,7 @@ function InvoicePage({
           />
         ))}
 
-      <label className="flex min-h-tap cursor-pointer items-center justify-center gap-2 rounded-full border border-dashed border-hairline-2 px-3.5 text-[0.875rem] text-body transition-colors hover:border-hairline-strong hover:bg-soft">
+      <label className="flex min-h-tap cursor-pointer items-center justify-center gap-2 rounded-full border border-dashed border-hairline-2 px-3.5 text-[0.9375rem] text-body transition-colors hover:border-hairline-strong hover:bg-soft">
         <Upload className="size-4 text-line-ico" />
         {uploading
           ? "Uploading…"
@@ -1524,27 +1858,250 @@ function Qty({
   pieces,
   row,
   tone = "text-body",
+  end = false,
 }: {
   pieces: number
   row: Count
   tone?: string
+  /// Set against the right edge, where the figures of a column stand.
+  end?: boolean
 }) {
   if (pieces === 0) return <span className="text-mute">—</span>
   const unit = row.order_unit_code !== null && Number(row.unit_factor) > 1
   // Pieces first, whatever unit the order was typed in; the unit, when there
   // is one, stands under them.
   return (
-    <span className="flex flex-col items-start leading-tight">
+    <span
+      className={cn(
+        "flex flex-col leading-tight",
+        end ? "items-end" : "items-start"
+      )}
+    >
       <span className={tone}>
         {pieces === 1 && (row.stock_unit_code ?? "PCS") === "PCS"
           ? "1 pc"
           : `${count(pieces)} ${(row.stock_unit_code ?? "PCS").toLowerCase()}`}
       </span>
       {unit && (
-        <span className="text-[0.875rem] font-normal text-mute">
+        <span className="text-[0.9375rem] font-normal text-mute">
           {inUnit(pieces, row)}
         </span>
       )}
     </span>
+  )
+}
+
+/// The receiving that came before this count, as a dialog over Review Count
+/// and in its own dress: Item | Ordered (Left) | Received | Unit Price | Amount,
+/// the figures and the money below, Done at the right (owner, 2026-10-12). The
+/// latest receiving only; the earlier ones are on the order's page.
+function LastReceiving({
+  open,
+  onOpenChange,
+  order,
+  supplier,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  order: PurchaseOrderDetail | undefined
+  supplier: string | undefined
+}) {
+  const nameOfLogin = useNameOfLogin()
+  const all =
+    order?.lines.flatMap((line) =>
+      (line.receipts ?? []).map((receipt) => ({ line, receipt }))
+    ) ?? []
+  const latest = all.reduce<(typeof all)[number] | null>(
+    (best, one) =>
+      best === null ||
+      one.receipt.received_at > best.receipt.received_at ||
+      (one.receipt.received_at === best.receipt.received_at &&
+        one.receipt.receipt_number > best.receipt.receipt_number)
+        ? one
+        : best,
+    null
+  )
+  if (order === undefined || latest === null) return null
+  const mine = all.filter(
+    (one) => one.receipt.receipt_number === latest.receipt.receipt_number
+  )
+  const earlier = new Set(all.map((one) => one.receipt.receipt_number)).size - 1
+  // What was still expected going into this receiving.
+  const leftThen = (one: (typeof all)[number]) =>
+    Math.max(
+      0,
+      one.line.ordered_quantity -
+        (one.line.received_quantity - one.receipt.matched_quantity)
+    )
+  const first = earlier === 0
+  const gross = mine.reduce(
+    (sum, one) => sum + lineValue(one.line, one.receipt.matched_quantity),
+    0
+  )
+  const orderGross = order.lines.reduce(
+    (sum, line) => sum + lineValue(line, line.ordered_quantity),
+    0
+  )
+  const bps =
+    order.discount_bps ??
+    (orderGross > 0
+      ? Math.round((order.discount_minor * 10000) / orderGross)
+      : 0)
+  const discount = Math.round((gross * bps) / 10000)
+  const figure = (term: string, pieces: number, at: number) => (
+    <div
+      key={term}
+      className={cn("px-5 py-2", at === 0 ? "max-md:pl-0" : "border-l border-hairline")}
+    >
+      <dt className="text-body">{term}</dt>
+      <dd className="text-[1.125rem] leading-6 font-semibold tracking-[-0.02em] text-ink tabular-nums">
+        {count(pieces)}
+        <span className="ml-1 text-[0.9375rem] font-normal tracking-normal text-body">
+          pcs
+        </span>
+      </dd>
+    </div>
+  )
+  return (
+    <BaseDialog.Root open={open} onOpenChange={onOpenChange}>
+      <BaseDialog.Portal>
+        <BaseDialog.Backdrop
+          forceRender
+          className="fixed inset-0 z-50 bg-[var(--scrim)] transition-opacity duration-(--t-panel) ease-(--ease-out) data-[ending-style]:opacity-0 data-[starting-style]:opacity-0"
+        />
+        <BaseDialog.Popup className="fixed top-1/2 left-1/2 z-50 flex max-h-[calc(100vh-3rem)] w-[min(56rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-shell border border-hairline bg-canvas shadow-float transition-[opacity,scale] duration-(--t-panel) ease-(--ease-out) outline-none data-[ending-style]:scale-[0.96] data-[ending-style]:opacity-0 data-[starting-style]:scale-[0.96] data-[starting-style]:opacity-0 motion-reduce:data-[ending-style]:scale-100 motion-reduce:data-[starting-style]:scale-100">
+          <div className="flex items-center gap-3 border-b border-hairline px-4 py-4 md:px-7 md:py-3">
+            <div className="min-w-0 flex-1">
+              <BaseDialog.Title className="text-card-title font-semibold text-ink">
+                Last Receiving
+              </BaseDialog.Title>
+              <div className="flex flex-wrap gap-x-4 text-[0.9375rem] text-mute">
+                {supplier !== undefined && <span>{supplier}</span>}
+                <span className="font-mono">{order.po_number}</span>
+                <span>
+                  {latest.receipt.received_by
+                    ? `Received by ${nameOfLogin(latest.receipt.received_by)}, ${day(latest.receipt.received_at)}`
+                    : `Received ${day(latest.receipt.received_at)}`}
+                </span>
+              </div>
+            </div>
+            {/* A receiving read back is a finished document: it wears the
+                stamp, with its day. */}
+            <DocStamp
+              word="Received"
+              at={latest.receipt.received_at}
+              tone="ok"
+              className="static mr-2 shrink-0"
+            />
+            <BaseDialog.Close
+              aria-label="Close"
+              className="sheet-close btn-iconly grid size-8 shrink-0 place-items-center rounded-inner text-line-ico transition-colors hover:bg-soft-2 hover:text-ink pointer-coarse:size-tap"
+            >
+              <X className="size-4" />
+              <span aria-hidden className="btn-word hidden">
+                Close
+              </span>
+            </BaseDialog.Close>
+          </div>
+          <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-4 pt-4 pb-6 md:px-8 md:pt-5 md:pb-8 [&>*]:shrink-0">
+            <div className="overflow-x-auto rounded-card border border-hairline">
+              <table className="w-full min-w-[40rem] table-fixed border-collapse">
+                <colgroup>
+                  <col />
+                  <col className="w-[8.5rem]" />
+                  <col className="w-[9.5rem]" />
+                  <col className="w-[9.5rem]" />
+                  <col className="w-[9.5rem]" />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th className={HEAD}>Item</th>
+                    <th className={cn(HEAD, "text-right")}>
+                      {first ? "Ordered" : "Ordered Left"}
+                    </th>
+                    <th className={cn(HEAD, "text-right")}>Received</th>
+                    <th className={cn(HEAD, "text-right")}>Unit Price</th>
+                    <th className={cn(HEAD, "text-right")}>Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {mine.map((one) => (
+                    <tr
+                      key={one.line.po_line_id}
+                      className="border-t border-hairline"
+                    >
+                      <td className={CELL}>
+                        <div className="line-clamp-2 leading-[1.4] font-medium text-ink">
+                          {one.line.article_name}
+                        </div>
+                      </td>
+                      <td className={cn(CELL, NUMR)}>{pcs(leftThen(one))}</td>
+                      <td className={cn(CELL, NUMR, "text-ink")}>
+                        {pcs(one.receipt.matched_quantity)}
+                      </td>
+                      <td className={cn(CELL, NUMR, "text-ink")}>
+                        {one.line.unit_price_minor === null
+                          ? "—"
+                          : unitPriceText(one.line)}
+                      </td>
+                      <td className={cn(CELL, NUMR, "font-medium text-ink")}>
+                        {money(
+                          lineValue(one.line, one.receipt.matched_quantity)
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex items-start justify-end gap-3 max-md:flex-col max-md:items-stretch">
+              <dl className="flex items-stretch max-md:[&>div]:flex-1">
+                {figure(
+                  first ? "Total Ordered" : "Total Ordered Left",
+                  mine.reduce((sum, one) => sum + leftThen(one), 0),
+                  0
+                )}
+                {figure(
+                  "Total Received",
+                  mine.reduce(
+                    (sum, one) => sum + one.receipt.matched_quantity,
+                    0
+                  ),
+                  1
+                )}
+              </dl>
+              <dl className="grid w-full grid-cols-[1fr_auto] gap-x-10 gap-y-2 rounded-card border border-hairline bg-soft px-4 py-2.5 text-[0.9375rem] tabular-nums md:w-auto md:grid-cols-[auto_auto]">
+                <dt className="text-body">Total</dt>
+                <dd className="text-right text-ink">{money(gross)}</dd>
+                {bps > 0 && (
+                  <>
+                    <dt className="text-body">
+                      {`Discount \u00b7 ${percentBps(bps)}`}
+                    </dt>
+                    <dd className="text-right text-ink">{money(-discount)}</dd>
+                  </>
+                )}
+                <div
+                  aria-hidden
+                  className="col-span-2 border-t border-hairline"
+                />
+                <dt className="font-semibold text-ink">Grand Total</dt>
+                <dd className="text-right font-semibold text-ink">
+                  {money(gross - discount)}
+                </dd>
+              </dl>
+            </div>
+            {earlier > 0 && (
+              <p className="text-body">
+                {`${earlier} earlier receiving${earlier === 1 ? "" : "s"} on the order's page.`}
+              </p>
+            )}
+          </div>
+          <div className="flex items-center justify-end gap-2 border-t border-hairline px-4 py-3 md:px-6 md:py-4 [&_button]:h-9">
+            <BaseDialog.Close render={<Button variant="primary">Done</Button>} />
+          </div>
+        </BaseDialog.Popup>
+      </BaseDialog.Portal>
+    </BaseDialog.Root>
   )
 }

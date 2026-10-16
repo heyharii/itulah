@@ -1,0 +1,994 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Stock detail · options</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@0.453.0/dist/umd/lucide.min.js"></script>
+<style>
+/* Tokens copied from frontend-hub/src/styles/index.css and measured on :5480 (11 Oct 2026) */
+:root{
+  --ink:#20242c;--text:#394150;--body:#565f6d;--mute:#666f7d;--faint:#b9c0c9;--ico:#89919d;
+  --canvas:#fff;--soft:#f8f8f9;--soft-2:#f0f0f2;--soft-3:#f6f6f7;
+  --line:#e6e6e9;--line-2:#dadade;--line-3:#c6c6cc;
+  --accent:#2563eb;--accent-bg:#eff5ff;--cta-hover:#1d4ed8;
+  --info:#2f86d8;--info-bg:#ddebfa;--info-fg:#2c57bf;
+  --ok:#36b827;--ok-bg:#d9f4d2;--ok-fg:#137a37;
+  --warn:#c9892e;--warn-bg:#faeacd;--warn-fg:#a64a08;
+  --bad:#d05151;--bad-bg:#fbeaea;--bad-fg:#be123c;
+  --rail:#242526;--rail-text:#c3c4c7;
+  --r-card:10px;--r-inner:8px;--r-sheet:16px;
+  --ease-out:cubic-bezier(.23,1,.32,1);--ease-drawer:cubic-bezier(.32,.72,0,1);
+  --shadow-soft:0 1px 3px rgb(24 39 60 / 4%);
+  --shadow-pop:0 4px 8px rgb(24 39 60 / 4%),0 12px 32px rgb(24 39 60 / 8%);
+  --shadow-float:0 8px 24px rgb(24 39 60 / 6%),0 24px 64px rgb(24 39 60 / 12%);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{min-height:100%}
+body{font:15px/1.45 Inter,system-ui,sans-serif;color:var(--text);background:var(--soft-3);-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent}
+button,input,select{font:inherit;color:inherit}
+button{background:none;border:0;cursor:pointer}
+svg.lucide{width:16px;height:16px;stroke-width:1.7;flex-shrink:0}
+.n{font-variant-numeric:tabular-nums}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:14px}
+
+/* prototype bar — not part of the app */
+.proto{height:44px;background:#101012;color:#d9dbe0;display:flex;align-items:center;gap:14px;padding:0 16px;position:sticky;top:0;z-index:60;font-size:14px}
+.proto b{color:#fff;font-weight:600;white-space:nowrap}
+.proto .opts{display:flex;gap:2px;overflow-x:auto;scrollbar-width:none;min-width:0}
+.proto .opts button{height:30px;padding:0 12px;border-radius:7px;color:#a9adb6;white-space:nowrap}
+.proto .opts button:hover{color:#fff}
+.proto .opts button[aria-pressed=true]{background:#2c2d31;color:#fff;font-weight:500}
+.proto .pset{margin-left:auto;display:flex;gap:8px;align-items:center;color:#8e9198;white-space:nowrap}
+.proto select{height:30px;background:#2c2d31;color:#e4e6ea;border:0;border-radius:7px;padding:0 8px}
+
+/* shell — 68 rail + 232 department column + soft-3 page */
+.app{display:flex;min-height:calc(100vh - 44px)}
+.rail{width:68px;flex-shrink:0;background:var(--rail);display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 0;position:sticky;top:44px;height:calc(100vh - 44px)}
+.mark{width:32px;height:32px;border-radius:9px;background:#000;color:#fff;display:grid;place-items:center;font-weight:700;position:relative;margin-bottom:10px;box-shadow:0 0 0 1px #3a3b3f}
+.mark::after{content:"";position:absolute;right:6px;bottom:6px;width:5px;height:5px;border-radius:50%;background:var(--accent)}
+.rail i,.rail svg{color:var(--rail-text)}
+.rail .ri{width:40px;height:36px;border-radius:9px;display:grid;place-items:center}
+.rail .ri.on{background:#393b3d}
+.rail .ri.on svg{color:#fff}
+.dept{width:232px;flex-shrink:0;background:var(--canvas);border-right:1px solid var(--line);position:sticky;top:44px;height:calc(100vh - 44px);display:flex;flex-direction:column}
+.dept-h{height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;font-weight:600;color:var(--ink);font-size:15px}
+.dept-h svg{color:var(--ico)}
+.dept a{display:flex;align-items:center;height:36px;margin:0 8px;padding:0 10px;border-radius:var(--r-inner);font-size:14px;color:var(--body);text-decoration:none}
+.dept a.on{background:var(--accent-bg);color:var(--accent);font-weight:500}
+.dept .clock{margin-top:auto;border-top:1px solid var(--line);padding:14px 16px;font-size:14px;color:var(--body);display:flex;gap:8px;align-items:center}
+main{flex:1;min-width:0}
+.top{height:52px;display:flex;align-items:center;gap:10px;padding:0 32px;position:sticky;top:44px;z-index:5;background:var(--soft-3)}
+.top h1{font-size:15px;font-weight:600;color:var(--ink);margin-right:auto;display:flex;align-items:center;gap:6px}
+.top h1 a{color:var(--body);font-weight:500;text-decoration:none;cursor:pointer;display:flex;align-items:center;gap:2px;border-radius:6px;padding:2px 4px 2px 0}
+.top h1 a:hover{color:var(--ink)}
+.top h1 .sep{color:var(--faint);font-weight:400}
+.search{position:relative}
+.search svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);width:14px;height:14px;color:var(--ico)}
+.search input{height:34px;width:224px;border:1px solid var(--line-2);border-radius:var(--r-inner);background:var(--canvas);padding:0 10px 0 32px;font-size:14px;box-shadow:var(--shadow-soft);outline:none}
+.search input:focus{border-color:var(--accent)}
+.sel{height:34px;border:1px solid var(--line-2);border-radius:var(--r-inner);background:var(--canvas);padding:0 30px 0 12px;font-size:14px;color:var(--ink);box-shadow:var(--shadow-soft);appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' fill='none' stroke='%2389919d' stroke-width='2' viewBox='0 0 24 24'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;cursor:pointer}
+.content{padding:4px 32px 48px}
+
+/* board — the cards as they are today */
+.ghead{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin:0 0 8px;font-size:14px}
+.ghead h2{font-size:14px;font-weight:500;color:var(--body)}
+.ghead p{color:var(--mute)}
+.ghead b{color:var(--ink);font-weight:600}
+.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:24px}
+.card{display:flex;flex-direction:column;gap:12px;min-width:0;text-align:left;background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-card);padding:16px;box-shadow:var(--shadow-soft);transition:border-color 150ms ease,box-shadow 150ms ease,transform 160ms var(--ease-out)}
+.card:active{transform:scale(.985)}
+@media (hover:hover) and (pointer:fine){.card:hover{border-color:var(--line-3);box-shadow:var(--shadow-pop)}}
+.card.bad{border-color:rgb(208 81 81 / 50%)}
+.card.ghost{border-style:dashed;border-color:var(--line-2);background:transparent;box-shadow:none}
+.c-top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.c-id{display:flex;gap:10px;min-width:0;align-items:flex-start}
+.tile{width:32px;height:32px;border-radius:var(--r-inner);background:var(--soft);display:grid;place-items:center;color:var(--body);flex-shrink:0}
+.card.bad .tile{background:var(--bad-bg);color:var(--bad-fg)}
+.card.ghost .tile{background:none;border:1px dashed var(--line-2);color:var(--mute)}
+.c-name{font-weight:600;color:var(--ink);font-size:15px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.c-sub{font-size:14px;color:var(--mute);display:block}
+.figs{display:flex;gap:20px}
+.fig b{display:block;font-size:22px;line-height:1.2;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.fig span{font-size:14px;color:var(--mute)}
+.fig.warn b{color:var(--warn-fg)}
+.fig.bad b{color:var(--bad-fg)}
+.road{display:flex;align-items:center;gap:6px;font-size:14px;color:var(--mute)}
+.road svg{width:14px;height:14px;color:var(--ico)}
+.road b{color:var(--body);font-weight:600}
+.c-foot{margin-top:auto;display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px 12px;border-top:1px solid var(--line);padding-top:10px;font-size:14px;color:var(--mute)}
+.c-foot span{display:flex;align-items:center;gap:6px}
+.c-foot svg{width:14px;height:14px;color:var(--ico)}
+.t-warn{color:var(--warn-fg)!important}
+.t-bad{color:var(--bad-fg)!important}
+.t-ok{color:var(--ok-fg)!important}
+.t-info{color:var(--info-fg)!important}
+.t-mute{color:var(--mute)!important}
+.t-ink{color:var(--ink)!important}
+.fw{font-weight:500}
+
+/* ring */
+.ring{position:relative;display:grid;place-items:center;flex-shrink:0}
+.ring svg{position:absolute;inset:0}
+.ring span{font-size:14px;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums;line-height:1}
+.ring span.dash{font-weight:400;color:var(--mute)}
+.ring .arc{transition:stroke-dashoffset 700ms var(--ease-out)}
+
+/* sheet — hub anatomy: header on a hairline, tabs 48px, body 28/32, foot on a hairline */
+.scrim{position:fixed;inset:44px 0 0 0;background:rgba(246,246,247,.72);opacity:0;transition:opacity 280ms ease;z-index:40}
+.scrim.in{opacity:1}
+.sheet{position:fixed;top:64px;right:20px;bottom:20px;max-width:calc(100vw - 40px);background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-sheet);box-shadow:var(--shadow-float);z-index:41;display:flex;flex-direction:column;overflow:hidden;transform:translateX(calc(100% + 20px));transition:transform 280ms var(--ease-drawer)}
+.sheet.in{transform:none}
+.sheet.out{transition-duration:200ms}
+.sheet[data-size=wide]{width:clamp(440px,72vw,896px)}
+.sheet[data-size=table]{width:clamp(440px,92vw,1024px)}
+.sheet[data-size=workspace]{width:clamp(440px,96vw,1344px)}
+.sh-head{display:flex;align-items:center;gap:16px;padding:12px 28px;border-bottom:1px solid var(--line);flex-shrink:0}
+.sh-head .t{flex:1;min-width:0}
+.sh-id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:14px;color:var(--body);margin-bottom:2px}
+.sh-head h2{font-size:18px;line-height:24px;font-weight:600;letter-spacing:-.01em;color:var(--ink)}
+.sh-cap{font-size:14px;color:var(--mute);margin-top:2px}
+.x{width:32px;height:32px;border-radius:var(--r-inner);display:grid;place-items:center;color:var(--ico);transition:background-color 120ms ease,color 120ms ease}
+.x:hover{background:var(--soft-2);color:var(--ink)}
+.tabs{display:flex;gap:8px;padding:0 28px;border-bottom:1px solid var(--line);flex-shrink:0}
+.tabs button{height:48px;margin-bottom:-1px;padding:0 12px;border-bottom:2px solid transparent;font-size:15px;font-weight:500;color:var(--body);white-space:nowrap;display:flex;align-items:center;gap:6px}
+.tabs button:hover{color:var(--ink)}
+.tabs button[aria-selected=true]{border-color:var(--accent);color:var(--accent);font-weight:600}
+.tabs .cnt{font-weight:500;color:var(--mute);font-size:14px}
+.tabs button[aria-selected=true] .cnt{color:var(--accent)}
+.tabs .cnt.warn{color:var(--warn-fg)}
+.sh-body{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:32px 28px;display:flex;flex-direction:column;gap:24px}
+.sh-body>*{flex-shrink:0}
+.sh-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 28px;border-top:1px solid var(--line);flex-shrink:0;min-height:61px}
+.sh-foot .note{font-size:14px;color:var(--mute);display:flex;align-items:center;gap:8px;min-width:0}
+.dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;background:var(--faint)}
+.dot.info{background:var(--info)}.dot.warn{background:var(--warn)}.dot.bad{background:var(--bad)}.dot.ok{background:var(--ok)}
+
+/* buttons */
+.btn{height:36px;padding:0 14px;border-radius:var(--r-inner);font-size:14px;font-weight:500;display:inline-flex;align-items:center;gap:6px;white-space:nowrap;transition:background-color 120ms ease,border-color 120ms ease,transform 120ms var(--ease-out)}
+.btn:active{transform:scale(.97)}
+.btn.primary{background:var(--accent);color:#fff}
+.btn.primary:hover{background:var(--cta-hover)}
+.btn.ghost{border:1px solid var(--line-2);background:var(--canvas);color:var(--ink);box-shadow:var(--shadow-soft)}
+.btn.ghost:hover{border-color:var(--line-3)}
+.btn[disabled]{opacity:.5;pointer-events:none}
+.link{color:var(--accent);font-size:14px;display:inline-flex;align-items:center;gap:2px;cursor:pointer;white-space:nowrap}
+.link:hover{text-decoration:underline;text-underline-offset:2px}
+.link svg{width:13px;height:13px}
+
+/* sections and tables inside a sheet */
+.sec h3{display:flex;justify-content:space-between;align-items:baseline;gap:12px;font-size:15px;font-weight:500;color:var(--ink);margin-bottom:8px}
+.sec h3 .aside{font-weight:400;font-size:14px;color:var(--mute);display:flex;gap:14px;align-items:baseline}
+.empty{font-size:14px;color:var(--mute);padding:4px 0}
+.hero{display:flex;align-items:center;gap:20px}
+.hero .figs{flex:1;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.hero .figs.three{grid-template-columns:repeat(3,minmax(0,1fr))}
+.countline{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 16px;font-size:14px;color:var(--body);padding-bottom:12px;border-bottom:1px solid var(--line)}
+.countline b{font-weight:600;color:inherit}
+
+table.t{width:100%;border-collapse:collapse;table-layout:fixed}
+table.t th{font-size:14px;font-weight:500;color:var(--mute);text-align:right;padding:0 0 8px 12px;white-space:nowrap;border-bottom:1px solid var(--line)}
+table.t th:first-child,table.t td:first-child{text-align:left;padding-left:0}
+table.t td{font-size:15px;color:var(--ink);text-align:right;padding:10px 0 10px 12px;border-top:1px solid var(--line);vertical-align:top;font-variant-numeric:tabular-nums}
+table.t tr:first-child td{border-top:0}
+table.t td.l,table.t th.l{text-align:left}
+table.t td .s{display:block;font-size:14px;color:var(--mute);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+table.t td .p{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+table.t tr.go{cursor:pointer}
+table.t tr.go td{transition:background-color 120ms ease}
+@media (hover:hover) and (pointer:fine){table.t tr.go:hover td{background:var(--soft)}}
+table.t tr.tot td{font-weight:600;border-top:1px solid var(--line-3)}
+table.t tr.sub td{background:var(--soft);font-size:14px}
+table.t tr.sub td:first-child{padding-left:28px}
+.sw{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:8px;box-shadow:inset 0 0 0 1px rgb(0 0 0 / 12%);vertical-align:0}
+.status{font-size:14px;font-weight:500;white-space:nowrap}
+.arrow{color:var(--faint);margin:0 4px}
+.open-tag{font-size:14px;font-weight:500;color:var(--warn-fg);margin-left:6px}
+.chev{display:inline-grid;place-items:center;width:20px;height:20px;margin:-2px 4px 0 -4px;color:var(--ico);vertical-align:middle;transition:transform 160ms var(--ease-out)}
+.chev.open{transform:rotate(90deg)}
+
+/* B — one scroll */
+.more-row{display:flex;justify-content:flex-end;padding-top:8px}
+
+/* C — full page */
+.phead{display:flex;align-items:center;gap:12px;margin:8px 0 16px}
+.phead .tile{width:40px;height:40px}
+.phead h2{font-size:22px;font-weight:600;color:var(--ink);letter-spacing:-.01em;line-height:1.2}
+.phead .c-sub{margin-top:1px}
+.phead .acts{margin-left:auto;display:flex;gap:8px}
+.kpis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-card);box-shadow:var(--shadow-soft);margin-bottom:16px}
+.kpi{padding:12px 16px;text-align:left;border-left:1px solid var(--line);min-width:0}
+.kpi:first-child{border-left:0}
+.kpi .lab{font-size:14px;color:var(--body);font-weight:500;letter-spacing:.01em}
+.kpi b{display:block;margin-top:6px;font-size:18px;font-weight:600;color:var(--ink);letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.kpi .s{font-size:14px;color:var(--mute);margin-top:2px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+button.kpi{transition:background-color 120ms ease}
+@media (hover:hover) and (pointer:fine){button.kpi:hover{background:var(--soft)}}
+.subtabs{display:flex;gap:8px;border-bottom:1px solid var(--line);margin-bottom:16px}
+.subtabs button{height:44px;margin-bottom:-1px;padding:0 4px;margin-right:12px;border-bottom:2px solid transparent;font-size:15px;font-weight:500;color:var(--body);display:flex;gap:6px;align-items:center}
+.subtabs button[aria-selected=true]{border-color:var(--ink);color:var(--ink);font-weight:600}
+.subtabs .cnt{color:var(--mute);font-weight:500;font-size:14px}
+.pcard{background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-card);box-shadow:var(--shadow-soft);overflow:clip}
+.ptools{display:flex;gap:8px;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line)}
+.ptools .search input{width:260px}
+.ptools .right{margin-left:auto;font-size:14px;color:var(--mute)}
+table.pt{width:100%;border-collapse:collapse;table-layout:fixed}
+table.pt th{height:40px;background:var(--soft);font-size:14px;font-weight:500;color:var(--body);text-align:right;padding:0 20px;white-space:nowrap;border-bottom:1px solid var(--line)}
+table.pt th.l,table.pt td.l{text-align:left}
+table.pt td{height:58px;padding:8px 20px;font-size:15px;color:var(--ink);text-align:right;border-top:1px solid var(--line);font-variant-numeric:tabular-nums;vertical-align:middle}
+table.pt tr:first-child td{border-top:0}
+table.pt td .s{display:block;font-size:14px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+table.pt td .p{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+table.pt tr.go{cursor:pointer}
+@media (hover:hover) and (pointer:fine){table.pt tr.go:hover td{background:var(--soft)}}
+table.pt tr.sub td{height:48px;background:var(--soft);font-size:14px}
+table.pt tr.sub td.l{padding-left:48px}
+table.pt .grp{border-left:1px solid var(--line-3)}
+
+/* D — pools beside */
+.split{flex:1;min-height:0;display:grid;grid-template-columns:340px minmax(0,1fr)}
+.split .left{border-right:1px solid var(--line);overflow-y:auto;padding:28px;display:flex;flex-direction:column;gap:20px;background:var(--canvas)}
+.split .right{display:flex;flex-direction:column;min-height:0;min-width:0}
+.split .right .tabs{padding:0 28px}
+.split .right .sh-body{padding:24px 28px}
+.lfigs{display:grid;grid-template-columns:1fr 1fr;gap:14px 12px}
+.plist{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r-card);overflow:hidden}
+.prow{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:2px 12px;padding:10px 14px;text-align:left;border-top:1px solid var(--line);transition:background-color 120ms ease}
+.prow:first-child{border-top:0}
+.prow .pn{font-size:15px;color:var(--ink);font-weight:500}
+.prow .pq{font-size:15px;color:var(--ink);font-variant-numeric:tabular-nums;text-align:right}
+.prow .ps{font-size:14px;color:var(--mute)}
+.prow .pg{font-size:14px;text-align:right;font-variant-numeric:tabular-nums}
+@media (hover:hover) and (pointer:fine){.prow:hover{background:var(--soft)}}
+.prow[aria-pressed=true]{background:var(--accent-bg)}
+.prow[aria-pressed=true] .pn{color:var(--accent)}
+.scope{font-size:14px;color:var(--mute);display:flex;gap:10px;align-items:baseline}
+.scope b{color:var(--ink);font-weight:600}
+
+/* E — stock card */
+.ctrls{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.strip{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border:1px solid var(--line);border-radius:var(--r-card)}
+.strip>div{padding:12px 16px;border-left:1px solid var(--line)}
+.strip>div:first-child{border-left:0}
+.strip .lab{font-size:14px;color:var(--body);font-weight:500}
+.strip b{display:block;margin-top:4px;font-size:18px;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+table.t tr.bal td{background:var(--soft);font-weight:600}
+table.t tr.bal td .s{font-weight:400}
+
+/* count popover — grows from its button */
+.pop{position:fixed;z-index:50;background:var(--canvas);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow-pop);padding:6px;min-width:220px;transform-origin:bottom right;opacity:0;transform:scale(.96);transition:opacity 160ms var(--ease-out),transform 160ms var(--ease-out)}
+.pop.in{opacity:1;transform:none}
+.pop button{width:100%;display:flex;justify-content:space-between;gap:16px;align-items:center;height:40px;padding:0 10px;border-radius:var(--r-inner);font-size:15px;color:var(--ink);text-align:left}
+.pop button span{font-size:14px;color:var(--mute);font-variant-numeric:tabular-nums}
+.pop button:hover{background:var(--soft)}
+
+.toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,12px);background:#101012;color:#fff;font-size:14px;padding:10px 16px;border-radius:10px;opacity:0;transition:opacity 200ms ease,transform 200ms var(--ease-out);z-index:70;pointer-events:none;max-width:calc(100vw - 32px)}
+.toast.in{opacity:1;transform:translate(-50%,0)}
+
+/* tablet: no rail */
+@media (max-width:1023px){
+  .rail{display:none}
+  .grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .kpis{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .kpi:nth-child(4){border-left:0}
+  .kpi:nth-child(n+4){border-top:1px solid var(--line)}
+  .split{grid-template-columns:300px minmax(0,1fr)}
+}
+/* phone: full-height sheet, stacked rows, actions at the foot */
+@media (max-width:767px){
+  .dept{display:none}
+  .top{padding:0 16px}
+  .top .search,.top .sel{display:none}
+  .content{padding:4px 16px calc(160px + env(safe-area-inset-bottom))}
+  .grid{grid-template-columns:minmax(0,1fr)}
+  .sheet{top:44px;right:0;bottom:0;left:0;max-width:none;width:auto!important;border-radius:0;border:0;transform:translateY(100%)}
+  .sheet.in{transform:none}
+  .sh-head{padding:12px 16px}
+  .x{width:44px;height:44px}
+  .tabs{padding:0 16px;flex-wrap:wrap;gap:0 12px}
+  .tabs button{height:44px;padding:0 2px}
+  .sh-body{padding:20px 16px}
+  .sh-foot{padding:10px 16px calc(10px + env(safe-area-inset-bottom));flex-wrap:wrap}
+  .sh-foot .btn{height:44px;flex:1;justify-content:center}
+  .sh-foot .note{flex-basis:100%}
+  .hero{gap:16px;align-items:flex-start}
+  .hero .figs,.hero .figs.three{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 12px}
+  /* tables stack into rows of label · value */
+  table.t,table.t tbody,table.t tr,table.t td{display:block;width:100%}
+  table.t thead{display:none}
+  table.t tr{padding:12px 0;border-top:1px solid var(--line)}
+  table.t tbody tr:first-child{border-top:0}
+  table.t td{border:0!important;padding:2px 0!important;text-align:left;display:flex;justify-content:space-between;gap:12px}
+  table.t td::before{content:attr(data-l);font-size:14px;color:var(--mute);font-weight:400;grid-row:1 / span 2;text-align:left}
+  table.t td:not(:first-child),table.pt td:not(:first-child){display:grid;grid-template-columns:auto minmax(0,1fr);gap:0 12px;text-align:right}
+  table.t td:not(:first-child)>*,table.pt td:not(:first-child)>*{grid-column:2;text-align:right}
+  table.t td .s,table.pt td .s{white-space:normal}
+  table.t td:first-child{display:block;margin-bottom:4px}
+  table.t td:first-child::before{content:none}
+  table.t td[data-l=""]:not(:first-child){display:none}
+  table.t tr.sub{padding-left:16px;background:var(--soft)}
+  table.t tr.sub td{background:none}
+  table.t tr.sub td:first-child{padding-left:0!important}
+  .phead{flex-wrap:wrap}
+  .phead .acts{position:fixed;left:0;right:0;bottom:0;margin:0;padding:10px 16px calc(10px + env(safe-area-inset-bottom));background:var(--canvas);border-top:1px solid var(--line);z-index:30}
+  .phead .acts .btn{flex:1;height:44px;justify-content:center}
+  .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .kpi{border-left:0;border-top:1px solid var(--line)}
+  .kpi:nth-child(-n+2){border-top:0}
+  .kpi:nth-child(even){border-left:1px solid var(--line)}
+  .subtabs{flex-wrap:wrap;gap:0}
+  /* phone: the list's search and pool live in the dock, above the action */
+  .ptools{position:fixed;left:0;right:0;bottom:calc(64px + env(safe-area-inset-bottom));z-index:29;background:var(--canvas);border-top:1px solid var(--line);border-bottom:0;padding:10px 16px}
+  .ptools .search{flex:1;min-width:0}
+  .ptools .search input{width:100%;height:44px}
+  .ptools .sel{height:44px;max-width:44%}
+  .ptools .right{display:none}
+  .pcard.docked{margin-bottom:64px}
+  table.pt,table.pt tbody,table.pt tr,table.pt td{display:block;width:100%}
+  table.pt thead{display:none}
+  table.pt tr{padding:12px 16px;border-top:1px solid var(--line)}
+  table.pt tbody tr:first-child{border-top:0}
+  table.pt td{height:auto;border:0!important;padding:2px 0!important;text-align:left;display:flex;justify-content:space-between;gap:12px}
+  table.pt td::before{content:attr(data-l);font-size:14px;font-weight:400;color:var(--mute);grid-row:1 / span 2;text-align:left}
+  table.pt td:first-child{display:block;margin-bottom:4px}
+  table.pt td:first-child::before{content:none}
+  table.pt td[data-l=""]:not(:first-child){display:none}
+  table.pt tr.sub{background:var(--soft);padding-left:32px}
+  table.pt tr.sub td{background:none}
+  .split{display:block;overflow-y:auto}
+  .split .left{border-right:0;border-bottom:1px solid var(--line);padding:20px 16px;overflow:visible}
+  .split .right .tabs{padding:0 16px}
+  .split .right .sh-body{padding:20px 16px;overflow:visible}
+  .strip{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .strip>div:nth-child(3){border-left:0}
+  .strip>div:nth-child(n+3){border-top:1px solid var(--line)}
+  .pop{left:16px!important;right:16px;bottom:calc(72px + env(safe-area-inset-bottom))!important;top:auto!important;transform-origin:bottom center}
+}
+@media (prefers-reduced-motion:reduce){
+  .sheet,.pop,.toast,.card,.btn,.chev{transition-property:opacity!important;transform:none!important}
+  .ring .arc{transition:none}
+}
+</style>
+</head>
+<body>
+
+<div class="proto">
+  <b>Stock detail</b>
+  <div class="opts" id="opts">
+    <button data-o="A">A · Tabs</button>
+    <button data-o="B">B · One scroll</button>
+    <button data-o="C">C · Full page</button>
+    <button data-o="D">D · Pools beside</button>
+    <button data-o="E">E · Stock card</button>
+  </div>
+  <div class="pset">Open
+    <select id="placeSel">
+      <option value="c001">Cikupa</option>
+      <option value="ho">Head Office</option>
+      <option value="c012">Banjaran (empty)</option>
+    </select>
+  </div>
+</div>
+
+<div class="app">
+  <nav class="rail">
+    <div class="mark">C</div>
+    <span class="ri"><i data-lucide="shopping-cart"></i></span>
+    <span class="ri"><i data-lucide="shirt"></i></span>
+    <span class="ri"><i data-lucide="truck"></i></span>
+    <span class="ri on"><i data-lucide="boxes"></i></span>
+    <span class="ri"><i data-lucide="megaphone"></i></span>
+    <span class="ri"><i data-lucide="store"></i></span>
+    <span class="ri"><i data-lucide="landmark"></i></span>
+    <span class="ri"><i data-lucide="users"></i></span>
+  </nav>
+  <nav class="dept">
+    <div class="dept-h">Inventory <i data-lucide="panel-left"></i></div>
+    <a class="on">Stock</a>
+    <a>Exceptions</a>
+    <a>Counts</a>
+    <a>Movements</a>
+    <div class="clock"><i data-lucide="info"></i>Sun 11 Oct 2026 · 06:31</div>
+  </nav>
+  <main id="main"></main>
+</div>
+<div id="layer"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+// ---------------------------------------------------------------------------
+// Demo data. Head Office pools are the rig's (11 Oct 2026); Cikupa is filled
+// out so every section has something to show; the rest are the rig's zeros.
+// ---------------------------------------------------------------------------
+const TODAY = new Date('2026-10-11T06:31:00');
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const SW = {Putih:'#f4f4f2',Hitam:'#22252a',Sage:'#a7b59a','Biru Muda':'#a9c6e8',Abu:'#9aa0a8',Navy:'#25345a',Maroon:'#6e2433',Olive:'#6f6d3c',Khaki:'#c8b48a',
+  'Dusty Pink':'#d9a3a8',Hijau:'#3f7a4f',Merah:'#c23b3b',Champagne:'#e9d9b8',Krem:'#ece1c8',Mocca:'#8a6a52','Light Wash':'#9db7d3','Dark Wash':'#3d5576'};
+
+const CIKUPA = {
+  id:'c001', code:'C001', name:'Cikupa', kind:'store',
+  pools:[{n:'Floor',inv:1506,obs:1478},{n:'Warehouse',inv:912,obs:893}],
+  onRoad:44, onRoadDoc:'SJ-0412',
+  last:'2026-08-31', nextDue:'2026-09-30',
+  articlesTotal:214,
+  // name, colours, Floor, Warehouse, observed, [colour with the gap, gap]
+  articles:[
+    ['Kemeja Linen Oversize',['Putih','Hitam','Sage','Biru Muda'],86,64,144,['Putih',-6]],
+    ['Celana Chino Slim',['Khaki','Navy','Hitam'],74,52,123,['Khaki',-3]],
+    ['Dress Midi Plisket',['Navy','Dusty Pink'],38,22,64,['Navy',4]],
+    ['Kaos Basic Crew',['Hitam','Putih','Abu','Navy','Maroon','Olive'],212,148,358,['Hitam',-2]],
+    ['Hoodie Fleece Zip',['Abu','Hitam'],33,45,77,['Abu',-1]],
+    ['Kaos Polo Pique',['Navy','Putih','Hitam','Hijau','Merah'],98,60,158],
+    ['Blus Satin Kerah',['Champagne','Hitam','Sage','Navy'],52,28,80],
+    ['Celana Kulot Linen',['Krem','Hitam','Olive'],47,25,72],
+    ['Rok Plisket Panjang',['Hitam','Mocca','Navy'],41,19,60],
+    ['Jaket Denim Boxy',['Light Wash','Dark Wash'],24,30,54],
+  ],
+  ex:[
+    {id:'EX-0131',k:'Missing',a:'Celana Chino Slim',v:'Khaki · 32',pool:'Warehouse',from:'CC-0071',age:41,q:-3,st:'Open'},
+    {id:'EX-0164',k:'Missing',a:'Kemeja Linen Oversize',v:'Putih · M',pool:'Warehouse',from:'SJ-0398',age:12,q:-6,st:'Open'},
+    {id:'EX-0170',k:'Seen elsewhere',a:'Kaos Basic Crew',v:'Hitam · L',pool:'Floor',from:'Seen at Bumiayu',age:5,q:-2,st:'Counting'},
+    {id:'EX-0175',k:'Extra',a:'Dress Midi Plisket',v:'Navy · S',pool:'Floor',from:'SJ-0405',age:1,q:4,st:'Open'},
+  ],
+  counts:[
+    {id:'CC-0088',kind:'Cycle',pool:'Floor',scope:'Kemeja',st:'Counting',d:'2026-10-11',by:'Dewi Lestari',book:640,read:312},
+    {id:'CC-0071',kind:'Full',pool:'Warehouse',st:'Closed',d:'2026-08-31',by:'Sinta Maharani',book:905,counted:902},
+    {id:'CC-0070',kind:'Full',pool:'Floor',st:'Closed',d:'2026-08-31',by:'Sinta Maharani',book:1488,counted:1488},
+    {id:'CC-0052',kind:'Targeted',pool:'Warehouse',scope:'2 SKUs',st:'Closed',d:'2026-08-14',by:'Sinta Maharani',book:12,counted:12},
+    {id:'CC-0031',kind:'Full',pool:'Floor',st:'Closed',d:'2026-07-29',by:'Sinta Maharani',book:1402,counted:1399},
+  ],
+  // when, what, detail, from, to, quantity, action, by
+  moves:[
+    ['2026-10-11 10:42','Kaos Basic Crew','Hitam · L','Floor','Sold',1,'Sale','Rani Putri'],
+    ['2026-10-11 10:05','Celana Chino Slim','Navy · 30','Floor','Sold',1,'Sale','Rani Putri'],
+    ['2026-10-11 09:15','Kemeja Linen Oversize','Putih · L','Warehouse','Floor',12,'Move to floor','Dewi Lestari'],
+    ['2026-10-10 16:30','SJ-0405','6 articles','In transit','Warehouse',84,'Store receive','Agus Salim'],
+    ['2026-10-10 14:02','RT-0033','3 articles','Warehouse','In transit',18,'Return to HO','Agus Salim'],
+    ['2026-10-10 11:20','Hoodie Fleece Zip','Abu · M','Floor','Sold',2,'Sale','Rani Putri'],
+    ['2026-10-09 19:55','Kaos Polo Pique','Navy · L','Sold','Floor',1,'Sale return','Fajar Nugroho'],
+    ['2026-10-09 15:10','SJ-0398','6 articles · 6 pcs short','In transit','Warehouse',96,'Store receive','Agus Salim'],
+    ['2026-10-09 12:48','Blus Satin Kerah','Champagne · S','Floor','Sold',1,'Sale','Fajar Nugroho'],
+    ['2026-10-09 09:30','Celana Kulot Linen','Krem · M','Warehouse','Floor',40,'Move to floor','Dewi Lestari'],
+    ['2026-10-08 17:22','Kaos Basic Crew','Putih · M','Floor','Sold',3,'Sale','Rani Putri'],
+    ['2026-10-07 10:10','RT-0029','2 articles','Warehouse','In transit',12,'Return to HO','Agus Salim'],
+  ],
+  // the stock card: date, document, description, from, to, quantity, open exception
+  card:[
+    ['2026-10-01','Sales','31 receipts','Floor','Sold',38],
+    ['2026-10-02','Sales','27 receipts','Floor','Sold',33],
+    ['2026-10-03','SJ-0391','Store receive','In transit','Warehouse',120],
+    ['2026-10-03','MV-0212','Move to floor','Warehouse','Floor',60],
+    ['2026-10-03','Sales','35 receipts','Floor','Sold',41],
+    ['2026-10-04','Sales','44 receipts','Floor','Sold',52],
+    ['2026-10-05','Sales','48 receipts','Floor','Sold',57],
+    ['2026-10-06','MV-0219','Move to floor','Warehouse','Floor',48],
+    ['2026-10-06','Sales','22 receipts','Floor','Sold',26],
+    ['2026-10-07','RT-0029','Return to HO','Warehouse','In transit',12],
+    ['2026-10-07','Sales','25 receipts','Floor','Sold',29],
+    ['2026-10-08','Sales','30 receipts','Floor','Sold',34],
+    ['2026-10-09','SJ-0398','Store receive · 96 of 102','In transit','Warehouse',96,'6 missing'],
+    ['2026-10-09','MV-0224','Move to floor','Warehouse','Floor',40],
+    ['2026-10-09','Sales','33 receipts','Floor','Sold',39],
+    ['2026-10-10','SJ-0405','Store receive · 4 extra','In transit','Warehouse',84,'4 extra'],
+    ['2026-10-10','RT-0033','Return to HO','Warehouse','In transit',18],
+    ['2026-10-10','Sales','29 receipts','Floor','Sold',35],
+    ['2026-10-11','MV-0230','Move to floor','Warehouse','Floor',12],
+    ['2026-10-11','Sales','9 receipts','Floor','Sold',11],
+  ],
+};
+
+const HO = {
+  id:'ho', code:'DC', name:'Head Office', kind:'ho',
+  pools:[{n:'Unidentified',inv:928,obs:null},{n:'Warehouse',inv:649,obs:null},{n:'Pick Area',inv:18,obs:null},{n:'Packed',inv:0,obs:null},{n:'In Transit',inv:66,obs:null}],
+  onRoad:0, last:null, nextDue:null, articlesTotal:186,
+  // name, colours, per pool [Unidentified, Warehouse, Pick Area, Packed, In Transit]
+  articles:[
+    ['Kaos Basic Crew',['Hitam','Putih','Abu','Navy','Maroon','Olive'],[240,160,0,0,20]],
+    ['Kaos Polo Pique',['Navy','Putih','Hitam','Hijau','Merah'],[180,90,8,0,14]],
+    ['Kemeja Linen Oversize',['Putih','Hitam','Sage','Biru Muda'],[120,84,6,0,12]],
+    ['Celana Chino Slim',['Khaki','Navy','Hitam'],[96,72,4,0,8]],
+    ['Celana Kulot Linen',['Krem','Hitam','Olive'],[120,30,0,0,0]],
+    ['Blus Satin Kerah',['Champagne','Hitam','Sage','Navy'],[72,40,0,0,6]],
+    ['Rok Plisket Panjang',['Hitam','Mocca','Navy'],[60,21,0,0,0]],
+    ['Jaket Denim Boxy',['Light Wash','Dark Wash'],[40,40,0,0,0]],
+    ['Hoodie Fleece Zip',['Abu','Hitam'],[0,64,0,0,6]],
+    ['Dress Midi Plisket',['Navy','Dusty Pink'],[0,48,0,0,0]],
+  ],
+  ex:[],
+  counts:[
+    {id:'CC-0090',kind:'Targeted',pool:'Warehouse',scope:'Short pick · 2 SKUs',st:'Counting',d:'2026-10-02',by:'Yusuf Hidayat',book:4,read:0},
+  ],
+  moves:[
+    ['2026-10-11 08:40','PO-0231','CV Sinar Tekstil · 8 articles','Supplier','Unidentified',240,'Receive','Wahyu Pratama'],
+    ['2026-10-10 17:05','SJ-0412','Muaro Bungo · 5 articles','Packed','In Transit',38,'Dispatch','Bayu Saputra'],
+    ['2026-10-10 15:20','ALT-0412','Muaro Bungo · 5 articles','Pick Area','Packed',38,'Pack','Nur Aini'],
+    ['2026-10-10 11:02','ALT-0412','Muaro Bungo · 5 articles','Warehouse','Pick Area',44,'Pick','Nur Aini'],
+    ['2026-10-10 16:30','SJ-0405','Cikupa · 6 articles','In Transit','Cikupa',84,'Store receive','Agus Salim'],
+    ['2026-10-09 16:10','PO-0228','8 articles','Unidentified','Warehouse',180,'Identify','Wahyu Pratama'],
+    ['2026-10-08 10:30','PO-0228','CV Sinar Tekstil · 8 articles','Supplier','Unidentified',312,'Receive','Wahyu Pratama'],
+    ['2026-10-07 13:15','RT-0029','From Cikupa · 2 articles','Cikupa','Warehouse',12,'Return received','Bayu Saputra'],
+  ],
+  card:[
+    ['2026-10-02','PO-0219','Receive · CV Mitra Garmen','Supplier','Unidentified',260],
+    ['2026-10-03','SJ-0391','Store receive · Cikupa','In Transit','Cikupa',120],
+    ['2026-10-05','PO-0224','Receive · PT Kencana Busana','Supplier','Unidentified',198],
+    ['2026-10-07','RT-0029','Return received · Cikupa','Cikupa','Warehouse',12],
+    ['2026-10-08','PO-0228','Receive · CV Sinar Tekstil','Supplier','Unidentified',312],
+    ['2026-10-09','SJ-0398','Store receive · Cikupa','In Transit','Cikupa',96],
+    ['2026-10-09','SJ-0398','Short on arrival · Cikupa','In Transit','Missing',6,'6 missing'],
+    ['2026-10-10','SJ-0405','Store receive · Cikupa','In Transit','Cikupa',84],
+    ['2026-10-11','PO-0231','Receive · CV Sinar Tekstil','Supplier','Unidentified',240],
+  ],
+};
+
+const STORES = [
+  ['c012','C012','Banjaran'],['c007','C007','Brebes'],['c004','C004','Bumiayu'],['c005','C005','Jambi'],
+  ['c002','C002','Muaro Bungo',38],['c008','C008','Pasuruan'],['c003','C003','Purbalingga'],['c011','C011','Sipin'],
+  ['c006','C006','Wiramode'],['c010','C010','WMBA'],['c009','C009','WMJB'],['c013','C013','Wonosobo'],
+].map(([id,code,name,onRoad]) => ({id,code,name,kind:'store',pools:[{n:'Floor',inv:0,obs:0},{n:'Warehouse',inv:0,obs:0}],
+  onRoad:onRoad||0,last:null,nextDue:null,articlesTotal:0,articles:[],ex:[],counts:[],moves:[],card:[]}));
+const PLACES = Object.fromEntries([CIKUPA,HO,...STORES].map(p=>[p.id,p]));
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+const fmt = n => n==null ? '—' : Number(n).toLocaleString('id-ID');
+const sgn = n => n==null ? '—' : n>0 ? '+'+fmt(n) : n<0 ? '−'+fmt(-n) : '0';
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function dt(iso){ const d=new Date(iso.length>10?iso.replace(' ','T'):iso+'T00:00'); return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`; }
+function tm(iso){ return iso.length>10 ? iso.slice(11,16) : ''; }
+function days(iso){ return Math.floor((TODAY - new Date(iso+'T00:00'))/86400000); }
+const inv = p => p.pools.reduce((s,x)=>s+x.inv,0);
+const obs = p => p.pools.some(x=>x.obs==null) ? null : p.pools.reduce((s,x)=>s+x.obs,0);
+const gap = p => obs(p)==null ? null : obs(p)-inv(p);
+const gapWarn = p => obs(p)!=null && inv(p)>0 && Math.abs(gap(p))/inv(p)*100 > 1.5;
+const stale = p => !p.last || days(p.last) > 30;
+const sev = p => p.ex.some(e=>e.age>30) ? 2 : p.ex.some(e=>e.age>7) ? 1 : 0;
+const running = p => p.counts.find(c=>c.st==='Counting');
+const placeWord = p => p.kind==='ho' ? 'HO' : 'store';
+const poolNames = p => p.pools.map(x=>x.n);
+const ageCls = a => a>30 ? 't-bad' : a>7 ? 't-warn' : 't-mute';
+const exCls = k => k==='Missing' ? 't-bad' : k==='Extra' ? 't-warn' : 't-info';
+const stCls = s => s==='Counting' ? 't-info' : s==='To approve' ? 't-warn' : 't-mute';
+
+function ring(p, size, draw){
+  const r=size/2-4, c=2*Math.PI*r, o=obs(p), b=inv(p);
+  if(o==null || b===0){
+    return `<div class="ring" style="width:${size}px;height:${size}px"><svg viewBox="0 0 ${size} ${size}"><circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="var(--line-2)" stroke-width="5" ${o==null?'stroke-dasharray="3 5"':''}/></svg><span class="dash">—</span></div>`;
+  }
+  const share=Math.min(100,o/b*100), warn=gapWarn(p);
+  return `<div class="ring" style="width:${size}px;height:${size}px"><svg viewBox="0 0 ${size} ${size}" style="transform:rotate(-90deg)"><circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="var(--line-2)" stroke-width="5"/><circle class="arc" cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="${warn?'var(--warn)':'var(--ink)'}" stroke-width="5" stroke-linecap="round" stroke-dasharray="${c}" stroke-dashoffset="${draw?c:c*(1-share/100)}" data-to="${c*(1-share/100)}"/></svg><span class="${warn?'t-warn':''}">${Math.floor(share)}%</span></div>`;
+}
+function drawRings(){ requestAnimationFrame(()=>requestAnimationFrame(()=>document.querySelectorAll('.arc[data-to]').forEach(a=>a.setAttribute('stroke-dashoffset',a.dataset.to)))); }
+
+function fig(label, value, cls=''){ return `<div class="fig ${cls}"><b>${value}</b><span>${label}</span></div>`; }
+
+// quantity as this place sees it: in, out, or inside the place
+function signedFor(p, from, to, q, pool='all'){
+  const mine=pool==='all'?poolNames(p):[pool], a=mine.includes(from), b=mine.includes(to);
+  if(a && b) return {txt:fmt(q), cls:'t-mute', inside:true};
+  if(b) return {txt:'+'+fmt(q), cls:'t-ok'};
+  return {txt:'−'+fmt(q), cls:'t-ink'};
+}
+
+// ---------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------
+const S = { opt:'A', open:null, tab:'stock', pool:'all', ePool:'all', page:null, expanded:new Set(), mvAct:'all', q:'' };
+try{ const o=localStorage.getItem('stock-detail-opt'); if(o) S.opt=o; }catch(e){}
+
+// ---------------------------------------------------------------------------
+// Board — the cards, as on /inventory today
+// ---------------------------------------------------------------------------
+function placeCard(p){
+  const s=sev(p), st=stale(p), o=obs(p);
+  return `<button class="card ${s===2?'bad':''}" data-open="${p.id}">
+    <div class="c-top"><div class="c-id"><span class="tile"><i data-lucide="${p.kind==='ho'?'warehouse':'store'}"></i></span>
+      <div style="min-width:0"><span class="c-name">${esc(p.name)}</span><span class="c-sub">${p.kind==='ho'?'HO':'Store · '+p.code}</span></div></div>
+      ${ring(p,62,false)}</div>
+    <div class="figs">${fig('Inventory',fmt(inv(p)))}${fig('Observed',o==null?'—':fmt(o),gapWarn(p)?'warn':'')}</div>
+    ${p.onRoad>0?`<p class="road"><i data-lucide="truck"></i><span><b>+${fmt(p.onRoad)}</b> on the road here</span></p>`:''}
+    <div class="c-foot"><span class="${st?'t-warn':''}"><i data-lucide="calendar-check"></i>${p.last?`Last count ${dt(p.last).slice(0,-5)} · ${days(p.last)} d`:'Never counted'}</span>
+      <span class="${p.ex.length? (s===2?'t-bad fw':s===1?'t-warn fw':'fw'):''}">${p.ex.length?`${p.ex.length} exceptions`:'No exceptions'}</span></div>
+  </button>`;
+}
+function board(){
+  const stores=[CIKUPA,...STORES].sort((a,b)=> sev(b)-sev(a) || (stale(b)-stale(a)) || b.ex.length-a.ex.length || a.name.localeCompare(b.name));
+  const sBook=stores.reduce((s,p)=>s+inv(p),0), sSeen=stores.reduce((s,p)=>s+(obs(p)||0),0);
+  return `<div class="top"><h1>Stock</h1>
+      <span class="search"><i data-lucide="search"></i><input aria-label="Search stores"></span>
+      <select class="sel" style="width:224px"><option>Needs attention first</option><option>A–Z</option></select></div>
+    <div class="content">
+      <div class="ghead"><h2>HO</h2><p><b class="n">${fmt(inv(HO)+82)}</b> inventory</p></div>
+      <div class="grid">
+        ${placeCard(HO)}
+        <button class="card" data-toast="On the road keeps its own sheet">
+          <div class="c-id"><span class="tile"><i data-lucide="truck"></i></span><div><span class="c-name">On the road</span><span class="c-sub">In inventory</span></div></div>
+          <div class="figs">${fig('To stores','82')}${fig('Back to HO','0')}</div>
+          <div class="c-foot"><span><i data-lucide="clipboard-list"></i>4 trips · 0 returns</span><span>No exceptions</span></div></button>
+        <button class="card ghost" data-toast="On order keeps its own sheet">
+          <div class="c-id"><span class="tile"><i data-lucide="clipboard-list"></i></span><div><span class="c-name">On order</span><span class="c-sub">Not in inventory</span></div></div>
+          <div class="figs">${fig('Awaited','20.852')}${fig('Due this week','2')}</div>
+          <div class="c-foot"><span><i data-lucide="clipboard-list"></i>6 PO</span><span class="t-warn fw">1 late</span></div></button>
+      </div>
+      <div class="ghead"><h2>Stores · 13</h2><p><b class="n">${fmt(sBook)}</b> inventory · <b class="n">${fmt(sSeen)}</b> observed</p></div>
+      <div class="grid">${stores.map(placeCard).join('')}</div>
+    </div>`;
+}
+
+// ---------------------------------------------------------------------------
+// Shared sections
+// ---------------------------------------------------------------------------
+function hero(p, size=88){
+  const o=obs(p), g=gap(p);
+  const figs=[fig('Inventory',fmt(inv(p))), fig('Observed',o==null?'—':fmt(o),gapWarn(p)?'warn':''), fig('Gap',g==null?'—':sgn(g),gapWarn(p)?'warn':'')];
+  if(p.onRoad>0) figs.push(fig('On the road here','+'+fmt(p.onRoad)));
+  return `<div class="hero">${ring(p,size,true)}<div class="figs ${figs.length===3?'three':''}">${figs.join('')}</div></div>`;
+}
+
+function whereTable(p, opts={}){
+  const seen=obs(p)!=null;
+  const rows=p.pools.filter(x=>x.inv>0 || p.kind!=='ho').map(x=>{
+    const g=x.obs==null?null:x.obs-x.inv;
+    return `<tr><td data-l="">${esc(x.n)}</td><td data-l="Inventory">${fmt(x.inv)}</td>${seen?`<td data-l="Observed">${fmt(x.obs)}</td><td data-l="Gap" class="${g&&Math.abs(g)/Math.max(1,x.inv)*100>1.5?'t-warn':g?'':'t-mute'}">${sgn(g)}</td>`:''}</tr>`;
+  }).join('');
+  const onRoad = p.onRoad>0 ? `<tr><td data-l=""><span class="p">On the road here</span><span class="s">${p.onRoadDoc||''}</span></td><td data-l="Inventory" class="t-mute">+${fmt(p.onRoad)}</td>${seen?'<td data-l=""></td><td data-l=""></td>':''}</tr>`:'';
+  return `<section class="sec"><h3>Where</h3>
+    <table class="t"><thead><tr><th class="l">Pool</th><th>Inventory</th>${seen?'<th>Observed</th><th>Gap</th>':''}</tr></thead>
+    <tbody>${rows}${onRoad}<tr class="tot"><td data-l="">Total</td><td data-l="Inventory">${fmt(inv(p))}</td>${seen?`<td data-l="Observed">${fmt(obs(p))}</td><td data-l="Gap" class="${gapWarn(p)?'t-warn':''}">${sgn(gap(p))}</td>`:''}</tr></tbody></table></section>`;
+}
+
+// articles: per pool columns for HO, Floor/Warehouse + observed for stores
+function articleRows(p, poolFilter){
+  if(p.kind==='ho'){
+    return p.articles.map(([n,cols,q])=>({n,cols,byPool:Object.fromEntries(poolNames(p).map((pn,i)=>[pn,q[i]])),obs:null}));
+  }
+  return p.articles.map(([n,cols,f,w,o,g])=>({n,cols,byPool:{Floor:f,Warehouse:w},obs:o,gapAt:g}));
+}
+function articlesTable(p, {limit=null, pool='all', expandable=false, big=false}={}){
+  if(!p.articles.length) return `<p class="empty">No stock</p>`;
+  const seen=obs(p)!=null;
+  let rows=articleRows(p);
+  const shownPools = pool==='all' ? poolNames(p).filter(pn=>rows.some(r=>r.byPool[pn]>0)) : [pool];
+  rows=rows.map(r=>({...r,tot: pool==='all' ? Object.values(r.byPool).reduce((s,x)=>s+x,0) : (r.byPool[pool]||0)}))
+          .filter(r=>r.tot>0);
+  if(S.q) rows=rows.filter(r=>r.n.toLowerCase().includes(S.q.toLowerCase()));
+  rows.sort((a,b)=> seen && pool==='all' ? (Math.abs((b.obs??b.tot)-b.tot)-Math.abs((a.obs??a.tot)-a.tot)) || b.tot-a.tot : b.tot-a.tot);
+  const list = limit ? rows.slice(0,limit) : rows;
+  const showObs = seen && pool==='all';
+  const T = big ? 'pt' : 't';
+  const head = `<tr><th class="l" style="width:${big?'34%':'38%'}">Article</th>${shownPools.length>1?shownPools.map(pn=>`<th>${pn}</th>`).join(''):''}<th ${big&&shownPools.length>1?'class="grp"':''}>Inventory</th>${showObs?'<th>Observed</th><th>Gap</th>':''}</tr>`;
+  const body = list.map(r=>{
+    const g = showObs ? r.obs-r.tot : null;
+    const open = S.expanded.has(r.n);
+    let tr = `<tr class="${expandable?'go':''}" ${expandable?`data-exp="${esc(r.n)}"`:`data-toast="Opens the article"`} style="${expandable?'':'cursor:pointer'}">
+      <td class="l" data-l=""><span class="p">${expandable?`<span class="chev ${open?'open':''}"><i data-lucide="chevron-right"></i></span>`:''}${esc(r.n)}</span><span class="s" style="${expandable?'padding-left:20px':''}">${r.cols.length} colours</span></td>
+      ${shownPools.length>1?shownPools.map(pn=>`<td data-l="${pn}" class="${r.byPool[pn]?'':'t-mute'}">${fmt(r.byPool[pn]||0)}</td>`).join(''):''}
+      <td data-l="Inventory" class="${big&&shownPools.length>1?'grp':''}" style="font-weight:500">${fmt(r.tot)}</td>
+      ${showObs?`<td data-l="Observed">${fmt(r.obs)}</td><td data-l="Gap" class="${g<0?'t-bad':g>0?'t-warn':'t-mute'}">${sgn(g)}</td>`:''}</tr>`;
+    if(expandable && open){
+      // split each pool across the colours, the gap sits on its colour
+      tr += r.cols.map((c,i)=>{
+        const part = x => Math.floor(x/r.cols.length) + (i < x % r.cols.length ? 1 : 0);
+        const pq = Object.fromEntries(shownPools.map(pn=>[pn,part(r.byPool[pn]||0)]));
+        const t = Object.values(pq).reduce((s,x)=>s+x,0);
+        const cg = showObs ? (r.gapAt && r.gapAt[0]===c ? r.gapAt[1] : 0) : null;
+        return `<tr class="sub"><td class="l" data-l=""><span class="p"><span class="sw" style="background:${SW[c]||'#ccc'}"></span>${c}</span></td>
+          ${shownPools.length>1?shownPools.map(pn=>`<td data-l="${pn}">${fmt(pq[pn])}</td>`).join(''):''}
+          <td data-l="Inventory" class="${big&&shownPools.length>1?'grp':''}">${fmt(t)}</td>
+          ${showObs?`<td data-l="Observed">${fmt(t+cg)}</td><td data-l="Gap" class="${cg<0?'t-bad':cg>0?'t-warn':'t-mute'}">${sgn(cg)}</td>`:''}</tr>`;
+      }).join('');
+    }
+    return tr;
+  }).join('');
+  return `<table class="${T}"><thead>${head}</thead><tbody>${body}</tbody></table>`;
+}
+
+function exceptionsTable(p, {pool='all', big=false}={}){
+  let ex=p.ex.filter(e=>pool==='all'||e.pool===pool);
+  if(S.q && big) ex=ex.filter(e=>(e.a+e.v).toLowerCase().includes(S.q.toLowerCase()));
+  if(!ex.length) return `<p class="empty">No exceptions</p>`;
+  const T=big?'pt':'t';
+  return `<table class="${T}"><thead><tr><th class="l" style="width:${big?'34%':'36%'}">Article</th><th class="l">Kind</th><th class="l">From</th><th>Age</th><th>Quantity</th></tr></thead><tbody>
+    ${ex.map(e=>`<tr class="go" data-toast="Opens ${e.id} in Exceptions">
+      <td class="l" data-l=""><span class="p">${esc(e.a)}</span><span class="s">${esc(e.v)} · ${e.pool}</span></td>
+      <td class="l" data-l="Kind"><span class="p ${exCls(e.k)}">${e.k}</span>${e.st==='Counting'?'<span class="s t-info">Counting</span>':''}</td>
+      <td class="l" data-l="From"><span class="p">${esc(e.from)}</span></td>
+      <td data-l="Age" class="${ageCls(e.age)}">${e.age} d</td>
+      <td data-l="Quantity" class="${e.q<0?'t-bad':'t-warn'}" style="font-weight:500">${sgn(e.q)}</td></tr>`).join('')}
+  </tbody></table>`;
+}
+
+function countLine(p){
+  const due = p.nextDue ? days(p.nextDue) : null;
+  return `<div class="countline">
+    <span class="${stale(p)?'t-warn':''}">Last count <b>${p.last?dt(p.last):'never'}</b>${p.last?` <span class="t-mute">· ${days(p.last)} d ago</span>`:''}</span>
+    <span>${p.nextDue?`Next due <b class="${due>0?'t-bad':''}">${dt(p.nextDue)}</b>${due>0?` <span class="t-bad">· ${due} d late</span>`:''}`:'<span class="t-warn">Due now</span>'}</span></div>`;
+}
+function countsTable(p, {pool='all', big=false}={}){
+  const cs=p.counts.filter(c=>pool==='all'||c.pool===pool);
+  if(!cs.length) return `<p class="empty">Never counted</p>`;
+  const T=big?'pt':'t';
+  return `<table class="${T}"><thead><tr><th class="l" style="width:${big?'26%':'30%'}">Count</th><th class="l">Status</th><th class="l">Date</th><th>On the book</th><th>Counted</th><th>Difference</th></tr></thead><tbody>
+    ${cs.map(c=>{
+      const diff = c.counted==null ? null : c.counted-c.book;
+      return `<tr class="go" data-toast="Opens ${c.id}">
+      <td class="l" data-l=""><span class="p mono" style="font-size:15px">${c.id}</span><span class="s">${c.kind} · ${c.pool}${c.scope?' · '+esc(c.scope):''}</span></td>
+      <td class="l" data-l="Status"><span class="status ${stCls(c.st)}">${c.st}</span></td>
+      <td class="l" data-l="Date"><span class="p">${dt(c.d)}</span><span class="s">${esc(c.by)}</span></td>
+      <td data-l="On the book">${fmt(c.book)}</td>
+      <td data-l="Counted">${c.counted==null?`<span class="t-info">${fmt(c.read)} read</span>`:fmt(c.counted)}</td>
+      <td data-l="Difference" class="${diff==null?'t-mute':diff<0?'t-bad':diff>0?'t-warn':'t-mute'}">${diff==null?'—':sgn(diff)}</td></tr>`;}).join('')}
+  </tbody></table>`;
+}
+
+function movesTable(p, {limit=null, pool='all', big=false, act='all'}={}){
+  let ms=p.moves.filter(m=> pool==='all' || m[3]===pool || m[4]===pool);
+  if(act!=='all') ms=ms.filter(m=>m[6]===act);
+  if(S.q && big) ms=ms.filter(m=>(m[1]+m[2]).toLowerCase().includes(S.q.toLowerCase()));
+  if(limit) ms=ms.slice(0,limit);
+  if(!ms.length) return `<p class="empty">No movements</p>`;
+  const T=big?'pt':'t';
+  return `<table class="${T}"><thead><tr><th class="l" style="width:${big?'14%':'16%'}">When</th><th class="l" style="width:${big?'26%':'25%'}">Article</th><th class="l" style="width:${big?'26%':'27%'}">From → To</th><th style="width:${big?'10%':'11%'}">Quantity</th><th class="l" style="padding-left:20px">Action</th></tr></thead><tbody>
+    ${ms.map(m=>{ const s=signedFor(p,m[3],m[4],m[5],pool); const doc=/^[A-Z]{2,3}-\d/.test(m[1]);
+      return `<tr class="go" data-toast="${doc?'Opens '+m[1]:'Opens the article'}">
+      <td class="l" data-l=""><span class="p">${dt(m[0])}</span><span class="s">${tm(m[0])}</span></td>
+      <td class="l" data-l="Article"><span class="p ${doc?'mono':''}" style="${doc?'font-size:15px':''}">${esc(m[1])}</span><span class="s">${esc(m[2])}</span></td>
+      <td class="l" data-l="From → To"><span class="p">${m[3]}<span class="arrow">→</span>${m[4]}</span></td>
+      <td data-l="Quantity" class="${s.cls}" style="font-weight:500">${s.txt}</td>
+      <td class="l" data-l="Action" style="padding-left:20px"><span class="p">${m[6]}</span><span class="s">${esc(m[7])}</span></td></tr>`;}).join('')}
+  </tbody></table>`;
+}
+
+function weekLine(p){
+  let i=0,o=0,sold=0;
+  p.moves.forEach(m=>{ const s=signedFor(p,m[3],m[4],m[5]); if(s.inside) return; if(m[6]==='Sale'){sold+=m[5];return;} if(m[6]==='Sale return'){sold-=m[5];return;} s.txt.startsWith('+')?i+=m[5]:o+=m[5]; });
+  return `<span>In <b class="n t-ok">+${fmt(i)}</b></span><span>Out <b class="n t-ink">−${fmt(o)}</b></span>${p.kind==='store'?`<span>Sold <b class="n t-ink">−${fmt(sold)}</b></span>`:''}`;
+}
+
+function foot(p){
+  const r=running(p);
+  return `<div class="sh-foot">
+    <span class="note">${r?`<span class="dot info"></span><span><span class="mono">${r.id}</span> counting · ${fmt(r.read)} of ${fmt(r.book)} read</span>`:''}</span>
+    <button class="btn ${stale(p)?'primary':'ghost'}" data-count="${p.id}"><i data-lucide="scan-line"></i>Count ${placeWord(p)}</button></div>`;
+}
+function head(p){
+  return `<div class="sh-head"><div class="t"><div class="sh-id">${p.code}</div><h2>${esc(p.name)}</h2><div class="sh-cap">${p.kind==='ho'?'HO':'Store'}</div></div>
+    <button class="x" data-close aria-label="Close"><i data-lucide="x"></i></button></div>`;
+}
+function tabsBar(items, cur){
+  return `<nav class="tabs" role="tablist">${items.map(([v,l,c,cls])=>`<button role="tab" data-tab="${v}" aria-selected="${v===cur}">${l}${c!=null?` <span class="cnt ${cls||''}">${c}</span>`:''}</button>`).join('')}</nav>`;
+}
+
+// ---------------------------------------------------------------------------
+// A · Tabs — a wide record sheet: Stock · Exceptions · Counts · Movements
+// ---------------------------------------------------------------------------
+function sheetA(p){
+  const tab=S.tab;
+  const tabs=tabsBar([['stock','Stock'],['ex','Exceptions',p.ex.length||null,sev(p)?'warn':''],['counts','Counts',p.counts.length||null],['moves','Movements']],tab);
+  let body='';
+  if(tab==='stock') body = hero(p) + whereTable(p) + `<section class="sec"><h3>Articles<span class="aside">${p.articlesTotal?`${Math.min(8,p.articles.length)} of ${fmt(p.articlesTotal)}<span class="link" data-toast="Opens Availability for ${esc(p.name)}">All articles<i data-lucide="arrow-up-right"></i></span>`:''}</span></h3>${articlesTable(p,{limit:8})}</section>`;
+  if(tab==='ex') body = exceptionsTable(p);
+  if(tab==='counts') body = countLine(p) + countsTable(p);
+  if(tab==='moves') body = p.moves.length ? `<div class="countline"><span class="t-mute">This week</span><span style="display:flex;gap:16px">${weekLine(p)}</span></div>` + movesTable(p) + `<div class="more-row"><span class="link" data-toast="Opens Movements for ${esc(p.name)}">All movements<i data-lucide="arrow-up-right"></i></span></div>` : `<p class="empty">No movements</p>`;
+  return {size:'wide', html: head(p)+tabs+`<div class="sh-body">${body}</div>`+foot(p)};
+}
+
+// ---------------------------------------------------------------------------
+// B · One scroll — no tabs; every section short, each with its way out
+// ---------------------------------------------------------------------------
+function sheetB(p){
+  const r=running(p);
+  const body = hero(p) + whereTable(p)
+    + `<section class="sec"><h3>Exceptions<span class="aside">${p.ex.length?`${p.ex.length}<span class="link" data-toast="Opens Exceptions for ${esc(p.name)}">Exceptions<i data-lucide="arrow-up-right"></i></span>`:''}</span></h3>${exceptionsTable(p)}</section>`
+    + `<section class="sec"><h3>Counts<span class="aside">${p.counts.length?`<span class="link" data-toast="Opens Counts for ${esc(p.name)}">Counts<i data-lucide="arrow-up-right"></i></span>`:''}</span></h3>${countLine(p)}${p.counts.length?`<div style="margin-top:12px">${countsTable({...p,counts:p.counts.slice(0,3)})}</div>`:''}</section>`
+    + `<section class="sec"><h3>Movements<span class="aside">${p.moves.length?`${weekLine(p)}`:''}</span></h3>${movesTable(p,{limit:6})}${p.moves.length?`<div class="more-row"><span class="link" data-toast="Opens Movements for ${esc(p.name)}">All movements<i data-lucide="arrow-up-right"></i></span></div>`:''}</section>`;
+  return {size:'wide', html: head(p)+`<div class="sh-body">${body}</div>`+foot(p)};
+}
+
+// ---------------------------------------------------------------------------
+// D · Pools beside — the place on the left, its pools act as the scope
+// ---------------------------------------------------------------------------
+function sheetD(p){
+  const pool=S.pool, tab=S.tab==='stock'?'articles':S.tab;
+  const seen=obs(p)!=null;
+  const plist = [{n:'all',label:'All pools',inv:inv(p),obs:obs(p)},...p.pools.filter(x=>x.inv>0||p.kind!=='ho').map(x=>({n:x.n,label:x.n,inv:x.inv,obs:x.obs}))]
+    .map(x=>{ const g=x.obs==null?null:x.obs-x.inv; return `<button class="prow" data-pool="${x.n}" aria-pressed="${pool===x.n}">
+      <span class="pn">${x.label}</span><span class="pq">${fmt(x.inv)}</span>
+      <span class="ps">${seen?`Observed ${fmt(x.obs)}`:'Not observed'}</span><span class="pg ${g&&Math.abs(g)/Math.max(1,x.inv)*100>1.5?'t-warn':'t-mute'}">${g==null?'':sgn(g)}</span></button>`; }).join('');
+  const left = `<div class="left">${ring(p,96,true)}
+      <div class="lfigs">${fig('Inventory',fmt(inv(p)))}${fig('Observed',obs(p)==null?'—':fmt(obs(p)),gapWarn(p)?'warn':'')}${fig('Gap',gap(p)==null?'—':sgn(gap(p)),gapWarn(p)?'warn':'')}${p.onRoad>0?fig('On the road here','+'+fmt(p.onRoad)):''}</div>
+      <section class="sec"><h3>Pools</h3><div class="plist">${plist}</div></section>
+      ${countLine(p).replace('countline','countline" style="border:0;padding:0;flex-direction:column;align-items:flex-start')}
+    </div>`;
+  const scoped = arr => pool==='all' ? arr.length : arr.length;
+  const exN = p.ex.filter(e=>pool==='all'||e.pool===pool).length;
+  const cN = p.counts.filter(c=>pool==='all'||c.pool===pool).length;
+  const tabs=tabsBar([['articles','Articles'],['ex','Exceptions',exN||null,exN&&sev(p)?'warn':''],['counts','Counts',cN||null],['moves','Movements']],tab);
+  const scope = pool==='all' ? '' : `<div class="scope"><span><b>${pool}</b> only</span><span class="link" data-pool="all">All pools</span></div>`;
+  let body='';
+  if(tab==='articles') body = scope + articlesTable(p,{pool,expandable:true});
+  if(tab==='ex') body = scope + exceptionsTable(p,{pool});
+  if(tab==='counts') body = scope + countsTable(p,{pool});
+  if(tab==='moves') body = scope + movesTable(p,{pool}) + (p.moves.length?`<div class="more-row"><span class="link" data-toast="Opens Movements for ${esc(p.name)}">All movements<i data-lucide="arrow-up-right"></i></span></div>`:'');
+  return {size:'workspace', html: head(p)+`<div class="split">${left}<div class="right">${tabs}<div class="sh-body">${body}</div></div></div>`+foot(p)};
+}
+
+// ---------------------------------------------------------------------------
+// E · Stock card — the ledger with a running balance (kartu stok)
+// ---------------------------------------------------------------------------
+function sheetE(p){
+  const tab = ['card','ex','counts'].includes(S.tab) ? S.tab : 'card';
+  const tabs=tabsBar([['card','Stock card'],['ex','Exceptions',p.ex.length||null,sev(p)?'warn':''],['counts','Counts',p.counts.length||null]],tab);
+  let body='';
+  if(tab==='card'){
+    const pool=S.ePool, scope = pool==='all' ? poolNames(p) : [pool];
+    const closing = pool==='all' ? inv(p) : p.pools.find(x=>x.n===pool).inv;
+    const rows = p.card.map(([d,doc,desc,from,to,q,flag])=>{
+      const a=scope.includes(from), b=scope.includes(to);
+      if(a&&b) return null;               // inside the scope: the balance does not move
+      if(!a&&!b) return null;
+      return {d,doc,desc,in:b?q:0,out:a?q:0,flag,from,to};
+    }).filter(Boolean);
+    const tin=rows.reduce((s,r)=>s+r.in,0), tout=rows.reduce((s,r)=>s+r.out,0);
+    const opening = closing - tin + tout;
+    let bal=opening;
+    const ctrls = `<div class="ctrls"><button class="btn ghost" data-toast="Picks the period"><i data-lucide="calendar"></i>1 – 11 Oct 2026</button>
+      <select class="sel" id="ePool"><option value="all">All pools</option>${p.pools.filter(x=>x.inv>0||p.kind!=='ho').map(x=>`<option ${pool===x.n?'selected':''}>${x.n}</option>`).join('')}</select>
+      <select class="sel" data-toast-change="Narrows the card to one article"><option>All articles</option>${p.articles.map(a=>`<option>${esc(a[0])}</option>`).join('')}</select></div>`;
+    const strip = `<div class="strip"><div><div class="lab">Opening · 1 Oct 2026</div><b>${fmt(opening)}</b></div><div><div class="lab">In</div><b class="t-ok">+${fmt(tin)}</b></div><div><div class="lab">Out</div><b>−${fmt(tout)}</b></div><div><div class="lab">Balance · 11 Oct 2026</div><b>${fmt(closing)}</b></div></div>`;
+    const tbl = rows.length ? `<table class="t"><thead><tr><th class="l" style="width:16%">Date</th><th class="l" style="width:34%">Document</th><th>In</th><th>Out</th><th>Balance</th></tr></thead><tbody>
+      <tr class="bal"><td class="l" data-l="">1 Oct 2026</td><td class="l" data-l="Document">Opening balance</td><td data-l=""></td><td data-l=""></td><td data-l="Balance">${fmt(opening)}</td></tr>
+      ${rows.map(r=>{ bal+=r.in-r.out; const doc=/^[A-Z]{2,3}-\d/.test(r.doc);
+        return `<tr class="go" data-toast="${doc?'Opens '+r.doc:'Opens the receipts of '+dt(r.d)}">
+        <td class="l" data-l="">${dt(r.d)}</td>
+        <td class="l" data-l="Document"><span class="p"><span class="${doc?'mono':''}" style="${doc?'font-size:15px':''}">${esc(r.doc)}</span>${r.flag?`<span class="open-tag">${r.flag}</span>`:''}</span><span class="s">${esc(r.desc)}${pool!=='all'||p.kind==='ho'?` · ${r.in?r.from+' → '+r.to:r.from+' → '+r.to}`:''}</span></td>
+        <td data-l="In" class="${r.in?'t-ok':'t-mute'}">${r.in?'+'+fmt(r.in):''}</td>
+        <td data-l="Out">${r.out?'−'+fmt(r.out):''}</td>
+        <td data-l="Balance" style="font-weight:500">${fmt(bal)}</td></tr>`;}).join('')}
+      </tbody></table>` : `<p class="empty">No movements</p>`;
+    body = ctrls + strip + tbl;
+  }
+  if(tab==='ex') body = exceptionsTable(p);
+  if(tab==='counts') body = countLine(p) + countsTable(p);
+  return {size:'table', html: head(p)+tabs+`<div class="sh-body">${body}</div>`+foot(p)};
+}
+
+// ---------------------------------------------------------------------------
+// C · Full page — /inventory/stock/c001, a list page of its own
+// ---------------------------------------------------------------------------
+function pageC(p){
+  const tab = ['articles','ex','counts','moves'].includes(S.tab) ? S.tab : 'articles';
+  const o=obs(p), g=gap(p), r=running(p);
+  const kpi = (lab,val,sub,cls,go) => `<${go?'button':'div'} class="kpi" ${go?`data-tab="${go}"`:''}><div class="lab">${lab}</div><b class="${cls||''}">${val}</b>${sub?`<span class="s">${sub}</span>`:''}</${go?'button':'div'}>`;
+  const kpis = `<div class="kpis">
+    ${kpi('Inventory',fmt(inv(p)),p.articlesTotal?`${fmt(p.articlesTotal)} articles`:'')}
+    ${kpi('Observed',o==null?'—':fmt(o),o==null?'Not observed':`${Math.floor(o/Math.max(1,inv(p))*100)}% of inventory`,gapWarn(p)?'t-warn':'')}
+    ${kpi('Gap',g==null?'—':sgn(g),g==null?'':`${(Math.abs(g)/Math.max(1,inv(p))*100).toFixed(1).replace('.',',')}% of inventory`,gapWarn(p)?'t-warn':'','articles')}
+    ${kpi('On the road here',p.onRoad?'+'+fmt(p.onRoad):'0',p.onRoadDoc||'')}
+    ${kpi('Exceptions',fmt(p.ex.length),p.ex.length?`${p.ex.filter(e=>e.age>30).length} over 30 d`:'',p.ex.some(e=>e.age>30)?'t-bad':'','ex')}
+    ${kpi('Last count',p.last?`${days(p.last)} d`:'Never',p.last?dt(p.last):(r?r.id+' counting':''),stale(p)?'t-warn':'','counts')}
+  </div>`;
+  const tabs = `<div class="subtabs" role="tablist">${[['articles','Articles',p.articlesTotal||null],['ex','Exceptions',p.ex.length||null],['counts','Counts',p.counts.length||null],['moves','Movements',null]].map(([v,l,c])=>`<button role="tab" data-tab="${v}" aria-selected="${v===tab}">${l}${c!=null?` <span class="cnt">${fmt(c)}</span>`:''}</button>`).join('')}</div>`;
+  let tools='', table='';
+  const poolSel = `<select class="sel" id="cPool"><option value="all">All pools</option>${p.pools.filter(x=>x.inv>0||p.kind!=='ho').map(x=>`<option ${S.pool===x.n?'selected':''}>${x.n}</option>`).join('')}</select>`;
+  const search = `<span class="search"><i data-lucide="search"></i><input id="cq" placeholder="" aria-label="Search" value="${esc(S.q)}"></span>`;
+  if(tab==='articles'){ tools = search + poolSel + `<span class="right">${p.articlesTotal?`${p.articles.length} of ${fmt(p.articlesTotal)} articles`:''}</span>`; table = articlesTable(p,{pool:S.pool,expandable:true,big:true}); }
+  if(tab==='ex'){ tools = search + poolSel; table = exceptionsTable(p,{pool:S.pool,big:true}); }
+  if(tab==='counts'){ tools = poolSel + `<span class="right">${p.nextDue?`Next due ${dt(p.nextDue)}${days(p.nextDue)>0?` · <span class="t-bad">${days(p.nextDue)} d late</span>`:''}`:'Due now'}</span>`; table = countsTable(p,{pool:S.pool,big:true}); }
+  if(tab==='moves'){ tools = search + poolSel + `<select class="sel" id="cAct"><option value="all">All actions</option>${[...new Set(p.moves.map(m=>m[6]))].map(a=>`<option ${S.mvAct===a?'selected':''}>${a}</option>`).join('')}</select>`; table = movesTable(p,{pool:S.pool,big:true,act:S.mvAct}); }
+  if(table.startsWith('<p')) table = `<div style="padding:20px">${table}</div>`;
+  return `<div class="top"><h1><a data-back><i data-lucide="chevron-left"></i>Stock</a><span class="sep">/</span>${esc(p.name)}</h1></div>
+    <div class="content">
+      <div class="phead"><span class="tile"><i data-lucide="${p.kind==='ho'?'warehouse':'store'}"></i></span><div><h2>${esc(p.name)}</h2><span class="c-sub">${p.kind==='ho'?'HO':'Store · '+p.code}</span></div>
+        <div class="acts">${r?`<span class="note" style="display:flex;align-items:center;gap:8px;font-size:14px;color:var(--mute);margin-right:8px"><span class="dot info"></span><span class="mono">${r.id}</span>&nbsp;counting</span>`:''}<button class="btn ${stale(p)?'primary':'ghost'}" data-count="${p.id}"><i data-lucide="scan-line"></i>Count ${placeWord(p)}</button></div></div>
+      ${kpis}${tabs}
+      <div class="pcard"><div class="ptools">${tools}</div>${table}</div>
+    </div>`;
+}
+
+// ---------------------------------------------------------------------------
+// Rendering and events
+// ---------------------------------------------------------------------------
+const main=document.getElementById('main'), layer=document.getElementById('layer');
+function icons(){ lucide.createIcons({attrs:{'stroke-width':1.7}}); }
+
+function renderMain(){
+  main.innerHTML = (S.opt==='C' && S.page) ? pageC(PLACES[S.page]) : board();
+  icons();
+  if(S.opt==='C' && S.page) drawRings();
+}
+function sheetFor(p){ return ({A:sheetA,B:sheetB,D:sheetD,E:sheetE})[S.opt](p); }
+
+let sheetEl=null, scrimEl=null;
+function openSheet(id){
+  closeSheet(true);
+  S.open=id; S.tab = S.opt==='E' ? 'card' : S.opt==='D' ? 'articles' : 'stock'; S.pool='all'; S.ePool='all'; S.expanded.clear();
+  const p=PLACES[id], s=sheetFor(p);
+  scrimEl=document.createElement('div'); scrimEl.className='scrim'; scrimEl.dataset.close='';
+  sheetEl=document.createElement('div'); sheetEl.className='sheet'; sheetEl.setAttribute('role','dialog'); sheetEl.dataset.size=s.size; sheetEl.innerHTML=s.html;
+  layer.append(scrimEl,sheetEl); icons();
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{ scrimEl.classList.add('in'); sheetEl.classList.add('in'); drawRings(); }));
+}
+function rerenderSheet(){
+  if(!sheetEl) return;
+  const body=sheetEl.querySelector('.sh-body'); const top=body?body.scrollTop:0;
+  const s=sheetFor(PLACES[S.open]); sheetEl.dataset.size=s.size; sheetEl.innerHTML=s.html; icons();
+  sheetEl.querySelectorAll('.arc[data-to]').forEach(a=>a.setAttribute('stroke-dashoffset',a.dataset.to));
+  const nb=sheetEl.querySelector('.sh-body'); if(nb && S.keepScroll) nb.scrollTop=top; S.keepScroll=false;
+}
+function closeSheet(instant){
+  closePop();
+  if(!sheetEl) return;
+  const s=sheetEl, c=scrimEl; sheetEl=scrimEl=null; S.open=null;
+  if(instant){ s.remove(); c.remove(); return; }
+  s.classList.add('out'); s.classList.remove('in'); c.classList.remove('in');
+  setTimeout(()=>{ s.remove(); c.remove(); }, 220);
+}
+
+let popEl=null;
+function closePop(){ if(popEl){ const p=popEl; popEl=null; p.classList.remove('in'); setTimeout(()=>p.remove(),160); } }
+function openPop(btn, p){
+  closePop();
+  const r=btn.getBoundingClientRect();
+  popEl=document.createElement('div'); popEl.className='pop';
+  const choices=[[`Whole ${placeWord(p)}`,inv(p)],...p.pools.filter(x=>x.inv>0).map(x=>[x.n,x.inv])];
+  popEl.innerHTML=choices.map(([l,q])=>`<button data-ask="${esc(l)}">${l}<span>${fmt(q)}</span></button>`).join('');
+  document.body.append(popEl);
+  const pr=popEl.getBoundingClientRect();
+  popEl.style.left=Math.max(16, r.right-pr.width)+'px';
+  popEl.style.top=(r.top-pr.height-8)+'px';
+  requestAnimationFrame(()=>popEl&&popEl.classList.add('in'));
+}
+
+let toastT;
+function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('in'); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('in'),1800); }
+
+function setOpt(o){
+  S.opt=o; try{localStorage.setItem('stock-detail-opt',o);}catch(e){}
+  document.querySelectorAll('#opts button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.o===o));
+  const was=S.open || S.page;
+  closeSheet(true); S.page=null;
+  renderMain();
+  if(was) openPlace(was);
+}
+function openPlace(id){
+  S.q=''; S.mvAct='all';
+  if(S.opt==='C'){ S.page=id; S.tab='articles'; S.pool='all'; S.expanded.clear(); renderMain(); window.scrollTo(0,0); }
+  else openSheet(id);
+}
+
+document.addEventListener('click', e=>{
+  const t=e.target.closest('[data-open],[data-close],[data-tab],[data-pool],[data-exp],[data-count],[data-ask],[data-back],[data-toast],#opts button');
+  if(!t){ if(popEl && !e.target.closest('.pop')) closePop(); return; }
+  if(t.matches('#opts button')) return setOpt(t.dataset.o);
+  if(t.dataset.open){ document.getElementById('placeSel').value = PLACES[t.dataset.open]===CIKUPA?'c001':t.dataset.open==='ho'?'ho':'c012'; return openPlace(t.dataset.open); }
+  if(t.hasAttribute('data-close')) return closeSheet();
+  if(t.hasAttribute('data-back')){ S.page=null; renderMain(); return; }
+  if(t.dataset.tab){ S.tab=t.dataset.tab; S.q=''; if(S.opt==='C'){ renderMain(); } else rerenderSheet(); return; }
+  if(t.dataset.pool){ S.pool=t.dataset.pool; S.keepScroll=false; return rerenderSheet(); }
+  if(t.dataset.exp){ const n=t.dataset.exp; S.expanded.has(n)?S.expanded.delete(n):S.expanded.add(n); S.keepScroll=true; if(S.opt==='C'){ const y=scrollY; renderMain(); scrollTo(0,y); } else rerenderSheet(); return; }
+  if(t.dataset.count){ e.stopPropagation(); return popEl ? closePop() : openPop(t, PLACES[t.dataset.count]); }
+  if(t.dataset.ask){ closePop(); return toast(`CC-0091 · ${t.dataset.ask} sent to the handheld`); }
+  if(t.dataset.toast) return toast(t.dataset.toast);
+});
+document.addEventListener('change', e=>{
+  if(e.target.id==='placeSel') return openPlace(e.target.value);
+  if(e.target.id==='ePool'){ S.ePool=e.target.value==='All pools'?'all':e.target.value; return rerenderSheet(); }
+  if(e.target.id==='cPool'){ S.pool=e.target.value==='All pools'?'all':e.target.value; return renderMain(); }
+  if(e.target.id==='cAct'){ S.mvAct=e.target.value==='All actions'?'all':e.target.value; return renderMain(); }
+  if(e.target.dataset.toastChange) toast(e.target.dataset.toastChange);
+});
+document.addEventListener('input', e=>{
+  if(e.target.id==='cq'){ S.q=e.target.value; const pos=e.target.selectionStart; renderMain(); const i=document.getElementById('cq'); i.focus(); i.setSelectionRange(pos,pos); }
+});
+document.addEventListener('keydown', e=>{ if(e.key==='Escape'){ if(popEl) closePop(); else if(S.open) closeSheet(); } });
+
+document.querySelectorAll('#opts button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.o===S.opt));
+renderMain();
+icons();
+</script>
+</body>
+</html>

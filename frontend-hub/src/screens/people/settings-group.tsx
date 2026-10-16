@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -20,12 +20,14 @@ import {
   saveBusinessUnit,
   saveGroupEntity,
   useReachableUnits,
+  groupQuery,
+  businessUnitsQuery,
 } from "@/lib/queries/people"
-import { queryState } from "@/lib/query-state"
 import { useCanWrite } from "@/lib/session"
 import { FormSheet, NameCell } from "@/screens/people/settings-parts"
 import { CardFoot } from "@/screens/people/settings-kit"
 import { RELATIONS, useSheetTarget } from "@/screens/people/settings-hooks"
+import { awaiting } from "@/screens/people/awaiting"
 
 type GroupRow = Awaited<ReturnType<typeof groupEntities>>[number]
 type UnitRow = Awaited<ReturnType<typeof businessUnits>>[number]
@@ -74,10 +76,6 @@ function GroupList({
 }: {
   sheet: ReturnType<typeof useSheetTarget<GroupRow>>
 }) {
-  const list = useQuery({
-    queryKey: orgKeys.group(),
-    queryFn: ({ signal }) => groupEntities(signal),
-  })
   const label = new Map(RELATIONS.map((one) => [one.value, one.label]))
   const canWrite = useCanWrite()
   return (
@@ -86,7 +84,7 @@ function GroupList({
         <CardTitle>Group companies</CardTitle>
       </CardHeader>
       <div className="px-4 pb-4">
-        {queryState(list, {
+        {awaiting(groupQuery(), {
           loading: "Reading the group…",
           render: (rows) => (
             <>
@@ -238,10 +236,6 @@ function BusinessUnitList({
 }: {
   sheet: ReturnType<typeof useSheetTarget<UnitRow>>
 }) {
-  const list = useQuery({
-    queryKey: orgKeys.businessUnits(),
-    queryFn: ({ signal }) => businessUnits(signal),
-  })
   const reachable = useReachableUnits()
   const unitName = new Map(
     (reachable.data ?? []).map((one) => [one.id, one.name])
@@ -252,7 +246,7 @@ function BusinessUnitList({
         <CardTitle>Business units</CardTitle>
       </CardHeader>
       <div className="px-4 pb-4">
-        {queryState(list, {
+        {awaiting(businessUnitsQuery(), {
           loading: "Reading the business units…",
           render: (rows) => (
             <>

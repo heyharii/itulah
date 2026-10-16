@@ -130,6 +130,8 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("Quote: {e}"));
     inventory_backend::edge::pricing::StoreOffers::export_all(&config)
         .unwrap_or_else(|e| panic!("StoreOffers: {e}"));
+    inventory_backend::edge::pricing::FinalUnitPrices::export_all(&config)
+        .unwrap_or_else(|e| panic!("FinalUnitPrices: {e}"));
 
     // The promotion document itself, exported from the engine that reads it.
     //
@@ -441,6 +443,9 @@ fn the_wire_types_are_written_for_the_browser() {
         StoreDetail,
         StoreCheck,
         StoreServer,
+        StoreServerMachine,
+        StoreFirstData,
+        StoreFirstDataStream,
         StoreTills,
         StorePic,
         StoreReadiness,
@@ -1738,6 +1743,8 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("LeavePolicyView: {e}"));
     inventory_backend::cloud::postgres::LeaveBalanceRow::export_all(&config)
         .unwrap_or_else(|e| panic!("LeaveBalanceRow: {e}"));
+    inventory_backend::cloud::http::leave::PersonLeaveBalances::export_all(&config)
+        .unwrap_or_else(|e| panic!("PersonLeaveBalances: {e}"));
     // Overtime. `authorized_minutes` is null in every state but AGREED, and it
     // is generated rather than transcribed for exactly that reason: a browser
     // that read `planned_minutes` as the authorized figure would be showing

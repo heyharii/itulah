@@ -1,14 +1,14 @@
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useSuspenseQuery } from "@tanstack/react-query"
 import { useCallback, useMemo, useState } from "react"
 
 import { day, label } from "@/lib/format"
 import {
-  accountLinks,
+  accountLinksQuery,
+  assetClassesQuery,
   financeKeys,
-  listAssetClasses,
   listBills,
   listLineCategories,
-  listPeriods,
+  periodsQuery,
   unitAccounts,
   type AssetClass,
   type LineCategory,
@@ -22,7 +22,7 @@ import {
 import {
   categoryFamilyLabel,
   categoryFamilyOrder,
-  isoDay,
+  defaultWindow,
   todayIso,
 } from "@/screens/finance/chart"
 
@@ -48,11 +48,7 @@ import {
 ///
 /// Held for five minutes: the client opens a store about once a year.
 export function useLocations() {
-  return useQuery({
-    queryKey: financeKeys.accountLinks(null, null),
-    queryFn: ({ signal }) => accountLinks({}, signal),
-    staleTime: 5 * 60 * 1000,
-  })
+  return useQuery(accountLinksQuery())
 }
 
 /// A `unit_id` as the client says it: "C007 · Brebes", never `store-07`.
@@ -272,11 +268,7 @@ export function useCategoryName(): (code: string | null | undefined) => string {
 /// the ones whose identity is an asset, and its class is what a reader of the
 /// categories screen will look for next.
 export function useAssetClasses() {
-  const query = useQuery({
-    queryKey: financeKeys.assetClasses(),
-    queryFn: ({ signal }) => listAssetClasses(signal),
-    staleTime: 5 * 60 * 1000,
-  })
+  const query = useQuery(assetClassesQuery())
   const rows = useMemo(
     () => (query.data?.classes ?? []) as readonly AssetClass[],
     [query.data]
@@ -454,26 +446,37 @@ export interface DateWindow {
 export function useWindow(): DateWindow {
   const [draft, setDraft] = useState<{ from: string; to: string } | null>(null)
 
-  const periods = useQuery({
-    queryKey: financeKeys.periods(),
-    queryFn: ({ signal }) => listPeriods(signal).then((page) => page.rows),
-    staleTime: 60_000,
-  })
+  const periods = useQuery(periodsQuery())
 
-  const fallback = useMemo(() => {
-    const now = new Date()
-    const open = (periods.data ?? [])
-      .filter((row) => row.status.toUpperCase() === "OPEN")
-      .sort((a, b) => b.year * 12 + b.month - (a.year * 12 + a.month))[0]
-    const start =
-      open === undefined
-        ? new Date(now.getFullYear(), now.getMonth(), 1)
-        : new Date(open.year, open.month - 1, 1)
-    return { from: isoDay(start), to: isoDay(now) }
-  }, [periods.data])
+  const fallback = useMemo(
+    () => defaultWindow(periods.data ?? []),
+    [periods.data]
+  )
 
   const value = draft ?? fallback
 
+  return {
+    from: value.from,
+    to: value.to,
+    setFrom: (from) => setDraft({ ...value, from }),
+    setTo: (to) => setDraft({ ...value, to }),
+    chip: `${day(value.from)} – ${day(value.to)}`,
+  }
+}
+
+/// The same window, for a screen that reads it inside a `<Suspense>`: the
+/// calendar is read with `useSuspenseQuery`, so the first render already holds
+/// the month the books are open in and the screen's own question is asked once,
+/// under the right dates. `useWindow` asks the calendar with a plain query and
+/// opens on the calendar month until it lands, which asks twice.
+///
+/// A screen warmed by `prefetch.ts` uses this one, because the prefetcher
+/// computes the window the same way (`defaultWindow`) from the same calendar.
+export function useSettledWindow(): DateWindow {
+  const [draft, setDraft] = useState<{ from: string; to: string } | null>(null)
+  const periods = useSuspenseQuery(periodsQuery())
+  const fallback = useMemo(() => defaultWindow(periods.data), [periods.data])
+  const value = draft ?? fallback
   return {
     from: value.from,
     to: value.to,

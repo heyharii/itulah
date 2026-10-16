@@ -67,9 +67,10 @@
   --line-ico: #89919d;
 
   /* surfaces — four steps of grey and the hairlines between them.
-     `soft-3` is the page itself, the ground every white card stands on;
-     `soft` a quieter fill, `soft-2` the hover wash and the fill behind an
-     input.
+     The page itself is `canvas`, white, since 2026-10-11 (it was `soft-3`,
+     #f6f6f7); cards stand on it by their hairline. `soft-3` is now only the
+     lightest wash — a switch's off track, a hover; `soft` a quieter fill,
+     `soft-2` the hover wash and the fill behind an input.
 
      NEUTRAL since 2026-09-28 (the owner's "airy charcoal"): the column beside
      them is graphite now, and a blue-tinted page next to a neutral charcoal
@@ -258,6 +259,10 @@
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  /* A spring (bounce ~0.15) as a `linear()` curve: the follow-through of a
+     released drag — the account orb springing back inside the screen (owner,
+     2026-10-16, account-corner-prototype.html E). */
+  --spring: linear(0, 0.009, 0.035 2.1%, 0.141, 0.281 6.7%, 0.723 12.9%, 0.938 16.7%, 1.017 19.4%, 1.051 22.3%, 1.057 24.4%, 1.045 28%, 1.011 34.8%, 0.995 41.2%, 0.997 52.1%, 1);
 
   /* Frequency decides the budget. A row hover happens a hundred times a day
      and must feel instant; a drawer happens rarely and is allowed to explain
@@ -499,6 +504,12 @@
   --ease-out: var(--ease-out);
   --ease-in-out: var(--ease-in-out);
   --ease-drawer: var(--ease-drawer);
+  /* What a bare `transition` / `transition-colors` utility runs at. Left to
+     Tailwind it was 150ms on its own weak curve, and because a utility beats
+     the base layer's `a, button, tr…` rule, ~570 hovers settled at a different
+     speed from the rest (Emil, 2026-10-15). */
+  --default-transition-duration: var(--t-hover);
+  --default-transition-timing-function: var(--ease-out);
 
   --shadow-soft: var(--shadow-soft);
   --shadow-pop: var(--shadow-pop);
@@ -508,7 +519,7 @@
   /* The type scale, named. Every size in DESIGN.md's `scale` block lives here
      so a screen asks for `text-card-title`, not for 15px.
 
-     **Nothing is smaller than 14px** — the owner's ruling of 2026-09-26, after
+     **Nothing is smaller than 15px** — the owner's ruling of 2026-10-14 (14px since 2026-09-26), after
      a day of reading supplier and order screens set at 11-13px. Every token
      below that line was raised to 14, and so was every arbitrary
      `text-[…rem]` under 0.875rem in the screens. Do not add one back. */
@@ -535,9 +546,9 @@
      Nav rose from 13 to 15 with everything else on 2026-09-10; had it stayed
      at 13 beside 15px cells it would have read as a disabled column rather
      than a quiet one. */
-  --text-nav: 0.875rem; /* 14 — the floor (owner, 2026-09-26) */
-  --text-section: 0.875rem; /* 14 — the group label above a nav run */
-  --text-eyebrow: 0.875rem; /* 14 — uppercase micro-caps, at the floor */
+  --text-nav: 0.9375rem; /* 15 — the floor (owner, 2026-10-14) */
+  --text-section: 0.9375rem; /* 15 — the group label above a nav run */
+  --text-eyebrow: 0.9375rem; /* 15 — uppercase micro-caps, at the floor */
   --text-eyebrow--letter-spacing: 0.04em;
   /* NOTE: there is deliberately no `--text-body`. `--color-body` already
      compiles to `.text-body`, Tailwind kept the colour, and the size token
@@ -963,7 +974,7 @@ button,
     content: attr(data-label);
     display: block;
     margin-bottom: 0.125rem;
-    font-size: 0.875rem;
+    font-size: 0.9375rem;
     font-weight: 400;
     color: var(--mute);
     text-transform: none;
@@ -994,9 +1005,264 @@ button,
 .row-fresh > td {
   animation: row-fresh 3.2s var(--ease-out) both;
 }
+
+@keyframes fade-in-only {
+  from {
+    opacity: 0;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   .row-fresh,
   .row-fresh > td {
     animation-duration: 0.01s;
+  }
+}
+
+/* A list whose next contents are being read (a tab, a filter): it dims while
+   the old rows stand, and comes back when the new ones land. A transition, not
+   keyframes — pressed twice it retargets. Opacity only: rows people read do
+   not move for style. Kept under reduced motion — it is a state, not motion. */
+.list-swap {
+  transition: opacity var(--t-pop) var(--ease-out);
+}
+.list-swap[aria-busy="true"] {
+  opacity: 0.55;
+}
+
+/* A fold opening (Activity, a print queue's lines, a return's history): the
+   content grows into its room instead of teleporting in. Height is the one
+   tolerated layout property here — a fold has no transform equivalent
+   (Emil). Opens at --t-panel on the strong ease-out, closes in --t-exit.
+   Base UI measures the panel into --collapsible-panel-height. */
+.fold-panel {
+  height: var(--collapsible-panel-height);
+  overflow: hidden;
+  transition:
+    height var(--t-panel) var(--ease-out),
+    opacity var(--t-panel) var(--ease-out);
+}
+.fold-panel[data-starting-style],
+.fold-panel[data-ending-style] {
+  height: 0;
+  opacity: 0;
+}
+.fold-panel[data-ending-style] {
+  transition-duration: var(--t-exit);
+}
+/* The same for a plain <details>, where the browser can (Chrome 131+,
+   Safari 18.4+); elsewhere it opens at once, as before. */
+@supports (interpolate-size: allow-keywords) {
+  details {
+    interpolate-size: allow-keywords;
+  }
+  details::details-content {
+    height: 0;
+    overflow: clip;
+    opacity: 0;
+    transition:
+      height var(--t-panel) var(--ease-out),
+      opacity var(--t-panel) var(--ease-out),
+      content-visibility var(--t-panel) allow-discrete;
+  }
+  details[open]::details-content {
+    height: auto;
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fold-panel,
+  details::details-content {
+    transition-property: opacity;
+  }
+}
+
+/* ── the account orb ─────────────────────────────────────────────────────
+   One round orb holds chat, discussions, notifications, profile, search and
+   sign-out (owner, 2026-10-16: account-corner-prototype.html, E · Floating
+   orb). It is dragged anywhere and stays where it is let go — no pull to a
+   wall; only a drop past an edge springs back inside. The position is the
+   inline `transform` (`account-orb.tsx`); the press and the rest are `scale`,
+   a property of its own, so the two never fight over one value. */
+.account-orb {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 35;
+  width: 56px;
+  height: 56px;
+  border-radius: 999px;
+  border: 0;
+  padding: 0;
+  background: color-mix(in srgb, var(--canvas) 92%, transparent);
+  backdrop-filter: blur(14px) saturate(1.6);
+  -webkit-backdrop-filter: blur(14px) saturate(1.6);
+  /* A blue ring, so the orb reads as the hub's own control at a glance
+     (owner, 2026-10-16: "kurang jelas, ring saja biru"). */
+  box-shadow: 0 0 0 2px var(--accent), var(--shadow-float);
+  display: grid;
+  place-items: center;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    transform 0.5s var(--spring),
+    opacity 0.3s ease,
+    scale var(--t-press) var(--ease-out);
+}
+/* Under the finger it follows at once, a touch bigger: it is being held. */
+.account-orb[data-dragging] {
+  transition:
+    opacity 0.2s ease,
+    scale var(--t-press) var(--ease-out);
+  cursor: grabbing;
+  scale: 1.06;
+}
+/* 2.5s untouched it steps back, so it never sits loud over a row. */
+.account-orb[data-resting] {
+  opacity: 0.85;
+  scale: 0.92;
+}
+.account-orb:active {
+  scale: 0.97;
+}
+.account-orb[data-dragging]:active {
+  scale: 1.06;
+}
+/* The initial's disc inside the ring. */
+.account-orb-face {
+  width: 42px;
+  height: 42px;
+}
+/* In the rail's foot on a desk: in the flow, not dragged, never resting. */
+.account-orb[data-pinned] {
+  position: relative;
+  z-index: auto;
+  width: 48px;
+  height: 48px;
+  flex-shrink: 0;
+  cursor: pointer;
+  touch-action: manipulation;
+  box-shadow: 0 0 0 2px var(--accent);
+  transition: scale var(--t-press) var(--ease-out);
+}
+.account-orb[data-pinned] .account-orb-face {
+  width: 38px;
+  height: 38px;
+}
+/* Before the first position is known, and under a record sheet. */
+.account-orb[data-away] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* The 3×2 panel grows from the orb toward the middle of the screen: in at
+   200ms on the ease-out, out at 120ms — the person has already decided. */
+.account-orb-menu {
+  position: fixed;
+  z-index: 36;
+  width: 312px;
+  max-width: calc(100vw - 16px);
+  padding: 10px;
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--canvas) 94%, transparent);
+  backdrop-filter: blur(18px) saturate(1.6);
+  -webkit-backdrop-filter: blur(18px) saturate(1.6);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 6%), var(--shadow-float);
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  opacity: 0;
+  transform: scale(0.95);
+  pointer-events: none;
+  visibility: hidden;
+  transition:
+    opacity 120ms ease,
+    transform 120ms var(--ease-out),
+    visibility 0s 120ms;
+}
+.account-orb-menu[data-open] {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+  visibility: visible;
+  transition:
+    opacity 180ms ease,
+    transform 200ms var(--ease-out),
+    visibility 0s;
+}
+.account-orb-tile {
+  position: relative;
+  height: 72px;
+  border: 0;
+  background: none;
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--ink);
+  opacity: 0;
+  transform: translateY(4px);
+  transition:
+    background-color 150ms,
+    transform var(--t-press) var(--ease-out);
+}
+/* The tiles follow the panel in, 30ms apart; never held back from a tap. */
+.account-orb-menu[data-open] .account-orb-tile {
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity 180ms ease,
+    transform 200ms var(--ease-out),
+    background-color 150ms;
+}
+.account-orb-menu[data-open] .account-orb-tile:nth-child(2) { transition-delay: 30ms; }
+.account-orb-menu[data-open] .account-orb-tile:nth-child(3) { transition-delay: 60ms; }
+.account-orb-menu[data-open] .account-orb-tile:nth-child(4) { transition-delay: 90ms; }
+.account-orb-menu[data-open] .account-orb-tile:nth-child(5) { transition-delay: 120ms; }
+.account-orb-menu[data-open] .account-orb-tile:nth-child(6) { transition-delay: 150ms; }
+.account-orb-menu[data-open] .account-orb-tile:active {
+  transform: scale(0.97);
+  transition-delay: 0ms;
+}
+@media (hover: hover) and (pointer: fine) {
+  .account-orb-tile:hover {
+    background: var(--soft);
+  }
+}
+.account-orb-tile svg {
+  width: 22px;
+  height: 22px;
+  color: var(--mute);
+}
+.account-orb-tile[data-danger],
+.account-orb-tile[data-danger] svg {
+  color: var(--bad-fg);
+}
+
+/* Reduced motion keeps the fades and drops the travel: the orb jumps to its
+   place, the panel and its tiles only fade. */
+@media (prefers-reduced-motion: reduce) {
+  .account-orb {
+    transition: opacity 0.2s ease;
+  }
+  .account-orb,
+  .account-orb[data-dragging],
+  .account-orb[data-resting],
+  .account-orb:active {
+    scale: none;
+  }
+  .account-orb-menu,
+  .account-orb-menu[data-open],
+  .account-orb-tile,
+  .account-orb-menu[data-open] .account-orb-tile {
+    transform: none !important;
+    transition-delay: 0ms !important;
   }
 }

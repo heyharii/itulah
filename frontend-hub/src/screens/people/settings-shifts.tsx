@@ -1,29 +1,149 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
+import {
+  useMutation,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query"
+import type { ColumnDef } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
+import { useMemo, useState, Suspense } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { useLayout } from "@/lib/layout"
 import { Fab } from "@/components/ui/fab"
 import { Button } from "@/components/ui/button"
+import { Card } from "@/components/ui/card"
+import { DataTable } from "@/components/ui/data-table"
 import { Field, Input } from "@/components/ui/field"
 import { Toggle } from "@/components/ui/form"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
-import { MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
 import { Sheet, Fact, Facts } from "@/components/ui/sheet"
-import { Banner, EmptyState, Problem } from "@/components/ui/states"
+import {
+  Banner,
+  EmptyState,
+  Problem,
+  LoadingState,
+} from "@/components/ui/states"
 import {
   defineShift,
-  listShifts,
   retireShift,
   rosterKeys,
   type NewShift,
+  shiftsQuery,
 } from "@/lib/queries/people"
-import { queryState } from "@/lib/query-state"
 import { useCanWrite } from "@/lib/session"
-import { ListCard, RowOpen, SheetFooter } from "@/screens/people/settings-kit"
+import { CardFigure, CardFoot, CardName } from "@/components/ui/phone-cards"
+import { tableSetup, type TableSetup } from "@/lib/table"
+import { SheetFooter } from "@/screens/people/settings-kit"
 import { useOpener } from "@/screens/people/settings-lib"
 import type { ShiftView } from "@itulah/contract"
+
+const columns: ColumnDef<TableSetup, ShiftView>[] = [
+  {
+    id: "pattern",
+    accessorFn: (row) => row.name,
+    header: "Pattern",
+    size: 280,
+    meta: { card: "hide" },
+    cell: ({ row }) => (
+      <>
+        {row.original.name}
+        <span className="ml-2 font-mono text-id font-normal text-mute">
+          {row.original.id}
+        </span>
+      </>
+    ),
+  },
+  {
+    accessorKey: "starts_at",
+    header: "Starts",
+    size: 140,
+    meta: { card: "hide" },
+    cell: ({ row }) => (
+      <span className="font-mono text-id">{row.original.starts_at}</span>
+    ),
+  },
+  {
+    accessorKey: "ends_at",
+    header: "Ends",
+    size: 200,
+    meta: { card: "hide" },
+    cell: ({ row }) => (
+      <>
+        <span className="font-mono text-id">{row.original.ends_at}</span>
+        {row.original.crosses_midnight && (
+          <Pill tone="info" className="ml-1.5">
+            Overnight
+          </Pill>
+        )}
+      </>
+    ),
+  },
+  {
+    id: "break",
+    accessorFn: (row) => row.unpaid_break_minutes,
+    header: "Break",
+    size: 160,
+    meta: { align: "right", card: "hide" },
+    cell: ({ row }) => breakText(row.original),
+  },
+  {
+    id: "paid",
+    accessorFn: (row) => row.planned_work_minutes,
+    header: "Paid",
+    size: 120,
+    meta: { align: "right", card: "hide" },
+    cell: ({ row }) => paidTime(row.original.planned_work_minutes),
+  },
+  // Three columns that exist only on a card (`cardLead`; a phone): the name
+  // over its code, the paid time as the figure, and the hours under it.
+  {
+    id: "head",
+    accessorFn: (row) => row.name,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "title" },
+    cell: ({ row }) => (
+      <CardName name={row.original.name} code={row.original.id} />
+    ),
+  },
+  {
+    id: "lead",
+    accessorFn: (row) => row.planned_work_minutes,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "lead" },
+    cell: ({ row }) => (
+      <CardFigure
+        value={paidTime(row.original.planned_work_minutes)}
+        caption="paid"
+      />
+    ),
+  },
+  {
+    id: "foot",
+    accessorFn: (row) => row.starts_at,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "foot" },
+    cell: ({ row }) => (
+      <CardFoot
+        status={
+          row.original.crosses_midnight ? (
+            <Pill tone="info">Overnight</Pill>
+          ) : undefined
+        }
+      >
+        {row.original.starts_at} – {row.original.ends_at}
+        {row.original.unpaid_break_minutes !== 0 &&
+          ` · break ${breakText(row.original)}`}
+      </CardFoot>
+    ),
+  },
+]
 
 /// Settings › Shifts — the patterns a roster is built out of.
 ///
@@ -34,10 +154,6 @@ import type { ShiftView } from "@itulah/contract"
 export function ShiftSettings() {
   const canWrite = useCanWrite()
   const phone = useLayout() === "phone"
-  const shifts = useQuery({
-    queryKey: rosterKeys.shifts(),
-    queryFn: ({ signal }) => listShifts(signal),
-  })
   const create = useOpener()
   const detail = useOpener<ShiftView>()
 
@@ -58,60 +174,11 @@ export function ShiftSettings() {
         }
       />
 
-      <ListCard>
-        {queryState(shifts, {
-          loading: "Loading the patterns…",
-          render: (patterns) =>
-            patterns.length === 0 ? (
-              <EmptyState>
-                No pattern is defined. A roster cannot be built until one exists
-                — add the first with New shift.
-              </EmptyState>
-            ) : (
-              <MiniTable
-                head={[
-                  "Pattern",
-                  "Starts",
-                  "Ends",
-                  { label: "Break", align: "right" },
-                  { label: "Paid", align: "right" },
-                ]}
-              >
-                {patterns.map((pattern) => (
-                  <MiniRow key={pattern.id}>
-                    <MiniCell>
-                      <RowOpen onClick={() => detail.show(pattern)}>
-                        {pattern.name}
-                      </RowOpen>
-                      <span className="ml-2 font-mono text-id text-mute">
-                        {pattern.id}
-                      </span>
-                    </MiniCell>
-                    <MiniCell>
-                      <span className="font-mono text-id">
-                        {pattern.starts_at}
-                      </span>
-                    </MiniCell>
-                    <MiniCell>
-                      <span className="font-mono text-id">
-                        {pattern.ends_at}
-                      </span>
-                      {pattern.crosses_midnight && (
-                        <Pill tone="info" className="ml-1.5">
-                          Overnight
-                        </Pill>
-                      )}
-                    </MiniCell>
-                    <MiniCell align="right">{breakText(pattern)}</MiniCell>
-                    <MiniCell align="right">
-                      {paidTime(pattern.planned_work_minutes)}
-                    </MiniCell>
-                  </MiniRow>
-                ))}
-              </MiniTable>
-            ),
-        })}
-      </ListCard>
+      <Card className="mb-4 overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+        <Suspense fallback={<LoadingState>Loading the patterns…</LoadingState>}>
+          <Patterns detail={detail} />
+        </Suspense>
+      </Card>
 
       <NewShiftSheet
         key={`new-${create.n}`}
@@ -126,6 +193,47 @@ export function ShiftSettings() {
         canWrite={canWrite}
       />
     </PageContent>
+  )
+}
+
+/// The patterns, as a table. Here and not in the screen so the head paints at
+/// once and this waits alone for its answer.
+function Patterns({
+  detail,
+}: {
+  detail: ReturnType<typeof useOpener<ShiftView>>
+}) {
+  const shifts = useSuspenseQuery(shiftsQuery())
+  const phone = useLayout() === "phone"
+  const patterns = shifts.data
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: patterns,
+        columns,
+        getRowId: (row: ShiftView) => row.id,
+        // The card's own columns are drawn on a phone and never on a desk.
+        state: { columnVisibility: { head: phone, lead: phone, foot: phone } },
+      }),
+      [patterns, phone]
+    )
+  )
+  return patterns.length === 0 ? (
+    <EmptyState>
+      No pattern is defined. A roster cannot be built until one exists — add the
+      first with New shift.
+    </EmptyState>
+  ) : (
+    <DataTable<ShiftView>
+      refresh={[shifts]}
+      table={table}
+      onRowClick={(pattern) => detail.show(pattern)}
+      isSelected={(pattern) => detail.isOpen && pattern.id === detail.item?.id}
+      cardsApart
+      cardLead
+      cardSort={false}
+    />
   )
 }
 

@@ -1,7 +1,15 @@
-import { useInfiniteQuery } from "@tanstack/react-query"
+import { useSuspenseInfiniteQuery } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { useMemo, useState } from "react"
+import { useHydrated } from "@tanstack/react-router"
+import {
+  Suspense,
+  useDeferredValue,
+  useMemo,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { DockTools } from "@/components/shell/dock-tools"
@@ -12,15 +20,18 @@ import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
-import { EmptyState } from "@/components/ui/states"
+import { EmptyState, LoadingState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
-import { useFilterState, type Filter, type FilterField } from "@/lib/filters"
+import {
+  useFilterState,
+  type Filter,
+  type FilterField,
+  type FilterState,
+} from "@/lib/filters"
 import { count, moment } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
-import { queryState } from "@/lib/query-state"
 import {
-  auditKeys,
-  auditPage,
+  auditFeedQuery,
   readAction,
   type AuditEntry,
   type AuditScope,
@@ -128,7 +139,7 @@ const columns: ColumnDef<TableSetup, AuditEntry>[] = [
     size: 380,
     meta: { card: "hide" },
     cell: ({ row }) => (
-      <span className="font-mono text-[0.875rem] text-mute">
+      <span className="font-mono text-[0.9375rem] text-mute">
         {row.original.method} {row.original.path}
       </span>
     ),
@@ -218,7 +229,6 @@ export function ActivityLog() {
   const [sorting, setSorting] = useState<SortingState>([
     { id: "at", desc: true },
   ])
-  const phone = useLayout() === "phone"
 
   const fields = useMemo<FilterField[]>(
     () => [
@@ -253,20 +263,72 @@ export function ActivityLog() {
     }
   }, [filters.filters, needle, only, sorting])
 
-  const feed = useInfiniteQuery({
-    queryKey: auditKeys.feed(scope),
-    queryFn: ({ pageParam, signal }) =>
-      auditPage({ ...scope, cursor: pageParam }, signal),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) => last.next_cursor ?? undefined,
-    placeholderData: (previous) => previous,
-    // Short, because this is the one screen somebody watches while something
-    // is happening.
-    staleTime: 5_000,
-  })
+  return (
+    <PageContent>
+      <PageHeader
+        crumb="System"
+        title="Activity"
+        sub="Every action anybody took, and what the server answered. Reads are not recorded — this says who changed things, not who looked."
+      />
+
+      <Suspense fallback={<LoadingState>Reading the log…</LoadingState>}>
+        <ActivityBook
+          query={query}
+          setQuery={setQuery}
+          only={only}
+          setOnly={setOnly}
+          sorting={sorting}
+          setSorting={setSorting}
+          fields={fields}
+          filters={filters}
+          needle={needle}
+          scope={scope}
+        />
+      </Suspense>
+    </PageContent>
+  )
+}
+
+/// The log with everything drawn from its answer: the split with its tally of
+/// refusals, the filter chips with the server's counts, the total, and the
+/// table. The page's head stands outside, so it paints before the log arrives.
+function ActivityBook({
+  query,
+  setQuery,
+  only,
+  setOnly,
+  sorting,
+  setSorting,
+  fields,
+  filters,
+  needle,
+  scope,
+}: {
+  query: string
+  setQuery: (query: string) => void
+  only: "all" | "refused"
+  setOnly: (only: "all" | "refused") => void
+  sorting: SortingState
+  setSorting: Dispatch<SetStateAction<SortingState>>
+  fields: FilterField[]
+  filters: FilterState
+  /// The search once the typing has stopped: what the server is asked.
+  needle: string
+  scope: AuditScope
+}) {
+  const phone = useLayout() === "phone"
+  // The dock is the browser's: a boundary that streams in after the page has
+  // hydrated finds the dock already there and would draw into it, where the
+  // server drew nothing.
+  const hydrated = useHydrated()
+
+  /// Read for the question as it was a moment ago while a new one is on its
+  /// way, so a keystroke or a chip does not blank the table to a loading line.
+  const asked = useDeferredValue(scope)
+  const feed = useSuspenseInfiniteQuery(auditFeedQuery(asked))
 
   const rows = useMemo(
-    () => feed.data?.pages.flatMap((page) => page.rows) ?? [],
+    () => feed.data.pages.flatMap((page) => page.rows),
     [feed.data]
   )
   /// The first page carries the exact total and facet counts; the pages after
@@ -331,13 +393,7 @@ export function ActivityLog() {
   )
 
   return (
-    <PageContent>
-      <PageHeader
-        crumb="System"
-        title="Activity"
-        sub="Every action anybody took, and what the server answered. Reads are not recorded — this says who changed things, not who looked."
-      />
-
+    <>
       <div className={DESK_BAR}>
         <Segmented
           options={[
@@ -363,63 +419,64 @@ export function ActivityLog() {
         <Input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search"
           className="h-8 w-56"
         />
       </div>
 
       {/* On a phone the split, the filter, the search and the sort are the
           dock's. */}
-      <DockTools
-        search={{ value: query, onChange: setQuery, label: "Search the log" }}
-        filter={{
-          count: filters.filters.length,
-          panel: {
-            model: filters,
-            filterModel: { ...filters, fields: counted },
-            table,
-          },
-        }}
-        sort={dockSortOf(table)}
-        status={{
-          value: only,
-          options: [
-            { value: "all", label: "Everything" },
-            {
-              value: "refused",
-              label: "Refused",
-              count: refused,
+      {hydrated && (
+        <DockTools
+          search={{ value: query, onChange: setQuery, label: "Search the log" }}
+          filter={{
+            count: filters.filters.length,
+            panel: {
+              model: filters,
+              filterModel: { ...filters, fields: counted },
+              table,
             },
-          ],
-          onChange: (next) => setOnly(next as "all" | "refused"),
-        }}
-      />
+          }}
+          sort={dockSortOf(table)}
+          status={{
+            value: only,
+            options: [
+              { value: "all", label: "Everything" },
+              {
+                value: "refused",
+                label: "Refused",
+                count: refused,
+              },
+            ],
+            onChange: (next) => setOnly(next as "all" | "refused"),
+          }}
+        />
+      )}
 
-      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-        {queryState(feed, {
-          loading: "Reading the log…",
-          render: () =>
-            rows.length === 0 ? (
-              <EmptyState>
-                {only === "refused" &&
-                filters.filters.length === 0 &&
-                needle === ""
-                  ? "Nothing has been refused."
-                  : narrowed
-                    ? "No action matches what you asked for."
-                    : "Nothing has been done yet."}
-              </EmptyState>
-            ) : (
-              <DataTable<AuditEntry>
-                table={table}
-                more={feed}
-                className="max-h-[calc(100dvh-15rem)]"
-                cardSort={false}
-                cardsApart
-                cardLead
-              />
-            ),
-        })}
+      <Card
+        aria-busy={asked !== scope || undefined}
+        className="list-swap overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none"
+      >
+        {rows.length === 0 ? (
+          <EmptyState>
+            {only === "refused" && filters.filters.length === 0 && needle === ""
+              ? "Nothing has been refused."
+              : narrowed
+                ? "No action matches what you asked for."
+                : "Nothing has been done yet."}
+          </EmptyState>
+        ) : (
+          <DataTable<AuditEntry>
+            refresh={[feed]}
+            table={table}
+            more={feed}
+            className="max-h-[calc(100dvh-15rem)]"
+            cardSort={false}
+            cardsApart
+            cardLead
+          />
+        )}
       </Card>
-    </PageContent>
+    </>
   )
 }

@@ -151,7 +151,7 @@ export function LoginForm({
       >
         <div {...rise(0)}>
           {eyebrow && (
-            <p className="mb-2 text-[0.875rem] leading-5 font-medium text-body">
+            <p className="mb-2 text-[0.9375rem] leading-5 font-medium text-body">
               {eyebrow}
             </p>
           )}
@@ -243,7 +243,7 @@ export function LoginForm({
         {problem && (
           <p
             role="alert"
-            className="mt-4 flex items-start gap-2 text-[0.875rem] leading-5 text-bad-fg"
+            className="mt-4 flex items-start gap-2 text-[0.9375rem] leading-5 text-bad-fg"
           >
             <CircleAlert className="mt-0.5 size-4 shrink-0" />
             <span className="block first-letter:uppercase">{problem}</span>
@@ -264,7 +264,7 @@ export function LoginForm({
             {signIn.isPending ? "Signing in…" : "Sign in"}
           </Button>
           {footnote && (
-            <p className="mt-6 text-[0.875rem] leading-5 text-body">
+            <p className="mt-6 text-[0.9375rem] leading-5 text-body">
               {footnote}
             </p>
           )}

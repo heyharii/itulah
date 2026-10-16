@@ -1,0 +1,8 @@
+[
+  { "id": "ask", "text": "Retur dari toko diminta oleh MD. Toko tidak membuatnya sendiri." },
+  { "id": "sent", "text": "Diminta 20, toko mengirim 15. Sisa 5 tetap terbuka." },
+  { "id": "received", "text": "DC menerima 15 dari 15. Itu lengkap, bukan kekurangan receiving." },
+  { "id": "cancel", "text": "Retur ke supplier bisa dibatalkan selama belum keluar. **Cancel** membebaskan stok dan reservasinya, bukan cuma mengganti status." },
+  { "id": "handed", "text": "Setelah diserahkan ke supplier, retur terkunci." },
+  { "id": "settle", "text": "Yang tersisa adalah penyelesaiannya: **Replacement**, **Refund**, **Credit note**, atau **Close short**." }
+]

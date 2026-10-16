@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query"
+import { queryOptions, useQuery } from "@tanstack/react-query"
 
 import { node } from "@/lib/api"
 import type {
@@ -96,6 +96,48 @@ export function sectionsOf(
   )
 }
 
+/// What the role lets a person do, in one line — read off the role itself, so
+/// an edit in HR › Job roles shows here the next time the sheet opens.
+export function roleAccess(
+  role: JobRole | undefined
+): { text: string; tone: "mute" | "warn" } | null {
+  if (role === undefined) return null
+  if (role.code === "OWNER" || role.code === "ADMIN") {
+    return {
+      text: "Can change everything, including other accounts.",
+      tone: "warn",
+    }
+  }
+  const sections = sectionsOf(role.sections).map((code) => SECTION_LABEL[code])
+  const where =
+    role.node_reach === "UNIT"
+      ? " · signs in at the server of their unit"
+      : role.node_reach === "EVERY"
+        ? " · signs in at every server"
+        : ""
+  const sees =
+    sections.length > 0
+      ? `Sees ${sections.join(", ")}${role.read_only ? " (read only)" : ""}`
+      : "Works in the store app and POS"
+  return { text: sees + where, tone: "mute" }
+}
+
+/// A WhatsApp number as `wa.me` wants it: digits with the country code, no
+/// plus and no leading zero. "0812 3456 7890", "+62 812-3456-7890" and
+/// "812 3456 7890" are the same number; anything that is not 10–15 digits once
+/// read this way is not one.
+export function whatsappNumber(text: string): string | null {
+  const digits = text.replace(/\D/g, "")
+  const full = digits.startsWith("62")
+    ? digits
+    : digits.startsWith("0")
+      ? `62${digits.slice(1)}`
+      : digits.startsWith("8")
+        ? `62${digits}`
+        : digits
+  return full.length >= 10 && full.length <= 15 ? full : null
+}
+
 // ── roles ────────────────────────────────────────────────────────────────
 
 /// The job-role codes the server is seeded with today.
@@ -151,14 +193,20 @@ export async function listRoles(signal?: AbortSignal): Promise<JobRole[]> {
   return answer.items
 }
 
-export function useRoles() {
-  return useQuery({
+/// Options form of the job-role list, shared by `useRoles`, the Job roles
+/// screen (which reads it by suspending) and its prefetcher.
+export function rolesQuery() {
+  return queryOptions({
     queryKey: roleKeys.list(),
     queryFn: ({ signal }) => listRoles(signal),
     // Sixteen-odd rows that change when an admin edits one — not worth
     // re-asking every time a screen that reads role names remounts.
     staleTime: 60_000,
   })
+}
+
+export function useRoles() {
+  return useQuery(rolesQuery())
 }
 
 export function updateRole(

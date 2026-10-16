@@ -1,20 +1,43 @@
-import { useQueries, useQuery } from "@tanstack/react-query"
-import { useMemo, useState } from "react"
+import {
+  useQuery,
+  useSuspenseQueries,
+  useSuspenseQuery,
+} from "@tanstack/react-query"
+import type { ColumnDef } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
+import { Suspense, useMemo, useState } from "react"
 
+import { PageContent } from "@/components/shell/app-shell"
+import { Card } from "@/components/ui/card"
+import { DataTable } from "@/components/ui/data-table"
+import { Select } from "@/components/ui/field"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
+import { PageHeader } from "@/components/ui/page-header"
+import { Toolbar } from "@/components/ui/segmented"
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states"
 import { node } from "@/lib/api"
 import { count, dateText, money, moneyCompact } from "@/lib/format"
-import { analyticsKeys, dailyReport } from "@/lib/queries/analytics"
-import { financeKeys, listCashCounts } from "@/lib/queries/finance"
+import { dailyReportQuery, type SaleTenderTotal } from "@/lib/queries/analytics"
+import { storeCashCountsQuery } from "@/lib/queries/finance"
 import { type UnitView } from "@/lib/queries/organisation"
 import { useLayout } from "@/lib/layout"
+import { tableSetup, type TableSetup } from "@/lib/table"
 import { cn } from "@/lib/utils"
 import { Status } from "@/components/ui/pill"
 import { Grid, Td, Th } from "@/screens/finance-final/parts"
 import { isoDay, todayIso } from "@/screens/finance/chart"
-import { CardFigure, PhoneList } from "@/components/ui/phone-cards"
+import { PhoneList } from "@/components/ui/phone-cards"
 import { PhoneChoice, PhoneFigures } from "@/screens/finance/parts"
-import { StoreFrame } from "@/screens/finance/stores-frame"
+import { FactsSheet } from "@/screens/finance/phone-parts"
+import {
+  chosenStoreOf,
+  lastDays,
+  lastWeeks,
+  remember,
+  useRemembered,
+} from "@/screens/finance/store-units"
+import { StoreFrame, useOpenStores } from "@/screens/finance/stores-frame"
+import type { CashCountRow } from "@itulah/contract"
 
 /// Finance › Stores (owner, 2026-10-01): one shop at a time, its money from
 /// head office's side — what the till took each day against what reached the
@@ -28,23 +51,64 @@ import { StoreFrame } from "@/screens/finance/stores-frame"
 
 export function StoresSales() {
   return (
-    <StoreFrame
-      title="Sales by day"
-      sub="What each till took, day by day, against the drawer and the bank."
-    >
-      {(unit) => <SalesByDay key={unit.id} unit={unit} />}
+    <StoreFrame title="Sales by day">
+      {(unit, picker) => (
+        <SalesByDay key={unit.id} unit={unit} picker={picker} />
+      )}
     </StoreFrame>
   )
 }
 
+/// Cash counts are a list of counts, not a shop's page: the shop is a picker
+/// in the bar under the head, the week a rail of tabs, and a count opens as a
+/// sheet from its row.
 export function StoresCounts() {
   return (
-    <StoreFrame
-      title="Cash counts"
-      sub="The cash counted in each shop, week by week, against the books."
-    >
-      {(unit) => <CountsByWeek key={unit.id} unit={unit} />}
-    </StoreFrame>
+    <PageContent>
+      <PageHeader crumb="Finance › Stores" title="Cash counts" />
+      <Suspense fallback={<LoadingState>Reading the shops…</LoadingState>}>
+        <CountsPage />
+      </Suspense>
+    </PageContent>
+  )
+}
+
+function CountsPage() {
+  const { stores } = useOpenStores()
+  const kept = useRemembered()
+  // Empty until somebody picks: the page follows the shop the tab remembers.
+  const [picked, setPicked] = useState("")
+  const unit = chosenStoreOf(stores, picked === "" ? kept : picked)
+  if (unit === undefined) return <EmptyState>No shop is open yet.</EmptyState>
+  const picker = (
+    <Toolbar>
+      <Select
+        value={unit.id}
+        onChange={(next) => {
+          setPicked(next)
+          remember(next)
+        }}
+        aria-label="Shop"
+        className="h-control w-64"
+      >
+        {stores.map((store) => (
+          <option key={store.id} value={store.id}>
+            {store.name} · {store.code}
+          </option>
+        ))}
+      </Select>
+    </Toolbar>
+  )
+  return (
+    <>
+      {picker}
+      <Suspense
+        key={unit.id}
+        fallback={<LoadingState>Reading the counts…</LoadingState>}
+      >
+        <CountsByWeek unit={unit} />
+      </Suspense>
+    </>
   )
 }
 
@@ -116,7 +180,7 @@ function DateRail({
             >
               <span
                 className={cn(
-                  "text-[0.875rem]",
+                  "text-[0.9375rem]",
                   on ? "text-accent" : "text-mute"
                 )}
               >
@@ -129,7 +193,7 @@ function DateRail({
               </span>
               <span
                 className={cn(
-                  "mt-1 text-[0.875rem] tabular-nums",
+                  "mt-1 text-[0.9375rem] tabular-nums",
                   stop.flag ? "text-bad-fg" : "text-body"
                 )}
               >
@@ -151,29 +215,6 @@ function compact(minor: number): string {
   return moneyCompact(minor)
 }
 
-function lastDays(n: number): string[] {
-  const days: string[] = []
-  for (let back = n - 1; back >= 0; back -= 1) {
-    const date = new Date()
-    date.setDate(date.getDate() - back)
-    days.push(isoDay(date))
-  }
-  return days
-}
-
-/// The Mondays of the last `n` weeks, oldest first.
-function lastWeeks(n: number): string[] {
-  const monday = new Date()
-  monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7))
-  const weeks: string[] = []
-  for (let back = n - 1; back >= 0; back -= 1) {
-    const start = new Date(monday)
-    start.setDate(start.getDate() - back * 7)
-    weeks.push(isoDay(start))
-  }
-  return weeks
-}
-
 function weekEnd(monday: string): string {
   const end = new Date(`${monday}T00:00:00`)
   end.setDate(end.getDate() + 6)
@@ -193,129 +234,161 @@ function weekLabel(monday: string): { top: string; bottom: string } {
 // Sales by day
 // ---------------------------------------------------------------------------
 
-function SalesByDay({ unit }: { unit: UnitView }) {
+function SalesByDay({
+  unit,
+  picker,
+}: {
+  unit: UnitView
+  picker: React.ReactNode
+}) {
   const siteId = unit.sites[0]?.id ?? ""
+  if (siteId === "")
+    return (
+      <>
+        <Toolbar>{picker}</Toolbar>
+        <EmptyState>This shop has no till yet.</EmptyState>
+      </>
+    )
+  return <SalesDays siteId={siteId} picker={picker} />
+}
+
+function SalesDays({
+  siteId,
+  picker,
+}: {
+  siteId: string
+  picker: React.ReactNode
+}) {
   const days = useMemo(() => lastDays(14), [])
   const [picked, setPicked] = useState(days[days.length - 1])
-  const reports = useQueries({
-    queries: days.map((date) => ({
-      queryKey: [...analyticsKeys.all, "daily", siteId, date] as const,
-      queryFn: ({ signal }: { signal: AbortSignal }) =>
-        dailyReport({ siteId, date }, signal),
-      enabled: siteId !== "",
-      staleTime: 60_000,
-    })),
+  const reports = useSuspenseQueries({
+    queries: days.map((date) => dailyReportQuery(siteId, date)),
   })
   const index = days.indexOf(picked)
   const report = reports[index]?.data
-  const phone = useLayout() === "phone"
 
+  const rail = (
+    <DateRail
+      title="Day"
+      value={picked}
+      onChange={setPicked}
+      stops={days.map((date, i) => {
+        const at = new Date(`${date}T00:00:00`)
+        return {
+          key: date,
+          top:
+            date === todayIso() ? "Today" : dateText(at, { weekday: "short" }),
+          bottom: dateText(at, { day: "numeric", month: "short" }),
+          figure: reports[i]?.data?.sales.gross_minor,
+        }
+      })}
+    />
+  )
+  const bar = <Toolbar>{picker}</Toolbar>
+
+  if (report === undefined)
+    return (
+      <>
+        {rail}
+        {bar}
+        <EmptyState>This day could not be read.</EmptyState>
+      </>
+    )
+  if (report.sales.count === 0)
+    return (
+      <>
+        {rail}
+        {bar}
+        <EmptyState>Nothing was sold on this day.</EmptyState>
+      </>
+    )
   return (
     <>
-      <DateRail
-        title="Day"
-        value={picked}
-        onChange={setPicked}
-        stops={days.map((date, i) => {
-          const at = new Date(`${date}T00:00:00`)
-          return {
-            key: date,
-            top:
-              date === todayIso()
-                ? "Today"
-                : dateText(at, { weekday: "short" }),
-            bottom: dateText(at, { day: "numeric", month: "short" }),
-            figure: reports[i]?.data?.sales.gross_minor,
-          }
-        })}
-      />
-      {reports[index]?.isPending ? (
-        <LoadingState>Reading the day…</LoadingState>
-      ) : report === undefined ? (
-        <EmptyState>This day could not be read.</EmptyState>
-      ) : report.sales.count === 0 ? (
-        <EmptyState>Nothing was sold on this day.</EmptyState>
-      ) : (
-        <>
-          <PhoneFigures
-            items={[
-              { label: "Sales", value: money(report.sales.gross_minor) },
-              {
-                label: "Returns",
-                value: money(report.returns.refund_total_minor),
-              },
-              {
-                label: "Cash in drawer",
-                value: money(report.cash.cash_expected_minor),
-              },
-              { label: "Voided", value: count(report.sales.voided_count) },
-            ]}
+      {/* The day's four figures lead the page. */}
+      <KpiStrip className="grid-cols-2 md:grid-cols-4 xl:grid-cols-4">
+        <Kpi
+          label="Sales"
+          value={money(report.sales.gross_minor)}
+          delta={`${count(report.sales.count)} receipts`}
+          tone="flat"
+        />
+        <Kpi
+          label="Returns"
+          value={money(report.returns.refund_total_minor)}
+          delta={`${count(report.returns.count)} returns`}
+          tone="flat"
+        />
+        <div title="Cash taken less change and refunds">
+          <Kpi
+            label="Cash in drawer"
+            value={money(report.cash.cash_expected_minor)}
           />
-          <div className="mb-5 grid grid-cols-2 gap-3 max-md:hidden lg:grid-cols-4">
-            <Figure
-              label="Sales"
-              value={money(report.sales.gross_minor)}
-              note={`${count(report.sales.count)} receipts`}
-            />
-            <Figure
-              label="Returns"
-              value={money(report.returns.refund_total_minor)}
-              note={`${count(report.returns.count)} returns`}
-            />
-            <Figure
-              label="Cash expected in the drawer"
-              value={money(report.cash.cash_expected_minor)}
-              note="Cash taken less change and refunds"
-            />
-            <Figure
-              label="Voided"
-              value={count(report.sales.voided_count)}
-              note="Receipts cancelled"
-            />
-          </div>
-          {phone ? (
-            <PhoneList
-              rows={report.tenders.map((tender) => ({
-                key: tender.method,
-                title: tenderWord(tender.method),
-                lead: money(tender.amount_minor),
-                foot: `${count(tender.count)} ${tender.count === 1 ? "receipt" : "receipts"}`,
-              }))}
-            />
-          ) : (
-            <Grid>
-              <thead>
-                <tr>
-                  <Th>Paid by</Th>
-                  <Th align="right" width="9rem">
-                    Receipts
-                  </Th>
-                  <Th align="right" width="12rem">
-                    Taken at the till
-                  </Th>
-                </tr>
-              </thead>
-              <tbody>
-                {report.tenders.map((tender) => (
-                  <tr key={tender.method}>
-                    <Td className="text-ink">{tenderWord(tender.method)}</Td>
-                    <Td align="right">{count(tender.count)}</Td>
-                    <Td align="right">{money(tender.amount_minor)}</Td>
-                  </tr>
-                ))}
-              </tbody>
-            </Grid>
-          )}
-          <p className="mt-3 text-[0.875rem] text-mute">
-            Cash goes to the drawer and the bank on deposit; card and QRIS
-            arrive from the acquirer a day or two later, less the fee — matched
-            on Card &amp; EDC Settlement.
-          </p>
-        </>
-      )}
+        </div>
+        <div title="Receipts cancelled">
+          <Kpi label="Voided" value={count(report.sales.voided_count)} />
+        </div>
+      </KpiStrip>
+      {rail}
+      {bar}
+      <TenderTable tenders={report.tenders} />
     </>
   )
 }
+
+/// What each tender took at the till on the day. On a card the tender names it
+/// and what it took and how many receipts follow.
+function TenderTable({ tenders }: { tenders: readonly Tender[] }) {
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: tenders,
+        columns: TENDER_COLUMNS,
+        getRowId: (row: Tender) => row.method,
+      }),
+      [tenders]
+    )
+  )
+  return (
+    <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+      <DataTable<Tender> table={table} pageScroll cardSort={false} cardsApart />
+    </Card>
+  )
+}
+
+type Tender = SaleTenderTotal
+
+const TENDER_COLUMNS: ColumnDef<TableSetup, Tender>[] = [
+  {
+    id: "paid_by",
+    accessorFn: (row) => tenderWord(row.method),
+    header: "Paid by",
+    size: 240,
+    enableSorting: false,
+    meta: { card: "title", grow: 200 },
+    cell: ({ row }) => (
+      <span className="text-ink">{tenderWord(row.original.method)}</span>
+    ),
+  },
+  {
+    id: "receipts",
+    accessorFn: (row) => row.count,
+    header: "Receipts",
+    size: 140,
+    enableSorting: false,
+    meta: { align: "right", card: "metric" },
+    cell: ({ row }) => count(row.original.count),
+  },
+  {
+    id: "taken",
+    accessorFn: (row) => row.amount_minor,
+    header: "Taken at the till",
+    size: 190,
+    enableSorting: false,
+    meta: { align: "right", card: "metric" },
+    cell: ({ row }) => money(row.original.amount_minor),
+  },
+]
 
 function tenderWord(method: string): string {
   const words: Record<string, string> = {
@@ -451,7 +524,7 @@ export function ExpensesByWeek({ unit }: { unit: UnitView }) {
                 </Td>
                 <Td className="max-w-0">
                   <span className="block truncate text-ink">{row.vendor}</span>
-                  <span className="block truncate text-[0.875rem] text-mute">
+                  <span className="block truncate text-[0.9375rem] text-mute">
                     {categoryWord(row.category)}
                     {row.memo ? ` · ${row.memo}` : ""}
                   </span>
@@ -515,19 +588,13 @@ function CountsByWeek({ unit }: { unit: UnitView }) {
   const weeks = useMemo(() => lastWeeks(8), [])
   const [picked, setPicked] = useState(weeks[weeks.length - 1])
   const siteIds = unit.sites.map((site) => site.id)
-  const counts = useQuery({
-    queryKey: [...financeKeys.all, "cash-counts", "unit", unit.id] as const,
-    queryFn: ({ signal }) => listCashCounts(signal),
-  })
-  const mine = (counts.data ?? []).filter((row) =>
-    siteIds.includes(row.site_id)
-  )
+  const counts = useSuspenseQuery(storeCashCountsQuery(unit.id))
+  const mine = counts.data.filter((row) => siteIds.includes(row.site_id))
   const inWeek = (monday: string) =>
     mine.filter(
       (row) => row.counted_on >= monday && row.counted_on <= weekEnd(monday)
     )
   const rows = inWeek(picked)
-  const phone = useLayout() === "phone"
 
   return (
     <>
@@ -544,128 +611,160 @@ function CountsByWeek({ unit }: { unit: UnitView }) {
           return {
             key: monday,
             ...weekLabel(monday),
-            figure: counts.isPending ? undefined : Math.abs(variance),
+            figure: Math.abs(variance),
             flag: variance !== 0,
             note: `Off by ${compact(Math.abs(variance))}`,
           }
         })}
       />
-      <p className="-mt-2 mb-4 text-[0.875rem] text-mute max-md:hidden">
-        The figure on each week is how far the counts missed the books.
-      </p>
-      {counts.isPending ? (
-        <LoadingState>Reading the counts…</LoadingState>
-      ) : counts.isError ? (
-        <ErrorState error={counts.error} />
-      ) : rows.length === 0 ? (
+      {rows.length === 0 ? (
         <EmptyState>No cash was counted this week.</EmptyState>
-      ) : phone ? (
-        <PhoneList
-          rows={rows.map((row) => ({
-            key: row.count_id,
-            title: row.account_name,
-            line: `${row.counted_by}${row.witnessed_by ? ` · witnessed by ${row.witnessed_by}` : ""}${row.reason ? ` · ${row.reason}` : ""}`,
-            lead: (
-              <CardFigure
-                value={
-                  row.variance_minor === 0 ? "—" : money(row.variance_minor)
-                }
-                caption="difference"
-                tone={row.variance_minor === 0 ? undefined : "bad"}
-              />
-            ),
-            foot: (
-              <>
-                <span className="block">
-                  {dateText(new Date(`${row.counted_on}T00:00:00`), {
-                    day: "numeric",
-                    month: "short",
-                    year: "numeric",
-                  })}
-                </span>
-                <span className="block tabular-nums">
-                  Books {money(row.per_books_minor)} · Counted{" "}
-                  {money(row.counted_minor)}
-                </span>
-              </>
-            ),
-          }))}
-        />
       ) : (
-        <Grid>
-          <thead>
-            <tr>
-              <Th width="8rem">Counted on</Th>
-              <Th>Cash box</Th>
-              <Th align="right" width="10rem">
-                Books
-              </Th>
-              <Th align="right" width="10rem">
-                Counted
-              </Th>
-              <Th align="right" width="10rem">
-                Difference
-              </Th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr key={row.count_id}>
-                <Td className="text-body">
-                  {dateText(new Date(`${row.counted_on}T00:00:00`), {
-                    day: "numeric",
-                    month: "short",
-                  })}
-                </Td>
-                <Td className="max-w-0">
-                  <span className="block truncate text-ink">
-                    {row.account_name}
-                  </span>
-                  <span className="block truncate text-[0.875rem] text-mute">
-                    {row.counted_by}
-                    {row.witnessed_by
-                      ? ` · witnessed by ${row.witnessed_by}`
-                      : ""}
-                    {row.reason ? ` · ${row.reason}` : ""}
-                  </span>
-                </Td>
-                <Td align="right">{money(row.per_books_minor)}</Td>
-                <Td align="right">{money(row.counted_minor)}</Td>
-                <Td
-                  align="right"
-                  className={
-                    row.variance_minor === 0
-                      ? "text-mute"
-                      : "font-medium text-bad-fg"
-                  }
-                >
-                  {row.variance_minor === 0 ? "·" : money(row.variance_minor)}
-                </Td>
-              </tr>
-            ))}
-          </tbody>
-        </Grid>
+        <CountsTable rows={rows} />
       )}
     </>
   )
 }
 
-function Figure({
-  label,
-  value,
-  note,
-}: {
-  label: string
-  value: string
-  note: string
-}) {
+/// The week's counts. A row opens the count — who counted, who watched, what
+/// the books said and why they differed — as a sheet; on a card the cash box
+/// names it and the three figures follow.
+const COUNT_COLUMNS: ColumnDef<TableSetup, CashCountRow>[] = [
+  {
+    id: "counted_on",
+    accessorFn: (row) => row.counted_on,
+    header: "Counted on",
+    size: 130,
+    enableSorting: false,
+    meta: { card: "meta" },
+    cell: ({ row }) => (
+      <span className="text-body">
+        {dateText(new Date(`${row.original.counted_on}T00:00:00`), {
+          day: "numeric",
+          month: "short",
+        })}
+      </span>
+    ),
+  },
+  {
+    id: "box",
+    accessorFn: (row) => row.account_name,
+    header: "Cash box",
+    size: 280,
+    enableSorting: false,
+    meta: { card: "title", grow: 240 },
+    cell: ({ row }) => (
+      <span className="flex min-w-0 flex-col">
+        <span className="truncate text-ink">{row.original.account_name}</span>
+        <span className="truncate text-[0.9375rem] font-normal text-mute">
+          {row.original.counted_by}
+          {row.original.witnessed_by
+            ? ` · witnessed by ${row.original.witnessed_by}`
+            : ""}
+          {row.original.reason ? ` · ${row.original.reason}` : ""}
+        </span>
+      </span>
+    ),
+  },
+  {
+    id: "books",
+    accessorFn: (row) => row.per_books_minor,
+    header: "Books",
+    size: 150,
+    enableSorting: false,
+    meta: { align: "right", card: "metric" },
+    cell: ({ row }) => money(row.original.per_books_minor),
+  },
+  {
+    id: "counted",
+    accessorFn: (row) => row.counted_minor,
+    header: "Counted",
+    size: 150,
+    enableSorting: false,
+    meta: { align: "right", card: "metric" },
+    cell: ({ row }) => money(row.original.counted_minor),
+  },
+  {
+    id: "difference",
+    accessorFn: (row) => row.variance_minor,
+    header: "Difference",
+    size: 150,
+    enableSorting: false,
+    meta: { align: "right", card: "metric" },
+    cell: ({ row }) => (
+      <span
+        className={
+          row.original.variance_minor === 0
+            ? "text-mute"
+            : "font-medium text-bad-fg"
+        }
+      >
+        {row.original.variance_minor === 0
+          ? "·"
+          : money(row.original.variance_minor)}
+      </span>
+    ),
+  },
+]
+
+function CountsTable({ rows }: { rows: readonly CashCountRow[] }) {
+  const [shown, setShown] = useState<CashCountRow | null>(null)
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: rows,
+        columns: COUNT_COLUMNS,
+        getRowId: (row: CashCountRow) => row.count_id,
+      }),
+      [rows]
+    )
+  )
   return (
-    <div className="rounded-card border border-hairline-2 bg-canvas px-5 py-4 shadow-soft">
-      <div className="text-[0.875rem] text-body">{label}</div>
-      <div className="mt-1 text-[1.25rem] font-semibold text-ink tabular-nums">
-        {value}
-      </div>
-      <div className="mt-0.5 text-[0.875rem] text-mute">{note}</div>
-    </div>
+    <>
+      <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+        <DataTable<CashCountRow>
+          table={table}
+          onRowClick={setShown}
+          isSelected={(row) => row.count_id === shown?.count_id}
+          pageScroll
+          cardSort={false}
+          cardsApart
+        />
+      </Card>
+      <FactsSheet
+        open={shown !== null}
+        onClose={() => setShown(null)}
+        title={shown?.account_name ?? ""}
+        id={shown?.entry_number ?? undefined}
+        caption={
+          shown === null
+            ? undefined
+            : dateText(new Date(`${shown.counted_on}T00:00:00`), {
+                day: "numeric",
+                month: "short",
+                year: "numeric",
+              })
+        }
+        facts={
+          shown === null
+            ? []
+            : [
+                { label: "Counted by", value: shown.counted_by },
+                { label: "Witnessed by", value: shown.witnessed_by || "—" },
+                { label: "Books", value: money(shown.per_books_minor) },
+                { label: "Counted", value: money(shown.counted_minor) },
+                {
+                  label: "Difference",
+                  value:
+                    shown.variance_minor === 0
+                      ? "—"
+                      : money(shown.variance_minor),
+                },
+                { label: "Reason", value: shown.reason || "—" },
+              ]
+        }
+      />
+    </>
   )
 }

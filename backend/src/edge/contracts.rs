@@ -322,6 +322,32 @@ pub struct MoveRequest {
     pub reference_id: Option<String>,
 }
 
+/// `POST /api/v1/store/movements/by-sku`: move a number of pieces of one SKU
+/// between two of this site's rooms without scanning them.
+///
+/// Staff on the Move stock screen pick an article, colour and size and type
+/// how many; they do not hold a reader over each piece. Which pieces go is
+/// the node's to choose (the oldest in the room first), so the request names
+/// the SKU and the count, never an EPC.
+///
+/// `from` and `to` are place ids as [`MoveRequest`] takes them
+/// (`store-01.floor:on_hand`), or the bare room — `floor`, `warehouse`,
+/// `reject` — which means that room at this site, on hand.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct MoveBySkuRequest {
+    pub sku_code: String,
+    pub quantity: i64,
+    pub from: String,
+    pub to: String,
+    pub reason: String,
+    /// Filled from the signed-in person; a body never gets to say who moved
+    /// the goods.
+    #[serde(default)]
+    pub actor_id: String,
+    pub idempotency_key: String,
+}
+
 const fn one() -> i64 {
     1
 }
@@ -795,9 +821,15 @@ pub struct SkuStockRow {
     pub warehouse: i64,
     /// `floor + warehouse`. Rejects are not stock a shopper can be sold.
     pub total: i64,
+    /// On hand in this site's reject room. Shown beside the two rooms so the
+    /// Move stock screen can say what is already set aside; never part of
+    /// `total`, and nothing is promised out of it.
+    #[serde(default)]
+    pub reject: i64,
 }
 
-/// `GET /api/v1/inventory/sku-stock`: every SKU with spendable units here.
+/// `GET /api/v1/inventory/sku-stock`: every SKU with spendable units here,
+/// or with pieces in the reject room.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct SkuStock {
@@ -1030,6 +1062,18 @@ pub trait EdgeInventory: Send + Sync {
     /// Every picklist still to pick, one per allotment × shop — see
     /// [`super::outbound::picklists_to_pick`].
     fn picklists_to_pick(&self) -> Result<Vec<super::outbound::AllotmentPick>, EdgeError>;
+    /// The Gudang takes its own work back: Packed → Picked, Packed → To pick,
+    /// Picked → To pick. Never from a carton on a trip.
+    fn move_back(
+        &self,
+        request: super::outbound::MoveBackRequest,
+    ) -> Result<super::outbound::MoveBackResult, EdgeError>;
+    /// A picker says why a line could not be finished.
+    fn report_short_pick(
+        &self,
+        request: super::outbound::ReportShortPickRequest,
+    ) -> Result<super::outbound::ShortPick, EdgeError>;
+    fn short_picks(&self) -> Result<Vec<super::outbound::ShortPick>, EdgeError>;
     /// Sealed cartons onto a trip: surat jalan per shop, in transit. See
     /// [`DispatchTripRequest`].
     fn dispatch_trip(
@@ -1191,6 +1235,9 @@ pub trait EdgeInventory: Send + Sync {
         ))
     }
     fn move_stock(&self, request: MoveRequest) -> Result<CommandResult, EdgeError>;
+    /// Move `quantity` pieces of one SKU between two rooms, the node choosing
+    /// which pieces. One movement group, one line per piece.
+    fn move_stock_by_sku(&self, request: MoveBySkuRequest) -> Result<CommandResult, EdgeError>;
     /// Write down a checkout BEFORE asking anybody for money.
     ///
     /// Separate from [`complete_sale`](Self::complete_sale) because the money
@@ -1299,6 +1346,10 @@ pub trait EdgeInventory: Send + Sync {
     /// offers has had no way to see that it holds them, and a cashier asked
     /// "what promos are on today?" has had nowhere to look.
     fn store_offers(&self) -> Result<super::pricing::StoreOffers, EdgeError>;
+    /// What one piece of each SKU costs a walk-in shopper this minute, once
+    /// the promotions that reach a single piece have come off. Only the SKUs a
+    /// promotion brings down; every other one costs its catalogue price.
+    fn store_final_prices(&self) -> Result<super::pricing::FinalUnitPrices, EdgeError>;
     /// Where one campaign's banner lives, as the centre last told this node.
     ///
     /// Read on its own rather than through the offers list: a browser asking
@@ -1394,6 +1445,11 @@ pub trait EdgeInventory: Send + Sync {
     fn my_shifts(&self, actor: &str) -> Result<super::till::MyShifts, EdgeError>;
     /// Every drawer open in the store now.
     fn open_shifts(&self) -> Result<Vec<super::till::ShiftReport>, EdgeError>;
+    /// Every drawer that traded on one business day, open and closed — the
+    /// sessions of a day, oldest first.
+    fn shifts_on(&self, business_date: &str) -> Result<Vec<super::till::ShiftReport>, EdgeError>;
+    /// The sales rung on one drawer, oldest first, with how each was paid.
+    fn shift_sales(&self, shift_id: &str) -> Result<Vec<super::till::ShiftSale>, EdgeError>;
     /// A supervisor's yes to a basket edit — a unit taken off, a basket
     /// abandoned, a parked basket thrown away — with the grant spent on it.
     fn record_till_approval(
@@ -2039,6 +2095,10 @@ pub struct PurchaseReturnWork {
     /// When the surat jalan was generated; `None` until it is.
     #[serde(default)]
     pub note_generated_at: Option<String>,
+    /// A few words per item on the surat jalan, by article code ("*" for the
+    /// not-as-ordered pieces), written when it was generated (0970).
+    #[serde(default)]
+    pub line_notes: std::collections::BTreeMap<String, String>,
     /// Pieces, over every line.
     pub quantity: i64,
     pub lines: Vec<PurchaseReturnWorkLine>,
@@ -2223,6 +2283,21 @@ pub struct PurchaseCountAwaitingVerification {
     /// and counted per variant (0963). Empty for a count taken as a whole.
     #[serde(default)]
     pub variants: Vec<PurchaseReviewVariant>,
+    /// After a recount: what the count this one replaces came to for the
+    /// ordered article (its count less its not-as-ordered pieces, so it reads
+    /// against `counted_quantity − wrong_quantity`). Absent on a first count.
+    /// The review shows it struck through beside the new figure, only where
+    /// it changed (owner, 2026-10-12).
+    #[serde(default)]
+    pub previous_counted_quantity: Option<i64>,
+    /// Why the buyer sent the count back, as they wrote it. Absent on a first
+    /// count and when no reason was given.
+    #[serde(default)]
+    pub recount_reason: Option<String>,
+    /// When the first count of this line was taken, once there has been a
+    /// recount.
+    #[serde(default)]
+    pub first_counted_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 /// A limited-coupon hold as head office granted it, recorded by the node that

@@ -1,8 +1,12 @@
-import { useNameOfLogin } from "@/lib/queries/hr-employees"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { useMemo, useState } from "react"
+import { Suspense, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { DockTools } from "@/components/shell/dock-tools"
@@ -11,20 +15,20 @@ import { Card } from "@/components/ui/card"
 import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { Input } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
+import { ExpandingSearch } from "@/components/ui/list-chrome"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
-import { Meter } from "@/components/ui/meter"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { MiniTable, TotalsLadder } from "@/components/ui/rows"
 import { Segmented } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import { Banner, EmptyState } from "@/components/ui/states"
+import { Banner, EmptyState, LoadingState } from "@/components/ui/states"
 import { useFilters } from "@/lib/filters"
 import { count, day, label, money, toneFor } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import {
   closeLineShort,
-  listPurchaseOrders,
+  orderListQuery,
   procurementKeys,
   purchaseOrderDetail,
   type PurchaseOrderLine,
@@ -33,6 +37,7 @@ import {
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
+import { cn } from "@/lib/utils"
 import { LinkButton } from "@/screens/procurement/controls"
 import {
   SupplierName,
@@ -117,13 +122,16 @@ const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
     size: 150,
     meta: { card: "hide" },
     cell: ({ row }) => {
+      // A number, not a bar (owner, 4 Oct: no progress bars in tables).
       const share = fill(row.original)
       return (
-        <span className="flex items-center gap-2">
-          <Meter value={share} tone={share < 0.5 ? "warn" : "ok"} />
-          <span className="w-9 shrink-0 text-right text-mute tabular-nums">
-            {Math.round(share * 100)}%
-          </span>
+        <span
+          className={cn(
+            "tabular-nums",
+            share < 0.5 ? "text-warn-fg" : "text-mute"
+          )}
+        >
+          {Math.round(share * 100)}%
         </span>
       )
     },
@@ -163,7 +171,7 @@ const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
             name={row.original.supplier_name}
           />
         </span>
-        <span className="font-mono text-[0.875rem] font-normal text-mute">
+        <span className="font-mono text-[0.9375rem] font-normal text-mute">
           {row.original.po_number}
         </span>
       </span>
@@ -181,7 +189,7 @@ const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
         <span className="text-[1.5rem] leading-tight font-semibold tracking-tight text-warn-fg">
           {count(row.original.outstanding_stock_units)}
         </span>
-        <span className="text-[0.875rem] text-mute">pcs owed</span>
+        <span className="text-[0.9375rem] text-mute">pcs owed</span>
       </span>
     ),
   },
@@ -224,16 +232,41 @@ const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
 ]
 
 export function Outstanding() {
+  const phone = useLayout() === "phone"
+  const order = useSheet("order")
+
+  // The title stands at once; the orders wait for the book and stream in with
+  // it (the server starts the read too).
+  return (
+    <PageContent>
+      <PageHeader
+        crumb="Procurement"
+        title="Outstanding"
+        sub="Orders with something still owed, and the lines a buyer has stopped waiting for."
+        // The phone's bar already has Orders: nothing but the title and the
+        // figures stands at the top.
+        actions={
+          phone ? undefined : (
+            <LinkButton to="/procurement/orders">The whole book</LinkButton>
+          )
+        }
+      />
+      <Suspense fallback={<LoadingState>Reading the order book…</LoadingState>}>
+        <OwedOrders />
+      </Suspense>
+      <ChaseSheet id={order.value ?? null} onClose={order.close} />
+    </PageContent>
+  )
+}
+
+function OwedOrders() {
   const order = useSheet("order")
   const [age, setAge] = useState<"ALL" | "ISSUED">("ALL")
   const [sorting, setSorting] = useState<SortingState>([
     { id: "outstanding_stock_units", desc: true },
   ])
 
-  const orders = useQuery({
-    queryKey: procurementKeys.orders(),
-    queryFn: ({ signal }) => listPurchaseOrders(undefined, signal),
-  })
+  const orders = useSuspenseQuery(orderListQuery())
 
   // Filtered here rather than by the server: `GET /api/v1/purchase-orders`
   // takes no query and answers the whole book, so a second request would fetch
@@ -242,7 +275,7 @@ export function Outstanding() {
   // carries expected − received (`isOpenOrder`).
   const rows = useMemo(
     () =>
-      (orders.data ?? []).filter(
+      orders.data.filter(
         (row) =>
           isOpenOrder(row) &&
           row.outstanding_stock_units > 0 &&
@@ -268,7 +301,7 @@ export function Outstanding() {
         getRowId: (row: PurchaseOrderRow) => row.purchase_order_id,
         state: {
           columnFilters: filters.columnFilters,
-          globalFilter: phone ? query : "",
+          globalFilter: query,
           sorting,
           // The card's own columns are drawn on a phone and never on a desk.
           columnVisibility: {
@@ -286,20 +319,7 @@ export function Outstanding() {
   )
 
   return (
-    <PageContent>
-      <PageHeader
-        crumb="Procurement"
-        title="Outstanding"
-        sub="Orders with something still owed, and the lines a buyer has stopped waiting for."
-        // The phone's bar already has Orders: nothing but the title and the
-        // figures stands at the top.
-        actions={
-          phone ? undefined : (
-            <LinkButton to="/procurement/orders">The whole book</LinkButton>
-          )
-        }
-      />
-
+    <>
       <KpiStrip className="grid-cols-2 md:grid-cols-3 xl:grid-cols-3">
         <Kpi label="Orders Behind" value={count(rows.length)} />
         <Kpi label="Suppliers to Chase" value={count(suppliers)} />
@@ -308,7 +328,13 @@ export function Outstanding() {
 
       {/* A desk's toolbar: on a phone the age is the dock's status button, and
           the search, the filter and the sort sit beside it. */}
-      <div className="mb-3.5 flex flex-wrap items-center gap-[0.4375rem] max-md:hidden">
+      <div className="group/bar mb-3.5 flex min-h-[2.25rem] flex-wrap items-center gap-2 max-md:hidden">
+        <ExpandingSearch
+          value={query}
+          onChange={setQuery}
+          label="Search outstanding"
+        />
+        <FilterPanel model={filters} table={table} />
         <Segmented
           options={[
             { value: "ALL", label: "Everything owed" },
@@ -317,7 +343,6 @@ export function Outstanding() {
           value={age}
           onChange={setAge}
         />
-        <FilterPanel model={filters} table={table} />
       </div>
       <DockTools
         search={{
@@ -341,32 +366,26 @@ export function Outstanding() {
       />
 
       <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-        {queryState(orders, {
-          loading: "Reading the order book…",
-          render: () =>
-            rows.length === 0 ? (
-              <EmptyState>
-                {age === "ISSUED"
-                  ? "No issued order is waiting on anything."
-                  : "Every order has arrived in full."}
-              </EmptyState>
-            ) : (
-              <DataTable<PurchaseOrderRow>
-                refresh={[orders]}
-                table={table}
-                onRowClick={(row) => order.open(row.purchase_order_id)}
-                isSelected={(row) => row.purchase_order_id === order.value}
-                className="max-h-[calc(100dvh-20rem)]"
-                cardSort={false}
-                cardsApart
-                cardLead
-              />
-            ),
-        })}
+        {rows.length === 0 ? (
+          <EmptyState>
+            {age === "ISSUED"
+              ? "No issued order is waiting on anything."
+              : "Every order has arrived in full."}
+          </EmptyState>
+        ) : (
+          <DataTable<PurchaseOrderRow>
+            refresh={[orders]}
+            table={table}
+            onRowClick={(row) => order.open(row.purchase_order_id)}
+            isSelected={(row) => row.purchase_order_id === order.value}
+            className="max-h-[calc(100dvh-20rem)]"
+            cardSort={false}
+            cardsApart
+            cardLead
+          />
+        )}
       </Card>
-
-      <ChaseSheet id={order.value ?? null} onClose={order.close} />
-    </PageContent>
+    </>
   )
 }
 
@@ -378,7 +397,6 @@ function ChaseSheet({
   id: string | null
   onClose: () => void
 }) {
-  const nameOfLogin = useNameOfLogin()
   const client = useQueryClient()
   const actor = useActor()
   const nameOf = useSupplierName()
@@ -459,7 +477,6 @@ function ChaseSheet({
                 <Fact term="Expected Value">
                   {money(order.expected_value_minor)}
                 </Fact>
-                <Fact term="Created By">{nameOfLogin(order.created_by)}</Fact>
               </Facts>
 
               <div>
@@ -480,14 +497,14 @@ function ChaseSheet({
                         <td className="py-2 pr-2" colSpan={4}>
                           <span className="flex items-baseline gap-2">
                             <span className="min-w-0 flex-1">
-                              <span className="block text-[0.875rem] text-ink">
+                              <span className="block text-[0.9375rem] text-ink">
                                 {line.article_name}
                               </span>
-                              <span className="font-mono text-[0.875rem] text-mute">
+                              <span className="font-mono text-[0.9375rem] text-mute">
                                 {line.article_code}
                               </span>
                             </span>
-                            <span className="flex shrink-0 flex-col items-end text-right text-[0.875rem] text-body tabular-nums">
+                            <span className="flex shrink-0 flex-col items-end text-right text-[0.9375rem] text-body tabular-nums">
                               <span>
                                 {count(line.received_quantity)} of{" "}
                                 {count(line.expected_stock_units)}
@@ -505,7 +522,7 @@ function ChaseSheet({
                                   </span>
                                 )}
                             </span>
-                            <span className="w-14 shrink-0 text-right text-[0.875rem] font-medium text-warn-fg tabular-nums">
+                            <span className="w-14 shrink-0 text-right text-[0.9375rem] font-medium text-warn-fg tabular-nums">
                               {count(line.outstanding_stock_units)}
                             </span>
                           </span>
@@ -530,6 +547,7 @@ function ChaseSheet({
                                 {close.isPending ? "Submitting…" : "Submit"}
                               </Button>
                               <Button
+                                data-cancel
                                 variant="quiet"
                                 size="sm"
                                 onClick={() => setOpenLine(null)}

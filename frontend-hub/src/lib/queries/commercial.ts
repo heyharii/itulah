@@ -24,7 +24,7 @@ import type {
   Rule,
   RuleStatus,
 } from "@itulah/contract"
-import { infiniteQueryOptions } from "@tanstack/react-query"
+import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query"
 
 import type { Filter } from "@/lib/filters"
 
@@ -874,6 +874,16 @@ export function commercialFleet(signal?: AbortSignal): Promise<Fleet> {
   return node.get<Fleet>("/api/v1/commercial/activation", { signal })
 }
 
+/// The size of the estate and what each shop carries, as a query: the shops
+/// count beside "Stores" on Promotions, Campaigns and History, and the names
+/// History draws a shop with. Shared with the prefetcher
+/// (`screens/commercial/prefetch.ts`).
+export const commercialFleetQuery = () =>
+  queryOptions({
+    queryKey: commercialKeys.fleet(),
+    queryFn: ({ signal }) => commercialFleet(signal),
+  })
+
 // ── every promotion the fleet is carrying ──────────────────────────────────
 
 /// The book a promotion arrived in, and how far that book has actually got.
@@ -1383,6 +1393,10 @@ export const CAMPAIGN_PAGE = 100
 /// The Promotions list, a page at a time. The screen and its prefetcher
 /// (`screens/commercial/prefetch.ts`) both ask through this, so the key and the
 /// request cannot drift apart.
+///
+/// Read with `useSuspenseInfiniteQuery`, which takes no `placeholderData`: the
+/// rows in hand stay on screen while the next question is read because the
+/// screens ask through a deferred scope (`useDeferredValue`).
 export const promotionPagesQuery = (scope: PromotionListScope) =>
   infiniteQueryOptions({
     queryKey: commercialKeys.rules(scope),
@@ -1397,7 +1411,6 @@ export const promotionPagesQuery = (scope: PromotionListScope) =>
       ),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.next_cursor ?? undefined,
-    placeholderData: (previous) => previous,
   })
 
 /// The Campaigns list, a page at a time; shared the same way.
@@ -1415,7 +1428,6 @@ export const campaignPagesQuery = (scope: CampaignListScope) =>
       ),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.next_cursor ?? undefined,
-    placeholderData: (previous) => previous,
   })
 
 // ── writes ─────────────────────────────────────────────────────────────────

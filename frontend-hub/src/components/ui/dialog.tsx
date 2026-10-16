@@ -56,6 +56,7 @@ export function Dialog({
   pending = false,
   reason,
   problem,
+  ready = true,
   onConfirm,
 }: {
   open: boolean
@@ -75,6 +76,9 @@ export function Dialog({
   /// The write this dialog started, failed — said here, where it was asked
   /// for, while the dialog is still open. Nothing when it is `null`.
   problem?: unknown
+  /// `false` holds the confirm back until the body has what it needs (a
+  /// photo, a choice) — as a missing reason does.
+  ready?: boolean
   onConfirm: (reason: string) => void
 }) {
   const [said, setSaid] = useState("")
@@ -101,7 +105,7 @@ export function Dialog({
         {title}
       </Parts.Title>
       {children !== undefined && children !== null && children !== false && (
-        <div className="mt-2 text-[0.875rem] leading-relaxed text-body">
+        <div className="mt-2 text-[0.9375rem] leading-relaxed text-body">
           {children}
         </div>
       )}
@@ -124,11 +128,19 @@ export function Dialog({
       {/* Side by side on every width, Cancel quiet and the act last — the
           sheet foot's own order. A thumb gets 44px, the desk 36. */}
       <div className="mt-5 flex justify-end gap-2 max-md:[&>*]:h-11 max-md:[&>*]:flex-1">
-        <Parts.Close render={<Button variant="quiet">{cancel}</Button>} />
+        {/* Beside a red, irreversible act the way out is the blue one, so
+            the two never wear the same red (owner, 2026-10-16). */}
+        <Parts.Close
+          render={
+            <Button variant={tone === "danger" ? "primary" : "quiet"}>
+              {cancel}
+            </Button>
+          }
+        />
         <Button
           variant={tone === "danger" ? "danger" : "primary"}
           pending={pending}
-          disabled={missing}
+          disabled={missing || !ready}
           onClick={() => onConfirm(said.trim())}
         >
           {pending ? pendingLabel(confirm) : confirm}
@@ -382,7 +394,7 @@ export function Panel({
           {title}
         </Parts.Title>
         {sub !== undefined && (
-          <p className="mt-0.5 text-[0.875rem] text-mute">{sub}</p>
+          <p className="mt-0.5 text-[0.9375rem] text-mute">{sub}</p>
         )}
       </div>
       {actions}

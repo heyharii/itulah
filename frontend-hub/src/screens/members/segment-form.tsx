@@ -174,7 +174,7 @@ function ValueEditor({
   return width === "two" ? (
     <div className="flex items-center gap-2">
       {box(0)}
-      <span className="shrink-0 text-[0.875rem] text-mute">and</span>
+      <span className="shrink-0 text-[0.9375rem] text-mute">and</span>
       {box(1)}
     </div>
   ) : (
@@ -288,14 +288,14 @@ export function SegmentForm({
       title={editing ? "Edit segment" : "New segment"}
       footer={
         <div className="flex items-center justify-between gap-3">
-          <span className="text-[0.875rem] text-mute">
+          <span className="text-[0.9375rem] text-mute">
             {editing
               ? "Saving writes a new version. The old one still explains what was sent against it."
               : "The conditions are kept, never the list. Who is in it is worked out on every read."}
           </span>
           {/* Cancel only closes. Retiring a segment is on its card, and asks. */}
           <div className="flex shrink-0 items-center gap-2">
-            <Button variant="ghost" onClick={onClose}>
+            <Button data-cancel variant="ghost" onClick={onClose}>
               Cancel
             </Button>
             <Button
@@ -339,7 +339,7 @@ export function SegmentForm({
             forty people and a segment of four thousand, and a closed dropdown
             shows one word of it. */}
         <div className="flex flex-col gap-1.5">
-          <span className="text-[0.875rem] font-medium text-text">
+          <span className="text-[0.9375rem] font-medium text-text">
             A member is in this segment when
           </span>
           <Choices
@@ -446,9 +446,12 @@ export function SegmentForm({
                   onClick={() =>
                     setClauses((all) => all.filter((_, at) => at !== index))
                   }
-                  className="grid size-8 shrink-0 place-items-center rounded-inner text-line-ico transition-colors hover:bg-soft-2 hover:text-ink"
+                  className="btn-iconly btn-takes-away btn-quiet grid size-8 shrink-0 place-items-center rounded-inner text-line-ico transition-colors hover:bg-soft-2 hover:text-ink"
                 >
                   <X className="size-4" />
+                  <span aria-hidden className="btn-word hidden">
+                    Remove
+                  </span>
                 </button>
               </div>
             )
@@ -480,7 +483,7 @@ export function SegmentForm({
             way to find out that a clause said something other than you meant. */}
         <div className="bg-soft-1 rounded-inner p-4">
           {definition.filters.length === 0 ? (
-            <p className="text-[0.875rem] leading-relaxed text-mute">
+            <p className="text-[0.9375rem] leading-relaxed text-mute">
               Add a condition and this will say how many members match it.
             </p>
           ) : preview.isError ? (
@@ -494,12 +497,12 @@ export function SegmentForm({
                       ? "…"
                       : count(preview.data?.members ?? 0)}
                   </div>
-                  <div className="mt-1.5 text-[0.875rem] text-mute">
+                  <div className="mt-1.5 text-[0.9375rem] text-mute">
                     of {count(preview.data?.member_count ?? 0)} members
                   </div>
                 </div>
                 <div className="flex w-24 shrink-0 flex-col items-end gap-1.5">
-                  <span className="text-[0.875rem] text-mute tabular-nums">
+                  <span className="text-[0.9375rem] text-mute tabular-nums">
                     {Math.round(share * 100)}%
                   </span>
                   <Meter value={share} tone="accent" />
@@ -539,7 +542,7 @@ export function SegmentForm({
         </div>
 
         {problem !== undefined && (
-          <p className="text-[0.875rem] text-mute">{problem}</p>
+          <p className="text-[0.9375rem] text-mute">{problem}</p>
         )}
       </div>
     </Sheet>

@@ -4,23 +4,27 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query"
-import { useMemo, useState } from "react"
+import type { ColumnDef } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
+import { Suspense, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
+import { Card } from "@/components/ui/card"
+import { DataTable } from "@/components/ui/data-table"
 import { Day } from "@/components/ui/day"
-import { Panel } from "@/components/ui/dialog"
 import { Fab } from "@/components/ui/fab"
 import { Field, Input, Select, Textarea } from "@/components/ui/field"
+import { ExpandingSearch } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill, Status } from "@/components/ui/pill"
 import { SubHead } from "@/components/ui/rows"
 import { Toolbar } from "@/components/ui/segmented"
-import { Fact, Facts } from "@/components/ui/sheet"
+import { SheetFooter } from "@/components/ui/sheet-footer"
+import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import {
   Banner,
   EmptyState,
-  LoadMore,
   NoAccessState,
   NoMatch,
 } from "@/components/ui/states"
@@ -37,6 +41,7 @@ import {
 } from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
+import { tableSetup, type TableSetup } from "@/lib/table"
 import { cn } from "@/lib/utils"
 import { useDebounced } from "@/lib/use-debounced"
 import {
@@ -48,7 +53,10 @@ import {
   TotalRow,
 } from "@/screens/finance-final/parts"
 import { todayIso } from "@/screens/finance/chart"
-import { useCategoriesByFamily, useWindow } from "@/screens/finance/hooks"
+import {
+  useCategoriesByFamily,
+  useSettledWindow,
+} from "@/screens/finance/hooks"
 import { JournalLinesGrid } from "@/screens/finance/journal-lines-grid"
 import {
   blankLine,
@@ -57,9 +65,9 @@ import {
   draftTotals,
   type DraftLine,
 } from "@/screens/finance/journal-lines"
-import { CardFigure, PhoneList } from "@/components/ui/phone-cards"
 import { UnitName, UnitSelect, WindowControl } from "@/screens/finance/parts"
 import { idempotencyKey } from "@itulah/contract/client"
+import { ScreenPending } from "@/screens/finance/pending"
 import type { JournalEntryRow, JournalLineView } from "@itulah/contract"
 
 /// The book every other screen in this module writes into.
@@ -111,8 +119,124 @@ import type { JournalEntryRow, JournalLineView } from "@itulah/contract"
 /// step, not a ceiling.
 const PAGE = 100
 
+/// The register's columns. The server orders it, so none of them sorts; on a
+/// card the number leads, the type names it, the memo follows when there is
+/// one, and the total stands at the right with the status in the foot.
+const columns: ColumnDef<TableSetup, JournalEntryRow>[] = [
+  {
+    id: "date",
+    accessorFn: (row) => row.posting_date,
+    header: "Date",
+    size: 120,
+    enableSorting: false,
+    meta: { card: "foot" },
+    cell: ({ row }) => day(row.original.posting_date),
+  },
+  {
+    id: "entry",
+    accessorFn: (row) => row.entry_number,
+    header: "Entry",
+    size: 140,
+    enableSorting: false,
+    meta: { card: "id" },
+    cell: ({ row }) => (
+      <span className="font-mono text-[0.9375rem] text-ink">
+        {row.original.entry_number}
+      </span>
+    ),
+  },
+  {
+    id: "memo",
+    accessorFn: (row) => row.memo,
+    header: "Memo",
+    size: 220,
+    enableSorting: false,
+    meta: { card: "meta", grow: 200 },
+    cell: ({ row }) => (
+      <span
+        className={cn(
+          "block truncate",
+          row.original.memo === null ? "text-faint" : "text-body"
+        )}
+        title={row.original.memo ?? undefined}
+      >
+        {row.original.memo ?? "—"}
+      </span>
+    ),
+  },
+  {
+    id: "type",
+    accessorFn: (row) => row.source_kind,
+    header: "Type",
+    size: 170,
+    enableSorting: false,
+    meta: { card: "title" },
+    cell: ({ row }) => (
+      <>
+        {label(row.original.source_kind)}
+        {byHand(row.original) && <span className="text-mute"> · by hand</span>}
+      </>
+    ),
+  },
+  {
+    id: "posted_by",
+    accessorFn: (row) => row.posted_by,
+    header: "Posted by",
+    size: 140,
+    enableSorting: false,
+    meta: { card: "foot", priority: 3 },
+    cell: ({ row }) => (
+      <span
+        className="block truncate"
+        title={`${row.original.posted_by} · ${moment(row.original.posted_at)}`}
+      >
+        {row.original.posted_by}
+      </span>
+    ),
+  },
+  {
+    id: "total",
+    accessorFn: (row) => row.total_minor,
+    header: "Total debit",
+    size: 150,
+    enableSorting: false,
+    meta: { align: "right", card: "lead" },
+    cell: ({ row }) => money(row.original.total_minor),
+  },
+  {
+    id: "status",
+    accessorFn: (row) => (row.reversed_by !== null ? "Reversed" : "Posted"),
+    header: "Status",
+    size: 110,
+    enableSorting: false,
+    // ERPNext's docstatus column. A reversal already says so under Type, so
+    // only the entry it undid carries a word of its own here.
+    meta: { card: "status" },
+    cell: ({ row }) =>
+      row.original.reversed_by !== null ? (
+        <Status tone="bad">Reversed</Status>
+      ) : (
+        <Status tone="ok">Posted</Status>
+      ),
+  },
+]
+
 export function Journals() {
-  const range = useWindow()
+  return (
+    <Suspense
+      fallback={
+        <ScreenPending crumb="Finance · Payments" title="Journal Entry">
+          Reading the calendar…
+        </ScreenPending>
+      }
+    >
+      <JournalsScreen />
+    </Suspense>
+  )
+}
+
+function JournalsScreen() {
+  const range = useSettledWindow()
   const [kind, setKind] = useState("")
   const [unit, setUnit] = useState("")
   const [needle, setNeedle] = useState("")
@@ -191,37 +315,39 @@ export function Journals() {
   // the list below it.
   const kinds = head?.facets.kinds ?? []
 
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: rows,
+        columns,
+        getRowId: (row: JournalEntryRow) => row.entry_id,
+      }),
+      [rows]
+    )
+  )
+
   return (
     <PageContent>
-      {/* A phone: the search is one of the Filters, "New entry" the round +. */}
+      {/* The one action stands in the head; a phone has the + at the thumb. */}
       <PageHeader
-        className="max-md:hidden"
         crumb="Finance · Payments"
         title="Journal Entry"
         actions={
-          <>
-            <Input
-              value={needle}
-              onChange={(event) => setNeedle(event.target.value)}
-              aria-label="Search entries"
-              placeholder="Search entries"
-              className="h-control w-48"
-            />
+          phone ? undefined : (
             <Button variant="primary" onClick={() => setComposing(true)}>
               New entry
             </Button>
-          </>
+          )
         }
       />
       <Fab label="New entry" onClick={() => setComposing(true)} />
 
-      <Toolbar>
-        <Input
+      <Toolbar className="group/bar">
+        <ExpandingSearch
           value={needle}
-          onChange={(event) => setNeedle(event.target.value)}
-          aria-label="Search entries"
-          placeholder="Search entries"
-          className="h-control md:hidden"
+          onChange={setNeedle}
+          label="Search entries"
         />
         <WindowControl range={range} />
         <span className="inline-flex w-44 shrink-0">
@@ -246,7 +372,7 @@ export function Journals() {
           aria-label="Unit"
         />
         <Toolbar.Spacer />
-        <span className="text-[0.875rem] text-mute">
+        <span className="text-[0.9375rem] text-mute">
           {range.chip}
           {kind !== "" && ` · ${label(kind)}`}
           {unit !== "" && " · "}
@@ -255,7 +381,7 @@ export function Journals() {
         </span>
       </Toolbar>
 
-      <div className="flex flex-col gap-4">
+      <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(entries, {
           loading: "Reading the register…",
           // Every GET under /finance is behind a supervisor's sign-in, and a
@@ -277,119 +403,29 @@ export function Journals() {
               </EmptyState>
             ) : rows.length === 0 ? (
               <NoMatch what="entries" onClear={() => setNeedle("")} />
-            ) : phone ? (
-              <>
-                <PhoneList
-                  rows={rows.map((entry) => ({
-                    key: entry.entry_id,
-                    title: entry.memo ?? label(entry.source_kind),
-                    code: entry.entry_number,
-                    lead: <CardFigure value={money(entry.total_minor)} />,
-                    foot: (
-                      <span className="flex flex-col">
-                        <span>
-                          {day(entry.posting_date)} · {label(entry.source_kind)}
-                          {byHand(entry) && " · by hand"}
-                        </span>
-                        <span>{entry.posted_by}</span>
-                      </span>
-                    ),
-                    action:
-                      entry.reversed_by !== null ? (
-                        <Status tone="bad">Reversed</Status>
-                      ) : (
-                        <Status tone="ok">Posted</Status>
-                      ),
-                    onOpen: () => reading.open(entry.entry_id),
-                  }))}
-                />
-                <LoadMore query={entries} />
-              </>
             ) : (
-              <>
-                <Grid>
-                  <thead>
-                    <tr>
-                      <Th width="7.5rem">Date</Th>
-                      <Th width="9.5rem">Entry</Th>
-                      <Th>Memo</Th>
-                      <Th width="10rem">Type</Th>
-                      <Th width="7rem">Posted by</Th>
-                      <Th align="right" width="10rem">
-                        Total debit
-                      </Th>
-                      <Th width="7.5rem">Status</Th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((entry) => (
-                      <tr
-                        key={entry.entry_id}
-                        onClick={() => reading.open(entry.entry_id)}
-                        className="cursor-pointer"
-                      >
-                        <Td className="whitespace-nowrap">
-                          {day(entry.posting_date)}
-                        </Td>
-                        <Td className="font-mono text-[0.875rem] whitespace-nowrap text-ink">
-                          {entry.entry_number}
-                        </Td>
-                        {/* `max-w-0` lets the column give way: a long memo is cut
-                            with an ellipsis rather than pushing Total off the
-                            right edge. */}
-                        <Td className="max-w-0">
-                          <span
-                            className={cn(
-                              "block truncate",
-                              entry.memo === null ? "text-faint" : "text-body"
-                            )}
-                            title={entry.memo ?? undefined}
-                          >
-                            {entry.memo ?? "—"}
-                          </span>
-                        </Td>
-                        <Td className="whitespace-nowrap">
-                          {label(entry.source_kind)}
-                          {byHand(entry) && (
-                            <span className="text-mute"> · by hand</span>
-                          )}
-                        </Td>
-                        <Td className="whitespace-nowrap">
-                          <span title={moment(entry.posted_at)}>
-                            {entry.posted_by}
-                          </span>
-                        </Td>
-                        <Td align="right" className="whitespace-nowrap">
-                          {money(entry.total_minor)}
-                        </Td>
-                        {/* ERPNext's docstatus column. A reversal already says
-                            so under Type, so only the entry it undid carries a
-                            word of its own here. */}
-                        <Td>
-                          {entry.reversed_by !== null ? (
-                            <Status tone="bad">Reversed</Status>
-                          ) : (
-                            <Status tone="ok">Posted</Status>
-                          )}
-                        </Td>
-                      </tr>
-                    ))}
-                    {/* The server's figure over everything the window and the
-                      filters match, not a sum of the rows above — which would
-                      grow as somebody scrolled and shrink as they searched. */}
-                    <TotalRow>
-                      <Td>Total</Td>
-                      <Td colSpan={4}>{count(matched)} entries</Td>
-                      <Td align="right">{money(head?.total_minor ?? null)}</Td>
-                      <Td />
-                    </TotalRow>
-                  </tbody>
-                </Grid>
-                <LoadMore query={entries} />
-              </>
+              <DataTable<JournalEntryRow>
+                refresh={[entries]}
+                table={table}
+                onRowClick={(entry) => reading.open(entry.entry_id)}
+                isSelected={(entry) => entry.entry_id === reading.value}
+                more={entries}
+                // The server's figure over everything the window and the
+                // filters match, not a sum of the rows above — which would
+                // grow as somebody scrolled and shrink as they searched.
+                summary={{
+                  date: "Total",
+                  memo: `${count(matched)} ${matched === 1 ? "entry" : "entries"}`,
+                  total: money(head?.total_minor ?? null),
+                }}
+                pageScroll
+                cardSort={false}
+                cardsApart
+                cardLead
+              />
             ),
         })}
-      </div>
+      </Card>
 
       <EntryPanel
         id={reading.value ?? null}
@@ -475,7 +511,7 @@ function EntryPanel({
   const answered = entry?.reversed_by != null
 
   return (
-    <Panel
+    <Sheet
       open={id !== null}
       onOpenChange={(open) => {
         if (!open) {
@@ -485,8 +521,41 @@ function EntryPanel({
           onClose()
         }
       }}
-      title={entry?.entry_number ?? "Journal entry"}
-      sub={entry?.memo ?? "The lines this entry posted, and the unit on each."}
+      // The number is the crumb's second half, the memo the title; the status
+      // and the count of lines stand on the caption line under it.
+      id={entry?.entry_number}
+      title={
+        entry?.memo ?? (entry ? label(entry.source_kind) : "Journal entry")
+      }
+      caption={
+        entry === undefined
+          ? undefined
+          : `${answered ? "Reversed" : "Posted"} · ${count(detail.data?.lines.length ?? 0)} ${detail.data?.lines.length === 1 ? "line" : "lines"}`
+      }
+      size="wide"
+      footer={
+        entry === undefined ? undefined : (
+          <SheetFooter
+            onCancel={onClose}
+            cancelLabel={answered ? "Close" : "Cancel"}
+            note={
+              answered ? undefined : "The reason is the only record of why."
+            }
+            primary={
+              answered
+                ? undefined
+                : {
+                    label: "Reverse",
+                    tone: "danger",
+                    pending: reverse.isPending,
+                    pendingLabel: "Reversing…",
+                    disabled: reason.trim() === "",
+                    onClick: () => reverse.mutate(),
+                  }
+            }
+          />
+        )
+      }
     >
       {queryState(detail, {
         loading: "Reading the entry…",
@@ -536,7 +605,7 @@ function EntryPanel({
                 <Fact term="Posted at">{moment(header.posted_at)}</Fact>
                 {header.source_id !== null && (
                   <Fact term="Source record">
-                    <span className="font-mono text-[0.875rem]">
+                    <span className="font-mono text-[0.9375rem]">
                       {header.source_id}
                     </span>
                   </Fact>
@@ -545,7 +614,7 @@ function EntryPanel({
                   <Fact term="Reverses">
                     <button
                       type="button"
-                      className="font-mono text-[0.875rem] text-accent hover:underline"
+                      className="font-mono text-[0.9375rem] text-accent hover:underline"
                       onClick={() => onOpen(header.reversal_of ?? "")}
                     >
                       the entry it answers
@@ -556,7 +625,7 @@ function EntryPanel({
                   <Fact term="Reversed by">
                     <button
                       type="button"
-                      className="font-mono text-[0.875rem] text-accent hover:underline"
+                      className="font-mono text-[0.9375rem] text-accent hover:underline"
                       onClick={() => onOpen(header.reversed_by ?? "")}
                     >
                       the entry that answered it
@@ -609,7 +678,7 @@ function EntryPanel({
                           </span>
                           <Code>{line.account_code}</Code>
                           {line.memo !== null && (
-                            <span className="block text-[0.875rem] text-mute">
+                            <span className="block text-[0.9375rem] text-mute">
                               {line.memo}
                             </span>
                           )}
@@ -621,7 +690,7 @@ function EntryPanel({
                           <UnitName id={line.unit_id} />
                           {/* Who the balance is with, on an affiliate leg. */}
                           {line.counter_unit_id !== null && (
-                            <span className="block text-[0.875rem] text-mute">
+                            <span className="block text-[0.9375rem] text-mute">
                               with <UnitName id={line.counter_unit_id} />
                             </span>
                           )}
@@ -644,7 +713,7 @@ function EntryPanel({
               </div>
 
               {interUnit && (
-                <p className="text-[0.875rem] text-body">
+                <p className="text-[0.9375rem] text-body">
                   <b className="text-ink">
                     This entry moves money between units.
                   </b>{" "}
@@ -661,7 +730,7 @@ function EntryPanel({
               )}
 
               {answered ? (
-                <p className="text-[0.875rem] text-body">
+                <p className="text-[0.9375rem] text-body">
                   Already reversed. It stays in the books up to the date its
                   reversal was posted.
                 </p>
@@ -674,7 +743,7 @@ function EntryPanel({
                       cancel endpoint on this ledger at all, so the only thing
                       this button can do is the second — and it says so, because
                       somebody reaching for it may have wanted the first. */}
-                  <p className="text-[0.875rem] text-body">
+                  <p className="text-[0.9375rem] text-body">
                     This posts a <b>new entry</b> with the debits and credits
                     exchanged and leaves {header.entry_number} exactly as it is.
                     It is not a cancellation; nothing in this book can be
@@ -685,35 +754,20 @@ function EntryPanel({
                     value={reason}
                     onChange={(event) => setReason(event.target.value)}
                   />
-                  <div className="flex flex-wrap items-end justify-between gap-2">
-                    <Field
-                      label="Posting date"
-                      hint="Empty posts the mirror today."
-                      className="w-44"
-                    >
-                      <Day value={postingDate} onChange={setPostingDate} />
-                    </Field>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[0.875rem] text-mute">
-                        The reason is the only record of why.
-                      </span>
-                      <Button
-                        variant="danger"
-                        pending={reverse.isPending}
-                        disabled={reason.trim() === ""}
-                        onClick={() => reverse.mutate()}
-                      >
-                        {reverse.isPending ? "Reversing…" : "Reverse"}
-                      </Button>
-                    </div>
-                  </div>
+                  <Field
+                    label="Posting date"
+                    hint="Empty posts the mirror today."
+                    className="w-44"
+                  >
+                    <Day value={postingDate} onChange={setPostingDate} />
+                  </Field>
                 </div>
               )}
             </div>
           )
         },
       })}
-    </Panel>
+    </Sheet>
   )
 }
 
@@ -804,7 +858,7 @@ function ComposerPanel({
   })
 
   return (
-    <Panel
+    <Sheet
       open={open}
       onOpenChange={(next) => {
         if (!next) {
@@ -813,10 +867,31 @@ function ComposerPanel({
         }
       }}
       title="New journal entry"
-      sub={
-        initial
-          ? `From the template “${initial.name}”.`
-          : "Two sides, and a unit on each of them."
+      caption={initial ? `From the template “${initial.name}”` : undefined}
+      size="wide"
+      footer={
+        <SheetFooter
+          onCancel={() => {
+            setReceipt(null)
+            onClose()
+          }}
+          note={
+            totals.balanced
+              ? `Balanced at ${money(totals.debits)}`
+              : totals.usable.length === 0
+                ? "No usable row yet — a row needs an account, a unit and a figure"
+                : totals.uncategorised.length > 0
+                  ? `${count(totals.uncategorised.length)} ${totals.uncategorised.length === 1 ? "row needs" : "rows need"} a category — the account is one line of the statement, the category is what it was for`
+                  : `Debits ${money(totals.debits)} · credits ${money(totals.credits)}`
+          }
+          primary={{
+            label: "Post entry",
+            pending: post.isPending,
+            pendingLabel: "Posting…",
+            disabled: !totals.balanced,
+            onClick: () => post.mutate(),
+          }}
+        />
       }
     >
       <div className="flex flex-col gap-4">
@@ -858,7 +933,7 @@ function ComposerPanel({
         <JournalLinesGrid lines={lines} onChange={setLines} />
 
         {totals.adrift.length > 0 && (
-          <p className="text-[0.875rem] text-body">
+          <p className="text-[0.9375rem] text-body">
             <b className="text-ink">This would be an inter-unit entry.</b> It
             leaves{" "}
             {totals.adrift.map((unit, index) => (
@@ -872,27 +947,7 @@ function ComposerPanel({
             . It will post, but each unit&rsquo;s own books stay unbalanced.
           </p>
         )}
-
-        <div className="flex items-center justify-between gap-3 border-t border-hairline pt-3">
-          <span className="text-[0.875rem] text-mute tabular-nums">
-            {totals.balanced
-              ? `Balanced at ${money(totals.debits)}`
-              : totals.usable.length === 0
-                ? "No usable row yet — a row needs an account, a unit and a figure"
-                : totals.uncategorised.length > 0
-                  ? `${count(totals.uncategorised.length)} ${totals.uncategorised.length === 1 ? "row needs" : "rows need"} a category — the account is one line of the statement, the category is what it was for`
-                  : `Debits ${money(totals.debits)} · credits ${money(totals.credits)}`}
-          </span>
-          <Button
-            variant="primary"
-            pending={post.isPending}
-            disabled={!totals.balanced}
-            onClick={() => post.mutate()}
-          >
-            {post.isPending ? "Posting…" : "Post entry"}
-          </Button>
-        </div>
       </div>
-    </Panel>
+    </Sheet>
   )
 }

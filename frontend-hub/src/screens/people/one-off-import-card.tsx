@@ -3,7 +3,7 @@ import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Field } from "@/components/ui/field"
-import { Pill } from "@/components/ui/pill"
+import { Status } from "@/components/ui/pill"
 import { MiniCell, MiniRow, MiniTable, SubHead } from "@/components/ui/rows"
 import { Banner } from "@/components/ui/states"
 import { csvName, downloadCsv } from "@/lib/csv"
@@ -32,7 +32,11 @@ export function OneOffImport({
 }: {
   unitId: string
   period: string
-  people: readonly { employee_id: string; employee_code: string }[]
+  people: readonly {
+    employee_id: string
+    employee_code: string
+    full_name: string | null
+  }[]
   components: readonly { code: string }[]
   onFiled: () => void
 }) {
@@ -42,6 +46,10 @@ export function OneOffImport({
   )
   const byCode = new Map(
     people.map((one) => [one.employee_code, one.employee_id])
+  )
+  /// Who a line is for, by name; a code nobody has stays as the code.
+  const nameOf = new Map(
+    people.map((one) => [one.employee_code, one.full_name ?? one.employee_code])
   )
   const known = new Set(components.map((one) => one.code))
 
@@ -97,7 +105,7 @@ export function OneOffImport({
           <input
             type="file"
             accept=".csv,text/csv"
-            className="text-[0.875rem] text-body file:mr-3 file:rounded-inner file:border file:border-hairline-2 file:bg-canvas file:px-3 file:py-1.5 file:text-ink"
+            className="text-[0.9375rem] text-body file:mr-3 file:rounded-inner file:border file:border-hairline-2 file:bg-canvas file:px-3 file:py-1.5 file:text-ink"
             onChange={(event) => {
               const chosen = event.target.files?.[0]
               setOutcomes(new Map())
@@ -114,7 +122,6 @@ export function OneOffImport({
           />
         </Field>
         <Button
-          variant="quiet"
           onClick={() =>
             downloadCsv(
               csvName("one-offs template"),
@@ -150,18 +157,24 @@ export function OneOffImport({
                 return (
                   <MiniRow key={row.line}>
                     <MiniCell>{row.line}</MiniCell>
-                    <MiniCell>{row.employeeCode}</MiniCell>
+                    <MiniCell>
+                      {nameOf.get(row.employeeCode) ?? row.employeeCode}
+                    </MiniCell>
                     <MiniCell>{row.componentCode}</MiniCell>
                     <MiniCell align="right">{money(row.amountMinor)}</MiniCell>
                     <MiniCell>
                       {outcome?.ok === true ? (
-                        <Pill tone="ok">Filed</Pill>
+                        <Status tone="ok">Filed</Status>
                       ) : outcome?.ok === false ? (
-                        <Pill tone="bad">{outcome.why}</Pill>
+                        <Status tone="bad" className="whitespace-normal">
+                          {outcome.why}
+                        </Status>
                       ) : problem !== null ? (
-                        <Pill tone="warn">{problem}</Pill>
+                        <Status tone="warn" className="whitespace-normal">
+                          {problem}
+                        </Status>
                       ) : (
-                        <Pill tone="info">Ready</Pill>
+                        <Status tone="info">Ready</Status>
                       )}
                     </MiniCell>
                   </MiniRow>
@@ -179,7 +192,7 @@ export function OneOffImport({
               File {ready.length} one-off{ready.length === 1 ? "" : "s"}
             </Button>
             {outcomes.size > 0 && (
-              <span className="text-[0.875rem] text-mute">
+              <span className="text-[0.9375rem] text-mute">
                 {filed} filed, {outcomes.size - filed} refused
               </span>
             )}

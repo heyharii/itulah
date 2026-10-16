@@ -17,6 +17,8 @@ import {
   HandCoins,
   Handshake,
   KeyRound,
+  LayoutDashboard,
+  Banknote,
   Layers,
   LayoutGrid,
   Package,
@@ -90,6 +92,30 @@ export interface AppModule {
   /// Where the module's rail tile lands. Always the first visible item.
   readonly home: string
   readonly sections: readonly NavSection[]
+}
+
+// ── Today ───────────────────────────────────────────────────────────────────
+//
+// The shop's dashboard (store prototype `store-money-prototype.html`, 11 Oct
+// 2026): sales over a range, the figures a store head reads first, best
+// sellers. It replaces the old Reports screen, which now redirects here.
+const today: AppModule = {
+  id: "today",
+  label: "Today",
+  icon: LayoutDashboard,
+  home: "/dashboard",
+  sections: [
+    {
+      items: [
+        {
+          path: "/dashboard",
+          label: "Dashboard",
+          icon: LayoutDashboard,
+          moved: ["/reports"],
+        },
+      ],
+    },
+  ],
 }
 
 // ── The range ───────────────────────────────────────────────────────────────
@@ -189,9 +215,13 @@ const money: AppModule = {
       items: [
         { path: "/money/sales", label: "Sales", icon: TrendingUp },
         { path: "/money/reconciliation", label: "Reconciliation", icon: Scale },
-        { path: "/money/expenses", label: "Expenses", icon: HandCoins },
+        {
+          path: "/money/petty-cash",
+          label: "Petty cash",
+          icon: HandCoins,
+          moved: ["/money/expenses"],
+        },
         { path: "/money/cash-count", label: "Cash count", icon: Coins },
-        { path: "/reports", label: "Reports", icon: BarChart3 },
       ],
     },
   ],
@@ -222,7 +252,7 @@ const people: AppModule = {
         },
         {
           path: "/hr/directory",
-          label: "Employees",
+          label: "Staff",
           icon: Users,
           moved: ["/hr/team"],
         },
@@ -231,7 +261,7 @@ const people: AppModule = {
     {
       label: "Time",
       items: [
-        { path: "/hr/roster", label: "Roster", icon: CalendarRange },
+        { path: "/hr/roster", label: "Schedule", icon: CalendarRange },
         { path: "/hr/attendance", label: "Attendance", icon: Fingerprint },
         {
           // Keep the historical route while naming the work this screen does.
@@ -242,7 +272,7 @@ const people: AppModule = {
         },
         {
           path: "/hr/leave",
-          label: "Leave",
+          label: "Requests",
           icon: Sun,
           moved: ["/hr/requests"],
         },
@@ -252,6 +282,7 @@ const people: AppModule = {
     {
       label: "Pay",
       items: [
+        { path: "/hr/pay", label: "Payroll", icon: Banknote },
         { path: "/hr/expenses", label: "Expenses", icon: Receipt },
         { path: "/hr/benefits", label: "Benefits", icon: HeartHandshake },
       ],
@@ -331,6 +362,7 @@ const ga: AppModule = {
 
 /// The rail's column, top to bottom, in the order a shift reaches for them.
 const everyColumn: readonly AppModule[] = [
+  today,
   catalogue,
   promotions,
   stock,
@@ -341,7 +373,9 @@ const everyColumn: readonly AppModule[] = [
 
 /// Left out of the rail for now (owner, 2 Oct 2026): People and GA. Their
 /// screens and routes stay, only the menu stops offering them.
-const HIDDEN_FROM_RAIL: ReadonlySet<string> = new Set(["people", "ga"])
+/// People came back on 11 Oct 2026 with the schedule, attendance, requests,
+/// payroll and staff screens of the store prototype.
+const HIDDEN_FROM_RAIL: ReadonlySet<string> = new Set(["ga"])
 
 export const modules: readonly AppModule[] = everyColumn.filter(
   (module) => !HIDDEN_FROM_RAIL.has(module.id),

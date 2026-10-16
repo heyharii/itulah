@@ -1,17 +1,21 @@
 import path from "path"
-import tailwindcss from "@tailwindcss/vite"
-import react from "@vitejs/plugin-react"
-import { defineConfig } from "vite"
+import { tanstackStart } from "@tanstack/react-start/plugin/vite"
+import { nitro } from "nitro/vite"
 import { VitePWA } from "vite-plugin-pwa"
+import react from "@vitejs/plugin-react"
+import tailwindcss from "@tailwindcss/vite"
+import { defineConfig } from "vite"
+
+import { screenPreloads } from "./vite.screen-preloads"
 
 // This surface talks to the CLOUD node.
 //
-// Production serves the front end and its API from one origin (Render rewrites
-// `/api/*` to the node), so the client uses a relative base URL and the
-// `SameSite=Strict` session cookie is actually sent. Development has to
-// reproduce that single origin rather than point the browser at a second one:
-// a cross-origin dev setup drops the session cookie, and the login then appears
-// to succeed and immediately fail.
+// Production serves the front end and its API from one origin (the reverse
+// proxy rewrites `/api/*` to the node), so the client uses a relative base URL
+// and the `SameSite=Strict` session cookie is actually sent. Development has
+// to reproduce that single origin rather than point the browser at a second
+// one: a cross-origin dev setup drops the session cookie, and the login then
+// appears to succeed and immediately fail.
 const apiTarget =
   process.env.VITE_API_TARGET ?? "https://itulah-cloud.onrender.com"
 
@@ -80,13 +84,15 @@ const previewHosts = [".localhost"]
 /// when the person says so (`lib/pwa.ts`). Reloading under somebody halfway
 /// through a goods receipt is not an update, it is lost work.
 ///
-/// The worker precaches the APP SHELL only — `index.html` and what it loads
-/// before anything else — not every screen's chunk. The screens are split so a
-/// phone opening Profile does not download Finance (`routes.tsx`); precaching
-/// all of them on install would undo that on the first visit. `/api` and
-/// `/edge` are never cached and never answered with the shell.
-let outDir = path.resolve(__dirname, "dist")
+/// Under SSR there is no `index.html` to read the shell's entry list from, so
+/// the precache manifest is empty for now: the worker installs, push works,
+/// and the hashed assets a person has fetched are kept per screen by the
+/// worker's own runtime cache (`sw.ts`). The offline document shell returns
+/// when the entry-asset list can be read out of the Start client build.
+/// Nitro's public directory is where the built client lives (see `nitro()`
+/// below), so the worker is written beside the assets it serves.
 const pwa = VitePWA({
+  outDir: path.resolve(__dirname, ".output/public"),
   strategies: "injectManifest",
   srcDir: "src",
   filename: "sw.ts",
@@ -123,48 +129,42 @@ const pwa = VitePWA({
     // default it would be left out of the precache with only a warning.
     maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
     manifestTransforms: [
-      async (entries) => {
-        // What `index.html` itself loads — its entry script, the chunks it
-        // preloads and its stylesheet. Everything else is a screen, fetched
-        // when it is first visited. (The plugin adds the manifest and the
-        // icons itself.)
-        const { readFile } = await import("node:fs/promises")
-        const html = await readFile(
-          path.join(outDir, "index.html"),
-          "utf8"
-        ).catch(() => "")
-        const linked = new Set(
-          [...html.matchAll(/(?:src|href)="\/?([^"]+)"/g)].map((m) => m[1])
-        )
-        const manifest = entries.filter(
-          (entry) => entry.url === "index.html" || linked.has(entry.url)
-        )
-        return { manifest, warnings: [] }
+      async () => {
+        // No document exists to name the shell's files (see above), so the
+        // static precache is deliberately empty; the worker's runtime caches
+        // carry what a device keeps.
+        return { manifest: [], warnings: [] }
       },
     ],
   },
   devOptions: {
-    // The worker in `npm run dev` as well, so push can be tried without a
-    // build. `module` because the source is TypeScript with imports.
-    enabled: true,
-    type: "module",
-    navigateFallback: "index.html",
+    // Off under SSR: the dev worker's `navigateFallback` pointed at
+    // `index.html`, which a Start server does not serve. Push is tried
+    // against a build.
+    enabled: false,
   },
 })
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   plugins: [
-    react(),
     tailwindcss(),
+    // react's vite plugin must come after start's vite plugin
+    tanstackStart(),
+    // The hosting layer for the build: `node .output/server/index.mjs`
+    // (Start's hosting guide, Vite on Node). Build only — in development it
+    // replaces Vite's own server, and with it the `/api` and `/edge` proxy
+    // below that keeps the session cookie on one origin.
+    command === "build"
+      ? nitro({
+          // Assets are written gzip- and brotli-compressed at build time and
+          // served pre-compressed: no per-request compression, and a phone
+          // on a slow line downloads a third of the bytes.
+          compressPublicAssets: { gzip: true, brotli: true },
+        })
+      : null,
+    react(),
     pwa,
-    {
-      // Where the build is written, for the shell list above: `--outDir`
-      // moves it.
-      name: "pwa-out-dir",
-      configResolved(config) {
-        outDir = path.resolve(config.root, config.build.outDir)
-      },
-    },
+    screenPreloads(),
   ],
   // Which build this is, for the persisted query cache (`lib/query-persist.ts`):
   // a new build starts with an empty one.
@@ -199,6 +199,9 @@ export default defineConfig({
   },
   server: {
     port: 5273,
+    // Vite's "localhost" binds ::1 on this machine; bind IPv4 so the dev
+    // proxy, the node and every probe address the same stack.
+    host: "127.0.0.1",
     proxy: backends,
     fs: {
       allow: [path.resolve(__dirname, ".."), path.resolve(__dirname)],
@@ -219,4 +222,4 @@ export default defineConfig({
     allowedHosts: previewHosts,
     proxy: backends,
   },
-})
+}))

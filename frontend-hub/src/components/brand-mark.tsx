@@ -36,20 +36,3 @@ export function BrandMark({ className }: { className?: string }) {
   )
 }
 
-/// The screen the app opens on: white, the mark in the middle, nothing else
-/// (owner, 2026-10-06). It stands where "Checking your session…" used to, and
-/// it is drawn again, as static markup, in `index.html` before any script has
-/// loaded — so the picture does not change between the first paint and this.
-/// A signed-in person goes from it straight into Home; a signed-out one into
-/// the sign-in page, whose own header is the same mark a little higher.
-export function Launch() {
-  return (
-    <main
-      aria-busy
-      aria-label="Checking your session"
-      className="grid h-full place-items-center bg-canvas"
-    >
-      <BrandMark className="size-[5.5rem]" />
-    </main>
-  )
-}

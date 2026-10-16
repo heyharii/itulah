@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { Field, Input, Select } from "@/components/ui/field"
+import { ExpandingSearch } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { Sheet } from "@/components/ui/sheet"
@@ -44,46 +45,100 @@ const premisesOf = (unit: UnitView) =>
 const picOf = (unit: UnitView) =>
   unit.pic === null ? "" : (unit.pic.name ?? unit.pic.employee_code)
 
-/// The phone's list: a card per unit (the desk keeps its table). The name over
-/// its code, the head count as the figure, and under the hairline who is in
-/// charge and where, with the one button this screen has — a word, as every
-/// other card's. The first five columns are never drawn: they are what the
-/// search reads and the sort sheet names.
-function cardColumns(
-  onChoose: (unit: UnitView) => void
+/// The list's columns: a table on a desk, and on a phone a card per unit — the
+/// name over its code, the head count as the figure, and under the hairline
+/// who is in charge and where, with the one button this screen has, a word as
+/// every other card's. The first six columns are the table's and are not
+/// drawn on a card; the next three are the card's own and are not drawn on a
+/// desk.
+function unitColumns(
+  onChoose: (unit: UnitView) => void,
+  phone: boolean
 ): ColumnDef<TableSetup, UnitView>[] {
   return [
-    {
-      id: "name",
-      accessorFn: (unit) => unit.name,
-      header: "Name",
-      meta: { card: "hide" },
-    },
     {
       id: "code",
       accessorFn: (unit) => unit.code,
       header: "Code",
+      size: 90,
       meta: { card: "hide" },
+      cell: ({ row }) => (
+        <span className="font-mono text-id text-ink">{row.original.code}</span>
+      ),
     },
     {
-      id: "staff",
-      accessorFn: (unit) => unit.headcount,
-      header: "Staff",
-      meta: { card: "hide" },
+      id: "name",
+      accessorFn: (unit) => unit.name,
+      header: "Name",
+      size: 190,
+      meta: { card: "hide", grow: 160 },
+      cell: ({ row }) => (
+        <span className="text-ink">
+          {row.original.name}
+          {row.original.status !== "ACTIVE" && (
+            <Pill tone="neutral" className="ml-2">
+              {row.original.status === "CLOSED"
+                ? "Closed"
+                : row.original.status}
+            </Pill>
+          )}
+        </span>
+      ),
     },
     {
-      id: "pic",
-      accessorFn: picOf,
-      header: "Person in Charge",
-      enableSorting: false,
+      id: "kind",
+      accessorFn: kindOf,
+      header: "Kind",
+      size: 130,
       meta: { card: "hide" },
+      cell: ({ row }) => (
+        <Pill tone="neutral">{kindOf(row.original)}</Pill>
+      ),
     },
     {
       id: "premises",
       accessorFn: premisesOf,
       header: "Premises",
       enableSorting: false,
+      size: 170,
       meta: { card: "hide" },
+      cell: ({ row }) => (
+        <span className="block whitespace-normal text-body">
+          {row.original.sites.length === 0 ? "—" : premisesOf(row.original)}
+        </span>
+      ),
+    },
+    {
+      id: "staff",
+      accessorFn: (unit) => unit.headcount,
+      header: "Staff",
+      size: 80,
+      meta: { align: "right", card: "hide" },
+      cell: ({ row }) => (
+        <span className="text-body tabular-nums">
+          {count(row.original.headcount)}
+        </span>
+      ),
+    },
+    {
+      id: "pic",
+      accessorFn: picOf,
+      header: "Person in Charge",
+      enableSorting: false,
+      size: 240,
+      meta: { card: "hide" },
+      cell: ({ row }) =>
+        row.original.pic === null ? (
+          <span className="text-mute">Nobody</span>
+        ) : (
+          <span className="block whitespace-normal text-ink">
+            {row.original.pic.name ?? row.original.pic.employee_code}
+            <span className="text-mute">
+              {" "}
+              · since {day(row.original.pic.valid_from)}
+            </span>
+          </span>
+        ),
     },
     {
       id: "head",
@@ -96,7 +151,7 @@ function cardColumns(
           <span className="min-w-0 text-[1rem] font-semibold break-words text-ink">
             {row.original.name}
           </span>
-          <span className="text-[0.875rem] font-normal text-mute">
+          <span className="text-[0.9375rem] font-normal text-mute">
             <span className="font-mono">{row.original.code}</span>
             {` · ${kindOf(row.original)}`}
             {row.original.status !== "ACTIVE" &&
@@ -116,7 +171,7 @@ function cardColumns(
           <span className="text-[1.5rem] leading-tight font-semibold tracking-tight text-ink">
             {count(row.original.headcount)}
           </span>
-          <span className="text-[0.875rem] text-mute">staff</span>
+          <span className="text-[0.9375rem] text-mute">staff</span>
         </span>
       ),
     },
@@ -150,11 +205,12 @@ function cardColumns(
       id: "set",
       header: "",
       enableSorting: false,
+      size: 130,
       meta: { align: "right", card: "status" },
       cell: ({ row }) => (
         <Button
-          variant="tint"
-          size="card"
+          variant={phone ? "tint" : "quiet"}
+          size={phone ? "card" : "sm"}
           disabled={row.original.status !== "ACTIVE"}
           aria-label={`${row.original.pic === null ? "Set PIC" : "Change PIC"} of ${row.original.name}`}
           onClick={(event) => {
@@ -189,7 +245,7 @@ export function Organisation() {
   const [query, setQuery] = useState("")
   const [sorting, setSorting] = useState<SortingState>([])
 
-  const columns = useMemo(() => cardColumns(setChoosing), [])
+  const columns = useMemo(() => unitColumns(setChoosing, phone), [phone])
   const table = useTable(
     useMemo(
       () => ({
@@ -197,11 +253,16 @@ export function Organisation() {
         data: units.data ?? [],
         columns,
         getRowId: (unit: UnitView) => unit.id,
-        state: { globalFilter: query, sorting },
+        state: {
+          globalFilter: query,
+          sorting,
+          // The card's own columns are drawn on a phone and never on a desk.
+          columnVisibility: { head: phone, lead: phone, foot: phone },
+        },
         onSortingChange: setSorting,
         onGlobalFilterChange: setQuery,
       }),
-      [units.data, columns, query, sorting]
+      [units.data, columns, query, sorting, phone]
     )
   )
 
@@ -213,99 +274,38 @@ export function Organisation() {
         sub="Head office and the stores — who owns which premises, and who is in charge of each."
       />
 
+      <div className="group/bar mb-3.5 flex min-h-[2.25rem] flex-wrap items-center gap-2 max-md:hidden">
+        <ExpandingSearch
+          value={query}
+          onChange={setQuery}
+          label="Search units"
+        />
+      </div>
       <DockTools
         search={{ value: query, onChange: setQuery, label: "Search units" }}
         sort={dockSortOf(table)}
       />
 
-      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+      <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(units, {
           loading: "Reading the units…",
           render: (rows) =>
             rows.length === 0 ? (
               <EmptyState>No unit has been set up.</EmptyState>
-            ) : phone ? (
+            ) : (
               <DataTable<UnitView>
+                refresh={[units]}
                 table={table}
                 onRowClick={(unit) =>
                   unit.status === "ACTIVE" && setChoosing(unit)
                 }
                 empty="Nothing matches that search."
+                roomy
                 pageScroll
                 cardSort={false}
                 cardsApart
                 cardLead
               />
-            ) : (
-              <table className="w-full text-[0.875rem]">
-                <thead>
-                  <tr className="border-b border-hairline text-left text-meta text-mute">
-                    <th className="px-3 py-2 font-medium">Code</th>
-                    <th className="px-3 py-2 font-medium">Name</th>
-                    <th className="px-3 py-2 font-medium">Kind</th>
-                    <th className="px-3 py-2 font-medium">Premises</th>
-                    <th className="px-3 py-2 text-right font-medium">Staff</th>
-                    <th className="px-3 py-2 font-medium">Person in Charge</th>
-                    <th className="px-3 py-2" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((unit) => (
-                    <tr
-                      key={unit.id}
-                      className="border-b border-hairline last:border-b-0"
-                    >
-                      <td className="px-3 py-2 font-mono text-id text-ink">
-                        {unit.code}
-                      </td>
-                      <td className="px-3 py-2 text-ink">
-                        {unit.name}
-                        {unit.status !== "ACTIVE" && (
-                          <Pill tone="neutral" className="ml-2">
-                            {unit.status === "CLOSED" ? "Closed" : unit.status}
-                          </Pill>
-                        )}
-                      </td>
-                      <td className="px-3 py-2">
-                        <Pill tone={unit.kind === "HO" ? "accent" : "neutral"}>
-                          {kindOf(unit)}
-                        </Pill>
-                      </td>
-                      <td className="px-3 py-2 text-body">
-                        {unit.sites.length === 0
-                          ? "—"
-                          : unit.sites.map((site) => site.name).join(", ")}
-                      </td>
-                      <td className="px-3 py-2 text-right text-body tabular-nums">
-                        {count(unit.headcount)}
-                      </td>
-                      <td className="px-3 py-2">
-                        {unit.pic === null ? (
-                          <span className="text-mute">Nobody</span>
-                        ) : (
-                          <span className="text-ink">
-                            {unit.pic.name ?? unit.pic.employee_code}
-                            <span className="text-mute">
-                              {" "}
-                              · since {day(unit.pic.valid_from)}
-                            </span>
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        <Button
-                          size="sm"
-                          variant="quiet"
-                          disabled={unit.status !== "ACTIVE"}
-                          onClick={() => setChoosing(unit)}
-                        >
-                          {unit.pic === null ? "Set PIC" : "Change PIC"}
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
             ),
         })}
       </Card>
@@ -384,7 +384,7 @@ function PicSheet({
       title={unit === null ? "Person in charge" : `${unit.code} · ${unit.name}`}
       footer={
         <div className="flex justify-end gap-2">
-          <Button variant="quiet" onClick={onClose}>
+          <Button data-cancel variant="quiet" onClick={onClose}>
             Cancel
           </Button>
           <Button
@@ -446,7 +446,7 @@ function PicSheet({
               rows.length === 0 ? (
                 <EmptyState>Nobody has been put in charge yet.</EmptyState>
               ) : (
-                <ul className="flex flex-col gap-1.5 text-[0.875rem]">
+                <ul className="flex flex-col gap-1.5 text-[0.9375rem]">
                   {rows.map((pic) => (
                     <li
                       key={`${pic.employee_id}-${pic.valid_from}-${pic.set_at}`}

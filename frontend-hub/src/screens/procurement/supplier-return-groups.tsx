@@ -1,26 +1,24 @@
 import { useQuery } from "@tanstack/react-query"
 import type { ColumnDef } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { ChevronDown } from "lucide-react"
-import { useMemo, useState } from "react"
+import { useMemo } from "react"
 
-import { Card } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
 import { DataTable } from "@/components/ui/data-table"
 import { Pill } from "@/components/ui/pill"
-import { count, day, quantity } from "@/lib/format"
+import type { Refreshable } from "@/components/ui/refresh-stamp"
+import { count, day, dayMonth, quantity } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import { cn } from "@/lib/utils"
 import { procurementKeys, purchaseOrderPage } from "@/lib/queries/procurement"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { titled } from "@/screens/procurement/po-print"
+import { STAMP } from "@/screens/procurement/shared"
 import type { Row } from "@/screens/procurement/supplier-returns"
 
-/// The Return to supplier list as the owner drew it (2026-10-05): a card per
-/// supplier, a band on top carrying who, how much is going back to them and —
-/// where the screen has one — the next step, and under it that supplier's
-/// returns. Shared by Operations (whose band carries Generate Surat Jalan,
-/// Print, Download and Confirm) and Procurement (whose band says nothing: the
-/// buyer reads where each return stands).
+/// The Return PO list, one row per PO (owner, 2026-10-16). Shared by
+/// Operations (whose sheet carries Generate, Print, Download and Confirm) and
+/// Procurement (which reads where each return stands).
 
 /// A return with the date of the order it came from.
 export type Dated = Row & { readonly poDate: string | null }
@@ -39,6 +37,19 @@ export function noteStatus(row: Row): string {
   if (row.handedOverAt !== null) return "Completed"
   if (row.noteAt !== null) return "Generated"
   return "Not Generated"
+}
+
+/// A finished return wears the stamp a finished order wears in the PO list
+/// (owner, 16 Oct 2026): the word over the day it was handed over.
+function CompletedStamp({ row }: { row: Row }) {
+  return (
+    <span className={cn(STAMP, "text-ok-fg")}>
+      Completed
+      {row.handedOverAt !== null && (
+        <span className="block tabular-nums">{dayMonth(row.handedOverAt)}</span>
+      )}
+    </span>
+  )
 }
 
 /// The date of each order, by number, for the PO Date column.
@@ -91,7 +102,7 @@ export function groupBySupplier(
     }))
 }
 
-const columns: ColumnDef<TableSetup, Dated>[] = [
+const baseColumns: ColumnDef<TableSetup, Dated>[] = [
   {
     id: "po",
     accessorFn: (row) => row.reference ?? "",
@@ -106,6 +117,15 @@ const columns: ColumnDef<TableSetup, Dated>[] = [
           {row.original.number}
         </span>
       </span>
+    ),
+  },
+  {
+    id: "supplier",
+    accessorFn: (row) => row.supplier,
+    header: "Supplier",
+    meta: { grow: 220, card: "meta" },
+    cell: ({ row }) => (
+      <span className="truncate text-ink">{row.original.supplier}</span>
     ),
   },
   {
@@ -127,24 +147,12 @@ const columns: ColumnDef<TableSetup, Dated>[] = [
     ),
   },
   {
-    // The day the return was raised: the warehouse has counted the delivery by
-    // then, so it is the nearest date the register holds to "received" (the
-    // order's own date can be weeks earlier).
-    id: "date",
-    accessorFn: (row) => row.raisedAt,
-    header: "Received Date",
-    size: 150,
-    meta: { align: "right", card: "meta", priority: 3 },
-    cell: ({ row }) => (
-      <span className="whitespace-nowrap">{day(row.original.raisedAt)}</span>
-    ),
-  },
-  {
     id: "pic",
     accessorFn: (row) => row.pic ?? "",
     header: "Person in Charge",
     size: 180,
-    meta: { card: "meta", priority: 2 },
+    // Shown on every width, an 11" laptop's too (owner, 2026-10-16).
+    meta: { card: "meta" },
     cell: ({ row }) =>
       row.original.pic === null ? (
         <span className="text-mute">—</span>
@@ -152,92 +160,71 @@ const columns: ColumnDef<TableSetup, Dated>[] = [
         <span className="truncate">{titled(row.original.pic)}</span>
       ),
   },
-  {
-    id: "status",
-    accessorFn: (row) => noteStatus(row),
-    header: "Status",
-    size: 150,
-    meta: { align: "right", card: "status" },
-    cell: ({ row }) => {
-      const status = noteStatus(row.original)
-      // Colour only where somebody has something to do: a return without its
-      // note. Generated waits for the confirm; completed has finished, in green.
-      const tone =
-        status === "Not Generated"
-          ? "text-warn-fg"
-          : status === "Completed"
-            ? "text-ok-fg"
-            : "text-info-fg"
-      return <span className={`whitespace-nowrap ${tone}`}>{status}</span>
-    },
-  },
 ]
 
-/// One supplier, set apart: a band with who, how much is going back to them in
-/// all and `actions`, and under it that supplier's returns.
-function SupplierCard({
-  group,
-  selected,
-  onOpen,
-  actions,
-  showPic,
-}: {
-  group: Group
-  selected: string | undefined
-  onOpen: (id: string) => void
-  actions?: React.ReactNode
-  showPic: boolean
-}) {
-  const rows = group.rows
-  const pieces = rows.reduce((sum, one) => sum + one.pcs, 0)
-  const items = rows.reduce((sum, one) => sum + one.lines.length, 0)
-  const table = useTable(
-    useMemo(
-      () => ({
-        features: tableSetup,
-        data: rows,
-        columns: showPic ? columns : columns.filter((one) => one.id !== "pic"),
-        getRowId: (row: Dated) => row.id,
-      }),
-      [rows, showPic]
-    )
-  )
-  return (
-    <Card className="overflow-clip">
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-3 border-b border-hairline-2 bg-soft-2 px-4 py-3.5">
-        <div className="flex min-w-0 flex-1 flex-col">
-          <span className="truncate text-[1.0625rem] leading-6 font-semibold text-ink">
-            {group.supplier}
-          </span>
-          <span className="text-body tabular-nums">
-            {count(rows.length)} {rows.length === 1 ? "PO" : "POs"}
-          </span>
-        </div>
-        {actions !== undefined && (
-          <span className="flex items-center gap-2">{actions}</span>
-        )}
-        <span className="flex flex-col items-end leading-6 tabular-nums">
-          <span className="text-[1.0625rem] font-semibold text-ink">
-            {quantity(pieces)}
-          </span>
-          <span className="text-body">
-            {count(items)} {items === 1 ? "item" : "items"}
-          </span>
-        </span>
-      </div>
-      <DataTable<Dated>
-        table={table}
-        touch
-        // One sort control a screen would be one too many a card: the order is
-        // the list's own — open ones first, then the newest order — and a
-        // "Sort by" under every supplier's name is noise.
-        cardSort={false}
-        pageScroll
-        onRowClick={(row) => onOpen(row.id)}
-        isSelected={(row) => row.id === selected}
-      />
-    </Card>
-  )
+const statusColumn: ColumnDef<TableSetup, Dated> = {
+  id: "status",
+  accessorFn: (row) => noteStatus(row),
+  header: "Status",
+  size: 150,
+  meta: { align: "right", card: "status" },
+  cell: ({ row }) => {
+    const status = noteStatus(row.original)
+    if (status === "Completed") return <CompletedStamp row={row.original} />
+    // Colour only where somebody has something to do: a return without its
+    // note. Generated waits for the confirm.
+    const tone =
+      status === "Not Generated"
+        ? "text-warn-fg"
+        : status === "Completed"
+          ? "text-ok-fg"
+          : "text-info-fg"
+    return <span className={`whitespace-nowrap ${tone}`}>{status}</span>
+  },
+}
+
+/// What the list needs to offer Confirm on a row: whether that return can be
+/// handed over here, and the start of the confirm dialog.
+export interface ConfirmColumn {
+  readonly can: (id: string) => boolean
+  readonly start: (id: string) => void
+}
+
+/// The last column: where the surat jalan stands, or — where the screen can
+/// hand returns over (Operations) — a Confirm button on every return whose
+/// note is generated (owner, 2026-10-16: "status hapus, ganti ke button
+/// confirm").
+function columnsWith(
+  confirm: ConfirmColumn | undefined
+): ColumnDef<TableSetup, Dated>[] {
+  if (confirm === undefined) return [...baseColumns, statusColumn]
+  return [
+    ...baseColumns,
+    {
+      id: "confirm",
+      header: "",
+      size: 130,
+      enableSorting: false,
+      meta: { align: "right", card: "status" },
+      cell: ({ row }) => {
+        if (noteStatus(row.original) === "Completed")
+          return <CompletedStamp row={row.original} />
+        if (!confirm.can(row.original.id)) return null
+        return (
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={(event) => {
+              event.stopPropagation()
+              confirm.start(row.original.id)
+            }}
+          >
+            Confirm
+          </Button>
+        )
+      },
+    },
+  ]
 }
 
 /// A return on a card: the same card as every list (owner, 2026-10-06). The
@@ -263,7 +250,7 @@ function cardColumns(showPic: boolean): ColumnDef<TableSetup, CardRow>[] {
           <span className="font-mono text-[1rem] font-semibold break-words text-ink">
             {row.original.reference ?? "—"}
           </span>
-          <span className="font-mono text-[0.875rem] font-normal text-mute">
+          <span className="font-mono text-[0.9375rem] font-normal text-mute">
             {row.original.number}
           </span>
         </span>
@@ -280,7 +267,7 @@ function cardColumns(showPic: boolean): ColumnDef<TableSetup, CardRow>[] {
           <span className="text-[1.5rem] leading-tight font-semibold tracking-tight text-ink">
             {count(row.original.pcs)}
           </span>
-          <span className="text-[0.875rem] text-mute">pcs</span>
+          <span className="text-[0.9375rem] text-mute">pcs</span>
         </span>
       ),
     },
@@ -295,6 +282,7 @@ function cardColumns(showPic: boolean): ColumnDef<TableSetup, CardRow>[] {
         const items = one.lines.length
         return (
           <span className="flex flex-col leading-6 tabular-nums">
+            <span className="text-ink">{one.supplier}</span>
             <span>
               {`${day(one.raisedAt)} · ${count(items)} ${items === 1 ? "item" : "items"}`}
             </span>
@@ -311,6 +299,7 @@ function cardColumns(showPic: boolean): ColumnDef<TableSetup, CardRow>[] {
       meta: { align: "right", card: "status" },
       cell: ({ row }) => {
         const status = noteStatus(row.original)
+        if (status === "Completed") return <CompletedStamp row={row.original} />
         // Colour only where somebody has something to do, as the desk does.
         return (
           <Pill
@@ -330,24 +319,20 @@ function cardColumns(showPic: boolean): ColumnDef<TableSetup, CardRow>[] {
   ]
 }
 
-/// The phone's list: a heading per supplier — who, how many POs, how many
-/// pieces going back — that folds on a tap, and a card per return under it.
-/// Where the screen has a supplier-wide step (Operations: the surat jalan) it
-/// stands between the heading and the cards.
+/// The phone's list: a card per return, its supplier in the foot.
 function PhoneGroups({
   groups,
   selected,
   onOpen,
-  actions,
   showPic,
+  refresh,
 }: {
   groups: readonly Group[]
   selected: string | undefined
   onOpen: (id: string) => void
-  actions?: (group: Group) => React.ReactNode
   showPic: boolean
+  refresh?: readonly Refreshable[]
 }) {
-  const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set())
   const rows = useMemo<CardRow[]>(
     () =>
       groups.flatMap((group) => {
@@ -373,10 +358,9 @@ function PhoneGroups({
       [rows, columns]
     )
   )
-  const steps = new Map(groups.map((one) => [one.supplier, actions?.(one)]))
-  const anySteps = [...steps.values()].some((one) => one !== undefined)
   return (
     <DataTable<CardRow>
+      refresh={refresh}
       table={table}
       onRowClick={(row) => onOpen(row.id)}
       isSelected={(row) => row.id === selected}
@@ -384,69 +368,30 @@ function PhoneGroups({
       cardsApart
       cardLead
       cardSort={false}
-      // A heading with a step under it would stick two rows tall.
-      stickyBefore={!anySteps}
-      isHidden={(row) => folded.has(row.group)}
-      renderBefore={(row, index, all) =>
-        index === 0 || all[index - 1].group !== row.group ? (
-          <div>
-            <button
-              type="button"
-              aria-expanded={!folded.has(row.group)}
-              onClick={() =>
-                setFolded((was) => {
-                  const next = new Set(was)
-                  if (!next.delete(row.group)) next.add(row.group)
-                  return next
-                })
-              }
-              className="flex w-full items-center gap-2 px-1 py-2 text-left transition-opacity active:opacity-60"
-            >
-              <span className="min-w-0 text-[1rem] font-semibold break-words text-ink">
-                {row.group}
-              </span>
-              <span className="shrink-0 text-[0.9375rem] text-mute tabular-nums">
-                {`${count(row.groupLines)} ${row.groupLines === 1 ? "PO" : "POs"}`}
-              </span>
-              <span className="flex-1" />
-              <span className="shrink-0 text-[0.875rem] text-mute tabular-nums">
-                {`${quantity(row.groupPieces)}`}
-              </span>
-              <ChevronDown
-                className={cn(
-                  "size-4 shrink-0 text-line-ico transition-[rotate] duration-200 ease-(--ease-out) motion-reduce:transition-none",
-                  folded.has(row.group) && "-rotate-90"
-                )}
-              />
-            </button>
-            {!folded.has(row.group) && steps.get(row.group) !== undefined && (
-              <div className="flex items-center justify-end gap-2 px-1 pb-2">
-                {steps.get(row.group)}
-              </div>
-            )}
-          </div>
-        ) : null
-      }
     />
   )
 }
 
-/// The cards, one per supplier, with a gap you can see between them.
+/// The returns, one row per PO (owner, 16 Oct 2026: "per PO saja"): a table
+/// on a desk, a card each on a phone.
 export function ReturnGroups({
   groups,
   selected,
   onOpen,
-  actions,
   showPic = true,
+  refresh,
+  confirm,
 }: {
   groups: readonly Group[]
   selected: string | undefined
   onOpen: (id: string) => void
-  /// What stands in a supplier's band, if anything.
-  actions?: (group: Group) => React.ReactNode
+  /// Confirm on the row, where this screen hands returns over (Operations).
+  confirm?: ConfirmColumn
   /// The Person in Charge column: the warehouse's, so Operations keeps it and
   /// Procurement's list leaves it out (owner, 2026-10-05).
   showPic?: boolean
+  /// The queries behind the rows.
+  refresh?: readonly Refreshable[]
 }) {
   const phone = useLayout() === "phone"
   if (phone)
@@ -455,22 +400,59 @@ export function ReturnGroups({
         groups={groups}
         selected={selected}
         onOpen={onOpen}
-        actions={actions}
         showPic={showPic}
+        refresh={refresh}
       />
     )
   return (
-    <div className="flex flex-col gap-6">
-      {groups.map((group) => (
-        <SupplierCard
-          key={group.supplier}
-          group={group}
-          selected={selected}
-          onOpen={onOpen}
-          actions={actions?.(group)}
-          showPic={showPic}
-        />
-      ))}
-    </div>
+    <ReturnTable
+      rows={groups.flatMap((group) => group.rows)}
+      selected={selected}
+      onOpen={onOpen}
+      showPic={showPic}
+      refresh={refresh}
+      confirm={confirm}
+    />
+  )
+}
+
+function ReturnTable({
+  rows,
+  selected,
+  onOpen,
+  showPic,
+  refresh,
+  confirm,
+}: {
+  rows: readonly Dated[]
+  selected: string | undefined
+  onOpen: (id: string) => void
+  showPic: boolean
+  refresh?: readonly Refreshable[]
+  confirm?: ConfirmColumn
+}) {
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: rows as Dated[],
+        columns: columnsWith(confirm).filter(
+          (one) => showPic || one.id !== "pic"
+        ),
+        getRowId: (row: Dated) => row.id,
+      }),
+      [rows, showPic, confirm]
+    )
+  )
+  return (
+    <DataTable<Dated>
+      refresh={refresh}
+      table={table}
+      touch
+      cardSort={false}
+      pageScroll
+      onRowClick={(row) => onOpen(row.id)}
+      isSelected={(row) => row.id === selected}
+    />
   )
 }

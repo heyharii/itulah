@@ -1,14 +1,19 @@
 import { useForm } from "@tanstack/react-form"
 import {
-  useInfiniteQuery,
   useMutation,
   useQueries,
   useQuery,
   useQueryClient,
+  useSuspenseInfiniteQuery,
+  useSuspenseQuery,
 } from "@tanstack/react-query"
-import type { ColumnDef, SortingState } from "@tanstack/react-table"
+import type {
+  ColumnDef,
+  SortingState,
+  VisibilityState,
+} from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { useMemo, useState } from "react"
+import { Suspense, useDeferredValue, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Choices, type Tile } from "@/components/ui/form"
@@ -22,6 +27,11 @@ import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { Fab } from "@/components/ui/fab"
 import { Field, Input, Money, Select, Textarea } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
+import {
+  BarSpacer,
+  ColumnsMenu,
+  ExpandingSearch,
+} from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill, Status } from "@/components/ui/pill"
 import {
@@ -31,13 +41,13 @@ import {
   MiniTable,
   SubHead,
 } from "@/components/ui/rows"
-import { Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState, NoMatch } from "@/components/ui/states"
 import { useFilters } from "@/lib/filters"
 import { count, day, label, money } from "@/lib/format"
 import {
   assessAsset,
+  assetPagesQuery,
   assetSchedule,
   billDetail,
   disposeAsset,
@@ -46,6 +56,7 @@ import {
   listBills,
   registerAsset,
   transferAsset,
+  unassessedAssetsQuery,
 } from "@/lib/queries/finance"
 import { useLayout } from "@/lib/layout"
 import { siteChoices, useSiteLabel, useUnits } from "@/lib/queries/organisation"
@@ -70,6 +81,7 @@ import {
   useMoneyAccounts,
 } from "@/screens/finance/hooks"
 import { SiteName, SiteSelect } from "@/screens/finance/parts"
+import { ScreenPending } from "@/screens/finance/pending"
 import type { AssetRow, SupplierBillLine } from "@itulah/contract"
 
 /// What the business owns, what Finance has decided about it, and how it
@@ -189,7 +201,7 @@ const columns: ColumnDef<TableSetup, AssetRow>[] = [
     cell: ({ row }) => (
       <span className="block py-1">
         <span className="block font-medium text-ink">{row.original.name}</span>
-        <span className="block font-mono text-[0.875rem] text-mute">
+        <span className="block font-mono text-[0.9375rem] text-mute">
           {row.original.asset_number}
         </span>
       </span>
@@ -213,7 +225,7 @@ const columns: ColumnDef<TableSetup, AssetRow>[] = [
   {
     accessorKey: "site_id",
     header: "Site",
-    size: 110,
+    size: 170,
     enableSorting: false,
     meta: { card: "hide" },
     // The client's own name for it. The id stays in `title`, because that is
@@ -272,7 +284,7 @@ const columns: ColumnDef<TableSetup, AssetRow>[] = [
       const asset = row.original
       if (asset.acquired_via !== null) {
         return (
-          <span className="font-mono text-[0.875rem] text-body">
+          <span className="font-mono text-[0.9375rem] text-body">
             {asset.acquired_via}
           </span>
         )
@@ -371,7 +383,7 @@ const columns: ColumnDef<TableSetup, AssetRow>[] = [
         <span className="text-[1rem] font-semibold break-words text-ink">
           {row.original.name}
         </span>
-        <span className="font-mono text-[0.875rem] font-normal break-all text-mute">
+        <span className="font-mono text-[0.9375rem] font-normal break-all text-mute">
           {row.original.asset_number}
         </span>
       </span>
@@ -391,7 +403,7 @@ const columns: ColumnDef<TableSetup, AssetRow>[] = [
             ? "—"
             : money(row.original.book_value_minor)}
         </span>
-        <span className="text-[0.875rem] text-mute">book value</span>
+        <span className="text-[0.9375rem] text-mute">book value</span>
       </span>
     ),
   },
@@ -413,10 +425,6 @@ const columns: ColumnDef<TableSetup, AssetRow>[] = [
   },
 ]
 
-/// How many assets one page of the register asks for. A step, not a ceiling:
-/// the table asks for the next page as its last rows scroll into view.
-const PAGE = 100
-
 /// The columns the server can order by, and the word it knows each one as.
 /// Every other column carries `enableSorting: false`: sorting the pages in
 /// hand and calling it the register is the mistake infinite scroll invites.
@@ -429,6 +437,20 @@ const SORTS: Record<string, string> = {
 }
 
 export function AssetRegister() {
+  return (
+    <Suspense
+      fallback={
+        <ScreenPending crumb="Finance · Assets" title="Asset">
+          Loading the register…
+        </ScreenPending>
+      }
+    >
+      <AssetRegisterScreen />
+    </Suspense>
+  )
+}
+
+function AssetRegisterScreen() {
   const phone = useLayout() === "phone"
   const units = useUnits()
   const [query, setQuery] = useState("")
@@ -438,39 +460,43 @@ export function AssetRegister() {
   const [sorting, setSorting] = useState<SortingState>([
     { id: "treatment", desc: false },
   ])
+  const [visibility, setVisibility] = useState<VisibilityState>({})
 
   /// Debounced, because every keystroke is a round trip over the register.
   const needle = useDebounced(query.trim(), 400)
   const by = sorting[0]
-  const scope = {
-    site: site || undefined,
-    q: needle === "" ? undefined : needle,
-    sort: by === undefined ? undefined : SORTS[by.id],
-    dir: by?.desc === true ? "desc" : undefined,
-    limit: PAGE,
-  }
+  // The site, the search and the order answer at once; the register trails
+  // them, and the rows in hand stay on screen (dimmed) until the next are read.
+  const askedSite = useDeferredValue(site)
+  const askedNeedle = useDeferredValue(needle)
+  const askedSort = useDeferredValue(
+    by === undefined ? undefined : SORTS[by.id]
+  )
+  const askedDesc = useDeferredValue(by?.desc === true)
+  const stale =
+    askedSite !== site ||
+    askedNeedle !== needle ||
+    askedSort !== (by === undefined ? undefined : SORTS[by.id]) ||
+    askedDesc !== (by?.desc === true)
 
   // The register, a page at a time. The location, the search and the order
   // are the server's — `treatment` included, so the not-assessed rows are
   // still the first screenful — and the table reads on as somebody scrolls.
-  const assets = useInfiniteQuery({
-    queryKey: [...financeKeys.assets(false, site || null), "pages", scope],
-    queryFn: ({ pageParam, signal }) =>
-      listAssets({ ...scope, cursor: pageParam }, signal),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) => last.next_cursor ?? undefined,
-    // The previous answer stays on screen while the next is fetched. Without
-    // it every keystroke empties the table to a loading line.
-    placeholderData: (previous) => previous,
-  })
+  const assets = useSuspenseInfiniteQuery(
+    assetPagesQuery(askedSite, {
+      q: askedNeedle === "" ? undefined : askedNeedle,
+      sort: askedSort,
+      dir: askedDesc ? "desc" : undefined,
+    })
+  )
 
   const rows = useMemo(
-    () => assets.data?.pages.flatMap((page) => page.rows) ?? [],
+    () => assets.data.pages.flatMap((page) => page.rows),
     [assets.data]
   )
   /// Everything the first page says about the whole answer — the count, the
   /// book value by family — rather than anything summed from the pages held.
-  const head = assets.data?.pages[0]
+  const head = assets.data.pages[0]
   const held = head?.total ?? 0
 
   const filters = useFilters(columns)
@@ -501,6 +527,8 @@ export function AssetRegister() {
             acquired_via: false,
             last_depreciated_month: false,
             accumulated_minor: false,
+            // What somebody switched on in the Columns menu.
+            ...visibility,
             // The card's own columns are drawn on a phone and never on a
             // desk.
             head: phone,
@@ -513,8 +541,9 @@ export function AssetRegister() {
         // pages in hand and call it the register.
         manualSorting: true,
         onSortingChange: setSorting,
+        onColumnVisibilityChange: setVisibility,
       }),
-      [rows, filters.columns, filters.columnFilters, sorting, phone]
+      [rows, filters.columns, filters.columnFilters, sorting, phone, visibility]
     )
   )
 
@@ -522,15 +551,8 @@ export function AssetRegister() {
   /// read because the register's facets count the searched set and ignore
   /// the location, and counting the pages in hand would say "3" while the
   /// fortieth unassessed asset had not loaded yet.
-  const unassessed = useQuery({
-    queryKey: [...financeKeys.assets(true, site || null), "count"],
-    queryFn: ({ signal }) =>
-      listAssets(
-        { site: site || undefined, decision: "UNASSESSED", limit: 1 },
-        signal
-      ),
-  })
-  const gap = unassessed.data?.total ?? 0
+  const unassessed = useSuspenseQuery(unassessedAssetsQuery(askedSite))
+  const gap = unassessed.data.total
 
   /// What the business owns, by family, at what the books say it is worth.
   ///
@@ -566,16 +588,9 @@ export function AssetRegister() {
         // dock's on a phone.
         actions={
           phone ? undefined : (
-            <>
-              <Input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                className="h-control w-48"
-              />
-              <Button variant="primary" onClick={() => setRegistering(true)}>
-                Register asset
-              </Button>
-            </>
+            <Button variant="primary" onClick={() => setRegistering(true)}>
+              Register asset
+            </Button>
           )
         }
       />
@@ -606,7 +621,7 @@ export function AssetRegister() {
               onChange: setSite,
             }}
           />
-          <p className="mb-3 text-[0.875rem] text-mute">
+          <p className="mb-3 text-[0.9375rem] text-mute">
             {count(held)} registered ·{" "}
             <span className="font-medium text-ink tabular-nums">
               {money(booked)}
@@ -617,7 +632,12 @@ export function AssetRegister() {
       )}
 
       {!phone && (
-        <Toolbar>
+        <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2">
+          <ExpandingSearch
+            value={query}
+            onChange={setQuery}
+            label="Search assets"
+          />
           <SiteSelect
             value={site}
             onChange={setSite}
@@ -628,11 +648,11 @@ export function AssetRegister() {
             asks it on the wire, and the figure to the right is the answer for
             whatever it asked. */}
           <FilterPanel model={filters} table={table} />
-          <Toolbar.Spacer />
+          <BarSpacer />
           {/* The effective answer, in words. Which location, how many assets
             the server found, and what they are worth — the same figure the
             chart below totals, so the two cannot disagree. */}
-          <span className="text-[0.875rem] text-mute">
+          <span className="text-[0.9375rem] text-mute">
             {site === "" ? "All sites" : <SiteName id={site} />}
             {" · "}
             {count(held)} registered ·{" "}
@@ -641,7 +661,8 @@ export function AssetRegister() {
             </span>{" "}
             at book value
           </span>
-        </Toolbar>
+          <ColumnsMenu table={table} />
+        </div>
       )}
 
       {/* The control gap, stated once and only when there is one. It used to be
@@ -656,9 +677,11 @@ export function AssetRegister() {
         </Banner>
       )}
 
-      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+      <Card
+        aria-busy={stale || undefined}
+        className="list-swap overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none"
+      >
         {queryState(assets, {
-          loading: "Loading the register…",
           render: () =>
             rows.length === 0 && narrowed ? (
               <NoMatch what="assets" onClear={clearNarrowing} />
@@ -670,6 +693,7 @@ export function AssetRegister() {
               </EmptyState>
             ) : (
               <DataTable<AssetRow>
+                refresh={[assets]}
                 table={table}
                 onRowClick={(row) => asset.open(row.asset_id)}
                 isSelected={(row) => row.asset_id === asset.value}
@@ -678,8 +702,8 @@ export function AssetRegister() {
                 // final once the register has been read to its end.
                 empty={<NoMatch what="assets" onClear={clearNarrowing} />}
                 more={assets}
-                className="max-h-[calc(100dvh-23rem)] max-md:max-h-none [&_tbody_tr]:h-[4.25rem]"
-                pageScroll={phone}
+                className="[&_tbody_tr]:h-[4.25rem]"
+                pageScroll
                 cardsApart
                 cardLead
                 cardSort={false}
@@ -933,7 +957,7 @@ function Schedule({ assetId }: { assetId: string }) {
             </div>
 
             {data.charged.length === 0 ? (
-              <p className="text-[0.875rem] text-body">
+              <p className="text-[0.9375rem] text-body">
                 Nothing has been charged yet. Land never charges, and an asset
                 capitalised this month has not been reached — the run is a
                 month-end step on{" "}
@@ -968,7 +992,7 @@ function Schedule({ assetId }: { assetId: string }) {
                         <AppLink
                           to="/finance/accounting/journal-entries"
                           sheet={{ key: "entry", value: row.entry_id }}
-                          className="font-mono text-[0.875rem] text-accent hover:underline"
+                          className="font-mono text-[0.9375rem] text-accent hover:underline"
                         >
                           {row.entry_number}
                         </AppLink>
@@ -1180,7 +1204,7 @@ function AssetSheet({
       footer={
         asset && !gone ? (
           <div className="flex items-center justify-between gap-3">
-            <span className="text-[0.875rem] text-mute">
+            <span className="text-[0.9375rem] text-mute">
               The reason is required on both decisions.
             </span>
             <form.Subscribe
@@ -1318,7 +1342,7 @@ function AssetSheet({
               )}
 
               {gone ? (
-                <p className="text-[0.875rem] text-body">
+                <p className="text-[0.9375rem] text-body">
                   This asset left the books on {day(asset.disposed_on)}. Nothing
                   more can be recorded against it — reverse its disposal entry
                   if it should not have gone.
@@ -1359,7 +1383,7 @@ function AssetSheet({
                   <form.Field name="decision">
                     {(field) => (
                       <div className="flex flex-col gap-1.5">
-                        <span className="text-[0.875rem] font-medium text-text">
+                        <span className="text-[0.9375rem] font-medium text-text">
                           Decision
                         </span>
                         <Choices
@@ -1678,13 +1702,17 @@ function TransferForm({ asset }: { asset: AssetRow }) {
 
       {confirming ? (
         <div className="flex items-center justify-between gap-3">
-          <span className="text-[0.875rem] text-body">
+          <span className="text-[0.9375rem] text-body">
             Move it to <SiteName id={to} className="font-medium text-ink" /> on{" "}
             {day(movedOn)}? A transfer is a record of a move — correcting one
             means moving it back.
           </span>
           <div className="flex shrink-0 gap-1.5">
-            <Button variant="quiet" onClick={() => setConfirming(false)}>
+            <Button
+              data-cancel
+              variant="quiet"
+              onClick={() => setConfirming(false)}
+            >
               Cancel
             </Button>
             <Button
@@ -1816,7 +1844,7 @@ function DisposeForm({ asset }: { asset: AssetRow }) {
             the clearest sign these are two decisions rather than one setting
             with two values. */}
         <div className="col-span-2 flex flex-col gap-1.5">
-          <span className="text-[0.875rem] font-medium text-text">How</span>
+          <span className="text-[0.9375rem] font-medium text-text">How</span>
           <Choices
             options={DISPOSALS}
             value={method as Disposal}
@@ -1875,7 +1903,7 @@ function DisposeForm({ asset }: { asset: AssetRow }) {
         <Input value={memo} onChange={(event) => setMemo(event.target.value)} />
       </Field>
 
-      <div className="flex items-baseline justify-between gap-3 text-[0.875rem]">
+      <div className="flex items-baseline justify-between gap-3 text-[0.9375rem]">
         <span className="text-mute">
           Book value{" "}
           <span className="text-ink tabular-nums">{money(book)}</span>
@@ -1896,12 +1924,16 @@ function DisposeForm({ asset }: { asset: AssetRow }) {
 
       {confirming ? (
         <div className="flex items-center justify-between gap-3">
-          <span className="text-[0.875rem] text-body">
+          <span className="text-[0.9375rem] text-body">
             Take {asset.asset_number} off the books on {day(disposedOn)} for{" "}
             {money(amount)}? Nothing can be recorded against it afterwards.
           </span>
           <div className="flex shrink-0 gap-1.5">
-            <Button variant="quiet" onClick={() => setConfirming(false)}>
+            <Button
+              data-cancel
+              variant="quiet"
+              onClick={() => setConfirming(false)}
+            >
               Cancel
             </Button>
             <Button
@@ -2017,7 +2049,7 @@ function RegisterSheet({
       title="Register an asset"
       footer={
         <div className="flex items-center justify-between gap-3">
-          <span className="text-[0.875rem] text-mute">
+          <span className="text-[0.9375rem] text-mute">
             No money here — Finance assesses it next.
           </span>
           <form.Subscribe selector={(state) => registrationReady(state.values)}>

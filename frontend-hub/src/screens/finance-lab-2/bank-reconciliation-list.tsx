@@ -1,26 +1,30 @@
-import { useQuery } from "@tanstack/react-query"
+import { useSuspenseQuery } from "@tanstack/react-query"
+import type { ColumnDef } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
 import { ChevronLeft } from "lucide-react"
-import { useMemo, useState } from "react"
+import { Suspense, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { DataTable } from "@/components/ui/data-table"
 import { Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Toolbar } from "@/components/ui/segmented"
-import { EmptyState, LoadingState } from "@/components/ui/states"
+import { EmptyState } from "@/components/ui/states"
 import { count, money } from "@/lib/format"
-import { financeKeys, listCompanyBankAccounts } from "@/lib/queries/finance"
+import {
+  bankStatementsQuery,
+  companyBankAccountsQuery,
+  moneyOverviewQuery,
+} from "@/lib/queries/finance"
 import { useSheet } from "@/lib/sheets"
+import { tableSetup, type TableSetup } from "@/lib/table"
 import { BankReconciliation as ReconcileTool } from "@/screens/finance-lab-2/bank-reconciliation"
 import { PairedReconciliation } from "@/screens/finance-lab-2/bank-reconciliation-paired"
-import {
-  BANK_POTS,
-  useMoney,
-  useStatements,
-} from "@/screens/finance-lab-2/hooks"
-import { Grid, Td, Th } from "@/screens/finance-lab-2/parts"
+import { BANK_POTS } from "@/screens/finance-lab-2/hooks"
 import { useUnitName } from "@/screens/finance/hooks"
+import { ScreenPending } from "@/screens/finance/pending"
 
 /// Reconciliation, as a list of accounts before it is a table of lines.
 ///
@@ -43,24 +47,88 @@ import { useUnitName } from "@/screens/finance/hooks"
 /// (`lib/sheets.ts`), the same one `bank-transactions` links into from a
 /// line's own detail — so a link carrying `?statement=…` opens straight to
 /// this account's reconciliation from either screen.
+/// One bank account, folded across every statement that has arrived for it.
+interface AccountRow {
+  readonly key: string
+  readonly unit_id: string
+  readonly account_code: string
+  readonly account_name: string
+  readonly bank: string | null
+  readonly statements: number
+  readonly lines: number
+  readonly reconciled: number
+  readonly latest: string
+  readonly closing: number
+  readonly statementId: string
+}
+
 export function BankReconciliationList() {
   const statementSheet = useSheet("statement")
   const open = statementSheet.value ?? null
   const [full, setFull] = useState(false)
-  const statements = useStatements()
-  const overview = useMoney()
+
+  // The matcher, for the account somebody pressed Reconcile on. Its own way
+  // back sits above it rather than inside it: the matcher was written as a
+  // whole screen and does not know it is being shown from a list.
+  if (open !== null) {
+    return (
+      <>
+        <div className="flex items-center justify-between px-5 pt-4">
+          <Button
+            variant="ghost"
+            onClick={() => {
+              statementSheet.close()
+              setFull(false)
+            }}
+          >
+            <ChevronLeft className="size-4" />
+            All accounts
+          </Button>
+          {!full && (
+            <Button variant="ghost" size="sm" onClick={() => setFull(true)}>
+              Open the full matcher
+            </Button>
+          )}
+        </div>
+        {full ? (
+          <ReconcileTool statementId={open} />
+        ) : (
+          <PairedReconciliation
+            statementId={open}
+            onOpenFullMatcher={() => setFull(true)}
+          />
+        )}
+      </>
+    )
+  }
+
+  return (
+    <Suspense
+      fallback={
+        <ScreenPending crumb="Finance · Banking" title="Bank Reconciliation">
+          Reading what has arrived…
+        </ScreenPending>
+      }
+    >
+      <ReconciliationAccounts />
+    </Suspense>
+  )
+}
+
+/// The list of accounts the route lands on: the statements that have arrived,
+/// folded to one row per account, beside what the books hold for each.
+function ReconciliationAccounts() {
+  const statementSheet = useSheet("statement")
+  const statements = useSuspenseQuery(bankStatementsQuery())
+  const overview = useSuspenseQuery(moneyOverviewQuery())
   const unitName = useUnitName()
   const [account, setAccount] = useState("")
   const [month, setMonth] = useState("")
   const [year, setYear] = useState("")
 
-  const described = useQuery({
-    queryKey: financeKeys.companyBankAccounts(null),
-    queryFn: ({ signal }) => listCompanyBankAccounts(signal),
-    staleTime: 5 * 60_000,
-  })
+  const described = useSuspenseQuery(companyBankAccountsQuery())
 
-  const rows = useMemo(() => statements.data?.rows ?? [], [statements.data])
+  const rows = statements.data.rows
 
   /// Which bank a unit's money is at, and only where the answer is not in
   /// doubt — the same rule Bank Transactions follows, for the same reason: a
@@ -68,7 +136,7 @@ export function BankReconciliationList() {
   /// two institutions cannot be named without guessing.
   const bankOfUnit = useMemo(() => {
     const seen = new Map<string, string | null>()
-    for (const one of described.data ?? []) {
+    for (const one of described.data) {
       if (one.status === "CLOSED") continue
       const had = seen.get(one.unit_id)
       if (had === undefined) seen.set(one.unit_id, one.bank_name)
@@ -80,7 +148,7 @@ export function BankReconciliationList() {
   /// What the books hold, per bank account.
   const books = useMemo(() => {
     const table = new Map<string, number>()
-    for (const row of overview.data?.rows ?? []) {
+    for (const row of overview.data.rows) {
       if (!BANK_POTS.includes(row.pot)) continue
       table.set(`${row.account_code}@${row.unit_id}`, row.per_books_minor)
     }
@@ -160,40 +228,138 @@ export function BankReconciliationList() {
 
   const narrowed = account !== "" || month !== "" || year !== ""
 
-  // The matcher, for the account somebody pressed Reconcile on. Its own way
-  // back sits above it rather than inside it: the matcher was written as a
-  // whole screen and does not know it is being shown from a list.
-  if (open !== null) {
-    return (
-      <>
-        <div className="flex items-center justify-between px-5 pt-4">
+  /// The accounts as a table; on a card the account names it and the four
+  /// figures that decide follow. A row opens the account's reconciliation.
+  const columns = useMemo<ColumnDef<TableSetup, AccountRow>[]>(
+    () => [
+      {
+        id: "account",
+        accessorFn: (row) =>
+          `${row.bank ?? row.account_name} · ${unitName(row.unit_id)}`,
+        header: "Account",
+        size: 280,
+        enableSorting: false,
+        meta: { card: "title", grow: 240 },
+        cell: ({ row }) => (
+          <span className="text-ink">
+            {row.original.bank ?? row.original.account_name} ·{" "}
+            {unitName(row.original.unit_id)}
+          </span>
+        ),
+      },
+      {
+        id: "lines",
+        accessorFn: (row) => row.lines,
+        header: "Transactions",
+        size: 130,
+        enableSorting: false,
+        meta: { align: "right", card: "hide", priority: 3 },
+        cell: ({ row }) => count(row.original.lines),
+      },
+      {
+        id: "reconciled",
+        accessorFn: (row) => row.reconciled,
+        header: "Reconciled",
+        size: 120,
+        enableSorting: false,
+        meta: { align: "right", card: "hide", priority: 2 },
+        cell: ({ row }) => (
+          <span className={row.original.reconciled === 0 ? "text-mute" : ""}>
+            {count(row.original.reconciled)}
+          </span>
+        ),
+      },
+      {
+        id: "pending",
+        accessorFn: (row) => row.lines - row.reconciled,
+        header: "Pending",
+        size: 100,
+        enableSorting: false,
+        meta: { align: "right", card: "metric" },
+        cell: ({ row }) => {
+          const pending = row.original.lines - row.original.reconciled
+          return pending === 0 ? (
+            <span className="text-mute">0</span>
+          ) : (
+            <span className="font-medium text-warn-fg">{count(pending)}</span>
+          )
+        },
+      },
+      {
+        id: "bank",
+        accessorFn: (row) => row.closing,
+        header: "Bank",
+        size: 150,
+        enableSorting: false,
+        meta: { align: "right", card: "metric" },
+        cell: ({ row }) => money(row.original.closing),
+      },
+      {
+        id: "books",
+        accessorFn: (row) => books.get(row.key) ?? 0,
+        header: "Books",
+        size: 150,
+        enableSorting: false,
+        meta: { align: "right", card: "metric" },
+        cell: ({ row }) => money(books.get(row.original.key) ?? 0),
+      },
+      {
+        id: "difference",
+        accessorFn: (row) => (books.get(row.key) ?? 0) - row.closing,
+        header: "Difference",
+        size: 150,
+        enableSorting: false,
+        meta: { align: "right", card: "metric" },
+        cell: ({ row }) => {
+          const difference =
+            (books.get(row.original.key) ?? 0) - row.original.closing
+          return difference === 0 ? (
+            <span className="text-mute">0</span>
+          ) : (
+            <span className="font-medium text-bad-fg">{money(difference)}</span>
+          )
+        },
+      },
+      {
+        id: "reconcile",
+        accessorFn: (row) => row.statementId,
+        header: "",
+        size: 120,
+        enableSorting: false,
+        enableHiding: false,
+        meta: { align: "right", card: "hide" },
+        cell: ({ row }) => (
           <Button
-            variant="ghost"
-            onClick={() => {
-              statementSheet.close()
-              setFull(false)
+            size="sm"
+            variant={
+              row.original.lines - row.original.reconciled === 0
+                ? "ghost"
+                : "primary"
+            }
+            onClick={(event) => {
+              event.stopPropagation()
+              statementSheet.open(row.original.statementId)
             }}
           >
-            <ChevronLeft className="size-4" />
-            All accounts
+            Reconcile
           </Button>
-          {!full && (
-            <Button variant="ghost" size="sm" onClick={() => setFull(true)}>
-              Open the full matcher
-            </Button>
-          )}
-        </div>
-        {full ? (
-          <ReconcileTool statementId={open} />
-        ) : (
-          <PairedReconciliation
-            statementId={open}
-            onOpenFullMatcher={() => setFull(true)}
-          />
-        )}
-      </>
+        ),
+      },
+    ],
+    [books, unitName, statementSheet]
+  )
+
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: accounts,
+        columns,
+        getRowId: (row: AccountRow) => row.key,
+      }),
+      [accounts, columns]
     )
-  }
+  )
 
   return (
     <PageContent>
@@ -250,15 +416,13 @@ export function BankReconciliationList() {
             ))}
           </Select>
           <Toolbar.Spacer />
-          <span className="text-[0.875rem] text-mute">
+          <span className="text-[0.9375rem] text-mute">
             {count(accounts.length)}{" "}
             {accounts.length === 1 ? "account" : "accounts"}
           </span>
         </Toolbar>
 
-        {statements.isPending ? (
-          <LoadingState>Reading what has arrived…</LoadingState>
-        ) : accounts.length === 0 ? (
+        {accounts.length === 0 ? (
           narrowed ? (
             <EmptyState>No account matches these filters.</EmptyState>
           ) : (
@@ -268,87 +432,14 @@ export function BankReconciliationList() {
             </EmptyState>
           )
         ) : (
-          <Card className="overflow-hidden">
-            <Grid>
-              <thead>
-                <tr>
-                  <Th>Account</Th>
-                  <Th align="right" width="7rem">
-                    Transactions
-                  </Th>
-                  <Th align="right" width="7rem">
-                    Reconciled
-                  </Th>
-                  <Th align="right" width="7rem">
-                    Pending
-                  </Th>
-                  <Th align="right" width="10rem">
-                    Bank
-                  </Th>
-                  <Th align="right" width="10rem">
-                    Books
-                  </Th>
-                  <Th align="right" width="10rem">
-                    Difference
-                  </Th>
-                  <Th width="8rem" />
-                </tr>
-              </thead>
-              <tbody>
-                {accounts.map((row) => {
-                  const pending = row.lines - row.reconciled
-                  const held = books.get(row.key) ?? 0
-                  const difference = held - row.closing
-                  return (
-                    <tr key={row.key}>
-                      <Td>
-                        <span className="text-ink">
-                          {row.bank ?? row.account_name} ·{" "}
-                          {unitName(row.unit_id)}
-                        </span>
-                      </Td>
-                      <Td align="right">{count(row.lines)}</Td>
-                      <Td align="right">
-                        <span
-                          className={row.reconciled === 0 ? "text-mute" : ""}
-                        >
-                          {count(row.reconciled)}
-                        </span>
-                      </Td>
-                      <Td align="right">
-                        {pending === 0 ? (
-                          <span className="text-mute">0</span>
-                        ) : (
-                          <span className="font-medium text-warn-fg">
-                            {count(pending)}
-                          </span>
-                        )}
-                      </Td>
-                      <Td align="right">{money(row.closing)}</Td>
-                      <Td align="right">{money(held)}</Td>
-                      <Td align="right">
-                        {difference === 0 ? (
-                          <span className="text-mute">0</span>
-                        ) : (
-                          <span className="font-medium text-bad-fg">
-                            {money(difference)}
-                          </span>
-                        )}
-                      </Td>
-                      <Td align="right">
-                        <Button
-                          size="sm"
-                          variant={pending === 0 ? "ghost" : "primary"}
-                          onClick={() => statementSheet.open(row.statementId)}
-                        >
-                          Reconcile
-                        </Button>
-                      </Td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </Grid>
+          <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+            <DataTable<AccountRow>
+              table={table}
+              onRowClick={(row) => statementSheet.open(row.statementId)}
+              pageScroll
+              cardSort={false}
+              cardsApart
+            />
           </Card>
         )}
       </div>

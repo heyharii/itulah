@@ -1,14 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Download, Printer, Search } from "lucide-react"
+import { Camera, Download, Printer } from "lucide-react"
 import { useMemo, useRef, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
 import { Dialog } from "@/components/ui/dialog"
 import { Field, Input } from "@/components/ui/field"
-import { Sheet } from "@/components/ui/sheet"
+import { ExpandingSearch } from "@/components/ui/list-chrome"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import {
   Banner,
@@ -23,13 +23,16 @@ import {
   type PurchaseReturnWork,
 } from "@/lib/api"
 import { useEdgeActor } from "@/lib/edge-session"
+import { asJpeg } from "@/lib/image"
 import { count, quantity } from "@/lib/format"
-import { useLayout } from "@/lib/layout"
 import { keys } from "@/lib/operations/keys"
 import { useNameOfLogin } from "@/lib/queries/hr-employees"
 import { problemOf } from "@/lib/problem"
-import { procurementKeys } from "@/lib/queries/procurement"
-import { supplierReturnKeys } from "@/lib/queries/supplier-returns"
+import { procurementKeys, uploadOrderPhoto } from "@/lib/queries/procurement"
+import {
+  putReturnProof,
+  supplierReturnKeys,
+} from "@/lib/queries/supplier-returns"
 import { useSheet } from "@/lib/sheets"
 import { idempotencyKey } from "@itulah/contract/client"
 import { BoardHeader } from "@/screens/operations/board/parts"
@@ -38,13 +41,13 @@ import {
   groupBySupplier,
   ReturnGroups,
   usePoDates,
-  type Group,
 } from "@/screens/procurement/supplier-return-groups"
 import { downloadReturnPdf } from "@/screens/procurement/return-pdf"
 import {
   useReturnNoteLink,
   withNoteLink,
 } from "@/screens/procurement/return-note-link"
+import { titleCaseTyping } from "@/screens/procurement/supplier-format"
 import type { PrintableNote } from "@/screens/procurement/return-print"
 import {
   useSupplierContact,
@@ -103,6 +106,12 @@ function NoteButtons({ note }: { note: PrintableNote }) {
 const isDone = (row: Row) =>
   row.reference === null ? !row.open : row.handedOverAt !== null
 
+/// Where a return stands (owner, 16 Oct 2026): To be returned → In progress
+/// (its delivery note is generated) → Completed (handed over).
+type Stage = "todo" | "progress" | "completed"
+const stageOf = (row: Row): Stage =>
+  isDone(row) ? "completed" : row.noteAt !== null ? "progress" : "todo"
+
 export function SuppliersBoard() {
   const client = useQueryClient()
   const open = useQuery({
@@ -113,20 +122,25 @@ export function SuppliersBoard() {
   const supplierName = useSupplierName()
   const contact = useSupplierContact()
   const nameOfLogin = useNameOfLogin()
-  const actor = useEdgeActor()
   const sheet = useSheet("allotment")
   const register = useReturnRows()
   const poDates = usePoDates()
   const [typed, setTyped] = useState("")
   /// Active: not handed over yet. Completed: handed over, and never mixed with
   /// the ones whose surat jalan is not made (owner, 10 Oct 2026).
-  const [tab, setTab] = useState<"active" | "completed">("active")
-  const phone = useLayout() === "phone"
-  /// What has been typed into Person in Charge, by supplier, before the note
+  const [tab, setTab] = useState<Stage>("todo")
+  /// What has been typed into Person in Charge, by return, before the note
   /// is generated.
   const [drafts, setDrafts] = useState<Readonly<Record<string, string>>>({})
-  /// The supplier whose note is being made.
-  const [making, setMaking] = useState<string | null>(null)
+  /// Each item's note, by return then article code, before the note is
+  /// generated.
+  const [lineDrafts, setLineDrafts] = useState<
+    Readonly<Record<string, Readonly<Record<string, string>>>>
+  >({})
+  /// The return whose note was just generated in this sheet: it shows the
+  /// note to print, not Confirm, until the sheet is closed (owner, 16 Oct
+  /// 2026).
+  const [justMade, setJustMade] = useState<string | null>(null)
 
   const edge = open.data ?? []
 
@@ -152,7 +166,7 @@ export function SuppliersBoard() {
     return groupBySupplier(
       all.filter(
         (one) =>
-          isDone(one) === (tab === "completed") &&
+          stageOf(one) === tab &&
           `${one.supplier} ${one.number} ${one.reference ?? ""}`
             .toLowerCase()
             .includes(needle)
@@ -160,76 +174,89 @@ export function SuppliersBoard() {
       poDates
     )
   }, [all, poDates, typed, tab])
-  const doneCount = all.filter(isDone).length
-
-  /// The returns of a supplier still waiting to be handed over — the ones one
-  /// note covers and one Confirm completes — as this node holds them.
-  const waitingOf = (group: Group) =>
-    edge.filter(
-      (one) =>
-        one.status === "OPEN" &&
-        group.rows.some((row) => row.id === one.return_id)
-    )
+  const inStage = (stage: Stage) => all.filter((one) => stageOf(one) === stage)
+  const stages = {
+    todo: inStage("todo"),
+    progress: inStage("progress"),
+    completed: inStage("completed"),
+  }
+  const pcsOf = (list: readonly Row[]) =>
+    list.reduce((sum, one) => sum + one.pcs, 0)
 
   const pending = open.isPending || register.returns.isPending
   const opened = all.find((one) => one.id === sheet.value) ?? null
 
-  const makingGroup = groups.find((one) => one.supplier === making) ?? null
-  const typedPic =
-    making === null ? "" : (drafts[making] ?? titled(nameOfLogin(actor)))
+  /// The opened return as this node holds it, while it waits to be handed
+  /// over: its note is generated and confirmed here.
+  const work =
+    opened === null
+      ? undefined
+      : edge.find((one) => one.return_id === opened.id && one.status === "OPEN")
+  const made = work?.note_generated_at != null
+  /// Starts empty: whoever hands the goods over types their own name (owner,
+  /// 16 Oct 2026).
+  const typedPic = opened === null ? "" : (drafts[opened.id] ?? "")
+  const typedNotes = opened === null ? {} : (lineDrafts[opened.id] ?? {})
   const generate = useMutation({
-    mutationFn: (group: Group) =>
+    mutationFn: (id: string) =>
       generatePurchaseReturnNote({
-        return_ids: waitingOf(group).map((one) => one.return_id),
+        return_ids: [id],
         pic: typedPic.trim(),
+        notes: typedNotes,
       }),
-    onSuccess: () => {
+    onSuccess: (_, id) => {
+      setJustMade(id)
+      // Generated, the sheet goes away (owner, 2026-10-16: "hide saja
+      // sheetnya"); the row moves to In progress with its Confirm.
+      sheet.close()
       // The list reads this node's returns AND head office's register: both
-      // are asked again, so the card says "Generated" without a reload.
+      // are asked again, so the row says "Generated" without a reload.
       void client.invalidateQueries({ queryKey: keys.purchaseReturns() })
       void client.invalidateQueries({ queryKey: procurementKeys.returns() })
       void client.invalidateQueries({ queryKey: supplierReturnKeys.all })
-      setMaking(null)
     },
   })
-  /// The note for a supplier: the returns waiting to be handed over, as one.
-  const noteFor = (group: Group) => {
-    const waiting = waitingOf(group)
-    return noteOf(
-      group.rows.filter((row) =>
-        waiting.some((one) => one.return_id === row.id)
-      ),
-      waiting[0]?.note_pic
-    )
-  }
-
-  const search = (
-    <label className="relative">
-      <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-mute" />
-      <Input
-        value={typed}
-        onChange={(event) => setTyped(event.target.value)}
-        aria-label="Search returns"
-        className="h-11 w-80 pl-9"
-      />
-    </label>
-  )
 
   return (
     <PageContent fill>
-      <BoardHeader board="suppliers" actions={phone ? undefined : search} />
+      <BoardHeader board="suppliers" />
+      {/* The book at a glance, as Allotments reads it (owner, 16 Oct 2026). */}
+      <KpiStrip className="shrink-0 grid-cols-3">
+        <Kpi label="To be returned" value={quantity(pcsOf(stages.todo))} />
+        <Kpi label="In progress" value={quantity(pcsOf(stages.progress))} />
+        <Kpi label="Completed" value={quantity(pcsOf(stages.completed))} />
+      </KpiStrip>
       <SubTabs
         // `fill` makes the page a flex column: a long Completed list squeezed
         // the strip to nothing (owner, 2026-10-10).
         className="shrink-0"
         value={tab}
-        onChange={(next) => setTab(next as "active" | "completed")}
+        onChange={(next) => setTab(next as Stage)}
         tabs={[
-          { value: "active", label: `Active ${count(all.length - doneCount)}` },
-          { value: "completed", label: `Completed ${count(doneCount)}` },
+          {
+            value: "todo",
+            label: `To be returned ${count(stages.todo.length)}`,
+          },
+          {
+            value: "progress",
+            label: "In progress",
+            alert: stages.progress.length,
+          },
+          {
+            value: "completed",
+            label: `Completed ${count(stages.completed.length)}`,
+          },
         ]}
       />
-      {/* A phone's search is the dock's, as on every list. */}
+      {/* The search stands in the bar under the tabs; a phone's is the dock's,
+          as on every list. */}
+      <div className="group/bar mb-3.5 flex min-h-[2.25rem] shrink-0 flex-wrap items-center gap-2 max-md:hidden">
+        <ExpandingSearch
+          value={typed}
+          onChange={setTyped}
+          label="Search returns"
+        />
+      </div>
       <DockTools
         search={{
           value: typed,
@@ -248,120 +275,110 @@ export function SuppliersBoard() {
             ? "Nothing matches."
             : tab === "completed"
               ? "Nothing completed yet."
-              : "Nothing active."}
+              : tab === "progress"
+                ? "Nothing in progress."
+                : "Nothing to return."}
         </EmptyState>
       ) : (
         <ReturnGroups
           groups={groups}
           selected={sheet.value}
           onOpen={sheet.open}
-          actions={(group) => {
-            const waiting = waitingOf(group)
-            if (waiting.length === 0) return undefined
-            const made = waiting.every((one) => one.note_generated_at)
-            return made ? (
-              <>
-                <NoteButtons note={noteFor(group)} />
-                <Button
-                  variant="primary"
-                  size="card"
-                  onClick={() => confirm.start(group.supplier, waiting)}
-                >
-                  Confirm
-                </Button>
-              </>
-            ) : (
-              <Button
-                variant="primary"
-                size="card"
-                onClick={() => setMaking(group.supplier)}
-              >
-                Generate Delivery Note
-              </Button>
-            )
+          refresh={[open, register.returns, register.over]}
+          confirm={{
+            can: (id) =>
+              edge.some(
+                (one) =>
+                  one.return_id === id &&
+                  one.status === "OPEN" &&
+                  one.note_generated_at != null
+              ),
+            start: (id) => {
+              const row = all.find((one) => one.id === id)
+              const held = edge.find(
+                (one) => one.return_id === id && one.status === "OPEN"
+              )
+              if (row && held) confirm.start(row.supplier, [held])
+            },
           }}
         />
       )}
 
-      <ReturnSheet row={opened} onClose={sheet.close} />
-
-      <Sheet
-        open={making !== null}
-        onOpenChange={(next) => {
-          if (!next) {
-            setMaking(null)
-            generate.reset()
-          }
+      <ReturnSheet
+        row={opened}
+        onClose={() => {
+          sheet.close()
+          generate.reset()
+          setJustMade(null)
         }}
-        title="Generate Delivery Note"
-        caption={making ?? undefined}
-        footer={
-          <div className="flex justify-end">
+        form={
+          // No banner after Generate (owner, 16 Oct 2026: "jangan ada itu"):
+          // the footer simply holds Print and Download until it is reopened.
+          work !== undefined && made && justMade === opened?.id ? null : (
+            work !== undefined &&
+            !made && (
+              <>
+                {generate.isError && (
+                  <Banner tone="bad">{problemOf(generate.error)}</Banner>
+                )}
+                <Field label="Person in Charge" required>
+                  <Input
+                    value={typedPic}
+                    onChange={(event) =>
+                      setDrafts((was) => ({
+                        ...was,
+                        // A name, as names are typed elsewhere: Title Case.
+                        [opened!.id]: titleCaseTyping(event.target.value),
+                      }))
+                    }
+                    className="h-11"
+                  />
+                </Field>
+              </>
+            )
+          )
+        }
+        notes={
+          work !== undefined && !made
+            ? {
+                value: typedNotes,
+                onChange: (sku, text) =>
+                  setLineDrafts((was) => ({
+                    ...was,
+                    // Title Case as it is typed (owner, 2026-10-16).
+                    [opened!.id]: {
+                      ...(was[opened!.id] ?? {}),
+                      [sku]: titleCaseTyping(text),
+                    },
+                  })),
+              }
+            : undefined
+        }
+        extra={
+          work === undefined || opened === null ? undefined : made ? (
+            <>
+              <NoteButtons note={noteOf([opened], work.note_pic)} />
+              {justMade !== opened.id && (
+                <Button
+                  variant="primary"
+                  onClick={() => confirm.start(opened.supplier, [work])}
+                >
+                  Confirm
+                </Button>
+              )}
+            </>
+          ) : (
             <Button
               variant="primary"
               disabled={typedPic.trim() === ""}
               pending={generate.isPending}
-              onClick={() => makingGroup && generate.mutate(makingGroup)}
+              onClick={() => generate.mutate(opened.id)}
             >
               Generate Delivery Note
             </Button>
-          </div>
+          )
         }
-      >
-        {makingGroup && (
-          <div className="flex flex-col gap-6">
-            {generate.isError && (
-              <Banner tone="bad">{problemOf(generate.error)}</Banner>
-            )}
-            <Field label="Person in Charge" required>
-              <Input
-                value={typedPic}
-                onChange={(event) =>
-                  setDrafts((was) => ({
-                    ...was,
-                    [makingGroup.supplier]: event.target.value,
-                  }))
-                }
-                className="h-11"
-              />
-            </Field>
-            <div>
-              <h4 className="mb-3 text-card-title font-semibold text-ink">
-                In this note
-              </h4>
-              <Card className="overflow-hidden">
-                <table className="w-full border-collapse text-[0.9375rem]">
-                  <thead>
-                    <tr className="h-11 bg-soft text-left text-[0.875rem] font-medium text-body">
-                      <th className="pl-4">PO</th>
-                      <th className="text-right">Items</th>
-                      <th className="pr-4 text-right">Quantity</th>
-                    </tr>
-                  </thead>
-                  <tbody className="[&_td]:py-3">
-                    {noteFor(makingGroup).returns.map((one) => (
-                      <tr key={one.number} className="border-t border-hairline">
-                        <td className="pl-4 font-mono text-id">
-                          {one.reference ?? one.number}
-                        </td>
-                        <td className="text-right tabular-nums">
-                          {count(one.lines.length)}
-                        </td>
-                        <td className="pr-4 text-right tabular-nums">
-                          {count(
-                            one.lines.reduce((sum, line) => sum + line.qty, 0)
-                          )}{" "}
-                          pcs
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </Card>
-            </div>
-          </div>
-        )}
-      </Sheet>
+      />
     </PageContent>
   )
 }
@@ -410,15 +427,17 @@ function fromEdge(
     letterId: null,
     pic: row.note_pic ?? null,
     noteAt: row.note_generated_at ?? null,
+    lineNotes: row.line_notes ?? {},
     letterNumber: null,
     raw: null,
   }
 }
 
-/// Confirms that a supplier's over-delivery returns have left for them. One
-/// question, one press: no driver to name (owner, 2 Oct 2026) — the note's
-/// person in charge is already on paper. Owned by the screen, so the dialog
-/// stays mounted across the moment its own write empties the open list.
+/// Confirms that a supplier's over-delivery returns have left for them, with
+/// a photo as proof the supplier received the goods (owner, 2026-10-16: the
+/// surat jalan signed as Penerima, or the goods in the supplier's hands).
+/// Submit waits for the photo. Owned by the screen, so the dialog stays
+/// mounted across the moment its own write empties the open list.
 function useConfirmReturn() {
   const client = useQueryClient()
   const actor = useEdgeActor()
@@ -426,6 +445,9 @@ function useConfirmReturn() {
     supplier: string
     returns: readonly PurchaseReturnWork[]
   } | null>(null)
+  const [photo, setPhoto] = useState<File | null>(null)
+  const [preview, setPreview] = useState<string | null>(null)
+  const picker = useRef<HTMLInputElement>(null)
   // One key per return, minted once per attempt and kept across a retry, so a
   // second press on bad wifi cannot confirm the same return twice.
   const attempt = useRef(new Map<string, string>())
@@ -436,10 +458,16 @@ function useConfirmReturn() {
     attempt.current.set(id, minted)
     return minted
   }
+  /// The photo's link once stored, kept across a retry so a failed hand-over
+  /// does not upload it twice.
+  const stored = useRef<string | null>(null)
 
   const confirm = useMutation({
     mutationFn: async (returns: readonly PurchaseReturnWork[]) => {
+      if (photo === null) throw new Error("Add a photo first.")
+      stored.current ??= await uploadOrderPhoto(await asJpeg(photo))
       for (const row of returns) {
+        await putReturnProof(row.return_id, stored.current)
         await handOverPurchaseReturn(row.return_id, {
           actor_id: actor,
           handed_to: null,
@@ -447,33 +475,46 @@ function useConfirmReturn() {
         })
       }
     },
-    onSuccess: () => {
+    onSuccess: (_, returns) => {
       // Confirm hands the goods over: the node's returns and the register are
-      // both asked again, so the card moves to Completed without a reload.
+      // both asked again, so the row moves to Completed without a reload.
       void client.invalidateQueries({ queryKey: keys.purchaseReturns() })
       void client.invalidateQueries({ queryKey: procurementKeys.returns() })
       void client.invalidateQueries({ queryKey: supplierReturnKeys.all })
+      for (const row of returns)
+        void client.invalidateQueries({
+          queryKey: supplierReturnKeys.proof(row.return_id),
+        })
     },
   })
 
+  const choose = (file: File | null) => {
+    if (preview !== null) URL.revokeObjectURL(preview)
+    setPhoto(file)
+    setPreview(file === null ? null : URL.createObjectURL(file))
+    stored.current = null
+  }
   const close = () => {
     setTarget(null)
+    choose(null)
     attempt.current = new Map()
     confirm.reset()
   }
 
   const pieces =
     target?.returns.reduce((sum, one) => sum + one.quantity, 0) ?? 0
+  const numbers = target?.returns.map((one) => one.return_number).join(", ")
   const dialog = (
     <Dialog
       open={target !== null}
       onOpenChange={(next) => {
         if (!next) close()
       }}
-      title={target ? `Confirm ${target.supplier}?` : "Confirm"}
-      confirm={confirm.isSuccess ? "Done" : "Confirm"}
+      title="Confirm Return"
+      confirm={confirm.isSuccess ? "Done" : "Submit"}
       cancel={confirm.isSuccess ? "Close" : "Cancel"}
       pending={confirm.isPending}
+      ready={confirm.isSuccess || photo !== null}
       problem={confirm.isSuccess ? null : confirm.error}
       onConfirm={() => {
         if (confirm.isSuccess) close()
@@ -481,13 +522,55 @@ function useConfirmReturn() {
       }}
     >
       {confirm.isSuccess ? (
-        <Receipt>{`Sent back to ${target?.supplier}.`}</Receipt>
+        <Receipt>{`Returned to ${target?.supplier}.`}</Receipt>
       ) : (
-        <p className="text-body">
-          {target
-            ? `${count(target.returns.length)} ${target.returns.length === 1 ? "return" : "returns"}, ${quantity(pieces)} go back to ${target.supplier}.`
-            : ""}
-        </p>
+        <div className="flex flex-col gap-4">
+          <p>
+            {target
+              ? `${numbers} · ${target.supplier} · ${quantity(pieces)}`
+              : ""}
+          </p>
+          <div className="flex flex-col gap-2">
+            <p className="font-medium text-ink">
+              Photo proof of receipt <span className="text-bad-fg">*</span>
+            </p>
+            <input
+              ref={picker}
+              type="file"
+              accept="image/*"
+              // A phone opens its camera; a laptop, its files.
+              capture="environment"
+              className="hidden"
+              onChange={(event) => {
+                choose(event.target.files?.[0] ?? null)
+                event.target.value = ""
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => picker.current?.click()}
+              className="relative grid h-48 w-full place-items-center overflow-hidden rounded-card border border-dashed border-hairline bg-soft text-body transition-colors hover:border-accent hover:text-accent"
+            >
+              {preview === null ? (
+                <span className="flex flex-col items-center gap-2">
+                  <Camera className="size-6 stroke-[1.6]" />
+                  Take or upload a photo
+                </span>
+              ) : (
+                <>
+                  <img
+                    src={preview}
+                    alt="Proof of receipt"
+                    className="absolute inset-0 size-full object-contain"
+                  />
+                  <span className="absolute right-2 bottom-2 rounded-full bg-canvas/90 px-3 py-1 text-[0.9375rem] text-ink shadow-soft">
+                    Change
+                  </span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
       )}
     </Dialog>
   )

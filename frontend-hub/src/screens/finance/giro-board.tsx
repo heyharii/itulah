@@ -1,10 +1,10 @@
 import {
   useMutation,
-  useQueries,
   useQuery,
   useQueryClient,
+  useSuspenseQueries,
 } from "@tanstack/react-query"
-import { useMemo, useState } from "react"
+import { Suspense, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
@@ -16,13 +16,12 @@ import { Pill } from "@/components/ui/pill"
 import { SHEET_ROW } from "@/components/ui/list-chrome"
 import { BottomSheet } from "@/components/ui/picker-sheet"
 import { Toolbar } from "@/components/ui/segmented"
-import { Banner, EmptyState, LoadingState } from "@/components/ui/states"
+import { Banner, EmptyState } from "@/components/ui/states"
 import { count, day, money } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import {
   clearGiro,
-  financeKeys,
-  listGiros,
+  giroBoardQueries,
   listPayments,
 } from "@/lib/queries/finance"
 import {
@@ -38,6 +37,7 @@ import { todayIso } from "@/screens/finance/chart"
 import { useSupplierName } from "@/screens/finance/hooks"
 import { CardFigure } from "@/components/ui/phone-cards"
 import { PhoneChoice, PhoneFigures, UnitSelect } from "@/screens/finance/parts"
+import { ScreenPending } from "@/screens/finance/pending"
 
 import type { GiroRow } from "@itulah/contract"
 
@@ -57,7 +57,6 @@ import type { GiroRow } from "@itulah/contract"
 ///
 /// No drag, still: every move posts to the ledger, and a card sliding under
 /// the mouse must not be what starts that.
-const BACKEND_STATUSES = ["ISSUED", "DELIVERED", "DUE", "CLEARED", "REJECTED"]
 
 type Bucket = "DUE_SOON" | "WAITING" | "CLEARED" | "BOUNCED"
 
@@ -77,11 +76,25 @@ function bucketOf(row: GiroRow): Bucket {
   return row.days_overdue >= -7 ? "DUE_SOON" : "WAITING"
 }
 
-/// Per backend status. Generous, because the board reads every column at once
-/// rather than a register somebody pages through.
-const PAGE_LIMIT = 300
-
 export function GiroBoard() {
+  return (
+    <Suspense
+      fallback={
+        <ScreenPending
+          crumb="Finance · Banking"
+          title="Giro Board"
+          className="max-md:hidden"
+        >
+          Reading the giros…
+        </ScreenPending>
+      }
+    >
+      <GiroBoardScreen />
+    </Suspense>
+  )
+}
+
+function GiroBoardScreen() {
   const client = useQueryClient()
   // Issued only (owner, 2026-10-01): the client is a cash-and-card retailer
   // and is not paid by giro. The backend still keeps both directions.
@@ -102,16 +115,10 @@ export function GiroBoard() {
 
   // One request per backend status, so a bank or direction the board is not
   // showing does not cost a page of giros the columns would only throw away.
-  const reads = useQueries({
-    queries: BACKEND_STATUSES.map((status) => ({
-      queryKey: financeKeys.giros(status),
-      queryFn: ({ signal }: { signal: AbortSignal }) =>
-        listGiros({ status, limit: PAGE_LIMIT }, signal),
-    })),
+  const reads = useSuspenseQueries({
+    queries: giroBoardQueries(),
     combine: (results) => ({
-      rows: results.flatMap((result) => result.data ?? []),
-      pending: results.some((result) => result.isPending),
-      error: results.find((result) => result.isError)?.error,
+      rows: results.flatMap((result) => result.data),
     }),
   })
 
@@ -207,82 +214,66 @@ export function GiroBoard() {
         <Checkbox label="Late only" checked={lateOnly} onChange={setLateOnly} />
       </Toolbar>
 
-      <p className="mb-3 text-[0.875rem] text-mute max-md:hidden">
-        Drag a giro to Cleared once the bank has taken it, or to Bounced if it
-        was refused.
-      </p>
-
-      {reads.pending ? (
-        <LoadingState>Reading the giros…</LoadingState>
-      ) : reads.error !== undefined ? (
-        <Banner tone="bad">
-          {problemOf(reads.error) ?? "The giros could not be read."}
-        </Banner>
-      ) : (
-        <>
-          {filtered.length === 0 ? (
-            <EmptyState>
-              No giro is on the board yet. A giro is written from a payment or a
-              cash document paid by giro.
-            </EmptyState>
-          ) : phone ? (
-            <>
-              <PhoneFigures
-                items={[
-                  {
-                    label: "Giros",
-                    value: buckets[lane].length,
-                    unit: "count",
-                  },
-                  {
-                    label: "Total",
-                    value: buckets[lane].reduce(
-                      (sum, row) => sum + row.amount_minor,
-                      0
-                    ),
-                  },
-                ]}
-              />
-              <div className="flex flex-col gap-2.5">
-                {buckets[lane].length === 0 ? (
-                  <EmptyState>Nothing here.</EmptyState>
-                ) : (
-                  buckets[lane].map((row) => (
-                    <GiroCard
-                      key={row.giro_id}
-                      row={row}
-                      onChanged={onChanged}
-                      setDragging={setDragging}
-                      acting={active?.id === row.giro_id ? active.kind : null}
-                      setActing={(kind) =>
-                        setActive(
-                          kind === null ? null : { id: row.giro_id, kind }
-                        )
-                      }
-                    />
-                  ))
-                )}
-              </div>
-            </>
-          ) : (
-            <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              {UI_COLUMNS.map(({ key, label }) => (
-                <GiroColumn
-                  key={key}
-                  column={key}
-                  label={label}
-                  rows={buckets[key]}
-                  onChanged={onChanged}
-                  dragging={dragging}
-                  setDragging={setDragging}
-                  active={active}
-                  setActive={setActive}
-                />
-              ))}
+      <>
+        {filtered.length === 0 ? (
+          <EmptyState>No giro yet.</EmptyState>
+        ) : phone ? (
+          <>
+            <PhoneFigures
+              items={[
+                {
+                  label: "Giros",
+                  value: buckets[lane].length,
+                  unit: "count",
+                },
+                {
+                  label: "Total",
+                  value: buckets[lane].reduce(
+                    (sum, row) => sum + row.amount_minor,
+                    0
+                  ),
+                },
+              ]}
+            />
+            <div className="flex flex-col gap-2.5">
+              {buckets[lane].length === 0 ? (
+                <EmptyState>Nothing here.</EmptyState>
+              ) : (
+                buckets[lane].map((row) => (
+                  <GiroCard
+                    key={row.giro_id}
+                    row={row}
+                    onChanged={onChanged}
+                    setDragging={setDragging}
+                    acting={active?.id === row.giro_id ? active.kind : null}
+                    setActing={(kind) =>
+                      setActive(
+                        kind === null ? null : { id: row.giro_id, kind }
+                      )
+                    }
+                  />
+                ))
+              )}
             </div>
-          )}
-        </>
-      )}
+          </>
+        ) : (
+          <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {UI_COLUMNS.map(({ key, label }) => (
+              <GiroColumn
+                key={key}
+                column={key}
+                label={label}
+                rows={buckets[key]}
+                onChanged={onChanged}
+                dragging={dragging}
+                setDragging={setDragging}
+                active={active}
+                setActive={setActive}
+              />
+            ))}
+          </div>
+        )}
+      </>
     </PageContent>
   )
 }
@@ -343,7 +334,7 @@ function GiroColumn({
       <div className="border-b border-hairline pb-2">
         <div className="flex items-center gap-2">
           <span className="text-[0.9375rem] font-medium text-ink">{label}</span>
-          <span className="text-[0.875rem] text-mute tabular-nums">
+          <span className="text-[0.9375rem] text-mute tabular-nums">
             {count(rows.length)}
           </span>
         </div>
@@ -355,7 +346,7 @@ function GiroColumn({
           page fifty cards long. */}
       <div className="mt-3 flex max-h-[calc(100dvh-16rem)] [scrollbar-width:thin] flex-col gap-3 overflow-y-auto pr-1">
         {rows.length === 0 ? (
-          <p className="py-6 text-center text-[0.875rem] text-faint">
+          <p className="py-6 text-center text-[0.9375rem] text-faint">
             Nothing here
           </p>
         ) : (
@@ -437,14 +428,14 @@ function GiroCard({
                 supplierName(row.party_name, row.party_name)
               )}
             </span>
-            <span className="truncate font-mono text-[0.875rem] text-mute">
+            <span className="truncate font-mono text-[0.9375rem] text-mute">
               {row.number}
             </span>
           </div>
           <CardFigure value={money(row.amount_minor)} />
         </div>
         <div className="flex items-center justify-between gap-3 rounded-b-card border-t border-hairline px-4 py-3">
-          <div className="min-w-0 text-[0.875rem]">
+          <div className="min-w-0 text-[0.9375rem]">
             <DueTag row={row} bucket={bucket} />
             {bucket === "BOUNCED" && row.rejected_reason !== null && (
               <div className="truncate text-mute">{row.rejected_reason}</div>
@@ -552,12 +543,12 @@ function GiroCard({
       </div>
       <div className="flex items-baseline justify-between gap-3">
         <DueTag row={row} bucket={bucket} />
-        <span className="min-w-0 truncate font-mono text-[0.875rem] text-mute">
+        <span className="min-w-0 truncate font-mono text-[0.9375rem] text-mute">
           {row.number}
         </span>
       </div>
       {bucket === "BOUNCED" && row.rejected_reason !== null && (
-        <div className="truncate text-[0.875rem] text-mute">
+        <div className="truncate text-[0.9375rem] text-mute">
           {row.rejected_reason}
         </div>
       )}
@@ -570,13 +561,13 @@ function GiroCard({
         ) : (
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <Button
-              variant={acting === "replace" ? "soft" : "primary"}
+              variant={acting === "replace" ? "soft" : "tint"}
               size="sm"
               onClick={() => toggle("replace")}
             >
               Replace
             </Button>
-            <span className="text-[0.875rem] text-mute">
+            <span className="text-[0.9375rem] text-mute">
               {received
                 ? "its invoices are open again"
                 : "its bills are open again"}
@@ -616,10 +607,10 @@ function DueTag({ row, bucket }: { row: GiroRow; bucket: Bucket }) {
     <span
       className={
         tone === "bad"
-          ? "text-[0.875rem] text-bad-fg"
+          ? "text-[0.9375rem] text-bad-fg"
           : tone === "ok"
-            ? "text-[0.875rem] text-ok-fg"
-            : "text-[0.875rem] text-mute"
+            ? "text-[0.9375rem] text-ok-fg"
+            : "text-[0.9375rem] text-mute"
       }
     >
       {text}
@@ -682,7 +673,7 @@ function ClearForm({
         <Day value={on} onChange={setOn} notAfter={todayIso()} />
       </Field>
       <div className="flex justify-end gap-2">
-        <Button variant="ghost" size="sm" onClick={onCancel}>
+        <Button data-cancel variant="ghost" size="sm" onClick={onCancel}>
           Cancel
         </Button>
         <Button
@@ -741,7 +732,7 @@ function RejectForm({
         />
       </Field>
       <div className="flex justify-end gap-2">
-        <Button variant="ghost" size="sm" onClick={onCancel}>
+        <Button data-cancel variant="ghost" size="sm" onClick={onCancel}>
           Cancel
         </Button>
         <Button
@@ -798,7 +789,7 @@ function UnclearForm({
         />
       </Field>
       <div className="flex justify-end gap-2">
-        <Button variant="ghost" size="sm" onClick={onCancel}>
+        <Button data-cancel variant="ghost" size="sm" onClick={onCancel}>
           Cancel
         </Button>
         <Button
@@ -908,9 +899,9 @@ function ReplaceForm({
       <div className="max-h-48 overflow-y-auto rounded-inner border border-hairline">
         {byPayment ? (
           payments.isPending ? (
-            <p className="p-3 text-[0.875rem] text-mute">Reading payments…</p>
+            <p className="p-3 text-[0.9375rem] text-mute">Reading payments…</p>
           ) : paymentRows.length === 0 ? (
-            <p className="p-3 text-[0.875rem] text-mute">
+            <p className="p-3 text-[0.9375rem] text-mute">
               No posted payment matches.
             </p>
           ) : (
@@ -920,7 +911,7 @@ function ReplaceForm({
                 type="button"
                 onClick={() => setChosen(row.payment_id)}
                 className={cn(
-                  "flex w-full items-center justify-between gap-2 border-b border-hairline px-3 py-2 text-left text-[0.875rem] last:border-b-0 hover:bg-soft-2",
+                  "flex w-full items-center justify-between gap-2 border-b border-hairline px-3 py-2 text-left text-[0.9375rem] last:border-b-0 hover:bg-soft-2",
                   chosen === row.payment_id && "bg-soft-2"
                 )}
               >
@@ -937,11 +928,11 @@ function ReplaceForm({
             ))
           )
         ) : documents.isPending ? (
-          <p className="p-3 text-[0.875rem] text-mute">
+          <p className="p-3 text-[0.9375rem] text-mute">
             Reading cash documents…
           </p>
         ) : documentRows.length === 0 ? (
-          <p className="p-3 text-[0.875rem] text-mute">
+          <p className="p-3 text-[0.9375rem] text-mute">
             No posted cash document matches.
           </p>
         ) : (
@@ -951,7 +942,7 @@ function ReplaceForm({
               type="button"
               onClick={() => setChosen(document.document_id)}
               className={cn(
-                "flex w-full items-center justify-between gap-2 border-b border-hairline px-3 py-2 text-left text-[0.875rem] last:border-b-0 hover:bg-soft-2",
+                "flex w-full items-center justify-between gap-2 border-b border-hairline px-3 py-2 text-left text-[0.9375rem] last:border-b-0 hover:bg-soft-2",
                 chosen === document.document_id && "bg-soft-2"
               )}
             >
@@ -969,7 +960,7 @@ function ReplaceForm({
         )}
       </div>
       <div className="flex justify-end gap-2">
-        <Button variant="ghost" size="sm" onClick={onCancel}>
+        <Button data-cancel variant="ghost" size="sm" onClick={onCancel}>
           Cancel
         </Button>
         <Button

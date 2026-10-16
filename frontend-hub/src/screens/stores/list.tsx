@@ -1,7 +1,7 @@
-import { useQuery } from "@tanstack/react-query"
-import { Link, useNavigate, type LinkProps } from "@tanstack/react-router"
+import { useSuspenseQuery } from "@tanstack/react-query"
+import { Link, useNavigate } from "@tanstack/react-router"
 import { Plus } from "lucide-react"
-import { useEffect, useMemo, useState } from "react"
+import { Suspense, useEffect, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { DockTools } from "@/components/shell/dock-tools"
@@ -11,11 +11,10 @@ import { Fab } from "@/components/ui/fab"
 import { Input } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
-import { EmptyState } from "@/components/ui/states"
+import { EmptyState, LoadingState } from "@/components/ui/states"
 import { day } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
-import { listStores, storesKeys, type StoreSummary } from "@/lib/queries/stores"
-import { queryState } from "@/lib/query-state"
+import { storesListQuery, type StoreSummary } from "@/lib/queries/stores"
 import { useSheet } from "@/lib/sheets"
 import {
   CardFigure,
@@ -29,6 +28,7 @@ import {
   serverStateLabel,
   storeStatusLabel,
   storeStatusTone,
+  useStorePath,
 } from "@/screens/stores/shared"
 import { OpenStoresSheet } from "@/screens/setup/open-stores-sheet"
 
@@ -41,27 +41,43 @@ import { OpenStoresSheet } from "@/screens/setup/open-stores-sheet"
 /// composes from the node register, the enrolment queue and the workforce
 /// list once per store — this screen never re-derives readiness itself.
 ///
-/// "Open a new store" raises the same sheet Locations and the setup wizard
-/// use (`screens/setup/open-stores-sheet.tsx`): a store is made in exactly one
-/// place, whichever screen the button sits on.
+/// "Add store" raises the same sheet Locations uses
+/// (`screens/setup/open-stores-sheet.tsx`): a store is made in exactly one
+/// place, whichever screen the button sits on. Making it is not opening it —
+/// opening is the last button on the store's own page.
 export function StoresList() {
-  // A phone keeps the search and "Open a new store" in the drawer over the
-  // bottom bar and reads each store as a card.
+  // The title stands at once; the stores wait for the list and stream in with
+  // it (the server starts the read too). The head's buttons depend on whether
+  // the person may manage stores, so they arrive with the list.
+  return (
+    <PageContent>
+      <Suspense
+        fallback={
+          <>
+            <PageHeader crumb="Stores" title="Stores" />
+            <LoadingState>Reading the stores…</LoadingState>
+          </>
+        }
+      >
+        <StoreBook />
+      </Suspense>
+    </PageContent>
+  )
+}
+
+function StoreBook() {
+  // A phone keeps the search and "Add store" in the drawer over the bottom
+  // bar and reads each store as a card.
   const phone = useLayout() === "phone"
   const opening = useSheet("new-stores")
   const [search, setSearch] = useState("")
   const navigate = useNavigate()
+  const storePath = useStorePath()
 
-  const stores = useQuery({
-    queryKey: storesKeys.list(),
-    queryFn: ({ signal }) => listStores(signal),
-    // A server's heartbeat and a till's last-seen move by the second; a shop
-    // watched from this list should not look five minutes stale.
-    refetchInterval: 30_000,
-  })
+  const stores = useSuspenseQuery(storesListQuery())
 
-  const items = stores.data?.items ?? []
-  const canManage = stores.data?.can_manage ?? false
+  const items = stores.data.items
+  const canManage = stores.data.can_manage
 
   // A supervisor or a store manager whose reach is one unit never sees a
   // list to choose from — head office's own reach reads as `Every`, so
@@ -72,10 +88,10 @@ export function StoresList() {
   useEffect(() => {
     if (solePosting === null) return
     void navigate({
-      to: `/stores/${encodeURIComponent(solePosting)}` as LinkProps["to"],
+      to: storePath(solePosting),
       replace: true,
     })
-  }, [solePosting, navigate])
+  }, [solePosting, navigate, storePath])
 
   const rows = useMemo(() => {
     const text = search.trim().toLowerCase()
@@ -91,13 +107,13 @@ export function StoresList() {
   if (solePosting !== null) return null
 
   return (
-    <PageContent>
+    <>
       <PageHeader
         crumb="Stores"
         title="Stores"
         sub={
           canManage
-            ? "Open a new store, pair its server, and watch every shop from one page."
+            ? "Add a store, install its server, and watch every shop from one page."
             : "Your own store, and its server."
         }
         actions={
@@ -106,12 +122,13 @@ export function StoresList() {
               <Input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search"
                 className="h-8 w-48"
               />
               {canManage && (
                 <Button variant="primary" onClick={() => opening.open(true)}>
                   <Plus className="size-4" />
-                  Open a new store
+                  Add store
                 </Button>
               )}
             </>
@@ -120,50 +137,47 @@ export function StoresList() {
       />
 
       {canManage && (
-        <Fab label="Open a new store" onClick={() => opening.open(true)} />
+        <Fab label="Add store" onClick={() => opening.open(true)} />
       )}
       <DockTools
         search={{ value: search, onChange: setSearch, label: "Search Stores" }}
       />
 
       <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-        {queryState(stores, {
-          loading: "Reading the stores…",
-          render: () =>
-            rows.length === 0 ? (
-              items.length === 0 ? (
-                <EmptyState>
-                  {canManage
-                    ? `No store has been opened yet. "Open a new store" makes its unit, its shop site and its stock pools together.`
-                    : "No store is posted to you yet."}
-                </EmptyState>
+        {rows.length === 0 ? (
+          items.length === 0 ? (
+            <EmptyState>
+              {canManage
+                ? `No store has been added yet. "Add store" makes its unit, its shop site and its stock pools together.`
+                : "No store is posted to you yet."}
+            </EmptyState>
+          ) : (
+            <EmptyState>No store matches that search.</EmptyState>
+          )
+        ) : (
+          <ul
+            className={
+              phone ? "flex flex-col gap-2.5" : "divide-y divide-hairline"
+            }
+          >
+            {rows.map((store) =>
+              phone ? (
+                <StoreCard key={store.unit_id} store={store} />
               ) : (
-                <EmptyState>No store matches that search.</EmptyState>
+                <StoreRow key={store.unit_id} store={store} />
               )
-            ) : (
-              <ul
-                className={
-                  phone ? "flex flex-col gap-2.5" : "divide-y divide-hairline"
-                }
-              >
-                {rows.map((store) =>
-                  phone ? (
-                    <StoreCard key={store.unit_id} store={store} />
-                  ) : (
-                    <StoreRow key={store.unit_id} store={store} />
-                  )
-                )}
-              </ul>
-            ),
-        })}
+            )}
+          </ul>
+        )}
       </Card>
 
       <OpenStoresSheet open={opening.isOpen} onClose={opening.close} />
-    </PageContent>
+    </>
   )
 }
 
 function StoreRow({ store }: { store: StoreSummary }) {
+  const storePath = useStorePath()
   const complete = store.status !== "GETTING_READY"
   return (
     <li>
@@ -173,7 +187,7 @@ function StoreRow({ store }: { store: StoreSummary }) {
           `AppLink`'s own registry check exists for paths declared as literals,
           which a per-store URL never is. */}
       <Link
-        to={`/stores/${encodeURIComponent(store.unit_id)}` as LinkProps["to"]}
+        to={storePath(store.unit_id)}
         className="flex items-center gap-3.5 px-4 py-3 transition-colors hover:bg-soft-2"
       >
         <ReadinessRing
@@ -191,7 +205,7 @@ function StoreRow({ store }: { store: StoreSummary }) {
             </span>
           </span>
           <span className="block truncate text-meta text-body">
-            {store.city ?? "—"}
+            {store.city || "—"}
             {store.status === "OPEN" && store.opened_at
               ? ` · open since ${day(store.opened_at)}`
               : store.status === "CLOSED"
@@ -222,21 +236,18 @@ function StoreRow({ store }: { store: StoreSummary }) {
 /// pill. A tap opens the store's page, as the row does.
 function StoreCard({ store }: { store: StoreSummary }) {
   const navigate = useNavigate()
+  const storePath = useStorePath()
   const getting = store.status === "GETTING_READY"
   return (
     <PhoneCard
-      onOpen={() =>
-        void navigate({
-          to: `/stores/${encodeURIComponent(store.unit_id)}` as LinkProps["to"],
-        })
-      }
+      onOpen={() => void navigate({ to: storePath(store.unit_id) })}
       head={
         <CardName
           name={store.name}
           code={store.code}
           line={
             <>
-              {store.city ?? "—"}
+              {store.city || "—"}
               {store.status === "OPEN" && store.opened_at
                 ? ` · open since ${day(store.opened_at)}`
                 : store.status === "CLOSED"

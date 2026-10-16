@@ -42,7 +42,7 @@ function ExceptionOpenLink({ item }: { item: ExceptionItem }) {
   const to = exceptionHref(item)
   if (STATIC_SCREENS.has(to)) {
     return (
-      <AppLink to={to} className="text-[0.875rem] font-medium text-accent">
+      <AppLink to={to} className="text-[0.9375rem] font-medium text-accent">
         Open
       </AppLink>
     )
@@ -53,7 +53,7 @@ function ExceptionOpenLink({ item }: { item: ExceptionItem }) {
   return (
     <Link
       to={to as LinkProps["to"]}
-      className="text-[0.875rem] font-medium text-accent"
+      className="text-[0.9375rem] font-medium text-accent"
     >
       Open
     </Link>
@@ -166,7 +166,7 @@ export function ExceptionRow({
               </Pill>
             )}
           </div>
-          <p className="mt-1 text-[0.875rem] text-ink">{item.sentence}</p>
+          <p className="mt-1 text-[0.9375rem] text-ink">{item.sentence}</p>
           <p className="mt-0.5 text-meta text-body">
             {showStore ? `${item.unit_name} (${item.unit_code}) · ` : ""}
             since {ago(item.since)}
@@ -241,7 +241,7 @@ export function ExceptionsCard({ unitId }: { unitId: string }) {
       ) : (
         <ul className="divide-y divide-hairline border-t border-hairline">
           {items.slice(0, 3).map((item) => (
-            <li key={item.id} className="px-4 py-2 text-[0.875rem] text-body">
+            <li key={item.id} className="px-4 py-2 text-[0.9375rem] text-body">
               <b className="text-ink">{exceptionKindLabel(item.kind)}</b> —{" "}
               {item.sentence}
             </li>

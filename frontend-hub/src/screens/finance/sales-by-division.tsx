@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query"
-import { useState } from "react"
+import { useQuery, useSuspenseQuery } from "@tanstack/react-query"
+import { Suspense, useDeferredValue, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Card } from "@/components/ui/card"
@@ -7,19 +7,20 @@ import { ExportButton } from "@/components/ui/export-button"
 import { Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { EmptyState } from "@/components/ui/states"
-import { node } from "@/lib/api"
 import { fileSafe, type ExportSheet } from "@/lib/export-xlsx"
 import { count, day, money } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
+import { salesByDivisionQuery } from "@/lib/queries/finance-reports"
 import { queryState } from "@/lib/query-state"
 import { listTerms, vocabularyKeys } from "@/lib/queries/vocabulary"
 import { Grid, Td, Th, TotalRow } from "@/screens/finance-final/parts"
 import { percent, share } from "@/screens/finance-final/reports/two-year"
-import { todayIso } from "@/screens/finance/chart"
+import { yearToDate } from "@/screens/finance/chart"
 import { useUnitName, type DateWindow } from "@/screens/finance/hooks"
 import { PhoneCard, PhoneList } from "@/components/ui/phone-cards"
 import { UnitSelect, WindowControl } from "@/screens/finance/parts"
 import { FactsSheet } from "@/screens/finance/phone-parts"
+import { ScreenPending } from "@/screens/finance/pending"
 import { ReportFilters, ReportSummary } from "@/screens/finance/report"
 import type {
   DivisionSalesRow,
@@ -40,6 +41,23 @@ import type {
 /// an article carries), so the one filter under the division is the tag,
 /// called Category here.
 export function SalesByDivision() {
+  return (
+    <Suspense
+      fallback={
+        <ScreenPending
+          crumb="Finance · Financial Reports"
+          title="Sales by Division"
+        >
+          Adding up the divisions…
+        </ScreenPending>
+      }
+    >
+      <SalesByDivisionScreen />
+    </Suspense>
+  )
+}
+
+function SalesByDivisionScreen() {
   const phone = useLayout() === "phone"
   const range = useYearToDate()
   const [unit, setUnit] = useState("")
@@ -52,21 +70,20 @@ export function SalesByDivision() {
     staleTime: 5 * 60_000,
   })
 
-  const report = useQuery({
-    queryKey: [
-      "finance",
-      "sales-by-division",
-      range.from,
-      range.to,
-      unit || null,
-      category || null,
-    ],
-    queryFn: ({ signal }) =>
-      salesByDivision(
-        { from: range.from, to: range.to, unit, category },
-        signal
-      ),
-  })
+  // The boxes answer at once; the report trails them, and the figures in hand
+  // stay on screen (dimmed) until the next are read.
+  const askedFrom = useDeferredValue(range.from)
+  const askedTo = useDeferredValue(range.to)
+  const askedUnit = useDeferredValue(unit)
+  const askedCategory = useDeferredValue(category)
+  const stale =
+    askedFrom !== range.from ||
+    askedTo !== range.to ||
+    askedUnit !== unit ||
+    askedCategory !== category
+  const report = useSuspenseQuery(
+    salesByDivisionQuery(askedFrom, askedTo, askedUnit, askedCategory)
+  )
 
   const categoryName =
     tags.data?.terms.find((term) => term.code === category)?.label ?? category
@@ -160,10 +177,11 @@ export function SalesByDivision() {
         )}
       </ReportFilters>
 
-      {queryState(report, {
-        loading: "Adding up the divisions…",
-        render: (data) => <Body report={data} />,
-      })}
+      <div className="list-swap" aria-busy={stale || undefined}>
+        {queryState(report, {
+          render: (data) => <Body report={data} />,
+        })}
+      </div>
     </PageContent>
   )
 }
@@ -273,7 +291,7 @@ function Body({ report }: { report: Report }) {
         </Grid>
       )}
 
-      <p className="mt-3 px-1 text-[0.875rem] text-mute tabular-nums">
+      <p className="mt-3 px-1 text-[0.9375rem] text-mute tabular-nums">
         Voided sales: {count(voided.count)} · {money(voided.gross_minor)}
       </p>
     </>
@@ -434,8 +452,7 @@ function exportRow(
 /// year — and following the boxes once somebody edits one.
 function useYearToDate(): DateWindow {
   const [draft, setDraft] = useState<{ from: string; to: string } | null>(null)
-  const today = todayIso()
-  const value = draft ?? { from: `${today.slice(0, 4)}-01-01`, to: today }
+  const value = draft ?? yearToDate()
   return {
     from: value.from,
     to: value.to,
@@ -443,18 +460,4 @@ function useYearToDate(): DateWindow {
     setTo: (to) => setDraft({ ...value, to }),
     chip: `${day(value.from)} – ${day(value.to)}`,
   }
-}
-
-/// Query string from what is set; an empty filter is left off.
-function salesByDivision(
-  params: { from: string; to: string; unit: string; category: string },
-  signal?: AbortSignal
-): Promise<Report> {
-  const query = new URLSearchParams({ from: params.from, to: params.to })
-  if (params.unit !== "") query.set("unit", params.unit)
-  if (params.category !== "") query.set("category", params.category)
-  return node.get<Report>(
-    `/api/v1/finance/reports/sales-by-division?${query.toString()}`,
-    { signal }
-  )
 }

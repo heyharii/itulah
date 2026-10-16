@@ -1,4 +1,5 @@
 import { EmptyIllustration, type EmptyArt } from "@/components/ui/empty-art"
+import { artForPath, artForSentence } from "@/components/ui/empty-art-pick"
 import { useRouterState } from "@tanstack/react-router"
 import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
@@ -31,12 +32,14 @@ export function EmptyState({
   /// tray. `null` draws none, for the places too small to hold one.
   art?: EmptyArt | null
 }) {
+  const pathname = useRouterState({ select: (s) => s.location.pathname })
+  // Left out, the sentence says which picture (nothing matched, nothing left
+  // to do, or what the list holds); failing that, the department does.
   const picture: EmptyArt | null =
     art !== undefined
       ? art
-      : typeof children === "string" && /match|found/i.test(children)
-        ? "search"
-        : "empty"
+      : ((typeof children === "string" ? artForSentence(children) : null) ??
+        artForPath(pathname))
   return (
     <div className="mx-auto flex max-w-[28em] flex-col items-center gap-3 px-4 py-12 text-center">
       {picture !== null && <EmptyIllustration art={picture} />}
@@ -202,7 +205,7 @@ export function NoAccessState({
 }
 
 const banner = cva(
-  "flex items-start gap-2.5 rounded-inner px-3.5 py-2.5 text-[0.875rem] leading-relaxed",
+  "flex items-start gap-2.5 rounded-inner px-3.5 py-2.5 text-[0.9375rem] leading-relaxed",
   {
     variants: {
       tone: {
@@ -429,7 +432,7 @@ export function LoadMore({
     >
       {failed ? (
         <>
-          <p role="alert" className="text-[0.875rem] text-bad">
+          <p role="alert" className="text-[0.9375rem] text-bad">
             {problemOf(query.error) ?? "The next page could not be read."}
           </p>
           <Button
@@ -441,7 +444,7 @@ export function LoadMore({
           </Button>
         </>
       ) : query.isFetchingNextPage ? (
-        <p aria-live="polite" className="text-[0.875rem] text-body">
+        <p aria-live="polite" className="text-[0.9375rem] text-body">
           Loading more…
         </p>
       ) : null}

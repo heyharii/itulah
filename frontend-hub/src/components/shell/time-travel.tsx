@@ -1,5 +1,6 @@
 import type { ClockControlRequest, ClockStatus } from "@itulah/contract"
 import { Popover } from "@base-ui/react/popover"
+import { useHydrated } from "@tanstack/react-router"
 import { Clock3 } from "lucide-react"
 import { useEffect, useState } from "react"
 
@@ -43,14 +44,20 @@ type Pending =
     }
   | { kind: "back" }
 
-export function TimeTravel({
-  place,
-}: {
-  /// `header`: the desk's slim header, where the time is always shown — a
-  /// button for whoever may move it, plain text for everyone else. `bar`: the
-  /// tablet/phone top bar, where it appears only for those who may.
-  place: "header" | "bar"
-}) {
+/// Where the clock sits: `header` is the desk's slim header, where the time
+/// is always shown — a button for whoever may move it, plain text for
+/// everyone else. `bar` is the tablet/phone top bar, where it appears only for
+/// those who may.
+type Place = "header" | "bar"
+
+/// The time is the browser's own, read when the page is drawn: the server's
+/// instant is not the one the page hydrates at, so the clock appears once the
+/// page is hydrated rather than as hands that jump on arrival.
+export function TimeTravel({ place }: { place: Place }) {
+  return useHydrated() ? <TimeTravelNow place={place} /> : null
+}
+
+function TimeTravelNow({ place }: { place: Place }) {
   const status = useClockStatus()
   const control = useClockControl()
   const [open, setOpen] = useState(false)
@@ -97,14 +104,14 @@ export function TimeTravel({
     // still says what time it is, as text with nothing to press.
     if (place === "bar") return null
     return (
-      <span className="inline-flex h-8 items-center gap-2 text-[0.875rem] font-medium text-ink">
+      <span className="inline-flex h-8 items-center gap-2 text-[0.9375rem] font-medium text-ink">
         <AnalogClock
           ms={tick}
           jump={null}
           size={18}
           className="text-line-ico"
         />
-        <Moment ms={tick} jump={null} />
+        <Moment ms={tick} jump={null} weekday={false} />
       </span>
     )
   }
@@ -177,7 +184,7 @@ export function TimeTravel({
           aria-label={label}
           title={label}
           className={cn(
-            "relative inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-inner px-2.5 text-[0.875rem] font-medium tabular-nums transition-colors hover:bg-soft-2 data-[popup-open]:bg-soft-2",
+            "relative inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-inner px-2.5 text-[0.9375rem] font-medium tabular-nums transition-colors hover:bg-soft-2 data-[popup-open]:bg-soft-2",
             place === "header"
               ? "-mr-2.5 gap-2.5"
               : cn("max-md:px-2", bent && "bg-warn-bg"),
@@ -210,7 +217,7 @@ export function TimeTravel({
                 />
               )}
               <span>
-                <Moment ms={business} jump={spin} />
+                <Moment ms={business} jump={spin} weekday={false} />
                 {ahead !== null && (
                   <span className="text-mute"> · {ahead}</span>
                 )}
@@ -237,7 +244,7 @@ export function TimeTravel({
           >
             <Popover.Popup
               className={cn(
-                "w-[24rem] max-w-[calc(100vw-2rem)] rounded-card border border-hairline bg-canvas text-[0.875rem] shadow-pop outline-none",
+                "w-[24rem] max-w-[calc(100vw-2rem)] rounded-card border border-hairline bg-canvas text-[0.9375rem] shadow-pop outline-none",
                 POP_MOTION
               )}
             >

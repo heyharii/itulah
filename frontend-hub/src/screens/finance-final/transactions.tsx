@@ -1,10 +1,10 @@
 import { useQueries, useQuery } from "@tanstack/react-query"
-import { useMemo, useState } from "react"
+import { Suspense, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { AppLink } from "@/components/ui/app-link"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
-import { Toolbar } from "@/components/ui/segmented"
 import { EmptyState } from "@/components/ui/states"
 import { day, label, money } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
@@ -16,24 +16,19 @@ import {
 } from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
 import {
-  CardRow,
   Code,
   DebitCredit,
   Grid,
   Note,
-  NumberCard,
   Td,
   Th,
   TotalRow,
 } from "@/screens/finance-final/parts"
 import { CardFigure, PhoneList } from "@/components/ui/phone-cards"
-import {
-  PhoneFigures,
-  UnitName,
-  UnitSelect,
-  WindowControl,
-} from "@/screens/finance/parts"
-import { useWindow } from "@/screens/finance/hooks"
+import { UnitName, UnitSelect, WindowControl } from "@/screens/finance/parts"
+import { useSettledWindow } from "@/screens/finance/hooks"
+import { ReportFilters } from "@/screens/finance/report"
+import { ScreenPending } from "@/screens/finance/pending"
 import type {
   GeneralLedgerRow,
   JournalEntryDetail,
@@ -105,9 +100,23 @@ interface Movement {
 }
 
 export function Transactions() {
+  return (
+    <Suspense
+      fallback={
+        <ScreenPending crumb="Finance · Cash & Bank" title="Transactions">
+          Reading the calendar…
+        </ScreenPending>
+      }
+    >
+      <TransactionsScreen />
+    </Suspense>
+  )
+}
+
+function TransactionsScreen() {
   const phone = useLayout() === "phone"
   const [unit, setUnit] = useState("")
-  const range = useWindow()
+  const range = useSettledWindow()
   const scoped = unit === "" ? null : unit
 
   const overview = useQuery({
@@ -251,14 +260,20 @@ export function Transactions() {
 
   return (
     <PageContent>
-      <PageHeader
-        className="max-md:hidden"
-        crumb="Finance · Cash & Bank"
-        title="Transactions"
-        sub="Every movement of money at one place, in the order it happened."
-      />
+      <PageHeader crumb="Finance · Cash & Bank" title="Transactions" />
 
-      <Toolbar>
+      {/* The scope — which place and which days — stands under the head, and
+          what is on screen is said at its end. The unit is asked for here, not
+          in the body: with none chosen the body says why there is nothing. */}
+      <ReportFilters
+        note={
+          scoped === null ? undefined : (
+            <>
+              {range.chip} · <UnitName id={scoped} />
+            </>
+          )
+        }
+      >
         <UnitSelect
           value={unit}
           onChange={setUnit}
@@ -266,46 +281,33 @@ export function Transactions() {
           className="w-52"
         />
         <WindowControl range={range} />
-      </Toolbar>
+      </ReportFilters>
 
       {scoped === null ? (
-        <EmptyState>
-          Choose a unit. This list is one place&rsquo;s money — every drawer,
-          float and bank account it holds — and reading it means one ledger
-          request per account.
-        </EmptyState>
+        <EmptyState>Choose a unit.</EmptyState>
       ) : (
         queryState(view, {
           loading: "Reading this unit's drawers and bank accounts…",
           render: () => (
             <div className="flex flex-col gap-4">
-              <PhoneFigures
-                items={[
-                  {
-                    label: `Held on ${day(range.from)}`,
-                    value: ledgers.opening,
-                  },
-                  { label: "In", value: ledgers.moved, tone: "ok" },
-                  { label: "Out", value: ledgers.spent, tone: "warn" },
-                  { label: `Held on ${day(range.to)}`, value: ledgers.closing },
-                ]}
-              />
-              <div className="max-md:hidden">
-                <CardRow columns={4}>
-                  <NumberCard
+              {/* The server's four totals over the whole window: one card on a
+                  phone, four across on a desk. */}
+              <KpiStrip className="mb-0 grid-cols-2 md:grid-cols-4 xl:grid-cols-4">
+                <div title="Opening balance, every money account at this unit">
+                  <Kpi
                     label={`Held on ${day(range.from)}`}
-                    value={ledgers.opening}
-                    note="opening balance, every money account at this unit"
+                    value={money(ledgers.opening)}
                   />
-                  <NumberCard label="In" value={ledgers.moved} tone="ok" />
-                  <NumberCard label="Out" value={ledgers.spent} tone="warn" />
-                  <NumberCard
-                    label={`Held on ${day(range.to)}`}
-                    value={ledgers.closing}
-                    note={`${ledgers.held} ${ledgers.held === 1 ? "movement" : "movements"} across ${accounts.length} ${accounts.length === 1 ? "account" : "accounts"}`}
-                  />
-                </CardRow>
-              </div>
+                </div>
+                <Kpi label="In" value={money(ledgers.moved)} />
+                <Kpi label="Out" value={money(ledgers.spent)} />
+                <Kpi
+                  label={`Held on ${day(range.to)}`}
+                  value={money(ledgers.closing)}
+                  delta={`${ledgers.held} ${ledgers.held === 1 ? "movement" : "movements"} across ${accounts.length} ${accounts.length === 1 ? "account" : "accounts"}`}
+                  tone="flat"
+                />
+              </KpiStrip>
 
               {short && (
                 <Note>
@@ -460,7 +462,7 @@ function MovementRow({
         <span className="block">
           <Code>{account.account_code}</Code>
           {account.qualifier !== "" && (
-            <span className="ml-1.5 text-[0.875rem] text-mute">
+            <span className="ml-1.5 text-[0.9375rem] text-mute">
               {account.qualifier}
             </span>
           )}
@@ -473,11 +475,11 @@ function MovementRow({
         <AppLink
           to="/finance/accounting/journal-entries"
           sheet={{ key: "entry", value: row.entry_id }}
-          className="font-mono text-[0.875rem] text-accent hover:underline"
+          className="font-mono text-[0.9375rem] text-accent hover:underline"
         >
           {row.entry_number}
         </AppLink>
-        <span className="block text-[0.875rem] text-mute">
+        <span className="block text-[0.9375rem] text-mute">
           {label(row.source_kind)}
         </span>
       </Td>

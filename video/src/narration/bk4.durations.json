@@ -1,0 +1,26 @@
+{
+  "ask": {
+    "seconds": 4.8065,
+    "say": "Retur dari toko diminta oleh MD. Toko tidak membuatnya sendiri."
+  },
+  "sent": {
+    "seconds": 5.48575,
+    "say": "Diminta 20, toko mengirim 15. Sisa 5 tetap terbuka."
+  },
+  "received": {
+    "seconds": 5.72075,
+    "say": "DC menerima 15 dari 15. Itu lengkap, bukan kekurangan receiving."
+  },
+  "cancel": {
+    "seconds": 8.516,
+    "say": "Retur ke supplier bisa dibatalkan selama belum keluar. Cancel membebaskan stok dan reservasinya, bukan cuma mengganti status."
+  },
+  "handed": {
+    "seconds": 3.7095,
+    "say": "Setelah diserahkan ke supplier, retur terkunci."
+  },
+  "settle": {
+    "seconds": 7.00075,
+    "say": "Yang tersisa adalah penyelesaiannya: Replacement, Refund, Credit note, atau Close short."
+  }
+}

@@ -1,3 +1,4 @@
+import { ActivityFold } from "@/components/ui/activity-fold"
 import { useInfiniteQuery } from "@tanstack/react-query"
 
 import { Pill } from "@/components/ui/pill"
@@ -102,7 +103,7 @@ export function NodeHealthSection({
   if (!health) {
     return (
       <Section title="Condition">
-        <p className="text-[0.875rem] text-body">
+        <p className="text-[0.9375rem] text-body">
           This node has not sent a heartbeat. A store server sends one a minute
           once it runs version 0.1 or later with a cloud address.
         </p>
@@ -167,7 +168,7 @@ export function NodeHealthSection({
         </Section>
       )}
 
-      <Section title="History">
+      <ActivityFold>
         {queryState(incidents, {
           loading: "Loading…",
           render: (data) => {
@@ -177,7 +178,7 @@ export function NodeHealthSection({
               .filter((line): line is Line => line !== null)
             if (lines.length === 0 && !incidents.hasNextPage)
               return (
-                <p className="text-[0.875rem] text-body">
+                <p className="text-[0.9375rem] text-body">
                   Nothing recorded this week.
                 </p>
               )
@@ -209,7 +210,7 @@ export function NodeHealthSection({
             )
           },
         })}
-      </Section>
+      </ActivityFold>
     </>
   )
 }

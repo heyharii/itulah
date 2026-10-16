@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -21,8 +21,9 @@ import {
   retireJobLevel,
   saveJobGrade,
   saveJobLevel,
+  jobLevelsQuery,
+  jobGradesQuery,
 } from "@/lib/queries/people"
-import { queryState } from "@/lib/query-state"
 import { useCanWrite } from "@/lib/session"
 import { CardFoot } from "@/screens/people/settings-kit"
 import { FormSheet, NameCell } from "@/screens/people/settings-parts"
@@ -31,6 +32,7 @@ import {
   useRetire,
   useSheetTarget,
 } from "@/screens/people/settings-hooks"
+import { awaiting } from "@/screens/people/awaiting"
 
 type LevelRow = Awaited<ReturnType<typeof jobLevels>>[number]
 type GradeRow = Awaited<ReturnType<typeof jobGrades>>[number]
@@ -43,10 +45,6 @@ export function LevelSettings() {
   const phone = useLayout() === "phone"
   const level = useSheetTarget<LevelRow>()
   const grade = useSheetTarget<GradeRow>()
-  const levels = useQuery({
-    queryKey: orgKeys.levels(),
-    queryFn: ({ signal }) => jobLevels(signal),
-  })
 
   return (
     <PageContent>
@@ -74,7 +72,7 @@ export function LevelSettings() {
           <CardTitle>Job levels</CardTitle>
         </CardHeader>
         <div className="px-4 pb-4">
-          {queryState(levels, {
+          {awaiting(jobLevelsQuery(), {
             loading: "Reading the levels…",
             render: (rows) => (
               <>
@@ -122,7 +120,7 @@ export function LevelSettings() {
           })}
         </div>
       </Card>
-      <GradeList sheet={grade} levels={levels.data ?? []} />
+      <GradeList sheet={grade} />
     </PageContent>
   )
 }
@@ -214,16 +212,9 @@ function LevelSheet({
 
 function GradeList({
   sheet,
-  levels,
 }: {
   sheet: ReturnType<typeof useSheetTarget<GradeRow>>
-  levels: readonly LevelRow[]
 }) {
-  const list = useQuery({
-    queryKey: orgKeys.grades(),
-    queryFn: ({ signal }) => jobGrades(signal),
-  })
-  const levelName = new Map(levels.map((one) => [one.code, one.name]))
   const canWrite = useCanWrite()
   return (
     <Card className="mb-4">
@@ -231,66 +222,78 @@ function GradeList({
         <CardTitle>Grades</CardTitle>
       </CardHeader>
       <div className="px-4 pb-4">
-        {queryState(list, {
+        {awaiting(jobGradesQuery(), {
           loading: "Reading the grades…",
-          render: (rows) => (
-            <>
-              {rows.length === 0 ? (
-                <EmptyState>
-                  No grade yet. A grade is a pay band on a level — guidance for
-                  whoever agrees somebody&rsquo;s pay, never a refusal. New
-                  grade adds the first.
-                </EmptyState>
-              ) : (
-                <MiniTable
-                  head={[
-                    { label: "Grade", align: "left" },
-                    { label: "Level", align: "left" },
-                    { label: "Band", align: "right" },
-                    { label: "People", align: "right" },
-                    { label: "", align: "left" },
-                  ]}
-                >
-                  {rows.map((row) => (
-                    <MiniRow key={row.code}>
-                      <MiniCell>
-                        <NameCell
-                          name={row.name}
-                          code={
-                            row.grade_class !== null
-                              ? `${row.code} · class ${row.grade_class}`
-                              : row.code
-                          }
-                          onOpen={() => sheet.show(row)}
-                        />
-                      </MiniCell>
-                      <MiniCell>
-                        {row.level_code === null
-                          ? "—"
-                          : (levelName.get(row.level_code) ?? row.level_code)}
-                      </MiniCell>
-                      <MiniCell align="right">
-                        {row.min_minor === null && row.max_minor === null
-                          ? "—"
-                          : `${row.min_minor === null ? "…" : money(row.min_minor)} – ${row.max_minor === null ? "…" : money(row.max_minor)}`}
-                      </MiniCell>
-                      <MiniCell align="right">{row.members}</MiniCell>
-                      <MiniCell>
-                        {row.retired && <Pill tone="neutral">Retired</Pill>}
-                      </MiniCell>
-                    </MiniRow>
-                  ))}
-                </MiniTable>
-              )}
-              <GradeSheet
-                key={sheet.target.id}
-                open={sheet.open}
-                onClose={sheet.close}
-                row={sheet.target.row}
-                levels={levels}
-              />
-            </>
-          ),
+          render: (rows) =>
+            awaiting(jobLevelsQuery(), {
+              loading: "Reading the grades…",
+              render: (levels) => {
+                const levelName = new Map(
+                  levels.map((one) => [one.code, one.name])
+                )
+                return (
+                  <>
+                    {rows.length === 0 ? (
+                      <EmptyState>
+                        No grade yet. A grade is a pay band on a level —
+                        guidance for whoever agrees somebody&rsquo;s pay, never
+                        a refusal. New grade adds the first.
+                      </EmptyState>
+                    ) : (
+                      <MiniTable
+                        head={[
+                          { label: "Grade", align: "left" },
+                          { label: "Level", align: "left" },
+                          { label: "Band", align: "right" },
+                          { label: "People", align: "right" },
+                          { label: "", align: "left" },
+                        ]}
+                      >
+                        {rows.map((row) => (
+                          <MiniRow key={row.code}>
+                            <MiniCell>
+                              <NameCell
+                                name={row.name}
+                                code={
+                                  row.grade_class !== null
+                                    ? `${row.code} · class ${row.grade_class}`
+                                    : row.code
+                                }
+                                onOpen={() => sheet.show(row)}
+                              />
+                            </MiniCell>
+                            <MiniCell>
+                              {row.level_code === null
+                                ? "—"
+                                : (levelName.get(row.level_code) ??
+                                  row.level_code)}
+                            </MiniCell>
+                            <MiniCell align="right">
+                              {row.min_minor === null && row.max_minor === null
+                                ? "—"
+                                : `${row.min_minor === null ? "…" : money(row.min_minor)} – ${row.max_minor === null ? "…" : money(row.max_minor)}`}
+                            </MiniCell>
+                            <MiniCell align="right">{row.members}</MiniCell>
+                            <MiniCell>
+                              {row.retired && (
+                                <Pill tone="neutral">Retired</Pill>
+                              )}
+                            </MiniCell>
+                          </MiniRow>
+                        ))}
+                      </MiniTable>
+                    )}
+                    <GradeSheet
+                      key={sheet.target.id}
+                      open={sheet.open}
+                      onClose={sheet.close}
+                      row={sheet.target.row}
+                      levels={levels}
+                    />
+                  </>
+                )
+              },
+            }),
         })}
       </div>
       {canWrite && (

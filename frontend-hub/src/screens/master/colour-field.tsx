@@ -167,44 +167,50 @@ export function ColourField({
 
   return (
     <Popover.Root>
-      <span className="relative flex w-full items-center">
-        {/* Over the box's own left padding, the way `<Select>` puts its
-            chevron over its right — so the field keeps one set of chrome
-            rather than growing a second one that drifts from it.
-
-            Both controls sit inside `<Field>`'s label, and a label forwards
-            its clicks to the first labelable thing under it — this button. So
-            clicking the word "Hex" opens the picker, which is fine, and
-            clicking the box does NOT, which is the part that matters: a label
-            never forwards a click that landed on interactive content. */}
+      {/* The box, and beside it a button that says what it does (owner,
+          2026-10-14: "kenapa color picker ga ada"): the 16px swatch inside
+          the box was the picker's only door, and nobody read it as one. The
+          swatch stays in the box, as what the box holds. */}
+      <span className="flex w-full items-center gap-2">
+        <span className="relative flex min-w-0 flex-1 items-center">
+          <span className="pointer-events-none absolute left-0 z-10 grid size-9 place-items-center">
+            <ColourSwatch
+              hex={settled ?? named?.hex ?? null}
+              className="size-4"
+            />
+          </span>
+          <Input
+            value={value}
+            disabled={disabled}
+            onBlur={() => {
+              settle()
+              onBlur?.()
+            }}
+            onKeyDown={enter}
+            onChange={(event) => onChange(event.target.value)}
+            spellCheck={false}
+            autoComplete="off"
+            className="pl-9 font-mono uppercase placeholder:font-sans placeholder:normal-case"
+          />
+        </span>
         <Popover.Trigger
           disabled={disabled}
-          aria-label="Choose this color by eye"
-          className="absolute left-0 z-10 grid size-9 shrink-0 place-items-center rounded-full disabled:opacity-50"
+          className="btn-ghost inline-flex h-10 shrink-0 items-center gap-1.5 rounded-inner border border-hairline-2 bg-canvas px-3 text-[0.9375rem] font-medium text-text hover:bg-soft-2 disabled:opacity-50"
         >
-          <ColourSwatch
-            hex={settled ?? named?.hex ?? null}
-            className="size-4"
-          />
+          Pick color
         </Popover.Trigger>
-
-        <Input
-          value={value}
-          disabled={disabled}
-          onBlur={() => {
-            settle()
-            onBlur?.()
-          }}
-          onKeyDown={enter}
-          onChange={(event) => onChange(event.target.value)}
-          spellCheck={false}
-          autoComplete="off"
-          className="pl-9 font-mono uppercase placeholder:font-sans placeholder:normal-case"
-        />
       </span>
 
       <Popover.Portal>
-        <Popover.Positioner side="bottom" align="start" sideOffset={8}>
+        {/* z on the Positioner, not only the popup: its transform makes it
+            its own layer, and at z auto it drew the picker under the sheet
+            (z 50) it opens from — the picker "was not there". */}
+        <Popover.Positioner
+          side="bottom"
+          align="start"
+          sideOffset={8}
+          className="z-[60]"
+        >
           <Popover.Popup
             className={cn(
               "z-50 w-[15.5rem] rounded-inner border border-hairline bg-canvas p-2.5 shadow-pop outline-none",
@@ -255,7 +261,7 @@ export function ColourField({
                 onKeyDown={enter}
                 spellCheck={false}
                 autoComplete="off"
-                className="h-8 flex-1 font-mono text-[0.875rem] uppercase placeholder:font-sans placeholder:normal-case"
+                className="h-8 flex-1 font-mono text-[0.9375rem] uppercase placeholder:font-sans placeholder:normal-case"
               />
               {/* Only where the browser has one. Picking the colour off a
                   supplier's photograph in the next tab is the shortest path
@@ -279,7 +285,7 @@ export function ColourField({
                 disabled={value.trim() === ""}
                 onClick={() => onChange("")}
                 className={cn(
-                  "rounded-full px-2 py-0.5 text-[0.875rem] text-mute transition-colors",
+                  "rounded-full px-2 py-0.5 text-[0.9375rem] text-mute transition-colors",
                   "hover:bg-soft-2 hover:text-ink disabled:pointer-events-none disabled:opacity-40"
                 )}
               >

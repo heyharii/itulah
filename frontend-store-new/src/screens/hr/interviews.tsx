@@ -11,12 +11,13 @@ import { Card } from "@/components/ui/card"
 import { Field, Input, Select } from "@/components/ui/field"
 import { PeopleSheet, SheetSection } from "@/components/ui/people-sheet"
 import { PeopleTable } from "@/components/ui/people-table"
+import { Stat, StatStrip } from "@/components/ui/stat-strip"
 import { Pill } from "@/components/ui/pill"
 import { Segmented } from "@/components/ui/segmented"
 import { moment } from "@/lib/format"
 import {
-  applicantsAt,
-  hireProposalsAt,
+  applicantsQuery,
+  hireProposalsQuery,
   hrKeys,
   isoDay,
   listApplicantInterviews,
@@ -25,7 +26,7 @@ import {
   readDate,
   recordInterview,
   scheduleInterview,
-  staffingPlansAt,
+  staffingPlansQuery,
   type StoreScope,
 } from "@/lib/queries/hr"
 import { centreState } from "@/screens/hr/centre"
@@ -109,14 +110,8 @@ function Recruitment({
   onAsking: (open: boolean) => void
 }) {
   const team = useTeam(scope)
-  const plans = useQuery({
-    queryKey: hrKeys.plans(scope.unit_id),
-    queryFn: ({ signal }) => staffingPlansAt(scope.unit_id, signal),
-  })
-  const proposals = useQuery({
-    queryKey: hrKeys.hires(scope.unit_id),
-    queryFn: ({ signal }) => hireProposalsAt(scope.unit_id, signal),
-  })
+  const plans = useQuery(staffingPlansQuery(scope.unit_id))
+  const proposals = useQuery(hireProposalsQuery(scope.unit_id))
 
   // In process: asked for and not yet refused or filled.
   const inProcess = (position: string) =>
@@ -132,8 +127,46 @@ function Recruitment({
       (person) => person.status === "ACTIVE" && person.position === position,
     ).length
 
+  const planned = (plans.data ?? []).reduce(
+    (sum, plan) => sum + plan.headcount,
+    0,
+  )
+  const roomLeft = (plans.data ?? []).reduce(
+    (sum, plan) =>
+      sum +
+      Math.max(0, plan.headcount - filled(plan.position) - inProcess(plan.position)),
+    0,
+  )
+  const reading = plans.data === undefined || team.data === undefined
+
   return (
     <>
+      <StatStrip>
+        <Stat label="Planned" value={reading ? "—" : planned} />
+        <Stat
+          label="Filled"
+          value={
+            reading
+              ? "—"
+              : (plans.data ?? []).reduce(
+                  (sum, plan) => sum + filled(plan.position),
+                  0,
+                )
+          }
+        />
+        <Stat
+          label="In process"
+          value={
+            reading || proposals.data === undefined
+              ? "—"
+              : (plans.data ?? []).reduce(
+                  (sum, plan) => sum + inProcess(plan.position),
+                  0,
+                )
+          }
+        />
+        <Stat label="Room left" value={reading ? "—" : roomLeft} />
+      </StatStrip>
       <Heading>Headcount plan</Heading>
       {centreState(plans, {
         loading: "Loading…",
@@ -280,10 +313,7 @@ function Interviews({
   scope: StoreScope
   team: EmployeeList | undefined
 }) {
-  const applicants = useQuery({
-    queryKey: hrKeys.applicants(),
-    queryFn: ({ signal }) => applicantsAt(scope.unit_id, signal),
-  })
+  const applicants = useQuery(applicantsQuery(scope.unit_id))
   // The candidates still in play, and the ones this shop has already judged.
   const rows = (applicants.data?.rows ?? []).filter((row) =>
     ["SHORTLIST", "INTERVIEW", "OFFER", "REJECTED", "HIRED"].includes(
@@ -581,9 +611,7 @@ function InterviewSheet({
           </div>
         </SheetSection>
       ) : (
-        <p className="text-meta text-body">
-          Past interview.
-        </p>
+        <p className="text-meta text-body">Past interview.</p>
       )}
     </PeopleSheet>
   )
@@ -698,9 +726,7 @@ function AskForSomebody({
             </Select>
           </Field>
         </div>
-        <Field
-          label="Candidate"
-        >
+        <Field label="Candidate">
           <Input
             value={candidate}
             onChange={(event) => setCandidate(event.target.value)}
@@ -739,9 +765,7 @@ function AskForSomebody({
         <Field
           label="Proposed base pay (Rp)"
           hint={
-            payMinor === null || payMinor <= 0
-              ? undefined
-              : money(payMinor)
+            payMinor === null || payMinor <= 0 ? undefined : money(payMinor)
           }
         >
           <Input
@@ -759,9 +783,7 @@ function AskForSomebody({
             onChange={(event) => setReason(event.target.value)}
           />
         </Field>
-        <Field
-          label="Store head"
-        >
+        <Field label="Store head">
           <Segmented
             options={[
               { value: "no", label: "Not yet agreed" },

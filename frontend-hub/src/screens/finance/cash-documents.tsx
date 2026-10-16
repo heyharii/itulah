@@ -1,26 +1,35 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query"
 import {
   recordSettlement,
   supplierReturnKeys,
 } from "@/lib/queries/supplier-returns"
 import { ReturnPicker } from "@/screens/finance/return-picker"
 import { Link, useNavigate, useParams } from "@tanstack/react-router"
+import type { ColumnDef } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
 import { Plus, Printer, Repeat, Trash2 } from "lucide-react"
-import { useMemo, useState } from "react"
+import { Suspense, useDeferredValue, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { button } from "@/components/ui/button-style"
 import { Card } from "@/components/ui/card"
+import { DataTable } from "@/components/ui/data-table"
 import { Day } from "@/components/ui/day"
-import { Dialog, Panel, SavedDialog } from "@/components/ui/dialog"
+import { Panel, SavedDialog } from "@/components/ui/dialog"
 import { Fab } from "@/components/ui/fab"
 import { Field, Input, Money, Select, Textarea } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill, Status } from "@/components/ui/pill"
 import { SubHead } from "@/components/ui/rows"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
-import { Fact, Facts } from "@/components/ui/sheet"
+import { Fact, Facts, Sheet } from "@/components/ui/sheet"
+import { SheetFooter } from "@/components/ui/sheet-footer"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { count, day, label, money } from "@/lib/format"
@@ -31,8 +40,8 @@ import {
   cashDocument,
   cashDocumentKeys,
   cashDocumentSlip,
+  cashDocumentsQuery,
   kindWord,
-  listCashDocuments,
   openAdvances,
   postCashDocument,
   recordVoucher,
@@ -48,6 +57,7 @@ import {
   saveCashDocumentRepeat,
 } from "@/lib/queries/finance-reports"
 import { queryState } from "@/lib/query-state"
+import { tableSetup, type TableSetup } from "@/lib/table"
 import { terbilang } from "@/lib/terbilang"
 import { toast } from "@/lib/toast"
 import { isoDay, parseMinor, todayIso } from "@/screens/finance/chart"
@@ -70,6 +80,7 @@ import {
   UnitSelect,
   type AccountChoice,
 } from "@/screens/finance/parts"
+import { ScreenPending } from "@/screens/finance/pending"
 import {
   Code,
   Grid,
@@ -175,7 +186,7 @@ function MoneySide({ row }: { row: CashDocumentRow }) {
   )
   if (row.kind === "TRANSFER") {
     return (
-      <span className="block truncate text-[0.875rem]">
+      <span className="block truncate text-[0.9375rem]">
         {side(row.from_key, row.from_qualifier)}
         {" → "}
         {side(row.to_key, row.to_qualifier)}
@@ -204,6 +215,20 @@ export function Bkm() {
 }
 
 function Register({ kind }: { kind: ComposeKind }) {
+  return (
+    <Suspense
+      fallback={
+        <ScreenPending crumb="Finance · Payments" title={kind}>
+          Reading the register…
+        </ScreenPending>
+      }
+    >
+      <RegisterScreen kind={kind} />
+    </Suspense>
+  )
+}
+
+function RegisterScreen({ kind }: { kind: ComposeKind }) {
   const navigate = useNavigate()
   const supplierName = useSupplierName()
   const [unit, setUnit] = useState("")
@@ -212,20 +237,14 @@ function Register({ kind }: { kind: ComposeKind }) {
   const serverKind = kind === "BKK" ? "PAY" : "RECEIVE"
   const T = termsFor(kind)
 
-  const list = useQuery({
-    queryKey: cashDocumentKeys.list(status || null, serverKind, unit || null),
-    queryFn: ({ signal }) =>
-      listCashDocuments(
-        {
-          status: status || undefined,
-          kind: serverKind,
-          unit: unit || undefined,
-          limit: 300,
-        },
-        signal
-      ),
-  })
-  const rows = list.data ?? []
+  // Another tab or filter: the rows in hand stay, dimmed (`list-swap`), until
+  // the next are read.
+  const askedStatus = useDeferredValue(status)
+  const askedUnit = useDeferredValue(unit)
+  const list = useSuspenseQuery(
+    cashDocumentsQuery(serverKind, askedStatus, askedUnit)
+  )
+  const rows = list.data
 
   const openNew = () =>
     void navigate({
@@ -243,16 +262,113 @@ function Register({ kind }: { kind: ComposeKind }) {
       params: { id },
     } as never)
 
+  /// The register. A card is the party over the number, what moved the money,
+  /// the amount as its figure and the date and status in the foot.
+  const columns = useMemo<ColumnDef<TableSetup, CashDocumentRow>[]>(
+    () => [
+      {
+        id: "number",
+        accessorFn: (row) => row.number,
+        header: "Number",
+        size: 150,
+        enableSorting: false,
+        meta: { card: "id" },
+        cell: ({ row }) =>
+          row.original.number !== null ? (
+            <span className="font-mono text-[0.9375rem] text-ink">
+              {row.original.number}
+            </span>
+          ) : (
+            <span className="text-mute">Draft</span>
+          ),
+      },
+      {
+        id: "date",
+        accessorFn: (row) => row.doc_date,
+        header: "Date",
+        size: 130,
+        enableSorting: false,
+        meta: { card: "foot", priority: 2 },
+        cell: ({ row }) => day(row.original.doc_date),
+      },
+      {
+        id: "party",
+        accessorFn: (row) => row.party_name,
+        header: T.party,
+        size: 260,
+        enableSorting: false,
+        meta: { card: "title", grow: 240 },
+        cell: ({ row }) => (
+          <span className="block truncate text-ink">
+            {row.original.party_type === "SUPPLIER"
+              ? supplierName(row.original.supplier_id, row.original.party_name)
+              : row.original.party_name}
+          </span>
+        ),
+      },
+      {
+        id: "account",
+        accessorFn: (row) => row.from_key ?? row.to_key,
+        header: "Cash / bank",
+        size: 220,
+        enableSorting: false,
+        meta: { card: "meta", priority: 3 },
+        cell: ({ row }) => <MoneySide row={row.original} />,
+      },
+      {
+        id: "amount",
+        accessorFn: (row) => row.amount_minor,
+        header: "Amount",
+        size: 150,
+        enableSorting: false,
+        meta: { align: "right", card: "lead" },
+        cell: ({ row }) => (
+          <span className="font-medium text-ink">
+            {money(row.original.amount_minor)}
+          </span>
+        ),
+      },
+      {
+        id: "status",
+        accessorFn: (row) => row.status,
+        header: "Status",
+        size: 130,
+        enableSorting: false,
+        meta: { card: "status" },
+        cell: ({ row }) => (
+          <Status tone={cashDocumentTone(row.original.status)}>
+            {label(row.original.status)}
+          </Status>
+        ),
+      },
+    ],
+    [T.party, supplierName]
+  )
+
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: rows,
+        columns,
+        getRowId: (row: CashDocumentRow) => row.document_id,
+      }),
+      [rows, columns]
+    )
+  )
+
   return (
     <PageContent>
       <PageHeader
-        className="max-md:hidden"
         crumb="Finance · Payments"
         title={kind}
+        // A phone has the + at the thumb.
         actions={
-          <Button variant="primary" onClick={openNew}>
-            New {kind}
-          </Button>
+          phone ? undefined : (
+            <Button variant="primary" onClick={openNew}>
+              New {kind}
+            </Button>
+          )
         }
       />
       {/* A phone: status and unit are two chips in the dock, the new document
@@ -293,102 +409,37 @@ function Register({ kind }: { kind: ComposeKind }) {
             aria-label="Unit"
           />
           <Toolbar.Spacer />
-          <span className="text-[0.875rem] text-mute">
+          <span className="text-[0.9375rem] text-mute">
             {count(rows.length)} {rows.length === 1 ? "document" : "documents"}
           </span>
         </Toolbar>
       )}
 
-      {queryState(list, {
-        loading: "Reading the register…",
-        render: (docs) =>
-          docs.length === 0 ? (
-            <EmptyState>
-              No {kind} is recorded{unit === "" ? "" : " for this unit"}.
-            </EmptyState>
-          ) : phone ? (
-            <PhoneList
-              rows={docs.map((row) => ({
-                key: row.document_id,
-                title:
-                  row.party_type === "SUPPLIER"
-                    ? supplierName(row.supplier_id, row.party_name)
-                    : row.party_name,
-                code: row.number ?? undefined,
-                lead: <CardFigure value={money(row.amount_minor)} />,
-                foot: (
-                  <span className="flex flex-col">
-                    <span>{day(row.doc_date)}</span>
-                    <MoneySide row={row} />
-                  </span>
-                ),
-                action: (
-                  <Status tone={cashDocumentTone(row.status)}>
-                    {label(row.status)}
-                  </Status>
-                ),
-                onOpen: () => openDocument(row.document_id),
-              }))}
-            />
-          ) : (
-            <Card className="overflow-hidden">
-              <Grid>
-                <thead>
-                  <tr>
-                    <Th width="9rem">Number</Th>
-                    <Th width="6.5rem">Date</Th>
-                    <Th>{T.party}</Th>
-                    <Th width="12rem">Cash / bank</Th>
-                    <Th align="right" width="9.5rem">
-                      Amount
-                    </Th>
-                    <Th width="7rem">Status</Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {docs.map((row) => (
-                    <tr
-                      key={row.document_id}
-                      onClick={() => openDocument(row.document_id)}
-                      className="cursor-pointer hover:bg-soft"
-                    >
-                      <Td>
-                        {row.number !== null ? (
-                          <span className="font-mono text-[0.875rem] text-ink">
-                            {row.number}
-                          </span>
-                        ) : (
-                          <span className="text-mute">Draft</span>
-                        )}
-                      </Td>
-                      <Td>{day(row.doc_date)}</Td>
-                      <Td>
-                        <span className="block truncate text-ink">
-                          {row.party_type === "SUPPLIER"
-                            ? supplierName(row.supplier_id, row.party_name)
-                            : row.party_name}
-                        </span>
-                      </Td>
-                      <Td>
-                        <MoneySide row={row} />
-                      </Td>
-                      <Td align="right">
-                        <span className="font-medium text-ink">
-                          {money(row.amount_minor)}
-                        </span>
-                      </Td>
-                      <Td>
-                        <Status tone={cashDocumentTone(row.status)}>
-                          {label(row.status)}
-                        </Status>
-                      </Td>
-                    </tr>
-                  ))}
-                </tbody>
-              </Grid>
-            </Card>
-          ),
-      })}
+      <div
+        aria-busy={askedStatus !== status || askedUnit !== unit || undefined}
+        className="list-swap"
+      >
+        {queryState(list, {
+          render: (docs) =>
+            docs.length === 0 ? (
+              <EmptyState>
+                No {kind} is recorded{unit === "" ? "" : " for this unit"}.
+              </EmptyState>
+            ) : (
+              <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+                <DataTable<CashDocumentRow>
+                  refresh={[list]}
+                  table={table}
+                  onRowClick={(row) => openDocument(row.document_id)}
+                  pageScroll
+                  cardSort={false}
+                  cardsApart
+                  cardLead
+                />
+              </Card>
+            ),
+        })}
+      </div>
 
       <RepeatingSection kind={kind} />
     </PageContent>
@@ -634,7 +685,7 @@ function ExistingDocument({ kind, id }: { kind: ComposeKind; id: string }) {
                 )}
                 {doc.entry_number !== null && (
                   <Fact term="Journal entry">
-                    <span className="font-mono text-[0.875rem]">
+                    <span className="font-mono text-[0.9375rem]">
                       {doc.entry_number}
                     </span>
                   </Fact>
@@ -686,7 +737,7 @@ function ExistingDocument({ kind, id }: { kind: ComposeKind; id: string }) {
                                 : "Other line"}
                           </Td>
                           <Td>
-                            <span className="font-mono text-[0.875rem] text-ink">
+                            <span className="font-mono text-[0.9375rem] text-ink">
                               {line.invoice_number ??
                                 line.advance_number ??
                                 line.account_code ??
@@ -719,12 +770,12 @@ function ExistingDocument({ kind, id }: { kind: ComposeKind; id: string }) {
               )}
 
               {doc.memo !== "" && (
-                <p className="text-[0.875rem] text-body">{doc.memo}</p>
+                <p className="text-[0.9375rem] text-body">{doc.memo}</p>
               )}
 
               {doc.status === "DRAFT" && (
                 <div className="flex items-center justify-between gap-3 border-t border-hairline pt-4">
-                  <span className="text-[0.875rem] text-mute">
+                  <span className="text-[0.9375rem] text-mute">
                     Approving takes the next number —{" "}
                     {doc.kind === "PAY"
                       ? "KK"
@@ -1034,21 +1085,31 @@ function RepeatSheet({
   })
 
   return (
-    <Dialog
+    <Sheet
       open
       onOpenChange={(open) => !open && onClose()}
       title={draft.repeatId === null ? `Repeat this ${kind}` : "Edit repeat"}
-      confirm="Submit"
-      pending={save.isPending}
-      problem={incomplete ?? save.error}
-      onConfirm={() => {
-        if (name.trim() === "" || nextDate === "") {
-          setIncomplete(new Error("A repeat needs a name and a next date."))
-          return
-        }
-        setIncomplete(null)
-        save.mutate()
-      }}
+      size="rail"
+      footer={
+        <SheetFooter
+          onCancel={onClose}
+          error={incomplete ?? save.error}
+          primary={{
+            label: "Submit",
+            pending: save.isPending,
+            onClick: () => {
+              if (name.trim() === "" || nextDate === "") {
+                setIncomplete(
+                  new Error("A repeat needs a name and a next date.")
+                )
+                return
+              }
+              setIncomplete(null)
+              save.mutate()
+            },
+          }}
+        />
+      }
     >
       <p className="text-mute">
         Raises a draft {kind} of {money(draft.amountMinor)}
@@ -1087,7 +1148,7 @@ function RepeatSheet({
           />
         </Field>
       </div>
-    </Dialog>
+    </Sheet>
   )
 }
 
@@ -1271,7 +1332,7 @@ function RepeatingSection({ kind }: { kind: ComposeKind }) {
                     </span>
                     {repeat.last_error !== null && (
                       <span
-                        className="block truncate text-[0.875rem] text-warn-fg"
+                        className="block truncate text-[0.9375rem] text-warn-fg"
                         title={repeat.last_error}
                       >
                         {repeat.last_error}
@@ -1302,7 +1363,7 @@ function RepeatingSection({ kind }: { kind: ComposeKind }) {
                         onClick={() =>
                           openDocument(repeat.last_document_id ?? "")
                         }
-                        className="font-mono text-[0.875rem] text-accent hover:underline"
+                        className="font-mono text-[0.9375rem] text-accent hover:underline"
                       >
                         {repeat.last_document_number}
                       </button>
@@ -1441,10 +1502,10 @@ function SlipField({
 }) {
   return (
     <div className={wide ? "col-span-2 min-w-0" : "min-w-0"}>
-      <div className="text-[0.875rem] tracking-[0.06em] text-mute uppercase">
+      <div className="text-[0.9375rem] tracking-[0.06em] text-mute uppercase">
         {fieldLabel}
       </div>
-      <div className="mt-0.5 border-b border-dotted border-hairline-2 pb-0.5 text-[0.875rem] text-ink">
+      <div className="mt-0.5 border-b border-dotted border-hairline-2 pb-0.5 text-[0.9375rem] text-ink">
         {children}
       </div>
     </div>
@@ -1463,16 +1524,16 @@ function SlipDocument({ slip }: { slip: CashDocumentSlip }) {
           <div className="text-[0.9375rem] font-semibold tracking-[0.04em] text-ink uppercase">
             {slip.company_name || "—"}
           </div>
-          <div className="text-[0.875rem] text-body">
+          <div className="text-[0.9375rem] text-body">
             {slip.company_address}
           </div>
-          <div className="text-[0.875rem] text-body">{slip.company_phone}</div>
+          <div className="text-[0.9375rem] text-body">{slip.company_phone}</div>
         </div>
         <div className="shrink-0 text-right">
           <div className="text-[0.9375rem] font-semibold tracking-[0.06em] text-ink uppercase">
             {slip.title}
           </div>
-          <div className="mt-0.5 text-[0.875rem] text-body">
+          <div className="mt-0.5 text-[0.9375rem] text-body">
             <span className="font-mono">{slip.number ?? "—"}</span> ·{" "}
             {day(slip.doc_date)}
           </div>
@@ -1492,15 +1553,15 @@ function SlipDocument({ slip }: { slip: CashDocumentSlip }) {
       </div>
 
       <div className="mt-3 border border-hairline bg-soft px-3 py-2">
-        <div className="text-[0.875rem] tracking-[0.06em] text-mute uppercase">
+        <div className="text-[0.9375rem] tracking-[0.06em] text-mute uppercase">
           Terbilang
         </div>
-        <div className="mt-0.5 text-[0.875rem] leading-snug text-ink italic">
+        <div className="mt-0.5 text-[0.9375rem] leading-snug text-ink italic">
           # {slip.amount_in_words} #
         </div>
       </div>
 
-      <table className="mt-4 w-full border-collapse text-[0.875rem]">
+      <table className="mt-4 w-full border-collapse text-[0.9375rem]">
         <thead>
           <tr className="border-y border-ink">
             <th className="py-1 text-left tracking-[0.06em] text-mute uppercase">
@@ -1522,7 +1583,7 @@ function SlipDocument({ slip }: { slip: CashDocumentSlip }) {
               {slip.to.account_name}
               {slip.to.category_name !== null && ` · ${slip.to.category_name}`}
             </td>
-            <td className="py-1 font-mono text-[0.875rem] text-body">
+            <td className="py-1 font-mono text-[0.9375rem] text-body">
               {slip.to.account_code}
             </td>
             <td className="py-1 text-right text-ink tabular-nums">
@@ -1535,7 +1596,7 @@ function SlipDocument({ slip }: { slip: CashDocumentSlip }) {
               {slip.from.category_name !== null &&
                 ` · ${slip.from.category_name}`}
             </td>
-            <td className="py-1 font-mono text-[0.875rem] text-body">
+            <td className="py-1 font-mono text-[0.9375rem] text-body">
               {slip.from.account_code}
             </td>
             <td className="py-1 text-right text-ink tabular-nums">
@@ -1554,8 +1615,8 @@ function SlipDocument({ slip }: { slip: CashDocumentSlip }) {
           ] as const
         ).map(([role, name]) => (
           <div key={role} className="text-center">
-            <div className="text-[0.875rem] text-body">{role}</div>
-            <div className="mt-10 border-t border-ink pt-1 text-[0.875rem] text-mute">
+            <div className="text-[0.9375rem] text-body">{role}</div>
+            <div className="mt-10 border-t border-ink pt-1 text-[0.9375rem] text-mute">
               {name ?? "name & date"}
             </div>
           </div>
@@ -1960,7 +2021,7 @@ function KlasikForm({ kind }: { kind: ComposeKind }) {
                   label={T.party}
                 />
                 {supplier !== null && (
-                  <span className="mt-1 block text-[0.875rem] text-mute tabular-nums">
+                  <span className="mt-1 block text-[0.9375rem] text-mute tabular-nums">
                     {money(supplierOpenMinor)} open
                   </span>
                 )}
@@ -2034,14 +2095,14 @@ function KlasikForm({ kind }: { kind: ComposeKind }) {
           </div>
 
           <div className="flex flex-col border-t border-hairline p-5 max-md:order-first max-md:border-t-0 max-md:border-b lg:border-t-0 lg:border-l">
-            <span className="text-[0.875rem] text-mute">{T.amountLabel}</span>
+            <span className="text-[0.9375rem] text-mute">{T.amountLabel}</span>
             <span className="mt-1 text-[2rem] leading-tight font-semibold text-ink tabular-nums">
               {money(total)}
             </span>
-            <span className="mt-1 text-[0.875rem] text-body italic first-letter:uppercase">
+            <span className="mt-1 text-[0.9375rem] text-body italic first-letter:uppercase">
               {total > 0 ? rupiahWords(total) : "—"}
             </span>
-            <dl className="mt-4 flex flex-col gap-1.5 border-t border-hairline pt-3 text-[0.875rem]">
+            <dl className="mt-4 flex flex-col gap-1.5 border-t border-hairline pt-3 text-[0.9375rem]">
               <div className="flex justify-between gap-3">
                 <dt className="text-mute">{T.settle}</dt>
                 <dd className="text-ink tabular-nums">{money(settleTotal)}</dd>
@@ -2176,7 +2237,7 @@ function KlasikForm({ kind }: { kind: ComposeKind }) {
                               <span className="font-mono text-card-title font-semibold break-words text-ink">
                                 {bill.invoice_number}
                               </span>
-                              <span className="text-[0.875rem] text-mute">
+                              <span className="text-[0.9375rem] text-mute">
                                 Due {day(bill.next_due_date ?? bill.due_date)}
                                 {due !== null && (
                                   <span
@@ -2190,7 +2251,7 @@ function KlasikForm({ kind }: { kind: ComposeKind }) {
                                 )}
                               </span>
                               {bill.note !== null && bill.note !== "" && (
-                                <span className="text-[0.875rem] text-mute">
+                                <span className="text-[0.9375rem] text-mute">
                                   Ref {bill.note}
                                 </span>
                               )}
@@ -2301,7 +2362,7 @@ function KlasikForm({ kind }: { kind: ComposeKind }) {
                             />
                           </Td>
                           <Td>
-                            <span className="font-mono text-[0.875rem] text-ink">
+                            <span className="font-mono text-[0.9375rem] text-ink">
                               {bill.invoice_number}
                             </span>
                           </Td>
@@ -2508,7 +2569,7 @@ function KlasikForm({ kind }: { kind: ComposeKind }) {
             </Card>
           ) : (
             <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-              <p className="border-b border-hairline px-4 py-3 text-[0.875rem] text-body max-md:border-0 max-md:px-1 max-md:pt-0">
+              <p className="border-b border-hairline px-4 py-3 text-[0.9375rem] text-body max-md:border-0 max-md:px-1 max-md:pt-0">
                 Advances already paid to {supplier.name}. Tick one to net it
                 against the bills on this BKK — the payment shrinks by the same
                 amount.
@@ -2553,7 +2614,7 @@ function KlasikForm({ kind }: { kind: ComposeKind }) {
                             <span className="font-mono text-card-title font-semibold break-words text-ink">
                               {advance.advance_number}
                             </span>
-                            <span className="text-[0.875rem] text-mute">
+                            <span className="text-[0.9375rem] text-mute">
                               {day(advance.advance_date)}
                               {advance.po_number !== null &&
                                 advance.po_number !== "" && (
@@ -2643,7 +2704,7 @@ function KlasikForm({ kind }: { kind: ComposeKind }) {
                             />
                           </Td>
                           <Td>
-                            <span className="font-mono text-[0.875rem] text-ink">
+                            <span className="font-mono text-[0.9375rem] text-ink">
                               {advance.advance_number}
                             </span>
                           </Td>
@@ -2694,7 +2755,7 @@ function KlasikForm({ kind }: { kind: ComposeKind }) {
           </Button>
         )}
 
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-hairline pt-3 text-[0.875rem] text-mute">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-hairline pt-3 text-[0.9375rem] text-mute">
           <span>
             {tried && problems.length === 0
               ? "Ready to save"

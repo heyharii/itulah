@@ -153,11 +153,11 @@ export async function shellCall<T>(
       ok: false,
       problem:
         isWeb
-          ? `Ini kasir versi web, jadi pengaturan mesin kasir tidak tersedia — ` +
-            `hanya bisa lewat aplikasi kasir di mesin kasir.`
-          : `Jendela ini dibuka di browser biasa, bukan di aplikasi kasir, ` +
-            `jadi setelan terminal tidak bisa dibaca. ` +
-            `Jalankan lewat “npm run tauri dev”.`,
+          ? `This is the web till, so the counter machine's settings are not available — ` +
+            `they only work in the till app on the counter machine.`
+          : `This window was opened in an ordinary browser, not in the till app, ` +
+            `so the terminal settings cannot be read. ` +
+            `Run it with “npm run tauri dev”.`,
     }
   }
   try {
@@ -279,8 +279,8 @@ async function signIn(username: string, password: string): Promise<boolean> {
   if (token === "") {
     put({
       problem:
-        "Node menerima nama dan sandi itu tetapi tidak mengirim token, " +
-        "jadi terminal ini belum boleh menjual apa pun.",
+        "The node accepted that name and password but sent no token, " +
+        "so this terminal may not sell anything yet.",
     })
     return false
   }
@@ -317,14 +317,14 @@ async function signInWithFinger(): Promise<string | null> {
   await open()
   const config = held.config
   if (config === null) {
-    return held.problem ?? "Setelan terminal tidak bisa dibaca dari sini."
+    return held.problem ?? "The terminal settings cannot be read from here."
   }
 
   const book = await roster()
   if (!book.ok) return book.problem
   const fingers = book.body?.items ?? []
   if (fingers.length === 0) {
-    return "Belum ada sidik jari terdaftar di toko ini. Daftarkan dulu lewat akun admin."
+    return "No fingerprints are enrolled at this store yet. Enrol one first from an admin account."
   }
 
   const seen = await identifyFinger(
@@ -348,7 +348,7 @@ async function signInWithFinger(): Promise<string | null> {
 
   const token = claimed.body?.token ?? ""
   if (token === "") {
-    return "Node menerima sidik jari itu tetapi tidak mengirim token."
+    return "The node accepted that fingerprint but sent no token."
   }
   const saved = await hand({ ...config, token })
   if (!saved.ok) return saved.problem
@@ -375,7 +375,7 @@ async function signInWithPin(username: string, pin: string): Promise<string | nu
   await open()
   const config = held.config
   if (config === null) {
-    return held.problem ?? "Setelan terminal tidak bisa dibaca dari sini."
+    return held.problem ?? "The terminal settings cannot be read from here."
   }
 
   const claimed = await claimPin({ username, pin, purpose: "SESSION" })
@@ -383,7 +383,7 @@ async function signInWithPin(username: string, pin: string): Promise<string | nu
 
   const token = claimed.body?.token ?? ""
   if (token === "") {
-    return "Node menerima PIN itu tetapi tidak mengirim token."
+    return "The node accepted that PIN but sent no token."
   }
   const saved = await hand({ ...config, token })
   if (!saved.ok) return saved.problem
@@ -417,8 +417,8 @@ export async function supervisorByFinger(): Promise<{
       authorization: null,
       username: null,
       problem:
-        "Belum ada sidik jari supervisor yang terdaftar di toko ini. " +
-        "Gunakan nama pengguna dan kata sandi.",
+        "No supervisor fingerprints are enrolled at this store yet. " +
+        "Use a username and password.",
     }
   }
 
@@ -447,7 +447,7 @@ export async function supervisorByFinger(): Promise<{
     return {
       authorization: null,
       username: null,
-      problem: "Node menerima sidik jari itu tetapi tidak memberi otorisasi.",
+      problem: "The node accepted that fingerprint but gave no authorisation.",
     }
   }
   return {
@@ -486,7 +486,7 @@ export async function supervisorByPin(
     return {
       authorization: null,
       username: null,
-      problem: "Node menerima PIN itu tetapi tidak memberi otorisasi.",
+      problem: "The node accepted that PIN but gave no authorisation.",
     }
   }
   return {
@@ -527,31 +527,31 @@ async function pointAt(next: NodeEdit): Promise<string | null> {
   await open()
   const config = held.config
   if (config === null) {
-    return held.problem ?? "Setelan terminal tidak bisa dibaca dari sini."
+    return held.problem ?? "The terminal settings cannot be read from here."
   }
 
   const base = next.base_url.trim().replace(/\/+$/, "")
   const terminal = next.terminal_id.trim()
   if (base === "") {
-    return "Alamat node tidak boleh kosong — terminal ini tidak memutuskan apa pun sendiri."
+    return "The node address can't be empty — this terminal decides nothing on its own."
   }
   // The shell pastes the path straight onto this string, so an address without
   // a scheme is not a shorter address, it is a URL that will never resolve.
   if (!/^https?:\/\//i.test(base)) {
-    return "Alamat node harus dimulai dengan http:// atau https://, misalnya http://192.168.1.20:8082."
+    return "The node address must start with http:// or https://, for example http://192.168.1.20:8082."
   }
   if (terminal === "") {
-    return "Nomor terminal tidak boleh kosong — nomor itu ikut tercetak di struk."
+    return "The terminal number can't be empty — it is printed on receipts."
   }
 
   const printer = next.printer_host?.trim() ?? ""
   const port = Math.trunc(next.printer_port)
   if (printer !== "" && (port <= 0 || port > 65535)) {
-    return "Port printer tidak masuk akal. Umumnya 9100."
+    return "The printer port doesn't make sense. Usually 9100."
   }
   const paper = next.paper.trim().toUpperCase()
   if (paper !== "NARROW" && paper !== "WIDE") {
-    return "Lebar kertas hanya NARROW (58mm) atau WIDE (80mm)."
+    return "Paper width is only NARROW (58mm) or WIDE (80mm)."
   }
 
   const moved = base !== config.base_url.trim().replace(/\/+$/, "")

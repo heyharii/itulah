@@ -90,7 +90,7 @@ function ServerStatus({
     <p
       aria-live="polite"
       className={cn(
-        "door-in flex items-center gap-2.5 text-[0.875rem] leading-5",
+        "door-in flex items-center gap-2.5 text-[0.9375rem] leading-5",
         className
       )}
     >

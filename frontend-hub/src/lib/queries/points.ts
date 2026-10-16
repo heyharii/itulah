@@ -1,3 +1,5 @@
+import { infiniteQueryOptions } from "@tanstack/react-query"
+
 import { node } from "@/lib/api"
 
 /// Loyalty points — what the business owes its members, and what moved it.
@@ -114,6 +116,33 @@ export function listPointsLedger(
     { signal }
   )
 }
+
+/// Rows per request of either book.
+export const POINTS_PAGE = 200
+
+/// The account book a page at a time, largest balance first. Shared by the
+/// screen and its prefetcher (`screens/members/prefetch.ts`).
+export const pointsAccountsQuery = () =>
+  infiniteQueryOptions({
+    queryKey: pointsKeys.accounts(),
+    queryFn: ({ pageParam, signal }) =>
+      listPointsAccounts({ cursor: pageParam, limit: POINTS_PAGE }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+  })
+
+/// The ledger, newest first, the estate's or one member's.
+export const pointsLedgerQuery = (customerId: string | null) =>
+  infiniteQueryOptions({
+    queryKey: pointsKeys.ledger(customerId),
+    queryFn: ({ pageParam, signal }) =>
+      listPointsLedger(
+        { customerId, cursor: pageParam, limit: POINTS_PAGE },
+        signal
+      ),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+  })
 
 /// The five entry types in the words a reader uses.
 ///

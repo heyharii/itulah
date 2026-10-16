@@ -150,6 +150,12 @@ export interface NavItem {
   /// not deleted. Routed, linkable and in ⌘K exactly as before: this moves
   /// where the sidebar draws the row and nothing else.
   readonly more?: boolean
+  /// A door: one row standing for several screens, drawn as tabs under the
+  /// row's own name (owner, 2026-10-16, `finance-final-prototype.html`: "lebih
+  /// suka sedikit menu"). The row's `path` is the first tab's first view; every
+  /// other path a tab names is its own `hidden` item, so it stays routed and in
+  /// ⌘K under the name it had. `PageHeader` draws the tabs on each of them.
+  readonly tabs?: readonly NavTab[]
   /// Named in the menu, not built yet: drawn greyed with a "Soon" mark, inert,
   /// and left out of ⌘K.
   ///
@@ -157,6 +163,20 @@ export interface NavItem {
   /// with no screen, so the day the screen lands is one line in its folder's
   /// screen map and the flag coming off — not a menu edit.
   readonly soon?: boolean
+}
+
+/// One tab of a door. Its views are screens read as one place — Aging and the
+/// payment calendar are both "what is due" — so the tab is lit on any of them
+/// and a choice beside the tabs moves between them. The first view is where
+/// the tab lands; a tab with one view draws no choice.
+export interface NavTab {
+  readonly label: string
+  readonly views: readonly NavView[]
+}
+
+export interface NavView {
+  readonly label: string
+  readonly path: string
 }
 
 export interface NavSection {
@@ -171,6 +191,10 @@ export interface NavSection {
   /// group is still seen. Needs a `label`; without one the rows are drawn
   /// flat, as before.
   readonly fold?: boolean
+  /// Drawn as a small grey chip over its rows, which always show: a label, not
+  /// a fold (owner, 2026-10-16, `sidebar-labels-prototype.html` A6 "Chip";
+  /// Sales first). Needs a `label`.
+  readonly chip?: boolean
 }
 
 export interface AppModule {
@@ -690,6 +714,44 @@ export function screenForPath(
     if (matches && item.path.length > (best?.path.length ?? -1)) best = item
   }
   return best
+}
+
+/// The door a path is a tab of, and which tab and view it is. Exact paths
+/// only: a record under a tab (`/finance/cash-bank/bkk/new`) is a page of its
+/// own and draws no tabs.
+export function doorForPath(pathname: string):
+  | {
+      readonly door: (typeof allNavItems)[number]
+      readonly tab: NavTab
+      readonly view: NavView
+    }
+  | undefined {
+  for (const door of allNavItems) {
+    for (const tab of door.tabs ?? []) {
+      const view = tab.views.find((one) => one.path === pathname)
+      if (view) return { door, tab, view }
+    }
+  }
+  return undefined
+}
+
+/// A door's tabs as `audience` sees them: a view whose screen is for someone
+/// else (`NavItem.audience`, say HR's head-office-only pages for a store
+/// manager) is left out, and a tab with no view left goes with it — the same
+/// rule the sidebar applies to rows (`shown`).
+export function doorTabsFor(
+  tabs: readonly NavTab[],
+  audience: Audience | null
+): readonly NavTab[] {
+  return tabs
+    .map((tab) => ({
+      ...tab,
+      views: tab.views.filter((view) => {
+        const item = allNavItems.find((one) => one.path === view.path)
+        return item?.audience === undefined || item.audience === audience
+      }),
+    }))
+    .filter((tab) => tab.views.length > 0)
 }
 
 /// ── sections ─────────────────────────────────────────────────────────────

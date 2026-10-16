@@ -1,5 +1,4 @@
-import type { ScreenMap } from "@/screens/registry"
-import { Supplies } from "@/screens/supplies/supplies"
+import { lazyScreen, type ScreenMap } from "@/screens/registry"
 
 /// Screens this module has written. Keys must be paths declared in
 /// `lib/navigation.ts`.
@@ -9,5 +8,9 @@ import { Supplies } from "@/screens/supplies/supplies"
 /// sheet rather than as a second screen, because the same request is one
 /// record at every stage.
 export const screens: ScreenMap = {
-  "/supplies": Supplies,
+  "/supplies": lazyScreen(
+    "supplies/supplies",
+    () => import("@/screens/supplies/supplies"),
+    (m) => m.Supplies
+  ),
 }

@@ -1,6 +1,7 @@
-import { useCallback, useMemo, useState } from "react"
+import { useCallback, useMemo, useSyncExternalStore } from "react"
 
 import { Select } from "@/components/ui/field"
+import { quantity } from "@/lib/format"
 import {
   BASE_UNIT,
   formatInUnit,
@@ -34,7 +35,27 @@ function remember(code: string) {
     // A private window or a blocked store loses the preference, not the
     // screen — the picker still works, it just forgets by the next visit.
   }
+  for (const listener of listeners) listener()
 }
+
+/// Who is reading the choice, told when it changes — in this tab (`remember`)
+/// or another one (`storage`).
+const listeners = new Set<() => void>()
+
+function subscribe(listener: () => void) {
+  listeners.add(listener)
+  window.addEventListener("storage", listener)
+  return () => {
+    listeners.delete(listener)
+    window.removeEventListener("storage", listener)
+  }
+}
+
+/// The server has no `localStorage`: it draws the base unit, and so does the
+/// browser's first render (`useSyncExternalStore` reads this one while it
+/// hydrates), then the stored choice replaces it.
+const serverChoice = () => BASE_UNIT
+const clientChoice = () => stored() ?? BASE_UNIT
 
 export interface DisplayUnit {
   /// The unit currently chosen — always one of `options`, or the base unit
@@ -55,12 +76,9 @@ export interface DisplayUnit {
 
 export function useDisplayUnit(): DisplayUnit {
   const book = useUnits()
-  const [code, setCodeState] = useState<string>(() => stored() ?? BASE_UNIT)
+  const code = useSyncExternalStore(subscribe, clientChoice, serverChoice)
 
-  const setCode = useCallback((next: string) => {
-    setCodeState(next)
-    remember(next)
-  }, [])
+  const setCode = useCallback((next: string) => remember(next), [])
 
   const options = useMemo(
     () =>
@@ -79,8 +97,11 @@ export function useDisplayUnit(): DisplayUnit {
 
   const format = useCallback(
     (pieces: number) =>
+      // While the master is on its way pieces are said as pieces — what the
+      // base unit prints once it is here — so a figure does not change its
+      // words when the list lands.
       chosen === undefined
-        ? String(pieces)
+        ? quantity(pieces, "pcs")
         : formatInUnit(pieces, chosen, base?.label ?? "pcs"),
     [chosen, base]
   )
@@ -107,7 +128,7 @@ export function DisplayUnitPicker({
   if (display.options.length <= 1) return null
   return (
     <label
-      className={`flex items-center gap-2 text-[0.875rem] text-body ${className ?? ""}`}
+      className={`flex items-center gap-2 text-[0.9375rem] text-body ${className ?? ""}`}
     >
       Show in
       <Select

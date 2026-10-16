@@ -9,12 +9,11 @@ import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
+import { DeskFilterButton, DeskFilterChips } from "@/components/ui/desk-filter"
 import { Input } from "@/components/ui/field"
-import { FilterPanel } from "@/components/ui/filter-panel"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { MiniTable, TotalsLadder } from "@/components/ui/rows"
-import { Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
@@ -356,34 +355,40 @@ export function Member() {
 
   return (
     <PageContent>
-      <PageHeader
-        crumb="Sales"
-        title="Member"
-        sub="One member's purchases as the shops reported them, newest first."
-        actions={
-          phone ? undefined : (
-            <>
-              <Input
-                value={typed}
-                onChange={(event) => setTyped(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && typed.trim() !== "") {
-                    member.open(typed.trim())
-                  }
-                }}
-                className="h-8 w-56 font-mono text-id"
-              />
-              <Button
-                variant="soft"
-                disabled={typed.trim() === ""}
-                onClick={() => member.open(typed.trim())}
-              >
-                Look up
-              </Button>
-            </>
-          )
-        }
-      />
+      <PageHeader crumb="Sales" title="Member" />
+
+      {/* The scope bar: which member, then what narrows their purchases. On a
+          phone the card id is the dock's field and Look up its button. */}
+      {!phone && (
+        <>
+          <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2">
+            <Input
+              value={typed}
+              onChange={(event) => setTyped(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && typed.trim() !== "") {
+                  member.open(typed.trim())
+                }
+              }}
+              aria-label="Member card id"
+              placeholder="Member card id"
+              className="h-9 w-56 font-mono text-id"
+            />
+            <Button
+              variant="soft"
+              // The white look floats a bar's search and Filter to its start;
+              // Look up stays against the card id it acts on.
+              className="order-[-2]"
+              disabled={typed.trim() === ""}
+              onClick={() => member.open(typed.trim())}
+            >
+              Look up
+            </Button>
+            {customerId !== "" && <DeskFilterButton model={filters} />}
+          </div>
+          {customerId !== "" && <DeskFilterChips model={filters} />}
+        </>
+      )}
 
       {/* The card id is the dock's field and Look up is its button, where the
           other lists have their plus. The ⚙ narrows the purchases. */}
@@ -399,7 +404,7 @@ export function Member() {
           type="button"
           disabled={typed.trim() === ""}
           onClick={() => member.open(typed.trim())}
-          className="dock-wide inline-flex h-9 w-full items-center justify-center rounded-full bg-cta px-4 text-[0.875rem] font-semibold text-cta-fg shadow-soft transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.96] disabled:opacity-50"
+          className="dock-wide inline-flex h-9 w-full items-center justify-center rounded-full bg-cta px-4 text-[0.9375rem] font-semibold text-cta-fg shadow-soft transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.96] disabled:opacity-50"
         >
           Look up
         </button>
@@ -494,12 +499,6 @@ export function Member() {
             </KpiStrip>
           )}
 
-          {!phone && (
-            <Toolbar>
-              <FilterPanel model={filters} />
-            </Toolbar>
-          )}
-
           <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
             {queryState(history, {
               loading: "Reading their history…",
@@ -512,6 +511,7 @@ export function Member() {
                   </EmptyState>
                 ) : (
                   <DataTable<CustomerTransaction>
+                    refresh={[history]}
                     table={table}
                     onRowClick={(row) => receipt.open(row.sale_id)}
                     isSelected={(row) => row.sale_id === receipt.value}
@@ -593,7 +593,7 @@ function MemberReceiptSheet({
                       className="border-t border-hairline"
                     >
                       <td className="py-2 pr-2">
-                        <span className="font-mono text-[0.875rem] text-ink">
+                        <span className="font-mono text-[0.9375rem] text-ink">
                           {line.sku_code}
                         </span>
                       </td>

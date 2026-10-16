@@ -1,14 +1,14 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
 import type { ColumnDef } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { Search } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { DockTools } from "@/components/shell/dock-tools"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
-import { Input, Select } from "@/components/ui/field"
+import { Select } from "@/components/ui/field"
+import { ExpandingSearch } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { EmptyState } from "@/components/ui/states"
 import { label as humanise, count, moment } from "@/lib/format"
@@ -271,7 +271,7 @@ export function StockLedger() {
         accessorFn: (row) => row.reference_id ?? "",
         cell: ({ row }) =>
           row.original.reference_id === null ? null : (
-            <span className="font-mono text-[0.875rem] text-mute">
+            <span className="font-mono text-[0.9375rem] text-mute">
               {row.original.reference_id}
             </span>
           ),
@@ -330,18 +330,14 @@ export function StockLedger() {
           onChange: setPool,
         }}
       />
-      <div className="mb-4 flex flex-wrap items-center gap-3 max-md:hidden">
-        <label className="relative">
-          <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-mute" />
-          <Input
-            value={typed}
-            onChange={(event) => setTyped(event.target.value)}
-            aria-label="Search the ledger"
-            className="h-11 w-80 pl-9"
-          />
-        </label>
+      <div className="group/bar mb-3.5 flex min-h-[2.25rem] flex-wrap items-center gap-2 max-md:hidden">
+        <ExpandingSearch
+          value={typed}
+          onChange={setTyped}
+          label="Search the ledger"
+        />
         <Select
-          className="h-11 w-60"
+          className="h-[2.125rem] w-60 pointer-coarse:h-11"
           value={pool}
           onChange={setPool}
           aria-label="Pool"
@@ -356,7 +352,10 @@ export function StockLedger() {
             ))}
         </Select>
       </div>
-      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+      <Card
+        aria-busy={ledger.isPlaceholderData || undefined}
+        className="list-swap overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none"
+      >
         {queryState(ledger, {
           loading: "Reading the ledger…",
           render: () =>

@@ -1,28 +1,38 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
+import {
+  useMutation,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query"
+import type { ColumnDef } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
+import { Suspense, useMemo, useState } from "react"
+
+import type { AbsenceRuleView } from "@itulah/contract"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
+import { Card } from "@/components/ui/card"
+import { DataTable } from "@/components/ui/data-table"
 import { Day } from "@/components/ui/day"
 import { Fab } from "@/components/ui/fab"
 import { Checkbox, Field, Input } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { PickOne } from "@/components/ui/pick"
 import { Pill } from "@/components/ui/pill"
-import { MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
 import { Sheet } from "@/components/ui/sheet"
-import { EmptyState, Problem } from "@/components/ui/states"
+import { EmptyState, LoadingState, Problem } from "@/components/ui/states"
 import { day } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import {
-  absenceRules,
+  absenceRulesQuery,
   attendanceSettingKeys,
   payKeys,
   stateAbsenceRule,
 } from "@/lib/queries/people"
-import { queryState } from "@/lib/query-state"
 import { useCanWrite } from "@/lib/session"
-import { ListCard, SheetFooter } from "@/screens/people/settings-kit"
+import { CardName } from "@/components/ui/phone-cards"
+import { tableSetup, type TableSetup } from "@/lib/table"
+import { SheetFooter } from "@/screens/people/settings-kit"
 import { useOpener } from "@/screens/people/settings-lib"
 
 const BASES = [
@@ -40,6 +50,76 @@ function describe(rule: {
     : `${rule.basis === "WAGE" ? "Wage" : "Base"} ÷ ${rule.divisor_days === null ? "the month's days" : `${rule.divisor_days} days`} per day absent`
 }
 
+const columns: ColumnDef<TableSetup, AbsenceRuleView>[] = [
+  {
+    id: "from",
+    accessorFn: (row) => row.effective_from,
+    header: "From",
+    size: 220,
+    meta: { card: "hide" },
+    cell: ({ row }) => (
+      <>
+        {day(row.original.effective_from)}
+        {row.index === 0 && (
+          <Pill tone="ok" className="ml-2">
+            In force
+          </Pill>
+        )}
+      </>
+    ),
+  },
+  {
+    id: "rule",
+    accessorFn: (row) => describe(row),
+    header: "Rule",
+    size: 320,
+    meta: { card: "hide" },
+  },
+  {
+    accessorKey: "ratified_by",
+    header: "By",
+    size: 160,
+    meta: { card: "hide" },
+  },
+  {
+    accessorKey: "reason",
+    header: "Why",
+    size: 300,
+    meta: { card: "hide" },
+    cell: ({ row }) => (
+      <span className="block whitespace-normal">{row.original.reason}</span>
+    ),
+  },
+  // One column that exists only on a card (`cardLead`; a phone): the date it
+  // starts, the rule under it, and who stated it and why.
+  {
+    id: "head",
+    accessorFn: (row) => row.effective_from,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "title" },
+    cell: ({ row }) => (
+      <CardName
+        name={
+          <>
+            {day(row.original.effective_from)}
+            {row.index === 0 && (
+              <Pill tone="ok" className="ml-2 align-middle">
+                In force
+              </Pill>
+            )}
+          </>
+        }
+        line={[
+          describe(row.original),
+          `By ${row.original.ratified_by} · ${row.original.reason}`,
+        ]}
+      />
+    ),
+  },
+]
+
 /// Settings › Absence deduction (potongan absen) — what a day absent costs.
 ///
 /// An absence is a rostered working day gone by with no punch, no approved
@@ -48,10 +128,6 @@ function describe(rule: {
 /// month's days, or over a fixed divisor such as 25 working days.
 export function AbsenceSettings() {
   const canWrite = useCanWrite()
-  const rules = useQuery({
-    queryKey: attendanceSettingKeys.absenceRules(),
-    queryFn: ({ signal }) => absenceRules(signal),
-  })
   const sheet = useOpener()
   const phone = useLayout() === "phone"
 
@@ -72,39 +148,49 @@ export function AbsenceSettings() {
       />
       {canWrite && <Fab label="New rule" onClick={() => sheet.show()} />}
 
-      <ListCard>
-        {queryState(rules, {
-          loading: "Reading the rule…",
-          render: (rows) =>
-            rows.length === 0 ? (
-              <EmptyState>
-                No rule has been stated, so an absence costs nothing. New rule
-                states one from a date.
-              </EmptyState>
-            ) : (
-              <MiniTable head={["From", "Rule", "By", "Why"]}>
-                {rows.map((row, index) => (
-                  <MiniRow key={row.effective_from}>
-                    <MiniCell>
-                      {day(row.effective_from)}
-                      {index === 0 && (
-                        <Pill tone="ok" className="ml-2">
-                          In force
-                        </Pill>
-                      )}
-                    </MiniCell>
-                    <MiniCell>{describe(row)}</MiniCell>
-                    <MiniCell>{row.ratified_by}</MiniCell>
-                    <MiniCell>{row.reason}</MiniCell>
-                  </MiniRow>
-                ))}
-              </MiniTable>
-            ),
-        })}
-      </ListCard>
+      <Card className="mb-4 overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+        <Suspense fallback={<LoadingState>Reading the rule…</LoadingState>}>
+          <AbsenceRules />
+        </Suspense>
+      </Card>
 
       <NewRuleSheet key={sheet.n} open={sheet.isOpen} onClose={sheet.hide} />
     </PageContent>
+  )
+}
+
+/// The versions of the rule, as a table. Here and not in the screen so the
+/// head paints at once and this waits alone for its answer.
+function AbsenceRules() {
+  const rules = useSuspenseQuery(absenceRulesQuery())
+  const phone = useLayout() === "phone"
+  const versions = rules.data
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: versions,
+        columns,
+        getRowId: (row: AbsenceRuleView) => row.effective_from,
+        // The card's own column is drawn on a phone and never on a desk.
+        state: { columnVisibility: { head: phone } },
+      }),
+      [versions, phone]
+    )
+  )
+  return versions.length === 0 ? (
+    <EmptyState>
+      No rule has been stated, so an absence costs nothing. New rule states one
+      from a date.
+    </EmptyState>
+  ) : (
+    <DataTable<AbsenceRuleView>
+      refresh={[rules]}
+      table={table}
+      cardsApart
+      cardLead
+      cardSort={false}
+    />
   )
 }
 

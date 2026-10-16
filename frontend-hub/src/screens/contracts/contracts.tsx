@@ -1,25 +1,28 @@
-import { useInfiniteQuery } from "@tanstack/react-query"
+import { useSuspenseInfiniteQuery } from "@tanstack/react-query"
 import { Plus } from "lucide-react"
-import { useMemo, useState } from "react"
+import { Suspense, useDeferredValue, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { DockTools } from "@/components/shell/dock-tools"
-import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Fab } from "@/components/ui/fab"
-import { Input } from "@/components/ui/field"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
-import { Segmented, Toolbar } from "@/components/ui/segmented"
-import { EmptyState, LoadMore, type Pageable } from "@/components/ui/states"
+import { BarSpacer, ExpandingSearch } from "@/components/ui/list-chrome"
+import { Segmented } from "@/components/ui/segmented"
+import { SubTabs } from "@/components/ui/sub-tabs"
+import {
+  EmptyState,
+  LoadingState,
+  LoadMore,
+  type Pageable,
+} from "@/components/ui/states"
 import { count, money, moneyCompact, span } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
-import { gaContracts, gaKeys } from "@/lib/queries/ga"
-import { queryState } from "@/lib/query-state"
+import { gaContractBookQuery } from "@/lib/queries/ga"
 import { useSheet } from "@/lib/sheets"
 import { useDebounced } from "@/lib/use-debounced"
-import { cn } from "@/lib/utils"
 import { ContractComposer } from "@/screens/contracts/composer"
 import {
   monthLabel,
@@ -36,7 +39,6 @@ import {
   CardFigure,
   CardName,
   type CardSpec,
-  DESK_BAR,
   PhoneCards,
 } from "@/components/ui/phone-cards"
 import { FilterSheet } from "@/components/ui/filter-sheet"
@@ -114,9 +116,6 @@ const GROUP_LEADS: Record<ContractGroupCode, string> = {
   DISEWAKAN: "Space and equipment the company rents out to others.",
 }
 
-/// How many contracts one page of the register asks for.
-const PAGE = 100
-
 export function Contracts() {
   const chip = useSheet("contract-group")
   const view = readingFor(chip.value)
@@ -129,53 +128,6 @@ export function Contracts() {
   // The search is the server's, so it waits for the typing to stop.
   const needle = useDebounced(search.trim(), 300)
 
-  const scope = useMemo(
-    () => ({
-      q: needle === "" ? undefined : needle,
-      group: view.group,
-      // The archive is the register's only way back out of the list, so the
-      // reading is explicit: the default list is the living register, and the
-      // archived contracts are one deliberate click away rather than gone.
-      // Sent both ways — an absent `archived` is the server's "both".
-      archived,
-    }),
-    [needle, archived, view.group]
-  )
-
-  /// The register, a page at a time as its foot nears view. Its own key under
-  /// the register's prefix, so a plain read of the same scope elsewhere
-  /// cannot be served a paged answer; `gaKeys.all` still reaches it.
-  const register = useInfiniteQuery({
-    queryKey: [
-      ...gaKeys.contracts(scope),
-      "pages",
-      view.kind === "utilities" ? "site" : "register",
-    ] as const,
-    queryFn: ({ pageParam, signal }) =>
-      gaContracts(
-        {
-          ...scope,
-          // Subscriptions read by PLACE: the question this reading answers is
-          // "what is connected there", and a register order would scatter one
-          // site's connections across the table. The server sorts, so the
-          // order holds across pages.
-          sort: view.kind === "utilities" ? "site" : undefined,
-          limit: PAGE,
-          cursor: pageParam,
-        },
-        signal
-      ),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) => last.next_cursor ?? undefined,
-    placeholderData: (previous) => previous,
-  })
-
-  const rows = useMemo(
-    () => register.data?.pages.flatMap((page) => page.rows) ?? [],
-    [register.data]
-  )
-  const head = register.data?.pages[0]
-
   return (
     <PageContent>
       <PageHeader
@@ -183,20 +135,14 @@ export function Contracts() {
         title={view.title}
         sub={view.sub}
         actions={
-          // On a phone the search, the group and the archive are the dock's,
-          // and the one thing this page makes is its round button.
+          // The one thing this page makes stands in its head; the search, the
+          // group and the archive are the bar's on a desk and the dock's on a
+          // phone, where the one thing this page makes is its round button.
           phone ? undefined : (
-            <>
-              <Input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                className="h-8 w-56"
-              />
-              <Button variant="primary" onClick={() => setAdding(true)}>
-                <Plus />
-                Add contract
-              </Button>
-            </>
+            <Button variant="primary" onClick={() => setAdding(true)}>
+              <Plus />
+              Add contract
+            </Button>
           )
         }
       />
@@ -221,6 +167,161 @@ export function Contracts() {
           onChange: (next) => setArchived(next === "ARCHIVED"),
         }}
       />
+      <Suspense
+        fallback={
+          <>
+            <ContractBar
+              search={search}
+              setSearch={setSearch}
+              archived={archived}
+              setArchived={setArchived}
+            />
+            <LoadingState>Loading contracts…</LoadingState>
+          </>
+        }
+      >
+        <ContractRegister
+          view={view}
+          chip={chip}
+          archived={archived}
+          setArchived={setArchived}
+          search={search}
+          setSearch={setSearch}
+          needle={needle}
+          filtering={filtering}
+          setFiltering={setFiltering}
+          onOpen={open.open}
+          onAdd={() => setAdding(true)}
+        />
+      </Suspense>
+
+      {/* Keyed per chip and per record: the composer re-arms on the group it
+          is opened from, and the hub drops its archive question (and its own
+          tab) whenever another contract opens. Without the key, a cancelled
+          form would leak a Leases type into a Services composer and an
+          abandoned archive reason would still be waiting under the next
+          contract. */}
+      <ContractComposer
+        key={view.group ?? "all"}
+        open={adding}
+        group={view.group ?? ""}
+        onClose={() => setAdding(false)}
+        onSaved={(contractId) => {
+          setAdding(false)
+          open.open(contractId)
+        }}
+      />
+
+      <ContractHubSheet
+        key={open.value ?? "none"}
+        contractId={open.value}
+        open={open.isOpen}
+        onClose={open.close}
+      />
+    </PageContent>
+  )
+}
+
+/// The search at the left, the archive switch and the tally at the right.
+function ContractBar({
+  search,
+  setSearch,
+  archived,
+  setArchived,
+  total,
+}: {
+  search: string
+  setSearch: (search: string) => void
+  archived: boolean
+  setArchived: (archived: boolean) => void
+  /// Every contract the reading matches, once the register has said.
+  total?: number
+}) {
+  return (
+    <div className="group/bar mb-3.5 flex min-h-[2.25rem] flex-wrap items-center gap-2 max-md:hidden">
+      <ExpandingSearch
+        value={search}
+        onChange={setSearch}
+        label="Search contracts"
+      />
+      <BarSpacer />
+      <Segmented
+        options={[
+          { value: "LIVE" as const, label: "Active" },
+          { value: "ARCHIVED" as const, label: "Archived" },
+        ]}
+        value={archived ? "ARCHIVED" : "LIVE"}
+        onChange={(next) => setArchived(next === "ARCHIVED")}
+      />
+      {total !== undefined && (
+        <span className="text-meta text-body">
+          <b className="font-medium text-ink">{count(total)}</b>{" "}
+          {total === 1 ? "contract" : "contracts"}
+        </span>
+      )}
+    </div>
+  )
+}
+
+/// The register and everything drawn from its answer: the filter sheet, the
+/// figures, the tabs with their counts and the rows. The page's head and its
+/// dock stand outside, so they paint before the answer arrives.
+function ContractRegister({
+  view,
+  chip,
+  archived,
+  setArchived,
+  search,
+  setSearch,
+  needle,
+  filtering,
+  setFiltering,
+  onOpen,
+  onAdd,
+}: {
+  view: Reading
+  chip: ReturnType<typeof useSheet<"contract-group">>
+  archived: boolean
+  setArchived: (archived: boolean) => void
+  search: string
+  setSearch: (search: string) => void
+  /// The search once the typing has stopped: what the server is asked.
+  needle: string
+  filtering: boolean
+  setFiltering: (open: boolean) => void
+  onOpen: (contractId: string) => void
+  onAdd: () => void
+}) {
+  const scope = useMemo(
+    () => ({
+      q: needle === "" ? undefined : needle,
+      group: view.group,
+      // The archive is the register's only way back out of the list, so the
+      // reading is explicit: the default list is the living register, and the
+      // archived contracts are one deliberate click away rather than gone.
+      // Sent both ways — an absent `archived` is the server's "both".
+      archived,
+    }),
+    [needle, archived, view.group]
+  )
+
+  /// The register, a page at a time as its foot nears view. Read for the scope
+  /// as it was a moment ago while a new one is on its way: the rows stay on
+  /// screen instead of the register emptying to a loading line on every
+  /// search.
+  const asked = useDeferredValue(scope)
+  const register = useSuspenseInfiniteQuery(
+    gaContractBookQuery(asked, view.kind)
+  )
+
+  const rows = useMemo(
+    () => register.data.pages.flatMap((page) => page.rows),
+    [register.data]
+  )
+  const head = register.data.pages[0]
+
+  return (
+    <>
       <FilterSheet
         open={filtering}
         onOpenChange={setFiltering}
@@ -253,171 +354,86 @@ export function Contracts() {
         ]}
       />
 
-      <div className={DESK_BAR}>
-        <GroupChips
-          here={view.group ?? null}
-          counts={head?.facets.groups ?? []}
-        />
-      </div>
-
       {head !== undefined && (
         <SummaryStrip summary={head.summary} total={head.total} view={view} />
       )}
 
-      <div className={DESK_BAR}>
-        <Segmented
-          options={[
-            { value: "LIVE" as const, label: "Active" },
-            { value: "ARCHIVED" as const, label: "Archived" },
-          ]}
-          value={archived ? "ARCHIVED" : "LIVE"}
-          onChange={(next) => setArchived(next === "ARCHIVED")}
-        />
-        <Toolbar.Spacer />
-        {head !== undefined && (
-          <span className="text-meta text-body">
-            <b className="font-medium text-ink">{count(head.total)}</b>{" "}
-            {head.total === 1 ? "contract" : "contracts"}
-          </span>
-        )}
-      </div>
-
-      {queryState(register, {
-        loading: "Loading contracts…",
-        render: () =>
-          rows.length === 0 ? (
-            <Card>
-              <EmptyState
-                action={
-                  <Button variant="ghost" onClick={() => setAdding(true)}>
-                    Record the first one
-                  </Button>
-                }
-              >
-                {archived
-                  ? "The archive is empty. An archived contract moves here; it is not deleted."
-                  : "No contracts in this reading yet. A contract is recorded from its agreement: its type, its parties, and its term."}
-              </EmptyState>
-            </Card>
-          ) : (
-            <ContractTable
-              view={view}
-              rows={rows}
-              onOpen={open.open}
-              more={register}
-            />
-          ),
-      })}
-
-      {/* Keyed per chip and per record: the composer re-arms on the group it
-          is opened from, and the hub drops its archive question (and its own
-          tab) whenever another contract opens. Without the key, a cancelled
-          form would leak a Leases type into a Services composer and an
-          abandoned archive reason would still be waiting under the next
-          contract. */}
-      <ContractComposer
-        key={view.group ?? "all"}
-        open={adding}
-        group={view.group ?? ""}
-        onClose={() => setAdding(false)}
-        onSaved={(contractId) => {
-          setAdding(false)
-          open.open(contractId)
-        }}
+      {/* The groups are the page's tabs: one register, read through six doors
+          (the phone has them in the dock's Filter sheet). */}
+      <SubTabs
+        className="max-md:hidden"
+        tabs={[
+          {
+            value: "ALL",
+            label: (
+              <span>
+                All
+                <span className="ml-1.5 text-body tabular-nums">
+                  {count(
+                    (head?.facets.groups ?? []).reduce(
+                      (sum, one) => sum + one.count,
+                      0
+                    )
+                  )}
+                </span>
+              </span>
+            ),
+          },
+          ...CONTRACT_GROUPS.map((group) => ({
+            value: group.group_code as string,
+            label: (
+              <span>
+                {group.label}
+                <span className="ml-1.5 text-body tabular-nums">
+                  {count(
+                    (head?.facets.groups ?? []).find(
+                      (one) => one.value === group.group_code
+                    )?.count ?? 0
+                  )}
+                </span>
+              </span>
+            ),
+          })),
+        ]}
+        value={view.group ?? "ALL"}
+        onChange={(next) =>
+          next === "ALL" ? chip.close() : chip.replace(next)
+        }
       />
 
-      <ContractHubSheet
-        key={open.value ?? "none"}
-        contractId={open.value}
-        open={open.isOpen}
-        onClose={open.close}
+      {/* One bar: the search at the left, the archive switch and the tally at
+          the right. */}
+      <ContractBar
+        search={search}
+        setSearch={setSearch}
+        archived={archived}
+        setArchived={setArchived}
+        total={head?.total}
       />
-    </PageContent>
-  )
-}
 
-/// The six groups, as chips with their counts.
-///
-/// Links rather than buttons, so the group is in the address bar and a
-/// reading of one group is something somebody can send. The counts are the
-/// server's facets over the SEARCH rather than over the chip, so every chip
-/// keeps its number while another one is lit.
-function GroupChips({
-  here,
-  counts,
-}: {
-  here: ContractGroupCode | null
-  counts: readonly { value: string; count: number }[]
-}) {
-  const total = counts.reduce((sum, one) => sum + one.count, 0)
-  return (
-    <nav
-      aria-label="Contract groups"
-      className="flex flex-wrap items-center gap-1.5"
-    >
-      <GroupChip label="All" n={total} active={here === null} />
-      {CONTRACT_GROUPS.map((group) => (
-        <GroupChip
-          key={group.group_code}
-          group={group.group_code}
-          label={group.label}
-          icon={group.icon}
-          n={counts.find((one) => one.value === group.group_code)?.count ?? 0}
-          active={here === group.group_code}
-        />
-      ))}
-    </nav>
-  )
-}
-
-/// One chip; no `group` is every group.
-function GroupChip({
-  group,
-  label,
-  icon: Glyph,
-  n,
-  active,
-}: {
-  group?: ContractGroupCode
-  label: string
-  icon?: React.ComponentType<{ className?: string }>
-  n: number
-  active: boolean
-}) {
-  return (
-    <AppLink
-      to="/contracts"
-      sheet={
-        group === undefined
-          ? undefined
-          : { key: "contract-group", value: group }
-      }
-      aria-current={active ? "page" : undefined}
-      className={cn(
-        "inline-flex h-8 items-center gap-2 rounded-full border px-3 text-meta font-medium transition-colors",
-        active
-          ? "border-accent bg-accent-bg text-accent"
-          : "border-hairline-2 bg-canvas text-text hover:bg-soft"
-      )}
-    >
-      {Glyph && (
-        <Glyph
-          className={cn(
-            "size-4 stroke-[1.7]",
-            active ? "text-accent" : "text-line-ico"
-          )}
+      {rows.length === 0 ? (
+        <Card>
+          <EmptyState
+            action={
+              <Button variant="ghost" onClick={onAdd}>
+                Record the first one
+              </Button>
+            }
+          >
+            {archived
+              ? "The archive is empty. An archived contract moves here; it is not deleted."
+              : "No contracts in this reading yet. A contract is recorded from its agreement: its type, its parties, and its term."}
+          </EmptyState>
+        </Card>
+      ) : (
+        <ContractTable
+          view={view}
+          rows={rows}
+          onOpen={onOpen}
+          more={register}
         />
       )}
-      {label}
-      <span
-        className={cn(
-          "text-pill tabular-nums",
-          active ? "text-accent" : "text-mute"
-        )}
-      >
-        {count(n)}
-      </span>
-    </AppLink>
+    </>
   )
 }
 

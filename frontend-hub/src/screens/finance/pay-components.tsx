@@ -1,23 +1,38 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { useMemo, useState } from "react"
+import {
+  useMutation,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query"
+import type { ColumnDef, SortingState } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
+import { Suspense, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { Checkbox, Input } from "@/components/ui/field"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
+import { Checkbox } from "@/components/ui/field"
+import {
+  BarSpacer,
+  ColumnsMenu,
+  ExpandingSearch,
+} from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
-import { Toolbar } from "@/components/ui/segmented"
 import { EmptyState, Problem } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
-import { DockTools } from "@/components/shell/dock-tools"
 import { count, label } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
-import { financeKeys, setPayComponentPosting } from "@/lib/queries/finance"
+import {
+  financeKeys,
+  payComponentsQuery,
+  setPayComponentPosting,
+} from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
-import { Code, Grid, Td, Th } from "@/screens/finance-final/parts"
-import { usePayComponents } from "@/screens/finance/master-data"
-import { PhoneCard, PhoneList } from "@/components/ui/phone-cards"
+import { tableSetup, type TableSetup } from "@/lib/table"
+import { Code } from "@/screens/finance-final/parts"
+import { useColumnFit } from "@/screens/finance/column-fit"
 import {
   EditorCard,
   LinkAccountsButton,
@@ -25,7 +40,85 @@ import {
   Reach,
   YesNo,
 } from "@/screens/finance/master-parts"
+import { ScreenPending } from "@/screens/finance/pending"
 import type { PayComponentPosting } from "@itulah/contract"
+
+/// One component per row. On a phone the same columns are the card: the name
+/// over its code and kind, what it is under them, and the Link accounts button
+/// at the right.
+const columns: ColumnDef<TableSetup, PayComponentPosting>[] = [
+  {
+    accessorKey: "code",
+    header: "Code",
+    size: 160,
+    meta: { card: "meta" },
+    cell: ({ row }) => <Code>{row.original.code}</Code>,
+  },
+  {
+    accessorKey: "label",
+    header: "Component",
+    size: 300,
+    meta: { card: "title", grow: 200 },
+    cell: ({ row }) => (
+      <span className="flex items-center gap-2 whitespace-normal">
+        <span className="text-ink">{row.original.label}</span>
+        {row.original.retired && <Pill tone="neutral">Retired</Pill>}
+      </span>
+    ),
+  },
+  {
+    accessorKey: "kind",
+    header: "Kind",
+    size: 110,
+    meta: { card: "meta" },
+    cell: ({ row }) => label(row.original.kind),
+  },
+  {
+    id: "employer_borne",
+    accessorFn: (row) => (row.employer_borne ? "Yes" : ""),
+    header: "Employer borne",
+    size: 150,
+    meta: { align: "center", card: "metric" },
+    cell: ({ row }) => <YesNo on={row.original.employer_borne} />,
+  },
+  {
+    id: "paid_from_accrual",
+    accessorFn: (row) => (row.paid_from_accrual ? "Yes" : ""),
+    header: "From accrual",
+    size: 130,
+    meta: { align: "center", card: "metric" },
+    cell: ({ row }) => <YesNo on={row.original.paid_from_accrual} />,
+  },
+  {
+    accessorKey: "role",
+    header: "Role",
+    size: 160,
+    meta: { card: "metric", priority: 2 },
+    cell: ({ row }) => <Tag>{row.original.role}</Tag>,
+  },
+  {
+    accessorKey: "linked_units",
+    header: "Account",
+    size: 150,
+    meta: { card: "metric" },
+    cell: ({ row }) => <Reach units={row.original.linked_units} />,
+  },
+  {
+    id: "link",
+    header: "",
+    size: 150,
+    enableSorting: false,
+    enableHiding: false,
+    meta: { align: "right", card: "status" },
+    cell: ({ row }) => (
+      <LinkAccountsButton
+        role={row.original.role}
+        sourceType="PAY_COMPONENT"
+        sourceId={row.original.code}
+      />
+    ),
+  },
+]
 
 /// Where each pay component lands: the posting half of a component HR
 /// defines.
@@ -38,180 +131,141 @@ import type { PayComponentPosting } from "@itulah/contract"
 /// for a deduction, source the component. A component with no link makes the
 /// payroll run that pays it refuse, by name.
 export function PayComponents() {
+  return (
+    <Suspense
+      fallback={
+        <ScreenPending crumb="Finance · Setup" title="Pay Components">
+          Reading the pay components…
+        </ScreenPending>
+      }
+    >
+      <PayComponentsScreen />
+    </Suspense>
+  )
+}
+
+function PayComponentsScreen() {
   const phone = useLayout() === "phone"
-  const list = usePayComponents()
+  const list = useSuspenseQuery(payComponentsQuery())
   const [editing, setEditing] = useState<PayComponentPosting | null>(null)
   const [needle, setNeedle] = useState("")
   const [retired, setRetired] = useState(false)
+  const [sorting, setSorting] = useState<SortingState>([])
 
-  const rows = useMemo(() => {
-    const text = needle.trim().toLowerCase()
-    return (list.data ?? []).filter(
-      (row) =>
-        (retired || !row.retired) &&
-        (text === "" ||
-          row.code.toLowerCase().includes(text) ||
-          row.label.toLowerCase().includes(text))
-    )
-  }, [list.data, needle, retired])
+  const rows = useMemo(
+    () => list.data.filter((row) => retired || !row.retired),
+    [list.data, retired]
+  )
 
-  const unlinked = (list.data ?? []).filter(
+  const unlinked = rows.filter(
     (row) => !row.retired && row.linked_units === 0
   ).length
 
+  const [measure, fit] = useColumnFit(columns, phone)
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: rows,
+        columns,
+        getRowId: (row: PayComponentPosting) => row.code,
+        state: {
+          globalFilter: needle,
+          sorting,
+          columnVisibility: fit.visibility,
+        },
+        onSortingChange: setSorting,
+        onGlobalFilterChange: setNeedle,
+        onColumnVisibilityChange: fit.onChange,
+      }),
+      // `fit` is new each render: the room is measured, and the columns the
+      // card has no room for are given up.
+      [rows, needle, sorting, fit]
+    )
+  )
+  const shown = table.getRowModel().rows.length
+
   return (
     <PageContent>
-      <PageHeader
-        crumb="Finance · Setup"
-        title="Pay Components"
-        sub="How each component HR pays posts, and the account it lands on. The account is an account link with the component as its source."
-        // Search and the status are in the dock on a phone.
-        actions={
-          phone ? undefined : (
-            <Input
-              value={needle}
-              onChange={(event) => setNeedle(event.target.value)}
-              className="h-8 w-48"
-            />
-          )
-        }
-      />
+      <PageHeader crumb="Finance · Setup" title="Pay Components" />
 
-      {phone ? (
-        <DockTools
-          search={{
-            value: needle,
-            onChange: setNeedle,
-            label: "Search components",
-          }}
-          status={{
-            value: retired ? "all" : "active",
-            options: [
-              {
-                value: "active",
-                label: "Active",
-                count: (list.data ?? []).filter((row) => !row.retired).length,
-              },
-              { value: "all", label: "All", count: (list.data ?? []).length },
-            ],
-            onChange: (next) => setRetired(next === "all"),
-          }}
+      <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2 max-md:hidden">
+        <ExpandingSearch
+          value={needle}
+          onChange={setNeedle}
+          label="Search components"
         />
-      ) : (
-        <Toolbar>
-          <Checkbox
-            label="Show retired"
-            checked={retired}
-            onChange={setRetired}
-          />
-          <Toolbar.Spacer />
-          <span className="text-[0.875rem] text-mute">
-            {count(rows.length)} components
-            {unlinked > 0 &&
-              ` · ${count(unlinked)} with no account — a run that pays one is refused`}
-          </span>
-        </Toolbar>
-      )}
+        <Checkbox
+          label="Show retired"
+          checked={retired}
+          onChange={setRetired}
+        />
+        <BarSpacer />
+        <ColumnsMenu table={table} />
+      </div>
+
+      <DockTools
+        search={{
+          value: needle,
+          onChange: setNeedle,
+          label: "Search components",
+        }}
+        sort={dockSortOf(table)}
+        status={{
+          value: retired ? "all" : "active",
+          options: [
+            {
+              value: "active",
+              label: "Active",
+              count: list.data.filter((row) => !row.retired).length,
+            },
+            { value: "all", label: "All", count: list.data.length },
+          ],
+          onChange: (next) => setRetired(next === "all"),
+        }}
+      />
 
       <MasterLayout
         list={
-          <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-            {queryState(list, {
-              loading: "Reading the pay components…",
-              render: () =>
-                rows.length === 0 ? (
-                  <EmptyState>
-                    {needle.trim() === ""
-                      ? "HR has defined no pay component yet."
-                      : "No component matches the search."}
-                  </EmptyState>
-                ) : phone ? (
-                  <PhoneList>
-                    {rows.map((row) => (
-                      <PhoneCard
-                        key={row.code}
-                        title={row.label}
-                        muted={row.retired}
-                        line={[
-                          row.code,
-                          label(row.kind),
-                          row.employer_borne ? "Employer borne" : null,
-                          row.paid_from_accrual ? "From accrual" : null,
-                          row.retired ? "Retired" : null,
-                        ]
-                          .filter(Boolean)
-                          .join(" · ")}
-                        foot={<Reach units={row.linked_units} />}
-                        action={
-                          <LinkAccountsButton
-                            role={row.role}
-                            sourceType="PAY_COMPONENT"
-                            sourceId={row.code}
-                          />
-                        }
-                        onOpen={() => setEditing(row)}
-                      />
-                    ))}
-                  </PhoneList>
-                ) : (
-                  <Grid>
-                    <thead>
-                      <tr>
-                        <Th>Code</Th>
-                        <Th>Component</Th>
-                        <Th>Kind</Th>
-                        <Th align="center">Employer borne</Th>
-                        <Th align="center">From accrual</Th>
-                        <Th>Role</Th>
-                        <Th>Account</Th>
-                        <Th />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.map((row) => (
-                        <tr
-                          key={row.code}
-                          onClick={() => setEditing(row)}
-                          className="cursor-pointer hover:bg-soft"
-                        >
-                          <Td>
-                            <Code>{row.code}</Code>
-                          </Td>
-                          <Td>
-                            <span className="text-ink">{row.label}</span>
-                            {row.retired && (
-                              <Pill tone="neutral" className="ml-2">
-                                Retired
-                              </Pill>
-                            )}
-                          </Td>
-                          <Td>{label(row.kind)}</Td>
-                          <Td align="center">
-                            <YesNo on={row.employer_borne} />
-                          </Td>
-                          <Td align="center">
-                            <YesNo on={row.paid_from_accrual} />
-                          </Td>
-                          <Td>
-                            <Tag>{row.role}</Tag>
-                          </Td>
-                          <Td>
-                            <Reach units={row.linked_units} />
-                          </Td>
-                          <Td align="right">
-                            <LinkAccountsButton
-                              role={row.role}
-                              sourceType="PAY_COMPONENT"
-                              sourceId={row.code}
-                            />
-                          </Td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </Grid>
-                ),
-            })}
-          </Card>
+          <div ref={measure}>
+            <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+              {queryState(list, {
+                render: () =>
+                  rows.length === 0 ? (
+                    <EmptyState>
+                      HR has defined no pay component yet.
+                    </EmptyState>
+                  ) : (
+                    <DataTable<PayComponentPosting>
+                      table={table}
+                      refresh={[list]}
+                      onRowClick={(row) => setEditing(row)}
+                      isSelected={(row) => editing?.code === row.code}
+                      empty="No component matches the search."
+                      pageScroll
+                      cardsApart
+                      cardSort={false}
+                      summary={{
+                        label: (
+                          <span>
+                            {count(shown)}{" "}
+                            <span className="font-normal text-body">
+                              {shown === 1 ? "component" : "components"}
+                            </span>
+                          </span>
+                        ),
+                        linked_units:
+                          unlinked > 0 ? (
+                            <span className="font-normal text-bad-fg">
+                              {count(unlinked)} with no account
+                            </span>
+                          ) : undefined,
+                      }}
+                    />
+                  ),
+              })}
+            </Card>
+          </div>
         }
         editor={
           editing !== null && (
@@ -256,7 +310,7 @@ function ComponentForm({
 
   return (
     <EditorCard title={component.label} onClose={onDone}>
-      <p className="text-[0.875rem] text-body">
+      <p className="text-[0.9375rem] text-body">
         <Code>{component.code}</Code> · {label(component.kind)} · answers{" "}
         <Tag>{component.role}</Tag>
       </p>

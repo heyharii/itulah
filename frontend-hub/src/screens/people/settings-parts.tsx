@@ -100,8 +100,8 @@ export function NameCell({
       className="text-left hover:underline"
       onClick={onOpen}
     >
-      <span className="block text-[0.875rem] text-ink">{name}</span>
-      <span className="font-mono text-[0.875rem] text-mute">{code}</span>
+      <span className="block text-[0.9375rem] text-ink">{name}</span>
+      <span className="font-mono text-[0.9375rem] text-mute">{code}</span>
     </button>
   )
 }

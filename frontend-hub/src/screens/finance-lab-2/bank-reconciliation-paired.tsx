@@ -271,7 +271,7 @@ export function PairedReconciliation({
         <h2 className="text-[0.9375rem] font-medium text-ink">
           Paired for you
         </h2>
-        <span className="text-[0.875rem] text-mute">
+        <span className="text-[0.9375rem] text-mute">
           tick to confirm — each row is one bank line and the book line it is
         </span>
         <span className="flex-1" />
@@ -341,7 +341,7 @@ export function PairedReconciliation({
         <h2 className="text-[0.9375rem] font-medium text-ink">
           Only in the bank
         </h2>
-        <p className="mt-0.5 text-[0.875rem] text-mute">
+        <p className="mt-0.5 text-[0.9375rem] text-mute">
           The bank reported these; nothing in the books looks like them. Book
           the other side, or open the full matcher if a voucher really is in
           here somewhere.
@@ -427,7 +427,7 @@ function SettledRow({
       <Td className="text-ink">{line.description}</Td>
       <Td align="right">{money(amount)}</Td>
       <Td>
-        <span className="text-[0.875rem] text-ok-fg">Agreed</span>
+        <span className="text-[0.9375rem] text-ok-fg">Agreed</span>
       </Td>
       {several ? (
         <>
@@ -489,7 +489,7 @@ function Allocations({
           key={one.match_id}
           className="flex h-9 items-center gap-2 whitespace-nowrap"
         >
-          <span className="font-mono text-[0.875rem] text-body">
+          <span className="font-mono text-[0.9375rem] text-body">
             {one.entry_number ?? "—"}
           </span>
           <span className="text-mute tabular-nums">
@@ -533,8 +533,8 @@ function PairRow({
         <span
           className={
             kind === "exact"
-              ? "text-[0.875rem] font-medium text-ok-fg"
-              : "text-[0.875rem] font-medium text-accent"
+              ? "text-[0.9375rem] font-medium text-ok-fg"
+              : "text-[0.9375rem] font-medium text-accent"
           }
         >
           {kind === "exact" ? "Exact" : "Date moved"}
@@ -543,7 +543,7 @@ function PairRow({
           <Reasons reasons={suggestion.reasons} />
         </div>
       </Td>
-      <Td className="font-mono text-[0.875rem] text-mute">
+      <Td className="font-mono text-[0.9375rem] text-mute">
         {suggestion.journal_line_id}
       </Td>
       <Td align="right">{money(amount)}</Td>
@@ -600,15 +600,15 @@ function BankOnlyRow({
     <div className="rounded-inner border border-hairline p-3">
       <div className="flex items-start gap-2.5">
         <span className="min-w-0 flex-1">
-          <span className="block text-[0.875rem] text-ink">
+          <span className="block text-[0.9375rem] text-ink">
             {line.description}
           </span>
-          <span className="block text-[0.875rem] text-mute">
+          <span className="block text-[0.9375rem] text-mute">
             {day(line.value_date)}
             {line.reference ? ` · ${line.reference}` : ""}
           </span>
         </span>
-        <span className="shrink-0 text-right text-[0.875rem] font-medium tabular-nums">
+        <span className="shrink-0 text-right text-[0.9375rem] font-medium tabular-nums">
           {money(amount)}
           {line.allocations.length > 0 && (
             <span className="block font-normal text-mute">
@@ -682,7 +682,7 @@ function BankOnlyRow({
             />
           </Field>
           <div className="flex items-center justify-end gap-2">
-            <Button size="sm" variant="quiet" onClick={() => setBooking(false)}>
+            <Button data-cancel size="sm" variant="quiet" onClick={() => setBooking(false)}>
               Cancel
             </Button>
             <Button
@@ -808,7 +808,7 @@ function MatchSeveralPanel({
         </EmptyState>
       ) : (
         <div className="flex flex-col gap-3">
-          <p className="text-[0.875rem] whitespace-normal text-mute">
+          <p className="text-[0.9375rem] whitespace-normal text-mute">
             Tick the entries that together make up this bank line. Match is
             available when they add up to exactly what is left of it.
           </p>
@@ -838,7 +838,7 @@ function MatchSeveralPanel({
                   </Td>
                   <Td>{day(book.posting_date)}</Td>
                   <Td>
-                    <span className="font-mono text-[0.875rem] text-body">
+                    <span className="font-mono text-[0.9375rem] text-body">
                       {book.entry_number}
                     </span>
                   </Td>
@@ -853,7 +853,7 @@ function MatchSeveralPanel({
             </tbody>
           </Grid>
           <div className="sticky -bottom-5 z-10 -mx-5 -mb-5 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-hairline bg-canvas px-5 py-3">
-            <span className="text-[0.875rem] text-body">
+            <span className="text-[0.9375rem] text-body">
               Selected <b className="font-medium text-ink">{money(selected)}</b>{" "}
               of <b className="font-medium text-ink">{money(left)}</b>
               {" · "}difference{" "}
@@ -868,7 +868,7 @@ function MatchSeveralPanel({
               </b>
             </span>
             <span className="flex-1" />
-            <Button variant="quiet" onClick={onClose}>
+            <Button data-cancel variant="quiet" onClick={onClose}>
               Cancel
             </Button>
             <Button
@@ -919,7 +919,7 @@ function BookOnlySection({
         <h2 className="text-[0.9375rem] font-medium text-ink">
           In the books, not on the bank
         </h2>
-        <p className="mt-0.5 text-[0.875rem] whitespace-normal text-mute">
+        <p className="mt-0.5 text-[0.9375rem] whitespace-normal text-mute">
           Posted on this account, and no bank line has claimed them yet — a giro
           not cleared, a transfer the bank will show tomorrow.
         </p>
@@ -950,7 +950,7 @@ function BookOnlySection({
               <tr key={row.journal_line_id}>
                 <Td>{day(row.posting_date)}</Td>
                 <Td>
-                  <span className="font-mono text-[0.875rem] text-body">
+                  <span className="font-mono text-[0.9375rem] text-body">
                     {row.entry_number}
                   </span>
                 </Td>

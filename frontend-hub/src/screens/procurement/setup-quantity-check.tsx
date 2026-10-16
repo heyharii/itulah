@@ -38,8 +38,9 @@ export function QuantityCheckRequest({
   division: string
   tags: readonly string[]
   /// `variants`: the first request, and `Requested` while nothing has been
-  /// counted, in the Variants row; it leaves once a count exists. `box`: Recount, and Requested while one is open, in
-  /// the box at the top right (owner, 2026-10-10).
+  /// counted, in the Variants row above the grid; it leaves once a count
+  /// exists. `box`: Recount, and Requested while one is open, at the foot of
+  /// the box beside Use count (owner, 2026-10-11).
   placement: "variants" | "box"
 }) {
   const client = useQueryClient()
@@ -49,9 +50,8 @@ export function QuantityCheckRequest({
     refetchInterval: 15_000,
   })
   const lineKey = quantityCheckKeys.line(receiptLineId)
-  // A click asks at once: the box answers "Requested" in the same frame (a
-  // placeholder check), and the server's own check replaces it when it lands
-  // (owner, 2026-10-10: Recount just recounts, nothing in between).
+  // The button loads until the server's own check is read back, then the box
+  // says "Requested" (owner, 2026-10-16: no optimistic placeholder).
   const ask = useMutation({
     mutationFn: () =>
       askQuantityCheck({
@@ -61,33 +61,16 @@ export function QuantityCheckRequest({
         division: division === "" ? undefined : division,
         tags,
       }),
-    onMutate: async () => {
-      await client.cancelQueries({ queryKey: lineKey })
-      const before = client.getQueryData<QuantityCheck[]>(lineKey)
-      const template = before?.[0]
-      if (template) {
-        const pending: QuantityCheck = {
-          ...template,
-          check_id: `pending-${Date.now()}`,
-          status: "REQUESTED",
-          requested_at: new Date().toISOString(),
-          counted_by: null,
-          counted_at: null,
-          lines: [],
-        }
-        client.setQueryData<QuantityCheck[]>(lineKey, [pending, ...before])
-      }
-      return { before }
-    },
-    onError: (_error, _vars, context) => {
-      if (context?.before) client.setQueryData(lineKey, context.before)
-    },
-    onSettled: () => client.invalidateQueries({ queryKey: lineKey }),
+    onSuccess: () => client.invalidateQueries({ queryKey: lineKey }),
   })
   const all = checks.data ?? []
   const asked = all.some((one) => one.status === "REQUESTED")
   const answered = all.some((one) => one.status === "COUNTED")
   if (placement === "variants" && (checks.isPending || answered)) return null
+  // The warehouse counts colour by size, so there is nothing to ask for until
+  // at least one colour and one size are picked: the button is not there
+  // before that (owner, 2026-10-11). An open request stays on show.
+  if (!asked && expected.length === 0) return null
   return (
     <div className="flex flex-col items-end gap-1">
       <Button
@@ -124,12 +107,15 @@ export function QuantityCheckPanel({
   expected,
   division,
   tags,
+  onUse,
 }: {
   receiptLineId: string
   name: string
   expected: readonly QuantityCheckCell[]
   division: string
   tags: readonly string[]
+  /// Take an answer's counts into the grid under Variants (owner, 2026-10-11).
+  onUse: (check: QuantityCheck) => void
 }) {
   const checks = useQuery({
     queryKey: quantityCheckKeys.line(receiptLineId),
@@ -152,19 +138,9 @@ export function QuantityCheckPanel({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between gap-3">
-        <SubHead className="mb-0">Quantity Check</SubHead>
-        <QuantityCheckRequest
-          receiptLineId={receiptLineId}
-          name={name}
-          expected={expected}
-          division={division}
-          tags={tags}
-          placement="box"
-        />
-      </div>
+      <SubHead className="mb-0">Quantity Check</SubHead>
       {requested.map((one) => (
-        <div key={one.check_id} className="text-[0.875rem] text-mute">
+        <div key={one.check_id} className="text-[0.9375rem] text-mute">
           <div>
             Requested · by {one.requested_by} · {ago(one.requested_at)}
           </div>
@@ -183,6 +159,25 @@ export function QuantityCheckPanel({
           {earlier ? "Hide Earlier" : "Show Earlier"}
         </Button>
       )}
+      {/* At the foot of the box, as the sheet's own actions are: ask again,
+      or take the newest count into the grid. */}
+      <div className="flex items-start justify-end gap-2">
+        <QuantityCheckRequest
+          receiptLineId={receiptLineId}
+          name={name}
+          expected={expected}
+          division={division}
+          tags={tags}
+          placement="box"
+        />
+        <Button
+          variant="primary"
+          type="button"
+          onClick={() => onUse(answered[0]!)}
+        >
+          Use count
+        </Button>
+      </div>
     </div>
   )
 }
@@ -195,7 +190,7 @@ function AnswerBlock({ check }: { check: QuantityCheck }) {
   const articles = new Set(check.lines.map((line) => line.article ?? ""))
   const common = articles.size === 1 ? ([...articles][0] ?? "") : ""
   return (
-    <div className="text-[0.875rem]">
+    <div className="text-[0.9375rem]">
       <div className="pb-1 text-mute">
         Counted by {check.counted_by}
         {check.counted_at !== null && ` · ${ago(check.counted_at)}`}

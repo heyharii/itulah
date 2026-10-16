@@ -35,24 +35,24 @@ import { isWeb } from "@/edition"
 import { Icon } from "@/icons"
 import { siteTitle, useWaitingTills } from "@/joining"
 import { PinPad } from "@/pinpad"
+import { SIMULATED, SIM_FINGERS, SIM_SECRET, titled } from "@/simulation"
 import { useNodeConfig, useSession } from "@/session"
-import { Brand, Topbar } from "@/till"
+import { Brand, kasirLabel, Topbar } from "@/till"
 
-/// Sign in on this terminal.
+/// Sign in on this terminal — with a finger.
 ///
 /// `onSignedIn` fires only when the node accepted — the session store is the
-/// one that knows, and this screen does not decide it. `onSetup` opens the
-/// setup screen, and is reachable without signing in on purpose.
+/// one that knows, and this screen does not decide it. A password and a PIN are
+/// still here, but only as the way in when no finger can be used on this till:
+/// no scanner, and nothing simulated. The settings screen is not reachable from
+/// here for now.
 export function LoginScreen({
   onSignedIn,
-  onSetup,
   onJoin,
 }: {
   onSignedIn: () => void
-  onSetup: () => void
   /// Offered while this till holds no credential at its node: a new till's
-  /// first screen should say how it becomes a till, not only ask for a
-  /// password it cannot yet use for a finger or a PIN.
+  /// first screen should say how it becomes a till.
   onJoin?: () => void
 }) {
   const { ready, problem, signIn, signInWithFinger, signInWithPin } =
@@ -71,15 +71,10 @@ export function LoginScreen({
   const [pinNote, setPinNote] = useState<string | null>(null)
 
   // Asked once, on mount, unauthenticated — a till has to know what it may
-  // offer before anybody stands at it.
-  //
-  // While the answer is outstanding, `stepUp` is null and neither button is
-  // drawn. That is deliberate: a button that appears and then vanishes is worse
-  // than one that arrives late, because the one that vanished was pressed.
-  //
-  // A node that would not answer has said nothing, not `NONE`, and the two are
-  // held apart — both draw no button, and the notice below says which happened,
-  // because only one of them is fixed by looking at the node.
+  // offer before anybody stands at it. While the answer is outstanding,
+  // `stepUp` is null and no button is drawn: a button that appears and then
+  // vanishes is worse than one that arrives late, because the one that vanished
+  // was pressed.
   useEffect(() => {
     let alive = true
     void (async () => {
@@ -89,8 +84,6 @@ export function LoginScreen({
         setStepUp(null)
         return
       }
-      // A node that answered without naming a method accepts no step-up. It
-      // said so; this is not a guess standing in for silence.
       setStepUp(reply.body?.till_step_up ?? "NONE")
     })()
     return () => {
@@ -110,24 +103,46 @@ export function LoginScreen({
     if (accepted) onSignedIn()
   }
 
-  /// Open the counter with a PIN. Same shape as the finger: the node's own
-  /// refusal comes back, or null when the counter is open.
   async function enterWithPin() {
     setBusy(true)
     setPinNote(null)
     const refusal = await signInWithPin(username, pin)
     setBusy(false)
-    // Emptied whichever way the node answered, on the same rule as the password
-    // above — a refusal is precisely the moment somebody walks away from the
-    // counter to go and ask, leaving the marks on the screen behind them.
     setPin("")
     setPinNote(refusal)
     if (refusal === null) onSignedIn()
   }
 
-  // Which way in is on screen. Only offered when the node said it takes the
-  // other one; the password is always there.
-  const usePin = stepUp === "PIN" && mode === "pin"
+  /// The real scanner, in the desktop shell.
+  async function scan() {
+    setBusy(true)
+    setFinger("Place your finger on the scanner…")
+    const refusal = await signInWithFinger()
+    setBusy(false)
+    setFinger(refusal)
+    if (refusal === null) onSignedIn()
+  }
+
+  /// A finger placed on the simulated scanner: a beat of "reading", then the
+  /// node is asked as that person.
+  async function touch(person: string) {
+    setBusy(true)
+    setFinger("Reading fingerprint…")
+    await new Promise((done) => window.setTimeout(done, 700))
+    const accepted = await signIn(person, SIM_SECRET)
+    setBusy(false)
+    if (accepted) {
+      setFinger(null)
+      onSignedIn()
+    } else {
+      setFinger("Fingerprint not recognised.")
+    }
+  }
+
+  const realScanner = !isWeb && stepUp === "FINGERPRINT"
+  const byFinger = realScanner || SIMULATED
+  const usePin = !byFinger && stepUp === "PIN" && mode === "pin"
+  const till = config === null ? null : kasirLabel(config.terminal_id)
 
   return (
     <div id="app" data-screen="sale">
@@ -135,6 +150,10 @@ export function LoginScreen({
         <form
           className="overlay-card login-card"
           onSubmit={(event) => {
+            if (byFinger) {
+              event.preventDefault()
+              return
+            }
             if (usePin) {
               event.preventDefault()
               void enterWithPin()
@@ -142,124 +161,145 @@ export function LoginScreen({
           }}
         >
           <Brand />
-          <h3>Masuk ke konter</h3>
+          <h3>{till ?? "Sign in"}</h3>
 
-          {/* A PIN is claimed over the pairing channel (`claimPin` →
-              `signedEdge`), which only the desktop shell can sign, so the web
-              till never draws the tab that would switch to it. */}
-          {!isWeb && stepUp === "PIN" && (
-            <div className="segmented" style={{ width: "100%" }}>
-              <button
-                type="button"
-                aria-pressed={!usePin}
-                onClick={() => setMode("password")}
-              >
-                Kata sandi
-              </button>
-              <button
-                type="button"
-                aria-pressed={usePin}
-                onClick={() => setMode("pin")}
-              >
-                PIN
-              </button>
-            </div>
-          )}
-
-          <label className="field" style={{ width: "100%", textAlign: "left" }}>
-            Nama pengguna
-            <input
-              value={username}
-              onChange={(event) => setUsername(event.target.value)}
-              autoFocus
-              // A counter is shared. Nobody's name should be waiting in the
-              // field when the next shift walks up to it.
-              autoComplete="off"
-              aria-label="Nama pengguna"
-            />
-          </label>
-
-          {usePin ? (
-            <div style={{ width: "100%" }}>
-              <PinPad
-                value={pin}
-                onChange={setPin}
-                onSubmit={() => void enterWithPin()}
-                disabled={busy || !ready}
-              />
-              {pinNote !== null && (
-                <p className="error" style={{ marginTop: 8, textAlign: "left" }}>
-                  {pinNote}
-                </p>
-              )}
-            </div>
-          ) : (
-            <label className="field" style={{ width: "100%", textAlign: "left" }}>
-              Kata sandi
-              <input
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                autoComplete="off"
-                aria-label="Kata sandi"
-              />
-            </label>
-          )}
-
-          {!usePin && problem !== null && (
-            <p className="error" style={{ width: "100%", textAlign: "left" }}>
-              {problem}
-            </p>
-          )}
-
-          <button
-            className="btn primary lg"
-            style={{ width: "100%" }}
-            type="submit"
-            disabled={
-              busy ||
-              !ready ||
-              username === "" ||
-              (usePin ? pin === "" : password === "")
-            }
-          >
-            {busy ? "Memeriksa…" : !ready ? "Membaca setelan…" : "Masuk"}
-          </button>
-
-          {/* Drawn only when the node said FINGERPRINT — on a node that takes
-              PINs instead the press would be refused there. Never in web:
-              there is no scanner a browser tab can reach, so the press would
-              only ever refuse. */}
-          {!isWeb && stepUp === "FINGERPRINT" && (
+          {byFinger ? (
             <>
               <button
-                className="btn lg"
-                style={{ width: "100%" }}
+                className="btn primary lg"
                 type="button"
-                disabled={busy || !ready}
-                onClick={() => {
-                  void (async () => {
-                    setFinger("Letakkan jari pada pemindai…")
-                    const refusal = await signInWithFinger()
-                    setFinger(refusal)
-                    if (refusal === null) onSignedIn()
-                  })()
+                style={{
+                  width: 132,
+                  height: 132,
+                  borderRadius: "50%",
+                  alignSelf: "center",
+                  flexDirection: "column",
+                  gap: 8,
                 }}
+                disabled={busy || !ready || (!realScanner && true)}
+                onClick={realScanner ? () => void scan() : undefined}
+                aria-label="Fingerprint scanner"
               >
                 <Icon name="finger" />
-                Masuk dengan sidik jari
+                {busy ? "Reading…" : "Touch to sign in"}
               </button>
-              {finger !== null && (
-                <p className="muted" style={{ fontSize: 12, textAlign: "left" }}>
-                  {finger}
+              {SIMULATED && !realScanner && (
+                <div style={{ width: "100%", textAlign: "left" }}>
+                  <span className="label">Simulated fingerprint — whose finger?</span>
+                  <div className="rows" style={{ marginTop: 8 }}>
+                    {SIM_FINGERS.map((person: string) => (
+                      <button
+                        key={person}
+                        className="btn lg"
+                        type="button"
+                        disabled={busy || !ready}
+                        onClick={() => void touch(person)}
+                      >
+                        <Icon name="finger" />
+                        {titled(person)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {(finger !== null || problem !== null) && (
+                <p
+                  className={finger === null ? "error" : "muted"}
+                  style={{ fontSize: 13, textAlign: "left", width: "100%" }}
+                >
+                  {finger ?? problem}
                 </p>
               )}
+            </>
+          ) : (
+            <>
+              {/* A PIN is claimed over the pairing channel (`claimPin` →
+                  `signedEdge`), which only the desktop shell can sign, so the
+                  web till never draws the tab that would switch to it. */}
+              {!isWeb && stepUp === "PIN" && (
+                <div className="segmented" style={{ width: "100%" }}>
+                  <button
+                    type="button"
+                    aria-pressed={!usePin}
+                    onClick={() => setMode("password")}
+                  >
+                    Password
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={usePin}
+                    onClick={() => setMode("pin")}
+                  >
+                    PIN
+                  </button>
+                </div>
+              )}
+
+              <label className="field" style={{ width: "100%", textAlign: "left" }}>
+                Username
+                <input
+                  value={username}
+                  onChange={(event) => setUsername(event.target.value)}
+                  autoFocus
+                  // A counter is shared. Nobody's name should be waiting in the
+                  // field when the next shift walks up to it.
+                  autoComplete="off"
+                  aria-label="Username"
+                />
+              </label>
+
+              {usePin ? (
+                <div style={{ width: "100%" }}>
+                  <PinPad
+                    value={pin}
+                    onChange={setPin}
+                    onSubmit={() => void enterWithPin()}
+                    disabled={busy || !ready}
+                  />
+                  {pinNote !== null && (
+                    <p className="error" style={{ marginTop: 8, textAlign: "left" }}>
+                      {pinNote}
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <label className="field" style={{ width: "100%", textAlign: "left" }}>
+                  Password
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    autoComplete="off"
+                    aria-label="Password"
+                  />
+                </label>
+              )}
+
+              {!usePin && problem !== null && (
+                <p className="error" style={{ width: "100%", textAlign: "left" }}>
+                  {problem}
+                </p>
+              )}
+
+              <button
+                className="btn primary lg"
+                style={{ width: "100%" }}
+                type="submit"
+                disabled={
+                  busy ||
+                  !ready ||
+                  username === "" ||
+                  (usePin ? pin === "" : password === "")
+                }
+              >
+                {busy ? "Checking…" : !ready ? "Reading settings…" : "Sign in"}
+              </button>
             </>
           )}
 
           {onJoin !== undefined && config !== null && config.pairing_id === null && (
             <div className="notice" style={{ width: "100%", textAlign: "left" }}>
-              Kasir ini belum tergabung ke node toko.{" "}
+              This till has not joined the store server yet.{" "}
               <button
                 className="btn ghost"
                 type="button"
@@ -267,22 +307,10 @@ export function LoginScreen({
                 onClick={onJoin}
               >
                 <Icon name="plug" />
-                Gabungkan
+                Join
               </button>
             </div>
           )}
-
-          <div className="login-foot">
-            <span className="num" title={config?.base_url}>
-              {config === null
-                ? "Terminal belum diatur"
-                : `${config.terminal_id} · ${config.base_url.replace(/^https?:\/\//, "")}`}
-            </span>
-            <button className="btn ghost" type="button" onClick={onSetup}>
-              <Icon name="settings" />
-              Setelan
-            </button>
-          </div>
         </form>
       </div>
     </div>
@@ -369,11 +397,11 @@ export function SetupScreen({
         >
           <div className="page-head">
             <div>
-              <h1>Setelan terminal</h1>
+              <h1>Terminal settings</h1>
             </div>
             <button className="btn ghost" type="button" onClick={onDone}>
               <Icon name="back" />
-              Kembali
+              Back
             </button>
           </div>
 
@@ -383,7 +411,7 @@ export function SetupScreen({
               instead, the same way the sign-in card says it. */}
           {isWeb ? (
             <div className="field">
-              Alamat node toko
+              Store node address
               <p
                 className="num"
                 style={{ margin: "7px 0 0", fontSize: 14, color: "#303b4c" }}
@@ -393,7 +421,7 @@ export function SetupScreen({
             </div>
           ) : (
             <label className="field">
-              Alamat node toko
+              Store node address
               <input
                 value={baseUrl}
                 onChange={(event) => setBaseUrl(event.target.value)}
@@ -406,7 +434,7 @@ export function SetupScreen({
           )}
 
           <label className="field">
-            Nomor terminal
+            Terminal number
             <input
               value={terminalId}
               onChange={(event) => setTerminalId(event.target.value)}
@@ -421,11 +449,11 @@ export function SetupScreen({
               on the printer's LAN — so a printer only this terminal can see is
               a printer no receipt will ever come out of. */}
           <label className="field">
-            Alamat printer struk
+            Receipt printer address
             <input
               value={printerHost}
               onChange={(event) => setPrinterHost(event.target.value)}
-              placeholder="192.168.1.50 — kosongkan jika tanpa printer"
+              placeholder="192.168.1.50 — leave empty for no printer"
               autoComplete="off"
               spellCheck={false}
             />
@@ -433,7 +461,7 @@ export function SetupScreen({
 
           <div style={{ display: "flex", gap: 10 }}>
             <label className="field" style={{ flex: 1 }}>
-              Port printer
+              Printer port
               <input
                 value={printerPort}
                 onChange={(event) =>
@@ -444,7 +472,7 @@ export function SetupScreen({
               />
             </label>
             <label className="field" style={{ flex: 1 }}>
-              Lebar kertas
+              Paper width
               <select
                 value={paper}
                 onChange={(event) => setPaper(event.target.value)}
@@ -460,10 +488,10 @@ export function SetupScreen({
               is set on its own screen and reported to the node. */}
           {onPeripherals !== undefined && (
             <div className="kv">
-              <span className="muted">Perangkat di kasir ini</span>
+              <span className="muted">Devices on this till</span>
               <button className="btn" type="button" onClick={onPeripherals}>
                 <Icon name="plug" />
-                Atur perangkat
+                Set up devices
               </button>
             </div>
           )}
@@ -474,20 +502,20 @@ export function SetupScreen({
               reaches this page. */}
           {onJoin !== undefined && (
             <div className="kv">
-              <span className="muted">Kasir di node toko</span>
+              <span className="muted">Till on the store node</span>
               <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
                 {config?.joined != null ? (
                   <span className="badge ok">
                     {config.joined.label} · {siteTitle(config.joined)}
                   </span>
                 ) : config?.pairing_id != null ? (
-                  <span className="badge ok">Terpasang</span>
+                  <span className="badge ok">Paired</span>
                 ) : (
-                  <span className="badge plain">Belum tergabung</span>
+                  <span className="badge plain">Not joined</span>
                 )}
                 <button className="btn" type="button" onClick={onJoin}>
                   <Icon name="plug" />
-                  {config?.pairing_id != null ? "Gabung ulang" : "Gabungkan ke node"}
+                  {config?.pairing_id != null ? "Join again" : "Join the node"}
                 </button>
               </span>
             </div>
@@ -498,14 +526,14 @@ export function SetupScreen({
               trusts to say whose it was. */}
           {onJoins !== undefined && (
             <div className="kv">
-              <span className="muted">Kasir baru yang meminta bergabung</span>
+              <span className="muted">New tills asking to join</span>
               <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
                 {waiting !== null && waiting > 0 && (
-                  <span className="badge warn">{waiting} menunggu</span>
+                  <span className="badge warn">{waiting} waiting</span>
                 )}
                 <button className="btn" type="button" onClick={onJoins}>
                   <Icon name="list" />
-                  Kasir menunggu
+                  Waiting tills
                 </button>
               </span>
             </div>
@@ -527,13 +555,13 @@ export function SetupScreen({
           {!isWeb && (
             <>
               <div className="kv">
-                <span className="muted">Pasangan lama (akun admin)</span>
+                <span className="muted">Old pairing (admin account)</span>
                 {config?.pairing_id != null ? (
                   <span className="badge ok">
-                    Terpasang · <span className="num">{config.pairing_id}</span>
+                    Paired · <span className="num">{config.pairing_id}</span>
                   </span>
                 ) : (
-                  <span className="badge plain">Belum</span>
+                  <span className="badge plain">Not yet</span>
                 )}
               </div>
               <div>
@@ -543,7 +571,7 @@ export function SetupScreen({
                     type="button"
                     onClick={() => {
                       void (async () => {
-                        setPairing("Meminta kredensial ke node…")
+                        setPairing("Asking the node for credentials…")
                         const reply = await pairTerminal(terminalId || "POS")
                         if (!reply.ok) {
                           setPairing(reply.problem)
@@ -561,14 +589,14 @@ export function SetupScreen({
                           pairing_secret: paired?.secret ?? null,
                         })
                         setPairing(
-                          saved ?? "Terminal dipasangkan.",
+                          saved ?? "Terminal paired.",
                         )
                       })()
                     }}
                   >
                     {config?.pairing_id != null
-                      ? "Pasangkan ulang"
-                      : "Pasangkan terminal ini"}
+                      ? "Pair again"
+                      : "Pair this terminal"}
                   </button>
                 </div>
                 {pairing !== null && (
@@ -590,11 +618,11 @@ export function SetupScreen({
               rehearse against, so it is never drawn there either. */}
           {!isWeb && (
             <label className="field">
-              Simulasi sidik jari (build pengembangan)
+              Fingerprint simulation (development build)
               <input
                 value={pretend}
                 onChange={(event) => setPretend(event.target.value)}
-                placeholder="Nama pengguna — kosongkan untuk pemindai asli"
+                placeholder="Username — leave empty for the real scanner"
                 autoComplete="off"
                 spellCheck={false}
               />
@@ -603,7 +631,7 @@ export function SetupScreen({
 
           {moved && (
             <div className="notice warn">
-              Alamat node berubah — terminal akan keluar dan perlu masuk lagi.
+              The node address changed — the terminal will sign out and need to sign in again.
             </div>
           )}
 
@@ -614,7 +642,7 @@ export function SetupScreen({
 
           <div className="action-bar">
             <button className="btn" type="button" onClick={onDone}>
-              Batal
+              Cancel
             </button>
             <button
               className="btn primary"
@@ -622,7 +650,7 @@ export function SetupScreen({
               style={{ flex: 1 }}
               disabled={busy || !ready}
             >
-              {busy ? "Menyimpan…" : "Simpan"}
+              {busy ? "Saving…" : "Save"}
             </button>
           </div>
         </form>

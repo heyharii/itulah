@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sidebar Labels</title>
+<style>
+@font-face{font-family:Inter;src:url('/frontend-hub/node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2') format('woff2');font-weight:100 900;font-display:swap}
+/* All white shell, ink text (white.css "The shell") */
+:root{--ink:#1d1d1f;--mute:#6e6e73;--line:#ececf0;--red:#d70015;
+ --stone:#eceef2;--panel:#fff;--on:#eef2f8;--hover:rgb(0 0 0 / 4%);
+ --ring:0 0 0 1px rgb(0 0 0 / 5%),0 2px 8px rgb(0 0 0 / 4%),0 24px 72px rgb(0 0 0 / 8%);
+ --ease:cubic-bezier(.23,1,.32,1)}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;font:15px/1.45 Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:var(--ink);background:var(--stone);-webkit-font-smoothing:antialiased;overflow:hidden}
+svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+button{font:inherit;color:inherit;border:0;background:none;cursor:pointer;text-align:left}
+.num{font-variant-numeric:tabular-nums}
+
+.shell{display:flex;height:100vh}
+.rail{width:64px;flex:none;display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 0;color:#3a3f4a}
+.rail .ic{position:relative;width:40px;height:40px;border-radius:10px;display:grid;place-items:center;transition:background-color .15s ease,transform .12s ease}
+.rail .ic:active{transform:scale(.97)}
+@media(hover:hover) and (pointer:fine){.rail .ic:not(.on):hover{background:rgb(0 0 0 / 5%)}}
+.rail .ic.on{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgb(0 0 0 / 8%)}
+
+.panels{flex:1;display:flex;gap:12px;margin:12px 12px 12px 0;min-width:0;overflow-x:auto}
+.panel{width:232px;flex:none;display:flex;flex-direction:column;border-radius:16px;background:var(--panel);box-shadow:0 0 0 1px rgb(0 0 0 / 6%),0 2px 6px rgb(0 0 0 / 4%);overflow:hidden}
+.panel h2{margin:0;padding:18px 20px 12px;font-size:17px;font-weight:650;letter-spacing:-.015em}
+.panel .tag{padding:0 20px 8px;color:var(--mute);font-weight:500;display:none}
+.compare .panel .tag{display:block}
+.list{flex:1;min-height:0;overflow-y:auto;padding:2px 10px 24px;scrollbar-width:none;position:relative}
+.list::-webkit-scrollbar{display:none}
+.list.swap{animation:swap .18s var(--ease)}
+@keyframes swap{from{opacity:0;transform:translateY(4px)}}
+
+.item{display:flex;width:100%;justify-content:space-between;align-items:center;gap:8px;height:34px;padding:0 10px;border-radius:8px;font-weight:450;white-space:nowrap;transition:background-color .15s ease}
+.item>span:first-child{overflow:hidden;text-overflow:ellipsis}
+@media(hover:hover) and (pointer:fine){.item:not(.on):hover{background:var(--hover)}}
+.item.on{background:var(--on);font-weight:600}
+.badge{display:grid;place-items:center;min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:var(--red);color:#fff;font-size:15px;line-height:1;font-weight:600}
+.group{display:flex;flex-direction:column;gap:1px}
+.label{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* A · Apple: grey label, rows under it, space between groups */
+.o-a .group+.group{margin-top:18px}
+.o-a .label{height:28px;padding:0 10px;line-height:28px;color:var(--mute);font-weight:600}
+
+/* A label versions (owner 16 Oct: "terlihat nyatu") — rows stay 15/450 ink, the title goes big */
+.o-a[class*="lv-"] h2{font-size:22px;line-height:28px;font-weight:700;letter-spacing:-.02em;padding:20px 20px 14px}
+.o-a[class*="lv-"] .group+.group{margin-top:22px}
+.o-a[class*="lv-"] .label{height:24px;line-height:24px}
+.o-a.lv-1 .label{font-size:13px;font-weight:600;color:#86868b}
+.o-a.lv-2 .label{font-size:12px;font-weight:700;color:#86868b;letter-spacing:.02em}
+.o-a.lv-3 .label{font-size:13px;font-weight:600;color:#2f62d8}
+.o-a.lv-4 .label{font-size:13px;font-weight:700;color:var(--ink)}
+.o-a.lv-4 .item{color:#55555c}
+.o-a.lv-4 .item.on{color:var(--ink)}
+.o-a.lv-5 .group+.group{margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
+.o-a.lv-5 .label{font-size:13px;font-weight:600;color:#86868b}
+.o-a.lv-6 .label{align-self:flex-start;height:22px;line-height:22px;margin:0 0 4px 6px;padding:0 8px;border-radius:6px;background:#f2f2f5;font-size:12px;font-weight:600;color:#6e6e73}
+.o-a.lv-7 .label{font-size:11px;font-weight:650;color:#86868b;letter-spacing:.07em;text-transform:uppercase}
+
+/* B · Tree: ink label, children hang off a guide line */
+.o-b .group+.group{margin-top:14px}
+.o-b .label{height:32px;padding:0 10px;line-height:32px;font-weight:650}
+.o-b .kids{margin-left:17px;padding-left:6px;border-left:1px solid #e3e5ea;display:flex;flex-direction:column;gap:1px}
+.o-b .kids .item{padding-left:10px}
+.o-b .item.on{position:relative}
+.o-b .kids .item.on::before{content:"";position:absolute;left:-7px;top:7px;bottom:7px;width:2px;border-radius:2px;background:var(--ink)}
+
+/* C · Ruled: label followed by a hairline to the edge */
+.o-c .group+.group{margin-top:16px}
+.o-c .label{display:flex;align-items:center;gap:10px;height:28px;padding:0 10px;color:var(--mute);font-weight:600}
+.o-c .label::after{content:"";flex:1;height:1px;background:var(--line)}
+
+/* D · Cards: grey panel, each group a white card under its label */
+.o-d{--panel:#f5f5f7}
+.o-d .group+.group{margin-top:16px}
+.o-d .label{height:26px;padding:0 10px;line-height:26px;color:var(--mute);font-weight:600}
+.o-d .card{background:#fff;border-radius:12px;padding:3px;box-shadow:0 0 0 1px rgb(0 0 0 / 5%);display:flex;flex-direction:column;gap:1px}
+.o-d .item{height:33px}
+
+/* E · Sticky: A, and the label of the group you are scrolling through stays on top */
+.o-e .list{padding-top:0}
+.o-e .group+.group{margin-top:12px}
+.o-e .label{position:sticky;top:0;z-index:1;height:34px;padding:6px 10px 0;line-height:28px;color:var(--mute);font-weight:600;background:var(--panel)}
+
+/* F · Indent: the label is a small heading in ink, rows step in under it */
+.o-f .group+.group{margin-top:20px}
+.o-f .label{height:26px;padding:0 10px;line-height:26px;font-weight:650;letter-spacing:-.005em}
+.o-f .item{color:#3a3f4a;padding-left:22px}
+.o-f .item.on{color:var(--ink)}
+
+/* the page */
+.page{flex:1;min-width:0;background:#fff;border-radius:16px;box-shadow:var(--ring);overflow:hidden}
+.page-in{padding:26px 32px}
+.path{color:var(--mute)}
+h1{margin:4px 0 0;font-size:22px;line-height:28px;font-weight:650;letter-spacing:-.015em}
+.compare .page{display:none}
+
+/* option switch */
+.switch{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);display:flex;gap:4px;padding:6px;border-radius:14px;background:rgb(255 255 255 / 88%);backdrop-filter:blur(16px) saturate(1.4);-webkit-backdrop-filter:blur(16px) saturate(1.4);box-shadow:0 0 0 1px rgb(0 0 0 / 7%),0 8px 30px rgb(0 0 0 / 12%);z-index:10;max-width:calc(100vw - 32px);overflow-x:auto}
+.switch button{height:40px;padding:0 14px;border-radius:9px;white-space:nowrap;color:var(--mute);font-weight:500;transition:background-color .15s ease,color .15s ease,transform .12s ease}
+.switch button:active{transform:scale(.97)}
+@media(hover:hover) and (pointer:fine){.switch button:hover{background:rgb(0 0 0 / 4%)}}
+.switch button[aria-pressed="true"]{background:#1d1d1f;color:#fff}
+.switch b{font-weight:600;margin-right:6px;opacity:.55}
+.switch button[hidden]{display:none}
+.switch .sep{width:1px;margin:6px 4px;background:rgb(0 0 0 / 10%);flex:none}
+@media(prefers-reduced-motion:reduce){.list.swap{animation:none}.rail .ic:active,.switch button:active{transform:none}}
+</style>
+</head>
+<body>
+<div class="shell" id="shell">
+ <nav class="rail" id="rail" aria-label="Departments"></nav>
+ <div class="panels" id="panels"></div>
+</div>
+<div class="switch" id="switch" role="group" aria-label="Version"></div>
+
+<script>
+const I = {
+ buying:'<circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M2 3h3l2.6 12.4a2 2 0 0 0 2 1.6h8.2a2 2 0 0 0 2-1.6L21 7H6"/>',
+ merch:'<path d="M8 3 4 6v4h3v11h10V10h3V6l-4-3a4 4 0 0 1-8 0Z"/>',
+ ops:'<path d="M3 7h11v9H3zM14 10h4l3 3v3h-7"/><circle cx="7" cy="18" r="1.6"/><circle cx="17" cy="18" r="1.6"/>',
+ inv:'<path d="m12 3 8 4.5v9L12 21l-8-4.5v-9Z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/>',
+ mkt:'<path d="M3 11v2a1 1 0 0 0 1 1h3l5 4V6L7 10H4a1 1 0 0 0-1 1ZM16 8a5 5 0 0 1 0 8"/>',
+ sales:'<path d="M3 10h18M5 10l1-6h12l1 6M5 10v10h14V10M10 20v-5h4v5"/>',
+ fin:'<path d="M3 21h18M5 21V10M19 21V10M9 21v-6h6v6M3 10l9-6 9 6"/>',
+ hr:'<circle cx="9" cy="8" r="3"/><path d="M3 20a6 6 0 0 1 12 0M16 4a3 3 0 0 1 0 6M21 20a5 5 0 0 0-4-5"/>',
+ ga:'<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7h2M14 7h2M8 11h2M14 11h2M10 21v-4h4v4"/>',
+ master:'<path d="M4 5c0-1.1 3.6-2 8-2s8 .9 8 2-3.6 2-8 2-8-.9-8-2Z"/><path d="M4 5v14c0 1.1 3.6 2 8 2s8-.9 8-2V5M4 12c0 1.1 3.6 2 8 2s8-.9 8-2"/>',
+}
+const svg = (k) => `<svg viewBox="0 0 24 24">${I[k]}</svg>`
+
+// rows from frontend-hub's nav.ts files; group labels as proposed 15 Oct
+// row = "Label" or ["Label", count]; a group with l:null draws no label
+const D = [
+ {id:"master", l:"Master", ic:"master", on:"Articles", g:[
+  {l:"Master data", r:["Articles",["New Articles",7]]},
+  {l:"Places & partners", r:["Stores","Suppliers"]},
+  {l:"Attributes", r:["Divisions","Tags","Sizes","Colors","Name Suggestions"]}]},
+ {id:"buying", l:"Procurement", ic:"buying", on:"Purchase Orders", g:[
+  {l:"Orders", r:[["Purchase Orders",4],["Return PO",2]]},
+  {l:"Partners", r:["Suppliers"]}]},
+ {id:"merch", l:"Merchandise", ic:"merch", on:"Allotments", g:[
+  {l:"Articles", r:["Articles",["New Articles",7]]},
+  {l:"Allotment", r:["Allotments","Return HO"]},
+  {l:"Attributes", r:["Divisions","Tags","Sizes","Colors","Name Suggestions"]}]},
+ {id:"ops", l:"Ops", ic:"ops", on:"Receiving PO", g:[
+  {l:"Inbound", r:[["Receiving PO",3],["Quantity Checks",2]]},
+  {l:"Returns", r:[["Receiving Return",1],["Return from Store",1]]},
+  {l:"Outbound", r:[["Allotment",5]]}]},
+ {id:"inv", l:"Inventory", ic:"inv", on:"Stock", g:[
+  {l:"Stock", r:["Stock",["Exceptions",3]]},
+  {l:"Checks", r:["Counts","Movements"]}]},
+ {id:"mkt", l:"Marketing", ic:"mkt", on:"Pricelist", g:[
+  {l:"Prices", r:["Pricelist"]},
+  {l:"Offers", r:["Promotions","Campaigns","Vouchers"]}]},
+ {id:"sales", l:"Sales", ic:"sales", on:"Sales by Store", g:[
+  {l:null, r:["Sales"]},
+  {l:"By place", r:["Sales by Store","Sales by Payment","Sales by Cashier Session"]},
+  {l:"By product", r:["Sales by Division","Sales by Tag","Sales by Article","Sales by SKU"]},
+  {l:"By source", r:["Sales by PO","Sales by Supplier","Sales by Campaign"]}]},
+ {id:"fin", l:"Finance", ic:"fin", on:"Bank Transactions", g:[
+  {l:null, r:["Overview"]},
+  {l:"Stores", r:["Store Overview","Sales by Day","Cash on Hand","Petty Cash","Cashier Float","Cash Counts"]},
+  {l:"Inventory", r:["Inventory Valuation","Stock vs Ledger","Goods in Transit","Cost of Goods Sold","Stock Adjustments"]},
+  {l:"Payables", r:[["Purchase Invoice",6],"Credit Note","Recurring Bills","Accruals","Accounts Payable","Supplier Bills","Payment Projection","Loans"]},
+  {l:"Receivables", r:["Card & EDC Settlement"]},
+  {l:"Payments", r:["BKK","BKM","Journal Entry","Recurring Journal","Mode of Payment"]},
+  {l:"Banking", r:["Bank Account","Giro Board","Bank Transactions",["Bank Reconciliation",2],"Bank Rules"]},
+  {l:"Financial Reports", r:["General Ledger","Trial Balance","Profit and Loss","Balance Sheet","Cash Flow","Profit and Loss by Unit","Balance Sheet 2 Years","Sales by Division","Statement of Changes in Equity","Expenses by Month","Bank Reconciliation Summary"]},
+  {l:"Assets", r:["Asset","Contractor Projects","Asset Category","Fixed Asset Register","Asset Disposals"]},
+  {l:"Tax", r:["Tax Withholding","Tax Withholding Details","Tax Payables","Tax Types"]},
+  {l:"Accounting Masters", r:["Chart of Accounts","Accounts Settings",["Accounting Period",1],"Pay Components"]},
+  {l:"Closing", r:["Period Close","Period Closing Voucher"]}]},
+ {id:"hr", l:"HR", ic:"hr", on:"Attendance", g:[
+  {l:null, r:[["Overview & Requests",5],"Reports"]},
+  {l:"Employees", r:["Employee List","Org Chart","Transfers & Changes","Onboarding","Offboarding","Reprimands","Invitations"]},
+  {l:"Time", r:["Time Off Requests","Time Off Balances","Attendance","Overtime","Roster","Team Calendar"]},
+  {l:"Claims & Loans", r:["Claims","Loans","Claim Allowances","Benefit Balances"]},
+  {l:"Payroll", r:["Payroll Runs","One-offs","Tax & BPJS Report","1721-A1"]},
+  {l:"Company", r:["Company & NPP","Group & Business Units","Departments","Job Levels & Grades"]},
+  {l:"Time rules", r:["Attendance Rules","Mobile & Locations","Shifts & Breaks","Time Off Types","Holidays","Overtime Rules"]},
+  {l:"Pay rules", r:["Schedule & Pro-rate","Components & Structures","Payslip","Absence Deduction","BPJS & Tax Rates","Claim Types","Benefit"]},
+  {l:"Access", r:["Job Roles","Onboarding Tasks","Approval Delegation","Employee App"]}]},
+ {id:"ga", l:"GA", ic:"ga", on:"Repairs", g:[
+  {l:null, r:["Overview"]},
+  {l:"Requests", r:[["Supply Requests",2],"Repairs","Service Schedule"]},
+  {l:"Property", r:["Assets","Contracts","Sites","Suppliers"]},
+  {l:"Documents", r:["Letters","Files"]}]},
+]
+
+const OPTIONS = [["a","Apple"],["b","Tree"],["c","Ruled"],["d","Cards"],["e","Sticky"],["f","Indent"]]
+const nameOf = (r) => Array.isArray(r) ? r[0] : r
+const cnt = (r) => Array.isArray(r) ? r[1] : 0
+const st = {o:"a", d:"master", view:"one", on:{}, lv:"6"}
+const esc = (s) => s.replace(/&/g, "&amp;")
+
+function item(d, r) {
+ const n = nameOf(r), c = cnt(r), on = (st.on[d.id] ?? d.on) === n
+ return `<button type="button" class="item${on ? " on" : ""}" data-row="${esc(n)}"${on ? ' aria-current="page"' : ""}><span>${esc(n)}</span>${c ? `<span class="badge num">${c}</span>` : ""}</button>`
+}
+function list(d, o) {
+ return d.g.map((g) => {
+  const rows = g.r.map((r) => item(d, r)).join("")
+  if (!g.l) return `<div class="group">${rows}</div>`
+  const label = `<div class="label">${esc(g.l)}</div>`
+  const body = o === "b" ? `<div class="kids">${rows}</div>` : o === "d" ? `<div class="card">${rows}</div>` : rows
+  return `<div class="group">${label}${body}</div>`
+ }).join("")
+}
+const LV = [["1","Small grey","13 · 600 · grey"],["2","Smaller bold","12 · 700 · grey"],["3","Blue","13 · 600 · blue"],["4","Ink label, grey rows","13 · 700 · ink"],["5","Hairline","13 · grey + line"],["6","Chip","12 · grey chip"],["7","Caps","11 · caps · tracked"]]
+function panel(d, o, tag, lv) {
+ return `<nav class="panel o-${o}${o === "a" && lv ? ` lv-${lv}` : ""}"><h2>${d.l}</h2>${tag ? `<div class="tag">${tag}</div>` : ""}<div class="list swap">${list(d, o)}</div></nav>`
+}
+function render() {
+ const d = D.find((x) => x.id === st.d)
+ document.getElementById("rail").innerHTML = D.map((x) =>
+  `<button type="button" class="ic${x.id === d.id ? " on" : ""}" data-d="${x.id}" title="${x.l}" aria-label="${x.l}">${svg(x.ic)}</button>`).join("")
+ const shell = document.getElementById("shell")
+ shell.classList.toggle("compare", st.view !== "one")
+ const panels = document.getElementById("panels")
+ if (st.view === "all") {
+  panels.innerHTML = OPTIONS.map(([o, name], i) => panel(d, o, `${"ABCDEF"[i]} · ${name}`, o === "a" ? st.lv : "")).join("")
+ } else if (st.view === "labels") {
+  panels.innerHTML = LV.map(([v, name, spec]) => panel(d, "a", `A${v} · ${name}<br>${spec}`, v)).join("")
+ } else {
+  const on = st.on[d.id] ?? d.on
+  const g = d.g.find((g) => g.r.some((r) => nameOf(r) === on))
+  panels.innerHTML = panel(d, st.o, "", st.lv) +
+   `<main class="page"><div class="page-in"><div class="path">${d.l}${g && g.l ? ` · ${esc(g.l)}` : ""}</div><h1>${esc(on)}</h1></div></main>`
+ }
+ for (const b of document.querySelectorAll("#switch button")) b.setAttribute("aria-pressed", b.dataset.o ? (st.view === "one" && b.dataset.o === st.o) : b.dataset.lv ? (st.view === "one" && st.o === "a" && b.dataset.lv === st.lv) : b.hasAttribute("data-labels") ? st.view === "labels" : st.view === "all")
+ for (const b of document.querySelectorAll("#switch [data-lv]")) b.hidden = !(st.view === "one" && st.o === "a")
+ const u = new URL(location); u.searchParams.set("o", st.view === "one" ? st.o : st.view); u.searchParams.set("d", st.d); u.searchParams.set("lv", st.lv); history.replaceState(null, "", u)
+}
+
+document.addEventListener("click", (e) => {
+ const t = e.target.closest("button"); if (!t) return
+ if (t.dataset.d) { st.d = t.dataset.d; render(); return }
+ if (t.dataset.row) {
+  st.on[st.d] = t.dataset.row
+  if (st.view !== "one") { for (const p of document.querySelectorAll(".item")) { const on = p.dataset.row === t.dataset.row; p.classList.toggle("on", on) } return }
+  render(); return
+ }
+ if (t.dataset.o) { st.o = t.dataset.o; st.view = "one"; render(); return }
+ if (t.dataset.lv) { st.lv = t.dataset.lv; render(); return }
+ if (t.hasAttribute("data-labels")) { st.view = "labels"; render(); return }
+ if (t.dataset.all !== undefined) { st.view = "all"; render() }
+})
+
+const sw = document.getElementById("switch")
+sw.innerHTML = OPTIONS.map(([o, name], i) => `<button type="button" data-o="${o}"><b>${"ABCDEF"[i]}</b>${name}</button>`).join("") +
+ `<span class="sep"></span><button type="button" data-all>Side by side</button><button type="button" data-labels>Apple labels</button>` +
+ LV.map(([v, name, spec]) => `<button type="button" data-lv="${v}" title="${name} · ${spec}">A${v}</button>`).join("")
+
+document.addEventListener("keydown", (e) => {
+ const o = OPTIONS[Number(e.key) - 1]; if (o) { st.o = o[0]; st.view = "one"; render() }
+ if (e.key === "0") { st.view = "all"; render() }
+ if (e.key === "l") { st.view = "labels"; render() }
+ if (e.key === "ArrowDown" || e.key === "ArrowUp") { const i = D.findIndex((x) => x.id === st.d); st.d = D[(i + (e.key === "ArrowDown" ? 1 : D.length - 1)) % D.length].id; render(); e.preventDefault() }
+})
+
+const q = new URLSearchParams(location.search)
+if (LV.some(([v]) => v === q.get("lv"))) st.lv = q.get("lv")
+if (q.get("o") === "all" || q.get("o") === "labels") st.view = q.get("o")
+else if (OPTIONS.some(([o]) => o === q.get("o"))) st.o = q.get("o")
+if (D.some((x) => x.id === q.get("d"))) st.d = q.get("d")
+render()
+</script>
+</body>
+</html>

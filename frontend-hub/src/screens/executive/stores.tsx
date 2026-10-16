@@ -1,10 +1,16 @@
-import { useQuery } from "@tanstack/react-query"
+import { useSuspenseQuery } from "@tanstack/react-query"
 import {
   useTable,
   type ColumnDef,
   type SortingState,
 } from "@tanstack/react-table"
-import { useMemo, useState } from "react"
+import {
+  Suspense,
+  useMemo,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from "react"
 
 import { Card } from "@/components/ui/card"
 import { BarSeries } from "@/components/ui/chart"
@@ -12,8 +18,8 @@ import { DataTable } from "@/components/ui/data-table"
 import { Segmented } from "@/components/ui/segmented"
 import { useLayout } from "@/lib/layout"
 import { count, money } from "@/lib/format"
-import { fleetPools, inventoryKeys } from "@/lib/queries/inventory"
-import { queryState } from "@/lib/query-state"
+import { fleetPoolsQuery } from "@/lib/queries/inventory"
+import { LoadingState } from "@/components/ui/states"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { cn } from "@/lib/utils"
 import { Legend } from "@/screens/executive/overview"
@@ -26,8 +32,8 @@ import {
   rupiah,
 } from "@/screens/executive/format"
 import { Figure, Figures, Head, ReportPage } from "@/screens/executive/parts"
-import { useReportScope } from "@/screens/executive/scope"
-import { useTrade } from "@/screens/executive/sales"
+import { useReportScope, type ReportScope } from "@/screens/executive/scope"
+import { useTrade, type StoreTrade } from "@/screens/executive/sales"
 import { spanDays } from "@itulah/contract/reporting"
 
 /// Store Performance — every shop side by side: how much it sold, how that moved,
@@ -222,60 +228,199 @@ const columns: ColumnDef<TableSetup, StoreRow>[] = [
   },
 ]
 
+/// The shops that trade, one row each. Shelf stock is the fleet read's and is
+/// only known to the table: without `shelves` the rows carry none.
+function storeRows(
+  stores: readonly StoreTrade[],
+  shelves: ReadonlyMap<string, number> | null,
+  days: number
+): StoreRow[] {
+  const whole = stores.reduce((sum, store) => sum + store.net, 0)
+  return stores
+    .filter((store) => store.kind === "STORE")
+    .map((store) => {
+      const stock = shelves === null ? null : (shelves.get(store.site_id) ?? 0)
+      const pace = store.units / days
+      return {
+        site_id: store.site_id,
+        name: store.name,
+        net: store.net,
+        before: store.before,
+        change: change(store.net, store.before),
+        share: ratio(store.net, whole),
+        sales: store.sales,
+        basket: store.sales === 0 ? null : Math.round(store.net / store.sales),
+        upt: store.sales === 0 ? null : store.units / store.sales,
+        stock,
+        cover: stock === null || pace === 0 ? null : stock / pace,
+      }
+    })
+}
+
 export function ExecutiveStores() {
   const scope = useReportScope()
-  const trade = useTrade(scope)
-  const fleet = useQuery({
-    queryKey: inventoryKeys.fleet(),
-    queryFn: ({ signal }) => fleetPools(signal),
-  })
   const [only, setOnly] = useState<"all" | "down">("all")
   const [sorting, setSorting] = useState<SortingState>([
     { id: "net", desc: true },
   ])
-  const phone = useLayout() === "phone"
 
+  return (
+    <ReportPage title="Store Performance" scope={scope}>
+      <Suspense
+        fallback={
+          <Figures>
+            <Figure label="Net sales" value="…" />
+            <Figure label="Transactions" value="…" />
+            <Figure label="Average sale" value="…" />
+            <Figure label="Stores down" value="…" />
+          </Figures>
+        }
+      >
+        <StoreFigures scope={scope} />
+      </Suspense>
+
+      <Card className="mb-3 overflow-hidden">
+        <Head title="Sales by store">
+          <span className="ml-auto flex items-center gap-3 text-mute">
+            <Legend tone="accent">This period</Legend>
+            <Legend tone="ghost">Previous period</Legend>
+          </span>
+        </Head>
+        <div className="px-[1.125rem] pb-4">
+          <Suspense fallback={<LoadingState>Reading the sales…</LoadingState>}>
+            <StoreBars scope={scope} />
+          </Suspense>
+        </div>
+      </Card>
+
+      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+        <Head title="Store comparison">
+          <Segmented
+            options={[
+              { value: "all", label: "All" },
+              { value: "down", label: "Down" },
+            ]}
+            value={only}
+            onChange={setOnly}
+          />
+        </Head>
+        <Suspense fallback={<LoadingState>Reading the stores…</LoadingState>}>
+          <StoreComparison
+            scope={scope}
+            only={only}
+            sorting={sorting}
+            setSorting={setSorting}
+          />
+        </Suspense>
+      </Card>
+    </ReportPage>
+  )
+}
+
+/// The page's four figures, from this period's trade.
+function StoreFigures({ scope }: { scope: ReportScope }) {
+  const { data } = useTrade(scope)
+  const days = spanDays(scope.current.from, scope.current.to)
+  const rows = storeRows(data.stores, null, days)
+  const falling = rows.filter((row) => row.net < row.before).length
+  const total = data.total
+  const basket = (net: number, sales: number) =>
+    sales === 0 ? 0 : Math.round(net / sales)
+
+  return (
+    <Figures>
+      <Figure
+        label="Net sales"
+        value={rupiah(total.net)}
+        now={total.net}
+        before={total.before}
+      />
+      <Figure
+        label="Transactions"
+        value={count(total.sales)}
+        now={total.sales}
+        before={total.salesBefore}
+      />
+      <Figure
+        label="Average sale"
+        value={total.sales > 0 ? rupiah(basket(total.net, total.sales)) : "—"}
+        now={basket(total.net, total.sales)}
+        before={basket(total.before, total.salesBefore)}
+      />
+      <Figure
+        label="Stores down"
+        value={`${falling} / ${rows.length}`}
+        note="Against the previous period"
+      />
+    </Figures>
+  )
+}
+
+/// This period's bars against the previous one's, shop by shop.
+function StoreBars({ scope }: { scope: ReportScope }) {
+  const { data } = useTrade(scope)
+  const days = spanDays(scope.current.from, scope.current.to)
+  const rows = storeRows(data.stores, null, days)
+
+  return (
+    <BarSeries
+      rows={[...rows]
+        .sort((a, b) => b.net - a.net)
+        .map((row) => ({
+          bucket: row.site_id,
+          before: row.before,
+          now: row.net,
+        }))}
+      series={[
+        { key: "before", label: "Previous period", tone: "ghost" },
+        { key: "now", label: "This period", tone: "accent" },
+      ]}
+      format={money}
+      titleOf={(id) => rows.find((row) => row.site_id === id)?.name ?? id}
+      labelOf={(id) =>
+        (rows.find((row) => row.site_id === id)?.name ?? id).replace(
+          /^Store /,
+          ""
+        )
+      }
+      className="h-[13rem]"
+    />
+  )
+}
+
+/// The shops side by side, with the shelves each one holds.
+function StoreComparison({
+  scope,
+  only,
+  sorting,
+  setSorting,
+}: {
+  scope: ReportScope
+  only: "all" | "down"
+  sorting: SortingState
+  setSorting: Dispatch<SetStateAction<SortingState>>
+}) {
+  const trade = useTrade(scope)
+  const fleet = useSuspenseQuery(fleetPoolsQuery())
+  const phone = useLayout() === "phone"
   const days = spanDays(scope.current.from, scope.current.to)
 
   const rows = useMemo<StoreRow[]>(() => {
-    const data = trade.query.data
-    if (!data) return []
     // Shelf stock only: the store's own inventory pools the fleet total counts.
     // A shadowed cloud row and a rollup are real rows, not second pieces.
     const shelves = new Map<string, number>()
-    for (const pool of fleet.data?.items ?? []) {
+    for (const pool of fleet.data.items) {
       if (!pool.authority.included_in_fleet_total) continue
       if (pool.group !== "STORE_INVENTORY") continue
       shelves.set(pool.site_id, (shelves.get(pool.site_id) ?? 0) + pool.on_hand)
     }
-    const whole = data.stores.reduce((sum, store) => sum + store.net, 0)
-    return data.stores
-      .filter((store) => store.kind === "STORE")
-      .map((store) => {
-        const stock = fleet.data ? (shelves.get(store.site_id) ?? 0) : null
-        const pace = store.units / days
-        return {
-          site_id: store.site_id,
-          name: store.name,
-          net: store.net,
-          before: store.before,
-          change: change(store.net, store.before),
-          share: ratio(store.net, whole),
-          sales: store.sales,
-          basket:
-            store.sales === 0 ? null : Math.round(store.net / store.sales),
-          upt: store.sales === 0 ? null : store.units / store.sales,
-          stock,
-          cover: stock === null || pace === 0 ? null : stock / pace,
-        }
-      })
-  }, [trade.query.data, fleet.data, days])
+    return storeRows(trade.data.stores, shelves, days)
+  }, [trade.data.stores, fleet.data, days])
 
   const shown = useMemo(
     () => (only === "down" ? rows.filter((row) => row.net < row.before) : rows),
     [rows, only]
   )
-  const falling = rows.filter((row) => row.net < row.before).length
 
   const table = useTable(
     useMemo(
@@ -297,120 +442,26 @@ export function ExecutiveStores() {
         },
         onSortingChange: setSorting,
       }),
-      [shown, sorting, phone]
+      [shown, sorting, phone, setSorting]
     )
   )
 
-  const total = trade.query.data?.total
-  const basket = (net: number, sales: number) =>
-    sales === 0 ? 0 : Math.round(net / sales)
-
   return (
-    <ReportPage title="Store Performance" scope={scope}>
-      <Figures>
-        <Figure
-          label="Net sales"
-          value={total ? rupiah(total.net) : "…"}
-          now={total?.net}
-          before={total?.before}
-        />
-        <Figure
-          label="Transactions"
-          value={total ? count(total.sales) : "…"}
-          now={total?.sales}
-          before={total?.salesBefore}
-        />
-        <Figure
-          label="Average sale"
-          value={
-            total && total.sales > 0
-              ? rupiah(basket(total.net, total.sales))
-              : "—"
-          }
-          now={total ? basket(total.net, total.sales) : undefined}
-          before={total ? basket(total.before, total.salesBefore) : undefined}
-        />
-        <Figure
-          label="Stores down"
-          value={trade.query.data ? `${falling} / ${rows.length}` : "…"}
-          note="Against the previous period"
-        />
-      </Figures>
-
-      <Card className="mb-3 overflow-hidden">
-        <Head title="Sales by store">
-          <span className="ml-auto flex items-center gap-3 text-mute">
-            <Legend tone="accent">This period</Legend>
-            <Legend tone="ghost">Previous period</Legend>
-          </span>
-        </Head>
-        <div className="px-[1.125rem] pb-4">
-          {queryState(trade.query, {
-            loading: "Reading the sales…",
-            render: () => (
-              <BarSeries
-                rows={[...rows]
-                  .sort((a, b) => b.net - a.net)
-                  .map((row) => ({
-                    bucket: row.site_id,
-                    before: row.before,
-                    now: row.net,
-                  }))}
-                series={[
-                  { key: "before", label: "Previous period", tone: "ghost" },
-                  { key: "now", label: "This period", tone: "accent" },
-                ]}
-                format={money}
-                titleOf={(id) =>
-                  rows.find((row) => row.site_id === id)?.name ?? id
-                }
-                labelOf={(id) =>
-                  (rows.find((row) => row.site_id === id)?.name ?? id).replace(
-                    /^Store /,
-                    ""
-                  )
-                }
-                className="h-[13rem]"
-              />
-            ),
-          })}
-        </div>
-      </Card>
-
-      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
-        <Head title="Store comparison">
-          <Segmented
-            options={[
-              { value: "all", label: "All" },
-              { value: "down", label: "Down" },
-            ]}
-            value={only}
-            onChange={setOnly}
-          />
-        </Head>
-        {queryState(trade.query, {
-          loading: "Reading the stores…",
-          render: () => (
-            <DataTable<StoreRow>
-              table={table}
-              onRowClick={(row) =>
-                scope.setStore(
-                  row.site_id === scope.store ? undefined : row.site_id
-                )
-              }
-              isSelected={(row) => row.site_id === scope.store}
-              empty={
-                only === "down"
-                  ? "No store is down against the previous period."
-                  : "No store has sold anything in this period yet."
-              }
-              cardSort={false}
-              cardsApart
-              cardLead
-            />
-          ),
-        })}
-      </Card>
-    </ReportPage>
+    <DataTable<StoreRow>
+      refresh={[...trade.reads, fleet]}
+      table={table}
+      onRowClick={(row) =>
+        scope.setStore(row.site_id === scope.store ? undefined : row.site_id)
+      }
+      isSelected={(row) => row.site_id === scope.store}
+      empty={
+        only === "down"
+          ? "No store is down against the previous period."
+          : "No store has sold anything in this period yet."
+      }
+      cardSort={false}
+      cardsApart
+      cardLead
+    />
   )
 }

@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -17,8 +17,8 @@ import {
   orgKeys,
   retireChecklistTemplate,
   saveChecklistTemplate,
+  checklistTemplatesQuery,
 } from "@/lib/queries/people"
-import { queryState } from "@/lib/query-state"
 import { useCanWrite } from "@/lib/session"
 import { OWNER_CHOICES, OWNER_LABEL } from "@/screens/people/checklist-owners"
 import { FormSheet } from "@/screens/people/settings-parts"
@@ -26,6 +26,7 @@ import {
   CHECKLIST_KINDS,
   useSheetTarget,
 } from "@/screens/people/settings-hooks"
+import { awaiting } from "@/screens/people/awaiting"
 
 type TaskRow = Awaited<ReturnType<typeof checklistTemplates>>[number]
 
@@ -51,10 +52,6 @@ export function ChecklistSettings() {
   const canWrite = useCanWrite()
   const phone = useLayout() === "phone"
   const sheet = useSheetTarget<TaskRow>()
-  const list = useQuery({
-    queryKey: orgKeys.checklistTemplates(),
-    queryFn: ({ signal }) => checklistTemplates(signal),
-  })
 
   return (
     <PageContent>
@@ -72,7 +69,7 @@ export function ChecklistSettings() {
           )
         }
       />
-      {queryState(list, {
+      {awaiting(checklistTemplatesQuery(), {
         loading: "Reading the checklists…",
         render: (rows) => (
           <>

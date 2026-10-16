@@ -4,6 +4,11 @@ import { Check as CheckIcon, ChevronDown, X } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { DockPortal, useDock } from "@/components/shell/dock"
+import {
+  isStatus,
+  useGiveDoorStatus,
+  useInDoor,
+} from "@/components/ui/door-status"
 import { Button } from "@/components/ui/button"
 import { Day } from "@/components/ui/day"
 import { Input, Select } from "@/components/ui/field"
@@ -340,7 +345,7 @@ export function SupplierName({
 /// 2026-09-28, when the forms took the form's box (`FORM_BOX`) and this
 /// followed them.
 const PICKER_FIELD =
-  "flex h-10 w-full items-center gap-2 rounded-inner border border-hairline-2 bg-canvas px-3 text-[0.875rem] text-ink transition-[border-color,box-shadow] hover:border-hairline-strong has-[input:focus-visible]:border-accent"
+  "flex h-10 w-full items-center gap-2 rounded-inner border border-hairline-2 bg-canvas px-3 text-[0.9375rem] text-ink transition-[border-color,box-shadow] hover:border-hairline-strong has-[input:focus-visible]:border-accent"
 
 /// Choose one of the client's suppliers, by name or by code.
 ///
@@ -599,7 +604,7 @@ export function RankedBars({
   const peak = Math.max(...ranked.map((row) => Math.abs(row.value)), 0)
 
   if (peak === 0) {
-    return <p className="text-[0.875rem] text-mute">{empty}</p>
+    return <p className="text-[0.9375rem] text-mute">{empty}</p>
   }
 
   return (
@@ -607,7 +612,7 @@ export function RankedBars({
       {ranked.map((row) => (
         <div
           key={row.key}
-          className="flex items-center gap-2.5 text-[0.875rem]"
+          className="flex items-center gap-2.5 text-[0.9375rem]"
         >
           <span className="w-44 shrink-0 truncate text-mute" title={row.title}>
             {row.label}
@@ -631,7 +636,7 @@ export function RankedBars({
 
 export function AsOfControl({ asOf }: { asOf: AsOf }) {
   return (
-    <label className="flex items-center gap-1.5 text-[0.875rem] text-mute">
+    <label className="flex items-center gap-1.5 text-[0.9375rem] text-mute">
       As at
       <Day
         value={asOf.value}
@@ -655,7 +660,7 @@ export function WindowControl({ range }: { range: DateWindow }) {
         className="h-8 w-40"
         label="From"
       />
-      <span className="text-[0.875rem] text-mute">to</span>
+      <span className="text-[0.9375rem] text-mute">to</span>
       <Day
         value={range.to}
         onChange={range.setTo}
@@ -751,7 +756,7 @@ export function AccountPicker({
             loading: "Searching the chart…",
             render: (accounts) =>
               accounts.length === 0 ? (
-                <p className="px-3 py-4 text-center text-[0.875rem] text-body">
+                <p className="px-3 py-4 text-center text-[0.9375rem] text-body">
                   No account matches “{trimmed}”.
                 </p>
               ) : (
@@ -779,11 +784,11 @@ export function AccountPicker({
                       className="flex w-full items-center gap-2 border-b border-hairline px-3 py-2 text-left transition-colors last:border-b-0 hover:bg-soft disabled:cursor-not-allowed disabled:opacity-55"
                     >
                       <Tag>{account.account_code}</Tag>
-                      <span className="min-w-0 flex-1 truncate text-[0.875rem] text-ink">
+                      <span className="min-w-0 flex-1 truncate text-[0.9375rem] text-ink">
                         {account.name}
                       </span>
                       {refusal !== null && (
-                        <span className="shrink-0 text-[0.875rem] text-mute">
+                        <span className="shrink-0 text-[0.9375rem] text-mute">
                           {refusal}
                         </span>
                       )}
@@ -1079,7 +1084,7 @@ export function AccountAndCategory({
     <div className="flex min-w-0 flex-col gap-1.5">
       <span className="flex min-w-0 items-center gap-2">
         <Tag>{value.account_code}</Tag>
-        <span className="min-w-0 flex-1 truncate text-[0.875rem] text-ink">
+        <span className="min-w-0 flex-1 truncate text-[0.9375rem] text-ink">
           {value.name}
         </span>
         <Button size="sm" variant="quiet" onClick={() => onChange(null)}>
@@ -1096,7 +1101,7 @@ export function AccountAndCategory({
             onPick={(code) => onChange({ ...value, category_code: code })}
           />
           {explain && value.category_code === null && (
-            <span className="text-[0.875rem] text-warn-fg">
+            <span className="text-[0.9375rem] text-warn-fg">
               {value.account_code} is one line of the statement; the category is
               what it was for. The database refuses the entry without it.
             </span>
@@ -1145,7 +1150,11 @@ export function PhoneChoice({
   const dock = useDock()
   const [open, setOpen] = useState(false)
   const current = options.find((one) => one.value === value)
-  if (dock?.available !== true) return null
+  // A status in a door on a phone joins the door's button (`door-status.ts`);
+  // a shop, a day or a unit stays a button of its own.
+  const toDoor = useInDoor() && dock?.phone === true && isStatus(title)
+  useGiveDoorStatus({ title, value, options, onChange }, toDoor)
+  if (dock?.available !== true || toDoor) return null
   return (
     <>
       <DockPortal slot="tabs">
@@ -1154,7 +1163,7 @@ export function PhoneChoice({
           onClick={() => setOpen(true)}
           aria-haspopup="dialog"
           aria-label={`${title}: ${current?.label ?? ""}`}
-          className="ml-1.5 inline-flex h-9 max-w-full items-center gap-1 rounded-full bg-soft-2 pr-2.5 pl-3.5 text-[0.875rem] font-medium text-ink transition-[scale] duration-(--t-press) ease-(--ease-out) first:ml-0 active:scale-[0.97] [&+*]:ml-1.5"
+          className="ml-1.5 inline-flex h-9 max-w-full items-center gap-1 rounded-full bg-soft-2 pr-2.5 pl-3.5 text-[0.9375rem] font-medium text-ink transition-[scale] duration-(--t-press) ease-(--ease-out) first:ml-0 active:scale-[0.97] [&+*]:ml-1.5"
         >
           <span className="truncate">{current?.short ?? current?.label}</span>
           <ChevronDown className="size-4 shrink-0 text-line-ico" />

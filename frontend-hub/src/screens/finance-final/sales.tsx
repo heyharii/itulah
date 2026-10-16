@@ -116,7 +116,7 @@ export function Sales() {
         <SiteSelect value={site} onChange={setSite} className="h-8 w-44" />
         <WindowControl range={range} />
         <Toolbar.Spacer />
-        <span className="text-[0.875rem] text-mute">{range.chip}</span>
+        <span className="text-[0.9375rem] text-mute">{range.chip}</span>
       </Toolbar>
 
       {failure !== null && failure !== undefined ? (
@@ -174,7 +174,7 @@ export function Sales() {
               column per kind, because the question there is *who took it and
               when*. Two questions, two shapes, one set of figures. */}
           <section className="flex flex-col gap-2">
-            <h2 className="text-[0.875rem] font-semibold text-ink">
+            <h2 className="text-[0.9375rem] font-semibold text-ink">
               How it was paid
             </h2>
             <Grid>
@@ -216,7 +216,7 @@ export function Sales() {
                     <Td align="right">
                       {share(total.taken[tender.method] ?? 0, total.tendered)}
                     </Td>
-                    <Td className="text-[0.875rem] text-body">
+                    <Td className="text-[0.9375rem] text-body">
                       {tender.settles}
                     </Td>
                   </tr>
@@ -240,13 +240,13 @@ export function Sales() {
               would hide both. The till has no <i>transfer</i> tender; anything
               that is not one of the four named kinds is recorded as{" "}
               <b>Other</b>, which is a closed list in{" "}
-              <code className="font-mono text-[0.875rem]">tender.rs</code> and
+              <code className="font-mono text-[0.9375rem]">tender.rs</code> and
               not a free-text field.
             </Note>
           </section>
 
           <section className="flex flex-col gap-2">
-            <h2 className="text-[0.875rem] font-semibold text-ink">
+            <h2 className="text-[0.9375rem] font-semibold text-ink">
               {site === "" ? "By site" : "Day by day"}
             </h2>
             {tooWide ? (
@@ -347,7 +347,7 @@ export function Sales() {
           <Note>
             Every figure above is the server&rsquo;s own answer for one site
             over one span — one{" "}
-            <code className="font-mono text-[0.875rem]">
+            <code className="font-mono text-[0.9375rem]">
               {site === "" ? "/reports/sales/window" : "/reports/sales/daily"}
             </code>{" "}
             per {site === "" ? "site" : "date"}, added together here only to
@@ -665,7 +665,7 @@ function Receipts({
 
   return (
     <section className="flex flex-col gap-2">
-      <h2 className="text-[0.875rem] font-semibold text-ink">
+      <h2 className="text-[0.9375rem] font-semibold text-ink">
         Receipts{" "}
         <span className="text-mute">({count(report.sales.count)})</span>
       </h2>
@@ -693,7 +693,7 @@ function Receipts({
           {transactions.map((sale) => (
             <tr key={sale.id}>
               <Td>
-                <span className="font-mono text-[0.875rem] text-ink">
+                <span className="font-mono text-[0.9375rem] text-ink">
                   {sale.sale_number}
                 </span>
               </Td>

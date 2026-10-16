@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useQueries, useQuery } from "@tanstack/react-query"
-import { useMemo, useState } from "react"
+import { Suspense, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
@@ -25,7 +25,7 @@ import {
   Th,
   TotalRow,
 } from "@/screens/finance-final/parts"
-import { useUnitName, useWindow } from "@/screens/finance/hooks"
+import { useSettledWindow, useUnitName } from "@/screens/finance/hooks"
 import {
   AccountPicker,
   SupplierName,
@@ -34,6 +34,7 @@ import {
   WindowControl,
 } from "@/screens/finance/parts"
 import { ReportFilters } from "@/screens/finance/report"
+import { ScreenPending } from "@/screens/finance/pending"
 import type { JournalEntryDetail } from "@itulah/contract"
 
 /// Every posting against one account, at one unit, between two dates.
@@ -75,6 +76,23 @@ import type { JournalEntryDetail } from "@itulah/contract"
 /// and every balance on screen is one that was never true at that moment. A
 /// ledger is read down the page.
 export function GeneralLedger() {
+  return (
+    <Suspense
+      fallback={
+        <ScreenPending
+          crumb="Finance · Financial Reports"
+          title="General Ledger"
+        >
+          Opening the ledger…
+        </ScreenPending>
+      }
+    >
+      <GeneralLedgerScreen />
+    </Suspense>
+  )
+}
+
+function GeneralLedgerScreen() {
   // The account is in the URL, so "cash at Store 07 in August" is a link
   // somebody can send rather than a set of instructions. The same key the
   // chart and the older ledger open with, so a link works from either side.
@@ -82,7 +100,7 @@ export function GeneralLedger() {
   const code = account.value ?? null
   const [unit, setUnit] = useState("")
   const [picking, setPicking] = useState(false)
-  const range = useWindow()
+  const range = useSettledWindow()
   // Which vouchers the reader has opened. A set rather than one id: opening
   // three rows of the same entry costs one request, and every row that shares
   // it fills in at once.
@@ -298,7 +316,7 @@ export function GeneralLedger() {
                   <h2 className="text-card-title font-semibold text-ink">
                     {data.account_name}
                   </h2>
-                  <p className="mt-0.5 text-[0.875rem] text-mute">
+                  <p className="mt-0.5 text-[0.9375rem] text-mute">
                     <Code>{data.account_code}</Code>
                     {detail.data && detail.data.path.length > 0 && (
                       <>
@@ -318,7 +336,7 @@ export function GeneralLedger() {
                   what the contract says it is for. */}
                 {data.facets.units.length > 0 && (
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="mr-0.5 text-[0.875rem] text-mute">
+                    <span className="mr-0.5 text-[0.9375rem] text-mute">
                       Moved in
                     </span>
                     {data.facets.units.map((one) => (
@@ -422,12 +440,12 @@ export function GeneralLedger() {
                                       : [...was, row.entry_id]
                                   )
                                 }
-                                className="font-mono text-[0.875rem] text-accent hover:underline"
+                                className="font-mono text-[0.9375rem] text-accent hover:underline"
                               >
                                 {row.entry_number}
                               </button>
                               {row.memo !== null && row.memo !== "" && (
-                                <span className="block text-[0.875rem] text-mute">
+                                <span className="block text-[0.9375rem] text-mute">
                                   {row.memo}
                                 </span>
                               )}
@@ -495,7 +513,7 @@ export function GeneralLedger() {
                               />
                               {/* Who the balance is with, on an affiliate leg. */}
                               {row.counter_unit_id !== null && (
-                                <span className="block text-[0.875rem] text-mute">
+                                <span className="block text-[0.9375rem] text-mute">
                                   with <UnitName id={row.counter_unit_id} />
                                 </span>
                               )}
@@ -507,7 +525,7 @@ export function GeneralLedger() {
                                   onClick={() =>
                                     setOpened((was) => [...was, row.entry_id])
                                   }
-                                  className="text-[0.875rem] text-accent hover:underline"
+                                  className="text-[0.9375rem] text-accent hover:underline"
                                 >
                                   Show
                                 </button>
@@ -648,7 +666,7 @@ function AgainstAccounts({
         </span>
       )}
       {party !== null && (
-        <SupplierName id={party} className="text-[0.875rem] text-mute" />
+        <SupplierName id={party} className="text-[0.9375rem] text-mute" />
       )}
     </span>
   )
@@ -663,7 +681,7 @@ function AgainstAccounts({
 function Voucher({ voucher }: { voucher: JournalEntryDetail }) {
   return (
     <div className="rounded-inner border border-hairline bg-soft p-2.5">
-      <div className="mb-1.5 flex flex-wrap items-center gap-2 text-[0.875rem]">
+      <div className="mb-1.5 flex flex-wrap items-center gap-2 text-[0.9375rem]">
         <span className="font-medium text-ink">
           {voucher.entry.entry_number}
         </span>
@@ -701,7 +719,7 @@ function Voucher({ voucher }: { voucher: JournalEntryDetail }) {
               <Td className="text-ink">
                 {line.account_name}
                 {line.memo !== null && line.memo !== "" && (
-                  <span className="block text-[0.875rem] text-mute">
+                  <span className="block text-[0.9375rem] text-mute">
                     {line.memo}
                   </span>
                 )}

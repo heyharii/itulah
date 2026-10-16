@@ -17,7 +17,7 @@
 //!
 //! | Check         | Required | Read from |
 //! |---------------|----------|-----------|
-//! | `server`      | yes | the heartbeat of the site's inventory-owner node (`site_node`, `node_heartbeat`), within 5 minutes |
+//! | `server`      | yes | the heartbeat of the site's inventory-owner node (`site_node`, `node_heartbeat`), within 5 minutes, and — for a server let in by an install code — the first data it was sent (`node_enrolment.bootstrap_seq`) acknowledged (`sync_command_cursor.acked_seq`) |
 //! | `tills`       | yes | an ACTIVE till in the register seen within 10 minutes (`device`); the detail says whether a test page came out in 7 days |
 //! | `team`        | yes | somebody posted at the unit today, and a PIC in force (`employee_assignment`, `unit_pic`); fingerprints are information only |
 //! | `payments`    | yes | a payment method switched on for the shop (`payment_method_site`) — cash counts; QRIS and debit are in the detail |
@@ -36,10 +36,10 @@ use super::{
     IssueNodeEnrolmentRequest, NewNotification,
 };
 use crate::cloud::application::AppError;
-use crate::sync::enrolment::{CLAIM_APPROVAL_WINDOW_HOURS, MAX_CODE_TTL_MINUTES};
+use crate::sync::enrolment::{CLAIM_APPROVAL_WINDOW_HOURS, DEFAULT_CODE_TTL_MINUTES};
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{json, Value};
 use sqlx::{PgConnection, PgPool, Row};
 use uuid::Uuid;
 
@@ -51,7 +51,8 @@ pub const TILL_ONLINE_MINUTES: i64 = 10;
 pub const TEST_PRINT_FRESH_DAYS: i64 = 7;
 /// The installer's address when head office has not set one
 /// (`system_setting.store_installer_url`, 0631): on the hub's own origin.
-pub const DEFAULT_STORE_INSTALLER_URL: &str = "/downloads/itulah-store-setup.msi";
+pub const DEFAULT_STORE_INSTALLER_URL: &str =
+    "https://storage.googleapis.com/itulah-central-desktop/store-server/latest.msi";
 
 // ── the wire ─────────────────────────────────────────────────────────────
 
@@ -81,15 +82,72 @@ pub struct StoreReadiness {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct StoreServer {
     /// `NOT_INSTALLED`, `WAITING_TO_INSTALL` (a code is out, unclaimed),
-    /// `WAITING_FOR_APPROVAL` (a machine claimed it), `SYNCING` (approved, no
-    /// heartbeat yet), `ONLINE` or `OFFLINE` (heartbeat within five minutes,
-    /// or not).
+    /// `WAITING_FOR_APPROVAL` (a machine claimed it and could not be let in by
+    /// itself, so somebody decides), `SYNCING` (let in, still taking its first
+    /// data: the data head office queued for it is not all acknowledged yet),
+    /// `ONLINE` (ready: a heartbeat within five minutes and the first data
+    /// taken) or `OFFLINE` (no heartbeat within five minutes).
     pub state: String,
     /// The server's last heartbeat.
     pub last_seen_at: Option<DateTime<Utc>>,
     /// The enrolment to approve or refuse while one is waiting; otherwise the
     /// one that let the server in, when it came in that way.
     pub enrolment_id: Option<Uuid>,
+    /// The machine that is this store's server, once one has claimed the
+    /// code: what it said when it claimed, then what its heartbeat says.
+    pub machine: Option<StoreServerMachine>,
+    /// When the machine was connected: the moment it read its approval, else
+    /// when it was let in, else when its credential was made.
+    pub connected_at: Option<DateTime<Utc>>,
+    /// How far the server is in taking its first data. Present while `state`
+    /// is `SYNCING`.
+    pub first_data: Option<StoreFirstData>,
+    /// Where the shop's own screens answer on its network
+    /// (`http://store-07.local:8082`), as the server reported it in its
+    /// heartbeat. Present once `state` is `ONLINE`, when the server reported
+    /// one.
+    pub app_address: Option<String>,
+    /// An inline `<svg>` of a QR code that encodes `app_address`.
+    pub app_qr_svg: Option<String>,
+}
+
+/// The computer that serves a store.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct StoreServerMachine {
+    /// The machine's name, as it calls itself.
+    pub hostname: String,
+    /// Its operating system, as it reported it (`windows x86_64`).
+    pub os: String,
+    /// The server software's version.
+    pub version: String,
+}
+
+/// A new server taking the data head office queued for it when it was let in.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct StoreFirstData {
+    /// Streams the server has taken completely.
+    pub done: i32,
+    /// Streams it was sent.
+    pub total: i32,
+    pub streams: Vec<StoreFirstDataStream>,
+}
+
+/// One kind of data in the first delivery.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct StoreFirstDataStream {
+    /// `articles`, `price_books`, `staff`, `payment_methods`, `promotions`,
+    /// `orders`, `other` — or `all` when the delivery is not told apart.
+    pub key: String,
+    /// What a person reads: `Articles`, `Price books`, `Staff`…
+    pub label: String,
+    /// Whether the server has taken every command of this kind.
+    pub done: bool,
+    /// How many there are, when head office knows: the articles in the
+    /// catalogue, the price books published, the people on the roster.
+    pub count: Option<i64>,
 }
 
 /// The store's tills as head office's register holds them.
@@ -244,9 +302,35 @@ struct StoreFacts {
     tills_waiting: i64,
     pending_enrolment: Option<Uuid>,
     pending_claimed: bool,
-    pending_expires_at: Option<DateTime<Utc>>,
-    pending_verification: Option<String>,
+    /// What the machine that claimed the pending code said about itself.
+    pending_machine: Option<Value>,
     approved_enrolment: Option<Uuid>,
+    /// The origin the approved enrolment registered.
+    approved_origin: Option<String>,
+    /// What the machine said about itself when it claimed.
+    approved_machine: Option<Value>,
+    approved_delivered_at: Option<DateTime<Utc>>,
+    approved_decided_at: Option<DateTime<Utc>>,
+    /// When the first data was queued for the approved server, the command
+    /// range it took on that server's lane (`from` exclusive, `to`
+    /// inclusive), whether a stream failed, and the report (`counts` in it).
+    bootstrap_at: Option<DateTime<Utc>>,
+    bootstrap_from_seq: Option<i64>,
+    bootstrap_seq: Option<i64>,
+    bootstrap_failed: bool,
+    bootstrap_report: Option<Value>,
+    /// The first time the approved server was ready.
+    ready_at: Option<DateTime<Utc>>,
+    /// The position on its lane the server has acknowledged.
+    acked_seq: i64,
+    /// By command type: how many of the first data were queued, how many the
+    /// server has taken. Read only while the server is still taking it.
+    first_data_commands: Vec<(String, i64, i64)>,
+    node_created_at: Option<DateTime<Utc>>,
+    hb_version: Option<String>,
+    hb_hostname: Option<String>,
+    hb_os: Option<String>,
+    hb_app_address: Option<String>,
     tills_active: i64,
     tills_online: i64,
     till_seats: i32,
@@ -286,16 +370,31 @@ const STORE_FACTS: &str = "
     SELECT st.unit_id, st.code, st.name, st.unit_status, st.opened_at,
            st.site_id, st.site_code, st.city, st.timezone, st.till_seats,
            pic.employee_id AS pic_employee_id, pic.pic_name, pic.pic_code,
-           node.origin_id IS NOT NULL AS has_node,
+           (node.origin_id IS NOT NULL AND cred.revoked_at IS NULL) AS has_node,
+           cred.created_at AS node_created_at,
            hb.received_at AS heartbeat_at,
+           hb.version AS hb_version,
+           hb.status ->> 'hostname' AS hb_hostname,
+           hb.status ->> 'os' AS hb_os,
+           hb.status ->> 'app_address' AS hb_app_address,
+           COALESCE(cur.acked_seq, 0) AS acked_seq,
            COALESCE(CASE WHEN jsonb_typeof(hb.status -> 'devices' -> 'terminals_waiting') = 'number'
                          THEN (hb.status -> 'devices' ->> 'terminals_waiting')::bigint END, 0)
                AS tills_waiting,
            pending.enrolment_id AS pending_enrolment_id,
            pending.claimed_at IS NOT NULL AS pending_claimed,
-           pending.expires_at AS pending_expires_at,
-           pending.verification AS pending_verification,
+           pending.machine AS pending_machine,
            approved.enrolment_id AS approved_enrolment_id,
+           approved.origin_id AS approved_origin,
+           approved.machine AS approved_machine,
+           approved.delivered_at AS approved_delivered_at,
+           approved.decided_at AS approved_decided_at,
+           approved.bootstrap_at AS bootstrap_at,
+           approved.bootstrap_from_seq AS bootstrap_from_seq,
+           approved.bootstrap_seq AS bootstrap_seq,
+           COALESCE(approved.bootstrap_failed, false) AS bootstrap_failed,
+           approved.bootstrap_report AS bootstrap_report,
+           approved.ready_at AS ready_at,
            COALESCE(tills.active, 0) AS tills_active,
            COALESCE(tills.online, 0) AS tills_online,
            printed.ok_at AS test_print_ok_at,
@@ -331,9 +430,11 @@ const STORE_FACTS: &str = "
            LIMIT 1
       ) pic ON true
       LEFT JOIN site_node node ON node.site_id = st.site_id
-      LEFT JOIN node_heartbeat hb ON hb.origin_id = node.origin_id
+      LEFT JOIN sync_origin_credential cred ON cred.origin_id = node.origin_id
+      LEFT JOIN sync_command_cursor cur ON cur.origin_id = node.origin_id
+      LEFT JOIN node_heartbeat hb ON hb.origin_id = node.origin_id AND cred.revoked_at IS NULL
       LEFT JOIN LATERAL (
-          SELECT e.enrolment_id, e.claimed_at, e.expires_at, e.verification
+          SELECT e.enrolment_id, e.claimed_at, e.machine
             FROM node_enrolment e
            WHERE e.site_id = st.site_id
              AND e.outcome IS NULL
@@ -343,9 +444,12 @@ const STORE_FACTS: &str = "
            LIMIT 1
       ) pending ON true
       LEFT JOIN LATERAL (
-          SELECT e.enrolment_id
+          SELECT e.enrolment_id, e.origin_id, e.machine, e.delivered_at, e.decided_at,
+                 e.bootstrap_at, e.bootstrap_from_seq, e.bootstrap_seq,
+                 e.bootstrap_failed, e.bootstrap_report, e.ready_at
             FROM node_enrolment e
            WHERE e.site_id = st.site_id AND e.outcome = 'APPROVED'
+             AND e.disconnected_at IS NULL
            ORDER BY e.decided_at DESC
            LIMIT 1
       ) approved ON true
@@ -422,7 +526,8 @@ async fn store_facts(
         .bind(i32::try_from(TEST_PRINT_FRESH_DAYS).unwrap_or(7))
         .fetch_all(&mut *connection)
         .await?;
-    rows.iter()
+    let mut stores = rows
+        .iter()
         .map(|row| -> Result<StoreFacts, AppError> {
             let pic_employee: Option<String> = row.try_get("pic_employee_id")?;
             let pic_name: Option<String> = row.try_get("pic_name")?;
@@ -450,9 +555,25 @@ async fn store_facts(
                 tills_waiting: row.try_get("tills_waiting")?,
                 pending_enrolment: row.try_get("pending_enrolment_id")?,
                 pending_claimed: row.try_get("pending_claimed")?,
-                pending_expires_at: row.try_get("pending_expires_at")?,
-                pending_verification: row.try_get("pending_verification")?,
+                pending_machine: row.try_get("pending_machine")?,
                 approved_enrolment: row.try_get("approved_enrolment_id")?,
+                approved_origin: row.try_get("approved_origin")?,
+                approved_machine: row.try_get("approved_machine")?,
+                approved_delivered_at: row.try_get("approved_delivered_at")?,
+                approved_decided_at: row.try_get("approved_decided_at")?,
+                bootstrap_at: row.try_get("bootstrap_at")?,
+                bootstrap_from_seq: row.try_get("bootstrap_from_seq")?,
+                bootstrap_seq: row.try_get("bootstrap_seq")?,
+                bootstrap_failed: row.try_get("bootstrap_failed")?,
+                bootstrap_report: row.try_get("bootstrap_report")?,
+                ready_at: row.try_get("ready_at")?,
+                acked_seq: row.try_get("acked_seq")?,
+                first_data_commands: Vec::new(),
+                node_created_at: row.try_get("node_created_at")?,
+                hb_version: row.try_get("hb_version")?,
+                hb_hostname: row.try_get("hb_hostname")?,
+                hb_os: row.try_get("hb_os")?,
+                hb_app_address: row.try_get("hb_app_address")?,
                 tills_active: row.try_get("tills_active")?,
                 tills_online: row.try_get("tills_online")?,
                 till_seats: row.try_get("till_seats")?,
@@ -467,6 +588,58 @@ async fn store_facts(
                 address: row.try_get("address")?,
             })
         })
+        .collect::<Result<Vec<StoreFacts>, AppError>>()?;
+    // A server still taking its first data is shown stream by stream: what
+    // was queued for it, by kind, and how much of it it has acknowledged.
+    for store in &mut stores {
+        if !store.getting_first_data() || store.bootstrap_failed {
+            continue;
+        }
+        if let (Some(origin), Some(from), Some(to)) = (
+            store.approved_origin.clone(),
+            store.bootstrap_from_seq,
+            store.bootstrap_seq,
+        ) {
+            store.first_data_commands =
+                first_data_commands(&mut *connection, &origin, from, to, store.acked_seq).await?;
+        }
+    }
+    Ok(stores)
+}
+
+/// What head office queued for a server when it was let in, by command type:
+/// how many commands, and how many of them the server has acknowledged.
+/// Positions only — the payloads are never read.
+async fn first_data_commands(
+    connection: &mut PgConnection,
+    origin_id: &str,
+    from_seq: i64,
+    to_seq: i64,
+    acked_seq: i64,
+) -> Result<Vec<(String, i64, i64)>, AppError> {
+    let rows = sqlx::query(
+        "SELECT c.command_type,
+                count(*)::bigint AS queued,
+                (count(*) FILTER (WHERE d.seq <= $4))::bigint AS taken
+           FROM sync_command_delivery d
+           JOIN sync_command c ON c.command_id = d.command_id
+          WHERE d.origin_id = $1 AND d.seq > $2 AND d.seq <= $3
+          GROUP BY c.command_type",
+    )
+    .bind(origin_id)
+    .bind(from_seq)
+    .bind(to_seq)
+    .bind(acked_seq)
+    .fetch_all(&mut *connection)
+    .await?;
+    rows.iter()
+        .map(|row| -> Result<(String, i64, i64), AppError> {
+            Ok((
+                row.try_get("command_type")?,
+                row.try_get("queued")?,
+                row.try_get("taken")?,
+            ))
+        })
         .collect()
 }
 
@@ -478,16 +651,6 @@ fn ago(now: DateTime<Utc>, at: DateTime<Utc>) -> String {
         90..=5_399 => format!("{} min ago", seconds / 60),
         5_400..=172_799 => format!("{} h ago", seconds / 3_600),
         _ => format!("{} days ago", seconds / 86_400),
-    }
-}
-
-/// "in 23 h", "in 40 min".
-fn from_now(now: DateTime<Utc>, at: DateTime<Utc>) -> String {
-    let seconds = (at - now).num_seconds().max(0);
-    if seconds >= 5_400 {
-        format!("in {} h", seconds / 3_600)
-    } else {
-        format!("in {} min", (seconds / 60).max(1))
     }
 }
 
@@ -506,12 +669,39 @@ struct Judged {
     blocker: Option<String>,
 }
 
+impl StoreFacts {
+    /// A server let in by an install code that has not yet been ready: it is
+    /// still taking the data head office queued for it. A server that came in
+    /// some other way (provisioned by hand, or let in before 0966) has no
+    /// first data to wait for.
+    fn getting_first_data(&self) -> bool {
+        self.approved_enrolment.is_some() && self.ready_at.is_none() && !self.first_data_taken()
+    }
+
+    /// Everything head office queued for the server has been acknowledged by
+    /// it. Never true while a stream failed, nor before the queueing ended —
+    /// "nothing was queued yet" is not "nothing to take".
+    fn first_data_taken(&self) -> bool {
+        self.bootstrap_at.is_some()
+            && !self.bootstrap_failed
+            && self
+                .bootstrap_seq
+                .is_some_and(|queued| self.acked_seq >= queued)
+    }
+}
+
 fn server_state(facts: &StoreFacts, now: DateTime<Utc>) -> &'static str {
     let fresh = facts
         .heartbeat_at
         .is_some_and(|at| at >= now - Duration::minutes(SERVER_ONLINE_MINUTES));
     if fresh {
-        return "ONLINE";
+        // Ready only once the first data is taken: a heartbeat alone says the
+        // machine is up, not that it knows the shop's catalogue and staff.
+        return if facts.getting_first_data() {
+            "SYNCING"
+        } else {
+            "ONLINE"
+        };
     }
     if facts.pending_enrolment.is_some() {
         return if facts.pending_claimed {
@@ -530,36 +720,191 @@ fn server_state(facts: &StoreFacts, now: DateTime<Utc>) -> &'static str {
     }
 }
 
+/// A text field the machine reported, trimmed; `None` when it said nothing.
+fn said(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+}
+
+/// One field of what the machine said when it claimed the code.
+fn claimed(machine: Option<&Value>, key: &str) -> Option<String> {
+    said(
+        machine
+            .and_then(|machine| machine.get(key))
+            .and_then(Value::as_str),
+    )
+}
+
+/// The computer behind the store's server: what its heartbeat says, else what
+/// it said when it claimed the code. `None` until a machine has claimed one.
+fn machine_of(facts: &StoreFacts, state: &str) -> Option<StoreServerMachine> {
+    let waiting = state == "WAITING_FOR_APPROVAL";
+    if matches!(state, "NOT_INSTALLED" | "WAITING_TO_INSTALL") {
+        return None;
+    }
+    // A heartbeat on file belongs to the machine before this one while a
+    // new claim is waiting to be decided.
+    let (said_by, beating) = if waiting {
+        (facts.pending_machine.as_ref(), false)
+    } else {
+        (facts.approved_machine.as_ref(), true)
+    };
+    let hostname = beating
+        .then(|| said(facts.hb_hostname.as_deref()))
+        .flatten()
+        .or_else(|| claimed(said_by, "hostname"));
+    let os = beating
+        .then(|| said(facts.hb_os.as_deref()))
+        .flatten()
+        .or_else(
+            || match (claimed(said_by, "os"), claimed(said_by, "arch")) {
+                (Some(os), Some(arch)) => Some(format!("{os} {arch}")),
+                (Some(os), None) => Some(os),
+                _ => None,
+            },
+        );
+    let version = beating
+        .then(|| said(facts.hb_version.as_deref()))
+        .flatten()
+        .or_else(|| claimed(said_by, "version"));
+    if hostname.is_none() && os.is_none() && version.is_none() {
+        return None;
+    }
+    Some(StoreServerMachine {
+        hostname: hostname.unwrap_or_default(),
+        os: os.unwrap_or_default(),
+        version: version.unwrap_or_default(),
+    })
+}
+
+/// When the machine was connected: it read its approval, else it was let in,
+/// else its credential was made (a server provisioned by hand).
+fn connected_at_of(facts: &StoreFacts, state: &str) -> Option<DateTime<Utc>> {
+    if matches!(
+        state,
+        "NOT_INSTALLED" | "WAITING_TO_INSTALL" | "WAITING_FOR_APPROVAL"
+    ) {
+        return None;
+    }
+    facts
+        .approved_delivered_at
+        .or(facts.approved_decided_at)
+        .or(facts.node_created_at)
+}
+
+/// The streams the first data is told apart in, in the order a person reads
+/// them, and the command types each is made of.
+const FIRST_DATA_STREAMS: [(&str, &str); 7] = [
+    ("articles", "Articles"),
+    ("price_books", "Price books"),
+    ("staff", "Staff"),
+    ("payment_methods", "Payment methods"),
+    ("promotions", "Promotions"),
+    ("orders", "Open orders"),
+    ("other", "Other data"),
+];
+
+fn first_data_stream_of(command_type: &str) -> usize {
+    if command_type.starts_with("catalog.") {
+        0
+    } else if command_type.starts_with("commercial.publication") {
+        1
+    } else if command_type.starts_with("auth.") || command_type.starts_with("attendance.") {
+        2
+    } else if command_type.starts_with("payment.") {
+        3
+    } else if command_type.starts_with("commercial.") {
+        4
+    } else if command_type.starts_with("purchase.") || command_type.starts_with("tagging.") {
+        5
+    } else {
+        6
+    }
+}
+
+/// How many there are in a stream, from the count taken when it was queued
+/// (`counts` in the stored report); `None` for a stream that was not counted.
+fn first_data_count(facts: &StoreFacts, key: &str) -> Option<i64> {
+    facts
+        .bootstrap_report
+        .as_ref()?
+        .get("counts")?
+        .get(key)?
+        .as_i64()
+}
+
+/// Where the server is in taking its first data. One stream, "Store data",
+/// until head office has finished queueing it (or when a stream failed and
+/// is about to be sent again): the delivery cannot be told apart yet.
+fn first_data_of(facts: &StoreFacts) -> StoreFirstData {
+    let mut queued = [0_i64; FIRST_DATA_STREAMS.len()];
+    let mut taken = [0_i64; FIRST_DATA_STREAMS.len()];
+    for (command_type, sent, got) in &facts.first_data_commands {
+        let stream = first_data_stream_of(command_type);
+        queued[stream] += sent;
+        taken[stream] += got;
+    }
+    let streams: Vec<StoreFirstDataStream> = FIRST_DATA_STREAMS
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| queued[*index] > 0)
+        .map(|(index, (key, label))| StoreFirstDataStream {
+            key: (*key).into(),
+            label: (*label).into(),
+            done: taken[index] >= queued[index],
+            count: first_data_count(facts, key),
+        })
+        .collect();
+    if streams.is_empty() {
+        let done = facts.first_data_taken();
+        return StoreFirstData {
+            done: i32::from(done),
+            total: 1,
+            streams: vec![StoreFirstDataStream {
+                key: "all".into(),
+                label: "Store data".into(),
+                done,
+                count: None,
+            }],
+        };
+    }
+    let done = streams.iter().filter(|stream| stream.done).count();
+    StoreFirstData {
+        done: i32::try_from(done).unwrap_or(i32::MAX),
+        total: i32::try_from(streams.len()).unwrap_or(i32::MAX),
+        streams,
+    }
+}
+
+/// The address the server reported for the shop's own screens, if it is one a
+/// browser should be sent to: what a node says about itself is not trusted
+/// further than that.
+fn app_address_of(facts: &StoreFacts, state: &str) -> Option<String> {
+    if state != "ONLINE" {
+        return None;
+    }
+    let address = said(facts.hb_app_address.as_deref())?;
+    let plain = address.len() <= 200
+        && (address.starts_with("http://") || address.starts_with("https://"))
+        && address
+            .chars()
+            .all(|character| character.is_ascii_graphic());
+    plain.then_some(address)
+}
+
 fn judge_server(facts: &StoreFacts, now: DateTime<Utc>) -> Judged {
     let state = server_state(facts, now);
     let ok = state == "ONLINE";
-    let seen = facts.heartbeat_at.map(|at| ago(now, at));
+    let named = |word: &str| match machine_of(facts, state) {
+        Some(machine) if !machine.hostname.is_empty() => format!("{word} · {}", machine.hostname),
+        _ => word.to_owned(),
+    };
     let detail = match state {
-        "ONLINE" => format!(
-            "Online · heartbeat {}",
-            seen.unwrap_or_else(|| "just now".into())
-        ),
-        "WAITING_FOR_APPROVAL" => match &facts.pending_verification {
-            Some(number) => format!(
-                "Installed at the store · waiting for head office to approve it \
-                 (verification number {number})"
-            ),
-            None => "Installed at the store · waiting for head office to approve it".into(),
-        },
-        "WAITING_TO_INSTALL" => match facts.pending_expires_at {
-            Some(expires) => format!(
-                "Install code issued · waiting to be installed at the store (the code \
-                 expires {})",
-                from_now(now, expires)
-            ),
-            None => "Install code issued · waiting to be installed at the store".into(),
-        },
-        "SYNCING" => "Approved · taking its first data, no heartbeat yet".into(),
-        "OFFLINE" => format!(
-            "Offline · last heartbeat {}",
-            seen.unwrap_or_else(|| "never".into())
-        ),
-        _ => "Not installed yet · issue an install code from the store's Server page".into(),
+        "ONLINE" => named("Ready"),
+        "SYNCING" => named("Getting data"),
+        _ => "Waiting for the server".to_owned(),
     };
     Judged {
         check: StoreCheck {
@@ -570,7 +915,14 @@ fn judge_server(facts: &StoreFacts, now: DateTime<Utc>) -> Judged {
             detail,
         },
         blocker: (!ok).then(|| {
-            format!("the store server has not sent a heartbeat in the last {SERVER_ONLINE_MINUTES} minutes")
+            if state == "SYNCING" {
+                "the store server is still getting its first data".to_owned()
+            } else {
+                format!(
+                    "the store server has not sent a heartbeat in the last \
+                     {SERVER_ONLINE_MINUTES} minutes"
+                )
+            }
         }),
     }
 }
@@ -723,6 +1075,25 @@ fn status_of(facts: &StoreFacts) -> &'static str {
     }
 }
 
+fn server_of(facts: &StoreFacts, now: DateTime<Utc>) -> StoreServer {
+    let state = server_state(facts, now);
+    let app_address = app_address_of(facts, state);
+    StoreServer {
+        state: state.into(),
+        last_seen_at: facts.heartbeat_at,
+        enrolment_id: facts.pending_enrolment.or(facts.approved_enrolment),
+        machine: machine_of(facts, state),
+        connected_at: connected_at_of(facts, state),
+        first_data: (state == "SYNCING").then(|| first_data_of(facts)),
+        // The QR is drawn here, from the address, the way the install code's
+        // is; one that cannot be drawn is left out rather than failing the page.
+        app_qr_svg: app_address
+            .as_deref()
+            .and_then(|address| qr_svg(address).ok()),
+        app_address,
+    }
+}
+
 fn summary_of(facts: &StoreFacts, judged: &[Judged], now: DateTime<Utc>) -> StoreSummary {
     let done = judged.iter().filter(|one| one.check.ok).count();
     StoreSummary {
@@ -740,11 +1111,7 @@ fn summary_of(facts: &StoreFacts, judged: &[Judged], now: DateTime<Utc>) -> Stor
             done: i32::try_from(done).unwrap_or(i32::MAX),
             total: i32::try_from(judged.len()).unwrap_or(i32::MAX),
         },
-        server: StoreServer {
-            state: server_state(facts, now).into(),
-            last_seen_at: facts.heartbeat_at,
-            enrolment_id: facts.pending_enrolment.or(facts.approved_enrolment),
-        },
+        server: server_of(facts, now),
         tills: StoreTills {
             active: facts.tills_active,
             online: facts.tills_online,
@@ -1086,10 +1453,12 @@ fn qr_svg(payload: &str) -> Result<String, AppError> {
 /// Issue a code to install the store's server, from the store's page.
 ///
 /// The same enrolment an Admin issues from System › Nodes
-/// (`issue_node_enrolment`): a `STORE` node for the store's shop, valid for a
-/// day, and any code still out for that shop withdrawn. Approving and refusing
-/// the machine that claims it stay where they are
-/// (`POST /api/v1/sync/enrollments/{id}/approve` and `…/refuse`).
+/// (`issue_node_enrolment`): a `STORE` node for the store's shop, valid for an
+/// hour, and any code still out for that shop withdrawn. The code is the
+/// proof: the machine that claims it in time is let in at once, as the Admin
+/// who issued it (`node_enrolment::claim_and_approve_node_enrolment`). Deciding
+/// a claim by hand stays where it is, for one that could not be let in by
+/// itself (`POST /api/v1/sync/enrollments/{id}/approve` and `…/refuse`).
 pub async fn install_store_server(
     pool: &PgPool,
     unit_id: &str,
@@ -1116,7 +1485,7 @@ pub async fn install_store_server(
             site_id,
             node_role: Some("STORE".into()),
             label: Some(format!("{} {} server", facts.code, facts.name)),
-            ttl_minutes: Some(MAX_CODE_TTL_MINUTES),
+            ttl_minutes: Some(DEFAULT_CODE_TTL_MINUTES),
         },
         actor,
     )
@@ -1128,6 +1497,92 @@ pub async fn install_store_server(
         expires_at: issued.expires_at,
         installer_url: installer_url(pool).await?,
     })
+}
+
+/// Disconnect the machine that serves a store, and issue the code for the
+/// next one, from the store's page.
+///
+/// The old machine's key stops working at once: the credential stays (the
+/// origin's history hangs on it, and the machine that replaces this one is let
+/// in under the same origin), but its key is replaced by one nobody holds, and
+/// `revoked_at` says why. Its last heartbeat is cleared, so the store's server
+/// returns to `NOT_INSTALLED`; any code still out is withdrawn and the
+/// enrolment that let the machine in no longer stands for a server. Then a
+/// fresh code is issued exactly as `install_store_server` does, and returned.
+///
+/// Idempotent: with no machine connected there is nothing to revoke and the
+/// answer is still a fresh code. The sales the old machine had not sent are
+/// not lost — they are on its disk, and the replacement's approval refuses
+/// the rollover while head office still lacks some of them
+/// (`register_origin_digest_tx`), which is the moment somebody decides.
+pub async fn disconnect_store_server(
+    pool: &PgPool,
+    unit_id: &str,
+    actor: &str,
+) -> Result<StoreServerInstall, AppError> {
+    let mut connection = pool.acquire().await?;
+    let facts = one_store(&mut connection, unit_id).await?;
+    drop(connection);
+    if status_of(&facts) == "CLOSED" {
+        return Err(AppError::Conflict(format!(
+            "{} ({}) is closed; its server is not installed again from here",
+            facts.name, facts.code
+        )));
+    }
+    let site_id = facts.site_id.clone().ok_or_else(|| {
+        AppError::Conflict(format!(
+            "{} ({}) has no shop yet, so there is no server to disconnect",
+            facts.name, facts.code
+        ))
+    })?;
+
+    let mut tx = pool.begin().await?;
+    let revoked: Vec<String> = sqlx::query_scalar(
+        "UPDATE sync_origin_credential
+            SET ingest_key_sha256 = encode(
+                    sha256(convert_to('revoked:' || origin_id || ':' || gen_random_uuid()::text,
+                                      'UTF8')),
+                    'hex'),
+                revoked_at = now(),
+                rotated_at = now()
+          WHERE site_id = $1 AND revoked_at IS NULL
+      RETURNING origin_id",
+    )
+    .bind(&site_id)
+    .fetch_all(&mut *tx)
+    .await?;
+    sqlx::query("DELETE FROM node_heartbeat WHERE origin_id = ANY($1)")
+        .bind(&revoked)
+        .execute(&mut *tx)
+        .await?;
+    // A code still out, or a claim not yet decided: withdrawn.
+    sqlx::query(
+        "UPDATE node_enrolment
+            SET outcome = 'REVOKED', decided_by = $2, decided_at = now()
+          WHERE site_id = $1 AND outcome IS NULL",
+    )
+    .bind(&site_id)
+    .bind(actor)
+    .execute(&mut *tx)
+    .await?;
+    // The enrolment that let the machine in no longer stands for a server.
+    sqlx::query(
+        "UPDATE node_enrolment
+            SET disconnected_at = now(), disconnected_by = $2
+          WHERE site_id = $1 AND outcome = 'APPROVED' AND disconnected_at IS NULL",
+    )
+    .bind(&site_id)
+    .bind(actor)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    tracing::info!(
+        unit = %unit_id,
+        %actor,
+        machines = revoked.len(),
+        "a store's server was disconnected; its key no longer works"
+    );
+    install_store_server(pool, unit_id, actor).await
 }
 
 #[cfg(test)]
@@ -1151,9 +1606,25 @@ mod tests {
             tills_waiting: 0,
             pending_enrolment: None,
             pending_claimed: false,
-            pending_expires_at: None,
-            pending_verification: None,
+            pending_machine: None,
             approved_enrolment: None,
+            approved_origin: None,
+            approved_machine: None,
+            approved_delivered_at: None,
+            approved_decided_at: None,
+            bootstrap_at: None,
+            bootstrap_from_seq: None,
+            bootstrap_seq: None,
+            bootstrap_failed: false,
+            bootstrap_report: None,
+            ready_at: None,
+            acked_seq: 0,
+            first_data_commands: Vec::new(),
+            node_created_at: None,
+            hb_version: None,
+            hb_hostname: None,
+            hb_os: None,
+            hb_app_address: None,
             tills_active: 0,
             tills_online: 0,
             till_seats: 0,
@@ -1222,7 +1693,152 @@ mod tests {
         assert_eq!(server_state(&store, now), "SYNCING");
         store.heartbeat_at = Some(now - Duration::minutes(30));
         assert_eq!(server_state(&store, now), "OFFLINE");
+        // A heartbeat is not yet a ready server: it has to take its first data.
         store.heartbeat_at = Some(now - Duration::minutes(1));
+        assert_eq!(server_state(&store, now), "SYNCING");
+        store.ready_at = Some(now);
         assert_eq!(server_state(&store, now), "ONLINE");
+    }
+
+    #[test]
+    fn a_server_is_ready_when_it_has_acknowledged_what_was_queued_for_it() {
+        let now = Utc::now();
+        let mut store = facts();
+        store.approved_enrolment = Some(Uuid::nil());
+        store.heartbeat_at = Some(now - Duration::seconds(10));
+        // Let in, and head office is still queueing: not ready, whatever it acked.
+        assert_eq!(server_state(&store, now), "SYNCING");
+        store.bootstrap_at = Some(now);
+        store.bootstrap_seq = Some(12);
+        store.acked_seq = 7;
+        assert_eq!(server_state(&store, now), "SYNCING");
+        // A stream that failed is not "nothing to take".
+        store.acked_seq = 12;
+        store.bootstrap_failed = true;
+        assert_eq!(server_state(&store, now), "SYNCING");
+        store.bootstrap_failed = false;
+        assert_eq!(server_state(&store, now), "ONLINE");
+        // A server nobody let in with a code has no first data to wait for.
+        let mut by_hand = facts();
+        by_hand.heartbeat_at = Some(now - Duration::seconds(10));
+        by_hand.has_node = true;
+        assert_eq!(server_state(&by_hand, now), "ONLINE");
+    }
+
+    #[test]
+    fn the_first_data_is_told_stream_by_stream_once_it_is_all_queued() {
+        let now = Utc::now();
+        let mut store = facts();
+        store.approved_enrolment = Some(Uuid::nil());
+        store.heartbeat_at = Some(now);
+        // Still being queued: one stream, not done.
+        let waiting = first_data_of(&store);
+        assert_eq!((waiting.done, waiting.total), (0, 1));
+        assert_eq!(waiting.streams[0].key, "all");
+        assert_eq!(waiting.streams[0].label, "Store data");
+
+        store.bootstrap_at = Some(now);
+        store.bootstrap_seq = Some(9);
+        store.acked_seq = 6;
+        store.bootstrap_report = Some(json!({ "counts": { "articles": 12431, "staff": 18 } }));
+        store.first_data_commands = vec![
+            ("catalog.snapshot.chunk".into(), 4, 4),
+            ("auth.policy.replace".into(), 1, 1),
+            ("attendance.book.replace".into(), 1, 1),
+            ("commercial.publication.activate".into(), 2, 0),
+            ("commercial.campaign.v1".into(), 1, 0),
+        ];
+        let data = first_data_of(&store);
+        assert_eq!((data.done, data.total), (2, 4));
+        let keys: Vec<&str> = data
+            .streams
+            .iter()
+            .map(|stream| stream.key.as_str())
+            .collect();
+        assert_eq!(keys, ["articles", "price_books", "staff", "promotions"]);
+        assert_eq!(data.streams[0].count, Some(12431));
+        assert_eq!(data.streams[2].count, Some(18));
+        assert_eq!(data.streams[1].count, None);
+        assert!(data.streams[0].done && data.streams[2].done);
+        assert!(!data.streams[1].done && !data.streams[3].done);
+
+        // Present on the wire only while the server is syncing.
+        let server = server_of(&store, now);
+        assert_eq!(server.state, "SYNCING");
+        assert!(server.first_data.is_some());
+        store.acked_seq = 9;
+        store.ready_at = Some(now);
+        assert!(server_of(&store, now).first_data.is_none());
+    }
+
+    #[test]
+    fn the_server_check_is_green_only_when_ready_and_names_the_machine() {
+        let now = Utc::now();
+        let mut store = facts();
+        store.approved_enrolment = Some(Uuid::nil());
+        store.approved_machine =
+            Some(json!({ "hostname": "KASIR-PC", "os": "windows", "arch": "x86_64" }));
+        store.heartbeat_at = Some(now);
+        let syncing = judge_server(&store, now);
+        assert!(!syncing.check.ok);
+        assert_eq!(syncing.check.detail, "Getting data · KASIR-PC");
+        store.ready_at = Some(now);
+        store.hb_hostname = Some("TEGAL-SRV".into());
+        let ready = judge_server(&store, now);
+        assert!(ready.check.ok);
+        assert_eq!(ready.check.detail, "Ready · TEGAL-SRV");
+        assert_eq!(
+            judge_server(&facts(), now).check.detail,
+            "Waiting for the server"
+        );
+    }
+
+    #[test]
+    fn the_machine_is_what_the_heartbeat_says_else_what_it_said_when_it_claimed() {
+        let now = Utc::now();
+        let mut store = facts();
+        assert!(machine_of(&store, server_state(&store, now)).is_none());
+        store.pending_enrolment = Some(Uuid::nil());
+        store.pending_claimed = true;
+        store.pending_machine = Some(
+            json!({ "hostname": "NEW-PC", "os": "windows", "arch": "x86_64", "version": "0.1.4" }),
+        );
+        store.hb_hostname = Some("OLD-PC".into());
+        let waiting = machine_of(&store, "WAITING_FOR_APPROVAL").expect("the claimant");
+        assert_eq!(
+            (
+                waiting.hostname.as_str(),
+                waiting.os.as_str(),
+                waiting.version.as_str()
+            ),
+            ("NEW-PC", "windows x86_64", "0.1.4")
+        );
+        store.pending_enrolment = None;
+        store.approved_enrolment = Some(Uuid::nil());
+        store.approved_machine = store.pending_machine.take();
+        store.hb_hostname = Some("TEGAL-SRV".into());
+        store.hb_os = Some("windows x86_64".into());
+        store.hb_version = Some("0.1.5".into());
+        let machine = machine_of(&store, "ONLINE").expect("the server");
+        assert_eq!(machine.hostname, "TEGAL-SRV");
+        assert_eq!(machine.version, "0.1.5");
+    }
+
+    #[test]
+    fn only_a_plain_web_address_the_server_reported_is_shown_once_it_is_ready() {
+        let now = Utc::now();
+        let mut store = facts();
+        store.heartbeat_at = Some(now);
+        store.hb_app_address = Some("http://c014.local:8082".into());
+        assert_eq!(
+            app_address_of(&store, server_state(&store, now)).as_deref(),
+            Some("http://c014.local:8082")
+        );
+        assert!(server_of(&store, now).app_qr_svg.is_some());
+        store.hb_app_address = Some("javascript:alert(1)".into());
+        assert_eq!(app_address_of(&store, "ONLINE"), None);
+        store.hb_app_address = Some("http://c014.local:8082".into());
+        assert_eq!(app_address_of(&store, "SYNCING"), None);
+        assert_eq!(app_address_of(&store, "OFFLINE"), None);
     }
 }

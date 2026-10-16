@@ -60,6 +60,10 @@ pub struct ArticleRow {
     pub active: bool,
     pub division_code: Option<String>,
     pub image_url: Option<String>,
+    /// What the article is described as (0968): from the supplier item it was
+    /// first bought as, unless head office changed it during setup or since.
+    #[serde(default)]
+    pub description: Option<String>,
     /// Tag codes, not labels. A screen renders them through the catalogue
     /// vocabulary; sending labels would put a word in a filter that changes
     /// the moment somebody edits it.
@@ -73,6 +77,12 @@ pub struct ArticleRow {
     /// wrong the moment a size is inserted between two others.
     pub size_codes: Vec<String>,
     pub sku_count: i64,
+    /// Pieces on hand across every place, as the article's sheet counts them
+    /// per SKU (`skus_for`). Filled on the list (owner, 2026-10-15: "ada stock
+    /// kali ya, tapi hapus sku di table"); absent where a read does not count.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub stock_qty: Option<i64>,
     /// The spread of the SETUP prices, which is the floor under a SKU rather
     /// than what a shop is charging today. Commercial publication overrides it
     /// per site, channel and period, so a list showing these is showing what
@@ -282,6 +292,10 @@ pub struct ArticleScope {
     pub size_codes: Vec<String>,
     pub colour_codes: Vec<String>,
     pub active: Option<bool>,
+    /// `Some(false)`: sold out — nothing on hand anywhere (owner, 2026-10-15,
+    /// the Sold out tab). `Some(true)`: something on hand. Selling out never
+    /// retires an article; this only narrows the list.
+    pub in_stock: Option<bool>,
     pub order: ArticleOrder,
     pub cursor: Option<String>,
     pub limit: i64,
@@ -312,6 +326,42 @@ const MATCH_CLAUSE: &str = "
                        AND si.supplier_item_code ILIKE '%' || $1 || '%'))
 ";
 
+/// Whether an article has anything on hand, for `in_stock`. The places are
+/// the ones `stock_by_article` and the sheet sum; `$S` is the parameter's
+/// number in the statement it is put into.
+const IN_STOCK_CLAUSE: &str = "
+    ($S::bool IS NULL OR $S = (COALESCE((
+        SELECT sum(h.q) FROM (
+            SELECT pr.quantity::bigint AS q
+              FROM inventory_projection pr
+              JOIN inventory_place pl ON pl.id = pr.place_id
+              JOIN operational_pool op ON op.id = pl.pool_id
+              JOIN inventory_subject su ON su.id = pr.subject_id
+              JOIN sku k ON k.id = su.sku_id
+             WHERE k.article_id = a.id
+               AND pl.kind = 'OPERATIONAL' AND pl.state = 'NORMAL'
+               AND op.site_id NOT IN (
+                   SELECT c.site_id FROM sync_origin_credential c
+                     JOIN sync_applied_watermark w
+                       ON w.origin_id = c.origin_id AND w.generation = c.active_generation
+                    WHERE c.inventory_enabled)
+            UNION ALL
+            SELECT fp.quantity::bigint
+              FROM edge_inventory_fact_position fp
+              JOIN sku k ON k.sku_code = fp.sku_code
+             WHERE k.article_id = a.id AND fp.place_id LIKE '%:on_hand'
+               AND fp.origin_id IN (
+                   SELECT c.origin_id FROM sync_origin_credential c
+                     JOIN sync_applied_watermark w
+                       ON w.origin_id = c.origin_id AND w.generation = c.active_generation
+                    WHERE c.inventory_enabled)
+        ) h), 0) > 0))
+";
+
+fn in_stock_clause(param: u8) -> String {
+    IN_STOCK_CLAUSE.replace("$S", &format!("${param}"))
+}
+
 fn article_row_from(row: &PgRow) -> Result<ArticleRow, AppError> {
     Ok(ArticleRow {
         article_code: row.try_get("article_code")?,
@@ -319,10 +369,12 @@ fn article_row_from(row: &PgRow) -> Result<ArticleRow, AppError> {
         active: row.try_get("active")?,
         division_code: row.try_get("division_code")?,
         image_url: row.try_get("image_url")?,
+        description: row.try_get("description")?,
         tags: row.try_get("tags")?,
         colours: serde_json::from_value(row.try_get("colours")?)?,
         size_codes: row.try_get("size_codes")?,
         sku_count: row.try_get("sku_count")?,
+        stock_qty: None,
         base_price_min_minor: row.try_get("base_price_min_minor")?,
         base_price_max_minor: row.try_get("base_price_max_minor")?,
         currency: row.try_get("currency")?,
@@ -342,7 +394,7 @@ fn article_row_from(row: &PgRow) -> Result<ArticleRow, AppError> {
 /// one.
 const ROW_COLUMNS: &str = "
     a.id, a.article_code, a.name, a.active, a.division_code, a.image_url,
-    a.version, a.created_at, a.created_by_session_id,
+    a.description, a.version, a.created_at, a.created_by_session_id,
     a.stock_unit_code, a.purchase_unit_code, a.sales_unit_code,
     COALESCE((SELECT array_agg(t.tag_code ORDER BY t.tag_code)
                 FROM article_tag t WHERE t.article_id = a.id), '{}') AS tags,
@@ -419,6 +471,7 @@ pub async fn search_articles(pool: &PgPool, scope: ArticleScope) -> Result<Artic
            FROM article a
            {ROW_STATS_JOIN}
           WHERE {MATCH_CLAUSE}
+            AND {stock}
             AND ($4::text[] IS NULL OR a.division_code = ANY($4))
             AND ($5::text[] IS NULL OR EXISTS (
                     SELECT 1 FROM article_tag t
@@ -452,6 +505,11 @@ pub async fn search_articles(pool: &PgPool, scope: ArticleScope) -> Result<Artic
             ArticleOrder::Oldest => "$9",
             ArticleOrder::Newest => "$10",
         },
+        // After the limit, whichever number that took.
+        stock = in_stock_clause(match scope.order {
+            ArticleOrder::Oldest => 10,
+            ArticleOrder::Newest => 11,
+        }),
     );
     let mut query = sqlx::query(&sql)
         .bind(&needle)
@@ -467,7 +525,11 @@ pub async fn search_articles(pool: &PgPool, scope: ArticleScope) -> Result<Artic
     if scope.order == ArticleOrder::Newest {
         query = query.bind(cursor.as_ref().and_then(|c| c.created_at));
     }
-    let rows = query.bind(limit).fetch_all(pool).await?;
+    let rows = query
+        .bind(limit)
+        .bind(scope.in_stock)
+        .fetch_all(pool)
+        .await?;
 
     let next_cursor = if (rows.len() as i64) < limit {
         None
@@ -486,13 +548,28 @@ pub async fn search_articles(pool: &PgPool, scope: ArticleScope) -> Result<Artic
             None => None,
         }
     };
-    let items = rows
+    let mut items = rows
         .iter()
         .map(article_row_from)
         .collect::<Result<Vec<_>, _>>()?;
+    let ids = rows
+        .iter()
+        .map(|row| row.try_get::<Uuid, _>("id"))
+        .collect::<Result<Vec<_>, _>>()?;
+    let stock = stock_by_article(pool, &ids).await?;
+    for (item, id) in items.iter_mut().zip(&ids) {
+        item.stock_qty = Some(stock.get(id).copied().unwrap_or(0));
+    }
 
     let (total, facets) =
-        article_facets(pool, needle.as_deref(), epc_sku.as_deref(), scope.active).await?;
+        article_facets(
+            pool,
+            needle.as_deref(),
+            epc_sku.as_deref(),
+            scope.active,
+            scope.in_stock,
+        )
+        .await?;
     Ok(ArticlePage {
         items,
         next_cursor,
@@ -510,10 +587,13 @@ async fn article_facets(
     needle: Option<&str>,
     epc_sku: Option<&str>,
     active: Option<bool>,
+    in_stock: Option<bool>,
 ) -> Result<(i64, ArticleFacets), AppError> {
+    let stock = in_stock_clause(4);
     let sql = format!(
         "WITH base AS (
-             SELECT a.id, a.division_code FROM article a WHERE {MATCH_CLAUSE}
+             SELECT a.id, a.division_code FROM article a
+              WHERE {MATCH_CLAUSE} AND {stock}
          )
          SELECT
              (SELECT count(*) FROM base) AS total,
@@ -558,6 +638,7 @@ async fn article_facets(
         .bind(needle)
         .bind(epc_sku)
         .bind(active)
+        .bind(in_stock)
         .fetch_one(pool)
         .await?;
     Ok((
@@ -624,6 +705,48 @@ async fn with_stock(
         sku.stock_qty = held.get(&sku.sku_code).copied().unwrap_or(0);
     }
     Ok(skus)
+}
+
+/// Pieces on hand per article, for one page of the list. The same places the
+/// article's sheet sums per SKU (`skus_for`): the cloud's own operational
+/// pools, and each inventory server's on-hand positions for the sites it owns.
+async fn stock_by_article(pool: &PgPool, ids: &[Uuid]) -> Result<HashMap<Uuid, i64>, AppError> {
+    if ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    sqlx::query(
+        "WITH edge_owned AS (
+             SELECT c.origin_id, c.site_id
+               FROM sync_origin_credential c
+               JOIN sync_applied_watermark w
+                 ON w.origin_id = c.origin_id AND w.generation = c.active_generation
+              WHERE c.inventory_enabled
+         ),
+         held AS (
+             SELECT k.article_id, pr.quantity::bigint AS quantity
+               FROM inventory_projection pr
+               JOIN inventory_place pl ON pl.id = pr.place_id
+               JOIN operational_pool op ON op.id = pl.pool_id
+               JOIN inventory_subject su ON su.id = pr.subject_id
+               JOIN sku k ON k.id = su.sku_id
+              WHERE k.article_id = ANY($1)
+                AND pl.kind = 'OPERATIONAL' AND pl.state = 'NORMAL'
+                AND op.site_id NOT IN (SELECT site_id FROM edge_owned)
+             UNION ALL
+             SELECT k.article_id, fp.quantity::bigint
+               FROM edge_inventory_fact_position fp
+               JOIN edge_owned e ON e.origin_id = fp.origin_id
+               JOIN sku k ON k.sku_code = fp.sku_code
+              WHERE k.article_id = ANY($1) AND fp.place_id LIKE '%:on_hand'
+         )
+         SELECT article_id, sum(quantity)::bigint AS on_hand FROM held GROUP BY article_id",
+    )
+    .bind(ids)
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(|row| Ok((row.try_get("article_id")?, row.try_get("on_hand")?)))
+    .collect()
 }
 
 pub async fn article_detail(pool: &PgPool, article_code: &str) -> Result<ArticleDetail, AppError> {
@@ -768,6 +891,10 @@ pub struct UpdateArticleRequest {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
     pub image_url: NullablePatch<String>,
+    /// Absent leaves it; `null` or blank clears it (0968).
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
+    pub description: NullablePatch<String>,
     /// Absent leaves tags alone; present REPLACES them. An empty list is
     /// therefore "remove every tag", which is a thing somebody may want to
     /// say — and is why this is not merged into the existing set.
@@ -846,12 +973,14 @@ pub async fn update_article(
     let changes_name = request.name.is_some();
     let changes_division = !matches!(request.division_code, NullablePatch::Missing);
     let changes_image = !matches!(request.image_url, NullablePatch::Missing);
+    let changes_description = !matches!(request.description, NullablePatch::Missing);
     let changes_active = request.active.is_some();
     let changes_purchase_unit = !matches!(request.purchase_unit_code, NullablePatch::Missing);
     let changes_sales_unit = !matches!(request.sales_unit_code, NullablePatch::Missing);
     if !(changes_name
         || changes_division
         || changes_image
+        || changes_description
         || changes_active
         || request.tags.is_some()
         || request.colours.is_some()
@@ -880,6 +1009,10 @@ pub async fn update_article(
         NullablePatch::Value(value) => Some(value.trim().to_owned()).filter(|v| !v.is_empty()),
         NullablePatch::Missing | NullablePatch::Null => None,
     };
+    let description = match &request.description {
+        NullablePatch::Value(value) => Some(value.trim().to_owned()).filter(|v| !v.is_empty()),
+        NullablePatch::Missing | NullablePatch::Null => None,
+    };
     let tags = request
         .tags
         .map(normalize_tag_codes)
@@ -899,6 +1032,7 @@ pub async fn update_article(
              division_code = CASE WHEN $5 THEN $6 ELSE division_code END,
              image_url     = CASE WHEN $7 THEN $8 ELSE image_url END,
              active        = CASE WHEN $9 THEN $10 ELSE active END,
+             description   = CASE WHEN $12 THEN $13 ELSE description END,
              version = version + 1, updated_by = $11, updated_at = now()
          WHERE article_code = $1 AND version = $2
          RETURNING id",
@@ -914,6 +1048,8 @@ pub async fn update_article(
     .bind(changes_active)
     .bind(request.active)
     .bind(actor.trim())
+    .bind(changes_description)
+    .bind(&description)
     .fetch_optional(&mut *transaction)
     .await
     .map_err(map_article_write_error)?;

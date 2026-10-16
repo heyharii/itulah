@@ -13,12 +13,11 @@ a cashier wait.**
 
 Status: **Phases 0–4 code complete 2026-10-07** (baseline numbers in
 [docs/pos-performance-round1.md](docs/pos-performance-round1.md)). The
-after-optimization benchmark run was **skipped at the owner's instruction**
-("abaikan testing") — the code ships unverified by the harness; run
-`scripts/benchmark-pos-edge.py` before trusting any margin. Gate notes:
-`cargo check --lib` clean; `cargo test --lib` and clippy are red on the
-owner's in-flight WIP in `backend/src/cloud/*` (168 files) — pre-existing,
-not this lane. Harnesses:
+after-optimization benchmark was initially skipped, then **run 2026-10-10 —
+every SLO row green, crash gate green** ("Round 2" in
+[docs/pos-performance-round1.md](docs/pos-performance-round1.md)); the
+remaining Phase 5 items are the till E2E flows on a live node and a re-run on
+shop-grade storage. Harnesses:
 `scripts/benchmark-pos-edge.py`, `scripts/api-perf.mjs --only pos`.
 
 ---

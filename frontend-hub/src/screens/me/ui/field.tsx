@@ -9,7 +9,7 @@ export { Field } from "@/components/ui/field"
 
 // 16px on a touch screen: anything smaller makes iOS Safari zoom on focus.
 const control = cn(
-  "w-full rounded-inner border border-hairline-2 bg-canvas px-3 text-[0.875rem] text-ink transition-colors outline-none placeholder:text-mute hover:border-hairline-strong focus:border-accent disabled:opacity-50 pointer-coarse:text-[1rem]",
+  "w-full rounded-inner border border-hairline-2 bg-canvas px-3 text-[0.9375rem] text-ink transition-colors outline-none placeholder:text-mute hover:border-hairline-strong focus:border-accent disabled:opacity-50 pointer-coarse:text-[1rem]",
   INVALID
 )
 

@@ -125,7 +125,7 @@ export function StatementScreen({
             className="h-8 w-44"
           />
           <Toolbar.Spacer />
-          <span className="text-[0.875rem] text-mute">{year.label}</span>
+          <span className="text-[0.9375rem] text-mute">{year.label}</span>
         </Toolbar>
 
         {/* Out of balance is not a rounding note: it means the postings behind
@@ -227,7 +227,7 @@ export function StatementScreen({
                           >
                             {line.name}
                           </span>
-                          <span className="ml-2 font-mono text-[0.875rem] text-mute">
+                          <span className="ml-2 font-mono text-[0.9375rem] text-mute">
                             {line.account_code}
                           </span>
                         </Td>

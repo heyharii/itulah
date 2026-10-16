@@ -94,7 +94,7 @@ export function Terms({
                 key={row.label}
                 className="flex items-baseline justify-between gap-6"
               >
-                <dt className="shrink-0 text-[0.875rem] text-mute">
+                <dt className="shrink-0 text-[0.9375rem] text-mute">
                   {row.label}
                 </dt>
                 <dd className="min-w-0 text-right text-[0.9375rem] text-ink">
@@ -115,25 +115,25 @@ export function Terms({
     <div className="rounded-inner border border-hairline bg-soft p-5">
       <div className="mb-3 flex items-baseline justify-between gap-2">
         <span className="text-metric font-semibold text-ink">{headline}</span>
-        <span className="truncate text-[0.875rem] text-mute">
+        <span className="truncate text-[0.9375rem] text-mute">
           {name.trim() === "" ? "Unnamed" : name.trim()}
         </span>
       </div>
 
       {prose && prose.trim() !== "" && (
-        <p className="mb-4 border-l-2 border-hairline-strong pl-2.5 text-[0.875rem] leading-relaxed whitespace-pre-line text-text">
+        <p className="mb-4 border-l-2 border-hairline-strong pl-2.5 text-[0.9375rem] leading-relaxed whitespace-pre-line text-text">
           {prose.trim()}
         </p>
       )}
 
       {said.length === 0 ? (
-        <p className="text-[0.875rem] leading-relaxed text-mute">{empty}</p>
+        <p className="text-[0.9375rem] leading-relaxed text-mute">{empty}</p>
       ) : (
         <ol className="flex flex-col gap-2">
           {said.map((one, index) => (
             <li
               key={index}
-              className="flex gap-2 text-[0.875rem] leading-relaxed text-text"
+              className="flex gap-2 text-[0.9375rem] leading-relaxed text-text"
             >
               <span className="shrink-0 text-mute tabular-nums">
                 {index + 1}.
@@ -146,7 +146,7 @@ export function Terms({
 
       {(unsaid.length > 0 || foot) && (
         <div className="mt-4 border-t border-hairline pt-4">
-          <p className="text-[0.875rem] leading-relaxed text-mute">
+          <p className="text-[0.9375rem] leading-relaxed text-mute">
             {unsaid.length > 0
               ? `A shopper is never told any of this: ${unsaid.join("; ")}.`
               : foot}
@@ -191,11 +191,11 @@ export function More({
             open && "rotate-90"
           )}
         />
-        <span className="flex-1 text-[0.875rem] font-medium text-ink">
+        <span className="flex-1 text-[0.9375rem] font-medium text-ink">
           {label}
         </span>
         {count > 0 && (
-          <span className="rounded-full bg-accent-bg px-2 py-0.5 text-[0.875rem] font-medium text-accent tabular-nums">
+          <span className="rounded-full bg-accent-bg px-2 py-0.5 text-[0.9375rem] font-medium text-accent tabular-nums">
             {count} set
           </span>
         )}
@@ -225,7 +225,7 @@ export function Question({
 }) {
   return (
     <div className={cn("flex flex-col gap-2", className)}>
-      <span className="text-[0.875rem] font-medium text-text">{label}</span>
+      <span className="text-[0.9375rem] font-medium text-text">{label}</span>
       {children}
     </div>
   )

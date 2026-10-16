@@ -15,7 +15,7 @@ import { count, moment } from "@/lib/format"
 import { useGo } from "@/lib/go"
 import { useLayout } from "@/lib/layout"
 import { isDown } from "@/lib/prices"
-import { catalogueKey, fetchCatalogue } from "@/lib/queries"
+import { catalogueQuery } from "@/lib/queries"
 import { queryState } from "@/lib/query-state"
 import { cn } from "@/lib/utils"
 import { Photograph } from "@/screens/catalogue-parts"
@@ -106,8 +106,7 @@ function DropList({ offers }: { offers: StoreOffers }) {
   // The articles at the new price: read from the catalogue the till already
   // holds — a markdown is a price, so they are the rows priced under their base.
   const catalogue = useQuery({
-    queryKey: catalogueKey(),
-    queryFn: ({ signal }) => fetchCatalogue(signal),
+    ...catalogueQuery(),
     refetchInterval: 60_000,
   })
   const currency = catalogue.data?.currency ?? "IDR"
@@ -144,6 +143,13 @@ function DropList({ offers }: { offers: StoreOffers }) {
           onChange: (next) => setPhase(next as Phase),
         }}
       />
+      <Summary
+        parts={[
+          [running, "active"],
+          [every.length - running, "scheduled"],
+        ]}
+      />
+
       <Toolbar>
         <PhaseFilter
           value={phase}
@@ -157,13 +163,6 @@ function DropList({ offers }: { offers: StoreOffers }) {
           placeholder="Search price changes and articles"
         />
       </Toolbar>
-
-      <Summary
-        parts={[
-          [running, "active"],
-          [every.length - running, "scheduled"],
-        ]}
-      />
 
       {!showRuns && !showArticles && (
         <EmptyState>
