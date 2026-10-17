@@ -1062,7 +1062,7 @@ function CreatedList({ outcome }: { outcome: Outcome }) {
 /// Copy, and say so for a few seconds — the same feedback
 /// `screens/workplace/vault-tile.tsx` uses for a file link, kept local rather
 /// than a toast because several of these can sit on one screen at once.
-function CopyButton({
+export function CopyButton({
   text,
   label = "Copy",
 }: {

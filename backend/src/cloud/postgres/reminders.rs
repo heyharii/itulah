@@ -12,6 +12,7 @@
 
 use crate::cloud::application::AppError;
 use crate::cloud::domain::reminder::{self, jobs, kinds, ExpiryBand};
+use crate::cloud::domain::RecordKind;
 use crate::cloud::postgres::{
     self as infrastructure, claim_run, finish_run, NewNotification, SchedulerJobResult,
 };
@@ -122,7 +123,7 @@ pub async fn run_ga_contract_reminders(pool: &PgPool, on: NaiveDate) -> Result<V
             kinds::GA_CONTRACT,
             title,
             &body,
-            Some(("ga_contract", contract_id.clone())),
+            Some((RecordKind::Contract.as_str(), contract_id.clone())),
             detail,
         )
         .await?
@@ -193,7 +194,7 @@ pub async fn run_document_reminders(pool: &PgPool, on: NaiveDate) -> Result<Valu
             kinds::DOCUMENT,
             title,
             &body,
-            Some(("document", document_id.clone())),
+            Some((RecordKind::Document.as_str(), document_id.clone())),
             detail,
         )
         .await?
@@ -385,7 +386,7 @@ pub async fn run_tax_deadline_reminders(pool: &PgPool, on: NaiveDate) -> Result<
                 kinds::TAX_DEADLINE,
                 title,
                 &body,
-                Some(("tax_period", period.period_id.to_string())),
+                Some((RecordKind::TaxPeriod.as_str(), period.period_id.to_string())),
                 detail,
             )
             .await?

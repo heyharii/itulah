@@ -8,8 +8,10 @@ import {
 } from "@/lib/queries/hr-employees"
 import {
   claimsKeys,
+  hireKeys,
   leaveKeys,
   listClaims,
+  listHireProposals,
   listCorrections,
   listRuns,
   nextKeys,
@@ -27,7 +29,8 @@ import { usePeopleAudience } from "@/screens/people/scope"
 ///
 /// One hook for the inbox and its badge, so the count on the Overview row is
 /// the number of rows the Overview lists and cannot drift from it (an audit of
-/// 16 Oct 2026 found the badge counting hire proposals no screen showed).
+/// 16 Oct 2026 found the badge counting hire proposals no screen showed; they
+/// are rows of the inbox again since, with their own sheet).
 ///
 /// Overtime orders nobody has answered are not here: the answer belongs to
 /// the worker, and an inbox is the reader's own work.
@@ -64,6 +67,13 @@ export function usePeopleInbox() {
     queryFn: ({ signal }) => listDataRequests(false, signal),
     enabled: employer,
   })
+  /// A store's request for a new person, decided by head office (owner,
+  /// 2026-10-16) — and, once approved, waiting for its account.
+  const hires = useQuery({
+    queryKey: hireKeys.list(),
+    queryFn: ({ signal }) => listHireProposals(signal),
+    enabled: employer,
+  })
 
   return {
     employer,
@@ -74,6 +84,7 @@ export function usePeopleInbox() {
     runs,
     changes,
     details,
+    hires,
     /// Only the rows that are waiting: the runs a place has sent, the
     /// changes and requests still pending. Empty while a read is out.
     waitingRuns: (runs.data ?? []).filter((one) => one.state === "SUBMITTED"),
@@ -82,6 +93,11 @@ export function usePeopleInbox() {
     ),
     waitingDetails: (details.data ?? []).filter(
       (one) => one.state === "PENDING"
+    ),
+    waitingHires: (hires.data ?? []).filter(
+      (one) =>
+        one.state === "PROPOSED" ||
+        (one.state === "APPROVED" && one.outstanding > 0)
     ),
   }
 }
@@ -108,7 +124,8 @@ export function usePeopleWaitingCount(): number | null {
     (inbox.employer &&
       (inbox.runs.data === undefined ||
         inbox.changes.data === undefined ||
-        inbox.details.data === undefined))
+        inbox.details.data === undefined ||
+        inbox.hires.data === undefined))
   ) {
     return null
   }
@@ -120,6 +137,7 @@ export function usePeopleWaitingCount(): number | null {
     inbox.claims.data.length +
     inbox.waitingRuns.length +
     inbox.waitingChanges.length +
-    inbox.waitingDetails.length
+    inbox.waitingDetails.length +
+    inbox.waitingHires.length
   )
 }

@@ -668,6 +668,7 @@ pub async fn open_stores(
                 role_code: super::STORE_MANAGER.to_owned(),
                 unit_id: unit_id.clone(),
                 position: None,
+                employee_id: None,
             },
             actor,
         )

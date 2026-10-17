@@ -49,6 +49,7 @@ import { usePeopleInbox } from "@/screens/people/badges"
 import { changeSummary } from "@/screens/people/change-words"
 import { ChangeSheet, DataRequestSheet } from "@/screens/people/changes"
 import { ClaimSheet } from "@/screens/people/claims"
+import { HireSheet } from "@/screens/people/hire-sheet"
 import type {
   CorrectionRow,
   LeaveRequestView,
@@ -92,7 +93,14 @@ interface InboxRow {
   /// The sheet's key: the request's own id, unique across kinds.
   readonly id: string
   readonly kind:
-    "LEAVE" | "CORRECTION" | "SWAP" | "CLAIM" | "RUN" | "CHANGE" | "DETAILS"
+    | "LEAVE"
+    | "CORRECTION"
+    | "SWAP"
+    | "CLAIM"
+    | "RUN"
+    | "CHANGE"
+    | "DETAILS"
+    | "HIRE"
   /// Who asks — a place, for a payroll run.
   readonly who: string
   readonly asks: string
@@ -178,6 +186,7 @@ export function RequestQueues() {
   const claims = inbox.claims.data
   const { waitingRuns: runs, waitingChanges: changes } = inbox
   const details = inbox.waitingDetails
+  const hires = inbox.waitingHires
 
   const rows = useMemo<InboxRow[]>(
     () => [
@@ -254,6 +263,21 @@ export function RequestQueues() {
         when: weekday(row.filed_at, true),
         unit: row.unit_id === null ? "—" : unitName(row.unit_id),
       })),
+      ...hires.map((row) => {
+        const terms = row.versions.at(-1)
+        return {
+          id: row.id,
+          kind: "HIRE" as const,
+          who: terms?.candidate_name ?? "—",
+          asks: row.state === "APPROVED" ? "Account" : "New staff",
+          detail: terms
+            ? `${terms.position} · ${money(terms.base_pay_minor)}`
+            : "",
+          on: terms?.start_on ?? row.created_at.slice(0, 10),
+          when: terms ? `From ${weekday(terms.start_on, true)}` : "",
+          unit: row.unit_name ?? unitName(row.unit_id),
+        }
+      }),
     ],
     [
       leave,
@@ -263,6 +287,7 @@ export function RequestQueues() {
       runs,
       changes,
       details,
+      hires,
       people.data,
       unitName,
     ]
@@ -276,7 +301,9 @@ export function RequestQueues() {
     inbox.corrections,
     inbox.swaps,
     inbox.claims,
-    ...(inbox.employer ? [inbox.runs, inbox.changes, inbox.details] : []),
+    ...(inbox.employer
+      ? [inbox.runs, inbox.changes, inbox.details, inbox.hires]
+      : []),
   ]
   const read = {
     isPending: sources.some((one) => one.isPending),
@@ -326,6 +353,10 @@ export function RequestQueues() {
   const openChange = changes.find((row) => row.id === id) ?? null
   const openDetails: PersonalDataRequestView | null =
     details.find((row) => row.id === id) ?? null
+  /// Read from every proposal, not only the waiting ones: right after Approve
+  /// the sheet stays open on the same request to create the account.
+  const openHire =
+    (inbox.hires.data ?? []).find((row) => row.id === id) ?? null
 
   return (
     <>
@@ -397,6 +428,11 @@ export function RequestQueues() {
       <DataRequestSheet
         request={openDetails}
         canWrite={canWrite}
+        onClose={request.close}
+      />
+      <HireSheet
+        key={openHire?.id}
+        proposal={openHire}
         onClose={request.close}
       />
     </>

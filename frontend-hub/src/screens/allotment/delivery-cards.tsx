@@ -4,10 +4,18 @@ import { useShopName } from "@/components/operations/outbound-papers"
 import { Button } from "@/components/ui/button"
 import { count, dayMonth } from "@/lib/format"
 import {
-  allotmentsByStore,
+  allotmentDetail,
   inventoryKeys,
+  type AllotmentDetail,
+  type AllotmentLine,
   type AllotmentRow,
 } from "@/lib/queries/inventory"
+import {
+  roomOf,
+  stagesOf,
+  storesOf,
+  targetOf,
+} from "@/screens/allotment/amend-data"
 
 /// **MD's In progress list: one card per allotment — what MD allotted in one
 /// go from one delivery — never article by article** (allotment-ops-prototype,
@@ -15,8 +23,13 @@ import {
 ///
 /// Simple (owner, 16 Oct 2026): supplier, number, pieces; one tile per store
 /// with the word of where its goods are; Cancel (red) and Edit (blue) on the
-/// foot open the allotment's sheet ready to cancel or edit. A store's own
-/// slice comes from the by-store book — one read per store.
+/// foot open the allotment's sheet ready to cancel or edit.
+///
+/// A store's own slice comes from the allotment's lines — the same read, and
+/// the same cache entry, as its sheet, so the card and the sheet cannot say
+/// two things. The by-store book is no use here: its rows carry the WHOLE
+/// allotment's totals, so every store of a split allotment read the same
+/// word (17 Oct 2026: C001 dispatched and C002 cancelled both said Picking).
 
 /// The stage colours of the store tiles' dots.
 const STAGE_COLOUR = {
@@ -27,28 +40,50 @@ const STAGE_COLOUR = {
   received: "#36b827",
 } as const
 
-/// Where an allotment's (or one store's slice of it) pieces are.
-function stagesOf(row: AllotmentRow) {
-  const total = Math.max(0, row.total_quantity - row.total_cancelled_quantity)
-  const received = row.received_qty
-  const onWay = row.at_in_transit_qty
-  const packed = row.at_packed_qty + row.at_shipment_qty + row.at_loaded_qty
-  const worked = Math.max(row.total_picked_quantity, packed + onWay + received)
-  const picked = Math.max(0, worked - packed - onWay - received)
-  const toPick = Math.max(0, total - worked)
-  return { total, received, onWay, packed, picked, toPick, worked }
+/// The pieces these lines still mean to deliver. MD's edit and cancel on a
+/// cloud-run allotment lower the target; a DC node's cancel leaves the target
+/// and counts the pieces as cancelled — both come off here.
+function wantedOf(lines: readonly AllotmentLine[]): number {
+  return lines.reduce(
+    (sum, line) => sum + Math.max(0, targetOf(line) - line.cancelled_quantity),
+    0
+  )
+}
+
+/// The card's pieces before its lines have arrived: the row's own totals,
+/// where MD's edits are only counted as closed short.
+function wantedOfRow(row: AllotmentRow): number {
+  return Math.max(
+    0,
+    row.total_quantity -
+      Math.max(row.total_cancelled_quantity, row.closed_short_qty)
+  )
 }
 
 /// One store's word: the least-done stage it still has goods in.
-function storeStage(row: AllotmentRow): [string, string] {
-  const s = stagesOf(row)
-  if (s.total === 0) return ["Cancelled", STAGE_COLOUR.toPick]
-  if (s.toPick === s.total) return ["To pick", STAGE_COLOUR.toPick]
+function storeStage(lines: readonly AllotmentLine[]): [string, string] {
+  const wanted = wantedOf(lines)
+  if (wanted === 0) return ["Cancelled", STAGE_COLOUR.toPick]
+  const s = stagesOf(lines)
+  if (s.toPick >= wanted) return ["To pick", STAGE_COLOUR.toPick]
   if (s.toPick > 0) return ["Picking", STAGE_COLOUR.picked]
   if (s.picked > 0) return ["Picked", STAGE_COLOUR.picked]
   if (s.packed > 0) return ["Packed", STAGE_COLOUR.packed]
-  if (s.onWay > 0) return ["Dispatched", STAGE_COLOUR.dispatched]
+  const onWay = lines.some(
+    (line) =>
+      line.at_shipment_qty + line.at_loaded_qty + line.at_in_transit_qty > 0
+  )
+  if (onWay) return ["Dispatched", STAGE_COLOUR.dispatched]
   return ["Received", STAGE_COLOUR.received]
+}
+
+/// Nothing is left that is not dispatched: no cancel. The sheet's own rule
+/// (`allSent` in allotments.tsx), so the card never offers what the sheet
+/// then refuses.
+function allSentOf(record: AllotmentDetail): boolean {
+  return record.activation_target_origin_id !== null
+    ? record.to_pack_qty === 0
+    : roomOf(record.lines) === 0
 }
 
 export function DeliveryCards({
@@ -64,24 +99,14 @@ export function DeliveryCards({
   onEdit: (id: string) => void
   onCancel: (id: string) => void
 }) {
-  // Every store's own slice of every allotment, by allotment then store.
-  const slices = useQueries({
-    queries: stores.map((store) => ({
-      queryKey: inventoryKeys.allotmentsByStore(store.value),
+  // Every card's lines: one read per allotment, shared with its sheet.
+  const details = useQueries({
+    queries: rows.map((row) => ({
+      queryKey: inventoryKeys.allotment(row.id),
       queryFn: ({ signal }: { signal: AbortSignal }) =>
-        allotmentsByStore(store.value, signal),
+        allotmentDetail(row.id, signal),
       staleTime: 30_000,
     })),
-  })
-  const byAllotment = new Map<string, { store: string; row: AllotmentRow }[]>()
-  slices.forEach((slice, index) => {
-    const store = stores[index]
-    if (store === undefined) return
-    for (const row of slice.data?.items ?? []) {
-      const list = byAllotment.get(row.id) ?? []
-      list.push({ store: store.value, row })
-      byAllotment.set(row.id, list)
-    }
   })
   const shop = useShopName()
   const storeCode = (id: string) => {
@@ -96,11 +121,12 @@ export function DeliveryCards({
 
   return (
     <div className="flex flex-col gap-3">
-      {rows.map((row) => {
-        const s = stagesOf(row)
-        const mine = (byAllotment.get(row.id) ?? []).filter(
-          (one) => one.row.total_quantity > 0
-        )
+      {rows.map((row, index) => {
+        const record = details[index]?.data
+        const lines = record?.lines
+        const pieces = lines === undefined ? wantedOfRow(row) : wantedOf(lines)
+        const mine = lines === undefined ? [] : storesOf(lines)
+        const cancellable = record === undefined || !allSentOf(record)
         return (
           <article
             key={row.id}
@@ -127,21 +153,21 @@ export function DeliveryCards({
                 </span>
               </span>
               <span className="font-semibold whitespace-nowrap text-ink tabular-nums">
-                {count(s.total)} pcs
+                {count(pieces)} pcs
               </span>
             </span>
 
             {mine.length > 0 && (
               <span className="grid grid-cols-[repeat(auto-fill,minmax(11rem,1fr))] gap-2 max-md:grid-cols-2">
                 {mine.map((one) => {
-                  const [word, colour] = storeStage(one.row)
+                  const [word, colour] = storeStage(one.lines)
                   return (
                     <span
-                      key={one.store}
+                      key={one.id}
                       className="flex items-center justify-between gap-2 rounded-inner bg-soft px-3 py-2 text-[0.9375rem]"
                     >
                       <span className="min-w-0 truncate font-medium text-ink">
-                        {storeCode(one.store)}
+                        {storeCode(one.id)}
                       </span>
                       <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-mute">
                         <i
@@ -158,16 +184,18 @@ export function DeliveryCards({
             )}
 
             <span className="flex justify-end gap-2 border-t border-hairline pt-3.5 max-md:[&>button]:flex-1">
-              <Button
-                variant="destructive"
-                size="card"
-                onClick={(event) => {
-                  event.stopPropagation()
-                  onCancel(row.id)
-                }}
-              >
-                Cancel
-              </Button>
+              {cancellable && (
+                <Button
+                  variant="destructive"
+                  size="card"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onCancel(row.id)
+                  }}
+                >
+                  Cancel
+                </Button>
+              )}
               <Button
                 variant="primary"
                 size="card"

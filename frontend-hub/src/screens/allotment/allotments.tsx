@@ -868,9 +868,16 @@ export function Allotments({
   }
   /// The strip's figures — said again in a line under the title on a phone.
   const active = activeQuery.data?.items
+  // MD's edit and cancel on a cloud-run allotment are counted as closed short,
+  // a DC node's cancel as both: the larger of the two is what is given up.
   const toPickPcs = active
     ? sumOf(active, (r) =>
-        Math.max(0, r.total_quantity - r.total_cancelled_quantity - workedOf(r))
+        Math.max(
+          0,
+          r.total_quantity -
+            Math.max(r.total_cancelled_quantity, r.closed_short_qty) -
+            workedOf(r)
+        )
       )
     : undefined
   const inWarehouse = active

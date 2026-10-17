@@ -173,6 +173,12 @@ pub enum RecordKind {
     BankStatement,
     StatementSource,
     FiscalPeriod,
+    /// One tax in one month — what is owed to the state, what was credited,
+    /// and whether the return went in (0279). Not a [`Self::FiscalPeriod`]:
+    /// that closes the books, this is a debt with deadlines. The tax deadline
+    /// reminder names it as the notice's subject, which is why 0973 had to
+    /// register it.
+    TaxPeriod,
     /// A correction as a DECISION — raised, approved, posted, maybe reversed.
     /// Not the journal entry it becomes: that is filed under [`Self::Journal`]
     /// by the poster, and a correction has three states an entry never has.
@@ -224,7 +230,7 @@ impl RecordKind {
     /// Exported because two guards read it: the conformance test that compares
     /// this list against the `record_kind` table, and the catalogue that
     /// records which kind each route files under.
-    pub const ALL: [Self; 73] = [
+    pub const ALL: [Self; 74] = [
         Self::Article,
         Self::ArticleSetup,
         Self::Colour,
@@ -279,6 +285,7 @@ impl RecordKind {
         Self::BankStatement,
         Self::StatementSource,
         Self::FiscalPeriod,
+        Self::TaxPeriod,
         Self::Employee,
         Self::LeaveRequest,
         Self::OvertimeOrder,
@@ -357,6 +364,7 @@ impl RecordKind {
             Self::BankStatement => "bank_statement",
             Self::StatementSource => "statement_source",
             Self::FiscalPeriod => "fiscal_period",
+            Self::TaxPeriod => "tax_period",
             Self::Employee => "employee",
             Self::LeaveRequest => "leave_request",
             Self::OvertimeOrder => "overtime_order",
@@ -437,6 +445,7 @@ impl RecordKind {
             Self::BankStatement => "Bank statement",
             Self::StatementSource => "Statement source",
             Self::FiscalPeriod => "Fiscal period",
+            Self::TaxPeriod => "Tax period",
             Self::Employee => "Employee",
             Self::LeaveRequest => "Leave request",
             Self::OvertimeOrder => "Overtime order",
@@ -532,6 +541,7 @@ impl RecordKind {
             Self::BankStatement => "/api/v1/finance/bank-statements",
             Self::StatementSource => "/api/v1/finance/statement-sources",
             Self::FiscalPeriod => "/api/v1/finance/periods",
+            Self::TaxPeriod => "/api/v1/finance/tax/periods",
             Self::Employee | Self::LeaveRequest | Self::OvertimeOrder | Self::AttendancePeriod => {
                 "/api/v1/employees"
             }

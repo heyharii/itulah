@@ -49,6 +49,14 @@ pub struct InvitePerson {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub position: Option<String>,
+    /// An employment record that already exists — the candidate an approved
+    /// hire proposal opened (owner, 2026-10-16: the store asks, head office
+    /// approves, the person gets an account). The link then binds to that
+    /// record instead of minting a new one; it must still be a candidate with
+    /// no login and no open invitation.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub employee_id: Option<String>,
 }
 
 /// `POST /api/v1/invitations`.
@@ -316,35 +324,49 @@ pub async fn invite_tx(
     let today = today_at_unit(tx, &unit_id).await?;
     let because = format!("invited as {role_name}");
 
-    // The employment record, minted here like every other: an id nobody
-    // chose, and a badge number in the house series HR may correct later.
-    let simple = Uuid::new_v4().simple().to_string();
-    let employee_id = format!("emp_{simple}");
-    let code = format!(
-        "ITL-{}",
-        simple
-            .chars()
-            .take(8)
-            .collect::<String>()
-            .to_ascii_uppercase()
-    );
-    let employee = Employee::try_register(&employee_id, &code).map_err(invalid)?;
-    super::register_employee_tx(tx, &employee).await?;
+    let employee_id = match person
+        .employee_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+    {
+        Some(existing) => {
+            existing_candidate_tx(tx, existing).await?;
+            existing.to_owned()
+        }
+        None => {
+            // The employment record, minted here like every other: an id nobody
+            // chose, and a badge number in the house series HR may correct later.
+            let simple = Uuid::new_v4().simple().to_string();
+            let employee_id = format!("emp_{simple}");
+            let code = format!(
+                "ITL-{}",
+                simple
+                    .chars()
+                    .take(8)
+                    .collect::<String>()
+                    .to_ascii_uppercase()
+            );
+            let employee = Employee::try_register(&employee_id, &code).map_err(invalid)?;
+            super::register_employee_tx(tx, &employee).await?;
 
-    let mut postings = AssignmentTimeline::new();
-    postings
-        .push(
-            AssignmentSpan::try_new(
-                UnitId::try_new(&unit_id).map_err(invalid)?,
-                today,
-                None,
-                Authorization::try_new(actor, actions::ASSIGNMENT_MANAGE, now, &because)
+            let mut postings = AssignmentTimeline::new();
+            postings
+                .push(
+                    AssignmentSpan::try_new(
+                        UnitId::try_new(&unit_id).map_err(invalid)?,
+                        today,
+                        None,
+                        Authorization::try_new(actor, actions::ASSIGNMENT_MANAGE, now, &because)
+                            .map_err(invalid)?,
+                    )
                     .map_err(invalid)?,
-            )
-            .map_err(invalid)?,
-        )
-        .map_err(|error| AppError::Conflict(error.to_string()))?;
-    super::replace_assignments_tx(tx, &employee_id, &postings).await?;
+                )
+                .map_err(|error| AppError::Conflict(error.to_string()))?;
+            super::replace_assignments_tx(tx, &employee_id, &postings).await?;
+            employee_id
+        }
+    };
 
     let suggested = suggest_username(tx, &name).await?;
     let token = security::random_url_token();
@@ -379,6 +401,52 @@ pub async fn invite_tx(
         token,
         expires_at,
     })
+}
+
+/// An employment record an invitation may bind to: it exists, is still a
+/// candidate, has no login yet and no invitation still waiting.
+async fn existing_candidate_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    employee_id: &str,
+) -> Result<(), AppError> {
+    let status: Option<String> =
+        sqlx::query_scalar("SELECT status FROM employee WHERE id = $1 FOR UPDATE")
+            .bind(employee_id)
+            .fetch_optional(&mut **tx)
+            .await?;
+    match status.as_deref() {
+        None => return Err(AppError::NotFound(format!("employee {employee_id}"))),
+        Some("CANDIDATE") => {}
+        Some(other) => {
+            return Err(AppError::Conflict(format!(
+                "employee {employee_id} is {other}; only a candidate is invited this way"
+            )))
+        }
+    }
+    let login: Option<String> =
+        sqlx::query_scalar("SELECT username FROM app_user WHERE employee_id = $1")
+            .bind(employee_id)
+            .fetch_optional(&mut **tx)
+            .await?;
+    if let Some(username) = login {
+        return Err(AppError::Conflict(format!(
+            "employee {employee_id} already signs in as {username}"
+        )));
+    }
+    let waiting: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM user_invitation
+                         WHERE employee_id = $1 AND accepted_at IS NULL
+                           AND revoked_at IS NULL AND expires_at > now())",
+    )
+    .bind(employee_id)
+    .fetch_one(&mut **tx)
+    .await?;
+    if waiting {
+        return Err(AppError::Conflict(format!(
+            "employee {employee_id} already has an invitation waiting; renew that one"
+        )));
+    }
+    Ok(())
 }
 
 /// Invite everybody named, all or none.

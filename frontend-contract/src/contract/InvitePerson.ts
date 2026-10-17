@@ -3,4 +3,12 @@
 /**
  * One person to invite.
  */
-export type InvitePerson = { name: string, role_code: string, unit_id: string, position?: string, };
+export type InvitePerson = { name: string, role_code: string, unit_id: string, position?: string, 
+/**
+ * An employment record that already exists — the candidate an approved
+ * hire proposal opened (owner, 2026-10-16: the store asks, head office
+ * approves, the person gets an account). The link then binds to that
+ * record instead of minting a new one; it must still be a candidate with
+ * no login and no open invitation.
+ */
+employee_id?: string, };
