@@ -1,5 +1,6 @@
 import type { CatalogRow, SkuStockRow } from "@itulah/contract"
 
+import { sku as skuText } from "@/lib/format"
 import { shapeBook, swatchBackground } from "@/lib/variants"
 import { matches, type PlaceCode } from "@/screens/stock/shared"
 
@@ -44,6 +45,7 @@ export function articlesOf(
   for (const row of rows)
     division.set(row.article_code ?? row.sku_code, row.division_code)
   const out: StockArticle[] = []
+  const listed = new Set(rows.map((row) => row.sku_code))
   for (const [key, shape] of shapeBook(rows)) {
     const skus: StockSku[] = []
     for (const colour of shape.colours) {
@@ -72,6 +74,26 @@ export function articlesOf(
       skus,
     })
   }
+  // A SKU the node holds that the price book does not name still shows, by
+  // its code, so no piece goes missing from the page.
+  for (const [code, has] of held) {
+    if (listed.has(code)) continue
+    out.push({
+      key: code,
+      name: skuText(code),
+      division: null,
+      skus: [
+        {
+          sku: code,
+          label: skuText(code),
+          paint: swatchBackground([]),
+          floor: has.floor,
+          warehouse: has.warehouse,
+          reject: has.reject ?? 0,
+        },
+      ],
+    })
+  }
   return out.sort((a, b) => a.name.localeCompare(b.name))
 }
 
@@ -79,7 +101,7 @@ export const SHOWS = [
   ["stock", "In stock"],
   ["all", "Everything"],
   ["gap", "Not on the sales floor"],
-  ["reject", "Has reject"],
+  ["reject", "Has return"],
 ] as const
 
 export type Show = (typeof SHOWS)[number][0]

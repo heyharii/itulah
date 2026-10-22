@@ -1,15 +1,7 @@
 import { useEffect, useState } from "react"
 import { Link } from "@tanstack/react-router"
-import {
-  Flag,
-  Gift,
-  SlidersHorizontal,
-  Sparkles,
-  Undo2,
-  type LucideIcon,
-} from "lucide-react"
-
 import { ScreenTitle } from "@/components/app-shell"
+import { MattePicture, type MatteArt, type MatteTone } from "@/components/matte"
 import { EmptyState, ErrorState, LoadingRows } from "@/components/states"
 import { ListGroup } from "@/components/ui/list"
 import { dayKey, dayLabel, timeOfDay } from "@/lib/dates"
@@ -20,16 +12,16 @@ import { cn } from "@/lib/utils"
 import type { PointsEntry } from "@/lib/api"
 
 /// What each kind of ledger line means to the person whose points they are.
-const KIND: Record<string, { icon: LucideIcon; title: string; tone: "ok" | "ink" | "mute" }> = {
-  EARN: { icon: Sparkles, title: "Poin dari belanja", tone: "ok" },
-  REDEEM_TO_VOUCHER: { icon: Gift, title: "Ditukar jadi voucher", tone: "ink" },
-  VOID_REVERSAL: { icon: Undo2, title: "Belanja dibatalkan toko", tone: "mute" },
-  RETURN_REVERSAL: { icon: Undo2, title: "Barang dikembalikan", tone: "mute" },
-  ADJUSTMENT: { icon: SlidersHorizontal, title: "Penyesuaian dari toko", tone: "mute" },
-  OPENING: { icon: Flag, title: "Saldo awal", tone: "mute" },
+const KIND: Record<string, { art: MatteArt; title: string; tone: MatteTone }> = {
+  EARN: { art: "bag", title: "Poin dari belanja", tone: "deep" },
+  REDEEM_TO_VOUCHER: { art: "gift", title: "Ditukar jadi voucher", tone: "deep" },
+  VOID_REVERSAL: { art: "undo", title: "Belanja dibatalkan toko", tone: "mute" },
+  RETURN_REVERSAL: { art: "undo", title: "Barang dikembalikan", tone: "mute" },
+  ADJUSTMENT: { art: "adjust", title: "Penyesuaian dari toko", tone: "mute" },
+  OPENING: { art: "flag", title: "Saldo awal", tone: "deep" },
 }
 
-const FALLBACK = { icon: SlidersHorizontal, title: "Perubahan poin", tone: "mute" as const }
+const FALLBACK = { art: "adjust", title: "Perubahan poin", tone: "mute" } as const
 
 /// Every change to the balance, newest first — the points ledger read as a
 /// notification list. Opening it marks everything read; the dots stay for this
@@ -122,23 +114,12 @@ function Row({ entry, fresh, order }: { entry: PointsEntry; fresh: boolean; orde
   const positive = entry.points > 0
   const body = (
     <>
-      <span
-        className={cn(
-          "relative flex size-11 shrink-0 items-center justify-center rounded-full",
-          kind.tone === "ok" ? "bg-ok-bg" : kind.tone === "ink" ? "bg-ink" : "bg-soft-2",
-        )}
-      >
-        <kind.icon
-          className={cn(
-            "size-[1.125rem]",
-            kind.tone === "ok" ? "text-ok" : kind.tone === "ink" ? "text-on-dark" : "text-mute",
-          )}
-          strokeWidth={2}
-        />
+      <span className="relative shrink-0">
+        <MattePicture art={kind.art} tone={kind.tone} />
         {fresh && (
           <span
             aria-label="Baru"
-            className="absolute -top-0.5 -right-0.5 size-3 rounded-full border-2 border-canvas bg-accent"
+            className="absolute -top-0.5 right-0 size-3 rounded-full border-2 border-canvas bg-accent"
           />
         )}
       </span>
@@ -158,7 +139,7 @@ function Row({ entry, fresh, order }: { entry: PointsEntry; fresh: boolean; orde
     </>
   )
   const classes =
-    "rise flex items-center gap-3.5 rounded-inner px-3 py-3 transition-colors duration-[var(--t-hover)] ease-[var(--ease-out)]"
+    "rise flex items-center gap-3 rounded-inner px-3 py-2.5 transition-colors duration-[var(--t-hover)] ease-[var(--ease-out)]"
   const style = { "--i": order } as React.CSSProperties
   if (entry.sale_id != null) {
     return (

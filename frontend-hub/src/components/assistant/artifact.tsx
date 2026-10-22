@@ -2,7 +2,7 @@ import { QueryCard } from "@/components/assistant/query-card"
 import { rowsShown, useArtifactSpace } from "@/components/assistant/space"
 import { BarSeries, type ChartRow } from "@/components/ui/chart"
 import { SHOW_MISSING } from "@/lib/features"
-import { count, day, money } from "@/lib/format"
+import { count, day, money, sku } from "@/lib/format"
 import { ReportCard } from "@/components/assistant/report-card"
 import type { ToolRun } from "@/lib/queries/assistant"
 import { cn } from "@/lib/utils"
@@ -325,7 +325,7 @@ function Missing({ data }: { data: unknown }) {
         .map((row) => [
           text(row, "sku_code") === "—"
             ? text(row, "epc")
-            : text(row, "sku_code"),
+            : sku(text(row, "sku_code")),
           text(row, "site_id"),
           num(row, "age_hours") === null
             ? "—"

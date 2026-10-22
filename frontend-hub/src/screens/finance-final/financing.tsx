@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
+import { CellMoney } from "@/components/ui/rows-switch"
 import { EmptyState } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { count, money } from "@/lib/format"
@@ -57,21 +58,23 @@ const loanColumns: ColumnDef<TableSetup, FinancingFacility>[] = [
     header: "Principal",
     size: 150,
     meta: { align: "right", card: "metric" },
-    cell: ({ row }) => money(row.original.principal_minor),
+    cell: ({ row }) => <CellMoney minor={row.original.principal_minor} />,
   },
   {
     accessorKey: "outstanding_principal_minor",
     header: "Principal left",
     size: 160,
     meta: { align: "right", card: "metric" },
-    cell: ({ row }) => money(row.original.outstanding_principal_minor),
+    cell: ({ row }) => (
+      <CellMoney minor={row.original.outstanding_principal_minor} />
+    ),
   },
   {
     accessorKey: "paid_interest_minor",
     header: "Interest paid",
     size: 150,
     meta: { align: "right", card: "metric" },
-    cell: ({ row }) => money(row.original.paid_interest_minor),
+    cell: ({ row }) => <CellMoney minor={row.original.paid_interest_minor} />,
   },
   {
     accessorKey: "maturity_date",
@@ -116,28 +119,30 @@ const ownerColumns: ColumnDef<TableSetup, Principal>[] = [
     header: "Paid in",
     size: 170,
     meta: { align: "right", card: "metric" },
-    cell: ({ row }) => money(row.original.contributed_minor),
+    cell: ({ row }) => <CellMoney minor={row.original.contributed_minor} />,
   },
   {
     accessorKey: "drawn_minor",
     header: "Drawings",
     size: 160,
     meta: { align: "right", card: "metric" },
-    cell: ({ row }) => money(row.original.drawn_minor),
+    cell: ({ row }) => <CellMoney minor={row.original.drawn_minor} />,
   },
   {
     accessorKey: "equity_minor",
     header: "Net equity",
     size: 170,
     meta: { align: "right", card: "metric" },
-    cell: ({ row }) => money(row.original.equity_minor),
+    cell: ({ row }) => <CellMoney minor={row.original.equity_minor} />,
   },
   {
     accessorKey: "loan_outstanding_minor",
     header: "Lent to the company",
     size: 200,
     meta: { align: "right", card: "metric" },
-    cell: ({ row }) => money(row.original.loan_outstanding_minor),
+    cell: ({ row }) => (
+      <CellMoney minor={row.original.loan_outstanding_minor} />
+    ),
   },
 ]
 

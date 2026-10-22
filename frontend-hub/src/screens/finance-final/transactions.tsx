@@ -5,6 +5,7 @@ import { PageContent } from "@/components/shell/app-shell"
 import { AppLink } from "@/components/ui/app-link"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
+import { CellMoney } from "@/components/ui/rows-switch"
 import { EmptyState } from "@/components/ui/states"
 import { day, label, money } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
@@ -366,7 +367,7 @@ function TransactionsScreen() {
                   })}
                 />
               ) : (
-                <Grid>
+                <Grid followRows giveUp={[3, 5, 6]}>
                   <thead>
                     <tr>
                       <Th width="7.5rem">Date</Th>
@@ -487,9 +488,15 @@ function MovementRow({
       <Td>
         <Against entry={entry} movement={movement} />
       </Td>
-      <DebitCredit debit={row.debit_minor} credit={row.credit_minor} />
+      <DebitCredit
+        debit={row.debit_minor}
+        credit={row.credit_minor}
+        followRows
+      />
       <Td align="right">
-        <span className="font-medium text-ink">{money(balance)}</span>
+        <span className="font-medium text-ink">
+          <CellMoney minor={balance} />
+        </span>
       </Td>
     </tr>
   )

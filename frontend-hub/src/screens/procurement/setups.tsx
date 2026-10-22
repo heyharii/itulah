@@ -4,7 +4,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query"
-import { useNavigate } from "@tanstack/react-router"
+import { useNavigate, useSearch } from "@tanstack/react-router"
 import { Camera, ChevronDown, Pencil } from "lucide-react"
 import { Popover } from "@base-ui/react/popover"
 import { useTable, type ColumnDef } from "@tanstack/react-table"
@@ -21,9 +21,11 @@ import { createPortal } from "react-dom"
 
 import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
+import { POP_MOTION } from "@/lib/filter-chrome"
+import { useSetupPrice, writeSetupPrice } from "@/screens/procurement/setup-price"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
-import { SavedDialog } from "@/components/ui/dialog"
+import { Dialog, SavedDialog } from "@/components/ui/dialog"
 import { Field, Input, Money, Textarea } from "@/components/ui/field"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { BarSpacer, SearchSuggest } from "@/components/ui/list-chrome"
@@ -46,7 +48,7 @@ import {
   type QuantityCheck,
   type QuantityCheckCell,
 } from "@/lib/queries/quantity-checks"
-import { ago, count, money, quantity } from "@/lib/format"
+import { ago, count, money, quantity, countPcs, sku as skuNumber } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { asJpeg, PICTURE_TYPES } from "@/lib/image"
@@ -65,6 +67,7 @@ import {
   type SetupDraftMeta,
 } from "@/lib/queries/setup-drafts"
 import { problemOf } from "@/lib/problem"
+import { toast } from "@/lib/toast"
 import { POPUP } from "@/lib/filter-chrome"
 import { cn } from "@/lib/utils"
 import { articleKeys } from "@/lib/queries/articles"
@@ -214,7 +217,9 @@ export function SetupWorkspace() {
   const poFilter = useSheet("setupFor")
   const supplierOf = useSupplierName()
   const phone = useLayout() === "phone"
-  const [query, setQuery] = useState("")
+  // A link may carry a search (`?q=`).
+  const linked = useSearch({ strict: false }) as { q?: string }
+  const [query, setQuery] = useState(() => String(linked.q ?? ""))
   /// How the last press of Submit ended, for the record the sheet hands over
   /// to. Not in the URL: it is what just happened in front of one person, not
   /// a property of the record.
@@ -376,6 +381,12 @@ export function SetupWorkspace() {
     ? null
     : (waiting.find((row) => row.receipt_line_id === chosen.value) ?? null)
   const sheetOpen = session.isOpen || active !== null
+  /// What the open delivery's grid has declared of what was counted — the head
+  /// of the sheet shows it, so it is lifted out of the form.
+  const [tally, setTally] = useState<{
+    declared: number
+    total: number
+  } | null>(null)
 
   /// The sheet is the big one only once the warehouse has counted (the
   /// Quantity Check box then stands at the right); before that it is the
@@ -586,8 +597,23 @@ export function SetupWorkspace() {
         caption={
           // The supplier under the title (owner, 2026-10-15: "supplier
           // pindahkan ke header"); a minted record shows its code.
+          // Supplier · pieces · COGS (owner, 2026-10-18).
           active !== null ? (
-            supplierOf(active.supplier_id, active.supplier_id, active.supplier_id)
+            <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+              {supplierOf(
+                active.supplier_id,
+                active.supplier_id,
+                active.supplier_id
+              )}
+              <span aria-hidden>·</span>
+              <span className="rounded-full bg-ok px-2 text-white tabular-nums">
+                {countPcs(tally?.total ?? active.quantity)}
+              </span>
+              <span aria-hidden>·</span>
+              <span className="rounded-full bg-ok px-2 text-white tabular-nums">
+                COGS {money(active.purchase_price_minor)}
+              </span>
+            </span>
           ) : record.data !== undefined ? (
             <span className="font-mono">{record.data.article_code}</span>
           ) : undefined
@@ -600,6 +626,7 @@ export function SetupWorkspace() {
             receipt={active}
             vocabulary={vocabulary.data}
             onDirty={setDirty}
+            onTally={setTally}
             onDraft={() => go({ setupFor: railNow })}
             hasNext={shown.some(
               (row) => row.receipt_line_id !== active.receipt_line_id
@@ -619,15 +646,16 @@ export function SetupWorkspace() {
         title={
           minted !== null &&
           (minted.length === 1 ? (
-            <>Setup saved · {minted[0]}</>
+            <>{minted[0]} saved</>
           ) : (
-            <>
-              {count(minted.length)} setups saved · {codeSpan(minted)} ·
-              Processing
-            </>
+            <>{count(minted.length)} setups saved</>
           ))
         }
-      />
+      >
+        {minted !== null && minted.length > 1 && (
+          <>{codeSpan(minted)} · Processing</>
+        )}
+      </SavedDialog>
     </>
   )
 }
@@ -836,6 +864,8 @@ function WaitingCard({
       division={row.division_code}
       code={row.po_number}
       pieces={row.quantity}
+      cogs={row.purchase_price_minor}
+      lineId={row.receipt_line_id}
       since={row.verified_at}
       on={on}
       onOpen={onOpen}
@@ -852,6 +882,8 @@ function LineCard({
   division,
   code,
   pieces,
+  cogs = null,
+  lineId = null,
   since,
   on,
   draft = false,
@@ -862,18 +894,28 @@ function LineCard({
   division: string | null
   code: string
   pieces: number
+  cogs?: number | null
+  lineId?: string | null
   since: string
   on: boolean
   draft?: boolean
   onOpen: () => void
 }) {
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onOpen}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault()
+          onOpen()
+        }
+      }}
       aria-current={on}
       className={cn(
-        "grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-4 rounded-[0.625rem] border px-4 py-3 text-left outline-none",
+        "grid w-full cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto_auto_auto] items-center gap-4 sm:gap-8 rounded-[0.625rem] border px-4 py-3 text-left outline-none",
         "transition-[background-color,border-color,transform] duration-150 ease-out active:scale-[0.99]",
         "focus-visible:ring-2 focus-visible:ring-accent/40",
         on
@@ -894,6 +936,17 @@ function LineCard({
         </span>
         <span className="font-mono text-[0.9375rem] text-mute">{code}</span>
       </span>
+      <span className="text-[0.9375rem] whitespace-nowrap tabular-nums">
+        <span className="text-mute">COGS </span>
+        <span className="font-semibold text-ink">
+          {cogs !== null && cogs > 0 ? money(cogs) : "—"}
+        </span>
+      </span>
+      {lineId !== null && cogs !== null && cogs > 0 ? (
+        <SetPrice lineId={lineId} name={name} pieces={pieces} cogs={cogs} />
+      ) : (
+        <span />
+      )}
       <span className="flex flex-col items-end gap-0.5 tabular-nums">
         <span className="text-[0.9375rem] font-semibold whitespace-nowrap text-ink">
           {quantity(pieces)}
@@ -902,7 +955,129 @@ function LineCard({
           {ago(since)}
         </span>
       </span>
-    </button>
+    </div>
+  )
+}
+
+/// The card's Set min. price: a small popup that takes the minimum price or the
+/// markup, either one filling the other over the line's COGS, and keeps it
+/// for when the line is set up.
+function SetPrice({
+  lineId,
+  name,
+  pieces,
+  cogs,
+}: {
+  lineId: string
+  name: string
+  pieces: number
+  cogs: number
+}) {
+  const kept = useSetupPrice(lineId)
+  const [open, setOpen] = useState(false)
+  const [pricing, setPricing] = useState<Pricing>({
+    purchase: String(cogs),
+    markup: "",
+    base: "",
+  })
+  const base = Number(pricing.base) || 0
+  const loss = base > 0 && base <= cogs
+  return (
+    <Popover.Root
+      open={open}
+      onOpenChange={(next) => {
+        if (next)
+          setPricing(
+            syncPricing(
+              { purchase: String(cogs), markup: "", base: "" },
+              { base: kept === null ? "" : String(kept) }
+            )
+          )
+        setOpen(next)
+      }}
+    >
+      <Popover.Trigger
+        render={<Button variant="primary" />}
+        aria-label={`Set minimum price ${name}`}
+        onClick={(event) => event.stopPropagation()}
+        onKeyDown={(event) => event.stopPropagation()}
+      >
+        {kept === null
+          ? "Set min. price"
+          : `Min. ${money(kept)} · ${markupFrom(cogs, kept) || "0"}%`}
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Positioner
+          className="z-50"
+          side="bottom"
+          align="center"
+          sideOffset={8}
+          collisionPadding={16}
+        >
+          <Popover.Popup
+            onClick={(event) => event.stopPropagation()}
+            className={cn(
+              "flex w-[20rem] max-w-[calc(100vw-2rem)] flex-col gap-4 rounded-card border border-hairline bg-canvas p-4 text-[0.9375rem] shadow-pop outline-none",
+              POP_MOTION
+            )}
+          >
+            <form
+              className="flex flex-col gap-4"
+              onSubmit={(event) => {
+                event.preventDefault()
+                if (base <= cogs) return
+                writeSetupPrice(lineId, base)
+                setOpen(false)
+              }}
+            >
+              <span className="font-semibold text-ink">
+                {name} · {quantity(pieces)}
+              </span>
+              <span className="flex justify-between tabular-nums">
+                <span className="text-mute">COGS</span>
+                <span className="text-ink">{money(cogs)}</span>
+              </span>
+              <Field label="Minimum price">
+                <Money
+                  value={pricing.base}
+                  autoFocus
+                  prefix="Rp"
+                  invalid={loss}
+                  onChange={(next) =>
+                    setPricing((was) => syncPricing(was, { base: next }))
+                  }
+                />
+              </Field>
+              <Field label="Markup">
+                <span className="relative flex w-full min-w-0 items-center">
+                  <Input
+                    inputMode="decimal"
+                    value={pricing.markup}
+                    invalid={loss}
+                    className={cn(
+                      "pr-8 text-right tabular-nums",
+                      loss && "text-bad"
+                    )}
+                    onChange={(event) => {
+                      const next = event.target.value
+                      setPricing((was) => syncPricing(was, { markup: next }))
+                    }}
+                  />
+                  <span className="pointer-events-none absolute right-3.5 text-mute">
+                    %
+                  </span>
+                </span>
+              </Field>
+              <div className="flex justify-end">
+                <Button type="submit" variant="primary" size="sm" disabled={base <= cogs}>
+                  Save
+                </Button>
+              </div>
+            </form>
+          </Popover.Popup>
+        </Popover.Positioner>
+      </Popover.Portal>
+    </Popover.Root>
   )
 }
 
@@ -1275,6 +1450,7 @@ export function Matrix({
   sizes,
   columnClass = "w-[5.5rem]",
   rowHeadClass,
+  rowHeadTop,
   cell,
   rowTotal,
   columnTotal,
@@ -1292,6 +1468,10 @@ export function Matrix({
   /// — a picture and its buttons. Without it the column takes what the figures
   /// leave, which on a narrow sheet is nothing at all.
   readonly rowHeadClass?: string
+  /// Pin the row head to the top of its row, level with the first box of the
+  /// cells (the pricing grid's "Quantity" and "Price" words stand against the
+  /// two boxes, so they must start where the boxes start).
+  readonly rowHeadTop?: boolean
   readonly cell: (colour: MatrixColour, size: MatrixSize) => React.ReactNode
   /// The "All" column and row. Optional since 2026-09-28: the article
   /// sheet draws the same grid for PRICES, and a sum of prices is not a
@@ -1384,7 +1564,10 @@ export function Matrix({
             <tr key={colour.key}>
               <th
                 scope="row"
-                className="sticky left-0 z-10 border-t border-r border-hairline bg-canvas px-3 py-1.5 text-left font-normal"
+                className={cn(
+                  "sticky left-0 z-10 border-t border-r border-hairline bg-canvas px-3 py-1.5 text-left font-normal",
+                  rowHeadTop && "pt-2.5 align-top min-[100rem]:pt-4"
+                )}
               >
                 {rowHead ? (
                   rowHead(colour)
@@ -1502,6 +1685,14 @@ function SessionRecord({ id }: { id: string }) {
       // gains a job and a serial range. `setups()` is a prefix of the
       // unidentified queue's key, and that is deliberate — a receipt that has
       // been worked out leaves both lists at once.
+      void client.invalidateQueries({ queryKey: procurementKeys.setups() })
+      void client.invalidateQueries({ queryKey: procurementKeys.setup(target) })
+      idempotency.rotate()
+    },
+    // The mint runs in the request: a refusal comes back here, in the
+    // server's words, and the record re-reads to FAILED.
+    onError: (error, target) => {
+      toast.error(problemOf(error) ?? "The article could not be made.")
       void client.invalidateQueries({ queryKey: procurementKeys.setups() })
       void client.invalidateQueries({ queryKey: procurementKeys.setup(target) })
       idempotency.rotate()
@@ -1731,7 +1922,7 @@ function SessionRecord({ id }: { id: string }) {
                         return <span className="text-mute">—</span>
                       return (
                         <span
-                          title={one.sku_code}
+                          title={skuNumber(one.sku_code)}
                           className="flex flex-col items-end gap-0.5"
                         >
                           <span className="text-[0.9375rem] text-ink">
@@ -1741,7 +1932,7 @@ function SessionRecord({ id }: { id: string }) {
                             {money(one.base_price_minor)}
                           </span>
                           <span className="font-mono text-[0.9375rem] text-mute">
-                            {one.sku_code}
+                            {skuNumber(one.sku_code)}
                           </span>
                         </span>
                       )
@@ -2057,10 +2248,13 @@ function DeliverySetup({
   onDone,
   onDirty,
   onDraft,
+  onTally,
   hasNext,
 }: {
   receipt: UnidentifiedReceipt
   vocabulary?: CatalogueVocabulary
+  /// How many pieces the grid declares so far, for the sheet's head.
+  onTally?: (tally: { declared: number; total: number } | null) => void
   /// The draft is on the server: the sheet closes.
   onDraft: () => void
   /// `next` is whether Submit & Next was the button pressed.
@@ -2082,6 +2276,9 @@ function DeliverySetup({
           : [await submitSetupSession(submission.request, idempotency.key)]
       return { kind: "queued", sessions }
     },
+    // Nothing was saved: say why, with the server's own words.
+    onError: (error) =>
+      toast.error(problemOf(error) ?? "The article was not saved."),
     onSuccess: (outcome) => {
       if (outcome.kind === "queued") {
         for (const one of outcome.sessions)
@@ -2122,6 +2319,8 @@ function DeliverySetup({
   const keepDraft = useMutation({
     mutationFn: (draft: SetupDraft) =>
       saveSetupDraft(receipt.receipt_line_id, draft),
+    onError: (error) =>
+      toast.error(problemOf(error) ?? "The draft was not saved."),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: setupDraftKeys.all })
       onDraft()
@@ -2170,6 +2369,7 @@ function DeliverySetup({
         setUp.mutate(submission)
       }}
       onDirty={onDirty}
+      onTally={onTally}
       onDraft={(draft) => keepDraft.mutate(draft)}
     />
   )
@@ -2341,7 +2541,7 @@ function prefillFromReceipt(receipt: UnidentifiedReceipt): {
 /// a canvas fill when the cell is hovered, a heavier blue ring while it holds
 /// focus.
 const SKU_BOX =
-  "block h-[var(--form-box,2.75rem)] w-full rounded-inner px-3 text-right text-[0.9375rem] tabular-nums shadow-[inset_0_0_0_1px_var(--hairline-strong)] transition-[background-color,box-shadow] duration-(--t-press) ease-(--ease-out) group-hover:bg-canvas"
+  "sku-box block h-[var(--form-box,2.75rem)] w-full rounded-inner px-3 text-right text-[0.9375rem] tabular-nums shadow-[inset_0_0_0_1px_var(--hairline-strong)] transition-[background-color,box-shadow] duration-(--t-press) ease-(--ease-out) group-hover:bg-canvas"
 
 /// A small dark note hung under an element, drawn on the page rather than
 /// inside the cell: the grid scrolls sideways in its own box, and anything
@@ -2416,16 +2616,26 @@ function SkuCell({
   const live = editing ? counterpartText(editingValue, purchase) : ""
   return (
     <>
-      <Input
-        inputMode="numeric"
-        aria-label={`${label} pieces`}
-        value={quantity}
-        onChange={(event) => onQuantity(onlyDigits(event.target.value))}
-        placeholder="0"
-        // The field's own outline, drawn even when empty: a bare box read as
-        // nothing to type into, and every cell stayed "Not created".
-        className={cn(SKU_BOX, "shadow-none placeholder:text-faint")}
-      />
+      {/* The unit stands in the box itself, behind a rule: pieces, so the
+          figure is never mistaken for a price. */}
+      <div className="relative">
+        <Input
+          inputMode="numeric"
+          aria-label={`${label} pieces`}
+          value={quantity}
+          onChange={(event) => onQuantity(onlyDigits(event.target.value))}
+          placeholder="0"
+          // The field's own outline, drawn even when empty: a bare box read as
+          // nothing to type into, and every cell stayed "Not created".
+          className={cn(SKU_BOX, "pr-14 shadow-none placeholder:text-faint")}
+        />
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-y-0 right-0 flex w-12 items-center justify-center border-l border-hairline-strong text-[0.9375rem] text-mute"
+        >
+          pcs
+        </span>
+      </div>
       {editing ? (
         <input
           ref={setAnchor}
@@ -2494,11 +2704,6 @@ function SkuCell({
           Above purchase price
         </span>
       )}
-      {!has && (
-        <span className="mt-1.5 block text-right text-[0.9375rem] text-mute">
-          Not created
-        </span>
-      )}
       {/* The markup, said in a chip under the cell rather than as a third
           line — it is context for the price, not a fact the grid is filled
           in to record. Hidden while the price is being typed: the live "= …"
@@ -2512,6 +2717,9 @@ function SkuCell({
     </>
   )
 }
+
+/// Whether the pencils beside the size and colour headers are drawn.
+const SHOW_HEAD_PENCILS = false
 
 /// The pencil beside a size or colour header — always visible, quiet until
 /// hovered — and the small popover under it that
@@ -2553,6 +2761,10 @@ function HeadPricePopover({
     setOpen(false)
   }
 
+  // The pencils are put away for now (owner, 2026-10-18: "dihilangkan dulu");
+  // the popover stays so they can come back by flipping this.
+  if (!SHOW_HEAD_PENCILS) return null
+
   return (
     <Popover.Root
       open={open}
@@ -2564,7 +2776,7 @@ function HeadPricePopover({
     >
       <Popover.Trigger
         aria-label={`Price every ${name} at`}
-        className="ml-1.5 inline-flex rounded-[0.375rem] p-1 text-mute transition-colors duration-(--t-press) ease-(--ease-out) hover:bg-soft-2 hover:text-ink data-[popup-open]:text-ink"
+        className="ml-1.5 inline-flex rounded-[0.375rem] p-1 text-mute transition-[color,background-color,opacity] duration-(--t-press) ease-(--ease-out) hover:bg-soft-2 hover:text-ink data-[popup-open]:text-ink [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/head:opacity-100 [@media(hover:hover)]:focus-visible:opacity-100 [@media(hover:hover)]:data-[popup-open]:opacity-100"
       >
         <Pencil className="size-3.5" />
       </Popover.Trigger>
@@ -2781,6 +2993,7 @@ function SessionComposer({
   onSubmit,
   onDirty,
   onDraft,
+  onTally,
   initial,
   hasNext,
 }: {
@@ -2792,6 +3005,7 @@ function SessionComposer({
   onSubmit: (submission: SetupSubmission, next: boolean) => void
   hasNext: boolean
   onDirty?: (dirty: boolean) => void
+  onTally?: (tally: { declared: number; total: number } | null) => void
   /// Save as Draft, with the form as it stands.
   onDraft?: (draft: SetupDraft) => void
   /// The draft the server holds for this line, if any. The one kept in this
@@ -3008,6 +3222,9 @@ function SessionComposer({
       return { purchase, markup: String(receipt.markup_bps / 100), base }
     return syncPricing({ purchase, markup: "", base }, { base })
   })
+  /// The minimum price set on this line's card. The box stays empty; the
+  /// base price typed here may not go under it.
+  const minimum = useSetupPrice(receipt.receipt_line_id)
   const setPricingField = (change: Partial<Pricing>) =>
     setPricing((was) => syncPricing(was, change))
 
@@ -3267,6 +3484,11 @@ function SessionComposer({
   const tabPieces = tabs.map((one) => piecesIn(one, sizeOrder))
   const allotted = tabPieces.reduce((sum, n) => sum + n, 0)
   const left = receipt.quantity - allotted
+  // The sheet's head says it too, large and in the same tone.
+  useEffect(() => {
+    onTally?.({ declared: allotted, total: receipt.quantity })
+    return () => onTally?.(null)
+  }, [allotted, receipt.quantity, onTally])
   // Every piece the warehouse counted has to end up somewhere. Declaring fewer
   // leaves stock unaccounted; declaring more mints stock that never arrived.
   const balanced = allotted === receipt.quantity
@@ -3303,6 +3525,8 @@ function SessionComposer({
   /// or a wash. The base price, and any SKU's own price that will be created.
   const baseTooLow =
     baseMinor > 0 && purchaseMinor > 0 && baseMinor <= purchaseMinor
+  /// The minimum price set from the line's card: nothing sells under it.
+  const belowMin = minimum !== null && baseMinor > 0 && baseMinor < minimum
   const ownTooLow =
     purchaseMinor > 0 &&
     allSkuPrices.some((price) => price > 0 && price <= purchaseMinor)
@@ -3344,25 +3568,41 @@ function SessionComposer({
         ? `The articles come to ${count(allotted)} and the warehouse counted ${count(receipt.quantity)}. A session cannot create stock that did not arrive.`
         : `The grid comes to ${count(declared)} and the warehouse counted ${count(receipt.quantity)}. A session cannot create stock that did not arrive.`
       : split
-        ? `${count(left)} of ${quantity(receipt.quantity)} not in any article yet.`
-        : `${count(receipt.quantity - declared)} of ${quantity(receipt.quantity)} not in the grid yet.`
-  const missing =
+        ? `${count(receipt.quantity - left)} of ${countPcs(receipt.quantity)} are in articles. ${countPcs(left)} still to fill in.`
+        : `${count(declared)} of ${countPcs(receipt.quantity)} filled in. ${countPcs(receipt.quantity - declared)} still to fill in.`
+  /// What the variants still lack: colours, sizes, pieces, or the count not
+  /// all split out. Not a reason to shut Submit — see `shortOnly`.
+  const variantMissing = variantsMissing ?? balanceMissing
+  /// What still holds Submit shut, given what the variants say.
+  const missingBut = (variant: string | null) =>
     actor === ""
       ? "Nobody is signed in, so there is nobody to record as having set it up."
       : name.trim() === ""
         ? "It needs a name — the one the business will use, not the supplier's."
         : !divisionChosen
           ? "Choose the division it is filed under."
-          : (variantsMissing ??
-            balanceMissing ??
-            (priceMinor === 0
-              ? "A base price, so the SKUs are worth something when they are drawn."
-              : baseTooLow
-                ? `The base price must be above the purchase price, ${money(purchaseMinor)}.`
-                : ownTooLow
-                  ? `Every SKU price must be above the purchase price, ${money(purchaseMinor)}.`
-                  : null))
+          : tags.length === 0
+            ? "Choose at least one tag."
+            : (variant ??
+              (priceMinor === 0
+                ? "A base price, so the SKUs are worth something when they are drawn."
+                : baseTooLow
+                  ? `The base price must be above the purchase price, ${money(purchaseMinor)}.`
+                  : belowMin && minimum !== null
+                    ? `The base price must be at least the minimum price, ${money(minimum)}.`
+                  : ownTooLow
+                    ? `Every SKU price must be above the purchase price, ${money(purchaseMinor)}.`
+                    : null))
+  const missing = missingBut(variantMissing)
   const ready = missing === null
+  /// Short of the count is the one thing Submit does not stay shut for: it is
+  /// pressed, and the dialog says the pieces are not all in the grid yet
+  /// (owner, 2026-10-18). Anything required still missing holds the button.
+  /// The variants are the one part Submit does not stay shut for: it is
+  /// pressed, and a dialog says what they lack (owner, 2026-10-18). A name, a
+  /// division, a tag or a price still missing holds the button shut.
+  const shortOnly = variantMissing !== null && missingBut(null) === null
+  const [shortOpen, setShortOpen] = useState(false)
 
   /// One article's colours and variants as the server takes them: its own
   /// digits, in the order its colours were picked, and only the cells with
@@ -3384,38 +3624,44 @@ function SessionComposer({
   })
 
   return (
-    <form
-      onSubmit={(event) => {
-        event.preventDefault()
-        // The button is disabled, but a form submits on Enter regardless and
-        // `disabled` on a control elsewhere cannot stop that.
-        if (!ready || busy) return
-        const header = {
-          receipt_line_id: receipt.receipt_line_id,
-          article_name: name.trim(),
-          division_code: division,
-          tags,
-          description: description.trim() === "" ? null : description.trim(),
-          image_url: photoUrl ?? receipt.image_url,
-          currency: "IDR",
-          created_by: actor,
-        }
-        onSubmit(
-          split
-            ? {
-                kind: "split",
-                request: { ...header, articles: tabs.map(partOf) },
-              }
-            : { kind: "one", request: { ...header, ...partOf(tab) } },
-          wantsNext.current
-        )
-        wantsNext.current = false
-      }}
-      // Measured on the sheet, not the window: this panel is 64rem at a desk
-      // and the whole glass on a phone.
-      className="@container/form flex flex-col gap-7 [--form-box:2.5rem] min-[100rem]:gap-10 min-[100rem]:[--form-box:2.9375rem]"
-    >
-      {/* Two columns once the sheet is 64rem across (`@5xl/form`, which only
+    <>
+      <form
+        onSubmit={(event) => {
+          event.preventDefault()
+          // The button is disabled, but a form submits on Enter regardless and
+          // `disabled` on a control elsewhere cannot stop that.
+          if (busy) return
+          if (shortOnly) {
+            setShortOpen(true)
+            return
+          }
+          if (!ready) return
+          const header = {
+            receipt_line_id: receipt.receipt_line_id,
+            article_name: name.trim(),
+            division_code: division,
+            tags,
+            description: description.trim() === "" ? null : description.trim(),
+            image_url: photoUrl ?? receipt.image_url,
+            currency: "IDR",
+            created_by: actor,
+          }
+          onSubmit(
+            split
+              ? {
+                  kind: "split",
+                  request: { ...header, articles: tabs.map(partOf) },
+                }
+              : { kind: "one", request: { ...header, ...partOf(tab) } },
+            wantsNext.current
+          )
+          wantsNext.current = false
+        }}
+        // Measured on the sheet, not the window: this panel is 64rem at a desk
+        // and the whole glass on a phone.
+        className="@container/form flex flex-col gap-7 [--form-box:2.5rem] min-[100rem]:gap-10 min-[100rem]:[--form-box:2.9375rem]"
+      >
+        {/* Two columns once the sheet is 64rem across (`@5xl/form`, which only
           a delivery with a Quantity Check reaches: the sheet is 84rem for it
           and 56rem otherwise): the form at the left, the Quantity Check at
           the right, 22rem with its rule. Under that the check stands inside
@@ -3423,20 +3669,21 @@ function SessionComposer({
           block. The left column is a container of its own so every `@xl` and
           `@2xl` inside it measures the column and not the sheet; the footer
           below is a child of the form and still measures the whole width. */}
-      <div
-        className={cn(
-          counted && "@5xl/form:grid @5xl/form:grid-cols-[minmax(0,1fr)_22rem]"
-        )}
-      >
         <div
           className={cn(
-            "@container flex min-w-0 flex-col gap-7 min-[100rem]:gap-10",
-            counted && "@5xl/form:pr-6"
+            counted &&
+              "@5xl/form:grid @5xl/form:grid-cols-[minmax(0,1fr)_22rem]"
           )}
         >
-          {problem !== null && <Banner tone="bad">{problem}</Banner>}
+          <div
+            className={cn(
+              "@container flex min-w-0 flex-col gap-7 min-[100rem]:gap-10",
+              counted && "@5xl/form:pr-6"
+            )}
+          >
+            {problem !== null && <Banner tone="bad">{problem}</Banner>}
 
-          {/* What the article IS, in four fields two to a row.
+            {/* What the article IS, in four fields two to a row.
 
           They sat under a heading reading "What it is", beside a second column
           headed "What arrived". Both headings are gone on the owner's word of
@@ -3461,196 +3708,198 @@ function SessionComposer({
           reads on its own line ahead of Division and Tags, and Base price and
           Markup follow as their own row rather than one of the four sharing a
           row with Name by accident of grid order. */}
-          {/* The photo beside what the article IS (owner, 2026-10-15, option
+            {/* The photo beside what the article IS (owner, 2026-10-15, option
               B of new-article-photo-options.html): the Add item form's shape,
               Photo at the left, the fields at the right — not a picture alone
               above the form. */}
-          <div className="grid items-start gap-5 min-[100rem]:gap-7 @xl:grid-cols-[9rem_minmax(0,1fr)] @xl:gap-x-8">
-            <Field label="Photo">
-              <ArticlePhoto
-                url={photoUrl ?? lineImage}
-                name={receipt.article_name}
-                division={receipt.division_code}
-                canChange={receipt.supplier_article_code !== null}
-                pending={photoUpload.isPending}
-                error={
-                  photoUpload.isError
-                    ? (photoUpload.error as Error).message
-                    : null
-                }
-                onPick={(file) => photoUpload.mutate(file)}
-              />
-            </Field>
-            <div className="grid min-w-0 items-start gap-5 min-[100rem]:gap-7 @xl:grid-cols-2 @xl:gap-x-8">
-            <Field
-              label="Name"
-              required
-              className="@xl:col-span-2"
-              aside={
-                nameFromPhoto !== null && name === nameFromPhoto
-                  ? "From the photo"
-                  : undefined
-              }
-            >
-              <NameInput value={name} onChange={setName} />
-            </Field>
-            {similar.length > 0 && (
-              <Banner tone="warn" className="@xl:col-span-2">
-                May already exist:{" "}
-                {similar
-                  .map((one) => `${one.article_code} ${one.name}`)
-                  .join(", ")}
-              </Banner>
-            )}
+            <div className="grid items-start gap-5 min-[100rem]:gap-7 @xl:grid-cols-[9rem_minmax(0,1fr)] @xl:gap-x-8">
+              <Field label="Photo">
+                <ArticlePhoto
+                  url={photoUrl ?? lineImage}
+                  name={receipt.article_name}
+                  division={receipt.division_code}
+                  canChange={receipt.supplier_article_code !== null}
+                  pending={photoUpload.isPending}
+                  error={
+                    photoUpload.isError
+                      ? (photoUpload.error as Error).message
+                      : null
+                  }
+                  onPick={(file) => photoUpload.mutate(file)}
+                />
+              </Field>
+              <div className="grid min-w-0 items-start gap-5 min-[100rem]:gap-7 @xl:grid-cols-2 @xl:gap-x-8">
+                <Field
+                  label="Name"
+                  required
+                  className="@xl:col-span-2"
+                  aside={
+                    nameFromPhoto !== null && name === nameFromPhoto
+                      ? "From the photo"
+                      : undefined
+                  }
+                >
+                  <NameInput value={name} onChange={setName} />
+                </Field>
+                {similar.length > 0 && (
+                  <Banner tone="warn" className="@xl:col-span-2">
+                    May already exist:{" "}
+                    {similar
+                      .map((one) => `${one.article_code} ${one.name}`)
+                      .join(", ")}
+                  </Banner>
+                )}
 
-            <Field label="Division" required>
-              <PickOne
-                choices={divisionChoices}
-                value={division === "" ? null : division}
-                onChange={(next) => setDivision(next ?? "")}
-                label="Division"
-              />
-            </Field>
+                <Field label="Division" required>
+                  <PickOne
+                    choices={divisionChoices}
+                    value={division === "" ? null : division}
+                    onChange={(next) => setDivision(next ?? "")}
+                    label="Division"
+                  />
+                </Field>
 
-            <Field label="Tags">
-              <PickMany
-                choices={tagChoices}
-                values={tags}
-                onChange={setTags}
-                label="Tags"
-              />
-            </Field>
+                <Field label="Tags" required>
+                  <PickMany
+                    choices={tagChoices}
+                    values={tags}
+                    onChange={setTags}
+                    label="Tags"
+                  />
+                </Field>
 
-            <Field label="Description" className="@xl:col-span-2">
-              <Textarea
-                rows={3}
-                value={description}
-                onChange={(event) =>
-                  titled(event, setDescription)
-                }
-              />
-            </Field>
+                <Field label="Description" className="@xl:col-span-2">
+                  <Textarea
+                    rows={3}
+                    value={description}
+                    onChange={(event) => titled(event, setDescription)}
+                  />
+                </Field>
+              </div>
             </div>
-          </div>
 
-          <div className="grid items-start gap-5 min-[100rem]:gap-7 @xl:grid-cols-2 @xl:gap-x-8">
+            <div className="grid items-start gap-5 min-[100rem]:gap-7 @xl:grid-cols-2 @xl:gap-x-8">
+              <Field
+                label="Base Price"
+                required
+                aside={
+                  minimum !== null ? `Min. ${money(minimum)}` : undefined
+                }
+                problem={
+                  baseTooLow
+                    ? `Must be above the purchase price, ${money(purchaseMinor)}`
+                    : belowMin && minimum !== null
+                      ? `Must be at least ${money(minimum)}`
+                      : undefined
+                }
+              >
+                <Money
+                  prefix="Rp"
+                  value={pricing.base}
+                  onChange={(base) => setPricingField({ base })}
+                />
+              </Field>
 
-            <Field
-              label="Base Price"
-              required
-              problem={
-                baseTooLow
-                  ? `Must be above the purchase price, ${money(purchaseMinor)}`
-                  : undefined
-              }
-            >
-              <Money
-                prefix="Rp"
-                value={pricing.base}
-                onChange={(base) => setPricingField({ base })}
-              />
-            </Field>
-
-            {/* The purchase price is not a box here — it is the PO line's own
+              {/* The purchase price is not a box here — it is the PO line's own
             cost, not a figure this form negotiates — so it rides as the
             aside `<Field>` already has a slot for, and only the markup
             between it and Base price is typed. */}
-            <Field
-              label="Markup"
-              aside={`Purchase price ${money(receipt.purchase_price_minor)}`}
-            >
-              <span className="relative flex w-full min-w-0 items-center">
-                <Input
-                  aria-label="Markup"
-                  inputMode="decimal"
-                  value={pricing.markup}
-                  className="pr-8 text-right tabular-nums"
-                  onChange={(event) =>
-                    setPricingField({ markup: event.target.value })
-                  }
-                />
-                <span className="pointer-events-none absolute right-3.5 text-[0.9375rem] text-mute">
-                  %
+              <Field
+                label="Markup"
+                aside={`Purchase price ${money(receipt.purchase_price_minor)}`}
+              >
+                <span className="relative flex w-full min-w-0 items-center">
+                  <Input
+                    aria-label="Markup"
+                    inputMode="decimal"
+                    value={pricing.markup}
+                    className="pr-8 text-right tabular-nums"
+                    onChange={(event) =>
+                      setPricingField({ markup: event.target.value })
+                    }
+                  />
+                  <span className="pointer-events-none absolute right-3.5 text-[0.9375rem] text-mute">
+                    %
+                  </span>
                 </span>
-              </span>
-            </Field>
-          </div>
+              </Field>
+            </div>
 
-          <div>
-            {/* One delivery line, several sibling articles — the owner's word of
+            <div>
+              {/* One delivery line, several sibling articles — the owner's word of
             2026-10-02. The header above is shared; each article is a tab
             holding only its own grid. A single tab is the form it always
             was, so the tabs themselves appear only once there are two. */}
-            {/* The articles as tabs — one while the delivery line is one article —
+              {/* The articles as tabs — one while the delivery line is one article —
             with Split Article at the end of the row, and under them the
             variants of the one that is open (owner, 2026-10-05). */}
-            <ArticleTabStrip
-              tabs={tabs}
-              pieces={tabPieces}
-              active={current}
-              onPick={pickTab}
-              onRemove={removeTab}
-              onAdd={addTab}
-              canAdd={tabs.length < MAX_ARTICLE_TABS}
-            />
-            <div className="mb-2 flex items-center justify-between gap-3">
-              <SubHead className="mb-0">Variants</SubHead>
-              <QuantityCheckRequest
-                receiptLineId={receipt.receipt_line_id}
-                name={name}
-                expected={expectedCheck}
-                division={division}
-                tags={tags}
-                placement="variants"
+              <ArticleTabStrip
+                tabs={tabs}
+                pieces={tabPieces}
+                active={current}
+                onPick={pickTab}
+                onRemove={removeTab}
+                onAdd={addTab}
+                canAdd={tabs.length < MAX_ARTICLE_TABS}
               />
-            </div>
-            {/* Under the heading while the sheet is narrow; at `@5xl/form` the
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <SubHead className="mb-0">Variants</SubHead>
+                <QuantityCheckRequest
+                  receiptLineId={receipt.receipt_line_id}
+                  name={name}
+                  expected={expectedCheck}
+                  division={division}
+                  tags={tags}
+                  placement="variants"
+                />
+              </div>
+              {/* Under the heading while the sheet is narrow; at `@5xl/form` the
             same panel stands in the column at the right instead, and this one
             is not drawn. */}
-            <div className="mb-2 @5xl/form:hidden">
-              <QuantityCheckPanel
-                receiptLineId={receipt.receipt_line_id}
-                name={name}
-                expected={expectedCheck}
-                division={division}
-                tags={tags}
-                onUse={takeCount}
-              />
-            </div>
+              <div className="mb-2 @5xl/form:hidden">
+                <QuantityCheckPanel
+                  receiptLineId={receipt.receipt_line_id}
+                  name={name}
+                  expected={expectedCheck}
+                  division={division}
+                  tags={tags}
+                  onUse={takeCount}
+                />
+              </div>
 
-            {/* Colour and size, under the one heading with the grid they produce.
+              {/* Colour and size, under the one heading with the grid they produce.
             They stood in a column of their own headed "What arrived", which
             filed them as a second kind of fact about the delivery; they are
             not that. A colour and a size are the two halves of a SKU — picking
             them IS declaring which variants exist, and the grid under them is
             the same act finished. Read top to bottom now: which colours, which
             sizes, how many of each. */}
-            <div className="mt-3 mb-6 grid items-start gap-5 min-[100rem]:mt-4 min-[100rem]:mb-8 min-[100rem]:gap-7 @xl:grid-cols-2 @xl:gap-x-8">
-              {/* No hint under it, on the owner's word of 2026-09-13. The ceiling
+              <div className="mt-3 mb-6 grid items-start gap-5 min-[100rem]:mt-4 min-[100rem]:mb-8 min-[100rem]:gap-7 @xl:grid-cols-2 @xl:gap-x-8">
+                {/* No hint under it, on the owner's word of 2026-09-13. The ceiling
               is still enforced — `onChange` refuses the eleventh — and a line
               of small print under every box was three sentences of chrome on a
               form of six fields. */}
-              <Field label="Colors" required>
-                <PickMany
-                  choices={colourChoices}
-                  values={chosenColours}
-                  // The eleventh is refused here rather than at the server: the
-                  // ceiling is the shape of the code, not a policy somebody can
-                  // raise, and a form that takes an answer it cannot save is worse
-                  // than one that will not take it.
-                  onChange={(next) =>
-                    setChosenColours(next.slice(0, COLOURWAY_CEILING))
-                  }
-                  label="The Colors That Arrived"
-                  leading={(code) => (
-                    <ColourSwatch
-                      hex={colourNamed.get(code)?.hex_code ?? null}
-                    />
-                  )}
-                />
-              </Field>
+                <Field label="Colors" required>
+                  <PickMany
+                    choices={colourChoices}
+                    values={chosenColours}
+                    // The eleventh is refused here rather than at the server: the
+                    // ceiling is the shape of the code, not a policy somebody can
+                    // raise, and a form that takes an answer it cannot save is worse
+                    // than one that will not take it.
+                    onChange={(next) =>
+                      setChosenColours(next.slice(0, COLOURWAY_CEILING))
+                    }
+                    label="The Colors That Arrived"
+                    leading={(code) => (
+                      <ColourSwatch
+                        hex={colourNamed.get(code)?.hex_code ?? null}
+                      />
+                    )}
+                  />
+                </Field>
 
-              {/* The same control as Colours, on the owner's word of 2026-09-13.
+                {/* The same control as Colours, on the owner's word of 2026-09-13.
               They were fourteen chips — on the argument that a size run reads
               as a run only when it is drawn as one — and beside a picker they
               read as a different KIND of question. They are not: colour and
@@ -3658,255 +3907,275 @@ function SessionComposer({
               the same person, and one shape for both is what says so. The
               master's order still decides the grid's columns, so XS still
               comes before XXL whatever order they were picked in. */}
-              <Field label="Sizes" required>
-                <PickMany
-                  choices={sizeChoices}
-                  values={chosenSizes}
-                  onChange={setChosenSizes}
-                  label="The Sizes That Arrived"
-                />
-              </Field>
-            </div>
+                <Field label="Sizes" required>
+                  <PickMany
+                    choices={sizeChoices}
+                    values={chosenSizes}
+                    onChange={setChosenSizes}
+                    label="The Sizes That Arrived"
+                  />
+                </Field>
+              </div>
 
-            {rows.length === 0 || columns.length === 0 ? (
-              <p className="rounded-inner border border-dashed border-hairline-2 px-4 py-7 text-center text-[0.9375rem] text-mute min-[100rem]:py-10">
-                Choose the colours and the sizes above, and the grid to count
-                them into appears here.
-              </p>
-            ) : (
-              <>
-                {/* The note that used to be a bare running total, on the line
+              {rows.length === 0 || columns.length === 0 ? (
+                <p className="rounded-inner border border-dashed border-hairline-2 px-4 py-7 text-center text-[0.9375rem] text-mute min-[100rem]:py-10">
+                  Choose the colours and the sizes above, and the grid to count
+                  them into appears here.
+                </p>
+              ) : (
+                <>
+                  {/* The note that used to be a bare running total, on the line
                 directly over the grid it is about. It now also says how the
                 priced SKUs spread — the reason a price sits in the grid at all
                 is that most deliveries never touch it, and the one that does
                 should be able to tell at a glance without opening every cell.
                 The owner's word of 2026-09-28. */}
-                <div className="mb-3 flex items-baseline justify-between gap-4 min-[100rem]:mb-4">
-                  <p className="min-w-0 text-[0.9375rem] text-mute">
-                    {clashHere !== undefined ? (
-                      <span className="text-bad">{clashText(clashHere)}</span>
-                    ) : ownCount > 0 ? (
-                      <>
-                        <b className="font-medium text-ink">
-                          {count(ownCount)}
-                        </b>{" "}
-                        of {count(pricedSkus.length)} SKUs have their own price
-                        {" · "}
-                        {priceMin === priceMax
-                          ? `Rp ${formatThousands(priceMin)}`
-                          : `Rp ${formatThousands(priceMin)} – ${formatThousands(priceMax)}`}
-                        {" · markup "}
-                        {priceMin === priceMax
-                          ? `${skuMarkup(purchaseMinor, priceMin).replace(".", ",")}%`
-                          : `${skuMarkup(purchaseMinor, priceMin).replace(".", ",")}% – ${skuMarkup(purchaseMinor, priceMax).replace(".", ",")}%`}
-                      </>
-                    ) : (
-                      "Every SKU at base — click a price to give that SKU its own"
-                    )}
-                  </p>
-                  <span
-                    className={cn(
-                      "shrink-0 text-[0.9375rem] font-medium whitespace-nowrap tabular-nums",
-                      over
-                        ? "text-bad"
-                        : balanced
-                          ? "text-ok-fg"
-                          : "text-warn-fg"
-                    )}
-                  >
-                    {split
-                      ? `${quantity(declared)}`
-                      : `${count(declared)} of ${count(receipt.quantity)}`}
-                    {" · "}
-                    {count(skuCount)} {skuCount === 1 ? "SKU" : "SKUs"}
-                  </span>
-                </div>
-                <Matrix
-                  colours={rows}
-                  sizes={columns}
-                  columnClass="w-36"
-                  columnHead={(size) => (
-                    <span className="group/head inline-flex w-full items-center justify-end">
-                      {size.label}
-                      <HeadPricePopover
-                        name={size.label}
-                        purchase={purchaseMinor}
-                        base={baseMinor}
-                        onApply={(price) =>
-                          priceWhole({ axis: "size", key: size.code }, price)
-                        }
-                      />
-                    </span>
-                  )}
-                  rowHead={(colour) => (
-                    <span className="group/head flex w-full min-w-0 items-center">
-                      {orderPhotoOf.has(colour.key) && (
-                        <ZoomPhoto
-                          url={orderPhotoOf.get(colour.key)}
-                          name={colour.label}
-                          className="mr-2.5 size-8 shrink-0"
-                        >
-                          <PhotoImg
-                            url={orderPhotoOf.get(colour.key) ?? ""}
-                            alt={colour.label}
-                            className="size-8 rounded-inner border border-hairline object-cover"
-                          />
-                        </ZoomPhoto>
+                  <div className="mb-3 flex items-baseline justify-between gap-4 min-[100rem]:mb-4">
+                    <p className="min-w-0 text-[0.9375rem] text-mute">
+                      {clashHere !== undefined ? (
+                        <span className="text-bad">{clashText(clashHere)}</span>
+                      ) : ownCount > 0 ? (
+                        <>
+                          <b className="font-medium text-ink">
+                            {count(ownCount)}
+                          </b>{" "}
+                          of {count(pricedSkus.length)} SKUs have their own
+                          price
+                          {" · "}
+                          {priceMin === priceMax
+                            ? `Rp ${formatThousands(priceMin)}`
+                            : `Rp ${formatThousands(priceMin)} – ${formatThousands(priceMax)}`}
+                          {" · markup "}
+                          {priceMin === priceMax
+                            ? `${skuMarkup(purchaseMinor, priceMin).replace(".", ",")}%`
+                            : `${skuMarkup(purchaseMinor, priceMin).replace(".", ",")}% – ${skuMarkup(purchaseMinor, priceMax).replace(".", ",")}%`}
+                        </>
+                      ) : (
+                        "Every SKU at base — click a price to give that SKU its own"
                       )}
-                      <span className="min-w-0 flex-1 truncate text-[0.9375rem] font-medium text-ink">
-                        {colour.label}
-                      </span>
-                      <HeadPricePopover
-                        name={colour.label}
-                        purchase={purchaseMinor}
-                        base={baseMinor}
-                        onApply={(price) =>
-                          priceWhole({ axis: "colour", key: colour.key }, price)
-                        }
-                      />
-                    </span>
-                  )}
-                  // `group` so the two boxes inside `SkuCell` can answer to this
-                  // ONE cell being hovered rather than the whole row or column —
-                  // and `relative` so the markup/live chip anchors to it and not
-                  // to the table.
-                  cellProps={() => ({
-                    className:
-                      "group relative h-auto px-2.5 py-2.5 align-top min-[100rem]:px-3 min-[100rem]:py-4",
-                  })}
-                  cell={(colour, size) => {
-                    const key = `${colour.key}|${size.code}`
-                    const label = `${name.trim() === "" ? "This article" : name.trim()} ${colour.label} ${size.label}`
-                    const photos = orderPhotosAt.get(key) ?? []
-                    return (
-                      <>
-                        <SkuCell
-                          label={label}
-                          quantity={pieces[key] ?? ""}
-                          onQuantity={(next) =>
-                            setPieces((was) => ({ ...was, [key]: next }))
-                          }
-                          purchase={purchaseMinor}
-                          base={baseMinor}
-                          price={priceAt(colour.key, size.code)}
-                          own={ownPrice[key] !== undefined}
-                          editing={editingPrice?.key === key}
-                          editingValue={
-                            editingPrice?.key === key ? editingPrice.value : ""
-                          }
-                          onEditingChange={(value) =>
-                            setEditingPrice({ key, value })
-                          }
-                          onStartEdit={() => {
-                            const current = ownPrice[key]
-                            setEditingPrice({
-                              key,
-                              value:
-                                current !== undefined
-                                  ? formatThousands(current)
-                                  : "",
-                            })
-                          }}
-                          onCommit={() => {
-                            if (
-                              editingPrice === null ||
-                              editingPrice.key !== key
-                            )
-                              return
-                            const parsed = parseSkuPrice(
-                              editingPrice.value,
-                              purchaseMinor
-                            )
-                            setOwnPrice((prev) => {
-                              const next = { ...prev }
-                              if (parsed === null || parsed === baseMinor)
-                                delete next[key]
-                              else next[key] = parsed
-                              return next
-                            })
-                            setEditingPrice(null)
-                          }}
-                          onCancel={() => setEditingPrice(null)}
-                        />
-                        {photos.length > 0 && (
-                          <span className="mt-1.5 flex items-center gap-1.5">
-                            <ZoomPhoto
-                              url={photos[0]}
-                              name={label}
-                              className="size-7 shrink-0"
-                            >
-                              <PhotoImg
-                                url={photos[0]}
-                                alt={label}
-                                className="size-7 rounded-inner border border-hairline object-cover"
-                              />
-                            </ZoomPhoto>
-                            {photos.length > 1 && (
-                              <span className="text-[0.9375rem] text-mute tabular-nums">
-                                +{photos.length - 1}
-                              </span>
-                            )}
-                          </span>
-                        )}
-                      </>
-                    )
-                  }}
-                  rowTotal={(colour) =>
-                    count(
-                      columns.reduce(
-                        (sum, size) => sum + piecesAt(colour.key, size.code),
-                        0
-                      )
-                    )
-                  }
-                  columnTotal={(size) =>
-                    count(
-                      chosenColours.reduce(
-                        (sum, colour) => sum + piecesAt(colour, size.code),
-                        0
-                      )
-                    )
-                  }
-                  total={
+                    </p>
                     <span
-                      className={
+                      className={cn(
+                        "shrink-0 text-[0.9375rem] font-medium whitespace-nowrap tabular-nums",
                         over
                           ? "text-bad"
                           : balanced
                             ? "text-ok-fg"
                             : "text-warn-fg"
-                      }
+                      )}
                     >
-                      {count(declared)}
+                      {split
+                        ? `${quantity(declared)}`
+                        : `${count(declared)} of ${countPcs(receipt.quantity)}`}
+                      {" · "}
+                      {count(skuCount)} {skuCount === 1 ? "SKU" : "SKUs"}
                     </span>
-                  }
-                />
-              </>
-            )}
-          </div>
-        </div>
-        {counted && (
-          <aside
-            aria-label="Quantity Check"
-            className="hidden @5xl/form:sticky @5xl/form:top-3 @5xl/form:z-20 @5xl/form:block @5xl/form:max-h-[calc(100dvh-15rem)] @5xl/form:self-start @5xl/form:overflow-y-auto @5xl/form:rounded-card @5xl/form:border @5xl/form:border-hairline @5xl/form:bg-canvas @5xl/form:p-3.5 @5xl/form:shadow-soft"
-          >
-            {/* `mt-3` is the Thumbnail row's own margin, so the heading starts
-                level with the top of the delivery's picture. */}
-            <div className="mt-3">
-              <QuantityCheckPanel
-                receiptLineId={receipt.receipt_line_id}
-                name={name}
-                expected={expectedCheck}
-                division={division}
-                tags={tags}
-                onUse={takeCount}
-              />
+                  </div>
+                  <Matrix
+                    colours={rows}
+                    sizes={columns}
+                    columnClass="w-36"
+                    rowHeadTop
+                    columnHead={(size) => (
+                      <span className="group/head inline-flex w-full items-center justify-end">
+                        {size.label}
+                        <HeadPricePopover
+                          name={size.label}
+                          purchase={purchaseMinor}
+                          base={baseMinor}
+                          onApply={(price) =>
+                            priceWhole({ axis: "size", key: size.code }, price)
+                          }
+                        />
+                      </span>
+                    )}
+                    rowHead={(colour) => (
+                      <span className="group/head flex w-full min-w-0 items-start">
+                        {orderPhotoOf.has(colour.key) && (
+                          <ZoomPhoto
+                            url={orderPhotoOf.get(colour.key)}
+                            name={colour.label}
+                            className="mt-1.5 mr-2.5 size-8 shrink-0"
+                          >
+                            <PhotoImg
+                              url={orderPhotoOf.get(colour.key) ?? ""}
+                              alt={colour.label}
+                              className="size-8 rounded-inner border border-hairline object-cover"
+                            />
+                          </ZoomPhoto>
+                        )}
+                        <span className="flex min-h-11 min-w-0 flex-1 items-center truncate text-[0.9375rem] font-medium text-ink">
+                          {colour.label}
+                        </span>
+                        {/* The words for the two boxes in the cells, each level
+                          with its box: a bare outline said nothing about what
+                          to type in it. They stand before the pencil. */}
+                        <span className="mr-2 flex shrink-0 flex-col text-right text-[0.9375rem] text-mute">
+                          <span className="flex h-11 items-center justify-end">
+                            Quantity
+                          </span>
+                          <span className="mt-1 flex h-11 items-center justify-end">
+                            Price
+                          </span>
+                        </span>
+                        <span className="flex h-11 items-center">
+                          <HeadPricePopover
+                            name={colour.label}
+                            purchase={purchaseMinor}
+                            base={baseMinor}
+                            onApply={(price) =>
+                              priceWhole(
+                                { axis: "colour", key: colour.key },
+                                price
+                              )
+                            }
+                          />
+                        </span>
+                      </span>
+                    )}
+                    // `group` so the two boxes inside `SkuCell` can answer to this
+                    // ONE cell being hovered rather than the whole row or column —
+                    // and `relative` so the markup/live chip anchors to it and not
+                    // to the table.
+                    cellProps={() => ({
+                      className:
+                        "group relative h-auto px-2.5 py-2.5 align-top min-[100rem]:px-3 min-[100rem]:py-4",
+                    })}
+                    cell={(colour, size) => {
+                      const key = `${colour.key}|${size.code}`
+                      const label = `${name.trim() === "" ? "This article" : name.trim()} ${colour.label} ${size.label}`
+                      const photos = orderPhotosAt.get(key) ?? []
+                      return (
+                        <>
+                          <SkuCell
+                            label={label}
+                            quantity={pieces[key] ?? ""}
+                            onQuantity={(next) =>
+                              setPieces((was) => ({ ...was, [key]: next }))
+                            }
+                            purchase={purchaseMinor}
+                            base={baseMinor}
+                            price={priceAt(colour.key, size.code)}
+                            own={ownPrice[key] !== undefined}
+                            editing={editingPrice?.key === key}
+                            editingValue={
+                              editingPrice?.key === key
+                                ? editingPrice.value
+                                : ""
+                            }
+                            onEditingChange={(value) =>
+                              setEditingPrice({ key, value })
+                            }
+                            onStartEdit={() => {
+                              const current = ownPrice[key]
+                              setEditingPrice({
+                                key,
+                                value:
+                                  current !== undefined
+                                    ? formatThousands(current)
+                                    : "",
+                              })
+                            }}
+                            onCommit={() => {
+                              if (
+                                editingPrice === null ||
+                                editingPrice.key !== key
+                              )
+                                return
+                              const parsed = parseSkuPrice(
+                                editingPrice.value,
+                                purchaseMinor
+                              )
+                              setOwnPrice((prev) => {
+                                const next = { ...prev }
+                                if (parsed === null || parsed === baseMinor)
+                                  delete next[key]
+                                else next[key] = parsed
+                                return next
+                              })
+                              setEditingPrice(null)
+                            }}
+                            onCancel={() => setEditingPrice(null)}
+                          />
+                          {photos.length > 0 && (
+                            <span className="mt-1.5 flex items-center gap-1.5">
+                              <ZoomPhoto
+                                url={photos[0]}
+                                name={label}
+                                className="size-7 shrink-0"
+                              >
+                                <PhotoImg
+                                  url={photos[0]}
+                                  alt={label}
+                                  className="size-7 rounded-inner border border-hairline object-cover"
+                                />
+                              </ZoomPhoto>
+                              {photos.length > 1 && (
+                                <span className="text-[0.9375rem] text-mute tabular-nums">
+                                  +{photos.length - 1}
+                                </span>
+                              )}
+                            </span>
+                          )}
+                        </>
+                      )
+                    }}
+                    rowTotal={(colour) =>
+                      count(
+                        columns.reduce(
+                          (sum, size) => sum + piecesAt(colour.key, size.code),
+                          0
+                        )
+                      )
+                    }
+                    columnTotal={(size) =>
+                      count(
+                        chosenColours.reduce(
+                          (sum, colour) => sum + piecesAt(colour, size.code),
+                          0
+                        )
+                      )
+                    }
+                    total={
+                      <span
+                        className={
+                          over
+                            ? "text-bad"
+                            : balanced
+                              ? "text-ok-fg"
+                              : "text-warn-fg"
+                        }
+                      >
+                        {count(declared)}
+                      </span>
+                    }
+                  />
+                </>
+              )}
             </div>
-          </aside>
-        )}
-      </div>
+          </div>
+          {counted && (
+            <aside
+              aria-label="Quantity Check"
+              className="hidden @5xl/form:sticky @5xl/form:top-3 @5xl/form:z-20 @5xl/form:block @5xl/form:max-h-[calc(100dvh-15rem)] @5xl/form:self-start @5xl/form:overflow-y-auto @5xl/form:rounded-card @5xl/form:border @5xl/form:border-hairline @5xl/form:bg-canvas @5xl/form:p-3.5 @5xl/form:shadow-soft"
+            >
+              {/* `mt-3` is the Thumbnail row's own margin, so the heading starts
+                level with the top of the delivery's picture. */}
+              <div className="mt-3">
+                <QuantityCheckPanel
+                  receiptLineId={receipt.receipt_line_id}
+                  name={name}
+                  expected={expectedCheck}
+                  division={division}
+                  tags={tags}
+                  onUse={takeCount}
+                />
+              </div>
+            </aside>
+          )}
+        </div>
 
-      {/* The button, and beside it the reason it cannot be pressed.
+        {/* The button, and beside it the reason it cannot be pressed.
       
           Only that reason. It used to say what pressing it does when there was
           nothing stopping it — "this mints the article, its SKUs and their
@@ -3926,80 +4195,91 @@ function SessionComposer({
           and the same on the sides): a sticky box rests on the CONTENT edge,
           so at bottom-0 it stopped a padding's height short of the pane and
           the form showed through the gap beneath it. */}
-      <div className="sticky -bottom-6 z-30 -mx-4 mt-4 -mb-6 flex flex-col gap-3 border-t border-hairline bg-canvas px-4 pt-3 pb-3 md:-bottom-8 md:-mx-7 md:-mb-8 md:px-7 min-[100rem]:gap-4 min-[100rem]:pt-4 @xl:flex-row @xl:items-center @xl:justify-between">
-        <div className="flex min-w-0 flex-col gap-1">
-          {/* Split, the one number that decides the button: every piece the
+        <div className="sticky -bottom-6 z-30 -mx-4 mt-4 -mb-6 flex flex-col gap-3 border-t border-hairline bg-canvas px-4 pt-3 pb-3 md:-bottom-8 md:-mx-7 md:-mb-8 md:px-7 min-[100rem]:gap-4 min-[100rem]:pt-4 @xl:flex-row @xl:items-center @xl:justify-between">
+          <div className="flex min-w-0 flex-col gap-1">
+            {/* Split, the one number that decides the button: every piece the
               warehouse counted in some article, and none twice. */}
-          {split && (
-            <p
-              className={cn(
-                "text-[0.9375rem] font-medium tabular-nums",
-                over ? "text-bad" : balanced ? "text-ok-fg" : "text-warn-fg"
-              )}
-            >
-              Allotted {count(allotted)} / {count(receipt.quantity)} pcs
-              {" · "}
-              {left < 0 ? `${count(-left)} over` : `${count(left)} left`}
-            </p>
-          )}
-          {/* Why the button is dead, in the sheet's own words: the first thing
+            {split && (
+              <p
+                className={cn(
+                  "text-[0.9375rem] font-medium tabular-nums",
+                  over ? "text-bad" : balanced ? "text-ok-fg" : "text-warn-fg"
+                )}
+              >
+                Allotted {count(allotted)} / {countPcs(receipt.quantity)}
+                {" · "}
+                {left < 0 ? `${count(-left)} over` : `${count(left)} left`}
+              </p>
+            )}
+            {/* Why the button is dead, in the sheet's own words: the first thing
               still missing. Without it a single article — which has no
               Allotted line — says nothing at all. */}
-          {missing !== null && actor !== "" && (
-            <p className="text-[0.9375rem] text-warn-fg">{missing}</p>
-          )}
-        </div>
-        {/* "Create articles" (was "Add to inventory"), on the owner's word of 2026-09-13. "Set up and
+            {missing !== null && actor !== "" && (
+              <p className="text-[0.9375rem] text-warn-fg">{missing}</p>
+            )}
+          </div>
+          {/* "Create articles" (was "Add to inventory"), on the owner's word of 2026-09-13. "Set up and
             send to tagging" named the two writes the press performs; this
             names what the press is FOR. The sentence beside it still says what
             actually happens, which is where that detail belongs — a button is
             read in half a second and a warehouse job is not what somebody came
             here to think about. */}
-        <span className="flex shrink-0 items-center gap-2 self-end">
-          {onDraft && (
+          <span className="flex shrink-0 items-center gap-2 self-end">
+            {onDraft && (
+              <Button
+                variant="ghost"
+                type="button"
+                disabled={busy}
+                onClick={() =>
+                  onDraft({
+                    tabs,
+                    tabAt,
+                    nextTabId,
+                    name,
+                    division,
+                    tags,
+                    pricing,
+                  })
+                }
+              >
+                Save as Draft
+              </Button>
+            )}
+            {hasNext && (
+              <Button
+                variant="quiet"
+                type="submit"
+                disabled={!(ready || shortOnly) || busy}
+                onClick={() => {
+                  wantsNext.current = true
+                }}
+              >
+                Submit and Next
+              </Button>
+            )}
             <Button
-              variant="ghost"
-              type="button"
-              disabled={busy}
-              onClick={() =>
-                onDraft({
-                  tabs,
-                  tabAt,
-                  nextTabId,
-                  name,
-                  division,
-                  tags,
-                  pricing,
-                })
-              }
-            >
-              Save as Draft
-            </Button>
-          )}
-          {hasNext && (
-            <Button
-              variant="quiet"
+              variant="primary"
               type="submit"
-              disabled={!ready || busy}
+              disabled={!(ready || shortOnly) || busy}
               onClick={() => {
-                wantsNext.current = true
+                wantsNext.current = false
               }}
             >
-              Submit and Next
+              {busy ? "Submitting…" : "Submit"}
             </Button>
-          )}
-          <Button
-            variant="primary"
-            type="submit"
-            disabled={!ready || busy}
-            onClick={() => {
-              wantsNext.current = false
-            }}
-          >
-            {busy ? "Submitting…" : "Submit"}
-          </Button>
-        </span>
-      </div>
-    </form>
+          </span>
+        </div>
+      </form>
+      <Dialog
+        open={shortOpen}
+        onOpenChange={setShortOpen}
+        title="Not every piece is filled in"
+        cancel="Close"
+        confirm="Keep filling in"
+        onConfirm={() => setShortOpen(false)}
+      >
+        {variantMissing}
+      </Dialog>
+    </>
   )
 }

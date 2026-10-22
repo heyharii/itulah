@@ -1,52 +1,67 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Check, FileText, Paperclip } from "lucide-react"
-import { useState } from "react"
+import { FileText, Plus, Receipt } from "lucide-react"
+import { useRef, useState } from "react"
 
+import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
-import { Choices } from "@/components/ui/form"
 import { Field, Input, Money, Select } from "@/components/ui/field"
-import { Meter } from "@/components/ui/meter"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
+import { Pill, Status } from "@/components/ui/pill"
+import { MiniCell, MiniTable, SheetSection } from "@/components/ui/rows"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import { Banner, LoadingState } from "@/components/ui/states"
-import { day, money } from "@/lib/format"
+import { SheetFooter } from "@/components/ui/sheet-footer"
+import { SheetEmpty, SheetQuery } from "@/components/ui/sheet-states"
+import { Timeline, type TimelineEvent } from "@/components/ui/timeline"
+import { EMPTY, day, money } from "@/lib/format"
 import {
   approveGaRepairBudget,
   decideGaDisposal,
-  gaAssetHub,
   gaAssets,
   gaDisposal,
   gaKeys,
   gaRepair,
-  gaRepairObjects,
   gaReplacement,
   moveGaRepair,
   moveGaReplacement,
+  useGaSites,
 } from "@/lib/queries/ga"
-import { financeKeys, unitAccounts } from "@/lib/queries/finance"
-import { useUnits } from "@/lib/queries/organisation"
-import { searchDocuments, uploadDocument } from "@/lib/queries/workplace"
-import { useIdentity } from "@/lib/session"
-import { cn } from "@/lib/utils"
-import { FinanceMark } from "@/screens/contracts/parts"
-import { BillRequestForm } from "@/screens/ga/bill-request"
+import { claimsQuery, type GaInsuranceClaimRow } from "@/lib/queries/ga-records"
+import { useNameOfLogin } from "@/lib/queries/hr-employees"
+import { recordInfo, recordKeys, type RecordInfo } from "@/lib/queries/records"
 import {
-  DisposalStagePill,
-  RepairStagePill,
-  ReplacementStagePill,
-  StageLine,
-} from "@/screens/maintenance/parts"
+  documentDownloadUrl,
+  searchDocuments,
+  uploadDocument,
+} from "@/lib/queries/workplace"
+import { useSheet } from "@/lib/sheets"
+import { useIdentity } from "@/lib/session"
+import { toast } from "@/lib/toast"
+import {
+  NameCell,
+  OpenRow,
+  SectionAside,
+  TextAction,
+} from "@/screens/assets/asset-sections"
+import { left, right } from "@/screens/assets/asset-words"
+import { ClaimRows, ClaimSheetHost } from "@/screens/contracts/claims"
+import { BillRequestForm } from "@/screens/ga/bill-request"
 import {
   DISPOSAL_FLOW,
   REPAIR_FLOW,
   REPLACEMENT_FLOW,
   disposalMethodWords,
+  disposalStageWords,
   repairNextStages,
   repairOver,
-  repairStageWords,
+  repairState,
   replacementNextStage,
   replacementStageWords,
 } from "@/screens/maintenance/format"
-import { SupplierName } from "@/screens/procurement/supplier-name"
+import {
+  DisposalStagePill,
+  ReplacementStagePill,
+} from "@/screens/maintenance/parts"
+import { useSupplierName } from "@/screens/procurement/supplier-name"
 import type {
   GaDisposalRow,
   GaRepairRow,
@@ -56,25 +71,111 @@ import type {
 /// The three maintenance record sheets: the repair, the replacement and the
 /// disposal request.
 ///
-/// One file rather than three because they share the same fence and the same
-/// grammar: every rupiah on them is Finance's ledger read over the fence and
-/// marked as such, every stage move is offered as the legal `to` list the
-/// server itself enforces, and every maker ≠ checker button carries its
-/// refusal ON the button rather than in a toast that outlives the moment.
+/// One file rather than three because they share the same grammar: one scroll
+/// (no tabs), the stage as numbered steps with who did each and when, every
+/// linked record a blue word that opens it, and a foot that names the one step
+/// the record can take next. Every maker ≠ checker step says so in plain words
+/// where the button would have stood, rather than as a disabled button that
+/// reads as broken.
+
+// ── small parts ─────────────────────────────────────────────────────────────
+
+/// A blue word that opens a record on its own screen.
+function RecordLink({
+  to,
+  sheet,
+  children,
+}: {
+  to: string
+  sheet: {
+    key: "asset" | "contract" | "location" | "supplier" | "repair"
+    value: string
+  }
+  children: React.ReactNode
+}) {
+  return (
+    <AppLink to={to} sheet={sheet} className="record-link">
+      {children}
+    </AppLink>
+  )
+}
+
+/// One entry of a record's activity, as the server writes it.
+type Entry = RecordInfo["activity"][number]
+
+/// What was done to a record, read from the same answer the sheet's Activity
+/// fold reads — one request between them. The steps take who and when from it,
+/// because the record itself keeps only the last of each.
+function useActivity(kind: string, id: string | undefined, enabled: boolean) {
+  return useQuery({
+    queryKey: recordKeys.info(kind, id ?? ""),
+    queryFn: ({ signal }) => recordInfo(kind, id ?? "", signal),
+    enabled: enabled && id !== undefined,
+    staleTime: 15_000,
+  })
+}
+
+/// The stage moves made on a record, oldest first. Each is one POST to
+/// `…/move`; the ladders are straight, so the first move after approval is the
+/// next rung, the second the one after, and a record that was cancelled has
+/// the cancellation as its last.
+function movesOf(info: RecordInfo | undefined): readonly Entry[] {
+  return (info?.activity ?? [])
+    .filter((entry) => entry.status < 400 && entry.path.endsWith("/move"))
+    .sort((a, b) => a.at.localeCompare(b.at))
+}
+
+const by = (who: string | null | undefined) =>
+  who === null || who === undefined || who === "" ? undefined : `By ${who}`
+const when = (at: string | null | undefined) =>
+  at === null || at === undefined ? undefined : day(at)
+
+/// The Next-step rule of every ladder: a step is done once the record has
+/// reached it, the next is what the record waits for, the rest are not yet.
+function stateAt(index: number, reached: number): "done" | "current" | "todo" {
+  return index <= reached ? "done" : index === reached + 1 ? "current" : "todo"
+}
 
 // ── the repair ──────────────────────────────────────────────────────────────
 
-/// One repair: the fact GA keeps (what broke, where, who fixed it) and the
-/// half that only exists as somebody else's ledger.
+/// The act a repair's foot can start. Each opens its own small form over the
+/// foot, asking only what that act brings.
+type RepairStep = "approve" | "start" | "finish" | "close" | "cancel" | "bill"
+
+/// The stage each act moves the repair to.
+const STEP_STAGE: Readonly<
+  Record<"start" | "finish" | "close" | "cancel", string>
+> = {
+  start: "IN_PROGRESS",
+  finish: "COMPLETED",
+  close: "CLOSED",
+  cancel: "CANCELLED",
+}
+
+const STEP_VERB: Readonly<
+  Record<"start" | "finish" | "close" | "cancel", string>
+> = {
+  start: "Start work",
+  finish: "Mark done",
+  close: "Close repair",
+  cancel: "Cancel repair",
+}
+
+/// One repair, in one scroll: what it costs, where it stands, what was
+/// reported, and everything filed against it.
 ///
 /// # The money is Finance's
 ///
-/// `actual_cost_minor` counts POSTED bill lines pointing at the repair
-/// (`repair_id`). GA sends the vendor's bill from here once the work is done;
-/// it counts once Finance posts it. Dropping the Biaya tab before then would
-/// hide the place the number will live; showing it unmarked would read as
-/// "cost nothing", which is a
-/// different lie. So the figure and the sentence travel together.
+/// The estimate and the approved budget are GA's own facts. `actual_cost_minor`
+/// counts POSTED bill lines pointing at the repair: GA sends the vendor's bill
+/// from here once the work is done, and it counts once Finance posts it.
+///
+/// # The foot names the next step
+///
+/// Needs approval → Approve budget, approved → Start work, in progress → Mark
+/// done, done → Send bill to Finance (and Close repair). A repair that is not
+/// finished can also be cancelled, in red. The one who recorded a repair may
+/// not approve its budget, and the foot says so in words.
 export function RepairSheet({
   repairId,
   open,
@@ -84,309 +185,460 @@ export function RepairSheet({
   open: boolean
   onClose: () => void
 }) {
+  const enabled = open && repairId !== undefined
   const repair = useQuery({
     queryKey: gaKeys.repair(repairId ?? ""),
     queryFn: ({ signal }) => gaRepair(repairId ?? "", signal),
-    enabled: open && repairId !== undefined,
+    enabled,
   })
-
-  // The two head decisions. Like the contract hub's archive, the FORM each
-  // one opens lands in the footer, below every tab — a decision about the
-  // record, not about whichever tab is open. The screen keys this sheet per
-  // repair, so a half-typed budget drops when another record opens.
-  const [approving, setApproving] = useState(false)
-  const [moving, setMoving] = useState(false)
-  const [billing, setBilling] = useState(false)
+  const activity = useActivity("repair", repairId, enabled)
+  const actor = useIdentity()
+  const nameOf = useNameOfLogin()
+  const { sites } = useGaSites(enabled)
+  const claimSheet = useSheet("claim")
 
   const row = repair.data
-  const actor = useIdentity()
-  const nexts = row === undefined ? [] : repairNextStages(row.status)
+  // Claims are filed against an asset; this repair's are the ones that name it.
+  const claims = useQuery({
+    ...claimsQuery({ asset: row?.asset_id ?? undefined }),
+    enabled: enabled && row?.asset_id != null,
+  })
+
+  // The act whose small form stands over the foot, if any. The screen keys
+  // this sheet per repair, so a half-typed budget drops when another opens.
+  const [step, setStep] = useState<RepairStep | null>(null)
+
   const mine = actor.data?.username === row?.created_by
-  const canApprove =
-    row !== undefined &&
-    row.status === "OPEN" &&
-    row.approved_budget_minor === null
-  // The vendor's bill follows the work: once it is done, GA hands it to
-  // Finance from here rather than Finance typing it in from paper.
-  const canBill =
-    row !== undefined && (row.status === "COMPLETED" || row.status === "CLOSED")
+  const state = row === undefined ? undefined : repairState(row.status)
 
   return (
-    <Sheet
-      open={open}
-      onOpenChange={(next) => !next && onClose()}
-      width="wide"
-      title={row === undefined ? "Repair" : row.title}
-      caption={
-        row === undefined ? undefined : (
-          <>
-            {row.site_id} · {row.objek_name}
-            {row.asset_name !== null && ` · ${row.asset_name}`}
-          </>
-        )
-      }
-      subject={
-        repairId === undefined ? undefined : { kind: "repair", id: repairId }
-      }
-      badge={
-        row === undefined ? undefined : <RepairStagePill status={row.status} />
-      }
-      actions={
-        row === undefined ? undefined : (
-          <>
-            {canApprove && (
-              <Button
-                variant="soft"
-                disabled={mine}
-                onClick={() => setApproving(true)}
-              >
-                {mine
-                  ? "Creator cannot approve their own request"
-                  : "Approve budget"}
-              </Button>
-            )}
-            {nexts.length > 0 && (
-              <Button variant="soft" onClick={() => setMoving(true)}>
-                Move stage
-              </Button>
-            )}
-            {canBill && (
-              <Button variant="soft" onClick={() => setBilling(true)}>
-                Send bill to Finance
-              </Button>
-            )}
-          </>
-        )
-      }
-      footer={
-        row === undefined ? undefined : approving ? (
-          <ApproveBudgetForm
-            row={row}
-            onDone={() => {
-              setApproving(false)
-              onClose()
-            }}
-            onCancel={() => setApproving(false)}
-          />
-        ) : moving ? (
-          <MoveRepairForm
-            row={row}
-            onDone={() => {
-              setMoving(false)
-              onClose()
-            }}
-            onCancel={() => setMoving(false)}
-          />
-        ) : billing ? (
-          <BillRequestForm
-            source={{
-              site_id: row.site_id,
-              supplier_id: row.supplier_id,
-              supplier_name: row.supplier_name,
-              amount_minor:
-                row.approved_budget_minor ?? row.estimated_cost_minor,
-              memo: row.title,
-              repair_id: row.repair_id,
-            }}
-            onDone={() => {
-              setBilling(false)
-              onClose()
-            }}
-            onCancel={() => setBilling(false)}
-          />
-        ) : undefined
-      }
-      tabs={
-        row === undefined
-          ? undefined
-          : [
-              {
-                value: "detail",
-                label: "Details",
-                content: <RepairDetail row={row} />,
-              },
-              {
-                value: "cost",
-                label: "Cost",
-                content: <RepairCost row={row} />,
-              },
-              {
-                value: "accounts",
-                label: "Accounts",
-                content: <RepairAccounts row={row} />,
-              },
-              {
-                value: "documents",
-                label: "Documents",
-                content: <Documents kind="repair" id={row.repair_id} />,
-              },
-            ]
-      }
-    >
-      {repair.isLoading && <LoadingState>Opening the repair…</LoadingState>}
-      {repair.error instanceof Error && (
-        <Banner tone="bad">{repair.error.message}</Banner>
-      )}
-    </Sheet>
+    <ClaimSheetHost>
+      <Sheet
+        open={open}
+        onOpenChange={(next) => !next && onClose()}
+        size="wide"
+        stack
+        context="Repairs"
+        title={row === undefined ? "Repair" : row.title}
+        badge={
+          state === undefined ? undefined : (
+            <Pill tone={state.tone}>{state.word}</Pill>
+          )
+        }
+        subject={
+          repairId === undefined ? undefined : { kind: "repair", id: repairId }
+        }
+        footer={
+          row === undefined ? undefined : (
+            <RepairFoot
+              row={row}
+              mine={mine}
+              creator={nameOf(row.created_by)}
+              step={step}
+              onStep={setStep}
+              onClose={onClose}
+            />
+          )
+        }
+      >
+        <SheetQuery query={repair} what="repair">
+          {(loaded) => (
+            <RepairBody
+              row={loaded}
+              nameOf={nameOf}
+              siteName={(siteId) =>
+                sites.find((one) => one.value === siteId)?.label ?? siteId
+              }
+              info={activity.data}
+              claims={(claims.data ?? []).filter(
+                (claim) => claim.repair_id === loaded.repair_id
+              )}
+              onOpenClaim={claimSheet.open}
+            />
+          )}
+        </SheetQuery>
+      </Sheet>
+    </ClaimSheetHost>
   )
 }
 
-/// The fact's own fields. Aset leads when there is one, because that is how
-/// the reader recognises the job; a repair with no asset says so plainly —
-/// "plafon bocor" is a real repair and the site is what locates it.
-function RepairDetail({ row }: { row: GaRepairRow }) {
+/// The sheet's body: figures, steps, what was reported, then what is filed
+/// against the repair.
+function RepairBody({
+  row,
+  nameOf,
+  siteName,
+  info,
+  claims,
+  onOpenClaim,
+}: {
+  row: GaRepairRow
+  nameOf: (login: string) => string
+  siteName: (siteId: string) => string
+  info: RecordInfo | undefined
+  claims: readonly GaInsuranceClaimRow[]
+  onOpenClaim: (claimId: string) => void
+}) {
+  const supplierName = useSupplierName()
+  const vendor = supplierName(
+    row.supplier_id,
+    row.supplier_name,
+    row.supplier_id
+  )
+  const { over } = repairOver(row)
+
+  const approval = (info?.activity ?? []).find(
+    (entry) => entry.status < 400 && entry.path.endsWith("/approve-budget")
+  )
+  const steps = repairSteps(row, {
+    creator: nameOf(row.created_by),
+    approver:
+      row.approved_by !== null
+        ? nameOf(row.approved_by)
+        : approval?.display_name,
+    approvedAt: row.approved_at ?? approval?.at ?? null,
+    vendor,
+    moves: movesOf(info),
+  })
+
   return (
-    <div className="flex flex-col gap-5">
-      <section>
-        <h4 className="mb-2.5 border-b border-hairline pb-1.5 text-card-title font-semibold text-ink">
-          Details
-        </h4>
+    <>
+      <KpiStrip className="mb-2! grid-cols-2 md:grid-cols-3 xl:grid-cols-3">
+        <Kpi label="Estimate" value={money(row.estimated_cost_minor)} />
+        <Kpi label="Approved budget" value={money(row.approved_budget_minor)} />
+        <Kpi
+          label="Actual"
+          value={
+            over ? (
+              <span className="text-bad-fg">
+                {money(row.actual_cost_minor)}
+              </span>
+            ) : (
+              money(row.actual_cost_minor)
+            )
+          }
+        />
+      </KpiStrip>
+
+      <SheetSection title="Steps">
+        <Timeline events={steps} />
+      </SheetSection>
+
+      <SheetSection title="Reported issue">
         <Facts>
-          <Fact term="Asset">{row.asset_name ?? "No asset"}</Fact>
-          <Fact term="Location">{row.site_id}</Fact>
-          <Fact term="Object">{row.objek_name}</Fact>
+          <Fact term="Location">
+            <RecordLink
+              to="/locations"
+              sheet={{ key: "location", value: row.site_id }}
+            >
+              {siteName(row.site_id)}
+            </RecordLink>
+          </Fact>
+          {row.asset_id === null ? (
+            <Fact term="Kind">{row.objek_name}</Fact>
+          ) : (
+            <Fact term="Asset">
+              <RecordLink
+                to="/assets"
+                sheet={{ key: "asset", value: row.asset_id }}
+              >
+                {row.asset_name ?? "Asset"}
+              </RecordLink>
+            </Fact>
+          )}
           <Fact term="Vendor">
-            <SupplierName code={row.supplier_id} name={row.supplier_name} />
+            <RecordLink
+              to="/vendors"
+              sheet={{ key: "supplier", value: row.supplier_id }}
+            >
+              {vendor}
+            </RecordLink>
           </Fact>
           <Fact term="Contract">
             {row.contract_id === null ? (
-              "—"
+              EMPTY
             ) : (
-              <span className="font-mono text-id">
-                {row.contract_id.slice(0, 8)}
-              </span>
+              <RecordLink
+                to="/contracts"
+                sheet={{ key: "contract", value: row.contract_id }}
+              >
+                {row.contract_number ?? "Contract"}
+              </RecordLink>
             )}
           </Fact>
-          <Fact term="Reported">{day(row.failure_at)}</Fact>
-          <Fact term="Done">
-            {row.completed_at === null ? "—" : day(row.completed_at)}
-          </Fact>
-          {row.approved_by !== null && (
-            <Fact term="Approved by">
-              {row.approved_by} · {day(row.approved_at)}
+          <Fact term="Reported on">{day(row.failure_at)}</Fact>
+          {row.notes !== null && row.notes !== "" && (
+            <Fact term="Notes" wide>
+              {row.notes}
             </Fact>
           )}
-          <Fact term="Recorded by">{row.created_by}</Fact>
-          {row.notes !== null && <Fact term="Notes">{row.notes}</Fact>}
         </Facts>
-      </section>
-      <section>
-        <h4 className="mb-2.5 border-b border-hairline pb-1.5 text-card-title font-semibold text-ink">
-          Stage
-        </h4>
-        <StageLine flow={REPAIR_FLOW} status={row.status} />
-      </section>
-    </div>
-  )
-}
+      </SheetSection>
 
-/// Estimate and budget are GA's own facts; the actual is the ledger's.
-function RepairCost({ row }: { row: GaRepairRow }) {
-  const { over, cap, capWord } = repairOver(row)
-  return (
-    <div className="flex flex-col gap-4">
-      <div className="grid grid-cols-3 gap-3">
-        <figure>
-          <figcaption className="text-eyebrow font-medium text-body">
-            Estimate
-          </figcaption>
-          <div className="mt-1 text-[1.125rem] leading-none font-semibold tracking-[-0.02em] text-ink tabular-nums">
-            {money(row.estimated_cost_minor)}
-          </div>
-        </figure>
-        <figure>
-          <figcaption className="text-eyebrow font-medium text-body">
-            Approved budget
-          </figcaption>
-          <div className="mt-1 text-[1.125rem] leading-none font-semibold tracking-[-0.02em] text-ink tabular-nums">
-            {money(row.approved_budget_minor)}
-            {row.approved_budget_minor === null && (
-              <span className="text-pill font-normal text-mute">
-                {" "}
-                · not yet set
-              </span>
-            )}
-          </div>
-        </figure>
-        <figure>
-          <figcaption className="text-eyebrow font-medium text-body">
-            Actual <FinanceMark className="ml-1 align-[0.125rem]" />
-          </figcaption>
-          <div
-            className={cn(
-              "mt-1 text-[1.125rem] leading-none font-semibold tracking-[-0.02em] tabular-nums",
-              over ? "text-bad" : "text-ink"
-            )}
-          >
-            {money(row.actual_cost_minor)}
-          </div>
-        </figure>
-      </div>
+      <SubjectPapers kind="repair" id={row.repair_id} />
 
-      {cap !== null && cap > 0 && (
-        <div className="flex flex-col gap-1.5">
-          <Meter
-            value={row.actual_cost_minor / cap}
-            tone={over ? "bad" : "accent"}
-          />
-          <span className={over ? "text-pill text-bad" : "text-pill text-mute"}>
-            {over
-              ? `Over the ${capWord} of ${money(cap)}.`
-              : `${money(cap - row.actual_cost_minor)} left of the ${capWord}.`}
-          </span>
-        </div>
+      {claims.length > 0 && (
+        <SheetSection
+          title="Insurance claims"
+          aside={<SectionAside total={claims.length} />}
+        >
+          <ClaimRows claims={claims} onOpen={onOpenClaim} about="policy" />
+        </SheetSection>
       )}
 
-      <p className="text-pill text-mute">
-        Estimate and budget are GA's own facts. Actual is counted from bills
-        Finance has posted against this repair; a bill sent from here shows once
-        Finance posts it.
-      </p>
-    </div>
+      <SheetSection title="Bills">
+        {row.actual_cost_minor > 0 ? (
+          <MiniTable head={["Bill", right("Amount"), left("Status")]}>
+            <OpenRow>
+              <MiniCell>
+                <NameCell
+                  icon={Receipt}
+                  name="Supplier bills"
+                  quiet="Posted by Finance"
+                />
+              </MiniCell>
+              <MiniCell align="right">{money(row.actual_cost_minor)}</MiniCell>
+              <MiniCell>
+                <Status tone="ok">Posted</Status>
+              </MiniCell>
+            </OpenRow>
+          </MiniTable>
+        ) : (
+          <SheetEmpty>No bill yet.</SheetEmpty>
+        )}
+      </SheetSection>
+    </>
   )
 }
 
-/// The object's account, read-only. GA names the KIND of thing that broke;
-/// which account that bills to is Finance's map, resolved here so the person
-/// filing the repair can check the proposal before a bill ever carries it.
-function RepairAccounts({ row }: { row: GaRepairRow }) {
-  const objects = useQuery({
-    queryKey: gaKeys.repairObjects(),
-    queryFn: ({ signal }) => gaRepairObjects(signal),
-    staleTime: 5 * 60 * 1000,
-  })
+/// The five steps of a repair, as numbered steps: the ones it has been through
+/// with who did each and when, and the next one with who it waits for. A
+/// cancelled repair shows the steps it reached and where it stopped.
+function repairSteps(
+  row: GaRepairRow,
+  input: {
+    creator: string
+    approver: string | undefined
+    approvedAt: string | null
+    vendor: string
+    moves: readonly Entry[]
+  }
+): TimelineEvent[] {
+  const { creator, approver, approvedAt, vendor, moves } = input
+  const reported: TimelineEvent = {
+    id: "reported",
+    title: "Reported",
+    detail: by(creator),
+    at: when(row.failure_at),
+    state: "done",
+  }
 
-  if (objects.isLoading)
-    return <LoadingState>Reading the object list…</LoadingState>
+  if (row.status === "CANCELLED") {
+    const stopped = moves.at(-1)
+    // The repair started before it stopped when two moves were made.
+    const started = moves.length >= 2 ? moves[0] : undefined
+    return [
+      reported,
+      ...(row.approved_by !== null
+        ? [
+            {
+              id: "approved",
+              title: "Budget approved",
+              detail: by(approver),
+              at: when(approvedAt),
+              state: "done" as const,
+            },
+          ]
+        : []),
+      ...(started === undefined
+        ? []
+        : [
+            {
+              id: "started",
+              title: "In progress",
+              detail: by(started.display_name),
+              at: when(started.at),
+              state: "done" as const,
+            },
+          ]),
+      {
+        id: "cancelled",
+        title: "Cancelled",
+        detail: by(stopped?.display_name),
+        at: when(stopped?.at ?? row.updated_at),
+        state: "done",
+      },
+    ]
+  }
 
-  const object = (objects.data ?? []).find((one) => one.code === row.objek)
-
-  return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-col">
-        <div className="flex items-baseline gap-3 border-b border-hairline py-2 last:border-b-0">
-          <span className="w-28 shrink-0 text-meta text-body">
-            Expense ({row.objek_name})
-          </span>
-          <span className="w-14 shrink-0 font-mono text-id text-body tabular-nums">
-            {object?.account_code ?? "—"}
-          </span>
-          <span className="min-w-0 truncate text-meta text-mute">
-            {object?.name}
-          </span>
-        </div>
-      </div>
-      <p className="flex items-center gap-1.5 text-pill text-mute">
-        <FinanceMark className="align-[0.0625rem]" /> Proposed on the bill line
-        that points to this repair, from the account map for the{" "}
-        {row.objek_name.toLowerCase()} object. Finance can still change it.
-      </p>
-    </div>
+  const reachedAt = REPAIR_FLOW.indexOf(
+    row.status as (typeof REPAIR_FLOW)[number]
   )
+  const later = [
+    {
+      id: "approved",
+      title: "Budget approved",
+      who: approver,
+      at: approvedAt,
+      waits: `Waiting for approval by someone other than ${creator}`,
+    },
+    {
+      id: "started",
+      title: "In progress",
+      who: moves[0]?.display_name,
+      at: moves[0]?.at,
+      waits: `Waiting for ${vendor} to start`,
+    },
+    {
+      id: "done",
+      title: "Done",
+      who: moves[1]?.display_name,
+      at: row.completed_at ?? moves[1]?.at,
+      waits: `Waiting for ${vendor} to finish`,
+    },
+    {
+      id: "closed",
+      title: "Billed and closed",
+      who: moves[2]?.display_name,
+      at: moves[2]?.at,
+      waits: "Waiting for the bill to go to Finance",
+    },
+  ]
+  return [
+    reported,
+    ...later.map((one, i): TimelineEvent => {
+      const state = stateAt(i + 1, reachedAt)
+      return {
+        id: one.id,
+        title: one.title,
+        state,
+        detail:
+          state === "done"
+            ? by(one.who)
+            : state === "current"
+              ? one.waits
+              : undefined,
+        at: state === "done" ? when(one.at) : undefined,
+      }
+    }),
+  ]
+}
+
+/// What the foot of a repair can do, and the small form each act opens over it.
+function RepairFoot({
+  row,
+  mine,
+  creator,
+  step,
+  onStep,
+  onClose,
+}: {
+  row: GaRepairRow
+  mine: boolean
+  creator: string
+  step: RepairStep | null
+  onStep: (step: RepairStep | null) => void
+  onClose: () => void
+}) {
+  const back = () => onStep(null)
+  if (step === "approve")
+    return <ApproveBudgetForm row={row} onDone={back} onCancel={back} />
+  if (step === "bill")
+    return (
+      <BillRequestForm
+        source={{
+          site_id: row.site_id,
+          supplier_id: row.supplier_id,
+          supplier_name: row.supplier_name,
+          amount_minor: row.approved_budget_minor ?? row.estimated_cost_minor,
+          memo: row.title,
+          repair_id: row.repair_id,
+        }}
+        onDone={back}
+        onCancel={back}
+      />
+    )
+  if (step !== null)
+    return (
+      <MoveRepairForm
+        row={row}
+        act={step}
+        to={STEP_STAGE[step]}
+        onDone={back}
+        onCancel={back}
+      />
+    )
+
+  const cancellable = repairNextStages(row.status).includes("CANCELLED")
+  const cancel = cancellable ? (
+    <Button variant="destructive" onClick={() => onStep("cancel")}>
+      Cancel repair
+    </Button>
+  ) : undefined
+
+  switch (row.status) {
+    case "OPEN":
+      return (
+        <SheetFooter
+          danger={cancel}
+          note={
+            mine
+              ? `${creator} recorded this repair, so someone else approves the budget.`
+              : undefined
+          }
+          primary={
+            mine
+              ? undefined
+              : { label: "Approve budget", onClick: () => onStep("approve") }
+          }
+        />
+      )
+    case "APPROVED":
+      return (
+        <SheetFooter
+          danger={cancel}
+          primary={{ label: "Start work", onClick: () => onStep("start") }}
+        />
+      )
+    case "IN_PROGRESS":
+      return (
+        <SheetFooter
+          danger={cancel}
+          primary={{ label: "Mark done", onClick: () => onStep("finish") }}
+        />
+      )
+    case "COMPLETED":
+      return (
+        <SheetFooter
+          secondary={
+            <Button variant="ghost" onClick={() => onStep("close")}>
+              Close repair
+            </Button>
+          }
+          primary={{
+            label: "Send bill to Finance",
+            onClick: () => onStep("bill"),
+          }}
+        />
+      )
+    case "CLOSED":
+      return (
+        <SheetFooter
+          onCancel={onClose}
+          cancelLabel="Close"
+          primary={{
+            label: "Send bill to Finance",
+            onClick: () => onStep("bill"),
+          }}
+        />
+      )
+    default:
+      return <SheetFooter onCancel={onClose} cancelLabel="Close" />
+  }
 }
 
 /// Budget approval — the checker's half (brief §11). The server refuses the
-/// repair's own creator, and the button refuses them first.
+/// repair's own creator, and the foot does not offer it to them.
 function ApproveBudgetForm({
   row,
   onDone,
@@ -410,49 +662,47 @@ function ApproveBudgetForm({
       // The book's lists, the overview and this record all change together;
       // the GA namespace drops as one, as every GA write here does.
       void client.invalidateQueries({ queryKey: gaKeys.all })
+      void client.invalidateQueries({ queryKey: ["record"] })
       onDone()
     },
   })
 
   return (
-    <div className="flex items-end gap-3">
-      <Field
-        label={`Budget for ${row.title}`}
-        required
-        aside="the approved figure, not the estimate"
-        className="flex-1"
-      >
-        <Money value={budget} onChange={setBudget} autoFocus />
+    <div className="flex flex-col gap-3">
+      <Field label="Approved budget" required className="max-w-xs">
+        <Money value={budget} onChange={setBudget} prefix="Rp" autoFocus />
       </Field>
-      <Button
-        variant="primary"
-        pending={approve.isPending}
-        disabled={budget === ""}
-        onClick={() => approve.mutate()}
-      >
-        {approve.isPending ? "Approving…" : "Approve budget"}
-      </Button>
-      <Button data-cancel variant="ghost" onClick={onCancel}>
-        Cancel
-      </Button>
+      <SheetFooter
+        error={approve.error}
+        onCancel={onCancel}
+        primary={{
+          label: "Approve budget",
+          pending: approve.isPending,
+          disabled: budget === "",
+          onClick: () => approve.mutate(undefined),
+        }}
+      />
     </div>
   )
 }
 
-/// The stage move, as cards of the legal `to` list — the same law the server
-/// enforces, so a card that 409s cannot be built. A cancelled repair ends a
-/// repair; the tile says what choosing it means.
+/// A stage move: one act, one stage — the same law the server enforces
+/// (`repairNextStages`), so a move that 409s cannot be offered. Asks only for a
+/// note.
 function MoveRepairForm({
   row,
+  act,
+  to,
   onDone,
   onCancel,
 }: {
   row: GaRepairRow
+  act: "start" | "finish" | "close" | "cancel"
+  to: string
   onDone: () => void
   onCancel: () => void
 }) {
   const client = useQueryClient()
-  const [to, setTo] = useState("")
   const [note, setNote] = useState("")
 
   const move = useMutation({
@@ -463,45 +713,31 @@ function MoveRepairForm({
       }),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: gaKeys.all })
+      void client.invalidateQueries({ queryKey: ["record"] })
       onDone()
     },
   })
 
   return (
     <div className="flex flex-col gap-3">
-      {move.error instanceof Error && (
-        <Banner tone="bad">{move.error.message}</Banner>
-      )}
-      <Choices
-        label="Next stage"
-        columns={2}
-        value={to}
-        onChange={setTo}
-        options={repairNextStages(row.status).map((stage) => ({
-          value: stage,
-          label: repairStageWords(stage),
-          note:
-            stage === "CANCELLED"
-              ? "Stops this repair; its stage cannot move forward after this."
-              : undefined,
-        }))}
-      />
-      <Field label="Notes" aside="optional, added to the stage history">
-        <Input value={note} onChange={(event) => setNote(event.target.value)} />
+      <Field label="Note">
+        <Input
+          value={note}
+          onChange={(event) => setNote(event.target.value)}
+          autoFocus
+        />
       </Field>
-      <div className="flex items-center gap-2">
-        <Button
-          variant="primary"
-          pending={move.isPending}
-          disabled={to === ""}
-          onClick={() => move.mutate()}
-        >
-          {move.isPending ? "Moving…" : "Move"}
-        </Button>
-        <Button data-cancel variant="ghost" onClick={onCancel}>
-          Cancel
-        </Button>
-      </div>
+      <SheetFooter
+        error={move.error}
+        onCancel={onCancel}
+        cancelLabel={act === "cancel" ? "Keep repair" : "Cancel"}
+        primary={{
+          label: STEP_VERB[act],
+          tone: act === "cancel" ? "danger" : "primary",
+          pending: move.isPending,
+          onClick: () => move.mutate(),
+        }}
+      />
     </div>
   )
 }
@@ -513,7 +749,7 @@ function MoveRepairForm({
 ///
 /// # INSTALLED is where the register changes
 ///
-/// Moving to Terpasang is not a status flip: the server copies the old asset
+/// Moving to Installed is not a status flip: the server copies the old asset
 /// into a new one — name, class, site, specs — and marks the old one
 /// REPLACED, in one transaction. The form asks for the new asset only to
 /// ADOPT one that was registered earlier; left empty, the copy is made.
@@ -526,29 +762,57 @@ export function ReplacementSheet({
   open: boolean
   onClose: () => void
 }) {
+  const enabled = open && replacementId !== undefined
   const replacement = useQuery({
     queryKey: gaKeys.replacement(replacementId ?? ""),
     queryFn: ({ signal }) => gaReplacement(replacementId ?? "", signal),
-    enabled: open && replacementId !== undefined,
+    enabled,
   })
+  const activity = useActivity("replacement", replacementId, enabled)
+  const actor = useIdentity()
+  const nameOf = useNameOfLogin()
+  const supplierName = useSupplierName()
+  const client = useQueryClient()
+  const [installing, setInstalling] = useState(false)
 
   const row = replacement.data
-  const actor = useIdentity()
   const next = row === undefined ? null : replacementNextStage(row.status)
   const mine = actor.data?.username === row?.created_by
-  const [installing, setInstalling] = useState(false)
+
+  const advance = useMutation({
+    mutationFn: () =>
+      moveGaReplacement(row?.replacement_id ?? "", {
+        to: next ?? "",
+        new_asset_id: null,
+      }),
+    onSuccess: () => {
+      // The register changes with this move, and INSTALLED changes it most
+      // of all — the whole GA namespace drops, as every GA write here does.
+      void client.invalidateQueries({ queryKey: gaKeys.all })
+      void client.invalidateQueries({ queryKey: ["record"] })
+    },
+  })
+
+  /// The foot's one verb, named by the step it takes.
+  const verb: Readonly<Record<string, string>> = {
+    APPROVED: "Approve",
+    PURCHASED: "Mark purchased",
+    INSTALLED: "Mark installed",
+    CLOSED: "Close replacement",
+  }
 
   return (
     <Sheet
       open={open}
       onOpenChange={(step) => !step && onClose()}
-      width="wide"
+      size="rail"
+      stack
+      context="Replacements"
       title={
         row === undefined
           ? "Replacement"
           : `Replace ${row.old_asset_name ?? "asset"}`
       }
-      caption={row === undefined ? undefined : row.reason}
       subject={
         replacementId === undefined
           ? undefined
@@ -559,279 +823,199 @@ export function ReplacementSheet({
           <ReplacementStagePill status={row.status} />
         )
       }
-      actions={
-        row === undefined || next === null ? undefined : (
-          <AdvanceButton
-            row={row}
-            to={next}
-            disabled={next === "APPROVED" && mine}
-            onOpenInstall={() => setInstalling(true)}
-          />
-        )
-      }
       footer={
-        row === undefined || next === null || !installing ? undefined : (
+        row === undefined ? undefined : installing && next !== null ? (
           <InstallForm
             row={row}
             to={next}
-            onDone={() => {
-              setInstalling(false)
-              onClose()
-            }}
+            onDone={() => setInstalling(false)}
             onCancel={() => setInstalling(false)}
+          />
+        ) : next === null ? (
+          <SheetFooter onCancel={onClose} cancelLabel="Close" />
+        ) : (
+          <SheetFooter
+            error={advance.error}
+            note={
+              next === "APPROVED" && mine
+                ? `${nameOf(row.created_by)} proposed this, so someone else approves it.`
+                : undefined
+            }
+            primary={
+              next === "APPROVED" && mine
+                ? undefined
+                : {
+                    label: verb[next] ?? replacementStageWords(next),
+                    pending: advance.isPending,
+                    onClick:
+                      next === "INSTALLED"
+                        ? () => setInstalling(true)
+                        : () => advance.mutate(),
+                  }
+            }
           />
         )
       }
-      tabs={
-        row === undefined
-          ? undefined
-          : [
-              {
-                value: "detail",
-                label: "Details",
-                content: <ReplacementDetail row={row} />,
-              },
-              {
-                value: "accounts",
-                label: "Accounts",
-                content: <ReplacementAccounts row={row} />,
-              },
-              {
-                value: "cost",
-                label: "Cost",
-                content: <ReplacementCost />,
-              },
-            ]
-      }
     >
-      {replacement.isLoading && (
-        <LoadingState>Opening the replacement…</LoadingState>
-      )}
-      {replacement.error instanceof Error && (
-        <Banner tone="bad">{replacement.error.message}</Banner>
-      )}
+      <SheetQuery query={replacement} what="replacement">
+        {(loaded) => (
+          <>
+            <SheetSection title="Steps">
+              <Timeline
+                events={replacementSteps(loaded, {
+                  nameOf,
+                  vendor:
+                    loaded.supplier_name === null && loaded.supplier_id === null
+                      ? "the vendor"
+                      : supplierName(
+                          loaded.supplier_id,
+                          loaded.supplier_name,
+                          loaded.supplier_id
+                        ),
+                  moves: movesOf(activity.data),
+                })}
+              />
+            </SheetSection>
+
+            <SheetSection title="Replacement">
+              <Facts>
+                <Fact term="Old asset">
+                  <RecordLink
+                    to="/assets"
+                    sheet={{ key: "asset", value: loaded.old_asset_id }}
+                  >
+                    {loaded.old_asset_name ?? "Asset"}
+                  </RecordLink>
+                </Fact>
+                <Fact term="New asset">
+                  {loaded.new_asset_id === null ? (
+                    EMPTY
+                  ) : (
+                    <RecordLink
+                      to="/assets"
+                      sheet={{ key: "asset", value: loaded.new_asset_id }}
+                    >
+                      {loaded.new_asset_name ?? "Asset"}
+                    </RecordLink>
+                  )}
+                </Fact>
+                <Fact term="Repair">
+                  {loaded.repair_id === null ? (
+                    EMPTY
+                  ) : (
+                    <RecordLink
+                      to="/maintenance"
+                      sheet={{ key: "repair", value: loaded.repair_id }}
+                    >
+                      {loaded.repair_title ?? "Repair"}
+                    </RecordLink>
+                  )}
+                </Fact>
+                <Fact term="Vendor">
+                  {loaded.supplier_id === null ? (
+                    EMPTY
+                  ) : (
+                    <RecordLink
+                      to="/vendors"
+                      sheet={{ key: "supplier", value: loaded.supplier_id }}
+                    >
+                      {supplierName(
+                        loaded.supplier_id,
+                        loaded.supplier_name,
+                        loaded.supplier_id
+                      )}
+                    </RecordLink>
+                  )}
+                </Fact>
+                <Fact term="Proposed on">{day(loaded.proposed_on)}</Fact>
+                <Fact term="Reason" wide>
+                  {loaded.reason}
+                </Fact>
+              </Facts>
+            </SheetSection>
+          </>
+        )}
+      </SheetQuery>
     </Sheet>
   )
 }
 
-/// The one-step advance, in a button. Only Terpasang has a question to ask
-/// (which new asset), and that one opens the footer form instead; every
-/// other step is one deliberate click, like the prototype's Lanjut.
-function AdvanceButton({
-  row,
-  to,
-  disabled,
-  onOpenInstall,
-}: {
-  row: GaReplacementRow
-  to: string
-  disabled: boolean
-  onOpenInstall: () => void
-}) {
-  const client = useQueryClient()
-  const move = useMutation({
-    mutationFn: (signal?: AbortSignal) =>
-      moveGaReplacement(row.replacement_id, { to, new_asset_id: null }, signal),
-    onSuccess: () => {
-      // The register changes with this move, and INSTALLED changes it most
-      // of all — the whole GA namespace drops, as every GA write here does.
-      void client.invalidateQueries({ queryKey: gaKeys.all })
+/// The five steps of a replacement: proposed, approved, purchased, installed,
+/// closed. Each done one says who and when; the next says who it waits for.
+function replacementSteps(
+  row: GaReplacementRow,
+  input: {
+    nameOf: (login: string) => string
+    vendor: string
+    moves: readonly Entry[]
+  }
+): TimelineEvent[] {
+  const { nameOf, vendor, moves } = input
+  const reachedAt = REPLACEMENT_FLOW.indexOf(
+    row.status as (typeof REPLACEMENT_FLOW)[number]
+  )
+  // Every rung after the proposal is one move, in order.
+  const stages = [
+    {
+      id: "approved",
+      title: "Approved",
+      who:
+        row.approved_by !== null
+          ? nameOf(row.approved_by)
+          : (moves[0]?.display_name ??
+            (row.decided_by === null ? undefined : nameOf(row.decided_by))),
+      at: row.approved_at ?? moves[0]?.at,
+      waits: `Waiting for approval by someone other than ${nameOf(row.created_by)}`,
     },
-  })
-
-  if (to === "INSTALLED") {
-    return (
-      <Button variant="soft" onClick={onOpenInstall}>
-        Next: {replacementStageWords(to)}
-      </Button>
-    )
-  }
-
-  return (
-    <Button
-      variant="soft"
-      pending={move.isPending}
-      disabled={disabled}
-      onClick={() => move.mutate()}
-    >
-      {disabled
-        ? "Creator cannot approve their own request"
-        : move.isPending
-          ? "Moving…"
-          : `Next: ${replacementStageWords(to)}`}
-    </Button>
-  )
+    {
+      id: "purchased",
+      title: "Purchased",
+      who: moves[1]?.display_name,
+      at: moves[1]?.at,
+      waits: `Waiting for ${vendor} to supply it`,
+    },
+    {
+      id: "installed",
+      title: "Installed",
+      who: moves[2]?.display_name,
+      at: moves[2]?.at,
+      waits: "Waiting for it to be installed",
+    },
+    {
+      id: "closed",
+      title: "Done",
+      who: moves[3]?.display_name,
+      at: moves[3]?.at,
+      waits: "Waiting for GA to close it",
+    },
+  ]
+  return [
+    {
+      id: "proposed",
+      title: "Proposed",
+      detail: by(nameOf(row.created_by)),
+      at: when(row.proposed_on),
+      state: "done",
+    },
+    ...stages.map((one, i): TimelineEvent => {
+      const state = stateAt(i + 1, reachedAt)
+      return {
+        id: one.id,
+        title: one.title,
+        state,
+        detail:
+          state === "done"
+            ? by(one.who)
+            : state === "current"
+              ? one.waits
+              : undefined,
+        at: state === "done" ? when(one.at) : undefined,
+      }
+    }),
+  ]
 }
 
-/// The swap's own facts, with the stage line under them.
-function ReplacementDetail({ row }: { row: GaReplacementRow }) {
-  return (
-    <div className="flex flex-col gap-5">
-      <section>
-        <h4 className="mb-2.5 border-b border-hairline pb-1.5 text-card-title font-semibold text-ink">
-          Replacement
-        </h4>
-        <Facts>
-          <Fact term="Old asset">{row.old_asset_name ?? "—"}</Fact>
-          <Fact term="New asset">
-            {row.new_asset_name ?? "— created once installed"}
-          </Fact>
-          <Fact term="Reason">{row.reason}</Fact>
-          <Fact term="Repair">
-            {row.repair_id === null ? (
-              "—"
-            ) : (
-              <span className="font-mono text-id">
-                {row.repair_id.slice(0, 8)}
-              </span>
-            )}
-          </Fact>
-          <Fact term="Vendor">
-            <SupplierName code={row.supplier_id} name={row.supplier_name} />
-          </Fact>
-          <Fact term="Date proposed">{day(row.proposed_on)}</Fact>
-          {row.decided_by !== null && (
-            <Fact term="Decided by">{row.decided_by}</Fact>
-          )}
-        </Facts>
-      </section>
-      <section>
-        <h4 className="mb-2.5 border-b border-hairline pb-1.5 text-card-title font-semibold text-ink">
-          Stage
-        </h4>
-        <StageLine flow={REPLACEMENT_FLOW} status={row.status} />
-      </section>
-    </div>
-  )
-}
-
-/// Whose books the swap touches. Operating Equipment is its own story — the
-/// replacement is EXPENSED (7024, out of the 1100 reserve), not capitalised
-/// — and that fork reads from the old asset's build, fetched from the same
-/// hub the register keeps.
-function ReplacementAccounts({ row }: { row: GaReplacementRow }) {
-  const oldAsset = useQuery({
-    queryKey: gaKeys.asset(row.old_asset_id),
-    queryFn: ({ signal }) => gaAssetHub(row.old_asset_id, signal),
-    staleTime: 5 * 60 * 1000,
-  })
-  // The asset stays at its site; its accounts are the books of the unit
-  // owning that site (0605).
-  const site = oldAsset.data?.asset.site_id ?? null
-  const units = useUnits()
-  const unit =
-    site === null
-      ? null
-      : ((units.data ?? []).find((one) =>
-          one.sites.some((premises) => premises.id === site)
-        )?.id ?? null)
-  const map = useQuery({
-    queryKey: financeKeys.unitAccounts(unit),
-    queryFn: ({ signal }) => unitAccounts(unit, signal),
-    enabled: unit !== null,
-    staleTime: 5 * 60 * 1000,
-  })
-
-  if (oldAsset.isLoading)
-    return <LoadingState>Reading the old asset…</LoadingState>
-
-  const build = oldAsset.data?.asset.build
-  const classCode = oldAsset.data?.asset.class_code
-
-  if (build === "OE") {
-    return (
-      <div className="flex flex-col gap-4">
-        <div className="flex flex-col">
-          <AccountRow role="Replacement expense" code="7024" />
-          <AccountRow role="Reserve" code="1100" />
-        </div>
-        <p className="flex items-center gap-1.5 text-pill text-mute">
-          <FinanceMark className="align-[0.0625rem]" /> OE uses replacement: the
-          replacement cost is charged to 7024 through reserve 1100; the old
-          asset is not depreciated. Read from the bill that points to this
-          replacement.
-        </p>
-      </div>
-    )
-  }
-
-  const rows = (map.data ?? []).filter((one) => one.source_id === classCode)
-
-  return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-col">
-        {rows.map((one) => (
-          <AccountRow
-            key={`${one.role}:${one.source_id}`}
-            role={one.role}
-            code={one.account_code}
-            name={one.account_name}
-          />
-        ))}
-        <AccountRow
-          role="Disposal of old asset"
-          missing="Gain/Loss on Asset Disposal · not yet in the COA"
-        />
-      </div>
-      <p className="flex items-center gap-1.5 text-pill text-mute">
-        <FinanceMark className="align-[0.0625rem]" /> The new asset is
-        capitalised through the bill using the old asset's class; the old asset
-        is disposed of in Finance.
-      </p>
-    </div>
-  )
-}
-
-/// One proposed account, in the prototype's grammar: role, code, name. A
-/// missing code is a sentence, not a dash — "not yet" is a decision
-/// somebody made, and a dash would read as data nobody typed.
-function AccountRow({
-  role,
-  code,
-  name,
-  missing,
-}: {
-  role: string
-  code?: string
-  name?: string
-  missing?: string
-}) {
-  return (
-    <div className="flex items-baseline gap-3 border-b border-hairline py-2 last:border-b-0">
-      <span className="w-28 shrink-0 text-meta text-body">{role}</span>
-      <span className="w-14 shrink-0 font-mono text-id text-body tabular-nums">
-        {code ?? "—"}
-      </span>
-      <span className="min-w-0 truncate text-meta text-mute">
-        {missing ?? name}
-      </span>
-    </div>
-  )
-}
-
-/// The cost of a swap is the bills that point at it. The replacement's record
-/// does not carry that figure back yet, so it reads em-dash and says why
-/// rather than showing a zero that would read as "cost nothing".
-function ReplacementCost() {
-  return (
-    <div className="flex flex-col gap-4">
-      <figure>
-        <figcaption className="text-eyebrow font-medium text-body">
-          Cost <FinanceMark className="ml-1 align-[0.125rem]" />
-        </figcaption>
-        <div className="mt-1 text-[1.125rem] leading-none font-semibold tracking-[-0.02em] text-ink tabular-nums">
-          —
-        </div>
-      </figure>
-      <p className="text-pill text-mute">
-        Bills posted against this replacement are not read back here yet.
-        Finance holds the cost until they are.
-      </p>
-    </div>
-  )
-}
-
-/// The one step with a question: Terpasang. Name a new asset that GA already
+/// The one step with a question: Installed. Name a new asset that GA already
 /// registered and the replacement adopts it; leave it empty and the server
 /// copies the old one — name, class, site, specs — in the same transaction
 /// that retires the original.
@@ -857,35 +1041,29 @@ function InstallForm({
       }),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: gaKeys.all })
+      void client.invalidateQueries({ queryKey: ["record"] })
       onDone()
     },
   })
 
   return (
     <div className="flex flex-col gap-3">
-      {move.error instanceof Error && (
-        <Banner tone="bad">{move.error.message}</Banner>
-      )}
-      <Field label="New asset" aside="empty = the server copies the old asset">
+      <Field label="New asset">
         <AssetSelect
           value={newAssetId}
           onChange={setNewAssetId}
           exclude={row.old_asset_id}
         />
       </Field>
-      <div className="flex items-center gap-2">
-        <Button
-          variant="primary"
-          pending={move.isPending}
-          onClick={() => move.mutate()}
-        >
-          <Check />
-          {move.isPending ? "Moving…" : `Next: ${replacementStageWords(to)}`}
-        </Button>
-        <Button data-cancel variant="ghost" onClick={onCancel}>
-          Cancel
-        </Button>
-      </div>
+      <SheetFooter
+        error={move.error}
+        onCancel={onCancel}
+        primary={{
+          label: "Mark installed",
+          pending: move.isPending,
+          onClick: () => move.mutate(),
+        }}
+      />
     </div>
   )
 }
@@ -897,9 +1075,8 @@ function InstallForm({
 /// # Where this sheet stops
 ///
 /// At APPROVED. POSTED is Finance's word and Finance's act: the gain or loss
-/// of letting a thing go is booked by the desk that owns the books, in an
-/// account that does not exist in the COA yet (brief §4.2). This sheet says
-/// that in one sentence rather than pretending the record is complete.
+/// of letting a thing go is booked by the desk that owns the books. The last
+/// step says so by waiting for Finance.
 export function DisposalSheet({
   disposalId,
   open,
@@ -909,15 +1086,17 @@ export function DisposalSheet({
   open: boolean
   onClose: () => void
 }) {
+  const enabled = open && disposalId !== undefined
   const disposal = useQuery({
     queryKey: gaKeys.disposal(disposalId ?? ""),
     queryFn: ({ signal }) => gaDisposal(disposalId ?? "", signal),
-    enabled: open && disposalId !== undefined,
+    enabled,
   })
+  const actor = useIdentity()
+  const nameOf = useNameOfLogin()
+  const [refusing, setRefusing] = useState(false)
 
   const row = disposal.data
-  const actor = useIdentity()
-  const [refusing, setRefusing] = useState(false)
   const decidable = row !== undefined && row.status === "REQUESTED"
   const mine = actor.data?.username === row?.created_by
 
@@ -925,17 +1104,11 @@ export function DisposalSheet({
     <Sheet
       open={open}
       onOpenChange={(next) => !next && onClose()}
-      width="rail"
+      size="rail"
+      stack
+      context="Disposals"
       title={
         row === undefined ? "Disposal" : `Dispose ${row.asset_name ?? "asset"}`
-      }
-      caption={
-        row === undefined ? undefined : (
-          <>
-            {disposalMethodWords(row.method)} · submitted{" "}
-            {day(row.requested_on)}
-          </>
-        )
       }
       subject={
         disposalId === undefined
@@ -947,78 +1120,129 @@ export function DisposalSheet({
           <DisposalStagePill status={row.status} />
         )
       }
-      actions={
-        !decidable || mine ? (
-          // The refusal the server will also make, said where the button
-          // would have been — a disabled control with a tooltip is a
-          // refusal nobody reads.
-          decidable && mine ? (
-            <Button variant="soft" disabled>
-              Creator cannot decide on their own request
-            </Button>
-          ) : undefined
-        ) : (
-          <>
-            <Button variant="soft" onClick={() => setRefusing(true)}>
-              Reject
-            </Button>
-            <ApproveDisposalButton row={row} onDone={onClose} />
-          </>
-        )
-      }
       footer={
-        !decidable || !refusing ? undefined : (
+        row === undefined ? undefined : !decidable ? (
+          <SheetFooter onCancel={onClose} cancelLabel="Close" />
+        ) : refusing ? (
           <RejectDisposalForm
             row={row}
-            onDone={() => {
-              setRefusing(false)
-              onClose()
-            }}
+            onDone={() => setRefusing(false)}
             onCancel={() => setRefusing(false)}
           />
+        ) : mine ? (
+          <SheetFooter
+            onCancel={onClose}
+            cancelLabel="Close"
+            note={`${nameOf(row.created_by)} requested this, so someone else decides.`}
+          />
+        ) : (
+          <ApproveDisposalFoot row={row} onReject={() => setRefusing(true)} />
         )
       }
-      tabs={
-        row === undefined
-          ? undefined
-          : [
-              {
-                value: "detail",
-                label: "Details",
-                content: <DisposalDetail row={row} />,
-              },
-              {
-                value: "stage",
-                label: "Stage",
-                content: (
-                  <div className="flex flex-col gap-3">
-                    <StageLine flow={DISPOSAL_FLOW} status={row.status} />
-                    <p className="text-pill text-mute">
-                      Posted by Finance once the journal is made; the stage
-                      stops here for GA.
-                    </p>
-                  </div>
-                ),
-              },
-            ]
-      }
     >
-      {disposal.isLoading && <LoadingState>Opening the disposal…</LoadingState>}
-      {disposal.error instanceof Error && (
-        <Banner tone="bad">{disposal.error.message}</Banner>
-      )}
+      <SheetQuery query={disposal} what="disposal">
+        {(loaded) => (
+          <>
+            <SheetSection title="Steps">
+              <Timeline events={disposalSteps(loaded, nameOf)} />
+            </SheetSection>
+
+            <SheetSection title="Disposal">
+              <Facts>
+                <Fact term="Asset">
+                  <RecordLink
+                    to="/assets"
+                    sheet={{ key: "asset", value: loaded.asset_id }}
+                  >
+                    {loaded.asset_name ?? "Asset"}
+                  </RecordLink>
+                </Fact>
+                <Fact term="Method">{disposalMethodWords(loaded.method)}</Fact>
+                {loaded.method === "SOLD" && (
+                  <Fact term="Sale proceeds">
+                    {money(loaded.proceeds_minor)}
+                  </Fact>
+                )}
+                <Fact term="Submitted on">{day(loaded.requested_on)}</Fact>
+                <Fact term="Reason" wide>
+                  {loaded.reason}
+                </Fact>
+              </Facts>
+            </SheetSection>
+          </>
+        )}
+      </SheetQuery>
     </Sheet>
   )
 }
 
-/// Approving, in one click. The refusal path asks for a reason; the approval
-/// has the request's own reason standing above it.
-function ApproveDisposalButton({
+/// The three steps of a disposal request. Finance posts the last; GA's sheet
+/// only waits for it.
+function disposalSteps(
+  row: GaDisposalRow,
+  nameOf: (login: string) => string
+): TimelineEvent[] {
+  const submitted: TimelineEvent = {
+    id: "submitted",
+    title: disposalStageWords("REQUESTED"),
+    detail: by(nameOf(row.created_by)),
+    at: when(row.requested_on),
+    state: "done",
+  }
+  if (row.status === "REJECTED")
+    return [
+      submitted,
+      {
+        id: "rejected",
+        title: "Rejected",
+        detail: [
+          by(row.approved_by === null ? null : nameOf(row.approved_by)),
+          row.notes,
+        ]
+          .filter((part) => part !== undefined && part !== null && part !== "")
+          .join(" · "),
+        at: when(row.approved_at),
+        state: "done",
+      },
+    ]
+  const reachedAt = DISPOSAL_FLOW.indexOf(
+    row.status as (typeof DISPOSAL_FLOW)[number]
+  )
+  return [
+    submitted,
+    {
+      id: "approved",
+      title: "Approved",
+      state: stateAt(1, reachedAt),
+      detail:
+        reachedAt >= 1
+          ? by(row.approved_by === null ? null : nameOf(row.approved_by))
+          : `Waiting for a decision by someone other than ${nameOf(row.created_by)}`,
+      at: reachedAt >= 1 ? when(row.approved_at) : undefined,
+    },
+    {
+      id: "posted",
+      title: "Posted",
+      state: stateAt(2, reachedAt),
+      detail:
+        reachedAt >= 2
+          ? by(row.closed_by === null ? null : nameOf(row.closed_by))
+          : stateAt(2, reachedAt) === "current"
+            ? "Waiting for Finance to post it"
+            : undefined,
+      at: reachedAt >= 2 ? when(row.closed_at) : undefined,
+    },
+  ]
+}
+
+/// Deciding: Reject on the left, Approve the one primary. The refusal path asks
+/// for a reason; the approval has the request's own reason standing above it.
+function ApproveDisposalFoot({
   row,
-  onDone,
+  onReject,
 }: {
   row: GaDisposalRow
-  onDone: () => void
+  onReject: () => void
 }) {
   const client = useQueryClient()
   const approve = useMutation({
@@ -1028,25 +1252,29 @@ function ApproveDisposalButton({
       // The asset's own status changes with the decision, so the whole GA
       // namespace drops — the register's pill reads the same fact.
       void client.invalidateQueries({ queryKey: gaKeys.all })
-      onDone()
+      void client.invalidateQueries({ queryKey: ["record"] })
     },
   })
 
   return (
-    <Button
-      variant="primary"
-      pending={approve.isPending}
-      onClick={() => approve.mutate()}
-    >
-      <Check />
-      {approve.isPending ? "Approving…" : "Approve"}
-    </Button>
+    <SheetFooter
+      error={approve.error}
+      danger={
+        <Button variant="destructive" onClick={onReject}>
+          Reject
+        </Button>
+      }
+      primary={{
+        label: "Approve",
+        pending: approve.isPending,
+        onClick: () => approve.mutate(undefined),
+      }}
+    />
   )
 }
 
 /// Refusing, with the reason the asset's holder will read. The server puts
-/// the asset back to REGISTERED; the sentence explains why it is still
-/// there.
+/// the asset back to Registered; the sentence explains why it is still there.
 function RejectDisposalForm({
   row,
   onDone,
@@ -1068,6 +1296,7 @@ function RejectDisposalForm({
       }),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: gaKeys.all })
+      void client.invalidateQueries({ queryKey: ["record"] })
       onDone()
     },
   })
@@ -1081,13 +1310,11 @@ function RejectDisposalForm({
   }
 
   return (
-    <div className="flex items-end gap-3">
+    <div className="flex flex-col gap-3">
       <Field
         label="Reason for rejecting"
         required
-        aside="asset returns to Registered"
         problem={problem || undefined}
-        className="flex-1"
       >
         <Input
           value={note}
@@ -1101,227 +1328,121 @@ function RejectDisposalForm({
           autoFocus
         />
       </Field>
-      <Button variant="primary" pending={reject.isPending} onClick={submit}>
-        {reject.isPending ? "Rejecting…" : "Reject"}
-      </Button>
-      <Button data-cancel variant="ghost" onClick={onCancel}>
-        Cancel
-      </Button>
-    </div>
-  )
-}
-
-/// The request's facts, and the one sentence this sheet owes the reader:
-/// the books are not GA's, and the account is not in the COA yet.
-function DisposalDetail({ row }: { row: GaDisposalRow }) {
-  return (
-    <div className="flex flex-col gap-5">
-      <Banner tone="warn">
-        GA does not post anything: the gain/loss bookkeeping for the disposal
-        belongs to Finance, and the Gain/Loss on Asset Disposal account does not
-        yet exist in the COA. <FinanceMark className="align-[0.0625rem]" />
-      </Banner>
-
-      <section>
-        <h4 className="mb-2.5 border-b border-hairline pb-1.5 text-card-title font-semibold text-ink">
-          Details
-        </h4>
-        <Facts>
-          <Fact term="Asset">{row.asset_name ?? "—"}</Fact>
-          <Fact term="Method">{disposalMethodWords(row.method)}</Fact>
-          {row.method === "SOLD" && (
-            <Fact term="Sale proceeds">
-              {money(row.proceeds_minor)}
-              {row.proceeds_minor === null && (
-                <span className="text-pill font-normal text-mute">
-                  {" "}
-                  · no figure yet
-                </span>
-              )}
-            </Fact>
-          )}
-          <Fact term="Reason">{row.reason}</Fact>
-          <Fact term="Submitted">{day(row.requested_on)}</Fact>
-          <Fact term="Submitted by">{row.created_by}</Fact>
-          {row.approved_by !== null && (
-            <Fact term="Decided by">
-              {row.approved_by} · {day(row.approved_at)}
-            </Fact>
-          )}
-        </Facts>
-      </section>
+      <SheetFooter
+        error={reject.error}
+        onCancel={onCancel}
+        primary={{
+          label: "Reject",
+          tone: "danger",
+          pending: reject.isPending,
+          onClick: submit,
+        }}
+      />
     </div>
   )
 }
 
 // ── shared drawing ──────────────────────────────────────────────────────────
 
-/// The papers filed against a maintenance record. The same door the asset
-/// and contract hubs open onto the Library: the person holding the paper is
-/// standing at this record, and what they file still lands in the Library —
-/// linked, not copied.
-function Documents({ kind, id }: { kind: string; id: string }) {
+/// The papers filed against a maintenance record, as the claim sheet shows
+/// its own: the same door onto the Library — what is filed here lands there,
+/// linked, not copied. A row downloads the file.
+function SubjectPapers({ kind, id }: { kind: string; id: string }) {
   const client = useQueryClient()
-  const [adding, setAdding] = useState(false)
-  const documents = useQuery({
-    queryKey: ["documents", kind, id],
+  const picker = useRef<HTMLInputElement>(null)
+  const key = ["documents", kind, id] as const
+  const papers = useQuery({
+    queryKey: key,
     queryFn: ({ signal }) =>
       searchDocuments({ subjectKind: kind, subjectId: id }, signal),
   })
-
-  return (
-    <div className="flex flex-col gap-4">
-      {(documents.data ?? []).length === 0 ? (
-        <p className="text-meta text-body">
-          No documents yet. Before-and-after photos, technician reports, service
-          handover certificates — attached here and indexed in the Library.
-        </p>
-      ) : (
-        <ul className="flex flex-col">
-          {(documents.data ?? []).map((document) => (
-            <li
-              key={document.document_id}
-              className="flex items-center gap-3 border-b border-hairline py-2.5 last:border-b-0"
-            >
-              <FileText className="size-4 shrink-0 stroke-[1.7] text-line-ico" />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-cell text-ink">
-                  {document.doc_type ?? document.title ?? document.name}
-                </span>
-                <span className="block truncate font-mono text-pill text-mute">
-                  {document.doc_number ?? document.name}
-                </span>
-              </span>
-              <span className="shrink-0 text-pill text-mute tabular-nums">
-                {document.expires_on === null
-                  ? "no expiry"
-                  : `until ${day(document.expires_on)}`}
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {adding ? (
-        <AttachForm
-          kind={kind}
-          id={id}
-          onDone={() => {
-            setAdding(false)
-            void client.invalidateQueries({ queryKey: ["documents", kind, id] })
-          }}
-          onCancel={() => setAdding(false)}
-        />
-      ) : (
-        <div>
-          <Button variant="soft" onClick={() => setAdding(true)}>
-            <Paperclip />
-            Attach document
-          </Button>
-        </div>
-      )}
-    </div>
-  )
-}
-
-/// Filing one paper — bytes first, document row second, so a slow
-/// photograph never blocks the form.
-function AttachForm({
-  kind,
-  id,
-  onDone,
-  onCancel,
-}: {
-  kind: string
-  id: string
-  onDone: () => void
-  onCancel: () => void
-}) {
-  const [file, setFile] = useState<File | null>(null)
-  const [form, setForm] = useState<Record<string, string>>({})
-  const set = (key: string, value: string) =>
-    setForm((current) => ({ ...current, [key]: value }))
-
-  const save = useMutation({
-    mutationFn: () => {
-      if (file === null) throw new Error("Choose a file first.")
-      return uploadDocument(file, {
-        title: blank(form.title),
-        doc_type: blank(form.doc_type),
-        doc_number: blank(form.doc_number),
-        issuer: blank(form.issuer),
-        issued_on: blank(form.issued_on),
-        expires_on: blank(form.expires_on),
-        path_tokens: ["GA", id],
-        tags: [],
-        links: [{ subject_kind: kind, subject_id: id }],
-      })
+  const attach = useMutation({
+    mutationFn: async (files: readonly File[]) => {
+      for (const file of files) {
+        await uploadDocument(file, {
+          title: file.name,
+          sha256: null,
+          language: null,
+          doc_date: null,
+          doc_type: null,
+          doc_number: null,
+          issuer: null,
+          issued_on: null,
+          expires_on: null,
+          path_tokens: ["GA", id],
+          tags: [],
+          links: [{ subject_kind: kind, subject_id: id }],
+        })
+      }
     },
-    onSuccess: onDone,
+    onSuccess: (_done, files) => {
+      void client.invalidateQueries({ queryKey: key })
+      toast.success(files.length === 1 ? "Paper attached" : "Papers attached")
+    },
+    onError: (error) => toast.error(error.message),
   })
+  const download = async (documentId: string) => {
+    try {
+      const { url } = await documentDownloadUrl(documentId)
+      window.open(url, "_blank", "noopener")
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error))
+    }
+  }
 
   return (
-    <div className="rounded-inner border border-hairline-2 p-3.5">
-      {save.error instanceof Error && (
-        <Banner tone="bad">{save.error.message}</Banner>
-      )}
-      <div className="grid grid-cols-2 gap-4">
-        <Field label="File" required>
-          <Input
+    <SheetSection
+      title="Documents"
+      aside={
+        <SectionAside total={papers.data?.length}>
+          <TextAction
+            aria-label="Attach papers"
+            onClick={() => picker.current?.click()}
+          >
+            <Plus />
+            {attach.isPending ? "Attaching…" : "Attach"}
+          </TextAction>
+          <input
+            ref={picker}
             type="file"
-            onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+            multiple
+            accept="image/*,application/pdf"
+            className="hidden"
+            onChange={(event) => {
+              const files = Array.from(event.target.files ?? [])
+              event.target.value = ""
+              if (files.length > 0) attach.mutate(files)
+            }}
           />
-        </Field>
-        <Field
-          label="Document type"
-          aside="report, handover certificate, photo"
-        >
-          <Input
-            value={form.doc_type ?? ""}
-            onChange={(event) => set("doc_type", event.target.value)}
-          />
-        </Field>
-        <Field label="Number">
-          <Input
-            value={form.doc_number ?? ""}
-            onChange={(event) => set("doc_number", event.target.value)}
-          />
-        </Field>
-        <Field label="Issued by">
-          <Input
-            value={form.issuer ?? ""}
-            onChange={(event) => set("issuer", event.target.value)}
-          />
-        </Field>
-        <Field label="Issued on">
-          <Input
-            type="date"
-            value={form.issued_on ?? ""}
-            onChange={(event) => set("issued_on", event.target.value)}
-          />
-        </Field>
-        <Field label="Valid until" aside="empty = no expiry">
-          <Input
-            type="date"
-            value={form.expires_on ?? ""}
-            onChange={(event) => set("expires_on", event.target.value)}
-          />
-        </Field>
-      </div>
-      <div className="mt-3 flex items-center gap-2">
-        <Button
-          variant="primary"
-          pending={save.isPending}
-          disabled={file === null}
-          onClick={() => save.mutate()}
-        >
-          {save.isPending ? "Submitting…" : "Submit"}
-        </Button>
-        <Button data-cancel variant="ghost" onClick={onCancel}>
-          Cancel
-        </Button>
-      </div>
-    </div>
+        </SectionAside>
+      }
+    >
+      <SheetQuery query={papers} what="documents">
+        {(rows) =>
+          rows.length === 0 ? (
+            <SheetEmpty>No documents yet.</SheetEmpty>
+          ) : (
+            <MiniTable head={["Document", left("Filed")]}>
+              {rows.map((paper) => (
+                <OpenRow
+                  key={paper.document_id}
+                  onOpen={() => void download(paper.document_id)}
+                >
+                  <MiniCell>
+                    <NameCell
+                      icon={FileText}
+                      name={paper.title ?? paper.name}
+                      quiet={paper.doc_type}
+                    />
+                  </MiniCell>
+                  <MiniCell>{day(paper.created_at)}</MiniCell>
+                </OpenRow>
+              ))}
+            </MiniTable>
+          )
+        }
+      </SheetQuery>
+    </SheetSection>
   )
 }
 
@@ -1343,10 +1464,13 @@ function AssetSelect({
     queryFn: ({ signal }) => gaAssets({ limit: 200 }, signal),
     staleTime: 5 * 60 * 1000,
   })
+  const { sites } = useGaSites()
+  const siteName = (siteId: string) =>
+    sites.find((one) => one.value === siteId)?.label ?? siteId
 
   return (
     <Select value={value} onChange={onChange} aria-label="Asset">
-      <option value="">Choose a registered asset…</option>
+      <option value="">Create from the old asset</option>
       {(assets.data?.rows ?? [])
         .filter(
           (one) =>
@@ -1355,15 +1479,9 @@ function AssetSelect({
         )
         .map((one) => (
           <option key={one.asset_id} value={one.asset_id}>
-            {one.name} · {one.asset_number} · {one.site_id}
+            {one.name} · {one.asset_number} · {siteName(one.site_id)}
           </option>
         ))}
     </Select>
   )
-}
-
-/// The form's empty string, as the wire spells "not given".
-function blank(value: string | undefined): string | undefined {
-  const trimmed = (value ?? "").trim()
-  return trimmed === "" ? undefined : trimmed
 }

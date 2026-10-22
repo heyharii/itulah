@@ -5,6 +5,7 @@ import { PageContent } from "@/components/shell/app-shell"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
+import { CellMoney } from "@/components/ui/rows-switch"
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states"
 import { count, day, money } from "@/lib/format"
 import {
@@ -362,7 +363,7 @@ function SalesReconciliationScreen() {
             <h2 className="text-[0.9375rem] font-semibold text-ink">
               By mode of payment
             </h2>
-            <Grid>
+            <Grid followRows giveUp={[7]}>
               <thead>
                 <tr>
                   <Th width="8rem">Mode of payment</Th>
@@ -394,13 +395,13 @@ function SalesReconciliationScreen() {
                         </span>
                       </Td>
                       <Td align="right">
-                        <Amount minor={row.opening} />
+                        <Amount cell minor={row.opening} />
                       </Td>
                       <Td align="right">
-                        <Amount minor={row.expected} />
+                        <Amount cell minor={row.expected} />
                       </Td>
                       <Td align="right">
-                        <Amount minor={row.closing} />
+                        <Amount cell minor={row.closing} />
                       </Td>
                       <Td align="right">
                         <span
@@ -410,11 +411,11 @@ function SalesReconciliationScreen() {
                               : undefined
                           }
                         >
-                          <Amount minor={row.difference} />
+                          <Amount cell minor={row.difference} />
                         </span>
                       </Td>
                       <Td align="right">
-                        <Amount minor={row.taken} />
+                        <Amount cell minor={row.taken} />
                       </Td>
                       <Td>
                         <span className="flex flex-col gap-1">
@@ -449,7 +450,7 @@ function SalesReconciliationScreen() {
             <h2 className="text-[0.9375rem] font-semibold text-ink">
               Day by day
             </h2>
-            <Grid>
+            <Grid followRows>
               <thead>
                 <tr>
                   <Th width="7.5rem">Date</Th>
@@ -492,17 +493,18 @@ function SalesReconciliationScreen() {
                     <tr key={report.date}>
                       <Td>{day(report.date)}</Td>
                       <Td align="right">
-                        <Amount minor={report.sales.gross_minor} />
+                        <Amount cell minor={report.sales.gross_minor} />
                       </Td>
                       <Td align="right">
-                        <Amount minor={report.cash.cash_expected_minor} />
+                        <Amount cell minor={report.cash.cash_expected_minor} />
                       </Td>
                       <Td align="right">
-                        <Amount minor={cardAndQrisOn(report)} />
+                        <Amount cell minor={cardAndQrisOn(report)} />
                       </Td>
                       <Td align="right">
                         {/* Nobody counted is not "nothing was there". */}
                         <Amount
+                          cell
                           minor={
                             onThisDay.length === 0
                               ? null
@@ -515,7 +517,7 @@ function SalesReconciliationScreen() {
                       </Td>
                       <Td align="right">
                         {onThisDay.length === 0 ? (
-                          <Amount minor={null} />
+                          <Amount cell minor={null} />
                         ) : (
                           <span
                             className={
@@ -524,12 +526,13 @@ function SalesReconciliationScreen() {
                                 : "font-medium text-bad-fg"
                             }
                           >
-                            {money(variance)}
+                            <CellMoney minor={variance} />
                           </span>
                         )}
                       </Td>
                       <Td align="right">
                         <Amount
+                          cell
                           minor={
                             imports.kept.length === 0
                               ? null
@@ -542,6 +545,7 @@ function SalesReconciliationScreen() {
                       </Td>
                       <Td align="right">
                         <Amount
+                          cell
                           minor={
                             imports.kept.length === 0
                               ? null
@@ -602,7 +606,7 @@ function SalesReconciliationScreen() {
             <h2 className="text-[0.9375rem] font-semibold text-ink">
               The differences, named
             </h2>
-            <Grid>
+            <Grid followRows>
               <thead>
                 <tr>
                   <Th>Difference</Th>
@@ -635,13 +639,13 @@ function SalesReconciliationScreen() {
                             : undefined
                         }
                       >
-                        <Amount minor={row.amount} />
+                        <Amount cell minor={row.amount} />
                       </span>
                     </Td>
                     <Td>
                       <Pill tone={row.standing.tone}>{row.standing.label}</Pill>
                     </Td>
-                    <Td className="text-[0.9375rem] text-body">
+                    <Td className="text-[0.9375rem] text-body in-[.grid-compact]:whitespace-normal">
                       {row.standing.why}
                     </Td>
                   </tr>
@@ -1253,11 +1257,14 @@ function openingOf(books: Books): number | null {
 /// as `Rp 0` would say "settled" about something nothing is tracking. Zero
 /// keeps its ink but loses its weight, so the figures that are not zero are
 /// the ones the eye lands on.
-function Amount({ minor }: { minor: number | null }) {
+///
+/// `cell`: a row's own figure, which a compact table prints without its "Rp";
+/// the figure that closes a table keeps it.
+function Amount({ minor, cell }: { minor: number | null; cell?: boolean }) {
   if (minor === null) return <span className="text-faint">—</span>
   return (
     <span className={minor === 0 ? "text-faint" : undefined}>
-      {money(minor)}
+      {cell === true ? <CellMoney minor={minor} /> : money(minor)}
     </span>
   )
 }

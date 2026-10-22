@@ -59,6 +59,7 @@ import type {
   SaveChecklistTemplateBody,
   LoanView,
   GrantLoanBody,
+  LoanRepaymentBody,
   PayslipTemplate,
   SaveTemplateBody,
   TaxReportRow,
@@ -69,8 +70,10 @@ import type {
   SaveStructureBody,
   TaxTablesView,
   PayrollHandoverView,
+  PayrollReadiness,
   PayrollRunView,
   PayrollSlipRow,
+  PeriodSlipRow,
   PeriodView,
   RosterDayView,
   RunReconciliation,
@@ -1338,6 +1341,14 @@ export function reopenPeriod(
 export const payKeys = {
   runs: () => ["people", "payroll", "runs"] as const,
   slips: (runId: string) => ["people", "payroll", runId, "slips"] as const,
+  /// The three reads below sit under `runs()`, so a run opened, submitted or
+  /// approved refreshes them.
+  periodSlips: (period: string, unitId: string | null) =>
+    ["people", "payroll", "runs", "slips", period, unitId] as const,
+  readiness: (period: string, unitId: string | null) =>
+    ["people", "payroll", "runs", "readiness", period, unitId] as const,
+  employeeSlips: (employeeId: string) =>
+    ["people", "payroll", "runs", "payslips", employeeId] as const,
   handover: (runId: string) =>
     ["people", "payroll", runId, "handover"] as const,
   reconciliation: (runId: string) =>
@@ -1398,6 +1409,19 @@ export function stopLoan(
   return node.post<LoanView[]>(
     `/api/v1/payroll/loans/${encodeURIComponent(advanceId)}/stop`,
     { reason }
+  )
+}
+
+/// Money that came back outside payroll, against one loan. Answers with that
+/// person's loans. Refused with a sentence when it is more than what is left
+/// after any instalment sitting on a run not yet approved.
+export function repayLoan(
+  advanceId: string,
+  body: LoanRepaymentBody
+): Promise<LoanView[]> {
+  return node.post<LoanView[]>(
+    `/api/v1/payroll/loans/${encodeURIComponent(advanceId)}/repayments`,
+    body
   )
 }
 
@@ -1785,6 +1809,58 @@ export function runSlips(
 ): Promise<PayrollSlipRow[]> {
   return node.get<PayrollSlipRow[]>(
     `/api/v1/payroll/runs/${encodeURIComponent(runId)}/slips`,
+    { signal }
+  )
+}
+
+/// A path with the query string it asks for; a parameter that is empty or
+/// absent is left out.
+function withQuery(
+  path: string,
+  params: Readonly<Record<string, string | null | undefined>>
+): string {
+  const query = new URLSearchParams()
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== "")
+      query.set(key, value)
+  }
+  const text = query.toString()
+  return text === "" ? path : `${path}?${text}`
+}
+
+/// A month's payslips across the units the caller reaches, whatever state
+/// their run is in, sorted by unit then name (`GET /payroll/slips`).
+export function periodSlips(
+  period: string,
+  unitId: string | null,
+  signal?: AbortSignal
+): Promise<PeriodSlipRow[]> {
+  return node.get<PeriodSlipRow[]>(
+    withQuery("/api/v1/payroll/slips", { period, unit: unitId }),
+    { signal }
+  )
+}
+
+/// Who a month's runs would pay and what payroll does not hold for them yet
+/// (`GET /payroll/readiness`).
+export function payrollReadiness(
+  period: string,
+  unitId: string | null,
+  signal?: AbortSignal
+): Promise<PayrollReadiness> {
+  return node.get<PayrollReadiness>(
+    withQuery("/api/v1/payroll/readiness", { period, unit: unitId }),
+    { signal }
+  )
+}
+
+/// One person's payslips from approved runs, newest month first.
+export function employeePayslips(
+  employeeId: string,
+  signal?: AbortSignal
+): Promise<PayrollSlipRow[]> {
+  return node.get<PayrollSlipRow[]>(
+    `/api/v1/employees/${encodeURIComponent(employeeId)}/payslips`,
     { signal }
   )
 }
@@ -3232,6 +3308,9 @@ export type RosterSwapView = {
   state: "PENDING" | "APPROVED" | "REJECTED" | "WITHDRAWN"
   requested_by: string
   decided_by: string | null
+  /// `null` while it waits, and on a withdrawn one nobody decided.
+  decided_at: string | null
+  decision_reason: string | null
 }
 
 export type ChangeProposalView = {
@@ -3365,6 +3444,8 @@ export const nextKeys = {
   all: ["people", "next"] as const,
   swaps: () => [...nextKeys.all, "swaps"] as const,
   pendingSwaps: () => [...nextKeys.all, "swaps", "pending"] as const,
+  swapList: (params: SwapFilter) =>
+    [...nextKeys.all, "swaps", "list", params] as const,
   changes: (state?: string) =>
     [...nextKeys.all, "changes", state ?? "all"] as const,
   tasks: (kind?: string) => [...nextKeys.all, "tasks", kind ?? "all"] as const,
@@ -3388,6 +3469,25 @@ const enc = encodeURIComponent
 
 export function pendingSwaps(signal?: AbortSignal): Promise<RosterSwapView[]> {
   return node.get<RosterSwapView[]>("/api/v1/roster-swaps/pending", { signal })
+}
+
+/// Which swaps `GET /roster-swaps` is asked for: every state unless one is
+/// named, the days from `from` to `to` inclusive.
+export type SwapFilter = {
+  state?: RosterSwapView["state"]
+  unit?: string
+  from?: string
+  to?: string
+}
+
+/// Swaps of every state, newest day first, inside the caller's reach.
+export function listSwaps(
+  params: SwapFilter,
+  signal?: AbortSignal
+): Promise<RosterSwapView[]> {
+  return node.get<RosterSwapView[]>(withQuery("/api/v1/roster-swaps", params), {
+    signal,
+  })
 }
 
 export function swapsOf(

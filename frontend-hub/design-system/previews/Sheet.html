@@ -1,0 +1,107 @@
+<!-- @dsCard group="Overlays" height=810 subtitle="Static rendition of sheet.tsx in the All white look" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>Sheet — preview</title>
+<style>
+body{margin:0}
+/* the veil fills the frame; like the real panel, the sheet fills it from top to bottom with its foot pinned */
+.ds-veil{min-height:100vh}
+/* white.css .sheet-id: crumb 18px + 4px margin + 4px row gap puts the title 8px under it */
+.ds-sheet-crumb{margin-bottom:4px}
+.ds-sheet-body{flex:1 1 auto;gap:var(--section-gap)}
+/* ItemsTable: 40px photo tile, 14px cell padding, only the Amount at 500 */
+.ds-sheet-lines{table-layout:fixed}
+/* a narrow frame drops Unit price rather than scrolling the money columns out of sight */
+@media (max-width:780px){.ds-sheet-lines .is-unit{display:none}}
+.ds-sheet-lines td{padding-top:14px;padding-bottom:14px}
+.ds-sheet-lines td.is-num{white-space:nowrap}
+.ds-sheet-lines td:first-child{font-weight:400}
+.ds-sheet-lines td.is-amount{font-weight:500}
+.ds-sheet-item{display:flex;align-items:flex-start;gap:12px;min-width:0}
+.ds-sheet-thumb{width:40px;height:40px}
+.ds-sheet-item .ds-link{display:block;text-align:left}
+.ds-sheet-totals{display:grid;grid-template-columns:1fr auto;align-items:center;gap:10px 40px;width:304px;max-width:100%;margin:16px 0 0 auto;font-variant-numeric:tabular-nums}
+.ds-sheet-totals dt{color:var(--body)}
+.ds-sheet-totals dd{text-align:right;color:var(--ink)}
+.ds-sheet-totals .is-rule{grid-column:1 / -1;height:1px;background:var(--hairline)}
+.ds-sheet-totals dt.is-grand{font-weight:600;color:var(--ink)}
+.ds-sheet-totals dd.is-grand{font-size:16px;line-height:22px;font-weight:600}
+/* A quiet record section: title, then the words */
+.ds-sheet-note{font-size:15px;line-height:22px;color:var(--ink)}
+/* The folded Activity row: › Activity (1), under a hairline */
+.ds-sheet-fold{display:flex;align-items:center;gap:6px;padding-top:14px;border-top:1px solid var(--hairline);font-weight:500;color:var(--body)}
+.ds-sheet-fold .ds-ico{color:var(--line-ico)}
+.ds-sheet-fold .ds-sheet-count{font-weight:400;color:var(--mute);font-variant-numeric:tabular-nums}
+/* white.css: with no primary beside it, Edit is the one blue button */
+.ds-sheet-edit{border-color:transparent;background:var(--cta);color:var(--cta-fg);box-shadow:none}
+.ds-sheet-edit:hover,.ds-sheet-edit.is-hover{background:var(--cta-hover)!important}
+</style></head>
+<body>
+<div class="ds ds-veil">
+  <div class="ds-sheet ds-sheet--wide" role="dialog" aria-label="Garmen Nusantara, PT">
+
+    <div class="ds-sheet-head">
+      <div class="ds-sheet-headtext">
+        <div class="ds-sheet-crumb"><span>Purchase Orders</span><span class="ds-sep">/</span><span>PO-161026-010</span></div>
+        <div class="ds-sheet-titlerow">
+          <h2 class="ds-sheet-title"><button class="ds-link" type="button">Garmen Nusantara, PT</button></h2>
+          <span class="ds-pill ds-pill--ok">Active</span>
+        </div>
+      </div>
+      <button class="ds-sheet-close" type="button" aria-label="Close"><span class="ds-ico ds-ico-x ds-ico--17"></span></button>
+    </div>
+
+    <div class="ds-sheet-body">
+      <div class="ds-kpis ds-kpis--in-sheet">
+        <div class="ds-kpi"><div class="ds-kpi-label">Delivery date</div><div class="ds-kpi-value">29 Oct 2026</div></div>
+        <div class="ds-kpi"><div class="ds-kpi-label">Payment</div><div class="ds-kpi-value">Giro · 30 days</div></div>
+        <div class="ds-kpi"><div class="ds-kpi-label">Ordered</div><div class="ds-kpi-value">24 pcs</div></div>
+        <div class="ds-kpi"><div class="ds-kpi-label">Grand total</div><div class="ds-kpi-value">Rp 2.040.000</div></div>
+      </div>
+
+      <div>
+        <div class="ds-table-card"><div class="ds-table-scroll">
+          <table class="ds-table ds-sheet-lines">
+            <colgroup><col><col style="width:136px"><col class="is-unit" style="width:160px"><col style="width:152px"></colgroup>
+            <thead><tr><th>Item</th><th class="is-num">Ordered</th><th class="is-num is-unit">Unit price</th><th class="is-num">Amount</th></tr></thead>
+            <tbody>
+              <tr>
+                <td><div class="ds-sheet-item"><span class="ds-thumb ds-sheet-thumb"><span class="ds-ico ds-ico-image"></span></span><span><button class="ds-link is-hover" type="button">Kemeja Flanel Pria</button><span class="ds-sub">Pria · Basic</span></span></div></td>
+                <td class="is-num">10 pcs</td><td class="is-num is-unit">Rp 85.000 / pc</td><td class="is-num is-amount">Rp 850.000</td>
+              </tr>
+              <tr>
+                <td><div class="ds-sheet-item"><span class="ds-thumb ds-sheet-thumb"><span class="ds-ico ds-ico-image"></span></span><span><button class="ds-link" type="button">Kemeja Oxford Slim</button><span class="ds-sub">Pria · Basic</span></span></div></td>
+                <td class="is-num">8 pcs</td><td class="is-num is-unit">Rp 85.000 / pc</td><td class="is-num is-amount">Rp 680.000</td>
+              </tr>
+              <tr>
+                <td><div class="ds-sheet-item"><span class="ds-thumb ds-sheet-thumb"><span class="ds-ico ds-ico-image"></span></span><span><button class="ds-link" type="button">Kemeja Linen Lengan Pendek</button><span class="ds-sub">Pria · Basic</span></span></div></td>
+                <td class="is-num">6 pcs</td><td class="is-num is-unit">Rp 85.000 / pc</td><td class="is-num is-amount">Rp 510.000</td>
+              </tr>
+            </tbody>
+          </table>
+        </div></div>
+        <dl class="ds-sheet-totals">
+          <dt>Total · 24 pcs</dt><dd>Rp 2.040.000</dd>
+          <div class="is-rule" aria-hidden="true"></div>
+          <dt class="is-grand">Grand total</dt><dd class="is-grand">Rp 2.040.000</dd>
+        </dl>
+      </div>
+
+      <div class="ds-section">
+        <h3 class="ds-section-title">Terms and conditions</h3>
+        <p class="ds-sheet-note">Goods are received Monday to Saturday, 08:00–15:00, with a break from 12:00 to 13:00.</p>
+      </div>
+
+      <div class="ds-sheet-fold"><span class="ds-ico ds-ico-chevron-right ds-ico--14"></span><span>Activity</span><span class="ds-sheet-count">(1)</span></div>
+    </div>
+
+    <div class="ds-sheet-foot">
+      <button class="ds-btn ds-btn--ghost" type="button"><span class="ds-ico ds-ico-printer"></span>Print</button>
+      <button class="ds-btn ds-btn--destructive" type="button">Cancel order</button>
+      <button class="ds-btn ds-btn--ghost ds-sheet-edit" type="button">Edit</button>
+    </div>
+
+  </div>
+</div>
+</body>
+</html>

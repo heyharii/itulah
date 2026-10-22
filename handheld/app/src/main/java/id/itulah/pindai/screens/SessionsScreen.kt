@@ -26,7 +26,11 @@ private val FootClearance = 120.dp
  * joining is a deliberate act with its own screen.
  */
 @Composable
-fun SessionsScreen(vm: SweepViewModel, state: SweepState, onBack: () -> Unit) {
+fun SessionsScreen(vm: SweepViewModel, state: State<SweepState>, onBack: () -> Unit) {
+    // The three things this screen shows, not the whole state: the catalogue
+    // poll and the outbox keep publishing behind it.
+    val view by state.slice { SessionsView(it.sessionCode, it.sessions, it.sessionsLoaded) }
+    val current = view
     var chosen by remember { mutableStateOf<SessionBrief?>(null) }
     LaunchedEffect(Unit) { vm.loadSessions() }
 
@@ -34,7 +38,7 @@ fun SessionsScreen(vm: SweepViewModel, state: SweepState, onBack: () -> Unit) {
     if (picked != null) {
         SessionDetail(
             brief = picked,
-            joined = picked.code == state.sessionCode,
+            joined = picked.code == current.joined,
             onJoin = { vm.setSessionCode(picked.code); chosen = null; onBack() },
             onBack = { chosen = null },
         )
@@ -58,12 +62,13 @@ fun SessionsScreen(vm: SweepViewModel, state: SweepState, onBack: () -> Unit) {
             )
         }
 
-        if (state.sessionCode.isNotBlank()) {
+        val joinedCode = current.joined
+        if (joinedCode.isNotBlank()) {
             item {
                 HubCard {
                     SectionLabel("You are in")
                     Spacer(Modifier.height(Space.xs))
-                    Text(state.sessionCode, style = Type.hero, color = Ink.ink)
+                    Text(joinedCode, style = Type.hero, color = Ink.ink)
                     Spacer(Modifier.height(Space.md))
                     QuietButton("Leave and work alone",
                         modifier = Modifier.fillMaxWidth(),
@@ -76,18 +81,20 @@ fun SessionsScreen(vm: SweepViewModel, state: SweepState, onBack: () -> Unit) {
             SectionLabel("Active on this node", Modifier.padding(top = Space.sm))
         }
 
-        if (state.sessions.isEmpty()) {
+        val sessions = current.sessions
+        if (sessions.isEmpty()) {
+            val loaded = current.loaded
             item {
                 Text(
-                    if (state.sessionsLoaded) "Nothing being counted right now."
+                    if (loaded) "Nothing being counted right now."
                     else "Loading…",
                     style = Type.cell, color = Ink.body,
                 )
             }
         } else {
-            items(state.sessions.size, key = { state.sessions[it].code }) { index ->
-                val session = state.sessions[index]
-                SessionListRow(session, joined = session.code == state.sessionCode) {
+            items(sessions.size, key = { sessions[it].code }) { index ->
+                val session = sessions[index]
+                SessionListRow(session, joined = session.code == joinedCode) {
                     chosen = session
                 }
             }
@@ -100,6 +107,14 @@ fun SessionsScreen(vm: SweepViewModel, state: SweepState, onBack: () -> Unit) {
         }
     }
 }
+
+/** What the session list draws: the session this handheld is in, and the rest. */
+private data class SessionsView(
+    /** The session code this handheld files under; blank when working alone. */
+    val joined: String,
+    val sessions: List<SessionBrief>,
+    val loaded: Boolean,
+)
 
 @Composable
 private fun SessionListRow(session: SessionBrief, joined: Boolean, onClick: () -> Unit) {

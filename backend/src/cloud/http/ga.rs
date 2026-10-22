@@ -202,6 +202,23 @@ pub async fn register_asset(
 /// The hub and not just the row, because there is one route and the screen it
 /// serves is the one somebody opens after clicking a register row: what the
 /// thing is, what has happened to it, and which documents belong to it.
+/// The contracts that name one asset — its insurance, its STNK, the
+/// maintenance contract for it — for the asset's own sheet. The caller must be
+/// allowed the asset's site, as for the asset itself.
+pub async fn asset_contracts(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(asset_id): Path<Uuid>,
+) -> Result<Json<Vec<GaContractRow>>, AppError> {
+    allowed(&principal, Role::Supervisor, "read an asset's contracts")?;
+    let site = infrastructure::ga_asset_site(&state.db, asset_id).await?;
+    principal.may_touch_site(Some(&site), "asset")?;
+    Ok(Json(
+        infrastructure::ga_contracts_for_asset(&state.db, asset_id, state.clock.now().date_naive())
+            .await?,
+    ))
+}
+
 pub async fn asset(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
@@ -300,7 +317,8 @@ pub async fn contracts(
     refuse_unknown_parameters(
         &params,
         &[
-            "q", "type", "group", "site", "standing", "archived", "sort", "cursor", "limit",
+            "q", "type", "group", "site", "standing", "archived", "supplier", "sort", "cursor",
+            "limit",
         ],
     )?;
     let archived = match single_value(&params, "archived").as_deref() {
@@ -327,6 +345,7 @@ pub async fn contracts(
                 sites: facet_values(&params, "site"),
                 standings: facet_values(&params, "standing"),
                 archived,
+                supplier_id: uuid_param(&params, "supplier")?,
                 today: state.clock.now().date_naive(),
                 limit: limit_value(&params)?.unwrap_or(DEFAULT_GA_CONTRACT_LIMIT),
             },
@@ -493,6 +512,12 @@ fn maintenance_scope(
             .site_filter(facet_values(params, "site"))?
             .into_iter()
             .next(),
+        // An asset's own sheet asks for its repairs, tasks, inspections,
+        // replacements and disposals by this; it narrows, it never widens what
+        // the caller's site may see.
+        asset_id: uuid_param(params, "asset")?,
+        // A supplier's own sheet asks for the repairs it did by this.
+        supplier_id: uuid_param(params, "supplier")?,
         cursor: single_value(params, "cursor"),
         limit: limit_value(params)?.unwrap_or(DEFAULT_GA_MAINTENANCE_LIMIT),
     })
@@ -509,7 +534,7 @@ pub async fn maintenance_tasks(
         Role::Supervisor,
         "read the maintenance schedule",
     )?;
-    refuse_unknown_parameters(&params, &["limit", "cursor", "site"])?;
+    refuse_unknown_parameters(&params, &["limit", "cursor", "site", "asset"])?;
     let scope = maintenance_scope(&principal, &params)?;
     let mut page = infrastructure::ga_maintenance_task_page(&state.db, scope).await?;
     if let Some(site) = principal.bound_site() {
@@ -560,7 +585,7 @@ pub async fn inspections(
     Query(params): Query<Vec<(String, String)>>,
 ) -> Result<Json<GaInspectionPage>, AppError> {
     allowed(&principal, Role::Supervisor, "read the inspection list")?;
-    refuse_unknown_parameters(&params, &["limit", "cursor"])?;
+    refuse_unknown_parameters(&params, &["limit", "cursor", "asset"])?;
     Ok(Json(
         infrastructure::ga_inspection_page(&state.db, maintenance_scope(&principal, &params)?)
             .await?,
@@ -586,7 +611,7 @@ pub async fn repairs(
     Query(params): Query<Vec<(String, String)>>,
 ) -> Result<Json<GaRepairPage>, AppError> {
     allowed(&principal, Role::Supervisor, "read the repair list")?;
-    refuse_unknown_parameters(&params, &["limit", "cursor", "site"])?;
+    refuse_unknown_parameters(&params, &["limit", "cursor", "site", "asset", "supplier"])?;
     let scope = maintenance_scope(&principal, &params)?;
     let today = state.clock.now().date_naive();
     let mut page = infrastructure::ga_repair_page(&state.db, scope, today).await?;
@@ -637,6 +662,40 @@ pub async fn repair(
 ) -> Result<Json<GaRepairRow>, AppError> {
     allowed(&principal, Role::Supervisor, "read a repair")?;
     Ok(Json(infrastructure::ga_repair(&state.db, repair_id).await?))
+}
+
+/// The bills that point at one repair: what GA sent for the work, and where
+/// Finance has each. Read like the repair, whose actual cost sums them.
+pub async fn repair_bills(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(repair_id): Path<Uuid>,
+) -> Result<Json<Vec<infrastructure::GaLinkedBill>>, AppError> {
+    allowed(&principal, Role::Supervisor, "read a repair's bills")?;
+    let repair = infrastructure::ga_repair(&state.db, repair_id).await?;
+    principal.may_touch_site(Some(&repair.site_id), "repair")?;
+    Ok(Json(
+        infrastructure::ga_linked_bills(
+            &state.db,
+            infrastructure::GaBillReference::Repair,
+            repair_id,
+        )
+        .await?,
+    ))
+}
+
+/// What one supplier billed in the business clock's year — the figure the
+/// supplier's sheet carries. POSTED bills only: Finance's own total.
+pub async fn supplier_billed(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(supplier_id): Path<Uuid>,
+) -> Result<Json<infrastructure::GaSupplierBilled>, AppError> {
+    allowed(&principal, Role::Supervisor, "read what a supplier billed")?;
+    let today = state.clock.now().date_naive();
+    Ok(Json(
+        infrastructure::ga_supplier_billed(&state.db, supplier_id, today).await?,
+    ))
 }
 
 /// Correct what GA knows about a breakdown.
@@ -694,7 +753,7 @@ pub async fn replacements(
     Query(params): Query<Vec<(String, String)>>,
 ) -> Result<Json<GaReplacementPage>, AppError> {
     allowed(&principal, Role::Supervisor, "read the replacement list")?;
-    refuse_unknown_parameters(&params, &["limit", "cursor"])?;
+    refuse_unknown_parameters(&params, &["limit", "cursor", "asset"])?;
     Ok(Json(
         infrastructure::ga_replacement_page(&state.db, maintenance_scope(&principal, &params)?)
             .await?,
@@ -753,11 +812,12 @@ pub async fn disposals(
     Query(params): Query<Vec<(String, String)>>,
 ) -> Result<Json<GaDisposalPage>, AppError> {
     allowed(&principal, Role::Supervisor, "read the disposal list")?;
-    refuse_unknown_parameters(&params, &["limit"])?;
+    refuse_unknown_parameters(&params, &["limit", "asset"])?;
     Ok(Json(
         infrastructure::ga_disposal_page(
             &state.db,
             limit_value(&params)?.unwrap_or(DEFAULT_GA_MAINTENANCE_LIMIT),
+            uuid_param(&params, "asset")?,
         )
         .await?,
     ))
@@ -902,7 +962,7 @@ pub async fn supplies(
     Query(params): Query<Vec<(String, String)>>,
 ) -> Result<Json<Vec<GaSupplyRequestRow>>, AppError> {
     allowed(&principal, Role::Supervisor, "read the supply register")?;
-    refuse_unknown_parameters(&params, &["site", "status", "q", "limit"])?;
+    refuse_unknown_parameters(&params, &["site", "status", "q", "category", "limit"])?;
     Ok(Json(
         infrastructure::ga_supply_requests(
             &state.db,
@@ -913,6 +973,8 @@ pub async fn supplies(
                     .next(),
                 statuses: facet_values(&params, "status"),
                 needle: single_value(&params, "q"),
+                categories: facet_values(&params, "category"),
+                overdue_on: None,
                 limit: limit_value(&params)?.unwrap_or(DEFAULT_GA_SUPPLY_LIMIT),
             },
         )
@@ -931,7 +993,20 @@ pub async fn supply_book(
     Query(params): Query<Vec<(String, String)>>,
 ) -> Result<Json<infrastructure::GaSupplyPage>, AppError> {
     allowed(&principal, Role::Supervisor, "read the supply register")?;
-    refuse_unknown_parameters(&params, &["site", "status", "q", "cursor", "limit"])?;
+    refuse_unknown_parameters(
+        &params,
+        &["site", "status", "q", "category", "overdue", "cursor", "limit"],
+    )?;
+    let today = state.clock.now().date_naive();
+    let overdue = match single_value(&params, "overdue").as_deref() {
+        None | Some("false") => false,
+        Some("true") => true,
+        Some(other) => {
+            return Err(AppError::Validation(format!(
+                "overdue {other:?} is not an answer; send true or false"
+            )))
+        }
+    };
     Ok(Json(
         infrastructure::ga_supply_page(
             &state.db,
@@ -942,9 +1017,12 @@ pub async fn supply_book(
                     .next(),
                 statuses: facet_values(&params, "status"),
                 needle: single_value(&params, "q"),
+                categories: facet_values(&params, "category"),
+                overdue_on: overdue.then_some(today),
                 limit: limit_value(&params)?.unwrap_or(DEFAULT_GA_SUPPLY_LIMIT),
             },
             single_value(&params, "cursor").as_deref(),
+            today,
         )
         .await?,
     ))
@@ -1247,6 +1325,10 @@ pub fn routes(router: Router<AppState>) -> Router<AppState> {
             post(transfer_asset),
         )
         .route("/api/v1/ga/assets/{asset_id}/notes", post(note_asset))
+        .route(
+            "/api/v1/ga/assets/{asset_id}/contracts",
+            get(asset_contracts),
+        )
         // The contracts. `contract-types` before `/{contract_id}` in reading
         // order, as with the builds above — a register and its vocabulary
         // arrive together.
@@ -1287,6 +1369,11 @@ pub fn routes(router: Router<AppState>) -> Router<AppState> {
             get(repair).patch(update_repair),
         )
         .route("/api/v1/ga/repairs/{repair_id}/move", post(move_repair))
+        .route("/api/v1/ga/repairs/{repair_id}/bills", get(repair_bills))
+        .route(
+            "/api/v1/ga/suppliers/{supplier_id}/billed",
+            get(supplier_billed),
+        )
         .route(
             "/api/v1/ga/repairs/{repair_id}/approve-budget",
             post(approve_repair_budget),

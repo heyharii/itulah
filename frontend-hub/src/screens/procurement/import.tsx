@@ -1077,16 +1077,13 @@ function SummaryStep({
           made.length === 1 ? (
             <>{made[0].number} created</>
           ) : (
-            <>
-              {made.length} POs created ·{" "}
-              {made.map((one) => one.number).join(", ")}
-            </>
+            <>{made.length} POs created</>
           )
         }
       >
         {made.length === 1
-          ? `${made[0].lines} ${made[0].lines === 1 ? "line" : "lines"} · recorded as ${made[0].recorded}.`
-          : `${made.reduce((sum, one) => sum + one.lines, 0)} lines · recorded as ${made.map((one) => one.recorded).join(", ")}.`}
+          ? `${made[0].lines} ${made[0].lines === 1 ? "line" : "lines"} · ${made[0].recorded}`
+          : `${made.map((one) => one.number).join(", ")} · ${made.reduce((sum, one) => sum + one.lines, 0)} lines`}
       </SavedDialog>
     </div>
   )

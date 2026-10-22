@@ -67,6 +67,16 @@ pub struct GaLocationRow {
     pub site_id: String,
     pub site_name: String,
     pub site_kind: String,
+    /// The client's own code for the site (`C001-TOKO`, `HO-GUDANG`). Absent on
+    /// a site nobody has coded.
+    pub site_code: Option<String>,
+    /// The unit whose books the site is in: its code (`C001`) and its name,
+    /// which is what people call the shop ("Cikupa").
+    pub unit_code: String,
+    pub unit_name: String,
+    /// How many sites the unit keeps: a unit with one is named by the unit
+    /// alone, one with several by the unit and the site.
+    pub unit_site_count: i64,
     pub address: Option<String>,
     pub kind: Option<String>,
     pub floor_area_sqm: Option<i32>,
@@ -131,6 +141,8 @@ pub struct UpdateGaLocationRequest {
 /// bound from [`DUE_TASK_HORIZON_DAYS`] so the window is one number and not two
 /// spellings of it.
 const GA_LOCATION_SEARCH: &str = "SELECT s.id AS site_id, s.name AS site_name, s.kind AS site_kind,
+        s.code AS site_code, u.code AS unit_code, u.name AS unit_name,
+        (SELECT count(*) FROM site us WHERE us.unit_id = s.unit_id) AS unit_site_count,
         d.address, d.kind, d.floor_area_sqm, d.contact_name, d.contact_phone, d.notes,
         COALESCE(d.version, 0) AS version,
         (SELECT count(*) FROM fixed_asset a WHERE a.site_id = s.id) AS asset_count,
@@ -151,6 +163,7 @@ const GA_LOCATION_SEARCH: &str = "SELECT s.id AS site_id, s.name AS site_name, s
                      AND date_trunc('month', i.invoice_date) = date_trunc('month', $2::date)),
                  0)::bigint AS billed_this_month_minor
    FROM site s
+   JOIN unit u ON u.id = s.unit_id
    LEFT JOIN ga_location_detail d ON d.site_id = s.id";
 
 /// Blank text is nothing, and nothing is stored as NULL rather than as "".
@@ -163,6 +176,10 @@ fn to_location_row(row: &sqlx::postgres::PgRow) -> Result<GaLocationRow, AppErro
         site_id: row.try_get("site_id")?,
         site_name: row.try_get("site_name")?,
         site_kind: row.try_get("site_kind")?,
+        site_code: row.try_get("site_code")?,
+        unit_code: row.try_get("unit_code")?,
+        unit_name: row.try_get("unit_name")?,
+        unit_site_count: row.try_get("unit_site_count")?,
         address: row.try_get("address")?,
         kind: row.try_get("kind")?,
         floor_area_sqm: row.try_get("floor_area_sqm")?,
@@ -182,8 +199,8 @@ fn to_location_row(row: &sqlx::postgres::PgRow) -> Result<GaLocationRow, AppErro
 /// The places, newest detail or not, as an ARRAY: this list is a nav screen,
 /// not a report with a count.
 ///
-/// `needle` free-texts the site id, its name and the address — the three things
-/// somebody at a counter actually types.
+/// `needle` free-texts the site id, its name and code, its unit's code and name
+/// and the address — the things somebody at a counter actually types.
 pub async fn ga_locations(
     pool: &PgPool,
     needle: Option<&str>,
@@ -198,6 +215,9 @@ pub async fn ga_locations(
           WHERE ($1::text IS NULL
                  OR s.id ILIKE $1
                  OR s.name ILIKE $1
+                 OR s.code ILIKE $1
+                 OR u.code ILIKE $1
+                 OR u.name ILIKE $1
                  OR d.address ILIKE $1)
           ORDER BY s.name, s.id"
     );
@@ -244,6 +264,8 @@ pub async fn ga_location(
     // estate's first page.
     let here = || GaMaintenanceScope {
         site_id: Some(site_id.to_string()),
+        asset_id: None,
+        supplier_id: None,
         cursor: None,
         limit: MAX_GA_MAINTENANCE_LIMIT,
     };
@@ -308,6 +330,7 @@ async fn contracts_touching(
             sites: vec![site_id.to_string()],
             standings: Vec::new(),
             archived: Some(false),
+            supplier_id: None,
             today,
             limit: MAX_GA_CONTRACT_LIMIT,
         },

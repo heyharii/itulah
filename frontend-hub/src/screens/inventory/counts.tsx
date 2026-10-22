@@ -1,4 +1,3 @@
-import { useForm } from "@tanstack/react-form"
 import {
   useMutation,
   useQuery,
@@ -6,137 +5,112 @@ import {
   useSuspenseInfiniteQuery,
   useSuspenseQuery,
 } from "@tanstack/react-query"
-import type { ColumnDef, SortingState } from "@tanstack/react-table"
-import { useTable } from "@tanstack/react-table"
-import { Plus } from "lucide-react"
-import { Suspense, useDeferredValue, useMemo, useState } from "react"
+import { Suspense, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
-import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
-import { DataTable, dockSortOf } from "@/components/ui/data-table"
-import { Fab } from "@/components/ui/fab"
-import { Field, Input } from "@/components/ui/field"
-import {
-  BarSpacer,
-  ColumnsMenu,
-  ExpandingSearch,
-} from "@/components/ui/list-chrome"
+import { DayRange, type DayWindow } from "@/components/ui/day-range"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
-import { Pill } from "@/components/ui/pill"
 import { Sheet } from "@/components/ui/sheet"
 import { SheetFooter } from "@/components/ui/sheet-footer"
-import { SubTabs } from "@/components/ui/sub-tabs"
-import { Kpi, KpiStrip } from "@/components/ui/kpi"
+import { EmptyState, LoadingState } from "@/components/ui/states"
+import { Thumbnail } from "@/components/ui/thumbnail"
+import { today } from "@/lib/calendar"
+import { count, day, sku as skuNumber } from "@/lib/format"
 import {
-  ITEMS_CELL,
-  ITEMS_HEAD,
-  ItemIdentity,
-} from "@/screens/procurement/items-table"
-import { pcs } from "@/screens/procurement/shared"
-import { Banner, EmptyState, LoadingState } from "@/components/ui/states"
-import { SHOW_MISSING } from "@/lib/features"
-import { useLayout } from "@/lib/layout"
-import { count, day, label as humanise } from "@/lib/format"
-import {
-  activateCount,
   approveCount,
   countDetail,
   countsBookQuery,
-  createCount,
-  fleetPools,
   fleetPoolsQuery,
   idempotencyKey,
   inventoryKeys,
-  submitCount,
-  type CountBookScope,
   type CountDetail,
   type CountKind,
-  type CountPage,
   type CountRow,
   type FleetPool,
 } from "@/lib/queries/inventory"
 import { queryState } from "@/lib/query-state"
+import { useSiteLabel } from "@/lib/queries/organisation"
 import { useSheet } from "@/lib/sheets"
-import { tableSetup, type TableSetup } from "@/lib/table"
-import { useDebounced } from "@/lib/use-debounced"
-import {
-  groupMissing,
-  useMissingRows,
-  type MissingGroup,
-} from "@/screens/inventory/missing-data"
-import { Choice } from "@/screens/inventory/parts"
-import { signed, useActor, writablePools } from "@/screens/inventory/shared"
+import { useCatalogueIdentity } from "@/lib/operations/catalogue"
 import { cn } from "@/lib/utils"
+import { ITEMS_CELL, ITEMS_HEAD } from "@/screens/procurement/items-table"
+import {
+  placements,
+  signed,
+  sitesOf,
+  useActor,
+} from "@/screens/inventory/shared"
 
-/// Official counts — the only thing in this app that is allowed to tell the
-/// ledger it is wrong.
+/// Counts. A count is a task for the RFID device: New count sends it, the
+/// device counts, and the result comes back with its lines per SKU. There is no
+/// draft, no counting and no review on this screen (owner, 19 Oct 2026:
+/// "terlalu ribet … count kita pakai RFID") — a count is To do until it is
+/// Done.
 ///
-/// The lifecycle is `DRAFT → ACTIVE → REVIEW → CLOSED` and nothing else. What
-/// each step means depends entirely on who owns the site, and the fork is at
-/// **activation**: with no DC owner the cloud freezes an expectation here and
-/// the counting happens here; with one, the cloud projects nothing, sends a
-/// command, and every later step is the DC's. Approving a DC-owned count does
-/// not close it — it *asks* for a movement, and the count stays in review
-/// until that node answers. The screen says which of the two it is on every
-/// record rather than leaving a button that silently does something else.
+/// The backend still has a REVIEW step whose approval books the result. With no
+/// review on screen, a count that reaches REVIEW shows one primary, "Apply
+/// count", which is that approval; it is Done afterwards.
 
-const KINDS = [
-  { value: "FULL", label: "Full" },
-  { value: "CYCLE", label: "Cycle" },
-  { value: "TARGETED", label: "Targeted" },
-]
+/// A count is Done once it is closed; everything else is still to do.
+const isDone = (status: CountRow["status"]) => status === "CLOSED"
 
-/// Which column means which of the five orders the endpoint names.
-///
-/// A column that is not in here cannot be sorted — `enableSorting: false` says
-/// so on the column itself, so neither the header nor the Sort menu offers it.
-/// The alternative is worse than a missing menu item: the table would sort the
-/// PAGE it is holding, and a book sorted one screenful at a time is a list that
-/// lies about where its first row is.
-const SORTS: Record<string, string> = {
-  pool_id: "pool",
-  status: "status",
-  difference: "variance",
-  created_at: "created_at",
-  closed_at: "closed_at",
+/// The result exists once the device has answered.
+const hasResult = (status: CountRow["status"]) =>
+  status === "REVIEW" || status === "CLOSED"
+
+const DUE_DAYS = 30
+
+/// This many days ago, as an ISO day.
+function daysBefore(iso: string, days: number): string {
+  const at = new Date(`${iso}T00:00:00`)
+  at.setDate(at.getDate() - days)
+  const pad = (value: number) => String(value).padStart(2, "0")
+  return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}`
 }
 
-/// Where a count stands, as one word and its tone.
-function statusTone(status: CountRow["status"]) {
-  return status === "CLOSED"
-    ? "ok"
-    : status === "REVIEW"
-      ? "warn"
-      : status === "ACTIVE"
-        ? "info"
-        : "neutral"
+/// The window the page opens on: 1 September to today.
+function defaultWindow(): DayWindow {
+  const now = today()
+  const year = Number(now.slice(0, 4))
+  const month = Number(now.slice(5, 7))
+  return { from: `${month >= 9 ? year : year - 1}-09-01`, to: now }
 }
 
-/// Status words in the owner's vocabulary rather than the lifecycle's.
-const STATUS_WORD: Record<CountRow["status"], string> = {
-  DRAFT: "Draft",
-  ACTIVE: "Counting",
-  REVIEW: "To review",
-  CLOSED: "Closed",
-}
+const dayOf = (iso: string) => iso.slice(0, 10)
 
 /// A pool id read as the place and the shelf the rest of the hub calls it.
 type PoolNames = ReadonlyMap<string, { site: string; pool: string }>
 
-function poolNamesOf(items: readonly FleetPool[]): PoolNames {
+function poolNamesOf(
+  items: readonly FleetPool[],
+  placeName: (siteId: string) => string
+): PoolNames {
   return new Map(
     items.map((pool) => [
       pool.id,
-      { site: pool.site_name ?? pool.site_id, pool: pool.label },
+      { site: placeName(pool.site_id), pool: pool.label },
     ])
   )
 }
 
-/// A count still being taken has found nothing yet, so it has no difference.
-const counted = (status: CountRow["status"]) =>
-  status === "REVIEW" || status === "CLOSED"
+/// Counted, red with its gap beside it when it does not match the book.
+export function CountedCell({
+  expected,
+  found,
+}: {
+  expected: number
+  found: number
+}) {
+  const difference = found - expected
+  if (difference === 0) return <span className="text-ink">{count(found)}</span>
+  return (
+    <span className="text-bad-fg">
+      {count(found)} <span className="font-medium">({signed(difference)})</span>
+    </span>
+  )
+}
 
 function differenceCell(expected: number, found: number, shown = true) {
   if (!shown) return <span className="text-mute">—</span>
@@ -145,11 +119,7 @@ function differenceCell(expected: number, found: number, shown = true) {
     <span
       className={cn(
         "tabular-nums",
-        difference < 0
-          ? "text-bad-fg"
-          : difference > 0
-            ? "text-warn-fg"
-            : "text-mute"
+        difference < 0 ? "text-bad-fg" : "text-mute"
       )}
     >
       {difference === 0 ? "—" : signed(difference)}
@@ -157,202 +127,22 @@ function differenceCell(expected: number, found: number, shown = true) {
   )
 }
 
-/// The columns, calm (one size, one figure a cell): where it was counted, what
-/// kind, where it stands, the three figures, and when it was opened.
-const countColumns = (names: PoolNames): ColumnDef<TableSetup, CountRow>[] => [
-  {
-    // Ordered by the POOL it counts, which is the order the endpoint has.
-    id: "pool_id",
-    accessorFn: (row) => row.pool_id,
-    header: "Place",
-    size: 260,
-    meta: { card: "hide", grow: true },
-    cell: ({ row }) => {
-      const name = names.get(row.original.pool_id)
-      return (
-        <span className="block truncate text-ink">
-          {name?.site ?? row.original.site_id}
-          <span className="text-mute">
-            {" "}
-            · {name?.pool ?? row.original.pool_id}
-          </span>
-        </span>
-      )
-    },
-  },
-  {
-    accessorKey: "kind",
-    header: "Kind",
-    size: 110,
-    enableSorting: false,
-    meta: { card: "hide" },
-    cell: ({ row }) => humanise(row.original.kind),
-  },
-  {
-    accessorKey: "status",
-    header: "Status",
-    size: 130,
-    meta: { card: "hide" },
-    cell: ({ row }) => (
-      <Pill tone={statusTone(row.original.status)}>
-        {STATUS_WORD[row.original.status]}
-      </Pill>
-    ),
-  },
-  {
-    accessorKey: "expected",
-    header: "Expected",
-    size: 110,
-    enableSorting: false,
-    meta: { align: "right", card: "hide" },
-    cell: ({ row }) => count(row.original.expected),
-  },
-  {
-    accessorKey: "found",
-    header: "Found",
-    size: 110,
-    enableSorting: false,
-    meta: { align: "right", card: "hide" },
-    cell: ({ row }) => count(row.original.found),
-  },
-  {
-    id: "difference",
-    accessorFn: (row) => row.found - row.expected,
-    header: "Difference",
-    size: 120,
-    meta: { align: "right", card: "hide" },
-    // Sorted ascending by default so the deepest shortage is the first row.
-    cell: ({ row }) =>
-      differenceCell(
-        row.original.expected,
-        row.original.found,
-        counted(row.original.status)
-      ),
-  },
-  {
-    accessorKey: "created_at",
-    header: "Opened",
-    size: 130,
-    meta: { priority: 2, card: "hide" },
-    cell: ({ row }) => day(row.original.created_at),
-  },
-  {
-    accessorKey: "closed_at",
-    header: "Closed",
-    size: 130,
-    meta: { priority: 3, card: "hide" },
-    cell: ({ row }) =>
-      row.original.closed_at === null ? (
-        <span className="text-mute">—</span>
-      ) : (
-        day(row.original.closed_at)
-      ),
-  },
-  // The phone's card: the place over the kind, the difference it leads with,
-  // a foot with the figures and the date, and where it stands.
-  {
-    id: "head",
-    accessorFn: (row) => row.pool_id,
-    header: "",
-    enableHiding: false,
-    enableSorting: false,
-    meta: { card: "title" },
-    cell: ({ row }) => {
-      const name = names.get(row.original.pool_id)
-      return (
-        <span className="flex min-w-0 flex-col gap-0.5">
-          <span className="text-[1rem] font-semibold break-words text-ink">
-            {name?.site ?? row.original.site_id}
-          </span>
-          <span className="text-[0.9375rem] font-normal break-words text-mute">
-            {name?.pool ?? row.original.pool_id} · {humanise(row.original.kind)}
-          </span>
-        </span>
-      )
-    },
-  },
-  {
-    id: "lead",
-    accessorFn: (row) => row.found - row.expected,
-    header: "",
-    enableHiding: false,
-    enableSorting: false,
-    meta: { card: "lead" },
-    cell: ({ row }) => (
-      <span className="flex flex-col items-end">
-        <span className="text-[1.25rem] leading-tight font-semibold">
-          {differenceCell(
-            row.original.expected,
-            row.original.found,
-            counted(row.original.status)
-          )}
-        </span>
-        <span className="text-[0.9375rem] text-mute">difference</span>
-      </span>
-    ),
-  },
-  {
-    id: "foot",
-    accessorFn: (row) => row.created_at,
-    header: "",
-    enableHiding: false,
-    enableSorting: false,
-    meta: { card: "foot" },
-    cell: ({ row }) => (
-      <span className="tabular-nums">
-        {`Expected ${count(row.original.expected)} · Found ${count(row.original.found)} · ${day(row.original.created_at)}`}
-      </span>
-    ),
-  },
-  {
-    id: "state",
-    accessorFn: (row) => row.status,
-    header: "",
-    enableHiding: false,
-    enableSorting: false,
-    meta: { align: "right", card: "status" },
-    cell: ({ row }) => (
-      <Pill tone={statusTone(row.original.status)}>
-        {STATUS_WORD[row.original.status]}
-      </Pill>
-    ),
-  },
-]
-
-/// The readings of the one list, as tabs under the figures — the PO list's
-/// shape (owner, 16 Oct 2026: Counts "terlalu berbeda"). Each is just the
-/// `status` parameter the endpoint already takes.
-const SLICES = [
-  { value: "", label: "All" },
-  { value: "REVIEW", label: "To review" },
-  { value: "ACTIVE", label: "Counting" },
-  { value: "DRAFT", label: "Drafts" },
-  { value: "CLOSED", label: "Closed" },
-] as const
+const KIND_WORD: Record<CountKind, string> = {
+  FULL: "Full",
+  CYCLE: "Pocket",
+  TARGETED: "Targeted",
+}
 
 export function Counts() {
-  const phone = useLayout() === "phone"
-  const [composing, setComposing] = useState(false)
   const sheet = useSheet("count")
 
   return (
     <PageContent>
-      {/* The screen's one action stands in its head; a phone has the + at the
-          thumb (`Fab`). */}
       <PageHeader
         title="Counts"
         small
-        actions={
-          phone ? undefined : (
-            <Button variant="primary" onClick={() => setComposing(true)}>
-              <Plus />
-              New count
-            </Button>
-          )
-        }
       />
 
-      <Fab label="New Count" onClick={() => setComposing(true)} />
 
       <Suspense
         fallback={<LoadingState>Reading the count board…</LoadingState>}
@@ -361,186 +151,200 @@ export function Counts() {
       </Suspense>
 
       <CountSheet id={sheet.value ?? null} onClose={sheet.close} />
-      <Composer open={composing} onClose={() => setComposing(false)} />
     </PageContent>
   )
 }
 
 function CountBoard() {
-  /// Which reading is on screen, in the URL.
-  const slice = useSheet("count-status")
-  /// What was typed, also in the URL, and answered by the server against the
-  /// pool id, the reason and who opened it.
-  const search = useSheet("q")
-  const phone = useLayout() === "phone"
   const sheet = useSheet("count")
-  // The deepest shortage first: a count that found everything needs nobody.
-  const [sorting, setSorting] = useState<SortingState>([
-    { id: "difference", desc: false },
-  ])
+  const [range, setRange] = useState<DayWindow>(defaultWindow)
 
   const fleet = useSuspenseQuery(fleetPoolsQuery())
-  const names = useMemo(() => poolNamesOf(fleet.data.items), [fleet.data])
-  const columns = useMemo(() => countColumns(names), [names])
+  const placeName = useSiteLabel()
+  const names = useMemo(
+    () => poolNamesOf(fleet.data.items, placeName),
+    [fleet.data, placeName]
+  )
 
-  const needle = useDebounced((search.value ?? "").trim(), 400)
-  const scope = useMemo<CountBookScope>(() => {
-    const by = sorting[0]
-    return {
-      ...(slice.value === undefined ? {} : { status: slice.value }),
-      ...(needle === "" ? {} : { q: needle }),
-      sort: by === undefined ? undefined : SORTS[by.id],
-      desc: by?.desc === true,
-    }
-  }, [needle, slice.value, sorting])
-
-  // The deferred scope keeps the rows in hand on screen while the next question
-  // is read, so a keystroke or a tab does not empty the table.
-  const asked = useDeferredValue(scope)
-  const board = useSuspenseInfiniteQuery(countsBookQuery(asked))
-
+  // Newest first; the server's house order is created_at, newest first.
+  const board = useSuspenseInfiniteQuery(
+    countsBookQuery({ sort: "created_at", desc: true })
+  )
   const rows = useMemo(
     () => board.data.pages.flatMap((page) => page.rows),
     [board.data]
   )
-  /// The first page carries the server's total and facets over the whole book.
-  const head = board.data.pages[0]
-  const all = useSuspenseInfiniteQuery(countsBookQuery({}))
-  const book = all.data.pages[0]
 
-  const table = useTable(
-    useMemo(
-      () => ({
-        features: tableSetup,
-        data: rows,
-        columns,
-        getRowId: (row: CountRow) => row.id,
-        state: {
-          sorting,
-          // The card's own columns are drawn on a phone and never on a desk.
-          columnVisibility: {
-            head: phone,
-            lead: phone,
-            foot: phone,
-            state: phone,
-          },
-        },
-        // The rows arrive in the order the request asked for.
-        manualSorting: true,
-        onSortingChange: setSorting,
-      }),
-      [rows, columns, sorting, phone]
-    )
+  // Newest first, whatever order the pages arrive in.
+  const shown = useMemo(
+    () =>
+      rows
+        .filter((row) => {
+          const at = dayOf(row.created_at)
+          return (
+            (range.from === "" || at >= range.from) &&
+            (range.to === "" || at <= range.to)
+          )
+        })
+        .sort((left, right) => right.created_at.localeCompare(left.created_at)),
+    [rows, range]
   )
 
-  const tab = slice.value ?? ""
-  const tabCount = (value: string) =>
-    value === "" ? (book?.total ?? 0) : facetOf(book, value)
+  const month = today().slice(0, 7)
+  const doneThisMonth = rows.filter(
+    (row) =>
+      isDone(row.status) &&
+      dayOf(row.closed_at ?? row.created_at).startsWith(month)
+  ).length
+
+  // A place is due when none of its pools has ever been counted, or the newest
+  // count is older than a month.
+  const due = useMemo(() => {
+    const limit = daysBefore(today(), DUE_DAYS)
+    return sitesOf(placements(fleet.data.items)).filter((site) => {
+      const newest = placements(fleet.data.items)
+        .filter((pool) => pool.site_id === site.site_id)
+        .map((pool) => pool.last_counted_at)
+        .filter((at): at is string => typeof at === "string")
+        .reduce<string | null>(
+          (best, at) => (best === null || at > best ? at : best),
+          null
+        )
+      return newest === null || dayOf(newest) < limit
+    }).length
+  }, [fleet.data])
 
   return (
     <>
-      <KpiStrip className="grid-cols-2 max-md:hidden md:grid-cols-4 xl:grid-cols-4">
-        <Kpi label="Counts" value={count(book?.total ?? 0)} />
-        <Kpi label="To review" value={count(facetOf(book, "REVIEW"))} />
-        <Kpi label="Counting" value={count(facetOf(book, "ACTIVE"))} />
-        <Kpi label="Drafts" value={count(facetOf(book, "DRAFT"))} />
+      <KpiStrip className="grid-cols-2 md:grid-cols-2 xl:grid-cols-2">
+        <Kpi label="Counted this month" value={count(doneThisMonth)} />
+        <Kpi label="Due" value={count(due)} />
       </KpiStrip>
 
-      <SubTabs
-        className="max-md:hidden"
-        tabs={SLICES.map((one) => ({
-          value: one.value,
-          label: (
-            <span>
-              {one.label}
-              <span className="ml-1.5 text-body tabular-nums">
-                {count(tabCount(one.value))}
-              </span>
-            </span>
-          ),
-        }))}
-        value={tab}
-        onChange={(next) => (next === "" ? slice.close() : slice.open(next))}
-      />
-
-      {/* One line the width of the table: the search at the left, what shapes
-          the table at the right. */}
-      <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2 max-md:hidden">
-        <ExpandingSearch
-          value={search.value ?? ""}
-          onChange={(next) => (next ? search.open(next) : search.close())}
-          label="Search counts"
+      <div className="mt-5 mb-3 flex flex-wrap items-center gap-2">
+        <DayRange
+          label="Period"
+          placeholder="Period"
+          value={range}
+          onChange={setRange}
+          className="h-control min-h-0 w-52 shrink-0 py-0"
         />
-        <BarSpacer />
-        <ColumnsMenu table={table} />
       </div>
 
-      {/* A phone's status, search and order are the dock's and its New count
-          the round plus, as on every list (owner, 2026-10-06). */}
-      <DockTools
-        search={{
-          value: search.value ?? "",
-          onChange: (next) => (next ? search.open(next) : search.close()),
-          label: "Search Counts",
-        }}
-        sort={dockSortOf(table)}
-        status={{
-          value: tab,
-          options: SLICES.map((one) => ({
-            value: one.value,
-            label: one.label,
-            count: one.value === "" ? undefined : facetOf(head, one.value),
-          })),
-          onChange: (next) => (next === "" ? slice.close() : slice.open(next)),
-        }}
-      />
+      {shown.length === 0 ? (
+        <EmptyState>No counts in these dates.</EmptyState>
+      ) : (
+        <div className="items-box overflow-hidden rounded-inner border border-hairline">
+          <table className="w-full table-fixed border-collapse">
+            <colgroup>
+              {/* On a phone the place stands under the date, one cell: four
+                  columns in 382px cut the date into the place's name */}
+              <col className="w-[7.5rem] max-md:w-auto" />
+              <col className="max-md:hidden" />
+              <col className="w-[14rem] max-md:hidden" />
+              <col className="w-[6.5rem] max-lg:hidden" />
+              <col className="w-[8.5rem] max-md:w-[6.5rem]" />
+            </colgroup>
+            <thead>
+              <tr>
+                <th className={cn(ITEMS_HEAD, "text-left")}>
+                  Date<span className="md:hidden"> · Place</span>
+                </th>
+                <th className={cn(ITEMS_HEAD, "text-left max-md:hidden")}>
+                  Place
+                </th>
+                <th className={cn(ITEMS_HEAD, "text-left max-md:hidden")}>
+                  Count
+                </th>
+                <th className={cn(ITEMS_HEAD, "text-right max-lg:hidden")}>
+                  Book
+                </th>
+                <th className={cn(ITEMS_HEAD, "text-right")}>Counted</th>
+              </tr>
+            </thead>
+            <tbody className="[&>tr:first-child>td]:border-t-0">
+              {shown.map((row) => {
+                const name = names.get(row.pool_id)
+                const done = hasResult(row.status)
+                return (
+                  <tr
+                    key={row.id}
+                    className={cn(
+                      "cursor-pointer transition-colors hover:bg-soft",
+                      row.id === sheet.value && "bg-accent-bg"
+                    )}
+                    onClick={() => sheet.open(row.id)}
+                  >
+                    <td
+                      className={cn(
+                        ITEMS_CELL,
+                        "whitespace-nowrap text-ink tabular-nums"
+                      )}
+                    >
+                      {day(row.created_at)}
+                      <span className="block truncate text-mute md:hidden">
+                        {name?.site ?? row.site_id}
+                      </span>
+                    </td>
+                    <td
+                      className={cn(
+                        ITEMS_CELL,
+                        "truncate text-ink max-md:hidden"
+                      )}
+                    >
+                      {name?.site ?? row.site_id}
+                    </td>
+                    <td
+                      className={cn(
+                        ITEMS_CELL,
+                        "truncate text-ink max-md:hidden"
+                      )}
+                    >
+                      {KIND_WORD[row.kind]}
+                      <span className="text-mute"> · {row.id.slice(0, 8)}</span>
+                    </td>
+                    <td
+                      className={cn(
+                        ITEMS_CELL,
+                        "text-right text-ink tabular-nums max-lg:hidden"
+                      )}
+                    >
+                      {done ? count(row.expected) : "—"}
+                    </td>
+                    <td
+                      className={cn(
+                        ITEMS_CELL,
+                        "text-right tabular-nums"
+                      )}
+                    >
+                      {done ? <CountedCell expected={row.expected} found={row.found} /> : "—"}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
 
-      <div aria-busy={asked !== scope || undefined} className="list-swap">
-        <Card className="overflow-clip max-lg:overflow-visible max-lg:border-0 max-lg:bg-transparent max-lg:shadow-none">
-          {rows.length === 0 ? (
-            <EmptyState>
-              {needle !== ""
-                ? "Nothing matches."
-                : tab === "REVIEW"
-                  ? "Nothing to review."
-                  : tab === "ACTIVE"
-                    ? "Nothing being counted."
-                    : tab === "DRAFT"
-                      ? "No drafts."
-                      : tab === "CLOSED"
-                        ? "None closed."
-                        : "No counts."}
-            </EmptyState>
-          ) : (
-            <DataTable<CountRow>
-              refresh={[board]}
-              table={table}
-              more={board}
-              roomy
-              pageScroll
-              onRowClick={(row) => sheet.open(row.id)}
-              isSelected={(row) => row.id === sheet.value}
-              cardsApart
-              cardLead
-              cardSort={false}
-            />
-          )}
-        </Card>
-      </div>
+      {board.hasNextPage && (
+        <div className="flex justify-center py-3">
+          <Button
+            variant="ghost"
+            pending={board.isFetchingNextPage}
+            onClick={() => board.fetchNextPage()}
+          >
+            Show more
+          </Button>
+        </div>
+      )}
     </>
   )
 }
 
-/// How many counts a status holds, over the whole book rather than the page.
-function facetOf(page: CountPage | undefined, status: string): number {
-  return (
-    page?.facets.statuses.find((facet) => facet.value === status)?.count ?? 0
-  )
-}
-
-/// One count as the PO detail reads (owner, 16 Oct 2026): the place as the
-/// title with its status beside it, the figures first in the body, the lines,
-/// then the facts of who and when; the next step is the foot's one verb.
+/// One count. Without a result it says where it is — on the RFID device; with
+/// one, the figures and the lines per SKU, short ones first. A count in REVIEW
+/// carries the one verb, "Apply count".
 function CountSheet({
   id,
   onClose,
@@ -557,73 +361,34 @@ function CountSheet({
     enabled: id !== null,
   })
   const fleet = useQuery(fleetPoolsQuery())
+  const placeName = useSiteLabel()
   const names = useMemo(
-    () => poolNamesOf(fleet.data?.items ?? []),
-    [fleet.data]
+    () => poolNamesOf(fleet.data?.items ?? [], placeName),
+    [fleet.data, placeName]
   )
 
-  // Each of the writes changes this record and its row on the board.
-  // Approving a cloud-owned count also posts movements, which is why the pools
-  // and the missing list go too.
-  const invalidate = () => {
-    client.invalidateQueries({ queryKey: inventoryKeys.counts() })
-    client.invalidateQueries({ queryKey: inventoryKeys.fleet() })
-    client.invalidateQueries({ queryKey: inventoryKeys.missing() })
-    client.invalidateQueries({ queryKey: ["inventory", "pools"] })
-  }
-
-  const command = (
-    run: (
-      countId: string,
-      body: { actor_id: string; idempotency_key: string }
-    ) => Promise<unknown>
-  ) => ({
+  const approve = useMutation({
     mutationFn: () =>
-      run(id!, { actor_id: actor, idempotency_key: idempotencyKey() }),
-    onSuccess: invalidate,
+      approveCount(id!, { actor_id: actor, idempotency_key: idempotencyKey() }),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: inventoryKeys.counts() })
+      client.invalidateQueries({ queryKey: inventoryKeys.fleet() })
+      client.invalidateQueries({ queryKey: inventoryKeys.missing() })
+      client.invalidateQueries({ queryKey: ["inventory", "pools"] })
+    },
   })
 
-  const activate = useMutation(command(activateCount))
-  const submit = useMutation(command(submitCount))
-  const approve = useMutation(command(approveCount))
-
-  // Open Missing for the same pool: an over-count closes it before it is extra.
-  const missingRows = useMissingRows().rows
-  const missing = useMemo(() => groupMissing(missingRows), [missingRows])
-
-  const failure = [activate, submit, approve].find((one) => one.isError)
   const data = detail.data
-  const owned = data?.execution_authority === "EDGE_DC"
   const name = data === undefined ? undefined : names.get(data.pool_id)
 
   const footer =
-    data === undefined ? undefined : data.status === "DRAFT" ? (
+    data !== undefined &&
+    data.status === "REVIEW" &&
+    data.edge_adjustment_status === null ? (
       <SheetFooter
-        error={failure?.error}
+        error={approve.error}
         primary={{
-          label: "Start counting",
-          onClick: () => activate.mutate(),
-          pending: activate.isPending,
-          disabled: actor === "",
-        }}
-      />
-    ) : data.status === "ACTIVE" && owned ? (
-      <SheetFooter note="Being counted on the DC handheld" />
-    ) : data.status === "ACTIVE" ? (
-      <SheetFooter
-        error={failure?.error}
-        primary={{
-          label: "Send to review",
-          onClick: () => submit.mutate(),
-          pending: submit.isPending,
-          disabled: actor === "",
-        }}
-      />
-    ) : data.status === "REVIEW" ? (
-      <SheetFooter
-        error={failure?.error}
-        primary={{
-          label: "Approve",
+          label: "Apply count",
           onClick: () => approve.mutate(),
           pending: approve.isPending,
           disabled: actor === "",
@@ -640,92 +405,93 @@ function CountSheet({
       title={
         data === undefined
           ? "Count"
-          : `${humanise(data.kind)} count · ${name?.pool ?? data.pool_id}`
-      }
-      badge={
-        data && (
-          <Pill tone={statusTone(data.status)}>{STATUS_WORD[data.status]}</Pill>
-        )
+          : `${KIND_WORD[data.kind]} count · ${name?.pool ?? data.pool_id}`
       }
       footer={footer}
       width="wide"
     >
       {queryState(detail, {
         loading: "Opening the count…",
-        render: (data) => {
-          return (
+        render: (data) =>
+          hasResult(data.status) ? (
+            <Result data={data} />
+          ) : (
             <div className="flex flex-col gap-6">
               <KpiStrip className="mb-2!">
-                <Kpi label="Expected" value={count(data.summary.expected)} />
-                <Kpi label="Found" value={count(data.summary.found)} />
-                <Kpi
-                  label="Difference"
-                  value={differenceCell(
-                    data.summary.expected,
-                    data.summary.found,
-                    counted(data.status)
-                  )}
-                />
-                <Kpi
-                  label="Short"
-                  value={count(data.summary.shortage_subjects)}
-                />
-                <Kpi label="Over" value={count(data.summary.gain_subjects)} />
+                <Kpi label="Place" value={name?.site ?? data.site_id} />
+                <Kpi label="Count" value={KIND_WORD[data.kind]} />
+                <Kpi label="Sent" value={day(data.created_at)} />
               </KpiStrip>
-
-              {data.edge_adjustment_status === "REJECTED" && (
-                <Banner tone="bad">The DC refused the movement.</Banner>
-              )}
-
-              {data.lines.length === 0 ? (
-                <EmptyState>
-                  {data.status === "DRAFT"
-                    ? "Not started yet"
-                    : owned
-                      ? "Not counted yet · on the DC handheld"
-                      : "Not counted yet"}
-                </EmptyState>
-              ) : (
-                <CountItems
-                  lines={data.lines}
-                  status={data.status}
-                  poolId={data.pool_id}
-                  open={missing}
-                />
-              )}
+              <EmptyState>On the RFID device</EmptyState>
             </div>
-          )
-        },
+          ),
       })}
     </Sheet>
   )
 }
 
-/// The articles of a count, one row per SKU, in the PO items table's frame and
-/// type (owner, 16 Oct 2026): Book, Counted, and the last column saying what
-/// the difference is — before review a plain difference, in review what
-/// approving does with it (short goes to Missing; over closes an open Missing
-/// of the same SKU in this pool first, and only the rest is extra).
-function CountItems({
-  lines,
-  status,
-  poolId,
-  open,
-}: {
-  lines: CountDetail["lines"]
-  status: CountDetail["status"]
-  poolId: string
-  open: readonly MissingGroup[]
-}) {
+function Result({ data }: { data: CountDetail }) {
+  return (
+    <div className="flex flex-col gap-6">
+      {data.edge_adjustment_status === "REJECTED" && (
+        <p className="rounded-inner border border-bad-fg/30 bg-bad-bg px-4 py-3 text-bad-fg">
+          Not applied: {data.edge_adjustment_reason ?? "the store refused it"}.
+          Nothing was booked; count this place again.
+        </p>
+      )}
+      <KpiStrip className="mb-2!">
+        <Kpi label="Book" value={count(data.summary.expected)} />
+        <Kpi label="Counted" value={count(data.summary.found)} />
+        <Kpi
+          label="Difference"
+          value={differenceCell(data.summary.expected, data.summary.found)}
+        />
+        <Kpi label="By" value={data.created_by} />
+      </KpiStrip>
+      {data.lines.length === 0 ? (
+        <EmptyState>Nothing was counted.</EmptyState>
+      ) : (
+        <CountItems lines={data.lines} />
+      )}
+    </div>
+  )
+}
+
+/// The articles of a count, one row per SKU: Book, Counted, Difference, the
+/// short ones first.
+function CountItems({ lines }: { lines: CountDetail["lines"] }) {
+  // A count line names only its SKU code; the catalogue gives the variant and
+  // the photograph, so a line reads "Article · Variant" with its picture.
+  const identities = useCatalogueIdentity()
   const skus = useMemo(() => {
     const by = new Map<
       string,
-      { sku: string; name: string | null; book: number; counted: number }
+      {
+        sku: string
+        name: string | null
+        photo: string | null
+        book: number
+        counted: number
+      }
     >()
     for (const line of lines) {
+      const identity = identities.get(line.sku_code)
+      const variant = [identity?.colour, identity?.size]
+        .filter(
+          (part): part is string =>
+            part !== null && part !== undefined && part !== ""
+        )
+        .join(" · ")
+      const article = line.article_name ?? identity?.article_name ?? null
       const one = by.get(line.sku_code) ?? {
         sku: line.sku_code,
-        name: line.article_name ?? null,
+        name:
+          article === null
+            ? null
+            : variant === ""
+              ? article
+              : `${article} · ${variant}`,
+        photo: identity?.image_url ?? null,
         book: 0,
         counted: 0,
       }
@@ -738,269 +504,78 @@ function CountItems({
         left.counted - left.book - (right.counted - right.book) ||
         (left.name ?? left.sku).localeCompare(right.name ?? right.sku)
     )
-  }, [lines])
-
-  const becomes = (sku: string, book: number, counted: number) => {
-    const diff = counted - book
-    if (diff === 0) return { text: "Same", tone: "text-mute" }
-    if (diff < 0)
-      return {
-        text: SHOW_MISSING ? `${-diff} to Missing` : `${-diff} short`,
-        tone: "text-bad-fg",
-      }
-    const held = open
-      .filter((one) => one.pool === poolId && one.sku === sku)
-      .reduce((sum, one) => sum + one.left, 0)
-    const found = Math.min(diff, held)
-    return found > 0
-      ? {
-          text:
-            diff > found
-              ? `${found} found · ${diff - found} extra`
-              : `${found} found`,
-          tone: "text-ok-fg",
-        }
-      : { text: `${diff} extra`, tone: "text-ok-fg" }
-  }
-
-  const review = status === "REVIEW"
-  const done = counted(status)
+  }, [lines, identities])
 
   return (
     <div className="items-box overflow-hidden rounded-inner border border-hairline">
       <table className="w-full table-fixed border-collapse">
         <colgroup>
           <col />
-          <col className="w-[6rem] md:w-[8.5rem]" />
-          <col className="w-[6rem] md:w-[8.5rem]" />
-          <col className="w-[7rem] md:w-[10rem]" />
+          <col className="w-[6rem] md:w-[8rem]" />
+          <col className="w-[6rem] md:w-[8rem]" />
+          <col className="w-[7rem] md:w-[9rem]" />
         </colgroup>
         <thead>
           <tr>
-            <th className={cn(ITEMS_HEAD, "text-left")}>Item</th>
+            <th className={cn(ITEMS_HEAD, "text-left")}>Article</th>
             <th className={cn(ITEMS_HEAD, "text-right")}>Book</th>
             <th className={cn(ITEMS_HEAD, "text-right")}>Counted</th>
-            <th className={cn(ITEMS_HEAD, "text-right")}>
-              {review ? "Becomes" : "Difference"}
-            </th>
+            <th className={cn(ITEMS_HEAD, "text-right")}>Difference</th>
           </tr>
         </thead>
         <tbody className="[&_tr:first-child_td]:border-t-0">
-          {skus.map((one, at) => {
-            const result = becomes(one.sku, one.book, one.counted)
-            return (
-              <tr key={one.sku}>
-                <td className={ITEMS_CELL}>
-                  <ItemIdentity
+          {skus.map((one, at) => (
+            <tr key={one.sku}>
+              <td className={ITEMS_CELL}>
+                <div className="flex min-w-0 items-center gap-3">
+                  <Thumbnail
+                    url={one.photo}
+                    name={one.name ?? one.sku}
+                    division={null}
+                    fallback="—"
+                    className="size-10 shrink-0 rounded-inner"
                     eager={at < 24}
-                    row={{
-                      image: null,
-                      name: one.name ?? one.sku,
-                      division: null,
-                      filed: one.sku,
-                    }}
                   />
-                </td>
-                <td
-                  className={cn(
-                    ITEMS_CELL,
-                    "text-right whitespace-nowrap text-ink tabular-nums"
-                  )}
-                >
-                  {pcs(one.book)}
-                </td>
-                <td
-                  className={cn(
-                    ITEMS_CELL,
-                    "text-right whitespace-nowrap text-ink tabular-nums"
-                  )}
-                >
-                  {done || one.counted > 0 ? pcs(one.counted) : "—"}
-                </td>
-                <td
-                  className={cn(
-                    ITEMS_CELL,
-                    "text-right font-medium whitespace-nowrap tabular-nums"
-                  )}
-                >
-                  {review ? (
-                    <span className={result.tone}>{result.text}</span>
-                  ) : (
-                    differenceCell(one.book, one.counted, done)
-                  )}
-                </td>
-              </tr>
-            )
-          })}
+                  <div className="flex min-w-0 flex-col">
+                    <span className="line-clamp-2 text-ink">
+                      {one.name ?? skuNumber(one.sku)}
+                    </span>
+                    <span className="truncate text-[0.9375rem] text-mute">
+                      {skuNumber(one.sku)}
+                    </span>
+                  </div>
+                </div>
+              </td>
+              <td
+                className={cn(
+                  ITEMS_CELL,
+                  "text-right whitespace-nowrap text-ink tabular-nums"
+                )}
+              >
+                {count(one.book)}
+              </td>
+              <td
+                className={cn(
+                  ITEMS_CELL,
+                  "text-right whitespace-nowrap text-ink tabular-nums"
+                )}
+              >
+                {count(one.counted)}
+              </td>
+              <td
+                className={cn(
+                  ITEMS_CELL,
+                  "text-right font-medium whitespace-nowrap tabular-nums"
+                )}
+              >
+                {differenceCell(one.book, one.counted)}
+              </td>
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>
   )
 }
 
-interface CountDraft {
-  pool: string
-  kind: CountKind
-  reason: string
-  epcs: string
-}
-
-function Composer({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const client = useQueryClient()
-  const actor = useActor()
-
-  const fleet = useQuery({
-    queryKey: inventoryKeys.fleet(),
-    queryFn: ({ signal }) => fleetPools(signal),
-  })
-
-  const pools = useMemo(
-    () => writablePools(fleet.data?.items ?? []),
-    [fleet.data]
-  )
-  const poolFor = (id: string) => pools.find((item) => item.id === id)
-
-  const create = useMutation({
-    // Wrapped rather than passed by reference: v5 hands a mutation context as
-    // the second argument, which is not the `AbortSignal` the fetcher expects.
-    mutationFn: (draft: CountDraft) => {
-      const chosen = poolFor(draft.pool)!
-      return createCount({
-        site_id: chosen.site_id,
-        pool_id: chosen.id,
-        kind: draft.kind,
-        sku_ids: [],
-        epcs: draft.epcs
-          .split(/[\s,]+/)
-          .map((value) => value.trim().toUpperCase())
-          .filter((value) => value !== ""),
-        reason: draft.reason,
-        actor_id: actor,
-        idempotency_key: idempotencyKey(),
-      })
-    },
-    onSuccess: () => {
-      client.invalidateQueries({ queryKey: inventoryKeys.counts() })
-      // The reason and the scope, which were this count. The pool and the kind
-      // are where the next one is most likely drafted against too.
-      form.setFieldValue("reason", "")
-      form.setFieldValue("epcs", "")
-    },
-  })
-
-  const form = useForm({
-    defaultValues: {
-      pool: "",
-      kind: "FULL",
-      reason: "",
-      epcs: "",
-    } as CountDraft,
-    onSubmit: ({ value }) => create.mutate(value),
-  })
-
-  return (
-    <Sheet
-      open={open}
-      onOpenChange={(next) => !next && onClose()}
-      title="New count"
-    >
-      <form
-        onSubmit={(event) => {
-          event.preventDefault()
-          form.handleSubmit()
-        }}
-        className="flex flex-col gap-4"
-      >
-        {create.isError && (
-          <Banner tone="bad">
-            {create.error instanceof Error
-              ? create.error.message
-              : "The count was refused."}
-          </Banner>
-        )}
-
-        <form.Field name="pool">
-          {(field) => (
-            <Field label="Pool" required>
-              <Choice
-                value={field.state.value}
-                onChange={field.handleChange}
-                options={pools.map((item) => ({
-                  value: item.id,
-                  label: `${item.site_id} · ${item.label}`,
-                }))}
-                className="h-9 w-full max-w-none"
-              />
-            </Field>
-          )}
-        </form.Field>
-
-        <form.Field name="kind">
-          {(field) => (
-            <Field label="Kind">
-              <Choice
-                value={field.state.value}
-                onChange={(value) => field.handleChange(value as CountKind)}
-                options={KINDS}
-                className="h-9 w-full max-w-none"
-              />
-            </Field>
-          )}
-        </form.Field>
-
-        <form.Field name="reason">
-          {(field) => (
-            <Field label="Reason" required>
-              <Input
-                value={field.state.value}
-                onBlur={field.handleBlur}
-                onChange={(event) => field.handleChange(event.target.value)}
-              />
-            </Field>
-          )}
-        </form.Field>
-
-        <form.Subscribe selector={(state) => state.values.kind === "TARGETED"}>
-          {(targeted) =>
-            targeted && (
-              <form.Field name="epcs">
-                {(field) => (
-                  <Field label="Tags to count" required>
-                    <Input
-                      value={field.state.value}
-                      onBlur={field.handleBlur}
-                      onChange={(event) =>
-                        field.handleChange(event.target.value)
-                      }
-                    />
-                  </Field>
-                )}
-              </form.Field>
-            )
-          }
-        </form.Subscribe>
-
-        <form.Subscribe
-          selector={(state) =>
-            poolFor(state.values.pool) !== undefined &&
-            state.values.reason.trim() !== "" &&
-            actor !== "" &&
-            (state.values.kind !== "TARGETED" ||
-              state.values.epcs.trim() !== "")
-          }
-        >
-          {(ready) => (
-            <Button
-              type="submit"
-              variant="primary"
-              pending={create.isPending}
-              disabled={!ready}
-            >
-              {create.isPending ? "Submitting…" : "Submit"}
-            </Button>
-          )}
-        </form.Subscribe>
-      </form>
-    </Sheet>
-  )
-}
+// ---------------------------------------------------------------------------

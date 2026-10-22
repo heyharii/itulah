@@ -1,5 +1,6 @@
 import { ActivityFold } from "@/components/ui/activity-fold"
 import {
+  queryOptions,
   useMutation,
   useQuery,
   useQueryClient,
@@ -24,7 +25,7 @@ import { PageHeader } from "@/components/ui/page-header"
 import { Pill, Status } from "@/components/ui/pill"
 import { MiniCell, MiniRow, MiniTable, SubHead } from "@/components/ui/rows"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import { ButtonGroup, Toolbar } from "@/components/ui/segmented"
+import { ButtonGroup } from "@/components/ui/segmented"
 import { Banner, EmptyState, LoadingState } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { Timeline } from "@/components/ui/timeline"
@@ -39,6 +40,7 @@ import {
   decideClaim,
   fileClaim,
   listClaimTypes,
+  listClaims,
   listEmployees,
   payClaim,
   peopleKeys,
@@ -54,6 +56,7 @@ import {
 import { useCanWrite } from "@/lib/session"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
+import { HrScope, useUnitFilter } from "@/screens/people/parts"
 import {
   CardButton,
   CardFigure,
@@ -73,11 +76,17 @@ import {
 /// between the two are exactly why the ledger carries an approved-unpaid
 /// claim as a debt rather than as a footnote.
 ///
-/// # One list, two filters
+/// # Requests and History
 ///
-/// Waiting is what the manager came for; All is everything the caller may
-/// see. Loans, yearly allowances and the kinds of expense are pages of their
-/// own. Filing a claim is the header button and opens a sheet.
+/// Requests is what is waiting on somebody: Waiting is the queue for a
+/// decision, To pay is what was approved and not yet paid — approved is not
+/// paid, and the money owed sits there until the payout. History is every claim
+/// the caller may see, newest first. Loans, yearly allowances and the kinds of
+/// expense are pages of their own. Filing a claim is the header button and
+/// opens a sheet.
+///
+/// Both pages narrow by unit in the browser, from rows the server already
+/// bounded to the caller's reach.
 
 const queueColumns: ColumnDef<TableSetup, ClaimRow>[] = [
   {
@@ -218,25 +227,43 @@ const listColumns: ColumnDef<TableSetup, ClaimRow>[] = [
   },
 ]
 
+/// The claims approved and not yet paid: the money the company owes and has not
+/// yet moved out of petty cash. The list route asked for APPROVED, under the
+/// list's own key so the module's one prefix still reaches it.
+const claimsToPayQuery = () =>
+  queryOptions({
+    queryKey: claimsKeys.list({ state: "APPROVED" }),
+    queryFn: ({ signal }) => listClaims({ state: "APPROVED" }, signal),
+  })
+
+/// The unit a claims list is narrowed to, and the words that name it in an
+/// empty state: the unit chosen, else the caller's own, else nothing.
+function useClaimUnit() {
+  const reach = useReach()
+  const unit = useUnitFilter()
+  const chosen = unit.units.find((one) => one.id === unit.unitId)?.name
+  return { unit, where: chosen ?? boundedTo(reach.data) }
+}
+
 export function Claims() {
   const phone = useLayout() === "phone"
   const claim = useSheet("claim")
   const canWrite = useCanWrite()
-  const reach = useReach()
-  const bounded = boundedTo(reach.data)
+  const { unit, where } = useClaimUnit()
   const [filing, setFiling] = useState(false)
 
-  // Waiting is what a manager comes for; All is the record. A filter on one
-  // list rather than two destinations — the other tabs this screen once held
+  // Waiting is what a manager comes for; To pay is what they approved and the
+  // drawer still owes. A filter on one page rather than two destinations — the
+  // record of everything is History, and the other tabs this screen once held
   // (loans, allowances, kinds) are pages of their own.
   const [show, setShow] = useState<string>("queue")
   /// The screen's own tabs, first in the toolbar of whichever list is shown:
-  /// inside the Pay door they are a choice, not a second row of tabs.
+  /// inside the Claims door they are a choice, not a second row of tabs.
   const tabs = (
     <SubTabs
       tabs={[
         { value: "queue", label: "Waiting" },
-        { value: "all", label: "All" },
+        { value: "pay", label: "To pay" },
       ]}
       value={show}
       onChange={setShow}
@@ -262,41 +289,80 @@ export function Claims() {
         <ClaimTable
           key="queue"
           lead={tabs}
+          unit={unit}
+          where={where}
           query={claimQueueQuery()}
           columns={queueColumns}
           loading="Reading the queue…"
           sorting={[{ id: "posted", desc: false }]}
           onOpen={claim.open}
           isSelected={(row) => row.claim_id === claim.value}
-          emptyNone={
-            bounded === null
+          emptyNone={(at) =>
+            at === null
               ? "Nothing is waiting on a decision."
-              : `Nothing at ${bounded} is waiting on a decision.`
+              : `Nothing at ${at} is waiting on a decision.`
           }
         />
       ) : (
         <ClaimTable
-          key="all"
+          key="pay"
           lead={tabs}
-          query={claimListQuery()}
+          unit={unit}
+          where={where}
+          query={claimsToPayQuery()}
           columns={listColumns}
-          loading="Reading the claims…"
-          sorting={[{ id: "posted", desc: true }]}
+          loading="Reading the claims to pay…"
+          // Longest owed first: this is a desk, like the queue.
+          sorting={[{ id: "posted", desc: false }]}
           onOpen={claim.open}
           isSelected={(row) => row.claim_id === claim.value}
-          emptyNone={
-            bounded === null
-              ? "No claim has been filed yet."
-              : `No claim has been filed at ${bounded} yet.`
+          emptyNone={(at) =>
+            at === null
+              ? "No approved claim is waiting to be paid."
+              : `No approved claim at ${at} is waiting to be paid.`
           }
         />
       )}
 
       {filing && <FileClaimSheet onClose={() => setFiling(false)} />}
 
-      {/* The sheet has to find its row whichever filter it was opened from.
-          Claims move at petty-cash volumes; asking for both lists is cheaper
+      {/* The sheet has to find its row whichever list it was opened from.
+          Claims move at petty-cash volumes; asking for every list is cheaper
           than the gymnastics of a sheet that guesses which one is mounted. */}
+      <Suspense fallback={null}>
+        <ClaimSheetFromLists claimId={claim.value} onClose={claim.close} />
+      </Suspense>
+    </PageContent>
+  )
+}
+
+/// Claims › History — every claim the caller may see, newest first, with the
+/// sheet the requests open. The record, where Requests is the desk.
+export function ClaimHistory() {
+  const claim = useSheet("claim")
+  const { unit, where } = useClaimUnit()
+
+  return (
+    <PageContent>
+      <PageHeader title="Claims" />
+
+      <ClaimTable
+        key="all"
+        unit={unit}
+        where={where}
+        query={claimListQuery()}
+        columns={listColumns}
+        loading="Reading the claims…"
+        sorting={[{ id: "posted", desc: true }]}
+        onOpen={claim.open}
+        isSelected={(row) => row.claim_id === claim.value}
+        emptyNone={(at) =>
+          at === null
+            ? "No claim has been filed yet."
+            : `No claim has been filed at ${at} yet.`
+        }
+      />
+
       <Suspense fallback={null}>
         <ClaimSheetFromLists claimId={claim.value} onClose={claim.close} />
       </Suspense>
@@ -312,9 +378,11 @@ function ClaimSheetFromLists({
   onClose: () => void
 }) {
   const queue = useSuspenseQuery(claimQueueQuery())
+  const toPay = useSuspenseQuery(claimsToPayQuery())
   const all = useSuspenseQuery(claimListQuery())
   const open =
     queue.data.find((row) => row.claim_id === claimId) ??
+    toPay.data.find((row) => row.claim_id === claimId) ??
     all.data.find((row) => row.claim_id === claimId) ??
     null
   return <ClaimSheet row={open} onClose={onClose} />
@@ -327,6 +395,8 @@ function ClaimSheetFromLists({
 /// unanswered behind a clause somebody forgot was there.
 function ClaimTable<K extends QueryKey>({
   lead,
+  unit,
+  where,
   query,
   columns,
   loading,
@@ -336,20 +406,24 @@ function ClaimTable<K extends QueryKey>({
   emptyNone,
 }: {
   /// The screen's tabs, kept in the toolbar while the list is read.
-  lead: React.ReactNode
+  lead?: React.ReactNode
+  /// The unit the rows are narrowed to, and the bar's choice of it.
+  unit: ReturnType<typeof useUnitFilter>
+  /// The place the empty states name: the unit chosen, else the caller's own.
+  where: string | null
   query: UseSuspenseQueryOptions<ClaimRow[], Error, ClaimRow[], K>
   columns: ColumnDef<TableSetup, ClaimRow>[]
   loading: string
   sorting: SortingState
   onOpen: (id: string) => void
   isSelected: (row: ClaimRow) => boolean
-  emptyNone: string
+  emptyNone: (where: string | null) => string
 }) {
   return (
     <Suspense
       fallback={
         <>
-          <Toolbar lead={lead} />
+          <HrScope unit={unit} lead={lead} />
           <Card className="overflow-hidden">
             <LoadingState>{loading}</LoadingState>
           </Card>
@@ -358,6 +432,8 @@ function ClaimTable<K extends QueryKey>({
     >
       <ClaimRows
         lead={lead}
+        unit={unit}
+        where={where}
         query={query}
         columns={columns}
         sorting={defaultSorting}
@@ -371,6 +447,8 @@ function ClaimTable<K extends QueryKey>({
 
 function ClaimRows<K extends QueryKey>({
   lead,
+  unit,
+  where,
   query: options,
   columns,
   sorting: defaultSorting,
@@ -378,17 +456,27 @@ function ClaimRows<K extends QueryKey>({
   isSelected,
   emptyNone,
 }: {
-  lead: React.ReactNode
+  lead?: React.ReactNode
+  unit: ReturnType<typeof useUnitFilter>
+  where: string | null
   query: UseSuspenseQueryOptions<ClaimRow[], Error, ClaimRow[], K>
   columns: ColumnDef<TableSetup, ClaimRow>[]
   sorting: SortingState
   onOpen: (id: string) => void
   isSelected: (row: ClaimRow) => boolean
-  emptyNone: string
+  emptyNone: (where: string | null) => string
 }) {
   const phone = useLayout() === "phone"
   const query = useSuspenseQuery(options)
-  const rows = query.data
+  // The unit is a narrowing in the browser: the server already bounded these
+  // rows to the caller's reach, and the unit column keeps its own facet.
+  const rows = useMemo(
+    () =>
+      unit.unitId === null
+        ? query.data
+        : query.data.filter((row) => row.unit_id === unit.unitId),
+    [query.data, unit.unitId]
+  )
   const [sorting, setSorting] = useState<SortingState>(defaultSorting)
   const filters = useFilters(columns)
 
@@ -408,13 +496,13 @@ function ClaimRows<K extends QueryKey>({
 
   return (
     <>
-      <Toolbar lead={lead}>
+      <HrScope unit={unit} lead={lead}>
         <FilterPanel model={filters} table={table} />
-      </Toolbar>
+      </HrScope>
 
       <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {rows.length === 0 ? (
-          <EmptyState>{emptyNone}</EmptyState>
+          <EmptyState>{emptyNone(where)}</EmptyState>
         ) : phone ? (
           <PhoneCards
             rows={table.getRowModel().rows.map((one) => one.original)}

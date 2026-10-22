@@ -24,6 +24,14 @@ export type Peripherals = {
   readonly customer_display_on_start: boolean
   /// The desk reader's model, `Chainway R3` today. Null: no reader.
   readonly desk_reader: string | null
+  /// The R3's power at this counter, in dBm — set at every open, never saved
+  /// in the reader, chosen on the bench so only the pad reads. Absent from a
+  /// shell that predates it.
+  readonly r3_power_dbm?: number
+  /// How long one read of the pad listens, in milliseconds.
+  readonly r3_read_ms?: number
+  /// The weakest signal a read of the pad keeps, in dBm.
+  readonly r3_min_rssi_dbm?: number
   /// `PRINTER_PULSE` or `MANUAL`. Null: no drawer.
   readonly cash_drawer: string | null
   /// `USB_KEYBOARD` or `SERIAL`. Null: no scanner.
@@ -47,6 +55,9 @@ export const DEFAULT_PERIPHERALS: Peripherals = {
   customer_display: false,
   customer_display_on_start: false,
   desk_reader: null,
+  r3_power_dbm: 15,
+  r3_read_ms: 500,
+  r3_min_rssi_dbm: -70,
   cash_drawer: "PRINTER_PULSE",
   scanner: null,
   receipt_printer: "ADDRESS",

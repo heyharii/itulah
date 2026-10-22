@@ -1,12 +1,13 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
+import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { useLayout } from "@/lib/layout"
 import { Fab } from "@/components/ui/fab"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { Field, Input, Select } from "@/components/ui/field"
+import { Field, Input } from "@/components/ui/field"
+import { ListFilters } from "@/components/ui/list-filters"
 import { PageHeader } from "@/components/ui/page-header"
 import { Status } from "@/components/ui/pill"
 import { Toolbar } from "@/components/ui/segmented"
@@ -18,6 +19,7 @@ import {
   Problem,
 } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
+import { useFilterState, type FilterField } from "@/lib/filters"
 import { count, day, moment } from "@/lib/format"
 import { useNameOfLogin } from "@/lib/queries/hr-employees"
 import { unitLabel, useUnits } from "@/lib/queries/organisation"
@@ -86,7 +88,6 @@ function statusLabel(status: string): string {
 
 export function Invitations() {
   const [status, setStatus] = useState<InvitationStatus>("PENDING")
-  const [unitId, setUnitId] = useState("")
   const canWrite = useCanWrite()
   const phone = useLayout() === "phone"
   const invite = useSheet("invite")
@@ -94,6 +95,29 @@ export function Invitations() {
   const units = useUnits()
   const nameOfLogin = useNameOfLogin()
   const [renewing, setRenewing] = useState<InvitationRow | null>(null)
+
+  const fields = useMemo<FilterField[]>(
+    () => [
+      {
+        column: "unit",
+        label: "Unit",
+        spec: {
+          kind: "option",
+          single: true,
+          operators: ["isAnyOf"],
+          searchable: true,
+          options: (units.data ?? []).map((unit) => ({
+            value: unit.id,
+            label: unitLabel(unit),
+          })),
+        },
+      },
+    ],
+    [units.data]
+  )
+  const filters = useFilterState(fields)
+  const unitId =
+    filters.filters.find((one) => one.column === "unit")?.values[0] ?? ""
 
   const invitations = useInvitations(status, unitId || undefined)
   const rows = invitations.data ?? []
@@ -131,14 +155,7 @@ export function Invitations() {
           />
         }
       >
-        <Select value={unitId} onChange={setUnitId} className="h-8 w-52">
-          <option value="">Every unit</option>
-          {(units.data ?? []).map((unit) => (
-            <option key={unit.id} value={unit.id}>
-              {unitLabel(unit)}
-            </option>
-          ))}
-        </Select>
+        <ListFilters model={filters} />
         <Toolbar.Spacer />
         <span className="text-[0.9375rem] text-mute tabular-nums">
           {count(rows.length)} {statusLabel(status).toLowerCase()}

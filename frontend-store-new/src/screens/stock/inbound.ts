@@ -1,6 +1,7 @@
 import { queryOptions, useQuery } from "@tanstack/react-query"
 
 import { count } from "@/lib/format"
+import { sourceName } from "@/screens/stock/shared"
 import {
   fetchInbound,
   fetchInboundDelivery,
@@ -59,9 +60,17 @@ export function deliveryName(delivery: StoreInboundDelivery): string {
   return delivery.shipment_reference ?? `From ${delivery.source_site_id}`
 }
 
-/// "1 carton", "3 cartons" — what the DC calls koli.
+/// Where a delivery came from, as the list says it: the warehouse is "HO".
+export function fromName(siteId: string): string {
+  const id = siteId.toLowerCase()
+  return id === "dc" || id.startsWith("dc-") || id.startsWith("ho")
+    ? "HO"
+    : sourceName(siteId)
+}
+
+/// "1 koli", "3 koli" — what the DC calls koli.
 export function cartons(n: number): string {
-  return `${count(n)} ${n === 1 ? "carton" : "cartons"}`
+  return `${count(n)} ${"koli"}`
 }
 
 export type Verdict = {
@@ -76,6 +85,9 @@ export function verdictOf(delivery: StoreInboundDelivery): Verdict {
   if (delivery.status === "IN_TRANSIT") {
     return { tone: "info", label: "In transit" }
   }
+  // Counted, and the count differs from what was sent: nothing of it is
+  // booked until MD answers (owner, 18 Oct 2026).
+  if (delivery.in_review === true) return { tone: "warn", label: "In review" }
   const result = delivery.result
   if (result === null) return { tone: "ok", label: "Received" }
   if (result.missing_units > 0) return { tone: "bad", label: "Received short" }
@@ -89,7 +101,10 @@ export function verdictOf(delivery: StoreInboundDelivery): Verdict {
 /// no result in transit; reading it through this means a result that ever did
 /// arrive early is still never drawn.
 export function resultOf(delivery: StoreInboundDelivery) {
-  return delivery.status === "RECEIVED" ? delivery.result : null
+  // In review nothing is booked yet, so nothing is missing yet either.
+  return delivery.status === "RECEIVED" && delivery.in_review !== true
+    ? delivery.result
+    : null
 }
 
 /// In transit first, then received — newest first within each, by the moment

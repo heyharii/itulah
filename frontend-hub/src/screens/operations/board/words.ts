@@ -10,3 +10,7 @@ export function many(n: number, noun: string, plural = `${noun}s`): string {
 export function word(n: number, noun: string, plural = `${noun}s`): string {
   return n === 1 ? noun : plural
 }
+
+/// A code without its leading zeros: 00000004104 reads 4104, KOLI-0012 stays
+/// as it is (owner, 18 Oct 2026, "ga usah ada 0000 nya").
+export const bare = (code: string) => code.replace(/^0+(?=\d)/, "")

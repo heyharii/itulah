@@ -2,7 +2,7 @@ import { useForm } from "@tanstack/react-form"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { CloudOff, Radio } from "lucide-react"
+import { CircleCheck, Clock, CloudOff, Minus, Radio } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -117,7 +117,7 @@ const deskColumns: ColumnDef<TableSetup, NodeRow>[] = [
     // A node without a site is the centre itself, so `is empty` separates the
     // fleet from the hub it reports to — which is the first thing somebody
     // reading a register of fifteen wants apart.
-    meta: { filter: { kind: "option", label: "Site" } },
+    meta: { filter: { kind: "option", label: "Site", searchable: true } },
     cell: ({ row }) => row.original.site_id ?? "—",
   },
   {
@@ -162,7 +162,7 @@ const deskColumns: ColumnDef<TableSetup, NodeRow>[] = [
     accessorFn: (row) => row.health?.version ?? "",
     header: "Version",
     size: 90,
-    meta: { filter: { kind: "option", label: "Version" } },
+    meta: { filter: { kind: "option", label: "Version", searchable: true } },
     cell: ({ row }) => (
       <span className="font-mono text-meta">
         {row.original.health?.version ?? "—"}
@@ -173,7 +173,7 @@ const deskColumns: ColumnDef<TableSetup, NodeRow>[] = [
     accessorKey: "node_role",
     header: "Role",
     size: 100,
-    meta: { filter: { kind: "option", label: "Role" } },
+    meta: { filter: { kind: "option", label: "Role", searchable: true } },
     cell: ({ row }) =>
       row.original.node_role ? (
         <Tag>{row.original.node_role}</Tag>
@@ -223,7 +223,22 @@ const deskColumns: ColumnDef<TableSetup, NodeRow>[] = [
     // one the queue above already shouts about; the useful clause here is the
     // opposite one — "is not Current", the nodes worth a second look on a
     // morning when nothing has failed outright.
-    meta: { filter: { kind: "option", label: "State" } },
+    meta: {
+      filter: {
+        kind: "option",
+        label: "State",
+        icon: (value) =>
+          value === "Blocked"
+            ? CloudOff
+            : value === "Behind"
+              ? Clock
+              : value === "Current"
+                ? CircleCheck
+                : value === "No commands"
+                  ? Minus
+                  : undefined,
+      },
+    },
     cell: ({ row }) => {
       const shown = state(row.original)
       return <Pill tone={shown.tone}>{shown.text}</Pill>
@@ -434,12 +449,6 @@ export function Nodes({
 
   const actions = (
     <>
-      <Input
-        value={query}
-        onChange={(event) => setQuery(event.target.value)}
-        placeholder="Search"
-        className="h-8 w-48"
-      />
       {/* Typing keys is the fallback now; a code the machine claims is
           the way a server joins. */}
       <Button onClick={() => setRegistering(true)}>Register by key</Button>
@@ -497,7 +506,11 @@ export function Nodes({
           every store server, every server with no site, everything not
           current. */}
       <div className={DESK_BAR}>
-        <FilterPanel model={filters} table={table} />
+        <FilterPanel
+          model={filters}
+          table={table}
+          search={{ value: query, onChange: setQuery, label: "Search servers" }}
+        />
       </div>
 
       <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
@@ -822,7 +835,8 @@ function RegisterSheet({
       title="Register a node"
       footer={
         <div className="flex justify-end gap-2">
-          <Button data-cancel
+          <Button
+            data-cancel
             variant="quiet"
             onClick={() => {
               clear()

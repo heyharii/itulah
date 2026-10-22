@@ -31,7 +31,7 @@ import { Day } from "@/components/ui/day"
 import { PickMany, PickOne, type Choice } from "@/components/ui/pick"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner, ErrorState } from "@/components/ui/states"
-import { count, day, money } from "@/lib/format"
+import { count, dateRange, money, sku } from "@/lib/format"
 import { articleKeys, searchArticles } from "@/lib/queries/articles"
 import {
   BookWrittenNotPublished,
@@ -118,7 +118,7 @@ type EffectKind = Effect["kind"]
 /// once a choice is made, and saying it twice made the form a page of grey.
 const SCOPES: readonly Tile<ScopeKind>[] = [
   { value: "ARTICLE", label: "Articles", icon: Shirt },
-  { value: "SKU", label: "SKUs", icon: Barcode },
+  { value: "SKU", label: "Sizes & colours", icon: Barcode },
   { value: "DIVISION", label: "Divisions", icon: LayoutGrid },
   { value: "TAG", label: "Tags", icon: Hash },
   { value: "WHOLE_CART", label: "Whole basket", icon: ShoppingBasket },
@@ -128,8 +128,8 @@ const EFFECTS: readonly Tile<EffectKind>[] = [
   { value: "PERCENT", label: "Percent off", icon: Percent },
   { value: "AMOUNT", label: "Amount off", icon: Banknote },
   { value: "FIXED_UNIT_PRICE", label: "Fixed price", icon: Tag },
-  { value: "BUY_X_GET_Y", label: "Buy X get Y", icon: Layers },
-  { value: "EARN_POINTS", label: "Points", icon: Coins },
+  { value: "BUY_X_GET_Y", label: "Buy & get", icon: Layers },
+  { value: "EARN_POINTS", label: "Earn points", icon: Coins },
 ]
 
 const AUDIENCE: readonly Tile<"EVERYONE" | "MEMBERS">[] = [
@@ -140,8 +140,8 @@ const AUDIENCE: readonly Tile<"EVERYONE" | "MEMBERS">[] = [
 /// "Not valid on sale items", as the two things it can actually mean — worded
 /// from the shop's side rather than the engine's, whose word is `EXCLUDE`.
 const MARKDOWNS: readonly Tile<MarkdownPolicy>[] = [
-  { value: "EXCLUDE", label: "Not on sale items" },
-  { value: "ALLOW", label: "Sale items too" },
+  { value: "EXCLUDE", label: "Leave out" },
+  { value: "ALLOW", label: "Include" },
 ]
 
 /// "This offer cannot be combined with any other", as the two things a shop
@@ -153,16 +153,16 @@ const MARKDOWNS: readonly Tile<MarkdownPolicy>[] = [
 /// everything else with it, and quietly narrowing that would let offers through
 /// that nobody decided to let through.
 const EXCLUSIVES: readonly Tile<ExclusiveScope>[] = [
-  { value: "BASKET", label: "Blocks every other offer" },
-  { value: "LINE", label: "Blocks offers on its items" },
+  { value: "BASKET", label: "No other offer" },
+  { value: "LINE", label: "Offers on other items" },
 ]
 
 /// What a points offer is worth on an item a better points offer already
 /// reached, written against the everyday rate — the one a shop leaves running
 /// all year and the only thing "double points" is a number against.
 const POINTS: readonly Tile<PointsCombination>[] = [
-  { value: "HIGHEST", label: "Best rate only" },
-  { value: "ADD", label: "Add the extra" },
+  { value: "HIGHEST", label: "Keep the best" },
+  { value: "ADD", label: "Add on top" },
   { value: "COMPOUND", label: "Multiply" },
 ]
 
@@ -826,11 +826,11 @@ export function RuleForm({
       <div className="@container">
         <div className="grid gap-8 @3xl:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)] @3xl:gap-x-10">
           <div className="flex flex-col gap-10">
-            <Section title="Promotion" icon={Tag}>
+            <Section title="Basics" icon={Tag}>
               <div className="grid gap-5 @lg:grid-cols-2">
                 <Field
                   className={FIELD}
-                  label="Name"
+                  label="Promotion name"
                   required
                   problem={tried || nameLeft ? nameProblem : undefined}
                 >
@@ -855,7 +855,7 @@ export function RuleForm({
               </div>
             </Section>
 
-            <Section title="Discount" icon={Percent}>
+            <Section title="Benefit" icon={Percent}>
               <Choices
                 options={EFFECTS}
                 value={effectKind}
@@ -893,7 +893,7 @@ export function RuleForm({
                       <Stepper
                         value={buyQuantity}
                         onChange={setBuyQuantity}
-                        suffix="items"
+                        suffix={buyQuantity === "1" ? "item" : "items"}
                         label="Units to buy in each bundle"
                       />
                     </Field>
@@ -908,7 +908,7 @@ export function RuleForm({
                       <Stepper
                         value={getQuantity}
                         onChange={setGetQuantity}
-                        suffix="items"
+                        suffix={getQuantity === "1" ? "item" : "items"}
                         label="Rewarded units in each bundle"
                       />
                     </Field>
@@ -917,7 +917,7 @@ export function RuleForm({
                       separate free-item offer (see the top of this file). */}
                   <Field
                     className={FIELD}
-                    label="Discount on the items you get"
+                    label="Off the free items"
                     required
                     problem={
                       tried &&
@@ -944,7 +944,7 @@ export function RuleForm({
                       ? "Amount off the basket"
                       : effectKind === "FIXED_UNIT_PRICE"
                         ? "Price each"
-                        : "Spend per point"
+                        : "Spend for 1 point"
                   }
                   required
                   problem={tried ? effectProblem : undefined}
@@ -961,7 +961,7 @@ export function RuleForm({
               {/* Only under a points offer. A control that does nothing on the
                   four money effects would look authored and change nothing. */}
               {effectKind === "EARN_POINTS" && (
-                <Question label="With a better points offer">
+                <Question label="If a better rate applies">
                   <Choices
                     options={POINTS}
                     value={pointsCombination}
@@ -1018,7 +1018,7 @@ export function RuleForm({
               {scopeKind === "SKU" && (
                 <Field
                   className={FIELD}
-                  label="SKUs"
+                  label="Sizes & colours"
                   required
                   problem={tried ? scopeProblem : undefined}
                 >
@@ -1044,7 +1044,7 @@ export function RuleForm({
                         })
                         return rows.map((row) => ({
                           value: row.sku_code,
-                          label: row.sku_code,
+                          label: sku(row.sku_code),
                           note: [row.article_name, row.color, row.size]
                             .filter(Boolean)
                             .join(" · "),
@@ -1138,8 +1138,8 @@ export function RuleForm({
               </div>
             </Section>
 
-            <Section title="Rules" icon={ListChecks}>
-              <Question label="Shoppers">
+            <Section title="Conditions" icon={ListChecks}>
+              <Question label="Open to">
                 <Choices
                   options={AUDIENCE}
                   value={members ? "MEMBERS" : "EVERYONE"}
@@ -1150,7 +1150,7 @@ export function RuleForm({
                 />
               </Question>
 
-              <Question label="Items already on sale">
+              <Question label="Marked-down items">
                 <Choices
                   options={MARKDOWNS}
                   value={markdownPolicy}
@@ -1164,7 +1164,7 @@ export function RuleForm({
               {/* Every rule this form writes stands on its own — `stacking` is
                   ALONE above — so this is always the live question: when it
                   applies, what does it push out of the way? */}
-              <Question label="Other offers">
+              <Question label="Combines with">
                 <Choices
                   options={EXCLUSIVES}
                   value={exclusiveScope}
@@ -1178,7 +1178,7 @@ export function RuleForm({
 
             {/* Everything below is optional and most offers leave it alone,
                 so it is folded away rather than asked on every promotion. */}
-            <More label="Limits" count={tuned}>
+            <More label="More conditions" count={tuned}>
               <Field className={FIELD} label="Coupon code">
                 <Input
                   value={couponCode}
@@ -1189,16 +1189,11 @@ export function RuleForm({
 
               {/* Counted over what the rule MATCHES, not over the basket —
                   `check_conditions` in `engine.rs` sums the matched lines
-                  alone, so the labels say "matching" on every scope but the
-                  whole cart. */}
+                  alone. */}
               <div className="grid grid-cols-2 gap-5">
                 <Field
                   className={FIELD}
-                  label={
-                    scopeKind === "WHOLE_CART"
-                      ? "Min. items in basket"
-                      : "Min. matching items"
-                  }
+                  label="Minimum items"
                 >
                   <Stepper
                     value={minQuantity}
@@ -1208,11 +1203,7 @@ export function RuleForm({
                 </Field>
                 <Field
                   className={FIELD}
-                  label={
-                    scopeKind === "WHOLE_CART"
-                      ? "Min. basket value"
-                      : "Min. matching value"
-                  }
+                  label="Minimum spend"
                 >
                   <Money
                     value={minAmount}
@@ -1240,12 +1231,12 @@ export function RuleForm({
                     label="Most transactions"
                   />
                 </Field>
-                <Field className={FIELD} label="Max. per shopper">
+                <Field className={FIELD} label="Max. per member">
                   <Stepper
                     value={maxPerCustomer}
                     onChange={setMaxPerCustomer}
                     min={1}
-                    label="Most transactions for one shopper"
+                    label="Most transactions for one member"
                   />
                 </Field>
               </div>
@@ -1286,7 +1277,7 @@ export function RuleForm({
                     rows={[
                       [
                         {
-                          label: "Discount",
+                          label: "Benefit",
                           value:
                             effect === null
                               ? "Not complete"
@@ -1299,43 +1290,39 @@ export function RuleForm({
                               value: chosenNames.join(", "),
                             },
                         {
-                          label: "Period",
+                          label: "Dates",
                           value:
-                            from !== "" && to !== ""
-                              ? `${day(from)} – ${day(to)}`
-                              : from !== ""
-                                ? `From ${day(from)}`
-                                : to !== ""
-                                  ? `Until ${day(to)}`
-                                  : "Always on",
+                            from === "" && to === ""
+                              ? "Always on"
+                              : dateRange(from || null, to || null),
                         },
                         {
-                          label: "Shoppers",
+                          label: "Open to",
                           value: members ? "Members" : "Everyone",
                         },
                         {
-                          label: "On sale items",
+                          label: "Marked-down items",
                           value:
                             markdownPolicy === "ALLOW"
-                              ? "Sale items too"
-                              : "Not on sale items",
+                              ? "Included"
+                              : "Left out",
                         },
                         {
-                          label: "Other offers",
+                          label: "Combines with",
                           value:
                             exclusiveScope === "LINE"
-                              ? "Blocks offers on its items"
-                              : "Blocks every other offer",
+                              ? "Offers on other items"
+                              : "No other offer",
                         },
                         Number(minQuantity) > 0 && {
                           label: "Minimum items",
                           value: count(Number(minQuantity)),
                         },
                         (minorOf(minAmount) ?? 0) > 0 && {
-                          label: "Minimum basket",
+                          label: "Minimum spend",
                           value: money(minorOf(minAmount) ?? 0),
                         },
-                        code !== "" && { label: "Code", value: code },
+                        code !== "" && { label: "Coupon code", value: code },
                       ].filter((row) => row !== false),
                       [
                         budgetMinor !== null && {
@@ -1343,11 +1330,11 @@ export function RuleForm({
                           value: money(budgetMinor),
                         },
                         maxUses.trim() !== "" && {
-                          label: "Transactions",
+                          label: "Max. transactions",
                           value: count(Number(maxUses)),
                         },
                         maxPerCustomer.trim() !== "" && {
-                          label: "Per shopper",
+                          label: "Max. per member",
                           value: count(Number(maxPerCustomer)),
                         },
                         (Number(priority) || 0) > 0 && {

@@ -10,6 +10,7 @@ import id.itulah.kasir.data.BenefitHolder
 import id.itulah.kasir.data.CatalogRow
 import id.itulah.kasir.data.Config
 import id.itulah.kasir.data.ConfigStore
+import id.itulah.kasir.data.skuDisplay
 import id.itulah.kasir.data.Quote
 import id.itulah.kasir.data.ReceiptDocument
 import id.itulah.kasir.data.SaleResult
@@ -310,7 +311,7 @@ class TillViewModel(private val api: Api, private val store: ConfigStore) : View
         val line = BasketLine(
             epc = epc,
             skuCode = skuCode,
-            name = known?.name ?: "SKU $skuCode",
+            name = known?.name ?: "SKU ${skuDisplay(skuCode)}",
             // Zero until the node answers. Deliberately not filled from any
             // local figure: the only price this till may show is the one the
             // engine returns, and the line renders "…" rather than a number it

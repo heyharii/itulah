@@ -23,6 +23,9 @@ import "@/styles/index.css"
 // The All white look, drawn over the components' own classes — see
 // `lib/look.ts`. After `index.css`, so it wins.
 import "@/styles/white.css"
+// Soft, drawn over All white while the client chooses (`lib/look.ts`). Last,
+// so it wins.
+import "@/styles/soft.css"
 
 /// The document route — the one file-based route Start owns. Everything below
 /// it (the registry routes, the redirects) is built in code from
@@ -116,6 +119,7 @@ function RootDocument({ children }: { children: ReactNode }) {
     <html
       lang="en"
       data-look={LOOK}
+      data-style={hint.style}
       data-device={hint.phone ? "phone" : "desk"}
       data-vw={hint.width}
       suppressHydrationWarning

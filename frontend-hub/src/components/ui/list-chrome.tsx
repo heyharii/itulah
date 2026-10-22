@@ -19,6 +19,7 @@ import {
 import { useEffect, useId, useRef, useState } from "react"
 
 import { ClearFilters, FilterControls } from "@/components/ui/filter-bar"
+import { ListFilters } from "@/components/ui/list-filters"
 import { BottomSheet, MorphHeight } from "@/components/ui/picker-sheet"
 import { DayRangePage } from "@/components/ui/day-range-sheet"
 import { Sheet } from "@/components/ui/sheet"
@@ -1397,9 +1398,11 @@ export function ListOptionsSheet({
             ? "Filter"
             : page === "sort"
               ? "Sort by"
-              : "Show"
+              : hasFilter
+                ? "Filter"
+                : "Show"
   const clearable =
-    page === "filter"
+    page === "filter" || page === "menu"
       ? narrowing > 0
       : dayPage !== undefined
         ? fm.filters.some((one) => one.column === dayPage.column)
@@ -1463,7 +1466,7 @@ export function ListOptionsSheet({
             <button
               type="button"
               onClick={() => {
-                if (page === "filter") model.clear()
+                if (page === "filter" || page === "menu") model.clear()
                 else if (dayPage !== undefined) clearColumn(dayPage.column)
                 else if (fieldPage !== undefined) clearColumn(fieldPage.column)
               }}
@@ -1478,19 +1481,19 @@ export function ListOptionsSheet({
           <div className="px-2 pb-3">
             {page === "menu" && (
               <>
+                {/* One page, every choice on view, in the desk bar's order
+                    (owner, 2026-10-20: the filter standard): the filters
+                    themselves, then Sort by. */}
                 {hasFilter && (
-                  <button
-                    type="button"
-                    onClick={() => go("filter")}
-                    className={ROW}
-                  >
-                    <ListFilter className="size-4 shrink-0 text-line-ico" />
-                    <span className="flex-1">Filter</span>
-                    <span className="max-w-[45%] truncate text-body">
-                      {narrowing === 0 ? "None" : count(narrowing)}
-                    </span>
-                    <ChevronRight className="size-4 shrink-0 text-line-ico" />
-                  </button>
+                  <div className="px-2 pt-1 pb-4">
+                    <ListFilters
+                      sheet
+                      model={fm}
+                      table={table}
+                      openField={(column) => go(`field:${column}`)}
+                      openDate={(column) => go(`cal:${column}`)}
+                    />
+                  </div>
                 )}
                 {hasSort && (
                   <button
@@ -1532,12 +1535,15 @@ export function ListOptionsSheet({
             )}
 
             {page === "filter" && (
-              <SheetFilterPage
-                model={fm}
-                table={table}
-                go={go}
-                rowClass={ROW}
-              />
+              <div className="px-2 pt-1 pb-2">
+                <ListFilters
+                  sheet
+                  model={fm}
+                  table={table}
+                  openField={(column) => go(`field:${column}`)}
+                  openDate={(column) => go(`cal:${column}`)}
+                />
+              </div>
             )}
 
             {fieldPage !== undefined && (

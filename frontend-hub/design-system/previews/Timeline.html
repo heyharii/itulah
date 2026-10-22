@@ -1,0 +1,132 @@
+<!-- @dsCard group="Records" height=788 subtitle="Static rendition of timeline.tsx and activity-fold.tsx in the All white look" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>Timeline — preview</title><style>
+body{margin:0}
+.ds-timeline-rail{width:min(480px,100%)}
+.ds-timeline-rail .ds-sheet{width:100%}
+.ds-timeline-rail .ds-sheet-body{padding-top:20px;gap:20px}
+.ds-timeline-life{display:flex;flex-wrap:wrap;align-items:center;gap:8px 0;margin:0}
+.ds-timeline-step{display:flex;flex:1;align-items:center}
+.ds-timeline-word{display:flex;flex:none;align-items:center;gap:6px;font-size:15px;font-weight:600;white-space:nowrap;color:var(--text)}
+.ds-timeline-word.is-current{color:var(--ink)}
+.ds-timeline-word.is-todo{color:var(--mute)}
+.ds-timeline-badge{display:grid;place-items:center;flex:none;width:17px;height:17px;border-radius:var(--r-full);font-size:15px;line-height:1}
+.ds-timeline-badge.is-done{background:var(--ok-bg);color:var(--ok-fg)}
+.ds-timeline-badge.is-current{background:var(--ink);color:var(--on-dark)}
+.ds-timeline-badge.is-todo{background:var(--soft-2);color:var(--faint)}
+.ds-timeline-badge .ds-ico{width:11px;height:11px}
+.ds-timeline-bar{flex:1;min-width:8px;height:2px;margin:0 6px;background:var(--hairline)}
+.ds-timeline-bar.is-done{background:var(--ok)}
+.ds-timeline-steps{display:flex;flex-direction:column;margin:0;padding:0;list-style:none}
+.ds-timeline-steps>li{position:relative;display:flex;align-items:flex-start;gap:10px;padding:6px 0}
+.ds-timeline-steps>li:not(:last-child)::after{content:"";position:absolute;top:30px;left:12px;width:1.5px;height:calc(100% - 24px);background:var(--hairline-2)}
+.ds-timeline-node{position:relative;z-index:1;display:grid;place-items:center;flex:none;width:25px;height:25px;border-radius:7px;font-size:15px;font-weight:600}
+.ds-timeline-node.is-done{background:var(--ok-bg);color:var(--ok-fg)}
+.ds-timeline-node.is-current{background:var(--info);color:var(--on-dark)}
+.ds-timeline-node.is-todo{background:var(--soft-2);color:var(--body)}
+.ds-timeline-text{flex:1;min-width:0}
+.ds-timeline-title{display:block;font-size:15px;font-weight:500;color:var(--ink)}
+.ds-timeline-title.is-todo{color:var(--mute)}
+.ds-timeline-detail{display:block;font-size:15px;color:var(--mute)}
+.ds-timeline-at{flex:none;font-size:15px;color:var(--body);font-variant-numeric:tabular-nums}
+.ds-timeline-fold{padding-top:14px;border-top:1px solid var(--hairline)}
+.ds-timeline-trigger{display:flex;align-items:center;gap:6px;font-size:15px;font-weight:500;color:var(--body)}
+.ds-timeline-trigger .ds-ico{width:14px;height:14px;color:var(--line-ico)}
+.ds-timeline-trigger.is-open .ds-ico{transform:rotate(90deg)}
+.ds-timeline-count{font-weight:400;color:var(--mute);font-variant-numeric:tabular-nums}
+.ds-timeline-trail{display:flex;flex-direction:column;margin:0;padding:12px 0 0;list-style:none}
+.ds-timeline-trail>li{position:relative;display:flex;align-items:flex-start;gap:12px;padding-bottom:20px}
+.ds-timeline-trail>li:last-child{padding-bottom:4px}
+.ds-timeline-trail>li:not(:last-child)::after{content:"";position:absolute;top:20px;left:5px;width:1px;height:calc(100% - 12px);background:var(--hairline-2)}
+.ds-timeline-pip{position:relative;z-index:1;flex:none;width:11px;height:11px;margin-top:7px;border:2px solid var(--canvas);border-radius:var(--r-full);background:var(--ok)}
+.ds-timeline-pip.is-bad{background:var(--bad)}
+.ds-timeline-did{display:block;font-size:15px;line-height:24px;color:var(--body)}
+.ds-timeline-did b{font-weight:500;color:var(--ink)}
+.ds-timeline-did .is-bad{margin-left:6px;color:var(--bad)}
+.ds-timeline-when{display:block;font-size:15px;color:var(--mute);font-variant-numeric:tabular-nums}
+</style></head>
+<body>
+<div class="ds ds-stage">
+
+  <div class="ds-col">
+    <p class="ds-caption">In a sheet's body: the ribbon, the steps, and Activity folded shut</p>
+    <div class="ds-timeline-rail">
+      <div class="ds-sheet ds-sheet--rail">
+        <div class="ds-sheet-body">
+
+          <div class="ds-timeline-life" role="list">
+            <div class="ds-timeline-step" role="listitem">
+              <span class="ds-timeline-word"><span class="ds-timeline-badge is-done"><span class="ds-ico ds-ico-check"></span></span>Issued</span>
+              <span class="ds-timeline-bar is-done"></span>
+            </div>
+            <div class="ds-timeline-step" role="listitem">
+              <span class="ds-timeline-word is-current"><span class="ds-timeline-badge is-current">2</span>Receiving</span>
+              <span class="ds-timeline-bar"></span>
+            </div>
+            <div class="ds-timeline-step" role="listitem">
+              <span class="ds-timeline-word is-todo"><span class="ds-timeline-badge is-todo">3</span>Closed</span>
+            </div>
+          </div>
+
+          <ol class="ds-timeline-steps">
+            <li>
+              <span class="ds-timeline-node is-done">1</span>
+              <span class="ds-timeline-text"><span class="ds-timeline-title">Order issued</span><span class="ds-timeline-detail">By Rina Kusuma</span></span>
+              <span class="ds-timeline-at">16 Oct 2026</span>
+            </li>
+            <li>
+              <span class="ds-timeline-node is-done">2</span>
+              <span class="ds-timeline-text"><span class="ds-timeline-title">Delivered to Cikupa</span><span class="ds-timeline-detail">Garmen Nusantara, PT</span></span>
+              <span class="ds-timeline-at">20 Oct 2026</span>
+            </li>
+            <li>
+              <span class="ds-timeline-node is-current">3</span>
+              <span class="ds-timeline-text"><span class="ds-timeline-title">Counting</span><span class="ds-timeline-detail">24 of 96 pcs counted</span></span>
+              <span class="ds-timeline-at">20 Oct 2026</span>
+            </li>
+            <li>
+              <span class="ds-timeline-node is-todo">4</span>
+              <span class="ds-timeline-text"><span class="ds-timeline-title is-todo">Verified</span><span class="ds-timeline-detail">Estimated 22 Oct 2026</span></span>
+            </li>
+          </ol>
+
+          <div class="ds-timeline-fold">
+            <div class="ds-timeline-trigger"><span class="ds-ico ds-ico-chevron-right"></span>Activity<span class="ds-timeline-count">(3)</span></div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ds-col">
+    <p class="ds-caption">Activity opened: newest first, a refused act in red</p>
+    <div class="ds-timeline-rail">
+      <div class="ds-sheet ds-sheet--rail">
+        <div class="ds-sheet-body">
+          <div class="ds-timeline-fold" style="border-top:0;padding-top:0">
+            <div class="ds-timeline-trigger is-open"><span class="ds-ico ds-ico-chevron-right"></span>Activity<span class="ds-timeline-count">(3)</span></div>
+            <ol class="ds-timeline-trail">
+              <li>
+                <span class="ds-timeline-pip is-bad"></span>
+                <span><span class="ds-timeline-did"><b>Dewi Lestari</b> cancelled this order<span class="is-bad">— the request was refused</span></span><span class="ds-timeline-when">17 Oct 2026, 09:41</span></span>
+              </li>
+              <li>
+                <span class="ds-timeline-pip"></span>
+                <span><span class="ds-timeline-did"><b>Budi Santoso</b> approved this order</span><span class="ds-timeline-when">16 Oct 2026, 15:02</span></span>
+              </li>
+              <li>
+                <span class="ds-timeline-pip"></span>
+                <span><span class="ds-timeline-did"><b>Rina Kusuma</b> created this order</span><span class="ds-timeline-when">16 Oct 2026, 14:28</span></span>
+              </li>
+            </ol>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

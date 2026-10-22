@@ -289,10 +289,11 @@ export function App() {
     return (
       <SignInDoor>
         <LoginForm
+          door
           title="Sign in"
           titleOnPhone={false}
           caption="Use the account your administrator set up for you."
-          footnote="Forgot your password? An administrator can set a new one for you."
+          footnote="Forgot your password? Ask your admin for a temporary password."
           className="flex-1"
           problem={problem ?? signedOutElsewhere()}
           // The sandbox names which business this form signs in to, and offers

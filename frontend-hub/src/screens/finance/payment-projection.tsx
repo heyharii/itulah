@@ -9,7 +9,7 @@ import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
-import { Checkbox } from "@/components/ui/field"
+import { SwitchPill } from "@/components/ui/form"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { ExpandingSearch } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
@@ -35,6 +35,7 @@ import { Code } from "@/screens/finance-final/parts"
 import { isoDay, monthLabel, todayIso } from "@/screens/finance/chart"
 import { useSupplierName, useUnitName } from "@/screens/finance/hooks"
 import { PhoneList } from "@/components/ui/phone-cards"
+import { CellMoney } from "@/components/ui/rows-switch"
 import { SupplierName, UnitName, UnitSelect } from "@/screens/finance/parts"
 import { ScreenPending } from "@/screens/finance/pending"
 import type { PaymentTermsBook } from "@itulah/contract"
@@ -513,10 +514,10 @@ function PaymentProjectionScreen() {
           className="h-control w-44"
           aria-label="Unit"
         />
-        <Checkbox
+        <SwitchPill
+          on={includeNotPayable}
           label="Include not payable yet"
-          checked={includeNotPayable}
-          onChange={setIncludeNotPayable}
+          onToggle={() => setIncludeNotPayable(!includeNotPayable)}
         />
         <Toolbar.Spacer />
         <span className="text-[0.9375rem] text-mute">
@@ -1038,7 +1039,7 @@ function projectionColumns(
                 : undefined
           }
         >
-          {money(row.original.entry.amountMinor)}
+          <CellMoney minor={row.original.entry.amountMinor} />
         </span>
       ),
     },

@@ -36,6 +36,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import id.itulah.pindai.core.Reader
 import id.itulah.pindai.core.ScanCounts
+import id.itulah.pindai.core.skuDisplay
+import id.itulah.pindai.data.InboundDelivery
 import id.itulah.pindai.ui.kit.*
 import id.itulah.pindai.ui.theme.*
 
@@ -58,13 +60,17 @@ private val ScanFootClearance = 120.dp
  * p50 and 28 % janky on this hardware, which is also what Android's own
  * Settings app measures here. Nothing that draws a scrolling list on an MT6765
  * is going to beat that. So the screen that has to be fast stopped being a list.
+ *
+ * Every part of it reads its own [slice] of the state rather than the whole of
+ * it, so a publish recomposes what changed and nothing else: mid-sweep that is
+ * the figure, and only the figure.
  */
 @Composable
-fun SweepScreen(vm: SweepViewModel, state: SweepState, onOpenSessions: () -> Unit) {
+fun SweepScreen(vm: SweepViewModel, state: State<SweepState>, onOpenSessions: () -> Unit) {
     // On the PULL, not on the radio. Opening the UART takes a second or more,
     // and a screen that waits for it looks like a trigger that did nothing —
     // so the operator pulls again and stops the sweep they just started.
-    val scanning = state.sweeping || state.starting
+    val scanning by state.slice { it.sweeping || it.starting }
 
     // The two surfaces exchange rather than snap.
     //
@@ -99,10 +105,22 @@ fun SweepScreen(vm: SweepViewModel, state: SweepState, onOpenSessions: () -> Uni
  * list brings a scroll container, a measure pass per item and a recycler along
  * with it — all to hold four pieces of text that change together on a 200 ms
  * tick.
+ *
+ * And the figure reads the count in a scope of its own ([LiveCount]). This
+ * surface reads [ScanFrame], which does not move while tags arrive, so the
+ * five-a-second publish recomposes one `Text` and leaves the rest alone.
  */
 @Composable
-private fun ScanningSurface(state: SweepState) {
-    val counts = state.counts
+private fun ScanningSurface(state: State<SweepState>) {
+    val frame by state.slice {
+        ScanFrame(
+            receiving = it.isReceivingDelivery,
+            delivery = it.inbound.chosen,
+            starting = it.starting,
+            clockSuspect = it.clockSuspect,
+            unexpected = it.counts.unexpected,
+        )
+    }
     Column(
         Modifier.fillMaxSize().background(Surface.canvas)
             .padding(horizontal = Space.lg)
@@ -113,11 +131,11 @@ private fun ScanningSurface(state: SweepState) {
     ) {
         // Which delivery these tags are going to, and nothing about what it
         // should contain. See ReceivingBanner.
-        if (state.isReceivingDelivery) {
-            ReceivingBanner(state)
+        if (frame.receiving) {
+            ReceivingBanner(frame.delivery)
             Spacer(Modifier.height(Space.lg))
         }
-        if (state.starting) Pill(Tone.WARN, "waking the reader") else Pill(Tone.OK, "reading")
+        if (frame.starting) Pill(Tone.WARN, "waking the reader") else Pill(Tone.OK, "reading")
         Spacer(Modifier.height(Space.xl))
 
         Spacer(Modifier.weight(1f))
@@ -130,7 +148,7 @@ private fun ScanningSurface(state: SweepState) {
         // and none of them changes what the operator does while walking: they
         // walk until the number stops climbing. What is left is the one figure
         // that answers that, at a size that answers it from arm's length.
-        BigCount(counts.units, live = state.sweeping)
+        LiveCount(state)
 
         Spacer(Modifier.weight(1f))
 
@@ -138,11 +156,11 @@ private fun ScanningSurface(state: SweepState) {
         // must act on WHILE the carton is open still interrupts — that was
         // never about counters, it was about not learning it after Finish.
         val alarm = when {
-            state.clockSuspect ->
+            frame.clockSuspect ->
                 "device clock is wrong — evidence is saved, filing is paused"
-            counts.unexpected > 0 ->
-                "${counts.unexpected} unexpected " +
-                    if (counts.unexpected == 1) "product" else "products"
+            frame.unexpected > 0 ->
+                "${frame.unexpected} unexpected " +
+                    if (frame.unexpected == 1) "product" else "products"
             else -> null
         }
         if (alarm != null) {
@@ -153,6 +171,29 @@ private fun ScanningSurface(state: SweepState) {
             )
         }
     }
+}
+
+/** Everything the scanning surface draws except the figure. Still while tags arrive. */
+private data class ScanFrame(
+    val receiving: Boolean,
+    val delivery: InboundDelivery?,
+    val starting: Boolean,
+    val clockSuspect: Boolean,
+    val unexpected: Int,
+)
+
+/**
+ * The count, read where it is drawn.
+ *
+ * Its own composable so that its own scope is the only one a new count
+ * invalidates: the surface around it, the shell and the tab bar never hear
+ * about the five-a-second publish.
+ */
+@Composable
+private fun LiveCount(state: State<SweepState>) {
+    val units by state.slice { it.counts.units }
+    val live by state.slice { it.sweeping }
+    BigCount(units, live = live)
 }
 
 /**
@@ -192,7 +233,15 @@ private fun BigCount(value: Int, live: Boolean) {
     // Green only while the radio is actually open. The figure goes live at the
     // same instant the antenna does, so the colour is a truthful signal rather
     // than decoration: grey means pulled-but-not-reading-yet.
-    RollingNumber(value = value, style = style, color = if (live) OkFg else Ink.faint)
+    //
+    // And still while it is live: it changes five times a second, and rolling
+    // every digit on every change kept a 140 sp figure redrawing for the whole
+    // sweep. See [RollingNumber].
+    RollingNumber(
+        value = value, style = style,
+        color = if (live) OkFg else Ink.faint,
+        animate = !live,
+    )
 }
 
 // ----------------------------------------------------------------- resting
@@ -208,18 +257,37 @@ private fun BigCount(value: Int, live: Boolean) {
  * together are how you know whether a rack changed.
  */
 @Composable
-private fun RestingSurface(vm: SweepViewModel, state: SweepState, onOpenSessions: () -> Unit) {
-    when {
+private fun RestingSurface(vm: SweepViewModel, state: State<SweepState>, onOpenSessions: () -> Unit) {
+    val surface by state.slice {
+        when {
+            it.isStoreReceiving -> Resting.RECEIVING
+            it.openSweep != null -> Resting.DETAIL
+            else -> Resting.HISTORY
+        }
+    }
+    when (surface) {
         // A shop's Receive is a different job with its own screens: which
         // delivery, its sweep, and what it came to. See ReceivingScreen.
-        state.isStoreReceiving -> ReceivingScreen(vm, state)
-        state.openSweep != null -> SweepDetail(vm, state)
-        else -> History(vm, state)
+        Resting.RECEIVING -> ReceivingScreen(vm, state)
+        Resting.DETAIL -> SweepDetail(vm, state)
+        Resting.HISTORY -> History(vm, state)
     }
 }
 
+/** Which of the three resting screens is up. */
+private enum class Resting { RECEIVING, DETAIL, HISTORY }
+
+/**
+ * The history list.
+ *
+ * Nothing here reads the state while composing. The list of sweeps is read
+ * inside the `LazyColumn` builder, so a new sweep rebuilds the list and any
+ * other publish does not reach it at all; the rows above and below it read
+ * their own slices.
+ */
 @Composable
-private fun History(vm: SweepViewModel, state: SweepState) {
+private fun History(vm: SweepViewModel, state: State<SweepState>) {
+    val history by state.slice { it.history }
     LazyColumn(
         modifier = Modifier.fillMaxSize().background(Surface.canvas),
         contentPadding = PaddingValues(
@@ -230,7 +298,7 @@ private fun History(vm: SweepViewModel, state: SweepState) {
         item(key = "label") { LabelModeRow(vm, state) }
         item(key = "extras") { ModeExtras(vm, state) }
 
-        if (state.history.isEmpty()) {
+        if (history.isEmpty()) {
             item(key = "empty") {
                 Column(
                     Modifier.fillMaxWidth().padding(top = 120.dp),
@@ -246,12 +314,11 @@ private fun History(vm: SweepViewModel, state: SweepState) {
             }
         }
 
-        items(state.history, key = { it.id }, contentType = { "sweep" }) { record ->
-            HistoryCard(
-                record,
-                onOpen = { vm.openSweep(record.id) },
-                onPin = { vm.togglePin(record.id) },
-            )
+        // The view model's own functions, not lambdas: a bound reference is
+        // equal to the next one made from the same view model, so a row whose
+        // record has not changed is skipped rather than recomposed.
+        items(history, key = { it.id }, contentType = { "sweep" }) { record ->
+            HistoryCard(record, onOpen = vm::openSweep, onPin = vm::togglePin)
         }
 
         item(key = "foot") { StatusFoot(state) }
@@ -267,15 +334,22 @@ private fun History(vm: SweepViewModel, state: SweepState) {
 @Composable
 private fun HistoryCard(
     record: id.itulah.pindai.data.SweepRecord,
-    onOpen: () -> Unit,
-    onPin: () -> Unit,
+    onOpen: (Long) -> Unit,
+    onPin: (Long) -> Unit,
 ) {
-    HubCard(onPress = onOpen, modifier = Modifier.clickable(onClick = onOpen)) {
+    // Worked out once per record, not on every composition of the row. This
+    // used to build three date formatters and a calendar each time a row was
+    // composed — every row, every time the list was scrolled back into view.
+    val at = remember(record.endedAt) { sweepWhen(record.endedAt) }
+    // The card is the target. It used to carry a second `clickable` on top of
+    // its own, which never fired (the card's consumes the press first) and
+    // cost every row a gesture detector and a ripple of its own.
+    HubCard(onPress = { onOpen(record.id) }) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(sweepDay(record.endedAt), style = Type.cardTitle, color = Ink.ink)
+                Text(at.day, style = Type.cardTitle, color = Ink.ink)
                 Text(
-                    sweepClock(record.endedAt) +
+                    at.clock +
                         (if (record.mode != "SCAN") " · " + record.mode.lowercase() else ""),
                     style = Type.meta, color = Ink.mute,
                 )
@@ -284,7 +358,7 @@ private fun HistoryCard(
             // handheld held one-handed while walking is a gesture that fires by
             // accident and never fires on purpose.
             Box(
-                Modifier.size(Tap.floor).clickable(onClick = onPin),
+                Modifier.size(Tap.floor).clickable { onPin(record.id) },
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
@@ -308,24 +382,25 @@ private fun HistoryCard(
  * costs — one finger cannot work two radios.
  */
 @Composable
-private fun LabelModeRow(vm: SweepViewModel, state: SweepState) {
+private fun LabelModeRow(vm: SweepViewModel, state: State<SweepState>) {
+    val label by state.slice { LabelView(it.labelMode, it.labelNote, it.labelDiag) }
     HubCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
                 androidx.compose.material.icons.Icons.Outlined.QrCodeScanner,
                 contentDescription = null,
                 modifier = Modifier.size(20.dp),
-                tint = if (state.labelMode) Accent else Ink.lineIco,
+                tint = if (label.on) Accent else Ink.lineIco,
             )
             Spacer(Modifier.width(Space.md))
             Column(Modifier.weight(1f)) {
                 Text(
-                    if (state.labelMode) "Trigger reads labels" else "Trigger reads tags",
+                    if (label.on) "Trigger reads labels" else "Trigger reads tags",
                     style = Type.cardTitle, color = Ink.ink,
                 )
                 Text(
-                    state.labelNote
-                        ?: if (state.labelMode) "QR or barcode · one scan, one unit"
+                    label.note
+                        ?: if (label.on) "QR or barcode · one scan, one unit"
                         else "switch when a tag will not answer",
                     style = Type.meta, color = Ink.mute,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -337,34 +412,49 @@ private fun LabelModeRow(vm: SweepViewModel, state: SweepState) {
                 // leave an identical screen, and the floor is left guessing at
                 // which. The counter is the discriminator — if "asked" does not
                 // move on a pull, the key never arrived.
-                if (state.labelMode && state.labelDiag.isNotBlank()) {
+                if (label.on && label.diag.isNotBlank()) {
                     Text(
-                        state.labelDiag,
+                        label.diag,
                         style = Type.meta, color = Ink.lineIco,
                         maxLines = 2, overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
             QuietButton(
-                text = if (state.labelMode) "Tags" else "Labels",
-                onClick = { vm.setLabelMode(!state.labelMode) },
+                text = if (label.on) "Tags" else "Labels",
+                onClick = { vm.setLabelMode(!label.on) },
             )
         }
     }
 }
 
+/** What the trigger row draws: which hardware, and what the imager last said. */
+private data class LabelView(val on: Boolean, val note: String?, val diag: String)
+
 /** One recorded sweep, opened: what it found, as a tally. */
 @Composable
-private fun SweepDetail(vm: SweepViewModel, state: SweepState) {
-    var query by rememberSaveable(state.openSweep) { mutableStateOf("") }
-    val record = state.history.firstOrNull { it.id == state.openSweep }
+private fun SweepDetail(vm: SweepViewModel, state: State<SweepState>) {
+    val openId by state.slice { it.openSweep }
+    val history by state.slice { it.history }
+    val lines by state.slice { it.lines }
+    var query by rememberSaveable(openId) { mutableStateOf("") }
+    val record = remember(history, openId) { history.firstOrNull { it.id == openId } }
+    // When it ended, worked out once per record rather than on every pass.
+    val stamp = remember(record) {
+        record?.let {
+            val at = sweepWhen(it.endedAt)
+            at.day + " " + at.clock +
+                (if (it.unknown > 0) " · ${it.unknown} unknown" else "") +
+                (if (it.foreign > 0) " · ${it.foreign} not ours" else "")
+        }
+    }
 
     // Filtering runs over this sweep's own lines — hundreds, sometimes a couple
     // of thousand — so it is a RAM filter, not a query.
-    val visible = remember(state.lines, query) {
-        if (query.isBlank()) state.lines else {
-            val needle = query.trim().uppercase()
-            state.lines.filter { line ->
+    val visible = remember(lines, query) {
+        if (query.isBlank()) lines else {
+            val needle = query.trim().uppercase().replace("·", "")
+            lines.filter { line ->
                 line.skuCode.contains(needle) ||
                     line.identity?.name?.uppercase()?.contains(needle) == true
             }
@@ -382,8 +472,8 @@ private fun SweepDetail(vm: SweepViewModel, state: SweepState) {
                 QuietButton("Back to history", onClick = vm::closeSweep)
                 Spacer(Modifier.height(Space.lg))
                 Text(
-                    "${record?.units ?: state.lines.sumOf { it.qty }}",
-                    style = Type.display.copy(fontSize = 64.sp, lineHeight = 70.sp),
+                    "${record?.units ?: lines.sumOf { it.qty }}",
+                    style = DetailFigure,
                     color = Ink.ink,
                 )
                 Spacer(Modifier.height(Space.sm))
@@ -392,16 +482,11 @@ private fun SweepDetail(vm: SweepViewModel, state: SweepState) {
                         "${record?.articles ?: 0} articles",
                         style = Type.metric, color = Ink.body,
                     )
-                    Text("${state.lines.size} sku", style = Type.metric, color = Ink.body)
+                    Text("${lines.size} sku", style = Type.metric, color = Ink.body)
                 }
-                record?.let {
+                stamp?.let {
                     Spacer(Modifier.height(Space.xs))
-                    Text(
-                        sweepDay(it.endedAt) + " " + sweepClock(it.endedAt) +
-                            (if (it.unknown > 0) " · ${it.unknown} unknown" else "") +
-                            (if (it.foreign > 0) " · ${it.foreign} not ours" else ""),
-                        style = Type.meta, color = Ink.faint,
-                    )
+                    Text(it, style = Type.meta, color = Ink.faint)
                 }
             }
         }
@@ -413,14 +498,33 @@ private fun SweepDetail(vm: SweepViewModel, state: SweepState) {
             )
         }
         items(visible, key = { it.skuCode }, contentType = { "product" }) { line ->
-            ProductRow(line)
+            ProductRow(line.identity?.name, line.skuCode, line.qty)
         }
     }
 }
 
+/**
+ * The opened sweep's figure. One instance, not a `copy` per composition: a new
+ * `TextStyle` object is a text layout Compose cannot reuse. See [BigCount].
+ */
+private val DetailFigure = Type.display.copy(fontSize = 64.sp, lineHeight = 70.sp)
+
 /** The quiet truth at the foot of the history: what this device knows and owes. */
 @Composable
-private fun StatusFoot(state: SweepState) {
+private fun StatusFoot(state: State<SweepState>) {
+    val foot by state.slice {
+        FootView(
+            catalogueReady = it.catalogue.isReady,
+            generation = it.catalogue.generation,
+            items = it.catalogue.items,
+            outboxPending = it.outboxPending,
+            outboxRefused = it.outboxRefused,
+            message = it.message,
+            failed = it.failed,
+            clockSuspect = it.clockSuspect,
+            operatorNote = it.operatorNote,
+        )
+    }
     Column(
         Modifier.fillMaxWidth().padding(top = Space.lg),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -428,54 +532,109 @@ private fun StatusFoot(state: SweepState) {
         Text(
             buildString {
                 append(
-                    if (state.catalogue.isReady) {
-                        "catalogue gen ${state.catalogue.generation} · ${state.catalogue.items} SKUs"
+                    if (foot.catalogueReady) {
+                        "catalogue gen ${foot.generation} · ${foot.items} SKUs"
                     } else "no local catalogue",
                 )
-                if (state.outboxPending > 0) append(" · ${state.outboxPending} unsent")
+                if (foot.outboxPending > 0) append(" · ${foot.outboxPending} unsent")
             },
             style = Type.meta,
-            color = if (state.catalogue.isReady) Ink.faint else WarnFg,
+            color = if (foot.catalogueReady) Ink.faint else WarnFg,
         )
-        state.message?.let {
+        foot.message?.let {
             Text(
-                it, style = Type.meta, color = if (state.failed) BadFg else Ink.mute,
+                it, style = Type.meta, color = if (foot.failed) BadFg else Ink.mute,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.padding(top = Space.xs),
             )
         }
-        if (state.clockSuspect) {
+        if (foot.clockSuspect) {
             Text(
                 "device clock is wrong — filing is paused",
                 style = Type.meta, color = BadFg,
             )
         }
+        // Evidence the node refused for good is kept, not lost, and no longer
+        // holds up what came after it — but nobody would know it was there.
+        if (foot.outboxRefused > 0) {
+            Text(
+                "${foot.outboxRefused} batches refused by the node · kept on this handheld",
+                style = Type.metric, color = BadFg, textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = Space.xs),
+            )
+        }
+        foot.operatorNote?.let {
+            Text(
+                it, style = Type.metric, color = WarnFg, textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = Space.xs),
+            )
+        }
     }
 }
+
+/**
+ * What the foot of the history draws, and only that.
+ *
+ * The catalogue's own `syncing` flag and its note are deliberately not in here:
+ * they move on every catalogue poll and nothing at the foot shows them.
+ */
+private data class FootView(
+    val catalogueReady: Boolean,
+    val generation: Long,
+    val items: Long,
+    val outboxPending: Int,
+    val outboxRefused: Int,
+    val message: String?,
+    val failed: Boolean,
+    val clockSuspect: Boolean,
+    val operatorNote: String?,
+)
 
 internal val DAYS = arrayOf(
     "januari", "februari", "maret", "april", "mei", "juni",
     "juli", "agustus", "september", "oktober", "november", "desember",
 )
 
-/** "22 september", in the reader's own timezone rather than the ledger's. */
-private fun sweepDay(iso: String): String = runCatching {
-    val at = parseIso(iso)
-    val calendar = java.util.Calendar.getInstance().apply { time = at }
-    "${calendar.get(java.util.Calendar.DAY_OF_MONTH)} ${DAYS[calendar.get(java.util.Calendar.MONTH)]}"
-}.getOrDefault(iso.take(10))
+/** When a sweep ended, as the operator reads it. */
+private class SweepWhen(
+    /** "22 september", in the reader's own timezone rather than the ledger's. */
+    val day: String,
+    /** "17.00", likewise local: the clock on the wall the operator was standing at. */
+    val clock: String,
+)
 
-/** "17.00", likewise local: the clock on the wall the operator was standing at. */
-private fun sweepClock(iso: String): String = runCatching {
-    val format = java.text.SimpleDateFormat("HH.mm", java.util.Locale.ROOT)
-    format.format(parseIso(iso))
-}.getOrDefault("")
-
-private fun parseIso(iso: String): java.util.Date {
-    val format = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.ROOT)
-    format.timeZone = java.util.TimeZone.getTimeZone("UTC")
-    return format.parse(iso) ?: java.util.Date()
+/**
+ * The stamp this app writes (`Api.iso8601`), read back.
+ *
+ * One formatter per thread for the life of the process, instead of a new one
+ * per call: a `SimpleDateFormat` is costly to build and is not safe to share
+ * between threads, and composition is not promised to stay on one thread.
+ */
+private val utcStamp = object : ThreadLocal<java.text.SimpleDateFormat>() {
+    override fun initialValue() =
+        java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.ROOT).apply {
+            timeZone = java.util.TimeZone.getTimeZone("UTC")
+        }
 }
+
+/**
+ * Day and clock in one pass, in the timezone the device is in NOW — read on
+ * every call, as the formatters built per call used to, so a handheld whose
+ * zone changes is not left on the old one. Callers `remember` the result.
+ *
+ * What it used to answer for a stamp it cannot read, it still answers: the
+ * first ten characters as the day, and no clock.
+ */
+private fun sweepWhen(iso: String): SweepWhen = runCatching {
+    val at = utcStamp.get()!!.parse(iso)!!
+    val local = java.time.Instant.ofEpochMilli(at.time).atZone(java.time.ZoneId.systemDefault())
+    SweepWhen(
+        day = "${local.dayOfMonth} ${DAYS[local.monthValue - 1]}",
+        clock = twoDigits(local.hour) + "." + twoDigits(local.minute),
+    )
+}.getOrElse { SweepWhen(day = iso.take(10), clock = "") }
+
+private fun twoDigits(n: Int): String = if (n < 10) "0$n" else n.toString()
 
 /**
  * One product of a sweep: what it is, and how many were found.
@@ -486,28 +645,33 @@ private fun parseIso(iso: String): java.util.Date {
  * and told an operator nothing the name does not. No expander either; the
  * unit-level EPCs are still collected and still filed as evidence, they are
  * simply not something this screen has to draw.
+ *
+ * It takes the three things it draws, not the [ResultLine]: a line carries
+ * every EPC of its product, so it is not a type Compose can compare, and a row
+ * handed one recomposed whenever the list was rebuilt. Three plain values are
+ * compared by value, and an unchanged row is skipped. `name` is null when the
+ * catalogue does not know the SKU.
  */
 @Composable
-internal fun ProductRow(line: ResultLine) {
-    val identity = line.identity
+internal fun ProductRow(name: String?, skuCode: String, qty: Int) {
     HubCard(modifier = Modifier.padding(bottom = Space.sm)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(
-                    identity?.name ?: "Unknown product",
+                    name ?: "Unknown product",
                     style = Type.cardTitle,
-                    color = if (identity == null) WarnFg else Ink.ink,
+                    color = if (name == null) WarnFg else Ink.ink,
                     maxLines = 2, overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    if (identity == null) "${line.skuCode} · not in this catalogue"
-                    else line.skuCode,
+                    if (name == null) "${skuDisplay(skuCode)} · not in this catalogue"
+                    else skuDisplay(skuCode),
                     style = Type.id, color = Ink.faint,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
             }
             Spacer(Modifier.width(Space.md))
-            Text("${line.qty}", style = Type.total, color = Ink.ink)
+            Text("$qty", style = Type.total, color = Ink.ink)
         }
     }
 }
@@ -563,12 +727,15 @@ private fun SessionRow(state: SweepState, onOpen: () -> Unit) {
 }
 
 @Composable
-private fun ModeExtras(vm: SweepViewModel, state: SweepState) {
-    when (state.mode) {
+private fun ModeExtras(vm: SweepViewModel, state: State<SweepState>) {
+    val extras by state.slice {
+        ExtrasView(it.mode, it.destination, it.counts_, it.countsLoaded, it.countId)
+    }
+    when (extras.mode) {
         Mode.SCAN -> Unit
         Mode.PACKING -> HubCard {
             HubField(
-                value = state.destination,
+                value = extras.destination,
                 onChange = vm::setDestination,
                 label = "Destination shop",
                 placeholder = "store-07",
@@ -578,16 +745,18 @@ private fun ModeExtras(vm: SweepViewModel, state: SweepState) {
         }
         Mode.RECEIVING -> Unit
         Mode.COUNT -> HubCard {
-            LaunchedEffect(Unit) { if (!state.countsLoaded) vm.loadCounts() }
+            // Read once, at the moment this card first appears — as before.
+            val loadedWhenShown = extras.countsLoaded
+            LaunchedEffect(Unit) { if (!loadedWhenShown) vm.loadCounts() }
             SectionLabel("Official count")
-            if (state.counts_.isEmpty()) {
+            if (extras.counts.isEmpty()) {
                 Text(
-                    if (state.countsLoaded) "no open counts on this node" else "loading…",
+                    if (extras.countsLoaded) "no open counts on this node" else "loading…",
                     style = Type.meta, color = Ink.mute,
                 )
             } else {
-                state.counts_.forEach { (id, label) ->
-                    val on = id == state.countId
+                extras.counts.forEach { (id, label) ->
+                    val on = id == extras.countId
                     Row(
                         Modifier.fillMaxWidth()
                             .clickable { vm.setCountId(id) }
@@ -602,3 +771,12 @@ private fun ModeExtras(vm: SweepViewModel, state: SweepState) {
         }
     }
 }
+
+/** What a mode adds above the history: a destination to type, or a count to choose. */
+private data class ExtrasView(
+    val mode: Mode,
+    val destination: String,
+    val counts: List<Pair<String, String>>,
+    val countsLoaded: Boolean,
+    val countId: String,
+)

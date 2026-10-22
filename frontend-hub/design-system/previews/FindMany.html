@@ -1,0 +1,70 @@
+<!-- @dsCard group="Inputs" height=474 subtitle="Static rendition of find.tsx in the All white look" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>FindMany — preview</title>
+<style>
+body{margin:0}
+/* FindMany: the form's box (40px, radius 8, 1px hairline-2) holding a glass, the chosen things as chips and the word being typed; its list is POPUP and ITEM. */
+.ds-findmany-col{max-width:520px}
+.ds-findmany-box{display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-height:var(--field);padding:4px 14px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas);font-size:15px;color:var(--ink)}
+.ds-findmany-box.is-focus{border-color:var(--accent);box-shadow:var(--shadow-focus)}
+.ds-findmany-box > .ds-ico{color:var(--line-ico)}
+.ds-findmany-chip{gap:4px;color:var(--accent)}
+.ds-findmany-chip .ds-ico{width:10px;height:10px;margin-right:-2px}
+.ds-findmany-in{flex:1;min-width:6rem}
+.ds-findmany-chev{margin-left:auto;color:var(--line-ico)}
+.ds-findmany-pop{margin-top:6px;padding:5px;border:1px solid var(--hairline);border-radius:var(--r-card);background:var(--canvas);box-shadow:var(--shadow-pop)}
+.ds-findmany-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:7px 8px;border-radius:var(--r-inner)}
+.ds-findmany-row.is-hover{background:var(--soft-2)}
+.ds-findmany-main{display:flex;flex-direction:column;min-width:0}
+.ds-findmany-main span:first-child{overflow:hidden;color:var(--ink);text-overflow:ellipsis;white-space:nowrap}
+.ds-findmany-main span + span{overflow:hidden;color:var(--mute);text-overflow:ellipsis;white-space:nowrap}
+.ds-findmany-end{display:flex;flex:none;align-items:center;gap:8px;color:var(--mute);font-variant-numeric:tabular-nums}
+.ds-findmany-end .ds-ico{color:var(--accent)}
+.ds-findmany-note{padding:12px 10px;text-align:center;line-height:1.625;color:var(--mute)}
+.ds-findmany-states{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 24px;align-items:start}
+.ds-findmany-state{display:flex;flex-direction:column;gap:6px;min-width:0}
+.ds-findmany-state .ds-findmany-pop{margin-top:0}
+</style></head>
+<body>
+<div class="ds ds-stage">
+
+  <div class="ds-col ds-findmany-col">
+    <p class="ds-caption">Typed at: picks stay as chips, and the list stays open</p>
+    <div>
+    <label class="ds-field">
+      <span class="ds-field-label">Articles<span class="ds-req" aria-hidden="true">*</span></span>
+      <span class="ds-findmany-box is-focus">
+        <span class="ds-ico ds-ico-search ds-ico--14"></span>
+        <span class="ds-tag ds-findmany-chip">Kaos Uji Uj16<span class="ds-ico ds-ico-x"></span></span>
+        <span class="ds-tag ds-findmany-chip">Tas Selempang Kanvas<span class="ds-ico ds-ico-x"></span></span>
+        <span class="ds-findmany-in">kanvas</span>
+        <span class="ds-ico ds-ico-chevron-down ds-ico--14 ds-findmany-chev"></span>
+      </span>
+    </label>
+    <div class="ds-findmany-pop" role="listbox" aria-multiselectable="true">
+      <div class="ds-findmany-row">
+        <span class="ds-findmany-main"><span>Tas Selempang Kanvas</span><span>00000010 · Tas</span></span>
+        <span class="ds-findmany-end">4 SKUs<span class="ds-ico ds-ico-check ds-ico--14"></span></span>
+      </div>
+      <div class="ds-findmany-row is-hover">
+        <span class="ds-findmany-main"><span>Sneakers Kanvas Low</span><span>00000009 · Sandal dan Sepatu</span></span>
+        <span class="ds-findmany-end">12 SKUs</span>
+      </div>
+    </div>
+    </div>
+  </div>
+
+  <div class="ds-col">
+    <p class="ds-caption">Before there is an answer: idle, asking, nothing found, the route missing</p>
+    <div class="ds-findmany-states">
+      <div class="ds-findmany-state"><div class="ds-findmany-pop"><p class="ds-findmany-note">Two characters is enough to start.</p></div></div>
+      <div class="ds-findmany-state"><div class="ds-findmany-pop"><p class="ds-findmany-note">Searching…</p></div></div>
+      <div class="ds-findmany-state"><div class="ds-findmany-pop"><p class="ds-findmany-note">Nothing matches “kanvs”.</p></div></div>
+      <div class="ds-findmany-state"><div class="ds-findmany-pop"><p class="ds-findmany-note">Catalogue unavailable.</p></div></div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

@@ -35,6 +35,11 @@ npwp?: string | null, is_pkp?: boolean | null, default_payment_terms_code?: stri
  */
 legal_form?: string | null, notes?: string | null, 
 /**
+ * What we buy from them (`UTILITIES`, `CLEANING`, ...). Absent and a
+ * non-merchandise supplier takes its account's kind (0981).
+ */
+kind?: string | null, 
+/**
  * The people to reach, filed with the party in the same transaction.
  * Absent (or empty) means the composer sent none yet — the per-contact
  * POST stays available for adding one later.

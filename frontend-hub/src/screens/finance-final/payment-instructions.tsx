@@ -5,8 +5,9 @@ import { PageContent } from "@/components/shell/app-shell"
 import { AppLink } from "@/components/ui/app-link"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill, type PillProps } from "@/components/ui/pill"
-import { Segmented, Toolbar } from "@/components/ui/segmented"
+import { Toolbar } from "@/components/ui/segmented"
 import { EmptyState } from "@/components/ui/states"
+import { SubTabs } from "@/components/ui/sub-tabs"
 import { day, money } from "@/lib/format"
 import { financeKeys, listPaymentInstructions } from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
@@ -118,6 +119,8 @@ export function PaymentInstructions() {
     ])
   )
 
+  const total = [...counts.values()].reduce((sum, n) => sum + n, 0)
+
   return (
     <PageContent>
       <PageHeader
@@ -126,30 +129,30 @@ export function PaymentInstructions() {
         sub="A shop asking head office to pay something, and what happened to the ask."
       />
 
+      {/* The status is the dock's button on a phone. */}
+      <SubTabs
+        className="mb-3.5"
+        tabs={RUNGS.map((rung) => ({
+          value: rung.value === "" ? "ALL" : rung.value,
+          label: (
+            <span>
+              {rung.name}
+              <span className="ml-1.5 text-body tabular-nums">
+                {rung.value === "" ? total : (counts.get(rung.value) ?? 0)}
+              </span>
+            </span>
+          ),
+        }))}
+        value={status === "" ? "ALL" : status}
+        onChange={(next) => setStatus(next === "ALL" ? "" : next)}
+      />
+
       <Toolbar>
         <SiteSelect
           value={site}
           onChange={setSite}
           className="h-8 w-44"
           aria-label="Site"
-        />
-        <Segmented
-          options={RUNGS.map((rung) => ({
-            value: rung.value,
-            label:
-              rung.value === "" ? (
-                "All"
-              ) : (
-                <>
-                  {rung.name}
-                  <span className="ml-1 tabular-nums opacity-60">
-                    {counts.get(rung.value) ?? 0}
-                  </span>
-                </>
-              ),
-          }))}
-          value={status}
-          onChange={setStatus}
         />
         <Toolbar.Spacer />
         <span className="text-[0.9375rem] text-mute">
@@ -363,7 +366,9 @@ function AskRow({ row }: { row: PaymentInstruction }) {
               name={row.supplier_name}
               className="text-ink"
             />
-            <span className="block text-[0.9375rem] text-mute">{row.payee}</span>
+            <span className="block text-[0.9375rem] text-mute">
+              {row.payee}
+            </span>
           </>
         )}
       </Td>

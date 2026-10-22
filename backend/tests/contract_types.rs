@@ -1511,8 +1511,52 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("UpdateGaLocationRequest: {e}"));
     inventory_backend::cloud::postgres::GaSupplyRequestRow::export_all(&config)
         .unwrap_or_else(|e| panic!("GaSupplyRequestRow: {e}"));
+    // GA's papers, originals and operating expenses (0974).
+    for_contract!(
+        &config,
+        GaPaper,
+        GaPaperSubject,
+        GaOriginalRow,
+        GaOriginalHub,
+        GaCustodyEvent,
+        GaPaperSubjectRef,
+        RecordGaPaperRequest,
+        RegisterGaOriginalRequest,
+        ReleaseGaOriginalRequest,
+        ReturnGaOriginalRequest,
+        AttachGaScanRequest,
+        GaOperatingExpenseRow,
+        GaOperatingExpensePage,
+        RecordGaOperatingExpenseRequest,
+        SubmitGaOperatingExpenseRequest,
+        LinkGaOperatingExpenseRequest,
+        CancelGaOperatingExpenseRequest,
+    );
+    // The contract roster, insurance claims and odometer readings (0975).
+    for_contract!(
+        &config,
+        GaContractCover,
+        AddGaContractCoverRequest,
+        RemoveGaContractCoverRequest,
+        GaInsuranceClaimRow,
+        RecordGaInsuranceClaimRequest,
+        SubmitGaInsuranceClaimRequest,
+        SurveyGaInsuranceClaimRequest,
+        ApproveGaInsuranceClaimRequest,
+        RejectGaInsuranceClaimRequest,
+        PayGaInsuranceClaimRequest,
+        LinkGaClaimRepairRequest,
+        GaOdometerReading,
+        RecordGaOdometerReadingRequest,
+    );
     inventory_backend::cloud::postgres::GaSupplyPage::export_all(&config)
         .unwrap_or_else(|e| panic!("GaSupplyPage: {e}"));
+    // 0981: the bill a supply request or a repair points at, and what a
+    // supplier billed in the year.
+    inventory_backend::cloud::postgres::GaLinkedBill::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaLinkedBill: {e}"));
+    inventory_backend::cloud::postgres::GaSupplierBilled::export_all(&config)
+        .unwrap_or_else(|e| panic!("GaSupplierBilled: {e}"));
     inventory_backend::cloud::postgres::GaSupplyCategory::export_all(&config)
         .unwrap_or_else(|e| panic!("GaSupplyCategory: {e}"));
     inventory_backend::cloud::postgres::RecordGaSupplyRequestRequest::export_all(&config)
@@ -1930,6 +1974,12 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("LoanRepayment: {e}"));
     inventory_backend::cloud::http::pay::GrantLoanBody::export_all(&config)
         .unwrap_or_else(|e| panic!("GrantLoanBody: {e}"));
+    inventory_backend::cloud::http::pay::LoanRepaymentBody::export_all(&config)
+        .unwrap_or_else(|e| panic!("LoanRepaymentBody: {e}"));
+    inventory_backend::cloud::postgres::PeriodSlipRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("PeriodSlipRow: {e}"));
+    inventory_backend::cloud::postgres::PayrollReadiness::export_all(&config)
+        .unwrap_or_else(|e| panic!("PayrollReadiness: {e}"));
     inventory_backend::cloud::postgres::DepartmentView::export_all(&config)
         .unwrap_or_else(|e| panic!("DepartmentView: {e}"));
     inventory_backend::cloud::postgres::JobLevelView::export_all(&config)
@@ -2020,6 +2070,8 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("DecideDataRequestBody: {e}"));
     inventory_backend::cloud::postgres::BenefitBalanceRow::export_all(&config)
         .unwrap_or_else(|e| panic!("BenefitBalanceRow: {e}"));
+    inventory_backend::cloud::postgres::BenefitMovementRow::export_all(&config)
+        .unwrap_or_else(|e| panic!("BenefitMovementRow: {e}"));
     inventory_backend::cloud::postgres::BenefitAccountView::export_all(&config)
         .unwrap_or_else(|e| panic!("BenefitAccountView: {e}"));
     inventory_backend::cloud::postgres::BenefitSettingView::export_all(&config)
@@ -2279,6 +2331,8 @@ fn the_wire_types_are_written_for_the_browser() {
     // serialises rather than a shape somebody read off a screenshot.
     inventory_backend::cloud::postgres::LetterList::export_all(&config)
         .unwrap_or_else(|e| panic!("LetterList: {e}"));
+    inventory_backend::cloud::postgres::LetterFacets::export_all(&config)
+        .unwrap_or_else(|e| panic!("LetterFacets: {e}"));
     inventory_backend::cloud::postgres::LetterDetail::export_all(&config)
         .unwrap_or_else(|e| panic!("LetterDetail: {e}"));
     inventory_backend::cloud::postgres::LetterSource::export_all(&config)

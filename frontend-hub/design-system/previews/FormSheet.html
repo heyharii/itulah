@@ -1,0 +1,147 @@
+<!-- @dsCard group="Patterns" height=897 page subtitle="Template · copy /procurement/orders?new-order" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>FormSheet — preview</title><style>body{margin:0}
+/* FormSheet: a wide sheet over the veil at the window narrowed to 960, then a rail form cropped under it. */
+.ds-formsheet-veil{flex-direction:column;align-items:stretch;gap:12px;padding-bottom:0;overflow-x:auto}
+.ds-formsheet-veil .ds-sheet{flex:none}
+.ds-formsheet-veil .ds-sheet--wide{min-width:936px}
+.ds-formsheet-cropline{min-width:936px}
+.ds-formsheet-veil .ds-sheet-crumb{margin-bottom:4px}
+.ds-formsheet-veil .ds-sheet-body{gap:var(--section-gap)}
+/* the fields: a grid with 24px between columns and rows; 4 across on a wide sheet, 2 on a rail */
+.ds-formsheet-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--section-gap)}
+.ds-formsheet-grid--rail{grid-template-columns:repeat(2,minmax(0,1fr))}
+.ds-formsheet-grid .ds-input::placeholder{color:var(--mute)}
+.ds-formsheet-grid button.ds-input{display:flex;align-items:center;text-align:left;cursor:pointer;white-space:nowrap}
+.ds-formsheet-grid .ds-select .ds-ico{right:14px;margin-top:-7px}
+.ds-formsheet-grid .ds-input--area,.ds-formsheet-veil .ds-input--area{min-height:74px;padding:12px 14px;line-height:24px}
+.ds-formsheet-swatch{position:absolute;left:14px;top:50%;width:16px;height:16px;margin-top:-8px;border-radius:var(--r-full);box-shadow:inset 0 0 0 1px var(--hairline-strong)}
+.ds-formsheet-hex{position:relative;display:block}
+.ds-formsheet-hex .ds-input{padding-left:38px;font-variant-numeric:tabular-nums}
+/* a section: its title with the count after it in mute, and the one supporting action at the right of that line */
+.ds-formsheet-sectionhead{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:var(--control)}
+/* the lines: ItemsTable in its form mode, with the pencil and the bin at the end of the row */
+.ds-formsheet-lines{table-layout:fixed}
+.ds-formsheet-lines td{padding-top:14px;padding-bottom:14px}
+.ds-formsheet-lines td:first-child{font-weight:400}
+.ds-formsheet-lines td.is-num{white-space:nowrap}
+.ds-formsheet-lines td.is-amount{font-weight:500}
+.ds-formsheet-item{display:flex;align-items:flex-start;gap:12px;min-width:0}
+.ds-formsheet-thumb{width:40px;height:40px}
+.ds-formsheet-item .ds-link{display:block;text-align:left}
+.ds-formsheet-lines .ds-formsheet-ends{display:flex;align-items:center;justify-content:flex-end;gap:4px}
+/* the totals strip: the same strip a record opens on; the discount is the one cell you type in */
+.ds-formsheet-pct{position:relative;display:block;width:104px;padding-top:var(--fact-gap)}
+.ds-formsheet-pct .ds-input{padding-right:34px;text-align:right;font-variant-numeric:tabular-nums}
+.ds-formsheet-pct .ds-formsheet-suffix{position:absolute;right:14px;top:calc(var(--fact-gap) + 10px);line-height:20px;color:var(--mute)}
+/* the rail form, cropped under its head and its first row */
+.ds-formsheet-cropline{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;width:100%}
+.ds-formsheet-cropline .ds-caption{padding:8px 0 0 16px}
+.ds-formsheet-crop{flex:none;width:var(--sheet-rail);max-width:100%;height:186px;overflow:hidden;border-radius:var(--r-sheet) var(--r-sheet) 0 0}
+</style></head>
+<body>
+<div class="ds ds-veil ds-formsheet-veil">
+
+  <div class="ds-sheet ds-sheet--wide" role="dialog" aria-label="New order">
+
+    <div class="ds-sheet-head">
+      <div class="ds-sheet-headtext">
+        <div class="ds-sheet-crumb"><span>Purchase Orders</span></div>
+        <div class="ds-sheet-titlerow"><h2 class="ds-sheet-title">New order</h2></div>
+      </div>
+      <button class="ds-sheet-close" type="button" aria-label="Close"><span class="ds-ico ds-ico-x ds-ico--17"></span></button>
+    </div>
+
+    <div class="ds-sheet-body">
+
+      <div class="ds-formsheet-grid">
+        <label class="ds-field">
+          <span class="ds-field-label">Supplier<span class="ds-req" aria-hidden="true">*</span></span>
+          <span class="ds-select"><button class="ds-input" type="button">Sepatu Sejahtera, CV</button><span class="ds-ico ds-ico-chevron-down ds-ico--14"></span></span>
+        </label>
+        <label class="ds-field">
+          <span class="ds-field-label">Delivery date<span class="ds-req" aria-hidden="true">*</span></span>
+          <span class="ds-select"><button class="ds-input" type="button">29 Oct 2026</button><span class="ds-ico ds-ico-calendar ds-ico--14"></span></span>
+        </label>
+        <label class="ds-field">
+          <span class="ds-field-label">Payment terms</span>
+          <span class="ds-select"><button class="ds-input" type="button">30 days</button><span class="ds-ico ds-ico-chevron-down ds-ico--14"></span></span>
+        </label>
+        <label class="ds-field">
+          <span class="ds-field-label">Payment method<span class="ds-req" aria-hidden="true">*</span></span>
+          <span class="ds-select"><button class="ds-input" type="button">Giro</button><span class="ds-ico ds-ico-chevron-down ds-ico--14"></span></span>
+        </label>
+      </div>
+
+      <div class="ds-section">
+        <div class="ds-formsheet-sectionhead">
+          <h3 class="ds-section-title">Order items<span class="ds-section-count">1</span></h3>
+          <button class="ds-btn ds-btn--ghost" type="button"><span class="ds-ico ds-ico-plus"></span>Add item</button>
+        </div>
+        <div class="ds-table-card">
+          <table class="ds-table ds-formsheet-lines">
+            <colgroup><col><col style="width:128px"><col style="width:168px"><col style="width:152px"><col style="width:96px"></colgroup>
+            <thead><tr><th>Item</th><th class="is-num">Quantity</th><th class="is-num">Unit price</th><th class="is-num">Amount</th><th><span class="ds-sr">Edit or remove</span></th></tr></thead>
+            <tbody>
+              <tr>
+                <td><div class="ds-formsheet-item"><span class="ds-thumb ds-formsheet-thumb"><span class="ds-ico ds-ico-image"></span></span><span><button class="ds-link" type="button">Sneakers Kanvas Low</button><span class="ds-sub">Pria · Basic</span></span></div></td>
+                <td class="is-num">24 pcs</td><td class="is-num">Rp 150.000 / pc</td><td class="is-num is-amount">Rp 3.600.000</td>
+                <td><span class="ds-formsheet-ends"><button class="ds-btn ds-btn--quiet ds-btn--icon" type="button" aria-label="Edit Sneakers Kanvas Low"><span class="ds-ico ds-ico-pencil"></span></button><button class="ds-btn ds-btn--quiet ds-btn--icon" type="button" aria-label="Remove Sneakers Kanvas Low"><span class="ds-ico ds-ico-trash"></span></button></span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="ds-kpis ds-kpis--in-sheet">
+        <div class="ds-kpi"><div class="ds-kpi-label">Quantity</div><div class="ds-kpi-value">24 pcs</div></div>
+        <div class="ds-kpi"><div class="ds-kpi-label">Total</div><div class="ds-kpi-value">Rp 3.600.000</div></div>
+        <div class="ds-kpi"><div class="ds-kpi-label">Discount</div><label class="ds-formsheet-pct"><input class="ds-input" type="text" inputmode="decimal" value="5" aria-label="Discount in percent"><span class="ds-formsheet-suffix">%</span></label></div>
+        <div class="ds-kpi"><div class="ds-kpi-label">Grand total</div><div class="ds-kpi-value">Rp 3.420.000</div></div>
+      </div>
+
+      <div class="ds-section">
+        <h3 class="ds-section-title">Notes</h3>
+        <label class="ds-field"><span class="ds-sr">Notes</span><textarea class="ds-input ds-input--area" rows="2" aria-label="Notes"></textarea></label>
+      </div>
+
+    </div>
+
+    <div class="ds-sheet-foot">
+      <button class="ds-btn ds-btn--destructive" type="button">Cancel</button>
+      <button class="ds-btn ds-btn--primary" type="button">Save</button>
+    </div>
+
+  </div>
+
+  <div class="ds-formsheet-cropline">
+    <p class="ds-caption">On a rail the grid is two across</p>
+    <div class="ds-formsheet-crop">
+      <div class="ds-sheet ds-sheet--rail" role="dialog" aria-label="New color">
+        <div class="ds-sheet-head">
+          <div class="ds-sheet-headtext">
+            <div class="ds-sheet-crumb"><span>Colors</span></div>
+            <div class="ds-sheet-titlerow"><h2 class="ds-sheet-title">New color</h2></div>
+          </div>
+          <button class="ds-sheet-close" type="button" aria-label="Close"><span class="ds-ico ds-ico-x ds-ico--17"></span></button>
+        </div>
+        <div class="ds-sheet-body">
+          <div class="ds-formsheet-grid ds-formsheet-grid--rail">
+            <label class="ds-field">
+              <span class="ds-field-label">Label<span class="ds-req" aria-hidden="true">*</span></span>
+              <input class="ds-input" type="text" value="Navy blue" aria-required="true">
+            </label>
+            <label class="ds-field">
+              <span class="ds-field-label">Hex</span>
+              <span class="ds-formsheet-hex"><span class="ds-formsheet-swatch" style="background-color:var(--a-blue)"></span><input class="ds-input" type="text" value="&#35;1B2A4A"></span>
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

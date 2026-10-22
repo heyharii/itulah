@@ -24,6 +24,8 @@ const AssistantPanel = lazy(() =>
 import { AssistantProvider } from "@/components/assistant/session"
 import { useAssistant } from "@/components/assistant/state"
 import { AccountOrb } from "@/components/shell/account-orb"
+import { ChoosePassword } from "@/components/shell/choose-password"
+import { SleepScreen } from "@/components/shell/sleep-screen"
 import { BottomBar } from "@/components/shell/bottom-bar"
 import { DockProvider, useDockRow } from "@/components/shell/dock"
 import { CommandPalette } from "@/components/shell/command-palette"
@@ -116,8 +118,17 @@ function Shell() {
   /// A task that is a page of its own — the allotment grid: the rail stays,
   /// the screens panel starts folded, no bar. The page carries its own title
   /// and Back.
+  ///
+  /// Read off the RESOLVED location, the one the outlet is showing. The
+  /// pending one moves the moment Allot all is pressed, and the panel folded
+  /// while the old list was still on screen: the list widened 232px, then the
+  /// grid replaced it — two jumps, and the `focus` transition's first picture
+  /// taken after the panel had already gone.
   const focus = useRouterState({
-    select: (state) => FOCUS_PATHS.includes(state.location.pathname),
+    select: (state) =>
+      FOCUS_PATHS.includes(
+        (state.resolvedLocation ?? state.location).pathname
+      ),
   })
   /// Docked, but too narrow for the screens panel to stand beside the page
   /// (an iPad held sideways): the panel floats over it on demand.
@@ -365,8 +376,10 @@ function Shell() {
           (owner, 2026-10-16: account-corner-prototype.html E). After the
           bars, so it can find the bottom bar it rests above. */}
           {!docked && (
-            <AccountOrb onSearch={openPalette} bars={`${layout}-${focus}`} />
+            <AccountOrb bars={`${layout}-${focus}`} />
           )}
+          <SleepScreen />
+          <ChoosePassword />
           {!docked && !phone && (
             <NavDrawer
               open={drawerOpen}

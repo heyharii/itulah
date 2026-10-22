@@ -1,0 +1,167 @@
+<!-- @dsCard group="Patterns" height=818 page subtitle="Template · copy /operations/board" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>BoardPage — preview</title><style>body{margin:0}
+/* BoardPage: the Allotment board at the hub's real sizes. Lanes and cards are white.css "Boards (Ops)" exactly;
+   the three lanes share the 880px of a 960px frame (at 1440 they are 348px each, never under 304px). */
+.ds-board-ground{padding:var(--float);background:var(--stone)}
+.ds-board-page{margin:0}
+.ds-board-bar{margin-bottom:var(--bar-to-table)}
+.ds-board-bar .ds-search .ds-ico{margin-top:-7px}
+.ds-board-select{display:inline-flex;align-items:center;justify-content:space-between;gap:10px;flex:none;width:208px;height:var(--control);padding:0 12px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas);color:var(--ink);font-size:15px;white-space:nowrap}
+.ds-board-select .ds-ico{color:var(--line-ico)}
+.ds-board-pad{padding:0 12px}
+.ds-board-ico-truck{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2'/%3E%3Cpath d='M15 18H9'/%3E%3Cpath d='M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14'/%3E%3Ccircle cx='17' cy='18' r='2'/%3E%3Ccircle cx='7' cy='18' r='2'/%3E%3C/svg%3E")}
+
+/* Lanes: a row, 16px apart, on the white. The row scrolls sideways inside itself; each lane is at least 19rem. */
+.ds-board-lanes{display:flex;align-items:stretch;gap:16px;margin:0 -4px;padding:0 4px;overflow-x:auto}
+.ds-board-lane{display:flex;flex:1 1 0;flex-direction:column;min-width:272px;border:1px solid transparent;border-radius:var(--r-card);background:transparent}
+.ds-board-lane-head{display:flex;align-items:center;gap:12px;padding:16px 16px 12px}
+.ds-board-dot{flex:none;width:8px;height:8px;border-radius:var(--r-full)}
+.ds-board-dot--pick{background:var(--mute)}
+.ds-board-dot--pack{background:var(--warn)}
+.ds-board-dot--dispatch{background:var(--info)}
+.ds-board-lane-title{min-width:0;margin:0;font-size:15px;font-weight:600;color:var(--ink)}
+.ds-board-lane-count{margin-left:auto;padding:0 8px;font-weight:500;color:var(--body);font-variant-numeric:tabular-nums}
+.ds-board-cards{display:flex;flex:1;flex-direction:column;gap:8px;padding:0 8px 8px}
+
+/* Card: a hairline, no shadow; the step is a 30px solid primary at the foot's end. */
+.ds-board-card{position:relative;display:flex;flex-direction:column;overflow:hidden;border:1px solid var(--hairline);border-radius:var(--r-card);background:var(--canvas);text-align:left}
+.ds-board-card.is-hover{border-color:var(--hairline-2);box-shadow:var(--shadow-board-hover)}
+.ds-board-strip{display:flex;flex:none;align-items:center;height:28px;padding:0 16px;font-size:15px;font-weight:600;color:var(--on-dark)}
+.ds-board-strip--warn{background:var(--warn-fg)}
+.ds-board-strip--bad{background:var(--bad-fg)}
+.ds-board-strip--info{background:var(--accent)}
+.ds-board-body{display:flex;flex-direction:column;gap:4px;padding:16px}
+.ds-board-top{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.ds-board-name{min-width:0;overflow:hidden;font-size:17px;line-height:24px;font-weight:600;color:var(--ink);text-overflow:ellipsis;white-space:nowrap}
+.ds-board-meta{flex:none;color:var(--body);white-space:nowrap}
+.ds-board-sub{overflow:hidden;color:var(--body);text-overflow:ellipsis;white-space:nowrap}
+.ds-board-photos{display:flex;align-items:center;gap:6px;margin-top:8px}
+.ds-board-photos .ds-thumb{width:48px;height:48px}
+.ds-board-more{display:grid;place-items:center;flex:none;width:48px;height:48px;border-radius:var(--r-inner);background:var(--soft);color:var(--body);font-variant-numeric:tabular-nums}
+.ds-board-figure{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:8px;font-variant-numeric:tabular-nums}
+.ds-board-figure b{font-weight:600;color:var(--ink)}
+.ds-board-figure span{font-weight:400;color:var(--body)}
+.ds-board-change{color:var(--body);font-variant-numeric:tabular-nums}
+.ds-board-change b{font-weight:600;color:var(--ink)}
+.ds-board-change i{font-style:normal;font-weight:500;color:var(--bad-fg)}
+.ds-board-tags{display:flex;flex-wrap:wrap;gap:0 12px;margin-top:4px;color:var(--body);font-variant-numeric:tabular-nums}
+.ds-board-tags b{font-weight:600;color:var(--accent)}
+.ds-board-lines{display:flex;flex-direction:column;gap:4px;margin-top:8px;padding-top:8px;border-top:1px dashed var(--hairline);font-variant-numeric:tabular-nums}
+.ds-board-line{display:flex;align-items:baseline;justify-content:space-between;gap:12px;color:var(--body)}
+.ds-board-line span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ds-board-line em{margin-left:6px;font-style:normal;color:var(--mute)}
+.ds-board-act{display:flex;justify-content:flex-end;padding:0 12px 12px}
+.ds-board-step{display:inline-flex;align-items:center;height:var(--board-step);padding:0 14px;border-radius:var(--r-inner);background:var(--cta);color:var(--cta-fg);font-weight:600}
+.ds-board-card.is-hover .ds-board-step{background:var(--cta-hover)}
+.ds-board-undo{padding:0 8px 8px}
+.ds-board-undo .ds-btn{width:100%}
+</style></head>
+<body>
+<div class="ds ds-board-ground">
+  <div class="ds-page ds-board-page">
+    <div class="ds-page-content">
+
+      <div class="ds-page-head">
+        <div><h1 class="ds-title">Allotment</h1></div>
+      </div>
+
+      <div class="ds-bar ds-board-bar">
+        <label class="ds-search"><span class="ds-ico ds-ico-search ds-ico--14"></span><input type="text" placeholder="Search article or store" aria-label="Search article or store"></label>
+        <span class="ds-board-select">All stores<span class="ds-ico ds-ico-chevron-down ds-ico--14"></span></span>
+        <label class="ds-switch-pill"><button class="ds-switch" type="button" role="switch" aria-checked="false" aria-label="Needs attention"></button>Needs attention</label>
+        <span class="ds-bar-spacer"></span>
+        <button class="ds-btn ds-btn--ghost ds-board-pad" type="button"><span class="ds-ico ds-board-ico-truck ds-ico--14"></span>Dispatched 3</button>
+      </div>
+
+      <div class="ds-board-lanes">
+
+        <section class="ds-board-lane" aria-label="Pick">
+          <header class="ds-board-lane-head"><span class="ds-board-dot ds-board-dot--pick"></span><h2 class="ds-board-lane-title">Pick</h2><span class="ds-board-lane-count">2</span></header>
+          <div class="ds-board-cards">
+            <div class="ds-board-card">
+              <div class="ds-board-body">
+                <div class="ds-board-top"><span class="ds-board-name">Kemeja Flanel Pria</span><span class="ds-board-meta">12 SKUs</span></div>
+                <div class="ds-board-sub">C001 · Cikupa · ALT-00000412</div>
+                <div class="ds-board-photos"><span class="ds-thumb"><span class="ds-ico ds-ico-image"></span></span><span class="ds-thumb"><span class="ds-ico ds-ico-image"></span></span><span class="ds-thumb"><span class="ds-ico ds-ico-image"></span></span></div>
+                <div class="ds-board-figure"><span><b>240</b> pcs</span></div>
+              </div>
+              <div class="ds-board-act"><span class="ds-board-step">Pick</span></div>
+            </div>
+            <div class="ds-board-card">
+              <div class="ds-board-strip ds-board-strip--warn">Short pick</div>
+              <div class="ds-board-body">
+                <div class="ds-board-top"><span class="ds-board-name">Skinny Ankle Denim</span><span class="ds-board-meta">8 SKUs</span></div>
+                <div class="ds-board-sub">C005 · Jambi · ALT-00000409</div>
+                <div class="ds-board-photos"><span class="ds-thumb"><span class="ds-ico ds-ico-image"></span></span><span class="ds-thumb"><span class="ds-ico ds-ico-image"></span></span></div>
+                <div class="ds-board-figure"><span><b>40</b> pcs</span></div>
+              </div>
+              <div class="ds-board-act"><span class="ds-board-step">Pick</span></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="ds-board-lane" aria-label="Pack">
+          <header class="ds-board-lane-head"><span class="ds-board-dot ds-board-dot--pack"></span><h2 class="ds-board-lane-title">Pack</h2><span class="ds-board-lane-count">2</span></header>
+          <div class="ds-board-cards">
+            <div class="ds-board-card">
+              <div class="ds-board-body">
+                <div class="ds-board-top"><span class="ds-board-name">C001 · Cikupa</span><span class="ds-board-meta">1 allotment</span></div>
+                <div class="ds-board-sub">ALT-00000412</div>
+                <div class="ds-board-photos"><span class="ds-thumb"><span class="ds-ico ds-ico-image"></span></span><span class="ds-thumb"><span class="ds-ico ds-ico-image"></span></span><span class="ds-thumb"><span class="ds-ico ds-ico-image"></span></span><span class="ds-board-more">+2</span></div>
+                <div class="ds-board-figure"><span><b>96</b> pcs picked</span></div>
+              </div>
+              <div class="ds-board-act"><span class="ds-board-step">Pack</span></div>
+            </div>
+            <div class="ds-board-card">
+              <div class="ds-board-strip ds-board-strip--bad">Edited −6</div>
+              <div class="ds-board-body">
+                <div class="ds-board-top"><span class="ds-board-name">C004 · Bumiayu</span><span class="ds-board-meta">1 allotment</span></div>
+                <div class="ds-board-sub">ALT-00000405</div>
+                <div class="ds-board-photos"><span class="ds-thumb"><span class="ds-ico ds-ico-image"></span></span><span class="ds-thumb"><span class="ds-ico ds-ico-image"></span></span></div>
+                <div class="ds-board-figure"><span class="ds-board-change">96 → <b>90</b> pcs <i>−6</i></span></div>
+              </div>
+              <div class="ds-board-act"><span class="ds-board-step">Pack</span></div>
+              <div class="ds-board-undo"><button class="ds-btn ds-btn--destructive" type="button">Put back</button></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="ds-board-lane" aria-label="Dispatch">
+          <header class="ds-board-lane-head"><span class="ds-board-dot ds-board-dot--dispatch"></span><h2 class="ds-board-lane-title">Dispatch</h2><span class="ds-board-lane-count">2</span></header>
+          <div class="ds-board-cards">
+            <div class="ds-board-card is-hover">
+              <div class="ds-board-body">
+                <div class="ds-board-top"><span class="ds-board-name">C004 · Bumiayu</span><span class="ds-board-meta">180 pcs</span></div>
+                <div class="ds-board-photos"><span class="ds-thumb"><span class="ds-ico ds-ico-image"></span></span><span class="ds-thumb"><span class="ds-ico ds-ico-image"></span></span><span class="ds-thumb"><span class="ds-ico ds-ico-image"></span></span><span class="ds-thumb"><span class="ds-ico ds-ico-image"></span></span></div>
+                <div class="ds-board-figure"><span><b>2</b> koli</span></div>
+                <div class="ds-board-lines">
+                  <div class="ds-board-line"><span>Koli 1<em>KOLI-0005</em></span><span>90 pcs</span></div>
+                  <div class="ds-board-line"><span>Koli 2<em>KOLI-0006</em></span><span>90 pcs</span></div>
+                </div>
+              </div>
+              <div class="ds-board-act"><span class="ds-board-step">Dispatch</span></div>
+            </div>
+            <div class="ds-board-card">
+              <div class="ds-board-strip ds-board-strip--info">Edited by MD</div>
+              <div class="ds-board-body">
+                <div class="ds-board-top"><span class="ds-board-name">C005 · Jambi</span><span class="ds-board-meta">36 pcs</span></div>
+                <div class="ds-board-photos"><span class="ds-thumb"><span class="ds-ico ds-ico-image"></span></span></div>
+                <div class="ds-board-figure"><span><b>1</b> koli</span></div>
+                <div class="ds-board-tags"><span><b>+6</b> pcs by MD</span></div>
+                <div class="ds-board-lines">
+                  <div class="ds-board-line"><span>Koli 1<em>KOLI-0007</em></span><span>36 pcs</span></div>
+                </div>
+              </div>
+              <div class="ds-board-act"><span class="ds-board-step">Dispatch</span></div>
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

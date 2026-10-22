@@ -12,7 +12,13 @@ import type { SheetKey } from "@/lib/sheets"
 /// only where the destination is decided after something else happens.
 export function useAppNavigate() {
   const navigate = useNavigate()
-  return (to: string, sheet?: { key: SheetKey; value: string }) => {
+  return (
+    to: string,
+    sheet?: { key: SheetKey; value: string },
+    /// Take the place of this entry instead of adding one — when the screen
+    /// being left was only a way through (a sheet opened just to hand over).
+    options?: { replace?: boolean }
+  ) => {
     if (import.meta.env.DEV && !allNavItems.some((item) => item.path === to)) {
       throw new Error(
         `navigate("${to}") — no nav entry declares that path. Add it to the module's nav.ts, or fix the typo.`
@@ -21,6 +27,7 @@ export function useAppNavigate() {
     return navigate({
       to: to as LinkProps["to"],
       search: sheet ? ({ [sheet.key]: sheet.value } as never) : undefined,
+      replace: options?.replace,
     })
   }
 }

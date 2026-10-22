@@ -80,7 +80,7 @@ export function HardCap({
           </span>
         }
       >
-        Split between stores
+        Per-store limits
       </SubHead>
 
       {toggle.isError && (
@@ -113,21 +113,21 @@ function Allowances({ split }: { split: CapAllocation }) {
   return (
     <div className="flex flex-col gap-4">
       {held.length === 0 ? (
-        <Quiet>No allowances yet.</Quiet>
+        <Quiet>No budget shares yet.</Quiet>
       ) : (
         <MiniTable
           head={[
             "Store",
             ...(budget
               ? [
-                  { label: "Allowance", align: "right" as const },
-                  { label: "Given away", align: "right" as const },
+                  { label: "Budget share", align: "right" as const },
+                  { label: "Discount given", align: "right" as const },
                 ]
               : []),
             ...(uses
               ? [
+                  { label: "Transactions allowed", align: "right" as const },
                   { label: "Transactions", align: "right" as const },
-                  { label: "Used", align: "right" as const },
                 ]
               : []),
           ]}
@@ -139,10 +139,10 @@ function Allowances({ split }: { split: CapAllocation }) {
       )}
       <div className="flex flex-wrap justify-end gap-x-6 text-meta text-body tabular-nums">
         {split.budget_pool !== null && (
-          <span>Not yet granted: {money(split.budget_pool)}</span>
+          <span>Unassigned: {money(split.budget_pool)}</span>
         )}
         {split.uses_pool !== null && (
-          <span>Transactions not yet granted: {count(split.uses_pool)}</span>
+          <span>Transactions unassigned: {count(split.uses_pool)}</span>
         )}
       </div>
     </div>

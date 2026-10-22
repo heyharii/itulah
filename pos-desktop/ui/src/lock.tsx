@@ -187,7 +187,8 @@ export function LockScreen({
   onUnlock: (username: string, password: string) => Promise<boolean>
   onUnlockPin?: (username: string, pin: string) => Promise<boolean>
 }) {
-  const { problem } = useSession()
+  const { problem, me } = useSession()
+  const name = me?.display_name ?? actorId
   // Whoever walked away is nearly always whoever comes back, so their name is
   // already in the field. It stays editable: a supervisor opening the counter
   // signs in as themselves, and a till only one person could unlock is a till
@@ -316,7 +317,7 @@ export function LockScreen({
           </span>
           <h3>Counter locked</h3>
           <p className="muted">
-            Session <strong>{actorId}</strong>
+            <strong>{name}</strong>
           </p>
           <button
             className="btn primary lg"
@@ -358,7 +359,7 @@ export function LockScreen({
         </span>
         <h3>Counter locked</h3>
         <p className="muted">
-          Session <strong>{actorId}</strong>
+          <strong>{name}</strong>
         </p>
 
         {pinOffered && (

@@ -1,0 +1,57 @@
+<!-- @dsCard group="Page" height=548 subtitle="Static rendition of sub-tabs.tsx in the All white look" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>SubTabs — preview</title><style>body{margin:0}
+/* SubTabs: the desk row is bundle .ds-tabs; the alert and the phone's dock chip and sheet are drawn here. */
+.ds-subtabs-flush{margin-bottom:0}
+.ds-subtabs-alert{margin-left:6px;padding:0 6px;box-shadow:none;vertical-align:1px}
+.ds-subtabs-phone{width:414px;max-width:100%}
+.ds-subtabs-chip{display:inline-flex;align-items:center;gap:4px;height:var(--tap);max-width:100%;padding:0 12px 0 16px;border-radius:var(--r-full);background:var(--soft-2);font-size:15px;font-weight:500;color:var(--ink);white-space:nowrap}
+.ds-subtabs-chip .ds-ico{color:var(--line-ico)}
+.ds-subtabs-grip{display:flex;justify-content:center;padding:10px 0 4px}
+.ds-subtabs-grip span{width:36px;height:4px;border-radius:var(--r-full);background:var(--hairline-strong)}
+.ds-subtabs-title{padding:4px 16px 8px;font-size:16px;font-weight:600;color:var(--ink)}
+.ds-subtabs-rows{padding:0 8px 12px}
+.ds-subtabs-row{display:flex;align-items:center;gap:12px;min-height:48px;padding:0 12px;border-radius:var(--r-inner);font-size:15px;color:var(--ink)}
+.ds-subtabs-row > span:first-child{flex:1}
+.ds-subtabs-row.is-on{font-weight:500;color:var(--accent)}
+.ds-subtabs-row .ds-ico{flex:none}
+</style></head>
+<body>
+<div class="ds ds-stage">
+  <div class="ds-col">
+    <div class="ds-caption">Counts after the words</div>
+    <div class="ds-tabs ds-subtabs-flush">
+      <button class="ds-tab is-selected" type="button">Active PO<span class="ds-tab-count">18</span></button>
+      <button class="ds-tab is-hover" type="button">Completed PO<span class="ds-tab-count">14</span></button>
+      <button class="ds-tab" type="button">Cancelled PO<span class="ds-tab-count">13</span></button>
+    </div>
+  </div>
+
+  <div class="ds-col">
+    <div class="ds-caption">An alert after the word</div>
+    <div class="ds-tabs ds-subtabs-flush">
+      <button class="ds-tab" type="button">To be returned<span class="ds-tab-count">3</span></button>
+      <button class="ds-tab is-selected" type="button">In progress<span class="ds-count ds-subtabs-alert">3</span></button>
+      <button class="ds-tab" type="button">Completed<span class="ds-tab-count">12</span></button>
+    </div>
+  </div>
+
+  <div class="ds-col">
+    <div class="ds-caption">On a phone, the dock's chip and its sheet</div>
+    <div class="ds-subtabs-phone">
+      <div class="ds-dock"><span class="ds-subtabs-chip">Active PO<span class="ds-ico ds-ico-chevron-down"></span></span></div>
+      <div class="ds-drawer">
+        <div class="ds-subtabs-grip"><span></span></div>
+        <div class="ds-subtabs-title">Status</div>
+        <div class="ds-subtabs-rows">
+          <div class="ds-subtabs-row is-on"><span>Active PO</span><span class="ds-ico ds-ico-check"></span></div>
+          <div class="ds-subtabs-row"><span>Completed PO</span></div>
+          <div class="ds-subtabs-row"><span>Cancelled PO</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

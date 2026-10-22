@@ -14,7 +14,7 @@ import { Fab } from "@/components/ui/fab"
 import { Input } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { EmptyState, Problem } from "@/components/ui/states"
-import { count, quantity } from "@/lib/format"
+import { count, quantity, sku as skuNumber } from "@/lib/format"
 import {
   createAllotment,
   fleetPools,
@@ -22,6 +22,7 @@ import {
   inventoryKeys,
   poolAvailability,
 } from "@/lib/queries/inventory"
+import { useSiteLabel } from "@/lib/queries/organisation"
 import { queryState } from "@/lib/query-state"
 import { Allotments } from "@/screens/allotment/allotments"
 import { Choice } from "@/screens/inventory/parts"
@@ -37,20 +38,17 @@ export function ReturnsToHo() {
   /// The return the ask minted, held in the receipt dialog until it is read.
   /// State lives here because `NewReturn` unmounts the moment its `onDone`
   /// walks back to the book.
-  const [savedReturn, setSavedReturn] = useState(false)
+  const [savedReturn, setSavedReturn] = useState<string | null>(null)
   if (asking)
     return (
       <>
-        <NewReturn
-          onDone={() => setAsking(false)}
-          onCreated={() => setSavedReturn(true)}
-        />
+        <NewReturn onDone={() => setAsking(false)} onCreated={setSavedReturn} />
         <SavedDialog
-          open={savedReturn}
+          open={savedReturn !== null}
           onOpenChange={(next) => {
-            if (!next) setSavedReturn(false)
+            if (!next) setSavedReturn(null)
           }}
-          title="Return created"
+          title={`${savedReturn ?? "Return"} created`}
         />
       </>
     )
@@ -80,10 +78,11 @@ function NewReturn({
 }: {
   onDone: () => void
   /// The ask went through; the receipt is the caller's to show.
-  onCreated: () => void
+  onCreated: (number: string) => void
 }) {
   const client = useQueryClient()
   const actor = useActor()
+  const placeName = useSiteLabel()
   const [store, setStore] = useState("")
   const [quantities, setQuantities] = useState<Record<string, string>>({})
 
@@ -157,10 +156,10 @@ function NewReturn({
         actor_id: actor,
         idempotency_key: idempotencyKey(),
       }),
-    onSuccess: () => {
+    onSuccess: (made) => {
       void client.invalidateQueries({ queryKey: inventoryKeys.allotments() })
       void client.invalidateQueries({ queryKey: inventoryKeys.fleet() })
-      onCreated()
+      onCreated(made.allotment_number)
       onDone()
     },
   })
@@ -191,7 +190,7 @@ function NewReturn({
             { value: "", label: "Choose a store" },
             ...stores.map((one) => ({
               value: one.site_id,
-              label: one.site_name,
+              label: placeName(one.site_id),
             })),
           ]}
           className="max-w-72"
@@ -238,7 +237,7 @@ function NewReturn({
                               {item.article_name}
                             </span>
                             <span className="mt-1 block font-mono text-[0.9375rem] text-mute">
-                              {item.sku_code}
+                              {skuNumber(item.sku_code)}
                             </span>
                           </td>
                           {sources.length > 1 && <td>{pool.label}</td>}
@@ -249,7 +248,7 @@ function NewReturn({
                             <Input
                               inputMode="numeric"
                               className="text-right"
-                              aria-label={`Return ${item.sku_code}`}
+                              aria-label={`Return ${skuNumber(item.sku_code)}`}
                               value={quantities[key] ?? ""}
                               onChange={(event) =>
                                 setQuantities((was) => ({

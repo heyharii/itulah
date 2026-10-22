@@ -1671,6 +1671,43 @@ pub async fn list_allotments(pool: &PgPool, query: AllotmentQuery) -> Result<Val
             })
             .collect()
     };
+    // What the allotment carries and where it leaves from, as words, for the
+    // list's search (article names) and the Return HO cards (the sending
+    // store): once for the page, as the suppliers are.
+    let line_words: HashMap<Uuid, (Vec<String>, Vec<String>)> = if page_ids.is_empty() {
+        HashMap::new()
+    } else {
+        sqlx::query("SELECT word_line.allotment_id,COALESCE(array_agg(DISTINCT word_article.name ORDER BY word_article.name) FILTER (WHERE word_article.name IS NOT NULL),'{}') article_names,COALESCE(array_agg(DISTINCT word_line.source_site_id ORDER BY word_line.source_site_id) FILTER (WHERE word_line.source_site_id IS NOT NULL),'{}') source_site_ids FROM allotment_line word_line LEFT JOIN sku word_sku ON word_sku.id=word_line.sku_id LEFT JOIN article word_article ON word_article.id=word_sku.article_id WHERE word_line.allotment_id=ANY($1) GROUP BY word_line.allotment_id")
+            .bind(&page_ids)
+            .fetch_all(pool)
+            .await?
+            .into_iter()
+            .map(|row| {
+                (
+                    row.get::<Uuid, _>("allotment_id"),
+                    (
+                        row.get::<Vec<String>, _>("article_names"),
+                        row.get::<Vec<String>, _>("source_site_ids"),
+                    ),
+                )
+            })
+            .collect()
+    };
+    // A store's return on the road, read off its node's facts: the pieces of
+    // its IN_TRANSIT koli still standing in the store's `.outbound.in-transit`
+    // pool. The centre's per-line fold reads only a DC's progress, so a
+    // return a shop sent read 0 in transit until HO received it.
+    let store_road: HashMap<Uuid, i64> = if page_ids.is_empty() {
+        HashMap::new()
+    } else {
+        sqlx::query("SELECT road_unit.allotment_id,COUNT(DISTINCT road_unit.epc)::bigint pieces FROM edge_fulfillment_progress_fact road_fact JOIN sync_origin_credential road_origin ON road_origin.origin_id=road_fact.origin_id AND road_origin.node_role='STORE' JOIN edge_fulfillment_progress_unit road_unit ON road_unit.progress_event_id=road_fact.event_id JOIN edge_inventory_fact_position road_position ON road_position.origin_id=road_fact.origin_id AND road_position.epc=road_unit.epc AND road_position.place_id LIKE '%.outbound.in-transit%:on_hand' WHERE road_fact.stage='IN_TRANSIT' AND road_unit.allotment_id=ANY($1) GROUP BY road_unit.allotment_id")
+            .bind(&page_ids)
+            .fetch_all(pool)
+            .await?
+            .into_iter()
+            .map(|row| (row.get::<Uuid, _>("allotment_id"), row.get::<i64, _>("pieces")))
+            .collect()
+    };
     // A rollup is one destination by definition, so it says how much of the
     // list's work lands there rather than counting the place again. The
     // whole book is folded once, through the per-line view — line, progress
@@ -1743,13 +1780,15 @@ pub async fn list_allotments(pool: &PgPool, query: AllotmentQuery) -> Result<Val
                 // from the batched trace above, the stores from the page row.
                 "supplier_names":supplier_names.get(&row.get::<Uuid,_>("id")).cloned().flatten(),
                 "destination_names":row.get::<Option<Vec<String>>,_>("destination_names").unwrap_or_default(),
+                "article_names":line_words.get(&row.get::<Uuid,_>("id")).map(|words| words.0.clone()).unwrap_or_default(),
+                "source_site_ids":line_words.get(&row.get::<Uuid,_>("id")).map(|words| words.1.clone()).unwrap_or_default(),
                 "total_quantity":row.get::<i64,_>("quantity"),
                 "total_accepted_quantity":row.get::<i64,_>("accepted"),
                 "total_picked_quantity":row.get::<i64,_>("picked"),
                 "total_packed_quantity":row.get::<i64,_>("packed"),
                 "total_shipment_quantity":row.get::<i64,_>("shipment"),
                 "total_dispatched_quantity":row.get::<i64,_>("dispatched"),
-                "total_in_transit_quantity":row.get::<i64,_>("in_transit"),
+                "total_in_transit_quantity":row.get::<i64,_>("in_transit").max(store_road.get(&row.get::<Uuid,_>("id")).copied().unwrap_or(0)),
                 "total_received_quantity":row.get::<i64,_>("received"),
                 "total_cancelled_quantity":row.get::<i64,_>("cancelled"),
                 "remaining_quantity":row.get::<i64,_>("remaining"),

@@ -1,5 +1,6 @@
-import { Inbox, Loader2, RefreshCw } from "lucide-react"
+import { Loader2, RefreshCw } from "lucide-react"
 
+import { MattePicture } from "@/components/matte"
 import { Button } from "@/components/ui/button"
 import { ListGroup } from "@/components/ui/list"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -27,7 +28,7 @@ export function LoadingRows({ rows = 3 }: { rows?: number }) {
     <ListGroup aria-busy>
       {Array.from({ length: rows }, (_, index) => (
         <div key={index} className="flex items-center gap-3.5 px-3 py-3">
-          <Skeleton className="size-11 rounded-full" />
+          <Skeleton className="size-11 rounded-[0.875rem]" />
           <div className="flex min-w-0 flex-1 flex-col gap-2">
             <Skeleton className="h-3.5 w-28" />
             <Skeleton className="h-3 w-20" />
@@ -50,9 +51,7 @@ export function EmptyState({
 }) {
   return (
     <div className="flex flex-col items-center gap-1.5 rounded-card bg-canvas px-6 py-10 text-center shadow-soft">
-      <span className="mb-2 flex size-12 items-center justify-center rounded-full bg-soft-2">
-        <Inbox className="size-5 text-mute" strokeWidth={1.75} />
-      </span>
+      <MattePicture art="inbox" size={56} className="mb-2" />
       <p className="text-card-title font-semibold text-ink">{title}</p>
       <p className="max-w-[16rem] text-meta text-body">{description}</p>
     </div>

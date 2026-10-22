@@ -1,17 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { Check, Download, Link2 } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { Day } from "@/components/ui/day"
 import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
+import { button } from "@/components/ui/button-style"
 import { Field, Input, Select, Textarea } from "@/components/ui/field"
 import { Pill } from "@/components/ui/pill"
-import { KeyValue } from "@/components/ui/rows"
 import { Segmented } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
-import { day, label, moment, toneFor } from "@/lib/format"
+import { day } from "@/lib/format"
+import { gaAssetHub, gaKeys } from "@/lib/queries/ga"
+import { useNameOfLogin } from "@/lib/queries/hr-employees"
 import {
   DOCUMENT_SUBJECT_KINDS,
   documentSubjectLabel,
@@ -24,10 +27,17 @@ import {
   uploadDocument,
   workplaceKeys,
 } from "@/lib/queries/workplace"
+import { recordRoute } from "@/lib/record-route"
 import { cn } from "@/lib/utils"
-import { bytes, fileKind, idempotencyKey } from "@/screens/workplace/lib"
+import { bytes, idempotencyKey } from "@/screens/workplace/lib"
 import { FileTile } from "@/screens/workplace/parts"
-import { folderOf, stateOf, type VaultRow } from "@/screens/workplace/vault"
+import {
+  kindWord,
+  placeOf,
+  stateOf,
+  type VaultRow,
+} from "@/screens/workplace/vault"
+import { PagePreview, useCopyLink } from "@/screens/workplace/vault-tile"
 
 // ─── One row, opened ─────────────────────────────────────────────────────────
 
@@ -38,6 +48,13 @@ import { folderOf, stateOf, type VaultRow } from "@/screens/workplace/vault"
 /// document has a summary, a folder, a date on the paper and the records it was
 /// filed against; an attachment has a room, and the room is also the only route
 /// to its bytes.
+///
+/// A rail (owner, 17 Oct 2026, library-tidy-options.html A): the page on a
+/// light band, the facts under it, and the two things to do with a file in
+/// the foot. Who added it and when is the caption, as on every record. The
+/// state stands beside the title only when something is wrong with the file;
+/// the content type and a "the bytes are there" pill said nothing a person
+/// acts on.
 export function VaultSheet({
   row,
   onClose,
@@ -54,21 +71,39 @@ export function VaultSheet({
     queryFn: ({ signal }) => readDocument(row!.id, signal),
     enabled: row !== null && row.source === "FILED",
   })
+  const nameOf = useNameOfLogin()
 
   const links = detail.data?.links ?? []
-  const state = row === null ? "There" : stateOf(row)
+  const state = row === null ? "Ready" : stateOf(row)
+  const summary = row?.source === "FILED" ? detail.data?.summary : null
 
   return (
     <Sheet
       open={row !== null}
+      size="rail"
       subject={
         row !== null && row.source === "FILED"
           ? { kind: "document", id: row.id }
           : undefined
       }
       onOpenChange={(open) => !open && onClose()}
-      id={row === null ? undefined : fileKind(row.name)}
+      id={row === null ? undefined : placeOf(row)}
       title={row?.title ?? "File"}
+      badge={
+        state === "Missing" ? (
+          <Pill tone="bad" withDot>
+            Missing
+          </Pill>
+        ) : state === "Not read" ? (
+          <Pill tone="warn" withDot>
+            Not read
+          </Pill>
+        ) : undefined
+      }
+      caption={
+        row === null ? undefined : `Added by ${nameOf(row.by)} · ${day(row.at)}`
+      }
+      footer={row === null ? undefined : <VaultFoot row={row} />}
     >
       {row === null ? (
         <EmptyState>
@@ -76,142 +111,125 @@ export function VaultSheet({
           attached in a room you cannot read.
         </EmptyState>
       ) : (
-        <div className="flex flex-col gap-5">
-          <div className="flex flex-wrap items-center gap-2">
-            <Pill
-              tone={
-                state === "Gone"
-                  ? "bad"
-                  : row.processing === null
-                    ? "ok"
-                    : toneFor(row.processing)
-              }
-            >
-              {row.processing === null || state === "Gone"
-                ? state === "Gone"
-                  ? "The bytes are gone"
-                  : "The bytes are there"
-                : label(row.processing)}
-            </Pill>
-            <Tag>{row.contentType}</Tag>
-            {row.tags.map((tag) => (
-              <Tag key={tag} tone="accent">
-                {tag}
-              </Tag>
-            ))}
+        <div className="flex flex-col gap-6">
+          <div className="grid h-[18.75rem] shrink-0 place-items-center overflow-hidden rounded-card border border-hairline bg-soft-3">
+            <PagePreview row={row} size="sheet" />
           </div>
 
-          <Preview row={row} />
-
-          {row.source === "FILED" && detail.data?.summary && (
-            <p className="text-meta leading-relaxed text-body">
-              {detail.data.summary}
-            </p>
-          )}
-
           <Facts>
-            <Fact term="Filed as">{row.name}</Fact>
-            {row.source === "FILED" && (
-              <Fact term="Folder">{folderOf(row)}</Fact>
-            )}
             {row.docDate !== null && (
               <Fact term="Document date">{day(row.docDate)}</Fact>
             )}
-            <Fact term="Added">{moment(row.at)}</Fact>
-            <Fact term="By">{row.by}</Fact>
-            <Fact term="Size">{bytes(row.byteSize)}</Fact>
-            {row.room !== null && <Fact term="Room">{row.room.title}</Fact>}
+            <Fact term="Type">
+              {kindWord(row)} · {bytes(row.byteSize)}
+            </Fact>
+            {row.room === null ? (
+              <Fact term="Folder">{placeOf(row)}</Fact>
+            ) : (
+              <Fact term="Posted in">
+                <AppLink
+                  to={row.room.kind === "DISCUSSION" ? "/discussions" : "/chat"}
+                  sheet={{
+                    key:
+                      row.room.kind === "DISCUSSION"
+                        ? "thread"
+                        : "conversation",
+                    value: row.room.id,
+                  }}
+                  className="record-link"
+                >
+                  {row.room.title}
+                </AppLink>
+              </Fact>
+            )}
+            {links.map((link) => (
+              <Fact
+                key={`${link.subject_kind}:${link.subject_id}`}
+                term={subjectTerm(link.subject_kind)}
+              >
+                <LinkedRecord kind={link.subject_kind} id={link.subject_id} />
+              </Fact>
+            ))}
+            {row.name !== row.title && <Fact term="Saved as">{row.name}</Fact>}
+            {row.tags.length > 0 && (
+              <Fact term="Tags">
+                <span className="flex flex-wrap gap-1">
+                  {row.tags.map((tag) => (
+                    <Tag key={tag}>{tag}</Tag>
+                  ))}
+                </span>
+              </Fact>
+            )}
           </Facts>
 
-          {row.source === "FILED" && (
-            <div>
+          {summary && (
+            <section>
               <h4 className="mb-1 text-card-title font-semibold text-ink">
-                What it is about
+                What it says
               </h4>
-              {links.length === 0 ? (
-                <p className="text-meta text-body">
-                  Filed on its own, against no record.
-                </p>
-              ) : (
-                links.map((link) => (
-                  <KeyValue
-                    key={`${link.subject_kind}:${link.subject_id}`}
-                    term={documentSubjectLabel(link.subject_kind)}
-                  >
-                    {link.subject_id}
-                  </KeyValue>
-                ))
-              )}
-            </div>
+              <p className="text-[0.9375rem] leading-relaxed text-text">
+                {summary}
+              </p>
+            </section>
           )}
-
-          <div className="flex flex-wrap items-center gap-2">
-            {row.href !== null ? (
-              <a
-                href={row.href}
-                download={row.name}
-                className="inline-flex h-8 shrink-0 items-center justify-center rounded-full border border-hairline-2 bg-canvas px-3 text-[0.9375rem] font-medium text-text transition-colors hover:bg-soft-2"
-              >
-                Download
-              </a>
-            ) : (
-              <Button variant="ghost" disabled>
-                Download
-              </Button>
-            )}
-            {row.room !== null && (
-              <AppLink
-                to={row.room.kind === "DISCUSSION" ? "/discussions" : "/chat"}
-                sheet={{
-                  key:
-                    row.room.kind === "DISCUSSION" ? "thread" : "conversation",
-                  value: row.room.id,
-                }}
-                variant="soft"
-              >
-                Open the room
-              </AppLink>
-            )}
-          </div>
         </div>
       )}
     </Sheet>
   )
 }
 
-/// The bytes, drawn, when the server will let a browser draw them. The same
-/// allow-list as the tile — see `previewable` — and the same reason for a
-/// ceiling on it.
-function Preview({ row }: { row: VaultRow }) {
-  if (row.href === null || row.byteSize > 4 * 1024 * 1024) return null
-  const base = row.contentType.split(";")[0]?.trim().toLowerCase() ?? ""
-  if (base.startsWith("image/")) {
-    return (
-      <img
-        src={row.href}
-        alt=""
-        className="max-h-96 rounded-inner border border-hairline object-contain"
-      />
-    )
-  }
-  if (base === "application/pdf") {
-    return (
-      <object
-        data={`${row.href}#toolbar=0&navpanes=0`}
-        type="application/pdf"
-        aria-label={row.name}
-        className="h-96 w-full rounded-inner border border-hairline"
-      >
-        {/* A browser with no PDF viewer draws this instead of an empty frame,
-            and so does a node that cannot serve the bytes. An empty bordered
-            box says nothing about which of the two happened. */}
-        <span className="grid h-96 w-full place-items-center rounded-inner border border-hairline text-meta text-mute">
-          Nothing to draw here — download it instead.
-        </span>
-      </object>
-    )
-  }
-  return null
+/// Copy link, then Download — the one primary. A file whose bytes are gone
+/// keeps only the link: it still opens this sheet, which says it is missing.
+function VaultFoot({ row }: { row: VaultRow }) {
+  const [copied, copy] = useCopyLink(row)
+  return (
+    <div className="flex items-center justify-end gap-2">
+      <Button variant="ghost" onClick={copy}>
+        {copied ? <Check className="text-ok-fg" /> : <Link2 />}
+        {copied ? "Copied" : "Copy link"}
+      </Button>
+      {row.href !== null && (
+        <a
+          href={row.href}
+          download={row.name}
+          className={button({ variant: "primary" })}
+        >
+          <Download />
+          Download
+        </a>
+      )}
+    </div>
+  )
+}
+
+/// A link's kind as a fact's label: "Asset", "Purchase order".
+function subjectTerm(kind: string): string {
+  const label = documentSubjectLabel(kind)
+  return label.charAt(0).toUpperCase() + label.slice(1).replace(/_/g, " ")
+}
+
+/// The record a document was filed against, by its name and opening it — never
+/// its id. The sheet used to print `690d3c80-0afd-…`, which is the one form of
+/// a record nobody can read. An asset is looked up for its name; a record with
+/// no lookup here says what it is and still opens.
+function LinkedRecord({ kind, id }: { kind: string; id: string }) {
+  const asset = useQuery({
+    queryKey: gaKeys.asset(id),
+    queryFn: ({ signal }) => gaAssetHub(id, signal),
+    enabled: kind === "asset",
+    staleTime: 5 * 60 * 1000,
+  })
+  const where = recordRoute(kind, id)
+  const name =
+    kind === "asset"
+      ? (asset.data?.asset.name ?? "Open the asset")
+      : `Open the ${documentSubjectLabel(kind).toLowerCase()}`
+  if (where === null) return <span>{name}</span>
+  return (
+    <AppLink to={where.to} sheet={where.sheet} className="record-link">
+      {name}
+    </AppLink>
+  )
 }
 
 // ─── Giving a dropped file somewhere to be ───────────────────────────────────

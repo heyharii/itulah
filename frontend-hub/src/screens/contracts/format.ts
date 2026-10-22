@@ -1,5 +1,5 @@
 import type { GaContractRow } from "@itulah/contract"
-import { EMPTY, monthYear } from "@/lib/format"
+import { EMPTY, count, monthYear } from "@/lib/format"
 import { useSupplierName } from "@/screens/procurement/supplier-name"
 
 /// Words the register and the hub both print, kept out of `parts.tsx` because
@@ -45,4 +45,50 @@ export function siteOf(row: GaContractRow): string {
     : row.site_scope === "ALL_SITES"
       ? "All sites"
       : EMPTY
+}
+
+/// Where a contract stands, in the words and the tone every surface prints:
+/// `Status` in the register and on a phone card, the one `Pill` in the sheet.
+///
+/// A living contract reads its window, which the server computes per contract
+/// from `reminder_days` (`domain::ga::contract_standing`): "Expires in 37 days"
+/// is the sentence that starts the renewal conversation this week, and an
+/// expired one is a problem until somebody decides, so it is `bad` — a permit
+/// that ran out is not a quiet fact.
+///
+/// An ended contract (the register's `archived`) says how it ended, as far as
+/// the record can tell: stopped by a termination, run out past its end, or
+/// ended before its end without one. All three are history, so all are quiet.
+export function standingOf(row: GaContractRow): {
+  word: string
+  tone: "ok" | "warn" | "bad" | "neutral"
+} {
+  if (row.archived) {
+    if (row.standing === "DIHENTIKAN" || row.status === "TERMINATED")
+      return { word: "Terminated", tone: "neutral" }
+    if (row.standing === "HABIS") return { word: "Expired", tone: "neutral" }
+    return { word: "Ended early", tone: "neutral" }
+  }
+  switch (row.standing) {
+    case "AKTIF":
+      return { word: "Active", tone: "ok" }
+    case "SEGERA_HABIS":
+      return {
+        word:
+          row.days_to_end === null
+            ? "Expiring soon"
+            : row.days_to_end === 1
+              ? "Expires in 1 day"
+              : `Expires in ${count(row.days_to_end)} days`,
+        tone: "warn",
+      }
+    case "HABIS":
+      return { word: "Expired", tone: "bad" }
+    case "BELUM_MULAI":
+      return { word: "Not started", tone: "neutral" }
+    case "DIHENTIKAN":
+      return { word: "Terminated", tone: "neutral" }
+    default:
+      return { word: "Draft", tone: "warn" }
+  }
 }

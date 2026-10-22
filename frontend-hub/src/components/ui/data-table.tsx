@@ -23,6 +23,11 @@ import { RefreshStrip, type Refreshable } from "@/components/ui/refresh-stamp"
 import { LoadMore, type Pageable } from "@/components/ui/states"
 import { POP_MOTION } from "@/lib/filter-chrome"
 import { useCoarsePointer, useLayout } from "@/lib/layout"
+import {
+  useCompactRows,
+  useRegisterRowsTable,
+  useRowsOffered,
+} from "@/lib/table-rows"
 import { columnName } from "@/components/ui/column-name"
 import { PhoneCard, STICKY_HEADING } from "@/components/ui/phone-cards"
 import { FOCUSED, openable } from "@/lib/openable"
@@ -207,6 +212,12 @@ export interface DataTableProps<TRow> {
   /// reflows them. Nothing above it may clip (`overflow-hidden` makes a
   /// scroll box and un-sticks the heading; use `overflow-clip`).
   readonly pageScroll?: boolean
+  /// Every cell starts at the row's top rather than its middle, for a list
+  /// whose cells run to several lines (Articles: the name over its id and
+  /// tags, beside colours that wrap). Each cell's first line then sits on the
+  /// name's line and the lines under it on the same grid, where middles of
+  /// different heights would stagger (owner, 17 Oct).
+  readonly cellsTop?: boolean
   /// An optional extra block drawn directly under a row, full width — the
   /// row's contents opened out in place. Called for a row only when
   /// `isExpanded` says it is open; return `null` for nothing. In the desk
@@ -232,6 +243,11 @@ export interface DataTableProps<TRow> {
   /// collapsed group keeps its heading. The row stays in the table's model
   /// (sorting, summary), it just takes no space.
   readonly isHidden?: (row: TRow) => boolean
+  /// For a screen that holds `columnVisibility` itself, which the table will
+  /// not write: the columns given up for room (`meta.priority` above 1), for
+  /// the screen to hide along with its own. Called on every pass; compare
+  /// before storing.
+  readonly onGiveUp?: (ids: readonly string[]) => void
   readonly className?: string
 }
 
@@ -279,10 +295,12 @@ function DataTableBody<TRow>({
   more,
   summary,
   pageScroll = false,
+  cellsTop = false,
   renderSub,
   isExpanded,
   renderBefore,
   isHidden,
+  onGiveUp,
   className,
 }: DataTableProps<TRow>) {
   const subOf = (row: { original: unknown }): React.ReactNode =>
@@ -306,6 +324,10 @@ function DataTableBody<TRow>({
   const cards =
     layout === "phone" || (cardsOnTablet === true && layout === "tablet")
   const height = rowHeight ?? (tap ? TOUCH_ROW : DENSE_ROW)
+  /// Comfortable or compact rows: the reader's choice, on a page that offers
+  /// it (`lib/table-rows.ts`). Cards have no rows to make tighter.
+  const compactRows = useCompactRows() && !cards
+  useRegisterRowsTable(useRowsOffered() && !cards)
   const virtualise =
     !cards &&
     !pageScroll &&
@@ -321,8 +343,11 @@ function DataTableBody<TRow>({
   /// 1400 — without an effect that resets state, which is one more render and
   /// one more thing to keep in step.
   const [room, setRoom] = useState(0)
-  const [budget, setBudget] = useState({ room: 0, dropped: 0 })
-  const dropped = budget.room === room ? budget.dropped : 0
+  // …and with the rows it was measured in: compact rows are narrower, so a
+  // switch starts the count again too.
+  const [budget, setBudget] = useState({ room: 0, compact: false, dropped: 0 })
+  const dropped =
+    budget.room === room && budget.compact === compactRows ? budget.dropped : 0
 
   /// The columns that may be given up, in the order they will be, and never
   /// including a priority 1.
@@ -385,15 +410,34 @@ function DataTableBody<TRow>({
     // What the DOM should hold once it has caught up: the columns visible
     // now, which counts the ones the reader switched off as well as the
     // ones given up for room.
-    const expected = (table as AnyTable).getVisibleLeafColumns().length
-    if (node.querySelectorAll("thead th").length !== expected) return
+    const visible = (table as AnyTable).getVisibleLeafColumns()
+    if (node.querySelectorAll("thead th").length !== visible.length) return
+    // A screen that holds the visibility hides what it was handed
+    // (`onGiveUp`) a render later: wait for it, or the same overflow is
+    // counted twice.
+    if (
+      onGiveUp !== undefined &&
+      droppable
+        .slice(0, dropped)
+        .some((id) => visible.some((column) => column.id === id))
+    )
+      return
     // The one place this component sets state from an effect, and the reason
     // it has to: what fits is a fact about the laid-out DOM, and nothing but
     // measuring it can answer.
     if (node.scrollWidth > node.clientWidth + 1 && dropped < droppable.length) {
-      setBudget({ room, dropped: dropped + 1 })
+      setBudget({ room, compact: compactRows, dropped: dropped + 1 })
     }
-  }, [cards, dropped, droppable.length, room, rows.length, table])
+  }, [
+    cards,
+    compactRows,
+    dropped,
+    droppable,
+    onGiveUp,
+    room,
+    rows.length,
+    table,
+  ])
 
   /// The dropped columns, hidden rather than filtered out here.
   ///
@@ -418,7 +462,10 @@ function DataTableBody<TRow>({
   const chosen = useRef<Record<string, boolean>>({})
   useLayoutEffect(() => {
     const instance = table as AnyTable
-    if (instance.options.state?.columnVisibility !== undefined) return
+    if (instance.options.state?.columnVisibility !== undefined) {
+      onGiveUp?.(cards ? [] : droppable.slice(0, dropped))
+      return
+    }
     // A card shows every column it has a role for: the space it is short of is
     // horizontal, and a card is laid out down the page.
     const hidden = new Set(cards ? [] : droppable.slice(0, dropped))
@@ -439,7 +486,7 @@ function DataTableBody<TRow>({
     }
     written.current = budget
     if (differs) instance.setColumnVisibility(budget)
-  }, [cards, dropped, droppable, table])
+  }, [cards, dropped, droppable, onGiveUp, table])
 
   /// The next page, asked for a few rows before the reader gets there.
   ///
@@ -640,7 +687,9 @@ function DataTableBody<TRow>({
         ref={tableRef}
         className={cn(
           "dt w-full border-collapse text-cell",
-          (virtualise || pageScroll) && "table-fixed"
+          compactRows && "dt-compact",
+          (virtualise || pageScroll) && "table-fixed",
+          cellsTop && "dt-top [&>tbody>tr>td]:align-top"
         )}
         style={pageScroll ? { minWidth: pageMinWidth } : undefined}
       >

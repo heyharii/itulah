@@ -8,6 +8,7 @@ import type {
   AllotmentDetail,
   AllotmentLine,
 } from "@/lib/queries/inventory"
+import type { ReceivedShipmentRow } from "@/screens/inventory/received-feed"
 import { cellKey } from "@/screens/allotment/quick-fill"
 
 /// The arithmetic behind MD's edit and cancel (outbound cancel / edit, 9 Oct
@@ -25,6 +26,15 @@ export function targetOf(line: AllotmentLine): number {
   return line.target_quantity ?? line.quantity
 }
 
+/// The most the line can still deliver, closed short taken off once. An
+/// Edit's move lowers the target AND books the moved piece closed short
+/// (quantity 2, target 1, closed short 1); a short pick MD accepted keeps the
+/// target (2, 2, 1). Taking closed short off the target counted the Edit's
+/// piece twice.
+export function deliverableOf(line: AllotmentLine): number {
+  return Math.min(targetOf(line), line.quantity - (line.closed_short_qty ?? 0))
+}
+
 /// The least an edit can take the line to: pieces already on a delivery note
 /// or beyond. The server's `sent_quantity`; the same sum of stages on a cloud
 /// that has not started answering it. Never above the target, so a line that
@@ -37,6 +47,40 @@ export function floorOf(line: AllotmentLine): number {
       line.at_in_transit_qty +
       line.received_quantity
   return Math.min(sent, targetOf(line))
+}
+
+/// What MD's Edit may not move on a line (owner, 18 Oct 2026): everything
+/// the warehouse has already worked — picked, packed, sent. Edit only moves
+/// what is still to pick; to move the rest, Ops puts it back to the picklist
+/// first (the board's Put back). Never under the sent floor, never above the
+/// target.
+export interface Lock {
+  readonly n: number
+  /// "2 picked · 1 sent" — the box's tooltip.
+  readonly title: string
+  /// Every locked piece is on the road or received: the truck, not the box.
+  readonly shipped: boolean
+}
+
+export function lockOf(line: AllotmentLine): Lock {
+  const target = targetOf(line)
+  const s = stagesOf([line])
+  const n = Math.min(target, Math.max(floorOf(line), target - s.toPick))
+  const said = [
+    s.picked > 0 && `${s.picked} picked`,
+    s.packed > 0 && `${s.packed} packed`,
+    s.dispatched > 0 && `${s.dispatched} sent`,
+  ].filter(Boolean)
+  const worked = s.picked + s.packed > 0
+  return {
+    n,
+    title:
+      said.join(" · ") +
+      (worked
+        ? ". Ask Ops to put it back to the picklist to move it."
+        : ": it cannot go lower."),
+    shipped: !worked,
+  }
 }
 
 /// What can still be given up across these lines: everything not sent yet.
@@ -135,11 +179,55 @@ export function stagesOf(lines: readonly AllotmentLine[]): Stages {
     packed += inKoli
     // A close short (a DC's cancel, a short pick closed) gives pieces up
     // without moving the target: they are not to pick any more.
-    toPick += Math.max(0, target - worked - (line.closed_short_qty ?? 0))
+    toPick += Math.max(0, deliverableOf(line) - worked)
     dispatched += sent
     received += line.received_quantity
   }
   return { allotted, toPick, picked, packed, dispatched, received }
+}
+
+/// Every piece of these lines is still on the picklist: nothing picked,
+/// packed or sent. The one time MD may Cancel (owner, 21 Oct 2026): once the
+/// warehouse has started, pieces only go back through Ops' Put back.
+export function onPicklistOf(lines: readonly AllotmentLine[]): boolean {
+  return lines.every(
+    (line) =>
+      Math.max(line.picked_quantity, line.at_packed_qty + sentOf(line)) === 0
+  )
+}
+
+/// The pieces of these lines already on the road: on a delivery note, loaded
+/// or in transit.
+export function onRoadOf(lines: readonly AllotmentLine[]): number {
+  return lines.reduce(
+    (sum, line) =>
+      sum + line.at_shipment_qty + line.at_loaded_qty + line.at_in_transit_qty,
+    0
+  )
+}
+
+/// Pieces of one store's lines the store has counted for and not found: the
+/// books still have them on the road, but the delivery note they left on was
+/// received with a gap (17 Oct 2026: C001 received 9 of 10 and still read
+/// Dispatched). The note is the one the store's other pieces of these lines
+/// were received on; never more than is on the road.
+export function missingOf(
+  lines: readonly AllotmentLine[],
+  short: readonly ReceivedShipmentRow[]
+): number {
+  const store = lines[0]?.destination_id
+  const notes = new Set(
+    lines.flatMap((line) =>
+      line.received_breakdown.map((unit) => unit.shipment_reference)
+    )
+  )
+  const gap = short
+    .filter(
+      (one) =>
+        one.destination_store_id === store && notes.has(one.shipment_number)
+    )
+    .reduce((sum, one) => sum + one.open_gap_qty, 0)
+  return Math.min(gap, onRoadOf(lines))
 }
 
 /// A shop's own id, shortened the way the allotment lists shorten it —
@@ -449,20 +537,49 @@ export function receiptOf(
   }
 }
 
-/// A reason as it is stored: the chip, and the note after it when there is one.
-export function reasonOf(chip: string | null, note: string): string {
-  const said = note.trim()
-  if (chip === null) return said
-  return said === "" ? chip : `${chip} · ${said}`
+/// MD's changes, one per line changed: the detail's own list when the cloud
+/// sends one, else read off the events each change wrote (every one carries
+/// its amendment's kind, reason and targets in `details`).
+export function amendmentsOf(
+  record: Pick<AllotmentDetail, "amendments" | "events">
+): readonly AllotmentAmendment[] {
+  if (record.amendments !== undefined) return record.amendments
+  const byId = new Map<string, AllotmentAmendment>()
+  for (const event of record.events) {
+    if (event.reference_type !== "ALLOTMENT_AMENDMENT") continue
+    const details = event.details ?? {}
+    const id = event.reference_id ?? event.id
+    const kind = details.kind
+    if (byId.has(id)) continue
+    if (kind !== "REDUCE" && kind !== "ADD" && kind !== "CANCEL") continue
+    byId.set(id, {
+      id,
+      kind,
+      reason: typeof details.reason === "string" ? details.reason : null,
+      actor_id: event.actor_id,
+      created_at: event.occurred_at,
+      target_before:
+        typeof details.target_before === "number"
+          ? details.target_before
+          : undefined,
+      target_after:
+        typeof details.target_after === "number"
+          ? details.target_after
+          : undefined,
+      sku_id: event.sku_id,
+      destination_id: event.destination_id,
+    })
+  }
+  return [...byId.values()]
 }
 
 /// The newest of MD's changes, optionally of one kind.
 export function latestOf(
-  record: Pick<AllotmentDetail, "amendments">,
+  record: Pick<AllotmentDetail, "amendments" | "events">,
   kind?: AllotmentAmendment["kind"]
 ): AllotmentAmendment | null {
   let latest: AllotmentAmendment | null = null
-  for (const one of record.amendments ?? []) {
+  for (const one of amendmentsOf(record)) {
     if (kind !== undefined && one.kind !== kind) continue
     if (
       latest === null ||

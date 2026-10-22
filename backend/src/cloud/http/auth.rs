@@ -782,6 +782,17 @@ pub async fn change_password(
     cleared_session_response(&state, value)
 }
 
+/// `GET /api/v1/auth/password-state` — `{ "must_change": bool }`: the hub asks
+/// right after signing in, and holds the person at "Choose a new password"
+/// while an administrator's temporary password is still theirs (0980).
+pub async fn password_state(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+) -> Result<Json<Value>, AppError> {
+    let must = infrastructure::must_change_password(&state.db, &principal.username).await?;
+    Ok(Json(json!({ "must_change": must })))
+}
+
 /// Administrator-only: set a password for a user who cannot supply their old
 /// one. Reachable only by an Admin — `required_role` puts every
 /// `/api/v1/auth/users` path behind that role.

@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query"
 import { ChevronRight } from "lucide-react"
 import { use } from "react"
 
-import { quantity } from "@/lib/format"
+import { quantity, sku as skuNumber } from "@/lib/format"
 import {
   allotmentDetail,
   inventoryKeys,
@@ -144,7 +144,7 @@ export function AllotmentItems({ id }: { id: string }) {
                   >
                     <span className="min-w-0 flex-1 truncate text-body">
                       {sku.variant}{" "}
-                      <span className="font-mono text-mute">{sku.code}</span>
+                      <span className="font-mono text-mute">{skuNumber(sku.code)}</span>
                     </span>
                     <span className="shrink-0 text-body tabular-nums">
                       {quantity(sku.pieces)}

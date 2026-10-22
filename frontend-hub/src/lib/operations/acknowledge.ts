@@ -14,6 +14,9 @@ import { toast } from "@/lib/toast"
 export function useAcknowledgeChanges() {
   const client = useQueryClient()
   return useMutation({
+    // Seeing finishes nothing, and it mostly runs by itself on opening the
+    // work: a stamp drawn after it was not pressed by it (`DocStamp`).
+    meta: { finishesNothing: true },
     mutationFn: (items: readonly DcChange[]) => acknowledgeChanges(items),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: keys.changes() })

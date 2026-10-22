@@ -15,7 +15,7 @@ import {
 import { Card } from "@/components/ui/card"
 import { BarSeries } from "@/components/ui/chart"
 import { DataTable } from "@/components/ui/data-table"
-import { Segmented } from "@/components/ui/segmented"
+import { SubTabs } from "@/components/ui/sub-tabs"
 import { useLayout } from "@/lib/layout"
 import { count, money } from "@/lib/format"
 import { fleetPoolsQuery } from "@/lib/queries/inventory"
@@ -295,14 +295,15 @@ export function ExecutiveStores() {
 
       <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         <Head title="Store comparison">
-          <Segmented
-            options={[
-              { value: "all", label: "All" },
-              { value: "down", label: "Down" },
-            ]}
-            value={only}
-            onChange={setOnly}
-          />
+          <Suspense
+            fallback={<ComparisonTabs only={only} onChange={setOnly} />}
+          >
+            <ComparisonTabsCounted
+              scope={scope}
+              only={only}
+              onChange={setOnly}
+            />
+          </Suspense>
         </Head>
         <Suspense fallback={<LoadingState>Reading the stores…</LoadingState>}>
           <StoreComparison
@@ -314,6 +315,64 @@ export function ExecutiveStores() {
         </Suspense>
       </Card>
     </ReportPage>
+  )
+}
+
+/// All stores, or only the ones selling less than they did before.
+function ComparisonTabs({
+  only,
+  all,
+  down,
+  onChange,
+}: {
+  only: "all" | "down"
+  all?: number
+  down?: number
+  onChange: (only: "all" | "down") => void
+}) {
+  const word = (text: string, n?: number) =>
+    n === undefined ? (
+      text
+    ) : (
+      <span>
+        {text}
+        <span className="ml-1.5 text-body tabular-nums">{count(n)}</span>
+      </span>
+    )
+  return (
+    <SubTabs
+      tabs={[
+        { value: "all", label: word("All", all) },
+        { value: "down", label: word("Down", down) },
+      ]}
+      value={only}
+      onChange={(next) => onChange(next as "all" | "down")}
+    />
+  )
+}
+
+function ComparisonTabsCounted({
+  scope,
+  only,
+  onChange,
+}: {
+  scope: ReportScope
+  only: "all" | "down"
+  onChange: (only: "all" | "down") => void
+}) {
+  const { data } = useTrade(scope)
+  const rows = storeRows(
+    data.stores,
+    null,
+    spanDays(scope.current.from, scope.current.to)
+  )
+  return (
+    <ComparisonTabs
+      only={only}
+      all={rows.length}
+      down={rows.filter((row) => row.net < row.before).length}
+      onChange={onChange}
+    />
   )
 }
 

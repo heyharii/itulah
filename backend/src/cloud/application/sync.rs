@@ -91,6 +91,16 @@ impl SyncTransport for HttpTransport {
             .send()
             .await
             .map_err(|e| format!("sync upload failed: {e}"))?;
+        // Told apart from every other refusal: the cycle answers this one by
+        // sending less at once (`sync::port::PAYLOAD_TOO_LARGE`), where any
+        // other failure waits and sends the same batch again.
+        if response.status() == reqwest::StatusCode::PAYLOAD_TOO_LARGE {
+            return Err(format!(
+                "{}: {}",
+                crate::sync::port::PAYLOAD_TOO_LARGE,
+                failure_text("ingest", response).await
+            ));
+        }
         if !response.status().is_success() {
             return Err(failure_text("ingest", response).await);
         }

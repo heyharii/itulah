@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button"
 import { Pill } from "@/components/ui/pill"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import { count, label as humanise, moment } from "@/lib/format"
+import { articleId, count, label as humanise, moment, sku as skuText } from "@/lib/format"
 import { useGo } from "@/lib/go"
 import { useHeld } from "@/screens/stock/open-record"
 import { Code, FOOT } from "@/screens/stock/parts"
@@ -110,7 +110,9 @@ function MovementFacts({
             : "Not in this shop's book")}
         {sku !== null && (
           <span className="block">
-            <Code>{sku}</Code>
+            <Code>
+              {articleId(product?.article_code, sku)} · {skuText(sku)}
+            </Code>
           </span>
         )}
       </Fact>

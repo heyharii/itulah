@@ -325,14 +325,15 @@ export function ItemsTable({
                       </td>
                     )}
                   </tr>
-                  {(row.variants ?? []).map((variant, index, all) => (
-                    <tr key={variant.key}>
-                      <td
-                        className={cn(
-                          "px-4 pt-0 pb-2 text-[0.9375rem] text-body",
-                          index === all.length - 1 && "pb-3.5"
-                        )}
-                      >
+                  {/* Each variant on a row of its own under a dashed rule, as
+                      Review Count draws them (owner, 2026-10-18): the solid
+                      rule still starts the next item. */}
+                  {(row.variants ?? []).map((variant) => (
+                    <tr
+                      key={variant.key}
+                      className="border-t border-dashed border-hairline"
+                    >
+                      <td className="px-4 py-2.5 text-[0.9375rem] text-body">
                         {/* Under the name: the picture is 40px and its gap 12px. */}
                         <span className="block pl-[3.25rem]">
                           <VariantName variant={variant} articlePhoto={row.image} />
@@ -439,9 +440,12 @@ export function ItemsTable({
                 )}
               </div>
               {(row.variants ?? []).length > 0 && (
-                <ul className="flex flex-col gap-1.5 pr-3.5 pb-3 pl-[4.25rem] text-[0.9375rem] text-body">
+                <ul className="mb-3 flex flex-col border-b border-hairline text-[0.9375rem] text-body">
                   {(row.variants ?? []).map((variant) => (
-                    <li key={variant.key} className="flex items-center gap-3">
+                    <li
+                      key={variant.key}
+                      className="flex items-center gap-3 border-t border-dashed border-hairline py-2.5 pr-3.5 pl-[4.25rem]"
+                    >
                       <VariantName variant={variant} articlePhoto={row.image} />
                     </li>
                   ))}

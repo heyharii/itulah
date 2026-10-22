@@ -8,8 +8,14 @@
 //! # Device bindings
 //!
 //! The Chainway R3 is bound on Windows through the vendor's C SDK. The reader
-//! is opened once and kept open with its buzzer off; every read checks that the
-//! buzzer still reads back as off, then asks for one tag only. Fingerprint remains an explicit stub until its SDK is bound.
+//! is opened once and kept open with its buzzer off, reading EPCs only at this
+//! counter's power with no tag filter and its radio profile pinned (FastID
+//! and Tag Focus off, session S0, target A, no Gen2X link); every read first
+//! asks the buzzer and the power — a reset moves one or the other, and then
+//! everything is set again — and reads the whole pad for a short window
+//! (`rfid.rs`). Both commands run off the window's thread: the SDK waits up
+//! to a second and a half for each answer, and a counter must not freeze for
+//! it. Fingerprint remains an explicit stub until its SDK is bound.
 //!
 //! # What will replace them
 //!
@@ -28,7 +34,8 @@
 //!
 //! **RFID** has two lanes: signed network readers post sweep observations to
 //! `/api/v1/rfid/observations`; the counter's Chainway R3 is a local USB reader
-//! and contributes a one-shot EPC to the unsold basket.
+//! and contributes the EPCs on its pad to the unsold basket, one read at a
+//! time when the cashier asks.
 //!
 //! **Printing does not belong here.** Receipts are ESC/POS rendered by the
 //! edge, which is already the party on the printer's LAN. A desktop shell that
@@ -57,12 +64,16 @@ fn unbound(what: &str) -> DeviceState {
     }
 }
 
+/// Open the Chainway R3 if it is not open yet, and say how it stands.
 #[tauri::command]
-pub fn rfid_state(app: tauri::AppHandle) -> DeviceState {
-    match crate::rfid::reader_state(&app) {
-        Ok(version) => DeviceState {
+pub async fn rfid_state(app: tauri::AppHandle) -> DeviceState {
+    match crate::edge::off_the_window(move || crate::rfid::reader_state(&app)).await {
+        Ok(reader) => DeviceState {
             bound: true,
-            detail: format!("Chainway R3 terhubung ({version}); buzzer mati dan terverifikasi."),
+            detail: format!(
+                "Chainway R3 connected ({}) at {} dBm; buzzer off and verified.",
+                reader.version, reader.power_dbm
+            ),
         },
         Err(detail) => DeviceState {
             bound: false,
@@ -71,11 +82,13 @@ pub fn rfid_state(app: tauri::AppHandle) -> DeviceState {
     }
 }
 
-/// Read exactly one tag from the Chainway R3 after confirming the buzzer is
-/// off. Returns only the EPC, which the existing scan path validates.
+/// Read every tag on the Chainway R3's pad, after asking its buzzer and its
+/// power (everything set again if either moved). Returns each EPC once, with
+/// the strongest signal it was heard at; the window puts each one through the
+/// scan path, which decides what joins the basket.
 #[tauri::command]
-pub fn rfid_read_single(app: tauri::AppHandle) -> Result<String, String> {
-    crate::rfid::read_single(&app)
+pub async fn rfid_read_pad(app: tauri::AppHandle) -> Result<crate::rfid::PadRead, String> {
+    crate::edge::off_the_window(move || crate::rfid::read_pad(&app)).await
 }
 
 #[tauri::command]

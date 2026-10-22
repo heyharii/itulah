@@ -1,677 +1,636 @@
-import {
-  useMutation,
-  useQueryClient,
-  useSuspenseInfiniteQuery,
-} from "@tanstack/react-query"
+import { useQuery, useSuspenseInfiniteQuery } from "@tanstack/react-query"
+import type { ColumnDef, SortingState } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
 import { Plus } from "lucide-react"
-import { Suspense, useDeferredValue, useMemo, useState } from "react"
+import { Suspense, useDeferredValue, useEffect, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
-import {
-  SupplierBankAccountsPanel,
-  SupplierContactsPanel,
-} from "@/components/suppliers/panels"
 import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { DataTable } from "@/components/ui/data-table"
 import { Fab } from "@/components/ui/fab"
-import { Field, Input, Select } from "@/components/ui/field"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
+import { BarSpacer, ColumnsMenu } from "@/components/ui/list-chrome"
+import { ListFilters } from "@/components/ui/list-filters"
 import { PageHeader } from "@/components/ui/page-header"
-import { Pill } from "@/components/ui/pill"
-import { Segmented, Toolbar } from "@/components/ui/segmented"
-import { Sheet } from "@/components/ui/sheet"
-import {
-  Banner,
-  EmptyState,
-  LoadingState,
-  LoadMore,
-} from "@/components/ui/states"
-import { SubTabs } from "@/components/ui/sub-tabs"
-import { count } from "@/lib/format"
-import { useLayout } from "@/lib/layout"
-import {
-  createSupplier,
-  procurementKeys,
-  setSupplierStatus,
-  updateSupplier,
-  type SupplierCategory,
-} from "@/lib/queries/procurement"
-import { useSections } from "@/lib/session"
-import { useSheet } from "@/lib/sheets"
-import { useDebounced } from "@/lib/use-debounced"
-import { vendorBookQuery } from "@/screens/vendors/book-data"
-import { cn } from "@/lib/utils"
 import {
   CardName,
   type CardSpec,
-  DESK_BAR,
   PhoneCards,
 } from "@/components/ui/phone-cards"
+import { Status } from "@/components/ui/pill"
+import { Toolbar } from "@/components/ui/segmented"
+import { EmptyState, LoadingState } from "@/components/ui/states"
+import { SubTabs } from "@/components/ui/sub-tabs"
 import {
-  supplierDisplayName,
-  titled,
-} from "@/screens/procurement/supplier-format"
+  useFilterState,
+  type FilterField,
+  type FilterState,
+} from "@/lib/filters"
+import { count } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
+import type { SupplierCategory } from "@/lib/queries/procurement"
+import { useSheet } from "@/lib/sheets"
+import { tableSetup, type TableSetup } from "@/lib/table"
+import { useDebounced } from "@/lib/use-debounced"
+import { useFittedVisibility } from "@/screens/procurement/shared"
+import { supplierDisplayName } from "@/screens/procurement/supplier-format"
+import { vendorBookQuery } from "@/screens/vendors/book-data"
+import {
+  calmName,
+  glyphOf,
+  KINDS,
+  kindOf,
+  type KindInfo,
+  type SupplierKind,
+} from "@/screens/vendors/kinds"
+import {
+  contractedSuppliersQuery,
+  useAccountNames,
+  useMayEditSuppliers,
+  vendorCountQuery,
+  vendorRegisterQuery,
+} from "@/screens/vendors/vendor-data"
+import { AddVendorSheet, VendorSheet } from "@/screens/vendors/vendor-sheet"
 import type { Supplier } from "@itulah/contract"
 
 /// Suppliers — everybody we owe who does not sell us clothes.
 ///
 /// # Why this is a second menu over the same book
 ///
-/// The client's chart drew the line, in three accounts:
+/// The client's chart drew the line, in three accounts: Hutang Suppliers
+/// Barang Dagangan, Hutang Supplier Non Barang Dagang, and fourteen Hutang
+/// Affiliasi. Merchandise runs weekly against a purchase order and a goods
+/// receipt; PLN and the landlord run monthly against a meter reading or a
+/// contract. One screen for both would carry a PO column empty for half its
+/// rows — so two menus, over ONE record (`supplier` with a `category`, migration
+/// 0212), because ageing, payments and bills are the same machinery either way.
 ///
-///   2012001001  Hutang Suppliers Barang Dagangan
-///   2012001003  Hutang Supplier Non Barang Dagang
-///   2012301xxx  Hutang Affiliasi … (fourteen units)
+/// REGISTERING a supplier is General Affairs' work (the owner: "vendor
+/// registrasi di ga bukan?"); paying what they send is Finance's.
 ///
-/// and its accruals name the bills it expects every month — electricity,
-/// water, telephone, shop rent, staff-house rent, BPJS. Two liability accounts
-/// mean two ageing reports and two people doing two different jobs: merchandise
-/// runs weekly against a purchase order and a goods receipt, and the question
-/// is "did the delivery match"; PLN and the landlord run monthly against a
-/// meter reading or a contract, and the question is "is this the usual amount".
+/// # The list format
 ///
-/// One screen for both would carry a PO column empty for half its rows. So:
-/// two menus. But ONE record — `supplier` with a `category`, because ageing,
-/// payments, balances and bills are the same machinery either way, and a second
-/// table would mean a second half of each that has to agree with the first. See
-/// migration 0212.
+/// Head, figures, tabs, one bar, a framed table (owner, 18 Oct 2026, as
+/// Contracts draws it). The tabs are the two books, Operating and Affiliate.
+/// The bar narrows by what the supplier is for — the chips — and the kind is
+/// read off the account its bills debit (`kinds.ts`), which is also the column
+/// this screen is for: a supplier with no account is a supplier whose bills
+/// somebody has to account for by hand every month, so it says "Not set".
 ///
-/// # Why GA and not Finance
-///
-/// Because REGISTERING a supplier is General Affairs' work — signing up the
-/// electricity account, negotiating the rent, appointing the cleaners — and
-/// paying what they send is Finance's. The owner said so in five words when
-/// this screen first appeared under Finance. What Finance needs from the same
-/// record it reads where it works: on the bill, and in payables.
-///
-/// # The default account is the point of this screen
-///
-/// Fourteen PLN bills a month, each of which has to name the account it debits.
-/// Typing it fourteen times is how the fourteenth gets it wrong. A supplier that
-/// names its usual account fills that in for every bill it sends.
-///
-/// # Why the picker is a list and not the chart
-///
-/// These ten are the suppliers' consumable accounts in the client's own chart
-/// (0348) — stationery, household, fuel, tyres, tools — and the only ones a
-/// DEFAULT here is allowed to name. Everything else a supplier's bill could
-/// debit is reached through a mapping Finance keeps: prepaid and rent by
-/// contract type, repairs by the object that broke, asset purchases by the
-/// asset class. Offering those here would be a second, rival route to an
-/// answer that already has one. The names are the client's verbatim, misspelt
-/// "Expences" and all — an accountant looks for their word, not ours.
-const DEFAULT_ACCOUNTS: readonly { code: string; label: string }[] = [
-  { code: "6041", label: "Alat Tulis Kantor & Barang Cetakan" },
-  { code: "6042", label: "Biaya Rumah Tangga" },
-  { code: "6050", label: "Computer Expenses" },
-  { code: "6052", label: "Biaya Perlengkapan Toko dan Kantor" },
-  { code: "6054", label: "Biaya Peralatan Listrik" },
-  { code: "6055", label: "Tire & Tubes Expences" },
-  { code: "6056", label: "Fuel & Oil Expences" },
-  { code: "6057", label: "Tools (Peralatan) Expences" },
-  { code: "6059", label: "Biaya Telephone Equipment" },
-  { code: "6063", label: "Biaya Perlengkapan Mess atau Rumah Dinas" },
-]
-
-const CATEGORY_WORDS: Record<SupplierCategory, string> = {
-  EXPENSE: "Operating",
-  AFFILIATE: "Affiliate",
-  MERCHANDISE: "Merchandise",
-}
-
-/// Whether this person may add or change a supplier. The book is Procurement's
-/// and Finance's to keep; GA reads it to pick a vendor and sees it here
-/// read-only, the same split the server's section gate makes.
-function useMayEditSuppliers(): boolean {
-  const { sections, bypass } = useSections()
-  return (
-    bypass || sections.includes("procurement") || sections.includes("finance")
-  )
-}
-
+/// The figures describe the register (both books, whatever the bar narrows
+/// to); the tab counts and the foot describe the list.
 export function Vendors() {
   const [book, setBook] = useState<SupplierCategory>("EXPENSE")
+  const filters = useFilterState(FIELDS)
   const [search, setSearch] = useState("")
-  const [adding, setAdding] = useState(false)
+  const [adding, setAdding] = useState<{ open: boolean; round: number }>({
+    open: false,
+    round: 0,
+  })
   const mayEdit = useMayEditSuppliers()
+  // Every opening starts a clean form.
+  const startAdding = () =>
+    setAdding((current) => ({ open: true, round: current.round + 1 }))
   const phone = useLayout() === "phone"
 
   // The search is the server's, so it waits for the typing to stop.
   const needle = useDebounced(search.trim(), 300)
 
-  // The head, the + and the dock stand at once; the book waits for its first
-  // page and streams in with it (the server starts the read too).
+  // The kinds differ from one book to the other: leaving the book leaves the
+  // chip.
+  const chooseBook = (next: SupplierCategory) => {
+    setBook(next)
+    filters.clear()
+  }
+
+  // The head, the + and the figures stand at once; the book waits for its
+  // first page and streams in with it (the server starts the read too).
   return (
     <PageContent>
       <PageHeader
-        crumb="GA"
         title="Suppliers"
-        sub={
-          mayEdit
-            ? "Manage the providers of electricity, rented premises, repairs and other services."
-            : "The providers of electricity, rented premises, repairs and other services. Procurement adds and changes them."
-        }
+        small
         actions={
-          // On a phone the search and the book are the dock's, and the one
-          // thing this page makes is its round button.
-          phone ? undefined : (
-            <>
-              <Input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search"
-                className="h-8 w-56"
-              />
-              {mayEdit && (
-                <Button variant="primary" onClick={() => setAdding(true)}>
-                  <Plus />
-                  Add supplier
-                </Button>
-              )}
-            </>
+          // On a phone the one thing this page makes is its round button.
+          phone || !mayEdit ? undefined : (
+            <Button variant="primary" onClick={startAdding}>
+              <Plus />
+              Add supplier
+            </Button>
           )
         }
       />
 
-      {mayEdit && <Fab label="Add supplier" onClick={() => setAdding(true)} />}
-      <DockTools
-        search={{
-          value: search,
-          onChange: setSearch,
-          label: "Search suppliers",
-        }}
-        status={{
-          value: book,
-          options: [
-            { value: "EXPENSE", label: "Operating" },
-            { value: "AFFILIATE", label: "Affiliate" },
-          ],
-          onChange: (next) => setBook(next as SupplierCategory),
-        }}
-      />
+      {mayEdit && <Fab label="Add supplier" onClick={startAdding} />}
+
+      <Figures />
 
       <Suspense fallback={<LoadingState>Loading suppliers…</LoadingState>}>
         <VendorBook
           book={book}
-          onBook={setBook}
+          onBook={chooseBook}
+          filters={filters}
+          search={search}
+          onSearch={setSearch}
           needle={needle}
           mayEdit={mayEdit}
+          phone={phone}
           adding={adding}
-          setAdding={setAdding}
+          onAdd={startAdding}
+          onAdded={() => setAdding((current) => ({ ...current, open: false }))}
         />
       </Suspense>
     </PageContent>
   )
 }
 
+/// Suppliers · No expense account · On contracts. Read beside the list: they do
+/// not hold the page up while they arrive.
+function Figures() {
+  const register = useQuery(vendorRegisterQuery())
+  const contracted = useQuery(contractedSuppliersQuery())
+  const figure = (n: number | undefined) => (n === undefined ? "—" : count(n))
+  const missing = register.data?.filter(
+    (row) => row.expense_account_code === null
+  ).length
+  return (
+    <KpiStrip className="grid-cols-2 md:grid-cols-3 xl:grid-cols-3">
+      <Kpi label="Suppliers" value={figure(register.data?.length)} />
+      <Kpi
+        label="No expense account"
+        value={
+          missing !== undefined && missing > 0 ? (
+            <span className="text-warn-fg">{count(missing)}</span>
+          ) : (
+            figure(missing)
+          )
+        }
+      />
+      <Kpi label="On contracts" value={figure(contracted.data)} />
+    </KpiStrip>
+  )
+}
+
+/// A row of the table: the supplier, with what it is for and the account's
+/// name looked up once on the row rather than in the cell, because a column
+/// sorts by what is on the screen.
+interface VendorLine {
+  readonly supplier: Supplier
+  readonly kind: KindInfo
+  readonly accountName: string | null
+}
+
+/// The mark in front of a name: what the supplier is for. The same tile the
+/// forms' choices and the other registers' rows wear.
+function GlyphTile({ code }: { code: string | null }) {
+  const Glyph = glyphOf(code)
+  return (
+    <span
+      aria-hidden
+      className="grid size-[1.875rem] shrink-0 place-items-center rounded-inner bg-soft-2 text-body"
+    >
+      <Glyph className="size-4 stroke-[1.7]" />
+    </span>
+  )
+}
+
+/// A grey second line under a first one. A missing one is not drawn.
+function Over({
+  line,
+  quiet,
+}: {
+  line: React.ReactNode
+  quiet: React.ReactNode
+}) {
+  return (
+    <span className="flex min-w-0 flex-col">
+      <span className="truncate text-ink">{line}</span>
+      {quiet !== null && quiet !== undefined && quiet !== "" && (
+        <span className="truncate text-mute">{quiet}</span>
+      )}
+    </span>
+  )
+}
+
+/// Held at the widths their longest words need, measured at 1440 and 1280: the
+/// supplier takes the rest, and the table never scrolls sideways.
+const COLUMNS: ColumnDef<TableSetup, VendorLine>[] = [
+  {
+    id: "supplier",
+    accessorFn: (row) => supplierDisplayName(row.supplier),
+    header: "Supplier",
+    size: 340,
+    meta: { grow: 240 },
+    cell: ({ row }) => {
+      const { supplier } = row.original
+      const name = supplierDisplayName(supplier)
+      return (
+        <span className="flex min-w-0 items-center gap-3">
+          <GlyphTile code={supplier.expense_account_code} />
+          <span className="flex min-w-0 flex-col">
+            <span className="truncate font-medium text-ink" title={name}>
+              {name}
+            </span>
+            <span className="truncate text-mute">{supplier.supplier_code}</span>
+          </span>
+        </span>
+      )
+    },
+  },
+  {
+    id: "account",
+    accessorFn: (row) =>
+      row.accountName ?? row.supplier.expense_account_code ?? "",
+    header: "Expense account",
+    size: 290,
+    cell: ({ row }) => {
+      const code = row.original.supplier.expense_account_code
+      if (code === null) return <span className="text-mute">Not set</span>
+      const name = row.original.accountName
+      return name === null ? (
+        <span className="block truncate">{code}</span>
+      ) : (
+        <span title={name}>
+          <Over line={name} quiet={code} />
+        </span>
+      )
+    },
+  },
+  {
+    id: "contact",
+    accessorFn: (row) => row.supplier.contact_name ?? row.supplier.phone ?? "",
+    header: "Contact",
+    size: 170,
+    cell: ({ row }) => {
+      const { contact_name: name, phone } = row.original.supplier
+      if (name === null && phone === null)
+        return <span className="text-mute">—</span>
+      return name === null ? (
+        <span className="block truncate">{phone}</span>
+      ) : (
+        <Over line={name} quiet={phone} />
+      )
+    },
+  },
+  {
+    id: "status",
+    accessorFn: (row) => row.supplier.status,
+    header: "Status",
+    size: 110,
+    cell: ({ row }) => {
+      const active = row.original.supplier.status === "ACTIVE"
+      return (
+        <Status tone={active ? "ok" : "neutral"}>
+          {active ? "Active" : "Inactive"}
+        </Status>
+      )
+    },
+  },
+]
+
+/// What the book is narrowed by: what the supplier is for. Nine answers, so
+/// they are found by name in the search box.
+const FIELDS: FilterField[] = [
+  {
+    column: "kind",
+    label: "Kind",
+    spec: {
+      kind: "option",
+      single: true,
+      format: (value) =>
+        KINDS.find((one) => one.value === value)?.label ?? value,
+      icon: (value) => KINDS.find((one) => one.value === value)?.icon,
+    },
+  },
+]
+
 function VendorBook({
   book,
   onBook,
+  filters,
+  search,
+  onSearch,
   needle,
   mayEdit,
+  phone,
   adding,
-  setAdding,
+  onAdd,
+  onAdded,
 }: {
   book: SupplierCategory
   onBook: (next: SupplierCategory) => void
+  filters: FilterState
+  search: string
+  onSearch: (next: string) => void
   needle: string
   mayEdit: boolean
-  adding: boolean
-  setAdding: (adding: boolean) => void
+  phone: boolean
+  adding: { open: boolean; round: number }
+  onAdd: () => void
+  onAdded: () => void
 }) {
-  const editing = useSheet("supplier")
-  const phone = useLayout() === "phone"
+  const open = useSheet("supplier")
+  const kind = (filters.filters.find((one) => one.column === "kind")
+    ?.values[0] ?? null) as SupplierKind | null
+
+  // The sheet's last record stays while it slides away, so it does not flash
+  // to a loading line on its way out.
+  const [last, setLast] = useState<string | undefined>(open.value)
+  if (open.value !== undefined && open.value !== last) setLast(open.value)
 
   const scope = useMemo(
     () => ({ category: book, q: needle === "" ? undefined : needle }),
     [book, needle]
   )
 
-  /// The book, a page at a time as its foot nears view — the same read and
-  /// the same key shape the supplier book uses, under the book's prefix so
-  /// `suppliers()` invalidation still reaches it. It used to be the first
-  /// page alone, with a count of what had loaded beside it.
+  /// The book, every page of it: a hundred suppliers a page, and the next
+  /// asked for as soon as one lands, because the chips count what they
+  /// narrow and a count over the first page only would be a lie. The same
+  /// read and the same key shape the supplier book uses, under the book's
+  /// prefix so `suppliers()` invalidation still reaches it.
   ///
   /// The deferred scope keeps the rows in hand on screen while the next
   /// question is read, so a keystroke does not empty the list.
   const asked = useDeferredValue(scope)
   const vendors = useSuspenseInfiniteQuery(vendorBookQuery(asked))
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = vendors
+  useEffect(() => {
+    if (hasNextPage && !isFetchingNextPage) void fetchNextPage()
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage])
 
-  const rows = useMemo(
+  const head = vendors.data.pages[0]
+  const suppliers = useMemo(
     () => vendors.data.pages.flatMap((page) => page.rows),
     [vendors.data]
   )
-  const head = vendors.data.pages[0]
+  const names = useAccountNames(
+    suppliers.map((row) => row.expense_account_code)
+  )
 
-  const open = rows.find((row) => row.supplier_id === editing.value) ?? null
+  const lines = useMemo<VendorLine[]>(
+    () =>
+      suppliers.map((supplier) => ({
+        supplier,
+        kind: kindOf(supplier.expense_account_code),
+        accountName:
+          supplier.expense_account_code === null
+            ? null
+            : calmName(names.get(supplier.expense_account_code) ?? "") || null,
+      })),
+    [suppliers, names]
+  )
+  const shown = useMemo(
+    () =>
+      kind === null ? lines : lines.filter((line) => line.kind.value === kind),
+    [lines, kind]
+  )
+
+  // The tab counts: over what the search leaves, before the tab.
+  const operating = useQuery(
+    vendorCountQuery({ category: "EXPENSE", q: scope.q })
+  )
+  const affiliate = useQuery(
+    vendorCountQuery({ category: "AFFILIATE", q: scope.q })
+  )
+  const bookCount = (which: SupplierCategory) =>
+    which === "EXPENSE" ? operating.data : affiliate.data
+  const bookTotal = head?.total
+  const tabCount = (which: SupplierCategory) =>
+    bookCount(which) ?? (which === book ? bookTotal : undefined)
+
+  // The chips: every kind this book holds, with how many, the one chosen kept
+  // even when the search has emptied it.
+  const model = useMemo<FilterState>(
+    () => ({
+      ...filters,
+      fields: FIELDS.map((field) => ({
+        ...field,
+        spec: {
+          ...field.spec,
+          counted: KINDS.flatMap((one) => {
+            const n = lines.filter(
+              (line) => line.kind.value === one.value
+            ).length
+            return n === 0 && kind !== one.value
+              ? []
+              : [{ value: one.value as string, count: n }]
+          }),
+        },
+      })),
+    }),
+    [filters, lines, kind]
+  )
+
+  const [sorting, setSorting] = useState<SortingState>([])
+  /// What fits the card: nothing is given up at 1280, but the menu still
+  /// turns columns off and on.
+  const fit = useFittedVisibility(COLUMNS, {})
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: shown,
+        columns: COLUMNS,
+        getRowId: (row: VendorLine) => row.supplier.supplier_id,
+        state: { sorting, columnVisibility: fit.shown },
+        onSortingChange: setSorting,
+        onColumnVisibilityChange: fit.change,
+      }),
+      // `fit.shown` is rebuilt every render; what it is made of is not.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      [shown, sorting, fit.hidden, fit.visibility]
+    )
+  )
+
+  const narrowed = needle !== "" || kind !== null
+  const total = kind === null ? (bookTotal ?? shown.length) : shown.length
 
   return (
     <>
-      <div className={DESK_BAR}>
-        {/* Two books, not three. Merchandise is the other menu's — a supplier
-            list that could show garment factories would be the single list
-            this screen exists instead of. */}
-        <Segmented
-          options={[
-            { value: "EXPENSE" as const, label: "Operating" },
-            { value: "AFFILIATE" as const, label: "Affiliate" },
-          ]}
-          value={book}
-          onChange={onBook}
-        />
-        <Toolbar.Spacer />
-        {head !== undefined && (
-          <span className="text-meta text-body">
-            <b className="font-medium text-ink">{count(head.total)}</b>{" "}
-            {head.total === 1 ? "supplier" : "suppliers"}
-          </span>
+      <SubTabs
+        // On a phone the tab is the status chip over the bottom bar.
+        className="max-md:hidden"
+        tabs={[
+          {
+            value: "EXPENSE",
+            label: <TabLabel text="Operating" n={tabCount("EXPENSE")} />,
+          },
+          {
+            value: "AFFILIATE",
+            label: <TabLabel text="Affiliate" n={tabCount("AFFILIATE")} />,
+          },
+        ]}
+        value={book}
+        onChange={(next) => onBook(next as SupplierCategory)}
+      />
+
+      {/* One bar: the search at the left, Columns at the right, and the kinds
+          on a line of their own under them. On a phone they are the dock's. */}
+      <div className="max-md:hidden">
+        <Toolbar className="group/bar">
+          <ListFilters
+            model={model}
+            search={{
+              value: search,
+              onChange: onSearch,
+              label: "Search suppliers",
+            }}
+          />
+          <BarSpacer />
+          <ColumnsMenu table={table} />
+        </Toolbar>
+      </div>
+
+      <DockTools
+        search={{
+          value: search,
+          onChange: onSearch,
+          label: "Search suppliers",
+        }}
+        filter={{
+          count: filters.filters.length,
+          panel: { model: filters, filterModel: model },
+        }}
+        status={{
+          value: book,
+          options: [
+            {
+              value: "EXPENSE",
+              label: "Operating",
+              count: tabCount("EXPENSE"),
+            },
+            {
+              value: "AFFILIATE",
+              label: "Affiliate",
+              count: tabCount("AFFILIATE"),
+            },
+          ],
+          onChange: (next) => onBook(next as SupplierCategory),
+        }}
+      />
+
+      <div aria-busy={asked !== scope || undefined} className="list-swap">
+        {shown.length === 0 ? (
+          <Card>
+            <EmptyState
+              action={
+                mayEdit && !narrowed ? (
+                  <Button variant="ghost" onClick={onAdd}>
+                    Add the first supplier
+                  </Button>
+                ) : undefined
+              }
+            >
+              {narrowed
+                ? "No supplier matches these filters."
+                : book === "EXPENSE"
+                  ? "No operating suppliers yet."
+                  : "No affiliate suppliers yet."}
+            </EmptyState>
+          </Card>
+        ) : phone ? (
+          <PhoneCards
+            rows={shown}
+            rowId={(line) => line.supplier.supplier_id}
+            spec={VENDOR_CARD}
+            onOpen={(line) => open.open(line.supplier.supplier_id)}
+            more={vendors}
+          />
+        ) : (
+          // `overflow-clip`, not `overflow-hidden`: hidden makes the card a
+          // scroll box, and the heading would stick to the card instead of
+          // the window.
+          <Card ref={fit.ref} className="overflow-clip">
+            <DataTable<VendorLine>
+              refresh={[vendors]}
+              table={table}
+              onRowClick={(line) => open.open(line.supplier.supplier_id)}
+              isSelected={(line) => line.supplier.supplier_id === open.value}
+              more={vendors}
+              // The window scrolls, not the table.
+              pageScroll
+              summary={{
+                supplier: (
+                  <span>
+                    {count(total)}{" "}
+                    <span className="font-normal text-body">
+                      {total === 1 ? "supplier" : "suppliers"}
+                    </span>
+                  </span>
+                ),
+              }}
+            />
+          </Card>
         )}
       </div>
 
-      {rows.length === 0 ? (
-        <Card>
-          <EmptyState
-            action={
-              mayEdit ? (
-                <Button variant="ghost" onClick={() => setAdding(true)}>
-                  Add first supplier
-                </Button>
-              ) : undefined
-            }
-          >
-            {book === "EXPENSE"
-              ? "No operating suppliers yet. Add a service provider or a party that sends bills."
-              : "No affiliate suppliers yet. Add another unit in the company group that transacts with this company."}
-          </EmptyState>
-        </Card>
-      ) : phone ? (
-        <PhoneCards
-          rows={rows}
-          rowId={(row) => row.supplier_id}
-          spec={VENDOR_CARD}
-          onOpen={(row) => editing.open(row.supplier_id)}
-          more={vendors}
-        />
-      ) : (
-        <Card className="overflow-hidden">
-          <div className="grid h-10 grid-cols-[7rem_minmax(0,1fr)_11rem_9rem_6rem] items-center gap-3 border-b border-hairline bg-soft px-3.5 text-eyebrow font-medium text-body">
-            <span>Code</span>
-            <span>Supplier</span>
-            <span>Expense account</span>
-            <span>Contact</span>
-            <span>Status</span>
-          </div>
-          {rows.map((row) => (
-            <VendorRow
-              key={row.supplier_id}
-              vendor={row}
-              onOpen={() => editing.open(row.supplier_id)}
-            />
-          ))}
-          {/* The page scrolls, not this card — see `<LoadMore>`. */}
-          <LoadMore query={vendors} />
-        </Card>
-      )}
+      <AddVendorSheet
+        key={`add:${adding.round}`}
+        open={adding.open}
+        book={book}
+        onClose={onAdded}
+        onCreated={(supplierId) => {
+          onAdded()
+          open.open(supplierId)
+        }}
+      />
 
       <VendorSheet
-        open={adding || open !== null}
-        vendor={open}
-        book={book}
-        onClose={() => {
-          setAdding(false)
-          editing.close()
-        }}
+        supplierId={open.value ?? last}
+        open={open.isOpen}
+        row={suppliers.find((row) => row.supplier_id === (open.value ?? last))}
+        onClose={open.close}
       />
     </>
   )
 }
 
-/// A supplier as a phone's card: the name over its code, who to ring, the
-/// account its bills usually debit (said plainly when it is not set), and
-/// whether it is still used.
-const VENDOR_CARD: CardSpec<Supplier> = {
-  title: (row) => (
-    <CardName name={supplierDisplayName(row)} code={row.supplier_code} />
+/// A tab's word and its count, the count quiet (as Contracts draws it). A count
+/// still being read is left out.
+function TabLabel({ text, n }: { text: string; n: number | undefined }) {
+  return (
+    <span>
+      {text}
+      {n !== undefined && (
+        <span className="ml-1.5 text-body tabular-nums">{count(n)}</span>
+      )}
+    </span>
+  )
+}
+
+/// The same row as a phone card: the supplier with its mark and its code, who
+/// to ring, the account its bills usually debit (said plainly when it is not
+/// set), and whether it is still used.
+const VENDOR_CARD: CardSpec<VendorLine> = {
+  title: (line) => (
+    <span className="flex min-w-0 items-start gap-3">
+      <GlyphTile code={line.supplier.expense_account_code} />
+      <CardName
+        name={supplierDisplayName(line.supplier)}
+        code={line.supplier.supplier_code}
+      />
+    </span>
   ),
-  meta: [(row) => row.contact_name ?? row.phone],
-  foot: (row) =>
-    row.expense_account_code === null ? (
-      <span className="italic">Account not set</span>
+  meta: [
+    (line) =>
+      [line.supplier.contact_name, line.supplier.phone]
+        .filter((part) => part !== null && part !== "")
+        .join(" · "),
+  ],
+  foot: (line) =>
+    line.supplier.expense_account_code === null ? (
+      <span>Not set</span>
     ) : (
       <span>
-        Account <span className="font-mono">{row.expense_account_code}</span>
+        {line.supplier.expense_account_code}
+        {line.accountName !== null && ` · ${line.accountName}`}
       </span>
     ),
-  action: (row) => (
-    <Pill tone={row.status === "ACTIVE" ? "ok" : "neutral"}>
-      {row.status === "ACTIVE" ? "Active" : "Inactive"}
-    </Pill>
+  action: (line) => (
+    <Status tone={line.supplier.status === "ACTIVE" ? "ok" : "neutral"}>
+      {line.supplier.status === "ACTIVE" ? "Active" : "Inactive"}
+    </Status>
   ),
-}
-
-function VendorRow({
-  vendor,
-  onOpen,
-}: {
-  vendor: Supplier
-  onOpen: () => void
-}) {
-  return (
-    <div
-      onClick={onOpen}
-      className="grid cursor-pointer grid-cols-[7rem_minmax(0,1fr)_11rem_9rem_6rem] items-center gap-3 border-b border-hairline px-3.5 py-2.5 transition-colors last:border-b-0 hover:bg-soft"
-    >
-      <span className="truncate font-mono text-id text-body">
-        {vendor.supplier_code}
-      </span>
-      <span className="truncate text-cell font-medium text-ink">
-        {supplierDisplayName(vendor)}
-      </span>
-      {/* The column this screen is for. An empty one is a supplier whose bills
-          somebody has to account for by hand every month, so it says so
-          rather than sitting blank. */}
-      <span
-        className={cn(
-          "truncate font-mono text-id",
-          vendor.expense_account_code === null
-            ? "text-mute italic"
-            : "text-body"
-        )}
-      >
-        {vendor.expense_account_code ?? "not set"}
-      </span>
-      <span className="truncate text-meta text-body">
-        {vendor.contact_name ?? vendor.phone ?? "—"}
-      </span>
-      <span>
-        <Pill tone={vendor.status === "ACTIVE" ? "ok" : "neutral"}>
-          {vendor.status === "ACTIVE" ? "Active" : "Inactive"}
-        </Pill>
-      </span>
-    </div>
-  )
-}
-
-/// One supplier, made or changed.
-///
-/// An existing record has three faces — the details, the bank accounts, the
-/// contacts — because registering the supplier and keeping its payment and
-/// people details current are three questions asked on different days. A NEW
-/// supplier has one face only: there is nothing yet to put an account beside,
-/// and the panels' own Add buttons are how the rest arrives.
-function VendorSheet({
-  open,
-  vendor,
-  book,
-  onClose,
-}: {
-  open: boolean
-  vendor: Supplier | null
-  book: SupplierCategory
-  onClose: () => void
-}) {
-  const client = useQueryClient()
-  const [form, setForm] = useState<Record<string, string>>({})
-  const [tab, setTab] = useState("details")
-  const mayEdit = useMayEditSuppliers()
-
-  // The row being edited, or the blanks a new one starts from. Keyed by the
-  // supplier below, so switching rows does not carry the last one's typing.
-  const value = (key: keyof Supplier, fallback = "") =>
-    form[key] ?? (vendor?.[key] as string | null) ?? fallback
-
-  // The picker's value, and whether the list names it. A code set before the
-  // picker existed — the old field took the whole chart — has to stay
-  // visible in the Select rather than read as empty.
-  const currentAccount = value("expense_account_code").trim()
-  const currentIsListed = DEFAULT_ACCOUNTS.some(
-    (one) => one.code === currentAccount
-  )
-
-  const refresh = () => {
-    void client.invalidateQueries({ queryKey: procurementKeys.suppliers() })
-    setForm({})
-    onClose()
-  }
-
-  const save = useMutation({
-    mutationFn: () => {
-      const key = crypto.randomUUID()
-      const account = value("expense_account_code").trim()
-      if (vendor === null) {
-        return createSupplier(
-          {
-            supplier_code: value("supplier_code").trim(),
-            name: value("name").trim(),
-            contact_name: blank(value("contact_name")),
-            phone: blank(value("phone")),
-            email: blank(value("email")),
-            address: blank(value("address")),
-            status: "ACTIVE",
-            category: form.category ?? book,
-            expense_account_code: account === "" ? null : account,
-          },
-          key
-        )
-      }
-      return updateSupplier(
-        vendor.supplier_id,
-        {
-          supplier_code: value("supplier_code").trim(),
-          name: value("name").trim(),
-          contact_name: blank(value("contact_name")),
-          phone: blank(value("phone")),
-          email: blank(value("email")),
-          address: blank(value("address")),
-          category: form.category ?? vendor.category,
-          expense_account_code: account === "" ? null : account,
-        },
-        vendor.version,
-        key
-      )
-    },
-    onSuccess: refresh,
-  })
-
-  const retire = useMutation({
-    mutationFn: () =>
-      setSupplierStatus(
-        vendor?.supplier_id ?? "",
-        vendor?.status === "ACTIVE" ? "INACTIVE" : "ACTIVE",
-        vendor?.version ?? 0,
-        crypto.randomUUID()
-      ),
-    onSuccess: refresh,
-  })
-
-  const ready =
-    value("supplier_code").trim() !== "" && value("name").trim() !== ""
-
-  return (
-    <Sheet
-      key={vendor?.supplier_id ?? "new"}
-      open={open}
-      onOpenChange={(next) => !next && onClose()}
-      title={vendor === null ? "Add supplier" : supplierDisplayName(vendor)}
-      footer={
-        !mayEdit ? (
-          <span className="text-pill text-mute">
-            Read only. Ask Procurement to add or change a supplier.
-          </span>
-        ) : // Save and Retire are the DETAILS' acts — the form's. The bank and
-        // contact panels write as they go, each request carrying its own
-        // idempotency key, so a footer Save down here would be a button that
-        // does nothing and a lie about how the data got there.
-        vendor === null || tab === "details" ? (
-          <div className="flex items-center justify-between gap-3">
-            {vendor !== null ? (
-              <Button
-                variant="ghost"
-                onClick={() => retire.mutate()}
-                pending={retire.isPending}
-              >
-                {vendor.status === "ACTIVE" ? "Deactivate" : "Reactivate"}
-              </Button>
-            ) : (
-              <span className="text-pill text-mute">
-                Fill in the supplier details to create it.
-              </span>
-            )}
-            <Button
-              variant="primary"
-              pending={save.isPending}
-              disabled={!ready}
-              onClick={() => save.mutate()}
-            >
-              {save.isPending ? "Submitting…" : "Submit"}
-            </Button>
-          </div>
-        ) : (
-          <span className="text-pill text-mute">
-            Changes in this section are saved automatically.
-          </span>
-        )
-      }
-    >
-      <div className="flex flex-col gap-4">
-        {save.error instanceof Error && (
-          <Banner tone="bad">{save.error.message}</Banner>
-        )}
-
-        {vendor !== null && (
-          <SubTabs
-            className="mb-0"
-            // Bank details are for whoever pays the supplier, not for GA.
-            tabs={[
-              { value: "details", label: "Details" },
-              ...(mayEdit ? [{ value: "bank", label: "Bank accounts" }] : []),
-              { value: "contacts", label: "Contacts" },
-            ]}
-            value={tab}
-            onChange={setTab}
-          />
-        )}
-
-        {vendor !== null && mayEdit && tab === "bank" && (
-          <SupplierBankAccountsPanel supplierId={vendor.supplier_id} />
-        )}
-
-        {vendor !== null && tab === "contacts" && (
-          <SupplierContactsPanel supplierId={vendor.supplier_id} />
-        )}
-
-        {(vendor === null || tab === "details") && (
-          // A disabled fieldset holds every control in it still, so a
-          // read-only reader sees the same form and cannot change it.
-          <fieldset disabled={!mayEdit} className="contents">
-            <div className="grid grid-cols-2 gap-4">
-              <Field label="Code" required>
-                <Input
-                  value={value("supplier_code")}
-                  onChange={(event) =>
-                    setForm((f) => ({
-                      ...f,
-                      supplier_code: event.target.value,
-                    }))
-                  }
-                />
-              </Field>
-              <Field label="Type">
-                <Select
-                  value={form.category ?? vendor?.category ?? book}
-                  onChange={(next) =>
-                    setForm((f) => ({ ...f, category: next }))
-                  }
-                  aria-label="Kind"
-                >
-                  <option value="EXPENSE">
-                    {CATEGORY_WORDS.EXPENSE} — a provider that sends bills
-                  </option>
-                  <option value="AFFILIATE">
-                    {CATEGORY_WORDS.AFFILIATE} — another unit in the group
-                  </option>
-                  <option value="MERCHANDISE">
-                    {CATEGORY_WORDS.MERCHANDISE} — supplies goods for resale
-                  </option>
-                </Select>
-              </Field>
-            </div>
-
-            <Field label="Name" required>
-              <Input
-                value={value("name")}
-                onChange={(event) =>
-                  titled(event, (name) => setForm((f) => ({ ...f, name })))
-                }
-              />
-            </Field>
-
-            <Field
-              label="Default expense account"
-              hint="This account fills in automatically on the supplier's bills and can still be changed when the bill is reviewed."
-            >
-              <Select
-                value={value("expense_account_code")}
-                onChange={(next) =>
-                  setForm((f) => ({ ...f, expense_account_code: next }))
-                }
-                aria-label="Default expense account"
-              >
-                <option value="">Not selected</option>
-                {/* A value set before the picker existed — free text accepted
-                    the whole chart — stays visible and saveable rather than
-                    silently reading as empty. */}
-                {currentAccount !== "" && !currentIsListed && (
-                  <option value={currentAccount}>
-                    {currentAccount} (current)
-                  </option>
-                )}
-                {DEFAULT_ACCOUNTS.map((one) => (
-                  <option key={one.code} value={one.code}>
-                    {one.code} · {one.label}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-
-            <div className="grid grid-cols-2 gap-4">
-              <Field label="Contact">
-                <Input
-                  value={value("contact_name")}
-                  onChange={(event) =>
-                    setForm((f) => ({ ...f, contact_name: event.target.value }))
-                  }
-                />
-              </Field>
-              <Field label="Phone">
-                <Input
-                  value={value("phone")}
-                  onChange={(event) =>
-                    setForm((f) => ({ ...f, phone: event.target.value }))
-                  }
-                />
-              </Field>
-            </div>
-
-            <Field label="Address">
-              <Input
-                value={value("address")}
-                onChange={(event) =>
-                  titled(event, (address) =>
-                    setForm((f) => ({ ...f, address }))
-                  )
-                }
-              />
-            </Field>
-          </fieldset>
-        )}
-      </div>
-    </Sheet>
-  )
-}
-
-/// An empty box means "nothing", and the endpoint spells nothing `null`.
-function blank(value: string): string | null {
-  const trimmed = value.trim()
-  return trimmed === "" ? null : trimmed
 }

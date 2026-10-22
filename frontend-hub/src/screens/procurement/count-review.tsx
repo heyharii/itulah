@@ -189,7 +189,9 @@ export function CountReview({
 
   // The record sheet's anatomy (hub-ui-patterns): where it sits in grey — the
   // screen, then the order's number — the name, × at the right.
-  const pathname = useRouterState({ select: (state) => state.location.pathname })
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  })
   const where = screenForPath(pathname)?.label
   const layer = useSheetLayer(po !== null && !phone, false)
   const head = (
@@ -494,8 +496,7 @@ function Review({
   >(null)
   const recordOf = useSupplierRecordId()
   const itemOf = (row: Count) =>
-    detail.data?.lines.find((one) => one.po_line_id === row.po_line_id) ??
-    null
+    detail.data?.lines.find((one) => one.po_line_id === row.po_line_id) ?? null
   /// The line's name, as a link to its record once the order is read.
   const itemName = (row: Count, className: string) => {
     const line = itemOf(row)
@@ -621,10 +622,12 @@ function Review({
     .sort()[0]
   const recounted = firstCounted !== undefined
   // The Recount button's own note ("Count again") is not a reason.
-  const recountReason = rows.find((row) => {
-    const said = (row.recount_reason ?? "").trim()
-    return said !== "" && said !== "Count again"
-  })?.recount_reason?.trim()
+  const recountReason = rows
+    .find((row) => {
+      const said = (row.recount_reason ?? "").trim()
+      return said !== "" && said !== "Count again"
+    })
+    ?.recount_reason?.trim()
   const latest = rows.reduce(
     (newest, row) => (row.counted_at > newest ? row.counted_at : newest),
     rows[0]?.counted_at ?? ""
@@ -647,7 +650,9 @@ function Review({
     .filter(Boolean)
     .join(" \u00b7 ")
   const headSupplierId =
-    order === undefined ? null : recordOf(order.supplier_id, order.supplier_name)
+    order === undefined
+      ? null
+      : recordOf(order.supplier_id, order.supplier_name)
   const headOrderId = order?.purchase_order_id ?? null
   useEffect(() => {
     onHead({
@@ -876,7 +881,10 @@ function Review({
             choice in the foot, not a figure. */}
         {rows.length > 0 && (
           <KpiStrip className="mb-0!">
-            <Kpi label={part ? "Ordered Left" : "Ordered"} value={pcs(totalOrdered)} />
+            <Kpi
+              label={part ? "Ordered Left" : "Ordered"}
+              value={pcs(totalOrdered)}
+            />
             <Kpi label="Received" value={pcs(totalCounted + totalWrong)} />
             <Kpi label="Accepted" value={pcs(totalCounted - overQty)} />
             {shortQty > 0 && (
@@ -900,7 +908,7 @@ function Review({
           </KpiStrip>
         )}
 
-                {/* The verdict, the table it is about and what it is worth read as
+        {/* The verdict, the table it is about and what it is worth read as
           one block: closer to each other than to the rest. */}
         <div className="flex flex-col gap-4">
           {canHide && (
@@ -925,45 +933,59 @@ function Review({
                   <div className="min-w-0">
                     <TwoLines
                       top={
-                        itemOf(row) === null ? (
-                          row.article_name
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => setLineShown(itemOf(row))}
-                            className="record-link text-left"
-                          >
-                            {row.article_name}
-                          </button>
-                        )
+                        <>
+                          {itemOf(row) === null ? (
+                            row.article_name
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setLineShown(itemOf(row))}
+                              className="record-link text-left"
+                            >
+                              {row.article_name}
+                            </button>
+                          )}
+                          {(row.variants ?? []).length === 1 && (
+                            <span className="font-normal">
+                              {` ${variantLabel("", row.variants![0]).trim()}`}
+                            </span>
+                          )}
+                        </>
                       }
                       bottom={kindOf(row)}
                     />
                   </div>
                   <dl className="grid grid-cols-2 gap-3 text-[0.9375rem]">
-                    <div className="flex flex-col gap-0.5">
-                      <dt className="text-mute">{orderedHead}</dt>
-                      <dd className="text-body tabular-nums">
-                        <Qty pieces={owed(row)} row={row} />
-                      </dd>
-                    </div>
-                    <div className="flex flex-col gap-0.5">
-                      <dt className="text-mute">Received</dt>
-                      <dd className="tabular-nums">
-                        <Qty
-                          pieces={correct(row)}
-                          row={row}
-                          tone={diff === 0 ? "text-ok-fg" : "text-bad-fg"}
-                        />
-                        {diff !== 0 && (
-                          <span className="block text-[0.9375rem] text-bad-fg">
-                            {diff < 0
-                              ? `${inUnit(-diff, row)} short`
-                              : `+${inUnit(diff, row)} over`}
-                          </span>
-                        )}
-                      </dd>
-                    </div>
+                    {/* With variants the counts are theirs, below; the card
+                      keeps only the price and what it comes to. One variant
+                      is the line itself: its name rides on the title. */}
+                    {(row.variants ?? []).length <= 1 && (
+                      <>
+                        <div className="flex flex-col gap-0.5">
+                          <dt className="text-mute">{orderedHead}</dt>
+                          <dd className="text-body tabular-nums">
+                            <Qty pieces={owed(row)} row={row} />
+                          </dd>
+                        </div>
+                        <div className="flex flex-col gap-0.5">
+                          <dt className="text-mute">Received</dt>
+                          <dd className="tabular-nums">
+                            <Qty
+                              pieces={correct(row)}
+                              row={row}
+                              tone={diff === 0 ? "text-ok-fg" : "text-bad-fg"}
+                            />
+                            {diff !== 0 && (
+                              <span className="block text-[0.9375rem] text-bad-fg">
+                                {diff < 0
+                                  ? `${inUnit(-diff, row)} short`
+                                  : `+${inUnit(diff, row)} over`}
+                              </span>
+                            )}
+                          </dd>
+                        </div>
+                      </>
+                    )}
                     <div className="flex flex-col gap-0.5">
                       <dt className="text-mute">Unit Price</dt>
                       <dd className="text-ink tabular-nums">
@@ -983,10 +1005,11 @@ function Review({
                   </dl>
                   {/* Counted per variant (owner, 2026-10-10): each variant
                     under the line, its figures under the line's headings. */}
-                  {(row.variants ?? []).length > 0 && (
-                    <div className="flex flex-col gap-3 border-t border-hairline pt-3">
-                      {(row.variants ?? []).map((variant) => {
+                  {(row.variants ?? []).length > 1 && (
+                    <div className="ml-5 flex flex-col gap-3 border-l-[1.5px] border-hairline pl-3">
+                      {(row.variants ?? []).map((variant, at) => {
                         const name = variantLabel(row.article_name, variant)
+                        const own = variantLabel("", variant).trim()
                         return (
                           <div
                             key={variantKey(variant)}
@@ -998,25 +1021,40 @@ function Review({
                                 fallback={imageOf(row)}
                                 name={name}
                               />
-                              <span className="line-clamp-2 min-w-0 text-[0.9375rem] text-body">
-                                {name}
+                              <span
+                                title={name}
+                                className="line-clamp-2 min-w-0 text-[0.9375rem] text-ink"
+                              >
+                                {own}
                               </span>
                             </div>
                             <dl className="grid grid-cols-3 gap-3 text-[0.9375rem]">
                               <div className="flex flex-col">
-                                <dt className="sr-only">Ordered</dt>
+                                <dt
+                                  className={at === 0 ? "text-mute" : "sr-only"}
+                                >
+                                  {orderedHead}
+                                </dt>
                                 <dd className="text-body tabular-nums">
                                   {pcs(variant.outstanding_quantity)}
                                 </dd>
                               </div>
                               <div className="flex flex-col">
-                                <dt className="sr-only">Received</dt>
+                                <dt
+                                  className={at === 0 ? "text-mute" : "sr-only"}
+                                >
+                                  Received
+                                </dt>
                                 <dd className="text-body tabular-nums">
                                   {pcs(variant.counted_quantity)}
                                 </dd>
                               </div>
                               <div className="flex flex-col">
-                                <dt className="sr-only">Difference</dt>
+                                <dt
+                                  className={at === 0 ? "text-mute" : "sr-only"}
+                                >
+                                  Difference
+                                </dt>
                                 <dd className="font-medium">
                                   <VariantDiff
                                     diff={
@@ -1059,104 +1097,175 @@ function Review({
                 <tbody>
                   {visible.map((row) => {
                     const diff = gap(row)
+                    const variants = row.variants ?? []
                     return (
                       <Fragment key={row.count_id}>
-                        <tr className="h-16 border-t border-hairline">
-                          <td className={CELL}>
-                            <div
-                              title={row.article_name}
-                              className="min-w-0 py-1"
-                            >
-                              {itemName(
-                                row,
-                                "line-clamp-2 leading-[1.4] font-medium text-ink"
-                              )}
-                              <div className="mt-1 truncate text-[0.9375rem] leading-[1.4] text-mute">
-                                {kindOf(row)}
+                        {variants.length === 0 ? (
+                          <tr className={ARTICLE_ROW}>
+                            <td className={CELL}>
+                              <div
+                                title={row.article_name}
+                                className="min-w-0 py-1"
+                              >
+                                {itemName(
+                                  row,
+                                  "line-clamp-2 leading-[1.4] font-medium text-ink"
+                                )}
+                                <div className="mt-1 truncate text-[0.9375rem] leading-[1.4] text-mute">
+                                  {kindOf(row)}
+                                </div>
                               </div>
-                            </div>
-                          </td>
-                          <td className={cn(CELL, NUMR)}>
-                            <Qty pieces={owed(row)} row={row} end />
-                          </td>
-                          <td className={cn(CELL, NUMR)}>
-                            {/* Green when the count is what was expected, red
+                            </td>
+                            <td className={cn(CELL, NUMR)}>
+                              <Qty pieces={owed(row)} row={row} end />
+                            </td>
+                            <td className={cn(CELL, NUMR)}>
+                              {/* Green when the count is what was expected, red
                                 when it is over or under, and by how much
                                 (owner, 2026-10-12). */}
-                            <Qty
-                              pieces={correct(row)}
-                              row={row}
-                              end
-                              tone={diff === 0 ? "text-ok-fg" : "text-bad-fg"}
-                            />
-                            {diff !== 0 && (
-                              <span className="block text-[0.9375rem] text-bad-fg">
-                                {diff < 0
-                                  ? `${inUnit(-diff, row)} short`
-                                  : `+${inUnit(diff, row)} over`}
-                              </span>
-                            )}
-                          </td>
-                          <td className={cn(CELL, NUMR, "text-ink")}>
-                            {row.unit_price_minor === null
-                              ? "—"
-                              : `${money(row.unit_price_minor)} / pc`}
-                          </td>
-                          <td
-                            className={cn(CELL, NUMR, "font-medium text-ink")}
-                          >
-                            {row.unit_price_minor === null ||
-                            correct(row) === 0 ? (
-                              <span className="text-faint">—</span>
-                            ) : (
-                              money(amountOf(row))
-                            )}
-                          </td>
-                        </tr>
-                        {/* Counted per variant (owner, 2026-10-10): the line's
-                        variants under it, in the same columns. The line above
-                        stays the one that is accepted or closed short. */}
-                        {(row.variants ?? []).map((variant) => {
-                          const name = variantLabel(row.article_name, variant)
-                          return (
-                            <tr
-                              key={variantKey(variant)}
-                              className="border-t border-hairline"
-                            >
-                              <td className={CELL}>
-                                <div className="flex min-w-0 items-center gap-3">
-                                  <VariantPhoto
-                                    urls={variant.image_urls}
-                                    fallback={imageOf(row)}
-                                    name={name}
-                                  />
-                                  <span
-                                    title={name}
-                                    className="line-clamp-2 min-w-0 text-body"
-                                  >
-                                    {name}
-                                  </span>
-                                </div>
-                              </td>
-                              <td className={cn(CELL, NUMR)}>
-                                {pcs(variant.outstanding_quantity)}
-                              </td>
-                              <td className={cn(CELL, NUMR)}>
-                                {pcs(variant.counted_quantity)}
-                                <span className="block font-medium">
-                                  <VariantDiff
-                                    diff={
-                                      variant.counted_quantity -
-                                      variant.outstanding_quantity
-                                    }
-                                  />
+                              <Qty
+                                pieces={correct(row)}
+                                row={row}
+                                end
+                                tone={diff === 0 ? "text-ok-fg" : "text-bad-fg"}
+                              />
+                              {diff !== 0 && (
+                                <span className="block text-[0.9375rem] text-bad-fg">
+                                  {diff < 0
+                                    ? `${inUnit(-diff, row)} short`
+                                    : `+${inUnit(diff, row)} over`}
                                 </span>
-                              </td>
-                              <td className={CELL} />
-                              <td className={CELL} />
-                            </tr>
-                          )
-                        })}
+                              )}
+                            </td>
+                            <td className={cn(CELL, NUMR, "text-ink")}>
+                              {row.unit_price_minor === null
+                                ? "—"
+                                : `${money(row.unit_price_minor)} / pc`}
+                            </td>
+                            <td
+                              className={cn(CELL, NUMR, "font-medium text-ink")}
+                            >
+                              {row.unit_price_minor === null ||
+                              correct(row) === 0 ? (
+                                <span className="text-faint">—</span>
+                              ) : (
+                                money(amountOf(row))
+                              )}
+                            </td>
+                          </tr>
+                        ) : (
+                          /* Variants are the rows (owner, 2026-10-18): no row
+                          for the article. Its name and kind ride on the first
+                          variant; the rest hang off it on a guide line, the
+                          price said once. */
+                          variants.map((variant, at) => {
+                            const name = variantLabel(row.article_name, variant)
+                            const own = variantLabel("", variant).trim()
+                            const vdiff =
+                              variant.counted_quantity -
+                              variant.outstanding_quantity
+                            return (
+                              <tr
+                                key={variantKey(variant)}
+                                className={
+                                  at === 0
+                                    ? ARTICLE_ROW
+                                    : "border-t border-dashed border-hairline"
+                                }
+                              >
+                                <td className={CELL}>
+                                  <div className="flex min-w-0 items-center gap-3">
+                                    {at > 0 && (
+                                      <span
+                                        aria-hidden
+                                        className={cn(
+                                          GUIDE,
+                                          at === variants.length - 1 &&
+                                            "before:bottom-1/2"
+                                        )}
+                                      />
+                                    )}
+                                    <VariantPhoto
+                                      urls={variant.image_urls}
+                                      fallback={imageOf(row)}
+                                      name={name}
+                                      slot
+                                    />
+                                    {at === 0 ? (
+                                      <div
+                                        title={name}
+                                        className="min-w-0 py-1"
+                                      >
+                                        <div className="flex min-w-0 items-baseline gap-1.5">
+                                          {itemName(
+                                            row,
+                                            "truncate leading-[1.4] font-medium text-ink"
+                                          )}
+                                          <span className="shrink-0 text-ink">
+                                            {own}
+                                          </span>
+                                        </div>
+                                        <div className="mt-1 truncate text-[0.9375rem] leading-[1.4] text-mute">
+                                          {kindOf(row)}
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <span
+                                        title={name}
+                                        className="line-clamp-2 min-w-0 text-ink"
+                                      >
+                                        {own}
+                                      </span>
+                                    )}
+                                  </div>
+                                </td>
+                                <td className={cn(CELL, NUMR)}>
+                                  {pcs(variant.outstanding_quantity)}
+                                </td>
+                                <td className={cn(CELL, NUMR)}>
+                                  <span
+                                    className={
+                                      vdiff === 0 ? "text-ok-fg" : "text-bad-fg"
+                                    }
+                                  >
+                                    {pcs(variant.counted_quantity)}
+                                  </span>
+                                  <span className="block font-medium">
+                                    <VariantDiff diff={vdiff} />
+                                  </span>
+                                </td>
+                                <td className={cn(CELL, NUMR, "text-ink")}>
+                                  {at > 0 ? (
+                                    <span className="text-faint">〃</span>
+                                  ) : row.unit_price_minor === null ? (
+                                    "—"
+                                  ) : (
+                                    `${money(row.unit_price_minor)} / pc`
+                                  )}
+                                </td>
+                                <td
+                                  className={cn(
+                                    CELL,
+                                    NUMR,
+                                    "font-medium text-ink"
+                                  )}
+                                >
+                                  {row.unit_price_minor === null ||
+                                  variant.counted_quantity === 0 ? (
+                                    <span className="text-faint">—</span>
+                                  ) : (
+                                    money(
+                                      Math.min(
+                                        variant.counted_quantity,
+                                        variant.outstanding_quantity
+                                      ) * row.unit_price_minor
+                                    )
+                                  )}
+                                </td>
+                              </tr>
+                            )
+                          })
+                        )}
                       </Fragment>
                     )
                   })}
@@ -1219,7 +1328,10 @@ function Review({
                   </dd>
                 </>
               )}
-              <div aria-hidden className="col-span-2 border-t border-hairline" />
+              <div
+                aria-hidden
+                className="col-span-2 border-t border-hairline"
+              />
               {/* As the order's own totals say it: the pieces beside the word. */}
               <dt className="font-semibold text-ink">
                 Accepted · {pcs(totalCounted - overQty)}
@@ -1376,11 +1488,7 @@ function Review({
         order={detail.data}
         supplier={supplier}
       />
-      <LineSheet
-        line={lineShown}
-        po={po}
-        onClose={() => setLineShown(null)}
-      />
+      <LineSheet line={lineShown} po={po} onClose={() => setLineShown(null)} />
     </>
   )
 }
@@ -1391,6 +1499,13 @@ const HEAD =
 const CELL = "px-4 py-3.5 align-middle"
 /// A figure set against the right edge of its column, in tabular digits.
 const NUMR = "text-right text-[0.9375rem] text-body tabular-nums"
+/// The first row of an article: a darker rule sets it off from the one above.
+const ARTICLE_ROW =
+  "h-16 border-t border-hairline-strong first:border-t-hairline"
+/// A later variant's tie to the first: a line down the photo column, one
+/// stroke out to its own photo.
+const GUIDE =
+  "relative w-10 shrink-0 self-stretch before:absolute before:-top-[15px] before:-bottom-[15px] before:left-[19px] before:border-l-[1.5px] before:border-hairline before:content-[''] after:absolute after:top-1/2 after:left-[19px] after:w-3.5 after:border-t-[1.5px] after:border-hairline after:content-['']"
 
 /// Raise the return for what came beyond the order, once head office holds the
 /// receipt. The acceptance is written at the DC and reaches head office a few
@@ -1951,7 +2066,10 @@ function LastReceiving({
   const figure = (term: string, pieces: number, at: number) => (
     <div
       key={term}
-      className={cn("px-5 py-2", at === 0 ? "max-md:pl-0" : "border-l border-hairline")}
+      className={cn(
+        "px-5 py-2",
+        at === 0 ? "max-md:pl-0" : "border-l border-hairline"
+      )}
     >
       <dt className="text-body">{term}</dt>
       <dd className="text-[1.125rem] leading-6 font-semibold tracking-[-0.02em] text-ink tabular-nums">
@@ -2098,7 +2216,9 @@ function LastReceiving({
             )}
           </div>
           <div className="flex items-center justify-end gap-2 border-t border-hairline px-4 py-3 md:px-6 md:py-4 [&_button]:h-9">
-            <BaseDialog.Close render={<Button variant="primary">Done</Button>} />
+            <BaseDialog.Close
+              render={<Button variant="primary">Done</Button>}
+            />
           </div>
         </BaseDialog.Popup>
       </BaseDialog.Portal>

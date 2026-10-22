@@ -30,7 +30,7 @@ export function NeedsAttention() {
       n: unmatched,
       label: "Bank lines to match",
       to: "/finance/cash-bank/bank-reconciliation",
-      tone: "text-warn-fg",
+      tone: "text-ink",
     },
     {
       n: notOpen,

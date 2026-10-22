@@ -14,7 +14,9 @@ use inventory_backend::cloud::domain::{
     sign_command, BreakerPolicy, IngestBatch, IngestResponse, PushedCommand,
 };
 use inventory_backend::edge::{EdgeRole, NodeContext, SiteId, SqliteEdge, SqliteSyncStore};
-use inventory_backend::sync::port::{SyncStore, SyncTransport};
+use inventory_backend::sync::port::{
+    SyncStore, SyncTransport, PAYLOAD_TOO_LARGE, SYNC_BATCH_MAX_BYTES,
+};
 use inventory_backend::sync::{run_cycle, CycleReport, SyncConfig};
 use serde_json::json;
 use std::sync::{Arc, Mutex};
@@ -102,12 +104,59 @@ impl SyncTransport for ScriptedCloud {
     }
 }
 
+/// A receiver that refuses any upload of more than `most` facts the way an
+/// HTTP body limit does — as too large, before it reads a fact — and takes
+/// the rest.
+struct SizeLimitedCloud {
+    most: usize,
+    sizes: Mutex<Vec<usize>>,
+}
+
+impl SizeLimitedCloud {
+    fn taking(most: usize) -> Self {
+        Self {
+            most,
+            sizes: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// How many facts each upload it was sent carried, in order.
+    fn sizes(&self) -> Vec<usize> {
+        self.sizes
+            .lock()
+            .unwrap_or_else(|e| panic!("sizes: {e}"))
+            .clone()
+    }
+}
+
+#[async_trait]
+impl SyncTransport for SizeLimitedCloud {
+    async fn send(&self, batch: &IngestBatch) -> Result<IngestResponse, String> {
+        self.sizes
+            .lock()
+            .map_err(|e| e.to_string())?
+            .push(batch.facts.len());
+        if batch.facts.len() > self.most {
+            return Err(format!(
+                "{PAYLOAD_TOO_LARGE}: sync ingest returned 413 Payload Too Large"
+            ));
+        }
+        Ok(IngestResponse {
+            durable_through: batch.facts.iter().map(|fact| fact.seq).max().unwrap_or(0),
+            rejected: Vec::new(),
+            commands: Vec::new(),
+        })
+    }
+}
+
 /// What each adapter must provide for the shared script to run.
 #[async_trait]
 trait NodeUnderTest: Sync {
     fn store(&self) -> &dyn SyncStore;
     /// Append `count` facts the way a real domain write would.
     async fn produce_facts(&self, count: usize);
+    /// Append one fact whose payload carries about `bytes` of text.
+    async fn produce_large_fact(&self, bytes: usize);
     /// The commercial version this node is currently honouring, if any.
     async fn resident_publication_price(&self, publication_id: Uuid) -> Option<i64>;
     /// A sku this node will accept in a price rule.
@@ -178,6 +227,20 @@ impl NodeUnderTest for SqliteNode {
             .unwrap_or_else(|e| panic!("enqueue: {e}"));
             tx.commit().unwrap_or_else(|e| panic!("commit: {e}"));
         }
+    }
+
+    async fn produce_large_fact(&self, bytes: usize) {
+        let connection = self.connection();
+        let mut guard = connection.lock().unwrap_or_else(|e| panic!("lock: {e}"));
+        let tx = guard.transaction().unwrap_or_else(|e| panic!("tx: {e}"));
+        inventory_backend::edge::sync::enqueue_fact(
+            &tx,
+            Uuid::new_v4(),
+            "inventory.movement",
+            &json!({"blob": "x".repeat(bytes)}),
+        )
+        .unwrap_or_else(|e| panic!("enqueue: {e}"));
+        tx.commit().unwrap_or_else(|e| panic!("commit: {e}"));
     }
 
     async fn sample_sku_id(&self) -> Uuid {
@@ -424,6 +487,91 @@ async fn a_resent_command_is_ignored(node: &dyn NodeUnderTest) {
     );
 }
 
+/// A backlog of large facts goes up in uploads the receiver can take.
+///
+/// Bounded by count alone, a hundred large RFID batches went up as one body
+/// the cloud refused for its size; nothing advanced, and the next cycle sent
+/// the same hundred — the stream stopped for good. Bounded by size too, they
+/// go one or a few at a time, and a fact larger than the whole budget still
+/// goes, alone, rather than never.
+async fn large_facts_go_in_size_bounded_uploads(node: &dyn NodeUnderTest) {
+    let baseline = node
+        .store()
+        .watermark(ORIGIN, 1)
+        .await
+        .unwrap_or_else(|e| panic!("baseline watermark: {e}"));
+    // Three facts of three fifths of the budget each: no two fit together.
+    for _ in 0..3 {
+        node.produce_large_fact(SYNC_BATCH_MAX_BYTES * 3 / 5).await;
+    }
+    // One larger than the whole budget, and one ordinary fact behind it.
+    node.produce_large_fact(SYNC_BATCH_MAX_BYTES + 1024).await;
+    node.produce_facts(1).await;
+    let cloud = ScriptedCloud::accepting();
+    for step in 1..=5_i64 {
+        let outcome = run_cycle(node.store(), &config(None), &cloud)
+            .await
+            .unwrap_or_else(|e| panic!("cycle {step}: {e}"));
+        assert_eq!(
+            outcome.upstream,
+            CycleReport::Advanced {
+                sent: 1,
+                advance_to: baseline + step,
+                dead_lettered: 0
+            },
+            "cycle {step}"
+        );
+    }
+    let outcome = run_cycle(node.store(), &config(None), &cloud)
+        .await
+        .unwrap_or_else(|e| panic!("drained: {e}"));
+    assert_eq!(outcome.upstream, CycleReport::Idle);
+}
+
+/// A receiver that refuses an upload for its size is sent less at once —
+/// half, and half of that — instead of the same batch on every cycle. One
+/// fact it still refuses is a failure like any other, not a loop.
+async fn a_refusal_for_size_halves_the_upload(node: &dyn NodeUnderTest) {
+    let baseline = node
+        .store()
+        .watermark(ORIGIN, 1)
+        .await
+        .unwrap_or_else(|e| panic!("baseline watermark: {e}"));
+    node.produce_facts(5).await;
+    let cloud = SizeLimitedCloud::taking(2);
+    let outcome = run_cycle(node.store(), &config(None), &cloud)
+        .await
+        .unwrap_or_else(|e| panic!("halving cycle: {e}"));
+    assert_eq!(
+        outcome.upstream,
+        CycleReport::Advanced {
+            sent: 2,
+            advance_to: baseline + 2,
+            dead_lettered: 0
+        }
+    );
+    assert_eq!(cloud.sizes(), vec![5, 2]);
+
+    let refusing = SizeLimitedCloud::taking(0);
+    let outcome = run_cycle(node.store(), &config(None), &refusing)
+        .await
+        .unwrap_or_else(|e| panic!("refused cycle: {e}"));
+    assert!(
+        matches!(outcome.upstream, CycleReport::Failed { .. }),
+        "{:?}",
+        outcome.upstream
+    );
+    assert_eq!(refusing.sizes(), vec![3, 1]);
+    assert_eq!(
+        node.store()
+            .watermark(ORIGIN, 1)
+            .await
+            .unwrap_or_else(|e| panic!("watermark: {e}")),
+        baseline + 2,
+        "a refusal advances nothing"
+    );
+}
+
 // ---- The suite, run against each adapter ---------------------------------
 
 macro_rules! conformance_suite {
@@ -454,6 +602,16 @@ macro_rules! conformance_suite {
             #[tokio::test]
             async fn resent_command_is_ignored() {
                 a_resent_command_is_ignored(&$node).await;
+            }
+
+            #[tokio::test]
+            async fn large_facts_go_in_size_bounded_uploads() {
+                super::large_facts_go_in_size_bounded_uploads(&$node).await;
+            }
+
+            #[tokio::test]
+            async fn a_refusal_for_size_halves_the_upload() {
+                super::a_refusal_for_size_halves_the_upload(&$node).await;
             }
         }
     };
@@ -503,6 +661,16 @@ mod postgres_node {
             }
         }
 
+        async fn produce_large_fact(&self, bytes: usize) {
+            inventory_backend::cloud::postgres::debug_insert_raw_fact(
+                &self.pool,
+                "inventory.movement",
+                &json!({"blob": "x".repeat(bytes)}),
+            )
+            .await
+            .unwrap_or_else(|e| panic!("enqueue: {e}"));
+        }
+
         async fn sample_sku_id(&self) -> Uuid {
             sqlx::query_scalar::<_, Uuid>("SELECT id FROM sku ORDER BY id LIMIT 1")
                 .fetch_one(&self.pool)
@@ -544,5 +712,15 @@ mod postgres_node {
     #[sqlx::test(migrations = "./migrations/postgres")]
     async fn resent_command_is_ignored(pool: PgPool) {
         a_resent_command_is_ignored(&PgNode::fresh(pool).await).await;
+    }
+
+    #[sqlx::test(migrations = "./migrations/postgres")]
+    async fn large_facts_go_in_size_bounded_uploads(pool: PgPool) {
+        super::large_facts_go_in_size_bounded_uploads(&PgNode::fresh(pool).await).await;
+    }
+
+    #[sqlx::test(migrations = "./migrations/postgres")]
+    async fn a_refusal_for_size_halves_the_upload(pool: PgPool) {
+        super::a_refusal_for_size_halves_the_upload(&PgNode::fresh(pool).await).await;
     }
 }

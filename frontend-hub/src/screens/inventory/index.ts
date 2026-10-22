@@ -15,11 +15,6 @@ export const screens: ScreenMap = {
     () => import("@/screens/inventory/stock-cards"),
     (m) => m.StockCards
   ),
-  "/inventory/exceptions": lazyScreen(
-    "inventory/exceptions",
-    () => import("@/screens/inventory/exceptions"),
-    (m) => m.Exceptions
-  ),
   "/inventory/availability": lazyScreen(
     "inventory/availability",
     () => import("@/screens/inventory/availability"),

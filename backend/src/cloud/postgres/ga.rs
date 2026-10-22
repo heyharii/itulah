@@ -121,6 +121,10 @@ pub struct GaOverview {
     /// only. Once somebody has approved one it is on the Supplies screen, and
     /// the overview is for what has nobody's name against it yet.
     pub supply_requests: Vec<GaAttention>,
+    /// Physical originals that are out of the safe (0974): lent for an STNK
+    /// renewal, held by the bank. Overdue first. A returned original leaves
+    /// the list by itself — the return is the answer to this nudge.
+    pub originals_out: Vec<GaAttention>,
 }
 
 /// How many rows one section of the overview may carry.
@@ -138,6 +142,11 @@ const EXPIRY_HORIZON_DAYS: i32 = 90;
 /// [`GaOverview::due_maintenance`]. Seven days, because that is the unit the
 /// shop's service rounds are planned in.
 const DUE_MAINTENANCE_HORIZON_DAYS: i32 = 7;
+
+/// How close a km service may come before the overview names it (0975): about
+/// a week of a delivery van's driving, the same nudge the seven days give a
+/// dated one.
+const DUE_MAINTENANCE_HORIZON_KM: i32 = 1000;
 
 /// Everything GA wants somebody to look at, as of `today`.
 pub async fn ga_overview(pool: &PgPool, today: NaiveDate) -> Result<GaOverview, AppError> {
@@ -275,6 +284,7 @@ pub async fn ga_overview(pool: &PgPool, today: NaiveDate) -> Result<GaOverview, 
     let open_repairs = ga_overview_open_repairs(pool, today).await?;
     let replacements = ga_overview_replacements(pool, today).await?;
     let supply_requests = ga_overview_supply_requests(pool, today).await?;
+    let originals_out = ga_overview_originals_out(pool).await?;
 
     Ok(GaOverview {
         generated_on: today.to_string(),
@@ -285,7 +295,43 @@ pub async fn ga_overview(pool: &PgPool, today: NaiveDate) -> Result<GaOverview, 
         open_repairs,
         replacements,
         supply_requests,
+        originals_out,
     })
+}
+
+/// The originals out of storage, the latest due first — see
+/// [`GaOverview::originals_out`].
+async fn ga_overview_originals_out(pool: &PgPool) -> Result<Vec<GaAttention>, AppError> {
+    let rows = sqlx::query(
+        "SELECT o.original_id::text AS id,
+                COALESCE(d.title, d.name) AS paper,
+                o.holder_name, o.out_purpose, o.due_back_on
+           FROM ga_document_original o
+           JOIN document d ON d.document_id = o.document_id
+          WHERE o.status = 'OUT'
+          ORDER BY o.due_back_on NULLS LAST, o.original_id
+          LIMIT $1",
+    )
+    .bind(SECTION_LIMIT)
+    .fetch_all(pool)
+    .await?;
+    rows.iter()
+        .map(|row| {
+            let holder: String = row.try_get("holder_name")?;
+            let purpose: Option<String> = row.try_get("out_purpose")?;
+            let due: Option<NaiveDate> = row.try_get("due_back_on")?;
+            Ok(GaAttention {
+                kind: "document_original".into(),
+                id: row.try_get("id")?,
+                label: row.try_get("paper")?,
+                detail: Some(match purpose {
+                    Some(purpose) => format!("{holder} · {purpose}"),
+                    None => holder,
+                }),
+                on: due.map(|day| day.to_string()),
+            })
+        })
+        .collect()
 }
 
 /// The services due inside the seven-day window, or already past it — see
@@ -294,34 +340,54 @@ async fn ga_overview_due_maintenance(
     pool: &PgPool,
     today: NaiveDate,
 ) -> Result<Vec<GaAttention>, AppError> {
+    // A dated service inside the window, and a km service whose vehicle's
+    // latest reading is within the km horizon of it (0975) — dated ones first,
+    // then the nearest by distance.
     let rows = sqlx::query(
-        "SELECT t.task_id::text, t.title, t.next_due,
+        "SELECT t.task_id::text, t.title, t.next_due, t.next_due_km,
                 -- The thing when it is about a thing, the place when it is
                 -- about a place: the one line that says whose round it is.
                 COALESCE(a.name, (SELECT s.name FROM site s WHERE s.id = t.site_id)) AS detail
            FROM ga_maintenance_task t
            LEFT JOIN fixed_asset a ON a.asset_id = t.asset_id
+           LEFT JOIN LATERAL (
+                SELECT max(o.odometer_km) AS top FROM ga_odometer_reading o
+                 WHERE o.asset_id = t.asset_id
+           ) o ON true
           WHERE t.status = 'ACTIVE'
-            AND t.next_due IS NOT NULL
-            AND t.next_due <= $1::date + $2::integer
-          ORDER BY t.next_due, t.task_id
+            AND ((t.next_due IS NOT NULL AND t.next_due <= $1::date + $2::integer)
+                 OR (t.next_due_km IS NOT NULL AND o.top IS NOT NULL
+                     AND t.next_due_km - o.top <= $4::integer))
+          ORDER BY t.next_due NULLS LAST, t.next_due_km - o.top, t.task_id
           LIMIT $3",
     )
     .bind(today)
     .bind(DUE_MAINTENANCE_HORIZON_DAYS)
     .bind(SECTION_LIMIT)
+    .bind(DUE_MAINTENANCE_HORIZON_KM)
     .fetch_all(pool)
     .await?;
 
     rows.iter()
         .map(|row| {
-            let next_due: NaiveDate = row.try_get("next_due")?;
+            let next_due: Option<NaiveDate> = row.try_get("next_due")?;
+            let next_due_km: Option<i32> = row.try_get("next_due_km")?;
+            let subject: Option<String> = row.try_get("detail")?;
+            let detail = match (next_due, next_due_km) {
+                (None, Some(km)) => Some(match subject {
+                    Some(subject) => {
+                        format!("{subject} · at {} km", super::ga_odometer::km_thousands(km))
+                    }
+                    None => format!("at {} km", super::ga_odometer::km_thousands(km)),
+                }),
+                _ => subject,
+            };
             Ok(GaAttention {
                 kind: "task".into(),
                 id: row.try_get("task_id")?,
                 label: row.try_get("title")?,
-                detail: row.try_get("detail")?,
-                on: Some(next_due.to_string()),
+                detail,
+                on: next_due.map(|day| day.to_string()),
             })
         })
         .collect()
@@ -436,4 +502,128 @@ async fn ga_overview_supply_requests(
             })
         })
         .collect()
+}
+
+// ---------------------------------------------------------------------------
+// Bills that point at a GA record
+// ---------------------------------------------------------------------------
+
+/// One supplier bill that points at a GA record (0370's line references), as
+/// GA reads it: whose paper it is, its number and day, where Finance has it,
+/// and how much of it is for this record. Drafts count — GA sends a bill as a
+/// draft and wants to see it sent — and void or rejected papers do not.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct GaLinkedBill {
+    pub invoice_id: uuid::Uuid,
+    pub invoice_number: String,
+    pub invoice_date: NaiveDate,
+    /// The bill's supplier as the bill names it: the master's id, or the code
+    /// older bills were written with.
+    pub supplier_id: String,
+    pub supplier_name: Option<String>,
+    /// `DRAFT`, `MATCHED` or `POSTED`.
+    pub status: String,
+    /// Σ the bill's lines that point at this record.
+    pub amount_minor: i64,
+}
+
+/// The bill lines a GA record can be pointed at by, one column each.
+#[derive(Clone, Copy, Debug)]
+pub enum GaBillReference {
+    Repair,
+    SupplyRequest,
+}
+
+impl GaBillReference {
+    const fn column(self) -> &'static str {
+        match self {
+            Self::Repair => "repair_id",
+            Self::SupplyRequest => "supply_request_id",
+        }
+    }
+}
+
+/// The supplier's name for a bill row aliased `si`: the master's, found by
+/// either spelling of its key, else the name the bill was typed with.
+pub(crate) const BILL_SUPPLIER_NAME: &str = "COALESCE(
+        (SELECT sp.name FROM supplier sp
+          WHERE si.supplier_id IN (sp.supplier_id::text, sp.supplier_code)
+          ORDER BY (si.supplier_id = sp.supplier_id::text) DESC
+          LIMIT 1),
+        si.supplier_name)";
+
+/// Every live bill that points at one GA record, newest first.
+pub async fn ga_linked_bills(
+    pool: &PgPool,
+    reference: GaBillReference,
+    id: uuid::Uuid,
+) -> Result<Vec<GaLinkedBill>, AppError> {
+    let column = reference.column();
+    let sql = format!(
+        "SELECT si.invoice_id, si.invoice_number, si.invoice_date, si.supplier_id,
+                {BILL_SUPPLIER_NAME} AS supplier_name, si.status,
+                sum(bl.amount_minor)::bigint AS amount_minor
+           FROM supplier_invoice_expense_line bl
+           JOIN supplier_invoice si ON si.invoice_id = bl.invoice_id
+          WHERE bl.{column} = $1 AND si.status NOT IN ('VOID', 'REJECTED')
+          GROUP BY si.invoice_id
+          ORDER BY si.invoice_date DESC, si.invoice_number DESC"
+    );
+    let rows = sqlx::query(&sql).bind(id).fetch_all(pool).await?;
+    rows.iter()
+        .map(|row| {
+            Ok(GaLinkedBill {
+                invoice_id: row.try_get("invoice_id")?,
+                invoice_number: row.try_get("invoice_number")?,
+                invoice_date: row.try_get("invoice_date")?,
+                supplier_id: row.try_get("supplier_id")?,
+                supplier_name: row.try_get("supplier_name")?,
+                status: row.try_get("status")?,
+                amount_minor: row.try_get("amount_minor")?,
+            })
+        })
+        .collect()
+}
+
+/// What one supplier billed in a year: POSTED bills dated in it, the figure
+/// Finance's books carry. Matched by either spelling of the supplier's key.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct GaSupplierBilled {
+    pub supplier_id: uuid::Uuid,
+    /// The business clock's year.
+    pub year: i32,
+    pub billed_minor: i64,
+    pub bill_count: i64,
+}
+
+pub async fn ga_supplier_billed(
+    pool: &PgPool,
+    supplier_id: uuid::Uuid,
+    today: NaiveDate,
+) -> Result<GaSupplierBilled, AppError> {
+    let row = sqlx::query(
+        "SELECT COALESCE(sum(si.total_minor), 0)::bigint AS billed,
+                count(si.invoice_id)::bigint AS n
+           FROM supplier s
+           LEFT JOIN supplier_invoice si
+                  ON si.supplier_id IN (s.supplier_id::text, s.supplier_code)
+                 AND si.status = 'POSTED'
+                 AND si.invoice_date >= make_date($2, 1, 1)
+                 AND si.invoice_date <  make_date($2 + 1, 1, 1)
+          WHERE s.supplier_id = $1
+          GROUP BY s.supplier_id",
+    )
+    .bind(supplier_id)
+    .bind(chrono::Datelike::year(&today))
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| AppError::NotFound("Supplier".into()))?;
+    Ok(GaSupplierBilled {
+        supplier_id,
+        year: chrono::Datelike::year(&today),
+        billed_minor: row.try_get("billed")?,
+        bill_count: row.try_get("n")?,
+    })
 }

@@ -6,6 +6,7 @@ import { useRef, useState, type ReactNode } from "react"
 import { Button } from "@/components/ui/button"
 import { Field, Input } from "@/components/ui/field"
 import { auth } from "@/lib/api"
+import { wakeUp } from "@/lib/sleep"
 import { cn } from "@/lib/utils"
 import type { LoginResponse } from "@itulah/contract"
 import { ApiError } from "@itulah/contract/client"
@@ -46,6 +47,7 @@ export function LoginForm({
   /// Said under the button: where to turn when the password is not known.
   footnote,
   titleOnPhone = true,
+  door = false,
   className,
 }: {
   onSignedIn: (session: LoginResponse) => void
@@ -59,11 +61,28 @@ export function LoginForm({
   /// turns them off: it has already said "Central." in the page's own header,
   /// and a second heading under it only pushes the fields down.
   titleOnPhone?: boolean
+  /// Inside the Matte sign-in door's card (`sign-in-door.tsx`): the card
+  /// already says "Central.", so no title; filled fields and the matte
+  /// button; and "Forgot password?" a chip beside the label that says where
+  /// to turn only when it is pressed, instead of a footnote read every time.
+  door?: boolean
   className?: string
 }) {
   const [revealed, setRevealed] = useState(false)
   const [capsLock, setCapsLock] = useState(false)
+  const [forgotShown, setForgotShown] = useState(false)
   const formRef = useRef<HTMLFormElement>(null)
+  /// The username last signed in with at this door on this device (owner,
+  /// 2026-10-18: after the day's session ends, "cukup isi password saja").
+  /// Filled in, and the cursor waits in the password box; it can be changed.
+  const rememberKey = `hub.last-username:${title}`
+  const [remembered] = useState(() => {
+    try {
+      return window.localStorage.getItem(rememberKey) ?? ""
+    } catch {
+      return ""
+    }
+  })
 
   /// The request, kept out of the form. "Busy" and "what went wrong" are facts
   /// about a request in flight and the mutation holds both; the form holds what
@@ -71,7 +90,17 @@ export function LoginForm({
   const signIn = useMutation({
     mutationFn: (credentials: { username: string; password: string }) =>
       signInWith(credentials.username, credentials.password),
-    onSuccess: onSignedIn,
+    onSuccess: (session, credentials) => {
+      try {
+        window.localStorage.setItem(rememberKey, credentials.username.trim())
+      } catch {
+        // A private window: asked again next time.
+      }
+      // A password just typed at the door: the hub opens awake, never on
+      // the sleep screen a previous session left behind in this browser.
+      wakeUp()
+      onSignedIn(session)
+    },
     // A refusal is felt as well as read: the form gives a short shake, the
     // way a native password box says no. Played through the Web Animations
     // API so a second wrong password shakes again — a class that is already
@@ -94,7 +123,7 @@ export function LoginForm({
   })
 
   const form = useForm({
-    defaultValues: { username: "", password: "" },
+    defaultValues: { username: remembered, password: "" },
     onSubmit: ({ value }) => signIn.mutate(value),
   })
 
@@ -137,8 +166,10 @@ export function LoginForm({
   return (
     <div
       className={cn(
-        "grid h-full place-items-center px-6 py-10 max-md:flex max-md:flex-col max-md:py-4",
-        className
+        door
+          ? "w-full"
+          : "grid h-full place-items-center px-6 py-10 max-md:flex max-md:flex-col max-md:py-4",
+        !door && className
       )}
     >
       <form
@@ -147,18 +178,28 @@ export function LoginForm({
           event.preventDefault()
           form.handleSubmit()
         }}
-        className="w-full max-w-[22.5rem] max-md:flex max-md:max-w-none max-md:flex-1 max-md:flex-col"
+        className={cn(
+          "w-full",
+          !door &&
+            "max-w-[22.5rem] max-md:flex max-md:max-w-none max-md:flex-1 max-md:flex-col"
+        )}
       >
         <div {...rise(0)}>
           {eyebrow && (
-            <p className="mb-2 text-[0.9375rem] leading-5 font-medium text-body">
+            <p
+              className={cn(
+                "text-[0.9375rem] leading-5 font-medium text-body",
+                door ? "mb-5 text-center" : "mb-2"
+              )}
+            >
               {eyebrow}
             </p>
           )}
           <h1
             className={cn(
               "text-[1.75rem] leading-9 font-semibold tracking-[-0.025em] text-ink",
-              !titleOnPhone && "max-md:hidden"
+              !titleOnPhone && "max-md:hidden",
+              door && "sr-only"
             )}
           >
             {title}
@@ -166,20 +207,27 @@ export function LoginForm({
           <p
             className={cn(
               "mt-2 text-[0.9375rem] leading-6 text-body",
-              !titleOnPhone && "max-md:hidden"
+              !titleOnPhone && "max-md:hidden",
+              door && "hidden"
             )}
           >
             {caption}
           </p>
         </div>
 
-        <div className="mt-8 flex flex-col gap-5 max-md:mt-6">
+        <div
+          className={cn(
+            "flex flex-col",
+            door ? "gap-[1.125rem]" : "mt-8 gap-5 max-md:mt-6"
+          )}
+        >
           <form.Field name="username">
             {(field) => (
               <div {...rise(1)}>
                 <Field label="Username">
                   <Input
-                    autoFocus
+                    className={door ? "door-field" : undefined}
+                    autoFocus={remembered === ""}
                     autoComplete="username"
                     autoCapitalize="none"
                     autoCorrect="off"
@@ -201,13 +249,33 @@ export function LoginForm({
               <div {...rise(2)}>
                 <Field
                   label="Password"
-                  hint={capsLock ? "Caps Lock is on." : undefined}
+                  hint={
+                    capsLock
+                      ? "Caps Lock is on."
+                      : door && forgotShown
+                        ? "Ask your admin for a temporary password."
+                        : undefined
+                  }
+                  aside={
+                    door ? (
+                      <button
+                        type="button"
+                        className="door-chip"
+                        aria-expanded={forgotShown}
+                        onClick={() => setForgotShown((on) => !on)}
+                      >
+                        Forgot password?
+                      </button>
+                    ) : undefined
+                  }
                 >
                   <div className="relative">
                     <Input
+                      autoFocus={remembered !== ""}
                       type={revealed ? "text" : "password"}
                       autoComplete="current-password"
-                      className="pr-12"
+                      className={cn("pr-12", door && "door-field")}
+                      invalid={door && signIn.isError}
                       value={field.state.value}
                       onBlur={() => {
                         field.handleBlur()
@@ -252,18 +320,27 @@ export function LoginForm({
 
         <div
           {...rise(3)}
-          className="door-rise max-md:sticky max-md:bottom-0 max-md:mt-auto max-md:bg-canvas max-md:pt-4 max-md:pb-[max(1.25rem,env(safe-area-inset-bottom))]"
+          className={cn(
+            "door-rise",
+            !door &&
+              "max-md:sticky max-md:bottom-0 max-md:mt-auto max-md:bg-canvas max-md:pt-4 max-md:pb-[max(1.25rem,env(safe-area-inset-bottom))]"
+          )}
         >
           <Button
             type="submit"
             variant="primary"
             size="lg"
-            className="mt-7 w-full font-semibold max-md:mt-0 shadow-[inset_0_1px_0_rgb(255_255_255/16%),0_1px_2px_rgb(24_39_60/14%)]"
+            className={cn(
+              "w-full font-semibold",
+              door
+                ? "mt-6"
+                : "mt-7 max-md:mt-0 shadow-[inset_0_1px_0_rgb(255_255_255/16%),0_1px_2px_rgb(24_39_60/14%)]"
+            )}
             pending={signIn.isPending}
           >
             {signIn.isPending ? "Signing in…" : "Sign in"}
           </Button>
-          {footnote && (
+          {footnote && !door && (
             <p className="mt-6 text-[0.9375rem] leading-5 text-body">
               {footnote}
             </p>

@@ -4,30 +4,46 @@ import {
   useQueryClient,
   useSuspenseInfiniteQuery,
 } from "@tanstack/react-query"
-import { useHydrated } from "@tanstack/react-router"
-import { CalendarCheck, CalendarPlus, ClipboardCheck, Plus } from "lucide-react"
-import { Suspense, useMemo, useState } from "react"
+import type { ColumnDef, SortingState } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
+import { CalendarPlus, ClipboardCheck, MapPin, Plus } from "lucide-react"
+import { Suspense, useEffect, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
-import { DockChoice } from "@/components/shell/dock-tools"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { DataTable } from "@/components/ui/data-table"
 import { Fab } from "@/components/ui/fab"
+import { Field, Input, Money, Select } from "@/components/ui/field"
 import { Choices, Section, Toggle } from "@/components/ui/form"
-import { Field, Input, Select } from "@/components/ui/field"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
+import { BarSpacer, ColumnsMenu } from "@/components/ui/list-chrome"
+import { ListFilters } from "@/components/ui/list-filters"
 import { PageHeader } from "@/components/ui/page-header"
-import { Sheet } from "@/components/ui/sheet"
 import {
-  Banner,
-  EmptyState,
-  LoadingState,
-  LoadMore,
-  type Pageable,
-} from "@/components/ui/states"
+  CardFigure,
+  CardName,
+  type CardSpec,
+  PhoneCards,
+} from "@/components/ui/phone-cards"
+import { Pill, Status } from "@/components/ui/pill"
+import { Toolbar } from "@/components/ui/segmented"
+import { Sheet } from "@/components/ui/sheet"
+import { SheetFooter } from "@/components/ui/sheet-footer"
+import { EmptyState, LoadingState, type Pageable } from "@/components/ui/states"
+import type { Refreshable } from "@/components/ui/refresh-stamp"
+import { SubTabs } from "@/components/ui/sub-tabs"
+import { today } from "@/lib/calendar"
+import {
+  useFilterState,
+  type FilterField,
+  type FilterState,
+} from "@/lib/filters"
 import { count as formatCount, day } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
-import { procurementKeys, supplierPage } from "@/lib/queries/procurement"
 import {
+  gaAssetHub,
   gaAssets,
   gaInspectionBookQuery,
   gaKeys,
@@ -38,77 +54,72 @@ import {
   updateGaMaintenanceTask,
   useGaSites,
 } from "@/lib/queries/ga"
-import { ResultPill, TaskStatePill } from "@/screens/maintenance/parts"
+import { procurementKeys, supplierPage } from "@/lib/queries/procurement"
+import { tableSetup, type TableSetup } from "@/lib/table"
+import { TextAction } from "@/screens/assets/asset-sections"
+import { everyWords } from "@/screens/assets/asset-words"
 import {
   INSPECTION_RESULTS,
-  intervalLabel,
+  INTERVAL_KINDS,
+  inspectionState,
   nextDueAfter,
+  taskStanding,
 } from "@/screens/maintenance/format"
-import {
-  CardFigure,
-  type CardSpec,
-  PhoneCards,
-} from "@/components/ui/phone-cards"
+import { GlyphName } from "@/screens/maintenance/parts"
+import { useFittedVisibility } from "@/screens/procurement/shared"
 import type { GaInspectionRow, GaMaintenanceTaskRow } from "@itulah/contract"
 
-/// Jadwal & inspeksi — the quiet half of maintenance.
+/// Service Schedule — the quiet half of maintenance.
 ///
-/// # Two tables, one job
+/// # Two lists, one page
 ///
 /// The schedule says what is COMING (a recurring task for one asset or one
-/// location); the inspections say what was FOUND (the record of somebody
-/// having walked the floor). The second is the evidence the first is checked
-/// against, which is why a finding can become a repair with one switch —
-/// the finding is already written, and a repair that has to retype it is a
-/// repair that loses the detail.
+/// location); the inspections say what was FOUND (the record of somebody having
+/// walked the floor). The second is the evidence the first is checked against,
+/// which is why a finding can become a repair with one switch — the finding is
+/// already written, and a repair that has to retype it is a repair that loses
+/// the detail.
 ///
-/// # Tanpa nominal, on purpose
+/// They are the page's two tabs (owner, 18 Oct 2026): two framed tables stacked
+/// on one page pushed Status and the Record done buttons off the right edge, and
+/// two infinite lists cannot both scroll with the window. The head's one
+/// primary follows the tab: Add task on Tasks, Record inspection on Inspections.
+///
+/// # No money, on purpose
 ///
 /// A schedule row is a date and a thing; no figure belongs to it. The costs
-/// live on the repairs the tasks produce, in the Perbaikan book.
+/// live on the repairs the tasks produce, in the Repairs book.
 export function Schedule() {
   const [addingTask, setAddingTask] = useState(false)
   const [addingInspection, setAddingInspection] = useState(false)
   // The task whose service is being recorded as done, if any.
   const [doing, setDoing] = useState<GaMaintenanceTaskRow | null>(null)
-  // On a phone one list at a time, so the page scrolls it: two infinite lists
-  // stacked on one page cannot both scroll with the page.
+  const [shelf, setShelf] = useState<Shelf>("TASKS")
   const phone = useLayout() === "phone"
-  const [view, setView] = useState<"tasks" | "inspections">("tasks")
 
   return (
     <PageContent>
       <PageHeader
-        crumb="GA"
         title="Service Schedule"
-        sub="Set up recurring service and record inspection results. A finding can be carried forward as a repair."
+        small
         actions={
-          // On a phone the list is the dock's button and the one thing it can
-          // make is the round button beside it.
-          phone ? undefined : (
-            <>
-              <Button variant="soft" onClick={() => setAddingTask(true)}>
-                <Plus />
-                Add task
-              </Button>
-              <Button
-                variant="primary"
-                onClick={() => setAddingInspection(true)}
-              >
-                <CalendarPlus />
-                Record inspection
-              </Button>
-            </>
+          // On a phone the one thing this page makes is the round button in
+          // the dock, and it follows the tab.
+          phone ? undefined : shelf === "TASKS" ? (
+            <Button variant="primary" onClick={() => setAddingTask(true)}>
+              <Plus />
+              Add task
+            </Button>
+          ) : (
+            <Button variant="primary" onClick={() => setAddingInspection(true)}>
+              <CalendarPlus />
+              Record inspection
+            </Button>
           )
         }
       />
 
-      {/* The counts in the dock's two buttons come from the two books; until
-          they arrive the buttons say only what they are. */}
-      <Suspense fallback={<ViewChoice view={view} onChange={setView} />}>
-        <CountedViewChoice view={view} onChange={setView} />
-      </Suspense>
-      {view === "tasks" ? (
+      {shelf === "TASKS" ? (
         <Fab label="Add task" onClick={() => setAddingTask(true)} />
       ) : (
         <Fab
@@ -117,40 +128,16 @@ export function Schedule() {
         />
       )}
 
-      {/* Both lists page from the server in the order they are read — tasks
-          soonest due first (undated last), inspections newest first — so
-          neither is re-sorted here: a sort over the loaded rows would
-          reshuffle as more arrived. Each stands in its own boundary, so the
-          one that is ready is not held for the other. */}
-      {phone ? (
-        <Suspense fallback={<LoadingState>Opening the schedule…</LoadingState>}>
-          {view === "tasks" ? (
-            <TaskBook
-              phone
-              onAdd={() => setAddingTask(true)}
-              onDone={setDoing}
-            />
-          ) : (
-            <InspectionBook phone onAdd={() => setAddingInspection(true)} />
-          )}
-        </Suspense>
-      ) : (
-        <>
-          <Suspense fallback={<TableCardHead title="Tasks" />}>
-            <TaskBook
-              phone={false}
-              onAdd={() => setAddingTask(true)}
-              onDone={setDoing}
-            />
-          </Suspense>
-          <Suspense fallback={<TableCardHead title="Inspections" />}>
-            <InspectionBook
-              phone={false}
-              onAdd={() => setAddingInspection(true)}
-            />
-          </Suspense>
-        </>
-      )}
+      <Suspense fallback={<LoadingState>Opening the schedule…</LoadingState>}>
+        <ScheduleBook
+          shelf={shelf}
+          setShelf={setShelf}
+          phone={phone}
+          onAddTask={() => setAddingTask(true)}
+          onAddInspection={() => setAddingInspection(true)}
+          onDone={setDoing}
+        />
+      </Suspense>
 
       <TaskComposer open={addingTask} onClose={() => setAddingTask(false)} />
 
@@ -179,400 +166,830 @@ export function Schedule() {
   )
 }
 
-/// The dock's choice between the two lists, without their counts.
-function ViewChoice({
-  view,
-  onChange,
-  tasks,
-  inspections,
-}: {
-  view: "tasks" | "inspections"
-  onChange: (view: "tasks" | "inspections") => void
-  tasks?: number
-  inspections?: number
-}) {
-  // The dock is the browser's: a boundary that streams in after the page has
-  // hydrated finds the dock already there and would draw into it, where the
-  // server drew nothing.
-  const hydrated = useHydrated()
-  if (!hydrated) return null
-  return (
-    <DockChoice
-      value={view}
-      onChange={(next) => onChange(next as typeof view)}
-      options={[
-        {
-          value: "tasks",
-          label:
-            tasks === undefined ? "Tasks" : `Tasks · ${formatCount(tasks)}`,
-          short: "Tasks",
-        },
-        {
-          value: "inspections",
-          label:
-            inspections === undefined
-              ? "Inspections"
-              : `Inspections · ${formatCount(inspections)}`,
-          short: "Inspections",
-        },
-      ]}
-    />
-  )
+/// The page's two tabs.
+type Shelf = "TASKS" | "INSPECTIONS"
+
+/// A task row: the task, its place and where it stands, said once on the row
+/// because a column sorts by what is on the screen.
+/// What each shelf is narrowed by, as the chip line under the search: how a
+/// task counts (tasks) or what the inspection found (inspections).
+const FIELDS: FilterField[] = [
+  {
+    column: "interval",
+    label: "Interval",
+    spec: {
+      kind: "option",
+      single: true,
+      format: (value) =>
+        INTERVAL_KINDS.find((one) => one.value === value)?.label ?? value,
+      icon: (value) => INTERVAL_KINDS.find((one) => one.value === value)?.icon,
+    },
+  },
+  {
+    column: "result",
+    label: "Result",
+    spec: {
+      kind: "option",
+      single: true,
+      format: (value) =>
+        INSPECTION_RESULTS.find((one) => one.value === value)?.label ?? value,
+      icon: (value) =>
+        INSPECTION_RESULTS.find((one) => one.value === value)?.icon,
+    },
+  },
+]
+
+interface TaskLine {
+  readonly task: GaMaintenanceTaskRow
+  /// The site by its name: the task's own, or the place its asset stands in.
+  readonly place: string
+  readonly standing: ReturnType<typeof taskStanding>
 }
 
-/// The same choice with how many of each the server holds.
-function CountedViewChoice({
-  view,
-  onChange,
+/// An inspection row.
+interface InspectionLine {
+  readonly inspection: GaInspectionRow
+  readonly state: ReturnType<typeof inspectionState>
+}
+
+/// The glyph a task wears: the one its interval's chip wears, so a row looks
+/// like the choice that made it.
+function intervalIcon(kind: string) {
+  return (INTERVAL_KINDS.find((one) => one.value === kind) ?? INTERVAL_KINDS[1])
+    .icon
+}
+
+/// The task's target as the grey line says it: the thing, or the whole place.
+const targetOf = (task: GaMaintenanceTaskRow) =>
+  task.asset_name ?? "Whole location"
+
+/// Held at the widths their longest words need at 16px a side ("Due this
+/// week" with its dot and the › a row shows under the pointer, "Every 10.000
+/// km", "At 60.200 km", Record done), measured on the hub at 1440 (18 Oct). The
+/// task takes the rest; at 1280 the location, then the interval, give way
+/// before the table would scroll sideways.
+function taskColumns(
+  onDone: (task: GaMaintenanceTaskRow) => void
+): ColumnDef<TableSetup, TaskLine>[] {
+  return [
+    {
+      id: "task",
+      accessorFn: (row) => row.task.title,
+      header: "Task",
+      size: 360,
+      enableHiding: false,
+      meta: { grow: 280 },
+      // The task, and under it what it is for: the only second line in the row.
+      cell: ({ row }) => (
+        <GlyphName
+          icon={intervalIcon(row.original.task.interval_kind)}
+          name={row.original.task.title}
+          quiet={targetOf(row.original.task)}
+        />
+      ),
+    },
+    {
+      id: "location",
+      accessorFn: (row) => row.place,
+      header: "Location",
+      size: 120,
+      meta: { priority: 3 },
+      cell: ({ row }) => (
+        <span className="block truncate" title={row.original.place}>
+          {row.original.place}
+        </span>
+      ),
+    },
+    {
+      id: "every",
+      accessorFn: (row) =>
+        everyWords(row.task.interval_kind, row.task.interval_value),
+      header: "Every",
+      size: 156,
+      meta: { priority: 2 },
+      cell: ({ row }) => (
+        <span className="block truncate tabular-nums">
+          {everyWords(
+            row.original.task.interval_kind,
+            row.original.task.interval_value
+          )}
+        </span>
+      ),
+    },
+    {
+      id: "due",
+      // A task with no date sorts after every date.
+      accessorFn: (row) => row.task.next_due ?? "9999-12-31",
+      header: "Next due",
+      size: 124,
+      // Red only once it is late: the date has passed or the odometer got there.
+      cell: ({ row }) => (
+        <span
+          className={
+            row.original.standing.late
+              ? "text-bad-fg tabular-nums"
+              : "tabular-nums"
+          }
+        >
+          {row.original.standing.due}
+        </span>
+      ),
+    },
+    {
+      id: "status",
+      accessorFn: (row) => row.standing.word,
+      header: "Status",
+      size: 140,
+      cell: ({ row }) => (
+        <Status tone={row.original.standing.tone}>
+          {row.original.standing.word}
+        </Status>
+      ),
+    },
+    {
+      id: "act",
+      header: "",
+      size: 116,
+      enableSorting: false,
+      enableHiding: false,
+      meta: { align: "right" },
+      // Plain accent words, not a solid button on every row: the one verb the
+      // row has, for a schedule that is running.
+      cell: ({ row }) =>
+        row.original.task.status === "ACTIVE" ? (
+          <TextAction
+            onClick={(event) => {
+              event.stopPropagation()
+              onDone(row.original.task)
+            }}
+          >
+            Record done
+          </TextAction>
+        ) : null,
+    },
+  ]
+}
+
+const INSPECTION_COLUMNS: ColumnDef<TableSetup, InspectionLine>[] = [
+  {
+    id: "asset",
+    accessorFn: (row) => row.inspection.asset_name,
+    header: "Asset",
+    size: 340,
+    enableHiding: false,
+    meta: { grow: 240 },
+    cell: ({ row }) => (
+      <GlyphName
+        icon={ClipboardCheck}
+        name={row.original.inspection.asset_name}
+        quiet={row.original.inspection.asset_number}
+      />
+    ),
+  },
+  {
+    id: "date",
+    accessorFn: (row) => row.inspection.inspected_on,
+    header: "Date",
+    size: 124,
+    cell: ({ row }) => (
+      <span className="tabular-nums">
+        {day(row.original.inspection.inspected_on)}
+      </span>
+    ),
+  },
+  {
+    id: "by",
+    accessorFn: (row) => row.inspection.inspected_by,
+    header: "By",
+    size: 160,
+    meta: { priority: 3 },
+    cell: ({ row }) => (
+      <span
+        className="block truncate"
+        title={row.original.inspection.inspected_by}
+      >
+        {row.original.inspection.inspected_by}
+      </span>
+    ),
+  },
+  {
+    id: "finding",
+    accessorFn: (row) => row.inspection.findings,
+    header: "Finding",
+    size: 260,
+    meta: { priority: 2 },
+    cell: ({ row }) => (
+      <span className="block truncate" title={row.original.inspection.findings}>
+        {row.original.inspection.findings}
+      </span>
+    ),
+  },
+  {
+    id: "result",
+    accessorFn: (row) => row.state.word,
+    header: "Result",
+    size: 150,
+    cell: ({ row }) => (
+      <Status tone={row.original.state.tone}>{row.original.state.word}</Status>
+    ),
+  },
+]
+
+/// Asks for every page of a book while any is left, so the figures over it are
+/// over the whole book and not over what has scrolled into view. These books
+/// are a company's recurring services, hundreds at most; one that failed to
+/// load a page is left to the foot of the list, which says so.
+function useAllPages(query: {
+  hasNextPage: boolean
+  isFetchingNextPage: boolean
+  isFetchNextPageError?: boolean
+  fetchNextPage: () => unknown
+}) {
+  const {
+    hasNextPage,
+    isFetchingNextPage,
+    isFetchNextPageError,
+    fetchNextPage,
+  } = query
+  useEffect(() => {
+    if (hasNextPage && !isFetchingNextPage && isFetchNextPageError !== true)
+      void fetchNextPage()
+  }, [hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage])
+}
+
+/// The page under the head: the figures, the tabs, one bar and the list.
+function ScheduleBook({
+  shelf,
+  setShelf,
+  phone,
+  onAddTask,
+  onAddInspection,
+  onDone,
 }: {
-  view: "tasks" | "inspections"
-  onChange: (view: "tasks" | "inspections") => void
+  shelf: Shelf
+  setShelf: (shelf: Shelf) => void
+  phone: boolean
+  onAddTask: () => void
+  onAddInspection: () => void
+  onDone: (task: GaMaintenanceTaskRow) => void
 }) {
   const tasks = useSuspenseInfiniteQuery(gaTaskBookQuery())
   const inspections = useSuspenseInfiniteQuery(gaInspectionBookQuery())
+  useAllPages(tasks)
+  useAllPages(inspections)
+
+  const [search, setSearch] = useState("")
+  const filters = useFilterState(FIELDS)
+  const held = (column: string) =>
+    filters.filters.find((one) => one.column === column)?.values[0] ?? null
+  const cadence = held("interval")
+  const result = held("result")
+
+  // Where an asset stands, for the tasks that name an asset and no place. The
+  // same cached answer the forms read.
+  const { sites } = useGaSites()
+  const assets = useQuery({
+    queryKey: gaKeys.assets({}),
+    queryFn: ({ signal }) => gaAssets({ limit: 200 }, signal),
+    staleTime: 5 * 60 * 1000,
+  })
+  const siteName = (siteId: string) =>
+    sites.find((one) => one.value === siteId)?.label ?? siteId
+
+  // `sites` is rebuilt every render; what it holds is not.
+  const siteKey = sites.map((one) => `${one.value}:${one.label}`).join("|")
+  const taskLines = useMemo<TaskLine[]>(() => {
+    const standsIn = new Map(
+      (assets.data?.rows ?? []).map((one) => [one.asset_id, one.site_id])
+    )
+    const names = new Map(sites.map((one) => [one.value, one.label]))
+    return tasks.data.pages.flatMap((page) =>
+      page.rows.map((task) => {
+        const siteId =
+          task.site_id ??
+          (task.asset_id === null ? undefined : standsIn.get(task.asset_id))
+        return {
+          task,
+          place: siteId === undefined ? "—" : (names.get(siteId) ?? siteId),
+          standing: taskStanding(task),
+        }
+      })
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tasks.data, assets.data, siteKey])
+  const inspectionLines = useMemo<InspectionLine[]>(
+    () =>
+      inspections.data.pages.flatMap((page) =>
+        page.rows.map((inspection) => ({
+          inspection,
+          state: inspectionState(inspection.result),
+        }))
+      ),
+    [inspections.data]
+  )
+
+  const needle = search.trim().toLowerCase()
+  const taskFound = (line: TaskLine) =>
+    needle === "" ||
+    [
+      line.task.title,
+      line.task.asset_name,
+      line.task.notes,
+      line.task.contract_number,
+      line.place,
+    ].some((part) => part?.toLowerCase().includes(needle))
+  const inspectionFound = (line: InspectionLine) =>
+    needle === "" ||
+    [
+      line.inspection.asset_name,
+      line.inspection.asset_number,
+      line.inspection.findings,
+      line.inspection.inspected_by,
+    ].some((part) => part?.toLowerCase().includes(needle))
+
+  const taskRows = useMemo(
+    () =>
+      taskLines.filter(
+        (line) =>
+          taskFound(line) &&
+          (cadence === null || line.task.interval_kind === cadence)
+      ),
+    // `taskFound` is rebuilt every render; what it reads is below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [taskLines, needle, cadence]
+  )
+  const inspectionRows = useMemo(
+    () =>
+      inspectionLines.filter(
+        (line) =>
+          inspectionFound(line) &&
+          (result === null || line.inspection.result === result)
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [inspectionLines, needle, result]
+  )
+
+  // The figures describe the book, whatever the bar narrows to.
+  const active = taskLines.filter((line) => line.task.status === "ACTIVE")
+  const dueThisWeek = active.filter(
+    (line) => line.standing.word === "Due this week"
+  ).length
+  const overdue = active.filter((line) => line.standing.late).length
+  const byDistance = active.filter(
+    (line) => line.task.interval_kind === "KM"
+  ).length
+  const thisMonth = today().slice(0, 7)
+  const inspectedThisMonth = inspectionLines.filter((line) =>
+    line.inspection.inspected_on.startsWith(thisMonth)
+  ).length
+
+  // The tab counts are over what the search leaves.
+  const taskCount = taskLines.filter(taskFound).length
+  const inspectionCount = inspectionLines.filter(inspectionFound).length
+
+  // The chips: only the answers there are, each with how many it leaves.
+  const withCounts = useMemo<FilterField[]>(
+    () =>
+      shelf === "TASKS"
+        ? [
+            {
+              ...FIELDS[0],
+              spec: {
+                ...FIELDS[0].spec,
+                counted: INTERVAL_KINDS.map((one) => ({
+                  value: one.value,
+                  count: taskLines.filter(
+                    (line) =>
+                      taskFound(line) && line.task.interval_kind === one.value
+                  ).length,
+                })),
+              },
+            },
+          ]
+        : [
+            {
+              ...FIELDS[1],
+              spec: {
+                ...FIELDS[1].spec,
+                counted: INSPECTION_RESULTS.map((one) => ({
+                  value: one.value,
+                  count: inspectionLines.filter(
+                    (line) =>
+                      inspectionFound(line) &&
+                      line.inspection.result === one.value
+                  ).length,
+                })),
+              },
+            },
+          ],
+    // `taskFound` and `inspectionFound` are rebuilt every render; what they
+    // read is below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [shelf, taskLines, inspectionLines, needle]
+  )
+  const model: FilterState = { ...filters, fields: withCounts }
+
+  // The server reads tasks soonest due first (undated last); a header press
+  // re-sorts what is loaded.
+  const [taskSorting, setTaskSorting] = useState<SortingState>([])
+  const [inspectionSorting, setInspectionSorting] = useState<SortingState>([])
+  // The columns close over what Record done opens, which is this screen's.
+  const columns = useMemo(() => taskColumns(onDone), [onDone])
+  const taskFit = useFittedVisibility(columns, {})
+  const inspectionFit = useFittedVisibility(INSPECTION_COLUMNS, {})
+  const taskTable = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: taskRows,
+        columns,
+        getRowId: (row: TaskLine) => row.task.task_id,
+        state: { sorting: taskSorting, columnVisibility: taskFit.shown },
+        onSortingChange: setTaskSorting,
+        onColumnVisibilityChange: taskFit.change,
+      }),
+      // `taskFit.shown` is rebuilt every render; what it is made of is not.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      [taskRows, columns, taskSorting, taskFit.hidden, taskFit.visibility]
+    )
+  )
+  const inspectionTable = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: inspectionRows,
+        columns: INSPECTION_COLUMNS,
+        getRowId: (row: InspectionLine) => row.inspection.inspection_id,
+        state: {
+          sorting: inspectionSorting,
+          columnVisibility: inspectionFit.shown,
+        },
+        onSortingChange: setInspectionSorting,
+        onColumnVisibilityChange: inspectionFit.change,
+      }),
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      [
+        inspectionRows,
+        inspectionSorting,
+        inspectionFit.hidden,
+        inspectionFit.visibility,
+      ]
+    )
+  )
+
+  const onTasks = shelf === "TASKS"
+  const table = onTasks ? taskTable : inspectionTable
+  const narrowed = needle !== "" || (onTasks ? cadence : result) !== null
+  const choose = (next: Shelf) => {
+    setShelf(next)
+    setSearch("")
+    filters.clear()
+  }
+
   return (
-    <ViewChoice
-      view={view}
-      onChange={onChange}
-      tasks={tasks.data.pages[0]?.total ?? 0}
-      inspections={inspections.data.pages[0]?.total ?? 0}
-    />
+    <>
+      <KpiStrip className="grid-cols-2 md:grid-cols-4 xl:grid-cols-4">
+        <Kpi label="Due this week" value={formatCount(dueThisWeek)} />
+        <Kpi
+          label="Overdue"
+          value={
+            overdue > 0 ? (
+              <span className="text-bad-fg">{formatCount(overdue)}</span>
+            ) : (
+              formatCount(overdue)
+            )
+          }
+        />
+        <Kpi label="By kilometre" value={formatCount(byDistance)} />
+        <Kpi
+          label="Inspections this month"
+          value={formatCount(inspectedThisMonth)}
+        />
+      </KpiStrip>
+
+      <SubTabs
+        // On a phone the tab is the status chip over the bottom bar.
+        className="max-md:hidden"
+        tabs={[
+          {
+            value: "TASKS",
+            label: <TabLabel text="Tasks" n={taskCount} />,
+          },
+          {
+            value: "INSPECTIONS",
+            label: <TabLabel text="Inspections" n={inspectionCount} />,
+          },
+        ]}
+        value={shelf}
+        onChange={(next) => choose(next as Shelf)}
+      />
+
+      {/* One bar: the search, then Columns at the right; how the schedule
+          counts (or what the inspection found) is the chip line under it. On
+          a phone they are the dock's. */}
+      <div className="max-md:hidden">
+        <Toolbar className="group/bar">
+          <ListFilters
+            model={model}
+            search={{
+              value: search,
+              onChange: setSearch,
+              label: onTasks ? "Search tasks" : "Search inspections",
+            }}
+          />
+          <BarSpacer />
+          <ColumnsMenu table={table} />
+        </Toolbar>
+      </div>
+
+      <DockTools
+        search={{
+          value: search,
+          onChange: setSearch,
+          label: onTasks ? "Search tasks" : "Search inspections",
+        }}
+        filter={{
+          count: (onTasks ? cadence : result) === null ? 0 : 1,
+          panel: { model: filters, filterModel: model },
+        }}
+        status={{
+          value: shelf,
+          options: [
+            { value: "TASKS", label: "Tasks", count: taskCount },
+            {
+              value: "INSPECTIONS",
+              label: "Inspections",
+              count: inspectionCount,
+            },
+          ],
+          onChange: (next) => choose(next as Shelf),
+        }}
+      />
+
+      {onTasks ? (
+        <TaskList
+          rows={taskRows}
+          table={taskTable}
+          fit={taskFit.ref}
+          query={tasks}
+          phone={phone}
+          narrowed={narrowed}
+          empty={taskLines.length === 0}
+          onAdd={onAddTask}
+          onDone={onDone}
+        />
+      ) : (
+        <InspectionList
+          rows={inspectionRows}
+          table={inspectionTable}
+          fit={inspectionFit.ref}
+          query={inspections}
+          phone={phone}
+          narrowed={narrowed}
+          empty={inspectionLines.length === 0}
+          onAdd={onAddInspection}
+        />
+      )}
+    </>
   )
 }
 
-/// The recurring tasks: a phone's cards, or a table in its own box.
-function TaskBook({
+/// A tab's word and its count, the count quiet (as Articles draws it).
+function TabLabel({ text, n }: { text: string; n: number }) {
+  return (
+    <span>
+      {text}
+      <span className="ml-1.5 text-body tabular-nums">{formatCount(n)}</span>
+    </span>
+  )
+}
+
+/// The recurring tasks: a phone's cards, or one framed table.
+function TaskList({
+  rows,
+  table,
+  fit,
+  query,
   phone,
+  narrowed,
+  empty,
   onAdd,
   onDone,
 }: {
+  rows: TaskLine[]
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  table: any
+  fit: (node: HTMLElement | null) => void
+  query: Pageable & Refreshable
   phone: boolean
+  narrowed: boolean
+  empty: boolean
   onAdd: () => void
-  onDone: (row: GaMaintenanceTaskRow) => void
+  onDone: (task: GaMaintenanceTaskRow) => void
 }) {
-  const tasks = useSuspenseInfiniteQuery(gaTaskBookQuery())
-  const taskRows = useMemo(
-    () => tasks.data.pages.flatMap((page) => page.rows),
-    [tasks.data]
-  )
-  const total = tasks.data.pages[0]?.total ?? 0
-
-  if (phone) {
-    return taskRows.length === 0 ? (
+  if (rows.length === 0)
+    return (
       <Card>
         <EmptyState
           action={
-            <Button variant="ghost" onClick={onAdd}>
-              Add the first task
-            </Button>
+            empty ? (
+              <Button variant="ghost" onClick={onAdd}>
+                Add the first task
+              </Button>
+            ) : undefined
           }
         >
-          No recurring tasks yet. A task is recorded for one asset (genset
-          service) or one location (AC wash across 13 stores).
+          {narrowed && !empty
+            ? "No task matches these filters."
+            : "No recurring tasks yet."}
         </EmptyState>
       </Card>
-    ) : (
+    )
+  if (phone)
+    return (
       <PhoneCards
-        rows={taskRows}
-        rowId={(row) => row.task_id}
+        rows={rows}
+        rowId={(line) => line.task.task_id}
         spec={taskCard(onDone)}
-        more={tasks}
+        more={query}
       />
     )
-  }
-
   return (
-    <TableCard
-      title="Tasks"
-      count={taskRows.length}
-      total={total}
-      more={tasks}
-      empty="No recurring tasks yet. A task is recorded for one asset (genset service) or one location (AC wash across 13 stores)."
-      emptyAction={
-        <Button variant="ghost" onClick={onAdd}>
-          Add the first task
-        </Button>
-      }
-    >
-      <div className="min-w-[74rem]">
-        <div className="grid h-10 grid-cols-[minmax(13rem,1fr)_minmax(13rem,1fr)_9rem_9rem_10rem_9rem_8rem] items-center gap-3 border-b border-hairline bg-soft px-3.5 text-eyebrow font-medium text-body">
-          <span>Task</span>
-          <span>Asset / location</span>
-          <span>Interval</span>
-          <span>Next due</span>
-          <span>Contract</span>
-          <span>Status</span>
-          <span />
-        </div>
-        {taskRows.map((row) => (
-          <div
-            key={row.task_id}
-            className="grid grid-cols-[minmax(13rem,1fr)_minmax(13rem,1fr)_9rem_9rem_10rem_9rem_8rem] items-center gap-3 border-b border-hairline px-3.5 py-2.5 last:border-b-0"
-          >
-            <div className="min-w-0">
-              <span className="block truncate text-cell font-medium text-ink">
-                {row.title}
-              </span>
-              {row.notes !== null && (
-                <span className="block truncate text-pill text-mute">
-                  {row.notes}
-                </span>
-              )}
-            </div>
-            <div className="min-w-0">
-              <span className="block truncate text-meta text-body">
-                {row.asset_name ?? row.site_id}
-              </span>
-              <span className="block truncate text-pill text-mute">
-                {row.asset_name !== null
-                  ? "per asset"
-                  : "per location · every point at the location"}
-              </span>
-            </div>
-            <span className="truncate text-meta text-body tabular-nums">
-              {intervalLabel(row.interval_kind, row.interval_value)}
-            </span>
-            <span className="truncate text-meta text-body tabular-nums">
-              {row.next_due === null ? "—" : day(row.next_due)}
-            </span>
-            <span className="min-w-0 truncate font-mono text-id text-body">
-              {row.contract_number ??
-                (row.contract_id === null ? "—" : row.contract_id.slice(0, 8))}
-            </span>
+    // `overflow-clip`, not `overflow-hidden`: hidden makes the card a scroll
+    // box, and the heading would stick to the card instead of the window.
+    <Card ref={fit} className="overflow-clip">
+      <DataTable<TaskLine>
+        refresh={[query]}
+        table={table}
+        more={query}
+        // The window scrolls, not the table.
+        pageScroll
+        summary={{
+          task: (
             <span>
-              <TaskStatePill nextDue={row.next_due} />
+              {formatCount(rows.length)}{" "}
+              <span className="font-normal text-body">
+                {rows.length === 1 ? "task" : "tasks"}
+              </span>
             </span>
-            <span className="flex justify-end">
-              {row.status === "ACTIVE" && (
-                <Button variant="ghost" onClick={() => setDoing(row)}>
-                  <CalendarCheck />
-                  Record done
-                </Button>
-              )}
-            </span>
-          </div>
-        ))}
-      </div>
-    </TableCard>
+          ),
+        }}
+      />
+    </Card>
   )
 }
 
-/// The inspections: a phone's cards, or a table in its own box.
-function InspectionBook({
+/// The inspections: a phone's cards, or one framed table.
+function InspectionList({
+  rows,
+  table,
+  fit,
+  query,
   phone,
+  narrowed,
+  empty,
   onAdd,
 }: {
+  rows: InspectionLine[]
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  table: any
+  fit: (node: HTMLElement | null) => void
+  query: Pageable & Refreshable
   phone: boolean
+  narrowed: boolean
+  empty: boolean
   onAdd: () => void
 }) {
-  const inspections = useSuspenseInfiniteQuery(gaInspectionBookQuery())
-  const inspectionRows = useMemo(
-    () => inspections.data.pages.flatMap((page) => page.rows),
-    [inspections.data]
-  )
-  const total = inspections.data.pages[0]?.total ?? 0
-
-  if (phone) {
-    return inspectionRows.length === 0 ? (
+  if (rows.length === 0)
+    return (
       <Card>
         <EmptyState
           action={
-            <Button variant="ghost" onClick={onAdd}>
-              Record the first inspection
-            </Button>
+            empty ? (
+              <Button variant="ghost" onClick={onAdd}>
+                Record the first inspection
+              </Button>
+            ) : undefined
           }
         >
-          No inspections yet. Inspection results are recorded here, and a
-          finding can become a repair right away.
+          {narrowed && !empty
+            ? "No inspection matches these filters."
+            : "No inspections yet."}
         </EmptyState>
       </Card>
-    ) : (
+    )
+  if (phone)
+    return (
       <PhoneCards
-        rows={inspectionRows}
-        rowId={(row) => row.inspection_id}
+        rows={rows}
+        rowId={(line) => line.inspection.inspection_id}
         spec={INSPECTION_CARD}
-        more={inspections}
+        more={query}
       />
     )
-  }
-
   return (
-    <TableCard
-      title="Inspections"
-      count={inspectionRows.length}
-      total={total}
-      more={inspections}
-      empty="No inspections yet. Inspection results are recorded here, and a finding can become a repair right away."
-      emptyAction={
-        <Button variant="ghost" onClick={onAdd}>
-          Record the first inspection
-        </Button>
-      }
-    >
-      <div className="min-w-[64rem]">
-        <div className="grid h-10 grid-cols-[minmax(14rem,1fr)_9rem_12rem_minmax(14rem,1fr)_10rem] items-center gap-3 border-b border-hairline bg-soft px-3.5 text-eyebrow font-medium text-body">
-          <span>Asset</span>
-          <span>Date</span>
-          <span>By</span>
-          <span>Finding</span>
-          <span>Result</span>
-        </div>
-        {inspectionRows.map((row) => (
-          <div
-            key={row.inspection_id}
-            className="grid grid-cols-[minmax(14rem,1fr)_9rem_12rem_minmax(14rem,1fr)_10rem] items-center gap-3 border-b border-hairline px-3.5 py-2.5 last:border-b-0"
-          >
-            <span className="min-w-0 truncate text-cell font-medium text-ink">
-              {row.asset_name ?? "—"}
-            </span>
-            <span className="truncate text-meta text-body tabular-nums">
-              {day(row.inspected_on)}
-            </span>
-            <span className="min-w-0 truncate text-meta text-body">
-              {row.inspected_by}
-            </span>
-            <span className="min-w-0 truncate text-meta text-body">
-              {row.findings}
-            </span>
+    <Card ref={fit} className="overflow-clip">
+      <DataTable<InspectionLine>
+        refresh={[query]}
+        table={table}
+        more={query}
+        pageScroll
+        summary={{
+          asset: (
             <span>
-              <ResultPill result={row.result} />
+              {formatCount(rows.length)}{" "}
+              <span className="font-normal text-body">
+                {rows.length === 1 ? "inspection" : "inspections"}
+              </span>
             </span>
-          </div>
-        ))}
-      </div>
-    </TableCard>
+          ),
+        }}
+      />
+    </Card>
   )
 }
 
-/// A recurring task as a phone's card: the job over what it is for, when it is
-/// next due, how often, and the one button — Record done — while it is active.
+/// A recurring task as a phone's card: the job over what it is for and where,
+/// when it is next due, how often, and the one quiet verb — Record done, plain
+/// accent words as in the desk's rows — while it is active.
 function taskCard(
-  onDone: (row: GaMaintenanceTaskRow) => void
-): CardSpec<GaMaintenanceTaskRow> {
+  onDone: (task: GaMaintenanceTaskRow) => void
+): CardSpec<TaskLine> {
   return {
-    title: (row) => <span className="min-w-0 break-words">{row.title}</span>,
+    title: (line) => <CardName name={line.task.title} />,
     meta: [
-      (row) => row.asset_name ?? `${row.site_id} · every point at the location`,
-      (row) =>
-        row.contract_number === null && row.contract_id === null
-          ? null
-          : `Contract ${row.contract_number ?? row.contract_id?.slice(0, 8)}`,
+      (line) =>
+        [targetOf(line.task), line.place === "—" ? "" : line.place]
+          .filter((part) => part !== "")
+          .join(" · "),
+      (line) => everyWords(line.task.interval_kind, line.task.interval_value),
     ],
-    lead: (row) => (
+    lead: (line) => (
       <CardFigure
-        value={row.next_due === null ? "—" : day(row.next_due)}
+        value={line.standing.due}
         caption="Next due"
-        tone={row.next_due === null ? "quiet" : undefined}
+        tone={
+          line.standing.late
+            ? "bad"
+            : line.standing.due === "—"
+              ? "quiet"
+              : undefined
+        }
       />
     ),
-    foot: (row) => (
-      <span className="flex flex-wrap items-center gap-2">
-        <TaskStatePill nextDue={row.next_due} />
-        <span className="tabular-nums">
-          {intervalLabel(row.interval_kind, row.interval_value)}
-        </span>
-      </span>
+    foot: (line) => (
+      <Status tone={line.standing.tone}>{line.standing.word}</Status>
     ),
-    action: (row) =>
-      row.status === "ACTIVE" ? (
-        <Button
-          variant="tint"
-          size="card"
+    action: (line) =>
+      line.task.status === "ACTIVE" ? (
+        <TextAction
           onClick={(event) => {
             event.stopPropagation()
-            onDone(row)
+            onDone(line.task)
           }}
         >
           Record done
-        </Button>
+        </TextAction>
       ) : null,
   }
 }
 
-/// An inspection as a phone's card: the asset, when and by whom, what was found,
-/// and the result.
-const INSPECTION_CARD: CardSpec<GaInspectionRow> = {
-  title: (row) => (
-    <span className="min-w-0 break-words">{row.asset_name ?? "—"}</span>
-  ),
+/// An inspection as a phone's card: the asset, when and by whom, what was
+/// found, and the result.
+const INSPECTION_CARD: CardSpec<InspectionLine> = {
+  title: (line) => <CardName name={line.inspection.asset_name} />,
   meta: [
-    (row) => `${day(row.inspected_on)} · ${row.inspected_by}`,
-    (row) => row.findings,
+    (line) =>
+      `${day(line.inspection.inspected_on)} · ${line.inspection.inspected_by}`,
+    (line) => line.inspection.findings,
   ],
-  action: (row) => <ResultPill result={row.result} />,
-}
-
-/// One table, in its own scrolling box — the same answer the register gives:
-/// six columns do not fit a phone, and a squeezed table overlaps its own
-/// cells while the page itself starts scrolling sideways.
-///
-/// The box scrolls DOWN too, and pages as its own foot nears view. Two
-/// infinite lists stacked on one page cannot both scroll with the page: the
-/// first would pull every one of its pages before the second came into view.
-function TableCard({
-  title,
-  count,
-  total,
-  more,
-  empty,
-  emptyAction,
-  children,
-}: {
-  title: string
-  /// Rows loaded so far — what decides between the table and the empty state.
-  count: number
-  /// Every row the server holds, which is what the header says.
-  total: number
-  more: Pageable
-  empty: string
-  emptyAction?: React.ReactNode
-  children: React.ReactNode
-}) {
-  return (
-    <Card className="overflow-hidden">
-      <div className="flex items-baseline justify-between gap-3 border-b border-hairline bg-soft px-3.5 py-2.5">
-        <b className="text-card-title font-semibold text-ink">{title}</b>
-        <span className="text-pill text-mute">{formatCount(total)}</span>
-      </div>
-      {count === 0 ? (
-        <EmptyState action={emptyAction}>{empty}</EmptyState>
-      ) : (
-        <div className="max-h-[36rem] overflow-auto">
-          {children}
-          <LoadMore query={more} />
-        </div>
-      )}
-    </Card>
-  )
-}
-
-/// A table's head while its rows are on the way.
-function TableCardHead({ title }: { title: string }) {
-  return (
-    <Card className="overflow-hidden">
-      <div className="flex items-baseline justify-between gap-3 border-b border-hairline bg-soft px-3.5 py-2.5">
-        <b className="text-card-title font-semibold text-ink">{title}</b>
-      </div>
-    </Card>
-  )
+  action: (line) => <Pill tone={line.state.tone}>{line.state.word}</Pill>,
 }
 
 /// Recording a recurring task. The first question is WHOSE task it is — one
 /// thing, or one place — because that decides what the rest of the form
 /// asks for, and a task that is vaguely for both is a task nobody can tick
 /// off.
-function TaskComposer({
+///
+/// `presetAssetId` is the asset sheet asking for a task for ITS asset: the
+/// choice of whose task it is, and the asset itself, are already answered and
+/// stay locked.
+export function TaskComposer({
   open,
   onClose,
+  presetAssetId,
 }: {
   open: boolean
   onClose: () => void
+  presetAssetId?: string
 }) {
   const client = useQueryClient()
-  const [form, setForm] = useState<Record<string, string>>({
+  const fresh = (): Record<string, string> => ({
     target: "ASSET",
     kind: "MONTHS",
+    ...(presetAssetId === undefined ? {} : { asset: presetAssetId }),
   })
+  const [form, setForm] = useState<Record<string, string>>(fresh)
   const [problems, setProblems] = useState<Record<string, string>>({})
   const set = (key: string, value: string) => {
     setProblems((current) => ({ ...current, [key]: "" }))
@@ -591,6 +1008,16 @@ function TaskComposer({
   })
 
   const { sites: siteOptions } = useGaSites(open)
+  const siteName = (siteId: string) =>
+    siteOptions.find((one) => one.value === siteId)?.label ?? siteId
+
+  // The preset asset's name, from the sheet that asked (already cached).
+  const preset = useQuery({
+    queryKey: gaKeys.asset(presetAssetId ?? ""),
+    queryFn: ({ signal }) => gaAssetHub(presetAssetId ?? "", signal),
+    enabled: open && presetAssetId !== undefined,
+    staleTime: 5 * 60 * 1000,
+  })
 
   const vendors = useQuery({
     queryKey: [...procurementKeys.suppliers(), "book", "EXPENSE"],
@@ -610,6 +1037,12 @@ function TaskComposer({
         // A KM task has no next DATE — km is distance. The others must say
         // when they are next due, or the row has no job to do.
         next_due: nextDueHidden ? null : (form.next_due ?? ""),
+        // A KM task is due at a reading instead (0975). Left empty, the server
+        // takes the first multiple of the interval past the latest reading.
+        next_due_km:
+          nextDueHidden && (form.next_km ?? "") !== ""
+            ? Number(form.next_km)
+            : null,
         contract_id: form.contract === "" ? null : (form.contract ?? null),
         supplier_id: form.vendor === "" ? null : (form.vendor ?? null),
         notes: (form.notes ?? "").trim() === "" ? null : form.notes?.trim(),
@@ -617,7 +1050,7 @@ function TaskComposer({
     onSuccess: () => {
       // The schedule's own list and the overview's due-soon list both move.
       void client.invalidateQueries({ queryKey: gaKeys.all })
-      setForm({ target: "ASSET", kind: "MONTHS" })
+      setForm(fresh())
       onClose()
     },
   })
@@ -644,71 +1077,76 @@ function TaskComposer({
     <Sheet
       open={open}
       onOpenChange={(next) => !next && onClose()}
-      width="wide"
+      size="wide"
       title="New recurring task"
-      caption="One schedule for one asset or one location. The next due date is calculated by the server from the interval."
       footer={
-        <div className="flex items-center justify-between gap-3">
-          <span className="text-pill text-mute">
-            {nextDueHidden
-              ? "A km task follows the odometer, not a date"
-              : forAsset
-                ? "Task for one asset"
-                : "Task for one location"}
-          </span>
-          <div className="flex items-center gap-2">
-            <Button data-cancel variant="ghost" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button variant="primary" pending={save.isPending} onClick={submit}>
-              {save.isPending ? "Submitting…" : "Submit"}
-            </Button>
-          </div>
-        </div>
+        <SheetFooter
+          error={save.error}
+          onCancel={onClose}
+          primary={{
+            label: "Add task",
+            pending: save.isPending,
+            onClick: submit,
+          }}
+        />
       }
     >
       <div className="flex flex-col gap-5">
-        {save.error instanceof Error && (
-          <Banner tone="bad">{save.error.message}</Banner>
-        )}
-
         <Section title="For">
-          <Choices
-            label="For"
-            columns={2}
-            value={form.target ?? "ASSET"}
-            onChange={(next) => set("target", next)}
-            options={[
-              {
-                value: "ASSET",
-                label: "One asset",
-                icon: ClipboardCheck,
-                note: "Service for one machine: genset DC, goods lift C001.",
-              },
-              {
-                value: "SITE",
-                label: "One location",
-                icon: CalendarPlus,
-                note: "One job covering every point at one location: AC wash across 13 stores.",
-              },
-            ]}
-          />
+          {presetAssetId === undefined && (
+            <Choices
+              label="For"
+              columns={2}
+              value={form.target ?? "ASSET"}
+              onChange={(next) => set("target", next)}
+              options={[
+                {
+                  value: "ASSET",
+                  label: "One asset",
+                  icon: ClipboardCheck,
+                  note: "A machine: the genset, a goods lift.",
+                },
+                {
+                  value: "SITE",
+                  label: "One location",
+                  icon: MapPin,
+                  note: "Every point at a place: the AC wash across a store.",
+                },
+              ]}
+            />
+          )}
           {forAsset ? (
             <Field label="Asset" required problem={problems.asset || undefined}>
-              <Select
-                value={form.asset ?? ""}
-                onChange={(next) => set("asset", next)}
-                aria-label="Asset"
-              >
-                <option value="">Choose…</option>
-                {(assets.data?.rows ?? [])
-                  .filter((one) => one.status !== "DRAFT")
-                  .map((one) => (
-                    <option key={one.asset_id} value={one.asset_id}>
-                      {one.name} · {one.asset_number} · {one.site_id}
-                    </option>
-                  ))}
-              </Select>
+              {presetAssetId !== undefined ? (
+                <Select
+                  value={presetAssetId}
+                  onChange={() => undefined}
+                  aria-label="Asset"
+                  disabled
+                >
+                  <option value={presetAssetId}>
+                    {preset.data === undefined
+                      ? "This asset"
+                      : `${preset.data.asset.name} · ${preset.data.asset.asset_number}`}
+                  </option>
+                </Select>
+              ) : (
+                <Select
+                  value={form.asset ?? ""}
+                  onChange={(next) => set("asset", next)}
+                  aria-label="Asset"
+                >
+                  <option value="">Choose…</option>
+                  {(assets.data?.rows ?? [])
+                    .filter((one) => one.status !== "DRAFT")
+                    .map((one) => (
+                      <option key={one.asset_id} value={one.asset_id}>
+                        {one.name} · {one.asset_number} ·{" "}
+                        {siteName(one.site_id)}
+                      </option>
+                    ))}
+                </Select>
+              )}
             </Field>
           ) : (
             <Field
@@ -724,7 +1162,7 @@ function TaskComposer({
                 <option value="">Choose…</option>
                 {siteOptions.map((one) => (
                   <option key={one.value} value={one.value}>
-                    {one.label ?? one.value}
+                    {one.label}
                   </option>
                 ))}
               </Select>
@@ -738,21 +1176,18 @@ function TaskComposer({
           </Field>
         </Section>
 
-        <Section
-          title="Interval"
-          aside="the next due date is calculated from this"
-        >
+        <Section title="Interval">
           <div className="grid grid-cols-[1fr_10rem] items-start gap-4">
             <Choices
               label="Interval unit"
               columns={3}
               value={kind}
               onChange={(next) => set("kind", next)}
-              options={[
-                { value: "DAYS", label: "Days" },
-                { value: "MONTHS", label: "Months" },
-                { value: "KM", label: "Kilometres" },
-              ]}
+              options={INTERVAL_KINDS.map((one) => ({
+                value: one.value,
+                label: one.label,
+                icon: one.icon,
+              }))}
             />
             <Field label="Every" required problem={problems.value || undefined}>
               <Input
@@ -762,11 +1197,19 @@ function TaskComposer({
               />
             </Field>
           </div>
+          {nextDueHidden && forAsset && (
+            <Field label="Next service at">
+              <Money
+                suffix="km"
+                value={form.next_km ?? ""}
+                onChange={(next) => set("next_km", next)}
+              />
+            </Field>
+          )}
           {!nextDueHidden && (
             <Field
               label="Next due"
               required
-              aside="recalculated by the server each time it's completed"
               problem={problems.next_due || undefined}
             >
               <Input
@@ -779,10 +1222,7 @@ function TaskComposer({
         </Section>
 
         <Section title="Assigned to">
-          <Field
-            label="Vendor"
-            aside="optional; a maintenance contract carries more weight"
-          >
+          <Field label="Vendor">
             <Select
               value={form.vendor ?? ""}
               onChange={(next) => set("vendor", next)}
@@ -796,7 +1236,7 @@ function TaskComposer({
               ))}
             </Select>
           </Field>
-          <Field label="Notes" aside="appears below the task in the schedule">
+          <Field label="Notes">
             <Input
               value={form.notes ?? ""}
               onChange={(event) => set("notes", event.target.value)}
@@ -815,25 +1255,30 @@ function TaskComposer({
 ///
 /// "Good" has no follow-up, so the switch is not drawn for it (brief §10.2).
 /// The two other results do, and the switch lights by default: the finding
-/// is already written in Temuan, and the repair should carry it rather than
-/// make somebody type it again. The repair appears in the Jadwal's book and
-/// in the asset's history, with the inspection as its evidence.
-function InspectionComposer({
+/// is already written, and the repair should carry it rather than make
+/// somebody type it again. The repair appears in the Repairs book and in the
+/// asset's history, with the inspection as its evidence.
+export function InspectionComposer({
   open,
   task = null,
+  presetAssetId,
   onClose,
 }: {
   open: boolean
   /// The scheduled task this inspection answers. Its asset is fixed, and
   /// saving moves the task's next date.
   task?: GaMaintenanceTaskRow | null
+  /// The asset sheet asking for an inspection of ITS asset: the asset is
+  /// chosen already and stays locked.
+  presetAssetId?: string
   onClose: () => void
 }) {
   const client = useQueryClient()
   const blankForm = (): Record<string, string> => ({
     result: "BAIK",
     by: "GA staff",
-    inspected_on: new Date().toISOString().slice(0, 10),
+    inspected_on: today(),
+    ...(presetAssetId === undefined ? {} : { asset: presetAssetId }),
     ...(task !== null && task.asset_id !== null
       ? { asset: task.asset_id, findings: `${task.title} done` }
       : {}),
@@ -855,6 +1300,9 @@ function InspectionComposer({
     enabled: open,
     staleTime: 5 * 60 * 1000,
   })
+  const { sites: siteOptions } = useGaSites(open)
+  const siteName = (siteId: string) =>
+    siteOptions.find((one) => one.value === siteId)?.label ?? siteId
 
   const vendors = useQuery({
     queryKey: [...procurementKeys.suppliers(), "book", "EXPENSE"],
@@ -863,9 +1311,24 @@ function InspectionComposer({
     staleTime: 5 * 60 * 1000,
   })
 
-  const asset = (assets.data?.rows ?? []).find(
-    (one) => one.asset_id === form.asset
-  )
+  // The preset asset, from the sheet that asked (already cached): it gives the
+  // locked field its name and the repair its site even when the asset is past
+  // the first page of the list above.
+  const preset = useQuery({
+    queryKey: gaKeys.asset(presetAssetId ?? ""),
+    queryFn: ({ signal }) => gaAssetHub(presetAssetId ?? "", signal),
+    enabled: open && presetAssetId !== undefined,
+    staleTime: 5 * 60 * 1000,
+  })
+
+  const asset =
+    (assets.data?.rows ?? []).find((one) => one.asset_id === form.asset) ??
+    (preset.data !== undefined && preset.data.asset.asset_id === form.asset
+      ? preset.data.asset
+      : undefined)
+  // A km task is about a vehicle whether or not the asset is on the first page
+  // of the list.
+  const vehicle = asset?.build === "VEHICLE" || task?.interval_kind === "KM"
 
   const save = useMutation({
     mutationFn: async () => {
@@ -878,6 +1341,12 @@ function InspectionComposer({
         result,
         findings: (form.findings ?? "").trim(),
         task_id: task?.task_id ?? null,
+        // The odometer at the visit, for a vehicle (0975): kept as its
+        // reading, and what a km task's next service counts from.
+        odometer_km:
+          vehicle && (form.odometer ?? "") !== ""
+            ? Number(form.odometer)
+            : null,
       })
       if (!needsRepair) return inspection
       return recordGaRepair({
@@ -897,7 +1366,7 @@ function InspectionComposer({
       }).then(() => inspection)
     },
     onSuccess: () => {
-      // The schedule's inspection table, the Perbaikan book and the asset's
+      // The schedule's inspection list, the Repairs book and the asset's
       // history all read from the GA namespace.
       void client.invalidateQueries({ queryKey: gaKeys.all })
       setForm(blankForm())
@@ -925,45 +1394,28 @@ function InspectionComposer({
     <Sheet
       open={open}
       onOpenChange={(next) => !next && onClose()}
-      width="wide"
+      size="wide"
       title={task === null ? "New inspection" : `Record done · ${task.title}`}
-      caption={
-        task === null
-          ? "The result of inspecting one asset. A finding that needs action can become a repair right away."
-          : "The service is recorded as an inspection of the asset, and the task's next due date moves on from the date below."
-      }
       footer={
-        <div className="flex items-center justify-between gap-3">
-          <span className="text-pill text-mute">
-            {result === "BAIK"
-              ? "Recorded in the asset's history"
-              : needsRepair
-                ? "A repair will be created from this finding"
-                : "Recorded; the repair follows later if needed"}
-          </span>
-          <div className="flex items-center gap-2">
-            <Button data-cancel variant="ghost" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button variant="primary" pending={save.isPending} onClick={submit}>
-              {save.isPending ? "Submitting…" : "Submit"}
-            </Button>
-          </div>
-        </div>
+        <SheetFooter
+          error={save.error}
+          onCancel={onClose}
+          primary={{
+            label: task === null ? "Record inspection" : "Record done",
+            pending: save.isPending,
+            onClick: submit,
+          }}
+        />
       }
     >
       <div className="flex flex-col gap-5">
-        {save.error instanceof Error && (
-          <Banner tone="bad">{save.error.message}</Banner>
-        )}
-
         <Section title="Asset and time">
           <Field label="Asset" required problem={problems.asset || undefined}>
             <Select
               value={form.asset ?? ""}
               onChange={(next) => set("asset", next)}
               aria-label="Asset"
-              disabled={task !== null}
+              disabled={task !== null || presetAssetId !== undefined}
             >
               {/* The task's own asset, in case it is past the first page of
                   the list below. */}
@@ -972,15 +1424,26 @@ function InspectionComposer({
                   {task.asset_name ?? task.asset_id}
                 </option>
               )}
+              {/* The asset that asked for this inspection, for the same
+                  reason. */}
+              {presetAssetId !== undefined && task === null && (
+                <option value={presetAssetId}>
+                  {preset.data === undefined
+                    ? "This asset"
+                    : `${preset.data.asset.name} · ${preset.data.asset.asset_number}`}
+                </option>
+              )}
               <option value="">Choose…</option>
               {(assets.data?.rows ?? [])
                 .filter(
                   (one) =>
-                    one.status !== "DRAFT" && one.asset_id !== task?.asset_id
+                    one.status !== "DRAFT" &&
+                    one.asset_id !== task?.asset_id &&
+                    one.asset_id !== presetAssetId
                 )
                 .map((one) => (
                   <option key={one.asset_id} value={one.asset_id}>
-                    {one.name} · {one.asset_number} · {one.site_id}
+                    {one.name} · {one.asset_number} · {siteName(one.site_id)}
                   </option>
                 ))}
             </Select>
@@ -1000,9 +1463,18 @@ function InspectionComposer({
               />
             </Field>
           </div>
+          {vehicle && (
+            <Field label="Odometer">
+              <Money
+                suffix="km"
+                value={form.odometer ?? ""}
+                onChange={(next) => set("odometer", next)}
+              />
+            </Field>
+          )}
         </Section>
 
-        <Section title="Result" aside="the card chosen decides what follows">
+        <Section title="Result">
           <Choices
             label="Result"
             columns={3}
@@ -1037,8 +1509,8 @@ function InspectionComposer({
                 label="Create a repair from this finding"
                 note={
                   makeRepair
-                    ? "The repair is recorded in the Repairs book and in the asset's history, with this inspection as its evidence."
-                    : "The finding is recorded only; the repair can be created later."
+                    ? "The repair carries this finding."
+                    : "Only the finding is recorded."
                 }
               />
               {makeRepair && (
@@ -1081,8 +1553,8 @@ function TaskDoneSheet({
   onClose: () => void
 }) {
   const client = useQueryClient()
-  const today = new Date().toISOString().slice(0, 10)
-  const [doneOn, setDoneOn] = useState(today)
+  const now = today()
+  const [doneOn, setDoneOn] = useState(now)
   // Null until somebody types a date of their own; until then the next date
   // follows the done date.
   const [typed, setTyped] = useState<string | null>(null)
@@ -1099,6 +1571,7 @@ function TaskDoneSheet({
         interval_kind: null,
         interval_value: null,
         next_due: nextDue,
+        next_due_km: null,
         contract_id: null,
         supplier_id: null,
         status: null,
@@ -1114,48 +1587,32 @@ function TaskDoneSheet({
     <Sheet
       open={task !== null}
       onOpenChange={(next) => !next && onClose()}
+      size="rail"
       title={task === null ? "Record done" : `Record done · ${task.title}`}
-      caption="A task for a whole location: the next due date moves on from the day the work was done."
       footer={
-        <div className="flex items-center justify-end gap-2">
-          <Button data-cancel variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            pending={save.isPending}
-            disabled={nextDue === ""}
-            onClick={() => save.mutate()}
-          >
-            {save.isPending ? "Submitting…" : "Submit"}
-          </Button>
-        </div>
+        <SheetFooter
+          error={save.error}
+          onCancel={onClose}
+          primary={{
+            label: "Record done",
+            pending: save.isPending,
+            disabled: nextDue === "",
+            onClick: () => save.mutate(),
+          }}
+        />
       }
     >
       <div className="flex flex-col gap-5">
-        {save.error instanceof Error && (
-          <Banner tone="bad">{save.error.message}</Banner>
-        )}
         <div className="grid grid-cols-2 gap-4">
           <Field label="Done on">
             <Input
               type="date"
               value={doneOn}
-              max={today}
+              max={now}
               onChange={(event) => setDoneOn(event.target.value)}
             />
           </Field>
-          <Field
-            label="Next due"
-            required
-            aside={
-              task === null
-                ? undefined
-                : proposed === null
-                  ? "by distance: enter a date"
-                  : intervalLabel(task.interval_kind, task.interval_value)
-            }
-          >
+          <Field label="Next due" required>
             <Input
               type="date"
               value={nextDue}

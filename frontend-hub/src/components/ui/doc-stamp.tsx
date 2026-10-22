@@ -1,3 +1,6 @@
+import { useQueryClient, type QueryClient } from "@tanstack/react-query"
+import { useState } from "react"
+
 import { dayMonth } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import { STAMP } from "@/screens/procurement/shared"
@@ -14,6 +17,31 @@ const TONE = {
   mute: "text-mute",
 } as const
 
+/// How long after a change of the viewer's own went through a stamp still
+/// counts as pressed by it: the save, the document read back, and the sheet
+/// drawn again under it, on a slow phone. Past that, a stamp that appears is a
+/// document opened already finished, and it stands still.
+const PRESSED_WITHIN = 8_000
+
+/// Whether a change this tab made has just succeeded. The stamp cannot tell
+/// which change finished ITS document, and does not need to: the one stamp that
+/// appears straight after Cancel, Close short or Accept is that change's. A
+/// change that runs by itself and can finish nothing (a sign-in, seeing MD's
+/// changes) says so with `meta: { finishesNothing: true }` and is not counted,
+/// or entering Operations would press every cancelled card on the board.
+function pressedJustNow(client: QueryClient): boolean {
+  const now = Date.now()
+  return client
+    .getMutationCache()
+    .getAll()
+    .some(
+      (one) =>
+        one.state.status === "success" &&
+        one.meta?.finishesNothing !== true &&
+        now - one.state.submittedAt < PRESSED_WITHIN
+    )
+}
+
 export function DocStamp({
   word,
   at,
@@ -29,6 +57,10 @@ export function DocStamp({
   tone: keyof typeof TONE
   className?: string
 }) {
+  const client = useQueryClient()
+  // Decided once, when the stamp first appears: the press is news then, and a
+  // poll redrawing the document later must not press it again.
+  const [land] = useState(() => pressedJustNow(client))
   return (
     <span
       aria-hidden
@@ -36,6 +68,7 @@ export function DocStamp({
         STAMP,
         "absolute top-0 right-2 z-10 text-[1.125rem] leading-6",
         TONE[tone],
+        land && "stamp-land",
         className
       )}
     >

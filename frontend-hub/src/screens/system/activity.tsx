@@ -1,6 +1,7 @@
 import { useSuspenseInfiniteQuery } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
+import { Pencil, Plus, Trash2 } from "lucide-react"
 import { useHydrated } from "@tanstack/react-router"
 import {
   Suspense,
@@ -15,12 +16,12 @@ import { PageContent } from "@/components/shell/app-shell"
 import { DockTools } from "@/components/shell/dock-tools"
 import { Card } from "@/components/ui/card"
 import { DataTable, dockSortOf } from "@/components/ui/data-table"
-import { Input } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
-import { Segmented, Toolbar } from "@/components/ui/segmented"
+import { Toolbar } from "@/components/ui/segmented"
 import { EmptyState, LoadingState } from "@/components/ui/states"
+import { SubTabs } from "@/components/ui/sub-tabs"
 import { Tag } from "@/components/ui/tag"
 import {
   useFilterState,
@@ -243,7 +244,19 @@ export function ActivityLog() {
       {
         column: "method",
         label: "Method",
-        spec: { kind: "option", single: true, operators: ["isAnyOf"] },
+        spec: {
+          kind: "option",
+          single: true,
+          operators: ["isAnyOf"],
+          icon: (value) =>
+            value === "POST"
+              ? Plus
+              : value === "DELETE"
+                ? Trash2
+                : value === "PATCH" || value === "PUT"
+                  ? Pencil
+                  : undefined,
+        },
       },
     ],
     []
@@ -394,34 +407,38 @@ function ActivityBook({
 
   return (
     <>
+      <SubTabs
+        className="max-md:hidden"
+        tabs={[
+          { value: "all", label: "Everything" },
+          {
+            value: "refused",
+            label: (
+              <span>
+                Refused
+                {refused !== undefined && (
+                  <span className="ml-1.5 text-body tabular-nums">
+                    {count(refused)}
+                  </span>
+                )}
+              </span>
+            ),
+          },
+        ]}
+        value={only}
+        onChange={(next) => setOnly(next as "all" | "refused")}
+      />
       <div className={DESK_BAR}>
-        <Segmented
-          options={[
-            { value: "all", label: "Everything" },
-            {
-              value: "refused",
-              label:
-                refused === undefined
-                  ? "Refused"
-                  : `Refused · ${count(refused)}`,
-            },
-          ]}
-          value={only}
-          onChange={setOnly}
+        <FilterPanel
+          model={{ ...filters, fields: counted }}
+          search={{ value: query, onChange: setQuery, label: "Search the log" }}
         />
-        <FilterPanel model={{ ...filters, fields: counted }} />
         <Toolbar.Spacer />
         {head?.total !== undefined && head.total !== null && (
           <span className="text-meta text-mute tabular-nums">
             {count(head.total)} actions
           </span>
         )}
-        <Input
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search"
-          className="h-8 w-56"
-        />
       </div>
 
       {/* On a phone the split, the filter, the search and the sort are the

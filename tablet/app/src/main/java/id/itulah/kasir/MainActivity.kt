@@ -19,6 +19,7 @@ import id.itulah.kasir.core.UsbReader
 import id.itulah.kasir.data.Api
 import id.itulah.kasir.data.Config
 import id.itulah.kasir.data.ConfigStore
+import id.itulah.kasir.data.skuDisplay
 import id.itulah.kasir.pos.TillViewModel
 import id.itulah.kasir.ui.DeskScreen
 import id.itulah.kasir.ui.ItulahTheme
@@ -109,7 +110,7 @@ class MainActivity : ComponentActivity() {
             // Focused but silent. The field has to hold the caret so a wedge
             // scanner has somewhere to type, and the IME must not open for it —
             // on a tablet it covers the basket, and the next thing to arrive is
-            // a tag rather than a thumb. "Papan tik" on the board summons it.
+            // a tag rather than a thumb. The keyboard icon in the field summons it.
             kotlinx.coroutines.delay(120)
             keyboard?.hide()
         }
@@ -166,22 +167,27 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        // Signing out, from the desk's person menu. Only the desk offers it:
+        // signing out mid-payment or mid-return would strand whatever was half
+        // done on the screen being left.
+        val signOut = {
+            store.clearSession()
+            config = store.load()
+            api.config = config
+            loginError = null
+            where = Where.LOGIN
+        }
+
         // Every screen stands in the same frame, as it does on pos-desktop.
         // Before sign-in there is no cashier to show and no till to report on.
+        // The counter (and the payment dialog over it) draws its own toolbar, so
+        // the plain bar is for every other page.
         val signedIn = where != Where.SETUP && where != Where.LOGIN
         Shell(
             terminalId = config.terminalId.takeIf { it.isNotBlank() },
             cashier = if (signedIn) config.cashier else null,
-            // Only from the desk: signing out mid-payment or mid-return would
-            // strand whatever was half done on the screen being left.
-            onSignOut = if (where == Where.DESK) ({
-                store.clearSession()
-                config = store.load()
-                api.config = config
-                loginError = null
-                where = Where.LOGIN
-            }) else null,
             status = if (signedIn) ({ TillStatus(state) }) else null,
+            bar = where != Where.DESK && where != Where.TENDER,
         ) {
         when (where) {
             Where.SETUP -> SetupScreen(
@@ -233,10 +239,15 @@ class MainActivity : ComponentActivity() {
                 onSetup = { where = Where.SETUP },
             )
 
-            Where.DESK -> DeskScreen(
+            // The payment dialog stands over the counter, so the counter stays
+            // composed behind it — but locked, so a scan cannot reach it.
+            Where.DESK, Where.TENDER -> DeskScreen(
                 state = state,
                 config = config,
                 scanFocus = scanFocus,
+                // Over it, the payment dialog or a supervisor's step-up: neither
+                // is a moment for a scan to land in the basket.
+                locked = where == Where.TENDER || approving != null,
                 onScan = till::scan,
                 onRemove = till::remove,
                 onClear = till::clear,
@@ -248,6 +259,14 @@ class MainActivity : ComponentActivity() {
                     state.lastSale?.let { till.loadReceipt(it.saleId) }
                     where = Where.RETURN
                 },
+                // The same supervisor step-up the return screen's "void the whole
+                // sale" opens, over the counter instead of over that screen.
+                onVoid = {
+                    if (state.lastSale != null) {
+                        approvalFailure = null
+                        approving = "void"
+                    }
+                },
                 onHold = till::hold,
                 onResume = till::resume,
                 onLastReceipt = {
@@ -257,31 +276,9 @@ class MainActivity : ComponentActivity() {
                     }
                 },
                 onSetup = { where = Where.SETUP },
+                onSignOut = signOut,
                 onDismissNote = till::dismissNote,
-            )
-
-            Where.TENDER -> TenderScreen(
-                totalMinor = state.totalMinor,
-                lines = state.lines,
-                methods = state.paymentMethods,
-                busy = state.busy,
-                failure = state.note?.takeIf { it.bad }?.text,
-                benefitHeld = state.benefit,
-                basketHasPromotion = state.quote?.promotions?.any { it.applied } == true,
-                onBenefitLookup = till::benefitLookup,
-                onBenefitSpend = till::benefitSpend,
-                onBenefitRelease = till::releaseBenefit,
-                onCancel = { till.releaseBenefit(); where = Where.DESK },
-                onConfirm = { tenders ->
-                    till.sell(tenders) { sale ->
-                        till.loadReceipt(sale.saleId)
-                        // Printing is fire-and-forget on purpose: a printer out
-                        // of paper must not hold up the next customer, and the
-                        // receipt can be reprinted from the sale at any time.
-                        if (config.hasPrinter) till.printReceipt(sale.saleId, copy = false)
-                        where = Where.RECEIPT
-                    }
-                },
+                onDismissLookup = till::clearLookup,
             )
 
             Where.SHIFT -> ShiftScreen(
@@ -322,7 +319,7 @@ class MainActivity : ComponentActivity() {
                     } else {
                         val name = state.receipt?.lines
                             ?.firstOrNull { it.skuCode == parts.skuCode }?.name
-                            ?: "SKU ${parts.skuCode}"
+                            ?: "SKU ${skuDisplay(parts.skuCode)}"
                         returning = returning + ReturningLine(value, parts.skuCode, name)
                     }
                 },
@@ -339,13 +336,44 @@ class MainActivity : ComponentActivity() {
             )
 
             Where.RECEIPT -> ReceiptScreen(
-                receipt = state.receipt,
+                // Only the receipt of the sale just made: until it has been
+                // fetched, `state.receipt` is still the one before.
+                receipt = state.receipt?.takeIf { it.saleId == state.lastSale?.saleId },
+                sale = state.lastSale,
                 hasPrinter = config.hasPrinter,
                 busy = state.busy,
-                onPrint = { copy -> state.receipt?.let { till.printReceipt(it.saleId, copy) } },
+                // By the sale, not by the loaded receipt: that may still be the
+                // one before while the new one is on its way.
+                onPrint = { copy -> state.lastSale?.let { till.printReceipt(it.saleId, copy) } },
                 onBack = { where = Where.DESK },
             )
         }
+        }
+
+        // Payment is a dialog over the counter, not a page of its own.
+        if (where == Where.TENDER) {
+            TenderScreen(
+                totalMinor = state.totalMinor,
+                methods = state.paymentMethods,
+                busy = state.busy,
+                failure = state.note?.takeIf { it.bad }?.text,
+                benefitHeld = state.benefit,
+                basketHasPromotion = state.quote?.promotions?.any { it.applied } == true,
+                onBenefitLookup = till::benefitLookup,
+                onBenefitSpend = till::benefitSpend,
+                onBenefitRelease = till::releaseBenefit,
+                onCancel = { till.releaseBenefit(); where = Where.DESK },
+                onConfirm = { tenders ->
+                    till.sell(tenders) { sale ->
+                        till.loadReceipt(sale.saleId)
+                        // Printing is fire-and-forget on purpose: a printer out
+                        // of paper must not hold up the next customer, and the
+                        // receipt can be reprinted from the sale at any time.
+                        if (config.hasPrinter) till.printReceipt(sale.saleId, copy = false)
+                        where = Where.RECEIPT
+                    }
+                },
+            )
         }
 
         // The step-up sits over whatever asked for it, so the cashier can see
@@ -355,10 +383,10 @@ class MainActivity : ComponentActivity() {
         if (asking != null && sale != null) {
             SupervisorSheet(
                 what = if (asking == "void") {
-                    "Membatalkan seluruh penjualan " +
+                    "Void the whole sale of " +
                         id.itulah.kasir.data.Money.format(sale.totalMinor)
                 } else {
-                    "Menerima ${returning.size} barang kembali"
+                    "Accept ${returning.size} items back"
                 },
                 busy = state.busy,
                 failure = approvalFailure,

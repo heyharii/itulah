@@ -1,0 +1,67 @@
+<!-- @dsCard group="Media" height=860 subtitle="Static rendition of photo-sheet.tsx in the All white look" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>PhotoSheet — preview</title><style>
+body{margin:0}
+/* PhotoSheet: the full-screen "Check the photo" layer on a phone (414px), white all through. The crop frame is shown on soft-2, not the source's black. */
+.ds-photo-stage{gap:12px}
+.ds-photo-phone{position:relative;display:flex;flex-direction:column;width:414px;max-width:100%;margin:0 auto;overflow:hidden;border-radius:24px;background:var(--canvas);box-shadow:0 0 0 1px var(--hairline)}
+.ds-photo-phone--check{height:520px}
+.ds-photo-phone--crop{height:196px;justify-content:flex-end}
+.ds-photo-head{display:flex;align-items:center;flex:none;height:56px;padding:0 8px 0 16px}
+.ds-photo-title{flex:1;font-size:17px;line-height:24px;font-weight:600;letter-spacing:-0.3px;color:var(--ink)}
+.ds-photo-close{display:grid;place-items:center;width:var(--tap);height:var(--tap);border-radius:var(--r-full);color:var(--line-ico)}
+.ds-photo-body{display:flex;flex-direction:column;flex:1;min-height:0;gap:12px;padding:0 16px 16px}
+.ds-photo-seg{display:flex;gap:2px;padding:3px;border-radius:var(--r-segment-track);background:var(--segment-track)}
+.ds-photo-seg span{flex:1;display:grid;place-items:center;height:40px;border-radius:6px;font-size:15px;font-weight:500;color:var(--body)}
+.ds-photo-seg span.is-on{border-radius:var(--r-segment);background:var(--canvas);color:var(--ink);box-shadow:var(--shadow-segment)}
+.ds-photo-area{display:grid;place-items:center;flex:1;min-height:0}
+.ds-photo-square{display:grid;place-items:center;width:278px;height:278px;max-width:100%;border:1px solid var(--hairline);border-radius:var(--r-card);background:var(--canvas);color:var(--line-ico)}
+.ds-photo-square .ds-ico{width:48px;height:48px}
+.ds-photo-square--frame{background:var(--soft-2)}
+.ds-photo-row{display:flex;gap:8px;flex:none}
+.ds-photo-row .ds-btn{flex:1;height:var(--tap);padding:0 16px}
+.ds-photo-zoom{display:block;width:100%;height:var(--tap);margin:0;accent-color:var(--ink)}
+.ds-photo-grid{position:relative;width:100%;height:84px;border-bottom:1px solid var(--hairline);background:var(--soft-2)}
+.ds-photo-grid::before,.ds-photo-grid::after{content:"";position:absolute;inset:0}
+.ds-photo-grid::before{background:linear-gradient(90deg,transparent calc(33.33% - 0.5px),var(--hairline-strong) calc(33.33% - 0.5px) calc(33.33% + 0.5px),transparent calc(33.33% + 0.5px),transparent calc(66.66% - 0.5px),var(--hairline-strong) calc(66.66% - 0.5px) calc(66.66% + 0.5px),transparent calc(66.66% + 0.5px))}
+.ds-photo-grid::after{background:linear-gradient(0deg,transparent calc(33.33% - 0.5px),var(--hairline-strong) calc(33.33% - 0.5px) calc(33.33% + 0.5px),transparent calc(33.33% + 0.5px),transparent calc(66.66% - 0.5px),var(--hairline-strong) calc(66.66% - 0.5px) calc(66.66% + 0.5px),transparent calc(66.66% + 0.5px))}
+.ds-photo-controls{display:flex;flex-direction:column;gap:8px;padding:8px 16px 16px}
+.ds-photo-ico-sparkles{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z'/%3E%3Cpath d='M20 3v4'/%3E%3Cpath d='M22 5h-4'/%3E%3Cpath d='M4 17v2'/%3E%3Cpath d='M5 18H3'/%3E%3C/svg%3E")}
+.ds-photo-ico-scissors{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='6' cy='6' r='3'/%3E%3Cpath d='M8.12 8.12 12 12'/%3E%3Cpath d='M20 4 8.12 15.88'/%3E%3Ccircle cx='6' cy='18' r='3'/%3E%3Cpath d='M14.8 14.8 20 20'/%3E%3C/svg%3E")}
+</style></head>
+<body>
+<div class="ds ds-stage ds-photo-stage">
+
+  <p class="ds-caption">Check the photo, after Clean up: a switch between the two, then Crop or keep</p>
+  <div class="ds-photo-phone ds-photo-phone--check" role="dialog" aria-label="Check the photo">
+    <div class="ds-photo-head"><b class="ds-photo-title">Check the photo</b><span class="ds-photo-close" aria-label="Cancel"><span class="ds-ico ds-ico-x ds-ico--20"></span></span></div>
+    <div class="ds-photo-body">
+      <div class="ds-photo-seg" role="group"><span>Original</span><span class="is-on">Clean</span></div>
+      <div class="ds-photo-area"><div class="ds-photo-square"><span class="ds-ico ds-ico-image"></span></div></div>
+      <div class="ds-photo-row">
+        <button class="ds-btn ds-btn--ghost" type="button" disabled><span class="ds-ico ds-photo-ico-sparkles"></span>Cleaned</button>
+        <button class="ds-btn ds-btn--ghost" type="button"><span class="ds-ico ds-photo-ico-scissors"></span>Crop</button>
+      </div>
+      <div class="ds-photo-row">
+        <button class="ds-btn ds-btn--ghost" type="button">Retake</button>
+        <button class="ds-btn ds-btn--primary" type="button">Use photo</button>
+      </div>
+    </div>
+  </div>
+
+  <p class="ds-caption" style="margin-top:12px">Crop: a square frame and a grid, one Zoom slider, Cancel and Done (cut short here)</p>
+  <div class="ds-photo-phone ds-photo-phone--crop">
+    <div class="ds-photo-grid"></div>
+    <div class="ds-photo-controls">
+      <input class="ds-photo-zoom" type="range" min="1" max="4" step="0.01" value="1.8" aria-label="Zoom">
+      <div class="ds-photo-row">
+        <button class="ds-btn ds-btn--destructive" type="button">Cancel</button>
+        <button class="ds-btn ds-btn--primary" type="button">Done</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

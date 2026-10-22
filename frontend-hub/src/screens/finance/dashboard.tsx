@@ -1,5 +1,7 @@
 import { useSuspenseQueries, useSuspenseQuery } from "@tanstack/react-query"
+import { useNavigate } from "@tanstack/react-router"
 import { Suspense, useMemo } from "react"
+import { ArrowUpRight } from "lucide-react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { AppLink } from "@/components/ui/app-link"
@@ -8,6 +10,7 @@ import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { count, day, money, moneyCompact } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
+import type { SheetKey } from "@/lib/sheets"
 import {
   openDeliveriesQuery,
   payablesAgingQuery,
@@ -64,13 +67,18 @@ export function FinanceDashboard() {
 
       <NeedsAttention />
 
-      {/* Two charts as wide as the two lists below them (owner, 2026-10-01:
+      <Suspense fallback={<Payments />}>
+        <LivePayments />
+      </Suspense>
+
+      {/* Two charts as wide as the two lists above them (owner, 2026-10-01:
           no page-wide charts, no cards smaller than their neighbours). */}
       <div className="mb-8 grid grid-cols-1 gap-6 xl:grid-cols-2">
         <Suspense
           fallback={
             <SmallChart
               title="Cash and bank"
+              to="/finance/accounting/general-ledger"
               meta="Month end · 12 months"
               pending
               failed={false}
@@ -85,6 +93,7 @@ export function FinanceDashboard() {
           fallback={
             <SmallChart
               title="Income and expenses"
+              to="/finance/reports/profit-and-loss"
               meta="Monthly · 6 months"
               pending
               failed={false}
@@ -96,9 +105,6 @@ export function FinanceDashboard() {
           <IncomeChart />
         </Suspense>
       </div>
-      <Suspense fallback={<Payments />}>
-        <LivePayments />
-      </Suspense>
 
       {/* Below the payments, the two that explain them (owner, 2026-10-01):
           what the months cost by kind, and how old what we owe is. */}
@@ -107,6 +113,7 @@ export function FinanceDashboard() {
           fallback={
             <SmallChart
               title="Expenses per month"
+              to="/finance/reports/expenses-by-month"
               meta="By expense group · 6 months"
               pending
               failed={false}
@@ -121,6 +128,7 @@ export function FinanceDashboard() {
           fallback={
             <SmallChart
               title="Payables ageing"
+              to="/finance/payables/aging"
               meta="Total payables, as at today"
               pending
               failed={false}
@@ -191,59 +199,48 @@ function Figures({
   flowLastMonth?: number
   inventoryValue?: number
 }) {
+  const figure = (value: number | undefined, to: string) =>
+    value === undefined ? (
+      "—"
+    ) : (
+      <AppLink to={to} title={money(value)} className="record-link">
+        {moneyCompact(value)}
+      </AppLink>
+    )
+
   return (
-    <>
-      {/* A phone: the four figures are one card, two to a row — the desk's
-          four cards would each leave a rupiah figure 145px to stand in. */}
-      <KpiStrip className="md:hidden">
-        <Kpi
-          label="Cash and bank"
-          value={bankNow === undefined ? "—" : money(bankNow)}
-        />
-        <Kpi
-          label="Total payables"
-          value={owedTotal === undefined ? "—" : money(owedTotal)}
-          delta={
-            overdueTotal !== undefined && overdueTotal > 0
-              ? `${money(overdueTotal)} overdue`
-              : undefined
-          }
-          tone="down"
-        />
-        <Kpi
-          label="Cash flow this month"
-          value={flowThisMonth === undefined ? "—" : money(flowThisMonth)}
-        />
-        <Kpi
-          label="Inventory value"
-          value={inventoryValue === undefined ? "—" : money(inventoryValue)}
-        />
-      </KpiStrip>
-      <div className="mb-8 grid grid-cols-2 gap-3 max-md:hidden lg:grid-cols-4">
-        <Headline label="Cash and bank" value={bankNow} />
-        <Headline
-          label="Total payables"
-          value={owedTotal}
-          note={
-            overdueTotal !== undefined && overdueTotal > 0
-              ? `${money(overdueTotal)} of it overdue`
-              : undefined
-          }
-        />
-        <Headline
-          label="Cash flow this month"
-          value={flowThisMonth}
-          note={
-            flowThisMonth === undefined || flowLastMonth === undefined
-              ? undefined
-              : `Last month ${money(flowLastMonth)}`
-          }
-          delta={percentChange(flowThisMonth, flowLastMonth)}
-          tone={(flowThisMonth ?? 0) < 0 ? "bad" : undefined}
-        />
-        <Headline label="Inventory value" value={inventoryValue} />
-      </div>
-    </>
+    <KpiStrip>
+      <Kpi
+        label="Cash and bank"
+        value={figure(bankNow, "/finance/cash-bank/bank-accounts")}
+      />
+      <Kpi
+        label="Total payables"
+        value={figure(owedTotal, "/finance/payables/aging")}
+        delta={
+          overdueTotal !== undefined && overdueTotal > 0 ? (
+            <span title={money(overdueTotal)} className="text-bad-fg">
+              {moneyCompact(overdueTotal)} overdue
+            </span>
+          ) : undefined
+        }
+      />
+      <Kpi
+        label="Cash flow this month"
+        value={figure(flowThisMonth, "/finance/reports/cash-flow")}
+        delta={
+          flowLastMonth === undefined ? undefined : (
+            <span title={money(flowLastMonth)} className="font-normal">
+              Last month {moneyCompact(flowLastMonth)}
+            </span>
+          )
+        }
+      />
+      <Kpi
+        label="Inventory value"
+        value={figure(inventoryValue, "/finance/inventory/valuation")}
+      />
+    </KpiStrip>
   )
 }
 
@@ -253,6 +250,7 @@ function CashChart() {
   return (
     <SmallChart
       title="Cash and bank"
+      to="/finance/accounting/general-ledger"
       meta="Month end · 12 months"
       pending={false}
       failed={false}
@@ -280,6 +278,7 @@ function IncomeChart() {
   return (
     <SmallChart
       title="Income and expenses"
+      to="/finance/reports/profit-and-loss"
       meta="Monthly · 6 months"
       pending={false}
       failed={false}
@@ -328,6 +327,7 @@ function ExpenseChart() {
   return (
     <SmallChart
       title="Expenses per month"
+      to="/finance/reports/expenses-by-month"
       meta="By expense group · 6 months"
       pending={false}
       failed={false}
@@ -342,6 +342,7 @@ function AgeingChart() {
   return (
     <SmallChart
       title="Payables ageing"
+      to="/finance/payables/aging"
       meta="Total payables, as at today"
       pending={false}
       failed={false}
@@ -421,6 +422,8 @@ function LivePayments() {
       if (due === null) continue
       rows.push({
         key: `b-${bill.invoice_id}`,
+        to: "/finance/payables/bills",
+        sheet: { key: "bill", value: bill.invoice_id },
         due,
         late: bill.days_overdue,
         who: supplierName(bill.supplier_id, bill.supplier_name),
@@ -433,6 +436,8 @@ function LivePayments() {
       if (item.outstanding_minor <= 0) continue
       rows.push({
         key: `d-${item.entry_id}`,
+        to: "/finance/accounting/journal-entries",
+        sheet: { key: "entry", value: item.entry_id },
         due: item.due_date ?? item.posting_date,
         late: item.age_days,
         who: supplierName(item.party_id, item.party_name),
@@ -445,6 +450,7 @@ function LivePayments() {
       if (!["ISSUED", "DELIVERED", "DUE"].includes(giro.status)) continue
       rows.push({
         key: `g-${giro.giro_id}`,
+        to: "/finance/cash-bank/giro",
         due: giro.due_date,
         late: giro.days_overdue,
         // A giro names its payee by supplier code; say the supplier.
@@ -470,12 +476,12 @@ const EXPENSE_SECTIONS: ReadonlySet<string> = new Set([
 
 /// Calm, distinct fills for up to six stacked groups; the sixth is "Other".
 const GROUP_FILLS = [
-  "#2563eb",
-  "#60a5fa",
-  "#8b5cf6",
-  "#f59e0b",
-  "#f43f5e",
-  "#b9c0c9",
+  "var(--accent)",
+  "var(--a-blue)",
+  "var(--a-violet)",
+  "var(--a-orange)",
+  "var(--a-pink)",
+  "var(--hairline-2)",
 ]
 
 /// Stacked monthly bars by expense group, with the groups and their six-month
@@ -592,7 +598,13 @@ function AgeingColumns({
     total_minor: number
   }
 }) {
-  const fills = ["#b9c0c9", "#f59e0b", "#fb923c", "#f43f5e", "#be123c"]
+  const fills = [
+    "var(--hairline-2)",
+    "var(--a-orange)",
+    "var(--a-pink)",
+    "var(--a-violet)",
+    "var(--accent)",
+  ]
   const columns = AGEING_BUCKETS.map((bucket, index) => ({
     label: bucket.label,
     value: buckets[bucket.key],
@@ -657,6 +669,8 @@ function titleCase(text: string): string {
 
 interface Owed {
   readonly key: string
+  readonly to: string
+  readonly sheet?: { key: SheetKey; value: string }
   readonly due: string
   readonly late: number
   readonly who: string
@@ -669,26 +683,36 @@ interface Owed {
 function SmallChart({
   title,
   meta,
+  to,
   pending,
   failed,
   children,
 }: {
   title: string
   meta: string
+  to: string
   pending: boolean
   failed: boolean
   children: React.ReactNode
 }) {
   return (
-    <div className="rounded-card border border-hairline-2 bg-canvas px-5 py-4 shadow-soft">
-      <div className="mb-3 flex items-baseline justify-between gap-2">
-        <span className="font-medium text-ink">{title}</span>
+    <section className="min-w-0 rounded-card border border-hairline bg-canvas px-4 py-4">
+      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-[1rem] font-semibold text-ink">
+          <AppLink
+            to={to}
+            className="inline-flex items-center gap-1 hover:text-accent"
+          >
+            {title}
+            <ArrowUpRight className="size-4 shrink-0 text-line-ico" />
+          </AppLink>
+        </h2>
         <span className="text-[0.9375rem] text-mute">{meta}</span>
       </div>
       <ChartState pending={pending} failed={failed}>
         {children}
       </ChartState>
-    </div>
+    </section>
   )
 }
 
@@ -706,64 +730,6 @@ function addDays(date: Date, days: number): Date {
   const next = new Date(date)
   next.setDate(next.getDate() + days)
   return next
-}
-
-/// How far a figure moved against the one before it, as a signed percentage
-/// of the earlier one's size — undefined when either is missing or the earlier
-/// one is nil (a change from nothing has no percentage).
-function percentChange(now: number | undefined, before: number | undefined) {
-  // A month with nothing in it yet (the 1st) compares with nothing: "+100%"
-  // against last month would be arithmetic, not news.
-  if (now === undefined || before === undefined || before === 0 || now === 0)
-    return undefined
-  return ((now - before) / Math.abs(before)) * 100
-}
-
-function Headline({
-  label,
-  value,
-  note,
-  tone,
-  delta,
-}: {
-  label: string
-  value: number | undefined
-  /// A fact beside the figure ("… of it overdue"), never a definition.
-  note?: string
-  tone?: "bad"
-  /// Percent against last month: up is green, down is red.
-  delta?: number
-}) {
-  return (
-    <div className="number-card rounded-card border border-hairline-2 bg-canvas px-5 py-4 shadow-soft">
-      <div className="text-[0.9375rem] text-body">{label}</div>
-      <div
-        className={
-          tone === "bad"
-            ? "mt-1 text-[1.375rem] font-semibold text-bad-fg tabular-nums"
-            : "mt-1 text-[1.375rem] font-semibold text-ink tabular-nums"
-        }
-      >
-        {value === undefined ? "—" : money(value)}
-      </div>
-      {delta !== undefined && (
-        <div
-          className={
-            delta >= 0
-              ? "mt-0.5 text-[0.9375rem] font-medium text-ok-fg tabular-nums"
-              : "mt-0.5 text-[0.9375rem] font-medium text-bad-fg tabular-nums"
-          }
-        >
-          {delta >= 0 ? "↑" : "↓"}{" "}
-          {Math.abs(delta).toLocaleString("id-ID", {
-            maximumFractionDigits: 1,
-          })}
-          %<span className="font-normal text-mute"> vs last month</span>
-        </div>
-      )}
-      {note && <div className="mt-0.5 text-[0.9375rem] text-mute">{note}</div>}
-    </div>
-  )
 }
 
 /// A titled list of payments, six at most, with the way to all of them.
@@ -791,31 +757,41 @@ function PaymentList({
   const shown = rows.slice(0, 6)
   const total = rows.reduce((sum, row) => sum + row.amount, 0)
   const phone = useLayout() === "phone"
+  const navigate = useNavigate()
   return (
     <section className="flex flex-col">
-      <div className="mb-3 flex items-baseline justify-between gap-3">
+      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-3">
         <div>
           <h2 className="text-[1rem] font-medium text-ink">{title}</h2>
           <p className="text-[0.9375rem] text-mute">{note}</p>
         </div>
         <AppLink to={to} variant="ghost" size="sm">
           {rows.length > shown.length
-            ? `All ${count(rows.length)} · ${money(total)}`
-            : "Open"}
+            ? `View all ${count(rows.length)}`
+            : "View all"}
         </AppLink>
       </div>
       {phone && !pending && !failed && shown.length > 0 ? (
         <PhoneList
           rows={shown.map((row) => ({
             key: row.key,
-            title: row.who,
+            title: (
+              <AppLink to={row.to} sheet={row.sheet} className="record-link">
+                {row.who}
+              </AppLink>
+            ),
             code: `${row.how} · ${row.what}`,
             lead: <CardFigure value={money(row.amount)} />,
             foot: when(row),
+            onOpen: () =>
+              void navigate({
+                to: row.to,
+                search: row.sheet ? { [row.sheet.key]: row.sheet.value } : {},
+              } as never),
           }))}
         />
       ) : (
-        <div className="overflow-hidden rounded-card border border-hairline-2 bg-canvas shadow-soft">
+        <div className="overflow-hidden rounded-card border border-hairline bg-canvas">
           {pending ? (
             <p className="px-5 py-8 text-center text-[0.9375rem] text-mute">
               Reading…
@@ -830,14 +806,16 @@ function PaymentList({
             </p>
           ) : (
             shown.map((row) => (
-              <div
+              <AppLink
                 key={row.key}
-                className="flex items-center gap-4 border-b border-hairline px-5 py-3.5 last:border-b-0"
+                to={row.to}
+                sheet={row.sheet}
+                className="flex items-center gap-4 border-b border-hairline px-4 py-3.5 transition-colors duration-(--t-hover) last:border-b-0 hover:bg-soft"
               >
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-ink">{row.who}</div>
                   <div className="truncate text-[0.9375rem] text-mute">
-                    {row.how} · <span className="font-mono">{row.what}</span>
+                    {row.how} · <span>{row.what}</span>
                   </div>
                 </div>
                 <div className="w-28 shrink-0 text-[0.9375rem] text-body">
@@ -846,9 +824,19 @@ function PaymentList({
                 <div className="w-36 shrink-0 text-right font-medium text-ink tabular-nums">
                   {money(row.amount)}
                 </div>
-              </div>
+              </AppLink>
             ))
           )}
+        </div>
+      )}
+      {shown.length > 0 && (
+        <div className="mt-3 flex flex-wrap justify-between gap-2 text-[0.9375rem] text-mute">
+          <span>
+            {count(rows.length)} {rows.length === 1 ? "payment" : "payments"}
+          </span>
+          <span className="font-medium text-ink tabular-nums">
+            {money(total)}
+          </span>
         </div>
       )}
     </section>

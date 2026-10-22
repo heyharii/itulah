@@ -1,12 +1,13 @@
+import { useQuery } from "@tanstack/react-query"
 import { useMemo, useState } from "react"
 
-import { DockTools } from "@/components/shell/dock-tools"
-import { CardList } from "@/components/ui/card-list"
+import { Button } from "@/components/ui/button"
+import { ListTable, type ListColumn } from "@/components/ui/list-table"
+import { PeopleTabs } from "@/components/ui/people-tabs"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
-import { LeadCard } from "@/components/ui/lead-card"
-import { Status } from "@/components/ui/pill"
+import { Card } from "@/components/ui/card"
+import { Pill } from "@/components/ui/pill"
 import { Screen } from "@/components/ui/screen"
-import { Segmented } from "@/components/ui/segmented"
 import {
   Banner,
   EmptyState,
@@ -14,19 +15,22 @@ import {
   LoadingState,
 } from "@/components/ui/states"
 import { describe } from "@/lib/errors"
-import { count, dateText, day } from "@/lib/format"
-import { isoDay } from "@/lib/queries"
+import { articleId, count, dateText, day, pcs, sku } from "@/lib/format"
+import {
+  fetchOnHold,
+  isoDay,
+  onHoldKey,
+  type StoreOnHoldLine,
+} from "@/lib/queries"
 import { DeliverySheet } from "@/screens/stock/delivery-sheet"
 import {
   byArrival,
-  cartons,
-  deliveryName,
+  fromName,
   resultOf,
   useInbound,
-  verdictOf,
 } from "@/screens/stock/inbound"
 import { useOpenRecord } from "@/screens/stock/open-record"
-import { sourceName } from "@/screens/stock/shared"
+import { useRange } from "@/screens/stock/shared"
 import type { StoreInboundDelivery } from "@itulah/contract"
 
 /// Receive — the deliveries on their way to this shop, and what arrived.
@@ -43,23 +47,31 @@ import type { StoreInboundDelivery } from "@itulah/contract"
 /// (`resultOf`): a count made by somebody who knows the number tends to stop
 /// at that number.
 ///
-/// Nothing at the top but the title (the top bar's) and the three figures. In
-/// transit / Received / All is the dock's status chip on a phone and a
-/// `Segmented` on a desk. A delivery is a card — its surat jalan number, the
+/// **Laid out as the hub's Ops receiving list** (owner, 20 Oct 2026): the three
+/// figures, tabs To receive / Received (/ On hold), and a calm table — No. ·
+/// Delivery note · From · Departed · Koli · Count receive — that is cards on a
+/// phone (tabs are then the dock's chip). A delivery is a row — its surat jalan number, the
 /// cartons (or, once counted, the pieces) as the one figure, and in the foot
 /// when it left beside Receive, or its verdict once it is in — and opens as a
 /// sheet over the list (`?delivery=`). The list polls, so a count finished at
 /// another till shows up here without anybody touching this one.
-type View = "IN_TRANSIT" | "RECEIVED" | "ALL"
+type View = "IN_TRANSIT" | "RECEIVED" | "HOLD"
 
 const DAY_MS = 24 * 60 * 60_000
 
 export function Receive() {
   const inbound = useInbound()
+  /// What the shop counted and could not book: set aside until MD answers.
+  const onHold = useQuery({
+    queryKey: onHoldKey(),
+    queryFn: ({ signal }) => fetchOnHold(signal),
+    refetchInterval: 15_000,
+  })
   const record = useOpenRecord("delivery")
   const deliveries = inbound.data?.deliveries
   const rows = useMemo(() => deliveries ?? [], [deliveries])
   const checkedAt = inbound.dataUpdatedAt
+  const holdLines = onHold.data ?? []
   /// Null until somebody picks: then the screen opens where the work is — on
   /// what is still coming when anything is, on what arrived when not.
   const [chosen, setChosen] = useState<View | null>(null)
@@ -67,9 +79,9 @@ export function Receive() {
   const sorted = useMemo(() => [...rows].sort(byArrival), [rows])
   const inTransit = sorted.filter((one) => one.status === "IN_TRANSIT")
   const received = sorted.filter((one) => one.status === "RECEIVED")
-  const view = chosen ?? (inTransit.length > 0 ? "IN_TRANSIT" : "RECEIVED")
-  const shown =
-    view === "ALL" ? sorted : view === "IN_TRANSIT" ? inTransit : received
+  const picked = chosen ?? (inTransit.length > 0 ? "IN_TRANSIT" : "RECEIVED")
+  const view = picked === "HOLD" && holdLines.length === 0 ? "RECEIVED" : picked
+  const shown = view === "IN_TRANSIT" ? inTransit : received
 
   // "Today" and "the last thirty days" as of the answer on screen, not the
   // clock: the figures and the rows under them are then the same moment.
@@ -90,33 +102,98 @@ export function Receive() {
   const koli = sum(inTransit, (one) => one.koli_count)
   const unitsToday = sum(
     receivedToday,
-    (one) => resultOf(one)?.received_units ?? 0,
+    (one) =>
+      (resultOf(one)?.received_units ?? 0) + (resultOf(one)?.extra_units ?? 0),
   )
   const missing = sum(recent, (one) => resultOf(one)?.missing_units ?? 0)
-  const short = recent.filter(
-    (one) => (resultOf(one)?.missing_units ?? 0) > 0,
-  ).length
 
-  const options = [
+  const holdPcs = holdLines.reduce((total, one) => total + one.on_hold, 0)
+  const tabs = [
     {
       value: "IN_TRANSIT" as const,
-      label: "In transit",
+      label: "To receive",
       count: inTransit.length,
     },
     { value: "RECEIVED" as const, label: "Received", count: received.length },
-    { value: "ALL" as const, label: "All", count: sorted.length },
+    ...(holdLines.length > 0
+      ? [{ value: "HOLD" as const, label: "On hold", count: holdPcs }]
+      : []),
+  ]
+
+  const columns: ListColumn<StoreInboundDelivery>[] = [
+    {
+      id: "no",
+      header: "No.",
+      className: "w-16",
+      align: "right",
+      card: "hide",
+      cell: (one) => (
+        <span className="text-mute tabular-nums">
+          {shown.indexOf(one) + 1}
+        </span>
+      ),
+    },
+    {
+      id: "note",
+      header: "Delivery note",
+      card: "title",
+      cell: (one) => (
+        <span className="font-mono text-id text-ink">
+          {one.shipment_reference ?? "—"}
+        </span>
+      ),
+    },
+    {
+      id: "from",
+      header: "From",
+      cell: (one) => (
+        <span className="text-ink">{fromName(one.source_site_id)}</span>
+      ),
+    },
+    {
+      id: "departed",
+      header: "Departed",
+      cell: (one) => day(one.departed_at),
+    },
+    {
+      id: "koli",
+      header: "Koli",
+      align: "right",
+      cell: (one) => count(one.koli_count),
+    },
+    {
+      id: "action",
+      header: "",
+      align: "right",
+      card: "status",
+      cell: (one) => {
+        if (one.status === "IN_TRANSIT")
+          return (
+            <Button
+              variant="primary"
+              size="card"
+              onClick={(event) => {
+                event.stopPropagation()
+                record.open(one.delivery_id)
+              }}
+            >
+              Count receive
+            </Button>
+          )
+        const result = resultOf(one)
+        const short = result !== null && result.missing_units > 0
+        return (
+          <span className={short ? "text-bad-fg" : "text-ok-fg"}>
+            Received {day(one.received_at)}
+            {short && ` · ${count(result.missing_units)} missing`}
+          </span>
+        )
+      },
+    },
   ]
 
   return (
     <Screen counter>
-      <DockTools
-        status={{
-          value: view,
-          options,
-          onChange: (next) => setChosen(next as View),
-        }}
-      />
-
       {deliveries === undefined ? (
         inbound.isError ? (
           <ErrorState
@@ -136,35 +213,15 @@ export function Receive() {
       ) : (
         <>
           <KpiStrip>
+            <Kpi label="To receive" value={`${count(koli)} koli`} />
+            <Kpi label="Received today" value={pcs(unitsToday)} />
             <Kpi
-              label="In transit"
-              value={count(inTransit.length)}
-              delta={
-                inTransit.length === 0
-                  ? "Nothing on its way"
-                  : `${cartons(koli)} on the way`
+              label="Missing"
+              value={
+                <span className={missing > 0 ? "text-bad-fg" : undefined}>
+                  {pcs(missing)}
+                </span>
               }
-              tone="flat"
-            />
-            <Kpi
-              label="Received today"
-              value={count(receivedToday.length)}
-              delta={
-                receivedToday.length === 0
-                  ? "None counted yet"
-                  : `${count(unitsToday)} pcs counted`
-              }
-              tone="flat"
-            />
-            <Kpi
-              label="Pcs missing"
-              value={count(missing)}
-              delta={
-                missing > 0
-                  ? `30 days · ${deliveryCount(short)}`
-                  : "None in 30 days"
-              }
-              tone={missing > 0 ? "down" : "flat"}
             />
           </KpiStrip>
 
@@ -175,40 +232,32 @@ export function Receive() {
             <Stale failure={inbound.error} checkedAt={checkedAt} />
           )}
 
-          {/* The desk's switch; on a phone it is the dock's status chip. */}
-          <div className="mb-3.5 flex items-center max-md:hidden">
-            <Segmented<View>
-              value={view}
-              onChange={setChosen}
-              options={options.map((one) => ({
-                value: one.value,
-                label: `${one.label} · ${count(one.count)}`,
-              }))}
-            />
-          </div>
+          <PeopleTabs<View>
+            title="Show"
+            value={view}
+            onChange={setChosen}
+            tabs={tabs}
+            plainCount
+          />
 
-          {shown.length === 0 ? (
-            <EmptyState>
-              {view === "IN_TRANSIT"
-                ? "Nothing is on its way to this shop right now."
-                : "Nothing has been received yet."}
-            </EmptyState>
+          {view === "HOLD" ? (
+            <OnHold lines={holdLines} />
           ) : (
-            <CardList grid>
-              {shown.map((one) => (
-                <DeliveryCard
-                  key={one.delivery_id}
-                  delivery={one}
-                  selected={record.value === one.delivery_id}
-                  onOpen={() => record.open(one.delivery_id)}
-                />
-              ))}
-            </CardList>
+            <Card className="overflow-hidden max-md:overflow-visible">
+              <ListTable
+                rows={shown}
+                columns={columns}
+                rowKey={(one) => one.delivery_id}
+                onOpen={(one) => record.open(one.delivery_id)}
+                roomy
+                empty={
+                  view === "IN_TRANSIT"
+                    ? "Nothing is on its way to this shop right now."
+                    : "Nothing has been received yet."
+                }
+              />
+            </Card>
           )}
-
-          <p className="mt-4 text-center text-meta text-mute tabular-nums">
-            Checked {clock(checkedAt)}
-          </p>
         </>
       )}
 
@@ -220,9 +269,68 @@ export function Receive() {
   )
 }
 
-/// "1 delivery", "3 deliveries" — the strip's small print.
-function deliveryCount(n: number): string {
-  return `${count(n)} ${n === 1 ? "delivery" : "deliveries"}`
+/// **On hold** (owner, 17–18 Oct 2026): what the shop counted beyond what
+/// its delivery said — more of a SKU than was sent, or an article nobody sent.
+/// It is not stock: set it aside. MD answers the trip's review; what goes
+/// back to HO then says so here, and what MD kept is in stock and leaves the
+/// list by itself. One row per article, named, not counted.
+function OnHold({ lines }: { lines: readonly StoreOnHoldLine[] }) {
+  const { bySku } = useRange()
+  const columns: ListColumn<StoreOnHoldLine>[] = [
+    {
+      id: "article",
+      header: "Article",
+      card: "title",
+      className: "whitespace-normal",
+      cell: (one) => (
+        <span className="block">
+          <span className="font-medium text-ink">
+            {one.name ?? bySku.get(one.sku_code)?.name ?? sku(one.sku_code)}
+          </span>
+          <span className="block font-mono text-id text-mute">
+            {articleId(bySku.get(one.sku_code)?.article_code, one.sku_code)} ·{" "}
+            {sku(one.sku_code)}
+          </span>
+        </span>
+      ),
+    },
+    {
+      id: "note",
+      header: "Delivery note",
+      cell: (one) => (
+        <span className="font-mono text-id">{one.shipment_reference ?? "—"}</span>
+      ),
+    },
+    {
+      id: "pcs",
+      header: "Pieces",
+      align: "right",
+      cell: (one) => pcs(one.on_hold),
+    },
+    {
+      id: "state",
+      header: "",
+      align: "right",
+      card: "status",
+      cell: (one) =>
+        one.state === "RETURN_TO_HO" ? (
+          <Pill tone="bad">Return to HO</Pill>
+        ) : (
+          <Pill tone="neutral">Waiting for MD</Pill>
+        ),
+    },
+  ]
+  return (
+    <Card className="overflow-hidden max-md:overflow-visible">
+      <ListTable
+        rows={lines}
+        columns={columns}
+        rowKey={(one) => `${one.delivery_id}:${one.sku_code}`}
+        roomy
+        empty="Nothing is on hold."
+      />
+    </Card>
+  )
 }
 
 /// The hour and minute of the last answer — this list is re-read four times a
@@ -247,64 +355,3 @@ function Stale({
   )
 }
 
-/// One delivery as the uniform card: its surat jalan number over where it came
-/// from, the cartons on the road — or, once it is counted, the pieces counted —
-/// as the one figure, and in the foot when it left or arrived. A delivery still
-/// in transit carries Receive; one that is in carries its verdict.
-///
-/// **Nothing here draws what was packed for a delivery in transit**: the figure
-/// is the cartons, which the driver hands over, and only a received delivery
-/// has a count to show (`resultOf`).
-function DeliveryCard({
-  delivery,
-  selected,
-  onOpen,
-}: {
-  delivery: StoreInboundDelivery
-  selected: boolean
-  onOpen: () => void
-}) {
-  const verdict = verdictOf(delivery)
-  const inTransit = delivery.status === "IN_TRANSIT"
-  const result = resultOf(delivery)
-  return (
-    <LeadCard
-      onOpen={onOpen}
-      selected={selected}
-      tone={result !== null && result.missing_units > 0 ? "alert" : undefined}
-      title={deliveryName(delivery)}
-      lines={[
-        delivery.shipment_reference === null
-          ? null
-          : `From ${sourceName(delivery.source_site_id)}`,
-      ]}
-      lead={
-        result === null
-          ? {
-              figure: count(delivery.koli_count),
-              caption: delivery.koli_count === 1 ? "carton" : "cartons",
-            }
-          : { figure: count(result.received_units), caption: "pcs counted" }
-      }
-      foot={{
-        info: inTransit ? (
-          `Departed ${day(delivery.departed_at)}`
-        ) : (
-          <>
-            Received {day(delivery.received_at)}
-            {result !== null && result.missing_units > 0 && (
-              <span className="text-bad-fg">
-                {" "}
-                · {count(result.missing_units)} missing
-              </span>
-            )}
-          </>
-        ),
-        action: inTransit ? { label: "Receive", onClick: onOpen } : undefined,
-        status: inTransit ? undefined : (
-          <Status tone={verdict.tone}>{verdict.label}</Status>
-        ),
-      }}
-    />
-  )
-}

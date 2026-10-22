@@ -100,6 +100,14 @@ pub struct AmendAllotmentRequest {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional, type = "Array<AmendNewLine>"))]
     pub add: Vec<AmendNewLine>,
+    /// MD's Edit (owner, 18 Oct 2026): every piece goes to a store, as on a
+    /// new allotment, so an edit only MOVES pieces between stores — each
+    /// SKU's total stays what it was. Nothing is taken from the pool and
+    /// nothing is simply given back: a reduction alone is a Cancel. Absent
+    /// (a cancel of some stores, an Undo), the totals may change.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub move_only: bool,
 }
 
 /// One line as the change left it.
@@ -215,6 +223,23 @@ impl LineStanding {
         AppError::Conflict(format!(
             "{} to {}: {} pcs already sent, so it cannot go below {}.",
             self.sku_code, self.identity.destination_id, self.floor, self.floor
+        ))
+    }
+
+    /// What MD's Edit may not move (owner, 18 Oct 2026): everything the
+    /// warehouse has worked — sent, packed, picked. An edit only moves what is
+    /// still to pick; the rest moves once Ops puts it back to the picklist.
+    fn worked(&self) -> i64 {
+        let unpicked = (self.to_pack - self.picked_wanted).max(0);
+        (self.target - unpicked).max(self.floor).min(self.target)
+    }
+
+    /// The answer to an edit under what the warehouse has worked.
+    fn below_worked(&self) -> AppError {
+        let worked = self.worked();
+        AppError::Conflict(format!(
+            "{} to {}: {} pcs are already picked, packed or sent, so an edit cannot go below {}. Ask Ops to put them back to the picklist to move them.",
+            self.sku_code, self.identity.destination_id, worked, worked
         ))
     }
 
@@ -655,9 +680,15 @@ pub async fn amend_allotment(
         if *to != line.target && *to < line.floor {
             return Err(line.below_floor());
         }
+        if request.move_only && *to < line.target && *to < line.worked() {
+            return Err(line.below_worked());
+        }
         if *to > line.target {
             add_skus.push(line.identity.sku_id);
         }
+    }
+    if request.move_only {
+        check_moves_only(&standing, &asked, &request.add)?;
     }
     // An addition is a new promise: the SKU must still be sold, and its row
     // is held so no other allotment promises the same free piece meanwhile.
@@ -762,6 +793,40 @@ pub async fn amend_allotment(
     .await?;
     tx.commit().await?;
     Ok(result)
+}
+
+/// An edit that only moves: per SKU, the lines' targets after the change —
+/// the ones named at their new `to`, the rest as they stand, the added ones
+/// at their quantity — sum to what the SKU's lines held before.
+fn check_moves_only(
+    standing: &[LineStanding],
+    asked: &BTreeMap<Uuid, i64>,
+    add: &[AmendNewLine],
+) -> Result<(), AppError> {
+    let mut totals: BTreeMap<Uuid, (String, i64, i64)> = BTreeMap::new();
+    for line in standing {
+        let entry = totals
+            .entry(line.identity.sku_id)
+            .or_insert_with(|| (line.sku_code.clone(), 0, 0));
+        entry.1 += line.target;
+        entry.2 += asked.get(&line.id).copied().unwrap_or(line.target);
+    }
+    for line in add {
+        let Some(entry) = totals.get_mut(&line.sku_id) else {
+            return Err(AppError::Validation(
+                "an edit only moves pieces the allotment already holds; a SKU it does not have is a new allotment".into(),
+            ));
+        };
+        entry.2 += line.quantity;
+    }
+    for (code, was, now) in totals.values() {
+        if was != now {
+            return Err(AppError::Validation(format!(
+                "An edit only moves pieces between stores: {code} would go from {was} to {now} pcs. Place every piece, or cancel what is not wanted."
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// Add the lines an allotment did not have (see [`AmendNewLine`]).

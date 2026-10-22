@@ -2,7 +2,7 @@ import { useShopName } from "@/components/operations/outbound-papers"
 import { Dialog as BaseDialog } from "@base-ui/react/dialog"
 import { Drawer } from "@base-ui/react/drawer"
 import { useQuery } from "@tanstack/react-query"
-import { useId, useState } from "react"
+import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Field, Textarea } from "@/components/ui/field"
@@ -12,78 +12,14 @@ import { Problem } from "@/components/ui/states"
 import { count, quantity } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import { allotmentWork } from "@/lib/operations/changes"
+import { inventoryKeys, type AllotmentLine } from "@/lib/queries/inventory"
 import {
-  ALLOTMENT_CHANGE_REASONS,
-  inventoryKeys,
-  type AllotmentLine,
-} from "@/lib/queries/inventory"
-import {
-  reasonOf,
   roomOf,
   stagesOf,
   storesOf as storesOfLines,
   type Stages,
 } from "@/screens/allotment/amend-data"
 import { cn } from "@/lib/utils"
-
-/// One of MD's reasons for cancelling or editing, as a row of chips that wrap
-/// (nothing scrolls sideways on a phone). Pressing the chosen one again lets it
-/// go. 36px on a desk, 44px under a thumb.
-export function ReasonChips({
-  value,
-  onChange,
-  label = "Reason",
-  required = false,
-}: {
-  value: string | null
-  onChange: (value: string | null) => void
-  label?: string
-  /// A star after the label, as `Field` draws it: the act cannot go without one.
-  required?: boolean
-}) {
-  const name = useId()
-  return (
-    <div className="flex flex-col gap-2">
-      <span id={name} className="text-[0.9375rem] font-medium text-text">
-        {label}
-        {required && (
-          <>
-            <span aria-hidden className="ml-0.5 text-bad">
-              *
-            </span>
-            <span className="sr-only"> (required)</span>
-          </>
-        )}
-      </span>
-      <div
-        role="radiogroup"
-        aria-labelledby={name}
-        className="flex flex-wrap gap-2"
-      >
-        {ALLOTMENT_CHANGE_REASONS.map((one) => {
-          const on = value === one
-          return (
-            <button
-              key={one}
-              type="button"
-              role="radio"
-              aria-checked={on}
-              onClick={() => onChange(on ? null : one)}
-              className={cn(
-                "inline-flex h-9 items-center rounded-full border px-3.5 text-[0.9375rem] font-medium whitespace-nowrap transition-[color,background-color,border-color,scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.97] max-md:h-11",
-                on
-                  ? "border-transparent bg-dark text-on-dark"
-                  : "border-hairline-2 bg-canvas text-body hover:bg-soft-2 hover:text-ink"
-              )}
-            >
-              {one}
-            </button>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
 
 /// "2 stores", "1 store".
 function storesOf(n: number): string {
@@ -114,8 +50,11 @@ const TONE = {
 /// removed; Picked and Packed are put back by the warehouse; Dispatched stays
 /// at the store. When part is already dispatched the dialog says "Cancel the
 /// rest" and adds one line asking the store to return those pieces — there is
-/// no flow behind that line yet, it is the reminder. No reason is asked (model
-/// C, 11 Oct 2026): what is cancelled is in the history.
+/// no flow behind that line yet, it is the reminder. No reason is asked
+/// (owner, 18 Oct 2026 — the reason chips are gone): only a Note, which may
+/// stay empty. What MD writes stands under the date on the Cancelled card;
+/// nothing written sends the dialog's own word "Cancelled", which the card
+/// and the Activity do not repeat.
 ///
 /// A desk gets a dialog in the middle; a phone gets the same parts in a drawer
 /// from the bottom, the foot pinned and its two buttons 44px — the shape the
@@ -123,7 +62,7 @@ const TONE = {
 ///
 /// A `simple` cancel — a DC-owned allotment, or a return — has no stage answer
 /// (the work route is the cloud's own, for goods going to a store): it keeps
-/// the old sentence and still asks for a reason.
+/// the old sentence.
 export function CancelDialog({
   open,
   onOpenChange,
@@ -149,7 +88,6 @@ export function CancelDialog({
   onConfirm: (reason: string) => Promise<unknown>
 }) {
   const phone = useLayout() === "phone"
-  const [why, setWhy] = useState<string | null>(null)
   const [note, setNote] = useState("")
   const [waiting, setWaiting] = useState(false)
   const [failure, setFailure] = useState<unknown>(null)
@@ -159,7 +97,6 @@ export function CancelDialog({
   if (open !== wasOpen) {
     setWasOpen(open)
     if (open) {
-      setWhy(null)
       setNote("")
       setFailure(null)
     }
@@ -191,7 +128,7 @@ export function CancelDialog({
   const nothingToCancel = !simple && roomOf(lines) === 0
   /// Part is dispatched already: what is cancelled is "the rest".
   const rest = !simple && stages.dispatched > 0
-  const ready = !nothingToCancel && (!simple || why !== null) && !waiting
+  const ready = !nothingToCancel && !waiting
   const koli = scope?.whole === true ? work.data?.packed.koli : undefined
 
   const rows = simple
@@ -249,9 +186,7 @@ export function CancelDialog({
     if (!ready) return
     setWaiting(true)
     setFailure(null)
-    void Promise.resolve(
-      onConfirm(why === null ? "Cancelled" : reasonOf(why, note))
-    )
+    void Promise.resolve(onConfirm(note.trim() || "Cancelled"))
       .then(
         () => onOpenChange(false),
         (error: unknown) => setFailure(error)
@@ -316,10 +251,8 @@ export function CancelDialog({
         </p>
       )}
 
-      {simple && (
+      {!nothingToCancel && (
         <>
-          <ReasonChips value={why} onChange={setWhy} required />
-
           <Field label="Note">
             <Textarea
               rows={2}

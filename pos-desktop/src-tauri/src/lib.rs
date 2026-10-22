@@ -127,7 +127,7 @@ pub fn run() {
             edge::edge_call,
             edge::edge_signed_call,
             device::rfid_state,
-            device::rfid_read_single,
+            device::rfid_read_pad,
             device::fingerprint_state,
             device::fingerprint_identify,
             device::fingerprint_enroll,

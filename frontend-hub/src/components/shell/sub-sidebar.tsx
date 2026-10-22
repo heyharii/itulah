@@ -1,4 +1,3 @@
-import { TimeTravel } from "@/components/shell/time-travel"
 import { useRouterState } from "@tanstack/react-router"
 import { ChevronLeft } from "lucide-react"
 
@@ -130,12 +129,8 @@ export function SubSidebar({
           tone="panel"
         />
       </div>
-      {/* The business time, here since the desk's top strip went (4 Oct
-          2026): a button for whoever may move the clock, plain text for
-          everyone else. */}
-      <div className="flex h-13 shrink-0 items-center border-t border-hairline px-4 [&_button]:mr-0 [&_button]:-ml-2.5">
-        <TimeTravel place="header" />
-      </div>
+      {/* No clock at the panel's foot (owner, 20 Oct 2026): the page head's
+          Time button is where the business time is moved. */}
     </nav>
   )
 }

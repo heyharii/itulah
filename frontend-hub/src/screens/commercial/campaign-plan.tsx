@@ -8,7 +8,7 @@ import { Field, Input, Money, Select } from "@/components/ui/field"
 import { Status } from "@/components/ui/pill"
 import { ListChecks, Gauge, Store } from "lucide-react"
 import { ErrorState } from "@/components/ui/states"
-import { count, day, money } from "@/lib/format"
+import { count, dateRange, day, money } from "@/lib/format"
 import { queryState } from "@/lib/query-state"
 import {
   acknowledgeCampaignBreach,
@@ -71,7 +71,7 @@ export function CampaignPlan({ campaignId }: { campaignId: string }) {
 
 const KINDS: readonly { value: string; label: string; needsRef: boolean }[] = [
   { value: "PROMOTION", label: "Promotion", needsRef: true },
-  { value: "MARKDOWN", label: "Clearance drop", needsRef: true },
+  { value: "MARKDOWN", label: "Clearance markdown", needsRef: true },
   { value: "COUPON_SET", label: "Coupon set", needsRef: true },
   { value: "PLACEMENT", label: "Poster or banner", needsRef: false },
   { value: "MESSAGE", label: "Email or push", needsRef: false },
@@ -121,7 +121,7 @@ function Activities({
     <div id={PLAN_ANCHOR} className="scroll-mt-4">
       <BlockHead
         icon={ListChecks}
-        title="Activities"
+        title="Plan"
         className="mb-5"
         aside={
           <button
@@ -219,12 +219,13 @@ function Activity({
         // The activity claims a rule the published books file elsewhere. That
         // rule's takings are attributed to another campaign in every report, so
         // this one is reading somebody else's numbers.
-        <span className="text-[0.9375rem] text-bad-fg">not published</span>
+        <span className="text-[0.9375rem] text-bad-fg">Not in this campaign</span>
       )}
       {activity.starts_on !== null && (
         <span className="text-[0.9375rem] text-mute tabular-nums">
-          {day(activity.starts_on)}
-          {activity.ends_on !== null && ` – ${day(activity.ends_on)}`}
+          {activity.ends_on === null
+            ? day(activity.starts_on)
+            : dateRange(activity.starts_on, activity.ends_on)}
         </span>
       )}
       {activity.cost_minor !== null && (
@@ -306,7 +307,7 @@ function ActivityForm({
             ))}
           </Select>
         </Field>
-        <Field label="Name" required>
+        <Field label="Activity name" required>
           <Input
             value={name}
             onChange={(event) => setName(event.target.value)}
@@ -356,7 +357,7 @@ function ActivityForm({
             disabled={problem !== undefined}
             onClick={() => add.mutate()}
           >
-            {add.isPending ? "Submitting…" : "Submit"}
+            {add.isPending ? "Adding…" : "Add activity"}
           </Button>
         </span>
       </div>
@@ -441,7 +442,7 @@ function Reach({
     <div>
       <BlockHead
         icon={Store}
-        title="Reach"
+        title="Targeting"
         className="mb-5"
         aside={
           editing ? (
@@ -459,7 +460,7 @@ function Reach({
                 onClick={() => save.mutate(declared)}
                 className="text-accent hover:underline"
               >
-                {save.isPending ? "Submitting…" : "Submit"}
+                {save.isPending ? "Saving…" : "Save"}
               </button>
             </span>
           ) : (
@@ -468,7 +469,7 @@ function Reach({
               onClick={() => setDraft(plan.scope.declared)}
               className="text-accent hover:underline"
             >
-              Declare
+              Edit
             </button>
           )
         }
@@ -524,7 +525,7 @@ function Reach({
 
         {editing && (
           <div className="mt-5 flex flex-wrap items-end gap-3">
-            <Field label="Add" className="w-40">
+            <Field label="Target by" className="w-40">
               <Select value={dimension} onChange={setDimension}>
                 {DIMENSIONS.map((one) => (
                   <option key={one.value} value={one.value}>
@@ -533,9 +534,12 @@ function Reach({
                 ))}
               </Select>
             </Field>
-            <Field label="Value" className="min-w-44 flex-1">
+            <Field label="Code" className="min-w-44 flex-1">
               <Input
                 value={value}
+                placeholder={
+                  DIMENSIONS.find((one) => one.value === dimension)?.example
+                }
                 onChange={(event) => setValue(event.target.value)}
                 onKeyDown={(event) => {
                   if (event.key === "Enter") {
@@ -602,16 +606,16 @@ function Drift({ plan }: { plan: CampaignPlanView }) {
     <p className="mt-5 flex flex-col gap-2 text-[0.9375rem] leading-relaxed text-warn-fg">
       {wideOpen && (
         <span>
-          Declared for {count(declaredSites.length)} store
-          {declaredSites.length === 1 ? "" : "s"}, but the published campaign
-          names none, so it reaches every store.
+          Targeted at {count(declaredSites.length)} store
+          {declaredSites.length === 1 ? "" : "s"}, but the live campaign names
+          none, so it reaches every store.
         </span>
       )}
       {declared_not_bound.length > 0 && (
-        <span>Declared, not published: {declared_not_bound.join(", ")}.</span>
+        <span>Targeted, not live: {declared_not_bound.join(", ")}.</span>
       )}
       {bound_not_declared.length > 0 && (
-        <span>Published, not declared: {bound_not_declared.join(", ")}.</span>
+        <span>Live, not targeted: {bound_not_declared.join(", ")}.</span>
       )}
     </p>
   )
@@ -624,27 +628,27 @@ const MEASURES: readonly {
 }[] = [
   {
     value: "SPEND_MINOR",
-    label: "Given away, in total",
+    label: "Discount given",
     unit: "money",
   },
   {
     value: "SPEND_PER_DAY_MINOR",
-    label: "Given away, a day",
+    label: "Discount given per day",
     unit: "money",
   },
   {
     value: "DISCOUNT_RATE_BPS",
-    label: "Discount rate, at most",
+    label: "Discount rate",
     unit: "bps",
   },
   {
     value: "MARGIN_BPS",
-    label: "Margin, at least",
+    label: "Margin",
     unit: "bps",
   },
   {
     value: "AVERAGE_BASKET_MINOR",
-    label: "Average basket, at least",
+    label: "Average basket",
     unit: "money",
   },
 ]
@@ -782,10 +786,10 @@ function Rails({
                 label="Limit"
               />
             </Field>
-            <Field label="When it is crossed" className="sm:col-span-3">
+            <Field label="If crossed" className="sm:col-span-3">
               <Select value={action} onChange={setAction}>
-                <option value="WARN">Say so here</option>
-                <option value="PAUSE_CAMPAIGN">Stop the campaign</option>
+                <option value="WARN">Warn only</option>
+                <option value="PAUSE_CAMPAIGN">Pause the campaign</option>
               </Select>
             </Field>
           </div>
@@ -855,7 +859,7 @@ function Rails({
                   </span>
                 )}
                 {rail.breach_action === "PAUSE_CAMPAIGN" && (
-                  <span className="text-[0.9375rem] text-warn-fg">Stops it</span>
+                  <span className="text-[0.9375rem] text-warn-fg">Pauses it</span>
                 )}
                 <ConfirmButton
                   label="Remove"
@@ -900,7 +904,10 @@ function Rails({
             >
               <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <span className="text-[0.9375rem] font-medium text-bad-fg">
-                  {measureOf(breach.measure)?.label ?? breach.measure} crossed
+                  {breach.measure === "SPEND_PER_DAY_MINOR"
+                    ? "Daily discount"
+                    : (measureOf(breach.measure)?.label ?? breach.measure)}{" "}
+                  crossed
                 </span>
                 <span className="text-[0.9375rem] text-mute tabular-nums">
                   {day(breach.first_seen_at)}
@@ -909,13 +916,13 @@ function Rails({
                 </span>
               </div>
               <p className="mt-2 text-[0.9375rem] leading-relaxed text-body tabular-nums">
-                {drawLimit(breach.measure, breach.observed)} against a line of{" "}
+                {drawLimit(breach.measure, breach.observed)} over the limit of{" "}
                 {drawLimit(breach.measure, breach.threshold)}
                 {breach.action_taken === "PAUSED" &&
-                  " — the campaign was stopped"}
+                  " — campaign paused"}
                 {breach.action_taken === "PAUSE_FAILED" &&
-                  " — the campaign could NOT be stopped"}
-                . Read over {day(breach.window_from)} – {day(breach.window_to)}.
+                  " — campaign could not be paused"}
+                . Read over {dateRange(breach.window_from, breach.window_to)}.
               </p>
               <button
                 type="button"
@@ -923,7 +930,7 @@ function Rails({
                 onClick={() => acknowledge.mutate(breach.breach_id)}
                 className="mt-3 text-[0.9375rem] text-accent hover:underline"
               >
-                Acknowledge
+                Got it
               </button>
             </div>
           ))}

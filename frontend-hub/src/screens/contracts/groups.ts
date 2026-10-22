@@ -1,10 +1,10 @@
 import {
   Building2,
-  Hammer,
   KeyRound,
   RefreshCw,
   ShieldCheck,
   Stamp,
+  Wrench,
   type LucideIcon,
 } from "lucide-react"
 
@@ -25,7 +25,7 @@ export const CONTRACT_GROUPS: readonly {
   readonly group_code: ContractGroupCode
 }[] = [
   { label: "Leases", icon: Building2, group_code: "SEWA" },
-  { label: "Services", icon: Hammer, group_code: "JASA" },
+  { label: "Services", icon: Wrench, group_code: "JASA" },
   { label: "Insurance", icon: ShieldCheck, group_code: "ASURANSI" },
   { label: "Permits", icon: Stamp, group_code: "IZIN" },
   { label: "Subscriptions", icon: RefreshCw, group_code: "LANGGANAN" },

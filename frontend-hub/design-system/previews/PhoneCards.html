@@ -1,0 +1,66 @@
+<!-- @dsCard group="Phone" height=720 subtitle="Static rendition of phone-cards.tsx in the All white look" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>PhoneCards — preview</title><style>
+body{margin:0}
+.ds-phonecards-body{gap:10px}
+.ds-phonecards-sentence{margin-bottom:6px}
+.ds-phonecards-sentence b{font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.ds-phonecards-text{display:flex;flex-direction:column;gap:2px;min-width:0}
+.ds-card-line b.ds-phonecards-late{color:var(--bad-fg);font-weight:500}
+.ds-phonecards-group{display:flex;align-items:center;gap:8px;padding:8px 4px;font-size:16px;line-height:24px;font-weight:600;color:var(--ink)}
+.ds-phonecards-group .ds-phonecards-n{flex:none;white-space:nowrap;font-size:15px;font-weight:400;color:var(--mute);font-variant-numeric:tabular-nums}
+.ds-phonecards-spacer{flex:1}
+.ds-phonecards-group .ds-ico{color:var(--line-ico)}
+</style></head>
+<body>
+<div class="ds ds-stage">
+  <div class="ds-phone">
+    <div class="ds-phone-head"><h1 class="ds-title">Purchase Orders</h1></div>
+    <div class="ds-phone-body ds-phonecards-body">
+      <p class="ds-band-sentence ds-phonecards-sentence">Hi Rina, <b>18</b> orders are active, <b>Rp 102,7 M</b> in total.</p>
+
+      <div class="ds-phonecards-group"><span>Garmen Nusantara, PT</span><span class="ds-phonecards-n">2 orders</span><span class="ds-phonecards-spacer"></span><span class="ds-phonecards-n">Rp 10,2 M</span><span class="ds-ico ds-ico-chevron-down"></span></div>
+
+      <div class="ds-card">
+        <div class="ds-card-top">
+          <div class="ds-phonecards-text">
+            <span class="ds-card-name">Garmen Nusantara, PT</span>
+            <span class="ds-card-line">PO-161026-010 · 1 item</span>
+            <span class="ds-card-line">Delivery <b>29 Oct 2026</b></span>
+          </div>
+          <div class="ds-card-figure"><span class="ds-lead">24<span class="ds-lead-unit"> pcs</span></span><span class="ds-card-line">Rp 2.040.000</span></div>
+        </div>
+        <div class="ds-card-foot"><span>Received 0 pcs</span><span class="ds-status ds-status--ok">Active</span></div>
+      </div>
+
+      <div class="ds-card">
+        <div class="ds-card-top">
+          <div class="ds-phonecards-text">
+            <span class="ds-card-name">Garmen Nusantara, PT</span>
+            <span class="ds-card-line">PO-081026-001 · 3 items</span>
+            <span class="ds-card-line">Delivery <b>02 Nov 2026</b></span>
+          </div>
+          <div class="ds-card-figure"><span class="ds-lead">96<span class="ds-lead-unit"> pcs</span></span><span class="ds-card-line">Rp 8.160.000</span></div>
+        </div>
+        <div class="ds-card-foot"><span>Received 0 pcs</span><button class="ds-btn ds-btn--primary ds-btn--card" type="button">Count receive</button></div>
+      </div>
+
+      <div class="ds-phonecards-group"><span>Sepatu Sejahtera, CV</span><span class="ds-phonecards-n">1 order</span><span class="ds-phonecards-spacer"></span><span class="ds-phonecards-n">Rp 54,6 M</span><span class="ds-ico ds-ico-chevron-down"></span></div>
+
+      <div class="ds-card">
+        <div class="ds-card-top">
+          <div class="ds-phonecards-text">
+            <span class="ds-card-name">Sepatu Sejahtera, CV</span>
+            <span class="ds-card-line">PO-151026-004 · 6 items</span>
+            <span class="ds-card-line">Delivery <b class="ds-phonecards-late">20 Oct 2026</b></span>
+          </div>
+          <div class="ds-card-figure"><span class="ds-lead">360<span class="ds-lead-unit"> pcs</span></span><span class="ds-card-line">Rp 54.600.000</span></div>
+        </div>
+        <div class="ds-card-foot"><span>Received 240 pcs</span><span class="ds-status ds-status--warn">Partially received</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

@@ -498,7 +498,9 @@ function Carton({
     })
     void client.invalidateQueries({ queryKey: keys.dc.all })
     void client.invalidateQueries({ queryKey: keys.pools() })
-    toast.success(`${one.koli.koli_number} unpacked · back to picked`)
+    toast.success(`${one.koli.koli_number} unpacked`, {
+      description: "Back to picked",
+    })
     if (result.kolis.some((k) => k.emptied)) onClose()
   }
 

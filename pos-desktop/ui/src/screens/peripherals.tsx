@@ -24,10 +24,10 @@
 /// on a Mac or Linux till (`src-tauri/src/printer.rs`). The name is chosen from
 /// the machine's own list, and a test print proves it before a customer does.
 
-import { useEffect, useState } from "react"
+import { Fragment, useEffect, useState } from "react"
 
 import * as api from "@/api"
-import { device, openCustomerDisplay } from "@/edge"
+import { device, openCustomerDisplay, readRfidPad, type PadRead } from "@/edge"
 import { Icon } from "@/icons"
 import {
   localPrinters,
@@ -52,6 +52,44 @@ type Printer = {
   readonly purpose: string
 }
 
+/// The reader a test read ran on and its radio profile, as the shell read
+/// them back when it last set the reader up (`src-tauri/src/rfid.rs`).
+/// Read-only: the shell sets the profile itself on opening and after a reset.
+function ReadWith({ read }: { read: PadRead }) {
+  const { profile } = read
+  const rows: readonly (readonly [string, string])[] = [
+    ["Firmware", read.firmware],
+    ["FastID", profile.fast_id ? "On" : "Off"],
+    ["Tag Focus", profile.tag_focus ? "On" : "Off"],
+    ["Session", profile.session],
+    ["Target", profile.target],
+    [
+      "RF link",
+      profile.rf_link_moved_from === null
+        ? profile.rf_link
+        : `${profile.rf_link} · switched from ${profile.rf_link_moved_from}, not saved in the reader`,
+    ],
+  ]
+  return (
+    <dl
+      style={{
+        display: "grid",
+        gridTemplateColumns: "max-content 1fr",
+        gap: "2px 16px",
+        margin: 0,
+        fontSize: 15,
+      }}
+    >
+      {rows.map(([label, value]) => (
+        <Fragment key={label}>
+          <dt className="muted">{label}</dt>
+          <dd style={{ margin: 0, minWidth: 0, overflowWrap: "anywhere" }}>{value}</dd>
+        </Fragment>
+      ))}
+    </dl>
+  )
+}
+
 export function PeripheralsScreen({ onBack }: { onBack: () => void }) {
   const session = useSession()
   const { config } = useNodeConfig()
@@ -60,6 +98,12 @@ export function PeripheralsScreen({ onBack }: { onBack: () => void }) {
   const [printers, setPrinters] = useState<readonly Printer[] | null>(null)
   const [printersProblem, setPrintersProblem] = useState<string | null>(null)
   const [reader, setReader] = useState<{ bound: boolean; detail: string } | null>(null)
+  /// The last test read of the R3's pad, for setting its power on the bench.
+  const [padTest, setPadTest] = useState<{
+    bad: boolean
+    text: string
+    read: PadRead | null
+  } | null>(null)
   const [note, setNote] = useState<{ bad: boolean; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
   /// The printers this machine has, for the USB choice. Null until asked.
@@ -165,6 +209,31 @@ export function PeripheralsScreen({ onBack }: { onBack: () => void }) {
   useEffect(() => {
     void checkReader()
   }, [])
+
+  /// One read of the pad with the settings this till has saved — the shell
+  /// reads those, not this form — listing every tag with its signal, so the
+  /// power can be lowered until only the pad's garments are read.
+  async function testPad() {
+    setPadTest(null)
+    try {
+      const read = await readRfidPad()
+      setPadTest({
+        bad: false,
+        read,
+        text:
+          `${read.tags.length} ${read.tags.length === 1 ? "tag" : "tags"} at ` +
+          `${read.power_dbm} dBm in ${read.window_ms} ms` +
+          (read.too_weak > 0 ? ` · ${read.too_weak} below ${read.min_rssi_dbm} dBm left out` : "") +
+          (read.unreadable > 0 ? ` · ${read.unreadable} unreadable` : ""),
+      })
+    } catch (error) {
+      setPadTest({
+        bad: true,
+        read: null,
+        text: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
 
   if (form === null) {
     return (
@@ -374,6 +443,85 @@ export function PeripheralsScreen({ onBack }: { onBack: () => void }) {
                 </button>
               </span>
             </div>
+            {/* Bench values (README): the power decides how far the R3
+                reaches, and only the pad may be within reach. */}
+            {readerChoice === R3 && (
+              <>
+                <div style={{ display: "flex", gap: 10 }}>
+                  <label className="field" style={{ flex: 1 }}>
+                    Power (dBm)
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min={1}
+                      max={30}
+                      step={1}
+                      value={form.r3_power_dbm ?? 15}
+                      onChange={(event) =>
+                        change({ r3_power_dbm: Number(event.target.value) })
+                      }
+                    />
+                  </label>
+                  <label className="field" style={{ flex: 1 }}>
+                    One read (ms)
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min={200}
+                      max={2000}
+                      step={50}
+                      value={form.r3_read_ms ?? 500}
+                      onChange={(event) =>
+                        change({ r3_read_ms: Number(event.target.value) })
+                      }
+                    />
+                  </label>
+                  <label className="field" style={{ flex: 1 }}>
+                    Weakest kept (dBm)
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min={-100}
+                      max={-20}
+                      step={1}
+                      value={form.r3_min_rssi_dbm ?? -70}
+                      onChange={(event) =>
+                        change({ r3_min_rssi_dbm: Number(event.target.value) })
+                      }
+                    />
+                  </label>
+                </div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <button
+                    className="btn"
+                    type="button"
+                    disabled={busy}
+                    title="Reads with the saved settings. Save first."
+                    onClick={() => void testPad()}
+                  >
+                    <Icon name="rfid" />
+                    Test read
+                  </button>
+                  {padTest !== null && (
+                    <span className={padTest.bad ? "error" : "muted"} style={{ fontSize: 15 }}>
+                      {padTest.text}
+                    </span>
+                  )}
+                </div>
+                {padTest !== null && padTest.read !== null && (
+                  <ReadWith read={padTest.read} />
+                )}
+                {padTest !== null && padTest.read !== null && padTest.read.tags.length > 0 && (
+                  <ul className="muted num" style={{ fontSize: 15, margin: 0, paddingLeft: 18 }}>
+                    {padTest.read.tags.map((tag) => (
+                      <li key={tag.epc}>
+                        {tag.epc} · {tag.rssi_dbm.toFixed(1)} dBm · read {tag.reads}×
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            )}
           </section>
 
           {/* ── drawer and scanner ── */}

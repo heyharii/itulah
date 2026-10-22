@@ -35,7 +35,8 @@ export const gaSuppliesNav: AppModule = {
   divider: true,
   // Live: the list, its sheet and the "Request supplies" composer are written, so
   // the row navigates. One door — the stage of a request is read in its sheet,
-  // and the seven categories are cards in the form, not a second screen.
+  // and the seven categories are tiles in the form and chips on the list, not a
+  // second screen.
   sections: [
     {
       items: [

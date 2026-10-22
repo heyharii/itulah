@@ -4,7 +4,22 @@
  * One place as GA reads it: the register's own row, GA's detail (absent for a
  * site nobody has filled in), and the counts read back through references.
  */
-export type GaLocationRow = { site_id: string, site_name: string, site_kind: string, address: string | null, kind: string | null, floor_area_sqm: number | null, contact_name: string | null, contact_phone: string | null, notes: string | null, 
+export type GaLocationRow = { site_id: string, site_name: string, site_kind: string, 
+/**
+ * The client's own code for the site (`C001-TOKO`, `HO-GUDANG`). Absent on
+ * a site nobody has coded.
+ */
+site_code: string | null, 
+/**
+ * The unit whose books the site is in: its code (`C001`) and its name,
+ * which is what people call the shop ("Cikupa").
+ */
+unit_code: string, unit_name: string, 
+/**
+ * How many sites the unit keeps: a unit with one is named by the unit
+ * alone, one with several by the unit and the site.
+ */
+unit_site_count: number, address: string | null, kind: string | null, floor_area_sqm: number | null, contact_name: string | null, contact_phone: string | null, notes: string | null, 
 /**
  * `ga_location_detail.version`; 0 means GA has written no detail yet,
  * which is a real answer and not a missing one.

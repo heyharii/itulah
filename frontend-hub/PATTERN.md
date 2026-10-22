@@ -1,6 +1,6 @@
 # frontend-hub — how a screen is written
 
-For current UI consistency and page-layout decisions, read [UI-PATTERNS.md](./UI-PATTERNS.md).
+For current UI consistency and page-layout decisions, read the Central design system in [design-system/README.md](./design-system/README.md): tokens, page and sheet anatomy, words, motion, phone, and one card per kit component. Then read [UI-PATTERNS.md](./UI-PATTERNS.md).
 Similar jobs reuse the closest existing pattern; different jobs may have
 different layouts with the same components and behavior. Its visual rules
 supersede older design descriptions in this file. Existing screens still need
@@ -34,8 +34,9 @@ the reference implementation and every part of it is there on purpose.
    token it probably should not exist.
 3. **Three weights only**: `font-normal` (400), `font-medium` (500),
    `font-semibold` (600). Never `font-bold`.
-4. **Two blues, fixed jobs.** Indigo `accent` = selected / active / primary
-   series / focus. Sky `info` = *in motion* only — shipped, processing, issued,
+4. **Two blues, fixed jobs.** Blue `accent` (#2862dc in the white look) =
+   selected / active / primary series / focus, and the solid primary button
+   (`cta`). Sky `info` = *in motion* only — shipped, processing, issued,
    receiving. They never swap.
 5. **Nothing darkens.** Overlays sit on the white veil (`--scrim`). No black
    scrim anywhere.
@@ -122,9 +123,9 @@ The button that starts a write takes `pending={save.isPending}`, never
 drawn less faded than a button that will never work. The label still says what
 is happening ("Saving…") — no spinner. A write that failed is `<Problem>` where
 it was attempted; one that worked and minted an identity — an order's number, a
-supplier's code, an article's code — says it in `<SavedDialog>`, the small
-receipt in the middle of the screen that stays up until it is read (the owner,
-2026-10-04: "dibikin dialog tengah saja, dialog kecil"); one that worked and
+supplier's code, an article's code — says it in `<SavedDialog>`, which since
+2026-10-17 is a toast at the bottom right like every other save (the owner:
+"semua yg di save selalu muncul sebelah kanan"); one that worked and
 left a receipt on the page is `<Receipt>`; one that worked and moved the screen
 on is a toast.
 

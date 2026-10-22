@@ -3,11 +3,26 @@
 /**
  * A repair as GA reads it, with the actual cost read back from Finance.
  */
-export type GaRepairRow = { repair_id: string, site_id: string, asset_id: string | null, asset_name: string | null, objek: string, 
+export type GaRepairRow = { repair_id: string, 
+/**
+ * The number people say: `RPR-DDMMYY-NNN`, the Jakarta day it was
+ * recorded and its place in that day (0981). Given by the database.
+ */
+repair_number: string, site_id: string, asset_id: string | null, asset_name: string | null, objek: string, 
 /**
  * The client's own name for the object ("AC & refrigerator").
  */
-objek_name: string, title: string, supplier_id: string, supplier_name: string, contract_id: string | null, contract_number: string | null, task_id: string | null, inspection_id: string | null, estimated_cost_minor: number | null, approved_budget_minor: number | null, approved_by: string | null, approved_at: string | null, failure_at: string, completed_at: string | null, status: string, notes: string | null, 
+objek_name: string, title: string, supplier_id: string, supplier_name: string, contract_id: string | null, contract_number: string | null, task_id: string | null, inspection_id: string | null, estimated_cost_minor: number | null, approved_budget_minor: number | null, approved_by: string | null, approved_at: string | null, failure_at: string, 
+/**
+ * The day the work was done, as GA records it (and may correct).
+ */
+completed_at: string | null, 
+/**
+ * Who moved it to each stage, and when (0981). `approved_*` above is the
+ * budget's; completion's day is `completed_at`. A stage the repair never
+ * reached is null, and so is a "who" from before the stamps existed.
+ */
+started_at: string | null, started_by: string | null, completed_by: string | null, closed_at: string | null, closed_by: string | null, cancelled_at: string | null, cancelled_by: string | null, status: string, notes: string | null, 
 /**
  * Σ baris tagihan POSTED yang menunjuk perbaikan ini (0370's
  * `supplier_invoice_expense_line.repair_id`). Dibaca saja dari Finance;

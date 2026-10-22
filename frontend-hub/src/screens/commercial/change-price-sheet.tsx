@@ -8,7 +8,7 @@ import { Choices, type Tile } from "@/components/ui/form"
 import { MiniCell, MiniRow, MiniTable, SubHead } from "@/components/ui/rows"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner, ErrorState } from "@/components/ui/states"
-import { count, money } from "@/lib/format"
+import { count, money, sku } from "@/lib/format"
 import {
   BookWrittenNotPublished,
   commercialKeys,
@@ -626,9 +626,9 @@ export function ChangePriceSheet({
       client.invalidateQueries({ queryKey: commercialKeys.all })
       setPublished({
         title: `“${bookName}” published`,
-        note: `Sent to ${count(receipt.delivered_to.length)} store${
+        note: `${count(receipt.delivered_to.length)} store${
           receipt.delivered_to.length === 1 ? "" : "s"
-        }.`,
+        }`,
       })
       onPublished([receipt])
       onClose()
@@ -637,13 +637,10 @@ export function ChangePriceSheet({
   /// The publish this sheet made, held in the receipt dialog until it is
   /// read. The sheet is keyed rather than unmounted, so the state survives
   /// the close its own `onClose` performs.
-  const [published, setPublished] = useState<
-    | {
-        readonly title: string
-        readonly note: string
-      }
-    | null
-  >(null)
+  const [published, setPublished] = useState<{
+    readonly title: string
+    readonly note: string
+  } | null>(null)
 
   const waitingOnProducts =
     (kind === "price" || sizesMode === "choose") &&
@@ -714,276 +711,280 @@ export function ChangePriceSheet({
       <Sheet
         open={open}
         onOpenChange={(next) => !next && onClose()}
-      title="Change price"
-      id={single ? single.article_code : `${count(targets.length)} articles`}
-      width="wide"
-      footer={
-        <div className="flex items-center justify-between gap-3">
-          <span
-            className={cn(
-              "min-w-0 truncate text-[0.9375rem]",
-              actor === "" ? "text-bad" : "text-text"
-            )}
-          >
-            {actor === ""
-              ? "Sign in to publish."
-              : ready
-                ? `${count(changed)} price${changed === 1 ? "" : "s"} change`
-                : "Fill in the price."}
-          </span>
-          <div className="flex items-center gap-3">
-            <Button data-cancel variant="quiet" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              disabled={!canPublish}
-              pending={publish.isPending}
-              onClick={() => publish.mutate()}
+        title="Change price"
+        id={single ? single.article_code : `${count(targets.length)} articles`}
+        width="wide"
+        footer={
+          <div className="flex items-center justify-between gap-3">
+            <span
+              className={cn(
+                "min-w-0 truncate text-[0.9375rem]",
+                actor === "" ? "text-bad" : "text-text"
+              )}
             >
-              {`Publish to ${count(allTargetSites.size)} store${
-                allTargetSites.size === 1 ? "" : "s"
-              }`}
-            </Button>
-          </div>
-        </div>
-      }
-    >
-      <div className="flex flex-col gap-8">
-        {halted !== null ? (
-          <Banner tone="bad">{halted.message}</Banner>
-        ) : publish.isError ? (
-          <ErrorState error={publish.error} />
-        ) : null}
-
-        <div className="flex flex-col gap-3">
-          <span className="text-[0.9375rem] font-medium text-ink">
-            What kind of price?
-          </span>
-          <Choices
-            label="What kind of price?"
-            columns={1}
-            value={kind}
-            onChange={changeKind}
-            options={kindOptions}
-          />
-        </div>
-
-        <div className="flex flex-col gap-3">
-          <span className="text-[0.9375rem] font-medium text-ink">
-            Applied to
-          </span>
-          <Choices
-            label="Applied to"
-            columns={1}
-            value={applied}
-            onChange={setApplied}
-            options={appliedOptions}
-          />
-          {applied === "choose" && (
-            <div className="grid grid-cols-1 gap-1 rounded-inner border border-hairline-2 p-1.5 sm:grid-cols-2">
-              {shops.map((shop) => {
-                const disabled =
-                  single !== null && !soldAt(single, shop.site_id)
-                return (
-                  <Checkbox
-                    key={shop.site_id}
-                    checked={chosenSites.has(shop.site_id)}
-                    onChange={(checked) => toggleSite(shop.site_id, checked)}
-                    disabled={disabled}
-                    label={shop.label ?? shop.site_id}
-                    hint={
-                      single === null
-                        ? undefined
-                        : disabled
-                          ? "not sold"
-                          : money(chargedAt(single, shop.site_id))
-                    }
-                    className="w-full rounded-inner px-3 py-2.5 hover:bg-soft"
-                  />
-                )
-              })}
+              {actor === ""
+                ? "Sign in to publish."
+                : ready
+                  ? `${count(changed)} price${changed === 1 ? "" : "s"} change`
+                  : "Fill in the price."}
+            </span>
+            <div className="flex items-center gap-3">
+              <Button data-cancel variant="quiet" onClick={onClose}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                disabled={!canPublish}
+                pending={publish.isPending}
+                onClick={() => publish.mutate()}
+              >
+                {`Publish to ${count(allTargetSites.size)} store${
+                  allTargetSites.size === 1 ? "" : "s"
+                }`}
+              </Button>
             </div>
-          )}
-        </div>
+          </div>
+        }
+      >
+        <div className="flex flex-col gap-8">
+          {halted !== null ? (
+            <Banner tone="bad">{halted.message}</Banner>
+          ) : publish.isError ? (
+            <ErrorState error={publish.error} />
+          ) : null}
 
-        {single && (
           <div className="flex flex-col gap-3">
-            <span className="text-[0.9375rem] font-medium text-ink">Sizes</span>
+            <span className="text-[0.9375rem] font-medium text-ink">
+              Kind
+            </span>
             <Choices
-              label="Sizes"
+              label="Kind"
               columns={1}
-              value={sizesMode}
-              onChange={setSizesMode}
-              options={sizesOptions}
+              value={kind}
+              onChange={changeKind}
+              options={kindOptions}
             />
-            {sizesMode === "choose" &&
-              (products.isPending ? (
-                <p className="text-[0.9375rem] text-mute">Loading…</p>
-              ) : products.isError ? (
-                <p className="text-[0.9375rem] text-bad">
-                  Could not load sizes.
-                </p>
-              ) : (
-                <div className="grid grid-cols-1 gap-1 rounded-inner border border-hairline-2 p-1.5 sm:grid-cols-2">
-                  {singleProducts.map((product) => (
+          </div>
+
+          <div className="flex flex-col gap-3">
+            <span className="text-[0.9375rem] font-medium text-ink">
+              Stores
+            </span>
+            <Choices
+              label="Stores"
+              columns={1}
+              value={applied}
+              onChange={setApplied}
+              options={appliedOptions}
+            />
+            {applied === "choose" && (
+              <div className="grid grid-cols-1 gap-1 rounded-inner border border-hairline-2 p-1.5 sm:grid-cols-2">
+                {shops.map((shop) => {
+                  const disabled =
+                    single !== null && !soldAt(single, shop.site_id)
+                  return (
                     <Checkbox
-                      key={product.sku_id}
-                      checked={chosenSkus.has(product.sku_id)}
-                      onChange={(checked) => toggleSku(product.sku_id, checked)}
-                      label={
-                        <span className="flex items-center gap-1.5">
-                          <span>
-                            {[product.color, product.size]
-                              .filter((one) => one !== null)
-                              .join(" · ") || product.sku_code}
-                          </span>
-                          <span className="font-mono text-[0.9375rem] text-mute">
-                            {product.sku_code}
-                          </span>
-                        </span>
-                      }
+                      key={shop.site_id}
+                      checked={chosenSites.has(shop.site_id)}
+                      onChange={(checked) => toggleSite(shop.site_id, checked)}
+                      disabled={disabled}
+                      label={shop.label ?? shop.site_id}
                       hint={
-                        sizesPreviewSite === null
+                        single === null
                           ? undefined
-                          : money(
-                              chargedForSku(
-                                single,
-                                sizesPreviewSite,
-                                product.sku_code
-                              )
-                            )
+                          : disabled
+                            ? "not sold"
+                            : money(chargedAt(single, shop.site_id))
                       }
                       className="w-full rounded-inner px-3 py-2.5 hover:bg-soft"
                     />
-                  ))}
-                </div>
-              ))}
-          </div>
-        )}
-
-        <div className="flex flex-col gap-3">
-          <span className="text-[0.9375rem] font-medium text-ink">
-            {kind === "markdown" ? "Markdown price" : "New price"}
-          </span>
-          <div className="flex gap-4">
-            <Field label={pctLabel} className="w-[8.5rem] shrink-0">
-              <span className="relative flex w-full items-center">
-                <Input
-                  value={pctFieldValue}
-                  inputMode="text"
-                  onChange={(event) => handlePctInput(event.target.value)}
-                  className="pr-7 text-right tabular-nums"
-                />
-                <span className="pointer-events-none absolute right-3 text-[0.9375rem] text-mute">
-                  %
-                </span>
-              </span>
-            </Field>
-            <Field label="Price" className="flex-1">
-              <Money
-                value={rpFieldValue}
-                onChange={handleRpInput}
-                disabled={multi}
-                prefix="Rp"
-              />
-            </Field>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {quickValues.map((value) => (
-              <button
-                key={value}
-                type="button"
-                onClick={() => {
-                  setDriver("pct")
-                  setPctRaw(String(value))
-                }}
-                className={cn(
-                  "h-9 rounded-inner border px-3 text-[0.9375rem] font-medium transition-colors",
-                  driver === "pct" && pctValue === value
-                    ? "border-accent bg-accent-bg text-accent"
-                    : "border-hairline-2 bg-canvas text-body hover:bg-soft"
-                )}
-              >
-                {kind === "markdown"
-                  ? `−${value}%`
-                  : `${value > 0 ? "+" : "−"}${Math.abs(value)}%`}
-              </button>
-            ))}
-          </div>
-          {waitingOnProducts &&
-            (products.isError ? (
-              <p className="text-[0.9375rem] text-bad">
-                Could not load products.
-              </p>
-            ) : (
-              <p className="text-[0.9375rem] text-mute">Loading…</p>
-            ))}
-        </div>
-
-        <div className="flex flex-col gap-3">
-          <span className="text-[0.9375rem] font-medium text-ink">When?</span>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="Starts">
-              <Input
-                type="date"
-                value={from}
-                min={today}
-                onChange={(event) =>
-                  setFrom(
-                    event.target.value < today ? today : event.target.value
                   )
-                }
-              />
-            </Field>
-            {kind === "markdown" && (
-              <Field label="Ends" hint="Empty = no end">
-                <Input
-                  type="date"
-                  value={until}
-                  min={from}
-                  onChange={(event) => setUntil(event.target.value)}
-                />
-              </Field>
+                })}
+              </div>
             )}
           </div>
-        </div>
 
-        <div>
-          <SubHead>
-            {sizesMode === "choose"
-              ? "After publish, chosen sizes"
-              : "After publish"}
-          </SubHead>
-          <MiniTable
-            head={[
-              "Store",
-              { label: "Now", align: "right" },
-              { label: "After", align: "right" },
-            ]}
-          >
-            {previewRows.map((row) => (
-              <MiniRow key={row.siteId}>
-                <MiniCell className="py-3.5">{row.label}</MiniCell>
-                <MiniCell align="right" className="py-3.5">
-                  <span className="text-mute tabular-nums">{row.now}</span>
-                </MiniCell>
-                <MiniCell align="right" className="py-3.5">
-                  <span
-                    className={cn(
-                      "tabular-nums",
-                      row.changed ? "font-medium text-ink" : "text-mute"
-                    )}
-                  >
-                    {row.after}
+          {single && (
+            <div className="flex flex-col gap-3">
+              <span className="text-[0.9375rem] font-medium text-ink">
+                Sizes
+              </span>
+              <Choices
+                label="Sizes"
+                columns={1}
+                value={sizesMode}
+                onChange={setSizesMode}
+                options={sizesOptions}
+              />
+              {sizesMode === "choose" &&
+                (products.isPending ? (
+                  <p className="text-[0.9375rem] text-mute">Loading…</p>
+                ) : products.isError ? (
+                  <p className="text-[0.9375rem] text-bad">
+                    Could not load sizes.
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-1 gap-1 rounded-inner border border-hairline-2 p-1.5 sm:grid-cols-2">
+                    {singleProducts.map((product) => (
+                      <Checkbox
+                        key={product.sku_id}
+                        checked={chosenSkus.has(product.sku_id)}
+                        onChange={(checked) =>
+                          toggleSku(product.sku_id, checked)
+                        }
+                        label={
+                          <span className="flex items-center gap-1.5">
+                            <span>
+                              {[product.color, product.size]
+                                .filter((one) => one !== null)
+                                .join(" · ") || sku(product.sku_code)}
+                            </span>
+                            <span className="font-mono text-[0.9375rem] text-mute">
+                              {sku(product.sku_code)}
+                            </span>
+                          </span>
+                        }
+                        hint={
+                          sizesPreviewSite === null
+                            ? undefined
+                            : money(
+                                chargedForSku(
+                                  single,
+                                  sizesPreviewSite,
+                                  product.sku_code
+                                )
+                              )
+                        }
+                        className="w-full rounded-inner px-3 py-2.5 hover:bg-soft"
+                      />
+                    ))}
+                  </div>
+                ))}
+            </div>
+          )}
+
+          <div className="flex flex-col gap-3">
+            <span className="text-[0.9375rem] font-medium text-ink">
+              {kind === "markdown" ? "Markdown price" : "New price"}
+            </span>
+            <div className="flex gap-4">
+              <Field label={pctLabel} className="w-[8.5rem] shrink-0">
+                <span className="relative flex w-full items-center">
+                  <Input
+                    value={pctFieldValue}
+                    inputMode="text"
+                    onChange={(event) => handlePctInput(event.target.value)}
+                    className="pr-7 text-right tabular-nums"
+                  />
+                  <span className="pointer-events-none absolute right-3 text-[0.9375rem] text-mute">
+                    %
                   </span>
-                </MiniCell>
-              </MiniRow>
-            ))}
-          </MiniTable>
+                </span>
+              </Field>
+              <Field label="New price" className="flex-1">
+                <Money
+                  value={rpFieldValue}
+                  onChange={handleRpInput}
+                  disabled={multi}
+                  prefix="Rp"
+                />
+              </Field>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {quickValues.map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => {
+                    setDriver("pct")
+                    setPctRaw(String(value))
+                  }}
+                  className={cn(
+                    "h-9 rounded-inner border px-3 text-[0.9375rem] font-medium transition-colors",
+                    driver === "pct" && pctValue === value
+                      ? "border-accent bg-accent-bg text-accent"
+                      : "border-hairline-2 bg-canvas text-body hover:bg-soft"
+                  )}
+                >
+                  {kind === "markdown"
+                    ? `−${value}%`
+                    : `${value > 0 ? "+" : "−"}${Math.abs(value)}%`}
+                </button>
+              ))}
+            </div>
+            {waitingOnProducts &&
+              (products.isError ? (
+                <p className="text-[0.9375rem] text-bad">
+                  Could not load products.
+                </p>
+              ) : (
+                <p className="text-[0.9375rem] text-mute">Loading…</p>
+              ))}
+          </div>
+
+          <div className="flex flex-col gap-3">
+            <span className="text-[0.9375rem] font-medium text-ink">Schedule</span>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Field label="Starts">
+                <Input
+                  type="date"
+                  value={from}
+                  min={today}
+                  onChange={(event) =>
+                    setFrom(
+                      event.target.value < today ? today : event.target.value
+                    )
+                  }
+                />
+              </Field>
+              {kind === "markdown" && (
+                <Field label="Ends" hint="Leave empty for no end">
+                  <Input
+                    type="date"
+                    value={until}
+                    min={from}
+                    onChange={(event) => setUntil(event.target.value)}
+                  />
+                </Field>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <SubHead>
+              {sizesMode === "choose"
+                ? "Preview, chosen sizes"
+                : "Preview"}
+            </SubHead>
+            <MiniTable
+              head={[
+                "Store",
+                { label: "Now", align: "right" },
+                { label: "After", align: "right" },
+              ]}
+            >
+              {previewRows.map((row) => (
+                <MiniRow key={row.siteId}>
+                  <MiniCell className="py-3.5">{row.label}</MiniCell>
+                  <MiniCell align="right" className="py-3.5">
+                    <span className="text-mute tabular-nums">{row.now}</span>
+                  </MiniCell>
+                  <MiniCell align="right" className="py-3.5">
+                    <span
+                      className={cn(
+                        "tabular-nums",
+                        row.changed ? "font-medium text-ink" : "text-mute"
+                      )}
+                    >
+                      {row.after}
+                    </span>
+                  </MiniCell>
+                </MiniRow>
+              ))}
+            </MiniTable>
+          </div>
         </div>
-      </div>
-    </Sheet>
+      </Sheet>
       <SavedDialog
         open={published !== null}
         onOpenChange={(next) => {

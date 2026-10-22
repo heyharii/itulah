@@ -10,7 +10,7 @@ import { OpenButton } from "@/components/ui/open-rows"
 import { Pill } from "@/components/ui/pill"
 import { KeyValue, TotalsLadder } from "@/components/ui/rows"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import { count, moment } from "@/lib/format"
+import { articleId, count, moment, sku } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import { useParam } from "@/lib/params"
 import { queryState } from "@/lib/query-state"
@@ -564,7 +564,10 @@ function ReceiptSheet({
                           {line.name}
                         </span>
                         <span className="block text-meta text-mute tabular-nums">
-                          <span className="font-mono">{line.sku_code}</span> ·{" "}
+                          <span className="font-mono">
+                            {articleId(null, line.sku_code)} · {sku(line.sku_code)}
+                          </span>{" "}
+                          ·{" "}
                           {units(line.quantity)} ×{" "}
                           {line.base_unit_price_minor !== null &&
                             line.base_unit_price_minor !==

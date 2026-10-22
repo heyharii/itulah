@@ -23,6 +23,7 @@ import {
   ExpandingSearch,
 } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
+import { CellMoney } from "@/components/ui/rows-switch"
 import { Sheet } from "@/components/ui/sheet"
 import { SheetFooter } from "@/components/ui/sheet-footer"
 import { EmptyState, Problem, Receipt } from "@/components/ui/states"
@@ -183,7 +184,7 @@ function JournalTemplatesScreen() {
           templateTotal(row.original) === 0 ? (
             <span className="text-mute">Filled in each time</span>
           ) : (
-            money(templateTotal(row.original))
+            <CellMoney minor={templateTotal(row.original)} />
           ),
       },
       {

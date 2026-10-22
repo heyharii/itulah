@@ -4,7 +4,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query"
-import { Plus, RotateCcw, Search, X } from "lucide-react"
+import { Plus, Search, X } from "lucide-react"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { useEffect, useMemo, useRef, useState } from "react"
@@ -13,7 +13,6 @@ import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Pill } from "@/components/ui/pill"
-import { ConfirmButton } from "@/components/ui/dialog"
 import { DataTable } from "@/components/ui/data-table"
 import { Input, Select } from "@/components/ui/field"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
@@ -39,8 +38,7 @@ import {
   decimal,
   label,
   quantity,
-  recentMoment,
-} from "@/lib/format"
+  recentMoment, countPcs } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import { pullIn, useSaid } from "@/lib/pull-in"
 import { keys } from "@/lib/operations/keys"
@@ -114,8 +112,30 @@ export interface OrderRow {
 /// Where an order stands on the bay (owner, 16 Oct 2026): still to count →
 /// counted, waiting for the buyer's review → completed (received in full).
 type Stage = "count" | "review" | "done"
+/// A line the buyer sent back to count is the bay's again, even while the
+/// order's other lines still wait on the buyer.
+const recounting = (row: OrderRow): boolean =>
+  row.lines.some((line) => line.recount_reason !== null || line.recalled)
+
+/// What is waiting on the buyer, while the bay has nothing to count again.
+const withBuyer = (row: OrderRow): boolean =>
+  row.awaiting.length > 0 && !recounting(row)
+
+/// The sheet of an order the buyer sent one line back on while the rest wait
+/// for them: only the lines to count again.
+const recountOnly = (row: OrderRow | null): OrderRow | null =>
+  row === null || row.awaiting.length === 0 || !recounting(row)
+    ? row
+    : {
+        ...row,
+        awaiting: [],
+        lines: row.lines.filter(
+          (line) => line.recount_reason !== null || line.recalled
+        ),
+      }
+
 const stageOf = (row: OrderRow): Stage =>
-  row.done !== undefined ? "done" : row.awaiting.length > 0 ? "review" : "count"
+  row.done !== undefined ? "done" : withBuyer(row) ? "review" : "count"
 
 /// The lifecycles of an order that has nothing left to receive.
 const DONE_LIFECYCLES = ["FULLY_RECEIVED", "CLOSED"] as const
@@ -177,7 +197,7 @@ function CountedCell({
   const { pieces, wrong } = tallyOf(awaiting)
   return (
     <span className="flex flex-col items-end leading-5 whitespace-nowrap tabular-nums">
-      <span className="font-medium text-ink">{`${count(pieces)} pcs`}</span>
+      <span className="font-medium text-ink">{`${countPcs(pieces)}`}</span>
       {wrong > 0 && (
         <span className="text-mute">{`+ ${count(wrong)} Not as Ordered`}</span>
       )}
@@ -215,7 +235,7 @@ function CardCounted({
       <span>
         {"Received "}
         <span className="text-cell font-semibold text-ink">
-          {`${count(pieces)} pcs`}
+          {`${countPcs(pieces)}`}
         </span>
       </span>
       {wrong > 0 && <span>{`+ ${count(wrong)} Not as Ordered`}</span>}
@@ -328,15 +348,12 @@ export function Receiving() {
   }, [all, received.data])
   const inStage = (stage: Stage) =>
     everyOrder.filter((row) => stageOf(row) === stage)
+  // A count waiting for the buyer is not on this list: once it is sent, the
+  // review is the buyer's, on the order (owner, 2026-10-18).
   const stages = {
     count: inStage("count"),
-    review: inStage("review"),
     done: inStage("done"),
   }
-  const countedPieces = stages.review.reduce(
-    (sum, row) => sum + tallyOf(row.awaiting).pieces,
-    0
-  )
   const receivedPieces = stages.done.reduce(
     (sum, row) => sum + (row.done?.pieces ?? 0),
     0
@@ -395,7 +412,7 @@ export function Receiving() {
               </span>
               {recalled.length > 0 ? (
                 <span className="block truncate text-body">
-                  {`Recalled · was ${count(was)} pcs`}
+                  {`Recalled · was ${countPcs(was)}`}
                 </span>
               ) : null}
               {reason ? (
@@ -453,7 +470,7 @@ export function Receiving() {
         meta: { card: "foot" },
         cell: ({ row }) =>
           row.original.done !== undefined ? (
-            <span>{`Received ${count(row.original.done.pieces)} pcs`}</span>
+            <span>{`Received ${countPcs(row.original.done.pieces)}`}</span>
           ) : row.original.awaiting.length > 0 ? (
             <CardCounted awaiting={row.original.awaiting} />
           ) : (
@@ -483,7 +500,7 @@ export function Receiving() {
                 )}
               </span>
             )
-          if (order.awaiting.length > 0)
+          if (withBuyer(order))
             return card ? (
               <Pill tone="info">Received</Pill>
             ) : (
@@ -561,22 +578,16 @@ export function Receiving() {
           value: tab,
           options: [
             { value: "count", label: "To count", count: stages.count.length },
-            {
-              value: "review",
-              label: "In review",
-              count: stages.review.length,
-            },
             { value: "done", label: "Completed", count: stages.done.length },
           ],
           onChange: (next) => setTab(next as Stage),
         }}
       />
-      <KpiStrip className="grid-cols-3">
+      <KpiStrip className="grid-cols-2">
         <Kpi
           label="To count"
           value={`${count(stages.count.length)} ${stages.count.length === 1 ? "PO" : "POs"}`}
         />
-        <Kpi label="In review" value={quantity(countedPieces)} />
         <Kpi label="Completed" value={quantity(receivedPieces)} />
       </KpiStrip>
       {/* On a phone the stages are the dock's status button. */}
@@ -586,10 +597,6 @@ export function Receiving() {
         onChange={(next) => setTab(next as Stage)}
         tabs={[
           { value: "count", label: `To count ${count(stages.count.length)}` },
-          {
-            value: "review",
-            label: `In review ${count(stages.review.length)}`,
-          },
           { value: "done", label: `Completed ${count(stages.done.length)}` },
         ]}
       />
@@ -620,9 +627,7 @@ export function Receiving() {
                   ? "No orders match."
                   : tab === "done"
                     ? "Nothing completed yet."
-                    : tab === "review"
-                      ? "Nothing in review."
-                      : "Nothing to count."}
+                    : "Nothing to count."}
               </EmptyState>
             ) : (
               <DataTable<OrderRow>
@@ -649,7 +654,9 @@ export function Receiving() {
       </Card>
 
       <CountSheet
-        order={rows.find((row) => row.po_number === counting.value) ?? null}
+        order={recountOnly(
+          rows.find((row) => row.po_number === counting.value) ?? null
+        )}
         open={counting.value !== undefined}
         onClose={counting.close}
       />
@@ -860,8 +867,9 @@ export function CountSheet({
       ...found.tags.map((tag) => label(tag)),
     ]
       .join(" \u00b7 ")
-      .replace(/(^|[\s·/-])(\p{Ll})/gu, (_, gap: string, letter: string) =>
-        gap + letter.toUpperCase()
+      .replace(
+        /(^|[\s·/-])(\p{Ll})/gu,
+        (_, gap: string, letter: string) => gap + letter.toUpperCase()
       )
   }
   // Each article's description from the supplier's catalogue ("4 warna:
@@ -897,7 +905,9 @@ export function CountSheet({
     poNotes === "" ? null : (
       <div className="flex flex-col gap-1">
         <span className="text-[0.9375rem] text-mute">PO Notes</span>
-        <p className="text-[0.9375rem] whitespace-pre-line text-ink">{poNotes}</p>
+        <p className="text-[0.9375rem] whitespace-pre-line text-ink">
+          {poNotes}
+        </p>
       </div>
     )
   /// What has been written for each line: one amount or several, each in a
@@ -931,6 +941,11 @@ export function CountSheet({
   )
   const wrongText =
     typedWrong ?? (recalledWrong > 0 ? String(recalledWrong) : "")
+  /// Almost every delivery has nothing wrong in it, so its row stays a quiet
+  /// `+ Not as Ordered` until it is asked for. It opens by itself when there is
+  /// a figure already — a recalled count, or one that was typed.
+  const [wrongAsked, setWrongAsked] = useState<boolean | null>(null)
+  const wrongOpen = wrongAsked ?? wrongText.trim() !== ""
   /// The unit that figure is written in — "20 KODI" — one of the units the
   /// delivery's lines can be counted in. Empty is pieces.
   const [wrongUnit, setWrongUnit] = useState("")
@@ -1027,8 +1042,8 @@ export function CountSheet({
           from: said.start(),
           rowId: poNo,
           pill: `${count(sent)} ${sent === 1 ? "item" : "items"}`,
-          title: `Count sent · ${count(sent)} ${sent === 1 ? "line" : "lines"}`,
-          description: poNo,
+          title: `${poNo} count sent`,
+          description: `${count(sent)} ${sent === 1 ? "line" : "lines"}`,
         })
       })
     },
@@ -1089,7 +1104,8 @@ export function CountSheet({
   const variantUnitOf = (
     line: Line,
     variant: { colour_code: string | null; size_code: string | null }
-  ) => variantUnit[line.po_line_id]?.[variantKey(variant)] ?? unitsOf(line).stock
+  ) =>
+    variantUnit[line.po_line_id]?.[variantKey(variant)] ?? unitsOf(line).stock
   const writeVariantUnit = (line: Line, key: string, code: string) =>
     setVariantUnit((current) => ({
       ...current,
@@ -1176,8 +1192,7 @@ export function CountSheet({
         from: null,
         rowId: order?.po_number,
         pill: "Recalled",
-        title: "Count recalled",
-        description: order?.po_number,
+        title: `${order?.po_number ?? "Count"} ${order ? "count recalled" : "recalled"}`,
       })
     },
     // Someone has been first: look at the queue as it is now.
@@ -1354,25 +1369,7 @@ export function CountSheet({
         footer={
           order !== null && (
             <div className="flex items-center justify-end gap-3">
-              {order.awaiting.length > 0 && said.said === null ? (
-                // Before anybody has reviewed it, the count can be taken back.
-                <ConfirmButton
-                  label={
-                    <>
-                      <RotateCcw />
-                      Recall Count
-                    </>
-                  }
-                  variant="soft"
-                  title="Recall this count?"
-                  description="The count stays in history as Recalled. Stock does not change. You count again for the same arrival."
-                  confirmLabel="Recall Count"
-                  pending={recall.isPending}
-                  // The dialog waits on the write: a refusal (the buyer was
-                  // first) is said right under the question.
-                  onConfirm={() => recall.mutateAsync()}
-                />
-              ) : (
+              {withBuyer(order) && said.said === null ? null : (
                 <Button
                   variant="primary"
                   pending={record.isPending}
@@ -1395,7 +1392,7 @@ export function CountSheet({
             <Problem error={recall.error} />
             <EmptyState>Nothing to count.</EmptyState>
           </div>
-        ) : order.awaiting.length > 0 ? (
+        ) : withBuyer(order) ? (
           <div className="flex min-w-0 flex-col gap-4">
             {notesBlock}
             <CountRead awaiting={order.awaiting} kindOf={kindOf} />
@@ -1523,7 +1520,10 @@ export function CountSheet({
                                         className="h-11 w-28"
                                       >
                                         {units.map((one) => (
-                                          <option key={one.code} value={one.code}>
+                                          <option
+                                            key={one.code}
+                                            value={one.code}
+                                          >
                                             {one.label}
                                           </option>
                                         ))}
@@ -1692,72 +1692,104 @@ export function CountSheet({
                 {/* One figure for the whole delivery, not one per line: its
                   field sits right under the counted lines, in the same
                   column, and the total closes the table (owner, 2026-10-10). */}
-                <div
-                  className={cn(COUNT_ROW, "border-t border-hairline py-3.5")}
-                >
-                  <label
-                    htmlFor="not-as-ordered"
-                    className="flex min-h-11 flex-col justify-center"
-                  >
-                    <span className="font-medium text-ink">Not as Ordered</span>
-                    <span className="text-[0.9375rem] text-mute">
-                      Damaged or wrong items
-                    </span>
-                  </label>
-                  <div className="flex flex-col gap-2 max-sm:order-last max-sm:col-span-2">
-                    <div className="flex items-center gap-2">
-                      <Input
-                        id="not-as-ordered"
-                        className="h-11 w-24 text-center font-semibold"
-                        inputMode="decimal"
-                        autoComplete="off"
-                        placeholder="0"
-                        padLabel="Not as ordered · Damaged or wrong items"
-                        aria-invalid={wrongPieces === null}
-                        value={wrongText}
-                        onChange={(event) => setWrongText(event.target.value)}
-                      />
-                      {deliveryUnits.length > 1 ? (
-                        <Select
-                          aria-label="Unit for not as ordered"
-                          value={wrongUnit}
-                          onChange={(code) => setWrongUnit(code)}
-                          className="h-11 w-28"
-                        >
-                          <option value="">Piece</option>
-                          {deliveryUnits
-                            .filter((one) => one.factor !== "1")
-                            .map((one) => (
-                              <option key={one.code} value={one.code}>
-                                {one.label}
-                              </option>
-                            ))}
-                        </Select>
-                      ) : (
-                        <span className="w-28 text-[0.9375rem] text-body">
-                          pieces
-                        </span>
-                      )}
-                      <span className="size-11" />
-                    </div>
-                  </div>
-                  <span
+                {wrongOpen ? (
+                  <div
                     className={cn(
-                      "flex min-h-11 items-center justify-end text-right tabular-nums",
-                      wrongPieces === null
-                        ? "text-[0.9375rem] text-bad-fg"
-                        : wrongPieces === undefined || wrongPieces === 0
-                          ? "text-mute"
-                          : "font-medium text-bad-fg"
+                      COUNT_ROW,
+                      "animate-[row-in_var(--t-pop)_var(--ease-out)_both] border-t border-hairline py-3.5 motion-reduce:animate-none"
                     )}
                   >
-                    {wrongPieces === null
-                      ? wrongProblem
-                      : wrongPieces === undefined
-                        ? "—"
-                        : `${quantity(wrongPieces)}`}
-                  </span>
-                </div>
+                    <label
+                      htmlFor="not-as-ordered"
+                      className="flex min-h-11 flex-col justify-center"
+                    >
+                      <span className="font-medium text-ink">
+                        Not as Ordered
+                      </span>
+                      <span className="text-[0.9375rem] text-mute">
+                        Damaged or wrong items
+                      </span>
+                    </label>
+                    <div className="flex flex-col gap-2 max-sm:order-last max-sm:col-span-2">
+                      <div className="flex items-center gap-2">
+                        <Input
+                          id="not-as-ordered"
+                          autoFocus
+                          className="h-11 w-24 text-center font-semibold"
+                          inputMode="decimal"
+                          autoComplete="off"
+                          placeholder="0"
+                          padLabel="Not as ordered · Damaged or wrong items"
+                          aria-invalid={wrongPieces === null}
+                          value={wrongText}
+                          onChange={(event) => setWrongText(event.target.value)}
+                        />
+                        {deliveryUnits.length > 1 ? (
+                          <Select
+                            aria-label="Unit for not as ordered"
+                            value={wrongUnit}
+                            onChange={(code) => setWrongUnit(code)}
+                            className="h-11 w-28"
+                          >
+                            <option value="">Piece</option>
+                            {deliveryUnits
+                              .filter((one) => one.factor !== "1")
+                              .map((one) => (
+                                <option key={one.code} value={one.code}>
+                                  {one.label}
+                                </option>
+                              ))}
+                          </Select>
+                        ) : (
+                          <span className="w-28 text-[0.9375rem] text-body">
+                            pieces
+                          </span>
+                        )}
+                        <span className="flex size-11 items-center justify-center">
+                          <Button
+                            variant="quiet"
+                            size="sm"
+                            aria-label="Remove Not as Ordered"
+                            onClick={() => {
+                              setWrongText("")
+                              setWrongUnit("")
+                              setWrongAsked(false)
+                            }}
+                          >
+                            <X />
+                          </Button>
+                        </span>
+                      </div>
+                    </div>
+                    <span
+                      className={cn(
+                        "flex min-h-11 items-center justify-end text-right tabular-nums",
+                        wrongPieces === null
+                          ? "text-[0.9375rem] text-bad-fg"
+                          : wrongPieces === undefined || wrongPieces === 0
+                            ? "text-mute"
+                            : "font-medium text-bad-fg"
+                      )}
+                    >
+                      {wrongPieces === null
+                        ? wrongProblem
+                        : wrongPieces === undefined
+                          ? "—"
+                          : `${quantity(wrongPieces)}`}
+                    </span>
+                  </div>
+                ) : (
+                  <div className="border-t border-hairline px-2 py-1.5">
+                    <Button
+                      variant="quiet"
+                      size="sm"
+                      onClick={() => setWrongAsked(true)}
+                    >
+                      <Plus />
+                      Not as Ordered
+                    </Button>
+                  </div>
+                )}
               </Card>
 
               {/* The totals, in a box at the right as on Review Count (owner,

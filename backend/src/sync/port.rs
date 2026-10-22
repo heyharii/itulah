@@ -116,12 +116,46 @@ pub trait SyncStore: Send + Sync {
 /// rather than guessing, which is the same conclusion for the same reason.
 pub const HANDSHAKE_UNSUPPORTED: &str = "this transport cannot negotiate a generation";
 
+/// The most one upload carries, counted as the JSON of its facts.
+///
+/// A batch used to be bounded by count alone (`SYNC_BATCH_LIMIT`, 100). A
+/// hundred sales is a few hundred kilobytes; a hundred RFID batches of two
+/// thousand sightings each is tens of megabytes. The cloud refused that body
+/// for its size, nothing advanced, and the next cycle sent exactly the same
+/// hundred facts — so one large backlog stopped the whole stream for good,
+/// and with it every sale behind it and every command that rides the answer.
+///
+/// Two megabytes because that is what the cloud accepted from every upload
+/// before this bound existed. Do not lower it: a batch the receiver has
+/// already made durable, whose answer was lost on the way back, must be
+/// resent at least as far as it reached, or the receiver's answer lies past
+/// the last fact sent and settlement refuses it as a stream in doubt — on
+/// every cycle, for good.
+pub const SYNC_BATCH_MAX_BYTES: usize = 2 * 1024 * 1024;
+
+/// The body the cloud accepts on `/api/v1/sync/ingest`. Well above
+/// [`SYNC_BATCH_MAX_BYTES`], because a single fact larger than that is still
+/// sent — alone — and has to land.
+pub const SYNC_INGEST_MAX_BYTES: usize = 16 * 1024 * 1024;
+
+/// What a transport's error starts with when the receiver refused an upload
+/// for its size (HTTP 413). The cycle answers that refusal, and only that
+/// one, by sending less at once instead of the same batch next cycle.
+pub const PAYLOAD_TOO_LARGE: &str = "the receiver refused this upload as too large";
+
+/// Whether a transport's error is [`PAYLOAD_TOO_LARGE`].
+pub fn is_payload_too_large(error: &str) -> bool {
+    error.starts_with(PAYLOAD_TOO_LARGE)
+}
+
 /// One upload, as the sender sees it.
 #[async_trait]
 pub trait SyncTransport: Send + Sync {
     /// `Err` is a transport-level failure (network, non-2xx, unintelligible
-    /// body). Every `Err` is treated identically: nothing advances and the
-    /// failure counts toward the breaker.
+    /// body). Every `Err` is treated identically — nothing advances and the
+    /// failure counts toward the breaker — except a refusal for size
+    /// ([`PAYLOAD_TOO_LARGE`]), which the cycle retries at once with half the
+    /// batch before it counts as a failure.
     async fn send(&self, batch: &IngestBatch) -> Result<IngestResponse, String>;
 
     /// Ask the receiver which generation this stream may write into.
@@ -222,30 +256,53 @@ pub async fn run_cycle<S: SyncStore + ?Sized>(
         }));
     }
     let watermark = store.watermark(&origin_id, generation).await?;
-    let facts = store
+    let mut facts = store
         .pending_batch(&origin_id, generation, watermark, config.batch_limit)
         .await?;
-    let sent_seqs: Vec<i64> = facts.iter().map(|fact| fact.seq).collect();
+    // Bounded by size as well as by count — see `SYNC_BATCH_MAX_BYTES`. The
+    // cut is decided here, once, for both storage engines, and it is a pure
+    // function of the facts: a resend after a lost answer cuts the same batch.
+    facts.truncate(facts_within_budget(&facts, SYNC_BATCH_MAX_BYTES));
     // A cycle with nothing to send STILL sends. The request carries this
     // node's command watermark and the response carries its commands, so the
     // downstream lane needs no second connection and no cadence of its own —
     // an idle node still hears from the cloud within one interval.
     let (command_watermark, command_blocked) = store.command_watermark().await?;
-    let batch = IngestBatch {
+    let mut batch = IngestBatch {
         origin_id: origin_id.clone(),
         generation,
         facts,
         command_watermark,
         command_blocked,
     };
-    let response = match transport.send(&batch).await {
-        Ok(response) => response,
-        Err(error) => {
-            return Ok(CycleOutcome::upstream_only(
-                record_failure(store, config, error).await?,
-            ))
+    let response = loop {
+        match transport.send(&batch).await {
+            Ok(response) => break response,
+            // Refused for its size, so nothing of it was taken: the receiver
+            // never reached the facts. Sending the same batch next cycle is
+            // the jam this exists to end, so send half of it now, and half of
+            // that, down to one fact. One fact refused is a failure like any
+            // other — there is nothing smaller to send.
+            Err(error) if is_payload_too_large(&error) && batch.facts.len() > 1 => {
+                let half = batch.facts.len() / 2;
+                tracing::warn!(
+                    origin = %origin_id,
+                    generation,
+                    refused = batch.facts.len(),
+                    resending = half,
+                    "the receiver refused this upload as too large; sending half of it now"
+                );
+                batch.facts.truncate(half);
+            }
+            Err(error) => {
+                return Ok(CycleOutcome::upstream_only(
+                    record_failure(store, config, error).await?,
+                ))
+            }
         }
     };
+    // What was actually sent — after any halving above — is what is settled.
+    let sent_seqs: Vec<i64> = batch.facts.iter().map(|fact| fact.seq).collect();
     // Downstream first: commands are instructions this node has already been
     // told to carry out, and a settlement disagreement upstream is no reason
     // to sit on a price the cloud activated.
@@ -324,6 +381,24 @@ async fn apply_downstream<S: SyncStore + ?Sized>(
         return Ok(CommandApplyReport::default());
     };
     store.apply_commands(key.as_bytes(), commands).await
+}
+
+/// How many of `facts`, oldest first, fit in `budget` bytes of JSON — and
+/// never fewer than one: a fact larger than the budget by itself still has to
+/// go, and alone is the only way it can.
+fn facts_within_budget(facts: &[SyncFact], budget: usize) -> usize {
+    let mut used: usize = 0;
+    for (index, fact) in facts.iter().enumerate() {
+        // Measured as it will travel. A fact that cannot be measured cannot
+        // be sent either; counting it as unbounded sends it alone, where the
+        // transport says why.
+        let size = serde_json::to_vec(fact).map_or(usize::MAX, |bytes| bytes.len());
+        used = used.saturating_add(size);
+        if used > budget {
+            return index.max(1);
+        }
+    }
+    facts.len()
 }
 
 async fn record_failure<S: SyncStore + ?Sized>(

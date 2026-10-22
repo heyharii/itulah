@@ -15,14 +15,13 @@ import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { Checkbox, Field, Input, Select } from "@/components/ui/field"
 import { Fab } from "@/components/ui/fab"
 import { FilterSheet } from "@/components/ui/filter-sheet"
-import {
-  BarSpacer,
-  ColumnsMenu,
-  ExpandingSearch,
-} from "@/components/ui/list-chrome"
+import { SwitchPill } from "@/components/ui/form"
+import { ListFilters } from "@/components/ui/list-filters"
+import { BarSpacer, ColumnsMenu } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { EmptyState, Problem } from "@/components/ui/states"
+import { useFilterState, type FilterField } from "@/lib/filters"
 import { count, label } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import {
@@ -176,9 +175,35 @@ function AssetClassesScreen() {
   const classes = list.data.classes as readonly AssetClass[]
   const [editing, setEditing] = useState<AssetClass | "new" | null>(null)
   const [needle, setNeedle] = useState("")
-  const [kind, setKind] = useState("")
   const [inactive, setInactive] = useState(false)
   const [sorting, setSorting] = useState<SortingState>([])
+  const fields = useMemo<FilterField[]>(
+    () => [
+      {
+        column: "kind",
+        label: "Kind",
+        spec: {
+          kind: "option",
+          single: true,
+          operators: ["isAnyOf"],
+          counted: KINDS.map((one) => ({
+            value: one,
+            count: classes.filter((row) => row.kind === one).length,
+          })),
+        },
+      },
+    ],
+    [classes]
+  )
+  const kindFilters = useFilterState(fields)
+  const kind =
+    kindFilters.filters.find((one) => one.column === "kind")?.values[0] ?? ""
+  const setKind = (next: string) =>
+    kindFilters.set(
+      next === ""
+        ? []
+        : [{ column: "kind", operator: "isAnyOf", values: [next] }]
+    )
 
   const rows = useMemo(() => {
     const text = needle.trim().toLowerCase()
@@ -240,28 +265,18 @@ function AssetClassesScreen() {
       />
 
       <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2 max-md:hidden">
-        <ExpandingSearch
-          value={needle}
-          onChange={setNeedle}
-          label="Search classes"
+        <ListFilters
+          model={{ ...kindFilters, fields }}
+          search={{
+            value: needle,
+            onChange: setNeedle,
+            label: "Search classes",
+          }}
         />
-        <Select
-          value={kind}
-          onChange={setKind}
-          className="h-control w-40"
-          aria-label="Kind"
-        >
-          <option value="">All kinds</option>
-          {KINDS.map((one) => (
-            <option key={one} value={one}>
-              {one}
-            </option>
-          ))}
-        </Select>
-        <Checkbox
+        <SwitchPill
+          on={inactive}
           label="Show inactive"
-          checked={inactive}
-          onChange={setInactive}
+          onToggle={() => setInactive(!inactive)}
         />
         <BarSpacer />
         <ColumnsMenu table={table} />

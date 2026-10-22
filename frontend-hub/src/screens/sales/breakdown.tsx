@@ -28,6 +28,7 @@ import {
   moneyCompact,
   monthName,
   quantity,
+  sku,
 } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import { listTerms, vocabularyKeys } from "@/lib/queries/vocabulary"
@@ -590,7 +591,7 @@ function Body({
 }) {
   const { voided } = report
   const phone = useLayout() === "phone"
-  const query = needle.trim().toLowerCase()
+  const query = needle.trim().toLowerCase().replaceAll("·", "")
   const shown = useMemo(
     () =>
       query === ""
@@ -730,6 +731,11 @@ function flatColumns(
             )}
           >
             {none ? kind.none : row.original.name}
+            {coded && !none && row.original.code !== row.original.name && (
+              <span className="block font-mono text-[0.9375rem] font-normal text-mute">
+                {sku(row.original.code)}
+              </span>
+            )}
           </span>
         )
       },
@@ -791,7 +797,7 @@ function flatColumns(
             name={none ? kind.none : row.original.name}
             code={
               coded && !none && row.original.code !== row.original.name
-                ? row.original.code
+                ? sku(row.original.code)
                 : undefined
             }
             line={

@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router"
-import { Bell, LogOut, Search, UserRound } from "lucide-react"
+import { Bell, LogOut, Moon, UserRound } from "lucide-react"
 import {
   useCallback,
   useEffect,
@@ -15,6 +15,7 @@ import {
 } from "@/components/shell/notification-bell"
 import { initialOf } from "@/lib/format"
 import { useIdentity, useSignOut } from "@/lib/session"
+import { sleepNow } from "@/lib/sleep"
 import { useSheetsOpen } from "@/lib/sheet-space"
 import { chatNav, discussionsNav } from "@/screens/workplace/nav"
 
@@ -26,7 +27,7 @@ import { chatNav, discussionsNav } from "@/screens/workplace/nav"
 /// phone's four tabs. They are one round orb now, on every device (owner's
 /// rule: the same on every device), with ONE red badge for everything waiting
 /// — chat, discussions and notifications together — and a tap opens a 3×2
-/// panel of what used to be those controls, plus Search.
+/// panel of what used to be those controls, plus Sleep (2026-10-18).
 ///
 /// It is dragged anywhere and STAYS WHERE IT IS DROPPED: no pull to a wall
 /// (owner, 2026-10-16). Past an edge it follows less and less, and let go out
@@ -55,12 +56,9 @@ type Drag = {
 }
 
 export function AccountOrb({
-  onSearch,
   bars = "",
   pinned = false,
 }: {
-  /// Opens the ⌘K palette — the shell owns it.
-  onSearch: () => void
   /// Changes whenever the shell swaps its bars (phone, tablet, desk, a task
   /// page), so the orb looks again for the top and bottom bars it must clear.
   bars?: string
@@ -88,10 +86,21 @@ export function AccountOrb({
   // The counts the rail's icons carried, read from the same hooks and the
   // same cache entries, so the orb and the screens they open never disagree.
   const feed = useNotificationFeed()
+  const chatRead = (chatNav.useCount ?? noCount)()
+  const discussionsRead = (discussionsNav.useCount ?? noCount)()
   const notifications = feed.data?.unread ?? 0
-  const chat = (chatNav.useCount ?? noCount)() ?? 0
-  const discussions = (discussionsNav.useCount ?? noCount)() ?? 0
+  const chat = chatRead ?? 0
+  const discussions = discussionsRead ?? 0
   const waiting = notifications + chat + discussions
+  // Whether each count has been read from the server yet (a module with no
+  // count has nothing to wait for): a badge pops only for a rise after that.
+  const heard = {
+    notifications: feed.data !== undefined,
+    chat: chatNav.useCount === undefined || (chatRead ?? null) !== null,
+    discussions:
+      discussionsNav.useCount === undefined ||
+      (discussionsRead ?? null) !== null,
+  }
 
   // Under a record sheet it gets out of the way, as the prototype's does: the
   // sheet's own footer holds that screen's actions, and a circle floating
@@ -336,7 +345,12 @@ export function AccountOrb({
         <span className="account-orb-face pointer-events-none grid place-items-center rounded-full bg-accent-bg text-[1.0625rem] font-semibold text-accent">
           {initialOf(name)}
         </span>
-        <OrbBadge value={waiting} className="top-px right-px" />
+        <OrbBadge
+          value={waiting}
+          heard={heard.notifications && heard.chat && heard.discussions}
+          small={pinned}
+          className={pinned ? "-top-1.5 -right-2" : "top-px right-px"}
+        />
       </button>
 
       <div
@@ -355,7 +369,11 @@ export function AccountOrb({
         >
           <chatNav.icon className="stroke-[1.6]" />
           Chat
-          <OrbBadge value={chat} className="top-1.5 left-[calc(50%+4px)]" />
+          <OrbBadge
+            value={chat}
+            heard={heard.chat}
+            className="top-1.5 left-[calc(50%+4px)]"
+          />
         </Link>
         <Link
           to={discussionsNav.home as string}
@@ -365,7 +383,11 @@ export function AccountOrb({
         >
           <discussionsNav.icon className="stroke-[1.6]" />
           Discussions
-          <OrbBadge value={discussions} className="top-1.5 left-[calc(50%+4px)]" />
+          <OrbBadge
+            value={discussions}
+            heard={heard.discussions}
+            className="top-1.5 left-[calc(50%+4px)]"
+          />
         </Link>
         <button
           type="button"
@@ -378,7 +400,11 @@ export function AccountOrb({
         >
           <Bell className="stroke-[1.6]" />
           Notifications
-          <OrbBadge value={notifications} className="top-1.5 left-[calc(50%+4px)]" />
+          <OrbBadge
+            value={notifications}
+            heard={heard.notifications}
+            className="top-1.5 left-[calc(50%+4px)]"
+          />
         </button>
         <Link
           to={"/me" as string}
@@ -393,13 +419,15 @@ export function AccountOrb({
           type="button"
           role="menuitem"
           className="account-orb-tile"
+          // Locks the hub without signing out; the password wakes it
+          // (owner, 2026-10-18 — Search went from here).
           onClick={() => {
             close()
-            onSearch()
+            sleepNow()
           }}
         >
-          <Search className="stroke-[1.6]" />
-          Search
+          <Moon className="stroke-[1.6]" />
+          Sleep
         </button>
         <button
           type="button"
@@ -431,17 +459,48 @@ export function AccountOrb({
 
 /// The red count: one figure, 99+ at most, nothing at zero. Its digits are the
 /// one text under 15px the hub allows (owner: tiny badge digits).
-function OrbBadge({ value, className }: { value: number; className: string }) {
+///
+/// It pops when the count RISES while you are here — something new came in —
+/// and never for the count a page opens with: until `heard` the count is still
+/// loading, and the first one it hears is taken as it stands. 0.6 to 1 on the
+/// spring, the red there first (`t-pop`); 0.96 would not be seen at 18px.
+/// Reduced motion keeps the fade.
+function OrbBadge({
+  value,
+  heard,
+  className,
+  small = false,
+}: {
+  value: number
+  heard: boolean
+  className: string
+  /// The rail's corner: a smaller badge that stops at 9+.
+  small?: boolean
+}) {
+  // "Adjusting state during render", as `Dialog` clears its reason: the count
+  // last shown, and the rises seen since — each a new `key`, so the badge
+  // mounts again and its starting style plays once more.
+  const [shown, setShown] = useState<number | null>(heard ? value : null)
+  const [rises, setRises] = useState(0)
+  if (heard && value !== shown) {
+    setShown(value)
+    if (shown !== null && value > shown) setRises(rises + 1)
+  }
   if (value <= 0) return null
   return (
     <span
+      key={rises}
       aria-hidden
-      className={`pointer-events-none absolute grid h-[18px] min-w-[18px] place-items-center rounded-full bg-bad-fg px-[5px] text-[12px] leading-none font-bold text-white tabular-nums ring-2 ring-canvas ${className}`}
+      className={`pointer-events-none absolute grid place-items-center rounded-full bg-bad-fg leading-none font-bold text-white tabular-nums ring-2 ring-canvas ${small ? "h-4 min-w-4 px-1 text-[11px]" : "h-[18px] min-w-[18px] px-[5px] text-[12px]"} ${rises > 0 ? POP : ""} ${className}`}
     >
-      {value > 99 ? "99+" : value}
+      {small ? (value > 9 ? "9+" : value) : value > 99 ? "99+" : value}
     </span>
   )
 }
+
+/// A badge's pop: mounted at 0.6 and clear, it springs to 1 as the red fades in.
+const POP =
+  "transition-[scale,opacity] duration-[var(--t-spring),var(--t-pop)] ease-[var(--spring),var(--ease-out)] starting:scale-[0.6] starting:opacity-0 motion-reduce:starting:scale-100"
 
 /// The box the orb may rest in: 16px from every edge, below any top bar and
 /// above the phone's bottom bar (and the dock's row over it).

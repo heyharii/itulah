@@ -7,11 +7,11 @@ import {
   useRouterState,
 } from "@tanstack/react-router"
 import { LayoutGroup, motion, useReducedMotion } from "motion/react"
-import { ArrowLeft, Gift, Home, ReceiptText, UserRound } from "lucide-react"
-import type { LucideIcon } from "lucide-react"
+import { ArrowLeft } from "lucide-react"
 
 import { Toaster } from "sonner"
 
+import { Glyph, type GlyphName } from "@/components/matte"
 import { PointsNotifier } from "@/components/points-notifier"
 import { Chip } from "@/components/ui/chip"
 import { SPRING_LAYOUT } from "@/lib/motion"
@@ -19,12 +19,12 @@ import { cn } from "@/lib/utils"
 
 /// Four destinations. Named for what is behind them rather than for a
 /// category, so a shopper can predict the screen before pressing.
-const TABS: ReadonlyArray<{ to: string; label: string; icon: LucideIcon }> = [
-  { to: "/", label: "Beranda", icon: Home },
+const TABS: ReadonlyArray<{ to: string; label: string; glyph: GlyphName }> = [
+  { to: "/", label: "Beranda", glyph: "home" },
   // Second, next to the thumb: redeeming is what members come back to do.
-  { to: "/tukar-poin", label: "Tukar", icon: Gift },
-  { to: "/riwayat", label: "Riwayat", icon: ReceiptText },
-  { to: "/profil", label: "Profil", icon: UserRound },
+  { to: "/tukar-poin", label: "Tukar", glyph: "gift" },
+  { to: "/riwayat", label: "Riwayat", glyph: "receipt" },
+  { to: "/profil", label: "Profil", glyph: "user" },
 ]
 
 function isCurrent(pathname: string, to: string): boolean {
@@ -151,7 +151,9 @@ function TabBar({ pathname }: { pathname: string }) {
         aria-label="Navigasi utama"
         className="fixed inset-x-0 bottom-0 z-40 flex justify-center px-4 pb-[calc(0.875rem+env(safe-area-inset-bottom))]"
       >
-        <ul className="glass flex items-center gap-1 rounded-full p-1.5">
+        {/* Solid white, not glass: matte has no material to look through.
+            It stands on the page on its own soft shadow. */}
+        <ul className="flex items-center gap-1 rounded-[1.625rem] bg-canvas p-1.5 shadow-[0_1px_2px_rgb(0_0_0/0.05),0_14px_30px_-10px_rgb(24_40_90/0.22)]">
           {TABS.map((tab) => {
             const current = isCurrent(pathname, tab.to)
             return (
@@ -159,29 +161,26 @@ function TabBar({ pathname }: { pathname: string }) {
                 <Link
                   to={tab.to}
                   aria-current={current ? "page" : undefined}
-                  className="press relative flex h-[3.5rem] w-[4.75rem] flex-col items-center justify-center gap-0.5 rounded-full"
+                  className="press relative flex h-[3.75rem] w-[4.875rem] flex-col items-center justify-center gap-0.5 rounded-[1.25rem]"
                 >
-                  {/* The white capsule is one object that moves, not four that
+                  {/* The pastel capsule is one object that moves, not four that
                       switch on and off: the eye follows the selection. */}
                   {current && (
                     <motion.span
                       layoutId="tab-active"
                       transition={reduce ? { duration: 0 } : SPRING_LAYOUT}
-                      className="absolute inset-0 rounded-full bg-canvas shadow-[0_1px_3px_rgb(0_0_0/0.08),0_6px_16px_rgb(0_0_0/0.06)]"
+                      className="absolute inset-0 rounded-[1.25rem] bg-matte-ground"
                     />
                   )}
-                  <tab.icon
-                    aria-hidden
-                    strokeWidth={current ? 2.25 : 1.75}
-                    className={cn(
-                      "relative size-[1.3125rem] transition-colors duration-[var(--t-hover)]",
-                      current ? "text-ink" : "text-mute",
-                    )}
+                  <Glyph
+                    name={tab.glyph}
+                    active={current}
+                    className="relative size-6"
                   />
                   <span
                     className={cn(
                       "relative text-tab transition-colors duration-[var(--t-hover)]",
-                      current ? "font-semibold text-ink" : "font-medium text-mute",
+                      current ? "font-semibold text-matte-foot" : "font-medium text-mute",
                     )}
                   >
                     {tab.label}

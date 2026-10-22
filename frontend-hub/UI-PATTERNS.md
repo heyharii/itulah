@@ -6,6 +6,18 @@ Keputusan desain, 14 Oktober 2026. Acuan untuk semua menu di frontend-hub.
 
 Dokumen ini menetapkan standar visual dan pola halaman. `PATTERN.md` tetap menjelaskan query, mutation, registrasi route, state, dan cara memakai primitive. Jika aturan visual lama berbeda dengan dokumen ini, gunakan keputusan di sini. Instruksi langsung pengguna tetap menjadi acuan utama.
 
+> **Design system Central (17 Oktober 2026)** ada di [`design-system/README.md`](design-system/README.md). Isinya diekstrak dari hub yang berjalan:
+>
+> - token;
+> - anatomi halaman dan sheet;
+> - kata dan format;
+> - motion;
+> - aturan HP;
+> - 36 kartu komponen;
+> - daftar **Retired**, yaitu drift yang masih ada di kode beserta penggantinya.
+>
+> Jika aturan visual di dokumen ini berbeda dengan design system, ikuti design system.
+
 ## 1. Tiga lapis konsistensi
 
 | Lapis | Yang dibakukan | Yang mengikuti kebutuhan menu |
@@ -43,7 +55,7 @@ Perbedaan layout harus menjawab kebutuhan pengguna. Nama menu yang berbeda saja 
 
 ## 3. Foundation yang tetap sama
 
-- **Teks minimum 14 px** (`0.875rem` pada root 16 px). Isi utama 15 px (`0.9375rem`), judul standar 17 px (`1.0625rem`). Input sentuh 16 px bila diperlukan. Gunakan token/named scale; jangan mengecilkan teks untuk memuat lebih banyak konten.
+- **Teks minimum 15 px** (`0.9375rem` pada root 16 px; keputusan owner 14 Oktober 2026). Isi utama juga 15 px, dan judul standar 17 px (`1.0625rem`). Di layar sentuh, input selalu 16 px. Gunakan token/named scale; jangan mengecilkan teks untuk memuat lebih banyak konten.
 - **Weight 400, 500, 600.** Hierarki dibentuk lewat weight, warna, dan ruang.
 - **Warna berasal dari token.** Menu tidak membuat warna sendiri untuk aksi, status, atau focus.
 - **Spacing memakai skala bersama.** Header, body, table, form, dan footer harus punya garis alignment yang sama. Gunakan primitive sebagai pemilik padding dan gap.
@@ -128,7 +140,7 @@ Checklist review:
 - Judul, toolbar, data, dan footer mengikuti urutan pattern.
 - Label/action semantics sama dengan menu sekeluarga.
 - Aksi utama filled biru, aksi pendukung ghost netral, dan Cancel merah.
-- Teks minimum 14 px; tidak ada overflow pada ruang sempit.
+- Teks minimum 15 px; tidak ada overflow pada ruang sempit.
 - Header/body/footer sejajar dan radius bersih.
 - State dan perilaku keyboard/close mengikuti primitive bersama.
 
@@ -153,7 +165,7 @@ Migrasi dilakukan per primitive dan keluarga pattern. Jangan menandai suatu kelu
 - Ask AI is highlighted with a soft violet navigation state in the outer rail. The desktop prototype uses a contextual companion panel; mobile uses a full-screen panel. Suggestions contain related clickable records and an explicit Apply to draft action; they never submit an allotment themselves. Current assistance is a deterministic demo, not a connected AI model.
 - Use Number Flow for changing Allocated and Remaining totals, with tabular numbers, short timing, and reduced-motion support. Keep IDs, timestamps, table prices, and editable numbers stable. The prototype vendors number-flow 0.6.2 and esm-env 1.2.2.
 - Messages, profile, and Logout live at the bottom of the outer rail. Their prototype interactions use fictional data and do not affect production authentication.
-- Pending notifications use a strong red circular/pill badge with a white number, minimum 14 px text, hidden for zero and capped visually at 99+. Apply to page navigation and Messages using their pending counts; a department in the rail shows a red dot instead (the number is in its panel, 15 Oct). On the selected screen row (solid blue #2563eb, white text) the count stays red with a white ring — a notification never takes the selection colour. Active record totals are not automatically notifications.
+- Pending notifications use a strong red circular/pill badge with a white number, minimum 15 px text, hidden for zero and capped visually at 99+. Apply to page navigation and Messages using their pending counts; a department in the rail shows a red dot instead (the number is in its panel, 15 Oct). On the selected screen row the count stays red with a white ring: a notification never takes the selection colour. Since 16 Oct the selected row is a light tint, `accent-bg` with an `accent` word at 600, not solid blue. Active record totals are not automatically notifications.
 
 ### AI chat anatomy and tool transitions
 

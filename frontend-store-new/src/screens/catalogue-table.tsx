@@ -1,6 +1,6 @@
 import { Card } from "@/components/ui/card"
 import { ListTable, type ListColumn } from "@/components/ui/list-table"
-import { count } from "@/lib/format"
+import { articleId, count, sku } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import { cn } from "@/lib/utils"
 import { swatchBackground } from "@/lib/variants"
@@ -57,8 +57,8 @@ export function CatalogueTable({
             </span>
             <span className="block truncate font-mono text-[0.875rem] font-normal text-mute">
               {bySku
-                ? card.lead.row.sku_code
-                : (card.lead.row.article_code ?? card.lead.row.sku_code)}
+                ? `${articleId(card.lead.row.article_code, card.lead.row.sku_code)} · ${sku(card.lead.row.sku_code)}`
+                : articleId(card.lead.row.article_code, card.lead.row.sku_code)}
             </span>
           </span>
         </span>
@@ -177,7 +177,9 @@ export function CatalogueTable({
           <span className="tabular-nums">
             <Figure value={card.stock?.total} />
             {phone && card.stock !== null && (
-              <span className="text-mute"> pcs</span>
+              <span className="text-mute">
+                {card.stock.total === 1 ? " pc" : " pcs"}
+              </span>
             )}
           </span>
         ),

@@ -1,36 +1,62 @@
-import { useSuspenseInfiniteQuery } from "@tanstack/react-query"
-import { ListFilter, Plus } from "lucide-react"
+import {
+  queryOptions,
+  useQuery,
+  useSuspenseInfiniteQuery,
+} from "@tanstack/react-query"
+import type { ColumnDef, SortingState } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
+import {
+  CircleCheck,
+  Plus,
+  TriangleAlert,
+  Wrench,
+  type LucideIcon,
+} from "lucide-react"
 import { Suspense, useDeferredValue, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { DockTools } from "@/components/shell/dock-tools"
-import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { DataTable } from "@/components/ui/data-table"
 import { Fab } from "@/components/ui/fab"
-import { Input } from "@/components/ui/field"
-import { ChoiceMenu } from "@/components/ui/list-chrome"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
+import { ListFilters } from "@/components/ui/list-filters"
+import { BarSpacer, ColumnsMenu } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
-import { Pill } from "@/components/ui/pill"
-import { Segmented, Toolbar } from "@/components/ui/segmented"
-import { EmptyState, LoadingState, LoadMore } from "@/components/ui/states"
-import { buildOf, BUILDS, BUILD_VIEWS } from "@/lib/builds"
+import {
+  CardName,
+  type CardSpec,
+  PhoneCards,
+} from "@/components/ui/phone-cards"
+import { Pill, Status } from "@/components/ui/pill"
+import { Toolbar } from "@/components/ui/segmented"
+import { EmptyState, LoadingState } from "@/components/ui/states"
+import { SubTabs } from "@/components/ui/sub-tabs"
+import { BUILDS, BUILD_VIEWS } from "@/lib/builds"
+import {
+  useFilterState,
+  type Filter,
+  type FilterField,
+  type FilterState,
+} from "@/lib/filters"
 import { count } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
-import { gaAssetBookQuery } from "@/lib/queries/ga"
+import { gaAssetBookQuery, gaAssets, gaKeys } from "@/lib/queries/ga"
 import { useSheet } from "@/lib/sheets"
+import { tableSetup, type TableSetup } from "@/lib/table"
 import { useDebounced } from "@/lib/use-debounced"
-import { cn } from "@/lib/utils"
 import { AssetHubSheet, gaStatusWords } from "@/screens/assets/hub"
 import { RegisterAssetSheet } from "@/screens/assets/register"
 import { DisposalSheet, ReplacementSheet } from "@/screens/maintenance/hub"
 import {
-  CardName,
-  type CardSpec,
-  DESK_BAR,
-  PhoneCards,
-} from "@/components/ui/phone-cards"
-import { FilterSheet } from "@/components/ui/filter-sheet"
+  GONE_STATUSES,
+  IN_USE_STATUSES,
+  OPENING_SCOPE,
+  SHELF_STATUSES,
+  type Shelf,
+} from "@/screens/assets/shelves"
+import { useFittedVisibility } from "@/screens/procurement/shared"
 import type { GaAssetRow } from "@itulah/contract"
 
 /// Assets — the things the company owns, as the people who look after them
@@ -64,125 +90,95 @@ import type { GaAssetRow } from "@itulah/contract"
 /// screen exists to start recording — from the next purchase forward, because
 /// it cannot be back-filled from a schedule of costs.
 ///
-/// # One row in the sidebar, the readings as chips
+/// # The list format, as Purchase Orders draws it
 ///
-/// Register, Software and Projects were three sidebar rows, and seven build
-/// views sat behind them as hidden routes. The owner asked for a shorter menu
-/// on 2026-09-27, and the rows were never more than this screen narrowed by
-/// build — Software and Projects even showed the whole register, because the
-/// group they named was never sent. So there is one Assets row, and every
-/// reading is a chip whose value rides in `?asset-view=`: a facilities person
-/// who only ever wants the vehicles can still bookmark it and send it.
+/// Head, figures, tabs, one bar, a framed table (owner, 17 Oct 2026, option A
+/// of `assets-options.html`). It replaced ten build chips over two rows, a
+/// second row of filters and a nine-column grid that scrolled sideways inside
+/// its card. The builds are the Kind menu now; its value still rides in
+/// `?asset-view=`, so a facilities person who only ever wants the vehicles can
+/// bookmark it and send it.
+///
+/// The tabs are In use and Disposed, and nothing else: "Needs details" (a
+/// DRAFT a posted bill minted) is not a place of its own any more (owner,
+/// 17 Oct). A draft is the company's like any other thing it holds.
 export function Assets() {
-  const reading = useSheet("asset-view")
-  const view = BUILD_VIEWS.find((one) => one.value === reading.value)
+  // The kind, the condition and the place are filters in the address bar,
+  // the way Purchase Orders keeps them.
+  const state = useFilterState(FIELDS)
+  const held = (column: string) =>
+    state.filters.find((one) => one.column === column)?.values[0] ?? null
+  const choose = (column: string, value: string | null) =>
+    state.set([
+      ...state.filters.filter((one) => one.column !== column),
+      ...(value === null
+        ? []
+        : [{ column, operator: "isAnyOf", values: [value] } as Filter]),
+    ])
+  const view = BUILD_VIEWS.find((one) => one.value === held("kind"))
+  const condition = held("condition")
+  const site = held("site")
   const open = useSheet("asset")
   // The two maintenance records an asset can start, opened over the register
   // the moment they are filed from the hub: the proposal should land the
   // proposer on the record it made, not leave them on a form that closed.
   const replacement = useSheet("replacement")
   const disposal = useSheet("disposal")
-  const [book, setBook] = useState<"ALL" | "DRAFT" | "REGISTERED">("ALL")
-  const [condition, setCondition] = useState<string | null>(null)
-  const [site, setSite] = useState<string | null>(null)
+  const [shelf, setShelf] = useState<Shelf>("IN_USE")
   const [search, setSearch] = useState("")
   const [adding, setAdding] = useState(false)
-  const [filtering, setFiltering] = useState(false)
   const phone = useLayout() === "phone"
   // The search goes to the server, so it waits for the typing to stop: one
   // request per word rather than one per keystroke.
   const needle = useDebounced(search.trim(), 300)
 
-  const scope = useMemo(
+  const scope = useMemo<AssetScope>(
     () => ({
       q: needle === "" ? undefined : needle,
       site: site ?? undefined,
-      // Every build the reading means. Property is two of them, because land
+      // Every build the kind means. Property is two of them, because land
       // and the building on it are one question to a facilities person even
       // though the chart charges them differently; Projects is two as well.
       build: view?.builds.join(","),
       condition: condition ?? undefined,
-      // Asked as the register's OWN lifecycle and not as Finance's decision,
-      // because that is the half this screen maintains: a thing that arrived on
-      // a bill and that nobody has walked the floor for is the open control gap
-      // GA can actually close.
-      draft: book === "ALL" ? undefined : book === "DRAFT",
+      status: SHELF_STATUSES[shelf],
     }),
-    [needle, book, site, condition, view]
+    [needle, site, view, condition, shelf]
   )
 
   return (
     <PageContent>
       <PageHeader
-        crumb="GA"
-        title={view === undefined ? "Assets" : `Assets · ${view.label}`}
-        sub={
-          view?.note ??
-          "What the company owns: where each thing is, what state it is in, and who holds it."
-        }
+        title="Assets"
+        small
         actions={
-          // On a phone the search, the readings and the filters are the dock's,
-          // and the one thing this page makes is its round button.
+          // On a phone the one thing this page makes is its round button.
           phone ? undefined : (
-            <>
-              <Input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search"
-                className="h-8 w-56"
-              />
-              <Button variant="primary" onClick={() => setAdding(true)}>
-                <Plus />
-                Register asset
-              </Button>
-            </>
+            <Button variant="primary" onClick={() => setAdding(true)}>
+              <Plus />
+              Register asset
+            </Button>
           )
         }
       />
 
       <Fab label="Register asset" onClick={() => setAdding(true)} />
-      <DockTools
-        search={{ value: search, onChange: setSearch, label: "Search assets" }}
-        filter={{
-          count:
-            (view === undefined ? 0 : 1) +
-            (condition === null ? 0 : 1) +
-            (site === null ? 0 : 1),
-          onOpen: () => setFiltering(true),
-        }}
-        status={{
-          value: book,
-          options: [
-            { value: "ALL", label: "All" },
-            { value: "DRAFT", label: "Needs details" },
-            { value: "REGISTERED", label: "Registered" },
-          ],
-          onChange: (next) => setBook(next as typeof book),
-        }}
+
+      <Figures
+        condition={condition}
+        onCondition={(next) => choose("condition", next)}
       />
-      <Suspense
-        fallback={
-          <>
-            <div className={DESK_BAR}>
-              <StatusTabs book={book} onChange={setBook} />
-            </div>
-            <LoadingState>Loading assets…</LoadingState>
-          </>
-        }
-      >
+
+      <Suspense fallback={<LoadingState>Loading assets…</LoadingState>}>
         <AssetRegister
           scope={scope}
-          view={view}
-          reading={reading}
-          book={book}
-          setBook={setBook}
-          condition={condition}
-          setCondition={setCondition}
-          site={site}
-          setSite={setSite}
-          filtering={filtering}
-          setFiltering={setFiltering}
+          state={state}
+          shelf={shelf}
+          setShelf={setShelf}
+          search={search}
+          setSearch={setSearch}
           phone={phone}
+          selected={open.value}
           onOpen={open.open}
           onAdd={() => setAdding(true)}
         />
@@ -190,7 +186,7 @@ export function Assets() {
 
       <RegisterAssetSheet
         open={adding}
-        // The builds the reading means, so a licence is not offered from the
+        // The builds the kind means, so a licence is not offered from the
         // vehicles; every build when nothing is narrowed.
         builds={view?.builds ?? BUILDS.map((one) => one.value)}
         onClose={() => setAdding(false)}
@@ -229,242 +225,476 @@ export function Assets() {
   )
 }
 
-/// The status tabs of the register: all of it, what still needs details, what
-/// is registered.
-function StatusTabs({
-  book,
-  onChange,
+type AssetScope = Parameters<typeof gaAssetBookQuery>[0]
+
+/// One count, asked as a page of one row: the server's `total` is the answer.
+/// Its own key under the register's prefix, so a registration or a move that
+/// invalidates the register refreshes the figures with it.
+const assetCount = (scope: AssetScope) =>
+  queryOptions({
+    queryKey: [...gaKeys.assets(scope), "count"] as const,
+    queryFn: ({ signal }) => gaAssets({ ...scope, limit: 1 }, signal),
+  })
+
+/// The figures over the register: how many things the company holds, and the
+/// three states that are somebody's work — a thing to service, a thing that
+/// is broken, a thing waiting on a disposal decision.
+///
+/// Counted over everything in use, not over what the bar narrows to: the
+/// figures describe the register, the tab counts and the foot describe the
+/// list. They do not hold the page up while they are read.
+function Figures({
+  condition,
+  onCondition,
 }: {
-  book: "ALL" | "DRAFT" | "REGISTERED"
-  onChange: (book: "ALL" | "DRAFT" | "REGISTERED") => void
+  /// The condition the list is narrowed to. Needs service and Broken are the
+  /// condition filter: pressing one narrows the list, pressing it again clears
+  /// it, so the bar carries no second control for the same answer.
+  condition: string | null
+  onCondition: (condition: string | null) => void
 }) {
+  const toggle = (value: string) =>
+    onCondition(condition === value ? null : value)
+  const lead = (on: boolean, text: string) => (
+    <span className={on ? "text-accent" : undefined}>{text}</span>
+  )
+  const held = useQuery(assetCount(OPENING_SCOPE))
+  const service = useQuery(
+    assetCount({ ...OPENING_SCOPE, condition: "PERLU_SERVIS" })
+  )
+  const broken = useQuery(assetCount({ ...OPENING_SCOPE, condition: "RUSAK" }))
+  const leaving = held.data?.facets.statuses.find(
+    (facet) => facet.value === "DISPOSAL_REQUESTED"
+  )
+  const figure = (n: number | undefined) => (n === undefined ? "—" : count(n))
+  const brokenTotal = broken.data?.total
   return (
-    <Segmented
-      options={[
-        { value: "ALL" as const, label: "All" },
-        { value: "DRAFT" as const, label: "Needs details" },
-        { value: "REGISTERED" as const, label: "Registered" },
-      ]}
-      value={book}
-      onChange={onChange}
-    />
+    <KpiStrip className="grid-cols-2 md:grid-cols-4 xl:grid-cols-4">
+      <Kpi label="Assets" value={figure(held.data?.total)} />
+      <Kpi
+        label={lead(condition === "PERLU_SERVIS", "Needs service")}
+        value={figure(service.data?.total)}
+        onClick={() => toggle("PERLU_SERVIS")}
+      />
+      <Kpi
+        label={lead(condition === "RUSAK", "Broken")}
+        onClick={() => toggle("RUSAK")}
+        value={
+          brokenTotal !== undefined && brokenTotal > 0 ? (
+            <span className="text-bad-fg">{count(brokenTotal)}</span>
+          ) : (
+            figure(brokenTotal)
+          )
+        }
+      />
+      <Kpi
+        label="Disposal requested"
+        value={figure(
+          held.data === undefined ? undefined : (leaving?.count ?? 0)
+        )}
+      />
+    </KpiStrip>
   )
 }
 
-/// The register and everything drawn from its answer: the filter sheet, the
-/// chips with their counts, the menus of conditions and places, and the rows.
-/// The page's head, its search and its status tabs stand outside, so they paint
-/// before the answer arrives.
+/// A row of the table: the asset, with its place and its kind in words.
+///
+/// Looked up once on the row rather than in the cell, for the reason Articles
+/// gives: a column sorts by what is on the screen.
+interface AssetLine {
+  readonly asset: GaAssetRow
+  /// "Cikupa · Ruang stok": the site by its name, and where in it.
+  readonly place: string
+  /// The kind the Kind menu calls it — "Technical", "Property" — so the
+  /// column and the menu speak one word.
+  readonly kind: string
+}
+
+/// The kind a build is read as. A build no view names falls back to the
+/// build's own label rather than to nothing.
+function kindOf(build: string): string {
+  return (
+    BUILD_VIEWS.find((one) =>
+      one.builds.includes(build as (typeof one.builds)[number])
+    )?.label ??
+    BUILDS.find((one) => one.value === build)?.label ??
+    build
+  )
+}
+
+/// Columns a reader switches on in Columns; off at first.
+const OFF_AT_FIRST = { class: false, finance: false }
+
+/// The table's columns, per tab: the last one is the asset's condition while
+/// it is held and how it left once it has gone.
+///
+/// Held at the widths their longest words need at 16px a side ("Operating
+/// equipment", "Needs service" with its dot and the › a row shows under the
+/// pointer), measured on the hub at 1440 (17 Oct). The asset's name takes the
+/// rest, never under 220px, so the five fit a 1280 window without the table
+/// scrolling sideways.
+function columnsFor(shelf: Shelf): ColumnDef<TableSetup, AssetLine>[] {
+  return [
+    {
+      id: "asset",
+      accessorFn: (row) => row.asset.name,
+      header: "Asset",
+      size: 320,
+      meta: { grow: 220 },
+      // The name, and under it the code and the serial on the plate: one
+      // quiet line, the only second line in the row.
+      cell: ({ row }) => {
+        const { asset } = row.original
+        return (
+          <span className="flex min-w-0 flex-col">
+            <span className="truncate font-medium text-ink">{asset.name}</span>
+            <span className="truncate text-mute">
+              {asset.serial_number === null
+                ? asset.asset_number
+                : `${asset.asset_number} · ${asset.serial_number}`}
+            </span>
+          </span>
+        )
+      },
+    },
+    {
+      id: "kind",
+      accessorFn: (row) => row.kind,
+      header: "Kind",
+      size: 184,
+      cell: ({ row }) => (
+        <span className="block truncate">{row.original.kind}</span>
+      ),
+    },
+    {
+      // The client's own class ("Air Conditioner", "FFE Komputer"): what
+      // Finance books it under. Off at first.
+      id: "class",
+      accessorFn: (row) => row.asset.class_name,
+      header: "Class",
+      size: 200,
+      cell: ({ row }) => (
+        <span className="block truncate" title={row.original.asset.class_name}>
+          {row.original.asset.class_name}
+        </span>
+      ),
+    },
+    {
+      id: "location",
+      accessorFn: (row) => row.place,
+      header: "Location",
+      size: 180,
+      cell: ({ row }) => (
+        <span className="block truncate" title={row.original.place}>
+          {row.original.place}
+        </span>
+      ),
+    },
+    {
+      id: "holder",
+      accessorFn: (row) => row.asset.holder ?? "",
+      header: "Holder",
+      size: 156,
+      cell: ({ row }) =>
+        row.original.asset.holder === null ? (
+          <span className="text-mute">—</span>
+        ) : (
+          <span className="block truncate">{row.original.asset.holder}</span>
+        ),
+    },
+    {
+      // Whether Finance has decided what the thing is in its books. Off at
+      // first: it is Finance's question, asked on Finance's register.
+      id: "finance",
+      accessorFn: (row) => row.asset.finance_decision ?? "",
+      header: "Finance",
+      size: 160,
+      cell: ({ row }) =>
+        row.original.asset.finance_decision === null ? (
+          <Status tone="warn">Not assessed</Status>
+        ) : (
+          <Status>Assessed</Status>
+        ),
+    },
+    {
+      id: "state",
+      accessorFn: (row) => stateOf(row.asset).word,
+      header: shelf === "GONE" ? "Status" : "Condition",
+      size: 168,
+      cell: ({ row }) => {
+        const state = stateOf(row.original.asset)
+        return <Status tone={state.tone}>{state.word}</Status>
+      },
+    },
+  ]
+}
+
+const COLUMNS: Record<Shelf, ColumnDef<TableSetup, AssetLine>[]> = {
+  IN_USE: columnsFor("IN_USE"),
+  GONE: columnsFor("GONE"),
+}
+
+/// The asset's last cell. A thing on its way out, or still being built, says
+/// that rather than how it is: "Good" on a renovation half done, or on a
+/// printer waiting to be written off, answers a question nobody asked.
+function stateOf(asset: GaAssetRow): {
+  word: string
+  tone: "neutral" | "warn" | "bad" | "done"
+} {
+  switch (asset.status) {
+    case "DISPOSAL_REQUESTED":
+      return { word: "Disposal requested", tone: "warn" }
+    case "IN_PROGRESS":
+      return { word: "In progress", tone: "neutral" }
+    case "REPLACED":
+    case "DISPOSED":
+      return { word: gaStatusWords(asset.status), tone: "done" }
+    default:
+      return {
+        word: conditionWords(asset.condition),
+        tone:
+          asset.condition === "RUSAK"
+            ? "bad"
+            : asset.condition === "PERLU_SERVIS"
+              ? "warn"
+              : "neutral",
+      }
+  }
+}
+
 function AssetRegister({
   scope,
-  view,
-  reading,
-  book,
-  setBook,
-  condition,
-  setCondition,
-  site,
-  setSite,
-  filtering,
-  setFiltering,
+  state,
+  shelf,
+  setShelf,
+  search,
+  setSearch,
   phone,
+  selected,
   onOpen,
   onAdd,
 }: {
-  scope: Parameters<typeof gaAssetBookQuery>[0]
-  view: (typeof BUILD_VIEWS)[number] | undefined
-  reading: ReturnType<typeof useSheet<"asset-view">>
-  book: "ALL" | "DRAFT" | "REGISTERED"
-  setBook: (book: "ALL" | "DRAFT" | "REGISTERED") => void
-  condition: string | null
-  setCondition: (condition: string | null) => void
-  site: string | null
-  setSite: (site: string | null) => void
-  filtering: boolean
-  setFiltering: (open: boolean) => void
+  scope: AssetScope
+  state: FilterState
+  shelf: Shelf
+  setShelf: (shelf: Shelf) => void
+  search: string
+  setSearch: (search: string) => void
   phone: boolean
+  selected: string | undefined
   onOpen: (assetId: string) => void
   onAdd: () => void
 }) {
-  /// The register, a page at a time, the next one fetched as the foot of the
-  /// list nears view. Read for the scope as it was a moment ago while a new one
-  /// is on its way: the rows stay on screen instead of the register emptying to
-  /// a loading line on every search.
+  // The list being replaced stays on screen while the next is read, so a
+  // keystroke or a tab does not empty the table to a loading line.
   const asked = useDeferredValue(scope)
-  const stale = asked !== scope
   const register = useSuspenseInfiniteQuery(gaAssetBookQuery(asked))
-
-  const rows = useMemo(
-    () => register.data.pages.flatMap((page) => page.rows),
-    [register.data]
-  )
-  // Total and facets are the same on every page; the first one says them.
   const head = register.data.pages[0]
-  const sites = head?.facets.sites ?? []
+  const sites = useMemo(() => head?.facets.sites ?? [], [head])
   const conditions = head?.facets.conditions ?? []
+
+  const rows = useMemo<AssetLine[]>(() => {
+    const names = new Map(
+      sites.map((one) => [one.value, one.label ?? one.value])
+    )
+    return register.data.pages.flatMap((page) =>
+      page.rows.map((asset) => {
+        const where = names.get(asset.site_id) ?? asset.site_id
+        return {
+          asset,
+          place:
+            asset.sub_location === null
+              ? where
+              : `${where} · ${asset.sub_location}`,
+          kind: kindOf(asset.build),
+        }
+      })
+    )
+  }, [register.data, sites])
+
+  /// A tab's count: over what the search leaves, whatever else is narrowed.
+  const shelfCount = (statuses: readonly string[]) =>
+    (head?.facets.statuses ?? [])
+      .filter((facet) => statuses.includes(facet.value))
+      .reduce((sum, facet) => sum + facet.count, 0)
+  const inUse = shelfCount(IN_USE_STATUSES)
+  const gone = shelfCount(GONE_STATUSES)
+
+  const [sorting, setSorting] = useState<SortingState>([])
+  const columns = COLUMNS[shelf]
+  /// What fits the card: Class and Finance wait behind Columns.
+  const fit = useFittedVisibility(columns, OFF_AT_FIRST)
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: rows,
+        columns,
+        getRowId: (row: AssetLine) => row.asset.asset_id,
+        state: { sorting, columnVisibility: fit.shown },
+        onSortingChange: setSorting,
+        onColumnVisibilityChange: fit.change,
+      }),
+      // `fit.shown` is rebuilt every render; what it is made of is not.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      [rows, columns, sorting, fit.hidden, fit.visibility]
+    )
+  )
+
+  const narrowed = scope.q !== undefined || state.filters.length > 0
+
+  // What each answer leaves, from the server's own facets: they count the
+  // searched set, so a number stays put while another chip is on.
+  const builds = new Map(
+    (head?.facets.builds ?? []).map((one) => [one.value, one.count])
+  )
+  const siteWords = new Map(sites.map((one) => [one.value, one.label]))
+  const withCounts = useMemo<FilterField[]>(
+    () =>
+      FIELDS.map((field) => {
+        switch (field.column) {
+          case "kind":
+            return {
+              ...field,
+              spec: {
+                ...field.spec,
+                counted: BUILD_VIEWS.map((one) => ({
+                  value: one.value,
+                  count: one.builds.reduce(
+                    (sum, build) => sum + (builds.get(build) ?? 0),
+                    0
+                  ),
+                })),
+              },
+            }
+          case "condition":
+            return {
+              ...field,
+              spec: {
+                ...field.spec,
+                counted: conditions.map((one) => ({
+                  value: one.value,
+                  count: one.count,
+                })),
+              },
+            }
+          default:
+            return {
+              ...field,
+              spec: {
+                ...field.spec,
+                format: (value: string) => siteWords.get(value) ?? value,
+                counted: sites.map((one) => ({
+                  value: one.value,
+                  count: one.count,
+                })),
+              },
+            }
+        }
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [head]
+  )
+  const model: FilterState = { ...state, fields: withCounts }
 
   return (
     <>
-      <FilterSheet
-        open={filtering}
-        onOpenChange={setFiltering}
-        groups={[
-          {
-            key: "reading",
-            label: "Reading",
-            value: view?.value ?? null,
-            options: [
-              {
-                value: null,
-                label: "All",
-                count: (head?.facets.builds ?? []).reduce(
-                  (sum, one) => sum + one.count,
-                  0
-                ),
-              },
-              ...BUILD_VIEWS.map((one) => ({
-                value: one.value as string | null,
-                label: one.label,
-                count: (head?.facets.builds ?? [])
-                  .filter((build) =>
-                    one.builds.includes(
-                      build.value as (typeof one.builds)[number]
-                    )
-                  )
-                  .reduce((sum, build) => sum + build.count, 0),
-              })),
-            ],
-            onChange: (next) =>
-              next === null ? reading.close() : reading.replace(next),
-          },
-          {
-            key: "condition",
-            label: "Condition",
-            value: condition,
-            options: [
-              { value: null, label: "Any condition" },
-              ...conditions.map((one) => ({
-                value: one.value as string | null,
-                label: conditionWords(one.value),
-              })),
-            ],
-            onChange: setCondition,
-          },
-          {
-            key: "location",
-            label: "Location",
-            value: site,
-            options: [
-              { value: null, label: "All locations" },
-              ...sites.map((one) => ({
-                value: one.value as string | null,
-                label: one.label ?? one.value,
-              })),
-            ],
-            onChange: setSite,
-          },
+      <SubTabs
+        // On a phone the tab is the status chip over the bottom bar.
+        className="max-md:hidden"
+        tabs={[
+          { value: "IN_USE", label: <TabLabel text="In use" n={inUse} /> },
+          { value: "GONE", label: <TabLabel text="Disposed" n={gone} /> },
         ]}
+        value={shelf}
+        onChange={(next) => setShelf(next as Shelf)}
       />
 
-      <div className={DESK_BAR}>
-        <BuildChips
-          here={view?.value ?? null}
-          counts={head?.facets.builds ?? []}
-        />
+      {/* One bar: the search (which also finds a place), then Columns at
+          the right; the kinds are the chips under it. On a phone they are
+          the dock's. */}
+      <div className="max-md:hidden">
+        <Toolbar className="group/bar">
+          <ListFilters
+            model={model}
+            search={{
+              value: search,
+              onChange: setSearch,
+              label: "Search assets",
+            }}
+          />
+          <BarSpacer />
+          <ColumnsMenu table={table} />
+        </Toolbar>
       </div>
 
-      <div className={DESK_BAR}>
-        <StatusTabs book={book} onChange={setBook} />
-        <ChoiceMenu
-          heading="Condition"
-          icon={ListFilter}
-          value={condition}
-          options={[
-            { value: null, label: "Any condition" },
-            ...conditions.map((one) => ({
-              value: one.value,
-              label: conditionWords(one.value),
-            })),
-          ]}
-          onChange={setCondition}
-        />
-        <ChoiceMenu
-          heading="Location"
-          icon={ListFilter}
-          value={site}
-          options={[
-            { value: null, label: "All locations" },
-            ...sites.map((one) => ({
-              value: one.value,
-              label: one.label ?? one.value,
-            })),
-          ]}
-          onChange={setSite}
-        />
-        <Toolbar.Spacer />
-        {head !== undefined && (
-          <span className="text-meta text-body">
-            <b className="font-medium text-ink">{count(head.total)}</b>{" "}
-            {head.total === 1 ? "asset" : "assets"}
-          </span>
-        )}
-      </div>
+      <DockTools
+        search={{ value: search, onChange: setSearch, label: "Search assets" }}
+        filter={{
+          count: state.filters.length,
+          panel: { model: state, filterModel: model },
+        }}
+        status={{
+          value: shelf,
+          options: [
+            { value: "IN_USE", label: "In use", count: inUse },
+            { value: "GONE", label: "Disposed", count: gone },
+          ],
+          onChange: (next) => setShelf(next as Shelf),
+        }}
+      />
 
-      <div aria-busy={stale || undefined} className="list-swap">
+      <div aria-busy={asked !== scope || undefined} className="list-swap">
         {rows.length === 0 ? (
           <Card>
             <EmptyState
               action={
-                <Button variant="ghost" onClick={onAdd}>
-                  Register the first one
-                </Button>
+                narrowed || shelf === "GONE" ? undefined : (
+                  <Button variant="ghost" onClick={onAdd}>
+                    Register the first one
+                  </Button>
+                )
               }
             >
-              No assets in this reading yet. Register an asset when it arrives,
-              then fill in where it is and what state it is in.
+              {narrowed
+                ? "No asset matches these filters."
+                : shelf === "GONE"
+                  ? "Nothing has been disposed yet."
+                  : "Nothing here yet."}
             </EmptyState>
           </Card>
         ) : phone ? (
           <PhoneCards
             rows={rows}
-            rowId={(row) => row.asset_id}
+            rowId={(row) => row.asset.asset_id}
             spec={ASSET_CARD}
-            onOpen={(row) => onOpen(row.asset_id)}
+            onOpen={(row) => onOpen(row.asset.asset_id)}
             more={register}
           />
         ) : (
-          <Card className="overflow-hidden">
-            {/* The register scrolls INSIDE its own box rather than squashing
-                  the columns. Nine columns of codes, names and serials do not
-                  fit a phone, and the two wrong answers are both worse than a
-                  scrollbar: squeezed, the cells overlap and the page itself
-                  starts scrolling sideways, which takes the sidebar with it. */}
-            <div className="overflow-x-auto">
-              <div className="min-w-[72rem]">
-                <div className="grid h-10 grid-cols-[7rem_minmax(14rem,1fr)_11rem_6rem_9rem_9rem_7rem_9rem_9rem] items-center gap-3 border-b border-hairline bg-soft px-3.5 text-eyebrow font-medium text-body">
-                  <span>Code</span>
-                  <span>Asset</span>
-                  <span>Class</span>
-                  <span>Location</span>
-                  <span>Area</span>
-                  <span>Holder</span>
-                  <span>Condition</span>
-                  <span>GA status</span>
-                  <span>Finance status</span>
-                </div>
-                {rows.map((row) => (
-                  <AssetLine
-                    key={row.asset_id}
-                    asset={row}
-                    onOpen={() => onOpen(row.asset_id)}
-                  />
-                ))}
-              </div>
-            </div>
-            {/* Outside the sideways-scrolling box: that box computes as a
-                  vertical scroller too, and a marker inside it would always
-                  be "in view" and pull every page. The page scrolls. */}
-            <LoadMore query={register} />
+          // `overflow-clip`, not `overflow-hidden`: hidden makes the card a
+          // scroll box, and the heading would stick to the card instead of
+          // the window.
+          <Card ref={fit.ref} className="overflow-clip">
+            <DataTable<AssetLine>
+              refresh={[register]}
+              table={table}
+              onRowClick={(row) => onOpen(row.asset.asset_id)}
+              isSelected={(row) => row.asset.asset_id === selected}
+              more={register}
+              // The window scrolls, not the table.
+              pageScroll
+              summary={{
+                asset: (
+                  <span>
+                    {count(head?.total ?? rows.length)}{" "}
+                    <span className="font-normal text-body">
+                      {(head?.total ?? rows.length) === 1 ? "asset" : "assets"}
+                    </span>
+                  </span>
+                ),
+              }}
+            />
           </Card>
         )}
       </div>
@@ -472,217 +702,79 @@ function AssetRegister({
   )
 }
 
-/// The readings, as chips with their counts.
-///
-/// Chips and not sidebar rows: nine rows under Assets would push the rest of
-/// GA off the screen to answer a question these answer in one click, and the
-/// sidebar is a list of places somebody sets out for while these are readings
-/// of the place they are already in.
-///
-/// Each chip is a LINK and not a button, so the reading is in the address bar:
-/// a facilities person who only ever wants the vehicles can bookmark it and
-/// send it.
-///
-/// The counts are the server's facets, counted over the SEARCH and not over the
-/// filters, so "Vehicles 41" means there are forty-one vehicles rather than
-/// forty-one among whatever the reader has already narrowed to. A chip that
-/// counted the filtered set would read zero the moment somebody clicked a
-/// different one.
-function BuildChips({
-  here,
-  counts,
-}: {
-  here: string | null
-  counts: readonly { value: string; count: number }[]
-}) {
-  const total = counts.reduce((sum, one) => sum + one.count, 0)
+/// A tab's word and its count, the count quiet (as Articles draws it).
+function TabLabel({ text, n }: { text: string; n: number }) {
   return (
-    <nav
-      aria-label="Asset readings"
-      className="flex flex-wrap items-center gap-1.5"
-    >
-      <Chip label="All" n={total} active={here === null} />
-      {BUILD_VIEWS.map((view) => (
-        <Chip
-          key={view.value}
-          view={view.value}
-          label={view.label}
-          icon={view.icon}
-          n={counts
-            .filter((one) =>
-              view.builds.includes(one.value as (typeof view.builds)[number])
-            )
-            .reduce((sum, one) => sum + one.count, 0)}
-          active={here === view.value}
-        />
-      ))}
-    </nav>
-  )
-}
-
-/// One chip. A link, because the reading is a URL; no `view` is every build.
-function Chip({
-  view,
-  label,
-  icon: Glyph,
-  n,
-  active,
-}: {
-  view?: string
-  label: string
-  icon?: React.ComponentType<{ className?: string }>
-  n: number
-  active: boolean
-}) {
-  return (
-    <AppLink
-      to="/assets"
-      sheet={
-        view === undefined ? undefined : { key: "asset-view", value: view }
-      }
-      aria-current={active ? "page" : undefined}
-      className={cn(
-        "inline-flex h-8 items-center gap-2 rounded-full border px-3 text-meta font-medium transition-colors",
-        active
-          ? "border-accent bg-accent-bg text-accent"
-          : "border-hairline-2 bg-canvas text-text hover:bg-soft"
-      )}
-    >
-      {Glyph && (
-        <Glyph
-          className={cn(
-            "size-4 stroke-[1.7]",
-            active ? "text-accent" : "text-line-ico"
-          )}
-        />
-      )}
-      {label}
-      <span
-        className={cn(
-          "text-pill tabular-nums",
-          active ? "text-accent" : "text-mute"
-        )}
-      >
-        {count(n)}
-      </span>
-    </AppLink>
-  )
-}
-
-function AssetLine({
-  asset,
-  onOpen,
-}: {
-  asset: GaAssetRow
-  onOpen: () => void
-}) {
-  const Glyph = buildOf(asset.build).icon
-  const draft = asset.status === "DRAFT"
-  return (
-    <div
-      onClick={onOpen}
-      className={cn(
-        "grid cursor-pointer grid-cols-[7rem_minmax(14rem,1fr)_11rem_6rem_9rem_9rem_7rem_9rem_9rem] items-center gap-3 border-b border-hairline px-3.5 py-2.5 transition-colors last:border-b-0 hover:bg-soft",
-        // A row that arrived from a bill and that nobody has walked the floor
-        // for is the one thing on this list that is somebody's job today, so it
-        // is the one row drawn differently.
-        draft && "bg-warn-bg/30"
-      )}
-    >
-      <span className="truncate font-mono text-id text-body">
-        {asset.asset_number}
-      </span>
-      <div className="flex min-w-0 items-center gap-2.5">
-        {/* The build, as a glyph. Fifty-nine classes are eleven pictures, and
-            the glyph is what the eye finds before it reads the name — which is
-            how somebody scanning for "the vehicles" does it. */}
-        <span className="grid size-[1.875rem] shrink-0 place-items-center rounded-inner bg-soft-2 text-body">
-          <Glyph className="size-4 stroke-[1.7]" />
-        </span>
-        <span className="min-w-0">
-          <span className="block truncate text-cell font-medium text-ink">
-            {asset.name}
-          </span>
-          <span className="block truncate font-mono text-pill text-mute">
-            {asset.serial_number ?? "no serial"}
-          </span>
-        </span>
-      </div>
-      <span className="min-w-0 truncate text-meta text-body">
-        {asset.class_name}
-        <span className="block truncate text-pill text-mute">
-          {buildOf(asset.build).label}
-        </span>
-      </span>
-      <span className="truncate text-meta text-body">{asset.site_id}</span>
-      <span className="truncate text-meta text-body">
-        {asset.sub_location ?? "—"}
-      </span>
-      <span className="truncate text-meta text-body">
-        {asset.holder ?? "—"}
-      </span>
-      <span>
-        {asset.condition === "BAIK" ? (
-          <span className="text-meta text-body">Good</span>
-        ) : (
-          <Pill tone={asset.condition === "RUSAK" ? "bad" : "warn"}>
-            {conditionWords(asset.condition)}
-          </Pill>
-        )}
-      </span>
-      <span>
-        {/* The register's own status, not a two-way draft/registered
-            switch: a written-off laptop read "Registered" here while its
-            sheet and the finance register both said it had gone. */}
-        <Pill
-          tone={
-            draft || asset.status === "DISPOSAL_REQUESTED" ? "warn" : "neutral"
-          }
-        >
-          {draft ? "Needs details" : gaStatusWords(asset.status)}
-        </Pill>
-      </span>
-      <span>
-        <Pill tone={asset.finance_decision === null ? "warn" : "neutral"}>
-          {asset.finance_decision === null ? "Not assessed" : "Assessed"}
-        </Pill>
-      </span>
-    </div>
-  )
-}
-
-/// An asset as a phone's card: the thing over its plate number, where it is and
-/// who holds it, how it is and whether Finance has looked at it, and the
-/// register's own status.
-const ASSET_CARD: CardSpec<GaAssetRow> = {
-  title: (row) => <CardName name={row.name} code={row.asset_number} />,
-  meta: [
-    (row) =>
-      [row.class_name, row.site_id, row.sub_location]
-        .filter((part) => part !== null && part !== "")
-        .join(" · "),
-    (row) => (row.holder === null ? null : `Held by ${row.holder}`),
-  ],
-  foot: (row) => (
     <span>
-      {conditionWords(row.condition)}
-      {row.finance_decision === null && (
-        <span className="text-warn-fg"> · Not assessed</span>
-      )}
+      {text}
+      <span className="ml-1.5 text-body tabular-nums">{count(n)}</span>
     </span>
-  ),
-  action: (row) => (
-    <Pill
-      tone={
-        row.status === "DRAFT" || row.status === "DISPOSAL_REQUESTED"
-          ? "warn"
-          : "neutral"
-      }
-    >
-      {row.status === "DRAFT" ? "Needs details" : gaStatusWords(row.status)}
-    </Pill>
-  ),
+  )
 }
+
+/// The same row as a phone card: the name and code, what it is and where,
+/// who holds it; the kind in the foot and its state where the thumb rests.
+const ASSET_CARD: CardSpec<AssetLine> = {
+  title: (row) => (
+    <CardName name={row.asset.name} code={row.asset.asset_number} />
+  ),
+  meta: [
+    (row) => `${row.asset.class_name} · ${row.place}`,
+    (row) => (row.asset.holder === null ? null : `Held by ${row.asset.holder}`),
+  ],
+  foot: (row) => <span>{row.kind}</span>,
+  action: (row) => {
+    const state = stateOf(row.asset)
+    return (
+      <Pill
+        tone={
+          state.tone === "bad" || state.tone === "warn" ? state.tone : "neutral"
+        }
+      >
+        {state.word}
+      </Pill>
+    )
+  },
+}
+
+/// The three answers to "how is it", in the order a facilities person asks
+/// them: the same three, in the same words, as the Register asset form.
+const CONDITIONS: readonly {
+  readonly value: string
+  readonly label: string
+  readonly icon: LucideIcon
+}[] = [
+  { value: "BAIK", label: "Good", icon: CircleCheck },
+  { value: "PERLU_SERVIS", label: "Needs service", icon: Wrench },
+  { value: "RUSAK", label: "Broken", icon: TriangleAlert },
+]
+
+/// What the register is narrowed by. The kind is the chip line; the condition
+/// and the place are found by name in the search box.
+const FIELDS: FilterField[] = [
+  {
+    column: "kind",
+    label: "Kind",
+    spec: {
+      kind: "option",
+      single: true,
+      format: (value) =>
+        BUILD_VIEWS.find((one) => one.value === value)?.label ?? value,
+      icon: (value) => BUILD_VIEWS.find((one) => one.value === value)?.icon,
+    },
+  },
+  {
+    column: "condition",
+    label: "Condition",
+    spec: {
+      kind: "option",
+      single: true,
+      format: conditionWords,
+      icon: (value) => CONDITIONS.find((one) => one.value === value)?.icon,
+    },
+  },
+  { column: "site", label: "Location", spec: { kind: "option", single: true } },
+]
 
 function conditionWords(condition: string): string {
   switch (condition) {

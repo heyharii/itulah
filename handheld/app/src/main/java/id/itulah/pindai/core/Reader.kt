@@ -4,6 +4,8 @@ import android.content.Context
 import com.rscja.deviceapi.RFIDWithUHFUART
 import com.rscja.deviceapi.entity.Gen2Entity
 import com.rscja.deviceapi.entity.InventoryModeEntity
+import com.rscja.deviceapi.interfaces.ConnectionStatus
+import com.rscja.deviceapi.interfaces.ConnectionStatusCallback
 
 /**
  * A sighting is handed on as the two strings the module already had.
@@ -46,6 +48,22 @@ data class Gen2State(
 class Reader {
     @Volatile private var rfid: RFIDWithUHFUART? = null
     @Volatile private var polling = false
+
+    /** The round is stopped and the poll thread is emptying the SDK's buffer. See [stop]. */
+    @Volatile private var draining = false
+
+    /** Tag frames handed over since the last [start]. See [heardWithin]. */
+    @Volatile private var framesSinceStart = 0L
+
+    /**
+     * The firmware version, read once when the module opens.
+     *
+     * Not asked again on every [init]: every pull of the trigger calls it, and
+     * while a round runs the SDK's own reader thread swallows every reply that
+     * is not a tag or a stop — so a version asked then fails after about a
+     * second, with this object's lock held the whole time.
+     */
+    @Volatile private var version = ""
     @Volatile private var appliedPower = -1
 
     /** The inventory mode this open module is already in; -1 when unknown. */
@@ -108,11 +126,61 @@ class Reader {
      */
     @Volatile private var wantedRfLink: Int = -1
 
+    /** The Gen2 target the floor runs in, 0 (A) or 1 (B); -1 while nobody has said. */
+    @Volatile private var wantedTarget: Int = -1
+
     /** Kept so a power change can re-open the module; see [setPower]. */
     @Volatile private var appContext: Context? = null
     private var pollThread: Thread? = null
 
-    val isReady: Boolean get() = rfid != null
+    /**
+     * True only while THIS object is opening the module, so the SDK's report of
+     * that open is not mistaken for somebody else's. See [sdkWatch].
+     */
+    @Volatile private var opening = false
+
+    /**
+     * The SDK opened the module on its own since we last did.
+     *
+     * # Why the instance we hold cannot simply be trusted
+     *
+     * The vendor SDK lets go of the module behind this object's back, and says
+     * nothing. When another app opens the UHF module the SDK broadcasts
+     * `UHF_POWER_OFF` and our instance frees ITSELF (`UhfBase.PowerOffReceiver`).
+     * When the screen goes off it frees itself too — and when the device is
+     * unlocked again it opens the module again on its own
+     * (`UhfBase.ScreenReceiver`), at the module's defaults, with none of the
+     * power or radio profile this app applied. Either way the instance in
+     * [rfid] looks exactly as it did, and an early return on "we have one"
+     * swept with a radio that was off, or at a power nobody chose.
+     *
+     * The first case shows in `isPowerOn()`. The second does not — the module
+     * IS powered, just not by us — so the SDK's own connection report is
+     * watched for an open we did not make.
+     */
+    @Volatile private var openedElsewhere = false
+
+    /**
+     * Told by the SDK whenever the module connects or drops.
+     *
+     * Only ever sets a flag. It runs inside the SDK's own synchronized methods,
+     * on whatever thread the SDK chose — the main thread, for a screen event —
+     * so waiting here for this object's lock could deadlock against a thread
+     * that holds ours and is waiting for the SDK's.
+     */
+    private val sdkWatch = ConnectionStatusCallback<Any> { status, _ ->
+        if (status == ConnectionStatus.CONNECTED && !opening) openedElsewhere = true
+    }
+
+    /**
+     * The open module, if it is still the one this object opened: powered, and
+     * not re-opened by the SDK on its own since. Null means the next [init]
+     * has to open it properly. See [openedElsewhere].
+     */
+    private fun held(): RFIDWithUHFUART? =
+        rfid?.takeIf { !openedElsewhere && runCatching { it.isPowerOn }.getOrDefault(false) }
+
+    val isReady: Boolean get() = held() != null
 
     /**
      * What every vendor call was asked, and what it answered.
@@ -173,7 +241,18 @@ class Reader {
     @Synchronized
     fun init(context: Context): String {
         appContext = context.applicationContext
-        rfid?.let { return it.version.orEmpty() }
+        if (held() != null) return version
+        // Held, but no longer ours to trust: the SDK freed it, or opened it
+        // again at the module's defaults. Forget what this object believed
+        // about it — power, inventory mode — and open it properly below, which
+        // is the only path that applies the power and the profile.
+        if (rfid != null) {
+            stop()
+            runCatching { rfid?.free() }
+            rfid = null
+            appliedPower = -1
+            appliedMode = -1
+        }
         var lastReason: String? = null
         repeat(OPEN_ATTEMPTS) { attempt ->
             if (attempt > 0) {
@@ -188,13 +267,29 @@ class Reader {
                 lastReason = it.message ?: "getInstance"
                 return@repeat
             }
-            val opened = runCatching { instance.init(context.applicationContext) }
-                .getOrElse { lastReason = it.message ?: "init"; false }
+            // A module the SDK is already holding open — it re-opens one by
+            // itself when the device is unlocked — answers `init` with "already
+            // initialized" and opens nothing, so the power below would be
+            // written to an open module: accepted, and not radiated (see
+            // [setPower]). Let it go first, so this is a real open.
+            if (runCatching { instance.isPowerOn }.getOrDefault(false)) {
+                runCatching { instance.free() }
+            }
+            runCatching { instance.setConnectionStatusCallback(sdkWatch) }
+            opening = true
+            val opened = try {
+                runCatching { instance.init(context.applicationContext) }
+                    .getOrElse { lastReason = it.message ?: "init"; false }
+            } finally {
+                opening = false
+            }
             if (opened) {
                 rfid = instance
+                openedElsewhere = false
+                version = versionOf(instance)
                 applyPower(instance, wantedPower)
                 restoreGen2(instance)
-                return instance.version.orEmpty()
+                return version
             }
             lastReason = lastReason ?: "the module refused to open"
             // Hand back whatever half-open state the attempt left behind, or the
@@ -205,6 +300,18 @@ class Reader {
             "reader is busy — another app may still hold it ($lastReason)",
         )
     }
+
+    /**
+     * The firmware version, or nothing. Asked only when the module has just
+     * opened; see [version].
+     *
+     * `getVersion()` is not safe to call bare: when the native call answers
+     * null the SDK dereferences it while logging the failure and throws a
+     * NullPointerException. A version is a caption on a screen; it must never
+     * be the reason a module that opened fine is reported as broken.
+     */
+    private fun versionOf(instance: RFIDWithUHFUART): String =
+        runCatching { instance.version }.getOrNull().orEmpty()
 
     /**
      * Ask the module for Impinj's Gen2X extensions, and report what it grants.
@@ -335,7 +442,10 @@ class Reader {
             current.querySession = it.coerceIn(0, 3)
             wantedSession = current.querySession
         }
-        target?.let { current.queryTarget = it.coerceIn(0, 1) }
+        target?.let {
+            current.queryTarget = it.coerceIn(0, 1)
+            wantedTarget = current.queryTarget
+        }
         // `q` selects the ALGORITHM, not the slot count.
         //
         // The vendor's own Javadoc on Gen2Entity.getQ(): "0: fixed Q algorithm,
@@ -395,6 +505,10 @@ class Reader {
         block.startQ = 6
         block.minQ = 0
         block.maxQ = 15
+        // Which tags the round addresses, after a Select: 0 is all of them. It
+        // was the one field in this block nothing wrote, so whatever the last
+        // experiment left there went straight back into the module.
+        block.querySel = 0
         block.querySession = 0
         block.queryTarget = 0
         runCatching { r.setGen2(block) }
@@ -437,14 +551,14 @@ class Reader {
      * A Gen2 Select names a memory bank, a bit offset and a length. The EPC bank
      * does not begin with the EPC: the first 32 bits are the CRC-16 and the
      * protocol control word, so the EPC itself starts at bit 32. Our EPC is the
-     * header `A0` followed by eleven SKU digits packed one per nibble — thirteen
+     * header `A1` followed by eleven SKU digits packed one per nibble — thirteen
      * hex characters, 52 bits — and after that comes the serial, which is the
      * part that differs between two garments of the same product. Matching the
      * first 52 bits is therefore exactly "this SKU, any unit".
      *
      * ```
      * bank 1, bit 32, length 52
-     * A0 12345678123 | 00000000064
+     * A1 12345678123 | 00000000064
      * └── matched ──┘ └─ ignored ─┘
      * ```
      *
@@ -517,7 +631,7 @@ class Reader {
      * # Eight bits that do more than fifty-two
      *
      * The SKU filter narrows to one product. This narrows to one ESTATE: match
-     * the header byte `A0` and nothing else, and a pallet label, a security tag,
+     * the header byte `A1` and nothing else, and a pallet label, a security tag,
      * a supplier's own encoding and last year's trial all stop answering. They
      * cost no air time, no sighting, and no work on this device — the reader
      * spends every slot on garments we own.
@@ -641,11 +755,27 @@ class Reader {
      * — which is why the app reads the state back rather than assuming.
      */
     private fun restoreGen2(instance: RFIDWithUHFUART) {
-        if (wantedSession in 0..3) {
+        // The link mode first, in the order the floor's profile has always been
+        // applied in: a link profile is the frame the rest of the block lives
+        // in, and nothing here may depend on it NOT resetting the session.
+        //
+        // Written only when the module says something else. The link-mode
+        // frame carries the module's save flag, so every write is probably a
+        // write to its flash — and this runs on every open, which is several
+        // times a day, for a setting the module already keeps across restarts.
+        if (wantedRfLink >= 0 && runCatching { instance.rfLink }.getOrDefault(-1) != wantedRfLink) {
+            runCatching {
+                logged("restore setRFLink($wantedRfLink)") { instance.setRFLink(wantedRfLink) }
+            }
+        }
+        if (wantedSession in 0..3 || wantedTarget in 0..1) {
             runCatching {
                 val block = instance.gen2 ?: return@runCatching
-                block.querySession = wantedSession
-                logged("restore setGen2(session=$wantedSession)") { instance.setGen2(block) }
+                if (wantedSession in 0..3) block.querySession = wantedSession
+                if (wantedTarget in 0..1) block.queryTarget = wantedTarget
+                logged("restore setGen2(session=${block.querySession}, target=${block.queryTarget})") {
+                    instance.setGen2(block)
+                }
             }
         }
         wantedTagFocus?.let { on ->
@@ -654,11 +784,44 @@ class Reader {
         wantedFastId?.let { on ->
             runCatching { logged("restore setFastID($on)") { instance.setFastID(on) } }
         }
-        if (wantedRfLink >= 0) {
-            runCatching {
-                logged("restore setRFLink($wantedRfLink)") { instance.setRFLink(wantedRfLink) }
-            }
-        }
+    }
+
+    /**
+     * Hand the reader the floor's saved radio profile — before the module opens.
+     *
+     * # The bug this closes
+     *
+     * The profile (link mode, target, Tag Focus, session) used to be applied by
+     * the view model AFTER it opened the module, and skipped whenever the
+     * module was already open. At a cold start the activity opens the module
+     * first, so the skip was the normal case: the floor swept in whatever link
+     * mode the module had kept from the last person — the very thing pinning
+     * it was for.
+     *
+     * Kept here as the reader's own wishes instead, it is applied by [init] the
+     * moment the module opens, whichever caller opened it, and again after
+     * every re-open: a power change, a cleared filter, or a module the SDK took
+     * away and this object had to open again.
+     *
+     * Saying the same profile twice says nothing to the module. A different
+     * one is applied now if the module is open and at rest; mid-round it is
+     * only recorded, because a configuration applied to a running inventory is
+     * one nobody can reason about, and the next open applies it.
+     */
+    @Synchronized
+    fun useProfile(rfLink: Int, target: Int, tagFocus: Boolean, fastId: Boolean, session: Int) {
+        val link = if (rfLink >= 0) rfLink else wantedRfLink
+        val tgt = if (target in 0..1) target else wantedTarget
+        val sess = if (session in 0..3) session else wantedSession
+        val changed = link != wantedRfLink || tgt != wantedTarget || sess != wantedSession ||
+            tagFocus != wantedTagFocus || fastId != wantedFastId
+        wantedRfLink = link
+        wantedTarget = tgt
+        wantedSession = sess
+        wantedTagFocus = tagFocus
+        wantedFastId = fastId
+        if (!changed || polling) return
+        held()?.let { restoreGen2(it) }
     }
 
     /** What the antenna is running at, as the module last reported it. */
@@ -693,7 +856,10 @@ class Reader {
     @Synchronized
     fun setPower(dbm: Int): Int {
         val target = dbm.coerceIn(MIN_POWER, MAX_POWER)
-        if (wantedPower == target && appliedPower > 0) return appliedPower
+        // Only a module that is still ours is already at the figure. One the SDK
+        // freed has no power at all, and one it re-opened by itself is at the
+        // module's default — both are re-opened below at the chosen figure.
+        if (wantedPower == target && appliedPower > 0 && held() != null) return appliedPower
         wantedPower = target
         val context = appContext
         if (rfid == null || context == null) return -1
@@ -730,11 +896,19 @@ class Reader {
     private fun applyPower(instance: RFIDWithUHFUART, dbm: Int): Int {
         val ladder = if (dbm >= MIN_POWER) (dbm downTo MIN_POWER) else CEILING.asIterable()
         for (candidate in ladder) {
+            val askedAt = System.nanoTime()
             if (runCatching { instance.setPower(candidate) }.getOrDefault(false)) {
                 appliedPower = runCatching { instance.power }.getOrDefault(candidate)
                     .let { if (it <= 0) candidate else it }
                 return appliedPower
             }
+            // A "no" that took this long was not the module declining a figure:
+            // it did not answer at all, and the SDK gave up after its own
+            // timeout. Walking the rest of the ladder would wait that out once
+            // per dBm — the better part of half a minute of a frozen open — for
+            // the same silence. The open goes ahead, and [power] says nothing
+            // was applied.
+            if ((System.nanoTime() - askedAt) / 1_000_000 >= UNANSWERED_MS) break
         }
         return appliedPower
     }
@@ -742,11 +916,78 @@ class Reader {
     /** Sweep until [stop] is called, handing every read to [onTag]. */
     @Synchronized
     fun start(withTid: Boolean, onTag: OnTag): Boolean {
-        val r = rfid ?: return false
+        if (rfid == null) return false
         // Only tear down what is actually up. `stop()` talks to the UART and
         // joins a thread; doing that before a sweep that is not running yet is
         // a round trip paid on every pull of the trigger for nothing.
         if (polling || pollThread != null) stop()
+        if (held() == null || !beginInventory(withTid)) {
+            // No longer ours, or refused — and the usual reason on this
+            // handheld is not the radio but the SDK, which lets go of the module
+            // behind our back (another app opened it, or the screen went off)
+            // and leaves an instance that refuses everything, or opens it again
+            // by itself at the module's defaults. Open it again, once, and ask
+            // again. A second refusal is a real one, and is reported as one.
+            val context = appContext ?: return false
+            stop()
+            runCatching { rfid?.free() }
+            rfid = null
+            appliedPower = -1
+            appliedMode = -1
+            if (runCatching { init(context) }.isFailure || !beginInventory(withTid)) return false
+        }
+        val r = rfid ?: return false
+        framesSinceStart = 0
+        polling = true
+        pollThread = Thread {
+            var misses = 0
+            while (polling) {
+                val info = runCatching { r.readTagFromBuffer() }.getOrNull()
+                if (info == null) {
+                    // A null is not always an empty buffer: a frame the SDK's
+                    // parser rejected comes back as null too, with good frames
+                    // still queued behind it. One more look straight away,
+                    // before sleeping on a buffer that may not be empty.
+                    if (++misses < 2) continue
+                    misses = 0
+                    // Stopped, and the buffer has given up all it held.
+                    if (draining) break
+                    try { Thread.sleep(3) } catch (e: InterruptedException) { break }
+                    continue
+                }
+                misses = 0
+                framesSinceStart++
+                val epc = info.getEPC()?.takeIf { it.isNotBlank() } ?: continue
+                onTag(epc, info.rssi, info.tid)
+            }
+        }.apply { isDaemon = true; name = "uhf"; start() }
+        return true
+    }
+
+    /**
+     * Whether the round just started has handed over a tag frame within [ms].
+     *
+     * This module never acknowledges a start (command 82 has no reply); a tag
+     * frame arriving is the only proof that one took. Not synchronized: it
+     * waits, and must not hold the lock that the stop it may lead to needs.
+     */
+    fun heardWithin(ms: Long): Boolean {
+        val until = System.currentTimeMillis() + ms
+        while (framesSinceStart == 0L) {
+            if (System.currentTimeMillis() >= until) return false
+            try {
+                Thread.sleep(PROOF_POLL_MS)
+            } catch (interrupted: InterruptedException) {
+                Thread.currentThread().interrupt()
+                return false
+            }
+        }
+        return true
+    }
+
+    /** Put the open module in this app's inventory mode and start a round. */
+    private fun beginInventory(withTid: Boolean): Boolean {
+        val r = rfid ?: return false
         // Configure the inventory mode ONCE per open module.
         //
         // Measured on a C5 (E710_V7.10.1): with the module already open, a pull
@@ -765,29 +1006,48 @@ class Reader {
             // another, which is the shape of every reader bug in this file.
             if (configured) appliedMode = mode
         }
-        if (!runCatching { logged("startInventoryTag()") { r.startInventoryTag() } }
-                .getOrDefault(false)
-        ) return false
-        polling = true
-        pollThread = Thread {
-            while (polling) {
-                val info = runCatching { r.readTagFromBuffer() }.getOrNull()
-                if (info == null) { try { Thread.sleep(3) } catch (e: InterruptedException) { break }; continue }
-                val epc = info.getEPC()?.takeIf { it.isNotBlank() } ?: continue
-                onTag(epc, info.rssi, info.tid)
-            }
-        }.apply { isDaemon = true; name = "uhf"; start() }
-        return true
+        return runCatching { logged("startInventoryTag()") { r.startInventoryTag() } }
+            .getOrDefault(false)
     }
 
+    /**
+     * Stop the round, keep what it already heard, and only then let go.
+     *
+     * # The order is the fix
+     *
+     * This used to end the poll thread first and send the stop last, and both
+     * halves cost something:
+     *
+     * - Tags the module had already sent sit in the SDK's buffer, survive
+     *   `stopInventory`, and are only thrown away by the NEXT start. Ending the
+     *   poll thread first left exactly those — the last garments somebody
+     *   reached for — in a buffer nobody would read again.
+     * - A stop sent to a module that is NOT inventorying waits for a reply that
+     *   never comes: five tries of 500 ms, about two and a half seconds, and
+     *   the SDK answers true either way. Every release, every visit to Setelan
+     *   and both halves of a power change paid it. Now it is only sent while a
+     *   round is actually running.
+     *
+     * So: the stop, if there is a round to stop; then the poll thread drains
+     * the buffer and leaves by itself at the first empty look; then it is
+     * joined, and only waited for beyond that if the module never goes quiet.
+     */
     @Synchronized
     fun stop() {
         val thread = pollThread
+        val r = rfid
+        if (r != null && runCatching { r.isInventorying }.getOrDefault(true)) {
+            runCatching { r.stopInventory() }
+        }
+        if (thread != null && thread !== Thread.currentThread()) {
+            draining = true
+            runCatching { thread.join(DRAIN_MS) }
+        }
         polling = false
         thread?.interrupt()
         if (thread != null && thread !== Thread.currentThread()) runCatching { thread.join(400) }
         pollThread = null
-        runCatching { rfid?.stopInventory() }
+        draining = false
     }
 
     @Synchronized
@@ -834,5 +1094,22 @@ class Reader {
 
         private const val OPEN_ATTEMPTS = 3
         private const val OPEN_RETRY_MS = 700L
+
+        /**
+         * How long [stop] lets the poll thread empty the SDK's buffer. A buffer
+         * empties in milliseconds; this only bounds a module that never goes
+         * quiet because its stop did not take.
+         */
+        private const val DRAIN_MS = 1_000L
+
+        /** How often [heardWithin] looks for the first frame. */
+        private const val PROOF_POLL_MS = 20L
+
+        /**
+         * A setter that takes this long has not been refused, it has gone
+         * unanswered: the SDK's own timeout is about 1.2 s, and an answer is a
+         * matter of milliseconds.
+         */
+        private const val UNANSWERED_MS = 1_000L
     }
 }

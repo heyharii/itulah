@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { GroupHeading } from "@/components/ui/phone-cards"
+import { CellMoney } from "@/components/ui/rows-switch"
 import { EmptyState } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { count, day, money } from "@/lib/format"
@@ -169,16 +170,18 @@ const articleColumns: ColumnDef<TableSetup, ArticleRow>[] = [
     size: 150,
     meta: { align: "right", card: "metric" },
     cell: ({ row }) =>
-      row.original.cost_source === "NONE"
-        ? "—"
-        : money(row.original.unit_cost_minor),
+      row.original.cost_source === "NONE" ? (
+        "—"
+      ) : (
+        <CellMoney minor={row.original.unit_cost_minor} />
+      ),
   },
   {
     accessorKey: "value_minor",
     header: "Value",
     size: 160,
     meta: { align: "right", card: "metric" },
-    cell: ({ row }) => money(row.original.value_minor),
+    cell: ({ row }) => <CellMoney minor={row.original.value_minor} />,
   },
   {
     id: "po",
@@ -233,7 +236,7 @@ const siteColumns: ColumnDef<TableSetup, SiteRow>[] = [
     header: "Value",
     size: 200,
     meta: { align: "right", card: "metric" },
-    cell: ({ row }) => money(row.original.value),
+    cell: ({ row }) => <CellMoney minor={row.original.value} />,
   },
 ]
 
@@ -289,7 +292,7 @@ const awaitingColumns: ColumnDef<TableSetup, AwaitingSetupRow>[] = [
     header: "Value",
     size: 160,
     meta: { align: "right", card: "metric" },
-    cell: ({ row }) => money(row.original.value_minor),
+    cell: ({ row }) => <CellMoney minor={row.original.value_minor} />,
   },
 ]
 
@@ -599,11 +602,15 @@ function InventoryValuation() {
   )
 }
 
-function Diff({ minor }: { minor: number }) {
+/// `cell`: a row's own difference, bare in compact rows; the Total row keeps
+/// its "Rp".
+function Diff({ minor, cell }: { minor: number; cell?: boolean }) {
   return minor === 0 ? (
     <span className="text-mute">·</span>
   ) : (
-    <span className="text-bad-fg">{money(minor)}</span>
+    <span className="text-bad-fg">
+      {cell ? <CellMoney minor={minor} /> : money(minor)}
+    </span>
   )
 }
 
@@ -622,49 +629,53 @@ const ledgerColumns: ColumnDef<TableSetup, StockLedgerUnitRow>[] = [
     header: "On hand",
     size: 150,
     meta: { align: "right", card: "metric", priority: 3 },
-    cell: ({ row }) => money(row.original.on_hand_minor),
+    cell: ({ row }) => <CellMoney minor={row.original.on_hand_minor} />,
   },
   {
     accessorKey: "awaiting_setup_minor",
     header: "Awaiting setup",
     size: 160,
     meta: { align: "right", card: "metric", priority: 3 },
-    cell: ({ row }) => money(row.original.awaiting_setup_minor),
+    cell: ({ row }) => <CellMoney minor={row.original.awaiting_setup_minor} />,
   },
   {
     accessorKey: "stock_minor",
     header: "Stock",
     size: 150,
     meta: { align: "right", card: "metric" },
-    cell: ({ row }) => money(row.original.stock_minor),
+    cell: ({ row }) => <CellMoney minor={row.original.stock_minor} />,
   },
   {
     accessorKey: "ledger_minor",
     header: "Ledger",
     size: 150,
     meta: { align: "right", card: "metric" },
-    cell: ({ row }) => money(row.original.ledger_minor),
+    cell: ({ row }) => <CellMoney minor={row.original.ledger_minor} />,
   },
   {
     accessorKey: "difference_minor",
     header: "Difference",
     size: 150,
     meta: { align: "right", card: "metric" },
-    cell: ({ row }) => <Diff minor={row.original.difference_minor} />,
+    cell: ({ row }) => <Diff minor={row.original.difference_minor} cell />,
   },
   {
     accessorKey: "in_transit_stock_minor",
     header: "In transit",
     size: 150,
     meta: { align: "right", card: "metric", priority: 3 },
-    cell: ({ row }) => money(row.original.in_transit_stock_minor),
+    cell: ({ row }) => (
+      <CellMoney minor={row.original.in_transit_stock_minor} />
+    ),
   },
   {
     accessorKey: "in_transit_ledger_minor",
     header: "In transit ledger",
     size: 170,
     meta: { align: "right", card: "metric", priority: 3 },
-    cell: ({ row }) => money(row.original.in_transit_ledger_minor),
+    cell: ({ row }) => (
+      <CellMoney minor={row.original.in_transit_ledger_minor} />
+    ),
   },
   {
     id: "in_transit_difference",
@@ -673,7 +684,7 @@ const ledgerColumns: ColumnDef<TableSetup, StockLedgerUnitRow>[] = [
     size: 170,
     meta: { align: "right", card: "metric" },
     cell: ({ row }) => (
-      <Diff minor={row.original.in_transit_difference_minor} />
+      <Diff minor={row.original.in_transit_difference_minor} cell />
     ),
   },
 ]

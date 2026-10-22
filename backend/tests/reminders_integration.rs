@@ -77,7 +77,7 @@ async fn active_contract(pool: &PgPool, number: &str, ends_on: NaiveDate) -> Uui
         counterparty_name: Some("Pasar Raya Inkubator".into()),
         site_id: Some("dc".into()),
         site_scope: None,
-        asset_id: None,
+        asset_ids: vec![],
         starts_on: day(2026, 1, 1),
         ends_on: Some(ends_on),
         contract_value_minor: Some(240_000_000),

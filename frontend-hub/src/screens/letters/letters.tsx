@@ -9,11 +9,14 @@ import { useNavigate } from "@tanstack/react-router"
 import {
   ArrowLeft,
   BookmarkPlus,
-  FileSignature,
-  ListFilter,
+  Cpu,
+  Megaphone,
+  Package,
   Plus,
   Printer,
   Trash2,
+  Users,
+  type LucideIcon,
 } from "lucide-react"
 import { Suspense, useDeferredValue, useMemo, useState } from "react"
 
@@ -23,12 +26,11 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Fab } from "@/components/ui/fab"
 import { Field, Input, Textarea } from "@/components/ui/field"
-import { ChoiceMenu } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { RecordPanel } from "@/components/ui/record-panel"
 import { KeyValue } from "@/components/ui/rows"
-import { Segmented, Toolbar } from "@/components/ui/segmented"
+import { Toolbar } from "@/components/ui/segmented"
 import { Sheet } from "@/components/ui/sheet"
 import {
   Banner,
@@ -41,23 +43,18 @@ import { useLayout } from "@/lib/layout"
 import { queryState } from "@/lib/query-state"
 import {
   discardLetter,
-  draftLetter,
-  drawnFromRecord,
   fact,
   issueLetter,
   letterKeys,
   letterKindLabel,
   letterListQuery,
-  letterSources,
-  letterTemplates,
   letterTone,
-  LETTER_KINDS,
   LETTER_STATUS_LABEL,
   readLetter,
   saveLetter,
   saveTemplate,
   voidLetter,
-  type LetterKind,
+  type LetterGroupFilter,
   type LetterQuery,
   type LetterStatus,
 } from "@/lib/queries/letters"
@@ -67,14 +64,22 @@ import { cn } from "@/lib/utils"
 import { LetterBody } from "@/screens/letters/editor"
 import { LetterPaper, PrintStyles } from "@/screens/letters/document"
 import {
+  LETTER_GROUPS,
+  writtenForm,
+  type LetterGroup,
+} from "@/screens/letters/forms"
+import { NewLetterSheet } from "@/screens/letters/new-letter"
+import { WrittenLetter } from "@/screens/letters/writer"
+import {
   CardFigure,
   CardName,
   type CardSpec,
-  DESK_BAR,
   PhoneCards,
 } from "@/components/ui/phone-cards"
-import { FilterSheet } from "@/components/ui/filter-sheet"
-import type { LetterRow, LetterSource } from "@itulah/contract"
+import { ListFilters } from "@/components/ui/list-filters"
+import { SubTabs } from "@/components/ui/sub-tabs"
+import { useFilterState, type FilterField } from "@/lib/filters"
+import type { LetterRow } from "@itulah/contract"
 
 /// Letters — surat terima barang, surat jalan, and the register they live in.
 ///
@@ -95,17 +100,61 @@ import type { LetterRow, LetterSource } from "@itulah/contract"
 /// Discussions and Reports, and for the same reason: a letter with a number on
 /// it is the thing colleagues send each other links to.
 
-const STATUSES = [
-  { value: null, label: "Any status" },
-  { value: "DRAFT", label: "Draft" },
-  { value: "ISSUED", label: "Issued" },
-  { value: "VOID", label: "Void" },
-] as const
+const STATUSES: readonly { readonly value: string; readonly label: string }[] =
+  [
+    { value: "ANY", label: "All" },
+    { value: "DRAFT", label: "Draft" },
+    { value: "ISSUED", label: "Issued" },
+    { value: "VOID", label: "Void" },
+  ]
 
-const KINDS = [
+const GROUP_ICONS: Readonly<Record<LetterGroup, LucideIcon>> = {
+  goods: Package,
+  people: Users,
+  notices: Megaphone,
+}
+
+/// The register's groups (owner, 2026-10-17): the three a person writes in,
+/// then everything the system writes — surat jalan, goods receipt notes,
+/// return notes — under one.
+const GROUPS: readonly {
+  value: "all" | LetterGroupFilter
+  label: string
+  icon?: LucideIcon
+}[] = [
   { value: "all", label: "All" },
-  ...LETTER_KINDS.map((one) => ({ value: one.value, label: one.appLabel })),
-] as const
+  ...LETTER_GROUPS.map((one) => ({ ...one, icon: GROUP_ICONS[one.value] })),
+  { value: "system", label: "By system", icon: Cpu },
+]
+
+/// The kind of letter, as the chip line under the search.
+const GROUP_FIELDS: FilterField[] = [
+  {
+    column: "group",
+    label: "Kind",
+    spec: {
+      kind: "option",
+      single: true,
+      options: GROUPS.filter((one) => one.value !== "all"),
+      icon: (value) => GROUPS.find((one) => one.value === value)?.icon,
+    },
+  },
+]
+
+/// What a row is called: a written letter by its form, the others by kind.
+function letterName(row: { kind: string; form?: string }): string {
+  if (row.kind === "GENERAL") return writtenForm(row.form)?.name ?? "Letter"
+  return letterKindLabel(row.kind)
+}
+
+/// How much a row carries: a written goods letter counts its items, a letter
+/// from a record its pieces, anything else nothing.
+function letterQuantity(row: LetterRow): string {
+  if (row.kind !== "GENERAL") return count(row.quantity)
+  const form = writtenForm(row.form)
+  if (form?.items !== true) return "—"
+  return `${count(row.quantity)} ${row.quantity === 1 ? "item" : "items"}`
+}
 
 const STATUS_WORDS: Readonly<Record<string, string>> = {
   DRAFT: "Draft",
@@ -125,22 +174,24 @@ export function Letters() {
 // ---- The register ------------------------------------------------------
 
 function Register({ onOpen }: { onOpen: (id: string) => void }) {
-  const [kind, setKind] = useState<"all" | LetterKind>("all")
-  const [status, setStatus] = useState<string | null>(null)
+  const filters = useFilterState(GROUP_FIELDS)
+  const group = (filters.filters.find((one) => one.column === "group")
+    ?.values[0] ?? "all") as "all" | LetterGroupFilter
+  const [status, setStatus] = useState("ANY")
   const [search, setSearch] = useState("")
   const [writing, setWriting] = useState(false)
-  const [filtering, setFiltering] = useState(false)
   const phone = useLayout() === "phone"
   // The search is the server's, so it waits for the typing to stop.
   const needle = useDebounced(search.trim(), 300)
 
   const query = useMemo<LetterQuery>(
     () => ({
-      kind: kind === "all" ? null : kind,
-      status: (status as LetterStatus | null) ?? null,
+      kind: null,
+      group: group === "all" ? null : group,
+      status: status === "ANY" ? null : (status as LetterStatus),
       q: needle,
     }),
-    [kind, status, needle]
+    [group, status, needle]
   )
 
   /// Read for the question as it was a moment ago while a new one is on its
@@ -153,23 +204,14 @@ function Register({ onOpen }: { onOpen: (id: string) => void }) {
       <PageHeader
         crumb="GA"
         title="Letters"
-        sub="Manage deliveries and surat jalan. The letter number is assigned when it's issued."
         actions={
           // On a phone the search, the kind and the status are the dock's, and
           // the one thing this page makes is its round button.
           phone ? undefined : (
-            <>
-              <Input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search"
-                className="h-8 w-56"
-              />
-              <Button variant="primary" onClick={() => setWriting(true)}>
-                <Plus />
-                New letter
-              </Button>
-            </>
+            <Button variant="primary" onClick={() => setWriting(true)}>
+              <Plus />
+              New letter
+            </Button>
           )
         }
       />
@@ -178,51 +220,44 @@ function Register({ onOpen }: { onOpen: (id: string) => void }) {
       <DockTools
         search={{ value: search, onChange: setSearch, label: "Search letters" }}
         filter={{
-          count: status === null ? 0 : 1,
-          onOpen: () => setFiltering(true),
+          count: filters.filters.length,
+          panel: { model: filters },
         }}
         status={{
-          value: kind,
-          options: KINDS.map((one) => ({
-            value: one.value,
-            label: one.label,
-          })),
-          onChange: (next) => setKind(next as typeof kind),
+          value: status,
+          options: STATUSES,
+          onChange: setStatus,
         }}
       />
-      <FilterSheet
-        open={filtering}
-        onOpenChange={setFiltering}
-        groups={[
-          {
-            key: "status",
-            label: "Status",
-            value: status,
-            options: STATUSES.map((one) => ({
-              value: one.value as string | null,
-              label: one.label,
-            })),
-            onChange: setStatus,
-          },
-        ]}
+
+      <SubTabs
+        // On a phone the status is the chip over the bottom bar.
+        className="max-md:hidden"
+        tabs={STATUSES}
+        value={status}
+        onChange={setStatus}
       />
 
-      <div className={DESK_BAR}>
-        <Segmented options={KINDS} value={kind} onChange={setKind} />
-        <ChoiceMenu
-          heading="Status"
-          icon={ListFilter}
-          value={status}
-          options={STATUSES}
-          onChange={setStatus}
-        />
-        <Toolbar.Spacer />
-        {/* A caption on a toolbar: until the register has said, it says
-            nothing, rather than "Loading…" where a number goes — furniture
-            that moves while somebody reads it. */}
-        <Suspense fallback={null}>
-          <LetterTally query={asked} />
-        </Suspense>
+      {/* The search and the kind of letter, with the tally at the right. On a
+          phone they are the dock's. */}
+      <div className="max-md:hidden">
+        <Toolbar className="group/bar">
+          <ListFilters
+            model={filters}
+            search={{
+              value: search,
+              onChange: setSearch,
+              label: "Search letters",
+            }}
+          />
+          <Toolbar.Spacer />
+          {/* A caption on a toolbar: until the register has said, it says
+              nothing, rather than "Loading…" where a number goes — furniture
+              that moves while somebody reads it. */}
+          <Suspense fallback={null}>
+            <LetterTally query={asked} />
+          </Suspense>
+        </Toolbar>
       </div>
 
       <Suspense
@@ -237,7 +272,7 @@ function Register({ onOpen }: { onOpen: (id: string) => void }) {
         />
       </Suspense>
 
-      <SourceSheet
+      <NewLetterSheet
         open={writing}
         onClose={() => setWriting(false)}
         onDrafted={(id) => {
@@ -302,8 +337,7 @@ function LetterRows({
               </Button>
             }
           >
-            No letters yet. Create one from a delivery, a surat jalan to a
-            store, or start with a blank letter.
+            No letters yet.
           </EmptyState>
         </Card>
       ) : phone ? (
@@ -344,7 +378,7 @@ function LetterRows({
 const LETTER_CARD: CardSpec<LetterRow> = {
   title: (row) => (
     <CardName
-      name={letterKindLabel(row.kind)}
+      name={letterName(row)}
       code={row.letter_number ?? "no number yet"}
     />
   ),
@@ -353,7 +387,7 @@ const LETTER_CARD: CardSpec<LetterRow> = {
       [row.counterparty, row.place].filter((part) => part !== "").join(" · "),
     (row) => (row.reference === "" ? null : row.reference),
   ],
-  lead: (row) => <CardFigure value={count(row.quantity)} caption="Quantity" />,
+  lead: (row) => <CardFigure value={letterQuantity(row)} caption="Quantity" />,
   foot: (row) => (row.issued_at === null ? "Not issued" : day(row.issued_at)),
   action: (row) => (
     <Pill tone={letterTone(row.status)}>
@@ -388,7 +422,7 @@ function LetterRowLine({
       </span>
       <div className="min-w-0">
         <div className="truncate text-cell font-medium text-ink">
-          {letterKindLabel(row.kind)}
+          {letterName(row)}
         </div>
         <div className="mt-0.5 flex items-center gap-2 text-pill text-mute">
           <SubjectRef
@@ -403,7 +437,7 @@ function LetterRowLine({
       </div>
       <span className="truncate text-meta text-body">{row.counterparty}</span>
       <span className="text-right text-meta text-body tabular-nums">
-        {count(row.quantity)}
+        {letterQuantity(row)}
       </span>
       <span>
         <Pill tone={letterTone(row.status)}>
@@ -524,195 +558,6 @@ function SubjectRef({
   )
 }
 
-// ---- Choosing what to write one against --------------------------------
-
-/// The picker: which kind, then which record.
-///
-/// It offers only records with no live letter — that narrowing is the
-/// server's, and the list is therefore what somebody may actually pick rather
-/// than everything with half of it greyed out. A record whose letter was
-/// voided reappears here, which is what voiding is for.
-function SourceSheet({
-  open,
-  onClose,
-  onDrafted,
-}: {
-  open: boolean
-  onClose: () => void
-  onDrafted: (id: string) => void
-}) {
-  const client = useQueryClient()
-  const [kind, setKind] = useState<LetterKind>("GOODS_RECEIPT")
-  const chosen = LETTER_KINDS.find((one) => one.value === kind)
-
-  const fromRecord = drawnFromRecord(kind)
-  const [pattern, setPattern] = useState<string | null>(null)
-
-  const templates = useQuery({
-    queryKey: letterKeys.templates(kind),
-    queryFn: ({ signal }) => letterTemplates(kind, signal),
-    enabled: open,
-  })
-
-  const sources = useQuery({
-    queryKey: letterKeys.sources(kind),
-    queryFn: ({ signal }) => letterSources(kind, signal),
-    // A blank letter has no records to offer, so there is nothing to ask for.
-    enabled: open && fromRecord,
-  })
-
-  const draft = useMutation({
-    // A blank letter names no record; the server gives it its own id to point
-    // at, so what goes up is an empty string.
-    mutationFn: (source: LetterSource | null) =>
-      draftLetter({
-        kind,
-        subject_id: source?.subject_id ?? "",
-        template_id: pattern,
-      }),
-    onSuccess: (letter) => {
-      void client.invalidateQueries({ queryKey: letterKeys.all })
-      onDrafted(letter.letter_id)
-    },
-  })
-
-  return (
-    <Sheet
-      open={open}
-      onOpenChange={(next) => !next && onClose()}
-      title="New letter"
-      width="wide"
-    >
-      <div className="flex flex-col gap-4">
-        <Segmented
-          options={LETTER_KINDS.map((one) => ({
-            value: one.value,
-            label: one.appLabel,
-          }))}
-          value={kind}
-          onChange={setKind}
-        />
-
-        <p className="text-[0.9375rem] leading-relaxed text-body">
-          {chosen?.english} — written against {chosen?.source}.{" "}
-          {fromRecord
-            ? "The figures come from that record; the number is taken when the letter is issued."
-            : "Nothing is filled in for you. The number is taken when the letter is issued."}
-        </p>
-
-        {/* The pattern, chosen before the record rather than after.
-            
-            It is a property of the letter being written, not of the delivery
-            it is about — so it sits above both halves and applies to whichever
-            source is clicked next. `null` is the blank one, which is what the
-            first letter of any kind is written from. */}
-        {(templates.data?.items.length ?? 0) > 0 && (
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="mr-1 text-meta text-body">Pattern</span>
-            <ChoiceMenu
-              heading="Write it from"
-              icon={FileSignature}
-              value={pattern}
-              options={[
-                { value: null, label: "Blank" },
-                ...(templates.data?.items ?? []).map((one) => ({
-                  value: one.template_id,
-                  label: one.name,
-                })),
-              ]}
-              onChange={setPattern}
-            />
-          </div>
-        )}
-
-        {/* What a draft IS, said where somebody is about to make one.
-            
-            Picking a record here produces a draft immediately, which surprised
-            the owner — "bukan yg tiba2 langsung jadi draft?". It is deliberate
-            and it is cheap: a draft has no number, costs nothing, and is
-            thrown away with one button. The surprise was that nothing said so
-            beforehand. */}
-        <p className="text-pill text-mute">
-          This opens a draft: no number yet, and one button throws it away.
-        </p>
-
-        {draft.error instanceof Error && (
-          <Banner tone="bad">{draft.error.message}</Banner>
-        )}
-
-        {!fromRecord ? (
-          <Button
-            variant="primary"
-            pending={draft.isPending}
-            onClick={() => draft.mutate(null)}
-          >
-            <FileSignature className="size-3.5" />
-            {draft.isPending
-              ? "Writing…"
-              : pattern === null
-                ? "Write a blank letter"
-                : "Write it from this pattern"}
-          </Button>
-        ) : (
-          queryState(sources, {
-            loading: "Looking for records…",
-            render: (answer) =>
-              answer.items.length === 0 ? (
-                // Two different emptinesses, and they need different sentences:
-                // a person who has already written every letter there is has
-                // nothing to fix, and a person whose warehouse has not counted
-                // anything yet is waiting on somebody else.
-                <EmptyState>
-                  {answer.taken > 0 ? (
-                    <>
-                      Every record that could carry one already has its letter —{" "}
-                      {count(answer.taken)} written. Voiding a letter puts its
-                      record back on this list.
-                    </>
-                  ) : (
-                    <>
-                      Nothing has arrived to write one against yet: this letter
-                      is drawn from {chosen?.source}.
-                    </>
-                  )}
-                </EmptyState>
-              ) : (
-                <div className="overflow-hidden rounded-card border border-hairline">
-                  {answer.items.map((source) => (
-                    <button
-                      key={source.subject_id}
-                      type="button"
-                      disabled={draft.isPending}
-                      onClick={() => draft.mutate(source)}
-                      className="flex w-full items-center gap-3 border-b border-hairline px-3.5 py-2.5 text-left transition-colors last:border-b-0 hover:bg-soft disabled:opacity-60"
-                    >
-                      <FileSignature className="size-4 shrink-0 text-line-ico" />
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-cell font-medium text-ink">
-                          {source.reference}
-                        </span>
-                        <span className="mt-0.5 block truncate text-pill text-mute">
-                          {source.counterparty} · {day(source.occurred_at)}
-                        </span>
-                      </span>
-                      <span className="shrink-0 text-right text-meta text-body tabular-nums">
-                        {count(source.quantity)}
-                        <span className="block text-pill text-mute">
-                          {count(source.lines)}{" "}
-                          {source.lines === 1 ? "line" : "lines"}
-                        </span>
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              ),
-          })
-        )}
-      </div>
-    </Sheet>
-  )
-}
-
 // ---- One letter --------------------------------------------------------
 
 function OneLetter({ id, onBack }: { id: string; onBack: () => void }) {
@@ -795,6 +640,24 @@ function OneLetter({ id, onBack }: { id: string; onBack: () => void }) {
     discard.error,
     keep.error,
   ].find((error): error is Error => error instanceof Error)
+
+  // A letter a person wrote from a template opens on the desk, the paper as
+  // its own editor (owner, 2026-10-17); the ones drawn from records keep the
+  // page below.
+  const fromTemplate =
+    letter.data?.kind === "GENERAL"
+      ? writtenForm(letter.data.facts.form)
+      : undefined
+  if (letter.data !== undefined && fromTemplate !== undefined) {
+    return (
+      <WrittenLetter
+        key={letter.data.letter_id}
+        letter={letter.data}
+        form={fromTemplate}
+        onBack={onBack}
+      />
+    )
+  }
 
   return (
     <PageContent>

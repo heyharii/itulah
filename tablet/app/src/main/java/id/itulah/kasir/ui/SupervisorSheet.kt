@@ -69,14 +69,14 @@ fun SupervisorSheet(
                 .background(Canvas, RoundedCornerShape(RSheet))
                 .padding(24.dp),
         ) {
-            Text("Persetujuan supervisor", style = Type.hero)
+            Text("Supervisor approval", style = Type.hero)
             Text(what, style = Type.meta)
             Spacer(Modifier.height(16.dp))
 
             OutlinedTextField(
                 value = username,
                 onValueChange = { username = it.trim() },
-                label = { Text("Nama supervisor", style = Type.meta) },
+                label = { Text("Supervisor name", style = Type.meta) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(RInner),
@@ -105,17 +105,17 @@ fun SupervisorSheet(
 
             Spacer(Modifier.height(16.dp))
             PrimaryButton(
-                "Setujui",
+                "Approve",
                 { onApprove(Supervisor(username, pin)) },
                 Modifier.fillMaxWidth(),
                 enabled = username.isNotBlank() && pin.length >= 8,
                 busy = busy,
             )
             Spacer(Modifier.height(8.dp))
-            GhostButton("Batal", onCancel, Modifier.fillMaxWidth())
+            QuietButton("Cancel", onCancel, Modifier.fillMaxWidth())
             if (pin.isNotEmpty() && pin.length < 8) {
                 Spacer(Modifier.height(6.dp))
-                Text("PIN supervisor minimal 8 angka.", style = Type.pill)
+                Text("The supervisor PIN is at least 8 digits.", style = Type.pill)
             }
         }
     }

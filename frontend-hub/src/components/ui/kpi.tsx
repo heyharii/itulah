@@ -32,23 +32,52 @@ export function KpiStrip({
 export function Kpi({
   label,
   value,
+  title,
   delta,
   tone,
+  onClick,
 }: {
   label: React.ReactNode
   value: React.ReactNode
+  /// The exact figure behind a compact one ("Rp 589.200.000" under
+  /// "Rp 589,2 M"), shown on hover.
+  title?: string
   delta?: React.ReactNode
   tone?: "up" | "down" | "flat"
+  /// A figure that is also its list's filter: pressing it applies the filter
+  /// ("Due for renewal" turns the bar's switch on). The figure stays a figure:
+  /// no underline, no colour; its label darkens under the pointer.
+  onClick?: () => void
 }) {
+  const Card = onClick === undefined ? "div" : "button"
   return (
     // Full height, with the figure pushed to the BOTTOM rather than sitting
     // 7px under its label. A strip is read across: one two-line label among
     // three one-line ones used to drop that card's number half a line below
     // the rest of the row, which reads as four unrelated boxes instead of one
     // strip — and a long label is not something the caller can always shorten.
-    <div className="kpi-card flex h-full flex-col rounded-card border border-hairline bg-canvas px-4 py-2.5 shadow-soft">
-      <div className="kpi-label text-eyebrow font-medium text-body">{label}</div>
-      <div className="kpi-value mt-auto pt-1.5 text-[1.125rem] leading-none font-semibold tracking-[-0.02em] text-ink tabular-nums">
+    <Card
+      type={onClick === undefined ? undefined : "button"}
+      onClick={onClick}
+      className={cn(
+        "kpi-card flex h-full flex-col rounded-card border border-hairline bg-canvas px-4 py-2.5 shadow-soft",
+        onClick !== undefined &&
+          "group/kpi cursor-pointer text-left transition-transform duration-(--t-press) ease-(--ease-out) active:scale-[0.97]"
+      )}
+    >
+      <div
+        className={cn(
+          "kpi-label text-eyebrow font-medium text-body",
+          onClick !== undefined &&
+            "transition-colors pointer-fine:group-hover/kpi:text-ink!"
+        )}
+      >
+        {label}
+      </div>
+      <div
+        title={title}
+        className="kpi-value mt-auto pt-1.5 text-[1.125rem] leading-none font-semibold tracking-[-0.02em] text-ink tabular-nums"
+      >
         {/* A written figure rolls to its next value (FlowText); anything
             else a screen draws is shown as it is. */}
         {typeof value === "string" || typeof value === "number" ? (
@@ -82,7 +111,7 @@ export function Kpi({
           &nbsp;
         </div>
       )}
-    </div>
+    </Card>
   )
 }
 
@@ -188,7 +217,9 @@ export function KpiBox({
             index > 0 && "border-l border-hairline"
           )}
         >
-          <div className="truncate text-[0.9375rem] text-body">{item.label}</div>
+          <div className="truncate text-[0.9375rem] text-body">
+            {item.label}
+          </div>
           <div className="text-[1.125rem] leading-6 font-semibold tracking-[-0.02em] whitespace-nowrap text-ink tabular-nums">
             {item.value}
           </div>

@@ -261,7 +261,7 @@ function Body({
       {phone ? (
         <PhoneStatement lines={phoneLines(report, groups, totals)} />
       ) : (
-        <Grid>
+        <Grid followRows>
           <thead>
             <tr>
               <th className={cn(HEAD, STICKY, "min-w-[18rem] text-left")}>

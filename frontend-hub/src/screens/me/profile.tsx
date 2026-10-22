@@ -2,16 +2,18 @@ import { useForm } from "@tanstack/react-form"
 import { Link } from "@tanstack/react-router"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { ApiError } from "@itulah/contract/client"
-import { ChevronRight, KeyRound, LogOut } from "lucide-react"
+import { ChevronRight, KeyRound, LogOut, Palette } from "lucide-react"
 import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Field } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
+import { Segmented } from "@/components/ui/segmented"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner } from "@/components/ui/states"
 import { cacheKey } from "@/lib/api"
+import { setLookStyle, styleHint, type LookStyle } from "@/lib/look"
 import { changeOwnPassword } from "@/lib/queries/system"
 import { useIdentity, useSignOut } from "@/lib/session"
 import { Secret } from "@/screens/system/shared"
@@ -43,6 +45,8 @@ export function Profile() {
   const signOut = useSignOut()
   const profile = useProfile()
   const [changingPassword, setChangingPassword] = useState(false)
+  // Soft or Now (`lib/look.ts`): the client sees both before one stays.
+  const [style, setStyle] = useState<LookStyle>(styleHint)
   const unbound =
     profile.error instanceof ApiError && profile.error.status === 404
   const me = identity.data
@@ -112,6 +116,21 @@ export function Profile() {
                   {me?.role !== undefined && ` · ${ROLE[me.role] ?? me.role}`}
                 </span>
               </span>
+            </div>
+            <div className={ROW}>
+              <Palette className="size-[1.125rem] shrink-0 text-line-ico" />
+              <span className="flex-1">Look</span>
+              <Segmented
+                options={[
+                  { value: "now", label: "Now" },
+                  { value: "soft", label: "Soft" },
+                ]}
+                value={style}
+                onChange={(next) => {
+                  setStyle(next)
+                  setLookStyle(next)
+                }}
+              />
             </div>
             <button
               type="button"

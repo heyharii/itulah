@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { AnimatePresence, motion, useReducedMotion } from "motion/react"
-import { Clock, Gift } from "lucide-react"
+import { Clock } from "lucide-react"
 
 import { ScreenTitle } from "@/components/app-shell"
 import { NumberTicker } from "@/components/motion/number-ticker"
@@ -51,6 +51,9 @@ const WATCH_MS = 3_000
 
 /// Quick amounts. Only the ones the balance can cover are offered.
 const PRESETS = [25, 50, 100, 250] as const
+
+/// A chosen amount: the pastel ground with a ring of the matte blue.
+const CHOSEN = "bg-matte-ground text-matte-foot shadow-[inset_0_0_0_2px_var(--m-foot)]"
 
 const step = (index: number) => ({ "--i": index }) as React.CSSProperties
 
@@ -157,9 +160,9 @@ export function RedeemView() {
     <div className="flex flex-col">
       <ScreenTitle>Tukar poin</ScreenTitle>
 
-      <section className="rise flex flex-col items-center py-2 text-center" style={step(0)}>
+      <Card className="rise flex flex-col px-5 py-5" style={step(0)}>
         <p className="text-nav text-body">Poin yang bisa ditukar</p>
-        <div className="mt-2 flex min-h-[3.5rem] items-baseline gap-2">
+        <div className="mt-1 flex min-h-[3.5rem] items-baseline gap-2">
           {balance.isError ? (
             <p className="text-body">Saldo belum bisa ditampilkan.</p>
           ) : available === undefined ? (
@@ -175,9 +178,9 @@ export function RedeemView() {
             </>
           )}
         </div>
-      </section>
+      </Card>
 
-      <div className="rise mt-6" style={step(1)}>
+      <div className="rise mt-4" style={step(1)}>
         {/* The form and the code occupy the same place and trade it: the
             outgoing one leaves quickly, the incoming one arrives — exit
             faster than enter, so the screen never holds both. */}
@@ -244,8 +247,8 @@ export function RedeemView() {
                         type="button"
                         onClick={() => setAmount(String(preset))}
                         className={cn(
-                          "press h-9 rounded-full px-4 text-meta font-semibold",
-                          amountValue === preset ? "bg-ink text-on-dark" : "bg-soft-2 text-ink",
+                          "press h-10 rounded-full px-4 text-meta font-semibold",
+                          amountValue === preset ? CHOSEN : "bg-soft-2 text-ink",
                         )}
                       >
                         {units(preset)}
@@ -256,8 +259,8 @@ export function RedeemView() {
                         type="button"
                         onClick={() => setAmount(String(available))}
                         className={cn(
-                          "press h-9 rounded-full px-4 text-meta font-semibold",
-                          amountValue === available ? "bg-ink text-on-dark" : "bg-soft-2 text-ink",
+                          "press h-10 rounded-full px-4 text-meta font-semibold",
+                          amountValue === available ? CHOSEN : "bg-soft-2 text-ink",
                         )}
                       >
                         Semua
@@ -314,7 +317,7 @@ export function RedeemView() {
             {history.data.map((request) => (
               <ListRow
                 key={request.request_id}
-                icon={Gift}
+                art="gift"
                 title={<span className="num">{units(request.points)} poin</span>}
                 description={relativeLabel(request.requested_at)}
                 trailing={<Pill tone={STATUS_TONE[request.status]}>{STATUS_LABEL[request.status]}</Pill>}
@@ -355,7 +358,7 @@ function RedeemCode({
           {units(request.points)} poin sudah jadi voucher. Kasir langsung
           memakainya untuk pembayaranmu.
         </p>
-        <Button variant="soft" className="mt-6" onClick={onReset}>
+        <Button variant="secondary" className="mt-6" onClick={onReset}>
           Selesai
         </Button>
       </Card>
@@ -365,8 +368,8 @@ function RedeemCode({
   const dead = remaining === 0 || status === "EXPIRED" || status === "CANCELLED"
 
   return (
-    <div className="flex flex-col items-center rounded-card bg-soft-2 px-4 pt-6 pb-5 text-center">
-      <p className="text-eyebrow font-semibold text-mute uppercase">
+    <div className="flex flex-col items-center rounded-card bg-matte-ground px-4 pt-6 pb-5 text-center">
+      <p className={cn("text-nav font-semibold", dead ? "text-mute" : "text-matte-foot")}>
         {dead ? "Kode tidak berlaku" : "Tunjukkan ke kasir"}
       </p>
       <div className="mt-4 w-full">
@@ -390,9 +393,9 @@ function RedeemCode({
           </p>
           {/* The code's life as a draining line. Linear — it is a clock —
               and a transform, so it costs nothing while it runs. */}
-          <div className="mt-3 h-1 w-40 overflow-hidden rounded-full bg-hairline-2">
+          <div className="mt-3 h-1 w-40 overflow-hidden rounded-full bg-matte-ground-2">
             <div
-              className="h-full origin-left rounded-full bg-ink"
+              className="h-full origin-left rounded-full bg-matte-foot"
               style={{
                 animation: `drain ${lifetime}s linear both`,
                 animationDelay: `-${lifetime - remaining}s`,
@@ -406,7 +409,7 @@ function RedeemCode({
         </>
       )}
 
-      <Button variant="secondary" size="sm" className="mt-5" onClick={onReset}>
+      <Button variant="ghost" size="sm" className="mt-5" onClick={onReset}>
         {dead ? "Buat kode baru" : "Buat penukaran lain"}
       </Button>
     </div>

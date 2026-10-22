@@ -14,6 +14,7 @@ import { Sheet } from "@/components/ui/sheet"
 import { SheetFooter } from "@/components/ui/sheet-footer"
 import { Field, Input, Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
+import { CellMoney } from "@/components/ui/rows-switch"
 import {
   Banner,
   EmptyState,
@@ -167,7 +168,7 @@ function ProjectListScreen({ onOpen }: { onOpen: (id: string) => void }) {
           ))}
         </PhoneList>
       ) : (
-        <Grid>
+        <Grid followRows giveUp={[2]}>
           <thead>
             <tr>
               <Th>Project</Th>
@@ -198,12 +199,14 @@ function ProjectListScreen({ onOpen }: { onOpen: (id: string) => void }) {
                 <Td className="text-body">
                   {plainUnit(unitName(row.unit_id))}
                 </Td>
-                <Td align="right">{money(row.advanced_minor)}</Td>
+                <Td align="right">
+                  <CellMoney minor={row.advanced_minor} />
+                </Td>
                 <Td align="right">
                   {row.invoiced_minor === 0 ? (
                     <span className="text-mute">—</span>
                   ) : (
-                    money(row.invoiced_minor)
+                    <CellMoney minor={row.invoiced_minor} />
                   )}
                 </Td>
                 <Td>
@@ -360,7 +363,7 @@ function ProjectPage({ id, onBack }: { id: string; onBack: () => void }) {
                 }))}
               />
             ) : (
-              <Grid>
+              <Grid followRows>
                 <thead>
                   <tr>
                     <Th width="9rem">Paid on</Th>
@@ -385,7 +388,9 @@ function ProjectPage({ id, onBack }: { id: string; onBack: () => void }) {
                             .join(" · ")}
                         </span>
                       </Td>
-                      <Td align="right">{money(row.amount_minor)}</Td>
+                      <Td align="right">
+                        <CellMoney minor={row.amount_minor} />
+                      </Td>
                     </tr>
                   ))}
                 </tbody>
@@ -436,7 +441,7 @@ function ProjectPage({ id, onBack }: { id: string; onBack: () => void }) {
                 })}
               />
             ) : (
-              <Grid>
+              <Grid followRows>
                 <thead>
                   <tr>
                     <Th width="9rem">Invoice date</Th>
@@ -482,7 +487,9 @@ function ProjectPage({ id, onBack }: { id: string; onBack: () => void }) {
                             </>
                           )}
                         </Td>
-                        <Td align="right">{money(row.total_minor)}</Td>
+                        <Td align="right">
+                          <CellMoney minor={row.total_minor} />
+                        </Td>
                       </tr>
                     )
                   })}
@@ -514,7 +521,7 @@ function ProjectPage({ id, onBack }: { id: string; onBack: () => void }) {
                   }))}
                 />
               ) : (
-                <Grid>
+                <Grid followRows>
                   <thead>
                     <tr>
                       <Th>Into</Th>
@@ -540,7 +547,9 @@ function ProjectPage({ id, onBack }: { id: string; onBack: () => void }) {
                             ? lifeWords(row.useful_life_months)
                             : "This month"}
                         </Td>
-                        <Td align="right">{money(row.amount_minor)}</Td>
+                        <Td align="right">
+                          <CellMoney minor={row.amount_minor} />
+                        </Td>
                       </tr>
                     ))}
                   </tbody>

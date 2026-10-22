@@ -2,6 +2,7 @@ import { Check, SlidersHorizontal } from "lucide-react"
 import { useState } from "react"
 
 import { DockPortal, useDock } from "@/components/shell/dock"
+import { FilterChips, type ChipOption } from "@/components/ui/filter-chips"
 import { SHEET_ROW } from "@/components/ui/list-chrome"
 import { BottomSheet } from "@/components/ui/picker-sheet"
 import { count } from "@/lib/format"
@@ -21,11 +22,9 @@ export interface FilterGroup {
   readonly label: string
   /// The chosen value; null is the first option's "any".
   readonly value: string | null
-  readonly options: readonly {
-    readonly value: string | null
-    readonly label: string
-    readonly count?: number
-  }[]
+  /// Give the options icons and the group is drawn as the same icon chips the
+  /// desk shows (`FilterChips`), so a phone and a desk read one control.
+  readonly options: readonly ChipOption[]
   readonly onChange: (value: string | null) => void
 }
 
@@ -64,7 +63,15 @@ export function FilterSheet({
             <h3 className="px-3 pt-3 pb-1 text-[0.9375rem] font-medium text-mute">
               {group.label}
             </h3>
-            {group.options.map((option) => {
+            {group.options.some((option) => option.icon !== undefined) ? (
+              <FilterChips
+                label={group.label}
+                value={group.value}
+                options={group.options}
+                onChange={group.onChange}
+                className="px-3 pt-1 pb-2"
+              />
+            ) : group.options.map((option) => {
               const on = option.value === group.value
               return (
                 <button

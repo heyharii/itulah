@@ -41,7 +41,7 @@ API road cannot reach in a reasonable time against a remote database.
 The EPCs are real. `encode_epc` below is a transliteration of
 `backend/src/cloud/domain/identity.rs`, checked at import time against the same
 golden vector that file is checked against — `encode("12345678123", 100) ==
-"a11234567812300000000064"` — because a seeded tag that a handheld cannot read
+"A11234567812300000000064"` — because a seeded tag that a handheld cannot read
 is worse than no tag: in the warehouse it looks like missing stock, not like a
 bad fixture.
 
@@ -114,12 +114,15 @@ def encode_epc(sku: str, serial: int) -> str:
     epc[9] = (serial >> 16) & 0xFF
     epc[10] = (serial >> 8) & 0xFF
     epc[11] = serial & 0xFF
-    return epc.hex()
+    # Uppercase, as the runtime mints them (`identity.rs`) and as every column
+    # that holds an EPC compares them: case-sensitively. A lowercase seed was a
+    # tag no read and no join would ever match.
+    return epc.hex().upper()
 
 
 # The assertion that makes the rest of this file trustworthy. If it ever fails,
 # every tag this script writes is unreadable by the handhelds in the field.
-assert encode_epc("12345678123", 100) == "a11234567812300000000064", (
+assert encode_epc("12345678123", 100) == "A11234567812300000000064", (
     "EPC encoder does not agree with the one already on garments in the estate"
 )
 
@@ -675,7 +678,9 @@ def build(db: Db, wanted: int, seed: int) -> None:
 
                         for serial in range(serial_from, serial_to + 1):
                             epc = encode_epc(code, serial)
-                            subject_id = rid(f"subject:{seed}:{epc}")
+                            # Named by the lowercase spelling these ids were always
+                            # derived from, so the ids do not move with the case.
+                            subject_id = rid(f"subject:{seed}:{epc.lower()}")
                             subject_rows.append(
                                 (subject_id, "UNIT", sku_id, epc, barcode_payload(code), 1, "EA", tagged_at)
                             )
@@ -976,7 +981,7 @@ COMMIT;
     )
 
 
-EPC_HEADER_HEX = f"{RETAIL_PRIVATE_HEADER:02x}"
+EPC_HEADER_HEX = f"{RETAIL_PRIVATE_HEADER:02X}"
 
 
 def audit_sql() -> str:
@@ -1016,7 +1021,7 @@ UNION ALL SELECT 'units whose SKU has no PO behind it', count(*) FROM inventory_
   WHERE k.created_by_session_id IS NULL
 UNION ALL SELECT 'units with no SKU at all', count(*) FROM inventory_subject WHERE sku_id IS NULL
 UNION ALL SELECT 'UNIT subjects with a malformed EPC', count(*) FROM inventory_subject
-  WHERE subject_type='UNIT' AND (epc IS NULL OR epc !~ '^[0-9a-f]{24}$'
+  WHERE subject_type='UNIT' AND (epc IS NULL OR epc !~ '^[0-9A-F]{24}$'
      -- The header the encoder above actually writes, rather than a second copy
      -- of it: the handheld lane moved the estate from `0xa0` to `0xa1` and this
      -- literal stayed behind, so every one of 32,426 correctly minted units

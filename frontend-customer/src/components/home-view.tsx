@@ -2,10 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import { AnimatePresence, motion, useReducedMotion } from "motion/react"
-import { ArrowRight, Gift, ScanBarcode, ShoppingBag } from "lucide-react"
+import { ArrowRight, ScanBarcode } from "lucide-react"
 
 import { Avatar } from "@/components/avatar"
 import { BellChip } from "@/components/bell"
+import { MattePicture, type MatteArt } from "@/components/matte"
 import { MemberCard } from "@/components/member-card"
 import { AnimatedNumber } from "@/components/motion/animated-number"
 import { NumberTicker } from "@/components/motion/number-ticker"
@@ -25,6 +26,16 @@ import { usePointsFeed } from "@/lib/points-feed"
 import { useSession } from "@/lib/session"
 
 const RECENT = 5
+
+/// The four doors under the balance, the hub grid's way: a matte picture
+/// over its name. Redeeming first, next to the thumb — it is what members
+/// come back to do.
+const SHORTCUTS: ReadonlyArray<{ to: string; label: string; art: MatteArt }> = [
+  { to: "/tukar-poin", label: "Tukar poin", art: "gift" },
+  { to: "/kartu", label: "Kartu", art: "card" },
+  { to: "/riwayat", label: "Riwayat", art: "receipt" },
+  { to: "/notifikasi", label: "Aktivitas", art: "notify" },
+]
 
 /// Position in the first-paint cascade. 50ms apart (see `.rise`).
 const step = (index: number) => ({ "--i": index }) as React.CSSProperties
@@ -92,7 +103,7 @@ export function HomeView() {
         <Link
           to="/kartu"
           aria-label="Buka kartu member"
-          className="rise mx-auto mt-5 block w-full max-w-[19.5rem]"
+          className="rise mt-5 block w-full"
           style={step(1)}
         >
           <motion.div layoutId="member-card">
@@ -100,20 +111,20 @@ export function HomeView() {
               memberId={me.member_id}
               name={me.display_name}
               since={me.joined_on}
-              shine={gained?.id ?? 0}
+              lift={gained?.id ?? 0}
             />
           </motion.div>
         </Link>
 
         <section
           aria-labelledby="saldo"
-          className="rise mt-9 flex flex-col items-center text-center"
+          className="rise mt-9 flex flex-col px-1"
           style={step(2)}
         >
           <h2 id="saldo" className="text-nav text-body">
             Saldo poin
           </h2>
-          <div className="relative mt-2 flex min-h-[3.5rem] items-baseline justify-center gap-2">
+          <div className="relative mt-1 flex min-h-[3.5rem] items-baseline gap-2">
             <GainBubble gain={gained} />
             {balance.isError ? (
               <p className="text-body">Saldo belum bisa ditampilkan.</p>
@@ -130,7 +141,7 @@ export function HomeView() {
               </>
             )}
           </div>
-          <p className="mt-2 max-w-[18rem] text-meta text-body">
+          <p className="mt-2 text-meta text-body">
             {/* The ledger may go below nought on purpose: points already turned
                 into a voucher are never clawed back when the sale that earned
                 them is cancelled. Say so, or a minus reads as a fault. */}
@@ -142,18 +153,20 @@ export function HomeView() {
           </p>
         </section>
 
-        {/* Redeeming is what members come back for, so it is the filled
-            action; the card is one tap away on the card itself as well. */}
-        <div className="rise mt-6 grid grid-cols-2 gap-3" style={step(3)}>
-          <Button variant="primary" size="lg" render={<Link to="/tukar-poin" />}>
-            <Gift />
-            Tukar poin
-          </Button>
-          <Button variant="secondary" size="lg" render={<Link to="/kartu" />}>
-            <ScanBarcode />
-            Kartu
-          </Button>
-        </div>
+        <nav aria-label="Pintasan" className="rise mt-6 grid grid-cols-4 gap-1" style={step(3)}>
+          {SHORTCUTS.map((shortcut) => (
+            <Link
+              key={shortcut.to}
+              to={shortcut.to}
+              className="press flex flex-col items-center gap-2 rounded-[1rem] py-1"
+            >
+              <MattePicture art={shortcut.art} size={60} />
+              <span className="text-nav font-medium whitespace-nowrap text-text">
+                {shortcut.label}
+              </span>
+            </Link>
+          ))}
+        </nav>
 
         {summary.isError && (
           <div className="mt-4">
@@ -167,10 +180,8 @@ export function HomeView() {
         <Card className="rise mt-6 overflow-hidden" style={step(4)}>
           <div className="flex items-center justify-between gap-3 px-5 pt-4 pb-3.5">
             <span className="flex items-center gap-2.5">
-              <span className="flex size-7 items-center justify-center rounded-full bg-ink">
-                <ShoppingBag className="size-3.5 text-on-dark" strokeWidth={2.25} />
-              </span>
-              <span className="text-metric font-medium text-ink">Belanja kamu</span>
+              <MattePicture art="bag" size={36} />
+              <span className="text-metric font-semibold text-ink">Belanja kamu</span>
             </span>
             {summary.data === undefined ? (
               <Skeleton className="h-4 w-20" />
@@ -183,11 +194,13 @@ export function HomeView() {
           <div className="mx-5 h-px bg-hairline" />
           <div className="grid grid-cols-2 py-4">
             <Figure
+              art="receipt"
               label="Transaksi"
               value={summary.data?.transaction_count}
               format={units}
             />
             <Figure
+              art="tag"
               label="Hemat"
               value={summary.data?.saved_minor}
               format={(value) => moneyShort(value, summary.data?.currency ?? "IDR")}
@@ -245,11 +258,13 @@ export function HomeView() {
 /// One figure in the summary card: grey label over a large number, counting
 /// up when it changes so a refetch shows the difference.
 function Figure({
+  art,
   label,
   value,
   format,
   divider = false,
 }: {
+  art: MatteArt
   label: string
   value: number | undefined
   format: (value: number) => string
@@ -263,6 +278,7 @@ function Figure({
           : "flex flex-col items-center gap-1"
       }
     >
+      <MattePicture art={art} size={36} className="mb-1" />
       <p className="text-meta text-body">{label}</p>
       {value === undefined ? (
         <Skeleton className="h-6 w-16" />
@@ -321,7 +337,7 @@ function GainBubble({ gain }: { gain: { id: number; value: number } | null }) {
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={reduce ? { opacity: 0 } : { opacity: 0, y: -12, transition: { duration: 0.25, ease: EASE_OUT } }}
           transition={reduce ? { duration: 0.2 } : { type: "spring", duration: 0.45, bounce: 0.25 }}
-          className="num absolute -top-7 left-1/2 -translate-x-1/2 rounded-full bg-ok-bg px-3 py-1 text-meta font-semibold whitespace-nowrap text-ok-fg"
+          className="num absolute -top-8 left-0 rounded-full bg-ok-bg px-3 py-1 text-meta font-semibold whitespace-nowrap text-ok-fg"
         >
           +{units(gain.value)} poin
         </motion.span>

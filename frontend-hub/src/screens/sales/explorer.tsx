@@ -31,11 +31,12 @@ import { cn } from "@/lib/utils"
 import {
   ExportTool,
   FilterSheet,
-  PeriodBar,
   PeriodSheet,
   PhoneDock,
   Applied,
+  Scope,
   Tools,
+  type Pane,
   type Update,
 } from "@/screens/sales/explorer-controls"
 import {
@@ -62,7 +63,6 @@ import {
   monthColumns,
   noun,
   pageTitle,
-  perReceipt,
   periodLabel,
   receiptsOf,
   resolvePeriod,
@@ -113,8 +113,8 @@ export function SalesExplorer() {
       {/* The page head, like every list's. On a phone the top bar already says
           the page, so only the line under it stays: what period and how many
           stores are on screen, with the reload in the dock. A desk has that
-          line at the foot of the results card, and the period beside the
-          search in the one bar over the rows. */}
+          line at the foot of the results card, and the period and the filter
+          between the title and the figures, which they change too. */}
       <PageHeader title={group === null ? "Sales" : pageTitle(group)} />
       <Suspense fallback={<LoadingState>Adding up the sales…</LoadingState>}>
         <ExplorerBody />
@@ -130,7 +130,12 @@ function ExplorerBody() {
   const { state, q, update, setQuery } = useExplorerState()
   const options = useSuspenseQuery(explorerOptionsQuery())
   const [filterOpen, setFilterOpen] = useState(false)
+  const [filterPane, setFilterPane] = useState<Pane>("stores")
   const [periodOpen, setPeriodOpen] = useState(false)
+  const openFilter = (pane?: Pane) => {
+    if (pane !== undefined) setFilterPane(pane)
+    setFilterOpen(true)
+  }
   const [open, setOpen] = useState<ExplorerRow | null>(null)
 
   // -- the question ----------------------------------------------------------
@@ -274,6 +279,8 @@ function ExplorerBody() {
     <FilterSheet
       open={filterOpen}
       onOpenChange={setFilterOpen}
+      pane={filterPane}
+      onPane={setFilterPane}
       state={state}
       update={update}
       options={options.data}
@@ -298,6 +305,17 @@ function ExplorerBody() {
           </p>
           <RefreshStamp queries={[options, rows]} />
         </div>
+      )}
+
+      {!phone && range !== null && (
+        <Scope
+          state={state}
+          update={update}
+          range={range}
+          bounds={bounds}
+          options={options.data}
+          onOpenFilter={openFilter}
+        />
       )}
 
       {head !== undefined && (
@@ -338,22 +356,7 @@ function ExplorerBody() {
             setQuery={setQuery}
             state={state}
             update={update}
-            onOpenFilter={() => setFilterOpen(true)}
-            // The period joins the bar: one row over the rows, not one beside
-            // the title and another over the card.
-            refresh={
-              <>
-                {range !== null && (
-                  <PeriodBar
-                    state={state}
-                    update={update}
-                    range={range}
-                    bounds={bounds}
-                  />
-                )}
-                <RefreshStamp queries={[options, rows]} />
-              </>
-            }
+            refresh={<RefreshStamp queries={[options, rows]} />}
             exporter={
               <ExportTool
                 build={build}
@@ -362,7 +365,6 @@ function ExplorerBody() {
               />
             }
           />
-          <Applied state={state} update={update} options={options.data} />
           <Crumbs state={state} update={update} />
           <div
             className={cn(
@@ -374,8 +376,20 @@ function ExplorerBody() {
           </div>
           {head !== undefined && (
             <div className="flex shrink-0 items-center gap-3 border-t border-hairline px-4 py-3 text-[0.9375rem] text-mute tabular-nums">
-              <span>{rowsText}</span>
-              {quiet !== null && <span>{quiet}</span>}
+              <span>
+                {rowsText}
+                {range !== null && <> · {periodLabel(range)}</>}
+                {/* How many stores the figures are across; on the stores' own
+                    page the rows already say it. */}
+                {state.group !== "store" && (
+                  <>
+                    {" "}
+                    · {count(head.stores.length)}{" "}
+                    {head.stores.length === 1 ? "store" : "stores"}
+                  </>
+                )}
+                {head.pending_days > 0 && " · Updating"}
+              </span>
               {laidOut && state.heat && (
                 <span className="inline-flex items-center gap-1.5">
                   · Lowest {months ? "month" : "store"}
@@ -403,7 +417,7 @@ function ExplorerBody() {
             state={state}
             periodText={periodLabel(range)}
             custom={customRange}
-            onOpenFilter={() => setFilterOpen(true)}
+            onOpenFilter={() => openFilter()}
             onOpenPeriod={() => setPeriodOpen(true)}
           />
           <PeriodSheet
@@ -461,11 +475,14 @@ function Sub({ children, title }: { children: string; title?: string }) {
   )
 }
 
-/// The totals, first: how many receipts, how many pieces, what they fetched,
-/// what the pieces cost, what is left over and what is on the shelves. One word,
-/// Sales: it is what was charged after discounts and returns. Receipts are
-/// counted only while no item filter is on; with one, the figures that need
-/// them are a dash.
+/// The totals, first, in four (owner, 20 Oct 2026,
+/// `sales-filter-export-options.html` K4 · Four): money first — Sales, what
+/// is left of it, the pieces, the receipts — and one fact under each. One word,
+/// Sales: it is what was charged after discounts and returns. COGS is not a
+/// figure of its own (it is Sales less Gross profit; the export and the store
+/// sheet still carry it), and neither is the stock: it is today's whatever the
+/// period, and the table's Total row already says it. Receipts are counted only
+/// while no item filter is on; with one, the figures that need them are a dash.
 function Strip({
   head,
   canCost,
@@ -478,7 +495,6 @@ function Strip({
   const t = head.total
   const receipts = receiptsOf(t)
   const voided = t.voided_receipts ?? null
-  const average = perReceipt(t)
   const margin = marginOf(t)
   const compact = (minor: number | null) =>
     minor === null ? (
@@ -488,6 +504,40 @@ function Strip({
     )
   return (
     <KpiStrip className={cn(phone && "mb-3")}>
+      <Kpi
+        label="Sales"
+        value={compact(t.sales_minor)}
+        delta={<Sub>{`${moneyCompact(t.discount_minor)} discount`}</Sub>}
+        tone="flat"
+      />
+      {canCost && (
+        <Kpi
+          label="Gross profit"
+          value={compact(t.profit_minor)}
+          delta={
+            margin === null ? undefined : (
+              <Sub
+                title={
+                  t.uncosted_qty > 0
+                    ? `${percent(margin, { digits: 1 })} margin · ${quantity(t.uncosted_qty)} sold without a cost are left out`
+                    : undefined
+                }
+              >{`${percent(margin, { digits: 1 })} margin`}</Sub>
+            )
+          }
+          tone="flat"
+        />
+      )}
+      <Kpi
+        label="Sold"
+        value={quantity(t.qty)}
+        delta={
+          receipts === null || receipts === 0 ? undefined : (
+            <Sub>{`${decimal(t.qty / receipts, 1)} pcs each`}</Sub>
+          )
+        }
+        tone="flat"
+      />
       <Kpi
         label="Transactions"
         value={receipts === null ? "—" : count(receipts)}
@@ -502,66 +552,6 @@ function Strip({
             >
               {`${count(voided)} voided`}
             </Sub>
-          ) : undefined
-        }
-        tone="flat"
-      />
-      <Kpi
-        label="Sold"
-        value={quantity(t.qty)}
-        delta={
-          receipts === null || receipts === 0 ? undefined : (
-            <Sub>{`${decimal(t.qty / receipts, 1)} pcs each`}</Sub>
-          )
-        }
-        tone="flat"
-      />
-      <Kpi
-        label="Sales"
-        value={compact(t.sales_minor)}
-        delta={
-          <Sub>
-            {`${moneyCompact(t.discount_minor)} discount${
-              average === null ? "" : ` · avg ${moneyCompact(average)}`
-            }`}
-          </Sub>
-        }
-        tone="flat"
-      />
-      {canCost && t.cost_minor !== null && (
-        <Kpi
-          label="COGS"
-          value={compact(t.cost_minor)}
-          delta={
-            t.uncosted_qty > 0 ? (
-              <Sub>{`${quantity(t.uncosted_qty)} without cost`}</Sub>
-            ) : t.sales_minor === 0 ? undefined : (
-              <Sub>
-                {`${percent((t.cost_minor / t.sales_minor) * 100, { digits: 1 })} of sales`}
-              </Sub>
-            )
-          }
-          tone="flat"
-        />
-      )}
-      {canCost && (
-        <Kpi
-          label="Gross profit"
-          value={compact(t.profit_minor)}
-          delta={
-            margin === null ? undefined : (
-              <Sub>{`${percent(margin, { digits: 1 })} margin`}</Sub>
-            )
-          }
-          tone="flat"
-        />
-      )}
-      <Kpi
-        label="Stock"
-        value={t.stock === null ? "—" : quantity(t.stock)}
-        delta={
-          canCost && t.stock_cost_minor !== null ? (
-            <Sub>{`worth ${moneyCompact(t.stock_cost_minor)}`}</Sub>
           ) : undefined
         }
         tone="flat"

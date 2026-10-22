@@ -2,15 +2,22 @@ import { useQuery, useSuspenseQuery } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { Suspense, useDeferredValue, useMemo, useState } from "react"
+import {
+  CircleHelp,
+  PackageMinus,
+  PenLine,
+  Tag,
+  TrendingDown,
+} from "lucide-react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { DockTools, type DockStatus } from "@/components/shell/dock-tools"
 import { Card } from "@/components/ui/card"
 import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { Checkbox } from "@/components/ui/field"
-import { DeskFilterButton, DeskFilterChips } from "@/components/ui/desk-filter"
+import { DeskFilterButton } from "@/components/ui/desk-filter"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
-import { BarSpacer, ExpandingSearch } from "@/components/ui/list-chrome"
+import { BarSpacer } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill, Status } from "@/components/ui/pill"
 import { MiniCell, MiniRow, MiniTable, SubHead } from "@/components/ui/rows"
@@ -23,7 +30,7 @@ import {
   type FilterField,
   type FilterKind,
 } from "@/lib/filters"
-import { count, day, money, moment } from "@/lib/format"
+import { count, dateRange, day, money, moment, sku } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import {
   describeChangeKind,
@@ -40,6 +47,7 @@ import {
   commercialKeys,
   priceBookDetail,
 } from "@/lib/queries/commercial"
+import { useNameOfLogin } from "@/lib/queries/hr-employees"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
@@ -127,21 +135,8 @@ const KINDS: Record<string, FilterKind> = {
 }
 
 const FIELDS: readonly FilterField[] = [
-  {
-    column: "period",
-    label: "Period",
-    // A fixed set, not the values present. A list with nothing scheduled on it
-    // should still offer Scheduled — a facet that disappears when its count
-    // reaches nought is a filter people conclude does not exist.
-    spec: {
-      kind: "option",
-      options: [
-        { value: "Scheduled", label: "Scheduled" },
-        { value: "Active", label: "Active" },
-        { value: "Ended", label: "Ended" },
-      ],
-    },
-  },
+  // Kind first: the first short question is the one line of chips, and
+  // Status is already the tabs above.
   {
     column: "kind",
     label: "Kind",
@@ -154,6 +149,33 @@ const FIELDS: readonly FilterField[] = [
         { value: "Correction", label: "Correction" },
         { value: "Unclassified", label: "Unclassified" },
       ],
+      icon: (value) =>
+        value === "Regular price change"
+          ? Tag
+          : value === "Markdown"
+            ? TrendingDown
+            : value === "Clearance"
+              ? PackageMinus
+              : value === "Correction"
+                ? PenLine
+                : value === "Unclassified"
+                  ? CircleHelp
+                  : undefined,
+    },
+  },
+  {
+    column: "period",
+    label: "Status",
+    // A fixed set, not the values present. A list with nothing scheduled on it
+    // should still offer Scheduled — a facet that disappears when its count
+    // reaches nought is a filter people conclude does not exist.
+    spec: {
+      kind: "option",
+      options: [
+        { value: "Scheduled", label: "Scheduled" },
+        { value: "Live", label: "Live" },
+        { value: "Ended", label: "Ended" },
+      ],
     },
   },
   { column: "published", label: "Published by", spec: { kind: "option" } },
@@ -164,7 +186,7 @@ const FIELDS: readonly FilterField[] = [
   },
   {
     column: "shops",
-    label: "Stores outstanding",
+    label: "Stores waiting",
     spec: { kind: "number", unit: "stores" },
   },
   {
@@ -182,7 +204,7 @@ export function changeNumber(version: number): string {
 }
 
 /// Where a change stands, as a dot and a word: the period, unless stores are
-/// still to take it — then how many have ("Sending · 5 of 8"), which is what
+/// still to take it — then how many have ("Waiting · 5 of 8"), which is what
 /// somebody looking at a live change wants to know first.
 function stateOf(change: PriceChange): {
   readonly tone: "neutral" | "warn" | "bad" | "ok" | "done"
@@ -192,9 +214,9 @@ function stateOf(change: PriceChange): {
   if (status === "SCHEDULED") return { tone: "neutral", text: "Scheduled" }
   const reached = `${count(rollout.activated)} of ${count(rollout.target)}`
   if (rollout.failed > 0) return { tone: "bad", text: `Failed · ${reached}` }
-  if (rollout.pending > 0) return { tone: "warn", text: `Sending · ${reached}` }
+  if (rollout.pending > 0) return { tone: "warn", text: `Waiting · ${reached}` }
   return status === "ACTIVE"
-    ? { tone: "ok", text: "Active" }
+    ? { tone: "ok", text: "Live" }
     : { tone: "done", text: "Ended" }
 }
 
@@ -214,8 +236,8 @@ const columns: ColumnDef<TableSetup, PriceChange>[] = [
   {
     id: "number",
     accessorFn: (row) => row.version,
-    header: "Number",
-    size: 110,
+    header: "Change no.",
+    size: 100,
     meta: { card: "hide" },
     cell: ({ row }) => (
       <span className="text-ink tabular-nums">
@@ -227,9 +249,9 @@ const columns: ColumnDef<TableSetup, PriceChange>[] = [
     id: "change",
     accessorFn: (row) =>
       `${row.name} ${changeNumber(row.version)} v${row.version}`,
-    header: "Change",
+    header: "Name",
     size: 240,
-    meta: { grow: 240, card: "hide" },
+    meta: { grow: 220, card: "hide" },
     // A ceiling in the cell, not a `size` on the column. `DataTable` only
     // applies `size` when it virtualises (past 150 rows); under that the table
     // is `table-auto` and a long book name — "Harga awal · 2-p basic cotton
@@ -246,7 +268,7 @@ const columns: ColumnDef<TableSetup, PriceChange>[] = [
     id: "kind",
     accessorFn: (row) => describeChangeKind(row.kind),
     header: "Kind",
-    size: 170,
+    size: 150,
     meta: { card: "hide" },
     cell: ({ row }) => (
       <span
@@ -264,7 +286,7 @@ const columns: ColumnDef<TableSetup, PriceChange>[] = [
     id: "articles",
     accessorFn: (row) => row.article_count,
     header: "Articles",
-    size: 110,
+    size: 100,
     meta: { align: "right", card: "hide" },
     cell: ({ row }) => (
       <span className="text-ink tabular-nums">
@@ -277,14 +299,14 @@ const columns: ColumnDef<TableSetup, PriceChange>[] = [
     accessorFn: (row) =>
       row.reaches_every_shop ? Number.MAX_SAFE_INTEGER : row.store_count,
     header: "Stores",
-    size: 130,
+    size: 120,
     meta: { align: "right", card: "hide" },
     // A company-wide book names no shop and reaches all of them, so the two
     // cases cannot share a number — "0" would be the honest count and the
     // wrong answer. Sorted as if it were the largest, because it is.
     cell: ({ row }) =>
       row.original.reaches_every_shop ? (
-        <span className="text-body">Every store</span>
+        <span className="text-body">All stores</span>
       ) : (
         <span className="text-ink tabular-nums">
           {count(row.original.store_count)}
@@ -295,7 +317,7 @@ const columns: ColumnDef<TableSetup, PriceChange>[] = [
     id: "starts",
     accessorFn: (row) => row.effective_from,
     header: "Starts",
-    size: 130,
+    size: 120,
     meta: { card: "hide" },
     cell: ({ row }) => (
       <span className="truncate text-body">
@@ -308,7 +330,7 @@ const columns: ColumnDef<TableSetup, PriceChange>[] = [
     id: "ends",
     accessorFn: (row) => row.effective_to ?? "",
     header: "Ends",
-    size: 130,
+    size: 120,
     meta: { card: "hide" },
     cell: ({ row }) =>
       row.original.effective_to === null ? (
@@ -323,7 +345,7 @@ const columns: ColumnDef<TableSetup, PriceChange>[] = [
     id: "status",
     accessorFn: (row) => stateOf(row).text,
     header: "Status",
-    size: 190,
+    size: 170,
     meta: { card: "hide" },
     cell: ({ row }) => {
       const state = stateOf(row.original)
@@ -338,7 +360,7 @@ const columns: ColumnDef<TableSetup, PriceChange>[] = [
     id: "published",
     accessorFn: (row) => row.published_at ?? "",
     header: "Published",
-    size: 140,
+    size: 130,
     meta: { card: "hide" },
     // The publisher's name is gone. It was the loudest thing in the column and
     // answered a question nobody asks of a list — "who cut this" belongs to the
@@ -415,9 +437,11 @@ const columns: ColumnDef<TableSetup, PriceChange>[] = [
             </Status>
           }
         >
-          {day(effective_from)}
-          {effective_to === null ? "" : ` – ${day(effective_to)}`} ·{" "}
-          {count(article_count)} {article_count === 1 ? "article" : "articles"}
+          {effective_to === null
+            ? day(effective_from)
+            : dateRange(effective_from, effective_to)}{" "}
+          · {count(article_count)}{" "}
+          {article_count === 1 ? "article" : "articles"}
         </CardFoot>
       )
     },
@@ -440,7 +464,7 @@ const columns: ColumnDef<TableSetup, PriceChange>[] = [
 export function Changes() {
   return (
     <PageContent>
-      <PageHeader crumb="Marketing" title="Changes" />
+      <PageHeader crumb="Marketing" title="Price changes" />
       <ChangesBody />
     </PageContent>
   )
@@ -542,10 +566,10 @@ function ChangeList({ tabs }: { tabs?: DockStatus }) {
           not drawn. */}
       {phone && (
         <Sentence>
-          <Fig>{count(all.length)}</Fig> {settled ? "changes" : "outstanding"},{" "}
+          <Fig>{count(all.length)}</Fig> {settled ? "changes" : "in progress"},{" "}
           <Fig>{count(outstanding)}</Fig> with stores waiting,{" "}
           <Fig tone={attention > 0 ? "bad" : undefined}>{count(attention)}</Fig>{" "}
-          needing attention.
+          with a problem.
         </Sentence>
       )}
 
@@ -559,15 +583,15 @@ function ChangeList({ tabs }: { tabs?: DockStatus }) {
             {
               label: "On the list",
               value: count(all.length),
-              note: settled ? "with settled" : "outstanding",
+              note: settled ? "with finished" : "in progress",
             },
             {
-              label: "Outstanding",
+              label: "Waiting",
               value: count(outstanding),
               note: "stores waiting",
             },
             {
-              label: "Attention",
+              label: "Problems",
               value: count(attention),
               note: "failed or stuck",
             },
@@ -590,8 +614,8 @@ function ChangeList({ tabs }: { tabs?: DockStatus }) {
               tabs={[
                 { value: "ALL", label: "All" },
                 { value: "SCHEDULED", label: "Scheduled" },
-                { value: "ACTIVE", label: "Active" },
-                { value: "ATTENTION", label: "Attention" },
+                { value: "ACTIVE", label: "Live" },
+                { value: "ATTENTION", label: "Problems" },
               ]}
               value={lens}
               onChange={(next) => setLens(next as ChangeLens)}
@@ -602,14 +626,16 @@ function ChangeList({ tabs }: { tabs?: DockStatus }) {
               {/* In the URL like every search box here, so a filtered list can
                 be sent. The version is in the row's accessor, so "v23"
                 finds it without being printed. */}
-              <ExpandingSearch
-                value={search.value ?? ""}
-                onChange={(next) =>
-                  next === "" ? search.close() : search.open(next)
-                }
-                label="Search changes"
+              <DeskFilterButton
+                model={filters}
+                table={table}
+                search={{
+                  value: search.value ?? "",
+                  onChange: (next) =>
+                    next === "" ? search.close() : search.open(next),
+                  label: "Search changes",
+                }}
               />
-              <DeskFilterButton model={filters} table={table} />
               <BarSpacer />
               {/* A second question for the SERVER, not a fifth tab and not a
                 clause. The four tabs narrow the work; this asks for the changes
@@ -618,22 +644,21 @@ function ChangeList({ tabs }: { tabs?: DockStatus }) {
               <Checkbox
                 checked={settled}
                 onChange={setSettled}
-                label="Include settled"
+                label="Show finished"
               />
             </div>
           )}
-          {!phone && <DeskFilterChips model={filters} table={table} />}
 
           <Card
             aria-busy={askedSettled !== settled || undefined}
-            className="list-swap overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none"
+            className="list-swap overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none"
           >
             {rows.length === 0 ? (
               <EmptyState>
                 {lens === "ALL" && filters.filters.length === 0
                   ? "Nothing outstanding."
                   : lens === "ATTENTION"
-                    ? "Nothing needs attention."
+                    ? "No problems."
                     : "No change matches that."}
               </EmptyState>
             ) : (
@@ -646,7 +671,8 @@ function ChangeList({ tabs }: { tabs?: DockStatus }) {
                 cardSort={false}
                 cardsApart
                 cardLead
-                className={`${ROOMY} max-h-[calc(100dvh-20rem)]`}
+                className={ROOMY}
+                pageScroll
               />
             )}
           </Card>
@@ -654,7 +680,7 @@ function ChangeList({ tabs }: { tabs?: DockStatus }) {
       </div>
 
       {/* On a phone the status, the search, the filter and the sort live in the
-          drawer over the bottom bar. "Include settled" is a fifth status: it
+          drawer over the bottom bar. "Show finished" is a fifth status: it
           only ever widens the All list, since a settled change is neither
           scheduled, active nor in need of anybody. */}
       <DockTools
@@ -662,7 +688,7 @@ function ChangeList({ tabs }: { tabs?: DockStatus }) {
           value: search.value ?? "",
           onChange: (next) =>
             next === "" ? search.close() : search.replace(next),
-          label: "Search Changes",
+          label: "Search changes",
         }}
         filter={{
           count: filters.filters.length,
@@ -675,9 +701,9 @@ function ChangeList({ tabs }: { tabs?: DockStatus }) {
             options: [
               { value: "ALL", label: "All" },
               { value: "SCHEDULED", label: "Scheduled" },
-              { value: "ACTIVE", label: "Active" },
-              { value: "ATTENTION", label: "Attention" },
-              { value: "SETTLED", label: "All, with settled" },
+              { value: "ACTIVE", label: "Live" },
+              { value: "ATTENTION", label: "Problems" },
+              { value: "SETTLED", label: "All, with finished" },
             ],
             onChange: (next) => {
               setSettled(next === "SETTLED")
@@ -763,6 +789,7 @@ function ChangeSheet({
     return map
   }, [fleet.data])
   const nameOf = (siteId: string) => shopName.get(siteId) ?? siteId
+  const personOf = useNameOfLogin()
 
   const shops = useMemo<readonly ShopLine[]>(() => {
     const by = new Map<string, ShopLine>()
@@ -871,16 +898,15 @@ function ChangeSheet({
             <Fact term="Kind">
               {change === null ? "—" : describeChangeKind(change.kind)}
             </Fact>
-            <Fact term="Period">
-              {day(from)}
-              {to === null ? " onwards" : ` – ${day(to)}`}
+            <Fact term="Dates">
+              {to === null ? `${day(from)} onwards` : dateRange(from, to)}
             </Fact>
             <Fact term="Published">
               {day(change?.published_at ?? detail.data?.published_at ?? null)}
               {(change?.published_by ?? detail.data?.published_by) &&
-                ` · ${change?.published_by ?? detail.data?.published_by}`}
+                ` · ${personOf(change?.published_by ?? detail.data?.published_by ?? "")}`}
             </Fact>
-            <Fact term="Reaches">
+            <Fact term="Stores">
               {change === null
                 ? "—"
                 : change.reaches_every_shop
@@ -894,10 +920,10 @@ function ChangeSheet({
               aside={
                 shops.length === 0
                   ? undefined
-                  : `${count(counted("ACTIVE"))} of ${count(shops.length)} in service`
+                  : `${count(counted("ACTIVE"))} of ${count(shops.length)} applied`
               }
             >
-              Rollout
+              At the stores
             </SubHead>
             {(events.isPending && version !== null) || detail.isPending ? (
               <Quiet>Loading…</Quiet>
@@ -905,7 +931,11 @@ function ChangeSheet({
               <Quiet>No stores.</Quiet>
             ) : (
               <MiniTable
-                head={["Store", { label: "State", align: "left" }, "Since"]}
+                head={[
+                  "Store",
+                  { label: "Till status", align: "left" },
+                  "Last update",
+                ]}
               >
                 {shops.map((one) => (
                   <MiniRow key={one.siteId}>
@@ -932,10 +962,10 @@ function ChangeSheet({
                         {one.state === "FAILED"
                           ? "Failed"
                           : one.state === "ACTIVE"
-                            ? "In service"
+                            ? "Applied"
                             : one.sent
-                              ? "Sent"
-                              : "Not sent yet"}
+                              ? "Waiting"
+                              : "Not sent"}
                       </Status>
                     </MiniCell>
                     <MiniCell align="right">
@@ -955,13 +985,13 @@ function ChangeSheet({
               <>
                 {data.markdowns.length > 0 && (
                   <div>
-                    <SubHead aside={`${count(data.markdowns.length)} rows`}>
-                      Sale prices
+                    <SubHead aside={count(data.markdowns.length)}>
+                      Markdown prices
                     </SubHead>
                     <MiniTable
                       head={[
                         "Article",
-                        { label: "Where", align: "left" },
+                        { label: "Stores", align: "left" },
                         "Price",
                       ]}
                     >
@@ -969,7 +999,7 @@ function ChangeSheet({
                         <MiniRow key={one.markdown_id}>
                           <MiniCell>
                             <Named
-                              name={one.article_code ?? one.sku_code ?? "—"}
+                              name={one.article_code ?? sku(one.sku_code) ?? "—"}
                             />
                           </MiniCell>
                           <MiniCell>
@@ -987,11 +1017,15 @@ function ChangeSheet({
                 )}
                 {data.price_rules.length > 0 && (
                   <div>
-                    <SubHead aside={`${count(data.price_rules.length)} rows`}>
+                    <SubHead aside={count(data.price_rules.length)}>
                       New prices
                     </SubHead>
                     <MiniTable
-                      head={["SKU", { label: "Where", align: "left" }, "Price"]}
+                      head={[
+                        "SKU",
+                        { label: "Stores", align: "left" },
+                        "Price",
+                      ]}
                     >
                       {data.price_rules.map((one) => (
                         <MiniRow
@@ -1000,7 +1034,7 @@ function ChangeSheet({
                           <MiniCell>
                             <Named
                               name={one.article_name}
-                              code={one.sku_code}
+                              code={sku(one.sku_code)}
                             />
                           </MiniCell>
                           <MiniCell>

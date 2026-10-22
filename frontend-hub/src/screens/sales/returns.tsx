@@ -8,9 +8,8 @@ import { DockTools } from "@/components/shell/dock-tools"
 import { AppLink } from "@/components/ui/app-link"
 import { Card } from "@/components/ui/card"
 import { DataTable, dockSortOf } from "@/components/ui/data-table"
-import { DeskFilterButton, DeskFilterChips } from "@/components/ui/desk-filter"
+import { DeskFilterButton } from "@/components/ui/desk-filter"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
-import { ExpandingSearch } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { MiniTable, TotalsLadder } from "@/components/ui/rows"
@@ -18,7 +17,7 @@ import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { EmptyState, LoadingState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { useFilterState, type Filter, type FilterField } from "@/lib/filters"
-import { count, money, moment } from "@/lib/format"
+import { count, money, moment, sku } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import {
   returnDetail,
@@ -389,28 +388,21 @@ function ReturnsList() {
           </KpiStrip>
         ))}
 
-      {/* The search and one filter button over the table, the clauses in force
-          under them — Purchase Orders' bar. On a phone both are the drawer's. */}
+      {/* The search and the filters over the table — Purchase Orders' bar. On a
+          phone both are the drawer's. */}
       {!phone && (
-        <>
-          <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2">
-            <ExpandingSearch
-              value={query}
-              onChange={setQuery}
-              label="Search returns"
-            />
-            <DeskFilterButton
-              model={filters}
-              filterModel={{ ...filters, fields: counted }}
-              table={table}
-            />
-          </div>
-          <DeskFilterChips
+        <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2">
+          <DeskFilterButton
             model={filters}
             filterModel={{ ...filters, fields: counted }}
             table={table}
+            search={{
+              value: query,
+              onChange: setQuery,
+              label: "Search returns",
+            }}
           />
-        </>
+        </div>
       )}
 
       <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
@@ -519,7 +511,7 @@ function ReturnSheet({
                         {line.article_name}
                       </span>
                       <span className="font-mono text-[0.9375rem] text-mute">
-                        {line.sku_code}
+                        {sku(line.sku_code)}
                       </span>
                     </td>
                     <td className="py-2 text-right">

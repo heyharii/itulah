@@ -91,15 +91,60 @@ class CatalogStore(context: Context) {
         }
 
         override fun onUpgrade(db: SQLiteDatabase, old: Int, new: Int) {
-            // The catalogue is a cache of the centre and the outbox is short
-            // lived by design, so there is no migration to write: drop it and
-            // let the generation gate pull a fresh copy. The one thing that
-            // must NOT be dropped this way is unsent evidence — but a schema
-            // change ships with an app update, and an app update is installed
-            // with `-r` onto a device whose sweep has been finished first.
-            DROPS.forEach(db::execSQL)
+            // The catalogue is a cache of the centre, so an upgrade drops it and
+            // lets the generation gate pull a fresh copy. That is the ONLY thing
+            // an upgrade may drop.
+            //
+            // This used to drop every table, on the reasoning that an update is
+            // installed onto a device whose sweep has been finished first. A
+            // finished sweep is not a FILED one: the outbox holds evidence until
+            // the Edge takes it, which on a shop without wifi is days, and the
+            // history is the operator's only record of their own counts. So
+            // those are kept, and change shape only by the additive steps
+            // below — an app update must never be the thing that loses a count.
+            CACHE_DROPS.forEach(db::execSQL)
+            if (old < 4) setAsideUnrecorded(db, old)
+            // 5: a batch the node refused for good is set aside, visibly, rather
+            // than blocking every batch behind it. Every row spooled before this
+            // stays exactly as it was, and pending.
+            if (old < 5 && hasTable(db, "evidence_outbox") &&
+                !hasColumn(db, "evidence_outbox", "refused_status")
+            ) {
+                db.execSQL("ALTER TABLE evidence_outbox ADD COLUMN refused_status INTEGER")
+            }
             onCreate(db)
         }
+
+        /**
+         * Version 4 is the first schema this file has a record of. A database
+         * older than that has evidence and history in a shape nobody wrote
+         * down, so it is not read through a schema it may not match — and it is
+         * not dropped either. Each table is kept under another name, where a
+         * person can still get at it, and fresh ones are made beside it.
+         */
+        private fun setAsideUnrecorded(db: SQLiteDatabase, old: Int) {
+            // Index names are global, and this one would stop the new table's
+            // index being created. An index holds no data of its own.
+            db.execSQL("DROP INDEX IF EXISTS idx_outbox_session")
+            val stamp = System.currentTimeMillis()
+            KEPT_TABLES.filter { hasTable(db, it) }.forEach { table ->
+                db.execSQL("ALTER TABLE $table RENAME TO ${table}_v${old}_$stamp")
+            }
+        }
+
+        private fun hasTable(db: SQLiteDatabase, table: String): Boolean =
+            db.rawQuery(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                arrayOf(table),
+            ).use { it.moveToFirst() }
+
+        private fun hasColumn(db: SQLiteDatabase, table: String, column: String): Boolean =
+            db.rawQuery("PRAGMA table_info($table)", null).use { cursor ->
+                val name = cursor.getColumnIndex("name")
+                var found = false
+                while (!found && cursor.moveToNext()) found = cursor.getString(name) == column
+                found
+            }
 
         override fun onConfigure(db: SQLiteDatabase) {
             // Write-ahead logging so the two-second spool never blocks a read,
@@ -482,12 +527,16 @@ class CatalogStore(context: Context) {
         return db.insertWithOnConflict("evidence_outbox", null, values, SQLiteDatabase.CONFLICT_IGNORE) != -1L
     }
 
-    /** The oldest unsent batches, oldest first — the order they were seen in. */
+    /**
+     * The oldest unsent batches, oldest first — the order they were seen in.
+     *
+     * Not the ones the node refused for good: see [setAside].
+     */
     fun pendingBatches(limit: Int = 8): List<OutboxBatch> {
         val rows = ArrayList<OutboxBatch>(limit)
         db.rawQuery(
             "SELECT id,session_id,idempotency_key,body,epc_count,attempts" +
-                " FROM evidence_outbox ORDER BY id LIMIT ?",
+                " FROM evidence_outbox WHERE refused_status IS NULL ORDER BY id LIMIT ?",
             arrayOf(limit.toString()),
         ).use { cursor ->
             while (cursor.moveToNext()) {
@@ -507,9 +556,54 @@ class CatalogStore(context: Context) {
     }
 
     fun pendingCount(): Int =
-        db.rawQuery("SELECT COUNT(*) FROM evidence_outbox", null).use {
+        db.rawQuery("SELECT COUNT(*) FROM evidence_outbox WHERE refused_status IS NULL", null).use {
             if (it.moveToFirst()) it.getInt(0) else 0
         }
+
+    /** Batches the node refused for good, still held here. See [setAside]. */
+    fun refusedCount(): Int =
+        db.rawQuery("SELECT COUNT(*) FROM evidence_outbox WHERE refused_status IS NOT NULL", null).use {
+            if (it.moveToFirst()) it.getInt(0) else 0
+        }
+
+    /**
+     * The node refused this batch in a way no retry of the same bytes can
+     * change. Keep it — never delete it — but stop offering it.
+     *
+     * # Why aside, and not retried and not dropped
+     *
+     * The outbox is sent oldest first, and it used to stop at the first
+     * failure. One batch the node will never take — a key it already holds for
+     * other content, a body it calls malformed — therefore held back every
+     * batch spooled after it, for good: a whole shop's evidence waiting behind
+     * one bad row. Dropping that row would be worse, because it is still what
+     * the reader saw. So it is marked with the status that refused it, the
+     * queue moves past it, and the count of refused batches is shown, so a
+     * person can see that something is being held and why.
+     */
+    fun setAside(batchId: Long, status: Int, error: String) {
+        db.execSQL(
+            "UPDATE evidence_outbox SET refused_status=?,attempts=attempts+1,last_error=? WHERE id=?",
+            arrayOf<Any>(status, error.take(400), batchId),
+        )
+    }
+
+    /**
+     * Offer every set-aside batch again; returns how many.
+     *
+     * Most of what the node refuses for good is refused because of where the
+     * handheld points — the wrong Edge, a pool that Edge does not own — and
+     * those are fixed in Setelan, not here. Once they are, the same bytes may
+     * well be accepted, so saving Setelan puts them back in the queue. A batch
+     * that really is beyond saving is simply refused, and set aside, again.
+     */
+    fun requeueRefused(): Int =
+        db.update(
+            "evidence_outbox",
+            ContentValues().apply { putNull("refused_status") },
+            "refused_status IS NOT NULL",
+            null,
+        )
 
     /**
      * The edge has it. Drop the batch and remember its tags as filed.
@@ -558,37 +652,45 @@ class CatalogStore(context: Context) {
     }
 
     /**
-     * Let go of sweeps that are over by any measure.
+     * Let go of bookkeeping that is safe to lose — and never of evidence.
      *
-     * Seven days. A batch older than that belongs to a count nobody is still
-     * waiting on, and keeping it is a leak wearing the costume of a promise.
+     * This used to delete outbox batches older than seven days, by the
+     * device's own clock. A batch only leaves the outbox when the Edge has
+     * taken it ([acknowledge]), so every row that rule deleted was evidence
+     * nobody had received: a shop offline for a week, or a clock that jumped,
+     * and the count was gone with nothing to say so. Unsent evidence is now
+     * kept until it is filed, however long that takes.
+     *
+     * What goes is the record of tags already filed for sessions with nothing
+     * left to send, which only ever repeats what the Edge already holds.
      */
-    fun prune(before: String) {
-        val database = db
-        database.beginTransaction()
-        try {
-            database.delete("evidence_outbox", "created_at < ?", arrayOf(before))
-            database.execSQL(
-                "DELETE FROM filed_epc WHERE session_id NOT IN" +
-                    " (SELECT DISTINCT session_id FROM evidence_outbox)",
-            )
-            database.setTransactionSuccessful()
-        } finally {
-            database.endTransaction()
-        }
+    fun prune() {
+        db.execSQL(
+            "DELETE FROM filed_epc WHERE session_id NOT IN" +
+                " (SELECT DISTINCT session_id FROM evidence_outbox)",
+        )
     }
 
     fun close() = helper.close()
 
     private companion object {
         const val NAME = "itulah-pindai-catalog.db"
-        const val VERSION = 4
+
+        /** 5: `evidence_outbox.refused_status`, added in place by the helper's `onUpgrade`. */
+        const val VERSION = 5
 
         /** SQLite binds at most 999 variables; leave room and stay well under. */
         const val CHUNK = 500
 
+        /**
+         * Every table and index, each made only if it is not there already.
+         *
+         * An upgrade keeps the evidence and history tables and runs this over
+         * them, so a plain CREATE would fail on the first table that survived —
+         * and a helper whose upgrade throws is a database that never opens.
+         */
         val SCHEMA = listOf(
-            """CREATE TABLE sku_scan_master (
+            """CREATE TABLE IF NOT EXISTS sku_scan_master (
                    sku_code         TEXT PRIMARY KEY NOT NULL,
                    article_code     TEXT,
                    name             TEXT NOT NULL,
@@ -597,10 +699,10 @@ class CatalogStore(context: Context) {
                    base_price_minor INTEGER,
                    active           INTEGER NOT NULL
                )""",
-            "CREATE INDEX idx_scan_master_article ON sku_scan_master(article_code)",
-            "CREATE INDEX idx_scan_master_barcode ON sku_scan_master(barcode)",
-            "CREATE INDEX idx_scan_master_name ON sku_scan_master(name)",
-            """CREATE TABLE catalog_meta (
+            "CREATE INDEX IF NOT EXISTS idx_scan_master_article ON sku_scan_master(article_code)",
+            "CREATE INDEX IF NOT EXISTS idx_scan_master_barcode ON sku_scan_master(barcode)",
+            "CREATE INDEX IF NOT EXISTS idx_scan_master_name ON sku_scan_master(name)",
+            """CREATE TABLE IF NOT EXISTS catalog_meta (
                    singleton    INTEGER PRIMARY KEY CHECK (singleton = 1),
                    node_key     TEXT NOT NULL,
                    generation   INTEGER NOT NULL,
@@ -608,7 +710,7 @@ class CatalogStore(context: Context) {
                    content_hash TEXT NOT NULL,
                    synced_at    TEXT NOT NULL
                )""",
-            """CREATE TABLE evidence_outbox (
+            """CREATE TABLE IF NOT EXISTS evidence_outbox (
                    id              INTEGER PRIMARY KEY AUTOINCREMENT,
                    session_id      TEXT NOT NULL,
                    idempotency_key TEXT NOT NULL UNIQUE,
@@ -616,10 +718,11 @@ class CatalogStore(context: Context) {
                    epc_count       INTEGER NOT NULL,
                    created_at      TEXT NOT NULL,
                    attempts        INTEGER NOT NULL DEFAULT 0,
-                   last_error      TEXT
+                   last_error      TEXT,
+                   refused_status  INTEGER
                )""",
-            "CREATE INDEX idx_outbox_session ON evidence_outbox(session_id)",
-            """CREATE TABLE sweep (
+            "CREATE INDEX IF NOT EXISTS idx_outbox_session ON evidence_outbox(session_id)",
+            """CREATE TABLE IF NOT EXISTS sweep (
                    id           INTEGER PRIMARY KEY AUTOINCREMENT,
                    ended_at     TEXT NOT NULL,
                    mode         TEXT NOT NULL,
@@ -630,31 +733,37 @@ class CatalogStore(context: Context) {
                    foreign_tags INTEGER NOT NULL,
                    pinned       INTEGER NOT NULL DEFAULT 0
                )""",
-            """CREATE TABLE sweep_line (
+            """CREATE TABLE IF NOT EXISTS sweep_line (
                    sweep_id INTEGER NOT NULL,
                    sku_code TEXT NOT NULL,
                    qty      INTEGER NOT NULL,
                    PRIMARY KEY (sweep_id, sku_code)
                )""",
-            """CREATE TABLE epc_alias (
+            """CREATE TABLE IF NOT EXISTS epc_alias (
                    epc      TEXT PRIMARY KEY NOT NULL,
                    sku_code TEXT NOT NULL
                )""",
-            """CREATE TABLE filed_epc (
+            """CREATE TABLE IF NOT EXISTS filed_epc (
                    session_id TEXT NOT NULL,
                    epc        TEXT NOT NULL,
                    PRIMARY KEY (session_id, epc)
                )""",
         )
 
-        val DROPS = listOf(
+        /**
+         * What an upgrade may drop: the catalogue, a copy of the centre's that
+         * the generation gate pulls again. Nothing a person did on this device
+         * is in here, and nothing ever should be.
+         */
+        val CACHE_DROPS = listOf(
             "DROP TABLE IF EXISTS sku_scan_master",
             "DROP TABLE IF EXISTS catalog_meta",
-            "DROP TABLE IF EXISTS evidence_outbox",
-            "DROP TABLE IF EXISTS filed_epc",
-            "DROP TABLE IF EXISTS sweep",
-            "DROP TABLE IF EXISTS sweep_line",
-            "DROP TABLE IF EXISTS epc_alias",
         )
+
+        /**
+         * What an upgrade keeps: evidence not yet filed, the record of what was,
+         * the operator's history, and a bench's marriages.
+         */
+        val KEPT_TABLES = listOf("evidence_outbox", "filed_epc", "sweep", "sweep_line", "epc_alias")
     }
 }

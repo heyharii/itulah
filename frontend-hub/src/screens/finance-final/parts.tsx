@@ -1,7 +1,20 @@
-import { useDeferredValue, useState } from "react"
+import {
+  isValidElement,
+  useDeferredValue,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react"
 
+import { CellMoney } from "@/components/ui/rows-switch"
 import { count, money } from "@/lib/format"
 import { useStackLabels } from "@/lib/stack-table"
+import {
+  useCompactRows,
+  useRegisterRowsTable,
+  useRowsOffered,
+} from "@/lib/table-rows"
 import { cn } from "@/lib/utils"
 
 /// The pieces every screen in Finance final shares.
@@ -130,21 +143,95 @@ export function CardRow({
   )
 }
 
+/// A column hidden by its place in the row. Child selectors only, so the table
+/// a row opens inside itself is left alone; a row with `data-sub` is a band
+/// across the table and has no columns to lose. A row that closes the table
+/// (`TotalRow`) says one cell for each column, never a `colSpan`, so the
+/// columns still line up when some are gone.
+const GIVEN_UP: Readonly<Record<number, string>> = {
+  2: "[&>thead>tr>:nth-child(2)]:hidden [&>tbody>tr:not([data-sub])>:nth-child(2)]:hidden [&>tfoot>tr:not([data-sub])>:nth-child(2)]:hidden",
+  3: "[&>thead>tr>:nth-child(3)]:hidden [&>tbody>tr:not([data-sub])>:nth-child(3)]:hidden [&>tfoot>tr:not([data-sub])>:nth-child(3)]:hidden",
+  4: "[&>thead>tr>:nth-child(4)]:hidden [&>tbody>tr:not([data-sub])>:nth-child(4)]:hidden [&>tfoot>tr:not([data-sub])>:nth-child(4)]:hidden",
+  5: "[&>thead>tr>:nth-child(5)]:hidden [&>tbody>tr:not([data-sub])>:nth-child(5)]:hidden [&>tfoot>tr:not([data-sub])>:nth-child(5)]:hidden",
+  6: "[&>thead>tr>:nth-child(6)]:hidden [&>tbody>tr:not([data-sub])>:nth-child(6)]:hidden [&>tfoot>tr:not([data-sub])>:nth-child(6)]:hidden",
+  7: "[&>thead>tr>:nth-child(7)]:hidden [&>tbody>tr:not([data-sub])>:nth-child(7)]:hidden [&>tfoot>tr:not([data-sub])>:nth-child(7)]:hidden",
+  8: "[&>thead>tr>:nth-child(8)]:hidden [&>tbody>tr:not([data-sub])>:nth-child(8)]:hidden [&>tfoot>tr:not([data-sub])>:nth-child(8)]:hidden",
+}
+
 /// A dense table, scrolling inside itself rather than widening the page.
-export function Grid({ children }: { children: React.ReactNode }) {
+///
+/// `followRows`: the table answers the Rows switch (`lib/table-rows.ts`) —
+/// 38px rows and 12px cell sides in Compact, and the switch is offered on the
+/// page. Left off, the table stays as it was drawn.
+///
+/// `giveUp`: the columns (counted from 2) that step out of a compact table
+/// short of room, the first listed going first, until it fits the card
+/// instead of scrolling sideways — what `DataTable` does with `meta.priority`.
+/// A pair in the list (`[2, 3]`) goes as one step, for two columns that mean
+/// nothing apart, such as a debit and its credit.
+export function Grid({
+  children,
+  followRows,
+  giveUp,
+}: {
+  children: React.ReactNode
+  followRows?: boolean
+  giveUp?: readonly (number | readonly number[])[]
+}) {
   // Stacks on a phone rather than scrolling sideways (`useStackLabels`).
   const table = useStackLabels()
+  const rows = useCompactRows()
+  const offered = useRowsOffered()
+  useRegisterRowsTable(followRows === true && offered)
+  const compact = followRows === true && rows
+  /// How wide the card is, and how many columns have been given up to fit
+  /// it; counted again whenever the card is another width.
+  const box = useRef<HTMLDivElement>(null)
+  const [room, setRoom] = useState(0)
+  const [budget, setBudget] = useState({ room: 0, gone: 0 })
+  const steps = compact ? (giveUp ?? []) : []
+  const gone = budget.room === room ? budget.gone : 0
+  useEffect(() => {
+    const node = box.current
+    if (!node || steps.length === 0) return
+    const watch = new ResizeObserver((entries) =>
+      setRoom(entries[0].contentRect.width)
+    )
+    watch.observe(node)
+    return () => watch.disconnect()
+  }, [steps.length])
+  useLayoutEffect(() => {
+    const node = box.current
+    if (!node || steps.length === 0) return
+    if (node.scrollWidth > node.clientWidth + 1 && gone < steps.length)
+      setBudget({ room, gone: gone + 1 })
+  })
   return (
     // Framed like a Card when it stands on the page, as every `DataTable`
     // is; inside a Card already, the Card is the frame and this one steps
     // back rather than drawing a second border inside the first.
-    <div className="overflow-x-auto rounded-card border border-hairline-2 bg-canvas shadow-[0_1px_2px_rgb(0_0_0/0.05),0_4px_14px_rgb(0_0_0/0.04)] in-[.rounded-card]:rounded-none in-[.rounded-card]:border-0 in-[.rounded-card]:bg-transparent in-[.rounded-card]:shadow-none">
+    <div
+      ref={box}
+      className="overflow-x-auto rounded-card border border-hairline-2 bg-canvas shadow-[0_1px_2px_rgb(0_0_0/0.05),0_4px_14px_rgb(0_0_0/0.04)] in-[.rounded-card]:rounded-none in-[.rounded-card]:border-0 in-[.rounded-card]:bg-transparent in-[.rounded-card]:shadow-none"
+    >
       <table
         ref={table}
         // Drawn like `DataTable` (Purchase Invoice and the other lists), so a
         // Finance screen never looks like a second product: a tinted heading
         // row, 52px rows, the same padding and the same hover.
-        className="mini-stack w-full border-collapse text-cell [&>tbody>tr:last-child>td]:border-b-0 [&>tbody>tr:not([data-total])]:h-[3.75rem] [&>tbody>tr:not([data-total])]:hover:bg-soft"
+        className={cn(
+          "mini-stack w-full border-collapse text-cell [&>tbody>tr:last-child>td]:border-b-0 [&>tbody>tr:not([data-total])]:hover:bg-soft",
+          // Compact, as `DataTable`'s `dt-compact`: 38px rows, 12px sides, a
+          // 36px heading, the face still 15px. `grid-compact` is for a cell
+          // of prose to say `in-[.grid-compact]:whitespace-normal`.
+          compact
+            ? "grid-compact [&_td]:px-3 [&_td]:py-2 [&_td]:leading-5 [&_th]:h-9 [&_th]:px-3 [&>tbody>tr:not([data-total])]:h-[2.375rem] [&>tbody>tr[data-total]]:h-[2.375rem] [&>tfoot>tr]:h-[2.375rem]"
+            : "[&>tbody>tr:not([data-total])]:h-[3.75rem]",
+          steps
+            .slice(0, gone)
+            .flatMap((step) => (typeof step === "number" ? [step] : step))
+            .map((column) => GIVEN_UP[column])
+        )}
       >
         {children}
       </table>
@@ -180,6 +267,18 @@ export function Th({
 
 const NEGATIVE_MONEY = /^(-|\(|−)\s?Rp/
 
+/// A right-hand cell that holds an amount below zero: a printed "-Rp …", or a
+/// `CellMoney`, which a compact table prints without the "Rp" to match on.
+function isNegativeMoney(children: React.ReactNode): boolean {
+  if (typeof children === "string") return NEGATIVE_MONEY.test(children)
+  return (
+    isValidElement<{ minor?: number | null }>(children) &&
+    children.type === CellMoney &&
+    typeof children.props.minor === "number" &&
+    children.props.minor < 0
+  )
+}
+
 export function Td({
   children,
   align,
@@ -214,10 +313,7 @@ export function Td({
         // A negative amount in the right-hand columns is red: a loss, a
         // credit balance or an outflow is the thing the eye is looking for in
         // a column of figures, and "-Rp" is easy to read past.
-        align === "right" &&
-          typeof children === "string" &&
-          NEGATIVE_MONEY.test(children) &&
-          "text-bad-fg",
+        align === "right" && isNegativeMoney(children) && "text-bad-fg",
         className
       )}
     >
@@ -267,18 +363,24 @@ export function Note({ children }: { children: React.ReactNode }) {
 /// how every journal on paper has ever been printed and how ERPNext prints it
 /// too. Rendering `0.00` in both columns doubles the ink and halves the
 /// reader's ability to see which way an entry went.
+///
+/// `followRows`: the figures are bare in a compact table (`Grid`).
 export function DebitCredit({
   debit,
   credit,
+  followRows,
 }: {
   debit: number
   credit: number
+  followRows?: boolean
 }) {
   return (
     <>
       <Td align="right">
         {debit === 0 ? (
           <span className="text-hairline-strong">·</span>
+        ) : followRows === true ? (
+          <CellMoney minor={debit} />
         ) : (
           money(debit)
         )}
@@ -286,6 +388,8 @@ export function DebitCredit({
       <Td align="right">
         {credit === 0 ? (
           <span className="text-hairline-strong">·</span>
+        ) : followRows === true ? (
+          <CellMoney minor={credit} />
         ) : (
           money(credit)
         )}

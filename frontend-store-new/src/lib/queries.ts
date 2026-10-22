@@ -377,6 +377,71 @@ export const inboundDeliveryKey = (deliveryId: string) =>
 
 export type InboundFilter = "IN_TRANSIT" | "RECEIVED" | "ALL"
 
+/// What the shop counted that it could not book — set aside until MD answers
+/// the trip's review (`edge::inbound::StoreOnHoldLine`, owner 17–18 Oct 2026).
+/// By hand until `make contract` has seen it.
+export interface StoreOnHoldLine {
+  readonly delivery_id: string
+  readonly shipment_reference: string | null
+  readonly received_at: string | null
+  readonly sku_code: string
+  readonly name: string | null
+  readonly counted: number
+  readonly booked: number
+  readonly on_hold: number
+  readonly state: "WAITING_FOR_MD" | "RETURN_TO_HO"
+  readonly decided_by: string | null
+  readonly decided_at: string | null
+}
+
+export const onHoldKey = () => ["inbound", "on-hold"] as const
+
+/// `GET /api/v1/store/inbound/on-hold`.
+export async function fetchOnHold(
+  signal?: AbortSignal,
+): Promise<StoreOnHoldLine[]> {
+  const body = await node.get<{ lines: StoreOnHoldLine[] }>(
+    "/api/v1/store/inbound/on-hold",
+    { signal },
+  )
+  return body.lines
+}
+
+/// One SKU as the node's identity table names it —
+/// `GET /api/v1/catalog/identities?skus=`. Unlike the shop catalogue it holds
+/// every SKU, priced or not, so a delivery of garments with no price yet still
+/// has names.
+export interface SkuIdentity {
+  readonly sku_code: string
+  readonly name: string
+  readonly article_code: string | null
+  readonly division_code: string | null
+  readonly barcode: string | null
+  readonly base_price_minor: number | null
+  readonly tags: readonly string[]
+  readonly active: boolean
+  readonly image_url: string | null
+}
+
+export const identitiesKey = (skus: readonly string[]) =>
+  ["catalogue", "identities", skus.join(",")] as const
+
+/// At most 500 codes a read — the node's limit.
+export async function fetchIdentities(
+  skus: readonly string[],
+  signal?: AbortSignal,
+): Promise<SkuIdentity[]> {
+  if (skus.length === 0) return []
+  const body = await node.get<{ items: SkuIdentity[] }>(
+    `/api/v1/catalog/identities?skus=${skus
+      .slice(0, 500)
+      .map(encodeURIComponent)
+      .join(",")}`,
+    { signal },
+  )
+  return body.items
+}
+
 /// `GET /api/v1/store/inbound`. While a delivery is in transit its `result` is
 /// null — the node keeps the packed quantities back until the count is in.
 export function fetchInbound(

@@ -1,0 +1,121 @@
+<!-- @dsCard group="Patterns" height=889 page subtitle="Template · copy /finance/reports/profit-and-loss" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>ReportPage — preview</title><style>body{margin:0}
+/* ReportPage: the whole desk page on stone, 960 wide. The scope bar comes first, then the figures, then the statement. */
+.ds-reportpage-ground.ds-stage{padding:12px;gap:0;overflow-x:auto}
+.ds-reportpage-ground .ds-page{flex:none;margin:0;min-width:936px}
+/* the page is cropped 12px short of its foot so the whole statement fits the frame */
+.ds-reportpage-ground .ds-page-content{padding-bottom:12px}
+/* the scope bar: one row, every control 36px, 8px apart, 24px under it to the figures */
+.ds-reportpage-scope{flex-wrap:nowrap;margin-bottom:var(--head-gap)}
+.ds-reportpage-select,.ds-reportpage-date{display:inline-flex;align-items:center;justify-content:space-between;gap:10px;flex:none;height:var(--control);padding:0 12px 0 14px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas);font-size:15px;color:var(--ink);white-space:nowrap}
+.ds-reportpage-select .ds-ico,.ds-reportpage-date .ds-ico{color:var(--line-ico)}
+.ds-reportpage-unit{width:176px}
+.ds-reportpage-date{width:176px}
+.ds-reportpage-period{width:144px}
+.ds-reportpage-to{flex:none;color:var(--mute)}
+.ds-reportpage-scope .ds-check{flex:none;margin-left:8px;white-space:nowrap}
+/* the statement: a framed table; money right-aligned and tabular; the last column keeps 36px so a row that opens shows its › without moving a figure */
+.ds-reportpage-table td,.ds-reportpage-table th{white-space:nowrap}
+.ds-reportpage-table td{height:52px}
+.ds-reportpage-table th:last-child,.ds-reportpage-table td:last-child{padding-right:36px}
+.ds-reportpage-table tr.ds-opens > td:last-child{padding-right:36px}
+.ds-reportpage-table td:first-child{font-weight:400}
+.ds-reportpage-table tr.is-section td{background:var(--band);font-weight:600}
+.ds-reportpage-table tr.is-group td{font-weight:500}
+.ds-reportpage-table tr.is-sum td{border-top:1px solid var(--hairline-strong);font-weight:500}
+.ds-reportpage-table tr.is-hover{background:var(--soft)}
+.ds-reportpage-table tr.is-hover td{background:var(--soft)}
+.ds-reportpage-table .is-neg{color:var(--bad-fg)}
+.ds-reportpage-name{display:flex;align-items:baseline;gap:6px;padding-left:calc(var(--lvl, 0) * 18px)}
+.ds-reportpage-code{flex:none;color:var(--mute);font-weight:400}
+.ds-reportpage-table tfoot td{height:44px;padding-top:0;padding-bottom:0}
+</style></head>
+<body>
+<div class="ds ds-stage ds-stage--stone ds-reportpage-ground">
+  <div class="ds-page">
+    <div class="ds-page-content">
+
+      <div class="ds-page-head">
+        <div><h1 class="ds-title">Profit and Loss Statement</h1></div>
+        <button class="ds-btn ds-btn--ghost" type="button"><span class="ds-ico ds-ico-download"></span>Export</button>
+      </div>
+
+      <div class="ds-bar ds-reportpage-scope">
+        <span class="ds-reportpage-select ds-reportpage-unit">All units<span class="ds-ico ds-ico-chevron-down ds-ico--14"></span></span>
+        <span class="ds-reportpage-date">01 Aug 2026<span class="ds-ico ds-ico-calendar ds-ico--14"></span></span>
+        <span class="ds-reportpage-to">to</span>
+        <span class="ds-reportpage-date">30 Sep 2026<span class="ds-ico ds-ico-calendar ds-ico--14"></span></span>
+        <span class="ds-reportpage-select ds-reportpage-period">Monthly<span class="ds-ico ds-ico-chevron-down ds-ico--14"></span></span>
+        <label class="ds-check"><span class="ds-check-box"></span>Compare units</label>
+      </div>
+
+      <div class="ds-kpis">
+        <div class="ds-kpi"><div class="ds-kpi-label">Total income</div><div class="ds-kpi-value">Rp 5.207.450.000</div></div>
+        <div class="ds-kpi"><div class="ds-kpi-label">Total expense</div><div class="ds-kpi-value">Rp 3.698.300.000</div></div>
+        <div class="ds-kpi"><div class="ds-kpi-label">Net profit</div><div class="ds-kpi-value">Rp 1.509.150.000</div></div>
+      </div>
+
+      <div class="ds-table-card">
+        <table class="ds-table ds-reportpage-table">
+          <colgroup><col><col style="width:176px"><col style="width:176px"><col style="width:196px"></colgroup>
+          <thead>
+            <tr><th>Account</th><th class="is-num">Aug 2026</th><th class="is-num">Sep 2026</th><th class="is-num">Total</th></tr>
+          </thead>
+          <tbody>
+            <tr class="is-section">
+              <td><span class="ds-reportpage-name" style="--lvl:0">Pendapatan</span></td>
+              <td class="is-num">Rp 2.494.150.000</td><td class="is-num">Rp 2.713.300.000</td><td class="is-num">Rp 5.207.450.000</td>
+            </tr>
+            <tr class="ds-opens">
+              <td><span class="ds-reportpage-name" style="--lvl:1"><span class="ds-reportpage-code">4010110001</span>Penjualan Barang Dagangan</span></td>
+              <td class="is-num">Rp 2.612.400.000</td><td class="is-num">Rp 2.845.900.000</td><td class="is-num">Rp 5.458.300.000</td>
+            </tr>
+            <tr class="ds-opens is-hover">
+              <td><span class="ds-reportpage-name" style="--lvl:1"><span class="ds-reportpage-code">4010213001</span>Discount / Potongan Penjualan</span></td>
+              <td class="is-num is-neg">−Rp 118.250.000</td><td class="is-num is-neg">−Rp 132.600.000</td><td class="is-num is-neg">−Rp 250.850.000</td>
+            </tr>
+            <tr class="is-section">
+              <td><span class="ds-reportpage-name" style="--lvl:0">Beban Pokok</span></td>
+              <td class="is-num">Rp 1.431.200.000</td><td class="is-num">Rp 1.560.400.000</td><td class="is-num">Rp 2.991.600.000</td>
+            </tr>
+            <tr class="ds-opens">
+              <td><span class="ds-reportpage-name" style="--lvl:1"><span class="ds-reportpage-code">5010110001</span>Harga Pokok Pembelian / HPP</span></td>
+              <td class="is-num">Rp 1.431.200.000</td><td class="is-num">Rp 1.560.400.000</td><td class="is-num">Rp 2.991.600.000</td>
+            </tr>
+            <tr class="is-sum">
+              <td><span class="ds-reportpage-name" style="--lvl:0">Gross profit</span></td>
+              <td class="is-num">Rp 1.062.950.000</td><td class="is-num">Rp 1.152.900.000</td><td class="is-num">Rp 2.215.850.000</td>
+            </tr>
+            <tr class="is-section">
+              <td><span class="ds-reportpage-name" style="--lvl:0">Beban Usaha</span></td>
+              <td class="is-num">Rp 350.000.000</td><td class="is-num">Rp 356.700.000</td><td class="is-num">Rp 706.700.000</td>
+            </tr>
+            <tr class="is-group">
+              <td><span class="ds-reportpage-name" style="--lvl:1">Beban Penjualan</span></td>
+              <td class="is-num">Rp 350.000.000</td><td class="is-num">Rp 356.700.000</td><td class="is-num">Rp 706.700.000</td>
+            </tr>
+            <tr class="ds-opens">
+              <td><span class="ds-reportpage-name" style="--lvl:2"><span class="ds-reportpage-code">6010111001</span>Beban Gaji</span></td>
+              <td class="is-num">Rp 318.400.000</td><td class="is-num">Rp 321.900.000</td><td class="is-num">Rp 640.300.000</td>
+            </tr>
+            <tr class="ds-opens">
+              <td><span class="ds-reportpage-name" style="--lvl:2"><span class="ds-reportpage-code">6010110002</span>Biaya Credit Card</span></td>
+              <td class="is-num">Rp 31.600.000</td><td class="is-num">Rp 34.800.000</td><td class="is-num">Rp 66.400.000</td>
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr>
+              <td>Profit for the period</td>
+              <td class="is-num">Rp 712.950.000</td><td class="is-num">Rp 796.200.000</td><td class="is-num">Rp 1.509.150.000</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+    </div>
+  </div>
+</div>
+</body>
+</html>

@@ -370,9 +370,14 @@ export function ItemFormSheet({
   const offeredColours = line?.offered?.colours ?? []
   const offeredSizes = line?.offered?.sizes ?? []
   const fixedPool = line !== undefined && !line.draftItem
+  /// An item the catalogue offers in no colour (or no size) is split from the
+  /// whole master instead of not at all (owner, 2026-10-18: a Blouse kept at
+  /// ALL SIZE had no Colors to pick on Edit line).
+  const fixedColours = fixedPool && offeredColours.length > 0
+  const fixedSizes = fixedPool && offeredSizes.length > 0
   const pickableColours = useMemo<Choice[]>(
     () =>
-      fixedPool
+      fixedColours
         ? offeredColours.map((code) => ({
             value: code,
             label:
@@ -381,15 +386,15 @@ export function ItemFormSheet({
           }))
         : colourChoices,
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [fixedPool, line?.offered, colourMaster.data, colourChoices]
+    [fixedColours, line?.offered, colourMaster.data, colourChoices]
   )
   const pickableSizes = useMemo<Choice[]>(
     () =>
-      fixedPool
+      fixedSizes
         ? sizeChoices.filter((one) => offeredSizes.includes(one.value))
         : sizeChoices,
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [fixedPool, line?.offered, sizeChoices]
+    [fixedSizes, line?.offered, sizeChoices]
   )
 
   /// The photograph waiting to be uploaded, if somebody chose one.
@@ -705,12 +710,10 @@ export function ItemFormSheet({
   const price = Number.parseInt(draft.price, 10)
   /// Opened from an order: the item goes straight onto it, with a quantity.
   const ordering = (onDraft !== undefined || line !== undefined) && !editing
-  /// Whether this item can be split by colour and size at all.
-  const canSplit =
-    !identityFixed ||
-    !ordering ||
-    offeredColours.length > 0 ||
-    offeredSizes.length > 0
+  /// Whether this item can be split by colour and size at all: always — an
+  /// item the catalogue offers in nothing is split from the whole master
+  /// (owner, 2026-10-18).
+  const canSplit = true
   const unitBook = useUnits()
   /// Units this item can be ordered in: the base and every active global
   /// conversion — the per-item pack size is gone (owner, 2026-09-28), so
@@ -1334,7 +1337,7 @@ export function ItemFormSheet({
               its own. */}
           {canSplit && (
             <div className="grid gap-4 md:grid-cols-2">
-              {(!identityFixed || !ordering || offeredColours.length > 0) && (
+              {
                 <Field label="Colors">
                   <PickMany
                     label="Colors"
@@ -1348,8 +1351,8 @@ export function ItemFormSheet({
                     leading={(code) => <ColourSwatch hex={hexOf(code)} />}
                   />
                 </Field>
-              )}
-              {(!identityFixed || !ordering || offeredSizes.length > 0) && (
+              }
+              {
                 <Field label="Sizes">
                   <PickMany
                     label="Sizes"
@@ -1362,7 +1365,7 @@ export function ItemFormSheet({
                     onChange={(sizes) => set({ sizes })}
                   />
                 </Field>
-              )}
+              }
             </div>
           )}
 

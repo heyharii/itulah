@@ -64,8 +64,10 @@ pub struct GaContractRow {
     pub site_id: Option<String>,
     /// `ALL_STORES` or `ALL_SITES`, present exactly when `site_id` is absent.
     pub site_scope: Option<String>,
-    /// The one thing a maintenance contract maintains, when it is a thing.
-    pub asset_id: Option<Uuid>,
+    /// How many assets are on the contract's roster today (0975): the vans a
+    /// fleet policy covers, the ACs a maintenance contract services. The
+    /// roster itself is [`GaContractHub::covers`].
+    pub covered_assets: i64,
     pub starts_on: NaiveDate,
     pub ends_on: Option<NaiveDate>,
     pub contract_value_minor: Option<i64>,
@@ -181,6 +183,9 @@ pub struct GaContractScope {
     /// `Some(true)` hanya yang diarsipkan; `Some(false)` tanpa arsip; `None`
     /// semua.
     pub archived: Option<bool>,
+    /// Only the contracts with this supplier — what a supplier's own sheet
+    /// lists.
+    pub supplier_id: Option<Uuid>,
     pub today: NaiveDate,
     pub limit: i64,
 }
@@ -202,7 +207,11 @@ pub struct RecordGaContractRequest {
     pub counterparty_name: Option<String>,
     pub site_id: Option<String>,
     pub site_scope: Option<String>,
-    pub asset_id: Option<Uuid>,
+    /// The assets the contract covers, from the day it starts (0975): every
+    /// van on a fleet policy, every AC a maintenance contract services. Only
+    /// the types that cover things may name any (`assert_contract_assets`).
+    #[serde(default)]
+    pub asset_ids: Vec<Uuid>,
     pub starts_on: NaiveDate,
     pub ends_on: Option<NaiveDate>,
     pub contract_value_minor: Option<i64>,
@@ -225,11 +234,15 @@ fn default_reminder_days() -> i32 {
 /// `supplier_id` DROPS the counterparty, naming a `site_scope` drops the
 /// site, because a contract cannot hold both and the database would refuse
 /// the attempt anyway. What PATCH deliberately cannot do is DETACH —
-/// `ends_on`, `contract_value_minor` and `asset_id` can be replaced but not
-/// nulled, for the reason `eligibility` wrote down: TypeScript flattens
+/// `ends_on` and `contract_value_minor` can be replaced but not nulled, for
+/// the reason `eligibility` wrote down: TypeScript flattens
 /// `Option<Option<T>>` to `T | null`, and a caller that omitted the field
 /// would be asking a different question from the one it thought it was
 /// asking. A deal whose window is wrong is re-cut, not un-ended.
+///
+/// The roster is not here: an asset joins or leaves a contract on a day of its
+/// own ([`ga_contract_cover_add`], [`ga_contract_cover_remove`]), and a PATCH
+/// has no day to say it with.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct UpdateGaContractRequest {
@@ -240,7 +253,6 @@ pub struct UpdateGaContractRequest {
     pub counterparty_name: Option<String>,
     pub site_id: Option<String>,
     pub site_scope: Option<String>,
-    pub asset_id: Option<Uuid>,
     pub starts_on: Option<NaiveDate>,
     pub ends_on: Option<NaiveDate>,
     pub contract_value_minor: Option<i64>,
@@ -332,6 +344,51 @@ pub struct GaContractHub {
     /// Template tagihan rutin yang menunjuk kontrak ini.
     pub templates: Vec<GaContractTemplate>,
     pub documents: Vec<GaDocument>,
+    /// The assets on the roster (0975), the ones on it now first, then the
+    /// ones that left it, latest first.
+    pub covers: Vec<GaContractCover>,
+}
+
+/// One asset's stay on a contract's roster (0975).
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct GaContractCover {
+    pub cover_id: Uuid,
+    pub contract_id: Uuid,
+    pub asset_id: Uuid,
+    pub asset_number: String,
+    pub asset_name: String,
+    /// The asset's build (`VEHICLE`, `TECH`…), for the row's glyph.
+    pub build: String,
+    pub site_id: String,
+    pub site_name: Option<String>,
+    pub covered_from: NaiveDate,
+    /// The last day it was on the roster; `None` while it still is.
+    pub covered_until: Option<NaiveDate>,
+    pub added_by: String,
+    pub removed_by: Option<String>,
+}
+
+/// Put one more asset on a contract's roster.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
+pub struct AddGaContractCoverRequest {
+    pub asset_id: Uuid,
+    /// The first day it is covered; the business day when left out, or the
+    /// contract's start when that is later.
+    #[serde(default)]
+    pub covered_from: Option<NaiveDate>,
+}
+
+/// Take an asset off a contract's roster. The stay is kept, closed on a day.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+#[cfg_attr(feature = "ts", ts(optional_fields = nullable))]
+pub struct RemoveGaContractCoverRequest {
+    /// The last day it is covered; the business day when left out.
+    #[serde(default)]
+    pub covered_until: Option<NaiveDate>,
 }
 
 /// One contract type as the client draws it, with the accounts it resolves to
@@ -377,6 +434,10 @@ const GA_STANDING: &str = "CASE
         ELSE 'AKTIF'
     END";
 
+/// How many assets are on the roster of the contract `c` today (0975).
+const GA_COVERED: &str = "(SELECT count(*) FROM ga_contract_asset ca
+          WHERE ca.contract_id = c.contract_id AND ca.covered_until IS NULL)::bigint";
+
 /// The search, defined once so the page, the facet counts and the single
 /// reads see one set — including the standing, which is computed HERE,
 /// where the contract's alias is `c`.
@@ -389,7 +450,8 @@ fn ga_contract_search() -> String {
                 ro.name AS objek_name,
                 st.name AS site_name,
                 {GA_STANDING} AS standing,
-                m.period, m.usage, m.unit
+                m.period, m.usage, m.unit,
+                {GA_COVERED} AS covered_assets
            FROM ga_contract c
            JOIN contract_type ct ON ct.code = c.contract_type
            LEFT JOIN supplier sup ON sup.supplier_id = c.supplier_id
@@ -413,13 +475,21 @@ const GA_CONTRACT_FILTERS: &str = "
     AND ($5::text[] IS NULL OR site_id = ANY($5))
     AND ($6::text[] IS NULL OR standing = ANY($6))
     AND ($7::boolean IS NULL OR archived = $7)
+    AND ($8::uuid IS NULL OR supplier_id = $8)
+";
+
+/// The tab and the scope alone — archived or not, and the supplier — which
+/// the facet counts honour while ignoring the chips (`$7`, `$8`).
+const GA_CONTRACT_TAB: &str = "
+    ($7::boolean IS NULL OR archived = $7)
+    AND ($8::uuid IS NULL OR supplier_id = $8)
 ";
 
 /// The columns a writer RETURNS, wrapped into the reader's shape by
 /// [`written_row`] — with the figures a fresh write KNOWS are true: nothing
 /// is billed against a contract nobody has seen yet, and it has no readings.
 const GA_CONTRACT_RETURNING: &str = "RETURNING contract_id, contract_number, contract_type,
-    objek, supplier_id, counterparty_name, site_id, site_scope, asset_id,
+    objek, supplier_id, counterparty_name, site_id, site_scope,
     starts_on, ends_on, contract_value_minor, is_signed, signed_by,
     customer_number, reminder_days, notes, status, archived, version";
 
@@ -449,7 +519,7 @@ fn to_ga_contract(
         counterparty_name: row.try_get("counterparty_name")?,
         site_id: row.try_get("site_id")?,
         site_scope: row.try_get("site_scope")?,
-        asset_id: row.try_get("asset_id")?,
+        covered_assets: row.try_get("covered_assets")?,
         starts_on,
         ends_on,
         contract_value_minor,
@@ -479,7 +549,10 @@ const GA_WRITTEN_SHAPE: &str = "SELECT w.*,
         sup.name AS supplier_name,
         ro.name AS objek_name,
         0::bigint AS billed_minor,
-        NULL::date AS period, NULL::bigint AS usage, NULL::text AS unit
+        NULL::date AS period, NULL::bigint AS usage, NULL::text AS unit,
+        (SELECT count(*) FROM ga_contract_asset ca
+          WHERE ca.contract_id = w.contract_id AND ca.covered_until IS NULL)::bigint
+            AS covered_assets
    FROM written w
    JOIN contract_type ct ON ct.code = w.contract_type
    LEFT JOIN supplier sup ON sup.supplier_id = w.supplier_id
@@ -684,6 +757,311 @@ fn billed_select(alias: &str) -> String {
     )
 }
 
+/// The types whose contract covers THINGS, and what kind of thing each may
+/// cover (`assert_contract_assets`). Every other type covers a place.
+const VEHICLE_COVER_TYPES: [&str; 2] = ["ASURANSI_KENDARAAN", "IZIN_KENDARAAN"];
+const THING_COVER_TYPES: [&str; 2] = ["ASURANSI_PROPERTI", "JASA_MAINTENANCE"];
+
+/// Whether a contract of this type may have a roster at all.
+pub fn contract_type_covers_assets(contract_type: &str) -> bool {
+    VEHICLE_COVER_TYPES.contains(&contract_type) || THING_COVER_TYPES.contains(&contract_type)
+}
+
+/// The assets a contract may cover, checked against what the contract is and
+/// where it is (0975). The server decides rather than trusting the picker:
+/// - vehicle insurance and STNK/KIR cover vehicles, wherever they are parked —
+///   a van moves between the DC and the stores and stays on its policy;
+/// - property insurance and a maintenance contract cover physical things, at
+///   the contract's own site, at a store for an `ALL_STORES` deal, anywhere
+///   for `ALL_SITES`;
+/// - every other type covers a place, and names no asset.
+///
+/// A thing already disposed of or replaced cannot newly join a roster.
+async fn assert_contract_assets(
+    executor: impl sqlx::PgExecutor<'_>,
+    contract_type: &str,
+    site_id: Option<&str>,
+    site_scope: Option<&str>,
+    asset_ids: &[Uuid],
+) -> Result<(), AppError> {
+    if asset_ids.is_empty() {
+        return Ok(());
+    }
+    if !contract_type_covers_assets(contract_type) {
+        return Err(AppError::Validation(format!(
+            "a {contract_type} contract covers a place, not assets; only vehicle and property \
+             insurance, STNK/KIR and maintenance contracts list the things they cover"
+        )));
+    }
+    let rows = sqlx::query(
+        "SELECT a.asset_id, a.name, a.status, a.site_id, c.build, s.kind AS site_kind
+           FROM fixed_asset a
+           JOIN asset_class c ON c.class_code = a.category_code
+           LEFT JOIN site s ON s.id = a.site_id
+          WHERE a.asset_id = ANY($1)",
+    )
+    .bind(asset_ids)
+    .fetch_all(executor)
+    .await?;
+    if rows.len() != asset_ids.len() {
+        return Err(AppError::Validation(
+            "one of the assets the contract names does not exist".into(),
+        ));
+    }
+    let vehicles_only = VEHICLE_COVER_TYPES.contains(&contract_type);
+    for row in &rows {
+        let name: String = row.try_get("name")?;
+        let status: String = row.try_get("status")?;
+        let build: String = row.try_get("build")?;
+        let at: String = row.try_get("site_id")?;
+        let site_kind: Option<String> = row.try_get("site_kind")?;
+        if status == "DISPOSED" || status == "REPLACED" {
+            return Err(AppError::Validation(format!(
+                "{name} has left the register ({status}); a contract cannot newly cover it"
+            )));
+        }
+        if vehicles_only {
+            if build != "VEHICLE" {
+                return Err(AppError::Validation(format!(
+                    "{name} is not a vehicle; a {contract_type} contract covers vehicles"
+                )));
+            }
+            continue;
+        }
+        if matches!(build.as_str(), "SOFTWARE" | "DEFERRED" | "CIP") {
+            return Err(AppError::Validation(format!(
+                "{name} is {build}: there is no physical thing to insure or service"
+            )));
+        }
+        let fits_place = match (site_id, site_scope) {
+            (Some(site), _) => at == site,
+            (None, Some("ALL_STORES")) => site_kind.as_deref() == Some("STORE"),
+            _ => true,
+        };
+        if !fits_place {
+            return Err(AppError::Validation(match site_id {
+                Some(site) => format!(
+                    "{name} stands at {at}; this contract is for {site}, so it covers what is there"
+                ),
+                None => format!(
+                    "{name} stands at {at}, which is not a store; this contract covers all stores"
+                ),
+            }));
+        }
+    }
+    Ok(())
+}
+
+/// The site an asset stands at, for the access check of a read about it.
+pub async fn ga_asset_site(pool: &PgPool, asset_id: Uuid) -> Result<String, AppError> {
+    sqlx::query_scalar("SELECT site_id FROM fixed_asset WHERE asset_id = $1")
+        .bind(asset_id)
+        .fetch_optional(pool)
+        .await?
+        .ok_or_else(|| AppError::NotFound("asset".into()))
+}
+
+/// Every contract whose roster has the asset on it today, newest-relevant
+/// first: what the asset's own sheet lists under Contracts. A contract for the
+/// asset's whole site is not shown as covering it — a site-wide deal does not
+/// put every asset at the site on its roster by itself.
+pub async fn ga_contracts_for_asset(
+    pool: &PgPool,
+    asset_id: Uuid,
+    today: NaiveDate,
+) -> Result<Vec<GaContractRow>, AppError> {
+    let search = ga_contract_search();
+    let billed = billed_select("k");
+    let sql = format!(
+        "WITH searched AS ({search})
+         SELECT k.*, {billed} AS billed_minor FROM searched k
+          WHERE EXISTS (SELECT 1 FROM ga_contract_asset ca
+                         WHERE ca.contract_id = k.contract_id AND ca.asset_id = $3
+                           AND ca.covered_until IS NULL)
+          ORDER BY k.archived, k.sort_order, k.starts_on, k.contract_id
+          LIMIT 200"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(None::<String>)
+        .bind(today)
+        .bind(asset_id)
+        .fetch_all(pool)
+        .await?;
+    rows.iter().map(|row| to_ga_contract(row, today)).collect()
+}
+
+/// A contract's roster, the stays still open first, then the closed ones,
+/// latest first.
+pub async fn ga_contract_covers(
+    pool: &PgPool,
+    contract_id: Uuid,
+) -> Result<Vec<GaContractCover>, AppError> {
+    let rows = sqlx::query(
+        "SELECT ca.cover_id, ca.contract_id, ca.asset_id, a.asset_number, a.name AS asset_name,
+                c.build, a.site_id, s.name AS site_name, ca.covered_from, ca.covered_until,
+                ca.added_by, ca.removed_by
+           FROM ga_contract_asset ca
+           JOIN fixed_asset a ON a.asset_id = ca.asset_id
+           JOIN asset_class c ON c.class_code = a.category_code
+           LEFT JOIN site s ON s.id = a.site_id
+          WHERE ca.contract_id = $1
+          ORDER BY ca.covered_until IS NOT NULL, ca.covered_until DESC, a.name, ca.cover_id",
+    )
+    .bind(contract_id)
+    .fetch_all(pool)
+    .await?;
+    rows.iter()
+        .map(|row| {
+            Ok(GaContractCover {
+                cover_id: row.try_get("cover_id")?,
+                contract_id: row.try_get("contract_id")?,
+                asset_id: row.try_get("asset_id")?,
+                asset_number: row.try_get("asset_number")?,
+                asset_name: row.try_get("asset_name")?,
+                build: row.try_get("build")?,
+                site_id: row.try_get("site_id")?,
+                site_name: row.try_get("site_name")?,
+                covered_from: row.try_get("covered_from")?,
+                covered_until: row.try_get("covered_until")?,
+                added_by: row.try_get("added_by")?,
+                removed_by: row.try_get("removed_by")?,
+            })
+        })
+        .collect()
+}
+
+/// Put one more asset on a contract's roster, from a day.
+///
+/// The contract must still be alive (not archived, not terminated), the asset
+/// must fit it (`assert_contract_assets`), and it may not already be on it.
+/// The first day is the business day when none is given, never before the
+/// contract starts and never after it ends.
+pub async fn ga_contract_cover_add(
+    pool: &PgPool,
+    contract_id: Uuid,
+    request: &AddGaContractCoverRequest,
+    actor: &str,
+    today: NaiveDate,
+) -> Result<GaContractHub, AppError> {
+    let mut tx = pool.begin().await?;
+    let contract = sqlx::query(
+        "SELECT contract_type, site_id, site_scope, starts_on, ends_on, status, archived
+           FROM ga_contract WHERE contract_id = $1 FOR UPDATE",
+    )
+    .bind(contract_id)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or_else(|| AppError::NotFound("contract".into()))?;
+    let contract_type: String = contract.try_get("contract_type")?;
+    let site_id: Option<String> = contract.try_get("site_id")?;
+    let site_scope: Option<String> = contract.try_get("site_scope")?;
+    let starts_on: NaiveDate = contract.try_get("starts_on")?;
+    let ends_on: Option<NaiveDate> = contract.try_get("ends_on")?;
+    let status: String = contract.try_get("status")?;
+    if contract.try_get::<bool, _>("archived")? || status == "TERMINATED" {
+        return Err(AppError::Conflict(
+            "the contract has ended; a new asset goes on the contract that replaced it".into(),
+        ));
+    }
+    assert_contract_assets(
+        &mut *tx,
+        &contract_type,
+        site_id.as_deref(),
+        site_scope.as_deref(),
+        &[request.asset_id],
+    )
+    .await?;
+    let from = request.covered_from.unwrap_or(today.max(starts_on));
+    if from < starts_on {
+        return Err(AppError::Validation(format!(
+            "the contract starts on {starts_on}; nothing is covered by it before then"
+        )));
+    }
+    if ends_on.is_some_and(|end| from > end) {
+        return Err(AppError::Validation(
+            "the contract has already ended on that day".into(),
+        ));
+    }
+    sqlx::query(
+        "INSERT INTO ga_contract_asset (contract_id, asset_id, covered_from, added_by)
+         VALUES ($1, $2, $3, $4)",
+    )
+    .bind(contract_id)
+    .bind(request.asset_id)
+    .bind(from)
+    .bind(actor)
+    .execute(&mut *tx)
+    .await
+    .map_err(|error| match error {
+        sqlx::Error::Database(db) if db.is_unique_violation() => {
+            AppError::Conflict("that asset is already on the contract's roster".into())
+        }
+        other => AppError::from(other),
+    })?;
+    tx.commit().await?;
+    ga_contract_hub_on(pool, contract_id, today).await
+}
+
+/// Take an asset off a contract's roster: its stay is closed on a day and kept,
+/// so a claim about last March still finds the van was covered then.
+pub async fn ga_contract_cover_remove(
+    pool: &PgPool,
+    contract_id: Uuid,
+    asset_id: Uuid,
+    request: &RemoveGaContractCoverRequest,
+    actor: &str,
+    today: NaiveDate,
+) -> Result<GaContractHub, AppError> {
+    let mut tx = pool.begin().await?;
+    let stay = sqlx::query(
+        "SELECT cover_id, covered_from FROM ga_contract_asset
+          WHERE contract_id = $1 AND asset_id = $2 AND covered_until IS NULL
+          FOR UPDATE",
+    )
+    .bind(contract_id)
+    .bind(asset_id)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or_else(|| AppError::NotFound("asset on this contract's roster".into()))?;
+    let covered_from: NaiveDate = stay.try_get("covered_from")?;
+    let until = request.covered_until.unwrap_or(today);
+    if until < covered_from {
+        return Err(AppError::Validation(format!(
+            "it joined the roster on {covered_from}; it cannot leave before that"
+        )));
+    }
+    // An open claim about damage after the last covered day would lose its
+    // ground; the claim is settled first.
+    let claimed_after: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM ga_insurance_claim
+                         WHERE contract_id = $1 AND asset_id = $2 AND incident_on > $3
+                           AND status NOT IN ('PAID', 'REJECTED'))",
+    )
+    .bind(contract_id)
+    .bind(asset_id)
+    .bind(until)
+    .fetch_one(&mut *tx)
+    .await?;
+    if claimed_after {
+        return Err(AppError::Conflict(
+            "an open claim under this contract is about damage after that day; settle it first"
+                .into(),
+        ));
+    }
+    sqlx::query(
+        "UPDATE ga_contract_asset
+            SET covered_until = $2, removed_by = $3, removed_at = now()
+          WHERE cover_id = $1",
+    )
+    .bind(stay.try_get::<Uuid, _>("cover_id")?)
+    .bind(until)
+    .bind(actor)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    ga_contract_hub_on(pool, contract_id, today).await
+}
+
 /// The contract register's first page in the house order, beside the shape of
 /// everything it holds. See [`ga_contract_book`] for the paged read.
 pub async fn ga_contract_page(
@@ -746,10 +1124,10 @@ pub async fn ga_contract_book(
              SELECT * FROM searched WHERE {GA_CONTRACT_FILTERS}
          )
          SELECT k.*, {billed} AS billed_minor FROM kept k
-          WHERE $8::uuid IS NULL
-             OR ({page_key}) > (SELECT {seek_key} FROM kept x WHERE x.contract_id = $8)
+          WHERE $9::uuid IS NULL
+             OR ({page_key}) > (SELECT {seek_key} FROM kept x WHERE x.contract_id = $9)
           ORDER BY {page_key}
-          LIMIT $9"
+          LIMIT $10"
     );
     let rows = sqlx::query(&sql)
         .bind(&needle)
@@ -759,6 +1137,7 @@ pub async fn ga_contract_book(
         .bind(&sites)
         .bind(&standings)
         .bind(scope.archived)
+        .bind(scope.supplier_id)
         .bind(after)
         .bind(limit)
         .fetch_all(pool)
@@ -821,6 +1200,7 @@ async fn ga_contract_summary(
         .bind(&sites)
         .bind(&standings)
         .bind(scope.archived)
+        .bind(scope.supplier_id)
         .fetch_one(pool)
         .await?;
     Ok(GaContractSummary {
@@ -833,10 +1213,10 @@ async fn ga_contract_summary(
 
 /// How many contracts there are and how they split.
 ///
-/// The per-value counts read the SEARCHED set, ignoring what is currently
-/// filtered — the same argument `ga_asset_facets` makes: a number beside a
-/// value answers "how many of these there are", while `total` describes the
-/// list on screen.
+/// The per-value counts read the SEARCHED set within the tab (archived or
+/// not) and the supplier, ignoring the chips — the same argument
+/// `ga_asset_facets` makes: a number beside a value answers "how many of
+/// these there are on this tab", while `total` describes the list on screen.
 async fn ga_contract_facets(
     pool: &PgPool,
     scope: &GaContractScope,
@@ -849,23 +1229,26 @@ async fn ga_contract_facets(
     let search = ga_contract_search();
     let sql = format!(
         "WITH searched AS ({search}),
+              tabbed AS (
+             SELECT * FROM searched WHERE {GA_CONTRACT_TAB}
+         ),
               kept AS (
              SELECT * FROM searched WHERE {GA_CONTRACT_FILTERS}
          )
          SELECT 'type' AS kind, s.contract_type AS value,
                 MIN(s.contract_type_name) AS label, COUNT(*)::bigint AS n
-           FROM searched s GROUP BY s.contract_type
+           FROM tabbed s GROUP BY s.contract_type
           UNION ALL
          SELECT 'group', s.group_code, NULL::text, COUNT(*)::bigint
-           FROM searched s GROUP BY s.group_code
+           FROM tabbed s GROUP BY s.group_code
           UNION ALL
          SELECT 'site', s.site_id, MIN(s.site_name), COUNT(*)::bigint
-           FROM searched s
+           FROM tabbed s
           WHERE s.site_id IS NOT NULL
           GROUP BY s.site_id
           UNION ALL
          SELECT 'standing', s.standing, NULL::text, COUNT(*)::bigint
-           FROM searched s GROUP BY s.standing
+           FROM tabbed s GROUP BY s.standing
           UNION ALL
          SELECT 'all', '', NULL::text, COUNT(*)::bigint FROM kept"
     );
@@ -877,6 +1260,7 @@ async fn ga_contract_facets(
         .bind(&sites)
         .bind(&standings)
         .bind(scope.archived)
+        .bind(scope.supplier_id)
         .fetch_all(pool)
         .await?;
 
@@ -980,9 +1364,9 @@ pub async fn ga_contract_hub_on(
     // taught the word `contract`.
     let document_rows = sqlx::query(
         "SELECT d.document_id, d.name, d.title, d.doc_type, d.doc_number, d.issuer,
-                d.issued_on, d.expires_on, f.available
+                d.issued_on, d.expires_on, COALESCE(f.available, false) AS available
            FROM document d
-           JOIN stored_file f ON f.file_id = d.file_id
+           LEFT JOIN stored_file f ON f.file_id = d.file_id
            JOIN document_link l ON l.document_id = d.document_id
           WHERE l.subject_kind = 'contract' AND l.subject_id = $1::text
           ORDER BY d.expires_on NULLS LAST, d.created_at DESC",
@@ -1007,12 +1391,15 @@ pub async fn ga_contract_hub_on(
         })
         .collect::<Result<Vec<GaDocument>, AppError>>()?;
 
+    let covers = ga_contract_covers(pool, contract_id).await?;
+
     Ok(GaContractHub {
         contract,
         bills,
         meter_readings,
         templates,
         documents,
+        covers,
     })
 }
 
@@ -1180,6 +1567,27 @@ pub async fn ga_contract_record(
         request.contract_value_minor,
     )
     .await?;
+    // The roster, once each, in the order given.
+    let mut asset_ids: Vec<Uuid> = Vec::with_capacity(request.asset_ids.len());
+    for id in &request.asset_ids {
+        if !asset_ids.contains(id) {
+            asset_ids.push(*id);
+        }
+    }
+    let site_id = request
+        .site_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|site| !site.is_empty());
+    let site_scope = nothing_if_blank(request.site_scope.as_deref()).map(str::to_ascii_uppercase);
+    assert_contract_assets(
+        pool,
+        &contract_type,
+        site_id,
+        site_scope.as_deref(),
+        &asset_ids,
+    )
+    .await?;
     if request.reminder_days < 0 {
         return Err(AppError::Validation(
             "reminder_days is how far ahead the contract wants itself remembered; it \
@@ -1188,31 +1596,24 @@ pub async fn ga_contract_record(
         ));
     }
 
-    let row = sqlx::query(&format!(
-        "WITH written AS (
-             INSERT INTO ga_contract
-               (contract_number, contract_type, objek, supplier_id, counterparty_name,
-                site_id, site_scope, asset_id, starts_on, ends_on, contract_value_minor,
-                is_signed, signed_by, customer_number, reminder_days, notes, created_by)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
-             {GA_CONTRACT_RETURNING}
-         )
-         {GA_WRITTEN_SHAPE}"
-    ))
+    // The deal and its roster land together: a policy saved without the vans
+    // it was written for is a policy that covers nothing.
+    let mut tx = pool.begin().await?;
+    let contract_id: Uuid = sqlx::query_scalar(
+        "INSERT INTO ga_contract
+           (contract_number, contract_type, objek, supplier_id, counterparty_name,
+            site_id, site_scope, starts_on, ends_on, contract_value_minor,
+            is_signed, signed_by, customer_number, reminder_days, notes, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+         RETURNING contract_id",
+    )
     .bind(nothing_if_blank(request.contract_number.as_deref()))
     .bind(&contract_type)
     .bind(nothing_if_blank(request.objek.as_deref()))
     .bind(request.supplier_id)
     .bind(nothing_if_blank(request.counterparty_name.as_deref()))
-    .bind(
-        request
-            .site_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|site| !site.is_empty()),
-    )
+    .bind(site_id)
     .bind(nothing_if_blank(request.site_scope.as_deref()))
-    .bind(request.asset_id)
     .bind(request.starts_on)
     .bind(request.ends_on)
     .bind(request.contract_value_minor)
@@ -1222,10 +1623,23 @@ pub async fn ga_contract_record(
     .bind(request.reminder_days)
     .bind(nothing_if_blank(request.notes.as_deref()))
     .bind(actor)
-    .fetch_one(pool)
+    .fetch_one(&mut *tx)
     .await?;
+    if !asset_ids.is_empty() {
+        sqlx::query(
+            "INSERT INTO ga_contract_asset (contract_id, asset_id, covered_from, added_by)
+             SELECT $1, id, $3, $4 FROM unnest($2::uuid[]) AS id",
+        )
+        .bind(contract_id)
+        .bind(&asset_ids)
+        .bind(request.starts_on)
+        .bind(actor)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
 
-    to_ga_contract(&row, today)
+    ga_contract_on(pool, contract_id, today).await
 }
 
 /// Correct what GA knows about a deal.
@@ -1243,7 +1657,7 @@ pub async fn ga_contract_update(
     let mut tx = pool.begin().await?;
     let current: sqlx::postgres::PgRow = sqlx::query(
         "SELECT contract_number, contract_type, objek, supplier_id, counterparty_name,
-                site_id, site_scope, asset_id, starts_on, ends_on, contract_value_minor,
+                site_id, site_scope, starts_on, ends_on, contract_value_minor,
                 is_signed, signed_by, customer_number, reminder_days, notes, status, archived
            FROM ga_contract
           WHERE contract_id = $1
@@ -1316,10 +1730,6 @@ pub async fn ga_contract_update(
         Some(value) => Some(value),
         None => current.try_get("contract_value_minor")?,
     };
-    let asset_id = match request.asset_id {
-        Some(id) => Some(id),
-        None => current.try_get("asset_id")?,
-    };
     let is_signed = request.is_signed.unwrap_or(current.try_get("is_signed")?);
     let signed_by = text_or("signed_by", request.signed_by.as_deref())?;
     let customer_number = text_or("customer_number", request.customer_number.as_deref())?;
@@ -1353,6 +1763,31 @@ pub async fn ga_contract_update(
     )
     .await?;
 
+    // The roster must still fit what the contract becomes: a property policy
+    // re-typed as a lease, or moved to another site, would keep covering
+    // things it no longer can. The assets come off the roster first.
+    let roster: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT asset_id FROM ga_contract_asset
+          WHERE contract_id = $1 AND covered_until IS NULL",
+    )
+    .bind(contract_id)
+    .fetch_all(&mut *tx)
+    .await?;
+    assert_contract_assets(
+        &mut *tx,
+        &contract_type,
+        site_id.as_deref(),
+        site_scope.as_deref(),
+        &roster,
+    )
+    .await
+    .map_err(|refusal| match refusal {
+        AppError::Validation(why) => AppError::Validation(format!(
+            "the assets on its roster would no longer fit: {why}; take them off the roster first"
+        )),
+        other => other,
+    })?;
+
     let row = sqlx::query(&format!(
         "WITH written AS (
              UPDATE ga_contract
@@ -1363,17 +1798,16 @@ pub async fn ga_contract_update(
                     counterparty_name = $6,
                     site_id = $7,
                     site_scope = $8,
-                    asset_id = $9,
-                    starts_on = $10,
-                    ends_on = $11,
-                    contract_value_minor = $12,
-                    is_signed = $13,
-                    signed_by = $14,
-                    customer_number = $15,
-                    reminder_days = $16,
-                    notes = $17,
-                    status = $18,
-                    updated_by = $19,
+                    starts_on = $9,
+                    ends_on = $10,
+                    contract_value_minor = $11,
+                    is_signed = $12,
+                    signed_by = $13,
+                    customer_number = $14,
+                    reminder_days = $15,
+                    notes = $16,
+                    status = $17,
+                    updated_by = $18,
                     updated_at = now(),
                     version = version + 1
               WHERE contract_id = $1
@@ -1389,7 +1823,6 @@ pub async fn ga_contract_update(
     .bind(counterparty_name.as_deref())
     .bind(site_id.as_deref())
     .bind(site_scope.as_deref())
-    .bind(asset_id)
     .bind(starts_on)
     .bind(ends_on)
     .bind(contract_value_minor)

@@ -12,6 +12,7 @@ import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
+import { CellMoney } from "@/components/ui/rows-switch"
 import { Toolbar } from "@/components/ui/segmented"
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states"
 import { edge } from "@/lib/api"
@@ -192,7 +193,9 @@ function ExpensesScreen() {
         enableSorting: false,
         meta: { align: "right", card: "metric", priority: 2 },
         cell: ({ row }) => (
-          <span className="text-mute">{money(row.original.cash)}</span>
+          <span className="text-mute">
+            <CellMoney minor={row.original.cash} />
+          </span>
         ),
       },
       {
@@ -203,7 +206,9 @@ function ExpensesScreen() {
         enableSorting: false,
         meta: { align: "right", card: "metric", priority: 2 },
         cell: ({ row }) => (
-          <span className="text-mute">{money(row.original.float)}</span>
+          <span className="text-mute">
+            <CellMoney minor={row.original.float} />
+          </span>
         ),
       },
       {
@@ -213,7 +218,7 @@ function ExpensesScreen() {
         size: 205,
         enableSorting: false,
         meta: { align: "right", card: "metric" },
-        cell: ({ row }) => money(row.original.petty),
+        cell: ({ row }) => <CellMoney minor={row.original.petty} />,
       },
       {
         id: "shop",
@@ -227,7 +232,7 @@ function ExpensesScreen() {
           return shop === null ? (
             <span className="text-faint">—</span>
           ) : (
-            money(shop)
+            <CellMoney minor={shop} />
           )
         },
       },
@@ -251,7 +256,7 @@ function ExpensesScreen() {
           ) : (
             <span className="text-bad-fg">
               {difference > 0 ? "+" : "−"}
-              {money(Math.abs(difference))}
+              <CellMoney minor={Math.abs(difference)} />
             </span>
           )
         },
@@ -722,7 +727,7 @@ const BOOK_COLUMNS: ColumnDef<TableSetup, BookEntry>[] = [
       row.original.in === 0 ? (
         <span className="text-hairline-strong">·</span>
       ) : (
-        money(row.original.in)
+        <CellMoney minor={row.original.in} />
       ),
   },
   {
@@ -736,7 +741,7 @@ const BOOK_COLUMNS: ColumnDef<TableSetup, BookEntry>[] = [
       row.original.out === 0 ? (
         <span className="text-hairline-strong">·</span>
       ) : (
-        money(row.original.out)
+        <CellMoney minor={row.original.out} />
       ),
   },
 ]

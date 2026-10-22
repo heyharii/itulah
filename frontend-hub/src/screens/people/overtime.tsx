@@ -14,7 +14,6 @@ import { Field, Input, Select } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill, Status } from "@/components/ui/pill"
-import { Toolbar } from "@/components/ui/segmented"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
@@ -47,6 +46,7 @@ import {
   CardName,
   PhoneCards,
 } from "@/components/ui/phone-cards"
+import { HrScope, useUnitFilter } from "@/screens/people/parts"
 import type { OvertimeOrderView } from "@itulah/contract"
 
 /// Overtime: ordered here, agreed somewhere else.
@@ -213,7 +213,15 @@ export function Overtime() {
   })
   const queue = show === "WAITING" ? awaiting : answered
 
-  const rows = useMemo(() => queue.data ?? [], [queue.data])
+  // The unit is HR's own, kept as you move between its pages.
+  const place = useUnitFilter()
+  const rows = useMemo(
+    () =>
+      (queue.data ?? []).filter(
+        (row) => place.unitId === null || row.unit_id === place.unitId
+      ),
+    [queue.data, place.unitId]
+  )
 
   const filters = useFilters(columns)
 
@@ -262,8 +270,8 @@ export function Overtime() {
         </Banner>
       )}
 
-      <Toolbar
-        className="group/bar"
+      <HrScope
+        unit={place}
         lead={
           <SubTabs
             tabs={SHOWS}
@@ -273,7 +281,7 @@ export function Overtime() {
         }
       >
         <FilterPanel model={filters} table={table} />
-      </Toolbar>
+      </HrScope>
 
       <Card className="mb-4 overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(queue, {

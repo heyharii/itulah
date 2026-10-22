@@ -18,7 +18,7 @@ import { Banner } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { Tag } from "@/components/ui/tag"
 import { Lifecycle } from "@/components/ui/timeline"
-import { count, label, money, moment, percentBps, toneFor } from "@/lib/format"
+import { count, label, money, moment, percentBps, sku, toneFor } from "@/lib/format"
 import { ApiError } from "@itulah/contract/client"
 import {
   addSaleLine,
@@ -211,10 +211,10 @@ function ShopSaleReceipt({
                 <MiniRow key={line.sku_code}>
                   <MiniCell>
                     <span className="block text-ink">
-                      {line.article_name ?? line.sku_code}
+                      {line.article_name ?? sku(line.sku_code)}
                     </span>
                     <span className="font-mono text-[0.9375rem] text-mute">
-                      {line.sku_code}
+                      {sku(line.sku_code)}
                     </span>
                   </MiniCell>
                   <MiniCell align="right">{count(line.quantity)}</MiniCell>
@@ -340,7 +340,7 @@ function SaleRecord({ sale }: { sale: SaleDetail }) {
               <tr key={line.id} className="border-t border-hairline">
                 <td className="py-2 pr-2">
                   <span className="block text-[0.9375rem] text-ink">
-                    {line.sku_code}
+                    {sku(line.sku_code)}
                   </span>
                   {/* The tag, not the SKU, is what was actually scanned: a line
                       here is one physical garment. */}
@@ -432,7 +432,7 @@ function ReceiptPanel({ saleId }: { saleId: string }) {
                   </span>
                   <span className="flex items-center gap-1.5">
                     <span className="font-mono text-[0.9375rem] text-mute">
-                      {line.sku_code}
+                      {sku(line.sku_code)}
                     </span>
                     {/* A line some later return document names. The receipt
                         keeps saying what was sold; this only says it came
@@ -709,7 +709,7 @@ function RefundPanel({ sale }: { sale: SaleDetail }) {
                     >
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-[0.9375rem] text-ink">
-                          {line.sku_code}
+                          {sku(line.sku_code)}
                         </span>
                         <span className="font-mono text-[0.9375rem] text-mute">
                           {line.epc}
@@ -1038,10 +1038,10 @@ function PricingPanel({ saleId }: { saleId: string }) {
               <MiniRow key={line.sku_code}>
                 <MiniCell>
                   <span className="block text-ink">
-                    {line.article_name ?? line.sku_code}
+                    {line.article_name ?? sku(line.sku_code)}
                   </span>
                   <span className="font-mono text-[0.9375rem] text-mute">
-                    {line.sku_code}
+                    {sku(line.sku_code)}
                   </span>
                 </MiniCell>
                 <MiniCell align="right">{count(line.quantity)}</MiniCell>

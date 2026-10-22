@@ -400,6 +400,25 @@ async fn in_the_background(work: impl FnOnce() -> EdgeReply + Send + 'static) ->
 /// node is not there.
 pub(crate) const PATIENCE: Duration = Duration::from_secs(10);
 
+/// How long opening the connection may take, inside the patience above. A node
+/// on the shop's LAN answers a connect in milliseconds; four seconds leaves
+/// room for one lost handshake and no more.
+const CONNECT_PATIENCE: Duration = Duration::from_secs(4);
+
+/// An HTTP client that gives up on time.
+///
+/// Built per call with both timeouts set: ureq's default agent waits up to
+/// thirty seconds to connect whatever a request's own timeout says, which is a
+/// quote, a sale or a poll left hanging three times as long as a till is
+/// meant to wait. Per call, as `ureq::request` already built one, so nothing is
+/// pooled that was not pooled before.
+pub(crate) fn http(patience: Duration) -> ureq::Agent {
+    ureq::AgentBuilder::new()
+        .timeout_connect(CONNECT_PATIENCE.min(patience))
+        .timeout(patience)
+        .build()
+}
+
 /// Run a blocking piece of work — an HTTP call, a few seconds of listening on
 /// the LAN — off the window's thread, and hand back its answer.
 ///
@@ -608,8 +627,8 @@ fn signed_attempt(
     );
 
     let url = format!("{}{}", config.base_url.trim_end_matches('/'), path);
-    let request = ureq::request(method, &url)
-        .timeout(PATIENCE)
+    let request = http(PATIENCE)
+        .request(method, &url)
         .set("Accept", "application/json")
         .set("X-Terminal-Id", terminal)
         .set("X-Terminal-Timestamp", &timestamp.to_string())
@@ -690,8 +709,8 @@ fn session_attempt(
 ) -> Attempt {
     let config = lock(node).clone();
     let url = format!("{}{}", config.base_url.trim_end_matches('/'), path);
-    let mut request = ureq::request(method, &url)
-        .timeout(PATIENCE)
+    let mut request = http(PATIENCE)
+        .request(method, &url)
         .set("Accept", "application/json")
         .set("X-Terminal-Id", &config.terminal_id);
     if let Some(token) = config.token.as_deref() {

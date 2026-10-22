@@ -3,7 +3,10 @@
     "targets": ["msi"],
     "resources": {
       "rfid-native/UHFAPI.dll": "rfid-native/UHFAPI.dll",
-      "rfid-native/libusb-1.0.dll": "rfid-native/libusb-1.0.dll"
+      "rfid-native/libusb-1.0.dll": "rfid-native/libusb-1.0.dll",
+      "rfid-native/vcruntime140.dll": "rfid-native/vcruntime140.dll",
+      "rfid-native/vcruntime140_1.dll": "rfid-native/vcruntime140_1.dll",
+      "rfid-native/msvcp140.dll": "rfid-native/msvcp140.dll"
     }
   }
 }

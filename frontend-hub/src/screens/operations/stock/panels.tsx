@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Panel } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/field"
 import { EmptyState, LoadingState } from "@/components/ui/states"
-import { count, quantity } from "@/lib/format"
+import { count, quantity, sku as skuNumber } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import { TwoLines } from "@/screens/operations/two-lines"
 import {
@@ -403,7 +403,7 @@ function ReturnBody({ id, data }: { id: string; data: StockData }) {
       {row.lines.map((l) => (
         <Row key={l.code}>
           <td className={cell}>
-            <TwoLines top={l.name} bottom={l.code} mono />
+            <TwoLines top={l.name} bottom={skuNumber(l.code)} mono />
           </td>
           <td className={num}>{count(l.pcs)}</td>
         </Row>
@@ -447,7 +447,7 @@ function ArticlesTable({
       {lines.map((l) => (
         <Row key={l.key}>
           <td className={cell}>
-            <TwoLines top={l.name} bottom={l.code} mono />
+            <TwoLines top={l.name} bottom={skuNumber(l.code)} mono />
           </td>
           {withStore && <td className={cell}>{l.store}</td>}
           <td className={num}>{count(l.pcs)}</td>

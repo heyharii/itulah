@@ -1,0 +1,75 @@
+<!-- @dsCard group="Records" height=478 subtitle="Static rendition of exception-queue.tsx in the All white look" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>ExceptionQueue — preview</title>
+<style>
+body{margin:0}
+/* ExceptionQueue: a Card (hairline, radius 10) with a CardHeader, then one 66px row per exception. White.css outlines the High and Medium capsules and leaves Low filled. */
+.ds-exceptionqueue-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 16px 11px}
+.ds-exceptionqueue-title{font-size:16px;font-weight:600;letter-spacing:-0.16px;color:var(--ink)}
+.ds-exceptionqueue-count{color:var(--mute);font-variant-numeric:tabular-nums}
+.ds-exceptionqueue-list{border-top:1px solid var(--hairline)}
+.ds-exceptionqueue-row{display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid var(--hairline);background:var(--canvas)}
+.ds-exceptionqueue-row:last-child{border-bottom:0}
+.ds-exceptionqueue-row.is-hover{background:var(--soft)}
+.ds-exceptionqueue-tile{display:grid;place-items:center;flex:none;width:30px;height:30px;border-radius:var(--r-inner)}
+.ds-exceptionqueue-tile .ds-ico{width:15px;height:15px}
+.ds-exceptionqueue-tile.is-high{background:var(--bad-bg);color:var(--bad-fg)}
+.ds-exceptionqueue-tile.is-medium{background:var(--warn-bg);color:var(--warn-fg)}
+.ds-exceptionqueue-tile.is-low{background:var(--soft-2);color:var(--body)}
+.ds-exceptionqueue-text{flex:1;min-width:0}
+.ds-exceptionqueue-text b{display:block;font-weight:500;color:var(--ink)}
+.ds-exceptionqueue-text small{display:block;font-size:15px;color:var(--mute)}
+.ds-exceptionqueue-amount{flex:none;text-align:right;font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}
+.ds-exceptionqueue-cap{display:inline-flex;align-items:center;flex:none;height:21px;padding:0 8px;border-radius:var(--r-full);font-weight:600;white-space:nowrap}
+.ds-exceptionqueue-cap.is-high{box-shadow:inset 0 0 0 1px var(--hairline-2);color:var(--bad-fg)}
+.ds-exceptionqueue-cap.is-medium{box-shadow:inset 0 0 0 1px var(--hairline-2);color:var(--warn-fg)}
+.ds-exceptionqueue-cap.is-low{background:var(--soft-2);color:var(--body)}
+.ds-exceptionqueue-go{flex:none;color:var(--faint)}
+.ds-exceptionqueue-go .ds-ico{width:15px;height:15px}
+.ds-exceptionqueue-clear{padding:0 16px 16px;color:var(--body)}
+</style></head>
+<body>
+<div class="ds ds-stage">
+
+  <div class="ds-col">
+    <p class="ds-caption">The row under the pointer is lit, and a press opens what it names</p>
+    <div class="ds-table-card">
+      <div class="ds-exceptionqueue-head"><h3 class="ds-exceptionqueue-title">Needs attention</h3><span class="ds-exceptionqueue-count">3</span></div>
+      <div class="ds-exceptionqueue-list">
+        <div class="ds-exceptionqueue-row">
+          <span class="ds-exceptionqueue-tile is-high"><span class="ds-ico ds-ico-alert"></span></span>
+          <span class="ds-exceptionqueue-text"><b>3 bills are past due</b><small>Oldest due 12 Oct 2026</small></span>
+          <span class="ds-exceptionqueue-amount">Rp 12.500.000</span>
+          <span class="ds-exceptionqueue-cap is-high">High</span>
+          <span class="ds-exceptionqueue-go"><span class="ds-ico ds-ico-chevron-right"></span></span>
+        </div>
+        <div class="ds-exceptionqueue-row is-hover">
+          <span class="ds-exceptionqueue-tile is-medium"><span class="ds-ico ds-ico-clock"></span></span>
+          <span class="ds-exceptionqueue-text"><b>Rina Kusuma has not answered an overtime order</b><small>Thu, 29 Oct 2026 · ordered by Budi Hartono</small></span>
+          <span class="ds-exceptionqueue-amount">2h</span>
+          <span class="ds-exceptionqueue-cap is-medium">Medium</span>
+          <span class="ds-exceptionqueue-go"><span class="ds-ico ds-ico-chevron-right"></span></span>
+        </div>
+        <div class="ds-exceptionqueue-row">
+          <span class="ds-exceptionqueue-tile is-low"><span class="ds-ico ds-ico-clock"></span></span>
+          <span class="ds-exceptionqueue-text"><b>Toko Bandung — SALE-0042</b><small>45 min ago · tendered Rp 50.000 of Rp 120.000</small></span>
+          <span class="ds-exceptionqueue-amount">Rp 70.000</span>
+          <span class="ds-exceptionqueue-cap is-low">Low</span>
+          <span class="ds-exceptionqueue-go"><span class="ds-ico ds-ico-chevron-right"></span></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ds-col">
+    <p class="ds-caption">Nothing to do: the queue says so in a sentence, or is not drawn at all</p>
+    <div class="ds-table-card">
+      <div class="ds-exceptionqueue-head"><h3 class="ds-exceptionqueue-title">Tills left open</h3></div>
+      <p class="ds-exceptionqueue-clear">Every till is square — nothing is sitting open.</p>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

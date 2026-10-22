@@ -16,7 +16,7 @@ import {
 import { PageHeader } from "@/components/ui/page-header"
 import { EmptyState } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
-import { count, dateText, day, money, percentOf, quantity } from "@/lib/format"
+import { count, dateText, day, money, percentOf, quantity, sku } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import {
   cogsQuery,
@@ -40,6 +40,7 @@ import { UnitDock, UnitPick } from "@/screens/finance/inventory"
 import { useColumnFit } from "@/screens/finance/column-fit"
 import { ScreenPending } from "@/screens/finance/pending"
 import { CardFigure, PhoneList } from "@/components/ui/phone-cards"
+import { CellMoney } from "@/components/ui/rows-switch"
 import { PhoneFigures } from "@/screens/finance/parts"
 
 const sum = <T,>(rows: readonly T[], pick: (row: T) => number) =>
@@ -184,7 +185,7 @@ function GoodsInTransit() {
               rows={shown.map((row) => ({
                 key: row.allotment_line_id,
                 title: row.article_name ?? "—",
-                code: row.article_code ?? row.sku_code,
+                code: row.article_code ?? sku(row.sku_code),
                 lead: (
                   <CardFigure
                     value={money(row.value_minor)}
@@ -216,7 +217,7 @@ function GoodsInTransit() {
               }))}
             />
           ) : (
-            <Grid>
+            <Grid followRows>
               <thead>
                 <tr>
                   <Th>Delivery note</Th>
@@ -248,14 +249,16 @@ function GoodsInTransit() {
                         <Td>{row.destination_name}</Td>
                         <Td>
                           <div className="flex flex-col">
-                            <Code>{row.article_code ?? row.sku_code}</Code>
+                            <Code>{row.article_code ?? sku(row.sku_code)}</Code>
                             <span className="text-ink">
                               {row.article_name ?? "—"}
                             </span>
                           </div>
                         </Td>
                         <Td align="right">{count(row.quantity)}</Td>
-                        <Td align="right">{money(row.value_minor)}</Td>
+                        <Td align="right">
+                          <CellMoney minor={row.value_minor} />
+                        </Td>
                         <Td>{day(row.dispatched_on)}</Td>
                         <Td
                           align="right"
@@ -320,21 +323,21 @@ const cogsColumns: ColumnDef<TableSetup, CogsMonthRow>[] = [
     header: "Net sales",
     size: 180,
     meta: { align: "right", card: "metric" },
-    cell: ({ row }) => money(row.original.revenue_minor),
+    cell: ({ row }) => <CellMoney minor={row.original.revenue_minor} />,
   },
   {
     accessorKey: "cogs_minor",
     header: "COGS",
     size: 180,
     meta: { align: "right", card: "metric" },
-    cell: ({ row }) => money(row.original.cogs_minor),
+    cell: ({ row }) => <CellMoney minor={row.original.cogs_minor} />,
   },
   {
     accessorKey: "gross_margin_minor",
     header: "Gross margin",
     size: 180,
     meta: { align: "right", card: "metric" },
-    cell: ({ row }) => money(row.original.gross_margin_minor),
+    cell: ({ row }) => <CellMoney minor={row.original.gross_margin_minor} />,
   },
   {
     id: "margin_percent",

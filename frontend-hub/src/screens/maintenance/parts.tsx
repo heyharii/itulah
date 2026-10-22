@@ -1,14 +1,14 @@
 import { Pill } from "@/components/ui/pill"
+import { cn } from "@/lib/utils"
 
 import {
   disposalStageWords,
   repairStageWords,
   replacementStageWords,
   taskState,
-  wordsFor,
 } from "@/screens/maintenance/format"
 
-/// The maintenance stage pills and the stage line — the drawings only.
+/// The maintenance stage pills and the glyph name cell — the drawings only.
 ///
 /// The words and the flow lists they read live in `./format`, because this
 /// file exports components and react-refresh allows no functions beside them.
@@ -55,42 +55,6 @@ export function DisposalStagePill({ status }: { status: string }) {
   }
 }
 
-/// The stage line a sheet draws across its flow: the stages behind it in
-/// green, the stage it stands on in accent, the rest quiet. One drawing for
-/// the three flows, because three shapes of the same sentence is exactly the
-/// drift the pills exist to prevent.
-export function StageLine({
-  flow,
-  status,
-}: {
-  flow: readonly string[]
-  status: string
-}) {
-  const rejected = status === "CANCELLED" || status === "REJECTED"
-  const at = flow.indexOf(status)
-  return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      {flow.map((stage, i) => (
-        <Pill
-          key={stage}
-          tone={
-            rejected
-              ? "neutral"
-              : i < at
-                ? "ok"
-                : i === at
-                  ? "accent"
-                  : "neutral"
-          }
-        >
-          {wordsFor(flow, stage)}
-        </Pill>
-      ))}
-      {rejected && <Pill tone="bad">{wordsFor(flow, status)}</Pill>}
-    </div>
-  )
-}
-
 export function ResultPill({ result }: { result: string }) {
   switch (result) {
     case "BAIK":
@@ -105,4 +69,47 @@ export function ResultPill({ result }: { result: string }) {
 export function TaskStatePill({ nextDue }: { nextDue: string | null }) {
   const state = taskState(nextDue)
   return <Pill tone={state.tone}>{state.label}</Pill>
+}
+
+/// The name cell of a list row: a glyph tile that says what kind of thing the
+/// row is, the name beside it and one grey line under it. The same tile the
+/// forms' choices and the asset sheet's sections wear, so a row looks like the
+/// choice that made it.
+export function GlyphName({
+  icon: Glyph,
+  name,
+  quiet,
+  className,
+}: {
+  icon: React.ComponentType<{ className?: string }>
+  name: React.ReactNode
+  quiet?: React.ReactNode
+  className?: string
+}) {
+  return (
+    <span className={cn("flex min-w-0 items-center gap-3", className)}>
+      <span
+        aria-hidden
+        className="grid size-[1.875rem] shrink-0 place-items-center rounded-inner bg-soft-2 text-body"
+      >
+        <Glyph className="size-4 stroke-[1.7]" />
+      </span>
+      <span className="flex min-w-0 flex-col">
+        <span
+          className="truncate font-medium text-ink"
+          title={typeof name === "string" ? name : undefined}
+        >
+          {name}
+        </span>
+        {quiet !== undefined && quiet !== null && quiet !== "" && (
+          <span
+            className="truncate text-mute"
+            title={typeof quiet === "string" ? quiet : undefined}
+          >
+            {quiet}
+          </span>
+        )}
+      </span>
+    </span>
+  )
 }

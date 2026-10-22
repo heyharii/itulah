@@ -6,6 +6,7 @@ import {
 } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
+import { Store } from "lucide-react"
 import { Suspense, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -15,7 +16,6 @@ import { Card } from "@/components/ui/card"
 import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { Textarea } from "@/components/ui/field"
-import { ExpandingSearch } from "@/components/ui/list-chrome"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { MiniTable, TotalsLadder } from "@/components/ui/rows"
@@ -137,7 +137,13 @@ const columns: ColumnDef<TableSetup, PriceAmendment>[] = [
     accessorKey: "origin_id",
     header: "Raised at",
     size: 140,
-    meta: { card: "hide", filter: { kind: "option" } },
+    meta: {
+      card: "hide",
+      filter: {
+        kind: "option",
+        icon: (value) => (value === null ? undefined : Store),
+      },
+    },
     cell: ({ row }) => <Tag>{row.original.origin_id}</Tag>,
   },
   {
@@ -304,15 +310,18 @@ function AmendmentQueue() {
         />
       </KpiStrip>
 
-      {/* One bar: the search, then what narrows the queue. On a phone both are
+      {/* One bar: the search, which also offers names, then what narrows the queue. On a phone both are
           the dock's. */}
       <div className="group/bar mb-3.5 flex min-h-[2.25rem] flex-wrap items-center gap-2 max-md:hidden">
-        <ExpandingSearch
-          value={query}
-          onChange={setQuery}
-          label="Search amendments"
+        <FilterPanel
+          model={filters}
+          table={table}
+          search={{
+            value: query,
+            onChange: setQuery,
+            label: "Search amendments",
+          }}
         />
-        <FilterPanel model={filters} table={table} />
       </div>
       <DockTools
         search={{

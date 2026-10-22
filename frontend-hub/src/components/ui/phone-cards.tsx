@@ -237,7 +237,7 @@ export function Sentence({
   return (
     <p
       className={cn(
-        "mb-4 text-[0.9375rem] leading-normal text-pretty text-body",
+        "list-said mb-4 text-[0.9375rem] leading-normal text-pretty text-body",
         className
       )}
     >
@@ -356,7 +356,7 @@ export function PhoneCard({
       data-fresh={fresh || undefined}
       aria-current={selected || undefined}
       className={cn(
-        "relative flex flex-col rounded-card border border-hairline bg-canvas shadow-soft",
+        "phone-card relative flex flex-col rounded-card border border-hairline bg-canvas shadow-soft",
         fresh && "row-fresh",
         onOpen !== undefined && cn("cursor-pointer", FOCUSED),
         selected ? "bg-accent-bg" : onOpen !== undefined && "active:bg-soft",

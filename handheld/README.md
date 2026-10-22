@@ -164,6 +164,40 @@ format has already paid for once — see `backend/src/cloud/domain/identity.rs`.
   module. Any write must carry its filter inline:
   `writeDataToEpc(pwd, bank, ptr, len, filter, epc)`. This app does not write
   tags; the note is here because the next person to add it will need it.
+- **The SDK lets go of the module behind our back, and says nothing.** When
+  another app opens the UHF module the SDK broadcasts `UHF_POWER_OFF` and our
+  instance frees itself; when the screen goes off it frees itself too, and on
+  unlock it opens the module again by itself — at the module's defaults, with
+  none of our power or radio profile. So `Reader` trusts a held instance only
+  while `isPowerOn()` is true and the SDK has reported no open we did not make
+  (`setConnectionStatusCallback`); otherwise the next `init` frees it and opens
+  it properly, and a refused `startInventoryTag` re-opens once and retries. The
+  screen is kept on while a sweep is live.
+- **One `Reader` per process**, like the SDK's own instance: shared by the
+  activity and the view model, and closed only when the last activity really
+  finishes. One per activity closed the module under a live sweep on any
+  configuration change. The saved radio profile is handed to it before the
+  module opens (`useProfile`), so every open applies it, whoever makes it.
+- From an audit of the decompiled SDK and its native library (R = read in the
+  code, I = inferred):
+  - `stopInventory()` on a module that is not inventorying waits about 2.5 s
+    for a reply that never comes, then returns true anyway. `Reader.stop()`
+    only sends it while a round runs. (R)
+  - Tags already in the SDK's buffer survive `stopInventory`; only the next
+    start clears them, so `stop()` drains them before the poll thread ends. A
+    null from `readTagFromBuffer()` can be a rejected frame, not an empty
+    buffer. (R)
+  - While inventory runs, the SDK's reader thread swallows every reply that is
+    not a tag or a stop: any other command fails after about 1.2 s, and
+    `getPower` returns garbage. Nothing else is asked mid-sweep. (R)
+  - A start is never acknowledged; a tag frame is the only proof it took. (R)
+  - EPC-only mode drops frames stronger than −25 dBm (a native filter), so a
+    tag pressed against the antenna can be missed. (R)
+  - The SDK creates its callback thread only if `setInventoryCallback` is set
+    BEFORE the start — likely why the callback "never fired". (R)
+  - The SDK's reader thread busy-loops during inventory, one core at 100%. (I)
+  - `setPower` and `setRFLink` frames carry a save byte, so each call probably
+    writes the module's flash: set them only when the value changes. (I)
 
 ## Design
 
@@ -203,7 +237,29 @@ goes still.
 
 ## Build
 
+A handheld gets the **release** build, installed with one script:
+
+```
+tools/install-release.sh                  # one handheld attached
+tools/install-release.sh --serial SERIAL  # more than one: name it (adb devices)
+tools/install-release.sh --no-build       # install the APK already built
+```
+
+It builds `assembleRelease` (JDK 17, the Homebrew SDK), installs with
+`adb install -r` so Setelan, the device key and the outbox survive, then runs
+`cmd package compile -m speed -f` so ART compiles the whole app ahead of time
+instead of interpreting it for its first days on the floor, and finally prints
+whether the installed package is debuggable — it must say `no`. It refuses to
+guess when more than one device is attached, and it never uninstalls: a copy
+signed with another key stops it with a message instead.
+
+**A debug build is for the bench only.** It carries the Lab tab, the file
+command channel and the EPC marriages, and it is debuggable, which makes Compose
+about twice as slow on a C5 (`TESTING.md`: 42 ms against 27 ms on the same
+screen). Never judge speed, or hand a handheld to the floor, on one. `run-as`,
+which `TESTING.md` uses to push prefs, works on a debug build only.
+
 ```
 ANDROID_HOME=/opt/homebrew/share/android-commandlinetools ./gradlew assembleDebug
-adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb install -r app/build/outputs/apk/debug/app-debug.apk   # the bench
 ```

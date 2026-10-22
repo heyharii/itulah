@@ -8,13 +8,13 @@ use crate::contract::{
 use crate::edge::{
     sync::EdgeSyncHandle, AdvanceKoliRequest, CreateKoliShipmentRequest, DeviceProof, EdgeAuth,
     EdgeAuthConfig, EdgeError, EdgeInventory, EdgeOfficialCountDetail, EdgeOfficialCountSummary,
-    EdgePermission, EdgePrincipal, EdgeRfid, EdgeRole, IntakeRequest, MoveBySkuRequest, MoveRequest,
-    NodeContext,
-    OfficialCountEntriesRequest, OfficialCountSubmitRequest, OpenGoodsReceiptRequest,
-    OperationalPool, PackKoliRequest, PickRequest, PoolBalance, PurchaseCountBatchRequest,
-    PurchaseCountRequest, PurchaseReturnHandoverRequest, PurchaseVerifyRequest,
-    ReceiveBatchRequest, ReceiveRequest, RecordInvoiceRequest, RejectDeliveryRequest, SaleRequest,
-    StoreInvoiceDocumentRequest, TaggingConfirmRequest, RFID_OBSERVATION_PATH, RFID_PING_PATH,
+    EdgePermission, EdgePrincipal, EdgeRfid, EdgeRole, IntakeRequest, MoveBySkuRequest,
+    MoveRequest, NodeContext, OfficialCountEntriesRequest, OfficialCountSubmitRequest,
+    OpenGoodsReceiptRequest, OperationalPool, PackKoliRequest, PickRequest, PoolBalance,
+    PurchaseCountBatchRequest, PurchaseCountRequest, PurchaseReturnHandoverRequest,
+    PurchaseVerifyRequest, ReceiveBatchRequest, ReceiveRequest, RecordInvoiceRequest,
+    RejectDeliveryRequest, SaleRequest, StoreInvoiceDocumentRequest, TaggingConfirmRequest,
+    RFID_OBSERVATION_PATH, RFID_PING_PATH,
 };
 use crate::security::{self, CSRF_COOKIE, SESSION_COOKIE};
 use crate::sync::device::{SELF_REQUESTS_PATH, SELF_TEST_PRINT_RESULT_PATH};
@@ -397,6 +397,8 @@ pub fn store_router_with_sync(
         // blind on arrival — see `edge::inbound`. The two routes above stay
         // for goods that arrive unannounced.
         .route("/api/v1/store/inbound", get(store_inbound_list))
+        // What the shop counted and could not book, until MD answers.
+        .route("/api/v1/store/inbound/on-hold", get(store_on_hold))
         .route(
             "/api/v1/store/inbound/{delivery_id}",
             get(store_inbound_detail),
@@ -2033,6 +2035,15 @@ struct StoreInboundQuery {
 
 /// What is on its way to this shop. Blind: an in-transit delivery shows its
 /// koli count and nothing of what is inside them.
+async fn store_on_hold(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+) -> Result<Json<Value>, ApiError> {
+    require_permission(&state, principal, EdgePermission::InventoryRead)?;
+    let result = run_blocking(move || state.inventory.store_on_hold()).await?;
+    Ok(Json(serde_json::to_value(result)?))
+}
+
 async fn store_inbound_list(
     State(state): State<EdgeState>,
     principal: Option<Extension<EdgePrincipal>>,
@@ -2532,8 +2543,9 @@ async fn relay_coupon(
     };
     // The voucher's path-segment check fits a coupon code too: letters,
     // digits and a hyphen are all a printed code is made of.
-    let segment = voucher_code_segment(code)
-        .map_err(|_| EdgeError::Validation("a coupon code is letters, digits and hyphens".into()))?;
+    let segment = voucher_code_segment(code).map_err(|_| {
+        EdgeError::Validation("a coupon code is letters, digits and hyphens".into())
+    })?;
     let url = format!("{base}/api/v1/sync/coupons/{segment}/{verb}");
     let node = state.inventory.node();
     let body = json!({
@@ -4614,7 +4626,13 @@ async fn rfid_observations(
     let signature = required_header(&headers, "x-device-signature")?;
 
     // Device proof is mandatory. A human bearer session is optional evidence
-    // for audit attribution and never replaces the device credential.
+    // for audit attribution and never replaces the device credential — and
+    // never refuses it either. A session that expired, was revoked, or lacks
+    // RfidObserve is attribution that could not be made, not a reason to
+    // turn away reads the device itself signed: refusing them stopped a
+    // handheld's evidence until somebody signed in again, while the device's
+    // own credential was valid the whole time. The batch is filed with no
+    // operator, and the reason is logged.
     let operator_id = if let Some(token) = headers
         .get(header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
@@ -4623,11 +4641,23 @@ async fn rfid_observations(
     {
         let auth = state.auth.clone();
         let token = token.to_string();
-        let (principal, _) = run_blocking(move || auth.authenticate(&token, false)).await?;
-        principal
-            .require(EdgePermission::RfidObserve)
-            .map_err(ApiError)?;
-        Some(principal.user_id.to_string())
+        let attributed = run_blocking(move || {
+            let (principal, _) = auth.authenticate(&token, false)?;
+            principal.require(EdgePermission::RfidObserve)?;
+            Ok(principal.user_id.to_string())
+        })
+        .await;
+        match attributed {
+            Ok(operator_id) => Some(operator_id),
+            Err(ApiError(error)) => {
+                tracing::warn!(
+                    device_id = %device_id,
+                    %error,
+                    "RFID batch bearer not accepted for attribution; filed with no operator"
+                );
+                None
+            }
+        }
     } else {
         None
     };

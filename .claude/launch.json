@@ -2640,6 +2640,73 @@
         "VITE_API_TARGET": "http://127.0.0.1:8180",
         "VITE_EDGE_TARGET": "http://127.0.0.1:8182"
       }
+    },
+    {
+      "name": "letters-proto",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8802",
+        "--bind",
+        "127.0.0.1"
+      ],
+      "port": 8802
+    },
+    {
+      "name": "demo-store-02",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5385",
+        "--strictPort"
+      ],
+      "port": 5385,
+      "cwd": "frontend-store-new",
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8183",
+        "VITE_CLOUD_TARGET": "http://127.0.0.1:8180"
+      }
+    },
+    {
+      "name": "demo-store-03",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5386",
+        "--strictPort"
+      ],
+      "port": 5386,
+      "cwd": "frontend-store-new",
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8184",
+        "VITE_CLOUD_TARGET": "http://127.0.0.1:8180"
+      }
+    },
+    {
+      "name": "demo-till",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev:web",
+        "--",
+        "--port",
+        "5387",
+        "--strictPort"
+      ],
+      "port": 5387,
+      "cwd": "pos-desktop/ui",
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8182",
+        "VITE_SIM_FINGERS": "dian,maya",
+        "VITE_SIM_PASSWORD": "Password01"
+      }
     }
   ]
 }

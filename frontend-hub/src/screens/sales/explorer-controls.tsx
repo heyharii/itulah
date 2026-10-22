@@ -45,15 +45,15 @@ import {
 import { useSavedViews, useSearchBox } from "@/screens/sales/explorer-state"
 
 /// Everything the Explorer is controlled with that is not the table: the
-/// period, the tools over the results, the filter sheet, and on a phone the
-/// hub's dock. The groupings are the Sales sidebar's rows and the views the
-/// page's tabs (owner, 16 Oct 2026).
+/// scope (the period and the filter, over the figures), the tools over the
+/// results, the filter sheet, and on a phone the hub's dock. The groupings are
+/// the Sales sidebar's rows and the views the page's tabs (owner, 16 Oct 2026).
 ///
 /// The hub's dock exists on a phone only (`components/shell/dock.tsx` draws
-/// nothing at any other width), so a desk and a tablet get the same few
-/// controls in the card's own tools row, and a phone gets them in the dock: the
-/// tabs as its status button (`SubTabs`), the search with the filter button in
-/// it, and the period.
+/// nothing at any other width), so a desk and a tablet get the scope over the
+/// figures and the search and the export over the rows, and a phone gets them in
+/// the dock: the tabs as its status button (`SubTabs`), the search with the
+/// filter button in it, and the period.
 
 export type Update = (
   next: (state: ExplorerState) => ExplorerState,
@@ -280,14 +280,16 @@ export function ExportTool({
   )
 }
 
-/// The tools row at the top of the results card: the search, the heatmap (for
-/// the stores or the months laid side by side), the filter and the export.
+/// The tools row at the top of the results card: what is about the rows alone.
+/// The search, then the reload, the heatmap while the stores or the months are
+/// laid side by side (on Totals there is nothing to tint, so it is not drawn),
+/// and the export. The period and the filter change the figures too, so they
+/// are the page's scope, over them (`Scope`).
 export function Tools({
   q,
   setQuery,
   state,
   update,
-  onOpenFilter,
   exporter,
   refresh,
 }: {
@@ -295,15 +297,13 @@ export function Tools({
   setQuery: (value: string) => void
   state: ExplorerState
   update: Update
-  onOpenFilter: () => void
   exporter: React.ReactNode
   /// When the rows were read, and the reload (`RefreshStamp`).
   refresh?: React.ReactNode
 }) {
   const laidOut = viewOf(state) !== "totals"
-  const filters = filterCount(state)
   return (
-    <div className="flex shrink-0 flex-wrap items-center gap-2.5 border-b border-hairline px-4 py-2.5">
+    <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-hairline px-4 py-2.5">
       <SearchField
         q={q}
         setQuery={setQuery}
@@ -312,28 +312,156 @@ export function Tools({
       />
       <div className="flex-1" />
       {refresh}
-      <SwitchPill
-        label="Heatmap"
-        on={state.heat}
-        onToggle={() => update((s) => ({ ...s, heat: !s.heat }))}
-        className={cn(!laidOut && "pointer-events-none opacity-45")}
-      />
-      <Button variant="ghost" className="filter-button" onClick={onOpenFilter}>
-        <ListFilter />
-        Filter
-        {filters > 0 && (
-          <span className="grid h-[1.125rem] min-w-[1.125rem] place-items-center rounded-full bg-ink px-1 text-[0.9375rem] leading-none text-white tabular-nums">
-            {filters}
-          </span>
-        )}
-      </Button>
+      {laidOut && (
+        <SwitchPill
+          label="Heatmap"
+          on={state.heat}
+          onToggle={() => update((s) => ({ ...s, heat: !s.heat }))}
+        />
+      )}
       {exporter}
     </div>
   )
 }
 
-/// What is narrowing the rows, said in a line under the tools: "Division:
-/// Wanita · Tag: Denim", and the way to take it all off.
+// ---------------------------------------------------------------------------
+// The scope: the period and the filter, over the figures
+// ---------------------------------------------------------------------------
+
+/// The period and the filter, between the title and the figures (owner, 20 Oct
+/// 2026, `sales-filter-export-options.html` B · Scope on top). Both change the
+/// totals as well as the rows, so they stand above both: the design system's
+/// Report order, scope then figures then table. Each clause in force is a chip
+/// after the Filter button, so a narrowed page never reads as the whole one.
+export function Scope({
+  state,
+  update,
+  range,
+  bounds,
+  options,
+  onOpenFilter,
+}: {
+  state: ExplorerState
+  update: Update
+  range: Range
+  bounds: Bounds
+  options: ExplorerOptions | undefined
+  /// Opens the filter, at one category's list when a chip is pressed.
+  onOpenFilter: (pane?: Pane) => void
+}) {
+  const filters = filterCount(state)
+  return (
+    <div className="mb-7 flex flex-wrap items-center gap-2">
+      <PeriodBar state={state} update={update} range={range} bounds={bounds} />
+      <span aria-hidden className="mx-1 h-5 w-px shrink-0 bg-hairline-2" />
+      {/* Its own row of children: the white look puts a Filter button first
+          among its siblings, and here the period comes first. */}
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <Button
+          variant="ghost"
+          className="filter-button"
+          aria-haspopup="dialog"
+          onClick={() => onOpenFilter()}
+        >
+          <ListFilter />
+          Filter
+          {filters > 0 && (
+            <span className="text-mute tabular-nums">{filters}</span>
+          )}
+        </Button>
+        <Clauses
+          state={state}
+          update={update}
+          options={options}
+          onOpen={onOpenFilter}
+        />
+        {filters > 0 && (
+          <Button
+            variant="ghost"
+            onClick={() => update((s) => withoutFilters(s), true)}
+          >
+            Clear all
+          </Button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/// One chip per clause in force, read as a sentence: "Division is Wanita",
+/// "Store is any of 2 selected" (design system, FilterChips). The sentence opens
+/// the filter at that category's list; × takes the clause off.
+function Clauses({
+  state,
+  update,
+  options,
+  onOpen,
+}: {
+  state: ExplorerState
+  update: Update
+  options: ExplorerOptions | undefined
+  onOpen: (pane: Pane) => void
+}) {
+  return FILTERS.map((one) => {
+    const values = state[one.key]
+    if (values.length === 0) return null
+    const names = values.map(
+      (code) =>
+        options?.[one.key].find((choice) => choice.code === code)?.label ?? code
+    )
+    return (
+      <span
+        key={one.key}
+        className="inline-flex h-8 max-w-full min-w-0 items-stretch overflow-hidden rounded-full bg-soft-2 text-[0.9375rem]"
+      >
+        <button
+          type="button"
+          title={names.join(", ")}
+          aria-haspopup="dialog"
+          onClick={() => onOpen(one.key)}
+          className="flex min-w-0 items-stretch transition-colors duration-(--t-hover) ease-(--ease-out) hover:bg-soft-3"
+        >
+          <span className="flex max-w-40 items-center truncate pr-2 pl-3 font-medium text-ink">
+            {one.label}
+          </span>
+          <span className="flex shrink-0 items-center border-x border-hairline bg-soft px-2 text-body">
+            {names.length === 1 ? "is" : "is any of"}
+          </span>
+          <span className="flex min-w-0 items-center px-2.5 font-medium text-accent">
+            <span className="truncate">
+              {names.length === 1
+                ? names[0]
+                : `${count(names.length)} selected`}
+            </span>
+          </span>
+        </button>
+        <button
+          type="button"
+          aria-label={`Remove the ${one.label} filter`}
+          onClick={() =>
+            update(
+              (s) => ({
+                ...s,
+                [one.key]: [],
+                // A step down the page named this filter; taking it off ends
+                // that step too.
+                crumbs: s.crumbs.filter((crumb) => crumb.filter !== one.key),
+              }),
+              true
+            )
+          }
+          className="grid w-[1.875rem] shrink-0 place-items-center border-l border-hairline text-line-ico transition-colors duration-(--t-hover) ease-(--ease-out) hover:bg-soft-3 hover:text-ink"
+        >
+          <X className="size-3.5" />
+        </button>
+      </span>
+    )
+  })
+}
+
+/// What is narrowing the rows, said in a line over them on a phone: "Division:
+/// Wanita · Tag: Denim", and the way to take it all off. A desk has the chips
+/// in the scope instead (`Scope`).
 export function Applied({
   state,
   update,
@@ -374,7 +502,7 @@ export function Applied({
 // The filter sheet
 // ---------------------------------------------------------------------------
 
-type Pane = FilterKey | "saved"
+export type Pane = FilterKey | "saved"
 
 /// What a pane says about itself on the left: how many are chosen, or All.
 function summary(state: ExplorerState, pane: Pane, saved: number): string {
@@ -534,6 +662,8 @@ function SavedPane({
 export function FilterSheet({
   open,
   onOpenChange,
+  pane,
+  onPane,
   state,
   update,
   options,
@@ -543,6 +673,9 @@ export function FilterSheet({
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /// The category on show; a chip in the scope opens the sheet at its own.
+  pane: Pane
+  onPane: (pane: Pane) => void
   state: ExplorerState
   update: Update
   options: ExplorerOptions | undefined
@@ -552,7 +685,6 @@ export function FilterSheet({
   /// The export, which a phone has no tools row to put it in.
   exporter: React.ReactNode
 }) {
-  const [pane, setPane] = useState<Pane>("stores")
   // A phone shows the categories first and one list at a time.
   const [inside, setInside] = useState(false)
   const saved = useSavedViews()
@@ -631,7 +763,7 @@ export function FilterSheet({
                 <button
                   type="button"
                   onClick={() => {
-                    setPane(one.pane)
+                    onPane(one.pane)
                     setInside(true)
                   }}
                   className={SHEET_ROW}
@@ -657,7 +789,7 @@ export function FilterSheet({
                 key={one.pane}
                 type="button"
                 aria-pressed={pane === one.pane}
-                onClick={() => setPane(one.pane)}
+                onClick={() => onPane(one.pane)}
                 className={cn(
                   "flex h-[2.625rem] w-full shrink-0 items-center rounded-inner px-3 text-[0.9375rem] font-medium transition-[background-color,color,scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.98]",
                   pane === one.pane

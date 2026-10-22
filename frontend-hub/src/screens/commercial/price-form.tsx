@@ -7,7 +7,7 @@ import { Section } from "@/components/ui/form"
 import { MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner } from "@/components/ui/states"
-import { count, money } from "@/lib/format"
+import { count, money, sku } from "@/lib/format"
 import {
   commercialKeys,
   commercialProducts,
@@ -558,7 +558,7 @@ export function NewPriceSheet({
                         <MiniCell className="py-3.5">
                           <Named
                             name={product.article_name ?? product.article_code}
-                            code={product.sku_code}
+                            code={sku(product.sku_code)}
                           />
                         </MiniCell>
                         <MiniCell className="py-3.5">
@@ -621,7 +621,7 @@ export function NewPriceSheet({
                     <MiniCell className="py-3.5">
                       <Named
                         name={product.article_name ?? product.article_code}
-                        code={[product.sku_code, variantOf(product)]
+                        code={[sku(product.sku_code), variantOf(product)]
                           .filter((one) => one !== "")
                           .join(" · ")}
                       />
@@ -634,7 +634,7 @@ export function NewPriceSheet({
                     <MiniCell align="right" className="py-3.5">
                       <Money
                         value={priceText(product.sku_id)}
-                        label={`Price for ${product.sku_code}`}
+                        label={`Price for ${sku(product.sku_code)}`}
                         invalid={
                           minor === null && priceText(product.sku_id) !== ""
                         }

@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useRef, useState } from "react"
 
+import { confirm } from "@/components/ui/confirm"
 import { Button } from "@/components/ui/button"
 import { CardList } from "@/components/ui/card-list"
 import { LeadCard } from "@/components/ui/lead-card"
@@ -10,7 +11,7 @@ import { Screen } from "@/components/ui/screen"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { describe } from "@/lib/errors"
-import { count, moment } from "@/lib/format"
+import { articleId, count, moment, pcs, sku } from "@/lib/format"
 import {
   returnsKey,
   sendReturn,
@@ -74,7 +75,7 @@ export function ReturnToHo() {
           <>
             {done !== null && (
               <Banner tone="ok" role="status" className="mb-3.5">
-                {done.shipment_number} · {count(done.quantity)} pcs on the way
+                {done.shipment_number} · {pcs(done.quantity)} on the way
                 to HO
               </Banner>
             )}
@@ -125,10 +126,14 @@ function useSendReturn(
       void client.invalidateQueries({ queryKey: returnsKey() })
     },
   })
-  function confirm() {
-    if (window.confirm(`Send ${count(ask.quantity)} pcs to HO?`)) send.mutate()
+  async function ask_() {
+    const ok = await confirm({
+      title: "Send to HO?",
+      action: `Send ${pcs(ask.quantity)}`,
+    })
+    if (ok) send.mutate()
   }
-  return { send, confirm }
+  return { send, confirm: ask_ }
 }
 
 /// One request as the uniform card. A failed send is said under the card, where
@@ -156,7 +161,10 @@ function AskCard({
         lines={[
           `${count(ask.lines.length)} ${ask.lines.length === 1 ? "item" : "items"}`,
         ]}
-        lead={{ figure: count(ask.quantity), caption: "pcs" }}
+        lead={{
+          figure: count(ask.quantity),
+          caption: ask.quantity === 1 ? "pc" : "pcs",
+        }}
         foot={{
           info: `Asked ${moment(ask.requested_at)}`,
           action: {
@@ -240,7 +248,7 @@ function ReturnSheetFor({
     >
       <div className="flex flex-col gap-6">
         <Facts>
-          <Fact term="Pieces">{count(ask.quantity)} pcs</Fact>
+          <Fact term="Pieces">{pcs(ask.quantity)}</Fact>
           <Fact term="Items">{count(ask.lines.length)}</Fact>
         </Facts>
 
@@ -251,13 +259,13 @@ function ReturnSheetFor({
             {ask.lines.map((line) => (
               <Row
                 key={line.sku_code}
-                title={line.name ?? line.sku_code}
+                title={line.name ?? sku(line.sku_code)}
                 sub={
-                  line.name === null ? undefined : (
-                    <span className="font-mono">{line.sku_code}</span>
-                  )
+                  <span className="font-mono">
+                    {articleId(null, line.sku_code)} · {sku(line.sku_code)}
+                  </span>
                 }
-                figure={`${count(line.quantity)} pcs`}
+                figure={pcs(line.quantity)}
               />
             ))}
           </RowList>

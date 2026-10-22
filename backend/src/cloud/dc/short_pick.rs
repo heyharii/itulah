@@ -19,18 +19,33 @@
 //!   after the report than before it (MD's Close remaining, her reduction or
 //!   her cancel took the remainder; `closed_short_at_report`, 0941), else
 //!   **PICKED**.
+//! - Still short, and MD answered **Continue** (0976): **CONTINUED** — the
+//!   picker tries again; a new report on the line starts over.
 //! - Still short, and the count it raised was reviewed: **LOST** when the
 //!   review booked this SKU Missing (a `COUNT_SHORTAGE` movement of the
 //!   count's approval), else **FOUND**.
 //! - Otherwise **OPEN**.
 //!
 //! The flag stays while a report is OPEN or LOST; it clears by itself when
-//! the count finds the pieces, the remainder is picked, or MD closes it.
+//! the count finds the pieces, the remainder is picked, MD closes it, or MD
+//! says Continue.
+//!
+//! # MD's review (owner, 18 Oct 2026)
+//!
+//! Only Pick has Cannot continue — a shortage found at Pack or Dispatch goes
+//! back to Pick and is picked again. A flagged report is MD's to answer:
+//! **Accept short** is the existing Close short
+//! (`postgres::allotment_close_short`); **Continue** is written here.
 
 use crate::cloud::dc::common;
 use crate::cloud::http::auth::Principal;
 use crate::cloud::{AppError, AppState};
-use axum::{extract::State, http::StatusCode, routing::get, Extension, Json, Router};
+use axum::{
+    extract::State,
+    http::StatusCode,
+    routing::{get, post},
+    Extension, Json, Router,
+};
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{postgres::PgRow, PgPool, Row};
@@ -38,7 +53,12 @@ use std::collections::BTreeMap;
 use uuid::Uuid;
 
 pub fn routes(router: Router<AppState>) -> Router<AppState> {
-    router.route("/api/v1/dc/short-picks", get(list).post(report_short_pick))
+    router
+        .route("/api/v1/dc/short-picks", get(list).post(report_short_pick))
+        .route(
+            "/api/v1/dc/short-picks/continue",
+            post(continue_short_picks),
+        )
 }
 
 /// Why the picker could not finish the line. The first three are about the
@@ -99,6 +119,8 @@ pub enum ShortPickStatus {
     Picked,
     /// MD closed the remainder.
     Closed,
+    /// MD said Continue: the picker tries again.
+    Continued,
 }
 
 impl ShortPickStatus {
@@ -151,6 +173,16 @@ pub struct ShortPick {
     pub reported_at: DateTime<Utc>,
     pub count_id: Option<String>,
     pub status: ShortPickStatus,
+    /// Who answered Continue in MD's review, and when.
+    pub continued_by: Option<String>,
+    pub continued_at: Option<DateTime<Utc>>,
+}
+
+/// MD answers Continue on the reports of one review.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+#[derive(Clone, Debug, Deserialize)]
+pub struct ContinueShortPicksRequest {
+    pub ids: Vec<Uuid>,
 }
 
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
@@ -194,7 +226,7 @@ fn reports_sql() -> String {
              SELECT sp.id, sp.allotment_id, a.allotment_number, sp.destination_id, sp.sku_code,
                     sku.id AS sku_id, article.name AS article_name, sp.pieces, sp.reason,
                     sp.note, sp.reported_by, sp.reported_at, sp.count_id,
-                    sp.closed_short_at_report
+                    sp.closed_short_at_report, sp.continued_by, sp.continued_at
                FROM dc_short_pick sp
                JOIN allotment a ON a.id = sp.allotment_id
                JOIN sku ON sku.sku_code = sp.sku_code
@@ -235,6 +267,7 @@ fn reports_sql() -> String {
          SELECT report.id, report.allotment_id, report.allotment_number, report.destination_id,
                 report.sku_code, report.article_name, report.pieces, report.reason, report.note,
                 report.reported_by, report.reported_at, report.count_id,
+                report.continued_by, report.continued_at,
                 LEAST(report.pieces, COALESCE(owed.to_pick, 0))::bigint AS still_short,
                 (COALESCE(owed.closed_short, 0) - report.closed_short_at_report)::bigint
                     AS closed_since,
@@ -251,16 +284,25 @@ fn reports_sql() -> String {
 ///
 /// The order matters. Nothing left to pick wins over the count: a remainder
 /// the count lost and MD then closed is CLOSED, one it lost and somebody
-/// picked after all is PICKED. A count's review that booked this SKU Missing
-/// is LOST however many it booked — MD still decides on the remainder. A
-/// review that booked nothing of it Missing found it.
-fn status_of(still_short: i64, closed_since: i64, settled: bool, lost: bool) -> ShortPickStatus {
+/// picked after all is PICKED. MD's Continue wins over the count: she has
+/// answered, the picker tries again. A count's review that booked this SKU
+/// Missing is LOST however many it booked — MD still decides on the
+/// remainder. A review that booked nothing of it Missing found it.
+fn status_of(
+    still_short: i64,
+    closed_since: i64,
+    continued: bool,
+    settled: bool,
+    lost: bool,
+) -> ShortPickStatus {
     if still_short <= 0 {
         if closed_since > 0 {
             ShortPickStatus::Closed
         } else {
             ShortPickStatus::Picked
         }
+    } else if continued {
+        ShortPickStatus::Continued
     } else if lost {
         ShortPickStatus::Lost
     } else if settled {
@@ -272,9 +314,11 @@ fn status_of(still_short: i64, closed_since: i64, settled: bool, lost: bool) -> 
 
 fn short_pick_from(row: &PgRow) -> Result<ShortPick, AppError> {
     let still_short: i64 = row.try_get("still_short")?;
+    let continued_at: Option<DateTime<Utc>> = row.try_get("continued_at")?;
     let status = status_of(
         still_short,
         row.try_get("closed_since")?,
+        continued_at.is_some(),
         row.try_get("count_settled")?,
         row.try_get("count_lost")?,
     );
@@ -293,6 +337,8 @@ fn short_pick_from(row: &PgRow) -> Result<ShortPick, AppError> {
         reported_at: row.try_get("reported_at")?,
         count_id: row.try_get("count_id")?,
         status,
+        continued_by: row.try_get("continued_by")?,
+        continued_at,
     })
 }
 
@@ -310,6 +356,88 @@ async fn read(
         .iter()
         .map(short_pick_from)
         .collect()
+}
+
+/// MD accepted a Cannot pick short (owner, 19 Oct 2026): the pieces the
+/// picker could not find are booked Missing from the pool they were to be
+/// picked from, the moment MD gives them up — not left on the racks' books
+/// until a count happens to pass. Only an OPEN report books anything: one the
+/// count already settled LOST is Missing already, and one it FOUND was not
+/// missing. At most the pieces closed short, and at most what the report
+/// still says is short. The pieces are the SKU's units still on the pool's
+/// books, the least recently touched first. Returns how many were booked.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn book_missing_on_accept(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    allotment_id: Uuid,
+    allotment_line_id: Uuid,
+    destination_id: &str,
+    sku_code: &str,
+    source_pool_id: &str,
+    closed_short: i64,
+    key: &str,
+    actor: &str,
+    at: DateTime<Utc>,
+) -> Result<i64, AppError> {
+    let still_short = read(&mut **tx, None, None)
+        .await?
+        .into_iter()
+        .filter(|report| {
+            report.allotment_id == allotment_id
+                && report.destination_id == destination_id
+                && report.sku_code == sku_code
+                && report.status == ShortPickStatus::Open
+        })
+        .map(|report| report.still_short)
+        .max()
+        .unwrap_or(0);
+    let wanted = still_short.min(closed_short);
+    if wanted <= 0 {
+        return Ok(0);
+    }
+    let from = format!("{source_pool_id}:on_hand");
+    let rows = sqlx::query(
+        "SELECT p.subject_id, COALESCE(s.epc, '') AS epc
+           FROM inventory_projection p
+           JOIN inventory_subject s ON s.id = p.subject_id
+           JOIN sku k ON k.id = s.sku_id
+          WHERE p.place_id = $1 AND k.sku_code = $2 AND p.quantity > 0
+          ORDER BY p.updated_at, p.subject_id
+          LIMIT $3",
+    )
+    .bind(&from)
+    .bind(sku_code)
+    .bind(wanted)
+    .fetch_all(&mut **tx)
+    .await?;
+    if rows.is_empty() {
+        return Ok(0);
+    }
+    let mut pieces = Vec::with_capacity(rows.len());
+    for row in &rows {
+        pieces.push(super::packing::stages::Piece {
+            subject_id: row.try_get("subject_id")?,
+            epc: row.try_get("epc")?,
+            sku_code: sku_code.to_owned(),
+            allotment_id,
+            allotment_line_id,
+        });
+    }
+    let refs: Vec<&super::packing::stages::Piece> = pieces.iter().collect();
+    super::packing::stages::move_pieces(
+        tx,
+        &refs,
+        allotment_line_id,
+        &from,
+        &format!("{source_pool_id}:missing"),
+        crate::cloud::domain::MovementCause::CountShortage,
+        key,
+        "Cannot pick: MD accepted short",
+        actor,
+        at,
+    )
+    .await?;
+    Ok(i64::try_from(pieces.len()).unwrap_or(i64::MAX))
 }
 
 /// The lines a picker flagged that are still flagged (OPEN or LOST), by
@@ -550,7 +678,9 @@ async fn report_short_pick(
         .fetch_one(&mut *tx)
         .await?;
         if !known {
-            return Err(AppError::Validation(format!("{session_id} is not a picklist")));
+            return Err(AppError::Validation(format!(
+                "{session_id} is not a picklist"
+            )));
         }
     }
     if let Some(count_id) = report.count_id {
@@ -599,4 +729,78 @@ async fn report_short_pick(
         })?,
     };
     Ok((StatusCode::CREATED, Json(one(&state.db, id).await?)))
+}
+
+/// MD answers **Continue** on the reports of one review: the picker tries
+/// again. Written once per report — a report already answered keeps its first
+/// answer, so a second delivery changes nothing. A report with nothing left
+/// to pick is not written: it is no longer MD's to answer (picked or closed
+/// meanwhile). Answers with the reports as they stand now.
+async fn continue_short_picks(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Json(request): Json<ContinueShortPicksRequest>,
+) -> Result<Json<ShortPickList>, AppError> {
+    common::require_hosted()?;
+    let by = principal.username.trim().to_owned();
+    if by.is_empty() {
+        return Err(AppError::Unauthorized(
+            "MD's review is answered by somebody signed in".into(),
+        ));
+    }
+    if request.ids.is_empty() {
+        return Err(AppError::Validation(
+            "ids is required: the short picks MD answers".into(),
+        ));
+    }
+    let mut items = Vec::with_capacity(request.ids.len());
+    let mut tx = state.db.begin().await?;
+    for id in request.ids.iter().copied() {
+        let report = read(&mut *tx, None, Some(id))
+            .await?
+            .into_iter()
+            .next()
+            .ok_or_else(|| AppError::NotFound(format!("short pick {id}")))?;
+        if report.still_short > 0 && report.continued_at.is_none() {
+            sqlx::query(
+                "UPDATE dc_short_pick
+                    SET continued_by = $2, continued_at = $3
+                  WHERE id = $1 AND continued_at IS NULL",
+            )
+            .bind(id)
+            .bind(&by)
+            .bind(state.clock.now())
+            .execute(&mut *tx)
+            .await?;
+        }
+        items.push(id);
+    }
+    tx.commit().await?;
+    let mut read_back = Vec::with_capacity(items.len());
+    for id in items {
+        read_back.push(one(&state.db, id).await?);
+    }
+    Ok(Json(ShortPickList { items: read_back }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{status_of, ShortPickStatus};
+
+    #[test]
+    fn continue_answers_a_short_pick_until_nothing_is_left_to_pick() {
+        assert_eq!(
+            status_of(2, 0, true, false, false),
+            ShortPickStatus::Continued
+        );
+        assert_eq!(
+            status_of(2, 0, true, true, true),
+            ShortPickStatus::Continued
+        );
+        assert_eq!(status_of(0, 0, true, false, false), ShortPickStatus::Picked);
+        assert_eq!(status_of(0, 2, true, false, false), ShortPickStatus::Closed);
+        assert_eq!(status_of(2, 0, false, true, true), ShortPickStatus::Lost);
+        assert_eq!(status_of(2, 0, false, false, false), ShortPickStatus::Open);
+        assert!(!ShortPickStatus::Continued.flagged());
+    }
 }

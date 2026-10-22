@@ -10,6 +10,7 @@ import id.itulah.pindai.core.ScanEngine
 import id.itulah.pindai.core.Sounder
 import id.itulah.pindai.core.Barcode
 import id.itulah.pindai.core.Label
+import id.itulah.pindai.core.skuDisplay
 import id.itulah.pindai.core.Gen2State
 import id.itulah.pindai.core.Lab
 import id.itulah.pindai.core.ScanMetrics
@@ -32,6 +33,7 @@ import id.itulah.pindai.data.Settings
 import id.itulah.pindai.data.SyncOutcome
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -158,6 +160,11 @@ data class SweepState(
     val readerInfo: String? = null,
     val readerPower: Int = 0,
     val powerNote: String? = null,
+    /**
+     * [readerPower] is what the module itself reported, not a choice still
+     * waiting for the module to open. Setelan draws the two in different greys.
+     */
+    val powerFromModule: Boolean = false,
     val destination: String = "",
     val countId: String = "",
     val lastReceipt: String? = null,
@@ -165,6 +172,16 @@ data class SweepState(
     val countsLoaded: Boolean = false,
     val catalogue: CatalogueStatus = CatalogueStatus(),
     val outboxPending: Int = 0,
+    /**
+     * Batches the node refused for good. Kept on this handheld, never deleted,
+     * and no longer in the way of the batches behind them.
+     */
+    val outboxRefused: Int = 0,
+    /**
+     * The operator's sign-in was refused while filing, so evidence is going to
+     * the Edge under the reader's own proof alone. Null while nothing is wrong.
+     */
+    val operatorNote: String? = null,
     val filedCount: Int = 0,
     val filingNote: String? = null,
     /** The device's own clock went backwards; filing cannot succeed until fixed. */
@@ -320,10 +337,26 @@ class SweepViewModel(
     private var uploadRequested = false
     private var uploadRetryAt = 0L
     private var uploadBackoffMs = UPLOAD_RETRY_BASE_MS
+    /** Brings the uploader back when a backoff ends. See [drainOutbox]. */
+    private var retryJob: Job? = null
+    /** The light, periodic look at the outbox. See [keepFiling]. */
+    private var filingJob: Job? = null
+    /**
+     * The operator token the Edge refused while filing, and how (401 or 403).
+     *
+     * Written by [uploadPending] on the IO thread. A bearer known to be refused
+     * is not sent again — every batch would pay a second request for it —
+     * until Setelan is saved. See [file].
+     */
+    @Volatile private var operatorRefusal: Pair<String, Int>? = null
     private var sharedJob: Job? = null
     private var sharedGeneration = 0L
     private var syncJob: Job? = null
     private var catalogPoll: Job? = null
+    /** The app is on screen; the catalogue poll runs only then. See [setForeground]. */
+    private var foreground = true
+    /** The local catalogue is open, so there is something to keep current. */
+    private var catalogueOpened = false
     private var inboundJob: Job? = null
     private var roleJob: Job? = null
     /** Which node the role in state was asked of. A different node is a new question. */
@@ -354,7 +387,6 @@ class SweepViewModel(
             val loaded = withContext(Dispatchers.IO) {
                 runCatching {
                     val codes = catalog.knownSkuCodes()
-                    engine.useCatalogue(codes)
                     // Bench marriages stay on the bench.
                     //
                     // These are rows that say "treat this foreign EPC as that
@@ -363,12 +395,28 @@ class SweepViewModel(
                     // turn somebody else's pallet label into a garment on a
                     // count sheet, silently and permanently.
                     if (BuildConfig.BENCH) engine.useAliases(catalog.epcAliases())
-                    catalog.prune(Api.iso8601Days(-OUTBOX_KEEP_DAYS))
+                    // Never evidence. See [CatalogStore.prune].
+                    catalog.prune()
                     val meta = sync.localMeta(settings())
-                    Quad(codes.size.toLong(), meta, catalog.pendingCount(), catalog.aliasCount())
+                    Quad(codes, meta, catalog.pendingCount() to catalog.refusedCount(), catalog.aliasCount())
                 }
             }
-            loaded.onSuccess { (items, meta, pending, aliases) ->
+            loaded.onSuccess { (codes, meta, outbox, aliases) ->
+                // Not into a sweep that is already under way.
+                //
+                // This load runs at launch, and a trigger pulled in that second
+                // opened a sweep before the catalogue landed — which then landed
+                // inside it, so the first tags were judged against no catalogue
+                // and the rest against a whole one. The same rule as a
+                // catalogue that arrives from the node mid-sweep: held, and put
+                // in when this sweep ends or the next one begins. (An empty one
+                // changes nothing a sweep could notice, so it is not held.)
+                if ((state.value.sweeping || state.value.starting) && codes.isNotEmpty()) {
+                    pendingCatalogue = codes
+                } else {
+                    engine.useCatalogue(codes)
+                }
+                val items = codes.size.toLong()
                 update {
                     it.copy(
                         catalogue = CatalogueStatus(
@@ -376,7 +424,8 @@ class SweepViewModel(
                             items = items,
                             note = if (items == 0L) "no catalogue yet" else null,
                         ),
-                        outboxPending = pending,
+                        outboxPending = outbox.first,
+                        outboxRefused = outbox.second,
                         aliasCount = aliases,
                     )
                 }
@@ -386,12 +435,14 @@ class SweepViewModel(
             loadHistory()
             refreshCatalogue()
             drainOutbox()
+            catalogueOpened = true
             pollCatalogue()
+            keepFiling()
         }
     }
 
     /**
-     * Ask again every five seconds, for as long as the app is open.
+     * Ask again every five seconds, while the app is on screen.
      *
      * The centre publishes a new generation within a minute of head office
      * issuing a setup, and a handheld that only asked at start-up kept the list
@@ -399,14 +450,34 @@ class SweepViewModel(
      * holding a tag the device calls UNKNOWN does not think to do. The ask is one
      * small GET that pulls nothing when the generation has not moved, and
      * [refreshCatalogue] already holds a new list until a sweep ends.
+     *
+     * # Quiet, and only while somebody is looking
+     *
+     * Every ask used to flip the catalogue's `syncing` flag on and off — every
+     * five seconds, for the whole life of the app, in the background too — and
+     * every flip recomposed the screen to draw a word announcing that nothing
+     * had happened. A poll now says nothing unless a catalogue is actually
+     * coming down, and it stops while the app is off screen: a handheld in a
+     * pocket has nobody to show a new catalogue to, and coming back asks again.
      */
     private fun pollCatalogue() {
-        if (catalogPoll?.isActive == true) return
+        if (!foreground || !catalogueOpened || catalogPoll?.isActive == true) return
         catalogPoll = viewModelScope.launch {
             while (isActive) {
                 delay(CATALOG_POLL_MILLIS)
-                refreshCatalogue()
+                refreshCatalogue(quiet = true)
             }
+        }
+    }
+
+    /** The app came on screen, or left it. Told by the activity's lifecycle. */
+    fun setForeground(on: Boolean) {
+        foreground = on
+        if (on) {
+            pollCatalogue()
+        } else {
+            catalogPoll?.cancel()
+            catalogPoll = null
         }
     }
 
@@ -425,15 +496,17 @@ class SweepViewModel(
     private fun warmReader() {
         viewModelScope.launch {
             operationMutex.withLock {
-                if (state.value.sweeping || state.value.starting || reader.isReady) return@withLock
+                // Not skipped when the module is already open. The activity
+                // usually opens it first, and returning here was how the
+                // floor's radio profile never reached the module at a cold
+                // start. Opening a module that is open and ours costs nothing.
+                if (state.value.sweeping || state.value.starting) return@withLock
                 withContext(Dispatchers.IO) {
                     runCatching {
                         val saved = settings()
                         // Load the clip while the operator is still walking to
                         // the rack, not on the first read.
                         appContext?.let { sounder.prepare(it) }
-                        saved.readerPower.takeIf { it > 0 }?.let { reader.setPower(it) }
-                        val version = reader.init(appContext!!)
                         // Pin the link mode before anything is measured or
                         // counted. The module keeps this setting across a
                         // restart, so not setting it is not a default — it is
@@ -443,14 +516,20 @@ class SweepViewModel(
                         // nobody has ever configured. A missing preference is
                         // not "leave it alone" here — it is "inherit a stranger's
                         // radio", and the defaults ARE the measured profile.
-                        if (saved.rfLink >= 0) reader.setRfLink(saved.rfLink)
-                        reader.setTarget(RadioProfile.TARGET)
-                        reader.setGen2Extensions(
-                            saved.tagFocus,
-                            RadioProfile.FAST_ID,
-                            saved.gen2Session.takeIf { it >= 0 },
+                        //
+                        // Handed to the reader BEFORE the module opens, so the
+                        // open applies it whoever makes it — the activity, this,
+                        // or the first pull — and so does every re-open after.
+                        // See [Reader.useProfile].
+                        reader.useProfile(
+                            rfLink = saved.rfLink,
+                            target = RadioProfile.TARGET,
+                            tagFocus = saved.tagFocus,
+                            fastId = RadioProfile.FAST_ID,
+                            session = saved.gen2Session,
                         )
-                        version
+                        saved.readerPower.takeIf { it > 0 }?.let { reader.setPower(it) }
+                        reader.init(appContext!!)
                     }
                 }.onSuccess { version ->
                     val gen2 = withContext(Dispatchers.IO) { reader.gen2State() }
@@ -476,13 +555,23 @@ class SweepViewModel(
      * whose UNKNOWN number moved halfway because a catalogue arrived is a count
      * nobody can explain afterwards, and the operator did nothing to cause it.
      */
-    fun refreshCatalogue() {
+    fun refreshCatalogue(quiet: Boolean = false) {
         if (syncJob?.isActive == true) return
         val settings = settings()
         if (!settings.isConfigured) return
         syncJob = viewModelScope.launch {
-            update { it.copy(catalogue = it.catalogue.copy(syncing = true)) }
-            val outcome = withContext(Dispatchers.IO) { sync.refresh(settings) }
+            // Somebody asked, so say so at once. A poll says nothing until a
+            // catalogue is actually coming down — see [pollCatalogue].
+            if (!quiet) update { it.copy(catalogue = it.catalogue.copy(syncing = true)) }
+            val outcome = withContext(Dispatchers.IO) {
+                sync.refresh(settings) {
+                    if (quiet) {
+                        viewModelScope.launch {
+                            update { it.copy(catalogue = it.catalogue.copy(syncing = true)) }
+                        }
+                    }
+                }
+            }
             when (outcome) {
                 is SyncOutcome.UpToDate -> update {
                     it.copy(catalogue = it.catalogue.copy(
@@ -492,7 +581,7 @@ class SweepViewModel(
                 }
                 is SyncOutcome.Updated -> {
                     val codes = withContext(Dispatchers.IO) { catalog.knownSkuCodes() }
-                    if (state.value.sweeping) {
+                    if (state.value.sweeping || state.value.starting) {
                         // Held, not applied. It goes in when the radio stops.
                         pendingCatalogue = codes
                         update {
@@ -503,6 +592,9 @@ class SweepViewModel(
                         }
                     } else {
                         engine.useCatalogue(codes)
+                        // Newer than anything held for after a sweep, which must
+                        // not land on top of this one later.
+                        pendingCatalogue = null
                         update {
                             it.copy(catalogue = CatalogueStatus(
                                 generation = outcome.generation,
@@ -563,8 +655,12 @@ class SweepViewModel(
             return false
         }
         // An open sweep with nothing in it belongs to nobody; do not carry it —
-        // or its session id — into the next job.
-        if (!state.value.sweeping) sweepOpen = false
+        // or its session id — into the next job. Nor its engine: see
+        // [stopAbandonedEngine].
+        if (!state.value.sweeping) {
+            sweepOpen = false
+            stopAbandonedEngine()
+        }
         update { it.copy(mode = mode, message = null, failed = false) }
         if (mode == Mode.RECEIVING) enterReceiving()
         return true
@@ -711,6 +807,7 @@ class SweepViewModel(
         viewModelScope.launch {
             operationMutex.withLock {
                 if (state.value.sweeping || state.value.busy) return@withLock
+                settleEngine()
                 spoolEvidence()
                 drainOutbox()
                 engine.reset()
@@ -780,7 +877,13 @@ class SweepViewModel(
                     update { it.copy(sweeping = false, counts = engine.snapshot()) }
                     buildResult()
                 }
-                val epcs = engine.allEpcs().filter { Epc.isOurs(it) }.sorted()
+                // Off the main thread. A delivery is thousands of tags, and
+                // decoding and sorting them — then hashing every one into the
+                // key below — on the thread that draws held the screen still on
+                // the very tap that should have said "Receiving…".
+                val epcs = withContext(Dispatchers.Default) {
+                    engine.allEpcs().filter { Epc.isOurs(it) }.sorted()
+                }
                 if (epcs.isEmpty()) {
                     update { it.copy(failed = true, message = "Nothing of ours swept yet") }
                     return@withLock
@@ -798,7 +901,9 @@ class SweepViewModel(
                 spoolEvidence()
                 drainOutbox()
 
-                val key = Inbound.receiveKey(delivery.deliveryId, epcs)
+                val key = withContext(Dispatchers.Default) {
+                    Inbound.receiveKey(delivery.deliveryId, epcs)
+                }
                 val outcome = withContext(Dispatchers.IO) {
                     runCatching {
                         val api = Api(settings, connectTimeoutMs = COMMIT_CONNECT_MS)
@@ -827,6 +932,7 @@ class SweepViewModel(
                             catalog.sweeps()
                         }.getOrNull()
                     }
+                    settleEngine()
                     engine.reset()
                     sweepOpen = false
                     val text = "${receipt.delivery.title} received · ${epcs.size} tags"
@@ -1016,7 +1122,11 @@ class SweepViewModel(
      */
     private fun scanLabel() {
         viewModelScope.launch {
-            if (!sweepOpen) { beginSweep(); engine.start() }
+            // Under the same lock as every other start: a label opens the same
+            // engine a tag sweep does, and must not open it underneath one.
+            operationMutex.withLock {
+                if (!sweepOpen) { beginSweep(); engine.start() }
+            }
             val ok = withContext(Dispatchers.IO) {
                 imager.scanOnce { raw ->
                     val sku = Label.toSku(raw)
@@ -1025,7 +1135,7 @@ class SweepViewModel(
                     } else {
                         engine.offerLabel(sku)
                         update {
-                            it.copy(counts = engine.snapshot(), labelNote = sku)
+                            it.copy(counts = engine.snapshot(), labelNote = skuDisplay(sku))
                         }
                         viewModelScope.launch { buildResult() }
                     }
@@ -1040,8 +1150,53 @@ class SweepViewModel(
         }
     }
 
-    private fun beginSweep() {
+    /**
+     * Stop the engine of a sweep nobody is going to finish.
+     *
+     * A label sweep starts the engine, and nothing in Labels mode ever stops
+     * it: there is no radio to let go of, so there is no release. Abandoned
+     * with nothing counted — a change of job does that — it went on running
+     * with no sweep around it, and the next pull's [beginSweep] reset a live
+     * engine. [ScanEngine.reset] refuses that, and the refusal, thrown inside
+     * the view model's scope with nothing to catch it, closed the app.
+     */
+    private fun stopAbandonedEngine() {
+        viewModelScope.launch {
+            operationMutex.withLock {
+                if (!sweepOpen) settleEngine()
+            }
+        }
+    }
+
+    /**
+     * Stop an engine that is running with no radio under it, before anything
+     * resets it. Off the main thread, because [ScanEngine.stop] joins the
+     * worker.
+     *
+     * A sweep the radio is in is left alone. Resetting one of those stays
+     * refused by [ScanEngine.reset], as it should: losing a live count to a
+     * reset is the failure that guard exists to make loud.
+     */
+    private suspend fun settleEngine() {
+        if (engine.isRunning && !state.value.sweeping) {
+            withContext(Dispatchers.Default) { engine.stop() }
+        }
+    }
+
+    /** Open a new sweep. Called with [operationMutex] held, never mid-sweep. */
+    private suspend fun beginSweep() {
+        settleEngine()
         engine.reset()
+        // A catalogue that landed while the last sweep was open goes in now,
+        // before this one hears a single tag. Waiting for the radio to stop was
+        // not enough on its own: a sweep finished by Finish or by Receive never
+        // passes through [stopSweep], and a held catalogue sat out every sweep
+        // after it.
+        val caughtUp = pendingCatalogue?.let { codes ->
+            engine.useCatalogue(codes)
+            pendingCatalogue = null
+            true
+        } ?: false
         update { it.copy(openSweep = null) }
         uploadRetryAt = 0L
         uploadBackoffMs = UPLOAD_RETRY_BASE_MS
@@ -1052,6 +1207,7 @@ class SweepViewModel(
                 counts = ScanCounts(), lines = emptyList(), resultReady = false,
                 building = false, message = null, failed = false,
                 filedCount = 0, filingNote = null, metrics = ScanMetrics(),
+                catalogue = if (caughtUp) it.catalogue.copy(note = null) else it.catalogue,
             )
         }
     }
@@ -1117,107 +1273,130 @@ class SweepViewModel(
      */
     private fun stopSweep() {
         viewModelScope.launch {
-            operationMutex.withLock {
-                if (!state.value.sweeping) {
-                    withContext(Dispatchers.IO) { runCatching { reader.stop() } }
-                    return@withLock
-                }
-                stopTicker()
-                withContext(Dispatchers.IO) { reader.stop() }
-                withContext(Dispatchers.Default) { engine.stop() }
+            // Finished even when the screen is going away under it.
+            //
+            // Back pressed mid-sweep stops the activity and clears this view
+            // model in the same breath, and the scope that launched this was
+            // cancelled at its first suspension: the radio stopped, the last two
+            // seconds of evidence stayed in RAM, and the sweep was never written
+            // down. The stop, the record and the spool are one act, so they run
+            // to the end — a few hundred milliseconds — whatever is cancelled.
+            withContext(NonCancellable) {
+                operationMutex.withLock {
+                    if (!state.value.sweeping) {
+                        withContext(Dispatchers.IO) { runCatching { reader.stop() } }
+                        return@withLock
+                    }
+                    stopTicker()
+                    withContext(Dispatchers.IO) { reader.stop() }
+                    withContext(Dispatchers.Default) { engine.stop() }
 
-                // One trip to the database, and one state change out of it.
-                //
-                // Naming the products, writing the sweep down and re-reading the
-                // history are three queries that used to be three separate
-                // dispatches, each ending in its own `update` — so letting go of
-                // the trigger produced four or five recompositions of the whole
-                // shell, on a device where a frame costs eighteen milliseconds
-                // at best. They are one hop now, and the screen changes once:
-                // from the counting figure to the result.
-                val counts = engine.snapshot()
-                // A delivery is swept koli by koli, and every pull adds to it.
-                //
-                // Everywhere else a release ends the sweep (see below). Here it
-                // cannot: ten koli are ten pulls, and closing the sweep on each
-                // release would receive the last koli and report the other nine
-                // missing. The sweep stays open until Finish · receive or an
-                // explicit discard, and it is written to the history once, when
-                // it is received — not once per koli as a running total.
-                val holding = state.value.isReceivingDelivery
-                val finished = withContext(Dispatchers.IO) {
-                    val lines = engine.lines()
-                    val identities = catalog.lookup(lines.map { it.skuCode })
-                    val rows = lines
-                        .map { ResultLine(it.skuCode, it.qty, identities[it.skuCode], it.epcs) }
-                        .sortedByDescending { it.qty }
-                    if (holding) return@withContext Triple(rows, null, state.value.history)
-                    val id = runCatching {
-                        catalog.recordSweep(
-                            endedAt = Api.iso8601(),
-                            mode = if (state.value.countEveryTag) "BENCH"
-                                else state.value.mode.name,
-                            units = counts.units,
-                            skus = counts.skus,
-                            articles = counts.articles,
-                            unknown = counts.unknown,
-                            foreign = counts.foreign,
-                            lines = rows.map { it.skuCode to it.qty },
+                    // One trip to the database, and one state change out of it.
+                    //
+                    // Naming the products, writing the sweep down and re-reading the
+                    // history are three queries that used to be three separate
+                    // dispatches, each ending in its own `update` — so letting go of
+                    // the trigger produced four or five recompositions of the whole
+                    // shell, on a device where a frame costs eighteen milliseconds
+                    // at best. They are one hop now, and the screen changes once:
+                    // from the counting figure to the result.
+                    val counts = engine.snapshot()
+                    // A delivery is swept koli by koli, and every pull adds to it.
+                    //
+                    // Everywhere else a release ends the sweep (see below). Here it
+                    // cannot: ten koli are ten pulls, and closing the sweep on each
+                    // release would receive the last koli and report the other nine
+                    // missing. The sweep stays open until Finish · receive or an
+                    // explicit discard, and it is written to the history once, when
+                    // it is received — not once per koli as a running total.
+                    val holding = state.value.isReceivingDelivery
+                    val finished = withContext(Dispatchers.IO) {
+                        val lines = engine.lines()
+                        val identities = catalog.lookup(lines.map { it.skuCode })
+                        val rows = lines
+                            .map { ResultLine(it.skuCode, it.qty, identities[it.skuCode], it.epcs) }
+                            .sortedByDescending { it.qty }
+                        if (holding) return@withContext Triple(rows, null, state.value.history)
+                        val id = runCatching {
+                            catalog.recordSweep(
+                                endedAt = Api.iso8601(),
+                                // What the engine did, not what a switch said:
+                                // only a sweep that really counted every tag
+                                // is marked as one.
+                                mode = if (engine.countEveryTag) "BENCH"
+                                    else state.value.mode.name,
+                                units = counts.units,
+                                skus = counts.skus,
+                                articles = counts.articles,
+                                unknown = counts.unknown,
+                                foreign = counts.foreign,
+                                lines = rows.map { it.skuCode to it.qty },
+                            )
+                        }.getOrNull()
+                        Triple(rows, id, catalog.sweeps())
+                    }
+                    val (rows, sweepId, history) = finished
+                    // Two diagnostics, worked out off the main thread — and
+                    // before anything below marks the sweep over, so the screen
+                    // sees nothing new while they run. `epcShapes` walks every
+                    // distinct EPC of the sweep, thousands on a real rack, and it
+                    // used to run inside the update below: on the main thread,
+                    // in the very frame the result appears. The radio and the
+                    // worker are both stopped, so nothing moves under either.
+                    val (shapes, foreignSample) = withContext(Dispatchers.Default) {
+                        engine.epcShapes() to engine.foreignTags().take(FOREIGN_SAMPLE)
+                    }
+                    // The sweep is OVER, and the next pull starts a new one.
+                    //
+                    // This flag used to be cleared by Finish, and Finish is gone —
+                    // the trigger records the sweep by itself now. Without this the
+                    // engine never resets, so every sweep after the first added to
+                    // the last: sightings climbed all session, the tag set only
+                    // ever grew, and four configurations measured in a row produced
+                    // four readings of the same accumulating total. Every Gen2X
+                    // comparison taken before this was invalid for that reason
+                    // alone. (A delivery being received is the one deliberate
+                    // exception — `holding`, above.)
+                    sweepOpen = holding
+
+                    update {
+                        it.copy(
+                            sweeping = false, busy = false, building = false,
+                            counts = counts, metrics = engine.metrics(),
+                            chip = engine.chip() ?: it.chip,
+                            engineBeliefs = engine.beliefs(),
+                            sdkCalls = reader.calls(),
+                            gaps = engine.gaps(),
+                            foreignSample = foreignSample,
+                            epcShapes = shapes,
+                            lines = rows, resultReady = true,
+                            history = history,
+                            // Straight into what was just counted. The question in
+                            // the operator's head is "what did I just get", not
+                            // "show me every sweep I have ever done".
+                            openSweep = sweepId ?: it.openSweep,
                         )
-                    }.getOrNull()
-                    Triple(rows, id, catalog.sweeps())
-                }
-                val (rows, sweepId, history) = finished
-                // The sweep is OVER, and the next pull starts a new one.
-                //
-                // This flag used to be cleared by Finish, and Finish is gone —
-                // the trigger records the sweep by itself now. Without this the
-                // engine never resets, so every sweep after the first added to
-                // the last: sightings climbed all session, the tag set only
-                // ever grew, and four configurations measured in a row produced
-                // four readings of the same accumulating total. Every Gen2X
-                // comparison taken before this was invalid for that reason
-                // alone. (A delivery being received is the one deliberate
-                // exception — `holding`, above.)
-                sweepOpen = holding
+                    }
 
-                update {
-                    it.copy(
-                        sweeping = false, busy = false, building = false,
-                        counts = counts, metrics = engine.metrics(),
-                        chip = engine.chip() ?: it.chip,
-                        engineBeliefs = engine.beliefs(),
-                        sdkCalls = reader.calls(),
-                        gaps = engine.gaps(),
-                        foreignSample = engine.foreignTags().take(FOREIGN_SAMPLE),
-                        epcShapes = engine.epcShapes(),
-                        lines = rows, resultReady = true,
-                        history = history,
-                        // Straight into what was just counted. The question in
-                        // the operator's head is "what did I just get", not
-                        // "show me every sweep I have ever done".
-                        openSweep = sweepId ?: it.openSweep,
-                    )
-                }
+                    // Written down every time, not on a button.
+                    //
+                    // A bench needs the raw list of what the radio returned, and a
+                    // button for it is a button that has to be reachable — which is
+                    // exactly what failed all evening. The file costs a few
+                    // kilobytes and is always the last sweep.
+                    exportEpcs("last")
 
-                // Written down every time, not on a button.
-                //
-                // A bench needs the raw list of what the radio returned, and a
-                // button for it is a button that has to be reachable — which is
-                // exactly what failed all evening. The file costs a few
-                // kilobytes and is always the last sweep.
-                exportEpcs("last")
-
-                // Everything below is somebody else's problem, not the
-                // operator's: they have their answer on screen already.
-                spoolEvidence()
-                drainOutbox()
-                // A catalogue that arrived mid-sweep goes in now that the sweep
-                // it would have disturbed is over.
-                pendingCatalogue?.let { codes ->
-                    engine.useCatalogue(codes)
-                    pendingCatalogue = null
-                    update { it.copy(catalogue = it.catalogue.copy(note = null)) }
+                    // Everything below is somebody else's problem, not the
+                    // operator's: they have their answer on screen already.
+                    spoolEvidence()
+                    drainOutbox()
+                    // A catalogue that arrived mid-sweep goes in now that the sweep
+                    // it would have disturbed is over.
+                    pendingCatalogue?.let { codes ->
+                        engine.useCatalogue(codes)
+                        pendingCatalogue = null
+                        update { it.copy(catalogue = it.catalogue.copy(note = null)) }
+                    }
                 }
             }
         }
@@ -1500,6 +1679,10 @@ class SweepViewModel(
          */
         session: Int? = if (tagFocus) SESSION_FOR_TAG_FOCUS else null,
     ) {
+        // A bench control. In a release the floor's profile comes from the
+        // reader's saved settings, and no button reaches here — this is the
+        // second lock on that door, not the first.
+        if (!BuildConfig.BENCH) return
         viewModelScope.launch {
             // Under the SAME lock as starting and stopping.
             //
@@ -1530,6 +1713,9 @@ class SweepViewModel(
      * among twenty thousand and finding twenty thousand and then looking.
      */
     fun setSkuFilter(sku: String) {
+        // Bench only: a Select leaves this module deaf until it is re-opened,
+        // and the zero-length "clear" below is known not to undo it.
+        if (!BuildConfig.BENCH) return
         if (state.value.sweeping || state.value.starting) return
         val cleaned = sku.trim()
         viewModelScope.launch {
@@ -1556,9 +1742,13 @@ class SweepViewModel(
      * [ScanEngine.countEveryTag] for why this must not leave one.
      */
     fun setCountEveryTag(on: Boolean) {
+        if (!BuildConfig.BENCH) return
         if (state.value.sweeping || state.value.starting) return
         engine.countEveryTag = on && BuildConfig.BENCH
-        update { it.copy(countEveryTag = on, engineBeliefs = engine.beliefs()) }
+        // The screen says what the engine does, never what was asked. A
+        // release build used to show "Bench mode: ON" over an engine that had
+        // ignored it, and write its sweeps down as BENCH counts.
+        update { it.copy(countEveryTag = engine.countEveryTag, engineBeliefs = engine.beliefs()) }
     }
 
     /**
@@ -1571,6 +1761,10 @@ class SweepViewModel(
      * result screen.
      */
     fun marryDetectedTags() {
+        // Never outside a bench: married tags count as real products until the
+        // app restarts, so a release would put somebody else's pallet label on
+        // a count sheet as a garment.
+        if (!BuildConfig.BENCH) return
         if (state.value.sweeping || state.value.starting) return
         val orphans = engine.foreignTags() + engine.unknownEpcs()
         if (orphans.isEmpty()) {
@@ -1585,9 +1779,13 @@ class SweepViewModel(
                 engine.useAliases(catalog.epcAliases())
                 n
             }
+            // Read first, then written. Suspending INSIDE `update` copied the
+            // state, waited on the disk, and wrote that stale copy back over
+            // whatever had changed meanwhile.
+            val married = withContext(Dispatchers.IO) { catalog.aliasCount() }
             update {
                 it.copy(
-                    aliasCount = withContext(Dispatchers.IO) { catalog.aliasCount() },
+                    aliasCount = married,
                     aliasNote = if (count < 0) "no catalogue to marry them to"
                         else "$count tags married · sweep again",
                     engineBeliefs = engine.beliefs(),
@@ -1638,6 +1836,7 @@ class SweepViewModel(
 
     /** Forget every marriage; tags go back to being what their EPC says. */
     fun divorceTags() {
+        if (!BuildConfig.BENCH) return
         viewModelScope.launch {
             withContext(Dispatchers.IO) {
                 catalog.clearAliases()
@@ -1649,6 +1848,9 @@ class SweepViewModel(
 
     /** Put the radio back to a block that is known to sweep a rack. */
     fun resetRadio() {
+        // Bench only: its last step is the zero-length Select "clear" that this
+        // module is known to ignore — see [Reader.setOursOnlyFilter].
+        if (!BuildConfig.BENCH) return
         if (state.value.sweeping || state.value.starting) return
         viewModelScope.launch {
             val dump = withContext(Dispatchers.IO) { reader.resetRadioDefaults() }
@@ -1659,6 +1861,7 @@ class SweepViewModel(
 
     /** Set the inventory slot count to 2^[exponent]. See [Reader.setStartQ]. */
     fun setStartQ(exponent: Int) {
+        if (!BuildConfig.BENCH) return
         if (state.value.sweeping || state.value.starting) return
         viewModelScope.launch {
             withContext(Dispatchers.IO) { reader.setStartQ(exponent) }
@@ -1677,6 +1880,8 @@ class SweepViewModel(
      * narrows to the whole estate rather than to one product.
      */
     fun setOursOnly(on: Boolean) {
+        // Bench only: any Select leaves this module deaf until it is re-opened.
+        if (!BuildConfig.BENCH) return
         if (state.value.sweeping || state.value.starting) return
         viewModelScope.launch {
             val accepted = withContext(Dispatchers.IO) { reader.setOursOnlyFilter(on) }
@@ -1702,6 +1907,9 @@ class SweepViewModel(
      * [Reader.setRawFilter] for why this has to be discovered by experiment.
      */
     fun tryRawFilter(spec: String) {
+        // Bench only. Wired to a text field, it sent a Select on every
+        // keystroke, and any one of them could leave the module deaf.
+        if (!BuildConfig.BENCH) return
         if (state.value.sweeping || state.value.starting) return
         val parts = spec.trim().split("/")
         if (parts.size != 3) {
@@ -1739,6 +1947,7 @@ class SweepViewModel(
      * which is what an 8-bit mask at pointer 32 already did.
      */
     fun probeFilterOnFirstTag(pointer: Int) {
+        if (!BuildConfig.BENCH) return
         if (state.value.sweeping || state.value.starting) return
         val target = engine.allEpcs().firstOrNull { it.startsWith("A1") }
             ?: engine.allEpcs().firstOrNull()
@@ -1761,6 +1970,9 @@ class SweepViewModel(
 
     /** Move the inventory round between Gen2 sessions. See [Reader.setSession]. */
     fun setSession(session: Int) {
+        // Bench only. S2 and S3 hold a tag's flag for longer than a handheld
+        // sweep, so a second count of the same rack comes back nearly empty.
+        if (!BuildConfig.BENCH) return
         viewModelScope.launch {
             operationMutex.withLock {
                 if (state.value.sweeping) withContext(Dispatchers.IO) { reader.stop() }
@@ -1885,7 +2097,11 @@ class SweepViewModel(
                     }
                 }
             }
-            update { it.copy(outboxPending = withContext(Dispatchers.IO) { catalog.pendingCount() }) }
+            // Counted, then written. Suspending inside `update` took a copy of
+            // the state, waited on the disk, and wrote that copy back over
+            // everything that had changed meanwhile — a tick's count included.
+            val pending = withContext(Dispatchers.IO) { catalog.pendingCount() }
+            update { it.copy(outboxPending = pending) }
         }
     }
 
@@ -1924,14 +2140,24 @@ class SweepViewModel(
      * Each attempt signs the stored bytes FRESH. The signature's timestamp is
      * checked against a five-minute window in both directions, so a batch that
      * waited out an offline spell cannot be replayed with the proof it was born
-     * with. That is also why a conflict is an acknowledgement here: under a key
-     * derived from the batch's own contents, "this key is taken" can only mean
-     * this reader already filed these tags.
+     * with. A conflict is NOT an acknowledgement — see [uploadPending].
+     *
+     * # Backing off is not giving up
+     *
+     * A failed upload waits before the next try, and this used to return early
+     * while it waited — and only a spool, a tick or a Finish ever called it
+     * again. A handheld put down after a failure kept its evidence until
+     * somebody swept with it. So a failure books its own retry for the moment
+     * the wait is over, and [keepFiling] looks in on the outbox besides.
      */
     fun drainOutbox() {
         val settings = settings()
         if (!settings.isConfigured) return
-        if (System.currentTimeMillis() < uploadRetryAt) return
+        val wait = uploadRetryAt - System.currentTimeMillis()
+        if (wait > 0) {
+            retryLater(wait)
+            return
+        }
         if (uploadJob?.isActive == true) { uploadRequested = true; return }
         uploadRequested = false
         uploadJob = viewModelScope.launch {
@@ -1940,6 +2166,8 @@ class SweepViewModel(
                 update {
                     it.copy(
                         outboxPending = report.pending,
+                        outboxRefused = report.refused,
+                        operatorNote = report.operatorNote,
                         filedCount = report.filed,
                         filingNote = report.note,
                         clockSuspect = report.clockSuspect,
@@ -1949,26 +2177,71 @@ class SweepViewModel(
                 uploadJob = null
                 val again = uploadRequested
                 uploadRequested = false
-                if (again) drainOutbox()
+                // Asked for again meanwhile, or failed and owed a retry once its
+                // wait is over: the next call sorts out which.
+                if (again || System.currentTimeMillis() < uploadRetryAt) drainOutbox()
+            }
+        }
+    }
+
+    /** Come back to the outbox in [afterMs]. One appointment at a time. */
+    private fun retryLater(afterMs: Long) {
+        if (retryJob?.isActive == true) return
+        retryJob = viewModelScope.launch {
+            delay(afterMs)
+            retryJob = null
+            drainOutbox()
+        }
+    }
+
+    /**
+     * Look in on the outbox every half minute, for as long as this view model
+     * lives.
+     *
+     * Everything else that files is an event — a spool, a tick, a backoff
+     * running out. A handheld whose wifi came back while it lay on a counter
+     * had none of those, so its evidence waited for the next sweep. This is
+     * the floor under them. It asks the local database first and touches the
+     * network only when there is something to send.
+     */
+    private fun keepFiling() {
+        if (filingJob?.isActive == true) return
+        filingJob = viewModelScope.launch {
+            while (isActive) {
+                delay(OUTBOX_LOOK_MS)
+                val waiting = withContext(Dispatchers.IO) {
+                    runCatching { catalog.pendingCount() }.getOrDefault(0)
+                }
+                if (waiting > 0) drainOutbox()
             }
         }
     }
 
     private class UploadReport(
-        val pending: Int, val filed: Int, val note: String?, val clockSuspect: Boolean,
+        val pending: Int,
+        val refused: Int,
+        val filed: Int,
+        val note: String?,
+        val clockSuspect: Boolean,
+        val operatorNote: String?,
     )
 
     private fun uploadPending(settings: Settings): UploadReport {
         val api = signingApi(settings)
         var sent = 0
+        var setAside = 0
         var note: String? = null
         var clockSuspect = false
+        // Each batch is offered at most once per drain. Every branch below files
+        // a batch, sets it aside or stops the drain, so the outbox only shrinks
+        // under this loop; this is the guarantee of it, should a write ever
+        // fail to move a row, against sending the same bytes in a circle.
+        val offered = HashSet<Long>()
         while (true) {
-            val batches = catalog.pendingBatches(UPLOAD_BATCHES)
+            val batches = catalog.pendingBatches(UPLOAD_BATCHES).filter { offered.add(it.id) }
             if (batches.isEmpty()) break
-            var progressed = false
             for (batch in batches) {
-                val outcome = runCatching { api.postObservationBody(batch.body) }
+                val outcome = file(api, settings, batch.body)
                 // A conflict is NOT an acknowledgement. Not any more.
                 //
                 // It was, and the reasoning was sound at the time: the Edge
@@ -1980,43 +2253,126 @@ class SweepViewModel(
                 //
                 // That comparison has since been removed at the Edge. A retry
                 // of the same frozen body from the same reader now matches on
-                // device and digest and is handed the stored response. So the
-                // only thing 409 can mean today is that this key carries
-                // DIFFERENT content — a batch that was never accepted. Keeping
-                // the old branch would delete exactly those and mark their tags
-                // as filed: evidence lost, with nothing left to show it.
-                val accepted = outcome.isSuccess
-                if (accepted) {
+                // device and digest and is handed the stored response. So a 409
+                // means one of two things now, and neither is "filed": this key
+                // carries DIFFERENT content, or this device's sequence fell
+                // behind — see [isPermanentRefusal]. Keeping the old branch
+                // would delete exactly those and mark their tags as filed:
+                // evidence lost, with nothing left to show it.
+                if (outcome.isSuccess) {
                     catalog.acknowledge(batch.id, batch.sessionId, epcsOf(batch.body))
                     sent += batch.epcCount
-                    progressed = true
                     config.saveClockWatermark(System.currentTimeMillis() / 1000)
-                } else {
-                    val error = outcome.exceptionOrNull()
-                    note = "not filed yet (${error?.message ?: "network unavailable"})"
-                    // A device whose clock went backwards fails TWO independent
-                    // checks at the Edge — the signature's skew window and the
-                    // sequence that may only climb — and no bookkeeping here can
-                    // get around either. Say so, instead of retrying behind a
-                    // spinner forever. The evidence stays spooled.
-                    if (clockWentBackwards()) {
-                        clockSuspect = true
-                        note = "device clock is wrong — evidence is saved, filing is paused"
-                    }
-                    catalog.noteFailure(batch.id, error?.message ?: "unknown")
-                    uploadRetryAt = System.currentTimeMillis() + uploadBackoffMs
-                    uploadBackoffMs = (uploadBackoffMs * 2).coerceAtMost(UPLOAD_RETRY_MAX_MS)
-                    return UploadReport(catalog.pendingCount(), sent, note, clockSuspect)
+                    continue
                 }
+                val error = outcome.exceptionOrNull()
+                val refusal = error as? ApiError
+                if (refusal != null && isPermanentRefusal(refusal)) {
+                    // Refused for good: kept, marked, and out of the way of
+                    // every batch spooled after it. This used to stop the
+                    // drain like any failure — oldest first, so one batch the
+                    // node will never take held back all the evidence behind
+                    // it, for good. See [CatalogStore.setAside].
+                    catalog.setAside(batch.id, refusal.status, refusal.message ?: "HTTP ${refusal.status}")
+                    setAside++
+                    continue
+                }
+                // Transient — no network, a timeout, the node failing, or the
+                // reader's own proof refused — so the batch stays first in line
+                // and the drain waits before it tries again.
+                note = "not filed yet (${error?.message ?: "network unavailable"})"
+                // A device whose clock went backwards fails TWO independent
+                // checks at the Edge — the signature's skew window and the
+                // sequence that may only climb — and no bookkeeping here can
+                // get around either. Say so, instead of retrying behind a
+                // spinner forever. The evidence stays spooled.
+                if (clockWentBackwards()) {
+                    clockSuspect = true
+                    note = "device clock is wrong — evidence is saved, filing is paused"
+                }
+                catalog.noteFailure(batch.id, error?.message ?: "unknown")
+                uploadRetryAt = System.currentTimeMillis() + uploadBackoffMs
+                uploadBackoffMs = (uploadBackoffMs * 2).coerceAtMost(UPLOAD_RETRY_MAX_MS)
+                return UploadReport(
+                    catalog.pendingCount(), catalog.refusedCount(), sent, note, clockSuspect,
+                    operatorNote(settings),
+                )
             }
-            if (!progressed) break
         }
         uploadRetryAt = 0L
         uploadBackoffMs = UPLOAD_RETRY_BASE_MS
         return UploadReport(
-            catalog.pendingCount(), sent,
-            if (sent > 0) "$sent filed" else null, false,
+            catalog.pendingCount(), catalog.refusedCount(), sent,
+            listOfNotNull(
+                if (sent > 0) "$sent filed" else null,
+                if (setAside > 0) "$setAside batches refused by the node · kept here" else null,
+            ).joinToString(" · ").ifBlank { null },
+            false,
+            operatorNote(settings),
         )
+    }
+
+    /**
+     * One batch to the Edge — with the operator's bearer while it is accepted,
+     * and without it once it is not.
+     *
+     * # Why the bearer can be left off
+     *
+     * The device's own signature is what files a batch; the bearer only says
+     * who was holding the reader. But the Edge checks a bearer before it reads
+     * anything else, and answers 401 for an expired one and 403 for an operator
+     * without the right to observe — so a sign-in lapsing at noon stopped every
+     * batch after noon, from a reader whose own proof was perfectly good.
+     *
+     * A refusal of the bearer is tried once more without it, as the same
+     * bytes, freshly signed. It is blamed on the bearer only if the reader
+     * alone is answered differently: the same refusal twice is the reader's
+     * own, and is treated as such. A bearer that was refused is not sent again
+     * — every batch would pay a second request for it — until Setelan is
+     * saved, and the floor is told why filing carries no operator.
+     */
+    private fun file(api: Api, settings: Settings, body: ByteArray): Result<JSONObject> {
+        val token = settings.operatorToken
+        val withBearer = token.isNotBlank() && operatorRefusal?.first != token
+        val first = runCatching { api.postObservationBody(body, withOperator = withBearer) }
+        val status = (first.exceptionOrNull() as? ApiError)?.status ?: return first
+        if (!withBearer || (status != 401 && status != 403)) return first
+        val bare = runCatching { api.postObservationBody(body, withOperator = false) }
+        val bareStatus = (bare.exceptionOrNull() as? ApiError)?.status
+        if (bare.isSuccess || (bareStatus != null && bareStatus != status)) {
+            operatorRefusal = token to status
+        }
+        return bare
+    }
+
+    /**
+     * A refusal that no retry of these same bytes can change.
+     *
+     * Those are set aside, so the batches behind them can move. Everything
+     * else — no network, a timeout, the node failing (5xx), the reader's own
+     * proof refused (401) — is the moment, not the batch, and waits its turn.
+     *
+     * A 409 is read for its words, because the Edge sends two different
+     * conflicts under the one status (`backend/src/edge/rfid.rs`): this
+     * idempotency key already filed OTHER content, which no retry changes; or
+     * this DEVICE's sequence is behind the last one the Edge accepted — a
+     * counter, not the batch, and the next attempt is signed with a higher
+     * one. Only the second names the sequence, and anything that does not is
+     * taken to be the first. Treating the second as permanent would set aside
+     * every batch the device holds, over a counter that catches up in seconds.
+     */
+    private fun isPermanentRefusal(refusal: ApiError): Boolean = when (refusal.status) {
+        400, 403, 404, 413, 422 -> true
+        409 -> !refusal.message.orEmpty().contains("sequence", ignoreCase = true)
+        else -> false
+    }
+
+    /** What the floor is told about a refused operator, while it is still the one in Setelan. */
+    private fun operatorNote(settings: Settings): String? {
+        val (token, status) = operatorRefusal ?: return null
+        if (token != settings.operatorToken) return null
+        return if (status == 401) "Operator sign-in expired · evidence is filed without it"
+            else "Operator may not file evidence · it is filed without them"
     }
 
     /** An [Api] whose device sequence carries on from where this device left off. */
@@ -2108,6 +2464,7 @@ class SweepViewModel(
                         val text = "$units observations saved" +
                             (outcome.getOrNull()?.let { " · $it" } ?: "") +
                             (if (queued > 0) " · $queued batches waiting for the node" else "")
+                        settleEngine()
                         engine.reset()
                         sweepOpen = false
                         // An unannounced lorry on a shop is done once it is
@@ -2337,47 +2694,78 @@ class SweepViewModel(
      * of dead antenna is a rack walked past, so the screen says busy and stops
      * offering Finish for the duration. Nothing is lost — the engine is not the
      * radio — but the person holding it has to know to stand still.
+     *
+     * # The choice is kept before anything else happens
+     *
+     * Setelan used to move the antenna from the screen itself and write the
+     * choice down only once the module had answered — four seconds later, by
+     * which time an operator who had moved on to another tab had cancelled
+     * both. The choice is written first now, and the work is this view
+     * model's, under the same lock as every other radio operation, so leaving
+     * the screen cannot undo it. If the open fails, the reader still holds the
+     * figure and applies it the next time the module opens.
      */
     fun setPower(dbm: Int) {
         if (state.value.busy) return
         val target = dbm.coerceIn(Reader.MIN_POWER, Reader.MAX_POWER)
         if (target == state.value.readerPower) return
+        config.saveReaderPower(target)
         viewModelScope.launch {
             operationMutex.withLock {
                 if (state.value.busy) return@withLock
                 val sweeping = state.value.sweeping
+                // Silence after the change only means something if the sweep
+                // was hearing tags before it.
+                val wasHearing = sweeping && engine.metrics().sightings > 0
                 update {
                     it.copy(busy = true,
                         powerNote = if (sweeping) "moving the antenna · about 7 seconds"
-                            else "moving the antenna…")
+                            else "moving the antenna · about 4 seconds")
                 }
                 stopTicker()
                 val outcome = withContext(Dispatchers.IO) {
                     runCatching {
-                        if (sweeping) reader.stop()
+                        // No stop of our own first. [Reader.setPower] stops the
+                        // round itself, and a second stop is a stop sent to a
+                        // module that is no longer inventorying — two and a half
+                        // seconds waiting for a reply that never comes.
                         val applied = reader.setPower(target)
-                        val resumed = !sweeping ||
-                            reader.start(withTid = state.value.gen2.fastId) { epc, rssi, tid ->
-                                engine.offer(epc, rssi, tid)
-                            }
-                        applied to resumed
+                        var resumed = !sweeping || resumeRadio()
+                        var silent = false
+                        // This module never acknowledges a start, so the only
+                        // proof one took is a tag arriving. A sweep that was
+                        // hearing tags and hears none after a re-open is given
+                        // one more stop and start, and if it is still silent the
+                        // screen says so instead of counting on in the dark.
+                        if (resumed && wasHearing && !reader.heardWithin(RESUME_PROOF_MS)) {
+                            reader.stop()
+                            resumed = resumeRadio()
+                            silent = resumed && !reader.heardWithin(RESUME_PROOF_MS)
+                        }
+                        Triple(applied, resumed, silent)
                     }
                 }
-                outcome.onSuccess { (applied, resumed) ->
+                outcome.onSuccess { (applied, resumed, silent) ->
                     val settled = if (applied > 0) applied else target
                     config.saveReaderPower(settled)
                     update {
                         it.copy(
                             readerPower = settled,
+                            powerFromModule = applied > 0,
                             powerNote = when {
                                 !resumed -> "power set · the reader did not resume"
+                                silent -> "power set · nothing heard since the change"
                                 applied > 0 -> "module reports $applied dBm"
                                 else -> "kept · applies when the reader wakes"
                             },
                             sweeping = it.sweeping && resumed,
                             failed = it.failed || !resumed,
-                            message = if (resumed) it.message
-                                else "the reader stopped — start reading again",
+                            message = when {
+                                !resumed -> "the reader stopped — start reading again"
+                                silent -> "No tags heard since the power change. " +
+                                    "If the count has stopped, stop and start reading again."
+                                else -> it.message
+                            },
                         )
                     }
                     if (!resumed) {
@@ -2390,27 +2778,130 @@ class SweepViewModel(
                     }
                     update { it.copy(busy = false) }
                 }.onFailure { e ->
-                    update { it.copy(busy = false, powerNote = e.message ?: "the reader refused") }
+                    // The module did not come back at all. Mid-sweep that is the
+                    // same as not resuming: the radio is off, so the screen must
+                    // stop claiming a live sweep, and what was found is kept.
+                    update {
+                        it.copy(
+                            powerFromModule = false,
+                            powerNote = e.message ?: "the reader refused",
+                            sweeping = false,
+                            failed = it.failed || sweeping,
+                            message = if (sweeping) "the reader stopped — start reading again"
+                                else it.message,
+                        )
+                    }
+                    if (sweeping) {
+                        withContext(Dispatchers.Default) { engine.stop() }
+                        spoolEvidence()
+                        drainOutbox()
+                        buildResult()
+                    }
+                    update { it.copy(busy = false) }
+                }
+            }
+        }
+    }
+
+    /** The antenna back on, into the sweep that is open. Blocking; call it from IO. */
+    private fun resumeRadio(): Boolean =
+        reader.start(withTid = state.value.gen2.fastId) { epc, rssi, tid ->
+            engine.offer(epc, rssi, tid)
+        }
+
+    /**
+     * What the antenna is at, asked of the module itself, for Setelan.
+     *
+     * Opening the module is not sweeping it: this powers the UART so the figure
+     * Setelan shows can be a reading rather than a guess, and the radio stays
+     * quiet until somebody pulls the trigger. It ran from the screen before,
+     * outside the lock every other radio operation takes, so a power change
+     * could land in the middle of it — and be undone by the stale figure it
+     * then wrote back.
+     */
+    fun readPower() {
+        viewModelScope.launch {
+            operationMutex.withLock {
+                if (state.value.sweeping || state.value.starting || state.value.busy) return@withLock
+                val outcome = withContext(Dispatchers.IO) {
+                    runCatching {
+                        // The saved choice first, so the open applies it: a
+                        // setPower to an open module is not radiated.
+                        settings().readerPower.takeIf { it > 0 }?.let { reader.setPower(it) }
+                        reader.init(appContext!!)
+                        reader.power()
+                    }
+                }
+                outcome.onSuccess { dbm ->
+                    if (dbm > 0) {
+                        update {
+                            it.copy(
+                                readerPower = dbm, powerFromModule = true,
+                                powerNote = "module reports $dbm dBm",
+                            )
+                        }
+                    }
+                }.onFailure { e ->
+                    update {
+                        it.copy(powerFromModule = false, powerNote = e.message ?: "reader unavailable")
+                    }
                 }
             }
         }
     }
 
     /**
-     * Put the radio down when the operator walks off to Setelan.
+     * Put the radio down when the operator walks off to Setelan, or the app
+     * leaves the screen.
      *
      * Everything found stays found — this is a pause, not an abandonment. What
      * must not survive is the CLAIM that the reader is still reading.
+     *
+     * # Decided under the lock, not before it
+     *
+     * This used to look at `sweeping` first and, finding it false, queue a bare
+     * radio stop. During a start — one to seven seconds — it IS false: the stop
+     * waited behind the start, ran after it, and left the screen showing a live
+     * sweep over a radio that was off. [stopSweep] asks once it holds the lock,
+     * when the answer can no longer change under it: a sweep that started
+     * meanwhile is ended properly, recorded and spooled, and a radio at rest is
+     * simply put down.
      */
     fun releaseReader() {
-        if (state.value.sweeping) {
-            stopSweep()
-            return
-        }
+        stopSweep()
+    }
+
+    /**
+     * Setelan was saved: the node, the pool or the operator may all be new.
+     *
+     * The catalogue is checked against wherever the handheld points now.
+     * Evidence the node refused for good is offered again, because most of
+     * what is refused for good is refused for where the handheld pointed, and
+     * Save is how that gets fixed. The bearer is tried again, because a new
+     * one may have been typed in. Whatever is still refused is simply set
+     * aside again; nothing here deletes anything.
+     */
+    fun settingsSaved() {
+        refreshCatalogue()
+        operatorRefusal = null
         viewModelScope.launch {
-            operationMutex.withLock {
-                withContext(Dispatchers.IO) { runCatching { reader.stop() } }
+            val outbox = withContext(Dispatchers.IO) {
+                runCatching {
+                    catalog.requeueRefused()
+                    catalog.pendingCount() to catalog.refusedCount()
+                }.getOrNull()
             }
+            // Now, not after whatever wait the last failure left behind.
+            uploadRetryAt = 0L
+            uploadBackoffMs = UPLOAD_RETRY_BASE_MS
+            update {
+                it.copy(
+                    operatorNote = null,
+                    outboxPending = outbox?.first ?: it.outboxPending,
+                    outboxRefused = outbox?.second ?: it.outboxRefused,
+                )
+            }
+            drainOutbox()
         }
     }
 
@@ -2433,7 +2924,17 @@ class SweepViewModel(
         private const val UPLOAD_BATCHES = 8
         private const val PUBLISH_MS = 200L
         private const val EVIDENCE_EVERY = 10
-        private const val OUTBOX_KEEP_DAYS = 7
+        /**
+         * How often [keepFiling] looks in on the outbox. Light — a local count,
+         * and the network only when something is waiting — and well inside
+         * the longest backoff, which brings its own retry anyway.
+         */
+        private const val OUTBOX_LOOK_MS = 30_000L
+        /**
+         * How long a re-started round may stay silent before it is started
+         * again. See [setPower]: this module never acknowledges a start.
+         */
+        private const val RESUME_PROOF_MS = 1_000L
         /** Quick enough that a new SKU reaches the device within a publish cycle. */
         private const val CATALOG_POLL_MILLIS = 5_000L
         /** A minute of ordinary clock drift is not a reset RTC. */

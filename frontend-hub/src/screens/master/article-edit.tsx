@@ -13,7 +13,7 @@ import { Switch } from "@/components/ui/form"
 import { type Choice, PickMany } from "@/components/ui/pick"
 import { SubHead } from "@/components/ui/rows"
 import { Banner } from "@/components/ui/states"
-import { day, count, money } from "@/lib/format"
+import { day, count, money, sku as skuNumber } from "@/lib/format"
 import { asJpeg, PICTURE_TYPES } from "@/lib/image"
 import { useLayout } from "@/lib/layout"
 import {
@@ -643,7 +643,7 @@ function EditGrid({
                     {each.label}
                   </span>
                   <span className="min-w-0 flex-1 truncate font-mono text-[0.9375rem] text-mute">
-                    {here?.sku_code ?? "—"}
+                    {skuNumber(here?.sku_code)}
                   </span>
                   <span className="shrink-0 tabular-nums">
                     {here === undefined

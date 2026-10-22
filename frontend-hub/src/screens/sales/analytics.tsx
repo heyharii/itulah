@@ -365,7 +365,15 @@ function AnalyticsBody() {
 
           {!phone && (
             <Toolbar>
-              <FilterPanel model={filters} table={table} />
+              <FilterPanel
+                model={filters}
+                table={table}
+                search={{
+                  value: query,
+                  onChange: setQuery,
+                  label: "Search stores",
+                }}
+              />
               <Toolbar.Spacer />
               <span className="text-meta text-mute">
                 Trend is each store against its own best {period.bucket}, not
@@ -516,7 +524,7 @@ const columns: ColumnDef<TableSetup, StoreRow>[] = [
     accessorKey: "site_name",
     header: "Store",
     size: 190,
-    meta: { card: "hide", filter: { kind: "option" } },
+    meta: { card: "hide", filter: { kind: "option", searchable: true } },
     cell: ({ row }) => (
       <span className="flex min-w-0 items-center gap-2">
         <span

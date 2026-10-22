@@ -965,6 +965,44 @@ async fn transfer_reconciliation_report(
         }
     }
 
+    // A piece MD accepted as delivered at another store of the trip than the
+    // one it was sent to (0977): its in-transit claim is read under the
+    // receipt's key, where it was settled.
+    let redirects = sqlx::query(
+        "SELECT source_dc_id,destination_store_id,shipment_reference,epc,
+                meant_destination_id,meant_shipment_reference
+         FROM edge_transfer_redirect",
+    )
+    .fetch_all(pool)
+    .await?;
+    for row in redirects {
+        let source: String = row.get("source_dc_id");
+        let epc: String = row.get("epc");
+        let to: ReconciliationKey = (
+            Some(source.clone()),
+            row.get("destination_store_id"),
+            Some(row.get("shipment_reference")),
+            epc.clone(),
+        );
+        let from: ReconciliationKey = (
+            Some(source),
+            row.get("meant_destination_id"),
+            Some(row.get("meant_shipment_reference")),
+            epc,
+        );
+        let movable = claims
+            .get(&from)
+            .is_some_and(|one| one.in_transit.len() == 1 && one.received.is_empty())
+            && claims.get(&to).is_some_and(|one| one.in_transit.is_empty());
+        if movable {
+            if let Some(mut moved) = claims.remove(&from) {
+                if let Some(target) = claims.get_mut(&to) {
+                    target.in_transit.append(&mut moved.in_transit);
+                }
+            }
+        }
+    }
+
     let mut report = TransferReconciliationReport::default();
     for ((source_dc_id, destination_store_id, shipment_reference, epc), identity) in claims {
         let complete_key = source_dc_id.is_some() && shipment_reference.is_some();
@@ -1851,6 +1889,52 @@ pub async fn list_fleet_pools(
         }
     }
 
+    // Observed is what the RFID sightings saw, whoever owns the shelf. The
+    // Edge row used to carry none while its Cloud shadow carried the count,
+    // so a reader taking the node's row showed Observed `—`. Each Edge row
+    // gets the sightings of its own site (the centre's `dc.…` spelling for
+    // the DC respelled as the origin's own), and the shadow leaves the list
+    // below, so each pool appears once.
+    let mut observed_by_pool = BTreeMap::<String, i64>::new();
+    for row in sqlx::query(
+        "SELECT pool_id,COUNT(DISTINCT COALESCE(subject_id::text,epc))::bigint AS quantity
+         FROM observation_sighting
+         WHERE last_seen_at > now()-($1::text||' hours')::interval
+         GROUP BY pool_id",
+    )
+    .bind(observed_hours)
+    .fetch_all(pool)
+    .await?
+    {
+        observed_by_pool.insert(row.get("pool_id"), row.get("quantity"));
+    }
+    for item in items.iter_mut().skip(cloud_row_count) {
+        let Some(object) = item.as_object_mut() else {
+            continue;
+        };
+        let id = object
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let site_id = object
+            .get("site_id")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let is_dc = object.get("origin_role").and_then(Value::as_str) == Some("DC");
+        let observed: i64 = observed_by_pool
+            .iter()
+            .filter(|(sighted, _)| {
+                let sighted_site = sighted.split('.').next().unwrap_or_default();
+                (sighted_site == site_id || (is_dc && sighted_site == head_office))
+                    && sync::pool_id_for_site(sighted, &site_id) == id
+            })
+            .map(|(_, quantity)| *quantity)
+            .sum();
+        object.insert("observed".into(), json!(observed));
+    }
+
     // Rollups are derived from fact-position leaves and never selected into
     // the authoritative fleet total themselves.
     for (origin_id, owner) in edge_owners
@@ -1950,6 +2034,13 @@ pub async fn list_fleet_pools(
             }));
         }
     }
+
+    // A shadowed Cloud row is the same pool as the Edge row that shadows it;
+    // listing both put one shelf on the screen twice.
+    items.retain(|item| {
+        item.pointer("/authority/write_policy").and_then(Value::as_str)
+            != Some("SHADOWED_READ_ONLY")
+    });
 
     let mut base_stock_before_overlap = 0_i64;
     let mut included_row_count = 0_i64;
@@ -2192,6 +2283,10 @@ pub struct MissingRow {
     pub missing_cause: Option<String>,
     pub missing_reference_type: Option<String>,
     pub missing_reference_id: Option<String>,
+    /// That document as people say it: the allotment's number, when the
+    /// reference is an allotment line, and the allotment to open.
+    pub missing_reference_number: Option<String>,
+    pub missing_allotment_id: Option<Uuid>,
     /// When it first went missing. `None` where no movement into the missing
     /// place can be found — an adjustment posted straight into the projection,
     /// which is a row worth seeing rather than hiding.
@@ -2205,6 +2300,9 @@ pub struct MissingRow {
     /// has never been in one**. Most of them never have.
     pub latest_count_id: Option<Uuid>,
     pub latest_count_status: Option<String>,
+    /// The Edge node that books this piece, when one does. Found and Lost
+    /// are that node's to post; the Cloud only reads them.
+    pub owner_origin_id: Option<String>,
     pub status: String,
 }
 
@@ -2247,25 +2345,68 @@ struct MissingCursor {
 /// unknown-since rows first in ascending order, which is exactly where the old
 /// `NULLS FIRST` put them — except that this one a `WHERE` can seek against.
 const MISSING_ROWS: &str = r#"
+WITH edge_owner AS (
+  -- A site owned by an Edge node that has spoken: its Cloud rows are a
+  -- shadow and its own facts are the book, exactly as `list_fleet_pools`
+  -- decides it — or Stock and the Missing list read different ledgers for
+  -- the same store (20 Oct: C002 Stock 0, Missing 2 seeded Cloud rows the
+  -- node never had, and the piece the node booked missing not listed).
+  SELECT credential.origin_id,credential.site_id
+  FROM sync_origin_credential credential
+  JOIN sync_applied_watermark watermark
+    ON watermark.origin_id=credential.origin_id
+   AND watermark.generation=credential.active_generation
+  WHERE credential.inventory_enabled
+), unioned AS (
 SELECT pr.subject_id,ip.pool_id,pr.quantity,s.subject_type,s.epc,s.barcode,sk.sku_code,
        art.name article_name,op.site_id,op.label,
        first_missing.occurred_at missing_since,first_missing.cause missing_cause,
        first_missing.reference_type missing_reference_type,first_missing.reference_id missing_reference_id,
        last_obs.last_seen_at,
        last_count.id latest_count_id,last_count.status latest_count_status,
-       pr.subject_id::text||'@'||ip.pool_id row_id,
-       COALESCE(first_missing.occurred_at,TIMESTAMPTZ '-infinity') since_key,
-       COALESCE(last_obs.last_seen_at,TIMESTAMPTZ '-infinity') seen_key,
-       COALESCE(s.epc,'') epc_key,
-       CASE WHEN last_count.id IS NULL THEN 'NEVER' ELSE 'COUNTED' END counted_state
+       NULL::text owner_origin_id
 FROM inventory_projection pr JOIN inventory_place ip ON ip.id=pr.place_id AND ip.state='MISSING'
 JOIN operational_pool op ON op.id=ip.pool_id JOIN inventory_subject s ON s.id=pr.subject_id LEFT JOIN sku sk ON sk.id=s.sku_id
 LEFT JOIN article art ON art.id=sk.article_id
 LEFT JOIN LATERAL (SELECT occurred_at,cause,reference_type,reference_id FROM movement WHERE subject_id=pr.subject_id AND to_place_id=pr.place_id ORDER BY occurred_at ASC LIMIT 1) first_missing ON TRUE
 LEFT JOIN LATERAL (SELECT last_seen_at FROM observation_sighting WHERE subject_id=pr.subject_id ORDER BY last_seen_at DESC LIMIT 1) last_obs ON TRUE
 LEFT JOIN LATERAL (SELECT c.id,c.status FROM official_count c JOIN count_snapshot cs ON cs.count_id=c.id WHERE cs.subject_id=pr.subject_id ORDER BY c.created_at DESC LIMIT 1) last_count ON TRUE
-WHERE ($1::text IS NULL OR s.epc ILIKE $1 OR s.barcode ILIKE $1
-       OR sk.sku_code ILIKE $1 OR ip.pool_id ILIKE $1 OR op.label ILIKE $1)
+WHERE NOT EXISTS (SELECT 1 FROM edge_owner owner WHERE owner.site_id=op.site_id)
+UNION ALL
+-- The node's own Missing. Only the node can resolve it, so it carries its
+-- owner and no movement history: the Cloud holds positions for an Edge site,
+-- not its movements.
+SELECT fact.subject_id,regexp_replace(fact.place_id,':missing$',''),fact.quantity,
+       CASE WHEN fact.epc IS NULL THEN 'QUANTITY' ELSE 'UNIT' END,fact.epc,NULL::text,
+       fact.sku_code,art.name,owner.site_id,
+       COALESCE(op.label,regexp_replace(fact.place_id,':missing$','')),
+       fact.updated_at,NULL::text,NULL::text,NULL::text,
+       NULL::timestamptz,NULL::uuid,NULL::text,owner.origin_id
+FROM edge_inventory_fact_position fact
+JOIN edge_owner owner ON owner.origin_id=fact.origin_id
+LEFT JOIN operational_pool op ON op.id=regexp_replace(fact.place_id,':missing$','')
+LEFT JOIN sku sk ON sk.sku_code=fact.sku_code
+LEFT JOIN article art ON art.id=sk.article_id
+WHERE fact.place_id LIKE '%:missing' AND fact.quantity>0
+)
+SELECT unioned.*,
+       subject_id::text||'@'||pool_id row_id,
+       COALESCE(missing_since,TIMESTAMPTZ '-infinity') since_key,
+       COALESCE(last_seen_at,TIMESTAMPTZ '-infinity') seen_key,
+       COALESCE(epc,'') epc_key,
+       CASE WHEN latest_count_id IS NULL THEN 'NEVER' ELSE 'COUNTED' END counted_state,
+       doc.allotment_number missing_reference_number,doc.allotment_id missing_allotment_id
+FROM unioned
+-- The document a person knows it by (owner, 20 Oct 2026): a pick or a pack
+-- names its allotment line, said as its allotment's number.
+LEFT JOIN LATERAL (
+  SELECT a.allotment_number,a.id allotment_id
+  FROM allotment_line l JOIN allotment a ON a.id=l.allotment_id
+  WHERE unioned.missing_reference_type='ALLOTMENT_LINE'
+    AND l.id::text=unioned.missing_reference_id
+) doc ON TRUE
+WHERE ($1::text IS NULL OR epc ILIKE $1 OR barcode ILIKE $1
+       OR sku_code ILIKE $1 OR pool_id ILIKE $1 OR label ILIKE $1)
 "#;
 
 /// The missing list's filters, spelled once for the page and for the facets.
@@ -2295,11 +2436,14 @@ fn missing_row_from(
         missing_cause: row.try_get("missing_cause")?,
         missing_reference_type: row.try_get("missing_reference_type")?,
         missing_reference_id: row.try_get("missing_reference_id")?,
+        missing_reference_number: row.try_get("missing_reference_number")?,
+        missing_allotment_id: row.try_get("missing_allotment_id")?,
         missing_since: since,
         age_hours: since.map(|at| (now - at).num_hours()),
         last_observation: row.try_get("last_seen_at")?,
         latest_count_id: row.try_get("latest_count_id")?,
         latest_count_status: row.try_get("latest_count_status")?,
+        owner_origin_id: row.try_get("owner_origin_id")?,
         status: "MISSING".into(),
     })
 }

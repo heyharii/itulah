@@ -1,196 +1,140 @@
-import { Minus, Plus } from "lucide-react"
+import { Check, Minus, Plus } from "lucide-react"
 import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/field"
 import { Thumbnail } from "@/components/ui/thumbnail"
 import { useColourwayFill } from "@/lib/colourway-fill"
-import { count, quantity } from "@/lib/format"
-import type { Identity } from "@/lib/operations/catalogue"
-import { photoPerColour } from "@/lib/operations/photo-key"
+import { count, sku as skuNumber } from "@/lib/format"
 import { divisionName, useCatalogueIdentity } from "@/lib/operations/catalogue"
 import { ArticleSheet } from "@/screens/master/detail"
 import type { PicklistLine } from "@itulah/contract"
 
-/// **What a picker reads at the rack: the article, then each colourway.**
+/// A code without its leading zeros: 00000004104 reads 4104 (owner, 18 Oct
+/// 2026, "ga usah ada 0000 nya").
+
+/// **What a picker reads at the rack: the article, then its colours and
+/// sizes with how many of each.**
 ///
-/// Owner, 12 Oct 2026: "detail picklistnya kurang… harusnya ada foto product
-/// nama product". A picker finds goods by look, so the sheet names the article
-/// on top (code · division, supplier) and then draws one block per colourway
-/// with its picture — the photograph, or the Garment placeholder painted from
-/// the colour master — its sizes and pieces, and rows Size | To pick | Picked.
+/// Pick per SKU, whole (owner, 21 Oct 2026: "di sebelah quantity ganti ke
+/// pick pick pick, yg sudah pick ganti ke picked"): a row's Pick takes its
+/// full quantity and turns into Picked (pressed again, it is undone). Nothing
+/// is typed. Done sends what is Picked on to Picked.
 export function PickLines({
   lines,
-  was,
-  supplier,
   pickedOf,
   onPicked,
+  locked = false,
 }: {
   lines: readonly PicklistLine[]
-  /// What MD's change had before, by SKU: drawn struck through beside To pick.
-  was?: ReadonlyMap<string, number>
-  supplier: string | null
   pickedOf: (line: PicklistLine) => number
   onPicked: (sku: string, next: number) => void
+  locked?: boolean
 }) {
   const catalogue = useCatalogueIdentity()
   const fill = useColourwayFill()
   /// The article master sheet, without stock (owner, 16 Oct 2026).
   const [opened, setOpened] = useState<string | null>(null)
 
-  // Article → colourway → its lines, in the order the picklist names them.
-  const articles = new Map<
-    string,
-    { identity: Identity | undefined; colours: Map<string, PicklistLine[]> }
-  >()
-  for (const line of lines) {
-    const identity = catalogue.get(line.sku_code)
-    const code = identity?.article_code ?? line.sku_code
-    const article = articles.get(code) ?? { identity, colours: new Map() }
-    const colour = identity?.colour ?? "—"
-    article.colours.set(colour, [...(article.colours.get(colour) ?? []), line])
-    articles.set(code, article)
-  }
-
-  const perColour = (colours: Map<string, PicklistLine[]>) =>
-    photoPerColour(
-      [...colours.values()].flat().map((line) => line.sku_code),
-      catalogue
-    )
+  const first = catalogue.get(lines[0]?.sku_code ?? "")
+  const code = first?.article_code ?? lines[0]?.sku_code ?? ""
+  const want = lines.reduce((sum, line) => sum + line.outstanding, 0)
 
   return (
-    <div className="flex flex-col gap-6">
-      {[...articles].map(([code, { identity, colours }]) => (
-        <div key={code} className="flex flex-col gap-4">
-          {/* One photo per article beside its name, or one per colour below
-          when the colours have photographs of their own (owner, 16 Oct). */}
-          <div className="flex items-center gap-3.5">
-            <button
-              type="button"
-              aria-label={`Open ${identity?.article_name ?? code}`}
-              onClick={() => setOpened(identity?.article_code ?? code)}
-              className="shrink-0"
+    <div className="flex flex-col">
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          aria-label={`Open ${first?.article_name ?? code}`}
+          onClick={() => setOpened(first?.article_code ?? code)}
+          className="shrink-0"
+        >
+          <Thumbnail
+            url={first?.image_url ?? null}
+            name={first?.article_name ?? ""}
+            division={first?.division_code}
+            colours={fill(first?.colour ?? null)}
+            className="size-[2.875rem] rounded-[9px]"
+          />
+        </button>
+        <div className="flex min-w-0 flex-1 flex-col">
+          <button
+            type="button"
+            onClick={() => setOpened(first?.article_code ?? code)}
+            className="w-fit max-w-full text-left font-semibold text-ink hover:underline"
+          >
+            {first?.article_name ?? code}
+          </button>
+          <div className="text-body">
+            {code}
+            {first?.division_code && (
+              <> · {divisionName(first.division_code)}</>
+            )}
+          </div>
+        </div>
+        <div className="shrink-0 text-[1.5rem] leading-[1.4] font-bold text-ink tabular-nums">
+          {count(want)}
+          <span className="text-[1.0625rem] font-medium text-body">
+            {" "}
+            {want === 1 ? "pc" : "pcs"}
+          </span>
+        </div>
+      </div>
+
+      <div className="mt-3 flex flex-col">
+        {lines.map((line) => {
+          const one = catalogue.get(line.sku_code)
+          const name =
+            [one?.colour, one?.size].filter(Boolean).join(" · ") ||
+            skuNumber(line.sku_code)
+          return (
+            <div
+              key={line.sku_code}
+              className="border-row-line flex min-h-16 items-center gap-3 border-t"
             >
-              <Thumbnail
-                url={identity?.image_url ?? null}
-                name={identity?.article_name ?? ""}
-                division={identity?.division_code}
-                colours={fill(identity?.colour ?? null)}
-                className="size-16 rounded-inner"
-              />
-            </button>
-            <div className="flex min-w-0 flex-col gap-0.5">
-              <button
-                type="button"
-                onClick={() => setOpened(identity?.article_code ?? code)}
-                className="w-fit max-w-full text-left text-[1.25rem] leading-[1.625rem] font-semibold tracking-[-0.01em] text-ink hover:underline"
-              >
-                {identity?.article_name ?? code}
-              </button>
-              <div className="text-[0.9375rem] text-body">
-                <span className="font-mono">{code}</span>
-                {identity?.division_code && (
-                  <> · {divisionName(identity.division_code)}</>
-                )}
-              </div>
-              {supplier && (
-                <div className="text-[0.9375rem] text-body">{supplier}</div>
+              <span className="min-w-0 flex-1">
+                <span className="block font-medium text-ink">{name}</span>
+                <span className="block text-body tabular-nums">
+                  {skuNumber(line.sku_code)}
+                </span>
+              </span>
+              <span className="shrink-0 text-[1.0625rem] font-semibold text-ink tabular-nums">
+                {count(line.outstanding)}
+              </span>
+              {pickedOf(line) >= line.outstanding ? (
+                // Picked in green with a red Unpick beside it (owner, 21 Oct
+                // 2026), as Pack's Packed · Unpack.
+                <span className="flex w-[9.5rem] items-center justify-end gap-3 whitespace-nowrap">
+                  <span className="inline-flex items-center gap-1 font-semibold text-ok-fg">
+                    <Check className="size-4" aria-hidden />
+                    Picked
+                  </span>
+                  <button
+                    type="button"
+                    disabled={locked}
+                    onClick={() => onPicked(line.sku_code, 0)}
+                    className="font-semibold text-bad-fg hover:underline disabled:opacity-50"
+                  >
+                    Unpick
+                  </button>
+                </span>
+              ) : (
+                <span className="flex w-[9.5rem] justify-end">
+                  <Button
+                    variant="primary"
+                    size="card"
+                    disabled={locked}
+                    onClick={() => onPicked(line.sku_code, line.outstanding)}
+                  >
+                    Pick
+                  </Button>
+                </span>
               )}
             </div>
-          </div>
+          )
+        })}
+      </div>
 
-          {[...colours].map(([colour, list]) => {
-            const pieces = list.reduce((sum, line) => sum + line.outstanding, 0)
-            return (
-              <div
-                key={colour}
-                className="flex flex-col gap-1.5 border-t border-hairline pt-4"
-              >
-                <div className="mb-1 flex items-center gap-3.5">
-                  {perColour(colours) ? (
-                    <Thumbnail
-                      url={catalogue.get(list[0]!.sku_code)?.image_url ?? null}
-                      name={identity?.article_name ?? ""}
-                      division={identity?.division_code}
-                      colours={fill(colour === "—" ? null : colour)}
-                      className="size-16 shrink-0 rounded-inner"
-                    />
-                  ) : (
-                    <span
-                      aria-hidden
-                      className="size-3 shrink-0 rounded-full border border-hairline"
-                      style={{
-                        background: fill(colour === "—" ? null : colour)[0],
-                      }}
-                    />
-                  )}
-                  <div className="min-w-0">
-                    <div className="text-[1.0625rem] leading-[1.375rem] font-semibold text-ink">
-                      {colour}
-                    </div>
-                    <div className="text-[0.9375rem] text-body">
-                      {list.length === 1
-                        ? "1 size"
-                        : `${count(list.length)} sizes`}{" "}
-                      · {quantity(pieces)}
-                    </div>
-                  </div>
-                </div>
-                <table className="w-full border-collapse">
-                  <thead>
-                    <tr className="text-left text-[0.9375rem] text-body">
-                      <th className="h-9 pr-2 font-normal">Size</th>
-                      <th className="h-9 px-2 text-right font-normal">
-                        To pick
-                      </th>
-                      <th className="h-9 pl-2 text-right font-normal">
-                        Picked
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {list.map((line) => {
-                      const one = catalogue.get(line.sku_code)
-                      const value = pickedOf(line)
-                      return (
-                        <tr
-                          key={line.sku_code}
-                          className="border-t border-hairline"
-                        >
-                          <td className="py-2.5 pr-2">
-                            <div className="text-[0.9375rem] font-medium text-ink">
-                              {one?.size ?? "—"}
-                            </div>
-                            <div className="font-mono text-[0.9375rem] break-all text-mute">
-                              {line.sku_code}
-                            </div>
-                          </td>
-                          <td className="px-2 py-2.5 text-right text-[0.9375rem] text-ink tabular-nums">
-                            {was?.has(line.sku_code) && (
-                              <s className="mr-1.5 text-mute">
-                                {count(was.get(line.sku_code))}
-                              </s>
-                            )}
-                            {count(line.outstanding)}
-                          </td>
-                          <td className="py-2.5 pl-2 text-right">
-                            <Stepper
-                              label={`${one?.article_name ?? line.sku_code} · ${colour} · ${one?.size ?? ""}`}
-                              value={value}
-                              max={line.outstanding}
-                              onChange={(next) => onPicked(line.sku_code, next)}
-                            />
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )
-          })}
-        </div>
-      ))}
       <ArticleSheet
         articleCode={opened}
         open={opened !== null}

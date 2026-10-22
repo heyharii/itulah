@@ -24,7 +24,10 @@ import { meNav } from "@/screens/me/nav"
 import { mobileNav } from "@/screens/mobile/nav"
 import { inventoryNav } from "@/screens/inventory/nav"
 import { masterNav, useNewArticlesCount } from "@/screens/master/nav"
-import { merchandiseArticlesNav } from "@/screens/merchandise/nav"
+import {
+  merchandiseArticlesNav,
+  merchandiseMasterNav,
+} from "@/screens/merchandise/nav"
 import { membersNav } from "@/screens/members/nav"
 import { operationsNav } from "@/screens/operations/nav"
 import { peopleNav } from "@/screens/people/nav"
@@ -303,6 +306,7 @@ export const modules: readonly AppModule[] = [
   merchandiseArticlesNav,
   inventoryNav,
   allotmentNav,
+  merchandiseMasterNav,
   procurementNav,
   storesNav,
   salesNav,
@@ -465,12 +469,12 @@ const allDomains: readonly AppDomain[] = [
     id: "merchandise",
     label: "Merchandise",
     icon: Shirt,
-    modules: ["merchandise-articles", "allotment"],
+    modules: ["merchandise-articles", "allotment", "merchandise-master"],
   },
   // Ops stands apart from Inventory for a reason that is not taste: every one
   // of its screens talks to a DC node behind its own login, so a domain that
   // mixed them would ask for a second password halfway down its own sidebar.
-  { id: "ops", label: "Ops", icon: Truck, modules: ["operations"] },
+  { id: "ops", label: "Operation", icon: Truck, modules: ["operations"] },
   { id: "inventory", label: "Inventory", icon: Boxes, modules: ["inventory"] },
   {
     id: "marketing",
@@ -770,6 +774,7 @@ const SECTION_OF_MODULE: Readonly<Record<string, SectionCode>> = {
   commercial: "marketing",
   master: "merchandise",
   "merchandise-articles": "merchandise",
+  "merchandise-master": "merchandise",
   allotment: "merchandise",
   inventory: "inventory",
   procurement: "procurement",

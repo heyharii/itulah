@@ -19,14 +19,11 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DockTools } from "@/components/shell/dock-tools"
 import { DataTable, dockSortOf } from "@/components/ui/data-table"
-import { Checkbox, Field, Input, Select } from "@/components/ui/field"
+import { Field, Input, Select } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
+import { SwitchPill } from "@/components/ui/form"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
-import {
-  BarSpacer,
-  ColumnsMenu,
-  ExpandingSearch,
-} from "@/components/ui/list-chrome"
+import { BarSpacer, ColumnsMenu } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { Sheet } from "@/components/ui/sheet"
@@ -461,17 +458,16 @@ function AccountLinksScreen() {
         />
       ) : (
         <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2">
-          <ExpandingSearch
-            value={query}
-            onChange={setQuery}
-            label="Search roles"
+          <FilterPanel
+            model={filters}
+            table={table}
+            search={{ value: query, onChange: setQuery, label: "Search roles" }}
           />
-          <Checkbox
+          <SwitchPill
+            on={onlyGaps}
             label="Only roles with gaps"
-            checked={onlyGaps}
-            onChange={(next) => setOnlyGaps(next)}
+            onToggle={() => setOnlyGaps(!onlyGaps)}
           />
-          <FilterPanel model={filters} table={table} />
           <BarSpacer />
           <span className="text-[0.9375rem] text-mute">
             {count(page.data?.total ?? 0)} links · {count(gaps)} role-and-unit

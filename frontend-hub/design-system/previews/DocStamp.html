@@ -1,0 +1,52 @@
+<!-- @dsCard group="Status" height=558 subtitle="Static rendition of doc-stamp.tsx in the All white look" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>DocStamp — preview</title><style>body{margin:0}
+/* DocStamp: the sheet's stamp is bundle .ds-stamp (18px, 700); a list row presses the same stamp at 15px. */
+.ds-docstamp-tones{display:flex;flex-wrap:wrap;align-items:flex-start;gap:20px 40px;padding:6px 10px}
+.ds-docstamp-doc{position:relative}
+.ds-docstamp-sheet{max-width:760px}
+.ds-docstamp-row{font-size:15px;line-height:20px}
+.ds-docstamp-cell{padding-top:14px;padding-bottom:14px}
+</style></head>
+<body>
+<div class="ds ds-stage">
+  <div class="ds-docstamp-tones">
+    <span class="ds-stamp ds-stamp--ok" aria-hidden="true">Fully received<span class="ds-stamp-day">17 Oct</span></span>
+    <span class="ds-stamp ds-stamp--bad" aria-hidden="true">Closed short<span class="ds-stamp-day">16 Oct</span></span>
+    <span class="ds-stamp ds-stamp--mute" aria-hidden="true">Cancelled<span class="ds-stamp-day">15 Oct</span><span class="ds-stamp-note">Ordered twice by mistake</span></span>
+  </div>
+
+  <div class="ds-sheet ds-docstamp-sheet">
+    <div class="ds-sheet-head">
+      <div class="ds-sheet-headtext">
+        <div class="ds-sheet-crumb"><span>Purchase Orders</span><span class="ds-sep">/</span><span>PO-161026-007</span></div>
+        <div class="ds-sheet-titlerow"><span class="ds-sheet-title">Garmen Nusantara, PT</span></div>
+      </div>
+      <button class="ds-sheet-close" type="button" aria-label="Close"><span class="ds-ico ds-ico-x ds-ico--17"></span></button>
+    </div>
+    <div class="ds-sheet-body">
+      <div class="ds-docstamp-doc">
+        <span class="ds-stamp ds-stamp--ok ds-stamp-corner" aria-hidden="true">Fully received<span class="ds-stamp-day">17 Oct</span></span>
+        <div class="ds-kpis ds-kpis--in-sheet">
+          <div class="ds-kpi"><div class="ds-kpi-label">Delivery date</div><div class="ds-kpi-value">19 Oct 2026</div></div>
+          <div class="ds-kpi"><div class="ds-kpi-label">Payment</div><div class="ds-kpi-value">Giro</div></div>
+          <div class="ds-kpi"><div class="ds-kpi-label">Received</div><div class="ds-kpi-value">8 / 8 pcs</div></div>
+          <div class="ds-kpi"><div class="ds-kpi-label">Grand total</div><div class="ds-kpi-value">Rp 320.000</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ds-table-card">
+    <table class="ds-table">
+      <thead><tr><th>PO</th><th>Received date</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td>Garmen Nusantara, PT<span class="ds-sub">PO-161026-007 · 1 item</span></td><td class="ds-num">17 Oct 2026</td><td class="ds-docstamp-cell"><span class="ds-stamp ds-stamp--ok ds-docstamp-row" aria-hidden="true">Fully received<span class="ds-stamp-day">17 Oct</span></span></td></tr>
+        <tr><td>Garmen Nusantara, PT<span class="ds-sub">PO-161026-009 · 2 items</span></td><td class="ds-num">16 Oct 2026</td><td class="ds-docstamp-cell"><span class="ds-stamp ds-stamp--bad ds-docstamp-row" aria-hidden="true">Closed short<span class="ds-stamp-day">16 Oct</span></span></td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+</body>
+</html>

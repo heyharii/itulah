@@ -56,6 +56,7 @@ async fn supplier(pool: &PgPool, code: &str, name: &str) -> Uuid {
             // the column's own default — and they bill no expense account.
             category: None,
             expense_account_code: None,
+            kind: None,
         },
         ACTOR,
         &format!("supplier-{code}"),

@@ -1,8 +1,7 @@
 import { useEffect, useRef } from "react"
 import { Link } from "@tanstack/react-router"
 import { AnimatePresence, motion, useAnimationControls, useReducedMotion } from "motion/react"
-import { Bell } from "lucide-react"
-
+import { Glyph } from "@/components/matte"
 import { Chip } from "@/components/ui/chip"
 import { SPRING_CELEBRATE } from "@/lib/motion"
 import { unread, usePointsFeed, useSeen } from "@/lib/points-feed"
@@ -41,7 +40,7 @@ export function BellChip() {
       className="relative"
     >
       <motion.span animate={swing} style={{ originY: 0.1 }} className="flex">
-        <Bell />
+        <Glyph name="bell" />
       </motion.span>
       <AnimatePresence>
         {count > 0 && (
@@ -51,7 +50,7 @@ export function BellChip() {
             animate={{ opacity: 1, scale: 1 }}
             exit={reduce ? { opacity: 0 } : { opacity: 0, scale: 0.5, transition: { duration: 0.15 } }}
             transition={reduce ? { duration: 0.15 } : SPRING_CELEBRATE}
-            className="num absolute -top-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-backdrop bg-bad px-1 text-[0.6875rem] leading-none font-semibold text-on-dark"
+            className="num absolute -top-1.5 -right-1.5 flex h-6 min-w-6 items-center justify-center rounded-full border-2 border-backdrop bg-bad px-1.5 text-meta leading-none font-semibold text-on-dark"
           >
             {count > 9 ? "9+" : count}
           </motion.span>

@@ -467,10 +467,12 @@ pub async fn ga_asset_page(pool: &PgPool, scope: GaAssetScope) -> Result<GaAsset
 
 /// How many assets there are and how they split.
 ///
-/// The two scopes are deliberate, and are `asset_facets`' argument: the
-/// per-value counts read the SEARCHED set, ignoring what is currently filtered,
-/// so a number beside a value answers "how many of these there are" — the
-/// question somebody has while deciding whether to click it. The total reads
+/// The scopes are deliberate, and are `asset_facets`' argument: the per-value
+/// counts read the SEARCHED set within the tab (the ticked states and the
+/// draft switch), ignoring the chips, so a number beside a value answers "how
+/// many of these there are on this tab" — the question somebody has while
+/// deciding whether to click it. The states themselves are counted over the
+/// whole searched set, because they are what the tabs count. The total reads
 /// the FILTERED set, because it describes the list on screen.
 async fn ga_asset_facets(
     pool: &PgPool,
@@ -485,22 +487,27 @@ async fn ga_asset_facets(
     let search = ga_asset_search();
     let sql = format!(
         "WITH searched AS ({search}),
+              tabbed AS (
+             SELECT * FROM searched
+              WHERE ($6::text[] IS NULL OR status = ANY($6))
+                AND ($7::boolean IS NULL OR (status = 'DRAFT') = $7)
+         ),
               kept AS (
              SELECT * FROM searched WHERE {GA_ASSET_FILTERS}
          )
          SELECT 'site' AS kind, s.site_id AS value,
                 (SELECT p.name FROM site p WHERE p.id = s.site_id) AS label,
                 COUNT(*)::bigint AS n
-           FROM searched s GROUP BY s.site_id
+           FROM tabbed s GROUP BY s.site_id
           UNION ALL
          SELECT 'class', s.category_code, MIN(s.class_name), COUNT(*)::bigint
-           FROM searched s GROUP BY s.category_code
+           FROM tabbed s GROUP BY s.category_code
           UNION ALL
          SELECT 'build', s.build, NULL::text, COUNT(*)::bigint
-           FROM searched s GROUP BY s.build
+           FROM tabbed s GROUP BY s.build
           UNION ALL
          SELECT 'condition', s.condition, NULL::text, COUNT(*)::bigint
-           FROM searched s GROUP BY s.condition
+           FROM tabbed s GROUP BY s.condition
           UNION ALL
          SELECT 'status', s.status, NULL::text, COUNT(*)::bigint
            FROM searched s GROUP BY s.status
@@ -603,9 +610,9 @@ pub async fn ga_asset_hub(pool: &PgPool, asset_id: Uuid) -> Result<GaAssetHub, A
 
     let document_rows = sqlx::query(
         "SELECT d.document_id, d.name, d.title, d.doc_type, d.doc_number, d.issuer,
-                d.issued_on, d.expires_on, f.available
+                d.issued_on, d.expires_on, COALESCE(f.available, false) AS available
            FROM document d
-           JOIN stored_file f ON f.file_id = d.file_id
+           LEFT JOIN stored_file f ON f.file_id = d.file_id
            JOIN document_link l ON l.document_id = d.document_id
           WHERE l.subject_kind = 'asset' AND l.subject_id = $1::text
           ORDER BY d.expires_on NULLS LAST, d.created_at DESC",
@@ -631,7 +638,8 @@ pub async fn ga_asset_hub(pool: &PgPool, asset_id: Uuid) -> Result<GaAssetHub, A
         .collect::<Result<Vec<GaDocument>, AppError>>()?;
 
     // Biaya terkait: the POSTED bill lines that name this asset, OR any of its
-    // repairs. The two are summed together and not kept apart because the
+    // repairs, OR a bill one of its operating expenses was submitted as (those
+    // lines name no asset: see `ga_operating_expense_submit`). The two are summed together and not kept apart because the
     // question is one: what has this thing cost, counting what it took to keep
     // it running. A line that names a repair is not also counted as an asset
     // line — `record_bill` refuses a line that names two objects, so the two
@@ -643,7 +651,9 @@ pub async fn ga_asset_hub(pool: &PgPool, asset_id: Uuid) -> Result<GaAssetHub, A
           WHERE si.status = 'POSTED'
             AND (bl.asset_id = $1
                  OR bl.repair_id IN (SELECT repair_id FROM ga_repair
-                                      WHERE asset_id = $1))",
+                                      WHERE asset_id = $1)
+                 OR bl.invoice_id IN (SELECT invoice_id FROM ga_operating_expense
+                                       WHERE asset_id = $1 AND invoice_id IS NOT NULL))",
     )
     .bind(asset_id)
     .fetch_one(pool)

@@ -74,7 +74,8 @@ export function PrintAllButton({
   return (
     <div className="flex flex-col items-end gap-2">
       <Button
-        variant={card ? "tint" : row ? "ghost" : "primary"}
+        // Solid blue on a row too (owner, 2026-10-18).
+        variant={card ? "tint" : "primary"}
         size={card ? "card" : undefined}
         pending={print.isPending}
         onClick={(event) => {
@@ -106,7 +107,7 @@ export function PrintJobButton({
   return (
     <>
       <Button
-        variant="ghost"
+        variant="primary"
         pending={print.isPending}
         onClick={(event) => {
           event.stopPropagation()

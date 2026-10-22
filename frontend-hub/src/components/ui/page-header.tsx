@@ -82,7 +82,9 @@ function useStuckHeight() {
 /// a title that says something the bar does not (a supplier's name on its
 /// own page) stays. From 48rem up nothing changes.
 function useEchoesTopBar(title: React.ReactNode): boolean {
-  const pathname = useRouterState({ select: (s) => s.location.pathname })
+  const pathname = useRouterState({
+    select: (s) => (s.resolvedLocation ?? s.location).pathname,
+  })
   return (
     typeof title === "string" &&
     screenForPath(pathname)?.label.toLowerCase() === title.toLowerCase()
@@ -107,7 +109,11 @@ export function PageHeader({
   small?: boolean
   className?: string
 }) {
-  const pathname = useRouterState({ select: (s) => s.location.pathname })
+  // Keep the title and tabs with the page still on screen while the next
+  // route loads. Its actions must never sit under the next page's heading.
+  const pathname = useRouterState({
+    select: (s) => (s.resolvedLocation ?? s.location).pathname,
+  })
   // A screen that is a tab of a door wears the door's name and its tabs: the
   // screen's own name is the tab, or the view chosen beside the tabs.
   const door = doorForPath(pathname)

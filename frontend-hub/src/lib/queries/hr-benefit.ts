@@ -5,6 +5,7 @@ import type {
   AdjustBenefitBody,
   BenefitAccountView,
   BenefitBalanceRow,
+  BenefitMovementRow,
   BenefitSettingBody,
   BenefitSettingView,
 } from "@itulah/contract"
@@ -17,6 +18,8 @@ export const benefitKeys = {
   balances: () => ["people", "benefit", "balances"] as const,
   account: (employeeId: string) =>
     ["people", "benefit", "account", employeeId] as const,
+  movements: (from: string, to: string, unitId: string | null) =>
+    ["people", "benefit", "movements", from, to, unitId] as const,
   settings: () => ["people", "benefit", "settings"] as const,
 }
 
@@ -24,6 +27,22 @@ export function benefitBalances(
   signal?: AbortSignal
 ): Promise<BenefitBalanceRow[]> {
   return node.get<BenefitBalanceRow[]>("/api/v1/benefit/balances", { signal })
+}
+
+/// Every movement of every balance in the caller's reach between two days,
+/// newest first. `unitId` is where the person is posted now.
+export function benefitMovements(
+  from: string,
+  to: string,
+  unitId: string | null,
+  signal?: AbortSignal
+): Promise<BenefitMovementRow[]> {
+  const query = new URLSearchParams({ from, to })
+  if (unitId !== null) query.set("unit", unitId)
+  return node.get<BenefitMovementRow[]>(
+    `/api/v1/benefit/entries?${query.toString()}`,
+    { signal }
+  )
 }
 
 /// ADD, REMOVE or RESET for one or many people at once. Taking off more than

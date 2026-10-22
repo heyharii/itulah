@@ -1,0 +1,75 @@
+<!-- @dsCard group="Records" height=488 subtitle="Static rendition of allocation.tsx in the All white look" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>Allocation — preview</title>
+<style>
+body{margin:0}
+/* Allocation: a box (radius 8, 1px hairline) with a two-cell head on soft, then one row per thing counted twice. The words are sentence case: white.css switches the capitals off. */
+.ds-allocation{overflow:hidden;border:1px solid var(--hairline);border-radius:var(--r-inner);background:var(--canvas)}
+.ds-allocation.is-narrow{max-width:360px}
+.ds-allocation-head{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));border-bottom:1px solid var(--hairline);background:var(--soft)}
+.ds-allocation-cell{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 14px;font-weight:600;color:var(--mute)}
+.ds-allocation-cell + .ds-allocation-cell{border-left:1px solid var(--hairline)}
+.ds-allocation-cell b{flex:none;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.ds-allocation-row{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;min-height:var(--tap);padding:8px 14px;border-bottom:1px solid var(--hairline)}
+.ds-allocation-row:last-child{border-bottom:0}
+.ds-allocation-name{flex:1 1 8rem;min-width:8rem}
+.ds-allocation-name span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ds-allocation-name span + span{color:var(--mute)}
+.ds-allocation-n{flex:none;width:56px;text-align:right;font-variant-numeric:tabular-nums}
+.ds-allocation-n.is-expected{color:var(--body)}
+.ds-allocation-n.is-found{font-weight:500;color:var(--ink)}
+.ds-allocation-n.is-diff{width:64px;font-weight:600}
+.ds-allocation-n.is-ok{color:var(--ok-fg)}
+.ds-allocation-n.is-bad{color:var(--bad-fg)}
+</style></head>
+<body>
+<div class="ds ds-stage">
+
+  <div class="ds-col">
+    <p class="ds-caption">KOLI-0005, Toko Bandung: what the box should hold against what the sweep found</p>
+    <div class="ds-allocation">
+      <div class="ds-allocation-head">
+        <div class="ds-allocation-cell"><span>Expected</span><b>24 pcs</b></div>
+        <div class="ds-allocation-cell"><span>Found</span><b>22 pcs</b></div>
+      </div>
+      <div class="ds-allocation-row">
+        <span class="ds-allocation-name"><span>Kemeja Flanel Pria</span><span>Navy · M</span></span>
+        <span class="ds-allocation-n is-expected">12</span>
+        <span class="ds-allocation-n is-found">10</span>
+        <span class="ds-allocation-n is-diff is-bad">−2</span>
+        <button class="ds-btn ds-btn--ghost ds-btn--sm" type="button">Recount</button>
+      </div>
+      <div class="ds-allocation-row">
+        <span class="ds-allocation-name"><span>Kaos Polos Oversize</span><span>Black · L</span></span>
+        <span class="ds-allocation-n is-expected">12</span>
+        <span class="ds-allocation-n is-found">12</span>
+        <span class="ds-allocation-n is-diff is-ok">0</span>
+      </div>
+      <div class="ds-allocation-row">
+        <span class="ds-allocation-name"><span>Kemeja Oxford Slim</span><span>White · S</span></span>
+        <span class="ds-allocation-n is-expected">6</span>
+        <span class="ds-allocation-n is-found">—</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="ds-col">
+    <p class="ds-caption">On a narrow screen the numbers drop under the name, and the head stays in two halves</p>
+    <div class="ds-allocation is-narrow">
+      <div class="ds-allocation-head">
+        <div class="ds-allocation-cell"><span>Expected</span><b>24 pcs</b></div>
+        <div class="ds-allocation-cell"><span>Found</span><b>22 pcs</b></div>
+      </div>
+      <div class="ds-allocation-row">
+        <span class="ds-allocation-name"><span>Kemeja Flanel Pria</span><span>Navy · M</span></span>
+        <span class="ds-allocation-n is-expected">12</span>
+        <span class="ds-allocation-n is-found">10</span>
+        <span class="ds-allocation-n is-diff is-bad">−2</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

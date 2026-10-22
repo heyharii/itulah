@@ -1156,8 +1156,79 @@ async fn resend_open_work(
         super::sync::issue_command_tx(&mut tx, command_type, payload, issued_by, None, &target)
             .await?;
     }
+    // Koli still on the road to this site: announced when they left only if
+    // the site had a node then. A shop enrolled after its delivery departed
+    // would otherwise never see it to receive. "On the road" is a piece of
+    // the koli still standing on an in-transit shelf, in the centre's ledger
+    // or a node's facts; one accepted as delivered has left it.
+    let on_the_road = sqlx::query(
+        "SELECT f.event_id, f.koli_id, f.source_site_id, f.destination_store_id,
+                f.shipment_reference, f.occurred_at
+           FROM edge_fulfillment_progress_fact f
+          WHERE f.stage = 'IN_TRANSIT'
+            AND EXISTS (
+                SELECT 1 FROM edge_fulfillment_progress_unit u
+                 WHERE u.progress_event_id = f.event_id
+                   AND NOT EXISTS (SELECT 1 FROM edge_transfer_claim c
+                                    WHERE c.claim_kind = 'RECEIVED' AND c.epc = u.epc
+                                      AND c.shipment_reference
+                                          IS NOT DISTINCT FROM f.shipment_reference)
+                   AND (EXISTS (SELECT 1 FROM inventory_subject s
+                                  JOIN inventory_projection p
+                                    ON p.subject_id = s.id AND p.quantity > 0
+                                  JOIN inventory_place ip ON ip.id = p.place_id
+                                 WHERE s.epc = u.epc AND ip.state = 'NORMAL'
+                                   AND ip.pool_id LIKE '%.outbound.in-transit%')
+                        OR EXISTS (SELECT 1 FROM edge_inventory_fact_position pos
+                                    WHERE pos.origin_id = f.origin_id AND pos.epc = u.epc
+                                      AND pos.place_id LIKE '%.outbound.in-transit%:on_hand')))
+          ORDER BY f.occurred_at, f.event_id",
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    let mut deliveries = 0_usize;
+    for row in &on_the_road {
+        let destination: String = row.try_get("destination_store_id")?;
+        if super::sync::canonical_site_id_tx(&mut tx, &destination).await? != site_id {
+            continue;
+        }
+        let event_id: Uuid = row.try_get("event_id")?;
+        let units = sqlx::query(
+            "SELECT epc, sku_code, allotment_line_id FROM edge_fulfillment_progress_unit
+              WHERE progress_event_id = $1 ORDER BY unit_ordinal",
+        )
+        .bind(event_id)
+        .fetch_all(&mut *tx)
+        .await?
+        .iter()
+        .map(|unit| {
+            Ok(crate::sync::workflow::StoreInboundAnnounceUnit {
+                epc: unit.try_get("epc")?,
+                sku_code: unit.try_get("sku_code")?,
+                allotment_line_id: unit.try_get("allotment_line_id")?,
+            })
+        })
+        .collect::<Result<Vec<_>, AppError>>()?;
+        if units.is_empty() {
+            continue;
+        }
+        super::sync::announce_store_inbound_payload_tx(
+            &mut tx,
+            crate::sync::workflow::StoreInboundAnnouncePayload {
+                koli_id: row.try_get("koli_id")?,
+                source_site_id: row.try_get("source_site_id")?,
+                destination_store_id: destination,
+                shipment_reference: row.try_get("shipment_reference")?,
+                departed_at: row.try_get("occurred_at")?,
+                units,
+                destination_pool_id: None,
+            },
+        )
+        .await?;
+        deliveries += 1;
+    }
     tx.commit().await?;
-    Ok(json!({ "commands": commands.len() }))
+    Ok(json!({ "commands": commands.len(), "koli_on_the_road": deliveries }))
 }
 
 /// The attendance book of the unit that owns the node's site, as it stands

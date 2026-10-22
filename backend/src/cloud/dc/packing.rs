@@ -59,7 +59,7 @@ use uuid::Uuid;
 #[path = "packing_stages.rs"]
 pub(super) mod stages;
 
-pub(crate) use stages::reconcile_counted_in_tx;
+pub(crate) use stages::{not_received_in_tx, reconcile_counted_in_tx};
 // The move back (`dc/move_back.rs`) takes pieces out of a box with the same
 // machinery that put them in, under the same lock.
 pub(super) use stages::{lock_outbound, move_pieces, place_of_role, Piece};

@@ -1,0 +1,101 @@
+<!-- @dsCard group="Lists" height=856 subtitle="Static rendition of filter-panel.tsx and filter-sheet.tsx in the All white look" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>FilterPanel — preview</title><style>
+body{margin:0}
+.ds-filterpanel-stage{padding:16px 24px;gap:16px}
+.ds-filterpanel-bar{margin-bottom:0;flex-wrap:nowrap}
+.ds-filterpanel-bar .ds-search .ds-ico{margin-top:-7px}
+.ds-filterpanel-pad{padding:0 12px}
+.ds-filterpanel-pressed{background:var(--soft-2)}
+.ds-filterpanel-count{color:var(--mute);font-weight:400;font-variant-numeric:tabular-nums}
+.ds-filterpanel-chip{display:inline-flex;align-items:stretch;flex:none;max-width:100%;height:32px;overflow:hidden;border-radius:var(--r-full);background:var(--soft-2);font-size:15px;line-height:20px;white-space:nowrap}
+.ds-filterpanel-chip>*{display:flex;align-items:center}
+.ds-filterpanel-field{padding:0 10px;font-weight:500;color:var(--ink)}
+.ds-filterpanel-op{padding:0 8px;border-inline:1px solid var(--hairline);background:var(--soft);color:var(--body)}
+.ds-filterpanel-value{padding:0 10px;font-weight:500;color:var(--accent)}
+.ds-filterpanel-x{padding:0 8px;border-left:1px solid var(--hairline);color:var(--line-ico)}
+.ds-filterpanel-add{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 10px;border:1px dashed var(--hairline-strong);border-radius:var(--r-full);background:none;color:var(--body);font-size:15px}
+.ds-filterpanel-clear{height:32px;padding:0 10px;border:0;border-radius:var(--r-full);background:none;color:var(--mute);font-size:15px}
+.ds-filterpanel-foot .ds-foot-note{margin-right:0}
+.ds-filterpanel-layer{align-self:flex-start;width:min(480px,100%)}
+.ds-filterpanel-body{align-items:flex-start;gap:8px;min-height:184px}
+.ds-filterpanel-pop{position:absolute;left:124px;top:58px;z-index:2;min-width:240px;padding:5px;border:1px solid var(--hairline);border-radius:var(--r-card);background:var(--canvas);box-shadow:var(--shadow-pop)}
+.ds-filterpanel-opt{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 8px;border-radius:var(--r-inner);font-size:15px;color:var(--text)}
+.ds-filterpanel-opt.is-hover{background:var(--soft-2)}
+.ds-filterpanel-opt>span:first-child{display:flex;align-items:center;gap:8px}
+.ds-filterpanel-box{display:grid;place-items:center;flex:none;width:16px;height:16px;border:1.5px solid var(--hairline-strong);border-radius:5px;color:var(--on-dark)}
+.ds-filterpanel-box.is-on{border-color:var(--accent);background:var(--accent)}
+.ds-filterpanel-box .ds-ico{width:10px;height:10px}
+.ds-filterpanel-n{color:var(--mute);font-variant-numeric:tabular-nums}
+.ds-filterpanel-phone{width:min(414px,100%)}
+.ds-filterpanel-grip{width:36px;height:4px;margin:10px auto 4px;border-radius:var(--r-full);background:var(--hairline-strong)}
+.ds-filterpanel-dhead{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:4px 16px 8px}
+.ds-filterpanel-dtitle{font-size:16px;font-weight:600;color:var(--ink)}
+.ds-filterpanel-done{height:var(--tap);padding:0 12px;border:0;background:none;color:var(--accent);font-size:15px;font-weight:600}
+.ds-filterpanel-section{padding:0 8px 12px}
+.ds-filterpanel-group{padding:12px 12px 4px;font-size:15px;font-weight:500;color:var(--mute)}
+.ds-filterpanel-row{display:flex;align-items:center;gap:12px;min-height:48px;padding:0 12px;border-radius:var(--r-inner);font-size:15px;color:var(--ink)}
+.ds-filterpanel-row>span:first-child{flex:1}
+.ds-filterpanel-row .ds-filterpanel-n{color:var(--body)}
+.ds-filterpanel-row.is-on{font-weight:500;color:var(--accent)}
+.ds-filterpanel-row .ds-ico{opacity:0}
+.ds-filterpanel-row.is-on .ds-ico{opacity:1}
+</style></head>
+<body>
+<div class="ds ds-stage ds-filterpanel-stage">
+
+  <div class="ds-col">
+    <p class="ds-caption">In the bar: Filter with its count, then the clause; Filter is pressed while its sheet is open</p>
+    <div class="ds-bar ds-filterpanel-bar">
+      <label class="ds-search"><span class="ds-ico ds-ico-search ds-ico--14"></span><input placeholder="Search orders" aria-label="Search orders"></label>
+      <button class="ds-btn ds-btn--ghost ds-filterpanel-pad ds-filterpanel-pressed" type="button" aria-expanded="true"><span class="ds-ico ds-ico-filter ds-ico--14"></span>Filter<span class="ds-filterpanel-count">1</span></button>
+      <span class="ds-filterpanel-chip"><span class="ds-filterpanel-field">Status</span><span class="ds-filterpanel-op">in</span><span class="ds-filterpanel-value">2 selected</span><span class="ds-filterpanel-x"><span class="ds-ico ds-ico-x ds-ico--14"></span></span></span>
+      <span class="ds-bar-spacer"></span>
+      <button class="ds-btn ds-btn--ghost ds-filterpanel-pad" type="button"><span class="ds-ico ds-ico-columns ds-ico--14"></span>Columns</button>
+    </div>
+  </div>
+
+  <div class="ds-col">
+    <p class="ds-caption">The Filters sheet: a status is a facet, each value with its count</p>
+    <div class="ds-filterpanel-layer">
+      <div class="ds-sheet ds-sheet--rail">
+        <div class="ds-sheet-head">
+          <div class="ds-sheet-headtext"><div class="ds-sheet-crumb"><span>Purchase Orders</span></div><div class="ds-sheet-titlerow"><span class="ds-sheet-title">Filters</span></div></div>
+          <button class="ds-sheet-close" type="button" aria-label="Close"><span class="ds-ico ds-ico-x ds-ico--17"></span></button>
+        </div>
+        <div class="ds-sheet-body ds-filterpanel-body">
+          <span class="ds-filterpanel-chip"><span class="ds-filterpanel-field">Status</span><span class="ds-filterpanel-op">in</span><span class="ds-filterpanel-value">2 selected</span><span class="ds-filterpanel-x"><span class="ds-ico ds-ico-x ds-ico--14"></span></span></span>
+          <button class="ds-filterpanel-add" type="button"><span class="ds-ico ds-ico-plus ds-ico--14"></span>Filter</button>
+          <div class="ds-filterpanel-pop" role="listbox">
+            <div class="ds-filterpanel-opt"><span><span class="ds-filterpanel-box is-on"><span class="ds-ico ds-ico-check"></span></span>Active</span><span class="ds-filterpanel-n">18</span></div>
+            <div class="ds-filterpanel-opt is-hover"><span><span class="ds-filterpanel-box is-on"><span class="ds-ico ds-ico-check"></span></span>Partially received</span><span class="ds-filterpanel-n">4</span></div>
+            <div class="ds-filterpanel-opt"><span><span class="ds-filterpanel-box"></span>Cancelled</span><span class="ds-filterpanel-n">13</span></div>
+          </div>
+        </div>
+        <div class="ds-sheet-foot ds-filterpanel-foot">
+          <span class="ds-foot-note">1 clause is narrowing this list</span>
+          <button class="ds-filterpanel-clear" type="button">Clear all</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ds-col">
+    <p class="ds-caption">On a phone: the dock's filter icon opens one sheet, a group of rows per question</p>
+    <div class="ds-drawer ds-filterpanel-phone">
+      <div class="ds-filterpanel-grip"></div>
+      <div class="ds-filterpanel-dhead"><span class="ds-filterpanel-dtitle">Filters</span><button class="ds-filterpanel-done" type="button">Done</button></div>
+      <div class="ds-filterpanel-section">
+        <div class="ds-filterpanel-group">Status</div>
+        <div class="ds-filterpanel-row"><span>All</span><span class="ds-filterpanel-n">35</span><span class="ds-ico ds-ico-check"></span></div>
+        <div class="ds-filterpanel-row is-on"><span>Active</span><span class="ds-filterpanel-n">18</span><span class="ds-ico ds-ico-check"></span></div>
+        <div class="ds-filterpanel-row"><span>Partially received</span><span class="ds-filterpanel-n">4</span><span class="ds-ico ds-ico-check"></span></div>
+        <div class="ds-filterpanel-row"><span>Cancelled</span><span class="ds-filterpanel-n">13</span><span class="ds-ico ds-ico-check"></span></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

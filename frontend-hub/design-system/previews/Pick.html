@@ -1,0 +1,148 @@
+<!-- @dsCard group="Inputs" height=842 subtitle="Static rendition of pick.tsx and picker-sheet.tsx in the All white look" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>Pick — preview</title>
+<style>
+body{margin:0}
+/* Pick: the field is the form's box (40px, radius 8, 1px hairline-2); its list is POPUP and ITEM from lib/filter-chrome.ts. */
+.ds-pick-stage{gap:20px}
+.ds-pick-duo{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px 24px;align-items:start}
+.ds-pick-quad{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;align-items:start}
+.ds-pick-tile{position:relative;min-width:0}
+.ds-pick-tile.has-pop{padding-bottom:64px}
+.ds-pick-tile.has-pop .ds-pick-pop{position:absolute;left:0;top:74px;min-width:208px}
+.ds-pick-box{display:flex;align-items:center;gap:6px;min-width:0;min-height:var(--field);padding:4px 14px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas);font-size:15px;color:var(--ink)}
+.ds-pick-box.is-focus{border-color:var(--accent);box-shadow:var(--shadow-focus)}
+.ds-pick-box.is-invalid{border-color:var(--bad)}
+.ds-pick-box.is-disabled{opacity:.5}
+.ds-pick-box.is-wrap{flex-wrap:wrap}
+.ds-pick-val{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ds-pick-in{flex:1;min-width:3rem;align-self:stretch}
+.ds-pick-clear{display:grid;place-items:center;flex:none;width:16px;height:16px;border-radius:var(--r-full);color:var(--line-ico)}
+.ds-pick-clear .ds-ico{width:12px;height:12px}
+.ds-pick-chev{flex:none;color:var(--line-ico)}
+.ds-pick-chip{gap:4px}
+.ds-pick-chip .ds-ico{width:10px;height:10px;margin-right:-2px;color:var(--line-ico)}
+.ds-pick-dot{display:inline-block;flex:none;width:12px;height:12px;border-radius:var(--r-full);box-shadow:inset 0 0 0 1px var(--hairline-strong)}
+/* the list: radius 10, 1px hairline, shadow-pop, padding 5, 6px under the field; rows 36px with an 8px radius */
+.ds-pick-pop{margin-top:6px;padding:5px;border:1px solid var(--hairline);border-radius:var(--r-card);background:var(--canvas);box-shadow:var(--shadow-pop)}
+.ds-pick-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 8px;border-radius:var(--r-inner);font-size:15px;color:var(--ink)}
+.ds-pick-row.is-hover{background:var(--soft-2)}
+.ds-pick-row > span:first-child{display:flex;align-items:center;gap:8px;min-width:0}
+.ds-pick-row .ds-ico{color:var(--line-ico)}
+.ds-pick-row.is-action{justify-content:flex-start;font-weight:500}
+.ds-pick-sep{height:1px;margin:4px;background:var(--hairline)}
+.ds-pick-none{padding:12px 10px;text-align:center;color:var(--mute)}
+/* the phone: a bottom sheet, 48px rows, a 44px search, Done at 44px */
+.ds-pick-phones{display:flex;align-items:flex-end;gap:24px}
+.ds-pick-sheet{flex:1 1 0;min-width:0;max-width:414px;border-top:1px solid var(--hairline);border-radius:var(--r-sheet) var(--r-sheet) 0 0;background:var(--canvas);box-shadow:var(--shadow-float)}
+.ds-pick-grip{width:36px;height:4px;margin:10px auto 4px;border-radius:var(--r-full);background:var(--hairline-strong)}
+.ds-pick-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:4px 16px 8px}
+.ds-pick-title{font-size:16px;line-height:1.45;font-weight:600;color:var(--ink)}
+.ds-pick-done{height:var(--tap);padding:0 12px;border:0;border-radius:var(--r-inner);background:none;font-size:15px;font-weight:600;color:var(--accent)}
+.ds-pick-search{display:flex;align-items:center;gap:8px;height:var(--tap);margin:0 16px 8px;padding:0 12px;border:1px solid var(--hairline);border-radius:var(--r-inner);background:var(--canvas)}
+.ds-pick-search .ds-ico{color:var(--line-ico)}
+.ds-pick-list{padding:0 8px 8px}
+.ds-pick-prow{display:flex;align-items:center;gap:12px;min-height:48px;padding:0 12px;border-radius:var(--r-inner);font-size:15px;color:var(--ink)}
+.ds-pick-prow.is-on,.ds-pick-prow.is-action{font-weight:500}
+.ds-pick-prow.is-action .ds-ico{color:var(--line-ico)}
+.ds-pick-ptext{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ds-pick-tick{color:var(--accent)}
+.ds-pick-check{display:grid;place-items:center;flex:none;width:20px;height:20px;border:1px solid var(--hairline-strong);border-radius:5px;color:var(--on-dark)}
+.ds-pick-check.is-on{border-color:var(--accent);background:var(--accent)}
+.ds-pick-check svg{width:14px;height:14px}
+.ds-pick-psep{height:1px;margin:4px 12px;background:var(--hairline)}
+</style></head>
+<body>
+<div class="ds ds-stage ds-pick-stage">
+
+  <div class="ds-col">
+    <p class="ds-caption">Desk: the list opens under the field, and a tick marks what is chosen</p>
+    <div class="ds-pick-duo">
+      <div>
+        <label class="ds-field">
+          <span class="ds-field-label">Supplier</span>
+          <span class="ds-pick-box is-focus"><span class="ds-pick-val">Garmen</span><span class="ds-pick-clear"><span class="ds-ico ds-ico-x"></span></span><span class="ds-ico ds-ico-chevron-down ds-ico--14 ds-pick-chev"></span></span>
+        </label>
+        <div class="ds-pick-pop" role="listbox">
+          <div class="ds-pick-row"><span>Garmen Nusantara, PT</span><span class="ds-ico ds-ico-check ds-ico--14"></span></div>
+          <div class="ds-pick-row is-hover"><span>Garmen Mitra Sentosa, PT</span></div>
+          <div class="ds-pick-sep"></div>
+          <div class="ds-pick-row is-action"><span><span class="ds-ico ds-ico-plus ds-ico--14"></span>New supplier</span></div>
+        </div>
+      </div>
+      <div>
+        <label class="ds-field">
+          <span class="ds-field-label">Colors</span>
+          <span class="ds-pick-box is-wrap is-focus">
+            <span class="ds-tag ds-pick-chip"><span class="ds-pick-dot" style="background-color:var(--a-blue)"></span>Navy<span class="ds-ico ds-ico-x"></span></span>
+            <span class="ds-tag ds-pick-chip"><span class="ds-pick-dot" style="background-color:var(--ink)"></span>Black<span class="ds-ico ds-ico-x"></span></span>
+            <span class="ds-pick-in"></span><span class="ds-ico ds-ico-chevron-down ds-ico--14 ds-pick-chev"></span>
+          </span>
+        </label>
+        <div class="ds-pick-pop" role="listbox" aria-multiselectable="true">
+          <div class="ds-pick-row"><span><span class="ds-pick-dot" style="background-color:var(--a-blue)"></span>Navy</span><span class="ds-ico ds-ico-check ds-ico--14"></span></div>
+          <div class="ds-pick-row is-hover"><span><span class="ds-pick-dot" style="background-color:var(--ink)"></span>Black</span><span class="ds-ico ds-ico-check ds-ico--14"></span></div>
+          <div class="ds-pick-row"><span><span class="ds-pick-dot" style="background-color:var(--soft-2)"></span>Off white</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ds-col">
+    <p class="ds-caption">States: nothing found, chosen, locked and refused</p>
+    <div class="ds-pick-quad">
+      <div class="ds-pick-tile has-pop">
+        <label class="ds-field">
+          <span class="ds-field-label">Tags</span>
+          <span class="ds-pick-box is-focus"><span class="ds-pick-val">zzz</span><span class="ds-ico ds-ico-chevron-down ds-ico--14 ds-pick-chev"></span></span>
+        </label>
+        <div class="ds-pick-pop"><div class="ds-pick-none">Nothing matches.</div></div>
+      </div>
+      <label class="ds-field ds-pick-tile">
+        <span class="ds-field-label">Department</span>
+        <span class="ds-pick-box"><span class="ds-pick-val">Finance</span><span class="ds-pick-clear"><span class="ds-ico ds-ico-x"></span></span><span class="ds-ico ds-ico-chevron-down ds-ico--14 ds-pick-chev"></span></span>
+      </label>
+      <label class="ds-field ds-pick-tile">
+        <span class="ds-field-label">Division</span>
+        <span class="ds-pick-box is-disabled"><span class="ds-pick-val">Pria</span><span class="ds-ico ds-ico-chevron-down ds-ico--14 ds-pick-chev"></span></span>
+      </label>
+      <label class="ds-field ds-pick-tile">
+        <span class="ds-field-label">Supplier<span class="ds-req" aria-hidden="true">*</span></span>
+        <span class="ds-pick-box is-invalid"><span class="ds-pick-val"></span><span class="ds-ico ds-ico-chevron-down ds-ico--14 ds-pick-chev"></span></span>
+        <span class="ds-field-error">Choose the supplier.</span>
+      </label>
+    </div>
+  </div>
+
+  <div class="ds-col">
+    <p class="ds-caption">Phone: a bottom sheet with 48px rows, and Done for several</p>
+    <div class="ds-pick-phones">
+      <div class="ds-pick-sheet" role="dialog" aria-label="Supplier">
+        <div class="ds-pick-grip"></div>
+        <div class="ds-pick-head"><span class="ds-pick-title">Supplier</span></div>
+        <div class="ds-pick-search"><span class="ds-ico ds-ico-search"></span></div>
+        <div class="ds-pick-list" role="listbox">
+          <div class="ds-pick-prow is-on"><span class="ds-pick-ptext">Garmen Nusantara, PT</span><span class="ds-ico ds-ico-check ds-pick-tick"></span></div>
+          <div class="ds-pick-prow"><span class="ds-pick-ptext">Sepatu Sejahtera, CV</span></div>
+          <div class="ds-pick-prow"><span class="ds-pick-ptext">Busana Anggun Lestari, CV</span></div>
+          <div class="ds-pick-psep"></div>
+          <div class="ds-pick-prow is-action"><span class="ds-ico ds-ico-plus"></span><span class="ds-pick-ptext">New supplier</span></div>
+        </div>
+      </div>
+      <div class="ds-pick-sheet" role="dialog" aria-label="Colors">
+        <div class="ds-pick-grip"></div>
+        <div class="ds-pick-head"><span class="ds-pick-title">Colors</span><button class="ds-pick-done" type="button">Done</button></div>
+        <div class="ds-pick-search"><span class="ds-ico ds-ico-search"></span></div>
+        <div class="ds-pick-list" role="listbox" aria-multiselectable="true">
+          <div class="ds-pick-prow is-on"><span class="ds-pick-check is-on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span><span class="ds-pick-dot" style="background-color:var(--a-blue)"></span><span class="ds-pick-ptext">Navy</span></div>
+          <div class="ds-pick-prow is-on"><span class="ds-pick-check is-on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span><span class="ds-pick-dot" style="background-color:var(--ink)"></span><span class="ds-pick-ptext">Black</span></div>
+          <div class="ds-pick-prow"><span class="ds-pick-check"></span><span class="ds-pick-dot" style="background-color:var(--soft-2)"></span><span class="ds-pick-ptext">Off white</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

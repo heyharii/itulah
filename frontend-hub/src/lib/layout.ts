@@ -86,10 +86,10 @@ export function atLeast(layout: Layout, tier: Layout): boolean {
 ///    both columns open the page is ~1040 and ~1110. A table narrower than its
 ///    columns relays or scrolls inside itself (`<DataTable>`); a panel that
 ///    vanishes into a button on every laptop was the worse trade.
-///  - record: a list (~830) plus the 27.5rem record and its gutters (472) —
-///    1300px.
+///  - record: a list (~830) plus the 35rem record and its gutters (592) —
+///    1420px (the rail grew from 30rem on 2026-10-19).
 const FILTERS_BESIDE = 1000
-const RECORD_BESIDE = 1300
+const RECORD_BESIDE = 1420
 
 let pageWidth = typeof window === "undefined" ? 0 : window.innerWidth
 const pageListeners = new Set<() => void>()

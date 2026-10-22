@@ -4,6 +4,7 @@ import { Suspense, useDeferredValue, useState } from "react"
 import { PageContent } from "@/components/shell/app-shell"
 import { ExportButton } from "@/components/ui/export-button"
 import { PageHeader } from "@/components/ui/page-header"
+import { CellMoney } from "@/components/ui/rows-switch"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { monthStamp, type ExportSheet } from "@/lib/export-xlsx"
 import { day, money } from "@/lib/format"
@@ -253,7 +254,7 @@ function Body({
         </>
       ) : (
         <>
-          <Grid>
+          <Grid followRows>
             <thead>
               <tr>
                 <Th width="26rem">Account</Th>
@@ -285,10 +286,14 @@ function Body({
                       <span className="min-w-0">{row.name}</span>
                     </span>
                   </Td>
-                  <Td align="right">{money(row.opening)}</Td>
+                  <Td align="right">
+                    <CellMoney minor={row.opening} />
+                  </Td>
                   <Td align="right">{movement(row.profit)}</Td>
                   <Td align="right">{movement(row.other)}</Td>
-                  <Td align="right">{money(row.closing)}</Td>
+                  <Td align="right">
+                    <CellMoney minor={row.closing} />
+                  </Td>
                 </tr>
               ))}
               <TotalRow>
@@ -341,7 +346,11 @@ function phoneLines(table: Table): StatementLine[] {
 
 /// A movement: nothing is a dash, not "Rp 0" down a whole column.
 function movement(minor: number): React.ReactNode {
-  return minor === 0 ? <span className="text-faint">—</span> : money(minor)
+  return minor === 0 ? (
+    <span className="text-faint">—</span>
+  ) : (
+    <CellMoney minor={minor} />
+  )
 }
 
 // ---------------------------------------------------------------------------

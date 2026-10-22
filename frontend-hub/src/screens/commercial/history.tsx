@@ -11,7 +11,8 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { PageHeader } from "@/components/ui/page-header"
 import { Status } from "@/components/ui/pill"
-import { Segmented, Toolbar } from "@/components/ui/segmented"
+import { Toolbar } from "@/components/ui/segmented"
+import { SubTabs } from "@/components/ui/sub-tabs"
 import { EmptyState, LoadingState, LoadMore } from "@/components/ui/states"
 import { count, moment } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
@@ -22,6 +23,7 @@ import {
   type PriceEventKind,
 } from "@/lib/queries/changes"
 import { commercialFleetQuery } from "@/lib/queries/commercial"
+import { useNameOfLogin } from "@/lib/queries/hr-employees"
 import { useSheet } from "@/lib/sheets"
 import {
   CardFigure,
@@ -45,10 +47,10 @@ import {
 /// trace it was built on, and the wrong front door for a screen called
 /// History: a log that shows nothing until you interrogate it is not a log.
 const KINDS = [
-  { value: "ALL", label: "Everything" },
+  { value: "ALL", label: "All" },
   { value: "PUBLISHED", label: "Published" },
-  { value: "ACTIVATED", label: "In service" },
-  { value: "TROUBLE", label: "Trouble" },
+  { value: "ACTIVATED", label: "Applied" },
+  { value: "TROUBLE", label: "Problems" },
 ] as const
 
 function toneOf(kind: string): "ok" | "warn" | "bad" | "info" | "neutral" {
@@ -87,7 +89,7 @@ export function History() {
   // and streams in with them (the server starts the reads too).
   return (
     <PageContent>
-      <PageHeader crumb="Marketing" title="History" />
+      <PageHeader crumb="Marketing" title="Price updates" />
       <Suspense fallback={<LoadingState>Loading…</LoadingState>}>
         <PriceLog />
       </Suspense>
@@ -225,28 +227,31 @@ function PriceLog() {
           </Sentence>
         </>
       ) : (
-        <Toolbar className="mb-5">
-          <Segmented
-            options={KINDS}
+        <>
+          <SubTabs
+            tabs={KINDS.map((one) => ({ value: one.value, label: one.label }))}
             value={lens.value ?? "ALL"}
             onChange={(next) =>
               next === "ALL" ? lens.close() : lens.open(next)
             }
           />
-          <Toolbar.Spacer />
-          {shop.value !== undefined && (
-            <button
-              type="button"
-              onClick={shop.close}
-              className="text-[0.9375rem] text-mute underline underline-offset-2 hover:text-ink"
-            >
-              {shopName.get(shop.value) ?? shop.value} · show every store
-            </button>
-          )}
-          <span className="text-[0.9375rem] text-mute tabular-nums">
-            {count(entries.length)} entries
-          </span>
-        </Toolbar>
+          <Toolbar className="mb-5">
+            <Toolbar.Spacer />
+            {shop.value !== undefined && (
+              <button
+                type="button"
+                onClick={shop.close}
+                className="text-[0.9375rem] text-mute underline underline-offset-2 hover:text-ink"
+              >
+                {shopName.get(shop.value) ?? shop.value} · show every store
+              </button>
+            )}
+            <span className="text-[0.9375rem] text-mute tabular-nums">
+              {count(entries.length)}{" "}
+              {entries.length === 1 ? "entry" : "entries"}
+            </span>
+          </Toolbar>
+        </>
       )}
 
       <Card
@@ -333,6 +338,7 @@ function Row({
   onPickShop: (siteId: string) => void
 }) {
   const [open, setOpen] = useState(false)
+  const nameOf = useNameOfLogin()
   const { lead, shops, prices } = entry
   const many = shops.length > 1
 
@@ -379,12 +385,12 @@ function Row({
         )}
 
         <span className="w-28 shrink-0 text-right text-[0.9375rem] text-mute tabular-nums">
-          {prices > 0 ? `${count(prices)} prices` : ""}
+          {prices > 0 ? `${count(prices)} rules loaded` : ""}
         </span>
         {/* Who did it, and only where a PERSON did. On a shop event the actor
             is the till's origin, which the shop name beside it already says. */}
         <span className="w-32 shrink-0 truncate text-right text-[0.9375rem] text-mute">
-          {shops.length === 0 ? (lead.actor ?? "") : ""}
+          {shops.length === 0 && lead.actor ? nameOf(lead.actor) : ""}
         </span>
       </div>
 
@@ -420,6 +426,7 @@ function PhoneEntry({
   onPickShop: (siteId: string) => void
 }) {
   const [open, setOpen] = useState(false)
+  const nameOf = useNameOfLogin()
   const { lead, shops, prices } = entry
   const many = shops.length > 1
   const time = moment(lead.at).split(", ").pop()
@@ -438,7 +445,7 @@ function PhoneEntry({
         </div>
         {prices > 0 && (
           <div className="shrink-0">
-            <CardFigure value={count(prices)} caption="prices" />
+            <CardFigure value={count(prices)} caption="rules loaded" />
           </div>
         )}
       </div>
@@ -451,7 +458,7 @@ function PhoneEntry({
           }
         >
           {time}
-          {shops.length === 0 && lead.actor ? ` · ${lead.actor}` : ""}
+          {shops.length === 0 && lead.actor ? ` · ${nameOf(lead.actor)}` : ""}
         </CardFoot>
         {shops.length === 1 && (
           <Button

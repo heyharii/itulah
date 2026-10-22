@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/field"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { ExpandingSearch } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
+import { CellMoney } from "@/components/ui/rows-switch"
 import { Sheet } from "@/components/ui/sheet"
 import { SheetFooter } from "@/components/ui/sheet-footer"
 import { Toolbar } from "@/components/ui/segmented"
@@ -165,7 +166,7 @@ function AccrualsScreen() {
         meta: { align: "right", card: "lead" },
         cell: ({ row }) => (
           <span className="font-medium text-ink">
-            {money(row.original.amount_minor)}
+            <CellMoney minor={row.original.amount_minor} />
           </span>
         ),
       },

@@ -6,63 +6,38 @@ import { cn } from "@/lib/utils"
 
 /// The way in: what somebody sees before the app knows who they are.
 ///
-/// Two halves. Charcoal on the left, in the ramp the shell's own navigation is
-/// drawn in, holding the mark, the name and whether the server is answering;
-/// the form on white on the right, with nothing else beside it. On a phone the
-/// charcoal becomes the top of the screen and the form a sheet pulled up over
-/// it, which is the shape a native sign-in has.
+/// Matte (owner, 2026-10-20, `sign-in-options.html`: "sign in pilihan
+/// matte"): one white card standing on the icon's pastel, the same on a desk
+/// and a phone, the way Apple's own sign-in is one column. The Deep mark and
+/// "Central." head it — the period is the icon's yellow dot — the fields sit
+/// under them, and whether the server is answering is said once, under the
+/// card. It replaced the two halves (charcoal, then a washed-out grey after
+/// All white), which the owner called "jelek sekali" on 20 Oct.
 ///
-/// The form itself is `LoginForm`, passed in, so the warehouse's recovery box
-/// (`screens/operations/gate.tsx`) keeps using the same fields without this
-/// frame around them.
+/// The form itself is `LoginForm`, passed in with `door`, so the warehouse's
+/// recovery box (`screens/operations/gate.tsx`) keeps the same fields without
+/// this frame around them.
 export function SignInDoor({ children }: { children: ReactNode }) {
   return (
-    <div className="flex h-full flex-col overflow-y-auto bg-rail max-md:bg-canvas md:flex-row md:overflow-hidden">
-      <aside className="relative isolate flex shrink-0 flex-col overflow-hidden px-6 pt-[max(1.75rem,env(safe-area-inset-top))] pb-12 max-md:items-center max-md:pt-[max(3.5rem,env(safe-area-inset-top))] max-md:pb-6 md:w-[clamp(22rem,38vw,34rem)] md:px-12 md:py-12">
-        <Backdrop />
-        <BrandMark className="door-in size-10 max-md:size-16" />
-        <div className="mt-10 max-md:mt-5 md:mt-auto">
+    <div className="door-ground flex h-full flex-col items-center overflow-y-auto px-4 pt-[env(safe-area-inset-top)]">
+      <div className="door-card mt-[clamp(2.5rem,16vh,11rem)] w-full max-w-[25rem] shrink-0 px-8 pt-9 pb-8 max-md:px-5 max-md:pt-7 max-md:pb-6">
+        <div
+          className="door-rise mb-7 flex flex-col items-center"
+          style={{ "--i": 0 } as React.CSSProperties}
+        >
+          <BrandMark className="door-mark size-[4.25rem]" />
           {/* The product's name, not the company's: people sign in to
-              Central (owner, 2026-09-28). The blue dot after it is the one
-              in the icon — C, then the dot. */}
-          <p
-            className="door-rise text-[2.25rem] leading-none font-bold tracking-[-0.045em] text-rail-ink max-md:text-center max-md:text-ink md:text-[3rem]"
-            style={{ "--i": 0 } as React.CSSProperties}
-          >
-            Central<span className="text-accent">.</span>
-          </p>
-          <p
-            className="door-rise mt-3 max-w-[20rem] text-[0.9375rem] leading-6 text-rail-text max-md:hidden"
-            style={{ "--i": 1 } as React.CSSProperties}
-          >
-            The stores, the stock, the buying and the money, in one place.
+              Central (owner, 2026-09-28). The dot after it is the icon's. */}
+          <p className="mt-4 text-[1.75rem] leading-none font-bold tracking-[-0.04em] text-ink">
+            Central<span className="text-[#efa614]">.</span>
           </p>
         </div>
-        <ServerStatus tone="dark" className="mt-12 hidden md:flex" />
-      </aside>
-
-      <main className="relative flex flex-1 flex-col bg-canvas md:min-h-0">
         {children}
-        <ServerStatus
-          tone="light"
-          className="justify-center px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] md:hidden"
-        />
-      </main>
-    </div>
-  )
-}
-
-/// The charcoal's surface: a light falling from the top corner, the blue of
-/// the icon's dot glowing low in the far one, and grain over both.
-function Backdrop() {
-  return (
-    <div aria-hidden className="door-in absolute inset-0 -z-10 max-md:hidden">
-      <div className="absolute inset-0 bg-[radial-gradient(56rem_36rem_at_0%_0%,rgb(255_255_255/7%),transparent_62%)]" />
-      {/* On a phone the charcoal is a band a few hundred pixels tall, and a
-          glow sized for the desk's half-screen would tint all of it navy — so
-          it is smaller there and kept to the far corner. */}
-      <div className="door-glow absolute -top-40 -right-36 size-[20rem] rounded-full bg-accent/15 blur-[6rem] md:top-auto md:-right-40 md:-bottom-48 md:size-[30rem] md:bg-accent/25 md:blur-[7rem]" />
-      <div className="door-grain absolute inset-0 opacity-[0.14]" />
+      </div>
+      <ServerStatus
+        tone="light"
+        className="mt-auto justify-center pt-6 pb-[max(1.75rem,env(safe-area-inset-bottom))]"
+      />
     </div>
   )
 }

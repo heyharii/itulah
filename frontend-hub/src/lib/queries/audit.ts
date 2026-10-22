@@ -191,6 +191,7 @@ export function describeAction(entry: AuditEntry): string {
   const nouns: Record<string, string> = {
     supplier: "supplier",
     purchase_order: "order",
+    allotment: "allotment",
   }
   const noun = nouns[entry.subject_kind ?? ""] ?? "record"
 
@@ -275,6 +276,7 @@ export function describeAction(entry: AuditEntry): string {
     status: `changed the status of this ${noun}`,
     returns: `put the excess on a Return PO`,
     "close-short": `closed lines short on this ${noun}`,
+    amend: `changed this ${noun}`,
   }
   if (known[verb]) return known[verb]
   if (verb !== "") return `${verb.replace(/[-_]+/g, " ")} on this ${noun}`

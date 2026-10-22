@@ -1,18 +1,51 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ChevronRight, MapPin } from "lucide-react"
+import { useNavigate } from "@tanstack/react-router"
+import {
+  CalendarClock,
+  Droplets,
+  FileText,
+  Package,
+  Phone,
+  RefreshCw,
+  Zap,
+  type LucideIcon,
+} from "lucide-react"
 import { useState } from "react"
 
-import { AppLink } from "@/components/ui/app-link"
-import { Button } from "@/components/ui/button"
-import { Field, Input } from "@/components/ui/field"
+import { Field, Input, Textarea } from "@/components/ui/field"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
+import { Pill, Status } from "@/components/ui/pill"
+import {
+  MiniCell,
+  MiniRow,
+  MiniTable,
+  SheetSection,
+} from "@/components/ui/rows"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import { Banner, LoadingState } from "@/components/ui/states"
-import { count, money } from "@/lib/format"
-import { gaKeys, gaLocation, updateGaLocation } from "@/lib/queries/ga"
-import { useContractParty } from "@/screens/contracts/format"
+import { SheetFooter } from "@/components/ui/sheet-footer"
+import { SheetQuery } from "@/components/ui/sheet-states"
+import { buildOf } from "@/lib/builds"
+import { today } from "@/lib/calendar"
+import { EMPTY, count, day, money } from "@/lib/format"
+import { openable, FOCUSED } from "@/lib/openable"
+import { gaKeys, updateGaLocation } from "@/lib/queries/ga"
+import { toast } from "@/lib/toast"
+import type { SheetKey } from "@/lib/sheets"
+import { cn } from "@/lib/utils"
+import { CONTRACT_GROUPS } from "@/screens/contracts/groups"
+import { standingOf, useContractParty } from "@/screens/contracts/format"
 import { FinanceMark } from "@/screens/contracts/parts"
-import { RepairStagePill, TaskStatePill } from "@/screens/maintenance/parts"
-import { intervalLabel } from "@/screens/maintenance/format"
+import {
+  repairObjectIcon,
+  repairStageWords,
+} from "@/screens/maintenance/format"
+import {
+  detailsMissing,
+  kindWords,
+  placeQuery,
+  usePlaces,
+} from "@/screens/locations/places-data"
+import { useSupplierName } from "@/screens/procurement/supplier-name"
 import type {
   GaAssetRow,
   GaContractRow,
@@ -26,22 +59,32 @@ import type {
 /// One place, as GA keeps the facilities half of it — and everything the books
 /// already point back at.
 ///
-/// # Why the related lists are tabs
+/// # One scroll, no tabs
 ///
-/// Because each is a different question about the same place and they would
-/// bury each other in one column: what is standing here (assets), what has
-/// been agreed for it (contracts), what is connected to it (utilities), what
-/// is broken (repairs), what is due (the schedule), what was asked for
-/// (supplies) and what it has cost this month (Finance's bills). The site's
-/// own detail leads, because filling in an address is the one act this sheet
-/// exists for.
+/// A record has one scroll of sections (owner, 14 Oct 2026; option A ·
+/// Sections of `sites-options.html`, 17 Oct): the figures, the facts as label
+/// over value, and then one table for each kind of thing at the site. A kind
+/// the site has none of is left out rather than drawn with a sentence saying
+/// so — a short site is a short sheet, and "what is standing here" is read off
+/// the figures. Each row opens the record it names on that record's own
+/// screen, as the sheet's links always did.
+///
+/// # Edit is a mode of the same frame
+///
+/// Edit in the foot swaps the facts for fields where they stood; the figures
+/// and tables step aside while it is open, and Cancel and Save changes take
+/// the foot. Name and code are the register's — they are read here and
+/// written nowhere on this sheet. A site nobody has filled in says so in its
+/// head ("Details missing") and its one verb is Complete details; the form is
+/// the same, because "fill in" and "correct" are the same act on a row that
+/// upserts by `site_id`.
 ///
 /// # Utilities is not a fourth list
 ///
-/// `utilities` is the site's Subscriptions contracts — the same rows as contracts,
-/// with the meter reading carried on each. The server splits them because that
-/// is how a facilities person asks, and this draws them with the meter beside
-/// them rather than as a second kind of record.
+/// `utilities` is the site's Subscriptions contracts — the same rows as
+/// contracts, with the meter reading carried on each. The server splits them
+/// because that is how a facilities person asks; here they leave the
+/// Contracts table and stand in their own, with the meter beside them.
 export function LocationHubSheet({
   siteId,
   open,
@@ -51,547 +94,784 @@ export function LocationHubSheet({
   open: boolean
   onClose: () => void
 }) {
+  const client = useQueryClient()
   const hub = useQuery({
-    queryKey: gaKeys.location(siteId ?? ""),
-    queryFn: ({ signal }) => gaLocation(siteId ?? "", signal),
+    ...placeQuery(siteId ?? ""),
     enabled: open && siteId !== undefined,
   })
+  const placeOf = usePlaces()
 
   const row = hub.data?.location
+  const place = row === undefined ? undefined : placeOf(row)
 
-  return (
-    <Sheet
-      open={open}
-      onOpenChange={(next) => !next && onClose()}
-      width="wide"
-      title={row === undefined ? "Site" : row.site_name}
-      id={siteId}
-      caption={
-        row === undefined
-          ? undefined
-          : `${row.kind ?? row.site_kind}${row.address === null ? "" : ` · ${row.address}`}`
-      }
-      subject={
-        siteId === undefined ? undefined : { kind: "location", id: siteId }
-      }
-      tabs={
-        hub.data === undefined
-          ? undefined
-          : [
-              {
-                value: "detail",
-                label: "Details",
-                content: <DetailTab hub={hub.data} />,
-              },
-              {
-                value: "assets",
-                label: "Assets",
-                content: <AssetsTab assets={hub.data.assets} />,
-              },
-              {
-                value: "contracts",
-                label: "Contracts",
-                content: <ContractsTab contracts={hub.data.contracts} />,
-              },
-              {
-                value: "utilities",
-                label: "Utilities",
-                content: <UtilitiesTab utilities={hub.data.utilities} />,
-              },
-              {
-                value: "repairs",
-                label: "Repairs",
-                content: <RepairsTab repairs={hub.data.repairs} />,
-              },
-              {
-                value: "schedule",
-                label: "Schedule",
-                content: <ScheduleTab tasks={hub.data.tasks} />,
-              },
-              {
-                value: "supplies",
-                label: "Supply requests",
-                content: <SuppliesTab supplies={hub.data.supplies} />,
-              },
-              {
-                value: "billing",
-                label: "Bills (Finance)",
-                content: <BillingTab row={hub.data.location} />,
-              },
-            ]
-      }
-    >
-      {hub.isLoading && <LoadingState>Opening the place…</LoadingState>}
-      {hub.error instanceof Error && (
-        <Banner tone="bad">{hub.error.message}</Banner>
-      )}
-    </Sheet>
-  )
-}
-
-/// The facilities detail, and the one write this screen owns.
-///
-/// A place with no detail row says so and offers Complete; one that has been
-/// filled in offers Edit details. Both open the same form, because "fill in" and
-/// "correct" are the same act on a row that upserts by `site_id`.
-function DetailTab({ hub }: { hub: GaLocationHub }) {
-  const location = hub.location
-  const [editing, setEditing] = useState(false)
-  const empty =
-    location.address === null &&
-    location.kind === null &&
-    location.contact_name === null &&
-    location.contact_phone === null
-
-  return (
-    <div className="flex flex-col gap-5">
-      {empty && !editing && (
-        <section className="rounded-inner border border-hairline-2 bg-soft p-3.5">
-          <div className="flex items-center gap-2">
-            <MapPin className="size-4 shrink-0 stroke-[1.7] text-line-ico" />
-            <p className="text-meta text-body">
-              This site is already registered — its address, type and contact
-              have not been filled in yet. Complete the details so anyone
-              delivering goods, or a technician, knows where to go.
-            </p>
-          </div>
-        </section>
-      )}
-
-      <section>
-        <h4 className="mb-2.5 border-b border-hairline pb-1.5 text-card-title font-semibold text-ink">
-          Site details
-        </h4>
-        <Facts>
-          <Fact term="Name">{location.site_name}</Fact>
-          <Fact term="Code">{location.site_id}</Fact>
-          <Fact term="Type">{location.kind ?? location.site_kind}</Fact>
-          <Fact term="Address">{location.address ?? "—"}</Fact>
-          <Fact term="Floor area">
-            {location.floor_area_sqm === null
-              ? "—"
-              : `${count(location.floor_area_sqm)} m²`}
-          </Fact>
-          <Fact term="Contact">{location.contact_name ?? "—"}</Fact>
-          <Fact term="Phone">{location.contact_phone ?? "—"}</Fact>
-          {location.notes !== null && (
-            <Fact term="Notes">{location.notes}</Fact>
-          )}
-        </Facts>
-      </section>
-
-      {editing ? (
-        <LocationEditForm
-          row={location}
-          onDone={() => setEditing(false)}
-          onCancel={() => setEditing(false)}
-        />
-      ) : (
-        <div>
-          <Button variant="soft" onClick={() => setEditing(true)}>
-            {empty ? "Complete" : "Edit details"}
-          </Button>
-        </div>
-      )}
-    </div>
-  )
-}
-
-/// The form's empty string, as the wire spells "not given".
-function blank(value: string | undefined): string | null {
-  const trimmed = (value ?? "").trim()
-  return trimmed === "" ? null : trimmed
-}
-
-/// Filling in or correcting the facility facts. Site creation is deliberately
-/// absent: this writes BESIDE a place the register already holds.
-function LocationEditForm({
-  row,
-  onDone,
-  onCancel,
-}: {
-  row: GaLocationRow
-  onDone: () => void
-  onCancel: () => void
-}) {
-  const client = useQueryClient()
-  const [form, setForm] = useState<Record<string, string>>({
-    kind: row.kind ?? "",
-    address: row.address ?? "",
-    area: row.floor_area_sqm === null ? "" : String(row.floor_area_sqm),
-    contact_name: row.contact_name ?? "",
-    contact_phone: row.contact_phone ?? "",
-    notes: row.notes ?? "",
-  })
-  const [problems, setProblems] = useState<Record<string, string>>({})
-  const set = (key: string, value: string) => {
-    // Editing a field takes its error back (brief §10.2): a problem sentence
-    // survives only while the field itself is still wrong.
-    setProblems((current) => ({ ...current, [key]: "" }))
-    setForm((current) => ({ ...current, [key]: value }))
-  }
+  // `null` is reading; a draft is the form, held here because the foot's Save
+  // is outside the body.
+  const [draft, setDraft] = useState<Draft | null>(null)
+  const editing = draft !== null
+  const dirty =
+    row !== undefined && draft !== null && !sameDraft(draft, draftOf(row))
 
   const save = useMutation({
-    mutationFn: () =>
-      updateGaLocation(row.site_id, {
-        kind: blank(form.kind),
-        address: blank(form.address),
+    mutationFn: async () => {
+      if (row === undefined || draft === null)
+        throw new Error("Nothing to save.")
+      return updateGaLocation(row.site_id, {
+        kind: wire(draft.building, row.kind),
+        address: wire(draft.address, row.address),
         floor_area_sqm:
-          (form.area ?? "").trim() === "" ? null : Number(form.area),
-        contact_name: blank(form.contact_name),
-        contact_phone: blank(form.contact_phone),
-        notes: blank(form.notes),
-      }),
+          draft.area.trim() === "" ? null : Number(draft.area.trim()),
+        contact_name: wire(draft.contact, row.contact_name),
+        contact_phone: wire(draft.phone, row.contact_phone),
+        notes: wire(draft.notes, row.notes),
+      })
+    },
     onSuccess: () => {
       // The list's address column and this hub are the same answer under the
       // GA prefix; both drop together.
       void client.invalidateQueries({ queryKey: gaKeys.all })
-      onDone()
+      setDraft(null)
+      toast.success("Details saved")
     },
   })
 
-  const submit = () => {
-    const next: Record<string, string> = {}
-    if (
-      (form.area ?? "").trim() !== "" &&
-      !/^\d+$/.test((form.area ?? "").trim())
-    ) {
-      next.area = "Numbers only, no full stops."
-    }
-    if (Object.keys(next).length > 0) {
-      setProblems(next)
-      return
-    }
-    save.mutate()
+  const startEdit = () => {
+    if (row === undefined) return
+    save.reset()
+    setDraft(draftOf(row))
+  }
+  const cancelEdit = () => {
+    save.reset()
+    setDraft(null)
   }
 
+  const missing = row !== undefined && detailsMissing(row)
+
   return (
-    <div className="rounded-inner border border-hairline-2 p-3.5">
-      {save.error instanceof Error && (
-        <Banner tone="bad">{save.error.message}</Banner>
-      )}
-      <div className="grid grid-cols-2 gap-4">
-        <Field label="Site type" aside="store, warehouse, office, staff house">
-          <Input
-            value={form.kind ?? ""}
-            onChange={(event) => set("kind", event.target.value)}
+    <Sheet
+      open={open}
+      onOpenChange={(next, reason) => {
+        if (next) return
+        // Esc while editing cancels the edit and stays on the record; ×, a
+        // swipe and the veil leave the sheet.
+        if (editing && reason === "escape") {
+          cancelEdit()
+          return
+        }
+        setDraft(null)
+        onClose()
+      }}
+      size="wide"
+      stack
+      dirty={dirty}
+      context="Sites"
+      id={place?.code ?? undefined}
+      title={place === undefined ? "Site" : place.name}
+      badge={missing ? <Pill tone="warn">Details missing</Pill> : undefined}
+      caption={row === undefined ? undefined : kindWords(row.site_kind)}
+      subject={
+        siteId === undefined || editing
+          ? undefined
+          : { kind: "location", id: siteId }
+      }
+      footer={
+        row === undefined ? undefined : editing ? (
+          <SheetFooter
+            onCancel={cancelEdit}
+            primary={{
+              label: "Save changes",
+              pending: save.isPending,
+              disabled: !dirty,
+              onClick: () => save.mutate(),
+            }}
+            error={save.error}
           />
+        ) : (
+          <SheetFooter
+            primary={{
+              label: missing ? "Complete details" : "Edit",
+              onClick: startEdit,
+            }}
+          />
+        )
+      }
+    >
+      <SheetQuery query={hub} what="site">
+        {(loaded) =>
+          draft !== null ? (
+            <EditFields
+              row={loaded.location}
+              name={place?.name ?? loaded.location.site_name}
+              code={place?.code ?? null}
+              draft={draft}
+              set={(patch) => setDraft({ ...draft, ...patch })}
+              onSubmit={() => {
+                if (dirty) save.mutate()
+              }}
+            />
+          ) : (
+            <ReadBody hub={loaded} />
+          )
+        }
+      </SheetQuery>
+    </Sheet>
+  )
+}
+
+// ── the form ────────────────────────────────────────────────────────────────
+
+/// The six facts GA writes, as the boxes hold them.
+interface Draft {
+  readonly building: string
+  readonly area: string
+  readonly address: string
+  readonly contact: string
+  readonly phone: string
+  readonly notes: string
+}
+
+function draftOf(row: GaLocationRow): Draft {
+  return {
+    building: row.kind ?? "",
+    area: row.floor_area_sqm === null ? "" : String(row.floor_area_sqm),
+    address: row.address ?? "",
+    contact: row.contact_name ?? "",
+    phone: row.contact_phone ?? "",
+    notes: row.notes ?? "",
+  }
+}
+
+function sameDraft(a: Draft, b: Draft): boolean {
+  return (
+    a.building.trim() === b.building.trim() &&
+    a.area.trim() === b.area.trim() &&
+    a.address.trim() === b.address.trim() &&
+    a.contact.trim() === b.contact.trim() &&
+    a.phone.trim() === b.phone.trim() &&
+    a.notes.trim() === b.notes.trim()
+  )
+}
+
+/// A box's text as the wire spells it. The server leaves a field alone on
+/// `null` and clears it on an empty string, so a box somebody emptied says
+/// "" — and a box that was never filled says nothing, so no row is made of
+/// blanks.
+function wire(value: string, was: string | null): string | null {
+  const trimmed = value.trim()
+  return trimmed === "" ? (was === null ? null : "") : trimmed
+}
+
+/// The kinds of building people write, offered as they type; anything goes.
+const BUILDINGS = [
+  "Ruko",
+  "Ruko 2 lantai",
+  "Mall unit",
+  "Standalone",
+  "Gudang",
+  "Kantor",
+  "Mess",
+]
+
+/// The facts as fields, in the frame the facts stood in. Name and code are
+/// the register's and stay words.
+function EditFields({
+  row,
+  name,
+  code,
+  draft,
+  set,
+  onSubmit,
+}: {
+  row: GaLocationRow
+  name: string
+  code: string | null
+  draft: Draft
+  set: (patch: Partial<Draft>) => void
+  onSubmit: () => void
+}) {
+  return (
+    <form
+      className="flex flex-col gap-6"
+      onSubmit={(event) => {
+        event.preventDefault()
+        onSubmit()
+      }}
+    >
+      <Facts>
+        <Fact term="Name">{name}</Fact>
+        {code !== null && <Fact term="Code">{code}</Fact>}
+      </Facts>
+      <div className="grid gap-5 md:grid-cols-2">
+        <Field label="Building">
+          <Input
+            list={`buildings-${row.site_id}`}
+            value={draft.building}
+            onChange={(event) => set({ building: event.target.value })}
+            autoFocus
+          />
+          <datalist id={`buildings-${row.site_id}`}>
+            {BUILDINGS.map((one) => (
+              <option key={one} value={one} />
+            ))}
+          </datalist>
         </Field>
-        <Field
-          label="Floor area"
-          aside="square metres"
-          problem={problems.area || undefined}
-        >
+        <Field label="Floor area" aside="m²">
           <Input
             type="number"
             inputMode="numeric"
-            value={form.area ?? ""}
-            onChange={(event) => set("area", event.target.value)}
+            value={draft.area}
+            onChange={(event) => set({ area: event.target.value })}
           />
         </Field>
-        <Field label="Address">
+        <Field label="Address" className="md:col-span-2">
           <Input
-            value={form.address ?? ""}
-            onChange={(event) => set("address", event.target.value)}
+            value={draft.address}
+            onChange={(event) => set({ address: event.target.value })}
           />
         </Field>
         <Field label="Contact">
           <Input
-            value={form.contact_name ?? ""}
-            onChange={(event) => set("contact_name", event.target.value)}
+            value={draft.contact}
+            onChange={(event) => set({ contact: event.target.value })}
           />
         </Field>
-        <Field label="Contact phone">
+        <Field label="Phone number">
           <Input
-            value={form.contact_phone ?? ""}
-            onChange={(event) => set("contact_phone", event.target.value)}
+            type="tel"
+            inputMode="tel"
+            value={draft.phone}
+            onChange={(event) => set({ phone: event.target.value })}
           />
         </Field>
-        <Field label="Notes">
-          <Input
-            value={form.notes ?? ""}
-            onChange={(event) => set("notes", event.target.value)}
+        <Field label="Notes" className="md:col-span-2">
+          <Textarea
+            rows={3}
+            value={draft.notes}
+            onChange={(event) => set({ notes: event.target.value })}
           />
         </Field>
       </div>
-      <div className="mt-3 flex items-center gap-2">
-        <Button variant="primary" pending={save.isPending} onClick={submit}>
-          {save.isPending ? "Submitting…" : "Submit"}
-        </Button>
-        <Button data-cancel variant="ghost" onClick={onCancel}>
-          Cancel
-        </Button>
-      </div>
-    </div>
+    </form>
   )
 }
 
-/// The things standing here. Each opens the asset's own hub, the same sheet
-/// the register opens — a related list is a door, not a copy.
-function AssetsTab({ assets }: { assets: readonly GaAssetRow[] }) {
-  if (assets.length === 0) {
-    return (
-      <p className="text-meta text-body">
-        No assets at this place yet. Assets are recorded from the register when
-        the item arrives, and the site is recorded there too.
-      </p>
-    )
-  }
+// ── the record ──────────────────────────────────────────────────────────────
+
+/// The figures, the facts, the notes, and a table for each thing at the site.
+function ReadBody({ hub }: { hub: GaLocationHub }) {
+  const placeOf = usePlaces()
+  const row = hub.location
+  const place = placeOf(row)
+
+  // The subscriptions leave the Contracts table: they stand in Utilities with
+  // their meter beside them.
+  const metered = new Set(hub.utilities.map((one) => one.contract_id))
+  const contracts = hub.contracts.filter((one) => !metered.has(one.contract_id))
+
   return (
-    <ul className="flex flex-col">
-      {assets.map((asset) => (
-        <li key={asset.asset_id}>
-          <AppLink
-            to="/assets"
-            sheet={{ key: "asset", value: asset.asset_id }}
-            className="flex items-center gap-3 border-b border-hairline py-2.5 transition-colors last:border-b-0 hover:bg-soft-2"
-          >
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-cell font-medium text-ink">
-                {asset.name}
-              </span>
-              <span className="block truncate font-mono text-pill text-mute">
-                {asset.asset_number}
-                {asset.sub_location === null ? "" : ` · ${asset.sub_location}`}
-              </span>
-            </span>
-            <span className="shrink-0 text-pill text-mute">
-              {asset.holder ?? "no holder"}
-            </span>
-            <ChevronRight className="size-4 shrink-0 stroke-[1.7] text-faint" />
-          </AppLink>
-        </li>
-      ))}
-    </ul>
+    <>
+      <Figures row={row} tasks={hub.tasks} />
+
+      <Facts>
+        <Fact term="Type">{kindWords(row.site_kind)}</Fact>
+        <Fact term="Building">{row.kind ?? EMPTY}</Fact>
+        <Fact term="Contact">{row.contact_name ?? EMPTY}</Fact>
+        <Fact term="Phone number">{row.contact_phone ?? EMPTY}</Fact>
+        <Fact term="Floor area">
+          {row.floor_area_sqm === null
+            ? EMPTY
+            : `${count(row.floor_area_sqm)} m²`}
+        </Fact>
+        {place.unit !== null && (
+          <Fact term="Unit">{`${place.code} · ${place.unit}`}</Fact>
+        )}
+        <Fact term="Address" wide>
+          {row.address ?? EMPTY}
+        </Fact>
+      </Facts>
+
+      {row.notes !== null && row.notes.trim() !== "" && (
+        <SheetSection title="Notes">
+          <p className="text-[0.9375rem] leading-[1.375rem] whitespace-pre-wrap text-ink">
+            {row.notes}
+          </p>
+        </SheetSection>
+      )}
+
+      <ContractsTable contracts={contracts} />
+      <UtilitiesTable utilities={hub.utilities} />
+      <AssetsTable assets={hub.assets} />
+      <RepairsTable repairs={hub.repairs} />
+      <ServiceTable tasks={hub.tasks} />
+      <SuppliesTable supplies={hub.supplies} />
+    </>
   )
 }
+
+/// Assets · Contracts · Open repairs · Service due · Billed this month. What
+/// wants somebody turns warm, and a service already late turns red.
+function Figures({
+  row,
+  tasks,
+}: {
+  row: GaLocationRow
+  tasks: readonly GaMaintenanceTaskRow[]
+}) {
+  const late = tasks.some(
+    (task) => task.next_due !== null && task.next_due < today()
+  )
+  return (
+    <KpiStrip className="mb-0! md:grid-cols-3 xl:grid-cols-5">
+      <Kpi label="Assets" value={count(row.asset_count)} />
+      <Kpi label="Contracts" value={count(row.contract_count)} />
+      <Kpi
+        label="Open repairs"
+        value={
+          row.open_repair_count > 0 ? (
+            <span className="text-warn-fg">{count(row.open_repair_count)}</span>
+          ) : (
+            count(row.open_repair_count)
+          )
+        }
+      />
+      <Kpi
+        label="Service due"
+        value={
+          late ? (
+            <span className="text-bad-fg">{count(row.due_task_count)}</span>
+          ) : (
+            count(row.due_task_count)
+          )
+        }
+      />
+      <Kpi
+        label={
+          <span className="inline-flex flex-wrap items-center gap-x-1.5">
+            Billed this month <FinanceMark />
+          </span>
+        }
+        value={money(row.billed_this_month_minor)}
+      />
+    </KpiStrip>
+  )
+}
+
+// ── the tables ──────────────────────────────────────────────────────────────
+
+/// A head that reads left, for a text column that is not the first (a
+/// `MiniTable` head is right-aligned past the first column by default).
+const left = (label: string) => ({ label, align: "left" as const })
+
+/// A row that opens another screen's record: the row itself is the target, so
+/// nothing inside it is blue. The sheet's links always led there.
+function GoRow({
+  to,
+  sheet,
+  children,
+}: {
+  to: string
+  sheet: { readonly key: SheetKey; readonly value: string }
+  children: React.ReactNode
+}) {
+  const navigate = useNavigate()
+  const go = () =>
+    void navigate({
+      to: to as never,
+      search: { [sheet.key]: sheet.value } as never,
+    })
+  return (
+    <tr
+      className={cn("cursor-pointer border-t border-hairline", FOCUSED)}
+      onClick={go}
+      {...openable(go)}
+    >
+      {children}
+    </tr>
+  )
+}
+
+/// The first cell of a row: a glyph tile for what kind of thing it is, the
+/// name in ink and one quiet line under it.
+function NameCell({
+  name,
+  quiet,
+  icon: Glyph,
+}: {
+  name: React.ReactNode
+  quiet?: React.ReactNode
+  icon: LucideIcon
+}) {
+  return (
+    <span className="flex min-w-0 items-start gap-3">
+      <span
+        aria-hidden
+        className="mt-px grid size-[1.875rem] shrink-0 place-items-center rounded-inner bg-soft-2 text-body"
+      >
+        <Glyph className="size-4 stroke-[1.7]" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block font-medium text-ink">{name}</span>
+        {quiet !== undefined && quiet !== null && quiet !== "" && (
+          <span className="block font-normal text-mute">{quiet}</span>
+        )}
+      </span>
+    </span>
+  )
+}
+
+/// A grey em dash for a cell with nothing in it.
+const Dash = () => <span className="text-mute">{EMPTY}</span>
 
 /// The deals that apply to this place. A scope contract (all stores) is not
 /// listed here — the server's `contracts` are the ones that name this site,
 /// and the estate-wide ones live in Contracts.
-function ContractsTab({ contracts }: { contracts: readonly GaContractRow[] }) {
+function ContractsTable({
+  contracts,
+}: {
+  contracts: readonly GaContractRow[]
+}) {
   const partyName = useContractParty()
-  if (contracts.length === 0) {
-    return (
-      <p className="text-meta text-body">
-        No contracts point to this place. Contracts are recorded from the
-        agreement in GA › Contracts.
-      </p>
-    )
-  }
+  if (contracts.length === 0) return null
   return (
-    <ul className="flex flex-col">
-      {contracts.map((contract) => (
-        <li key={contract.contract_id}>
-          <AppLink
-            to="/contracts"
-            sheet={{ key: "contract", value: contract.contract_id }}
-            className="flex items-center gap-3 border-b border-hairline py-2.5 transition-colors last:border-b-0 hover:bg-soft-2"
-          >
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-cell font-medium text-ink">
-                {contract.contract_type_name}
-              </span>
-              <span className="block truncate font-mono text-pill text-mute">
-                {contract.contract_number ?? contract.contract_id.slice(0, 8)}
-              </span>
-            </span>
-            <span className="shrink-0 text-pill text-mute">
-              {partyName(contract)}
-            </span>
-            <ChevronRight className="size-4 shrink-0 stroke-[1.7] text-faint" />
-          </AppLink>
-        </li>
-      ))}
-    </ul>
+    <SheetSection title="Contracts" aside={count(contracts.length)}>
+      <MiniTable head={["Contract", left("Party"), "Ends", "Value"]}>
+        {contracts.map((contract) => {
+          const standing = standingOf(contract)
+          return (
+            <GoRow
+              key={contract.contract_id}
+              to="/contracts"
+              sheet={{ key: "contract", value: contract.contract_id }}
+            >
+              <MiniCell>
+                <NameCell
+                  icon={
+                    CONTRACT_GROUPS.find(
+                      (one) => one.group_code === contract.group_code
+                    )?.icon ?? FileText
+                  }
+                  name={contract.contract_type_name}
+                  quiet={contract.contract_number}
+                />
+              </MiniCell>
+              <MiniCell>{partyName(contract)}</MiniCell>
+              <MiniCell
+                align="right"
+                className={cn(
+                  !contract.archived &&
+                    standing.tone === "warn" &&
+                    "text-warn-fg",
+                  !contract.archived && standing.tone === "bad" && "text-bad-fg"
+                )}
+              >
+                {contract.ends_on === null ? <Dash /> : day(contract.ends_on)}
+              </MiniCell>
+              <MiniCell align="right">
+                {contract.contract_value_minor === null ? (
+                  <Dash />
+                ) : (
+                  money(contract.contract_value_minor)
+                )}
+              </MiniCell>
+            </GoRow>
+          )
+        })}
+      </MiniTable>
+    </SheetSection>
   )
+}
+
+/// What a subscription is for, as a mark.
+function utilityIcon(contract: GaContractRow): LucideIcon {
+  switch (contract.contract_type) {
+    case "LANGGANAN_LISTRIK":
+      return Zap
+    case "LANGGANAN_AIR":
+      return Droplets
+    case "LANGGANAN_TELEKOM":
+      return Phone
+    default:
+      return RefreshCw
+  }
 }
 
 /// The site's subscriptions, with the meter reading carried on each row. The
-/// amount billed is Finance's, and wears the mark; the usage is GA's own.
-function UtilitiesTab({ utilities }: { utilities: readonly GaContractRow[] }) {
+/// amount billed is Finance's; the usage is GA's own.
+function UtilitiesTable({
+  utilities,
+}: {
+  utilities: readonly GaContractRow[]
+}) {
   const partyName = useContractParty()
-  if (utilities.length === 0) {
-    return (
-      <p className="text-meta text-body">
-        No utilities at this place — electricity, water or phone have not yet
-        been recorded as a Subscriptions contract.
-      </p>
-    )
-  }
+  if (utilities.length === 0) return null
   return (
-    <ul className="flex flex-col">
-      {utilities.map((contract) => (
-        <li key={contract.contract_id}>
-          <AppLink
+    <SheetSection title="Utilities" aside={count(utilities.length)}>
+      <MiniTable head={["Utility", left("Provider"), "Last reading", "Billed"]}>
+        {utilities.map((contract) => (
+          <GoRow
+            key={contract.contract_id}
             to="/contracts"
             sheet={{ key: "contract", value: contract.contract_id }}
-            className="flex items-center gap-3 border-b border-hairline py-2.5 transition-colors last:border-b-0 hover:bg-soft-2"
           >
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-cell font-medium text-ink">
-                {partyName(contract)}
-              </span>
-              <span className="block truncate text-pill text-mute">
-                {contract.contract_type_name}
-                {contract.customer_number === null
-                  ? ""
-                  : ` · ${contract.customer_number}`}
-              </span>
-            </span>
-            <span className="shrink-0 text-right text-pill text-mute tabular-nums">
+            <MiniCell>
+              <NameCell
+                icon={utilityIcon(contract)}
+                name={contract.contract_type_name}
+                quiet={contract.customer_number}
+              />
+            </MiniCell>
+            <MiniCell>{partyName(contract)}</MiniCell>
+            <MiniCell align="right">
               {contract.last_usage === null ? (
-                "no reading yet"
+                <Dash />
               ) : (
-                <>
-                  {count(contract.last_usage)} {contract.last_unit}
-                  <span className="block">
-                    {contract.billed_minor === 0
-                      ? "not billed yet"
-                      : money(contract.billed_minor)}
-                  </span>
-                </>
+                `${count(contract.last_usage)} ${contract.last_unit ?? ""}`.trim()
               )}
-            </span>
-            <ChevronRight className="size-4 shrink-0 stroke-[1.7] text-faint" />
-          </AppLink>
-        </li>
-      ))}
-    </ul>
+            </MiniCell>
+            <MiniCell align="right">
+              {contract.billed_minor === 0 ? (
+                <Dash />
+              ) : (
+                money(contract.billed_minor)
+              )}
+            </MiniCell>
+          </GoRow>
+        ))}
+      </MiniTable>
+    </SheetSection>
   )
 }
 
-/// The breakdowns filed here, each opening its own repair sheet.
-function RepairsTab({ repairs }: { repairs: readonly GaRepairRow[] }) {
-  if (repairs.length === 0) {
-    return <p className="text-meta text-body">No repairs at this place.</p>
+/// The condition in the words the register prints.
+function conditionOf(condition: string): {
+  word: string
+  tone: "neutral" | "warn" | "bad"
+} {
+  switch (condition) {
+    case "PERLU_SERVIS":
+      return { word: "Needs service", tone: "warn" }
+    case "RUSAK":
+      return { word: "Broken", tone: "bad" }
+    default:
+      return { word: "Good", tone: "neutral" }
   }
+}
+
+/// The things standing here. Each opens the asset's own sheet, the one the
+/// register opens — a related list is a door, not a copy.
+function AssetsTable({ assets }: { assets: readonly GaAssetRow[] }) {
+  if (assets.length === 0) return null
   return (
-    <ul className="flex flex-col">
-      {repairs.map((repair) => (
-        <li key={repair.repair_id}>
-          <AppLink
-            to="/maintenance"
-            sheet={{ key: "repair", value: repair.repair_id }}
-            className="flex items-center gap-3 border-b border-hairline py-2.5 transition-colors last:border-b-0 hover:bg-soft-2"
-          >
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-cell font-medium text-ink">
-                {repair.title}
-              </span>
-              <span className="block truncate text-pill text-mute">
-                {repair.asset_name ?? "no asset"}
-              </span>
-            </span>
-            <RepairStagePill status={repair.status} />
-            <ChevronRight className="size-4 shrink-0 stroke-[1.7] text-faint" />
-          </AppLink>
-        </li>
-      ))}
-    </ul>
+    <SheetSection title="Assets" aside={count(assets.length)}>
+      <MiniTable
+        head={["Asset", left("Where"), left("Holder"), left("Condition")]}
+      >
+        {assets.map((asset) => {
+          const condition = conditionOf(asset.condition)
+          return (
+            <GoRow
+              key={asset.asset_id}
+              to="/assets"
+              sheet={{ key: "asset", value: asset.asset_id }}
+            >
+              <MiniCell>
+                <NameCell
+                  icon={buildOf(asset.build).icon}
+                  name={asset.name}
+                  quiet={asset.asset_number}
+                />
+              </MiniCell>
+              <MiniCell>{asset.sub_location ?? <Dash />}</MiniCell>
+              <MiniCell>{asset.holder ?? <Dash />}</MiniCell>
+              <MiniCell>
+                <Status tone={condition.tone}>{condition.word}</Status>
+              </MiniCell>
+            </GoRow>
+          )
+        })}
+      </MiniTable>
+    </SheetSection>
+  )
+}
+
+/// A repair's stage as a dot and a word.
+function repairTone(
+  status: string
+): "warn" | "accent" | "info" | "ok" | "neutral" {
+  switch (status) {
+    case "OPEN":
+      return "warn"
+    case "APPROVED":
+      return "accent"
+    case "IN_PROGRESS":
+      return "info"
+    case "COMPLETED":
+      return "ok"
+    default:
+      return "neutral"
+  }
+}
+
+/// The breakdowns filed here, each opening its own repair sheet.
+function RepairsTable({ repairs }: { repairs: readonly GaRepairRow[] }) {
+  const supplierName = useSupplierName()
+  if (repairs.length === 0) return null
+  return (
+    <SheetSection title="Repairs" aside={count(repairs.length)}>
+      <MiniTable head={["Repair", left("Supplier"), "Budget", left("Status")]}>
+        {repairs.map((repair) => {
+          const budget =
+            repair.approved_budget_minor ?? repair.estimated_cost_minor
+          return (
+            <GoRow
+              key={repair.repair_id}
+              to="/maintenance"
+              sheet={{ key: "repair", value: repair.repair_id }}
+            >
+              <MiniCell>
+                <NameCell
+                  icon={repairObjectIcon(repair.objek)}
+                  name={repair.title}
+                  quiet={
+                    repair.asset_name ?? `Reported ${day(repair.failure_at)}`
+                  }
+                />
+              </MiniCell>
+              <MiniCell>
+                {supplierName(repair.supplier_id, repair.supplier_name)}
+              </MiniCell>
+              <MiniCell align="right">
+                {budget === null ? <Dash /> : money(budget)}
+              </MiniCell>
+              <MiniCell>
+                <Status tone={repairTone(repair.status)}>
+                  {repairStageWords(repair.status)}
+                </Status>
+              </MiniCell>
+            </GoRow>
+          )
+        })}
+      </MiniTable>
+    </SheetSection>
+  )
+}
+
+/// "3 months", "10.000 km": how often, without the sentence round it.
+function everyOf(task: GaMaintenanceTaskRow): string {
+  const unit =
+    task.interval_kind === "DAYS"
+      ? "days"
+      : task.interval_kind === "MONTHS"
+        ? "months"
+        : "km"
+  return `${count(task.interval_value)} ${unit}`
+}
+
+/// The days a date is behind today: more than nothing, and it is late.
+function daysLate(nextDue: string): number {
+  return Math.round(
+    (Date.parse(`${today()}T00:00:00`) - Date.parse(`${nextDue}T00:00:00`)) /
+      86_400_000
   )
 }
 
 /// The recurring work at this place. A task has no sheet — the schedule IS its
 /// surface — so these rows say what is due and stop there.
-function ScheduleTab({ tasks }: { tasks: readonly GaMaintenanceTaskRow[] }) {
-  if (tasks.length === 0) {
-    return (
-      <p className="text-meta text-body">
-        No service schedule for this place. Schedules are created in Maintenance
-        › Schedule, for one place or one asset.
-      </p>
-    )
-  }
+function ServiceTable({ tasks }: { tasks: readonly GaMaintenanceTaskRow[] }) {
+  if (tasks.length === 0) return null
   return (
-    <ul className="flex flex-col">
-      {tasks.map((task) => (
-        <li
-          key={task.task_id}
-          className="flex items-center gap-3 border-b border-hairline py-2.5 last:border-b-0"
-        >
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-cell text-ink">
-              {task.title}
-            </span>
-            <span className="block truncate text-pill text-mute">
-              {intervalLabel(task.interval_kind, task.interval_value)}
-              {task.asset_id === null ? "" : " · per asset"}
-            </span>
-          </span>
-          <TaskStatePill nextDue={task.next_due} />
-        </li>
-      ))}
-    </ul>
+    <SheetSection title="Service schedule" aside={count(tasks.length)}>
+      <MiniTable head={["Task", left("Every"), "Next due"]}>
+        {tasks.map((task) => {
+          const late = task.next_due === null ? 0 : daysLate(task.next_due)
+          return (
+            <MiniRow key={task.task_id}>
+              <MiniCell>
+                <NameCell
+                  icon={CalendarClock}
+                  name={task.title}
+                  quiet={task.asset_name}
+                />
+              </MiniCell>
+              <MiniCell>{everyOf(task)}</MiniCell>
+              <MiniCell align="right" className={cn(late > 0 && "text-bad-fg")}>
+                {task.next_due === null ? (
+                  <Dash />
+                ) : (
+                  <>
+                    {day(task.next_due)}
+                    {late > 0 && (
+                      <span className="block text-mute">
+                        {late === 1 ? "1 day late" : `${count(late)} days late`}
+                      </span>
+                    )}
+                  </>
+                )}
+              </MiniCell>
+            </MiniRow>
+          )
+        })}
+      </MiniTable>
+    </SheetSection>
   )
 }
 
+/// A supply request's stage, in the words the Supply Requests screen prints.
+function supplyStage(status: string): {
+  word: string
+  tone: "warn" | "accent" | "info" | "ok" | "bad"
+} {
+  switch (status) {
+    case "REQUESTED":
+      return { word: "Submitted", tone: "warn" }
+    case "APPROVED":
+      return { word: "Approved", tone: "accent" }
+    case "ORDERED":
+      return { word: "PO created", tone: "accent" }
+    case "RECEIVED":
+      return { word: "Received", tone: "info" }
+    case "BILLED":
+      return { word: "Billed", tone: "ok" }
+    default:
+      return { word: "Rejected", tone: "bad" }
+  }
+}
+
 /// What was asked for from this place, each opening its own supply sheet.
-function SuppliesTab({
+function SuppliesTable({
   supplies,
 }: {
   supplies: readonly GaSupplyRequestRow[]
 }) {
-  if (supplies.length === 0) {
-    return (
-      <p className="text-meta text-body">No supply requests from this place.</p>
-    )
-  }
+  if (supplies.length === 0) return null
   return (
-    <ul className="flex flex-col">
-      {supplies.map((supply) => (
-        <li key={supply.request_id}>
-          <AppLink
-            to="/supplies"
-            sheet={{ key: "supply", value: supply.request_id }}
-            className="flex items-center gap-3 border-b border-hairline py-2.5 transition-colors last:border-b-0 hover:bg-soft-2"
-          >
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-cell font-medium text-ink">
-                {supply.item}
-              </span>
-              <span className="block truncate text-pill text-mute">
-                {supply.category_name}
-                {supply.quantity === null ? "" : ` · ${supply.quantity}`}
-              </span>
-            </span>
-            <span className="shrink-0 text-pill text-mute">
-              {supply.requested_by}
-            </span>
-            <ChevronRight className="size-4 shrink-0 stroke-[1.7] text-faint" />
-          </AppLink>
-        </li>
-      ))}
-    </ul>
-  )
-}
-
-/// This month's bills that point at the place — Finance's ledger, read over
-/// the fence and marked as such. No bill line can point at a site until the
-/// relevant references land; the figure is honest about being an em dash when
-/// there is nothing to read rather than pretending it is zero spent.
-function BillingTab({ row }: { row: GaLocationRow }) {
-  return (
-    <div className="flex flex-col gap-4">
-      <figure>
-        <figcaption className="text-eyebrow font-medium text-body">
-          Billed this month <FinanceMark className="ml-1 align-[0.125rem]" />
-        </figcaption>
-        <div className="mt-1 text-[1.125rem] leading-none font-semibold tracking-[-0.02em] text-ink tabular-nums">
-          {money(row.billed_this_month_minor)}
-        </div>
-      </figure>
-      <p className="text-pill text-mute">
-        Calculated from POSTED bill lines with a site at this place, where the
-        site is read from the GA record it references (contract, repair, asset,
-        request). This figure belongs to Finance; GA only reads it.
-      </p>
-      <Facts>
-        <Fact term="Supply requests">{count(row.supply_request_count)}</Fact>
-        <Fact term="Due schedules">{count(row.due_task_count)}</Fact>
-        <Fact term="Open repairs">{count(row.open_repair_count)}</Fact>
-        <Fact term="Contracts">{count(row.contract_count)}</Fact>
-      </Facts>
-    </div>
+    <SheetSection title="Supply requests" aside={count(supplies.length)}>
+      <MiniTable head={["Item", "Quantity", "Needed by", left("Status")]}>
+        {supplies.map((supply) => {
+          const stage = supplyStage(supply.status)
+          return (
+            <GoRow
+              key={supply.request_id}
+              to="/supplies"
+              sheet={{ key: "supply", value: supply.request_id }}
+            >
+              <MiniCell>
+                <NameCell
+                  icon={Package}
+                  name={supply.item}
+                  quiet={`${supply.category_name} · ${supply.requested_by}`}
+                />
+              </MiniCell>
+              <MiniCell align="right">{supply.quantity ?? <Dash />}</MiniCell>
+              <MiniCell align="right">
+                {supply.needed_by === null ? <Dash /> : day(supply.needed_by)}
+              </MiniCell>
+              <MiniCell>
+                <Status tone={stage.tone}>{stage.word}</Status>
+              </MiniCell>
+            </GoRow>
+          )
+        })}
+      </MiniTable>
+    </SheetSection>
   )
 }

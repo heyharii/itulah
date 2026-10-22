@@ -2,7 +2,7 @@ import { ChevronRight } from "lucide-react"
 import { useState } from "react"
 
 import { Input } from "@/components/ui/field"
-import { count } from "@/lib/format"
+import { count, sku } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import type { StockMove } from "@/screens/stock/move-stock"
 import { sum, type Pool, type StockArticle } from "@/screens/stock/stock-model"
@@ -165,7 +165,7 @@ export function StockTable({
                   <span className="min-w-0">
                     <span className="block truncate text-ink">{article.name}</span>
                     <span className="block truncate text-[0.875rem] font-normal text-mute">
-                      <span className="font-mono">{article.key}</span>
+                      <span className="font-mono">{sku(article.key)}</span>
                     </span>
                   </span>
                 </div>
@@ -209,6 +209,9 @@ export function StockTable({
                           style={{ background: one.paint }}
                         />
                         <span className="truncate">{one.label}</span>
+                        <span className="shrink-0 font-mono text-[0.875rem] text-mute">
+                          {sku(one.sku)}
+                        </span>
                       </div>
                       {moving ? (
                         <>

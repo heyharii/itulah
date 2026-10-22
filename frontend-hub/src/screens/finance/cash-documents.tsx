@@ -71,6 +71,7 @@ import {
 } from "@/screens/finance/hooks"
 import { withLegalForm } from "@/screens/procurement/supplier-format"
 import { CardFigure, PhoneList } from "@/components/ui/phone-cards"
+import { CellMoney } from "@/components/ui/rows-switch"
 import {
   AccountAndCategory,
   PhoneChoice,
@@ -324,7 +325,7 @@ function RegisterScreen({ kind }: { kind: ComposeKind }) {
         meta: { align: "right", card: "lead" },
         cell: ({ row }) => (
           <span className="font-medium text-ink">
-            {money(row.original.amount_minor)}
+            <CellMoney minor={row.original.amount_minor} />
           </span>
         ),
       },
@@ -389,19 +390,21 @@ function RegisterScreen({ kind }: { kind: ComposeKind }) {
       <Fab label={`New ${kind}`} onClick={openNew} />
 
       {!phone && (
-        <Toolbar>
-          <Select
-            value={status}
-            onChange={setStatus}
-            className="h-control w-36"
-            aria-label="Status"
-          >
-            <option value="">All statuses</option>
-            <option value="DRAFT">Draft</option>
-            <option value="APPROVED">Approved</option>
-            <option value="POSTED">Posted</option>
-            <option value="REVERSED">Reversed</option>
-          </Select>
+        <Toolbar
+          lead={
+            <SubTabs
+              value={status === "" ? "ALL" : status}
+              onChange={(next) => setStatus(next === "ALL" ? "" : next)}
+              tabs={[
+                { value: "ALL", label: "All" },
+                { value: "DRAFT", label: "Draft" },
+                { value: "APPROVED", label: "Approved" },
+                { value: "POSTED", label: "Posted" },
+                { value: "REVERSED", label: "Reversed" },
+              ]}
+            />
+          }
+        >
           <UnitSelect
             value={unit}
             onChange={setUnit}
@@ -1197,7 +1200,7 @@ function RepeatingSection({ kind }: { kind: ComposeKind }) {
       }
       if (sweep.drafted > 0) {
         setRaised(
-          `${count(sweep.drafted)} ${sweep.drafted === 1 ? "draft" : "drafts"} raised — each still needs approving and posting.`
+          `${count(sweep.drafted)} ${sweep.drafted === 1 ? "draft" : "drafts"} raised`
         )
       }
       if (sweep.failed.length > 0) {
@@ -1430,7 +1433,9 @@ function RepeatingSection({ kind }: { kind: ComposeKind }) {
           if (!next) setRaised(null)
         }}
         title={raised ?? ""}
-      />
+      >
+        To approve and post
+      </SavedDialog>
     </section>
   )
 }

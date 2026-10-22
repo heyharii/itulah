@@ -15,14 +15,13 @@ import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { Checkbox, Field, Input, Money, Select } from "@/components/ui/field"
 import { Fab } from "@/components/ui/fab"
 import { FilterSheet } from "@/components/ui/filter-sheet"
-import {
-  BarSpacer,
-  ColumnsMenu,
-  ExpandingSearch,
-} from "@/components/ui/list-chrome"
+import { SwitchPill } from "@/components/ui/form"
+import { ListFilters } from "@/components/ui/list-filters"
+import { BarSpacer, ColumnsMenu } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { EmptyState, Problem } from "@/components/ui/states"
+import { useFilterState, type FilterField } from "@/lib/filters"
 import { count, label, money, percentBps } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import {
@@ -206,7 +205,46 @@ function PaymentMethodsScreen() {
   )
   const [inactive, setInactive] = useState(false)
   // ERPNext's own standard filter on Mode of Payment — Type.
-  const [tender, setTender] = useState("")
+  const fields = useMemo<FilterField[]>(
+    () => [
+      {
+        column: "tender",
+        label: "Type",
+        spec: {
+          kind: "option",
+          single: true,
+          operators: ["isAnyOf"],
+          format: label,
+        },
+      },
+    ],
+    []
+  )
+  const typeFilters = useFilterState(fields)
+  const tender =
+    typeFilters.filters.find((one) => one.column === "tender")?.values[0] ?? ""
+  const setTender = (next: string) =>
+    typeFilters.set(
+      next === ""
+        ? []
+        : [{ column: "tender", operator: "isAnyOf", values: [next] }]
+    )
+  const withCounts = useMemo(
+    () =>
+      fields.map((field) => {
+        const held = new Map<string, number>()
+        for (const row of list.data)
+          held.set(row.tender_type, (held.get(row.tender_type) ?? 0) + 1)
+        return {
+          ...field,
+          spec: {
+            ...field.spec,
+            counted: [...held].map(([value, n]) => ({ value, count: n })),
+          },
+        }
+      }),
+    [fields, list.data]
+  )
   const [needle, setNeedle] = useState("")
   const [sorting, setSorting] = useState<SortingState>([])
 
@@ -265,28 +303,18 @@ function PaymentMethodsScreen() {
       />
 
       <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2 max-md:hidden">
-        <ExpandingSearch
-          value={needle}
-          onChange={setNeedle}
-          label="Search methods"
+        <ListFilters
+          model={{ ...typeFilters, fields: withCounts }}
+          search={{
+            value: needle,
+            onChange: setNeedle,
+            label: "Search methods",
+          }}
         />
-        <Select
-          value={tender}
-          onChange={setTender}
-          className="h-control w-40"
-          aria-label="Type"
-        >
-          <option value="">All types</option>
-          {TENDERS.map((one) => (
-            <option key={one} value={one}>
-              {label(one)}
-            </option>
-          ))}
-        </Select>
-        <Checkbox
+        <SwitchPill
+          on={inactive}
           label="Show inactive"
-          checked={inactive}
-          onChange={setInactive}
+          onToggle={() => setInactive(!inactive)}
         />
         <BarSpacer />
         <ColumnsMenu table={table} />

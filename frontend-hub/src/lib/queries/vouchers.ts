@@ -42,7 +42,7 @@ export function describeKind(kind: string): string {
     case "REFUND":
       return "Refund"
     case "GOODWILL":
-      return "Goodwill"
+      return "Complimentary"
     default:
       // A kind this build has not been told about is passed through rather
       // than guessed at, the same rule `describeSource` follows next door.

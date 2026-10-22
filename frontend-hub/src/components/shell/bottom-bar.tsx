@@ -100,6 +100,21 @@ export function BottomBar() {
         tabsRef={tabsRef}
         actionRef={actionRef}
       />
+      {/* The tabs' matte tones in the Soft style (`styles/soft.css`): one
+          paint per tone, in the icons' own 24 box, top light to foot dark — a
+          bounding-box gradient paints nothing on a flat stroke. */}
+      <svg aria-hidden width="0" height="0" className="absolute">
+        <defs>
+          <linearGradient id="tab-matte-lit" gradientUnits="userSpaceOnUse" x1="0" y1="2" x2="0" y2="22">
+            <stop offset="0" stopColor="#5a8cf0" />
+            <stop offset="1" stopColor="#1d4bb6" />
+          </linearGradient>
+          <linearGradient id="tab-matte-rest" gradientUnits="userSpaceOnUse" x1="0" y1="2" x2="0" y2="22">
+            <stop offset="0" stopColor="#a6a6ad" />
+            <stop offset="1" stopColor="#6e6e73" />
+          </linearGradient>
+        </defs>
+      </svg>
       <nav
         aria-label="Main"
         hidden={typing}

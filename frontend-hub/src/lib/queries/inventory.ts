@@ -407,6 +407,11 @@ export interface MissingItem {
   readonly missing_cause: string | null
   readonly missing_reference_type: string | null
   readonly missing_reference_id: string | null
+  /// That document as people say it: the allotment's number, and the
+  /// allotment to open (an allotment line's reference). Absent from an
+  /// older server.
+  readonly missing_reference_number?: string | null
+  readonly missing_allotment_id?: string | null
   readonly missing_since: string | null
   /// Hours since it went missing. The decision metric: an hour is a mislaid
   /// box, a fortnight is a write-off nobody has taken.
@@ -414,6 +419,9 @@ export interface MissingItem {
   readonly last_observation: string | null
   readonly latest_count_id: string | null
   readonly latest_count_status: CountStatus | null
+  /// The store node that books this piece, when one does: Found and Lost are
+  /// that node's to post, so the hub only shows it.
+  readonly owner_origin_id?: string | null
   /// Always the literal `MISSING`. There is no missing-status enum: the list
   /// *is* the set of positive balances in `:missing` places, and resolving one
   /// removes the row rather than restatusing it.
@@ -867,6 +875,10 @@ export interface AllotmentRow extends AllotmentStages, FulfillmentStages {
   readonly supplier_names?: string | null
   /// The stores the lines go to, by name, in name order.
   readonly destination_names?: readonly string[]
+  /// The articles the lines carry, by name, in name order — for search.
+  readonly article_names?: readonly string[]
+  /// The sites the lines leave from (a Return HO's sending store).
+  readonly source_site_ids?: readonly string[]
   readonly type: AllotmentType
   readonly status: AllotmentStatus
   /// When MD cancelled it (10 Oct 2026); null for anything else.
@@ -1083,6 +1095,10 @@ export interface AllotmentEvent {
   readonly actor_id: string
   readonly occurred_at: string
   readonly recorded_at: string
+  /// What the writer recorded beside it. On an event of MD's change
+  /// (`reference_type` ALLOTMENT_AMENDMENT): `kind`, `reason`,
+  /// `target_before` and `target_after`.
+  readonly details?: Record<string, unknown> | null
 }
 
 export interface AllotmentCancellation {
@@ -1109,6 +1125,12 @@ export interface AllotmentAmendment {
   readonly reason: string | null
   readonly actor_id: string
   readonly created_at: string
+  /// The line's net target before and after, when known.
+  readonly target_before?: number
+  readonly target_after?: number
+  /// The line's SKU and store, when read off its event.
+  readonly sku_id?: string | null
+  readonly destination_id?: string | null
 }
 
 export interface AllotmentDetail extends AllotmentStages, FulfillmentStages {
@@ -1232,16 +1254,6 @@ export interface CancelAllotmentResult {
   readonly owed_picked?: number
   readonly owed_packed?: number
 }
-
-/// The reasons MD gives when an allotment is cancelled or edited. One word
-/// each; the dialog asks for one when cancelling, an edit takes one or none.
-export const ALLOTMENT_CHANGE_REASONS = [
-  "Wrong quantity",
-  "Wrong store",
-  "Stock problem",
-  "Supplier",
-  "Other",
-] as const
 
 /// A line of the Still needed list: `UnfilledLine` plus what the outbound
 /// board work (9 Oct 2026) adds to it — the target, what has gone, and why the
@@ -1387,6 +1399,8 @@ export interface CountDetail {
   readonly adjustment_id: string | null
   readonly edge_adjustment_status: "PENDING" | "APPLIED" | "REJECTED" | null
   readonly edge_adjustment_received_at: string | null
+  /// The node's own words when it refused the adjustment.
+  readonly edge_adjustment_reason?: string | null
   readonly summary: CountSummary
   readonly lines: readonly CountLine[]
 }
@@ -2503,14 +2517,16 @@ export function timeMachineWhatIf(request: WhatIfRequest) {
 // Stock card (kartu stok) — `postgres/stock_card.rs`
 // ---------------------------------------------------------------------------
 
-/// A period's equation: `opening + received − sent_out − sold − missing =
-/// closing`, in pieces on hand.
+/// A period's equation: `opening + received − sent_out − sold − lost =
+/// closing`, in pieces in Inventory. Missing stays inside Inventory; only
+/// pieces declared lost leave it. `lost` is optional so a server that has not
+/// been updated yet reads as nothing lost rather than breaking the page.
 export interface StockCardFigures {
   readonly opening: number
   readonly received: number
   readonly sent_out: number
   readonly sold: number
-  readonly missing: number
+  readonly lost?: number
   readonly closing: number
 }
 
@@ -2521,12 +2537,20 @@ export interface StockCardRow {
   /// The site's kind (`HO`, `STORE`), or the article's code.
   readonly sub: string | null
   readonly figures: StockCardFigures
+  /// `by=sku` rows: the SKU and the words it is read by. Optional — a row
+  /// without them falls back to `label` and `sub`.
+  readonly sku_id?: string
+  readonly sku_code?: string
+  readonly article_name?: string
+  readonly variant?: string | null
+  readonly variant_label?: string | null
+  readonly photo_url?: string | null
 }
 
 export interface StockCardPage {
   readonly from: string
   readonly to: string
-  readonly by: "site" | "article"
+  readonly by: "site" | "article" | "sku"
   readonly rows: readonly StockCardRow[]
   /// Every row the read matches, summed.
   readonly total: StockCardFigures
@@ -2536,9 +2560,11 @@ export interface StockCardPage {
 export interface StockCardScope {
   readonly from: string
   readonly to: string
-  readonly by: "site" | "article"
+  readonly by: "site" | "article" | "sku"
   readonly site_id?: string
   readonly article_id?: string
+  /// With `by=sku`, one SKU.
+  readonly sku_id?: string
   readonly q?: string
   readonly limit?: number
   readonly offset?: number
@@ -2555,6 +2581,10 @@ export interface StockCardLine {
   /// A day's receipts, on folded sales.
   readonly groups: number
   readonly to_missing: boolean
+  /// Pieces that left Inventory as lost (a Lost line reduces the balance).
+  readonly lost?: boolean
+  /// Where the pieces were before they went missing, for the line's words.
+  readonly from_pocket?: string | null
   readonly balance: number
 }
 
@@ -2572,6 +2602,7 @@ export interface StockCardLinesScope {
   readonly to: string
   readonly site_id?: string
   readonly article_id?: string
+  readonly sku_id?: string
 }
 
 export const stockCardQuery = (scope: StockCardScope) =>

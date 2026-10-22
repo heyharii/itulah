@@ -70,11 +70,22 @@ pub struct CreateSupplierRequest {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
     pub notes: Option<String>,
+    /// What we buy from them (`UTILITIES`, `CLEANING`, ...). Absent and a
+    /// non-merchandise supplier takes its account's kind (0981).
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
+    pub kind: Option<String>,
     /// The people to reach, filed with the party in the same transaction.
     /// Absent (or empty) means the composer sent none yet — the per-contact
     /// POST stays available for adding one later.
     #[serde(default)]
-    #[cfg_attr(feature = "ts", ts(optional))]
+    #[cfg_attr(
+        feature = "ts",
+        ts(
+            as = "Option<Vec<super::supplier_contacts::CreateSupplierContactRequest>>",
+            optional = nullable
+        )
+    )]
     pub contacts: Vec<super::supplier_contacts::CreateSupplierContactRequest>,
 }
 
@@ -149,6 +160,11 @@ pub struct UpdateSupplierRequest {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
     pub expense_account_code: NullablePatch<String>,
+    /// What we buy from them; `null` clears it. Absent while the account or
+    /// the book changes and the kind follows the new account.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
+    pub kind: NullablePatch<String>,
     /// The tax number; `null` clears it, for the supplier whose NPWP was
     /// typed off the wrong line of a faktur.
     #[serde(default)]
@@ -274,6 +290,43 @@ fn map_catalog_write_error(error: sqlx::Error) -> AppError {
     AppError::Database(error)
 }
 
+/// The chart's name for a supplier's account, as a column of a read over
+/// `alias` (`s`, or `supplier` in a RETURNING).
+fn account_name(alias: &str) -> String {
+    format!(
+        "(SELECT la.name FROM ledger_account la
+           WHERE la.account_code = {alias}.expense_account_code) AS expense_account_name"
+    )
+}
+
+/// A kind as typed, uppercased and checked; `None` for a blank one.
+fn normalize_supplier_kind(value: Option<String>) -> Result<Option<String>, AppError> {
+    let Some(text) = optional_supplier_text(value) else {
+        return Ok(None);
+    };
+    let upper = text.to_uppercase();
+    if crate::cloud::domain::SUPPLIER_KINDS.contains(&upper.as_str()) {
+        Ok(Some(upper))
+    } else {
+        Err(AppError::Validation(format!(
+            "{text} is not a kind of supplier; a supplier is one of: {}",
+            crate::cloud::domain::SUPPLIER_KINDS.join(", ")
+        )))
+    }
+}
+
+/// The kind a supplier takes from its book and account when nobody says: none
+/// for merchandise, the account's own kind for the rest, Other when the
+/// account is not one `supplier_kind_account` names. `$cat` and `$acct` are
+/// SQL expressions for the category and the account.
+fn derived_kind(cat: &str, acct: &str) -> String {
+    format!(
+        "CASE WHEN COALESCE({cat}, 'MERCHANDISE') = 'MERCHANDISE' THEN NULL
+              ELSE COALESCE((SELECT m.kind FROM supplier_kind_account m
+                              WHERE m.account_code = btrim({acct})), 'OTHER') END"
+    )
+}
+
 fn supplier_from_row(row: PgRow) -> Result<Supplier, AppError> {
     let status: String = row.try_get("status")?;
     Ok(Supplier {
@@ -288,6 +341,12 @@ fn supplier_from_row(row: PgRow) -> Result<Supplier, AppError> {
         status: SupplierStatus::from_str(&status).map_err(validation)?,
         category: row.try_get("category")?,
         expense_account_code: row.try_get("expense_account_code")?,
+        // Joined by the reads that name the account (`ACCOUNT_NAME`); a read
+        // that did not join the chart leaves it out rather than failing.
+        expense_account_name: row
+            .try_get::<Option<String>, _>("expense_account_name")
+            .unwrap_or_default(),
+        kind: row.try_get("kind")?,
         npwp: row.try_get("npwp")?,
         is_pkp: row.try_get("is_pkp")?,
         default_payment_terms_code: row.try_get("default_payment_terms_code")?,
@@ -723,6 +782,7 @@ fn supplier_rows() -> String {
                FROM supplier_order_tally
          )
          SELECT s.*,
+                {account},
                 (CASE WHEN s.status = 'ACTIVE' THEN '0' ELSE '1' END)
                   || ' ' || lower(COALESCE(s.name, '')) AS house_key,
                 s.supplier_code AS code_key,
@@ -739,7 +799,8 @@ fn supplier_rows() -> String {
           WHERE ($1::text IS NULL
                  OR s.supplier_code ILIKE $1
                  OR s.name ILIKE $1
-                 OR s.contact_name ILIKE $1)"
+                 OR s.contact_name ILIKE $1)",
+        account = account_name("s"),
     )
 }
 
@@ -877,8 +938,9 @@ pub async fn list_supplier_options(
         .unwrap_or(SUPPLIER_DEFAULT_LIMIT)
         .clamp(1, SUPPLIER_MAX_LIMIT);
     let rows = sqlx::query(
-        "WITH kept AS NOT MATERIALIZED (
-             SELECT s.*,
+        &format!(
+            "WITH kept AS NOT MATERIALIZED (
+             SELECT s.*, {account},
                     (CASE WHEN s.status = 'ACTIVE' THEN '0' ELSE '1' END)
                       || ' ' || lower(COALESCE(s.name, '')) AS house_key
                FROM supplier s
@@ -892,6 +954,8 @@ pub async fn list_supplier_options(
                 )
           ORDER BY house_key, supplier_id
           LIMIT $3",
+            account = account_name("s"),
+        ),
     )
     .bind(status)
     .bind(cursor.as_ref().map(|c| c.supplier_id))
@@ -1001,11 +1065,14 @@ async fn supplier_facets(
 }
 
 pub async fn get_supplier(pool: &PgPool, supplier_id: Uuid) -> Result<Supplier, AppError> {
-    let row = sqlx::query("SELECT * FROM supplier WHERE supplier_id = $1")
-        .bind(supplier_id)
-        .fetch_optional(pool)
-        .await?
-        .ok_or_else(|| AppError::NotFound("Supplier".to_owned()))?;
+    let row = sqlx::query(&format!(
+        "SELECT s.*, {} FROM supplier s WHERE s.supplier_id = $1",
+        account_name("s")
+    ))
+    .bind(supplier_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| AppError::NotFound("Supplier".to_owned()))?;
     supplier_from_row(row)
 }
 
@@ -1021,6 +1088,7 @@ pub async fn create_supplier(
     let name = required_supplier_text("name", request.name).map_err(validation)?;
     let legal_form = normalize_legal_form(request.legal_form).map_err(validation)?;
     let notes = optional_supplier_text(request.notes);
+    let kind = normalize_supplier_kind(request.kind)?;
     let contact_name = optional_supplier_text(request.contact_name);
     let phone = normalize_supplier_phones(request.phone).map_err(validation)?;
     let email = optional_supplier_text(request.email);
@@ -1056,16 +1124,19 @@ pub async fn create_supplier(
     let supplier_code_normalized =
         normalize_supplier_code("supplier_code", &supplier_code).map_err(validation)?;
 
-    let row = sqlx::query(
+    let row = sqlx::query(&format!(
         "INSERT INTO supplier
              (supplier_id, supplier_code, supplier_code_normalized, name,
               contact_name, phone, email, address, status,
               created_by, updated_by, category, expense_account_code,
-              npwp, is_pkp, default_payment_terms_code, legal_form, notes)
+              npwp, is_pkp, default_payment_terms_code, legal_form, notes, kind)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10,
-                 COALESCE($11,'MERCHANDISE'),$12,$13,$14,$15,$16,$17)
-         RETURNING *",
-    )
+                 COALESCE($11,'MERCHANDISE'),$12,$13,$14,$15,$16,$17,
+                 COALESCE($18, {derived}))
+         RETURNING *, {account}",
+        derived = derived_kind("$11::text", "$12::text"),
+        account = account_name("supplier"),
+    ))
     .bind(Uuid::new_v4())
     .bind(supplier_code)
     .bind(supplier_code_normalized)
@@ -1083,6 +1154,7 @@ pub async fn create_supplier(
     .bind(default_payment_terms_code)
     .bind(legal_form)
     .bind(notes)
+    .bind(kind)
     .fetch_one(&mut *transaction)
     .await
     .map_err(map_catalog_write_error)?;
@@ -1160,6 +1232,7 @@ pub async fn update_supplier(
     let changes_terms = request.default_payment_terms_code.is_present();
     let changes_legal_form = request.legal_form.is_present();
     let changes_notes = request.notes.is_present();
+    let changes_kind = request.kind.is_present();
     let changes_contacts = request.contacts.is_some();
     if !(changes_code
         || changes_name
@@ -1174,6 +1247,7 @@ pub async fn update_supplier(
         || changes_terms
         || changes_legal_form
         || changes_notes
+        || changes_kind
         || changes_contacts)
     {
         return Err(AppError::Validation(
@@ -1207,6 +1281,7 @@ pub async fn update_supplier(
         optional_supplier_text(request.default_payment_terms_code.into_option());
     let legal_form = normalize_legal_form(request.legal_form.into_option()).map_err(validation)?;
     let notes = optional_supplier_text(request.notes.into_option());
+    let kind = normalize_supplier_kind(request.kind.into_option())?;
     // `false` rather than `None` when the flag is absent: the CASE below only
     // reads it when `changes_pkp` is true, and a NOT NULL column cannot take a
     // null even on the branch that is never chosen.
@@ -1218,7 +1293,7 @@ pub async fn update_supplier(
     {
         return Ok(serde_json::from_value(response)?);
     }
-    let row = sqlx::query(
+    let row = sqlx::query(&format!(
         "UPDATE supplier SET
              supplier_code = CASE WHEN $3 THEN $4 ELSE supplier_code END,
              supplier_code_normalized = CASE WHEN $3 THEN $5 ELSE supplier_code_normalized END,
@@ -1235,10 +1310,20 @@ pub async fn update_supplier(
                  CASE WHEN $25 THEN $26 ELSE default_payment_terms_code END,
              legal_form = CASE WHEN $27 THEN $28 ELSE legal_form END,
              notes = CASE WHEN $29 THEN $30 ELSE notes END,
+             kind = CASE WHEN $31 THEN $32
+                         WHEN $17 OR $19 THEN {derived}
+                         ELSE kind END,
              version = version + 1, updated_by = $16, updated_at = now()
          WHERE supplier_id = $1 AND version = $2
-         RETURNING *",
-    )
+         RETURNING *, {account}",
+        // The book and the account as they will be, read off the old row
+        // where this update does not change them.
+        derived = derived_kind(
+            "CASE WHEN $17 THEN $18::text ELSE category END",
+            "CASE WHEN $19 THEN $20::text ELSE expense_account_code END",
+        ),
+        account = account_name("supplier"),
+    ))
     .bind(supplier_id)
     .bind(expected_version)
     .bind(changes_code)
@@ -1269,6 +1354,8 @@ pub async fn update_supplier(
     .bind(legal_form)
     .bind(changes_notes)
     .bind(notes)
+    .bind(changes_kind)
+    .bind(kind)
     .fetch_optional(&mut *transaction)
     .await
     .map_err(map_catalog_write_error)?;
@@ -1952,6 +2039,12 @@ pub(crate) fn sourced_item_from_row(row: PgRow) -> Result<SourcedItem, AppError>
             .map_err(validation)?,
         category: row.try_get("s_category")?,
         expense_account_code: row.try_get("s_expense_account_code")?,
+        expense_account_name: row
+            .try_get::<Option<String>, _>("s_expense_account_name")
+            .unwrap_or_default(),
+        kind: row
+            .try_get::<Option<String>, _>("s_kind")
+            .unwrap_or_default(),
         npwp: row.try_get("s_npwp")?,
         is_pkp: row.try_get("s_is_pkp")?,
         default_payment_terms_code: row.try_get("s_default_payment_terms_code")?,
@@ -2447,7 +2540,7 @@ pub struct CatalogPurchaseLineVariant {
     /// links to photographs already stored, in the order they were added.
     /// Optional; most variants carry none.
     #[serde(default)]
-    #[cfg_attr(feature = "ts", ts(optional))]
+    #[cfg_attr(feature = "ts", ts(as = "Option<Vec<String>>", optional))]
     pub image_urls: Vec<String>,
 }
 

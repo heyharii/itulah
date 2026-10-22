@@ -205,7 +205,7 @@ async fn a_contract(
             counterparty_name: Some("Pasar Raya Inkubator".into()),
             site_id: Some(SITE.into()),
             site_scope: None,
-            asset_id: None,
+            asset_ids: vec![],
             starts_on: day(2026, 1, 1),
             ends_on,
             contract_value_minor: value,
@@ -609,7 +609,7 @@ async fn the_suggestion_follows_the_brief_order(pool: PgPool) {
             counterparty_name: Some("Vendor Servis".into()),
             site_id: Some(SITE.into()),
             site_scope: None,
-            asset_id: None,
+            asset_ids: vec![],
             starts_on: day(2026, 1, 1),
             ends_on: None,
             contract_value_minor: None,
@@ -680,7 +680,7 @@ async fn the_suggestion_follows_the_brief_order(pool: PgPool) {
             counterparty_name: Some("Pemilik van".into()),
             site_id: Some(SITE.into()),
             site_scope: None,
-            asset_id: None,
+            asset_ids: vec![],
             starts_on: day(2026, 1, 1),
             ends_on: None,
             contract_value_minor: Some(12_000_000),
@@ -799,6 +799,7 @@ async fn only_posted_lines_count_and_an_object_is_counted_once(pool: PgPool) {
             statuses: vec![],
             needle: None,
             limit: 100,
+            ..Default::default()
         },
     )
     .await

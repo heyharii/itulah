@@ -1,0 +1,117 @@
+<!-- @dsCard group="Patterns" height=875 page subtitle="Template · copy /procurement/orders at 414" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>ListPhone — preview</title><style>body{margin:0}
+/* ListPhone: the PO list at 414. Top bar, band sentence, grouped cards, then the dock over the tab bar. */
+.ds-listphone-stage{align-items:center}
+.ds-listphone-frame{display:flex;flex-direction:column;width:414px}
+/* the top bar (top-bar.tsx PhoneTitle): 52px, the title at 17px on the 16px gutter */
+.ds-listphone-top{display:flex;align-items:center;flex:none;height:52px;padding:0 var(--phone-gutter)}
+/* the band: the sentence under the title, 15px in body, on a hairline (SummaryBand) */
+.ds-listphone-band{margin:0;padding:2px var(--phone-gutter) 14px;border-bottom:1px solid var(--hairline)}
+.ds-listphone-band b{font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.ds-listphone-band b.is-late{color:var(--bad-fg)}
+/* the list: 16px gutters, cards 10px apart, a group heading before its cards */
+.ds-listphone-list{display:flex;flex-direction:column;gap:10px;padding:8px var(--phone-gutter) 16px}
+.ds-listphone-group{display:flex;align-items:center;gap:8px;padding:8px 4px 0;font-size:16px;line-height:24px;font-weight:600;color:var(--ink)}
+.ds-listphone-group .ds-listphone-n{flex:none;white-space:nowrap;font-size:15px;font-weight:400;color:var(--mute);font-variant-numeric:tabular-nums}
+.ds-listphone-group .ds-ico{color:var(--line-ico)}
+.ds-listphone-spacer{flex:1}
+.ds-listphone-text{display:flex;flex-direction:column;gap:2px;min-width:0}
+.ds-card-line b.ds-listphone-late{color:var(--bad-fg);font-weight:500}
+.ds-listphone-foot{padding:8px 16px}
+.ds-listphone-recv{display:flex;flex-direction:column;line-height:24px;font-variant-numeric:tabular-nums}
+.ds-listphone-recv b{font-weight:600;color:var(--bad-fg)}
+/* the dock: a floating card 8px in and 8px above the tab bar (dock.tsx, bottom-bar.tsx) */
+.ds-listphone-dockwrap{padding:0 8px 8px}
+.ds-listphone-dockcard{border:1px solid rgb(0 0 0 / 0.06);border-radius:28px;background:color-mix(in srgb,var(--canvas) 95%,transparent);box-shadow:var(--shadow-float)}
+.ds-listphone-dockrow{display:flex;align-items:center;gap:6px;padding:8px}
+.ds-listphone-chip{flex:none;padding:0 12px 0 16px;gap:4px;border:0}
+.ds-listphone-chip .ds-ico{color:var(--line-ico)}
+.ds-listphone-capsule{min-width:0;padding:0 4px 0 14px;gap:0}
+.ds-listphone-find{display:flex;align-items:center;gap:8px;flex:1;min-width:0;color:var(--mute);white-space:nowrap}
+.ds-listphone-find span:last-child{overflow:hidden;text-overflow:ellipsis}
+.ds-listphone-btn{display:grid;place-items:center;flex:none;width:36px;height:36px;border-radius:var(--r-full);color:var(--body)}
+.ds-listphone-reload{display:grid;place-items:center;flex:none;width:var(--tap);height:var(--tap);border:0;border-radius:var(--r-full);background:var(--soft-2);color:var(--body)}
+.ds-listphone-fab{flex:none}
+/* the tab bar: Home, then the department's screens; the lit one has the wash and the bar on top */
+.ds-listphone-tabs{border-top-color:rgb(0 0 0 / 0.06)}
+.ds-listphone-tabs .ds-tabbar-item{position:relative;gap:2px;line-height:1.2;letter-spacing:0.005em}
+.ds-listphone-wash{position:absolute;inset:0;background:linear-gradient(to bottom,color-mix(in srgb,var(--accent) 15%,transparent),transparent)}
+.ds-listphone-lit{position:absolute;top:0;left:50%;width:40px;height:3px;margin-left:-20px;border-radius:0 0 var(--r-full) var(--r-full);background:var(--accent)}
+.ds-listphone-tabs .ds-tabbar-item>*:not(.ds-listphone-wash):not(.ds-listphone-lit){position:relative}
+.ds-listphone-iconwrap{position:relative;display:inline-flex}
+.ds-listphone-dot{position:absolute;top:-2px;right:-4px;width:10px;height:10px;border-radius:var(--r-full);background:var(--accent);box-shadow:0 0 0 2px var(--canvas)}
+</style></head>
+<body>
+<div class="ds ds-stage ds-listphone-stage">
+  <div class="ds-phone ds-listphone-frame">
+
+    <header class="ds-listphone-top"><h1 class="ds-title">Purchase Orders</h1></header>
+    <p class="ds-band-sentence ds-listphone-band">Hi Rina, <b class="is-late">1&nbsp;order&nbsp;is&nbsp;late</b>. <b>18</b>&nbsp;orders are active, <b>Rp&nbsp;102,7&nbsp;M</b> in total.</p>
+
+    <div class="ds-listphone-list">
+
+      <div class="ds-listphone-group"><span>Garmen Nusantara, PT</span><span class="ds-listphone-n">2 orders</span><span class="ds-listphone-spacer"></span><span class="ds-listphone-n" title="Rp 8.160.000">Rp 8,2 M</span><span class="ds-ico ds-ico-chevron-down"></span></div>
+
+      <div class="ds-card">
+        <div class="ds-card-top">
+          <div class="ds-listphone-text">
+            <span class="ds-card-name">Garmen Nusantara, PT</span>
+            <span class="ds-card-line">PO-161026-010 · 1 item</span>
+            <span class="ds-card-line">Delivery <b>29 Oct 2026</b></span>
+          </div>
+          <div class="ds-card-figure"><span class="ds-lead">24<span class="ds-lead-unit"> pcs</span></span><span class="ds-card-line">Rp 2.040.000</span></div>
+        </div>
+        <div class="ds-card-foot"><span>Received 0 pcs</span><span class="ds-status ds-status--ok">Active</span></div>
+      </div>
+
+      <div class="ds-card">
+        <div class="ds-card-top">
+          <div class="ds-listphone-text">
+            <span class="ds-card-name">Garmen Nusantara, PT</span>
+            <span class="ds-card-line">PO-101026-003 · 3 items</span>
+            <span class="ds-card-line">Delivery <b>21 Oct 2026</b></span>
+          </div>
+          <div class="ds-card-figure"><span class="ds-lead">72<span class="ds-lead-unit"> pcs</span></span><span class="ds-card-line">Rp 6.120.000</span></div>
+        </div>
+        <div class="ds-card-foot ds-listphone-foot"><span class="ds-listphone-recv"><span>Received <b>36 pcs</b></span><span>Rp 3.060.000</span></span><span class="ds-status ds-status--warn">Partially received</span></div>
+      </div>
+
+      <div class="ds-listphone-group"><span>Sepatu Sejahtera, CV</span><span class="ds-listphone-n">1 order</span><span class="ds-listphone-spacer"></span><span class="ds-listphone-n" title="Rp 18.000.000">Rp 18,0 M</span><span class="ds-ico ds-ico-chevron-down"></span></div>
+
+      <div class="ds-card">
+        <div class="ds-card-top">
+          <div class="ds-listphone-text">
+            <span class="ds-card-name">Sepatu Sejahtera, CV</span>
+            <span class="ds-card-line">PO-081026-002 · 6 items</span>
+            <span class="ds-card-line">Delivery <b class="ds-listphone-late">14 Oct 2026</b></span>
+          </div>
+          <div class="ds-card-figure"><span class="ds-lead">120<span class="ds-lead-unit"> pcs</span></span><span class="ds-card-line">Rp 18.000.000</span></div>
+        </div>
+        <div class="ds-card-foot"><span>Received 0 pcs</span><span class="ds-status ds-status--ok">Active</span></div>
+      </div>
+
+    </div>
+
+    <div class="ds-listphone-dockwrap"><div class="ds-listphone-dockcard"><div class="ds-listphone-dockrow">
+      <button class="ds-dock-chip ds-listphone-chip" type="button">Active<span class="ds-ico ds-ico-chevron-down"></span></button>
+      <div class="ds-dock-search ds-listphone-capsule">
+        <span class="ds-listphone-find"><span class="ds-ico ds-ico-search"></span><span>Search Orders</span></span>
+        <span class="ds-listphone-btn"><span class="ds-ico ds-ico-filter"></span></span>
+      </div>
+      <button class="ds-listphone-reload" type="button" aria-label="Reload"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg></button>
+      <button class="ds-fab ds-listphone-fab" type="button" aria-label="Add New Order"><span class="ds-ico ds-ico-plus ds-ico--20"></span></button>
+    </div></div></div>
+
+    <nav class="ds-tabbar ds-listphone-tabs" aria-label="Main">
+      <a class="ds-tabbar-item"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>Home</a>
+      <a class="ds-tabbar-item is-active" aria-current="page"><span class="ds-listphone-wash"></span><span class="ds-listphone-lit"></span><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4"/><path d="M12 16h4"/><path d="M8 11h.01"/><path d="M8 16h.01"/></svg>Orders</a>
+      <a class="ds-tabbar-item"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/></svg>Suppliers</a>
+      <a class="ds-tabbar-item"><span class="ds-listphone-iconwrap"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11"/></svg><span class="ds-listphone-dot"></span></span>Return PO</a>
+    </nav>
+
+  </div>
+</div>
+</body>
+</html>

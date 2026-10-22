@@ -3,6 +3,7 @@ import { Archive, FileText, Paperclip } from "lucide-react"
 import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
+import { ConfirmButton } from "@/components/ui/dialog"
 import { Field, Input } from "@/components/ui/field"
 import { MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
@@ -16,13 +17,18 @@ import {
   gaContractTypes,
   gaKeys,
   recordMeterReading,
+  updateGaContract,
 } from "@/lib/queries/ga"
 import { uploadDocument } from "@/lib/queries/workplace"
+import { toast } from "@/lib/toast"
 import {
   monthLabel,
   siteOf,
   useContractParty,
 } from "@/screens/contracts/format"
+import { coversAssets } from "@/screens/contracts/claim-words"
+import { ClaimSheetHost, PolicyClaimsSection } from "@/screens/contracts/claims"
+import { ContractCoversSection } from "@/screens/contracts/covers"
 import { FinanceMark, StandingPill } from "@/screens/contracts/parts"
 import { BillRequestForm } from "@/screens/ga/bill-request"
 import type {
@@ -30,7 +36,29 @@ import type {
   GaContractRow,
   GaDocument,
   GaMeterReading,
+  UpdateGaContractRequest,
 } from "@itulah/contract"
+
+/// PATCH leaves alone whatever is `null`; the generated type has no optionals,
+/// so a status move spells out that it touches nothing else.
+const UNCHANGED: UpdateGaContractRequest = {
+  contract_number: null,
+  contract_type: null,
+  objek: null,
+  supplier_id: null,
+  counterparty_name: null,
+  site_id: null,
+  site_scope: null,
+  starts_on: null,
+  ends_on: null,
+  contract_value_minor: null,
+  is_signed: null,
+  signed_by: null,
+  customer_number: null,
+  reminder_days: null,
+  notes: null,
+  status: null,
+}
 
 /// One contract, as GA keeps the deal — and the half that belongs to the
 /// other desk is marked as the other desk's.
@@ -70,109 +98,178 @@ export function ContractHubSheet({
   // per contract, so the question drops whenever another record opens.
   const [archiving, setArchiving] = useState(false)
 
+  // The ladder is DRAFT → ACTIVE → TERMINATED and the server refuses any
+  // other step. A contract made here starts DRAFT, and the reminder job and
+  // the GA overview read only ACTIVE ones, so this is how a deal goes live.
+  // Ending it keeps the reason in the notes, the way archiving does.
+  const client = useQueryClient()
+  const move = useMutation({
+    mutationFn: (change: {
+      row: GaContractRow
+      status: "ACTIVE" | "TERMINATED"
+      reason?: string
+    }) =>
+      updateGaContract(change.row.contract_id, {
+        ...UNCHANGED,
+        status: change.status,
+        notes:
+          change.reason === undefined
+            ? null
+            : [change.row.notes, `Terminated: ${change.reason.trim()}`]
+                .filter((part) => part !== null && part !== "")
+                .join(" "),
+      }),
+    onSuccess: (_saved, change) => {
+      void client.invalidateQueries({ queryKey: gaKeys.all })
+      toast.success(
+        change.status === "ACTIVE" ? "Contract active" : "Contract terminated"
+      )
+    },
+  })
+  const contract = hub.data?.contract
+
   return (
-    <Sheet
-      open={open}
-      onOpenChange={(next) => !next && onClose()}
-      width="wide"
-      title={hub.data === undefined ? "Contract" : partyName(hub.data.contract)}
-      id={
-        hub.data === undefined
-          ? undefined
-          : (hub.data.contract.contract_number ?? hub.data.contract.contract_id)
-      }
-      caption={
-        hub.data === undefined ? undefined : (
-          <>
-            {hub.data.contract.contract_type_name} · {siteOf(hub.data.contract)}
-          </>
-        )
-      }
-      subject={
-        contractId === undefined
-          ? undefined
-          : { kind: "contract", id: contractId }
-      }
-      badge={
-        hub.data === undefined ? undefined : (
-          <>
+    // A claim opens over the policy; a stack that already hosts the claim
+    // sheet (the asset's) keeps hosting it.
+    <ClaimSheetHost>
+      <Sheet
+        open={open}
+        onOpenChange={(next) => !next && onClose()}
+        width="wide"
+        title={
+          hub.data === undefined ? "Contract" : partyName(hub.data.contract)
+        }
+        id={
+          hub.data === undefined
+            ? undefined
+            : (hub.data.contract.contract_number ??
+              hub.data.contract.contract_id)
+        }
+        caption={
+          hub.data === undefined ? undefined : (
+            <>
+              {hub.data.contract.contract_type_name} ·{" "}
+              {siteOf(hub.data.contract)}
+            </>
+          )
+        }
+        subject={
+          contractId === undefined
+            ? undefined
+            : { kind: "contract", id: contractId }
+        }
+        // One status: a living contract's window, or how an ended one ended
+        // (`standingOf`).
+        badge={
+          hub.data === undefined ? undefined : (
             <StandingPill row={hub.data.contract} />
-            {hub.data.contract.archived && <Pill tone="neutral">Archived</Pill>}
-          </>
-        )
-      }
-      actions={
-        hub.data === undefined || hub.data.contract.archived ? undefined : (
-          <Button variant="soft" onClick={() => setArchiving(true)}>
-            <Archive />
-            Archive
-          </Button>
-        )
-      }
-      footer={
-        hub.data !== undefined && archiving ? (
-          <ArchiveForm
-            row={hub.data.contract}
-            onDone={onClose}
-            onCancel={() => setArchiving(false)}
-          />
-        ) : undefined
-      }
-      tabs={
-        hub.data === undefined
-          ? undefined
-          : [
-              {
-                value: "detail",
-                label: "Details",
-                content: <DetailTab hub={hub.data} />,
-              },
-              {
-                value: "bills",
-                label: "Bills (Finance)",
-                content: (
-                  <BillsTab row={hub.data.contract} bills={hub.data.bills} />
-                ),
-              },
-              // Only the subscribers carry meters. The other fifteen types
-              // would draw a tab with nothing to read.
-              ...(hub.data.contract.group_code === "LANGGANAN"
-                ? [
-                    {
-                      value: "usage",
-                      label: "Usage",
-                      content: (
-                        <UsageTab
-                          contractId={hub.data.contract.contract_id}
-                          readings={hub.data.meter_readings}
-                        />
-                      ),
-                    },
-                  ]
-                : []),
-              {
-                value: "templates",
-                label: "Recurring bills (Finance)",
-                content: <TemplatesTab templates={hub.data.templates} />,
-              },
-              {
-                value: "documents",
-                label: "Documents",
-                content: (
-                  <DocumentsTab
-                    row={hub.data.contract}
-                    documents={hub.data.documents}
-                  />
-                ),
-              },
-            ]
-      }
-    >
-      {hub.isLoading && <LoadingState>Opening the contract…</LoadingState>}
-      {hub.error instanceof Error && (
-        <Banner tone="bad">{hub.error.message}</Banner>
-      )}
-    </Sheet>
+          )
+        }
+        actions={
+          contract === undefined || contract.archived ? undefined : (
+            <>
+              {contract.status === "ACTIVE" && (
+                <ConfirmButton
+                  label="Terminate"
+                  title="Terminate this contract?"
+                  description="It stops being active and leaves the reminders. A terminated contract cannot be activated again."
+                  tone="danger"
+                  reason={{ label: "Why it is terminated" }}
+                  onConfirm={(reason) =>
+                    move.mutateAsync({
+                      row: contract,
+                      status: "TERMINATED",
+                      reason,
+                    })
+                  }
+                />
+              )}
+              <Button variant="soft" onClick={() => setArchiving(true)}>
+                <Archive />
+                End contract
+              </Button>
+              {contract.status === "DRAFT" && (
+                <Button
+                  variant="primary"
+                  pending={move.isPending}
+                  onClick={() =>
+                    move.mutate(
+                      { row: contract, status: "ACTIVE" },
+                      { onError: (error) => toast.error(error.message) }
+                    )
+                  }
+                >
+                  {move.isPending ? "Activating…" : "Activate"}
+                </Button>
+              )}
+            </>
+          )
+        }
+        footer={
+          hub.data !== undefined && archiving ? (
+            <ArchiveForm
+              row={hub.data.contract}
+              onDone={onClose}
+              onCancel={() => setArchiving(false)}
+            />
+          ) : undefined
+        }
+        tabs={
+          hub.data === undefined
+            ? undefined
+            : [
+                {
+                  value: "detail",
+                  label: "Details",
+                  content: <DetailTab hub={hub.data} />,
+                },
+                {
+                  value: "bills",
+                  label: "Bills (Finance)",
+                  content: (
+                    <BillsTab row={hub.data.contract} bills={hub.data.bills} />
+                  ),
+                },
+                // Only the subscribers carry meters. The other fifteen types
+                // would draw a tab with nothing to read.
+                ...(hub.data.contract.group_code === "LANGGANAN"
+                  ? [
+                      {
+                        value: "usage",
+                        label: "Usage",
+                        content: (
+                          <UsageTab
+                            contractId={hub.data.contract.contract_id}
+                            readings={hub.data.meter_readings}
+                          />
+                        ),
+                      },
+                    ]
+                  : []),
+                {
+                  value: "templates",
+                  label: "Recurring bills (Finance)",
+                  content: <TemplatesTab templates={hub.data.templates} />,
+                },
+                {
+                  value: "documents",
+                  label: "Documents",
+                  content: (
+                    <DocumentsTab
+                      row={hub.data.contract}
+                      documents={hub.data.documents}
+                    />
+                  ),
+                },
+              ]
+        }
+      >
+        {hub.isLoading && <LoadingState>Opening the contract…</LoadingState>}
+        {hub.error instanceof Error && (
+          <Banner tone="bad">{hub.error.message}</Banner>
+        )}
+      </Sheet>
+    </ClaimSheetHost>
   )
 }
 
@@ -249,6 +346,16 @@ function DetailTab({ hub }: { hub: GaContractHub }) {
           )}
         </Facts>
       </section>
+
+      {/* What it covers (0975): one policy over a fleet, one maintenance
+          contract over a store's ACs. */}
+      {(coversAssets(contract.contract_type) || hub.covers.length > 0) && (
+        <ContractCoversSection contract={contract} covers={hub.covers} />
+      )}
+
+      {contract.group_code === "ASURANSI" && (
+        <PolicyClaimsSection contract={contract} covers={hub.covers} />
+      )}
     </div>
   )
 }
@@ -324,37 +431,41 @@ function BillsTab({
           onCancel={() => setBilling(false)}
         />
       )}
-      <div className="grid grid-cols-2 gap-3">
-        <figure>
-          <figcaption className="text-eyebrow font-medium text-body">
-            {row.group_code === "DISEWAKAN"
-              ? "Received to date"
-              : "Billed to date"}{" "}
-            <FinanceMark />
-          </figcaption>
-          <div className="mt-1 text-[1.125rem] leading-none font-semibold tracking-[-0.02em] text-ink tabular-nums">
-            {money(row.billed_minor)}
+      {/* Billed and remaining are summed from posted SUPPLIER bills. On a
+          leased-out contract that is not what the tenant paid, so the figures
+          are not drawn until a receivables source exists. */}
+      {row.group_code !== "DISEWAKAN" && (
+        <>
+          <div className="grid grid-cols-2 gap-3">
+            <figure>
+              <figcaption className="text-eyebrow font-medium text-body">
+                Billed to date <FinanceMark />
+              </figcaption>
+              <div className="mt-1 text-[1.125rem] leading-none font-semibold tracking-[-0.02em] text-ink tabular-nums">
+                {money(row.billed_minor)}
+              </div>
+            </figure>
+            <figure>
+              <figcaption className="text-eyebrow font-medium text-body">
+                Remaining <FinanceMark />
+              </figcaption>
+              <div className="mt-1 text-[1.125rem] leading-none font-semibold tracking-[-0.02em] text-ink tabular-nums">
+                {money(row.remaining_minor)}
+                {row.remaining_minor === null && (
+                  <span className="text-pill font-normal text-mute">
+                    {" "}
+                    · no contract value
+                  </span>
+                )}
+              </div>
+            </figure>
           </div>
-        </figure>
-        <figure>
-          <figcaption className="text-eyebrow font-medium text-body">
-            {row.group_code === "DISEWAKAN" ? "Not yet received" : "Remaining"}{" "}
-            <FinanceMark />
-          </figcaption>
-          <div className="mt-1 text-[1.125rem] leading-none font-semibold tracking-[-0.02em] text-ink tabular-nums">
-            {money(row.remaining_minor)}
-            {row.remaining_minor === null && (
-              <span className="text-pill font-normal text-mute">
-                {" "}
-                · no contract value
-              </span>
-            )}
-          </div>
-        </figure>
-      </div>
 
-      {row.contract_value_minor !== null && row.contract_value_minor > 0 && (
-        <Meter value={row.billed_minor / row.contract_value_minor} />
+          {row.contract_value_minor !== null &&
+            row.contract_value_minor > 0 && (
+              <Meter value={row.billed_minor / row.contract_value_minor} />
+            )}
+        </>
       )}
 
       <div className="overflow-x-auto">
@@ -904,7 +1015,7 @@ function ArchiveForm({
   return (
     <div className="flex items-end gap-3">
       <Field
-        label={`Archive ${row.contract_number ?? row.contract_id}`}
+        label={`Why ${row.contract_number ?? "this contract"} ends`}
         problem={problem || undefined}
         className="flex-1"
         required
@@ -921,7 +1032,7 @@ function ArchiveForm({
         />
       </Field>
       <Button variant="primary" pending={archive.isPending} onClick={submit}>
-        {archive.isPending ? "Archiving…" : "Archive"}
+        {archive.isPending ? "Ending…" : "End contract"}
       </Button>
       <Button data-cancel variant="ghost" onClick={onCancel}>
         Cancel

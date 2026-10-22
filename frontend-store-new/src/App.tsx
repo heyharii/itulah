@@ -6,6 +6,7 @@ import { BootSkeleton } from "@/components/boot-skeleton"
 import { LoginForm } from "@/components/login-form"
 import { ServerStatus } from "@/components/server-status"
 import { SignInDoor } from "@/components/sign-in-door"
+import { Confirms } from "@/components/ui/confirm"
 import { Toasts } from "@/components/ui/toast"
 import { cacheKey } from "@/lib/api"
 import { startBasket } from "@/lib/basket"
@@ -85,6 +86,7 @@ export function App() {
       <ServerStatus />
       <RouterProvider router={router} />
       <Toasts />
+      <Confirms />
     </>
   )
 }

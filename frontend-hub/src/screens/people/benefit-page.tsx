@@ -9,11 +9,12 @@ import { Fab } from "@/components/ui/fab"
 import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { Checkbox, Field, Input } from "@/components/ui/field"
+import { Checkbox, Field } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { PickMany } from "@/components/ui/pick"
 import { MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
+import { ExpandingSearch } from "@/components/ui/list-chrome"
 import { EmptyState, LoadingState } from "@/components/ui/states"
 import { day, money, moment } from "@/lib/format"
 import {
@@ -25,11 +26,12 @@ import {
   benefitBalancesQuery,
   benefitSettingsQuery,
 } from "@/lib/queries/hr-benefit"
-import { useEveryEmployee } from "@/lib/queries/hr-employees"
+import { useEveryEmployee, useNameOfLogin } from "@/lib/queries/hr-employees"
 import { useReachableUnits } from "@/lib/queries/people"
 import { queryState } from "@/lib/query-state"
 import { useCanWrite } from "@/lib/session"
 import { AdjustSheet } from "@/screens/people/benefit-form"
+import { Quiet } from "@/screens/people/parts"
 import {
   CardButton,
   CardFigure,
@@ -77,11 +79,13 @@ export function BenefitPage() {
       {/* On a phone the search is the field over the bottom bar and filling
           is the round +. */}
       <div className="mb-3.5 flex flex-wrap items-center gap-x-4 gap-y-2.5">
-        <div className="w-80 max-md:hidden">
-          <Input
-            aria-label="Search people"
+        {/* The bar's own search, with its glass and its words: a bare box
+            read as nothing to type into. */}
+        <div className="group/bar flex w-80 max-md:hidden">
+          <ExpandingSearch
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            onChange={setSearch}
+            label="Search people"
           />
         </div>
         <Suspense fallback={null}>
@@ -362,8 +366,7 @@ function FillSheet({
   )
 }
 
-/// One person's account: the balance, what moved it, and the three things HR
-/// can do to it.
+/// One person's account in a sheet, opened from a row of the list.
 function PersonSheet({
   open,
   onClose,
@@ -373,85 +376,112 @@ function PersonSheet({
   onClose: () => void
   row: BenefitBalanceRow | null
 }) {
+  return (
+    <Sheet
+      open={open}
+      onOpenChange={(next) => !next && onClose()}
+      title={row === null ? "Benefit" : nameOf(row)}
+      footer={<SheetFooter onCancel={onClose} />}
+    >
+      {row !== null && (
+        <BenefitPanel
+          employeeId={row.employee_id}
+          name={nameOf(row)}
+          code={row.employee_code}
+          enabled={open}
+        />
+      )}
+    </Sheet>
+  )
+}
+
+/// One person's account: the balance, what moved it, and the three things HR
+/// can do to it. The same panel on Benefits › Balances and on the person's
+/// own record in Employees, so both read and move one balance.
+export function BenefitPanel({
+  employeeId,
+  name,
+  code,
+  enabled = true,
+}: {
+  employeeId: string
+  name: string
+  code: string
+  enabled?: boolean
+}) {
   const canWrite = useCanWrite()
+  const nameOfLogin = useNameOfLogin()
   const account = useQuery({
-    queryKey: benefitKeys.account(row?.employee_id ?? ""),
-    queryFn: ({ signal }) => benefitAccount(row?.employee_id ?? "", signal),
-    enabled: open && row !== null,
+    queryKey: benefitKeys.account(employeeId),
+    queryFn: ({ signal }) => benefitAccount(employeeId, signal),
+    enabled,
   })
   const act = useOpener<BenefitAction>()
 
   return (
     <>
-      <Sheet
-        open={open}
-        onOpenChange={(next) => !next && onClose()}
-        title={row === null ? "Benefit" : nameOf(row)}
-        footer={<SheetFooter onCancel={onClose} />}
-      >
-        <div className="flex flex-col gap-4">
-          <Facts>
-            <Fact term="Balance">
-              <span className="text-hero font-semibold">
-                {money(account.data?.balance_minor ?? row?.balance_minor)}
-              </span>
-            </Fact>
-            <Fact term="Code">{row?.employee_code ?? "—"}</Fact>
-          </Facts>
-          {canWrite && (
-            <div className="flex flex-wrap gap-2">
-              <Button onClick={() => act.show("ADD")}>Add</Button>
-              <Button onClick={() => act.show("REMOVE")}>Take off</Button>
-              <Button onClick={() => act.show("RESET")}>Reset</Button>
-            </div>
-          )}
-          {queryState(account, {
-            loading: "Reading the account…",
-            render: (view) =>
-              view.entries.length === 0 ? (
-                <EmptyState>Nothing has moved yet.</EmptyState>
-              ) : (
-                <MiniTable
-                  head={[
-                    "When",
-                    { label: "What", align: "left" },
-                    "Change",
-                    "Balance",
-                    { label: "By", align: "left" },
-                    { label: "Note", align: "left" },
-                  ]}
-                >
-                  {view.entries.map((entry) => (
-                    <MiniRow key={entry.id}>
-                      <MiniCell>{moment(entry.at)}</MiniCell>
-                      <MiniCell>
-                        {BENEFIT_KIND_LABEL[entry.kind] ?? entry.kind}
-                      </MiniCell>
-                      <MiniCell align="right">
-                        {signedMinor(entry.delta_minor, money)}
-                      </MiniCell>
-                      <MiniCell align="right">
-                        {money(entry.balance_after)}
-                      </MiniCell>
-                      <MiniCell>{entry.by}</MiniCell>
-                      <MiniCell>{entry.sale_ref ?? entry.reason}</MiniCell>
-                    </MiniRow>
-                  ))}
-                </MiniTable>
-              ),
-          })}
-        </div>
-      </Sheet>
-      {row !== null && (
-        <AdjustSheet
-          key={act.n}
-          open={act.isOpen}
-          onClose={act.hide}
-          employeeIds={[row.employee_id]}
-          startWith={act.item ?? "ADD"}
-          intro={`For ${nameOf(row)}.`}
-        />
-      )}
+      <div className="flex flex-col gap-4">
+        <Facts>
+          <Fact term="Balance">
+            <span className="text-hero font-semibold">
+              {account.data === undefined
+                ? "—"
+                : money(account.data.balance_minor)}
+            </span>
+          </Fact>
+          <Fact term="Code">{code}</Fact>
+        </Facts>
+        {canWrite && (
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => act.show("ADD")}>Add</Button>
+            <Button onClick={() => act.show("REMOVE")}>Take off</Button>
+            <Button onClick={() => act.show("RESET")}>Reset</Button>
+          </div>
+        )}
+        {queryState(account, {
+          loading: "Reading the account…",
+          render: (view) =>
+            view.entries.length === 0 ? (
+              <Quiet>Nothing has moved yet.</Quiet>
+            ) : (
+              <MiniTable
+                head={[
+                  "When",
+                  { label: "What", align: "left" },
+                  "Change",
+                  "Balance",
+                  { label: "By", align: "left" },
+                  { label: "Note", align: "left" },
+                ]}
+              >
+                {view.entries.map((entry) => (
+                  <MiniRow key={entry.id}>
+                    <MiniCell>{moment(entry.at)}</MiniCell>
+                    <MiniCell>
+                      {BENEFIT_KIND_LABEL[entry.kind] ?? entry.kind}
+                    </MiniCell>
+                    <MiniCell align="right">
+                      {signedMinor(entry.delta_minor, money)}
+                    </MiniCell>
+                    <MiniCell align="right">
+                      {money(entry.balance_after)}
+                    </MiniCell>
+                    <MiniCell>{nameOfLogin(entry.by)}</MiniCell>
+                    <MiniCell>{entry.sale_ref ?? entry.reason}</MiniCell>
+                  </MiniRow>
+                ))}
+              </MiniTable>
+            ),
+        })}
+      </div>
+      <AdjustSheet
+        key={act.n}
+        open={act.isOpen}
+        onClose={act.hide}
+        employeeIds={[employeeId]}
+        startWith={act.item ?? "ADD"}
+        intro={`For ${name}.`}
+      />
     </>
   )
 }

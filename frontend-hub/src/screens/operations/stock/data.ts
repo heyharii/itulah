@@ -1,7 +1,7 @@
 import { useQueries, useQuery } from "@tanstack/react-query"
 import { useMemo } from "react"
 
-import { weekday } from "@/lib/format"
+import { weekday, sku as skuNumber } from "@/lib/format"
 import { stockFleetQuery } from "@/lib/operations/queries"
 import {
   allotmentDetail,
@@ -481,7 +481,7 @@ export function useStock() {
         settleBy: SETTLE_LABEL[r.settle_by],
         pcs: r.quantity,
         lines: r.lines.map((l) => ({
-          name: l.article_name ?? l.sku_code,
+          name: l.article_name ?? skuNumber(l.sku_code),
           code: l.sku_code,
           pcs: l.quantity,
         })),

@@ -15,6 +15,7 @@ import { Fab } from "@/components/ui/fab"
 import { ConfirmButton } from "@/components/ui/dialog"
 import { Field, Input, Money, Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
+import { CellMoney } from "@/components/ui/rows-switch"
 import { Sheet } from "@/components/ui/sheet"
 import { SheetFooter } from "@/components/ui/sheet-footer"
 import { Status } from "@/components/ui/pill"
@@ -223,7 +224,7 @@ function CreditNotesScreen() {
                 }))}
               />
             ) : (
-              <Grid>
+              <Grid followRows>
                 <thead>
                   <tr>
                     <Th>Credit No</Th>
@@ -252,7 +253,9 @@ function CreditNotesScreen() {
                       </Td>
                       <Td>{row.invoice_number}</Td>
                       <Td>{reasonLabel(row.reason)}</Td>
-                      <Td align="right">{money(row.total_minor)}</Td>
+                      <Td align="right">
+                        <CellMoney minor={row.total_minor} />
+                      </Td>
                       <Td>
                         <NoteStatus status={row.status} />
                       </Td>

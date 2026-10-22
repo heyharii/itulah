@@ -16,7 +16,7 @@ import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
-import { Field, Input, Money, Select, Textarea } from "@/components/ui/field"
+import { Field, Input, Money, Textarea } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { MiniTable, TotalsLadder } from "@/components/ui/rows"
 import { PageHeader } from "@/components/ui/page-header"
@@ -118,6 +118,17 @@ const columns: ColumnDef<TableSetup, JournalEntryRow>[] = [
     accessorKey: "source_kind",
     header: "Source",
     size: 160,
+    // Goes on the wire as `kind` as well: the chip narrows the register, not
+    // only the pages in hand.
+    meta: {
+      filter: {
+        kind: "option",
+        single: true,
+        operators: ["isAnyOf"],
+        format: label,
+        options: SOURCE_KINDS.filter((source) => source.value !== ""),
+      },
+    },
     cell: ({ row }) => (
       <Pill tone={row.original.source_kind === "MANUAL" ? "warn" : "neutral"}>
         {label(row.original.source_kind)}
@@ -210,7 +221,6 @@ const SORTS: Record<string, string> = {
 
 export function Journal() {
   const [query, setQuery] = useState("")
-  const [kind, setKind] = useState("")
   const [unit, setUnit] = useState("")
   const [composing, setComposing] = useState(false)
   const entry = useSheet("entry")
@@ -218,6 +228,10 @@ export function Journal() {
   const [sorting, setSorting] = useState<SortingState>([
     { id: "posting_date", desc: true },
   ])
+
+  const filters = useFilters(columns)
+  const kind =
+    filters.filters.find((one) => one.column === "source_kind")?.values[0] ?? ""
 
   /// Debounced, because every keystroke is a round trip over the register.
   const needle = useDebounced(query.trim(), 400)
@@ -259,7 +273,6 @@ export function Journal() {
   // server — never the length of the pages loaded so far.
   const matched = entries.data?.pages[0]?.total ?? 0
 
-  const filters = useFilters(columns)
   /// Whether the search or a column clause is narrowing the register —
   /// "nothing was posted" and "nothing matches" have different fixes.
   const narrowed = needle !== "" || filters.filters.length > 0
@@ -296,51 +309,28 @@ export function Journal() {
         title="Journal"
         sub="Append-only. A wrong entry is answered by its mirror, never edited away."
         actions={
-          <>
-            <Input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              className="h-8 w-48"
-            />
-            <Button variant="primary" onClick={() => setComposing(true)}>
-              New entry
-            </Button>
-          </>
+          <Button variant="primary" onClick={() => setComposing(true)}>
+            New entry
+          </Button>
         }
       />
 
       <Toolbar>
         <WindowControl range={range} />
-        {/* Wrapped for the reason `<UnitSelect>` is: `<Select>` draws a
-            `w-full` span around the native control, and in a wrapping toolbar
-            that claims the whole row. */}
-        <span className="inline-flex w-48 shrink-0">
-          <Select
-            value={kind}
-            onChange={(next) => setKind(next)}
-            className="h-8 w-48"
-            aria-label="Source"
-          >
-            {SOURCE_KINDS.map((source) => (
-              <option key={source.value} value={source.value}>
-                {source.label}
-              </option>
-            ))}
-          </Select>
-        </span>
         <UnitSelect
           value={unit}
           onChange={setUnit}
           className="h-8 w-44"
           aria-label="Unit"
         />
-        {/* Only two columns are offered here, and the three controls to the
-            left are the reason: window, source and location all go on the
-            wire, so a second copy of any of them in the panel would be two
-            answers to one question. What is left is what the wire cannot
-            carry, and it narrows the pages loaded — the table keeps reading
-            while a clause leaves its end in view. */}
-        <FilterPanel model={filters} table={table} />
+        {/* The window, the source and the location go on the wire; the other
+            clause narrows the pages loaded — the table keeps reading while a
+            clause leaves its end in view. */}
+        <FilterPanel
+          model={filters}
+          table={table}
+          search={{ value: query, onChange: setQuery, label: "Search entries" }}
+        />
         <Toolbar.Spacer />
         {/* The window is stated rather than implied, and so is everything else
             narrowing the list, and how many entries the server found. */}

@@ -26,13 +26,12 @@ import { useNewArticlesCount } from "@/screens/master/nav"
 /// alone — they are not about an article.
 export const merchandiseArticlesNav: AppModule = {
   id: "merchandise-articles",
-  label: "Articles",
-  icon: Shirt,
-  home: "/merchandise",
+  label: "New Articles",
+  icon: PackagePlus,
+  home: "/merchandise/new-articles",
   sections: [
     {
       items: [
-        { path: "/merchandise", label: "Articles", icon: Shirt },
         {
           path: "/merchandise/new-articles",
           label: "New Articles",
@@ -42,11 +41,24 @@ export const merchandiseArticlesNav: AppModule = {
         },
       ],
     },
+  ],
+}
+
+/// The article and the words it is described with, last in the Merchandise
+/// menu under one chip, "Master Data" (owner, 2026-10-18: New Articles,
+/// Allotments, Return HO, then Master Data with Articles in it).
+export const merchandiseMasterNav: AppModule = {
+  id: "merchandise-master",
+  label: "Master Data",
+  icon: Shirt,
+  home: "/merchandise",
+  sections: [
     {
       // Grey chips, as in Sales (`sidebar-labels-prototype.html` A6).
-      label: "Attributes",
+      label: "Master Data",
       chip: true,
       items: [
+        { path: "/merchandise", label: "Articles", icon: Shirt },
         {
           path: "/merchandise/divisions",
           label: "Divisions",

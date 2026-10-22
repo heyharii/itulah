@@ -17,6 +17,10 @@
 //!   delivery before it reads the delivery.
 //! * [`INVENTORY_RETURN_INSPECTED_V1`] — the Gudang inspected (part of) a
 //!   store's return it received: good goods to the racks, damaged to reject.
+//! * [`INVENTORY_INBOUND_RECALLED_V1`] — a shop took back its count of a
+//!   delivery that was in MD's review, before MD answered (owner, 18 Oct
+//!   2026, "Recall count"): the receipt no longer counts, and the trip waits
+//!   for the shop's new one.
 //!
 //! A third, `inventory.putaway.v1`, was named here for a putaway step that is
 //! not part of the company's process; it is gone, and a node that ever sent
@@ -42,6 +46,7 @@ use uuid::Uuid;
 
 pub const INVENTORY_INBOUND_RECEIVED_V1: &str = "inventory.inbound.received.v1";
 pub const INVENTORY_RETURN_INSPECTED_V1: &str = "inventory.return.inspected.v1";
+pub const INVENTORY_INBOUND_RECALLED_V1: &str = "inventory.inbound.recalled.v1";
 
 /// Cloud → node: what a flow document did, for the node of a site it touches.
 pub const INVENTORY_FLOW_EVENTS_V1: &str = "inventory.flow.events.v1";
@@ -71,6 +76,15 @@ pub struct InboundReceivedLine {
     pub received: i64,
 }
 
+/// What the receiving site counted of one SKU, as it was typed (owner, 17–18
+/// Oct 2026): more than was sent, or a SKU the delivery did not carry, is
+/// counted here though nothing of it could be booked.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct InboundCountedLine {
+    pub sku_code: String,
+    pub quantity: i64,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct InboundReceivedPayload {
     pub schema_version: u32,
@@ -91,6 +105,12 @@ pub struct InboundReceivedPayload {
     /// Tags read that no koli of the delivery held.
     #[serde(default)]
     pub extra_units: i64,
+    /// The blind count per SKU the receipt was made from, when the site
+    /// counted rather than swept (store node 0080). Empty from a sweep, and
+    /// from a node older than the count: then what was received is all that
+    /// is known.
+    #[serde(default)]
+    pub counted: Vec<InboundCountedLine>,
     pub received_by: String,
     pub received_at: DateTime<Utc>,
 }
@@ -131,6 +151,19 @@ pub fn parse_inbound_received(payload: &Value) -> Result<InboundReceivedPayload,
                 "a received line of {} says {} found of {} handed over",
                 line.sku_code, line.received, line.expected
             ));
+        }
+    }
+    if received.counted.len() > MAX_FLOW_FACT_LINES {
+        return Err(format!(
+            "{INVENTORY_INBOUND_RECEIVED_V1} counts more than {MAX_FLOW_FACT_LINES} SKUs"
+        ));
+    }
+    for line in &received.counted {
+        if line.sku_code.trim().is_empty() {
+            return Err("a counted line names no SKU".into());
+        }
+        if line.quantity < 0 {
+            return Err(format!("the count of {} cannot be negative", line.sku_code));
         }
     }
     Ok(received)

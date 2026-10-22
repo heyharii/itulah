@@ -1,0 +1,65 @@
+<!-- @dsCard group="Actions" height=493 subtitle="Static rendition of the record-link class, openable and AppLink in the All white look" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>RecordLink — preview</title><style>
+body{margin:0}
+.ds-recordlink-states{display:grid;grid-template-columns:96px minmax(0,1fr);align-items:center;gap:8px 12px}
+.ds-recordlink-states .ds-title{margin:0}
+.ds-recordlink-focus{outline:2px solid var(--accent);outline-offset:2px}
+.ds-recordlink-table td:first-child{width:34%}
+.ds-recordlink-table tr.is-hover{background:var(--soft)}
+.ds-recordlink-line{display:flex;align-items:flex-start;gap:12px;padding:12px 16px;border:1px solid var(--hairline);border-radius:var(--r-card)}
+.ds-recordlink-line .ds-thumb{width:40px;height:40px}
+.ds-recordlink-text{display:flex;flex:1;flex-direction:column;gap:2px;min-width:0}
+.ds-recordlink-text .ds-link{align-self:flex-start;text-align:left}
+.ds-recordlink-quiet{color:var(--body)}
+.ds-recordlink-fig{display:flex;flex-direction:column;align-items:flex-end;font-variant-numeric:tabular-nums}
+</style></head>
+<body>
+<div class="ds ds-stage">
+
+  <div class="ds-col">
+    <p class="ds-caption">A record link in a sheet's title, in its three states</p>
+    <div class="ds-recordlink-states">
+      <span class="ds-caption">Rest</span>
+      <h3 class="ds-title"><button class="ds-link" type="button">Garmen Nusantara, PT</button></h3>
+      <span class="ds-caption">Pointer</span>
+      <h3 class="ds-title"><button class="ds-link is-hover" type="button">Garmen Nusantara, PT</button></h3>
+      <span class="ds-caption">Keyboard</span>
+      <h3 class="ds-title"><button class="ds-link ds-recordlink-focus" type="button">Garmen Nusantara, PT</button></h3>
+    </div>
+  </div>
+
+  <div class="ds-col">
+    <p class="ds-caption">Inside a row that opens: one target, nothing blue, a › under the pointer</p>
+    <div class="ds-table-card">
+      <table class="ds-table ds-recordlink-table">
+        <thead><tr><th>PO</th><th>Supplier</th><th>Status</th></tr></thead>
+        <tbody>
+          <tr class="ds-opens">
+            <td>PO-161026-010</td>
+            <td><button class="ds-link" type="button">Garmen Nusantara, PT</button></td>
+            <td><span class="ds-status ds-status--ok">Active</span></td>
+          </tr>
+          <tr class="ds-opens is-hover">
+            <td>PO-151026-004</td>
+            <td><button class="ds-link is-hover" type="button">Sepatu Sejahtera, CV</button></td>
+            <td><span class="ds-status ds-status--warn">Partially received</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="ds-col">
+    <p class="ds-caption">In an editable row, where nothing else opens: the item is a blue word</p>
+    <div class="ds-recordlink-line">
+      <span class="ds-thumb"><span class="ds-ico ds-ico-image ds-ico--20"></span></span>
+      <span class="ds-recordlink-text"><button class="ds-link" type="button">Kemeja Flanel Kotak, Navy / M</button><span class="ds-recordlink-quiet">Shirts · Flannel</span></span>
+      <span class="ds-recordlink-fig"><span>36 pcs</span><span class="ds-recordlink-quiet">Rp 3.060.000</span></span>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

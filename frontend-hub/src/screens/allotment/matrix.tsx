@@ -5,6 +5,8 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Package,
+  Truck,
   X,
 } from "lucide-react"
 import {
@@ -23,9 +25,9 @@ import { ConfirmButton } from "@/components/ui/dialog"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { SheetFooter } from "@/components/ui/sheet-footer"
 import { type FacetValue } from "@/components/ui/facets"
-import { Banner, EmptyState, Problem, Receipt } from "@/components/ui/states"
+import { Banner, EmptyState, Problem } from "@/components/ui/states"
 import { PickerSheet } from "@/components/ui/picker-sheet"
-import { count, quantity } from "@/lib/format"
+import { count, quantity, countPcs, sku as skuNumber } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import { useAppNavigate } from "@/lib/navigate"
 import { amendAllotment } from "@/lib/operations/changes"
@@ -59,8 +61,12 @@ import {
 } from "@/screens/inventory/shared"
 import { termLabel } from "@/screens/procurement/shared"
 import { ArticleThumb, colourDigitOf } from "./article-thumb"
-import { useAllotSelection, useSupplierOf } from "./to-allot-data"
-import { changeOf, floorOf, targetOf } from "./amend-data"
+import {
+  focusTransition,
+  useAllotSelection,
+  useSupplierOf,
+} from "./to-allot-data"
+import { changeOf, lockOf, targetOf, type Lock } from "./amend-data"
 import { DRAFT_KEY, allotFromOf } from "./draft"
 import {
   applyPatch,
@@ -217,27 +223,18 @@ const SKU_ROW = 56
 const DIVISION_ROW = 40
 
 /// What an article row is likely to measure before it has been measured: its
-/// name, its id, and its tags as chips that wrap inside the article column.
+/// name and its tags on one line under it.
 /// The grid then takes the real height (`measureElement`), so this only keeps
 /// the first paint close.
 function estimateArticleRow(tags: readonly string[]): number {
-  const room = 168
-  let lines = 0
-  let used = 0
-  for (const tag of tags) {
-    const width = tag.length * 7.4 + 20
-    if (lines === 0 || used + width + 4 > room) {
-      lines += 1
-      used = width
-    } else used += width + 4
-  }
-  return Math.max(64, 56 + (lines > 0 ? 4 + lines * 24 + (lines - 1) * 4 : 0))
+  // The name, and the tags on one line under it.
+  return tags.length > 0 ? 72 : 64
 }
 
 /// The sticky block on the left, in the order it is read: what the thing is,
 /// then how much of it there is. Everything right of it scrolls under it.
 ///
-/// It narrows on a phone rather than staying put, and it has to: at 17.5rem
+/// It narrows on a phone rather than staying put, and it has to: at 14rem
 /// plus the free column the frozen block is 352px, which on a 375px screen
 /// leaves 23px of matrix. `STUCK` carries the offset the free column is pinned
 /// at and MUST stay equal to `IDENTITY`'s width at both breakpoints — they are
@@ -252,17 +249,17 @@ function estimateArticleRow(tags: readonly string[]): number {
 /// columns scrolled through a 30px gap between them.
 ///
 /// **`grow`: with few stores the article column takes the slack.** One store
-/// is 17.5 + 5 + 7 + 5.5rem of columns; left at their own widths they stood in
+/// is 14 + 5 + 7 + 5.5rem of columns; left at their own widths they stood in
 /// the left third of the box with the rest blank, the figures nowhere near the
 /// Submit above them (owner, 2026-10-11). The name column is the one that can
 /// give: Stock, the stores and Left stay together at the right edge, which
 /// reads as the sum they are (stock, what each store gets, what is left).
 /// With more stores than fit there is no slack, the box scrolls, and the
-/// column is exactly its 17.5rem — so `STUCK`'s offset still equals it.
-const IDENTITY = "w-[12rem] shrink-0 grow px-2 md:w-[17.5rem] md:px-3"
+/// column is exactly its 14rem — so `STUCK`'s offset still equals it.
+const IDENTITY = "w-[12rem] shrink-0 grow px-2 md:w-[14rem] md:px-3"
 const FREE = "w-[4.5rem] shrink-0 px-2 text-right md:w-[5rem] max-md:hidden"
-const STUCK = "sticky left-[12rem] z-10 md:left-[17.5rem]"
-const COLUMN = "w-[5rem] shrink-0 px-2 md:w-[7rem]"
+const STUCK = "sticky left-[12rem] z-10 md:left-[14rem]"
+const COLUMN = "w-[4rem] shrink-0 px-1.5 md:w-[4.5rem]"
 
 /// New allotment, or an allotment MD edits in the same grid (owner, 9 Oct
 /// 2026: "tombol edit buka grid yg sama dengan new allotment"). An edit comes
@@ -296,7 +293,7 @@ function NewAllotmentGrid() {
     const valuesOf = (kind: TokenKind) =>
       tokens.filter((one) => one.kind === kind).map((one) => one.value)
     return {
-      needles: valuesOf("search").map((one) => one.toLowerCase()),
+      needles: valuesOf("search").map((one) => one.toLowerCase().replace(/·/g, "")),
       articles: valuesOf("article"),
       divisions: valuesOf("division"),
       tags: valuesOf("tag"),
@@ -1322,6 +1319,7 @@ function NewAllotmentGrid() {
     void navigate({
       to: "/allotment" as never,
       search: walkSearch([], left[0], left.slice(1)) as never,
+      viewTransition: focusTransition(),
     })
   }
   /// After Submit all, "Back to allotments": what was not saved stays ticked
@@ -1370,31 +1368,8 @@ function NewAllotmentGrid() {
   if (lost) return null
 
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col bg-canvas [--form-box:2.75rem] min-[100rem]:[--form-box:2.9375rem]">
+    <div className="fixed inset-0 z-40 flex min-h-0 min-w-0 flex-col bg-canvas [--form-box:2.75rem] min-[100rem]:[--form-box:2.9375rem]">
       <header className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-hairline bg-canvas px-3 py-2.5 md:px-4">
-        {pieces > 0 || walkLines.length > 0 ? (
-          <ConfirmButton
-            label="Back"
-            title="Discard the typed quantities?"
-            description={
-              walking
-                ? "Going back to the articles clears the quantities typed for these suppliers."
-                : "Going back to the articles clears the quantities typed for this allotment."
-            }
-            confirmLabel="Discard"
-            tone="danger"
-            variant="ghost"
-            onConfirm={() => {
-              clearShown()
-              clearWalk()
-              backToList()
-            }}
-          />
-        ) : (
-          <Button variant="ghost" onClick={backToList}>
-            Back
-          </Button>
-        )}
         <h1 className="min-w-0 truncate text-[0.9375rem] leading-5 font-semibold text-ink">
           Allotment{current !== null && ` - ${current.name}`}
         </h1>
@@ -1423,6 +1398,36 @@ function NewAllotmentGrid() {
             </Button>
           )}
         </div>
+        {pieces > 0 || walkLines.length > 0 ? (
+          <ConfirmButton
+            label={<X />}
+            size="icon"
+            title="Discard the typed quantities?"
+            description={
+              walking
+                ? "Closing clears the quantities typed for these suppliers."
+                : "Closing clears the quantities typed for this allotment."
+            }
+            confirmLabel="Discard"
+            tone="danger"
+            variant="ghost"
+            onConfirm={() => {
+              clearShown()
+              clearWalk()
+              backToList()
+            }}
+          />
+        ) : (
+          // An X at the right (owner, 21 Oct 2026), as every sheet closes.
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Close"
+            onClick={backToList}
+          >
+            <X />
+          </Button>
+        )}
       </header>
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -1453,11 +1458,7 @@ function NewAllotmentGrid() {
                 </button>
               </span>
             )}
-            <SubmitControls
-              submit={submit}
-              pieces={pieces}
-              onDraft={() => void draftSheet.open(true)}
-            />
+            <SubmitControls submit={submit} />
           </div>
           <SubmitNotices
             submit={submit}
@@ -1466,9 +1467,6 @@ function NewAllotmentGrid() {
             hidden={hidden}
             partial={partial}
             overdrawn={overdrawn}
-            raised={[...raised.values()].filter(
-              (one) => one.supplierId === current?.id
-            )}
           />
           <DraftSheet
             open={draftSheet.isOpen}
@@ -1558,19 +1556,23 @@ function EditAllotment({ id }: { id: string }) {
     [phone, storeHere, destinations]
   )
 
-  /// Each cell as the grid opened: its line, what it is now and what of it is
-  /// already sent.
+  /// Each cell as the grid opened: its line, what it is now and what of it
+  /// the warehouse has already worked (picked, packed, sent) — the floor an
+  /// edit cannot go under (`lockOf`, owner 18 Oct 2026).
   const original = useMemo(() => {
     const found = new Map<
       string,
-      { line: AllotmentLine; target: number; floor: number }
+      { line: AllotmentLine; target: number; floor: number; lock: Lock }
     >()
-    for (const line of lines)
+    for (const line of lines) {
+      const lock = lockOf(line)
       found.set(cellKey(line.sku_id, line.destination_id), {
         line,
         target: targetOf(line),
-        floor: floorOf(line),
+        floor: lock.n,
+        lock,
       })
+    }
     return found
   }, [lines])
   const floors = useMemo(
@@ -1579,6 +1581,15 @@ function EditAllotment({ id }: { id: string }) {
         [...original]
           .filter(([, one]) => one.floor > 0)
           .map(([key, one]) => [key, one.floor])
+      ),
+    [original]
+  )
+  const locks = useMemo(
+    () =>
+      new Map(
+        [...original]
+          .filter(([, one]) => one.floor > 0)
+          .map(([key, one]) => [key, one.lock])
       ),
     [original]
   )
@@ -1665,9 +1676,10 @@ function EditAllotment({ id }: { id: string }) {
             termLabel(vocabulary.data?.tags, tag)
           ),
           stock: sorted.reduce((total, one) => total + one.stock_qty, 0),
+          /// Move only (owner, 18 Oct 2026): the Stock figure of an edit is what
+          /// THIS allotment holds, not what the pool has free.
           free: sorted.reduce(
-            (total, one) =>
-              total + one.on_hand_qty + (extra.get(one.sku_id) ?? 0),
+            (total, one) => total + (extra.get(one.sku_id) ?? 0),
             0
           ),
           skus: sorted,
@@ -1769,7 +1781,7 @@ function EditAllotment({ id }: { id: string }) {
     onFill: (group, plan) => {
       const fillRows: FillRow[] = group.skus.map((item) => ({
         skuId: item.sku_id,
-        free: item.on_hand_qty + (extra.get(item.sku_id) ?? 0),
+        free: extra.get(item.sku_id) ?? 0,
       }))
       const patch =
         plan.kind === "one"
@@ -1857,7 +1869,8 @@ function EditAllotment({ id }: { id: string }) {
     return { lines: changed, add, was, now, plus, minus, fromCartons }
   }, [original, typed, source])
 
-  /// A SKU asked past what is free to this allotment.
+  /// A SKU asked past what this allotment holds of it: an edit only moves
+  /// pieces between stores (owner, 18 Oct 2026).
   const overdrawn = useMemo(() => {
     const asked = new Map<string, number>()
     for (const [key, quantity] of Object.entries(typed)) {
@@ -1867,17 +1880,54 @@ function EditAllotment({ id }: { id: string }) {
     return groups
       .flatMap((group) => group.skus)
       .filter(
-        (item) =>
-          (asked.get(item.sku_id) ?? 0) >
-          item.on_hand_qty + (extra.get(item.sku_id) ?? 0)
+        (item) => (asked.get(item.sku_id) ?? 0) > (extra.get(item.sku_id) ?? 0)
       )
   }, [typed, groups, extra])
 
+  /// Pieces taken out of a store and not yet put in another, over every SKU:
+  /// what each SKU holds less what its row now gives. Save waits for zero.
+  const toPlace = useMemo(() => {
+    const asked = new Map<string, number>()
+    for (const [key, quantity] of Object.entries(typed)) {
+      const sku = key.split("\u0000")[0]
+      asked.set(sku, (asked.get(sku) ?? 0) + quantity)
+    }
+    let left = 0
+    for (const [sku, own] of extra) left += Math.max(0, own - (asked.get(sku) ?? 0))
+    return left
+  }, [typed, extra])
+
+  /// Where the pieces went: the stores whose total fell, and those whose
+  /// total rose, by the code the column heading shows.
+  const moved = useMemo(() => {
+    const was = new Map<string, number>()
+    for (const one of original.values())
+      was.set(
+        one.line.destination_id,
+        (was.get(one.line.destination_id) ?? 0) + one.target
+      )
+    const from: string[] = []
+    const to: string[] = []
+    for (const destination of destinations) {
+      const before = was.get(destination.id) ?? 0
+      const after = perDestination.get(destination.id) ?? 0
+      if (after < before) from.push(destination.code)
+      else if (after > before) to.push(destination.code)
+    }
+    return { from, to }
+  }, [original, perDestination, destinations])
   const changes = change.lines.length + change.add.length
   const retry = useRef<{ payload: string; key: string } | null>(null)
   const save = useMutation({
     mutationFn: () => {
-      const payload = { lines: change.lines, add: change.add }
+      /// `move_only` is part of what is fingerprinted: the server refuses an
+      /// edit whose per-SKU totals change, so the same lines without it are
+      /// not the same request.
+      const payload = {
+        lines: change.lines,
+        add: change.add,
+        move_only: true,
+      }
       const fingerprint = JSON.stringify(payload)
       const key =
         retry.current?.payload === fingerprint
@@ -1899,9 +1949,12 @@ function EditAllotment({ id }: { id: string }) {
       client.invalidateQueries({ queryKey: opsKeys.owed() })
       client.invalidateQueries({ queryKey: opsKeys.picklistsToPick() })
       toast.success(
+        `${result.allotment_number} saved`,
         result.owed_total > 0
-          ? `${result.allotment_number} saved · ${quantity(result.owed_total)} the warehouse moves back`
-          : `${result.allotment_number} saved`
+          ? {
+              description: `${quantity(result.owed_total)} the warehouse moves back`,
+            }
+          : undefined
       )
       goto("/allotment", { key: "allotment", value: id })
     },
@@ -1926,24 +1979,23 @@ function EditAllotment({ id }: { id: string }) {
           ? "This allotment is cancelled."
           : null
 
+  /// An edit only moves pieces, so the footer says how many went where, or
+  /// how many are still to place (owner, 18 Oct 2026).
   const summary =
-    changes === 0
-      ? "No changes yet"
-      : [
-          change.lines.length > 0 &&
-            `${count(change.lines.length)} ${change.lines.length === 1 ? "line" : "lines"} changed`,
-          change.add.length > 0 &&
-            `${count(change.add.length)} ${change.add.length === 1 ? "line" : "lines"} added`,
-          change.plus > 0 && `+${count(change.plus)} to pick`,
-          change.minus > 0 && `−${count(change.minus)} removed`,
-          change.fromCartons > 0 &&
-            `${count(change.fromCartons)} in koli to put back`,
-        ]
-          .filter(Boolean)
-          .join(" · ")
+    toPlace > 0
+      ? `${quantity(toPlace)} still to place in a store`
+      : changes === 0
+        ? "No changes yet"
+        : [
+            `${quantity(change.plus)} moved · ${moved.from.join(", ")} → ${moved.to.join(", ")}`,
+            change.fromCartons > 0 &&
+              `${count(change.fromCartons)} in koli to put back`,
+          ]
+            .filter(Boolean)
+            .join(" · ")
 
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col px-3 pt-3 pb-3 [--form-box:2.75rem] md:px-4 min-[100rem]:pt-4 min-[100rem]:[--form-box:2.9375rem]">
+    <div className="fixed inset-0 z-40 flex min-h-0 min-w-0 flex-col bg-canvas px-3 pt-3 pb-3 [--form-box:2.75rem] md:px-4 min-[100rem]:pt-4 min-[100rem]:[--form-box:2.9375rem]">
       <div className="shrink-0 px-1">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-x-8 gap-y-2 rounded-card bg-soft px-4 py-3">
           <div className="min-w-0">
@@ -2022,7 +2074,13 @@ function EditAllotment({ id }: { id: string }) {
             onFocus={(article) => setFocus(article)}
             onSave={() => undefined}
             floors={floors}
+            locks={locks}
             extra={extra}
+            moveOnly
+            counts={{
+              articles: groups.length,
+              pieces: groups.reduce((total, group) => total + group.free, 0),
+            }}
           />
         )}
         <div
@@ -2031,24 +2089,28 @@ function EditAllotment({ id }: { id: string }) {
         >
           <div className="pointer-events-auto mx-auto flex w-full max-w-5xl flex-wrap items-center gap-x-6 gap-y-2 rounded-card border border-hairline-strong bg-canvas px-4 py-3 shadow-[0_10px_32px_-8px_rgb(0_0_0/0.22)]">
             <dl className="flex flex-wrap items-baseline gap-x-5 gap-y-1">
-              <Figure label="Was" value={`${count(change.was)} pcs`} />
-              <Figure label="Now" value={`${count(change.now)} pcs`} />
+              <Figure label="Was" value={`${countPcs(change.was)}`} />
+              <Figure label="Now" value={`${countPcs(change.now)}`} />
             </dl>
             <span
               className={cn(
                 "text-[0.9375rem]",
-                overdrawn.length > 0 ? "text-bad-fg" : "text-mute"
+                overdrawn.length > 0
+                  ? "text-bad-fg"
+                  : toPlace > 0
+                    ? "text-warn-fg"
+                    : "text-mute"
               )}
             >
               {overdrawn.length > 0
-                ? `Too many: ${listOf(overdrawn.map((item) => item.sku_code))}`
+                ? `Too many: ${listOf(overdrawn.map((item) => skuNumber(item.sku_code)))}`
                 : summary}
             </span>
             <Button
               variant="primary"
               className="ml-auto"
               pending={save.isPending}
-              disabled={changes === 0 || overdrawn.length > 0}
+              disabled={changes === 0 || overdrawn.length > 0 || toPlace > 0}
               onClick={() => save.mutate()}
             >
               Save changes
@@ -2275,7 +2337,9 @@ function Matrix({
   onFocus,
   onSave,
   floors,
+  locks,
   extra,
+  moveOnly = false,
 }: {
   rows: readonly MatrixRow[]
   destinations: readonly Destination[]
@@ -2297,12 +2361,18 @@ function Matrix({
   onCell: (key: string, quantity: number) => void
   onFocus: (article: string, destination: string | null) => void
   onSave: (article: string) => void
-  /// Editing an allotment: the least each cell may hold (pieces already sent),
-  /// by cell key.
+  /// Editing an allotment: the least each cell may hold (pieces the warehouse
+  /// already picked, packed or sent), by cell key.
   floors?: ReadonlyMap<string, number>
+  /// Editing an allotment: what each floor is made of, by cell key.
+  locks?: ReadonlyMap<string, Lock>
   /// Editing an allotment: what it already holds of each SKU, by SKU — free to
   /// it on top of what the pool has left, because the pool counts it as taken.
   extra?: ReadonlyMap<string, number>
+  /// Editing an allotment only moves pieces between stores, per SKU (owner,
+  /// 18 Oct 2026): a SKU's figure is what the allotment holds of it, not what
+  /// the pool has free. New allotment leaves this off.
+  moveOnly?: boolean
 }) {
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -2536,6 +2606,8 @@ function Matrix({
                     saving={saving?.includes(row.group.id) ?? false}
                     several={several}
                     fill={fill}
+                    extra={extra}
+                    moveOnly={moveOnly}
                     onToggle={() => {
                       onToggle(row.group.id)
                       onFocus(row.group.id, null)
@@ -2548,7 +2620,9 @@ function Matrix({
                     destinations={destinations}
                     cells={cells}
                     floors={floors}
+                    locks={locks}
                     extra={extra}
+                    moveOnly={moveOnly}
                     onCell={onCell}
                     onFocus={(destination) =>
                       onFocus(row.item.article_id, destination)
@@ -2581,6 +2655,8 @@ function ArticleRow({
   saving,
   several,
   fill,
+  extra,
+  moveOnly = false,
   onToggle,
   onSave,
 }: {
@@ -2597,6 +2673,10 @@ function ArticleRow({
   /// apart. With one article filled they are the only figure, and plain.
   several: boolean
   fill: ArticleFill
+  extra?: ReadonlyMap<string, number>
+  /// Editing: Stock is what the allotment holds, and Left is what is taken
+  /// out and not yet placed.
+  moveOnly?: boolean
   onToggle: () => void
   onSave: () => void
 }) {
@@ -2605,6 +2685,23 @@ function ArticleRow({
       (total, sku) => total + (cells[cellKey(sku.sku_id, destinationId)] ?? 0),
       0
     )
+
+  const toPlace = moveOnly
+    ? group.skus.reduce(
+        (total, sku) =>
+          total +
+          Math.max(
+            0,
+            (extra?.get(sku.sku_id) ?? 0) -
+              destinations.reduce(
+                (given, one) =>
+                  given + (cells[cellKey(sku.sku_id, one.id)] ?? 0),
+                0
+              )
+          ),
+        0
+      )
+    : 0
 
   return (
     <>
@@ -2656,25 +2753,21 @@ function ArticleRow({
             >
               {group.name}
             </span>
-            <span className="block pr-8 text-[0.9375rem] text-mute tabular-nums">
-              {group.code}
-            </span>
+            {/* The tags as one grey line, cut short when long, the whole
+                list in its tooltip — chips took the column's width (owner,
+                2026-10-18, A2). */}
             {group.tagNames.length > 0 && (
-              <span className="mt-1 flex flex-wrap gap-1">
-                {group.tagNames.map((tag) => (
-                  <span
-                    key={tag}
-                    className="inline-flex h-6 items-center rounded-full bg-soft-2 px-2.5 text-[0.9375rem] text-body"
-                  >
-                    {tag}
-                  </span>
-                ))}
+              <span
+                className="mt-0.5 block truncate text-[0.9375rem] text-mute"
+                title={group.tagNames.join(" · ")}
+              >
+                {group.tagNames.join(" · ")}
               </span>
             )}
           </button>
         </div>
         {/* Up in the corner, level with the name and not with the tags: the
-            chips below have the whole width of the column. */}
+            tags below have the whole width of the column. */}
         <div className="absolute top-2 right-1.5">
           <QuickFillMenu
             article={group.name}
@@ -2694,7 +2787,7 @@ function ArticleRow({
           group.free > 0 ? "text-ink" : "text-faint"
         )}
         title={
-          group.free === group.stock
+          moveOnly || group.free === group.stock
             ? undefined
             : `${count(group.stock)} in the pool, ${count(group.stock - group.free)} already spoken for`
         }
@@ -2711,10 +2804,11 @@ function ArticleRow({
             }
             className={cn(
               COLUMN,
-              "flex items-center justify-center bg-soft text-[0.9375rem] tabular-nums",
+              "flex flex-col items-center justify-center gap-1 bg-soft text-[0.9375rem] tabular-nums",
               total > 0 ? "text-accent" : "text-faint"
             )}
           >
+            <span className="text-mute">{destination.code}</span>
             {total > 0 &&
               (several ? (
                 <span className="inline-flex h-6 min-w-9 items-center justify-center rounded-full border border-hairline-2 bg-canvas px-2.5 font-medium">
@@ -2732,12 +2826,23 @@ function ArticleRow({
           "flex items-center justify-center bg-soft text-[0.9375rem] tabular-nums"
         )}
       >
-        <ArticleState
-          standing={standing}
-          raised={raised}
-          saving={saving}
-          onSave={onSave}
-        />
+        {moveOnly ? (
+          toPlace > 0 && (
+            <span
+              title="Still to place in a store"
+              className="inline-flex h-6 min-w-9 items-center justify-center rounded-full bg-warn-bg px-2.5 font-medium text-warn-fg"
+            >
+              <Ticking n={toPlace}>{count(toPlace)}</Ticking>
+            </span>
+          )
+        ) : (
+          <ArticleState
+            standing={standing}
+            raised={raised}
+            saving={saving}
+            onSave={onSave}
+          />
+        )}
       </div>
     </>
   )
@@ -2830,7 +2935,9 @@ function SkuRow({
   destinations,
   cells,
   floors,
+  locks,
   extra,
+  moveOnly = false,
   onCell,
   onFocus,
 }: {
@@ -2838,7 +2945,9 @@ function SkuRow({
   destinations: readonly Destination[]
   cells: Readonly<Record<string, number>>
   floors?: ReadonlyMap<string, number>
+  locks?: ReadonlyMap<string, Lock>
   extra?: ReadonlyMap<string, number>
+  moveOnly?: boolean
   onCell: (key: string, quantity: number) => void
   onFocus: (destination: string) => void
 }) {
@@ -2852,8 +2961,28 @@ function SkuRow({
   /// each line against. An allotment being edited also has what it already
   /// holds of the SKU.
   const own = extra?.get(item.sku_id) ?? 0
-  const free = item.on_hand_qty + own
+  /// Move only: the ceiling is what the allotment holds of the SKU, so a box
+  /// can only go up after another store's box in the row went down.
+  const free = moveOnly ? own : item.on_hand_qty + own
   const left = free - allotted
+  /// Move only: a SKU whose every piece is already sent has nothing to move,
+  /// so its row has no boxes, only what went where.
+  let sentAll = 0
+  if (moveOnly && floors !== undefined) {
+    const prefix = `${item.sku_id}\u0000`
+    for (const [key, floor] of floors)
+      if (key.startsWith(prefix)) sentAll += floor
+  }
+  const settled = moveOnly && own > 0 && own === sentAll
+  /// What the locked row says: "Sent" only once every piece has left; while
+  /// some are still picked or packed in the Gudang, "Picked" (owner's test,
+  /// 21 Oct 2026: a picked row read "Sent").
+  const settledWord = destinations.every(
+    (destination) =>
+      locks?.get(cellKey(item.sku_id, destination.id))?.shipped ?? true
+  )
+    ? "Sent"
+    : "Picked"
 
   return (
     <>
@@ -2878,12 +3007,6 @@ function SkuRow({
           <span className="text-cell text-ink max-md:line-clamp-2 md:truncate">
             {[item.colour, item.size].filter(Boolean).join(" · ") || "—"}
           </span>
-          {/* The SKU number, which is what a label and a picker read. Gone on
-              a phone, where the frozen column is 12rem and the colour and size
-              are all it can hold. */}
-          <span className="truncate text-[0.9375rem] text-mute tabular-nums max-md:hidden">
-            {item.sku_code}
-          </span>
         </div>
       </div>
       <div
@@ -2894,7 +3017,9 @@ function SkuRow({
           free > 0 ? "text-body" : "text-faint"
         )}
         title={
-          extra !== undefined
+          moveOnly
+            ? `${count(own)} on this allotment`
+            : extra !== undefined
             ? `${count(item.on_hand_qty)} free in the pool, ${count(own)} already on this allotment`
             : free === item.stock_qty
               ? undefined
@@ -2906,6 +3031,24 @@ function SkuRow({
       {destinations.map((destination) => {
         const key = cellKey(item.sku_id, destination.id)
         const here = cells[key] ?? 0
+        if (settled) {
+          const sent = floors?.get(key) ?? 0
+          return (
+            <div
+              key={destination.id}
+              className={cn(COLUMN, "flex items-center bg-canvas")}
+            >
+              {sent > 0 && (
+                <SentSegment
+                  n={sent}
+                  only
+                  shipped={locks?.get(key)?.shipped ?? true}
+                  title={locks?.get(key)?.title ?? `${count(sent)} sent`}
+                />
+              )}
+            </div>
+          )
+        }
         return (
           <Cell
             key={destination.id}
@@ -2915,7 +3058,14 @@ function SkuRow({
             // pile of garments, so the ceiling is the row's and not the cell's.
             most={Math.max(0, free - (allotted - here))}
             least={floors?.get(key) ?? 0}
-            label={`${item.sku_code} to ${destination.name}`}
+            lock={locks?.get(key)}
+            split={moveOnly}
+            dry={
+              moveOnly
+                ? "Nothing of this SKU is left to move"
+                : undefined
+            }
+            label={`${skuNumber(item.sku_code)} to ${destination.name}`}
             row={item.sku_id}
             col={destination.id}
             onChange={(quantity) => onCell(key, quantity)}
@@ -2933,6 +3083,9 @@ function SkuRow({
             stands: green used up, amber some left, red past what is free. An
             untouched row is plain faint — a column of grey chips would say
             nothing and cost the grid its calm. */}
+        {settled ? (
+          <span className="text-faint">{settledWord}</span>
+        ) : (
         <span
           className={cn(
             "inline-flex h-6 min-w-9 items-center justify-center rounded-full px-2.5",
@@ -2949,6 +3102,7 @@ function SkuRow({
             {allotted === 0 ? count(free) : count(left)}
           </Ticking>
         </span>
+        )}
       </div>
     </>
   )
@@ -3005,6 +3159,9 @@ function Cell({
   value,
   most,
   least = 0,
+  lock,
+  split = false,
+  dry = "Nothing of this SKU is left free in the pool",
   label,
   row,
   col,
@@ -3021,6 +3178,15 @@ function Cell({
   /// The smallest: pieces of this line already sent, when an allotment is
   /// edited. Typing under it holds at it.
   least?: number
+  /// What `least` is made of — picked, packed, sent — for the tooltip and
+  /// the segment's icon.
+  lock?: Lock
+  /// Sent and more (owner, 18 Oct 2026; edits only): when pieces are already
+  /// sent, the sent count sits fixed on the left and the box holds only the
+  /// part not sent yet. Typing n there makes the cell `least + n`.
+  split?: boolean
+  /// What the tooltip says when nothing more may go in.
+  dry?: string
   label: string
   onChange: (quantity: number) => void
   onFocus: () => void
@@ -3053,53 +3219,121 @@ function Cell({
       ) ?? null
   }
 
+  /// The part of the cell the box holds: all of it, or in a split cell only
+  /// what is not sent yet.
+  const sent = split && least > 0
+  const shown = sent ? value - least : value
+  const change = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const digits = event.target.value.replace(/\D/g, "")
+    const typed = (digits === "" ? 0 : Number(digits)) + (sent ? least : 0)
+    const kept = Math.max(least, Math.min(typed, Math.max(most, least)))
+    if (kept !== typed) {
+      setCapped(true)
+      refuse()
+      clearTimeout(flash.current)
+      flash.current = setTimeout(() => setCapped(false), 900)
+    }
+    onChange(kept)
+  }
+  const title =
+    least > 0
+      ? (lock?.title ?? `${count(least)} already sent: it cannot go lower`)
+      : most === 0
+        ? dry
+        : undefined
+
+  const input = (
+    <input
+      ref={box}
+      type="text"
+      inputMode="numeric"
+      maxLength={3}
+      data-cell=""
+      data-row={row}
+      data-col={col}
+      aria-label={label}
+      value={shown === 0 ? "" : String(shown)}
+      placeholder={sent ? "+" : undefined}
+      title={sent ? undefined : title}
+      onChange={change}
+      onFocus={(event) => {
+        event.target.select()
+        onFocus()
+      }}
+      className={cn(
+        "h-11 w-full text-center text-cell tabular-nums transition-colors outline-none placeholder:text-faint",
+        sent
+          ? "min-w-0 flex-1 bg-canvas"
+          : // A thin border always, not only on hover (the owner, 2026-09-29):
+            // a grid of blank cells did not read as somewhere to type.
+            "rounded-inner border border-hairline bg-canvas hover:border-hairline-2 focus:border-hairline-strong",
+        capped
+          ? sent
+            ? "bg-bad-bg font-medium text-bad-fg"
+            : "border-bad bg-bad-bg font-medium text-bad-fg focus:border-bad"
+          : shown > 0
+            ? "bg-accent-bg font-medium text-accent"
+            : "text-ink"
+      )}
+    />
+  )
+
   return (
     <div className={cn(COLUMN, "flex items-center bg-canvas")}>
-      <input
-        ref={box}
-        type="text"
-        inputMode="numeric"
-        data-cell=""
-        data-row={row}
-        data-col={col}
-        aria-label={label}
-        value={value === 0 ? "" : String(value)}
-        title={
-          least > 0
-            ? `${count(least)} already sent: it cannot go lower`
-            : most === 0
-              ? "Nothing of this SKU is left free in the pool"
-              : undefined
-        }
-        onChange={(event) => {
-          const digits = event.target.value.replace(/\D/g, "")
-          const typed = digits === "" ? 0 : Number(digits)
-          const kept = Math.max(least, Math.min(typed, Math.max(most, least)))
-          if (kept !== typed) {
-            setCapped(true)
-            refuse()
-            clearTimeout(flash.current)
-            flash.current = setTimeout(() => setCapped(false), 900)
-          }
-          onChange(kept)
-        }}
-        onFocus={(event) => {
-          event.target.select()
-          onFocus()
-        }}
-        className={cn(
-          // A thin border always, not only on hover (the owner, 2026-09-29):
-          // a grid of blank cells did not read as somewhere to type.
-          "h-11 w-full rounded-inner border border-hairline bg-canvas text-center text-cell tabular-nums transition-colors outline-none",
-          "hover:border-hairline-2 focus:border-hairline-strong",
-          capped
-            ? "border-bad bg-bad-bg font-medium text-bad-fg focus:border-bad"
-            : value > 0
-              ? "bg-accent-bg font-medium text-accent"
-              : "text-ink"
-        )}
-      />
+      {sent ? (
+        <div
+          title={title}
+          className={cn(
+            "flex h-11 w-full overflow-hidden rounded-inner border transition-colors",
+            capped
+              ? "border-bad"
+              : "border-hairline focus-within:border-accent hover:border-hairline-2"
+          )}
+        >
+          <SentSegment n={least} shipped={lock?.shipped ?? true} />
+          {input}
+        </div>
+      ) : (
+        input
+      )}
     </div>
+  )
+}
+
+/// What already left the DC, said in the cell: a grey segment with a truck and
+/// the count (owner, 18 Oct 2026). Beside the box in a cell that can still
+/// take more; on its own, full width and not a control, in a row where every
+/// piece is sent.
+function SentSegment({
+  n,
+  only = false,
+  shipped = true,
+  title,
+}: {
+  n: number
+  only?: boolean
+  /// Everything locked has left: the truck. Some of it is still picked or
+  /// packed in the warehouse: the box.
+  shipped?: boolean
+  title?: string
+}) {
+  return (
+    <span
+      title={title}
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1 bg-soft-2 px-2 text-cell text-body tabular-nums",
+        only
+          ? "h-11 w-full justify-center rounded-inner border border-hairline"
+          : "border-r border-hairline"
+      )}
+    >
+      {shipped ? (
+        <Truck className="size-3.5" aria-hidden />
+      ) : (
+        <Package className="size-3.5" aria-hidden />
+      )}
+      {count(n)}
+    </span>
   )
 }
 
@@ -3139,7 +3373,7 @@ function Ticking({ n, children }: { n: number; children: React.ReactNode }) {
 /// — at thirteen stores the gutter was otherwise off the edge, and the only
 /// button that finishes an article was one nobody could see.
 const LEFT =
-  "sticky right-0 z-10 w-[5.5rem] shrink-0 border-l border-transparent px-1.5 text-right transition-colors duration-150 md:w-[5.5rem] md:px-2 group-data-[more=true]/grid:border-hairline"
+  "sticky right-0 z-10 w-[5.5rem] shrink-0 border-l border-transparent px-1.5 text-right md:w-[5.5rem] md:px-2 group-data-[more=true]/grid:border-hairline"
 
 /// One labelled number on one line: label muted, figure semibold and
 /// tabular, so a row of them never shifts as digits change.
@@ -3229,17 +3463,9 @@ function useSubmitAll({
 
 type SubmitAll = ReturnType<typeof useSubmitAll>
 
-/// Beside the search: what is to be allotted, and Submit all — which, once it
+/// Beside the search: Submit all — which, once it
 /// has gone through, gives way to the two ways on.
-function SubmitControls({
-  submit,
-  pieces,
-  onDraft,
-}: {
-  submit: SubmitAll
-  pieces: number
-  onDraft: () => void
-}) {
+function SubmitControls({ submit }: { submit: SubmitAll }) {
   return (
     <div className="ml-auto flex shrink-0 items-center gap-2 max-md:w-full max-md:justify-end">
       {submit.asking ? (
@@ -3253,14 +3479,6 @@ function SubmitControls({
         </>
       ) : (
         <>
-          <Button variant="ghost" disabled={pieces === 0} onClick={onDraft}>
-            To be allotted
-            {pieces > 0 && (
-              <span className="text-mute tabular-nums">
-                <Ticking n={pieces}>{quantity(pieces)}</Ticking>
-              </span>
-            )}
-          </Button>
           <Button
             variant="primary"
             disabled={submit.disabled}
@@ -3276,14 +3494,13 @@ function SubmitControls({
 }
 
 /// What the page has to say about the submit, under the toolbar: what was
-/// saved, what was refused, what stands in the way.
+/// refused, what stands in the way.
 function SubmitNotices({
   submit,
   create,
   actor,
   hidden,
   partial,
-  raised,
 }: {
   submit: SubmitAll
   create: ReturnType<
@@ -3294,10 +3511,8 @@ function SubmitNotices({
   hidden: number
   partial: readonly string[]
   overdrawn: readonly { item: AvailabilityItem; asked: number }[]
-  raised: readonly RaisedAllotment[]
 }) {
   if (
-    raised.length === 0 &&
     !create.isError &&
     !submit.stuck &&
     !submit.blocked &&
@@ -3307,16 +3522,6 @@ function SubmitNotices({
     return null
   return (
     <div className="flex shrink-0 flex-col gap-2 px-4 pb-3">
-      {raised.length > 0 && (
-        <Receipt>
-          Saved{" "}
-          {raised
-            .map((one) => `${one.result.allotment_number} (${one.article})`)
-            .join(", ")}
-          .{submit.asking && " What next?"}
-        </Receipt>
-      )}
-
       {create.isError && (
         <Banner tone="bad">
           {create.error instanceof Error
@@ -3334,7 +3539,6 @@ function SubmitNotices({
           Finish {listOf(partial)} (stock left) or clear them before moving on.
         </Banner>
       )}
-
 
       {actor === "" && (
         <Banner tone="warn">

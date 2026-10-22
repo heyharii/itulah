@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Camera, Download, Printer } from "lucide-react"
+import { Camera } from "lucide-react"
 import { useMemo, useRef, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -10,12 +10,7 @@ import { Field, Input } from "@/components/ui/field"
 import { ExpandingSearch } from "@/components/ui/list-chrome"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { SubTabs } from "@/components/ui/sub-tabs"
-import {
-  Banner,
-  EmptyState,
-  LoadingState,
-  Receipt,
-} from "@/components/ui/states"
+import { Banner, EmptyState, LoadingState } from "@/components/ui/states"
 import {
   dcPurchaseReturns,
   generatePurchaseReturnNote,
@@ -33,6 +28,7 @@ import {
   putReturnProof,
   supplierReturnKeys,
 } from "@/lib/queries/supplier-returns"
+import { pullIn } from "@/lib/pull-in"
 import { useSheet } from "@/lib/sheets"
 import { idempotencyKey } from "@itulah/contract/client"
 import { BoardHeader } from "@/screens/operations/board/parts"
@@ -42,7 +38,6 @@ import {
   ReturnGroups,
   usePoDates,
 } from "@/screens/procurement/supplier-return-groups"
-import { downloadReturnPdf } from "@/screens/procurement/return-pdf"
 import {
   useReturnNoteLink,
   withNoteLink,
@@ -56,7 +51,7 @@ import {
 import { returnLineParts } from "@/screens/procurement/return-lines"
 import {
   noteOf,
-  printReturnNote,
+  ReturnPrintMenu,
   ReturnSheet,
   useReturnRows,
   type Row,
@@ -67,28 +62,7 @@ import {
 /// synchronous — a window opened after an await is blocked as a pop-up.
 function NoteButtons({ note }: { note: PrintableNote }) {
   const linked = withNoteLink(note, useReturnNoteLink(note))
-  return (
-    <>
-      <Button
-        variant="ghost"
-        size="icon"
-        aria-label="Print"
-        title="Print"
-        onClick={() => printReturnNote(linked)}
-      >
-        <Printer />
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon"
-        aria-label="Download"
-        title="Download"
-        onClick={() => downloadReturnPdf(linked)}
-      >
-        <Download />
-      </Button>
-    </>
-  )
+  return <ReturnPrintMenu note={linked} />
 }
 
 /// **Return PO** — everything going back to a supplier, a card per
@@ -205,7 +179,10 @@ export function SuppliersBoard() {
         notes: typedNotes,
       }),
     onSuccess: (_, id) => {
-      setJustMade(id)
+      // The sheet closes at once, so the next time it opens it offers
+      // Confirm: `justMade` would hide it for good.
+      void id
+      setJustMade(null)
       // Generated, the sheet goes away (owner, 2026-10-16: "hide saja
       // sheetnya"); the row moves to In progress with its Confirm.
       sheet.close()
@@ -314,29 +291,29 @@ export function SuppliersBoard() {
         form={
           // No banner after Generate (owner, 16 Oct 2026: "jangan ada itu"):
           // the footer simply holds Print and Download until it is reopened.
-          work !== undefined && made && justMade === opened?.id ? null : (
-            work !== undefined &&
-            !made && (
-              <>
-                {generate.isError && (
-                  <Banner tone="bad">{problemOf(generate.error)}</Banner>
-                )}
-                <Field label="Person in Charge" required>
-                  <Input
-                    value={typedPic}
-                    onChange={(event) =>
-                      setDrafts((was) => ({
-                        ...was,
-                        // A name, as names are typed elsewhere: Title Case.
-                        [opened!.id]: titleCaseTyping(event.target.value),
-                      }))
-                    }
-                    className="h-11"
-                  />
-                </Field>
-              </>
-            )
-          )
+          work !== undefined && made && justMade === opened?.id
+            ? null
+            : work !== undefined &&
+              !made && (
+                <>
+                  {generate.isError && (
+                    <Banner tone="bad">{problemOf(generate.error)}</Banner>
+                  )}
+                  <Field label="Person in Charge" required>
+                    <Input
+                      value={typedPic}
+                      onChange={(event) =>
+                        setDrafts((was) => ({
+                          ...was,
+                          // A name, as names are typed elsewhere: Title Case.
+                          [opened!.id]: titleCaseTyping(event.target.value),
+                        }))
+                      }
+                      className="h-11"
+                    />
+                  </Field>
+                </>
+              )
         }
         notes={
           work !== undefined && !made
@@ -485,6 +462,14 @@ function useConfirmReturn() {
         void client.invalidateQueries({
           queryKey: supplierReturnKeys.proof(row.return_id),
         })
+      // Done means done: the dialog goes and a toast says it (owner,
+      // 2026-10-18: "ngapain ada done lagi, langsung toast").
+      void pullIn({
+        from: null,
+        pill: "Returned",
+        title: `Returned to ${target?.supplier ?? "the supplier"}`,
+      })
+      close()
     },
   })
 
@@ -511,67 +496,61 @@ function useConfirmReturn() {
         if (!next) close()
       }}
       title="Confirm Return"
-      confirm={confirm.isSuccess ? "Done" : "Submit"}
-      cancel={confirm.isSuccess ? "Close" : "Cancel"}
+      confirm="Submit"
       pending={confirm.isPending}
-      ready={confirm.isSuccess || photo !== null}
-      problem={confirm.isSuccess ? null : confirm.error}
+      ready={photo !== null}
+      problem={confirm.error}
       onConfirm={() => {
-        if (confirm.isSuccess) close()
-        else if (target) confirm.mutate(target.returns)
+        if (target) confirm.mutate(target.returns)
       }}
     >
-      {confirm.isSuccess ? (
-        <Receipt>{`Returned to ${target?.supplier}.`}</Receipt>
-      ) : (
-        <div className="flex flex-col gap-4">
-          <p>
-            {target
-              ? `${numbers} · ${target.supplier} · ${quantity(pieces)}`
-              : ""}
+      <div className="flex flex-col gap-4">
+        <p>
+          {target
+            ? `${numbers} · ${target.supplier} · ${quantity(pieces)}`
+            : ""}
+        </p>
+        <div className="flex flex-col gap-2">
+          <p className="font-medium text-ink">
+            Photo proof of receipt <span className="text-bad-fg">*</span>
           </p>
-          <div className="flex flex-col gap-2">
-            <p className="font-medium text-ink">
-              Photo proof of receipt <span className="text-bad-fg">*</span>
-            </p>
-            <input
-              ref={picker}
-              type="file"
-              accept="image/*"
-              // A phone opens its camera; a laptop, its files.
-              capture="environment"
-              className="hidden"
-              onChange={(event) => {
-                choose(event.target.files?.[0] ?? null)
-                event.target.value = ""
-              }}
-            />
-            <button
-              type="button"
-              onClick={() => picker.current?.click()}
-              className="relative grid h-48 w-full place-items-center overflow-hidden rounded-card border border-dashed border-hairline bg-soft text-body transition-colors hover:border-accent hover:text-accent"
-            >
-              {preview === null ? (
-                <span className="flex flex-col items-center gap-2">
-                  <Camera className="size-6 stroke-[1.6]" />
-                  Take or upload a photo
+          <input
+            ref={picker}
+            type="file"
+            accept="image/*"
+            // A phone opens its camera; a laptop, its files.
+            capture="environment"
+            className="hidden"
+            onChange={(event) => {
+              choose(event.target.files?.[0] ?? null)
+              event.target.value = ""
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => picker.current?.click()}
+            className="relative grid h-48 w-full place-items-center overflow-hidden rounded-card border border-dashed border-hairline bg-soft text-body transition-colors hover:border-accent hover:text-accent"
+          >
+            {preview === null ? (
+              <span className="flex flex-col items-center gap-2">
+                <Camera className="size-6 stroke-[1.6]" />
+                Take or upload a photo
+              </span>
+            ) : (
+              <>
+                <img
+                  src={preview}
+                  alt="Proof of receipt"
+                  className="absolute inset-0 size-full object-contain"
+                />
+                <span className="absolute right-2 bottom-2 rounded-full bg-canvas/90 px-3 py-1 text-[0.9375rem] text-ink shadow-soft">
+                  Change
                 </span>
-              ) : (
-                <>
-                  <img
-                    src={preview}
-                    alt="Proof of receipt"
-                    className="absolute inset-0 size-full object-contain"
-                  />
-                  <span className="absolute right-2 bottom-2 rounded-full bg-canvas/90 px-3 py-1 text-[0.9375rem] text-ink shadow-soft">
-                    Change
-                  </span>
-                </>
-              )}
-            </button>
-          </div>
+              </>
+            )}
+          </button>
         </div>
-      )}
+      </div>
     </Dialog>
   )
   return {

@@ -39,7 +39,11 @@ use crate::cloud::domain::{
 use crate::cloud::http::auth::Principal;
 use crate::cloud::{AppError, AppState};
 use crate::pool_role::PoolRole;
-use axum::{extract::State, routing::post, Extension, Json, Router};
+use axum::{
+    extract::State,
+    routing::{get, post},
+    Extension, Json, Router,
+};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{Postgres, Row, Transaction};
@@ -49,7 +53,66 @@ use uuid::Uuid;
 type Tx<'a> = Transaction<'a, Postgres>;
 
 pub fn routes(router: Router<AppState>) -> Router<AppState> {
-    router.route("/api/v1/dc/move-back", post(move_back))
+    router
+        .route("/api/v1/dc/move-back", post(move_back))
+        .route("/api/v1/dc/move-backs", get(list_to_pick))
+}
+
+/// One move back to the picklist, as the board marks the card it put back
+/// ("Back from Pack" / "Back from Dispatch", owner 18 Oct 2026).
+#[derive(Clone, Debug, Serialize)]
+pub struct MoveBackToPick {
+    pub move_back_id: Uuid,
+    pub destination_id: String,
+    pub allotment_id: Option<Uuid>,
+    /// `picked` (from Pack) or `packed` (from Dispatch).
+    pub from_stage: String,
+    pub moved: i64,
+    pub actor_id: String,
+    pub created_at: DateTime<Utc>,
+    pub sku_codes: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct MoveBackToPickList {
+    pub items: Vec<MoveBackToPick>,
+}
+
+/// The moves back to the picklist of the last two days, newest first.
+async fn list_to_pick(
+    State(state): State<AppState>,
+) -> Result<Json<MoveBackToPickList>, AppError> {
+    common::require_hosted()?;
+    let since = state.clock.now() - chrono::Duration::days(2);
+    let rows = sqlx::query(
+        "SELECT move_back_id, destination_id, allotment_id, from_stage, moved, actor_id,
+                created_at, request
+           FROM dc_move_back
+          WHERE to_stage = 'pick' AND created_at >= $1
+          ORDER BY created_at DESC
+          LIMIT 500",
+    )
+    .bind(since)
+    .fetch_all(&state.db)
+    .await?;
+    let mut items = Vec::with_capacity(rows.len());
+    for row in rows {
+        let request: String = row.try_get("request")?;
+        let sku_codes = serde_json::from_str::<MoveBackRequest>(&request)
+            .map(|one| one.lines.into_iter().map(|line| line.sku_code).collect())
+            .unwrap_or_default();
+        items.push(MoveBackToPick {
+            move_back_id: row.try_get("move_back_id")?,
+            destination_id: row.try_get("destination_id")?,
+            allotment_id: row.try_get("allotment_id")?,
+            from_stage: row.try_get("from_stage")?,
+            moved: row.try_get("moved")?,
+            actor_id: row.try_get("actor_id")?,
+            created_at: row.try_get("created_at")?,
+            sku_codes,
+        });
+    }
+    Ok(Json(MoveBackToPickList { items }))
 }
 
 // ---------------------------------------------------------------------------

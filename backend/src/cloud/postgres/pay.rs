@@ -237,6 +237,8 @@ pub async fn list_runs(pool: &PgPool, unit_id: Option<&str>) -> Result<Vec<Payro
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct PayrollSlipRow {
     pub run_id: String,
+    /// The run's month, `YYYY-MM`.
+    pub period: String,
     pub employee_id: String,
     pub employee_code: String,
     pub full_name: Option<String>,
@@ -414,6 +416,7 @@ fn slip_row(
 
     Ok(PayrollSlipRow {
         run_id,
+        period: row.try_get("run_period")?,
         employee_id,
         employee_code: row.try_get("employee_code")?,
         full_name: row.try_get("full_name")?,
@@ -463,7 +466,9 @@ const SLIP_COLUMNS: &str = "s.run_id, s.employee_id, e.code AS employee_code, p.
      s.taxable_gross_minor, s.pph21_minor, s.pension_contribution_minor, \
      s.final_tax_month, s.company_borne_minor, s.absent_days, \
      EXISTS (SELECT 1 FROM payroll_withholding w WHERE w.run_id = s.run_id \
-             AND w.employee_id = s.employee_id AND w.released_at IS NULL) AS withheld";
+             AND w.employee_id = s.employee_id AND w.released_at IS NULL) AS withheld, \
+     (SELECT to_char(pr.period, 'YYYY-MM') FROM payroll_run pr WHERE pr.id = s.run_id) \
+       AS run_period";
 
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
@@ -1862,6 +1867,172 @@ pub async fn run_slips(pool: &PgPool, run_id: &str) -> Result<Vec<PayrollSlipRow
         .collect::<Result<_, AppError>>()?;
 
     rows.iter().map(|row| slip_row(row, &mut lines)).collect()
+}
+
+/// A payslip with the run it is on, for Payroll › Payslips: a month's slips
+/// across every unit at once rather than one request per run.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PeriodSlipRow {
+    pub unit_id: String,
+    /// The run's state. A slip is a working figure until it is `APPROVED`.
+    pub run_state: String,
+    pub slip: PayrollSlipRow,
+}
+
+/// Every slip of one month, at one unit or all of them, whatever state the
+/// run is in — the reader holds the pay read and sees the run's state beside
+/// each figure. Two queries for the whole month, like [`run_slips`].
+pub async fn period_slips(
+    pool: &PgPool,
+    first_day: NaiveDate,
+    unit: Option<&str>,
+) -> Result<Vec<PeriodSlipRow>, AppError> {
+    let rows = sqlx::query(&format!(
+        "SELECT {SLIP_COLUMNS}, r.unit_id AS run_unit_id, r.state AS run_state
+           FROM payroll_slip s
+           JOIN payroll_run r ON r.id = s.run_id
+           JOIN employee e ON e.id = s.employee_id
+           LEFT JOIN employee_profile p ON p.employee_id = s.employee_id
+           LEFT JOIN payroll_identity i ON i.employee_id = s.employee_id
+          WHERE r.period = $1 AND ($2::text IS NULL OR r.unit_id = $2)
+          ORDER BY r.unit_id, COALESCE(p.full_name, e.code)"
+    ))
+    .bind(first_day)
+    .bind(unit)
+    .fetch_all(pool)
+    .await?;
+
+    let line_rows = sqlx::query(&format!(
+        "SELECT {SLIP_LINE_COLUMNS} FROM payroll_slip_line l
+           JOIN payroll_run r ON r.id = l.run_id
+          WHERE r.period = $1 AND ($2::text IS NULL OR r.unit_id = $2)
+          ORDER BY l.run_id, l.employee_id, l.line_no"
+    ))
+    .bind(first_day)
+    .bind(unit)
+    .fetch_all(pool)
+    .await?;
+    let mut lines: SlipLines = line_rows
+        .iter()
+        .map(slip_line_row)
+        .collect::<Result<_, AppError>>()?;
+
+    rows.iter()
+        .map(|row| {
+            let state: String = row.try_get("run_state")?;
+            Ok(PeriodSlipRow {
+                unit_id: row.try_get("run_unit_id")?,
+                run_state: RunState::parse(&state)
+                    .ok_or_else(|| corrupt("run state", state.clone()))?
+                    .code()
+                    .to_owned(),
+                slip: slip_row(row, &mut lines)?,
+            })
+        })
+        .collect()
+}
+
+/// One person a month's run would pay, and what payroll does not hold for
+/// them yet.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PayReadinessRow {
+    pub employee_id: String,
+    pub employee_code: String,
+    pub full_name: Option<String>,
+    pub unit_id: String,
+    /// What is missing, any of `PAY_AGREEMENT`, `BANK_ACCOUNT`, `PTKP`,
+    /// `BPJS_KESEHATAN` and `BPJS_KETENAGAKERJAAN`. Never empty: a person
+    /// with nothing missing is not a row.
+    pub missing: Vec<String>,
+}
+
+/// Whether a month's people can be paid, before anybody opens a run.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PayrollReadiness {
+    /// `YYYY-MM`.
+    pub period: String,
+    /// Everybody the month's runs would pay: posted at the unit for any day
+    /// of the month, the same people a run builds a slip for.
+    pub employees: i64,
+    pub missing: Vec<PayReadinessRow>,
+}
+
+/// The data a run needs that nobody has recorded: no pay agreement in force
+/// in the month, no bank account, no PTKP status, no BPJS numbers. Counted
+/// over the same people `build_slips` pays, so the figure is the run's.
+pub async fn payroll_readiness(
+    pool: &PgPool,
+    first_day: NaiveDate,
+    unit: Option<&str>,
+) -> Result<PayrollReadiness, AppError> {
+    let rows = sqlx::query(
+        "SELECT DISTINCT ON (a.unit_id, e.id)
+                e.id, e.code, p.full_name, a.unit_id,
+                EXISTS (SELECT 1 FROM employee_pay pay
+                         WHERE pay.employee_id = e.id
+                           AND pay.effective_from < ($1::date + interval '1 month'))
+                  AS has_pay,
+                i.bank_account IS NOT NULL AS has_bank,
+                NULLIF(btrim(i.ptkp), '') IS NOT NULL AS has_ptkp,
+                NULLIF(btrim(i.bpjs_kesehatan), '') IS NOT NULL AS has_kesehatan,
+                NULLIF(btrim(i.bpjs_ketenagakerjaan), '') IS NOT NULL AS has_ketenagakerjaan
+           FROM employee_assignment a
+           JOIN employee e ON e.id = a.employee_id
+           LEFT JOIN employee_profile p ON p.employee_id = e.id
+           LEFT JOIN payroll_identity i ON i.employee_id = e.id
+          WHERE a.valid_from < ($1::date + interval '1 month')
+            AND (a.valid_to IS NULL OR a.valid_to >= $1::date)
+            AND e.status IN ('ACTIVE', 'TERMINATED')
+            AND ($2::text IS NULL OR a.unit_id = $2)
+          ORDER BY a.unit_id, e.id",
+    )
+    .bind(first_day)
+    .bind(unit)
+    .fetch_all(pool)
+    .await?;
+
+    let employees = i64::try_from(rows.len()).unwrap_or(i64::MAX);
+    let mut missing = Vec::new();
+    for row in &rows {
+        let mut gaps = Vec::new();
+        for (column, word) in [
+            ("has_pay", "PAY_AGREEMENT"),
+            ("has_bank", "BANK_ACCOUNT"),
+            ("has_ptkp", "PTKP"),
+            ("has_kesehatan", "BPJS_KESEHATAN"),
+            ("has_ketenagakerjaan", "BPJS_KETENAGAKERJAAN"),
+        ] {
+            if !row.try_get::<bool, _>(column)? {
+                gaps.push(word.to_owned());
+            }
+        }
+        if gaps.is_empty() {
+            continue;
+        }
+        missing.push(PayReadinessRow {
+            employee_id: row.try_get("id")?,
+            employee_code: row.try_get("code")?,
+            full_name: row.try_get("full_name")?,
+            unit_id: row.try_get("unit_id")?,
+            missing: gaps,
+        });
+    }
+    missing.sort_by_cached_key(|row| {
+        (
+            row.unit_id.clone(),
+            row.full_name
+                .clone()
+                .unwrap_or_else(|| row.employee_code.clone()),
+        )
+    });
+    Ok(PayrollReadiness {
+        period: format!("{:04}-{:02}", first_day.year(), first_day.month()),
+        employees,
+        missing,
+    })
 }
 
 /// One person's own slips, across runs — the payslip route.
@@ -3635,10 +3806,19 @@ pub async fn grant_loan(
     };
     let mut tx = pool.begin().await?;
     let advance_id = Uuid::new_v4();
-    let number: String =
-        sqlx::query_scalar("SELECT 'ADV-' || to_char(nextval('advance_number_seq'), 'FM000000')")
-            .fetch_one(&mut *tx)
-            .await?;
+    // Numbered by the ADVANCE series like every other advance (0701 dropped
+    // the sequence this used to draw from), in the books of the lending unit.
+    let granted_on: NaiveDate = sqlx::query_scalar("SELECT current_date")
+        .fetch_one(&mut *tx)
+        .await?;
+    let lending_unit = super::sites::unit_of_site(&mut *tx, &site_id).await?;
+    let number = super::number_series::next_number(
+        &mut tx,
+        super::number_series::ADVANCE,
+        granted_on,
+        Some(&lending_unit),
+    )
+    .await?;
     let actor = granted.actor().as_str().to_owned();
     sqlx::query(
         "INSERT INTO advance
@@ -3672,6 +3852,62 @@ pub async fn grant_loan(
     .await?;
     tx.commit().await?;
     Ok(advance_id)
+}
+
+/// Record money an employee paid back on a loan directly — cash at a drawer
+/// or a transfer to the bank — as a `REFUND` settlement of its advance, with
+/// the journal the settlement posts. The balance drops by this row and by
+/// nothing earlier.
+///
+/// What a run that is not approved yet takes off pay is already promised to
+/// the loan, so a repayment may cover only what is left after it: otherwise
+/// approving that run would overshoot the advance and be refused.
+pub async fn repay_loan(
+    pool: &PgPool,
+    advance_id: Uuid,
+    repayment: &super::SettleAdvanceRequest,
+    actor: &str,
+) -> Result<String, AppError> {
+    let rupiah = crate::cloud::domain::store_exception::rupiah;
+    let loan = sqlx::query(&format!("{LOAN_SELECT} WHERE p.advance_id = $1"))
+        .bind(advance_id)
+        .fetch_optional(pool)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("loan {advance_id}")))?;
+    let employee_id: String = loan.try_get("employee_id")?;
+    let amount: i64 = loan.try_get("amount_minor")?;
+    let repaid: i64 = loan.try_get("repaid_minor")?;
+    let pending: i64 = loan.try_get("pending_minor")?;
+    let outstanding = (amount - repaid).max(0);
+    let open = (outstanding - pending).max(0);
+    if repayment.kind != "REFUND" {
+        return Err(AppError::Validation(
+            "a loan repayment is money coming back (REFUND)".into(),
+        ));
+    }
+    if repayment.amount_minor <= 0 {
+        return Err(AppError::Validation(
+            "a repayment is a positive amount".into(),
+        ));
+    }
+    if repayment.amount_minor > open {
+        return Err(if pending > 0 {
+            AppError::Conflict(format!(
+                "{} is still owed and {} of it is on a payroll run not approved yet; \
+                 record at most {} now",
+                rupiah(outstanding),
+                rupiah(pending),
+                rupiah(open)
+            ))
+        } else {
+            AppError::Validation(format!(
+                "only {} is still owed on this loan",
+                rupiah(outstanding)
+            ))
+        });
+    }
+    super::advance_settle(pool, advance_id, repayment, actor).await?;
+    Ok(employee_id)
 }
 
 /// Stop a loan's instalments. What came back stays settled; what is still

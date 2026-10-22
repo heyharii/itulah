@@ -121,8 +121,13 @@ export function letterTone(status: string): "info" | "ok" | "bad" | "neutral" {
   return "neutral"
 }
 
+/// The register's groups: the three a person writes in, and the letters the
+/// system writes (owner, 2026-10-17).
+export type LetterGroupFilter = "goods" | "people" | "notices" | "system"
+
 export interface LetterQuery {
   readonly kind?: LetterKind | null
+  readonly group?: LetterGroupFilter | null
   readonly status?: LetterStatus | null
   readonly q?: string
 }
@@ -134,6 +139,7 @@ export const letterKeys = {
       "letters",
       "list",
       query.kind ?? "any",
+      query.group ?? "any",
       query.status ?? "any",
       query.q ?? "",
     ] as const,
@@ -147,6 +153,7 @@ export const letterKeys = {
 function search(query: LetterQuery): string {
   const params = new URLSearchParams()
   if (query.kind) params.set("kind", query.kind)
+  if (query.group) params.set("group", query.group)
   if (query.status) params.set("status", query.status)
   if (query.q && query.q.trim() !== "") params.set("q", query.q.trim())
   const encoded = params.toString()

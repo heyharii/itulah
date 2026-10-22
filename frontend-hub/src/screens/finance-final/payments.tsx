@@ -26,9 +26,11 @@ import { ExpandingSearch } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill, Status } from "@/components/ui/pill"
 import { SubHead } from "@/components/ui/rows"
+import { CellMoney } from "@/components/ui/rows-switch"
 import { Toolbar } from "@/components/ui/segmented"
 import { SheetFooter } from "@/components/ui/sheet-footer"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
+import { SubTabs } from "@/components/ui/sub-tabs"
 import {
   Banner,
   EmptyState,
@@ -229,7 +231,7 @@ const columns: ColumnDef<TableSetup, SupplierPayment>[] = [
     size: 140,
     enableSorting: false,
     meta: { align: "right", card: "lead" },
-    cell: ({ row }) => money(row.original.total_minor),
+    cell: ({ row }) => <CellMoney minor={row.original.total_minor} />,
   },
   {
     id: "status",
@@ -318,6 +320,18 @@ export function Payments() {
       />
       <Fab label="Record payment" onClick={() => setComposing(true)} />
 
+      {/* The status is the dock's button on a phone. */}
+      <SubTabs
+        className="mb-3.5"
+        tabs={[
+          { value: "ALL", label: "All" },
+          { value: "DRAFT", label: "Draft" },
+          { value: "POSTED", label: "Posted" },
+        ]}
+        value={status === "" ? "ALL" : status}
+        onChange={(next) => setStatus(next === "ALL" ? "" : next)}
+      />
+
       <Toolbar className="group/bar">
         <ExpandingSearch
           value={needle}
@@ -330,18 +344,6 @@ export function Payments() {
           className="h-control w-44"
           aria-label="Unit"
         />
-        <span className="inline-flex w-40 shrink-0">
-          <Select
-            value={status}
-            onChange={setStatus}
-            className="h-control w-40"
-            aria-label="Status"
-          >
-            <option value="">All statuses</option>
-            <option value="DRAFT">Draft</option>
-            <option value="POSTED">Posted</option>
-          </Select>
-        </span>
         <Toolbar.Spacer />
         <span className="text-[0.9375rem] text-mute">
           {unit === "" ? "All units" : <UnitName id={unit} />}
@@ -1251,7 +1253,6 @@ function ComposerPanel({
             onChange={(event) => setNote(event.target.value)}
           />
         </Field>
-
       </div>
     </Sheet>
   )

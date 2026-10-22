@@ -16,13 +16,14 @@ import {
   Bell,
   Bookmark,
   CheckCheck,
+  CircleCheck,
   ChevronDown,
   ChevronsUpDown,
   CornerUpLeft,
   History,
   Link2,
-  ListFilter,
   Lock,
+  MessageCircle,
   MoreHorizontal,
   Pencil,
   Pin,
@@ -51,6 +52,7 @@ import { Dialog, Panel } from "@/components/ui/dialog"
 import { Fab } from "@/components/ui/fab"
 import { Field, Input, Select } from "@/components/ui/field"
 import { ChoiceMenu } from "@/components/ui/list-chrome"
+import { ListFilters } from "@/components/ui/list-filters"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { RecordPanel } from "@/components/ui/record-panel"
@@ -108,7 +110,13 @@ import {
   DESK_BAR,
   PhoneCards,
 } from "@/components/ui/phone-cards"
-import { FilterSheet } from "@/components/ui/filter-sheet"
+import {
+  encodeFilters,
+  useFilterState,
+  type Filter,
+  type FilterField,
+  type FilterState,
+} from "@/lib/filters"
 import { useAttachments } from "@/screens/workplace/attachments"
 import {
   ago,
@@ -180,14 +188,31 @@ const FEEDS = [
 
 type Feed = (typeof FEEDS)[number]["value"]
 
-/// What state they are in. `null` is every state, which is the board's
-/// resting position and so the menu's first row.
-const STATUSES = [
-  { value: null, label: "Any status" },
-  { value: "open", label: "Open" },
-  { value: "resolved", label: "Answered" },
-  { value: "locked", label: "Locked" },
-] as const
+/// What state they are in, as the chip line under the bar; "All" is every
+/// state, the board's resting position.
+const STATUS_FIELD: FilterField = {
+  column: "status",
+  label: "Show",
+  spec: {
+    kind: "option",
+    single: true,
+    options: [
+      { value: "open", label: "Open" },
+      { value: "resolved", label: "Answered" },
+      { value: "locked", label: "Locked" },
+    ],
+    icon: (value) =>
+      value === "open"
+        ? MessageCircle
+        : value === "resolved"
+          ? CircleCheck
+          : value === "locked"
+            ? Lock
+            : undefined,
+  },
+}
+
+const STATUS_FIELDS: FilterField[] = [STATUS_FIELD]
 
 /// The colour beside a category, the way a forum draws one.
 ///
@@ -286,14 +311,16 @@ function Board({
   const subjectId = aboutId.value ?? null
 
   const [feed, setFeed] = useState<Feed>("all")
-  const [status, setStatus] = useState<string | null>(null)
+  const statusFilters = useFilterState(STATUS_FIELDS)
+  const status =
+    statusFilters.filters.find((one) => one.column === "status")?.values[0] ??
+    null
   const [tag, setTag] = useState<string | null>(null)
   const [search, setSearch] = useState("")
   const [order, setOrder] = useState<ThreadOrder>("activity")
   // A blank composer is not a record, so there is nothing to put in the URL:
   // `?thread=` names a thread that exists, and a half-typed one does not.
   const [opening, setOpening] = useState(false)
-  const [filtering, setFiltering] = useState(false)
   const phone = useLayout() === "phone"
   const me = useIdentity().data?.username
 
@@ -396,12 +423,114 @@ function Board({
     onError: (error: Error) => toast.error(error.message),
   })
 
+  /// Everything the board is narrowed by, taken off in ONE navigation: the
+  /// status, the category and the record are all in the address bar, and two
+  /// navigations would each start from the address of this render.
+  const clearNarrowing = () =>
+    navigate({
+      to: ".",
+      replace: true,
+      search: (prev: SheetSearch) => ({
+        ...prev,
+        f: undefined,
+        about: undefined,
+        aboutId: undefined,
+      }),
+      viewTransition: false,
+    })
+
   const clear = () => {
     setFeed("all")
-    setStatus(null)
     setTag(null)
     setSearch("")
-    void setSubject(null)
+    void clearNarrowing()
+  }
+
+  // The phone's filter page reads the three questions as one model: the
+  // status (a filter in the address bar), the category (`about`) and the tag.
+  const panelFields = useMemo<FilterField[]>(
+    () => [
+      STATUS_FIELD,
+      {
+        column: "category",
+        label: "Category",
+        spec: {
+          kind: "option",
+          single: true,
+          format: (value) =>
+            (subjects.data ?? []).find((row) => row.subject_kind === value)
+              ?.label ?? value,
+          counted: (subjects.data ?? []).map((row) => ({
+            value: row.subject_kind,
+            count: row.threads,
+          })),
+        },
+      },
+      {
+        column: "tag",
+        label: "Tag",
+        spec: {
+          kind: "option",
+          single: true,
+          counted: (tags.data ?? []).slice(0, 24).map((row) => ({
+            value: row.tag,
+            count: row.threads,
+          })),
+        },
+      },
+    ],
+    [subjects.data, tags.data]
+  )
+  const panelFilters: Filter[] = [
+    ...statusFilters.filters,
+    ...(subject === null
+      ? []
+      : [
+          {
+            column: "category",
+            operator: "isAnyOf",
+            values: [subject],
+          } as Filter,
+        ]),
+    ...(tag === null
+      ? []
+      : [{ column: "tag", operator: "isAnyOf", values: [tag] } as Filter]),
+  ]
+  const applyPanel = (next: readonly Filter[]) => {
+    const pick = (column: string) =>
+      next.find((one) => one.column === column)?.values[0] ?? null
+    setTag(pick("tag"))
+    // The status and the category are both in the address bar: one
+    // navigation, so neither starts from a stale address.
+    void navigate({
+      to: ".",
+      replace: true,
+      search: (prev: SheetSearch) => ({
+        ...prev,
+        f: encodeFilters(next.filter((one) => one.column === "status")),
+        about: pick("category") ?? undefined,
+        aboutId: pick("category") === subject ? prev.aboutId : undefined,
+      }),
+      viewTransition: false,
+    })
+  }
+  const panel: FilterState = {
+    ...statusFilters,
+    filters: panelFilters,
+    fields: panelFields,
+    set: applyPanel,
+    commit: (next) =>
+      applyPanel([
+        ...panelFilters.filter((one) => one.column !== next.column),
+        next,
+      ]),
+    update: (at, next) =>
+      applyPanel(panelFilters.map((one, index) => (index === at ? next : one))),
+    remove: (at) => applyPanel(panelFilters.filter((_, index) => index !== at)),
+    clear: () => {
+      setTag(null)
+      void clearNarrowing()
+    },
   }
 
   return (
@@ -436,12 +565,8 @@ function Board({
           label: "Search discussions",
         }}
         filter={{
-          count:
-            (status === null ? 0 : 1) +
-            (subject === null ? 0 : 1) +
-            (subjectId === null ? 0 : 1) +
-            (tag === null ? 0 : 1),
-          onOpen: () => setFiltering(true),
+          count: panelFilters.length + (subjectId === null ? 0 : 1),
+          panel: { model: panel },
         }}
         sort={{
           label: "Order",
@@ -462,75 +587,6 @@ function Board({
           options: FEEDS.map((one) => ({ value: one.value, label: one.label })),
           onChange: (next) => setFeed(next as Feed),
         }}
-      />
-      <FilterSheet
-        open={filtering}
-        onOpenChange={setFiltering}
-        groups={[
-          {
-            key: "status",
-            label: "Show",
-            value: status,
-            options: STATUSES.map((one) => ({
-              value: one.value as string | null,
-              label: one.label,
-            })),
-            onChange: setStatus,
-          },
-          {
-            key: "category",
-            label: "Category",
-            value: subject,
-            options: [
-              {
-                value: null,
-                label: "All topics",
-                count: (subjects.data ?? []).reduce(
-                  (sum, row) => sum + row.threads,
-                  0
-                ),
-              },
-              ...(subjects.data ?? []).map((row) => ({
-                value: row.subject_kind as string | null,
-                label: row.label,
-                count: row.threads,
-              })),
-            ],
-            onChange: (next) => void setSubject(next),
-          },
-          ...((tags.data ?? []).length === 0
-            ? []
-            : [
-                {
-                  key: "tag",
-                  label: "Tag",
-                  value: tag,
-                  options: [
-                    { value: null as string | null, label: "Any tag" },
-                    ...(tags.data ?? []).slice(0, 24).map((row) => ({
-                      value: row.tag as string | null,
-                      label: row.tag,
-                      count: row.threads,
-                    })),
-                  ],
-                  onChange: setTag,
-                },
-              ]),
-          ...(subjectId === null
-            ? []
-            : [
-                {
-                  key: "record",
-                  label: "About",
-                  value: subjectId as string | null,
-                  options: [
-                    { value: null as string | null, label: "Any record" },
-                    { value: subjectId as string | null, label: subjectId },
-                  ],
-                  onChange: () => void clearRecord(),
-                },
-              ]),
-        ]}
       />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[12.5rem_minmax(0,1fr)]">
@@ -557,13 +613,7 @@ function Board({
               claims the same rank as the scope above it. So it is one menu. */}
           <div className={cn(DESK_BAR, "mb-3")}>
             <Segmented options={FEEDS} value={feed} onChange={setFeed} />
-            <ChoiceMenu
-              heading="Show"
-              icon={ListFilter}
-              value={status}
-              options={STATUSES}
-              onChange={setStatus}
-            />
+            <ListFilters model={statusFilters} />
             <Toolbar.Spacer />
             {feed === "unread" && rows.length > 0 && (
               <Button

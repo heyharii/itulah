@@ -19,6 +19,11 @@ const DAY_SHORT = new Intl.DateTimeFormat("id-ID", {
   year: "numeric",
 })
 
+const DAY_MONTH = new Intl.DateTimeFormat("id-ID", {
+  day: "numeric",
+  month: "short",
+})
+
 const TIME = new Intl.DateTimeFormat("id-ID", {
   hour: "2-digit",
   minute: "2-digit",
@@ -54,6 +59,16 @@ export function dayLabel(iso: string): string {
 
 export function shortDate(iso: string): string {
   return DAY_SHORT.format(new Date(iso))
+}
+
+/// A date in a row: the year only when it is not this one. A purchase list
+/// at 15px on a 375-wide phone has no room for "2026" on every line, and
+/// this year is the one nobody needs told.
+export function rowDate(iso: string): string {
+  const date = new Date(iso)
+  return date.getFullYear() === new Date().getFullYear()
+    ? DAY_MONTH.format(date)
+    : DAY_SHORT.format(date)
 }
 
 export function timeOfDay(iso: string): string {

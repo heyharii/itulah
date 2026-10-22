@@ -478,16 +478,9 @@ export function Payments() {
         title="Payments"
         sub="What has left the bank, and which supplier debts it answered."
         actions={
-          <>
-            <Input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              className="h-8 w-48"
-            />
-            <Button variant="primary" onClick={() => setComposing(true)}>
-              Record payment
-            </Button>
-          </>
+          <Button variant="primary" onClick={() => setComposing(true)}>
+            Record payment
+          </Button>
         }
       />
 
@@ -503,7 +496,15 @@ export function Payments() {
             the wire, so neither is offered again in the panel. What is offered
             is what no control here can reach: which pot the money left, how
             big it was, and whether anybody has posted it. */}
-        <FilterPanel model={filters} table={table} />
+        <FilterPanel
+          model={filters}
+          table={table}
+          search={{
+            value: query,
+            onChange: setQuery,
+            label: "Search payments",
+          }}
+        />
         <Toolbar.Spacer />
         {/* The window is stated rather than implied, and so is how many
             payments the server found in it — its count, not the pages loaded

@@ -64,15 +64,14 @@ export function Section({
           {aside && <span className="text-[0.9375rem] text-mute">{aside}</span>}
         </div>
       ) : (
-        <div className="form-section-head mb-3.5 flex items-baseline justify-between gap-2 border-b border-hairline pb-2">
+        <div className="form-section-head mb-4 flex items-baseline justify-between gap-2 border-b border-hairline pb-2">
           <h4 className="text-card-title font-semibold text-ink">{title}</h4>
           {aside && <span className="text-[0.9375rem] text-mute">{aside}</span>}
         </div>
       )}
-      {/* 20px between questions since the fields grew to 47px (airy
-          charcoal, 2026-09-28): at 14px a form of tall boxes read as one
-          block rather than as questions one under another. */}
-      <div className="flex flex-col gap-5">{children}</div>
+      {/* 24px between questions: 14px read as one block once the fields grew
+          to 47px (2026-09-28), and 20px still felt packed (2026-10-19). */}
+      <div className="flex flex-col gap-6">{children}</div>
     </section>
   )
 }
@@ -302,23 +301,32 @@ export function Switch({
 export function SwitchPill({
   on,
   label,
+  count,
   onToggle,
   className,
 }: {
   on: boolean
   label: string
+  /// How many rows the switch would leave, after the words in `mute` as a
+  /// tab's count is ("Due for renewal 4").
+  count?: number
   onToggle: () => void
   className?: string
 }) {
   return (
     <label
       className={cn(
-        "inline-flex h-[2.125rem] shrink-0 cursor-pointer items-center gap-2 rounded-inner border border-hairline-2 bg-canvas px-2.5 text-[0.9375rem] whitespace-nowrap text-ink capitalize shadow-soft select-none pointer-coarse:h-11",
+        "inline-flex h-control shrink-0 cursor-pointer items-center gap-2 rounded-inner border border-hairline-2 bg-canvas px-2.5 text-[0.9375rem] whitespace-nowrap text-ink shadow-soft select-none pointer-coarse:h-11",
         className
       )}
     >
       <Switch on={on} label={label} onToggle={onToggle} />
       {label}
+      {count !== undefined && (
+        <span className="-ml-0.5 text-mute tabular-nums">
+          {count.toLocaleString("id-ID")}
+        </span>
+      )}
     </label>
   )
 }

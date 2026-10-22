@@ -1,21 +1,23 @@
-import { Dialog as BaseDialog } from "@base-ui/react/dialog"
 import {
   useMutation,
   useQueries,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query"
-import { Minus, Plus, X } from "lucide-react"
+import { Minus, Plus } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { useShopName } from "@/components/operations/outbound-papers"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/field"
+import { ZoomPhoto } from "@/components/ui/photo-viewer"
 import { Sheet } from "@/components/ui/sheet"
 import { SheetFooter } from "@/components/ui/sheet-footer"
 import { ErrorState, LoadingState } from "@/components/ui/states"
+import { Thumbnail } from "@/components/ui/thumbnail"
 import { dc } from "@/lib/api"
-import { count, quantity } from "@/lib/format"
+import { useColourwayFill } from "@/lib/colourway-fill"
+import { count, quantity, sku as skuNumber } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import { useCatalogueIdentity } from "@/lib/operations/catalogue"
 import {
@@ -37,8 +39,7 @@ import { owedBySku, type MoveBackTarget } from "@/screens/operations/board/owed"
 ///
 /// It is a physical thing, so it asks first. Reached from a card's Move back
 /// button, from dropping a card on an earlier lane (a desk), and from a
-/// carton's sheet. A desk draws it as a dialog in the middle; a phone, as the
-/// hub's bottom sheet, with the lines stacked and the foot pinned.
+/// carton's sheet. A sheet on every device, each line with its picture.
 ///
 /// The lines come from where the pieces are now — a carton's manifest, or a
 /// shop's waiting pieces by SKU off the picklists the Pack sheet reads — and
@@ -121,7 +122,7 @@ function useSource(target: MoveBackTarget) {
   let lines: SourceLine[] | undefined
   let carton: string | null = null
   let fetching: boolean
-  let error: unknown = null
+  let error: unknown
   let retry: () => void
   if (packed) {
     fetching = manifest.isFetching
@@ -185,6 +186,7 @@ function Mover({
   const phone = useLayout() === "phone"
   const shopName = useShopName()
   const catalogue = useCatalogueIdentity()
+  const colourway = useColourwayFill()
   const client = useQueryClient()
   const packed = target.from === "packed"
 
@@ -205,9 +207,12 @@ function Mover({
   const [choice, setChoice] = useState<"picked" | "pick" | null>(
     target.to ?? null
   )
-  const to: "picked" | "pick" = packed
-    ? (choice ?? (hasOwed ? "pick" : "picked"))
-    : "pick"
+  const back = target.back === true
+  const to: "picked" | "pick" = back
+    ? "pick"
+    : packed
+      ? (choice ?? (hasOwed ? "pick" : "picked"))
+      : "pick"
 
   /// How many of each SKU go back. Set once, when what is on the source has
   /// been read fresh: owed → what MD took out, else everything.
@@ -223,7 +228,11 @@ function Mover({
       Object.fromEntries(
         lines.map((line) => [
           line.sku,
-          hasOwed ? Math.min(line.now, owedMap.get(line.sku) ?? 0) : line.now,
+          hasOwed
+            ? Math.min(line.now, owedMap.get(line.sku) ?? 0)
+            : back && !packed
+              ? 0
+              : line.now,
         ])
       )
     )
@@ -263,6 +272,16 @@ function Mover({
   const outcome = (() => {
     if (moved === 0) return "Choose what goes back."
     const parts: string[] = []
+    if (back) {
+      if (packed && source.carton !== null)
+        parts.push(
+          everything
+            ? `${source.carton} opened · label void`
+            : `${source.carton} reopened · label reprinted`
+        )
+      parts.push(`${quantity(moved)} to pick again`)
+      return parts.join(" · ")
+    }
     if (packed && source.carton !== null)
       parts.push(
         everything
@@ -303,14 +322,22 @@ function Mover({
       // a picklist asks again, MD's owed work shrank.
       void client.invalidateQueries({ queryKey: keys.dc.all })
       void client.invalidateQueries({ queryKey: keys.pools() })
-      toast.success(said(result, to))
+      if (back)
+        toast.success(`${quantity(result.moved)} back to Picklist`, {
+          description: [
+            shopName(target.destinationId),
+            ...result.kolis
+              .filter((one) => one.emptied)
+              .map((one) => `${one.koli_number} emptied`),
+          ].join(" · "),
+        })
+      else toast.success(...said(result, to))
       onMoved?.(result)
       onClose()
     },
   })
 
   const ready = lines !== undefined && qty !== null
-  const where = packed ? "Koli" : "Picklist"
   const sub = ready
     ? `${count(total)} ${total === 1 ? "pc" : "pcs"} · now ${packed ? "packed" : "picked"}`
     : undefined
@@ -327,7 +354,7 @@ function Mover({
     return (
       [identity?.article_name, identity?.colour, identity?.size]
         .filter(Boolean)
-        .join(" · ") || sku
+        .join(" · ") || skuNumber(sku)
     )
   }
 
@@ -346,7 +373,7 @@ function Mover({
   ) : (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-        {packed ? (
+        {packed && !back ? (
           <div className="flex flex-wrap gap-2" role="group" aria-label="To">
             {(["picked", "pick"] as const).map((one) => (
               <button
@@ -368,157 +395,104 @@ function Mover({
         ) : (
           <span />
         )}
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2">
           {hasOwed && (
-            <Button
-              variant="quiet"
-              size="sm"
-              className="max-md:h-11"
-              onClick={() => fill("owed")}
-            >
+            <Button variant="ghost" size="card" onClick={() => fill("owed")}>
               MD&apos;s edit
             </Button>
           )}
-          <Button
-            variant="quiet"
-            size="sm"
-            className="max-md:h-11"
-            onClick={() => fill("all")}
-          >
+          <Button variant="primary" size="card" onClick={() => fill("all")}>
             All
           </Button>
-          <Button
-            variant="quiet"
-            size="sm"
-            className="max-md:h-11"
-            onClick={() => fill("none")}
-          >
+          <Button variant="ghost" size="card" onClick={() => fill("none")}>
             None
           </Button>
         </div>
       </div>
 
-      {phone ? (
-        <ul className="flex flex-col overflow-hidden rounded-inner border border-hairline">
+      <div>
+        <div className="flex h-9 items-center gap-3 border-b border-hairline text-body max-md:hidden">
+          <span className="w-11 shrink-0" />
+          <span className="min-w-0 flex-1">SKU</span>
+          <span className="w-20 shrink-0 text-right">Quantity</span>
+          <span className="w-[10.5rem] shrink-0 text-center">
+            {back ? "Back to Picklist" : "Put back"}
+          </span>
+        </div>
+        <ul className="flex flex-col">
           {lines.map((line) => {
             const q = qtyOf(line)
+            const identity = catalogue.get(line.sku)
+            const colours = colourway(identity?.colour ?? null)
             return (
               <li
                 key={line.sku}
-                className={cn(
-                  "flex flex-col gap-3 border-b border-hairline px-3.5 py-3",
-                  q === 0 && "bg-soft"
-                )}
+                className="border-row-line flex min-h-[4.25rem] items-center gap-3 border-t py-2.5 first:border-t-0 max-md:flex-wrap"
               >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="text-[0.9375rem] [overflow-wrap:anywhere] text-ink">
-                      {name(line.sku)}
-                    </div>
-                    <div className="font-mono text-[0.9375rem] break-all text-mute">
-                      {line.sku}
-                      {line.where !== "" && ` · ${line.where}`}
-                    </div>
-                  </div>
-                  <div className="shrink-0 text-[0.9375rem] whitespace-nowrap text-body tabular-nums">
-                    Now{" "}
-                    <span className="font-semibold text-ink">
-                      {count(line.now)}
-                    </span>
-                  </div>
-                </div>
-                <Stepper
-                  block
-                  value={q}
-                  max={line.now}
-                  label={`Put back ${line.sku}`}
-                  padLabel={name(line.sku)}
-                  onChange={(next) => set(line, next)}
-                />
-                <Split moving={q} keeping={line.now - q} />
+                <ZoomPhoto
+                  url={identity?.image_url ?? null}
+                  name={name(line.sku)}
+                  className="rounded-[9px]"
+                  placeholder={
+                    <Thumbnail
+                      url={null}
+                      name={identity?.article_name ?? ""}
+                      division={identity?.division_code}
+                      colours={colours}
+                      className="size-72 rounded-card"
+                    />
+                  }
+                >
+                  <Thumbnail
+                    url={identity?.image_url ?? null}
+                    name={identity?.article_name ?? ""}
+                    division={identity?.division_code}
+                    colours={colours}
+                    className="size-11 rounded-[9px]"
+                  />
+                </ZoomPhoto>
+                <span className="min-w-0 flex-1">
+                  <span className="block font-medium [overflow-wrap:anywhere] text-ink">
+                    {name(line.sku)}
+                  </span>
+                  <span className="block text-body tabular-nums [overflow-wrap:anywhere]">
+                    {skuNumber(line.sku)}
+                    {line.where !== "" && ` · ${line.where}`}
+                  </span>
+                </span>
+                <span className="w-20 shrink-0 text-right text-[1.0625rem] font-semibold text-ink tabular-nums">
+                  <span className="font-normal text-body md:hidden">Quantity </span>
+                  {count(line.now)}
+                </span>
+                <span className="flex shrink-0 justify-center md:w-[10.5rem] max-md:w-full">
+                  <Stepper
+                    block={phone}
+                    value={q}
+                    max={line.now}
+                    label={`${back ? "Back to Picklist" : "Put back"} ${skuNumber(line.sku)}`}
+                    padLabel={name(line.sku)}
+                    onChange={(next) => set(line, next)}
+                  />
+                </span>
               </li>
             )
           })}
-          <li className="flex items-center justify-between gap-3 bg-soft-2 px-3.5 py-3 text-[0.9375rem] font-medium text-ink tabular-nums">
-            <span>Total</span>
-            <span>
-              {count(total)} now · {count(moved)} back
-            </span>
-          </li>
         </ul>
-      ) : (
-        <div className="overflow-hidden rounded-inner border border-hairline">
-          <table className="w-full border-collapse text-[0.9375rem]">
-            <thead>
-              <tr className="border-b border-hairline text-left text-[0.9375rem] text-body">
-                <th className="h-9 w-12 px-3 font-normal">No.</th>
-                <th className="h-9 px-3 font-normal">SKU</th>
-                <th className="h-9 px-3 font-normal">{where}</th>
-                <th className="h-9 w-20 px-3 text-right font-normal">Now</th>
-                <th className="h-9 w-56 px-3 text-center font-normal">
-                  Put back
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {lines.map((line, index) => {
-                const q = qtyOf(line)
-                return (
-                  <tr
-                    key={line.sku}
-                    className={cn(
-                      "border-b border-hairline",
-                      q === 0 && "bg-soft"
-                    )}
-                  >
-                    <td className="px-3 py-2 text-mute tabular-nums">
-                      {index + 1}
-                    </td>
-                    <td className="px-3 py-2">
-                      <div className="text-ink">{name(line.sku)}</div>
-                      <div className="font-mono text-[0.9375rem] text-mute">
-                        {line.sku}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2 font-mono text-[0.9375rem] text-body">
-                      {line.where}
-                    </td>
-                    <td className="px-3 py-2 text-right text-body tabular-nums">
-                      {count(line.now)}
-                    </td>
-                    <td className="px-3 py-2">
-                      <div className="flex flex-col items-center gap-1">
-                        <Stepper
-                          value={q}
-                          max={line.now}
-                          label={`Put back ${line.sku}`}
-                          padLabel={name(line.sku)}
-                          onChange={(next) => set(line, next)}
-                        />
-                        <Split moving={q} keeping={line.now - q} />
-                      </div>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-            <tfoot>
-              <tr className="bg-soft-2 font-medium text-ink tabular-nums">
-                <td className="h-10 px-3" />
-                <td className="px-3" colSpan={2}>
-                  Total
-                </td>
-                <td className="px-3 text-right">{count(total)}</td>
-                <td className="px-3 text-center">{count(moved)}</td>
-              </tr>
-            </tfoot>
-          </table>
+        <div className="flex h-12 items-center gap-3 border-t border-hairline font-semibold text-ink tabular-nums">
+          <span className="min-w-0 flex-1 md:pl-14">Total</span>
+          <span className="w-20 shrink-0 text-right">{count(total)}</span>
+          <span className="w-[10.5rem] shrink-0 text-center max-md:w-auto max-md:pl-3">
+            <span className="font-normal text-body md:hidden">Back </span>
+            {count(moved)}
+          </span>
         </div>
-      )}
+      </div>
     </div>
   )
 
-  const title = `Put back from ${shopName(target.destinationId)}`
+  const title = back
+    ? `Back to Picklist · ${shopName(target.destinationId)}`
+    : `Put back from ${shopName(target.destinationId)}`
   const foot = (
     <SheetFooter
       onCancel={onClose}
@@ -526,11 +500,16 @@ function Mover({
       note={ready && lines.length > 0 ? outcome : undefined}
       error={submit.error}
       primary={{
-        label:
-          moved > 0
-            ? `Put back ${quantity(moved)} to ${WHERE[to]}`
+        label: back
+          ? moved > 0
+            ? `Back to Picklist · ${quantity(moved)}`
+            : "Back to Picklist"
+          : moved > 0
+            ? // Everything MD took out: it goes to the racks, nothing is
+              // picked again, so the button says so.
+              `Put back ${quantity(moved)} to ${to === "pick" && again === 0 ? "stock" : WHERE[to]}`
             : "Put back",
-        pendingLabel: "Putting back…",
+        pendingLabel: back ? "Sending back…" : "Putting back…",
         pending: submit.isPending,
         disabled: !ready || moved === 0,
         onClick: () => submit.mutate(),
@@ -538,80 +517,22 @@ function Mover({
     />
   )
 
-  // A phone: the hub's own bottom sheet — full height, the foot pinned above
-  // the home bar, the lines stacked.
-  if (phone) {
-    return (
-      <Sheet
-        open={open}
-        onOpenChange={(next) => {
-          if (!next) onClose()
-        }}
-        title={title}
-        id={id}
-        caption={sub}
-        footer={foot}
-      >
-        {body}
-      </Sheet>
-    )
-  }
-
+  // One sheet on every device (owner, 21 Oct 2026: "jadikan ini sheet dan
+  // ada fotonya"): the lines with their pictures, the foot pinned.
   return (
-    <BaseDialog.Root
+    <Sheet
       open={open}
       onOpenChange={(next) => {
         if (!next) onClose()
       }}
+      title={title}
+      id={id}
+      caption={sub}
+      size="table"
+      footer={foot}
     >
-      <BaseDialog.Portal>
-        <BaseDialog.Backdrop
-          // Drawn even when this opens over a carton's sheet: Base UI skips a
-          // nested dialog's backdrop by default.
-          forceRender
-          className="fixed inset-0 z-50 bg-[var(--scrim)] backdrop-blur-[2px] transition-opacity duration-(--t-panel) ease-(--ease-out) data-[ending-style]:opacity-0 data-[starting-style]:opacity-0"
-        />
-        <BaseDialog.Popup className="fixed top-1/2 left-1/2 z-50 flex max-h-[calc(100dvh-3rem)] w-[46rem] max-w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 flex-col rounded-card border border-hairline-2 bg-canvas shadow-float transition-[opacity,scale] duration-(--t-panel) ease-(--ease-out) data-[ending-style]:scale-[0.96] data-[ending-style]:opacity-0 data-[starting-style]:scale-[0.96] data-[starting-style]:opacity-0 motion-reduce:data-[ending-style]:scale-100 motion-reduce:data-[starting-style]:scale-100">
-          <div className="flex items-start gap-3 border-b border-hairline px-5 py-4">
-            <div className="min-w-0 flex-1">
-              <BaseDialog.Title className="text-card-title font-semibold text-ink">
-                {title}
-              </BaseDialog.Title>
-              {(id !== undefined || sub !== undefined) && (
-                <p className="mt-0.5 text-[0.9375rem] text-mute tabular-nums">
-                  {id !== undefined && <span className="font-mono">{id}</span>}
-                  {id !== undefined && sub !== undefined && " · "}
-                  {sub}
-                </p>
-              )}
-            </div>
-            <BaseDialog.Close
-              render={
-                <Button variant="ghost" size="icon" aria-label="Close">
-                  <X />
-                </Button>
-              }
-            />
-          </div>
-          <div className="min-h-0 flex-1 overflow-y-auto p-5">{body}</div>
-          <div className="shrink-0 border-t border-hairline px-5 py-4">
-            {foot}
-          </div>
-        </BaseDialog.Popup>
-      </BaseDialog.Portal>
-    </BaseDialog.Root>
-  )
-}
-
-/// What a line does under the stepper: how many go back and how many stay
-/// where they are ("Move back 10 · Keep 20", owner 10 Oct 2026). Keep is what
-/// is on the source now less what moves, so it is known for every line.
-function Split({ moving, keeping }: { moving: number; keeping: number }) {
-  return (
-    <span className="text-[0.9375rem] text-mute tabular-nums">
-      Put back <span className="text-ink">{count(moving)}</span> · Keep{" "}
-      <span className="text-ink">{count(keeping)}</span>
-    </span>
+      {body}
+    </Sheet>
   )
 }
 
@@ -682,8 +603,14 @@ function Stepper({
 }
 
 /// The receipt: what moved, where, and what the server did to the labels.
-function said(result: MoveBackResult, to: "picked" | "pick"): string {
-  const parts = [`${quantity(result.moved)} put back to ${WHERE[to]}`]
+function said(
+  result: MoveBackResult,
+  to: "picked" | "pick"
+): [string, { description: string }] {
+  // Nothing to pick again: it went to the racks, not to the Picklist.
+  const parts: string[] = [
+    to === "pick" && result.to_pick_again === 0 ? "Back in stock" : WHERE[to],
+  ]
   const reprinted = result.kolis.filter((one) => one.label_reprint).length
   if (reprinted > 0)
     parts.push(reprinted === 1 ? "label reprinted" : "labels reprinted")
@@ -692,5 +619,8 @@ function said(result: MoveBackResult, to: "picked" | "pick"): string {
     parts.push(`${emptied.map((one) => one.koli_number).join(", ")} emptied`)
   if (to === "pick" && result.to_pick_again > 0)
     parts.push(`${quantity(result.to_pick_again)} to pick again`)
-  return parts.join(" · ")
+  return [
+    `${quantity(result.moved)} put back`,
+    { description: parts.join(" · ") },
+  ]
 }

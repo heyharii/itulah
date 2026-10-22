@@ -1,5 +1,4 @@
 import { useQuery } from "@tanstack/react-query"
-import { Shirt, Store, type LucideIcon } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -9,10 +8,12 @@ import { Select } from "@/components/ui/field"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { BarSpacer, ExpandingSearch } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
+import { SubTabs } from "@/components/ui/sub-tabs"
 import { Sheet } from "@/components/ui/sheet"
 import { EmptyState, LoadingState } from "@/components/ui/states"
+import { Thumbnail } from "@/components/ui/thumbnail"
 import { today } from "@/lib/calendar"
-import { count, dayMonth, label as humanise } from "@/lib/format"
+import { count, dayMonth, label as humanise, sku as skuNumber } from "@/lib/format"
 import {
   stockCardLinesQuery,
   stockCardQuery,
@@ -23,42 +24,46 @@ import {
 import { unitsQuery } from "@/lib/queries/organisation"
 import { useDebounced } from "@/lib/use-debounced"
 import { cn } from "@/lib/utils"
-import {
-  ITEMS_CELL,
-  ITEMS_HEAD,
-  ItemIdentity,
-} from "@/screens/procurement/items-table"
+import { ITEMS_CELL, ITEMS_HEAD } from "@/screens/procurement/items-table"
+import { shortRef } from "@/screens/inventory/missing-data"
 
 /// The stock card (kartu stok), in place of Movements (owner, 16 Oct 2026:
 /// "inventory atau log?" — Inventory reads the card; the log is its
 /// evidence). The pair ERPNext calls Stock Balance and Stock Ledger, on one
-/// page: first the period's equation per store (or per article) —
-/// Opening · Received · Sent out · Sold · Missing · Closing — then, opened,
-/// one place's card with the balance after every line.
+/// page: first the period's equation per place (or per SKU) —
+/// Opening · In · Out · Sold · Lost · Closing — then, opened, one place's card
+/// with the balance after every line. Missing stays inside Inventory; only
+/// pieces declared lost leave it.
 ///
 /// Stock (`/inventory`) answers "how much is there now, and can it be
 /// trusted"; this answers "how did it get there". Closing on the last day is
 /// the stock on hand that day.
 
-type Way = "store" | "article"
+type Way = "place" | "sku"
 
-const WAYS: readonly { value: Way; label: string; icon: LucideIcon }[] = [
-  { value: "store", label: "By store", icon: Store },
-  { value: "article", label: "By article", icon: Shirt },
+const WAYS: readonly { value: Way; label: string }[] = [
+  { value: "place", label: "By Place" },
+  { value: "sku", label: "By SKU" },
 ]
+
+type FigureKey = keyof StockCardFigures
+
+/// A figure, tolerating a server that has not sent `lost` yet.
+const figure = (figures: StockCardFigures, key: FigureKey): number =>
+  figures[key] ?? 0
 
 /// The period's columns, in the order the equation reads.
 const COLUMNS: readonly {
-  key: keyof StockCardFigures
+  key: FigureKey
   label: string
   /// Off a phone's table; the card's KPIs still say it.
   wide?: boolean
 }[] = [
   { key: "opening", label: "Opening", wide: true },
-  { key: "received", label: "Received" },
-  { key: "sent_out", label: "Sent out", wide: true },
+  { key: "received", label: "In" },
+  { key: "sent_out", label: "Out", wide: true },
   { key: "sold", label: "Sold" },
-  { key: "missing", label: "Missing", wide: true },
+  { key: "lost", label: "Lost", wide: true },
   { key: "closing", label: "Closing" },
 ]
 
@@ -75,7 +80,7 @@ const ACTION: Record<string, string> = {
   COUNT_SHORTAGE: "Count short",
   COUNT_GAIN: "Count over",
   FOUND: "Found",
-  CONFIRMED_LOST: "Written off",
+  CONFIRMED_LOST: "Lost",
   DISPOSAL: "Disposed",
   PLACEMENT_CORRECTION: "Corrected",
   IDENTIFICATION: "Set up",
@@ -89,7 +94,7 @@ function documentOf(line: StockCardLine): string {
   if (line.cause === "SALE")
     return `${count(line.groups)} ${line.groups === 1 ? "receipt" : "receipts"}`
   if (line.reference_type === "OFFICIAL_COUNT") return "Count"
-  return line.reference_id ?? "—"
+  return shortRef(line.reference_id ?? null) ?? "—"
 }
 
 /// This month so far: the window the page opens on.
@@ -114,8 +119,7 @@ function signed(value: number): string {
 // Pieces
 // ---------------------------------------------------------------------------
 
-/// Two big buttons where tabs would be: the icon over its name, the chosen one
-/// marked (owner, 16 Oct 2026).
+/// By Place | By SKU as the same tabs a purchase order list has.
 function WaySwitch({
   value,
   onChange,
@@ -124,33 +128,11 @@ function WaySwitch({
   onChange: (next: Way) => void
 }) {
   return (
-    <div
-      role="tablist"
-      className="mb-4 grid grid-cols-2 gap-3 md:max-w-[22rem]"
-    >
-      {WAYS.map((way) => {
-        const on = way.value === value
-        const Icon = way.icon
-        return (
-          <button
-            key={way.value}
-            type="button"
-            role="tab"
-            aria-selected={on}
-            onClick={() => onChange(way.value)}
-            className={cn(
-              "flex flex-col items-center gap-2 rounded-card border px-3 py-3.5 text-[0.9375rem] transition-[border-color,background-color,color,scale] duration-150 ease-(--ease-out) active:scale-[0.97]",
-              on
-                ? "border-accent bg-accent-bg font-medium text-accent"
-                : "border-hairline bg-canvas text-body hover:border-hairline-strong hover:text-ink"
-            )}
-          >
-            <Icon className="size-6" strokeWidth={1.6} />
-            {way.label}
-          </button>
-        )
-      })}
-    </div>
+    <SubTabs
+      tabs={WAYS.map((way) => ({ value: way.value, label: way.label }))}
+      value={value}
+      onChange={(next) => onChange(next as Way)}
+    />
   )
 }
 
@@ -165,10 +147,10 @@ function FigureStrip({ figures }: { figures: StockCardFigures }) {
           value={
             <span
               className={cn(
-                column.key === "missing" && figures.missing > 0 && "text-bad-fg"
+                column.key === "lost" && figure(figures, "lost") > 0 && "text-bad-fg"
               )}
             >
-              {count(figures[column.key])}
+              {count(figure(figures, column.key))}
             </span>
           }
         />
@@ -177,13 +159,13 @@ function FigureStrip({ figures }: { figures: StockCardFigures }) {
   )
 }
 
-/// A row's figure cells. Flows that did not happen are a quiet dash, Missing
+/// A row's figure cells. Flows that did not happen are a quiet dash, Lost
 /// is red while it is more than nothing, Closing is the row's answer.
 function FigureCells({ figures }: { figures: StockCardFigures }) {
   return (
     <>
       {COLUMNS.map((column) => {
-        const value = figures[column.key]
+        const value = figure(figures, column.key)
         const flow = column.key !== "opening" && column.key !== "closing"
         return (
           <td
@@ -193,7 +175,7 @@ function FigureCells({ figures }: { figures: StockCardFigures }) {
               "text-right whitespace-nowrap tabular-nums",
               column.wide && "max-md:hidden",
               column.key === "closing" ? "font-semibold text-ink" : "text-ink",
-              column.key === "missing" && value > 0 && "text-bad-fg"
+              column.key === "lost" && value > 0 && "text-bad-fg"
             )}
           >
             {flow && value === 0 ? (
@@ -270,7 +252,7 @@ function useSiteNames() {
 // ---------------------------------------------------------------------------
 
 export function StockCard() {
-  const [way, setWay] = useState<Way>("store")
+  const [way, setWay] = useState<Way>("place")
   const [range, setRange] = useState<DayWindow>(thisMonth)
   const [opened, setOpened] = useState<Opened | null>(null)
   const period = closed(range)
@@ -287,7 +269,7 @@ export function StockCard() {
   return (
     <PageContent>
       <PageHeader title="Stock card" small />
-      {way === "store" ? (
+      {way === "place" ? (
         <ByStore
           range={range}
           onRange={setRange}
@@ -296,7 +278,7 @@ export function StockCard() {
           switcher={switcher}
         />
       ) : (
-        <ByArticle
+        <BySku
           range={range}
           onRange={setRange}
           period={period}
@@ -304,16 +286,16 @@ export function StockCard() {
           switcher={switcher}
         />
       )}
-      {opened !== null && way === "store" && (
+      {opened !== null && way === "place" && (
         <StoreCard
           site={opened}
           period={period}
           onClose={() => setOpened(null)}
         />
       )}
-      {opened !== null && way === "article" && (
-        <ArticleCard
-          article={opened}
+      {opened !== null && way === "sku" && (
+        <SkuCard
+          sku={opened}
           period={period}
           onClose={() => setOpened(null)}
         />
@@ -343,6 +325,29 @@ function PeriodBox({
   )
 }
 
+/// The one filter bar: search, and the period beside it.
+function FilterBar({
+  typed,
+  onTyped,
+  label,
+  range,
+  onRange,
+}: {
+  typed: string
+  onTyped: (next: string) => void
+  label: string
+  range: DayWindow
+  onRange: (next: DayWindow) => void
+}) {
+  return (
+    <div className="group/bar mb-3 flex flex-wrap items-center gap-2">
+      <ExpandingSearch value={typed} onChange={onTyped} label={label} />
+      <PeriodBox range={range} onRange={onRange} />
+      <BarSpacer />
+    </div>
+  )
+}
+
 function ByStore({
   range,
   onRange,
@@ -357,28 +362,41 @@ function ByStore({
   switcher: React.ReactNode
 }) {
   const names = useSiteNames()
+  const [typed, setTyped] = useState("")
   const page = useQuery(stockCardQuery({ ...period, by: "site" }))
-  const rows = page.data?.rows ?? []
   const label = (row: StockCardRow) => names.get(row.key)?.name ?? row.label
   const sub = (row: StockCardRow) =>
     names.get(row.key)?.sub ?? (row.sub === "HO" ? "HO" : "Store")
+  const needle = typed.trim().toLowerCase()
+  // HO is a row like any other place; it is found by "HO" as well as by name.
+  const rows = (page.data?.rows ?? []).filter(
+    (row) =>
+      needle === "" ||
+      `${label(row)} ${sub(row)}`.toLowerCase().includes(needle)
+  )
 
   return (
     <>
       {page.data && <FigureStrip figures={page.data.total} />}
-      <div className="mt-5">{switcher}</div>
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <PeriodBox range={range} onRange={onRange} />
-      </div>
+      {switcher}
+      <FilterBar
+        typed={typed}
+        onTyped={setTyped}
+        label="Search article, SKU or place"
+        range={range}
+        onRange={onRange}
+      />
       {page.isPending ? (
         <LoadingState>Reading the stock card…</LoadingState>
       ) : page.isError ? (
         <EmptyState>The stock card could not be read.</EmptyState>
+      ) : rows.length === 0 ? (
+        <EmptyState>No place matches.</EmptyState>
       ) : (
         <div className="items-box overflow-hidden rounded-inner border border-hairline">
           <table className="w-full table-fixed border-collapse">
             <FigureCols />
-            <FigureHead first="Store" />
+            <FigureHead first="Place" />
             <tbody className="[&>tr:first-child>td]:border-t-0">
               {rows.map((row) => (
                 <tr
@@ -399,7 +417,7 @@ function ByStore({
                   <FigureCells figures={row.figures} />
                 </tr>
               ))}
-              {page.data && (
+              {page.data && needle === "" && (
                 <tr className="bg-soft font-medium">
                   <td className={cn(ITEMS_CELL, "text-ink")}>All places</td>
                   <FigureCells figures={page.data.total} />
@@ -413,9 +431,20 @@ function ByStore({
   )
 }
 
-const ARTICLE_PAGE = 50
+const SKU_PAGE = 50
 
-function ByArticle({
+/// A SKU row's words: "Article · Variant" and its code, falling back to the
+/// article's own label and code while the server sends no SKU fields.
+function skuWords(row: StockCardRow): { name: string; code: string } {
+  const article = row.article_name ?? row.label
+  const variant = row.variant ?? row.variant_label ?? null
+  return {
+    name: variant ? `${article} · ${variant}` : article,
+    code: row.sku_code ? skuNumber(row.sku_code) : (row.sub ?? ""),
+  }
+}
+
+function BySku({
   range,
   onRange,
   period,
@@ -434,9 +463,9 @@ function ByArticle({
   const page = useQuery(
     stockCardQuery({
       ...period,
-      by: "article",
+      by: "sku",
       q: needle === "" ? undefined : needle,
-      limit: ARTICLE_PAGE,
+      limit: SKU_PAGE,
       offset,
     })
   )
@@ -446,56 +475,68 @@ function ByArticle({
   return (
     <>
       {page.data && <FigureStrip figures={page.data.total} />}
-      <div className="mt-5">{switcher}</div>
-      <div className="group/bar mb-3 flex flex-wrap items-center gap-2">
-        <PeriodBox range={range} onRange={onRange} />
-        <ExpandingSearch
-          value={typed}
-          onChange={(next) => {
-            setTyped(next)
-            setOffset(0)
-          }}
-          label="Search article or code"
-        />
-        <BarSpacer />
-      </div>
+      {switcher}
+      <FilterBar
+        typed={typed}
+        onTyped={(next) => {
+          setTyped(next)
+          setOffset(0)
+        }}
+        label="Search article, SKU or place"
+        range={range}
+        onRange={onRange}
+      />
       {page.isPending ? (
         <LoadingState>Reading the stock card…</LoadingState>
       ) : rows.length === 0 ? (
         <EmptyState>
-          {needle === ""
-            ? "Nothing moved in this period."
-            : "No article matches."}
+          {needle === "" ? "Nothing moved in this period." : "No SKU matches."}
         </EmptyState>
       ) : (
         <>
           <div className="items-box overflow-hidden rounded-inner border border-hairline">
             <table className="w-full table-fixed border-collapse">
               <FigureCols />
-              <FigureHead first="Article" />
+              <FigureHead first="SKU" />
               <tbody className="[&>tr:first-child>td]:border-t-0">
-                {rows.map((row, at) => (
-                  <tr
-                    key={row.key}
-                    className="cursor-pointer transition-colors hover:bg-soft"
-                    onClick={() =>
-                      onOpen({ key: row.key, label: row.label, sub: row.sub })
-                    }
-                  >
-                    <td className={ITEMS_CELL}>
-                      <ItemIdentity
-                        eager={at < 24}
-                        row={{
-                          image: null,
-                          name: row.label,
-                          division: null,
-                          filed: row.sub ?? "",
-                        }}
-                      />
-                    </td>
-                    <FigureCells figures={row.figures} />
-                  </tr>
-                ))}
+                {rows.map((row, at) => {
+                  const words = skuWords(row)
+                  return (
+                    <tr
+                      key={row.sku_id ?? row.key}
+                      className="cursor-pointer transition-colors hover:bg-soft"
+                      onClick={() =>
+                        onOpen({
+                          key: row.sku_id ?? row.key,
+                          label: words.name,
+                          sub: words.code,
+                        })
+                      }
+                    >
+                      <td className={ITEMS_CELL}>
+                        <div className="flex min-w-0 items-center gap-3">
+                          <Thumbnail
+                            url={row.photo_url ?? null}
+                            name={row.article_name ?? row.label}
+                            division={null}
+                            fallback="—"
+                            className="size-10 shrink-0 rounded-inner"
+                            eager={at < 24}
+                          />
+                          <span className="flex min-w-0 flex-col">
+                            <span className="line-clamp-2 text-ink">
+                              {words.name}
+                            </span>
+                            <span className="truncate text-[0.9375rem] text-mute">
+                              {words.code}
+                            </span>
+                          </span>
+                        </div>
+                      </td>
+                      <FigureCells figures={row.figures} />
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
@@ -509,7 +550,7 @@ function ByArticle({
                 variant="ghost"
                 size="sm"
                 disabled={offset === 0}
-                onClick={() => setOffset(Math.max(0, offset - ARTICLE_PAGE))}
+                onClick={() => setOffset(Math.max(0, offset - SKU_PAGE))}
               >
                 Previous
               </Button>
@@ -517,7 +558,7 @@ function ByArticle({
                 variant="ghost"
                 size="sm"
                 disabled={offset + rows.length >= total}
-                onClick={() => setOffset(offset + ARTICLE_PAGE)}
+                onClick={() => setOffset(offset + SKU_PAGE)}
               >
                 Next
               </Button>
@@ -538,13 +579,20 @@ function Ledger({
   period,
   site,
   article,
+  sku,
 }: {
   period: Period
   site?: string
   article?: string
+  sku?: string
 }) {
   const lines = useQuery(
-    stockCardLinesQuery({ ...period, site_id: site, article_id: article })
+    stockCardLinesQuery({
+      ...period,
+      site_id: site,
+      article_id: article,
+      sku_id: sku,
+    })
   )
   if (lines.isPending) return <LoadingState>Reading the card…</LoadingState>
   if (lines.isError || lines.data === undefined)
@@ -584,7 +632,10 @@ function Ledger({
             </td>
           </tr>
           {data.lines.map((line, index) => (
-            <tr key={`${line.at}-${index}`}>
+            <tr
+              key={`${line.at}-${index}`}
+              className={cn(line.to_missing && "bg-bad-bg")}
+            >
               <td
                 className={cn(
                   ITEMS_CELL,
@@ -595,8 +646,15 @@ function Ledger({
               </td>
               <td className={ITEMS_CELL}>
                 <span className="flex min-w-0 flex-col">
-                  <span className="truncate text-ink">
-                    {actionOf(line.cause)}
+                  <span
+                    className={cn(
+                      "truncate",
+                      line.to_missing ? "text-bad-fg" : "text-ink"
+                    )}
+                  >
+                    {line.to_missing
+                      ? `Went missing · ${line.from_pocket ?? "Stock"} → Missing`
+                      : actionOf(line.cause)}
                   </span>
                   <span className="truncate text-[0.9375rem] text-mute md:hidden">
                     {documentOf(line)}
@@ -615,7 +673,7 @@ function Ledger({
                   line.to_missing ? "text-bad-fg" : "text-ink"
                 )}
               >
-                {signed(line.pieces)}
+                {line.to_missing ? "0" : signed(line.pieces)}
               </td>
               <td
                 className={cn(
@@ -734,19 +792,19 @@ function StoreCard({
   )
 }
 
-/// One article: where it is, store by store; a store opens its card below.
-function ArticleCard({
-  article,
+/// One SKU: where it is, place by place; a place opens its card below.
+function SkuCard({
+  sku,
   period,
   onClose,
 }: {
-  article: Opened
+  sku: Opened
   period: Period
   onClose: () => void
 }) {
   const names = useSiteNames()
   const where = useQuery(
-    stockCardQuery({ ...period, by: "site", article_id: article.key })
+    stockCardQuery({ ...period, by: "site", sku_id: sku.key })
   )
   const rows = (where.data?.rows ?? []).filter((row) =>
     Object.values(row.figures).some((value) => value !== 0)
@@ -766,8 +824,8 @@ function ArticleCard({
       onOpenChange={(open) => !open && onClose()}
       context="Stock card"
       id={periodWords(period)}
-      title={article.label}
-      caption={article.sub ?? undefined}
+      title={sku.label}
+      caption={sku.sub ?? undefined}
       width="wide"
     >
       <div className="flex flex-col gap-6">
@@ -784,7 +842,7 @@ function ArticleCard({
             <div className="items-box overflow-hidden rounded-inner border border-hairline">
               <table className="w-full table-fixed border-collapse">
                 <FigureCols />
-                <FigureHead first="Store" />
+                <FigureHead first="Place" />
                 <tbody className="[&>tr:first-child>td]:border-t-0">
                   {rows.map((row) => (
                     <tr
@@ -811,7 +869,7 @@ function ArticleCard({
             <h3 className="text-[0.9375rem] font-semibold text-ink">
               Stock card · {label(site, site)}
             </h3>
-            <Ledger period={period} site={site} article={article.key} />
+            <Ledger period={period} site={site} sku={sku.key} />
           </section>
         )}
       </div>

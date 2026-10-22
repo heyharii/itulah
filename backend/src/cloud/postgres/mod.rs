@@ -7,6 +7,7 @@ mod acquirer;
 /// sent; the Gudang moves back what MD took out.
 mod allotment_amend;
 mod allotment_close_short;
+mod allotment_store_review;
 mod allotments;
 mod article_history;
 mod articles;
@@ -195,6 +196,15 @@ mod ga_assets;
 /// GA's contracts: the deals with a window, their meters, and the pointers
 /// Finance's recurring bills keep back at them.
 mod ga_contracts;
+/// GA's operating expenses: fuel, tyres, oil, genset fuel — recorded by GA,
+/// handed to Finance as a draft bill or linked to the bill/BKK it already has.
+mod ga_expenses;
+/// GA's insurance claims: damage to a covered thing, claimed under its policy,
+/// and the repair it pays for (0975).
+mod ga_claims;
+/// A vehicle's odometer over time: typed, from a receipt, or read at a service
+/// (0975). The latest reading drives km-based service.
+mod ga_odometer;
 /// GA's places: the site register read as a list of places, the one-to-one
 /// facilities detail beside it, and the hub that reads every reference back at
 /// a place. See the module for why a site without a detail still appears.
@@ -202,6 +212,9 @@ mod ga_locations;
 /// GA's upkeep: the schedule, the walk-round, the repair, the swap and the
 /// disposal. The four facts between "we own this" and "Finance priced it".
 mod ga_maintenance;
+/// GA's papers: a document filed before it is scanned, its physical original,
+/// and every handover of that original (BPKB in the safe, lent to Samsat).
+mod ga_papers;
 /// GA's supplies: the ask a place files, the seven categories it is filed
 /// under, and the ladder it walks to a bill Finance pays.
 mod ga_supplies;
@@ -257,6 +270,7 @@ pub use accruals::*;
 pub use acquirer::*;
 pub use allotment_amend::*;
 pub use allotment_close_short::*;
+pub use allotment_store_review::*;
 pub use allotments::*;
 pub use article_history::*;
 pub use articles::*;
@@ -396,9 +410,13 @@ pub use financing::*;
 pub use ga::*;
 pub use ga_accounts::*;
 pub use ga_assets::*;
+pub use ga_claims::*;
 pub use ga_contracts::*;
+pub use ga_expenses::*;
+pub use ga_odometer::*;
 pub use ga_locations::*;
 pub use ga_maintenance::*;
+pub use ga_papers::*;
 pub use ga_supplies::*;
 pub use invitations::*;
 pub use job_roles::*;

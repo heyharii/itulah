@@ -573,6 +573,18 @@ export const SHEET_PARAMS = {
   letter: id,
   /// One filed document, with its evidence.
   document: id,
+  /// One paper GA keeps — a BPKB, an STNK, a policy — scanned or not. A
+  /// document under another name: `?document=` opens the scan in the vault,
+  /// this opens the paper with what it is about and where its originals are.
+  paper: id,
+  /// One physical original of a paper: who has it now, until when, and every
+  /// handover. Its own key rather than a second meaning for `paper`, because
+  /// an original opens as a layer over its paper.
+  original: id,
+  /// One insurance claim (0975): the damage, the policy it is claimed under,
+  /// the insurer's decision and the repair it pays for. Opened from the
+  /// asset's sheet and from the policy's.
+  claim: id,
   conversation: id,
   file: id,
   /// Which kept report is open. Not a sheet — it takes the whole screen —
@@ -813,6 +825,8 @@ const SHEET_SUBJECT: Partial<Record<SheetKey, RecordKind>> = {
   letter: "letter",
   conversation: "conversation",
   document: "document",
+  paper: "document",
+  claim: "insurance_claim",
   user: "app_user",
 }
 

@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { BottomSheet } from "@/components/ui/picker-sheet"
 import { Pill } from "@/components/ui/pill"
+import { CellMoney } from "@/components/ui/rows-switch"
 import { Toolbar } from "@/components/ui/segmented"
 import {
   Banner,
@@ -341,7 +342,7 @@ export function SalesPostings() {
             }))}
           />
         ) : (
-          <Grid>
+          <Grid followRows>
             <thead>
               <tr>
                 <Th>Business date</Th>
@@ -416,9 +417,15 @@ function PostingRow({
         <Status status={row.status} />
       </Td>
       <Td align="right">{count(row.sale_count)}</Td>
-      <Td align="right">{money(row.gross_minor)}</Td>
-      <Td align="right">{money(row.discount_minor)}</Td>
-      <Td align="right">{money(row.vat_minor)}</Td>
+      <Td align="right">
+        <CellMoney minor={row.gross_minor} />
+      </Td>
+      <Td align="right">
+        <CellMoney minor={row.discount_minor} />
+      </Td>
+      <Td align="right">
+        <CellMoney minor={row.vat_minor} />
+      </Td>
       <Td>{row.entry_number ?? "—"}</Td>
       <Td align="right">
         <Button size="sm" variant="quiet" onClick={onSelect}>

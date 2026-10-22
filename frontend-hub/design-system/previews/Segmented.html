@@ -1,0 +1,69 @@
+<!-- @dsCard group="Inputs" height=350 subtitle="Static rendition of segmented.tsx in the All white look" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>Segmented — preview</title>
+<style>
+body{margin:0}
+.ds-segmented-set{display:flex;flex-direction:column;gap:28px;padding:24px 28px}
+.ds-segmented-block{display:flex;flex-direction:column;gap:12px;min-width:0}
+.ds-segmented-label{font-weight:500;color:var(--ink)}
+.ds-segmented-bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+/* Segmented: items are 28px and the chosen white ground is 30px, so the track is 34px; the ground slides under the words */
+.ds-seg{isolation:isolate}
+.ds-segmented-track .ds-seg-item{position:relative;display:inline-flex;align-items:center;gap:6px;height:28px;border-radius:6px}
+.ds-segmented-track .ds-seg-item.is-on{background:none;box-shadow:none;color:var(--ink)}
+.ds-segmented-track .ds-seg-item.is-on::before{content:"";position:absolute;inset:-1px 0;z-index:-1;border-radius:var(--r-segment);background:var(--canvas);box-shadow:var(--shadow-segment)}
+.ds-segmented-track .ds-seg-item.is-hover{color:var(--ink)}
+/* On a phone the pill wraps instead of scrolling: no sliding ground, each chosen segment wears its own */
+.ds-segmented-wrap{display:flex;flex-wrap:wrap;width:300px;max-width:100%}
+.ds-segmented-wrap .ds-seg-item{flex:1 0 auto;height:28px;border-radius:6px}
+.ds-segmented-wrap .ds-seg-item.is-on{background:var(--canvas);box-shadow:var(--shadow-segment)}
+.ds-segmented-glyph{flex:none;width:16px;height:16px}
+</style></head>
+<body>
+<div class="ds ds-segmented-set">
+
+  <div class="ds-segmented-block">
+    <div class="ds-segmented-label">Segmented</div>
+    <div class="ds-segmented-bar">
+      <div class="ds-seg ds-segmented-track" role="group" aria-label="View">
+        <button class="ds-seg-item is-on" type="button" aria-pressed="true">By article</button>
+        <button class="ds-seg-item" type="button" aria-pressed="false">By store</button>
+      </div>
+      <div class="ds-seg ds-segmented-track" role="group" aria-label="Period">
+        <button class="ds-seg-item" type="button" aria-pressed="false">Day</button>
+        <button class="ds-seg-item is-on" type="button" aria-pressed="true">Week</button>
+        <button class="ds-seg-item is-hover" type="button" aria-pressed="false">Month</button>
+      </div>
+      <div class="ds-seg ds-segmented-track" role="group" aria-label="Show as">
+        <button class="ds-seg-item is-on" type="button" aria-pressed="true"><span class="ds-ico ds-ico-columns"></span>Board</button>
+        <button class="ds-seg-item" type="button" aria-pressed="false"><svg class="ds-segmented-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M21 9H3"/><path d="M21 15H3"/></svg>Table</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="ds-segmented-block">
+    <div class="ds-segmented-label">Segmented on a phone</div>
+    <div class="ds-seg ds-segmented-wrap" role="group" aria-label="Period">
+      <button class="ds-seg-item is-on" type="button" aria-pressed="true">This month</button>
+      <button class="ds-seg-item" type="button" aria-pressed="false">Last month</button>
+      <button class="ds-seg-item" type="button" aria-pressed="false">This year</button>
+      <button class="ds-seg-item" type="button" aria-pressed="false">All time</button>
+    </div>
+  </div>
+
+  <div class="ds-segmented-block">
+    <div class="ds-segmented-label">ButtonGroup</div>
+    <div class="ds-segmented-bar">
+      <div class="ds-seg" role="group" aria-label="Days">
+        <button class="ds-seg-item" type="button">7</button>
+        <button class="ds-seg-item" type="button">14</button>
+        <button class="ds-seg-item is-on" type="button" aria-pressed="true">30</button>
+        <button class="ds-seg-item" type="button">90</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

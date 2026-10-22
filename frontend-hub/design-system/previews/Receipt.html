@@ -1,0 +1,65 @@
+<!-- @dsCard group="Feedback" height=824 subtitle="Static rendition of states.tsx (Receipt, LoadMore, Truncated) in the All white look" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>Receipt — preview</title><style>
+body{margin:0}
+/* Receipt: a write that worked, said in the place it was asked; the foot of a list with more; a list that was cut. */
+.ds-receipt-stage{gap:12px}
+.ds-receipt-wrap{display:flex;flex-direction:column;gap:12px;width:644px;max-width:100%;margin:0 auto}
+.ds-receipt-banners{display:flex;flex-direction:column;gap:8px}
+.ds-receipt-table .ds-table th,.ds-receipt-table .ds-table td{white-space:nowrap}
+.ds-receipt-foot{display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px 0 0;text-align:center}
+.ds-receipt-foot p{margin:0;font-size:15px;line-height:22px}
+.ds-receipt-foot .is-wait{color:var(--body)}
+.ds-receipt-foot .is-bad{color:var(--bad-fg)}
+.ds-receipt-dialog{width:384px;max-width:100%;padding:20px;border:1px solid var(--hairline-2);border-radius:var(--r-card);background:var(--canvas);box-shadow:var(--shadow-float)}
+.ds-receipt-dialog .ds-dialog-title{margin:0}
+.ds-receipt-dialog .ds-banner{margin-top:12px}
+.ds-receipt-cols{display:flex;align-items:flex-start;gap:24px;flex-wrap:wrap}
+</style></head>
+<body>
+<div class="ds ds-stage ds-receipt-stage">
+<div class="ds-receipt-wrap">
+
+  <p class="ds-caption">Receipt: what a write did, in numbers worth reading, where it was asked</p>
+  <div class="ds-receipt-banners">
+    <div class="ds-banner ds-banner--ok" role="status"><span>3 drafted · 2 posted · 1 failed: Rent October 2026</span></div>
+    <div class="ds-banner ds-banner--ok" role="status"><span>3 lines accepted.</span></div>
+  </div>
+
+  <p class="ds-caption" style="margin-top:8px">In a dialog: the receipt in the body, Close and Done in the foot</p>
+  <div class="ds-receipt-dialog" role="dialog" aria-label="Confirm return">
+    <h2 class="ds-dialog-title">Confirm return</h2>
+    <div class="ds-banner ds-banner--ok" role="status"><span>Returned to Garmen Nusantara, PT.</span></div>
+    <div class="ds-dialog-actions"><button class="ds-btn ds-btn--ghost" type="button">Close</button><button class="ds-btn ds-btn--primary" type="button">Done</button></div>
+  </div>
+
+  <p class="ds-caption" style="margin-top:8px">A list with more reads on by itself; only a wait or a failure is drawn</p>
+  <div class="ds-receipt-cols">
+    <div style="flex:1 1 300px;min-width:0">
+      <div class="ds-table-card ds-receipt-table">
+        <table class="ds-table"><tbody>
+          <tr><td>Garmen Nusantara, PT<span class="ds-sub">PO-161026-010</span></td><td class="is-num">24 pcs</td></tr>
+          <tr><td>Sepatu Sejahtera, CV<span class="ds-sub">PO-151026-001</span></td><td class="is-num">300 pcs</td></tr>
+        </tbody></table>
+      </div>
+      <div class="ds-receipt-foot"><p class="is-wait" aria-live="polite">Loading more…</p></div>
+    </div>
+    <div style="flex:1 1 300px;min-width:0">
+      <div class="ds-table-card ds-receipt-table">
+        <table class="ds-table"><tbody>
+          <tr><td>Garmen Nusantara, PT<span class="ds-sub">PO-161026-010</span></td><td class="is-num">24 pcs</td></tr>
+          <tr><td>Sepatu Sejahtera, CV<span class="ds-sub">PO-151026-001</span></td><td class="is-num">300 pcs</td></tr>
+        </tbody></table>
+      </div>
+      <div class="ds-receipt-foot"><p class="is-bad" role="alert">The next page could not be read.</p><button class="ds-btn ds-btn--ghost" type="button">Try again</button></div>
+    </div>
+  </div>
+
+  <p class="ds-caption" style="margin-top:8px">Truncated: the list was cut, so the figures under it are not totals</p>
+  <div class="ds-banner ds-banner--warn" role="status"><span>Showing the first 500 of 612 credit notes. This list is searched and sorted in the browser, over these rows only, so there may be more that never arrived — <b style="font-weight:500">do not read the figures below as totals.</b></span></div>
+
+</div>
+</div>
+</body>
+</html>

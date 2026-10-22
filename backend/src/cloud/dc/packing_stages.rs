@@ -1674,6 +1674,99 @@ pub(crate) async fn reconcile_counted_in_tx(
     Ok(())
 }
 
+/// MD answered a trip's review (owner, 18 Oct 2026): these pieces of the
+/// trip were never received by the store they were sent to, and never will
+/// be on this allotment. Each line gives them up — lost in transit and closed
+/// short at once, so To Pack does not rise and the DC is not asked again (a
+/// Return & reallot sends them on a new allotment) — and the allotment's
+/// status follows. A piece no store has (`missing`) is booked Missing in the
+/// Gudang's In Transit pool, where Inventory chases it; one another store of
+/// the trip holds stays in transit, on its way back to HO.
+pub(crate) async fn not_received_in_tx(
+    tx: &mut Tx<'_>,
+    pieces: &[(Uuid, String, Uuid, bool)],
+    key: &str,
+    actor: &str,
+    at: DateTime<Utc>,
+) -> Result<(), AppError> {
+    if pieces.is_empty() {
+        return Ok(());
+    }
+    let mut by_line: BTreeMap<Uuid, i64> = BTreeMap::new();
+    for (_, _, line, _) in pieces {
+        *by_line.entry(*line).or_default() += 1;
+    }
+    let mut allotments: BTreeSet<Uuid> = BTreeSet::new();
+    for (line, n) in &by_line {
+        let allotment_id: Option<Uuid> = sqlx::query_scalar(
+            "UPDATE allotment_line
+                SET lost_in_transit_quantity = lost_in_transit_quantity + $2,
+                    closed_short_quantity = closed_short_quantity + $2,
+                    updated_at = $3
+              WHERE id = $1
+                AND NOT EXISTS (SELECT 1 FROM edge_allotment_line_progress p
+                                 WHERE p.allotment_line_id = allotment_line.id)
+              RETURNING allotment_id",
+        )
+        .bind(line)
+        .bind(n)
+        .bind(at)
+        .fetch_optional(&mut **tx)
+        .await?;
+        if let Some(allotment_id) = allotment_id {
+            allotments.insert(allotment_id);
+        }
+    }
+    let site = common::gudang_site_tx(tx).await?;
+    let in_transit = place_of_role(tx, &site, PoolRole::InTransit).await?;
+    let missing_place = in_transit.replace(":on_hand", ":missing");
+    for (subject_id, epc, line, missing) in pieces {
+        if !missing {
+            continue;
+        }
+        let held: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(SUM(CASE WHEN to_place_id = $2 THEN quantity ELSE -quantity END), 0)::bigint
+               FROM movement
+              WHERE subject_id = $1 AND (to_place_id = $2 OR from_place_id = $2)",
+        )
+        .bind(subject_id)
+        .bind(&in_transit)
+        .fetch_one(&mut **tx)
+        .await?;
+        if held < 1 {
+            continue;
+        }
+        let piece = Piece {
+            subject_id: *subject_id,
+            epc: epc.clone(),
+            sku_code: String::new(),
+            allotment_id: Uuid::nil(),
+            allotment_line_id: *line,
+        };
+        move_pieces(
+            tx,
+            &[&piece],
+            *line,
+            &in_transit,
+            &missing_place,
+            MovementCause::CountShortage,
+            &format!("{key}:missing:{epc}"),
+            "Not received by any store of the trip (MD's review)",
+            actor,
+            at,
+        )
+        .await?;
+    }
+    for allotment_id in allotments {
+        sqlx::query("SELECT id FROM allotment WHERE id = $1 FOR UPDATE")
+            .bind(allotment_id)
+            .fetch_one(&mut **tx)
+            .await?;
+        refresh_allotment_status(tx, allotment_id, at).await?;
+    }
+    Ok(())
+}
+
 /// Out of the Gudang's In Transit pool to `system/handed_over`: the shop has
 /// it. A piece no longer standing there (already let go, or booked Missing on
 /// the road) is passed over, never an error that would stop the shop's

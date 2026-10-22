@@ -13,6 +13,11 @@ use uuid::Uuid;
 pub const INVENTORY_RFID_OBSERVATION_BATCH_V1: &str = "inventory.rfid_observation_batch.v1";
 pub const RFID_OBSERVATION_SCHEMA_VERSION: u32 = 1;
 pub const MAX_RFID_SIGHTINGS_PER_BATCH: usize = 2_000;
+/// The longest EPC a tag can carry: Gen2 allows 496 bits, which is 124 hex
+/// digits. Ours are 96 (24 digits), and so are the foreign tags a sweep meets.
+pub const MAX_RFID_EPC_HEX_LEN: usize = 124;
+/// An antenna is a port's name ("A1"), never prose.
+pub const MAX_RFID_ANTENNA_LEN: usize = 64;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RfidObservationSighting {
@@ -59,6 +64,13 @@ pub enum RfidObservationValidationError {
     DuplicateObservation(Uuid),
     #[error("RFID observation contains duplicate EPC {0}")]
     DuplicateEpc(String),
+    #[error(
+        "RFID sighting EPC {0} is not an even number of hex digits, at most \
+         {MAX_RFID_EPC_HEX_LEN} long"
+    )]
+    MalformedEpc(String),
+    #[error("RFID sighting antenna must be at most {MAX_RFID_ANTENNA_LEN} characters")]
+    AntennaTooLong,
 }
 
 impl RfidObservationBatchPayload {
@@ -109,6 +121,57 @@ impl RfidObservationBatchPayload {
         }
         Ok(())
     }
+
+    /// What a reader can actually have read: every EPC an even number of hex
+    /// digits no longer than a Gen2 tag holds, every antenna a short name.
+    ///
+    /// Without it one sighting could carry an "EPC" of a megabyte, and the
+    /// fact that carried it was larger than any upload the cloud accepts: the
+    /// node resent it on every cycle, and its whole stream — sales, movements,
+    /// and the commands that ride the answer — stopped behind it. A foreign
+    /// tag passes: twenty-four hex digits we did not mint are still a real
+    /// garment on the rail.
+    ///
+    /// Checked where evidence enters — the node filing a batch, and the
+    /// cloud's ingest — and deliberately not inside [`Self::validate`], which
+    /// the cloud runs again when it applies: a batch accepted before this
+    /// check existed must still land there, not stop its stream.
+    pub fn validate_reads(&self) -> Result<(), RfidObservationValidationError> {
+        for sighting in &self.sightings {
+            validate_epc(&sighting.epc)?;
+            if sighting
+                .antenna
+                .as_deref()
+                .is_some_and(|antenna| antenna.chars().count() > MAX_RFID_ANTENNA_LEN)
+            {
+                return Err(RfidObservationValidationError::AntennaTooLong);
+            }
+        }
+        Ok(())
+    }
+}
+
+/// One EPC as a reader reports it: hex digits, an even number of them (a tag
+/// holds whole 16-bit words), at most [`MAX_RFID_EPC_HEX_LEN`]. Either case:
+/// the node uppercases before it stores.
+pub fn validate_epc(epc: &str) -> Result<(), RfidObservationValidationError> {
+    // Length first, so a megabyte of digits is refused without being read.
+    let well_formed = !epc.is_empty()
+        && epc.len() <= MAX_RFID_EPC_HEX_LEN
+        && epc.len().is_multiple_of(2)
+        && epc.bytes().all(|byte| byte.is_ascii_hexdigit());
+    if well_formed {
+        return Ok(());
+    }
+    // Named in the refusal, but never whole: the refusal is logged, stored as
+    // a rejection reason and sent back, and the value is what was too big.
+    let shown: String = epc.chars().take(32).collect();
+    let preview = if shown.len() < epc.len() {
+        format!("{shown:?}… ({} bytes)", epc.len())
+    } else {
+        format!("{shown:?}")
+    };
+    Err(RfidObservationValidationError::MalformedEpc(preview))
 }
 
 #[cfg(test)]
@@ -161,6 +224,59 @@ mod tests {
         assert!(matches!(
             payload.validate(),
             Err(RfidObservationValidationError::DuplicateEpc(_))
+        ));
+    }
+
+    /// Only what a tag can hold. A foreign tag — twenty-four hex digits this
+    /// estate never minted — is a real garment and passes; a megabyte "EPC"
+    /// is refused, and the refusal does not repeat the megabyte.
+    #[test]
+    fn an_epc_is_hex_digits_a_tag_can_hold() {
+        let longest = "F".repeat(MAX_RFID_EPC_HEX_LEN);
+        let too_long = "F".repeat(MAX_RFID_EPC_HEX_LEN + 2);
+        for good in [
+            "A11234567812300000000064",
+            "e2801160600002084f1c5a2b",
+            longest.as_str(),
+        ] {
+            validate_epc(good).unwrap_or_else(|error| panic!("{good}: {error}"));
+        }
+        for bad in ["", "EPC00000001", "A1123", "A1 23456", too_long.as_str()] {
+            assert!(
+                matches!(
+                    validate_epc(bad),
+                    Err(RfidObservationValidationError::MalformedEpc(_))
+                ),
+                "{bad:?} must be refused"
+            );
+        }
+        let huge = "0".repeat(1_048_577);
+        let refusal = validate_epc(&huge)
+            .err()
+            .unwrap_or_else(|| panic!("a megabyte is not an EPC"))
+            .to_string();
+        assert!(refusal.len() < 200, "{refusal}");
+    }
+
+    #[test]
+    fn a_batch_names_real_tags_and_short_antennas() {
+        let mut payload = payload();
+        payload.sightings[0].epc = "A11234567812300000000064".into();
+        payload
+            .validate_reads()
+            .unwrap_or_else(|error| panic!("reads: {error}"));
+
+        payload.sightings[0].antenna = Some("A".repeat(MAX_RFID_ANTENNA_LEN + 1));
+        assert_eq!(
+            payload.validate_reads(),
+            Err(RfidObservationValidationError::AntennaTooLong)
+        );
+
+        payload.sightings[0].antenna = None;
+        payload.sightings[0].epc = "EPC001".into();
+        assert!(matches!(
+            payload.validate_reads(),
+            Err(RfidObservationValidationError::MalformedEpc(_))
         ));
     }
 }

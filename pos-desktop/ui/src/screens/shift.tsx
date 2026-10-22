@@ -443,14 +443,20 @@ function Opening({
       className="rows"
       onSubmit={(event) => {
         event.preventDefault()
-        if (!busy) void open()
+        if (!busy && minorOf(text) > 0) void open()
       }}
     >
       <Rupiah caption="Opening float" text={text} onText={setText} autoFocus />
 
       {problem !== null && <p className="error">{problem}</p>}
 
-      <button className="btn primary lg" type="submit" disabled={busy}>
+      {/* A shift opens on counted cash: an empty drawer is counted as
+          nothing, and nothing is not a float. */}
+      <button
+        className="btn primary lg"
+        type="submit"
+        disabled={busy || minorOf(text) <= 0}
+      >
         {busy ? "Opening…" : `Open shift · ${money(minorOf(text), CURRENCY)}`}
       </button>
       <button className="btn ghost" type="button" disabled={busy} onClick={onCancel}>
@@ -501,7 +507,17 @@ type Gate =
   | { readonly kind: "asking" }
   | { readonly kind: "problem"; readonly problem: string }
   | { readonly kind: "count"; readonly report: ShiftReport }
+  /// Their shift is open, but at another kasir. A drawer is a place: selling
+  /// here on that shift would put this drawer's cash in the other one's books.
+  | { readonly kind: "elsewhere"; readonly report: ShiftReport }
+  | { readonly kind: "closing"; readonly report: ShiftReport }
   | { readonly kind: "opening"; readonly seat: TillSeat }
+
+/// Whether a seat is this till's. The web till is installed as the seat id
+/// (`KASIR-2`); a desktop that joined carries the seat's label (`Kasir 2`).
+function isThisTill(terminalId: string, id: string, label: string): boolean {
+  return id === terminalId || (label !== "" && label === terminalId)
+}
 
 /// Straight after sign-in, and again whenever a person has lost their shift:
 /// what does this person owe, and then the float for the kasir this till is.
@@ -526,7 +542,8 @@ export function ShiftGate({
   onReady: (seat: Seat) => void
   onSignOut: () => void
 }) {
-  const { terminalId } = useSession()
+  const { terminalId, me } = useSession()
+  const name = me?.display_name ?? me?.username ?? actorId
   const [state, setState] = useState<Gate>({ kind: "asking" })
   const alive = useRef(true)
 
@@ -543,8 +560,13 @@ export function ShiftGate({
       setState({ kind: "count", report: owed })
       return
     }
-    if (mine.body.open !== null) {
-      onReady(seatOf(mine.body.open))
+    const open = mine.body.open
+    if (open !== null) {
+      if (isThisTill(terminalId, open.terminal_id, open.terminal_label)) {
+        onReady(seatOf(open))
+      } else {
+        setState({ kind: "elsewhere", report: open })
+      }
       return
     }
     const seats = await tillSeats()
@@ -554,7 +576,7 @@ export function ShiftGate({
       return
     }
     const seat = seats.body.find(
-      (one) => one.terminal_id === terminalId && one.current,
+      (one) => isThisTill(terminalId, one.terminal_id, one.label) && one.current,
     )
     setState(
       seat === undefined
@@ -606,12 +628,51 @@ export function ShiftGate({
               report={state.report}
               onCounted={() => void look()}
             />
+          ) : state.kind === "elsewhere" ? (
+            <>
+              <div className="page-head">
+                <div>
+                  <h1>Your shift is open at {seatOf(state.report).label}</h1>
+                  <p>
+                    {name} · since {clock(state.report.opened_at)}
+                  </p>
+                </div>
+              </div>
+              <div className="rows">
+                <button
+                  className="btn primary lg"
+                  onClick={() => setState({ kind: "closing", report: state.report })}
+                >
+                  Count and close it
+                </button>
+                <button className="btn ghost" onClick={onSignOut}>
+                  Sign out
+                </button>
+              </div>
+            </>
+          ) : state.kind === "closing" ? (
+            <>
+              <div className="page-head">
+                <div>
+                  <h1>Close {seatOf(state.report).label}</h1>
+                  <p>{name}</p>
+                </div>
+              </div>
+              <Closing
+                actorId={actorId}
+                report={state.report}
+                onDone={() => void look()}
+                onCancel={() => setState({ kind: "elsewhere", report: state.report })}
+              />
+            </>
           ) : (
             <>
               <div className="page-head">
                 <div>
                   <h1>Opening float</h1>
-                  <p>Count the cash in your drawer, then enter it below.</p>
+                  <p>
+                    {name} · {state.seat.label}
+                  </p>
                 </div>
               </div>
               {state.seat.held_by !== null && (
@@ -657,8 +718,11 @@ function Running({
   const owed = outbox.unsent + outbox.refused
 
   // A blind count shows nothing that points at the expected figure — not the
-  // takings, not the movements — from the moment counting starts.
-  if (closing) {
+  // takings, not the movements — from the moment counting starts. Not while a
+  // sale is owed, though: Finish shift in the header opens straight at the
+  // count, and must not get round the block below. A refused sale stays owed
+  // until a store manager resolves it on the counter screen.
+  if (closing && owed === 0) {
     return (
       <Closing
         actorId={actorId}
@@ -731,7 +795,7 @@ function Running({
           <p className="error">
             {outbox.unsent > 0
               ? `${outbox.unsent} sales not yet sent to the node — wait until they are sent before finishing the shift.`
-              : `${outbox.refused} sales refused by the node — sort them out on the counter screen before finishing the shift.`}
+              : `${outbox.refused} sales refused by the node — a store manager resolves them on the counter screen before the shift can be finished.`}
           </p>
         )}
         <button

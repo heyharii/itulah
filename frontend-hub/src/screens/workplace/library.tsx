@@ -1,29 +1,45 @@
 import { useQuery } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { FileWarning, LayoutGrid, Rows3, Upload } from "lucide-react"
+import {
+  CircleAlert,
+  CircleCheck,
+  CircleX,
+  FileText,
+  Folder,
+  Image as ImageIcon,
+  LayoutGrid,
+  MessageSquare,
+  Loader,
+  MessagesSquare,
+  Plus,
+  Rows3,
+  Sheet,
+  Upload,
+} from "lucide-react"
 import { useMemo, useRef, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { DockTools } from "@/components/shell/dock-tools"
-import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { Fab } from "@/components/ui/fab"
-import { ExceptionQueue, type Exception } from "@/components/ui/exception-queue"
 import { FilterPanel } from "@/components/ui/filter-panel"
-import {
-  BarSpacer,
-  DockedFilters,
-  ExpandingSearch,
-} from "@/components/ui/list-chrome"
+import { BarSpacer } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
-import { Pill } from "@/components/ui/pill"
+import {
+  CardFigure,
+  CardName,
+  type CardSpec,
+  PhoneCards,
+} from "@/components/ui/phone-cards"
 import { Banner, EmptyState } from "@/components/ui/states"
-import { Tag } from "@/components/ui/tag"
+import { SubTabs } from "@/components/ui/sub-tabs"
 import { useFilters } from "@/lib/filters"
-import { useLayout, usePanelDock } from "@/lib/layout"
+import { count, day } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
+import { useEveryEmployee, useNameOfLogin } from "@/lib/queries/hr-employees"
 import { queryState } from "@/lib/query-state"
 import {
   listFiles,
@@ -33,26 +49,19 @@ import {
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { cn } from "@/lib/utils"
-import {
-  CardFigure,
-  CardName,
-  type CardSpec,
-  PhoneCards,
-} from "@/components/ui/phone-cards"
-import { ago, bytes, fileKind } from "@/screens/workplace/lib"
-import { FileTile } from "@/screens/workplace/parts"
+import { bytes } from "@/screens/workplace/lib"
 import {
   attention,
-  folderOf,
   fromAttachment,
   fromDocument,
   kindOf,
-  SOURCE_LABEL,
+  kindWord,
+  placeOf,
   stateOf,
   type VaultRow,
 } from "@/screens/workplace/vault"
 import { PlaceSheet, VaultSheet } from "@/screens/workplace/vault-sheets"
-import { VaultTile } from "@/screens/workplace/vault-tile"
+import { FileThumb, StateWord, VaultTile } from "@/screens/workplace/vault-tile"
 
 /// Library — the vault, in the shape midday's is, over both of the drawers we
 /// had.
@@ -70,9 +79,9 @@ import { VaultTile } from "@/screens/workplace/vault-tile"
 /// jika sudah ada files, kenapa double double".
 ///
 /// This is the one screen. The distinction the two screens were expressing is
-/// not thrown away — it is a facet now, `Where`, and it is the first filter in
-/// the bar, because "filed on purpose" and "attached in a conversation" really
-/// are different answers to "why is this file here". See `vault.ts` for the row
+/// not thrown away — it is the chips now (All, Filed, In chats), because "filed
+/// on purpose" and "attached in a conversation" really are different answers
+/// to "why is this file here". See `vault.ts` for the row
 /// model and why the two sources stay legible inside one list.
 ///
 /// # Three places it deliberately differs from midday
@@ -86,12 +95,29 @@ import { VaultTile } from "@/screens/workplace/vault-tile"
 ///     genuinely different things — see `PlaceSheet`.
 ///   * **There is no delete.** The server has no route for it.
 
-/// midday's breakpoints, kept: 1 column, then 2 at 640, 3 at 768, 4 at 1024 and
-/// 6 at 1800. The last is an arbitrary variant rather than a named breakpoint
-/// because 1800 is not one of Tailwind's, and inventing a `3xl` for one screen
-/// would be a token nothing else reads.
-const GRID =
-  "grid grid-cols-1 gap-8 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 min-[1800px]:grid-cols-6"
+/// # The look, since 17 Oct 2026
+///
+/// Purchase Orders' page (owner: "ya list saya lebih suka, tapi ada grid
+/// modenya"; library-tidy-options.html A, with C as the grid): Add file in the
+/// head, `Where` as tabs — All, Filed, In chats — five columns, and the grid
+/// as the second view behind a List | Grid switch. The kind and the size ride
+/// in the grey line under the name; Type, Tags and Size are still filters, no
+/// longer columns that were "—" on most rows. A missing file says so in its
+/// State cell, so the box of them over the list is gone.
+
+/// The grid's columns: as many 232px tiles as the width holds.
+const GRID = "grid grid-cols-[repeat(auto-fill,minmax(14.5rem,1fr))] gap-4"
+
+/// Where a row sits, as the chips split the drawer.
+type Where = "all" | "filed" | "chats"
+
+/// Type, Tags and Size stay columns so the Filter panel offers them, and are
+/// never drawn: on a drawer of contracts they were three columns of "—".
+const HIDDEN: Record<string, boolean> = {
+  kind: false,
+  tags: false,
+  byteSize: false,
+}
 
 const columns: ColumnDef<TableSetup, VaultRow>[] = [
   {
@@ -99,75 +125,99 @@ const columns: ColumnDef<TableSetup, VaultRow>[] = [
     accessorFn: (row) => `${row.title} ${row.name}`,
     header: "File",
     size: 320,
-    meta: { filter: { kind: "text", label: "Name" } },
+    meta: { grow: 220, filter: { kind: "text", label: "Name" } },
     cell: ({ row }) => (
-      <span className="flex items-center gap-2.5">
-        <FileTile name={row.original.name} />
+      <span className="flex min-w-0 items-center gap-3">
+        <FileThumb row={row.original} />
         <span className="min-w-0">
           <span className="block truncate font-medium text-ink">
             {row.original.title}
           </span>
-          <span className="block truncate font-mono text-[0.9375rem] text-mute">
-            {row.original.source === "FILED" && row.original.folder.length > 0
-              ? folderOf(row.original)
-              : row.original.name}
+          <span className="block truncate text-mute">
+            {kindWord(row.original)} · {bytes(row.original.byteSize)}
           </span>
         </span>
       </span>
     ),
   },
   {
-    id: "source",
-    accessorFn: (row) => SOURCE_LABEL[row.source],
+    id: "place",
+    accessorFn: placeOf,
     header: "Where",
     size: 200,
-    // The facet the merge exists to preserve. First in the bar because it is
-    // the question the two screens used to answer by being two screens.
-    meta: { filter: { kind: "option" } },
-    cell: ({ row }) =>
-      row.original.room === null ? (
-        <span className="flex items-center gap-2">
-          <Tag tone="accent">FILED</Tag>
-          <span className="min-w-0 truncate text-mute">
-            {folderOf(row.original)}
-          </span>
+    meta: { filter: { kind: "option", searchable: true } },
+    cell: ({ row }) => {
+      const Icon =
+        row.original.room === null
+          ? Folder
+          : row.original.room.kind === "DISCUSSION"
+            ? MessagesSquare
+            : MessageSquare
+      return (
+        <span className="flex min-w-0 items-center gap-2">
+          <Icon className="size-4 shrink-0 text-line-ico" />
+          <span className="min-w-0 truncate">{placeOf(row.original)}</span>
         </span>
-      ) : (
-        <span className="flex items-center gap-2">
-          <Tag
-            tone={row.original.room.kind === "DISCUSSION" ? "info" : "neutral"}
-          >
-            {row.original.room.kind === "DISCUSSION" ? "THREAD" : "CHAT"}
-          </Tag>
-          {/* No dead ends: the room is one click away, and for an attachment it
-              is also the only route to the bytes. The stop lives on a wrapper
-              because `<AppLink>` forwards Router's own props and Router's
-              `LinkProps` has no `onClick`; without it the row's own click would
-              open the sheet behind the navigation. */}
-          <span
-            className="min-w-0"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <AppLink
-              to={
-                row.original.room.kind === "DISCUSSION"
-                  ? "/discussions"
-                  : "/chat"
-              }
-              sheet={{
-                key:
-                  row.original.room.kind === "DISCUSSION"
-                    ? "thread"
-                    : "conversation",
-                value: row.original.room.id,
-              }}
-              className="block truncate text-text hover:text-accent"
-            >
-              {row.original.room.title}
-            </AppLink>
-          </span>
-        </span>
-      ),
+      )
+    },
+  },
+  {
+    id: "by",
+    accessorFn: (row) => row.by,
+    header: "Added by",
+    size: 160,
+    meta: { filter: { kind: "option", searchable: true } },
+  },
+  {
+    id: "at",
+    accessorFn: (row) => row.at,
+    header: "Added",
+    size: 140,
+    meta: { filter: { kind: "date" } },
+    cell: ({ row }) => day(row.original.at),
+  },
+  {
+    id: "state",
+    accessorFn: stateOf,
+    header: "State",
+    size: 130,
+    meta: {
+      filter: {
+        kind: "option",
+        icon: (value) =>
+          value === "Missing"
+            ? CircleAlert
+            : value === "Not read"
+              ? CircleX
+              : value === "Reading"
+                ? Loader
+                : value === "Ready"
+                  ? CircleCheck
+                  : undefined,
+      },
+    },
+    // The decision metric: a file whose bytes have gone, or whose text was
+    // never read, is the only row anybody has to do something about.
+    cell: ({ row }) => <StateWord row={row.original} />,
+  },
+  {
+    id: "kind",
+    accessorFn: kindOf,
+    header: "Type",
+    size: 120,
+    meta: {
+      filter: {
+        kind: "option",
+        icon: (value) =>
+          value === "Image"
+            ? ImageIcon
+            : value === "Spreadsheet"
+              ? Sheet
+              : value === "PDF" || value === "Document" || value === "Text"
+                ? FileText
+                : undefined,
+      },
+    },
   },
   {
     id: "tags",
@@ -175,45 +225,6 @@ const columns: ColumnDef<TableSetup, VaultRow>[] = [
     header: "Tags",
     size: 170,
     meta: { filter: { kind: "multi" } },
-    cell: ({ row }) =>
-      row.original.tags.length === 0 ? (
-        <span className="text-mute">—</span>
-      ) : (
-        <span className="flex flex-wrap gap-1">
-          {row.original.tags.map((tag) => (
-            <Tag key={tag} tone="accent">
-              {tag}
-            </Tag>
-          ))}
-        </span>
-      ),
-  },
-  {
-    id: "kind",
-    accessorFn: kindOf,
-    header: "Type",
-    size: 120,
-    meta: { filter: { kind: "option" } },
-    cell: ({ row }) => (
-      <span className="font-mono text-[0.9375rem] text-body">
-        {fileKind(row.original.name)}
-      </span>
-    ),
-  },
-  {
-    id: "by",
-    accessorFn: (row) => row.by,
-    header: "Added by",
-    size: 140,
-    meta: { filter: { kind: "option" } },
-  },
-  {
-    id: "at",
-    accessorFn: (row) => row.at,
-    header: "Added",
-    size: 120,
-    meta: { align: "right", filter: { kind: "date" } },
-    cell: ({ row }) => ago(row.original.at),
   },
   {
     id: "byteSize",
@@ -221,26 +232,6 @@ const columns: ColumnDef<TableSetup, VaultRow>[] = [
     header: "Size",
     size: 110,
     meta: { align: "right", filter: { kind: "number", unit: "bytes" } },
-    cell: ({ row }) => bytes(row.original.byteSize),
-  },
-  {
-    id: "state",
-    accessorFn: stateOf,
-    header: "State",
-    size: 140,
-    meta: { filter: { kind: "option" } },
-    // The decision metric, and why this list sorts by it: a file whose object
-    // has gone, or whose text was never extracted, is the only row anybody has
-    // to do something about. Rendered rather than hidden — a row beside a link
-    // that 404s is worse than saying it plainly.
-    cell: ({ row }) => {
-      const state = stateOf(row.original)
-      return state === "There" ? (
-        <span className="text-mute">There</span>
-      ) : (
-        <Pill tone={state === "Gone" ? "bad" : "warn"}>{state}</Pill>
-      )
-    },
   },
 ]
 
@@ -251,13 +242,12 @@ export function Library() {
   const filed = useSheet("document")
   const attached = useSheet("file")
   const view = useSheet("view")
-  const grid = view.value !== "list"
+  // The list first; the grid is the second view (owner, 17 Oct 2026).
+  const grid = view.value === "grid"
 
+  const [where, setWhere] = useState<Where>("all")
   const [query, setQuery] = useState("")
-  const [sorting, setSorting] = useState<SortingState>([
-    { id: "state", desc: false },
-    { id: "at", desc: true },
-  ])
+  const [sorting, setSorting] = useState<SortingState>([])
   const [picked, setPicked] = useState<readonly File[]>([])
 
   const documents = useQuery({
@@ -268,52 +258,63 @@ export function Library() {
     queryKey: workplaceKeys.files(),
     queryFn: ({ signal }) => listFiles(200, signal),
   })
+  const people = useEveryEmployee()
+  const nameOf = useNameOfLogin()
 
   const rows = useMemo<VaultRow[]>(() => {
     const all = [
       ...(documents.data ?? []).map(fromDocument),
       ...(attachments.data ?? []).map(fromAttachment),
-    ]
+    ].map((row) => ({ ...row, by: nameOf(row.by) }))
     // Sorted here rather than left to the table, because the grid has no
-    // headers to sort by and both views must agree on what comes first.
+    // headers to sort by and both views must agree on what comes first: the
+    // files that need somebody, then the newest.
     return all.sort(
       (a, b) => attention(a) - attention(b) || b.at.localeCompare(a.at)
     )
-  }, [documents.data, attachments.data])
+    // `nameOf` is a fresh closure over `people.data` on every render; the
+    // employees it reads are the dependency.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [documents.data, attachments.data, people.data])
+
+  const filedCount = rows.filter((row) => row.source === "FILED").length
+  const inTab = useMemo(
+    () =>
+      where === "all"
+        ? rows
+        : rows.filter(
+            (row) => (row.source === "FILED") === (where === "filed")
+          ),
+    [rows, where]
+  )
 
   const filters = useFilters(columns)
-  const docked = useDockedFilters()
   const phone = useLayout() === "phone"
 
   const table = useTable(
     useMemo(
       () => ({
         features: tableSetup,
-        data: rows,
+        data: inTab,
         columns: filters.columns,
         getRowId: (row: VaultRow) => row.key,
         state: {
           columnFilters: filters.columnFilters,
+          columnVisibility: HIDDEN,
           globalFilter: query,
           sorting,
         },
         onSortingChange: setSorting,
         onGlobalFilterChange: setQuery,
       }),
-      [rows, filters.columns, filters.columnFilters, query, sorting]
+      [inTab, filters.columns, filters.columnFilters, query, sorting]
     )
   )
 
-  /// The grid draws the table's own filtered rows rather than filtering again.
-  ///
-  /// One narrowing, so a chip in the bar and a word in the search box mean the
-  /// same thing in both views — which is the failure the old screen had, where
-  /// the grid filtered on three fields by hand and the list filtered on eight.
-  ///
-  /// Not wrapped in `useMemo`: the row model is already memoised inside the
-  /// table against its own state, and a second cache keyed on what this
-  /// component happens to know would go stale the first time the table changed
-  /// for a reason not in that list.
+  /// The grid draws the table's own filtered rows rather than filtering again,
+  /// so a chip in the bar and a word in the search box mean the same thing in
+  /// both views. Not wrapped in `useMemo`: the row model is already memoised
+  /// inside the table against its own state.
   const shown = table
     .getFilteredRowModel()
     .rows.map((row: { original: VaultRow }) => row.original)
@@ -323,37 +324,19 @@ export function Library() {
     rows.find((row) => row.source !== "FILED" && row.id === attached.value) ??
     null
 
+  const openRow = (row: VaultRow) =>
+    row.source === "FILED" ? filed.open(row.id) : attached.open(row.id)
+
   const closeSheet = () => {
     if (filed.value !== undefined) filed.close()
     if (attached.value !== undefined) attached.close()
   }
 
-  const missing = useMemo<Exception[]>(
-    () =>
-      rows
-        .filter((row) => !row.available)
-        .map((row) => ({
-          id: row.key,
-          title: row.title,
-          detail:
-            row.room === null
-              ? "Filed, and the object is not in storage."
-              : `Attached in ${row.room.title}, and the object is not in storage.`,
-          amount: bytes(row.byteSize),
-          severity: "medium" as const,
-          icon: <FileWarning className="size-4" />,
-          onOpen: () =>
-            row.source === "FILED" ? filed.open(row.id) : attached.open(row.id),
-        })),
-    [rows, filed, attached]
-  )
-
   /// Two requests, one screen state.
   ///
-  /// Pending while either is, because a grid that fills in halfway looks like
+  /// Pending while either is, because a list that fills in halfway looks like
   /// the drawer is missing files. Failed only when BOTH have failed: one drawer
-  /// answering is worth drawing, and the banner above says which one did not —
-  /// an error page over a working half is a screen that hides what it has.
+  /// answering is worth drawing, and the banner above says which one did not.
   const drawer = {
     isPending: documents.isPending || attachments.isPending,
     isError: documents.isError && attachments.isError,
@@ -372,46 +355,80 @@ export function Library() {
         ? attachments.error
         : null
 
+  const tabs: readonly { value: Where; label: string; count: number }[] = [
+    { value: "all", label: "All", count: rows.length },
+    { value: "filed", label: "Filed", count: filedCount },
+    { value: "chats", label: "In chats", count: rows.length - filedCount },
+  ]
+
+  const clear = () => {
+    setQuery("")
+    filters.clear()
+  }
+
   return (
     <UploadZone onFiles={setPicked}>
       <PageContent>
         <PageHeader
           title="Files"
-          sub="Everything filed, and everything attached in a room you can read. One drawer."
+          actions={!phone && <PickButton onFiles={setPicked} />}
         />
 
-        {/* One line over the list, carrying everything that acts on it: what
-            narrows it at the left, and what changes its shape or adds to it at
-            the right. The same line Purchase orders draws, in the same order —
-            the owner asked for this screen's filters to stand where that
-            screen's do, and half an answer would have been the panel in the
-            right place under a search box still stranded in the page header. */}
-        <div className="group/bar mb-3 flex flex-wrap items-center gap-1.5 max-md:hidden">
-          <ExpandingSearch
-            value={query}
-            onChange={setQuery}
-            label="Search the library"
+        {/* One line over the list: what narrows it at the left — the search,
+            where a file is kept, the filter panel — and how it is drawn at the
+            right, the same line Purchase orders draws. On a phone they are the
+            dock's. */}
+        <SubTabs
+          className="max-md:hidden"
+          tabs={tabs.map((tab) => ({
+            value: tab.value,
+            label: (
+              <span>
+                {tab.label}
+                <span className="ml-1.5 text-body tabular-nums">
+                  {count(tab.count)}
+                </span>
+              </span>
+            ),
+          }))}
+          value={where}
+          onChange={(next) => setWhere(next as Where)}
+        />
+
+        <div className="group/bar mb-3 flex flex-wrap items-center gap-2 max-md:hidden">
+          <FilterPanel
+            model={filters}
+            table={table}
+            search={{ value: query, onChange: setQuery, label: "Search files" }}
           />
           <BarSpacer />
-          {!docked && <FilterPanel model={filters} table={table} />}
           <ViewSwitch grid={grid} onChange={view.open} />
-          <PickButton onFiles={setPicked} />
         </div>
 
-        {/* On a phone the search, the filters and the order are the dock's, and
-            adding a file is its round button. The files are cards. */}
+        {/* On a phone the search, the filters, the order and the tab are the
+            dock's, and adding a file is its round button. The files are
+            cards. */}
         <PickFab onFiles={setPicked} />
         <DockTools
           search={{
             value: query,
             onChange: setQuery,
-            label: "Search the library",
+            label: "Search files",
           }}
           filter={{
             count: filters.filters.length,
             panel: { model: filters, table },
           }}
           sort={dockSortOf(table)}
+          status={{
+            value: where,
+            options: tabs.map((tab) => ({
+              value: tab.value,
+              label: tab.label,
+              count: tab.count,
+            })),
+            onChange: (next) => setWhere(next as Where),
+          }}
         />
 
         {problem !== null && (
@@ -420,39 +437,25 @@ export function Library() {
           </Banner>
         )}
 
-        {missing.length > 0 && (
-          <ExceptionQueue
-            title="In the drawer, but the bytes are gone"
-            exceptions={missing}
-          />
-        )}
-
-        <div className="grid min-w-0 items-start gap-5 dock:grid-cols-[minmax(0,1fr)_16rem]">
+        <div className="grid min-w-0 items-start gap-5">
           <div className="flex min-w-0 flex-col">
             {queryState(drawer, {
               loading: "Opening the drawer…",
               render: () =>
-                rows.length === 0 ? (
+                inTab.length === 0 ? (
                   <Card>
-                    <EmptyState>
-                      Nothing has been filed, and nothing has been attached in a
-                      room you can read. Drop a file anywhere on this page to
-                      start one off.
-                    </EmptyState>
+                    <EmptyState>Nothing here yet.</EmptyState>
                   </Card>
                 ) : shown.length === 0 ? (
                   <Card>
                     <EmptyState>
-                      Nothing in the drawer matches that.{" "}
+                      No file matches these filters.{" "}
                       <button
                         type="button"
-                        onClick={() => {
-                          setQuery("")
-                          filters.clear()
-                        }}
+                        onClick={clear}
                         className="text-accent underline-offset-2 hover:underline"
                       >
-                        Clear the search
+                        Clear them
                       </button>
                     </EmptyState>
                   </Card>
@@ -461,11 +464,7 @@ export function Library() {
                     rows={shown}
                     rowId={(row) => row.key}
                     spec={FILE_CARD}
-                    onOpen={(row) =>
-                      row.source === "FILED"
-                        ? filed.open(row.id)
-                        : attached.open(row.id)
-                    }
+                    onOpen={openRow}
                     selected={(row) =>
                       row.id === filed.value || row.id === attached.value
                     }
@@ -476,45 +475,42 @@ export function Library() {
                       <VaultTile
                         key={row.key}
                         row={row}
-                        onOpen={() =>
-                          row.source === "FILED"
-                            ? filed.open(row.id)
-                            : attached.open(row.id)
-                        }
-                        onTag={(tag) =>
-                          filters.commit({
-                            column: "tags",
-                            operator: "includesAnyOf",
-                            values: [tag],
-                          })
-                        }
+                        onOpen={() => openRow(row)}
                       />
                     ))}
                   </div>
                 ) : (
-                  <Card className="overflow-hidden">
+                  <Card className="overflow-clip">
                     <DataTable<VaultRow>
                       refresh={[documents, attachments]}
                       table={table}
-                      onRowClick={(row) =>
-                        row.source === "FILED"
-                          ? filed.open(row.id)
-                          : attached.open(row.id)
-                      }
+                      onRowClick={openRow}
                       isSelected={(row) =>
                         row.id === filed.value || row.id === attached.value
                       }
-                      empty="Nothing in the drawer matches that."
-                      className="max-h-[calc(100dvh-16rem)]"
+                      empty="No file matches these filters."
+                      summary={{
+                        name: (
+                          <span>
+                            {shown.length}{" "}
+                            <span className="font-normal text-body">
+                              {shown.length === 1 ? "file" : "files"} ·{" "}
+                              {bytes(
+                                shown.reduce(
+                                  (total, row) => total + row.byteSize,
+                                  0
+                                )
+                              )}
+                            </span>
+                          </span>
+                        ),
+                      }}
+                      pageScroll
                     />
                   </Card>
                 ),
             })}
           </div>
-
-          {docked && (
-            <DockedFilters model={filters} id="library" subject="File" />
-          )}
         </div>
 
         <VaultSheet row={open} onClose={closeSheet} />
@@ -524,37 +520,20 @@ export function Library() {
   )
 }
 
-/// A file as a phone's card: its name over the file it is, where it is kept,
-/// how big it is, who put it there and when, and — only when something is
-/// wrong with it — the state it is in.
+/// A file as a phone's card: its name, where it is kept and when it came, its
+/// size, and — only when it is not ready — the state it is in.
 const FILE_CARD: CardSpec<VaultRow> = {
-  title: (row) => (
-    <CardName
-      name={row.title}
-      code={
-        row.source === "FILED" && row.folder.length > 0
-          ? folderOf(row)
-          : row.name
-      }
-    />
-  ),
-  meta: [
-    (row) =>
-      row.room === null
-        ? `Filed · ${folderOf(row)}`
-        : `${row.room.kind === "DISCUSSION" ? "Thread" : "Chat"} · ${row.room.title}`,
-    (row) => (row.tags.length === 0 ? null : row.tags.join(" · ")),
-  ],
+  title: (row) => <CardName name={row.title} />,
+  meta: [(row) => `${placeOf(row)} · ${day(row.at)}`],
   lead: (row) => (
-    <CardFigure value={bytes(row.byteSize)} caption={fileKind(row.name)} />
+    <CardFigure value={bytes(row.byteSize)} caption={kindWord(row)} />
   ),
-  foot: (row) => `${row.by} · ${ago(row.at)}`,
-  action: (row) => {
-    const state = stateOf(row)
-    return state === "There" ? null : (
-      <Pill tone={state === "Gone" ? "bad" : "warn"}>{state}</Pill>
-    )
-  },
+  // Only a file that needs somebody earns the card a foot: "Reading" on every
+  // card was a row of grey under each one.
+  action: (row) =>
+    stateOf(row) === "Missing" || stateOf(row) === "Not read" ? (
+      <StateWord row={row} />
+    ) : undefined,
 }
 
 /// Adding a file, on a phone: the round button over the bottom bar, which opens
@@ -574,30 +553,12 @@ function PickFab({ onFiles }: { onFiles: (files: readonly File[]) => void }) {
           event.target.value = ""
         }}
       />
-      <Fab label="Add a file" onClick={() => input.current?.click()} />
+      <Fab label="Add file" onClick={() => input.current?.click()} />
     </>
   )
 }
 
-/// Whether there is room for the filter column beside the list.
-///
-/// 1440px, which is the width `<DockedFilters>` was measured at on Purchase
-/// orders — the screen this one now stands beside — rather than one of
-/// `lib/layout.ts`'s tiers: the panel's width is a fact about the panel and
-/// the table it leaves room for, not about what the shell can afford.
-///
-/// Asked in JavaScript rather than written as `dock:hidden`, and that
-/// is not a style preference. The docked panel and the `<FilterPanel>` button
-/// are two doors onto the same `?filters=` sheet; hiding one with CSS leaves
-/// it mounted, and opening the filters would open two sheets stacked on each
-/// other. One of them exists at a time, so only one can answer.
-function useDockedFilters(): boolean {
-  // The shell's answer, so this panel docks at the same page width as every
-  // other list's — see `usePanelDock` in `lib/layout.ts`.
-  return usePanelDock()
-}
-
-/// Grid or list, midday's switch.
+/// List or grid: one 36px control, two halves, the list first.
 ///
 /// Written here rather than reaching for `<ButtonGroup>`: that component paints
 /// every child `text-text` through a `[&>button]` selector, which outranks a
@@ -622,10 +583,11 @@ function ViewSwitch({
     <button
       type="button"
       aria-label={label}
+      title={label}
       aria-pressed={active}
       onClick={() => onChange(value)}
       className={cn(
-        "grid h-8 w-9 place-items-center transition-colors",
+        "grid h-full w-10 place-items-center transition-colors",
         active
           ? "bg-soft-2 text-ink"
           : "text-mute hover:bg-soft hover:text-text"
@@ -636,10 +598,10 @@ function ViewSwitch({
   )
 
   return (
-    <div className="inline-flex overflow-hidden rounded-full border border-hairline-2">
-      {button("grid", grid, "Grid", <LayoutGrid className="size-3.5" />)}
-      <span className="w-px bg-hairline" />
-      {button("list", !grid, "List", <Rows3 className="size-3.5" />)}
+    <div className="inline-flex h-9 overflow-hidden rounded-inner border border-hairline-2 bg-canvas shadow-soft">
+      {button("list", !grid, "List", <Rows3 className="size-4" />)}
+      <span className="w-px bg-hairline-2" />
+      {button("grid", grid, "Grid", <LayoutGrid className="size-4" />)}
     </div>
   )
 }
@@ -727,7 +689,8 @@ function PickButton({
         }}
       />
       <Button variant="primary" onClick={() => input.current?.click()}>
-        Add a file
+        <Plus />
+        Add file
       </Button>
     </>
   )

@@ -7,7 +7,7 @@ import {
 } from "@tanstack/react-query"
 import type { ColumnDef, RowData, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { useMemo, useState } from "react"
+import { useCallback, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Day } from "@/components/ui/day"
@@ -19,7 +19,6 @@ import { DataTable } from "@/components/ui/data-table"
 import { Field, Input, Money, Textarea } from "@/components/ui/field"
 import { Switch } from "@/components/ui/form"
 import { FilterPanel } from "@/components/ui/filter-panel"
-import { ExpandingSearch } from "@/components/ui/list-chrome"
 import {
   MiniCell,
   MiniRow,
@@ -28,6 +27,7 @@ import {
   TotalsLadder,
 } from "@/components/ui/rows"
 import { PageHeader } from "@/components/ui/page-header"
+import { CellMoney } from "@/components/ui/rows-switch"
 import { Pill, Status } from "@/components/ui/pill"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { SubTabs } from "@/components/ui/sub-tabs"
@@ -56,10 +56,11 @@ import {
   returnBill,
   unbilledReceipts,
 } from "@/lib/queries/finance"
-import { useUnits } from "@/lib/queries/organisation"
+import { useSiteLabel, useUnits } from "@/lib/queries/organisation"
 import { queryState } from "@/lib/query-state"
 import { useSheet, type SheetKey } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
+import { useCompactRows } from "@/lib/table-rows"
 import { useDebounced } from "@/lib/use-debounced"
 import {
   EXPENSE_LINE_CLASSES,
@@ -106,6 +107,34 @@ import type {
 /// every read — a stored age would be wrong by morning.
 function isLate(bill: SupplierBill): boolean {
   return bill.status.toUpperCase() !== "POSTED" && bill.days_overdue > 0
+}
+
+/// The site: its name in comfortable rows, its code in compact ones ("HO",
+/// the name on hover) — compact rows give the width to the figures (owner,
+/// 17 Oct, `lib/table-rows.ts`).
+function BillSite({ id }: { id: string | null | undefined }) {
+  const compact = useCompactRows()
+  const name = useSiteLabel()
+  if (!compact || id === null || id === undefined || id === "")
+    return <SiteName id={id} />
+  const full = name(id)
+  return <span title={full}>{full.split(" · ")[0]}</span>
+}
+
+/// When it falls due. Compact rows have no Overdue column, so a late bill's
+/// date is drawn red and its days late are on hover.
+function BillDue({ bill }: { bill: SupplierBill }) {
+  const compact = useCompactRows()
+  if (compact && isLate(bill))
+    return (
+      <span
+        className="text-bad-fg"
+        title={`${count(bill.days_overdue)} days late`}
+      >
+        {day(bill.due_date)}
+      </span>
+    )
+  return <>{day(bill.due_date)}</>
 }
 
 const deskBillColumns: ColumnDef<TableSetup, SupplierBill>[] = [
@@ -157,7 +186,9 @@ const deskBillColumns: ColumnDef<TableSetup, SupplierBill>[] = [
     // The client's own name for it. The id stays in `title`, because that is
     // what the account codes carry and what a support call will be about.
     enableSorting: false,
-    cell: ({ row }) => <SiteName id={row.original.site_id} />,
+    // The first to step out of compact rows short of room (`onGiveUp`).
+    meta: { priority: 3 },
+    cell: ({ row }) => <BillSite id={row.original.site_id} />,
   },
   {
     accessorKey: "status",
@@ -175,7 +206,7 @@ const deskBillColumns: ColumnDef<TableSetup, SupplierBill>[] = [
     accessorKey: "invoice_date",
     header: "Posting Date",
     size: 120,
-    meta: { filter: { kind: "date" } },
+    meta: { filter: { kind: "date" }, priority: 2 },
     cell: ({ row }) => day(row.original.invoice_date),
   },
   {
@@ -186,7 +217,7 @@ const deskBillColumns: ColumnDef<TableSetup, SupplierBill>[] = [
     // the as-of box above answers a different question — it dates the ageing
     // report, not the list.
     meta: { filter: { kind: "date" } },
-    cell: ({ row }) => day(row.original.due_date),
+    cell: ({ row }) => <BillDue bill={row.original} />,
   },
   {
     accessorKey: "total_minor",
@@ -195,7 +226,7 @@ const deskBillColumns: ColumnDef<TableSetup, SupplierBill>[] = [
     meta: { align: "right" },
     cell: ({ row }) => (
       <span className="text-body tabular-nums">
-        {money(row.original.total_minor)}
+        <CellMoney minor={row.original.total_minor} />
       </span>
     ),
   },
@@ -213,7 +244,7 @@ const deskBillColumns: ColumnDef<TableSetup, SupplierBill>[] = [
         <span className="text-faint">—</span>
       ) : (
         <span className="text-body tabular-nums">
-          {money(row.original.paid_minor)}
+          <CellMoney minor={row.original.paid_minor} />
         </span>
       ),
   },
@@ -239,11 +270,11 @@ const deskBillColumns: ColumnDef<TableSetup, SupplierBill>[] = [
       return (
         <span className="inline-flex flex-col items-end">
           <span className="font-medium text-ink tabular-nums">
-            {money(bill.outstanding_minor)}
+            <CellMoney minor={bill.outstanding_minor} />
           </span>
           {reserved > 0 && (
             <span className="text-[0.9375rem] text-warn-fg tabular-nums">
-              {money(reserved)} in draft
+              <CellMoney minor={reserved} /> in draft
             </span>
           )}
         </span>
@@ -569,6 +600,25 @@ const CARD_COLUMNS = (phone: boolean) => ({
   state: phone,
 })
 
+/// The bill tables' columns in compact rows (`lib/table-rows.ts`): no Paid
+/// (Outstanding is what is left of it), no Overdue (a late due date turns red,
+/// `BillDue`), and whatever the card had no room for (`givenUp`, Site then
+/// Posting Date) — never a table that scrolls sideways.
+const billVisibility = (
+  phone: boolean,
+  compact: boolean,
+  givenUp: readonly string[]
+) => ({
+  ...CARD_COLUMNS(phone),
+  ...(compact
+    ? {
+        paid_minor: false,
+        days_overdue: false,
+        ...Object.fromEntries(givenUp.map((id) => [id, false])),
+      }
+    : {}),
+})
+
 const billColumns = [...onTheDesk(deskBillColumns), ...billCardColumns]
 const expenseColumns = [...onTheDesk(deskExpenseColumns), ...billCardColumns]
 
@@ -633,7 +683,7 @@ const deskUnbilledColumns: ColumnDef<TableSetup, UnbilledReceipt>[] = [
     // the supplier bills what was agreed — deliberately not a bookable figure.
     cell: ({ row }) => (
       <span className="font-medium text-ink tabular-nums">
-        {money(row.original.value_at_order_price_minor)}
+        <CellMoney minor={row.original.value_at_order_price_minor} />
       </span>
     ),
   },
@@ -794,6 +844,14 @@ function billScope(
 export function SupplierBills() {
   const supplierName = useSupplierName()
   const phone = useLayout() === "phone"
+  const compact = useCompactRows()
+  /// The bill columns the merchandise table gave up for room in compact rows.
+  const [givenUp, setGivenUp] = useState<readonly string[]>([])
+  const giveUp = useCallback(
+    (ids: readonly string[]) =>
+      setGivenUp((was) => (was.join() === ids.join() ? was : ids)),
+    []
+  )
   const [tab, setTab] = useState<BillTab>("merchandise")
   const [query, setQuery] = useState("")
   const [unit, setUnit] = useState("")
@@ -978,7 +1036,7 @@ export function SupplierBills() {
         getRowId: (row: SupplierBill) => row.invoice_id,
         state: {
           columnFilters: billFilters.columnFilters,
-          columnVisibility: CARD_COLUMNS(phone),
+          columnVisibility: billVisibility(phone, compact, givenUp),
           sorting: billSort,
         },
         manualSorting: true,
@@ -990,6 +1048,8 @@ export function SupplierBills() {
         billFilters.columnFilters,
         billSort,
         phone,
+        compact,
+        givenUp,
       ]
     )
   )
@@ -1003,7 +1063,7 @@ export function SupplierBills() {
         getRowId: (row: SupplierBill) => row.invoice_id,
         state: {
           columnFilters: expenseFilters.columnFilters,
-          columnVisibility: CARD_COLUMNS(phone),
+          columnVisibility: billVisibility(phone, compact, []),
           sorting: expenseSort,
         },
         manualSorting: true,
@@ -1015,6 +1075,7 @@ export function SupplierBills() {
         expenseFilters.columnFilters,
         expenseSort,
         phone,
+        compact,
       ]
     )
   )
@@ -1033,7 +1094,7 @@ export function SupplierBills() {
         getRowId: (row: SupplierBill) => row.invoice_id,
         state: {
           columnFilters: expenseFilters.columnFilters,
-          columnVisibility: CARD_COLUMNS(phone),
+          columnVisibility: billVisibility(phone, compact, []),
           sorting: expenseSort,
         },
         manualSorting: true,
@@ -1045,6 +1106,7 @@ export function SupplierBills() {
         expenseFilters.columnFilters,
         expenseSort,
         phone,
+        compact,
       ]
     )
   )
@@ -1132,11 +1194,6 @@ export function SupplierBills() {
           />
         }
       >
-        <ExpandingSearch
-          value={query}
-          onChange={setQuery}
-          label="Search bills"
-        />
         <UnitSelect
           value={unit}
           onChange={setUnit}
@@ -1164,6 +1221,7 @@ export function SupplierBills() {
                   ? gaTable
                   : billTable
           }
+          search={{ value: query, onChange: setQuery, label: "Search bills" }}
         />
       </Toolbar>
 
@@ -1215,7 +1273,15 @@ export function SupplierBills() {
                     // only final once the list has been read to its end.
                     empty={<NoMatch what="bills" onClear={clearBills} />}
                     more={bills}
-                    className={phone ? undefined : "max-h-[calc(100dvh-21rem)]"}
+                    onGiveUp={compact ? giveUp : undefined}
+                    // Compact rows run the card nearer the page's foot.
+                    className={
+                      phone
+                        ? undefined
+                        : compact
+                          ? "max-h-[calc(100dvh-19rem)]"
+                          : "max-h-[calc(100dvh-21rem)]"
+                    }
                   />
                 ),
             })}

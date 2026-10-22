@@ -5,6 +5,7 @@ import { PageContent } from "@/components/shell/app-shell"
 import { AppLink } from "@/components/ui/app-link"
 import { ExportButton } from "@/components/ui/export-button"
 import { PageHeader } from "@/components/ui/page-header"
+import { CellMoney } from "@/components/ui/rows-switch"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { monthStamp, type ExportSheet } from "@/lib/export-xlsx"
 import { count, day, money } from "@/lib/format"
@@ -304,7 +305,7 @@ function AssetDisposalsScreen() {
                   />
                 </>
               ) : (
-                <Grid>
+                <Grid followRows giveUp={[5, 4, 7, 6, 2]}>
                   <thead>
                     <tr>
                       <Th>Date</Th>
@@ -340,13 +341,21 @@ function AssetDisposalsScreen() {
                           </Td>
                           <Td>{asset.category_name}</Td>
                           <Td>{methodLabel(asset.disposal_method)}</Td>
-                          <Td align="right">{money(cost)}</Td>
-                          <Td align="right">{money(accumulated)}</Td>
-                          <Td align="right">{money(book)}</Td>
-                          <Td align="right">{money(proceeds)}</Td>
+                          <Td align="right">
+                            <CellMoney minor={cost} />
+                          </Td>
+                          <Td align="right">
+                            <CellMoney minor={accumulated} />
+                          </Td>
+                          <Td align="right">
+                            <CellMoney minor={book} />
+                          </Td>
+                          <Td align="right">
+                            <CellMoney minor={proceeds} />
+                          </Td>
                           <Td align="right">
                             <span className={cn(result < 0 && "text-bad-fg")}>
-                              {money(result)}
+                              <CellMoney minor={result} />
                             </span>
                           </Td>
                           <Td>
@@ -369,7 +378,11 @@ function AssetDisposalsScreen() {
                       )
                     )}
                     <TotalRow>
-                      <Td colSpan={5}>Total</Td>
+                      <Td>Total</Td>
+                      <Td />
+                      <Td />
+                      <Td />
+                      <Td />
                       <Td align="right">{money(total.cost)}</Td>
                       <Td align="right">{money(total.accumulated)}</Td>
                       <Td align="right">{money(total.book)}</Td>

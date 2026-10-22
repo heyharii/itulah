@@ -1,0 +1,121 @@
+<!-- @dsCard group="Patterns" height=805 page subtitle="Template · copy /procurement/orders" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>ListPage — preview</title><style>body{margin:0}
+/* ListPage: the whole desk page on stone, 960 wide, with no rail and no panel. */
+.ds-listpage-ground.ds-stage{padding:12px;gap:0;overflow-x:auto}
+.ds-listpage-ground .ds-page{flex:none;margin:0;min-width:936px}
+/* The bar: one row, every control 36px, 8px apart (Toolbar). */
+.ds-listpage-bar{flex-wrap:nowrap}
+.ds-listpage-bar .ds-search .ds-ico{margin-top:-7px}
+.ds-listpage-date{display:inline-flex;align-items:center;justify-content:space-between;gap:10px;flex:none;width:176px;height:var(--control);padding:0 12px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas);color:var(--mute);font-size:15px;white-space:nowrap}
+.ds-listpage-date .ds-ico{color:var(--line-ico)}
+.ds-listpage-switch{flex:none;height:var(--control)}
+.ds-listpage-pad{padding:0 12px}
+/* The table: one name at 500 and a quiet line under it; pieces over their worth. */
+.ds-listpage-table td,.ds-listpage-table th{white-space:nowrap}
+.ds-listpage-name{display:block;line-height:20px}
+.ds-listpage-table .ds-sub{margin-top:2px;line-height:20px}
+.ds-listpage-table td.is-late{font-weight:500}
+.ds-listpage-table tr.is-hover{background:var(--soft)}
+.ds-listpage-pair{display:flex;flex-direction:column;align-items:flex-end;line-height:24px}
+.ds-listpage-pair b{font-weight:500;color:var(--ink)}
+.ds-listpage-pair b.is-short{color:var(--bad-fg)}
+.ds-listpage-pair span{color:var(--mute)}
+.ds-listpage-table tfoot td{height:auto;padding-top:8px;padding-bottom:8px;vertical-align:top}
+.ds-listpage-table tfoot .ds-listpage-light{font-weight:400;color:var(--body)}
+.ds-listpage-table tfoot .ds-listpage-pair{line-height:20px}
+.ds-listpage-table tfoot .ds-listpage-pair span{font-weight:400;color:var(--body)}
+</style></head>
+<body>
+<div class="ds ds-stage ds-stage--stone ds-listpage-ground">
+  <div class="ds-page">
+    <div class="ds-page-content">
+
+      <div class="ds-page-head">
+        <div><h1 class="ds-title">Purchase Orders</h1></div>
+        <button class="ds-btn ds-btn--primary" type="button"><span class="ds-ico ds-ico-plus"></span>New order</button>
+      </div>
+
+      <div class="ds-kpis">
+        <div class="ds-kpi"><div class="ds-kpi-label">Orders</div><div class="ds-kpi-value">18</div></div>
+        <div class="ds-kpi"><div class="ds-kpi-label">Still open</div><div class="ds-kpi-value">18</div></div>
+        <div class="ds-kpi"><div class="ds-kpi-label">Overdue</div><div class="ds-kpi-value is-bad">1</div></div>
+        <div class="ds-kpi"><div class="ds-kpi-label">On order</div><div class="ds-kpi-value" title="Rp 102.718.000">Rp 102,7 M</div></div>
+      </div>
+
+      <div class="ds-tabs">
+        <button class="ds-tab is-selected" type="button">Active PO<span class="ds-tab-count">18</span></button>
+        <button class="ds-tab" type="button">Completed PO<span class="ds-tab-count">14</span></button>
+        <button class="ds-tab" type="button">Cancelled PO<span class="ds-tab-count">13</span></button>
+      </div>
+
+      <div class="ds-bar ds-listpage-bar">
+        <label class="ds-search"><span class="ds-ico ds-ico-search ds-ico--14"></span><input type="text" placeholder="Search orders" aria-label="Search orders"></label>
+        <span class="ds-listpage-date">Created at<span class="ds-ico ds-ico-calendar ds-ico--14"></span></span>
+        <span class="ds-listpage-date">Delivery date<span class="ds-ico ds-ico-calendar ds-ico--14"></span></span>
+        <label class="ds-switch-pill ds-listpage-switch"><button class="ds-switch" type="button" role="switch" aria-checked="false" aria-label="Group by supplier"></button>Group by supplier</label>
+        <span class="ds-bar-spacer"></span>
+        <button class="ds-btn ds-btn--ghost ds-listpage-pad" type="button"><span class="ds-ico ds-ico-columns ds-ico--14"></span>Columns</button>
+      </div>
+
+      <div class="ds-table-card">
+        <table class="ds-table ds-listpage-table">
+          <colgroup><col><col style="width:132px"><col style="width:172px"><col style="width:172px"><col style="width:204px"></colgroup>
+          <thead>
+            <tr><th>PO</th><th>Delivery date</th><th class="is-num">Ordered</th><th class="is-num">Received</th><th>Status</th></tr>
+          </thead>
+          <tbody>
+            <tr class="ds-opens">
+              <td><span class="ds-listpage-name">Garmen Nusantara, PT</span><span class="ds-sub">PO-161026-010 · 1 item</span></td>
+              <td>29 Oct 2026</td>
+              <td class="is-num"><span class="ds-listpage-pair"><b>24 pcs</b><span>Rp 2.040.000</span></span></td>
+              <td class="is-num"><span class="ds-listpage-pair"><span>0 pcs</span></span></td>
+              <td><span class="ds-status ds-status--ok">Active</span></td>
+            </tr>
+            <tr class="ds-opens is-hover">
+              <td><span class="ds-listpage-name">Busana Anggun Lestari, CV</span><span class="ds-sub">PO-141026-017 · 12 items</span></td>
+              <td>02 Nov 2026</td>
+              <td class="is-num"><span class="ds-listpage-pair"><b>300 pcs</b><span>Rp 19.500.000</span></span></td>
+              <td class="is-num"><span class="ds-listpage-pair"><span>0 pcs</span></span></td>
+              <td><span class="ds-status ds-status--ok">Active</span></td>
+            </tr>
+            <tr class="ds-opens">
+              <td><span class="ds-listpage-name">Sepatu Sejahtera, CV</span><span class="ds-sub">PO-081026-002 · 6 items</span></td>
+              <td class="is-late">14 Oct 2026</td>
+              <td class="is-num"><span class="ds-listpage-pair"><b>120 pcs</b><span>Rp 18.000.000</span></span></td>
+              <td class="is-num"><span class="ds-listpage-pair"><span>0 pcs</span></span></td>
+              <td><span class="ds-status ds-status--ok">Active</span></td>
+            </tr>
+            <tr class="ds-opens">
+              <td><span class="ds-listpage-name">Garmen Mitra Sentosa, PT</span><span class="ds-sub">PO-131026-008 · 2 items</span></td>
+              <td>24 Oct 2026</td>
+              <td class="is-num"><span class="ds-listpage-pair"><b>96 pcs</b><span>Rp 9.600.000</span></span></td>
+              <td class="is-num"><span class="ds-listpage-pair"><span>0 pcs</span></span></td>
+              <td><span class="ds-status ds-status--ok">Active</span></td>
+            </tr>
+            <tr class="ds-opens">
+              <td><span class="ds-listpage-name">Garmen Nusantara, PT</span><span class="ds-sub">PO-101026-003 · 3 items</span></td>
+              <td>21 Oct 2026</td>
+              <td class="is-num"><span class="ds-listpage-pair"><b>72 pcs</b><span>Rp 6.120.000</span></span></td>
+              <td class="is-num"><span class="ds-listpage-pair">36 pcs<span>Rp 3.060.000</span></span></td>
+              <td><span class="ds-status ds-status--warn">Partially received</span></td>
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr>
+              <td>5 <span class="ds-listpage-light">orders of 18</span></td>
+              <td></td>
+              <td class="is-num"><span class="ds-listpage-pair">612 pcs<span>Rp 55.260.000</span></span></td>
+              <td class="is-num"><span class="ds-listpage-pair">36 pcs<span>Rp 3.060.000</span></span></td>
+              <td></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+    </div>
+  </div>
+</div>
+</body>
+</html>

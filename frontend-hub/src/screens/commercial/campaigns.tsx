@@ -43,7 +43,7 @@ import { PageHeader } from "@/components/ui/page-header"
 import { Status } from "@/components/ui/pill"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
-import { DeskFilterButton, DeskFilterChips } from "@/components/ui/desk-filter"
+import { DeskFilterButton } from "@/components/ui/desk-filter"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import {
@@ -61,7 +61,7 @@ import {
 } from "@/lib/filters"
 import { useLayout } from "@/lib/layout"
 import { useDebounced } from "@/lib/use-debounced"
-import { count, day, label, money, moment } from "@/lib/format"
+import { count, dateRange, day, label, money, moment } from "@/lib/format"
 import {
   BookWrittenNotPublished,
   campaignById,
@@ -356,7 +356,7 @@ const columns: ColumnDef<TableSetup, CampaignLine>[] = [
     accessorFn: (row) => row.row.campaign.name,
     header: "Campaign",
     size: 240,
-    meta: { grow: 280, card: "hide" },
+    meta: { grow: 200, card: "hide" },
     // No text clause: the search box asks the server for the name and the id,
     // and a clause here could only narrow the pages already loaded.
     // The filing code is gone from the row. `backtoschool` under "Back to
@@ -377,7 +377,7 @@ const columns: ColumnDef<TableSetup, CampaignLine>[] = [
     id: "objective",
     accessorFn: (row) => row.intent?.objective ?? "",
     header: "Objective",
-    size: 180,
+    size: 170,
     // Joined from the intents read for the cell. Not a sort: an objective is a
     // category, and ordering by its code orders nothing anybody asked about.
     enableSorting: false,
@@ -412,7 +412,7 @@ const columns: ColumnDef<TableSetup, CampaignLine>[] = [
         // year.
         <span className="text-warn-fg">Not stated</span>
       ) : (
-        <span className="text-text">
+        <span className="block truncate text-text">
           {objectiveOf(stated.objective)?.label ?? stated.objective}
         </span>
       )
@@ -422,7 +422,7 @@ const columns: ColumnDef<TableSetup, CampaignLine>[] = [
     id: "live",
     accessorFn: (row) => row.row.campaign.status,
     header: "Status",
-    size: 130,
+    size: 100,
     enableSorting: false,
     // A switch only where a switch is safe — Live and Paused — and a pill for
     // the other states, which all used to draw as "off" and flip to Live on
@@ -461,7 +461,7 @@ const columns: ColumnDef<TableSetup, CampaignLine>[] = [
       consumed(row.usage?.spent_minor ?? 0, row.row.campaign.budget_minor) ??
       UNLIMITED,
     header: "Budget used",
-    size: 130,
+    size: 140,
     meta: { card: "hide", align: "right" },
     // Sorted by the SERVER's `budget_used`: this accessor's share, spent ÷
     // budget off the same usage counter, with a campaign that has no limit
@@ -481,7 +481,7 @@ const columns: ColumnDef<TableSetup, CampaignLine>[] = [
     cell: ({ row }) => {
       const spent = row.original.usage?.spent_minor ?? 0
       const share = consumed(spent, row.original.row.campaign.budget_minor)
-      if (share === null) return <span className="text-mute">No limit</span>
+      if (share === null) return <span className="text-mute">No budget</span>
       return (
         <span
           className={
@@ -500,8 +500,8 @@ const columns: ColumnDef<TableSetup, CampaignLine>[] = [
   {
     id: "reached",
     accessorFn: (row) => row.reached,
-    header: "Stores",
-    size: 110,
+    header: "Applied at",
+    size: 100,
     // Sorted and filtered by the SERVER (`stores`, `stores_min`/`stores_max`),
     // which counts the same `activated_by` this cell counts.
     //
@@ -513,7 +513,7 @@ const columns: ColumnDef<TableSetup, CampaignLine>[] = [
       card: "hide",
       filter: {
         kind: "number",
-        label: "Stores",
+        label: "Applied at",
         unit: "stores",
         operators: BAND_OPERATORS,
         single: true,
@@ -575,7 +575,7 @@ const columns: ColumnDef<TableSetup, CampaignLine>[] = [
       return to ? (
         <span className="text-text tabular-nums">{day(to)}</span>
       ) : (
-        <span className="text-mute">Open</span>
+        <span className="text-mute">No end</span>
       )
     },
   },
@@ -639,7 +639,7 @@ const columns: ColumnDef<TableSetup, CampaignLine>[] = [
           value={spent === 0 ? "—" : money(spent)}
           caption={
             share === null
-              ? "no limit"
+              ? "No budget"
               : `of ${money(budget!)} · ${Math.round(share * 100)}%`
           }
           tone={
@@ -688,15 +688,20 @@ const columns: ColumnDef<TableSetup, CampaignLine>[] = [
             )
           }
         >
-          {count(offers)} {offers === 1 ? "offer" : "offers"} ·{" "}
+          {count(offers)} {offers === 1 ? "promotion" : "promotions"} ·{" "}
           <span className={reached === 0 ? "text-warn-fg" : undefined}>
             {of === null
               ? `${count(reached)} ${reached === 1 ? "store" : "stores"}`
               : `${count(reached)} / ${count(of)} stores`}
           </span>
           <br />
-          {campaign.valid_from ? day(campaign.valid_from) : "always"} →{" "}
-          {campaign.valid_to ? day(campaign.valid_to) : "open"}
+          {campaign.valid_from && campaign.valid_to
+            ? dateRange(campaign.valid_from, campaign.valid_to)
+            : campaign.valid_from
+              ? `${day(campaign.valid_from)} · No end`
+              : campaign.valid_to
+                ? `Until ${day(campaign.valid_to)}`
+                : "Always on"}
         </CardFoot>
       )
     },
@@ -713,9 +718,9 @@ const columns: ColumnDef<TableSetup, CampaignLine>[] = [
       <Button
         variant="tint"
         size="card"
-        aria-label={`Edit ${row.original.row.campaign.name}`}
+        aria-label={`Open ${row.original.row.campaign.name}`}
       >
-        Edit
+        Open
       </Button>
     ),
   },
@@ -1084,11 +1089,8 @@ function CampaignBook() {
       const did =
         line.row.campaign.status === "ACTIVE" ? "Paused" : "Live again"
       setSwitched({
-        title:
-          sent === null
-            ? `${did} — no store to send it to yet`
-            : `${did} — sent to ${storesWord(sent)}`,
-        note: line.row.campaign.name,
+        title: `${line.row.campaign.name} ${did.toLowerCase()}`,
+        note: sent === null ? "No store to send it to yet" : storesWord(sent),
       })
     },
     onSettled: () => {
@@ -1128,11 +1130,8 @@ function CampaignBook() {
     onSuccess: (response, line) => {
       const sent = sentTo(response)
       setSwitched({
-        title:
-          sent === null
-            ? "Ended — no store to send it to yet"
-            : `Ended — sent to ${storesWord(sent)}`,
-        note: line.row.campaign.name,
+        title: `${line.row.campaign.name} ended`,
+        note: sent === null ? "No store to send it to yet" : storesWord(sent),
       })
     },
     onSettled: () => client.invalidateQueries({ queryKey: commercialKeys.all }),
@@ -1189,18 +1188,26 @@ function CampaignBook() {
   /// The Status clause as one-of-a-few — the desk's tabs and the phone's
   /// dock button — with the counts the server gives per phase.
   const statusValue = phases.length === 1 ? phases[0] : "ALL"
-  /// Live first — the tab the list opens on (owner, 16 Oct); All last.
+  /// Live first — the tab the list opens on (owner, 16 Oct); All last. The
+  /// four everyday phases are always tabs, at 0 too, like Promotions — hiding
+  /// the empty ones left a list of only live campaigns showing "Live · All".
+  /// Draft and Cancelled join only while some campaign is in them.
+  const phaseCount = new Map(
+    (first?.facets.phases ?? []).map((one) => [one.value, one.count])
+  )
   const statusOptions = [
-    ...(first?.facets.phases ?? [])
-      .filter((one) => one.count > 0 || phases.includes(one.value))
-      .map((one) => ({
-        value: one.value,
-        label: stateOf(one.value).label,
-        count: one.count,
-      }))
-      .sort(
-        (a, b) => Number(b.value === "ACTIVE") - Number(a.value === "ACTIVE")
-      ),
+    ...["ACTIVE", "SCHEDULED", "PAUSED", "EXPIRED", "DRAFT", "CANCELLED"]
+      .filter(
+        (value) =>
+          ["ACTIVE", "SCHEDULED", "PAUSED", "EXPIRED"].includes(value) ||
+          (phaseCount.get(value) ?? 0) > 0 ||
+          phases.includes(value)
+      )
+      .map((value) => ({
+        value,
+        label: stateOf(value).label,
+        count: first === undefined ? undefined : (phaseCount.get(value) ?? 0),
+      })),
     { value: "ALL", label: "All", count: everyCount ?? undefined },
   ]
   const setStatus = (next: string) => {
@@ -1222,16 +1229,6 @@ function CampaignBook() {
         actions={
           phone ? undefined : (
             <>
-              <Input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                className="h-9 w-56"
-              />
-              <DeskFilterButton
-                model={filters}
-                filterModel={{ ...filters, fields: counted }}
-                table={table}
-              />
               <Button variant="primary" onClick={() => startForm(null)}>
                 New campaign
               </Button>
@@ -1266,10 +1263,10 @@ function CampaignBook() {
                   )
             }
           />
-          <Kpi label="Spent" value={money(totals.spent)} />
+          <Kpi label="Discount given" value={money(totals.spent)} />
           <Kpi label="Transactions" value={count(totals.uses)} />
           <Kpi
-            label="Near budget"
+            label="Budget almost used"
             value={
               <span className={cn(totals.near > 0 && "text-warn-fg")}>
                 {count(totals.near)}
@@ -1317,15 +1314,27 @@ function CampaignBook() {
             onChange={setStatus}
           />
           {!phone && (
-            <DeskFilterChips
-              model={filters}
-              filterModel={{ ...filters, fields: counted }}
-              table={table}
-            />
+            <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2">
+              {/* Status is the tabs above; the rest of the questions are
+                  asked here, the way Purchase Orders asks them. */}
+              <DeskFilterButton
+                model={filters}
+                filterModel={{
+                  ...filters,
+                  fields: counted.filter((one) => one.column !== "live"),
+                }}
+                table={table}
+                search={{
+                  value: query,
+                  onChange: setQuery,
+                  label: "Search campaigns",
+                }}
+              />
+            </div>
           )}
           <Card
             aria-busy={asked !== scope || undefined}
-            className="list-swap overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none"
+            className="list-swap overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none"
           >
             {needle === "" && everyCount === 0 ? (
               <EmptyState
@@ -1354,7 +1363,8 @@ function CampaignBook() {
                 cardSort={false}
                 cardsApart
                 cardLead
-                className={`max-h-[calc(100dvh-15rem)] ${ROOMY}`}
+                className={ROOMY}
+                pageScroll
               />
             )}
           </Card>
@@ -1365,7 +1375,7 @@ function CampaignBook() {
       {/* On a phone the search, the filter and the sort live in the drawer over
           the bottom bar, not at the top of the list. */}
       <DockTools
-        search={{ value: query, onChange: setQuery, label: "Search Campaigns" }}
+        search={{ value: query, onChange: setQuery, label: "Search campaigns" }}
         filter={{
           count: filters.filters.length,
           panel: {
@@ -1417,7 +1427,7 @@ function CampaignBook() {
           setPausing(null)
         }}
       >
-        Offers inside it stop at the tills.
+        Promotions inside it stop at the tills.
       </Dialog>
 
       <CampaignForm
@@ -1435,10 +1445,11 @@ function CampaignBook() {
           setWriting(false)
           const reached = published.delivered_to.length
           setSwitched({
-            title:
+            title: "Campaign published",
+            note:
               reached === 0
-                ? "Published — no store to send it to yet"
-                : `Published — sent to ${storesWord(reached)}`,
+                ? "No store to send it to yet"
+                : storesWord(reached),
           })
           fresh.current = { id: campaignId, opened: false }
           sheet.open(campaignId)
@@ -1564,14 +1575,14 @@ function Poster({ line }: { line: CampaignLine }) {
             onChange={(event) => setHeadline(event.target.value)}
           />
         </Field>
-        <Field label="Image URL" className="gap-2">
+        <Field label="Image link" className="gap-2">
           <Input
             value={image}
             onChange={(event) => setImage(event.target.value)}
           />
         </Field>
         {/* A block, not a line: a shop prints a paragraph. */}
-        <Field label="Terms" className="gap-2">
+        <Field label="Small print" className="gap-2">
           <Textarea
             value={terms}
             rows={3}
@@ -1587,7 +1598,7 @@ function Poster({ line }: { line: CampaignLine }) {
           disabled={!changed || actor === ""}
           onClick={() => save.mutate()}
         >
-          {save.isPending ? "Submitting…" : "Submit"}
+          {save.isPending ? "Sending…" : "Send to stores"}
         </Button>
         {save.isSuccess && !changed && (
           <span className="text-[0.9375rem] text-mute">Sent to stores.</span>
@@ -1676,24 +1687,27 @@ function CampaignSheet({
       <div className="flex flex-col gap-8 pb-6">
         <NextSteps line={line} onShow={show} />
 
-        <Block icon={Megaphone} title="Campaign">
+        <Block icon={Megaphone} title="At a glance">
           <Facts className="gap-y-5">
             <Fact term="Status">{phase?.label}</Fact>
-            <Fact term="Period">
-              {line.row.campaign.valid_from
-                ? day(line.row.campaign.valid_from)
-                : "Always"}{" "}
-              →{" "}
-              {line.row.campaign.valid_to
-                ? day(line.row.campaign.valid_to)
-                : "Open"}
+            <Fact term="Dates">
+              {line.row.campaign.valid_from && line.row.campaign.valid_to
+                ? dateRange(
+                    line.row.campaign.valid_from,
+                    line.row.campaign.valid_to
+                  )
+                : line.row.campaign.valid_from
+                  ? `${day(line.row.campaign.valid_from)} · No end`
+                  : line.row.campaign.valid_to
+                    ? `Until ${day(line.row.campaign.valid_to)}`
+                    : "Always on"}
             </Fact>
             <Fact term="Stores">
               {stores.length === 0 ? "Everywhere" : count(stores.length)}
             </Fact>
           </Facts>
           {budget === null ? (
-            <Pair label="Given away">
+            <Pair label="Discount given">
               {money(spent)}{" "}
               <span className="font-normal text-mute">· No budget</span>
             </Pair>
@@ -1720,26 +1734,26 @@ function CampaignSheet({
 
         <Block
           icon={Percent}
-          title="Offers"
+          title="Promotions"
           aside={
             <NewOfferLink
               campaignId={line.row.campaign.campaign_id}
               className="text-accent hover:underline"
             >
-              New offer
+              New promotion
             </NewOfferLink>
           }
         >
           {rules === null ? (
             <Quiet>Loading…</Quiet>
           ) : rules.length === 0 ? (
-            <Quiet>No offers.</Quiet>
+            <Quiet>No promotions.</Quiet>
           ) : (
             <MiniTable
               head={[
                 "Promotion",
                 { label: "Applies to", align: "left" },
-                "Does",
+                "Benefit",
               ]}
             >
               {rules.map((rule) => (
@@ -1788,7 +1802,11 @@ function CampaignSheet({
           <Quiet>No stores yet.</Quiet>
         ) : (
           <MiniTable
-            head={["Store", { label: "Since", align: "left" }, "Offers"]}
+            head={[
+              "Store",
+              { label: "Applied", align: "left" },
+              "Rules loaded",
+            ]}
           >
             {line.row.book.activated_by.map((activation) => (
               <MiniRow key={activation.origin_id}>
@@ -1833,7 +1851,7 @@ function CampaignSheet({
               { value: "details", label: "Details", content: details },
               {
                 value: "stores",
-                label: `Stores (${count(line.row.book.activated_by.length)})`,
+                label: `Applied at (${count(line.row.book.activated_by.length)})`,
                 content: storesTab,
               },
               {
@@ -1841,7 +1859,7 @@ function CampaignSheet({
                 label: "Activity",
                 content:
                   subject === undefined ? undefined : (
-                    <RecordPanel subject={subject} />
+                    <RecordPanel subject={subject} expanded />
                   ),
               },
             ]
@@ -1886,7 +1904,7 @@ function CampaignSheet({
               <ConfirmButton
                 label="End now"
                 title={`End ${line.row.campaign.name} now?`}
-                description="Every offer inside it stops at the tills for good."
+                description="Every promotion inside it stops at the tills for good."
                 confirmLabel="End now"
                 tone="danger"
                 variant="danger"
@@ -1954,7 +1972,7 @@ function NextSteps({
       <ul className="flex flex-col gap-1">
         <Step
           done={hasOffer}
-          label="Add an offer"
+          label="Add a promotion"
           action={
             <NewOfferLink
               campaignId={id}
@@ -1972,7 +1990,7 @@ function NextSteps({
         <Step
           done={planned}
           optional
-          label="Plan activities"
+          label="Make a plan"
           action={<StepButton onClick={go(PLAN_ANCHOR)}>Plan</StepButton>}
         />
         <Step
@@ -2343,11 +2361,11 @@ function CampaignForm({
       <div className="@container">
         <div className="grid gap-8 @3xl:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)] @3xl:gap-x-10">
           <div className="flex flex-col gap-10">
-            <Section title="Campaign" icon={Megaphone}>
+            <Section title="Basics" icon={Megaphone}>
               <div className="grid gap-5 @lg:grid-cols-2">
                 <Field
                   className="gap-2"
-                  label="Name"
+                  label="Campaign name"
                   required
                   problem={tried ? nameProblem : undefined}
                 >
@@ -2358,7 +2376,7 @@ function CampaignForm({
                   />
                 </Field>
                 {/* Ended and Cancelled are not a way to start. */}
-                <Field className="gap-2" label="Status">
+                <Field className="gap-2" label="Publish as">
                   <Select
                     value={status}
                     onChange={(next) => setStatus(next as CampaignState)}
@@ -2425,7 +2443,7 @@ function CampaignForm({
                     label="Budget for the whole window"
                   />
                 </Field>
-                <Field className="gap-2" label="Transactions limit">
+                <Field className="gap-2" label="Max. transactions">
                   <Stepper
                     value={maxUses}
                     onChange={setMaxUses}
@@ -2467,14 +2485,14 @@ function CampaignForm({
                   onChange={(event) => setHeadline(event.target.value)}
                 />
               </Field>
-              <Field className="gap-2" label="Terms">
+              <Field className="gap-2" label="Small print">
                 <Textarea
                   value={terms}
                   rows={3}
                   onChange={(event) => setTerms(event.target.value)}
                 />
               </Field>
-              <Field className="gap-2" label="Image URL">
+              <Field className="gap-2" label="Image link">
                 <Input
                   value={image}
                   onChange={(event) => setImage(event.target.value)}
@@ -2499,12 +2517,12 @@ function CampaignForm({
                       label: "Name",
                       value: name.trim(),
                     },
-                    { label: "Status", value: stateOf(status).label },
+                    { label: "Publish as", value: stateOf(status).label },
                     {
-                      label: "Period",
+                      label: "Dates",
                       value:
                         validFrom !== null && validTo !== null
-                          ? `${day(validFrom)} – ${day(validTo)}`
+                          ? dateRange(validFrom, validTo)
                           : validFrom !== null
                             ? `From ${day(validFrom)}`
                             : validTo !== null
@@ -2527,7 +2545,7 @@ function CampaignForm({
                       value: money(budgetMinor),
                     },
                     maxUses.trim() !== "" && {
-                      label: "Transactions",
+                      label: "Max. transactions",
                       value: count(Number(maxUses)),
                     },
                     headline.trim() !== "" && {
@@ -2558,11 +2576,11 @@ function readsCampaign(
   const window =
     from === null
       ? to === null
-        ? "open ended"
+        ? "No end"
         : `until ${day(endOfDay(to))}`
-      : `${day(startOfDay(from))} → ${to === null ? "open" : day(endOfDay(to))}`
+      : `${day(startOfDay(from))} → ${to === null ? "No end" : day(endOfDay(to))}`
   return `${stateOf(status).label} · ${window} · ${
-    budgetMinor === null ? "unlimited" : money(budgetMinor)
+    budgetMinor === null ? "No budget" : money(budgetMinor)
   }`
 }
 

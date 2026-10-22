@@ -169,6 +169,14 @@ pub enum RecordKind {
     /// because it has a life — requested, approved, ordered, received, billed —
     /// and because the bill that settles it points back at the ask.
     SupplyRequest,
+    /// Damage to an insured thing claimed under its policy (0975): photos, the
+    /// police report and the survey letter hang on it.
+    InsuranceClaim,
+    /// Routine spending GA records on a thing or a place — fuel, tyres, oil —
+    /// and hands to Finance (0974). The receipt hangs on it.
+    OperatingExpense,
+    /// A physical original of a filed paper and who holds it (0974).
+    DocumentOriginal,
     BankLine,
     BankStatement,
     StatementSource,
@@ -230,7 +238,7 @@ impl RecordKind {
     /// Exported because two guards read it: the conformance test that compares
     /// this list against the `record_kind` table, and the catalogue that
     /// records which kind each route files under.
-    pub const ALL: [Self; 74] = [
+    pub const ALL: [Self; 77] = [
         Self::Article,
         Self::ArticleSetup,
         Self::Colour,
@@ -281,6 +289,9 @@ impl RecordKind {
         Self::Disposal,
         Self::Location,
         Self::SupplyRequest,
+        Self::InsuranceClaim,
+        Self::OperatingExpense,
+        Self::DocumentOriginal,
         Self::BankLine,
         Self::BankStatement,
         Self::StatementSource,
@@ -360,6 +371,9 @@ impl RecordKind {
             Self::Disposal => "disposal",
             Self::Location => "location",
             Self::SupplyRequest => "supply_request",
+            Self::InsuranceClaim => "insurance_claim",
+            Self::OperatingExpense => "operating_expense",
+            Self::DocumentOriginal => "document_original",
             Self::BankLine => "bank_line",
             Self::BankStatement => "bank_statement",
             Self::StatementSource => "statement_source",
@@ -441,6 +455,9 @@ impl RecordKind {
             Self::Disposal => "Disposal",
             Self::Location => "Location",
             Self::SupplyRequest => "Supply request",
+            Self::InsuranceClaim => "Insurance claim",
+            Self::OperatingExpense => "Operating expense",
+            Self::DocumentOriginal => "Document original",
             Self::BankLine => "Bank line",
             Self::BankStatement => "Bank statement",
             Self::StatementSource => "Statement source",
@@ -537,6 +554,9 @@ impl RecordKind {
             Self::Disposal => "/api/v1/ga/disposals",
             Self::Location => "/api/v1/ga/locations",
             Self::SupplyRequest => "/api/v1/ga/supplies",
+            Self::InsuranceClaim => "/api/v1/ga/claims",
+            Self::OperatingExpense => "/api/v1/ga/operating-expenses",
+            Self::DocumentOriginal => "/api/v1/ga/originals",
             Self::BankLine => "/api/v1/finance/bank-lines",
             Self::BankStatement => "/api/v1/finance/bank-statements",
             Self::StatementSource => "/api/v1/finance/statement-sources",
@@ -687,6 +707,13 @@ const ROUTE_SUBJECTS: &[(&str, RecordKind)] = &[
     ("/api/v1/ga/disposals/{}/close", RecordKind::Disposal),
     ("/api/v1/ga/locations/{}", RecordKind::Location),
     ("/api/v1/ga/supplies/{}/move", RecordKind::SupplyRequest),
+    ("/api/v1/ga/claims/{}", RecordKind::InsuranceClaim),
+    ("/api/v1/ga/claims/{}/submit", RecordKind::InsuranceClaim),
+    ("/api/v1/ga/claims/{}/survey", RecordKind::InsuranceClaim),
+    ("/api/v1/ga/claims/{}/approve", RecordKind::InsuranceClaim),
+    ("/api/v1/ga/claims/{}/reject", RecordKind::InsuranceClaim),
+    ("/api/v1/ga/claims/{}/pay", RecordKind::InsuranceClaim),
+    ("/api/v1/ga/claims/{}/repair", RecordKind::InsuranceClaim),
     ("/api/v1/holiday-calendars/{}", RecordKind::HolidayCalendar),
     ("/api/v1/hire-proposals/{}", RecordKind::HireProposal),
     ("/api/v1/inventory/allotments/{}", RecordKind::Allotment),

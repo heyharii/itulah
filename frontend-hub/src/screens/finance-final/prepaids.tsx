@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
+import { CellMoney } from "@/components/ui/rows-switch"
 import { Toolbar } from "@/components/ui/segmented"
 import { count, money } from "@/lib/format"
 import { tableSetup, type TableSetup } from "@/lib/table"
@@ -578,7 +579,7 @@ function Figure({ minor, strong }: { minor: number | null; strong?: boolean }) {
           : "text-text"
       }
     >
-      {money(minor)}
+      <CellMoney minor={minor} />
     </span>
   )
 }

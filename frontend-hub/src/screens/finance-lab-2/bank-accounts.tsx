@@ -24,6 +24,7 @@ import { Pill } from "@/components/ui/pill"
 import { Field, Input, Select, Textarea } from "@/components/ui/field"
 import { ExpandingSearch } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
+import { CellMoney } from "@/components/ui/rows-switch"
 import { Toolbar } from "@/components/ui/segmented"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { count, money } from "@/lib/format"
@@ -119,7 +120,7 @@ const columns: ColumnDef<TableSetup, AccountLine>[] = [
     size: 180,
     enableSorting: false,
     meta: { align: "right", card: "metric" },
-    cell: ({ row }) => money(row.original.row.per_books_minor),
+    cell: ({ row }) => <CellMoney minor={row.original.row.per_books_minor} />,
   },
 ]
 

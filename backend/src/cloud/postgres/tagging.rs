@@ -261,6 +261,72 @@ pub async fn process_setup_issue_queue(pool: &PgPool) -> Result<u64, AppError> {
     Ok(processed)
 }
 
+/// Mint the sessions a save just queued, in the request that saved them, so
+/// a mint that cannot happen is said at the desk instead of the save reading
+/// "saved" while the article sinks into Needs retry (20 Oct dogfood: "no
+/// accepted delivery line … in Unidentified" only in the log). A session the
+/// worker already took is left to it. One that fails is FAILED at once, with
+/// the mint's own words, and the save answers that as an error; the session
+/// stays open to retry.
+pub async fn issue_queued_setups_now(pool: &PgPool, sessions: &[Uuid]) -> Result<(), AppError> {
+    for session_id in sessions {
+        let lease_id = Uuid::new_v4();
+        let job = sqlx::query(
+            "UPDATE article_setup_issue_queue
+             SET state='PROCESSING',attempts=attempts+1,lease_id=$2,
+                 lease_until=now()+interval '2 minutes'
+             WHERE session_id=$1
+               AND (state='QUEUED' OR (state='PROCESSING' AND lease_until<=now()))
+             RETURNING issued_by",
+        )
+        .bind(session_id)
+        .bind(lease_id)
+        .fetch_optional(pool)
+        .await?;
+        let Some(job) = job else {
+            continue;
+        };
+        let issued_by: String = job.get("issued_by");
+        let result = issue_setup_session(pool, *session_id, &issued_by).await;
+        let status: String =
+            sqlx::query_scalar("SELECT status FROM article_setup_session WHERE session_id=$1")
+                .bind(session_id)
+                .fetch_one(pool)
+                .await?;
+        if result.is_ok() || status != "OPEN" {
+            sqlx::query("UPDATE article_setup_issue_queue SET state='DONE',finished_at=now(),last_error=NULL,lease_id=NULL,lease_until=NULL WHERE session_id=$1 AND lease_id=$2")
+                .bind(session_id).bind(lease_id).execute(pool).await?;
+        } else if let Err(error) = result {
+            tracing::warn!(%session_id,%error,"article setup mint failed at save");
+            sqlx::query(
+                "UPDATE article_setup_issue_queue SET state='FAILED',last_error=$3,
+                     lease_id=NULL,lease_until=NULL
+                 WHERE session_id=$1 AND lease_id=$2",
+            )
+            .bind(session_id)
+            .bind(lease_id)
+            .bind(error.to_string())
+            .execute(pool)
+            .await?;
+        }
+    }
+    let failed: Option<Option<String>> = sqlx::query_scalar(
+        "SELECT last_error FROM article_setup_issue_queue
+          WHERE session_id = ANY($1) AND state='FAILED'
+          ORDER BY created_at, session_id LIMIT 1",
+    )
+    .bind(sessions)
+    .fetch_optional(pool)
+    .await?;
+    if let Some(error) = failed {
+        return Err(AppError::Conflict(format!(
+            "The article was saved but could not be made: {}. It waits under Needs retry.",
+            error.as_deref().unwrap_or("the mint failed")
+        )));
+    }
+    Ok(())
+}
+
 fn single_digit(value: &str, what: &str) -> Result<char, AppError> {
     let trimmed = value.trim();
     let mut chars = trimmed.chars();

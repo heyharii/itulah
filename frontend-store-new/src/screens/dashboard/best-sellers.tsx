@@ -3,7 +3,7 @@ import { useMemo } from "react"
 
 import { CardTable } from "@/components/ui/card-table"
 import type { ListColumn } from "@/components/ui/list-table"
-import { count } from "@/lib/format"
+import { articleId, count, sku as skuText } from "@/lib/format"
 import { catalogueQuery } from "@/lib/queries"
 import type { Basket, SoldSku } from "@/lib/queries/dashboard"
 import { shapeBook, swatchBackground } from "@/lib/variants"
@@ -24,6 +24,7 @@ interface Named {
   readonly rank: number
   readonly sku: SoldSku
   readonly article: string
+  readonly codes: string
   readonly colour: string | null
   readonly size: string | null
   readonly paint: readonly string[]
@@ -39,7 +40,12 @@ const COLUMNS: readonly ListColumn<Named>[] = [
   {
     id: "article",
     header: "Article",
-    cell: (row) => <span className="font-medium text-ink">{row.article}</span>,
+    cell: (row) => (
+      <span className="block">
+        <span className="font-medium text-ink">{row.article}</span>
+        <span className="block font-mono text-id text-mute">{row.codes}</span>
+      </span>
+    ),
   },
   {
     id: "colour",
@@ -63,7 +69,7 @@ const COLUMNS: readonly ListColumn<Named>[] = [
     id: "sold",
     header: "Sold",
     align: "right",
-    cell: (row) => `${units(row.sku.units)} pcs`,
+    cell: (row) => `${units(row.sku.units)} ${row.sku.units === 1 ? "pc" : "pcs"}`,
   },
   {
     id: "sales",
@@ -99,6 +105,7 @@ export function BestSellers({
     () =>
       basket.skus.slice(0, TOP).map((sku, at) => {
         const item = items.get(sku.sku_code)
+        const codes = `${articleId(item?.article_code, sku.sku_code)} · ${skuText(sku.sku_code)}`
         const shape =
           item === undefined
             ? undefined
@@ -109,6 +116,7 @@ export function BestSellers({
             rank: at + 1,
             sku,
             article: sku.name,
+            codes,
             colour: null,
             size: null,
             paint: [],
@@ -118,6 +126,7 @@ export function BestSellers({
           rank: at + 1,
           sku,
           article: shape.name,
+          codes,
           colour: variant.colour,
           size: variant.size,
           paint:
@@ -140,6 +149,9 @@ export function BestSellers({
       card={(row) => ({
         title: row.article,
         lines: [
+          <span className="font-mono" key="codes">
+            {row.codes}
+          </span>,
           row.colour === null && row.size === null ? null : (
             <span className="inline-flex items-center gap-2">
               {row.colour !== null && <Dot paint={row.paint} />}
@@ -149,7 +161,7 @@ export function BestSellers({
         ],
         lead: {
           figure: money(row.sku.sales_minor),
-          caption: `${units(row.sku.units)} pcs`,
+          caption: `${units(row.sku.units)} ${row.sku.units === 1 ? "pc" : "pcs"}`,
         },
       })}
       foot={

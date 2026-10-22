@@ -263,6 +263,10 @@
      released drag — the account orb springing back inside the screen (owner,
      2026-10-16, account-corner-prototype.html E). */
   --spring: linear(0, 0.009, 0.035 2.1%, 0.141, 0.281 6.7%, 0.723 12.9%, 0.938 16.7%, 1.017 19.4%, 1.051 22.3%, 1.057 24.4%, 1.045 28%, 1.011 34.8%, 0.995 41.2%, 0.997 52.1%, 1);
+  /* The spring's own length: the curve above was drawn over 500ms. The travel
+     is over in the first fifth and the rest is the settle, so it reads quicker
+     than the number says — never give `--spring` a different duration. */
+  --t-spring: 500ms;
 
   /* Frequency decides the budget. A row hover happens a hundred times a day
      and must feel instant; a drawer happens rarely and is allowed to explain
@@ -308,6 +312,112 @@
 }
 .nav-swap {
   animation: nav-swap var(--t-page) var(--ease-out) both;
+}
+
+/* `focus` is into a task page and back out — Allot all to the allotment
+   grid, Back to the list (`focusTransition`). The screens panel folds away
+   there, so without motion the panel vanished and the page jumped 232px left
+   in one frame. Now the page's box widens over the panel while the panel
+   slips out under it, and the screens hand over through a 2px blur so they
+   read as one surface changing rather than two swapping. The rail does
+   not move, so the root takes no animation. Names are given only during this
+   transition: anywhere else the shell has no page transition (see
+   `app-shell.tsx`). */
+html:active-view-transition-type(focus) .shell-panel {
+  view-transition-name: shell-panel;
+}
+html:active-view-transition-type(focus) .shell-page {
+  view-transition-name: shell-page;
+}
+html:active-view-transition-type(focus)::view-transition-old(root),
+html:active-view-transition-type(focus)::view-transition-new(root) {
+  animation: none;
+}
+/* The box is the surface: while it widens, the strip the old picture does
+   not cover is the page's own colour, not a gap onto the canvas. */
+html:active-view-transition-type(focus)::view-transition-group(shell-page) {
+  animation-duration: var(--t-sheet);
+  animation-timing-function: var(--ease-drawer);
+  background: var(--canvas);
+}
+/* Drawn at their own size, pinned top-left — the box changes width, the
+   text inside it never stretches. */
+html:active-view-transition-type(focus)::view-transition-old(shell-page),
+html:active-view-transition-type(focus)::view-transition-new(shell-page) {
+  width: 100%;
+  height: 100%;
+  object-fit: none;
+  object-position: left top;
+}
+/* Handed over, not overlapped: the old screen is gone in 100ms and the new
+   one rises 60ms later, so the two are never half-visible together — the
+   moving card is what fills the beat between them. */
+html:active-view-transition-type(focus)::view-transition-old(shell-page) {
+  animation: focus-out 100ms var(--ease-out) both;
+}
+html:active-view-transition-type(focus)::view-transition-new(shell-page) {
+  animation: focus-in var(--t-panel) var(--ease-out) 60ms both;
+}
+html:active-view-transition-type(focus)::view-transition-old(shell-panel) {
+  animation: panel-out var(--t-panel) var(--ease-out) both;
+}
+html:active-view-transition-type(focus)::view-transition-new(shell-panel) {
+  animation: panel-in var(--t-sheet) var(--ease-drawer) both;
+}
+@keyframes focus-out {
+  to {
+    opacity: 0;
+    filter: blur(2px);
+  }
+}
+@keyframes focus-in {
+  from {
+    opacity: 0;
+    filter: blur(2px);
+  }
+}
+@keyframes panel-out {
+  to {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+}
+@keyframes panel-in {
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+}
+/* Reduced motion: nothing slides; the screens still cross-fade. */
+@media (prefers-reduced-motion: reduce) {
+  html:active-view-transition-type(focus)::view-transition-group(shell-page) {
+    animation: none;
+  }
+  html:active-view-transition-type(focus)::view-transition-old(shell-panel) {
+    animation-name: focus-fade-out;
+  }
+  html:active-view-transition-type(focus)::view-transition-new(shell-panel) {
+    animation-name: focus-fade-in;
+  }
+}
+@keyframes focus-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes focus-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* A row that is asked for: it fades in and settles 4px, over `t-pop`, so the
+   `+` it replaced does not just blink into a field. */
+@keyframes row-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
 }
 
 /* The dark chip under a SKU price cell in the "New articles" grid — the owner's
@@ -392,6 +502,79 @@
 .door-grain {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
   mix-blend-mode: soft-light;
+}
+
+/* The Matte door (owner, 2026-10-20, `sign-in-options.html` "Matte"): one
+   white card on the icon's pastel, the Deep mark and "Central." over filled
+   fields, and the hub's own primary button (owner, 21 Oct: the matte one
+   "beda sendiri kurang bagus"). The same on a desk and a phone, like Apple's
+   own sign-in. */
+.door-ground {
+  background: linear-gradient(180deg, #eef3fd 0%, #dfe8fa 100%);
+}
+.door-card {
+  border-radius: 24px;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgb(24 50 120 / 6%), 0 22px 44px -22px rgb(24 60 150 / 30%);
+  animation: door-lift 480ms var(--ease-out) both;
+}
+@keyframes door-lift {
+  from {
+    opacity: 0;
+    transform: translateY(0.5rem) scale(0.985);
+  }
+}
+.door-mark {
+  filter: drop-shadow(0 10px 14px rgb(31 79 192 / 22%)) drop-shadow(0 2px 3px rgb(31 79 192 / 12%));
+}
+/* 16px, not 15: iOS zooms the page into any smaller field */
+.door-card .door-field {
+  height: 2.75rem;
+  border-color: transparent;
+  border-radius: var(--r-inner);
+  background: #f1f4fa;
+  font-size: 1rem;
+  box-shadow: none;
+  transition: background-color 150ms ease, box-shadow 150ms ease;
+}
+@media (hover: hover) and (pointer: fine) {
+  .door-card .door-field:hover:not(:focus) {
+    background: #eaeef7;
+  }
+}
+.door-card .door-field:focus {
+  border-color: transparent;
+  background: #ffffff;
+  box-shadow: 0 0 0 2px var(--accent), 0 0 0 6px rgb(40 98 220 / 12%);
+}
+/* refused: the field's own red ring. Important, because the looks' field
+   rules (white.css, soft.css) are written with more weight than one screen's */
+.door-card .door-field[aria-invalid="true"] {
+  background: #fff6f6 !important;
+  box-shadow: 0 0 0 2px var(--bad) !important;
+}
+/* the one secondary action at the door: tinted, so it reads as a button */
+.door-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 1.75rem;
+  margin: -0.25rem 0;
+  padding: 0 0.625rem;
+  border-radius: 999px;
+  background: #e8effc;
+  color: var(--accent);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background-color 150ms ease, scale 160ms var(--ease-out);
+}
+@media (hover: hover) and (pointer: fine) {
+  .door-chip:hover {
+    background: #dde7fb;
+  }
+}
+.door-chip:active {
+  scale: 0.97;
 }
 
 /* `dock:` — the page is wide enough for a panel to stand beside its list.
@@ -1018,6 +1201,30 @@ button,
   }
 }
 
+/* A stamp pressed in front of you (`<DocStamp>` when the viewer's own change
+   has just finished the document): it comes down onto the paper from a little
+   above — larger, as anything nearer the eye is — and the spring's dip under 1
+   is the rubber giving as it hits. A document opened already finished shows
+   its stamp still: that happens many times a day, and the press is news once.
+   The ink is there at once (`t-pop`) so the word reads while it lands. Reduced
+   motion keeps the ink's fade and drops the fall. */
+.stamp-land {
+  transition:
+    scale var(--t-spring) var(--spring),
+    opacity var(--t-pop) var(--ease-out);
+}
+@starting-style {
+  .stamp-land {
+    scale: 1.2;
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .stamp-land {
+    transition-property: opacity;
+  }
+}
+
 /* A list whose next contents are being read (a tab, a filter): it dims while
    the old rows stand, and comes back when the new ones land. A transition, not
    keyframes — pressed twice it retargets. Opacity only: rows people read do
@@ -1107,7 +1314,7 @@ button,
   -webkit-user-select: none;
   -webkit-tap-highlight-color: transparent;
   transition:
-    transform 0.5s var(--spring),
+    transform var(--t-spring) var(--spring),
     opacity 0.3s ease,
     scale var(--t-press) var(--ease-out);
 }
@@ -1136,20 +1343,26 @@ button,
   height: 42px;
 }
 /* In the rail's foot on a desk: in the flow, not dragged, never resting. */
+/* Option C (owner, 20 Oct 2026): a quiet 32px disc, no ring, the count a
+   small 9+ badge — it was too big for the corner. */
 .account-orb[data-pinned] {
   position: relative;
   z-index: auto;
-  width: 48px;
-  height: 48px;
+  width: 32px;
+  height: 32px;
   flex-shrink: 0;
   cursor: pointer;
   touch-action: manipulation;
-  box-shadow: 0 0 0 2px var(--accent);
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
   transition: scale var(--t-press) var(--ease-out);
 }
 .account-orb[data-pinned] .account-orb-face {
-  width: 38px;
-  height: 38px;
+  width: 32px;
+  height: 32px;
+  font-size: 0.9375rem;
 }
 /* Before the first position is known, and under a record sheet. */
 .account-orb[data-away] {

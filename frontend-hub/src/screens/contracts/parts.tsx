@@ -1,6 +1,6 @@
 import { Pill } from "@/components/ui/pill"
-import { count } from "@/lib/format"
 import { cn } from "@/lib/utils"
+import { standingOf } from "@/screens/contracts/format"
 import type { GaContractRow } from "@itulah/contract"
 
 /// The two desk markers (brief §10.2): a small word that says whose figure it
@@ -49,31 +49,10 @@ function Mark({
   )
 }
 
-/// The contract's own lifecycle, in the words the prototype's pills used.
-///
-/// The server computes the standing from the window and `reminder_days` — per
-/// contract, not one threshold — and this only translates. SEGERA_HABIS names
-/// the deadline, because "Expires in 37 days" is the sentence that gets somebody to
-/// open the renewal conversation this week.
+/// The contract's one status, as a pill: the sheet's head and the phone
+/// card's foot. The words and tones are `standingOf`'s, shared with the
+/// register's `Status` cell.
 export function StandingPill({ row }: { row: GaContractRow }) {
-  switch (row.standing) {
-    case "AKTIF":
-      return <Pill tone="ok">Active</Pill>
-    case "SEGERA_HABIS":
-      return (
-        <Pill tone="warn">
-          {row.days_to_end === null
-            ? "Expiring soon"
-            : `Expires in ${count(row.days_to_end)} days`}
-        </Pill>
-      )
-    case "HABIS":
-      return <Pill tone="neutral">Expired</Pill>
-    case "BELUM_MULAI":
-      return <Pill tone="neutral">Not started</Pill>
-    case "DIHENTIKAN":
-      return <Pill tone="neutral">Terminated</Pill>
-    default:
-      return <Pill tone="neutral">Draft</Pill>
-  }
+  const standing = standingOf(row)
+  return <Pill tone={standing.tone}>{standing.word}</Pill>
 }

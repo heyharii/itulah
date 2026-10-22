@@ -1,7 +1,7 @@
 import {
+  ArrowLeftRight,
   BadgeCheck,
   BadgePercent,
-  Building2,
   CalendarDays,
   CalendarOff,
   CalendarRange,
@@ -10,6 +10,7 @@ import {
   Clock4,
   Coins,
   FileBadge,
+  FilePen,
   FileSpreadsheet,
   FileText,
   Fingerprint,
@@ -17,6 +18,7 @@ import {
   Gift,
   Handshake,
   HandCoins,
+  History,
   Hourglass,
   Landmark,
   Layers,
@@ -44,96 +46,58 @@ import type { AppModule, NavItem, NavTab } from "@/lib/navigation"
 import { usePeopleWaitingCount } from "@/screens/people/badges"
 import { usePeopleAudience } from "@/screens/people/scope"
 
-/// HR as five doors (owner, 2026-10-16, `hr-doors-prototype.html`: 44 rows
-/// → 5, "tetap tab, bukan sidebar di dalam"), the way Finance became nine the
-/// same day.
+/// HR as nine menus of one word each (owner, 2026-10-17, after "Work
+/// Schedules & Attendance" was too long), each a door whose tabs are the
+/// screens it stands for — the five doors of 2026-10-16 (Overview · People ·
+/// Time · Pay · Setup) split where one door held two jobs.
 ///
-/// | Door | Tabs |
+/// | Menu | Tabs |
 /// |---|---|
-/// | Overview | Requests · Reports |
-/// | People | Employees · Changes · Onboarding · Invitations |
-/// | Time | Time off · Attendance · Overtime · Roster |
-/// | Pay | Payroll · Claims · Loans · Benefit · Tax |
-/// | Setup | one page of every setting (`setup-index.tsx`) |
+/// | Overview | Inbox · Reports |
+/// | Employees | Directory · Changes · Onboarding · Offboarding · Discipline |
+/// | Schedules | Roster · Calendar · Swaps |
+/// | Attendance | Records · Corrections · Leave · Overtime |
+/// | Payroll | Runs · Adjustments · Payslips · Tax |
+/// | Claims | Requests · History |
+/// | Benefits | Balances · History |
+/// | Loans | Loans · Repayments |
+/// | Settings | Organization · Attendance · Payroll · Benefits · Access |
 ///
-/// A tab of two screens read as one place — Joining and Leaving, a week and a
-/// month of the roster — is one tab with a choice of view beside it.
+/// Schedules is the plan and Attendance is what happened. Payroll is the
+/// salary due for a period; Claims is what an employee paid for the work and
+/// is owed back; Benefits is the shopping balance the company gives; Loans is
+/// money an employee owes the company. Each is its own menu, so a payroll
+/// deduction for a loan is the loan's repayment, never a second balance kept
+/// inside Payroll.
+///
+/// Travel (assignment → approval → advance → settlement, claims linked) is
+/// the next menu, after Loans; it is not built.
 ///
 /// # Every screen kept
 ///
-/// Nothing was deleted. A screen that is not a door's first is a `hidden` item
-/// below, under the name it had, so ⌘K still finds "Team Calendar" and lands
-/// on Time › Roster › Month. Its `audience` stays on it: `doorTabsFor` leaves
-/// a store manager's door without the views that are head office's, so they
-/// see four doors — People without Changes, Pay without Loans, Benefit and
-/// Tax — and no Setup.
+/// A screen that is not a door's first is a `hidden` item below, under its
+/// own name, so ⌘K still finds it and its row lights the door. Renamed paths
+/// keep the old one in `moved`, so a link or a bookmark still lands. A view's
+/// `audience` stays on its item: `doorTabsFor` leaves a store manager's door
+/// without head office's views, so they see six menus — no Benefits, Loans
+/// or Settings, and Employees without Changes and Discipline.
 ///
-/// A door's row hides with its own `audience`, so a door whose first view is
-/// for everyone carries none; only Setup is head office's alone.
+/// No row's path is a prefix of another door's: the sidebar lights a row when
+/// the address equals one of its paths or starts with it plus a slash.
 
 /// A door's row: the first view of its first tab, lit on every other path its
-/// tabs name, and on `also` — screens reached from inside the door.
+/// tabs name.
 function door(
-  row: Omit<NavItem, "path" | "alsoLights"> & { tabs: readonly NavTab[] },
-  also: readonly string[] = []
+  row: Omit<NavItem, "path" | "alsoLights"> & { tabs: readonly NavTab[] }
 ): NavItem {
   const paths = row.tabs.flatMap((tab) => tab.views.map((view) => view.path))
-  return { ...row, path: paths[0], alsoLights: [...paths.slice(1), ...also] }
+  return { ...row, path: paths[0], alsoLights: paths.slice(1) }
 }
 
 const one = (label: string, path: string): NavTab => ({
   label,
   views: [{ label, path }],
 })
-
-/// What the Setup page lists, group by group, by path. The page reads the
-/// labels and icons off the items themselves.
-export const peopleSetupGroups: readonly {
-  readonly label: string
-  readonly paths: readonly string[]
-}[] = [
-  {
-    label: "Company",
-    paths: [
-      "/people/settings/company",
-      "/people/settings/group",
-      "/people/settings/departments",
-      "/people/settings/levels",
-    ],
-  },
-  {
-    label: "Time",
-    paths: [
-      "/people/settings/attendance",
-      "/people/settings/mobile",
-      "/people/settings/shifts",
-      "/people/settings/leave-types",
-      "/people/settings/holidays",
-      "/people/settings/overtime",
-    ],
-  },
-  {
-    label: "Pay",
-    paths: [
-      "/people/settings/payroll-schedule",
-      "/people/settings/components",
-      "/people/settings/payslip",
-      "/people/settings/absence",
-      "/people/settings/rates",
-      "/people/claim-types",
-      "/people/claim-allowances",
-    ],
-  },
-  {
-    label: "Access",
-    paths: [
-      "/people/job-roles",
-      "/people/settings/checklists",
-      "/people/settings/delegation",
-      "/people/settings/app",
-    ],
-  },
-]
 
 export const peopleNav: AppModule = {
   id: "people",
@@ -145,7 +109,7 @@ export const peopleNav: AppModule = {
   sections: [
     {
       items: [
-        // ── the five doors ──
+        // ── the nine menus ──
         door({
           /// What is waiting on the caller: leave, corrections, swaps,
           /// changes, claims and payroll decisions.
@@ -154,96 +118,169 @@ export const peopleNav: AppModule = {
           badge: "warn",
           useCount: usePeopleWaitingCount,
           tabs: [
-            one("Requests", "/people/overview"),
+            one("Inbox", "/people/overview"),
             one("Reports", "/people/reports"),
           ],
         }),
         door({
-          label: "People",
+          label: "Employees",
           icon: Users,
           tabs: [
             {
-              label: "Employees",
+              label: "Directory",
               views: [
                 { label: "List", path: "/people" },
                 { label: "Org chart", path: "/people/org-chart" },
               ],
             },
-            {
-              label: "Changes",
-              views: [
-                { label: "Changes", path: "/people/changes" },
-                { label: "Reprimands", path: "/people/reprimands" },
-              ],
-            },
-            {
-              label: "Onboarding",
-              views: [
-                { label: "Joining", path: "/people/onboarding" },
-                { label: "Leaving", path: "/people/offboarding" },
-              ],
-            },
-            one("Invitations", "/people/invitations"),
+            one("Changes", "/people/changes"),
+            one("Onboarding", "/people/onboarding"),
+            one("Offboarding", "/people/offboarding"),
+            one("Discipline", "/people/discipline"),
           ],
         }),
         door({
-          label: "Time",
-          icon: Clock4,
+          label: "Schedules",
+          icon: CalendarRange,
           tabs: [
+            one("Roster", "/people/roster"),
+            one("Calendar", "/people/calendar"),
+            one("Swaps", "/people/swaps"),
+          ],
+        }),
+        door({
+          label: "Attendance",
+          icon: Fingerprint,
+          tabs: [
+            one("Records", "/people/attendance-days"),
+            one("Corrections", "/people/corrections"),
             {
-              label: "Time off",
+              label: "Leave",
               views: [
                 { label: "Requests", path: "/people/leave" },
                 { label: "Balances", path: "/people/leave-balances" },
               ],
             },
-            one("Attendance", "/people/attendance-days"),
             one("Overtime", "/people/overtime"),
+          ],
+        }),
+        door({
+          label: "Payroll",
+          icon: Wallet,
+          tabs: [
+            one("Runs", "/people/payroll"),
+            one("Adjustments", "/people/adjustments"),
+            one("Payslips", "/people/payslips"),
             {
-              label: "Roster",
+              label: "Tax",
               views: [
-                { label: "Week", path: "/people/roster" },
-                { label: "Month", path: "/people/calendar" },
+                { label: "PPh 21 & BPJS", path: "/people/tax-report" },
+                { label: "1721-A1", path: "/people/annual-tax" },
               ],
             },
           ],
         }),
-        door(
-          {
-            label: "Pay",
-            icon: Wallet,
-            tabs: [
-              {
-                label: "Payroll",
-                views: [
-                  { label: "Runs", path: "/people/payroll" },
-                  { label: "One-offs", path: "/people/one-offs" },
-                ],
-              },
-              one("Claims", "/people/claims"),
-              one("Loans", "/people/loans"),
-              one("Benefit", "/people/benefit"),
-              {
-                label: "Tax",
-                views: [
-                  { label: "PPh 21 & BPJS", path: "/people/tax-report" },
-                  { label: "1721-A1", path: "/people/annual-tax" },
-                ],
-              },
-            ],
-          },
-          // Benefit's switch, opened from the line on Pay › Benefit.
-          ["/people/settings/benefit"]
-        ),
-        {
-          path: "/people/hr-setup",
-          label: "Setup",
+        door({
+          label: "Claims",
+          icon: ReceiptText,
+          tabs: [
+            one("Requests", "/people/claims"),
+            one("History", "/people/claim-history"),
+          ],
+        }),
+        door({
+          label: "Benefits",
+          icon: Gift,
+          audience: "employer",
+          tabs: [
+            one("Balances", "/people/benefit"),
+            one("History", "/people/benefit-history"),
+          ],
+        }),
+        door({
+          label: "Loans",
+          icon: HandCoins,
+          audience: "employer",
+          tabs: [
+            one("Loans", "/people/loans"),
+            one("Repayments", "/people/loan-repayments"),
+          ],
+        }),
+        door({
+          label: "Settings",
           icon: Settings,
           audience: "employer",
-          alsoLights: peopleSetupGroups.flatMap((group) => group.paths),
-        },
+          // The one-page Setup of 2026-10-16, and the tabbed page before it.
+          moved: ["/people/settings", "/people/hr-setup"],
+          tabs: [
+            {
+              label: "Organization",
+              views: [
+                { label: "Company & NPP", path: "/people/settings/company" },
+                {
+                  label: "Group & business units",
+                  path: "/people/settings/group",
+                },
+                { label: "Departments", path: "/people/settings/departments" },
+                { label: "Levels & grades", path: "/people/settings/levels" },
+                {
+                  label: "Onboarding tasks",
+                  path: "/people/settings/checklists",
+                },
+              ],
+            },
+            {
+              label: "Attendance",
+              views: [
+                {
+                  label: "Attendance rules",
+                  path: "/people/settings/attendance",
+                },
+                {
+                  label: "Mobile & locations",
+                  path: "/people/settings/mobile",
+                },
+                { label: "Shifts & breaks", path: "/people/settings/shifts" },
+                { label: "Leave types", path: "/people/settings/leave-types" },
+                { label: "Holidays", path: "/people/settings/holidays" },
+                { label: "Overtime rules", path: "/people/settings/overtime" },
+              ],
+            },
+            {
+              label: "Payroll",
+              views: [
+                {
+                  label: "Schedule & pro-rate",
+                  path: "/people/settings/payroll-schedule",
+                },
+                {
+                  label: "Components & structures",
+                  path: "/people/settings/components",
+                },
+                { label: "Payslip", path: "/people/settings/payslip" },
+                {
+                  label: "Absence deduction",
+                  path: "/people/settings/absence",
+                },
+                { label: "BPJS & tax rates", path: "/people/settings/rates" },
+                { label: "Claim types", path: "/people/claim-types" },
+                { label: "Claim limits", path: "/people/claim-allowances" },
+              ],
+            },
+            one("Benefits", "/people/settings/benefit"),
+            {
+              label: "Access",
+              views: [
+                { label: "Roles", path: "/people/roles" },
+                { label: "Invitations", path: "/people/invitations" },
+                { label: "Delegation", path: "/people/settings/delegation" },
+                { label: "Employee app", path: "/people/settings/app" },
+              ],
+            },
+          ],
+        }),
 
-        // ── the screens behind the doors, under the names they had ──
+        // ── the screens behind the doors, by the name ⌘K finds them under ──
         // Overview
         {
           path: "/people/reports",
@@ -251,7 +288,7 @@ export const peopleNav: AppModule = {
           icon: ChartColumn,
           hidden: true,
         },
-        // People
+        // Employees
         {
           path: "/people/org-chart",
           label: "Org Chart",
@@ -262,13 +299,6 @@ export const peopleNav: AppModule = {
           path: "/people/changes",
           label: "Transfers & Changes",
           icon: Repeat2,
-          audience: "employer",
-          hidden: true,
-        },
-        {
-          path: "/people/reprimands",
-          label: "Reprimands",
-          icon: ShieldAlert,
           audience: "employer",
           hidden: true,
         },
@@ -285,22 +315,43 @@ export const peopleNav: AppModule = {
           hidden: true,
         },
         {
-          path: "/people/invitations",
-          label: "Invitations",
-          icon: Link2,
+          path: "/people/discipline",
+          label: "Discipline",
+          icon: ShieldAlert,
+          audience: "employer",
+          moved: ["/people/reprimands"],
           hidden: true,
         },
-        // Time
+        // Schedules
+        {
+          path: "/people/calendar",
+          label: "Team Calendar",
+          icon: CalendarDays,
+          hidden: true,
+        },
+        {
+          path: "/people/swaps",
+          label: "Shift Swaps",
+          icon: ArrowLeftRight,
+          hidden: true,
+        },
+        // Attendance
+        {
+          path: "/people/corrections",
+          label: "Attendance Corrections",
+          icon: FilePen,
+          hidden: true,
+        },
+        {
+          path: "/people/leave",
+          label: "Leave Requests",
+          icon: CalendarOff,
+          hidden: true,
+        },
         {
           path: "/people/leave-balances",
-          label: "Time Off Balances",
+          label: "Leave Balances",
           icon: Scale,
-          hidden: true,
-        },
-        {
-          path: "/people/attendance-days",
-          label: "Attendance",
-          icon: Fingerprint,
           hidden: true,
         },
         {
@@ -309,55 +360,23 @@ export const peopleNav: AppModule = {
           icon: Hourglass,
           hidden: true,
         },
+        // Payroll
         {
-          path: "/people/roster",
-          label: "Roster",
-          icon: CalendarRange,
-          hidden: true,
-        },
-        {
-          path: "/people/calendar",
-          label: "Team Calendar",
-          icon: CalendarDays,
-          hidden: true,
-        },
-        // Pay
-        {
-          path: "/people/one-offs",
-          label: "One-offs",
+          path: "/people/adjustments",
+          label: "Payroll Adjustments",
           icon: Coins,
+          moved: ["/people/one-offs"],
           hidden: true,
         },
         {
-          path: "/people/claims",
-          label: "Claims",
-          icon: ReceiptText,
-          hidden: true,
-        },
-        {
-          path: "/people/loans",
-          label: "Loans",
-          icon: HandCoins,
-          audience: "employer",
-          hidden: true,
-        },
-        {
-          path: "/people/benefit",
-          label: "Benefit Balances",
-          icon: Gift,
-          audience: "employer",
-          hidden: true,
-        },
-        {
-          path: "/people/settings/benefit",
-          label: "Benefit Settings",
-          icon: Gift,
-          audience: "employer",
+          path: "/people/payslips",
+          label: "Payslips",
+          icon: FileText,
           hidden: true,
         },
         {
           path: "/people/tax-report",
-          label: "Tax & BPJS Report",
+          label: "PPh 21 & BPJS",
           icon: FileSpreadsheet,
           audience: "employer",
           hidden: true,
@@ -369,15 +388,30 @@ export const peopleNav: AppModule = {
           audience: "employer",
           hidden: true,
         },
-        // Setup · Company
+        // Claims
         {
-          path: "/people/settings/company",
-          label: "Company & NPP",
-          icon: Building2,
-          audience: "employer",
-          moved: ["/people/settings"],
+          path: "/people/claim-history",
+          label: "Claim History",
+          icon: History,
           hidden: true,
         },
+        // Benefits
+        {
+          path: "/people/benefit-history",
+          label: "Benefit History",
+          icon: History,
+          audience: "employer",
+          hidden: true,
+        },
+        // Loans
+        {
+          path: "/people/loan-repayments",
+          label: "Loan Repayments",
+          icon: Coins,
+          audience: "employer",
+          hidden: true,
+        },
+        // Settings · Organization
         {
           path: "/people/settings/group",
           label: "Group & Business Units",
@@ -394,12 +428,19 @@ export const peopleNav: AppModule = {
         },
         {
           path: "/people/settings/levels",
-          label: "Job Levels & Grades",
+          label: "Levels & Grades",
           icon: Gauge,
           audience: "employer",
           hidden: true,
         },
-        // Setup · Time
+        {
+          path: "/people/settings/checklists",
+          label: "Onboarding Tasks",
+          icon: ClipboardCheck,
+          audience: "employer",
+          hidden: true,
+        },
+        // Settings · Attendance
         {
           path: "/people/settings/attendance",
           label: "Attendance Rules",
@@ -423,7 +464,7 @@ export const peopleNav: AppModule = {
         },
         {
           path: "/people/settings/leave-types",
-          label: "Time Off Types",
+          label: "Leave Types",
           icon: CalendarOff,
           audience: "employer",
           hidden: true,
@@ -442,7 +483,7 @@ export const peopleNav: AppModule = {
           audience: "employer",
           hidden: true,
         },
-        // Setup · Pay
+        // Settings · Payroll
         {
           path: "/people/settings/payroll-schedule",
           label: "Schedule & Pro-rate",
@@ -487,29 +528,37 @@ export const peopleNav: AppModule = {
         },
         {
           path: "/people/claim-allowances",
-          label: "Claim Allowances",
+          label: "Claim Limits",
           icon: Wallet,
           audience: "employer",
           hidden: true,
         },
-        // Setup · Access
+        // Settings · Benefits
         {
-          path: "/people/job-roles",
-          label: "Job Roles",
-          icon: BadgeCheck,
+          path: "/people/settings/benefit",
+          label: "Benefit Settings",
+          icon: Gift,
           audience: "employer",
           hidden: true,
         },
+        // Settings · Access
         {
-          path: "/people/settings/checklists",
-          label: "Onboarding Tasks",
-          icon: ClipboardCheck,
+          path: "/people/roles",
+          label: "Roles",
+          icon: BadgeCheck,
           audience: "employer",
+          moved: ["/people/job-roles"],
+          hidden: true,
+        },
+        {
+          path: "/people/invitations",
+          label: "Invitations",
+          icon: Link2,
           hidden: true,
         },
         {
           path: "/people/settings/delegation",
-          label: "Approval Delegation",
+          label: "Delegation",
           icon: Handshake,
           audience: "employer",
           hidden: true,

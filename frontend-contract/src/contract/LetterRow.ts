@@ -3,4 +3,10 @@
 /**
  * A letter as the register lists it.
  */
-export type LetterRow = { letter_id: string, kind: string, status: string, letter_number: string | null, title: string, subject_kind: string, subject_id: string, reference: string, counterparty: string, place: string, quantity: number, created_by: string, created_at: string, issued_at: string | null, issued_by: string | null, voided_at: string | null, };
+export type LetterRow = { letter_id: string, kind: string, status: string, letter_number: string | null, title: string, subject_kind: string, subject_id: string, reference: string, counterparty: string, place: string, quantity: number, 
+/**
+ * Which written form a `GENERAL` letter is — `goods_out`, `warning` — and
+ * the register group it files under. Empty on the letters the system
+ * writes, and on a blank letter written before forms existed.
+ */
+form: string, group: string, created_by: string, created_at: string, issued_at: string | null, issued_by: string | null, voided_at: string | null, };

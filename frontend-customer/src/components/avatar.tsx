@@ -33,7 +33,7 @@ export function Avatar({
       aria-hidden
       className={cn(
         `avatar-${hue(memberId)}`,
-        "inline-flex shrink-0 items-center justify-center rounded-full font-semibold text-on-dark shadow-[inset_0_1px_0_rgb(255_255_255/0.35)]",
+        "inline-flex shrink-0 items-center justify-center rounded-full font-semibold text-on-dark",
         size === "md"
           ? "size-11 text-headline"
           : "size-24 text-[3rem] tracking-[-0.04em]",

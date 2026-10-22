@@ -26,6 +26,7 @@
 ///   a plain number ......... count(n) · decimal(n, digits)    21.060 · 12,5
 ///   a signed difference .... signed(n)                       +16 · −16 · 0
 ///   a quantity ............. quantity(n, unit)               223 pcs · 1 pc · 8 items · 2 cartons
+///   a SKU .................. sku(code)                       00000004·103
 ///
 /// Dates are English, day first, zero-padded, with the year — the owner's rule
 /// ("dates with year") — and take whatever the wire gives: an ISO string, a
@@ -66,6 +67,15 @@ export function money(minor: number | null | undefined): string {
 }
 
 const plain = new Intl.NumberFormat("id-ID")
+
+/// Money without its "Rp": `1.800.000`, `−250.000`. For a column of amounts
+/// whose heading already says what they are — a Finance table drawn compact
+/// (owner, 17 Oct, `lib/table-rows.ts`). The sign and the zero as `money`.
+export function moneyFigure(minor: number | null | undefined): string {
+  if (minor === null || minor === undefined || !Number.isFinite(minor))
+    return EMPTY
+  return withSign(minor, plain.format(Math.round(Math.abs(minor))))
+}
 
 const decimals = new Map<number, Intl.NumberFormat>()
 
@@ -160,6 +170,11 @@ export function count(value: number | null | undefined): string {
   if (value === null || value === undefined || !Number.isFinite(value))
     return EMPTY
   return withSign(value, plain.format(Math.abs(value)))
+}
+
+/// A count of pieces, "1 pc" or "12 pcs".
+export function countPcs(value: number | null | undefined): string {
+  return `${count(value)} ${value === 1 ? "pc" : "pcs"}`
 }
 
 /// A number with a decimal part, comma as the separator, at most `maxDigits`
@@ -562,4 +577,16 @@ export function initialOf(name: string | null | undefined): string {
   if (trimmed === "") return "?"
   const letter = trimmed.match(/\p{L}/u)?.[0]
   return (letter ?? Array.from(trimmed)[0] ?? "?").toLocaleUpperCase()
+}
+
+/// ── SKU ─────────────────────────────────────────────────────────────────────
+
+/// A SKU as a person reads it (owner, 21 Oct 2026): the article's eight digits,
+/// a middle dot, then colour + size — "00000004103" → "00000004·103". The
+/// stored code stays eleven plain digits; this is display only, so barcodes,
+/// QR and search keep the raw value. Anything not eleven digits is returned
+/// as it came.
+export function sku(code: string | null | undefined): string {
+  if (code === null || code === undefined || code === "") return "—"
+  return /^\d{11}$/.test(code) ? `${code.slice(0, 8)}·${code.slice(8)}` : code
 }

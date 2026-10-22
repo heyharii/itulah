@@ -255,6 +255,16 @@ html[data-look="white"] :is(.btn-quiet, .btn-ghost, .btn-soft).btn-takes-away,
 html[data-look="white"] :is(.btn-quiet, .btn-ghost, .btn-soft).btn-takes-away svg {
   color: var(--bad-fg);
 }
+/* Print in colour (owner, 2026-10-17): blue goes to the printer, red is a
+   PDF file — so the two words never read alike */
+html[data-look="white"] .btn-quiet.btn-to-printer,
+html[data-look="white"] .btn-quiet.btn-to-printer svg {
+  color: var(--accent);
+}
+html[data-look="white"] .btn-quiet.btn-to-file,
+html[data-look="white"] .btn-quiet.btn-to-file svg {
+  color: var(--bad-fg);
+}
 /* …but a row's bin is a plain ghost glyph (UI-PATTERNS.md §4: "ikon hapus
    pada baris adalah ghost"); the red is for the word that confirms */
 html[data-look="white"] :is(.btn-quiet, .btn-ghost, .btn-soft).btn-takes-away.btn-iconly,
@@ -320,6 +330,11 @@ html[data-look="white"] [data-opens] .record-link {
   }
   html[data-look="white"] tr[data-opens]:hover > td:last-child:not(:has(button, a))::after {
     opacity: 1;
+  }
+  /* rows whose cells start at the top (`cellsTop`): the › on the first line */
+  html[data-look="white"] table.dt-top tr[data-opens] > td:last-child:not(:has(button, a))::after {
+    top: 0.75rem;
+    margin-top: 0.1875rem;
   }
 }
 
@@ -861,6 +876,24 @@ html[data-look="white"] table.dt > tbody > tr > td {
 html[data-look="white"] table.dt > tfoot > tr > td {
   padding-inline: 1rem;
 }
+/* Compact rows, the reader's Rows switch in a Finance bar (owner, 17 Oct,
+   `lib/table-rows.ts`): 38 a row, 12px sides, the heading 36. The face stays
+   15px; only the air goes. */
+html[data-look="white"] table.dt.dt-compact > thead > tr > th {
+  height: 2.25rem;
+  padding-inline: 0.75rem;
+}
+html[data-look="white"] table.dt.dt-compact > tbody > tr {
+  height: 2.375rem;
+}
+html[data-look="white"] table.dt.dt-compact > tbody > tr > td {
+  padding: 0.5rem 0.75rem;
+  /* 20 a line: a status's dot and word stood 3px taller on the 21.75 strut */
+  line-height: 1.25rem;
+}
+html[data-look="white"] table.dt.dt-compact > tfoot > tr > td {
+  padding-inline: 0.75rem;
+}
 /* the name that leads a row is the row's one medium word; what is under it
    stays quiet */
 html[data-look="white"] table.dt > tbody > tr > td:first-child {
@@ -987,7 +1020,7 @@ html[data-look="white"] .sheet-head {
 }
 @media (min-width: 48rem) {
   html[data-look="white"] .sheet-head {
-    padding: 1.5rem 1.75rem 1rem;
+    padding: 1.75rem 2.25rem 1.25rem;
   }
 }
 html[data-look="white"] .sheet-head > div:last-child {
@@ -1089,8 +1122,10 @@ html[data-look="white"] .sheet-close svg {
   }
 }
 @media (min-width: 48rem) {
+  /* 36px at the sides, 32 down (owner, 2026-10-19: "make thing a bit
+     spacious") — head, body and foot share the one side margin. */
   html[data-look="white"] .sheet-body {
-    padding: 1.5rem 1.75rem;
+    padding: 2rem 2.25rem;
   }
 }
 /* The foot: a hairline over it, 64 tall, 36px buttons, main action last */
@@ -1101,8 +1136,8 @@ html[data-look="white"] .sheet-foot {
 }
 @media (min-width: 48rem) {
   html[data-look="white"] .sheet-foot {
-    min-height: 4rem;
-    padding: 0.75rem 1.75rem;
+    min-height: 4.25rem;
+    padding: 0.875rem 2.25rem;
   }
 }
 /* A sheet opened over another: the one under it dims in place (the same
@@ -1140,7 +1175,7 @@ html[data-look="white"] .sheet-tab[aria-selected="true"] {
 }
 @media (min-width: 48rem) {
   html[data-look="white"] .sheet-body {
-    padding-top: 1.25rem;
+    padding-top: 1.75rem;
   }
 }
 /* A small form that writes its own Submit row: that row is the sheet's foot */
@@ -1346,6 +1381,12 @@ html[data-look="white"] .board-lane {
   border-color: transparent;
   background: transparent;
 }
+/* The Allotment's lanes are grey trays the cards sit in (allotment-board-options
+   A, 17 Oct 2026), not the white box a soft fill turns into elsewhere. */
+html[data-look="white"] .board-tray {
+  border: 0;
+  background: var(--soft-2);
+}
 html[data-look="white"] .board-lane-foot {
   border-top-color: transparent;
   color: var(--mute);
@@ -1515,6 +1556,18 @@ html[data-look="white"] .app-shell:has(> .shell-rail) > .shell-page {
   box-shadow: 0 0 0 1px rgb(0 0 0 / 5%), 0 2px 8px rgb(0 0 0 / 4%),
     0 24px 72px rgb(0 0 0 / 8%);
   overflow: hidden;
+}
+/* Into the allotment grid and back (`focus`, index.css): the white card
+   itself widens over the panel, corners and shadow and all. */
+html[data-look="white"]:active-view-transition-type(focus)::view-transition-group(shell-page) {
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 5%), 0 2px 8px rgb(0 0 0 / 4%),
+    0 24px 72px rgb(0 0 0 / 8%);
+}
+html[data-look="white"]:active-view-transition-type(focus)::view-transition-image-pair(shell-page) {
+  border-radius: 16px;
+  overflow: clip;
 }
 /* a list says nothing about when it last read: it stays live on its own */
 html[data-look="white"] .refresh-stamp {

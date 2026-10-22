@@ -131,6 +131,8 @@ DATABASE_URL=postgresql://itulah:$PG_PASSWORD@pg:5432/itulah_cloud
 # sync_origin row carries this id (2 Oct 2026).
 INVENTORY_NODE_ID=cloud-rig
 INVENTORY_NODE_ROLE=CLOUD
+# A hub sign-in lasts a day (owner, 2026-10-18); the server's default is 12 h.
+INVENTORY_AUTH_TOKEN_TTL_MINUTES=1440
 INVENTORY_STORE_INBOUND_COMMANDS=1
 SYNC_APPLY=true
 SYNC_ENQUEUE=false
@@ -377,8 +379,10 @@ site customer "  handle /api/* {
       import hold
     }
   }"
+# The till, too, works against store-01 (owner, 21 Oct 2026: the sandbox
+# store node is stopped).
 site pos "  handle /api/* {
-    reverse_proxy store-sandbox:8080 {
+    reverse_proxy store:8080 {
       import hold
     }
   }"
@@ -662,9 +666,15 @@ if [ "$mode" = rollout ]; then
   docker stop -t 30 "$cloud_live_before" >/dev/null 2>&1 || true
   docker rm -f "$cloud_live_before" >/dev/null 2>&1 || true
   if [ "$dc_hosting" != cloud ]; then swap_edge dc "$image"; fi
-  echo "$(date -u +%T) swapping store"
-  swap_edge store "$image"
-  for s in $extra_stores; do swap_edge "$s" "$image"; done
+  # ITULAH_SKIP_STORES=1: the cloud only, the store servers keep their build
+  # (owner, 2026-10-18: "store nanti saja").
+  if [ "${ITULAH_SKIP_STORES:-}" = 1 ]; then
+    echo "$(date -u +%T) store servers left as they are"
+  else
+    echo "$(date -u +%T) swapping store"
+    swap_edge store "$image"
+    for s in $extra_stores; do swap_edge "$s" "$image"; done
+  fi
   # No `docker image prune` here: on an e2-micro already in swap it starved
   # Caddy of disk for 20 s (soak test, 10 Oct 2026). Only the image just
   # replaced goes, if nothing else uses it; the boot prunes the rest.

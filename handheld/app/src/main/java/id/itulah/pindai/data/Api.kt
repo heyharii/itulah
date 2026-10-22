@@ -106,8 +106,13 @@ class Api(
      * waited out an offline spell can never be replayed with the proof it was
      * born with — it has to be signed again, with a new timestamp and a new
      * sequence, over the same unchanged bytes.
+     *
+     * [withOperator] false leaves the bearer off. The device's own proof is
+     * what files the batch; the bearer only says who was holding the reader,
+     * and an operator whose sign-in has expired must not be the reason
+     * evidence stops reaching the Edge.
      */
-    fun postObservationBody(body: ByteArray): JSONObject {
+    fun postObservationBody(body: ByteArray, withOperator: Boolean = true): JSONObject {
         val timestamp = System.currentTimeMillis() / 1000
         val seq = nextSequence()
         val digest = sha256Hex(body)
@@ -123,7 +128,7 @@ class Api(
                 "x-device-sequence" to seq.toString(),
                 "x-device-signature" to signature,
             ),
-            withOperator = true,
+            withOperator = withOperator,
         )
     }
 

@@ -1,0 +1,105 @@
+<!-- @dsCard group="Inputs" height=570 subtitle="Static rendition of form.tsx in the All white look" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>Switch — preview</title>
+<style>
+body{margin:0}
+.ds-switch-set{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:32px;padding:24px 28px;align-items:start}
+.ds-switch-col{display:flex;flex-direction:column;gap:28px;min-width:0}
+.ds-switch-block{display:flex;flex-direction:column;gap:12px;min-width:0}
+.ds-switch-label{font-weight:500;color:var(--ink)}
+.ds-switch-row-states{display:flex;flex-wrap:wrap;align-items:center;gap:12px 24px}
+.ds-switch-state{display:inline-flex;align-items:center;gap:10px;color:var(--body)}
+/* form.tsx Switch: 30 x 18, soft-3 off, accent on, a bare 14px knob (no ring, no shadow in the white look) */
+.ds-switch{box-shadow:none}
+.ds-switch::after{box-shadow:none}
+.ds-switch.is-busy{opacity:.7}
+.ds-switch[disabled]{opacity:.5;cursor:default}
+/* Toggle: a switch with its reading; the note says what is true now */
+.ds-switch-toggle{display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1px solid var(--hairline);border-radius:var(--r-inner);background:var(--canvas)}
+.ds-switch-toggle.is-on{background:var(--accent-bg)}
+.ds-switch-toggle>span:first-child{padding-top:2px}
+.ds-switch-toggle b{display:block;font-weight:500;color:var(--ink)}
+.ds-switch-toggle small{display:block;font-size:15px;line-height:1.625;color:var(--body)}
+/* Choices: a tile is a radio, exactly one on; the chosen one is accent-bg with an accent ring */
+.ds-switch-tiles{display:grid;gap:8px}
+.ds-switch-tiles--2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.ds-switch-tile{display:flex;align-items:center;gap:10px;min-width:0;padding:10px 12px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas);text-align:left;cursor:pointer}
+.ds-switch-tile.is-on{background:var(--accent-bg);box-shadow:inset 0 0 0 1px var(--accent)}
+.ds-switch-tile b{display:block;font-size:15px;font-weight:500;color:var(--ink)}
+.ds-switch-tile.is-on b{color:var(--accent)}
+.ds-switch-tile small{display:block;font-size:15px;line-height:1.625;color:var(--mute)}
+/* Stepper in a form: the form's box, 32px round steps, the figure between */
+.ds-switch-stepper{display:flex;align-items:center;height:var(--field);padding:0 4px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas)}
+.ds-switch-step{display:grid;place-items:center;flex:none;width:32px;height:32px;border:0;border-radius:var(--r-full);background:none;color:var(--line-ico);cursor:pointer}
+.ds-switch-step.is-hover{background:var(--hairline);color:var(--ink)}
+.ds-switch-step svg{width:14px;height:14px}
+.ds-switch-step[disabled]{opacity:.4;cursor:default}
+.ds-switch-figure{flex:1;text-align:center;font-variant-numeric:tabular-nums;color:var(--ink)}
+.ds-switch-stepper-field{display:flex;flex-direction:column;gap:var(--label-gap);max-width:260px}
+</style></head>
+<body>
+<div class="ds ds-switch-set">
+
+  <div class="ds-switch-col">
+    <div class="ds-switch-block">
+      <div class="ds-switch-label">Switch</div>
+      <div class="ds-switch-row-states">
+        <span class="ds-switch-state"><button class="ds-switch" type="button" role="switch" aria-checked="false" aria-label="Off"></button>Off</span>
+        <span class="ds-switch-state"><button class="ds-switch is-on" type="button" role="switch" aria-checked="true" aria-label="On"></button>On</span>
+        <span class="ds-switch-state"><button class="ds-switch is-on is-busy" type="button" role="switch" aria-checked="true" aria-busy="true" aria-label="Pending"></button>Pending</span>
+        <span class="ds-switch-state"><button class="ds-switch" type="button" role="switch" aria-checked="false" disabled aria-label="Disabled"></button>Disabled</span>
+      </div>
+    </div>
+
+    <div class="ds-switch-block">
+      <div class="ds-switch-label">SwitchPill</div>
+      <div class="ds-row">
+        <label class="ds-switch-pill"><button class="ds-switch" type="button" role="switch" aria-checked="false" aria-label="Group by supplier"></button>Group by supplier</label>
+        <label class="ds-switch-pill"><button class="ds-switch is-on" type="button" role="switch" aria-checked="true" aria-label="Active order"></button>Active order</label>
+      </div>
+    </div>
+
+    <div class="ds-switch-block">
+      <div class="ds-switch-label">Toggle</div>
+      <div class="ds-switch-toggle">
+        <span><button class="ds-switch" type="button" role="switch" aria-checked="false" aria-label="Warehouse"></button></span>
+        <span><b>Warehouse</b><small>Suppliers deliver straight to the stores.</small></span>
+      </div>
+      <div class="ds-switch-toggle is-on">
+        <span><button class="ds-switch is-on" type="button" role="switch" aria-checked="true" aria-label="Warehouse"></button></span>
+        <span><b>Warehouse</b><small>Suppliers deliver to the warehouse, and it ships to the stores.</small></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="ds-switch-col">
+    <div class="ds-switch-block">
+      <div class="ds-switch-label">Choices</div>
+      <div class="ds-switch-tiles ds-switch-tiles--2" role="radiogroup" aria-label="What kind of price?">
+        <button class="ds-switch-tile is-on" type="button" role="radio" aria-checked="true"><span><b>New price</b></span></button>
+        <button class="ds-switch-tile" type="button" role="radio" aria-checked="false"><span><b>Markdown</b></span></button>
+      </div>
+      <div class="ds-switch-tiles" role="radiogroup" aria-label="Applied to">
+        <button class="ds-switch-tile" type="button" role="radio" aria-checked="false"><span><b>All stores</b></span></button>
+        <button class="ds-switch-tile is-on" type="button" role="radio" aria-checked="true"><span><b>Stores on the base price</b><small>Not Cikupa, Jambi</small></span></button>
+        <button class="ds-switch-tile" type="button" role="radio" aria-checked="false"><span><b>Choose stores</b></span></button>
+      </div>
+    </div>
+
+    <div class="ds-switch-block">
+      <div class="ds-switch-label">Stepper</div>
+      <label class="ds-switch-stepper-field">
+        <span class="ds-field-label">Transactions limit</span>
+        <span class="ds-switch-stepper">
+          <button class="ds-switch-step" type="button" aria-label="Most transactions, one fewer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/></svg></button>
+          <span class="ds-switch-figure">500</span>
+          <button class="ds-switch-step is-hover" type="button" aria-label="Most transactions, one more"><span class="ds-ico ds-ico-plus ds-ico--14"></span></button>
+        </span>
+      </label>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

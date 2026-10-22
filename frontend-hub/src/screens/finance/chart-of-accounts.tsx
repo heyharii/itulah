@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Fab } from "@/components/ui/fab"
 import { Checkbox, Field, Input, Select, Textarea } from "@/components/ui/field"
+import { SwitchPill } from "@/components/ui/form"
 import { ExpandingSearch } from "@/components/ui/list-chrome"
 import { KeyValue } from "@/components/ui/rows"
 import { PageHeader } from "@/components/ui/page-header"
@@ -199,8 +200,8 @@ export function ChartOfAccounts() {
               />
               {/* Not a segmented control: "Active / Including inactive" spent two
             pills announcing that the default is the default, and the second
-            label is the first plus something. A checkbox says "and also show
-            me…" in the width of a checkbox. */}
+            label is the first plus something. A switch says "and also show
+            me…" in the width of a switch. */}
               <UnitSelect
                 value={unit}
                 onChange={setUnit}
@@ -208,10 +209,10 @@ export function ChartOfAccounts() {
                 className="h-control w-52"
                 aria-label="Whose books"
               />
-              <Checkbox
+              <SwitchPill
+                on={inactive}
                 label="Show inactive"
-                checked={inactive}
-                onChange={(next) => setInactive(next)}
+                onToggle={() => setInactive(!inactive)}
               />
               <Button
                 variant="ghost"

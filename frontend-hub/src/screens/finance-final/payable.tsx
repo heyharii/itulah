@@ -22,6 +22,7 @@ import { ExportButton } from "@/components/ui/export-button"
 import { Input } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Status } from "@/components/ui/pill"
+import { CellMoney } from "@/components/ui/rows-switch"
 import { Banner, EmptyState, LoadingState } from "@/components/ui/states"
 import type { ExportSheet } from "@/lib/export-xlsx"
 import { count, day, money } from "@/lib/format"
@@ -587,7 +588,7 @@ const SUPPLIER_COLUMNS: ColumnDef<TableSetup, PayablesAgingRow>[] = [
           row.original.buckets[bucket.key] === 0 ? "text-faint" : undefined
         }
       >
-        {money(row.original.buckets[bucket.key])}
+        <CellMoney minor={row.original.buckets[bucket.key]} />
       </span>
     ),
   })),
@@ -600,7 +601,7 @@ const SUPPLIER_COLUMNS: ColumnDef<TableSetup, PayablesAgingRow>[] = [
     meta: { align: "right", card: "metric" },
     cell: ({ row }) => (
       <span className="font-medium text-ink">
-        {money(row.original.buckets.total_minor)}
+        <CellMoney minor={row.original.buckets.total_minor} />
       </span>
     ),
   },
@@ -1023,12 +1024,15 @@ const OPEN_ITEM_COLUMNS: ColumnDef<TableSetup, OpenItem>[] = [
     size: 150,
     enableSorting: false,
     meta: { align: "right", card: "metric", priority: 2 },
-    cell: ({ row }) =>
-      money(
-        row.original.kind === "bill"
-          ? row.original.bill.total_minor
-          : row.original.item.amount_minor
-      ),
+    cell: ({ row }) => (
+      <CellMoney
+        minor={
+          row.original.kind === "bill"
+            ? row.original.bill.total_minor
+            : row.original.item.amount_minor
+        }
+      />
+    ),
   },
   {
     id: "paid",
@@ -1041,20 +1045,23 @@ const OPEN_ITEM_COLUMNS: ColumnDef<TableSetup, OpenItem>[] = [
     cell: ({ row }) =>
       row.original.kind === "bill" ? (
         <span className="flex flex-col items-end">
-          {money(row.original.bill.paid_minor)}
+          <CellMoney minor={row.original.bill.paid_minor} />
           {/* What a draft payment has reserved beyond what has left the bank:
               the database refuses a second allocation while a draft holds it. */}
           {row.original.bill.allocated_minor > row.original.bill.paid_minor && (
             <span className="max-w-full text-right text-[0.9375rem] whitespace-normal text-mute">
-              {money(
-                row.original.bill.allocated_minor - row.original.bill.paid_minor
-              )}{" "}
+              <CellMoney
+                minor={
+                  row.original.bill.allocated_minor -
+                  row.original.bill.paid_minor
+                }
+              />{" "}
               spoken for
             </span>
           )}
         </span>
       ) : (
-        money(row.original.item.settled_minor)
+        <CellMoney minor={row.original.item.settled_minor} />
       ),
   },
   {
@@ -1071,7 +1078,7 @@ const OPEN_ITEM_COLUMNS: ColumnDef<TableSetup, OpenItem>[] = [
       row.original.kind === "bill" ? (
         <span className="flex flex-col items-end">
           <span className="font-medium text-ink">
-            {money(row.original.bill.outstanding_minor)}
+            <CellMoney minor={row.original.bill.outstanding_minor} />
           </span>
           <Status
             tone={
@@ -1088,7 +1095,7 @@ const OPEN_ITEM_COLUMNS: ColumnDef<TableSetup, OpenItem>[] = [
       ) : (
         <span className="flex flex-col items-end">
           <span className="font-medium text-ink">
-            {money(row.original.item.outstanding_minor)}
+            <CellMoney minor={row.original.item.outstanding_minor} />
           </span>
           <Status tone={row.original.item.age_days > 0 ? "bad" : "neutral"}>
             {row.original.item.age_days > 0 ? "Overdue" : "Not billed"}
@@ -1358,7 +1365,9 @@ const RECEIPT_COLUMNS: ColumnDef<TableSetup, UnbilledReceipt>[] = [
     size: 150,
     enableSorting: false,
     meta: { align: "right", card: "metric" },
-    cell: ({ row }) => money(row.original.value_at_order_price_minor),
+    cell: ({ row }) => (
+      <CellMoney minor={row.original.value_at_order_price_minor} />
+    ),
   },
   {
     id: "paperwork",
@@ -1376,7 +1385,7 @@ const RECEIPT_COLUMNS: ColumnDef<TableSetup, UnbilledReceipt>[] = [
           —
         </span>
       ) : (
-        money(row.original.invoice_total_minor)
+        <CellMoney minor={row.original.invoice_total_minor} />
       ),
   },
 ]

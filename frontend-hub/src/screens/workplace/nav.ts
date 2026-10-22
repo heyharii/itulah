@@ -1,4 +1,9 @@
-import { FolderOpen, MessageSquare, MessagesSquare } from "lucide-react"
+import {
+  FileBadge,
+  FolderOpen,
+  MessageSquare,
+  MessagesSquare,
+} from "lucide-react"
 
 import type { AppModule } from "@/lib/navigation"
 import { useChatUnread } from "@/screens/workplace/chat-unread"
@@ -97,6 +102,35 @@ export const libraryNav: AppModule = {
   // sent each other is a rename that costs somebody their afternoon.
   moved: ["/documents", "/files"],
   sections: [
-    { items: [{ path: "/library", label: "Files", icon: FolderOpen }] },
+    {
+      items: [
+        // A door (owner, 17 Oct 2026): the drawer of files, and the papers GA
+        // keeps with or without a scan and their physical originals. One row
+        // in the sidebar, two tabs on the page.
+        {
+          path: "/library",
+          label: "Files",
+          icon: FolderOpen,
+          alsoLights: ["/library/papers"],
+          tabs: [
+            {
+              label: "Library",
+              views: [{ label: "Library", path: "/library" }],
+            },
+            {
+              label: "Papers & originals",
+              views: [{ label: "Papers & originals", path: "/library/papers" }],
+            },
+          ],
+        },
+        // The second tab's screen, routed and found by ⌘K under its own name.
+        {
+          path: "/library/papers",
+          label: "Papers & Originals",
+          icon: FileBadge,
+          hidden: true,
+        },
+      ],
+    },
   ],
 }

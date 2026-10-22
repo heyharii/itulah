@@ -1,5 +1,4 @@
 import { useQuery } from "@tanstack/react-query"
-import { useState } from "react"
 
 import type { TaxReportRow } from "@itulah/contract"
 
@@ -7,12 +6,10 @@ import { PageContent } from "@/components/shell/app-shell"
 import { useLayout } from "@/lib/layout"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { Input } from "@/components/ui/field"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { Status } from "@/components/ui/pill"
 import { MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
-import { Toolbar } from "@/components/ui/segmented"
 import { EmptyState } from "@/components/ui/states"
 import { csvName, downloadCsv, toCsv } from "@/lib/csv"
 import { count, money, monthYear } from "@/lib/format"
@@ -24,8 +21,9 @@ import {
   lastMonth,
   taxMethodWord,
 } from "@/screens/people/tax-report-columns"
+import { HrScope, useHrMonth, useUnitFilter } from "@/screens/people/parts"
 
-/// Pay › Tax › PPh 21 & BPJS — one month across everybody the caller reaches:
+/// Payroll › Tax › PPh 21 & BPJS — one month across everybody the caller reaches:
 /// the figures behind the monthly SPT Masa and the BPJS invoice.
 ///
 /// Nothing here is worked out in the browser. Every figure is the slip's own,
@@ -33,13 +31,18 @@ import {
 /// carries no tax figures and is not in the report.
 export function TaxReportPage() {
   const phone = useLayout() === "phone"
-  const [period, setPeriod] = useState(lastMonth)
+  // The month and unit are HR's own; until one is chosen, last month — the
+  // one whose SPT Masa is due.
+  const [period, setPeriod] = useHrMonth(lastMonth)
+  const place = useUnitFilter()
   const report = useQuery({
     queryKey: payKeys.taxReport(period),
     queryFn: ({ signal }) => taxReport(period, signal),
     enabled: /^\d{4}-\d{2}$/.test(period),
   })
-  const rows = report.data ?? []
+  const rows = (report.data ?? []).filter(
+    (row) => place.unitId === null || row.unit_id === place.unitId
+  )
   const reachable = useReachableUnits()
   /// A unit by its name; the report only carries the id.
   const unitName = (id: string) =>
@@ -73,15 +76,7 @@ export function TaxReportPage() {
         }
       />
 
-      <Toolbar>
-        <Input
-          type="month"
-          aria-label="Month"
-          value={period}
-          onChange={(event) => setPeriod(event.target.value)}
-          className="h-8 w-44"
-        />
-      </Toolbar>
+      <HrScope unit={place} month={[period, setPeriod]} />
 
       <KpiStrip className="md:grid-cols-2 xl:grid-cols-4">
         <Kpi label="People paid" value={count(rows.length)} />

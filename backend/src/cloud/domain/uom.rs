@@ -112,8 +112,7 @@ impl UnitLookup {
 }
 
 /// "5 lusin" → 5 and "lusin"; "12" → 12 and nothing; "5lsn" → 5 and "lsn".
-/// The number takes a comma or a point as the decimal mark, since both are
-/// typed here; a thousands separator is not expected in a pack count.
+/// The number is read by [`read_number`]: "1.000 pcs" is a thousand pieces.
 pub fn split_quantity(text: &str) -> Option<(Decimal, Option<String>)> {
     let parts = split_parts(text)?;
     match parts.as_slice() {
@@ -136,7 +135,7 @@ fn split_parts(text: &str) -> Option<Vec<(Decimal, Option<String>)>> {
         if digits == 0 {
             return None;
         }
-        let quantity = Decimal::from_str(&rest[..digits].replace(',', ".")).ok()?;
+        let quantity = read_number(&rest[..digits])?;
         if quantity <= Decimal::ZERO {
             return None;
         }
@@ -150,6 +149,34 @@ fn split_parts(text: &str) -> Option<Vec<(Decimal, Option<String>)>> {
         rest = rest[word_end..].trim_start();
     }
     Some(parts)
+}
+
+/// A number the way it is typed here. A dot followed by exactly three digits,
+/// in groups after one to three leading digits, marks thousands — "1.000" is
+/// a thousand and "12.500,5" is twelve thousand five hundred and a half, the
+/// Indonesian way. Otherwise a comma or a point is the decimal mark, since
+/// both are typed: "2,5" and "2.5" are two and a half.
+pub fn read_number(text: &str) -> Option<Decimal> {
+    let text = text.trim();
+    let all_digits = |part: &str| !part.is_empty() && part.chars().all(|c| c.is_ascii_digit());
+    let (whole, fraction) = match text.split_once(',') {
+        Some((whole, fraction)) => (whole, Some(fraction)),
+        None => (text, None),
+    };
+    let mut groups = whole.split('.');
+    let lead = groups.next().unwrap_or_default();
+    let rest: Vec<&str> = groups.collect();
+    let thousands = !rest.is_empty()
+        && lead.len() <= 3
+        && all_digits(lead)
+        && rest.iter().all(|group| group.len() == 3 && all_digits(*group))
+        && fraction.is_none_or(all_digits);
+    let plain = if thousands {
+        text.replace('.', "").replace(',', ".")
+    } else {
+        text.replace(',', ".")
+    };
+    Decimal::from_str(&plain).ok()
 }
 
 /// How a spelling is compared: lower case, single-spaced, no trailing dot.
@@ -213,5 +240,21 @@ mod tests {
         assert_eq!(split_quantity("24"), Some((Decimal::from(24), None)));
         assert_eq!(split_quantity("2 kodi 5 pcs"), None);
         assert_eq!(split_quantity("abc"), None);
+    }
+
+    #[test]
+    fn a_dot_before_three_digits_is_a_thousand() {
+        assert_eq!(read_number("1.000"), Some(Decimal::from(1000)));
+        assert_eq!(read_number("12.500.000"), Some(Decimal::from(12_500_000)));
+        assert_eq!(read_number("1.000,5"), Decimal::from_str("1000.5").ok());
+        assert_eq!(read_number("2,5"), Decimal::from_str("2.5").ok());
+        assert_eq!(read_number("2.5"), Decimal::from_str("2.5").ok());
+        assert_eq!(read_number("12.50"), Decimal::from_str("12.50").ok());
+        assert_eq!(read_number("1234.567"), Decimal::from_str("1234.567").ok());
+        assert_eq!(read_number("1.2.3"), None);
+        assert_eq!(
+            split_quantity("1.000 pcs"),
+            Some((Decimal::from(1000), Some("pcs".to_owned())))
+        );
     }
 }

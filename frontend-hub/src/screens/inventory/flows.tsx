@@ -5,17 +5,18 @@ import { ArrowDown, ArrowUp, GripVertical, Plus, Trash2 } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
-import { DockChoice } from "@/components/shell/dock-tools"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Checkbox, Field, Input, Select, Textarea } from "@/components/ui/field"
 import { Fab } from "@/components/ui/fab"
+import { ListFilters } from "@/components/ui/list-filters"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
-import { Segmented } from "@/components/ui/segmented"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
+import { useFilterState, type FilterField } from "@/lib/filters"
 import { count, day } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import { problemOf } from "@/lib/problem"
@@ -141,12 +142,25 @@ function cleanDraft(draft: FlowTemplateDraft): FlowTemplateDraft {
   }
 }
 
+/// Retired flows are a read the server answers, so this is a clause on the
+/// request and not on the rows in hand.
+const FLOW_FIELDS: FilterField[] = [
+  {
+    column: "retired",
+    label: "Including retired",
+    spec: { kind: "boolean", single: true, operators: ["is"] },
+  },
+]
+
 export function Flows() {
   const identity = useIdentity()
   const isAdmin = identity.data?.role === "ADMIN"
   const phone = useLayout() === "phone"
   const vocabulary = useFlowVocabulary()
-  const [showRetired, setShowRetired] = useState(false)
+  const filters = useFilterState(FLOW_FIELDS)
+  const showRetired = filters.filters.some(
+    (one) => one.column === "retired" && one.values[0] === "true"
+  )
   const [editing, setEditing] = useState<
     { mode: "new" } | { mode: "edit"; id: string } | null
   >(null)
@@ -199,28 +213,15 @@ export function Flows() {
       {isAdmin && (
         <Fab label="New flow" onClick={() => setEditing({ mode: "new" })} />
       )}
-      <DockChoice
-        value={showRetired ? "all" : "active"}
-        options={[
-          { value: "active", label: "Active", short: "Active" },
-          {
-            value: "all",
-            label: "Including retired",
-            short: "Including retired",
-          },
-        ]}
-        onChange={(next) => setShowRetired(next === "all")}
+      <DockTools
+        filter={{
+          count: filters.filters.length,
+          panel: { model: filters },
+        }}
       />
 
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3 max-md:hidden">
-        <Segmented
-          options={[
-            { value: "active", label: "Active" },
-            { value: "all", label: "Including retired" },
-          ]}
-          value={showRetired ? "all" : "active"}
-          onChange={(next) => setShowRetired(next === "all")}
-        />
+        <ListFilters model={filters} />
         {!isAdmin && identity.data !== undefined && (
           <span className="text-[0.9375rem] text-mute">
             Only a head-office Admin can change a flow.
@@ -747,7 +748,10 @@ function EditorBody({
         {onTemplate("route")
           .slice(1)
           .map((message) => (
-            <p key={message} className="text-[0.9375rem] text-bad md:col-span-2">
+            <p
+              key={message}
+              className="text-[0.9375rem] text-bad md:col-span-2"
+            >
               {message}
             </p>
           ))}

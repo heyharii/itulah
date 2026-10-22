@@ -34,6 +34,7 @@ pub mod picking;
 pub mod print_bridge;
 pub mod receiving;
 pub mod returns;
+pub mod rfid_verify;
 pub mod short_pick;
 pub mod tagging;
 
@@ -50,5 +51,6 @@ pub fn routes(router: Router<AppState>) -> Router<AppState> {
     let router = owed::routes(router);
     let router = changes::routes(router);
     let router = returns::routes(router);
+    let router = rfid_verify::routes(router);
     print_bridge::routes(router)
 }

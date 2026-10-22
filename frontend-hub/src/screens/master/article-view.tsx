@@ -7,7 +7,7 @@ import { Fact, Facts } from "@/components/ui/sheet"
 import { EmptyState } from "@/components/ui/states"
 import { Thumbnail } from "@/components/ui/thumbnail"
 import { colourwayFill } from "@/lib/colourway-fill"
-import { count, money } from "@/lib/format"
+import { count, money, countPcs, sku as skuNumber } from "@/lib/format"
 import type { ArticleDetail } from "@/lib/queries/articles"
 import { cn } from "@/lib/utils"
 import {
@@ -156,7 +156,7 @@ export function ArticleView({
             )
           }
         />
-        {showStock && <Kpi label="Stock" value={`${count(stock)} pcs`} />}
+        {showStock && <Kpi label="Stock" value={`${countPcs(stock)}`} />}
       </KpiStrip>
 
       {/* The description the supplier item carried from the PO, as a fact —
@@ -214,7 +214,7 @@ export function ArticleView({
                     </span>
                   </td>
                   <td className="px-4 py-3">{size.label}</td>
-                  <td className="px-4 py-3 text-mute">{sku.sku_code}</td>
+                  <td className="px-4 py-3 text-mute">{skuNumber(sku.sku_code)}</td>
                   <td
                     className={cn(
                       "px-4 py-3 text-right",
@@ -232,7 +232,7 @@ export function ArticleView({
                         sku.stock_qty === 0 && "text-mute"
                       )}
                     >
-                      {count(sku.stock_qty)} pcs
+                      {countPcs(sku.stock_qty)}
                     </td>
                   )}
                 </tr>
@@ -245,7 +245,7 @@ export function ArticleView({
                     Total
                   </td>
                   <td className="px-4 py-3 text-right text-ink">
-                    {count(stock)} pcs
+                    {countPcs(stock)}
                   </td>
                 </tr>
               </tfoot>

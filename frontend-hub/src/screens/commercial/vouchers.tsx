@@ -9,6 +9,9 @@ import { useNavigate } from "@tanstack/react-router"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import {
+  Ban,
+  CircleCheck,
+  Clock,
   CreditCard,
   HandCoins,
   HeartHandshake,
@@ -39,12 +42,12 @@ import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { Fab } from "@/components/ui/fab"
 import { Field, Input, Money, Textarea } from "@/components/ui/field"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
-import { BarSpacer, ExpandingSearch } from "@/components/ui/list-chrome"
+import { BarSpacer } from "@/components/ui/list-chrome"
 import { ConfirmButton } from "@/components/ui/dialog"
 import { Choices, Section, type Tile } from "@/components/ui/form"
 import { RecordPanel } from "@/components/ui/record-panel"
 import { Meter } from "@/components/ui/meter"
-import { DeskFilterButton, DeskFilterChips } from "@/components/ui/desk-filter"
+import { DeskFilterButton } from "@/components/ui/desk-filter"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill, Status } from "@/components/ui/pill"
 import { MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
@@ -52,9 +55,10 @@ import { SubTabs } from "@/components/ui/sub-tabs"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState, LoadingState } from "@/components/ui/states"
 import { commercialKeys, promotionCatalogue } from "@/lib/queries/commercial"
+import { useNameOfLogin } from "@/lib/queries/hr-employees"
 import { listMembers } from "@/lib/queries/members"
 import { useFilters } from "@/lib/filters"
-import { count, day, money, moment } from "@/lib/format"
+import { count, dateRange, day, money, moment } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import {
   describeKind,
@@ -136,7 +140,7 @@ function statusWord(status: VoucherStatus): string {
     case "ACTIVE":
       return "Live"
     case "SPENT":
-      return "Spent"
+      return "Used up"
     case "VOIDED":
       return "Cancelled"
   }
@@ -169,9 +173,9 @@ const columns: ColumnDef<TableSetup, VoucherRow>[] = [
     id: "code",
     accessorFn: (row) =>
       `${row.code} ${row.member_name ?? ""} ${row.member_id ?? ""}`,
-    header: "Voucher",
+    header: "Code",
     size: 200,
-    meta: { grow: 200, card: "hide" },
+    meta: { grow: 160, card: "hide" },
     // One line, one font (calm tables); the kind has its own column.
     cell: ({ row }) => (
       <span className="block truncate font-medium text-ink">
@@ -183,7 +187,7 @@ const columns: ColumnDef<TableSetup, VoucherRow>[] = [
     id: "kind",
     accessorFn: (row) => describeKind(row.kind),
     header: "Kind",
-    size: 130,
+    size: 110,
     enableSorting: false,
     meta: { priority: 2, card: "hide" },
     cell: ({ row }) => (
@@ -194,7 +198,7 @@ const columns: ColumnDef<TableSetup, VoucherRow>[] = [
     id: "holder",
     accessorFn: (row) => holder(row),
     header: "Member",
-    size: 200,
+    size: 170,
     // The first to go on a narrow table: the code already names the voucher.
     meta: { priority: 2, card: "hide" },
     // Sorted by the server, which has no holder order — a sort over the pages
@@ -208,14 +212,14 @@ const columns: ColumnDef<TableSetup, VoucherRow>[] = [
       row.original.member_id === null ? (
         <span className="text-mute">Anyone</span>
       ) : (
-        <span className="truncate text-ink">{holder(row.original)}</span>
+        <span className="block truncate text-ink">{holder(row.original)}</span>
       ),
   },
   {
     id: "balance",
     accessorFn: (row) => row.balance_minor,
     header: "Balance",
-    size: 150,
+    size: 140,
     // The liability, card by card. "At least 100.000" is how somebody finds
     // what the shop is actually holding against the figure in the strip, and
     // "is 0" is a spent card that has not been marked SPENT.
@@ -257,7 +261,7 @@ const columns: ColumnDef<TableSetup, VoucherRow>[] = [
     id: "status",
     accessorFn: (row) => (row.expired ? "EXPIRED" : row.status),
     header: "Status",
-    size: 160,
+    size: 140,
     // `EXPIRED` is in this accessor and not in the segment above, which is
     // what makes the clause worth having: the segment asks the SERVER for a
     // stored status, and past-its-date is not one — it is the clock. So "is
@@ -277,6 +281,16 @@ const columns: ColumnDef<TableSetup, VoucherRow>[] = [
         options: (["ACTIVE", "EXPIRED", "SPENT", "VOIDED"] as const).map(
           (value) => ({ value, label: stateWord(value) })
         ),
+        icon: (value) =>
+          value === "ACTIVE"
+            ? CircleCheck
+            : value === "EXPIRED"
+              ? Clock
+              : value === "SPENT"
+                ? Wallet
+                : value === "VOIDED"
+                  ? Ban
+                  : undefined,
         operators: ["is"],
         single: true,
       },
@@ -298,7 +312,7 @@ const columns: ColumnDef<TableSetup, VoucherRow>[] = [
     id: "issued",
     accessorFn: (row) => row.issued_at,
     header: "Issued",
-    size: 140,
+    size: 130,
     // A voucher book is read by period — what was sold before Christmas, what
     // is still outstanding from last year — and that is a question no search
     // box and no sort can be made to answer.
@@ -544,6 +558,24 @@ function VoucherBook({ onCoupons }: { onCoupons: () => void }) {
 
   const ledger = list.data.pages[0]?.ledger
 
+  /// The tabs with the server's count per status — over the searched set,
+  /// whichever tab is open — and every tab stays, at 0 too. All is their sum.
+  const statusCounts = list.data.pages[0]?.facets.statuses
+  const tabCount = (value: Shown) =>
+    statusCounts === undefined
+      ? undefined
+      : value === "ALL"
+        ? statusCounts.reduce((sum, one) => sum + one.count, 0)
+        : (statusCounts.find((one) => one.value === value)?.count ?? 0)
+  const statusOptions = (
+    [
+      { value: "ACTIVE", label: "Live" },
+      { value: "SPENT", label: "Used up" },
+      { value: "VOIDED", label: "Cancelled" },
+      { value: "ALL", label: "All" },
+    ] as const
+  ).map((one) => ({ ...one, count: tabCount(one.value) }))
+
   return (
     <>
       {/* The five tiles are one sentence on a phone. */}
@@ -572,11 +604,11 @@ function VoucherBook({ onCoupons }: { onCoupons: () => void }) {
             value={money(ledger.outstanding_minor)}
             delta={`${count(ledger.outstanding_count)} live`}
           />
-          <Kpi label="Issued" value={money(ledger.issued_minor)} />
+          <Kpi label="Issued value" value={money(ledger.issued_minor)} />
           <Kpi label="Spent" value={money(ledger.redeemed_minor)} />
-          <Kpi label="Cancelled" value={money(ledger.voided_minor)} />
+          <Kpi label="Written off" value={money(ledger.voided_minor)} />
           <Kpi
-            label="Expired"
+            label="Expired value"
             value={money(ledger.expired_minor)}
             delta={
               <span
@@ -597,25 +629,36 @@ function VoucherBook({ onCoupons }: { onCoupons: () => void }) {
         <div className="flex min-w-0 flex-col">
           <SubTabs
             className="max-md:hidden"
-            tabs={[
-              { value: "ACTIVE", label: "Live" },
-              { value: "SPENT", label: "Spent" },
-              { value: "VOIDED", label: "Cancelled" },
-              { value: "ALL", label: "All" },
-            ]}
+            tabs={statusOptions.map((one) => ({
+              value: one.value,
+              label:
+                one.count === undefined ? (
+                  one.label
+                ) : (
+                  <>
+                    {one.label}{" "}
+                    <span className="text-mute tabular-nums">
+                      {count(one.count)}
+                    </span>
+                  </>
+                ),
+              short: one.label,
+            }))}
             value={shown}
             onChange={(next) => setShown(next as Shown)}
           />
           {!phone && (
             <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2">
-              <ExpandingSearch
-                value={search.value ?? ""}
-                onChange={(next) =>
-                  next === "" ? search.close() : search.replace(next)
-                }
-                label="Search vouchers"
+              <DeskFilterButton
+                model={filters}
+                table={table}
+                search={{
+                  value: search.value ?? "",
+                  onChange: (next) =>
+                    next === "" ? search.close() : search.replace(next),
+                  label: "Search vouchers",
+                }}
               />
-              <DeskFilterButton model={filters} table={table} />
               <BarSpacer />
               {/* The server's count of every voucher the list matches — the
                   rest arrive as the table scrolls, so the loaded share is not
@@ -625,7 +668,6 @@ function VoucherBook({ onCoupons }: { onCoupons: () => void }) {
               </span>
             </div>
           )}
-          {!phone && <DeskFilterChips model={filters} table={table} />}
 
           {/* The strip above is the liability over every voucher ever issued and
               does not move with any of this; what moves is the list. The
@@ -633,7 +675,7 @@ function VoucherBook({ onCoupons }: { onCoupons: () => void }) {
               server, so the list below is always the whole answer, paged. */}
           <Card
             aria-busy={asked !== scope || undefined}
-            className="list-swap overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none"
+            className="list-swap overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none"
           >
             {rows.length === 0 ? (
               narrowed ? (
@@ -661,7 +703,8 @@ function VoucherBook({ onCoupons }: { onCoupons: () => void }) {
                 cardSort={false}
                 cardsApart
                 cardLead
-                className={`${ROOMY} max-h-[calc(100dvh-24rem)]`}
+                className={ROOMY}
+                pageScroll
               />
             )}
           </Card>
@@ -675,7 +718,7 @@ function VoucherBook({ onCoupons }: { onCoupons: () => void }) {
           value: search.value ?? "",
           onChange: (next) =>
             next === "" ? search.close() : search.replace(next),
-          label: "Search Vouchers",
+          label: "Search vouchers",
         }}
         filter={{
           count: filters.filters.length,
@@ -687,12 +730,7 @@ function VoucherBook({ onCoupons }: { onCoupons: () => void }) {
         actions={[{ label: "Coupons", onClick: onCoupons }]}
         status={{
           value: shown,
-          options: [
-            { value: "ACTIVE", label: "Live" },
-            { value: "SPENT", label: "Spent" },
-            { value: "VOIDED", label: "Cancelled" },
-            { value: "ALL", label: "All" },
-          ],
+          options: statusOptions,
           onChange: (next) => setShown(next as Shown),
         }}
       />
@@ -762,6 +800,7 @@ function VoucherSheet({
 }) {
   const client = useQueryClient()
   const idempotency = useIdempotencyKey()
+  const nameOfLogin = useNameOfLogin()
   const [spending, setSpending] = useState(false)
   const detail = useQuery({
     queryKey: voucherKeys.detail(code ?? ""),
@@ -818,8 +857,12 @@ function VoucherSheet({
                         <span className="text-warn-fg"> · Expired</span>
                       )}
                     </Fact>
-                    <Fact term="Issued by">{data.voucher.issued_by}</Fact>
-                    <Fact term="Store">{data.voucher.issued_site ?? "—"}</Fact>
+                    <Fact term="Issued by">
+                      {nameOfLogin(data.voucher.issued_by)}
+                    </Fact>
+                    <Fact term="Issued at">
+                      {data.voucher.issued_site ?? "—"}
+                    </Fact>
                   </Facts>
                 </Block>
 
@@ -857,10 +900,10 @@ function VoucherSheet({
                 <MiniTable
                   className="[&_td]:py-4"
                   head={[
-                    { label: "When", align: "left" },
-                    { label: "What", align: "left" },
+                    { label: "Date", align: "left" },
+                    { label: "Entry", align: "left" },
                     { label: "Amount", align: "right" },
-                    { label: "Left", align: "right" },
+                    { label: "Balance", align: "right" },
                   ]}
                 >
                   {data.movements.map((movement) => (
@@ -880,7 +923,7 @@ function VoucherSheet({
                             sheet={{ key: "sale", value: movement.sale_id }}
                             className="ml-2 text-accent hover:underline"
                           >
-                            Sale
+                            Open sale
                           </AppLink>
                         )}
                       </MiniCell>
@@ -909,6 +952,7 @@ function VoucherSheet({
             content: (
               <RecordPanel
                 subject={{ kind: "voucher", id: data.voucher.code }}
+                expanded
               />
             ),
           },
@@ -928,7 +972,7 @@ function VoucherSheet({
       title={
         data === null
           ? "Voucher"
-          : `${describeKind(data.voucher.kind)} · ${money(data.voucher.balance_minor)}`
+          : `${describeKind(data.voucher.kind)} · ${money(data.voucher.balance_minor)} left`
       }
       tabs={sections}
       // Spending and cancelling are done to the voucher as it stands, so they
@@ -953,7 +997,7 @@ function VoucherSheet({
                   : "It can't be spent after this."
               }
               confirmLabel="Cancel voucher"
-              cancelLabel="Keep"
+              cancelLabel="Keep voucher"
               tone="danger"
               variant="danger"
               size="sm"
@@ -1116,7 +1160,7 @@ function RedeemForm({
 
       <form.Field name="sale">
         {(field) => (
-          <Field label="Sale ID" className="gap-2">
+          <Field label="Sale number" className="gap-2">
             <Input
               value={field.state.value}
               onBlur={field.handleBlur}
@@ -1250,7 +1294,7 @@ function IssueSheet({
                 pending={issue.isPending}
                 disabled={minorFrom(amount) <= 0}
               >
-                {issue.isPending ? "Submitting…" : "Submit"}
+                {issue.isPending ? "Issuing…" : "Issue voucher"}
               </Button>
             )}
           </form.Subscribe>
@@ -1269,7 +1313,7 @@ function IssueSheet({
       >
         {issue.isError && <Banner tone="bad">{said(issue.error)}</Banner>}
 
-        <Section title="Voucher" icon={Ticket}>
+        <Section title="Basics" icon={Ticket}>
           {/* Asked first, because the accounting differs at the moment of
               issue: paid for is a liability, given away is an expense that
               day, a refund is a sale being unwound. */}
@@ -1292,13 +1336,13 @@ function IssueSheet({
             <form.Field name="amount">
               {(field) => (
                 <Field
-                  label="Value"
+                  label="Face value"
                   required
                   className="min-w-0 gap-2"
                   problem={
                     field.state.meta.isBlurred &&
                     minorFrom(field.state.value) <= 0
-                      ? "Enter a value."
+                      ? "Enter the face value."
                       : undefined
                   }
                 >
@@ -1361,7 +1405,7 @@ function IssueSheet({
           </form.Field>
         </Section>
 
-        <Section title="Details" icon={StickyNote}>
+        <Section title="Code & note" icon={StickyNote}>
           {/* Only for pre-printed stock; otherwise one is minted. */}
           <form.Field name="code">
             {(field) => (
@@ -1370,6 +1414,7 @@ function IssueSheet({
                   value={field.state.value}
                   onBlur={field.handleBlur}
                   onChange={(event) => field.handleChange(event.target.value)}
+                  placeholder="Made for you"
                 />
               </Field>
             )}
@@ -1399,7 +1444,7 @@ function IssueSheet({
 const VOUCHER_KINDS: readonly Tile<VoucherKind>[] = [
   { value: "GIFT_CARD", label: "Gift card", icon: CreditCard },
   { value: "REFUND", label: "Refund", icon: RotateCcw },
-  { value: "GOODWILL", label: "Goodwill", icon: HeartHandshake },
+  { value: "GOODWILL", label: "Complimentary", icon: HeartHandshake },
 ]
 
 // ---------------------------------------------------------------------------
@@ -1472,10 +1517,10 @@ function CouponSheet({
                 className="[&_td]:py-4"
                 head={[
                   "Code",
-                  { label: "Unlocks", align: "left" },
+                  { label: "Promotion", align: "left" },
                   { label: "Member", align: "left" },
-                  { label: "Valid", align: "left" },
-                  { label: "Max Uses", align: "right" },
+                  { label: "Dates", align: "left" },
+                  { label: "Max. transactions", align: "right" },
                 ]}
               >
                 {rows.map(({ coupon }) => (
@@ -1527,18 +1572,14 @@ function CouponSheet({
                     <MiniCell>
                       <span className="text-body">
                         {coupon.valid_from === null && coupon.valid_to === null
-                          ? "Always"
-                          : `${coupon.valid_from === null ? "—" : day(coupon.valid_from)} – ${
-                              coupon.valid_to === null
-                                ? "—"
-                                : day(coupon.valid_to)
-                            }`}
+                          ? "Always on"
+                          : dateRange(coupon.valid_from, coupon.valid_to)}
                       </span>
                     </MiniCell>
                     <MiniCell align="right">
                       <span className="tabular-nums">
                         {coupon.max_uses === null
-                          ? "Unlimited"
+                          ? "No limit"
                           : count(coupon.max_uses)}
                       </span>
                     </MiniCell>

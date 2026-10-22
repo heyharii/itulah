@@ -24,14 +24,17 @@ import {
 import { unitsQuery } from "@/lib/queries/organisation"
 import { listPurchaseOrders, procurementKeys } from "@/lib/queries/procurement"
 import {
-  missingFeedQuery,
+  missingBadgeQuery,
+  missingRowsQuery,
+} from "@/screens/inventory/missing-data"
+import {
   receivedFeedQuery,
   receivedSince,
-} from "@/screens/inventory/exceptions-data"
+} from "@/screens/inventory/received-feed"
 
 /// What Inventory asks first, before the screen is open (`lib/prefetch.ts`).
 /// The options are the screens' own: the list screens share theirs through
-/// `lib/queries/inventory.ts` and `exceptions-data.ts`.
+/// `lib/queries/inventory.ts` and `missing-data.ts`.
 ///
 /// Every query here is read by its screen with `useSuspense…` inside a
 /// `<Suspense>`, so the server starts them too and streams the real page. A
@@ -43,10 +46,10 @@ import {
 
 /// The exception feeds Stock's cards and the Exceptions inbox are made of (and
 /// the nav badge counts): missing balances and short receipts. With the fleet
-/// read that places them, the three `useExceptionCases` asks.
+/// read that places them, the Stock cards ask.
 const exceptionFeeds: Prefetcher = (client) =>
   Promise.all([
-    warmQuery(client, missingFeedQuery()),
+    warmQuery(client, missingBadgeQuery()),
     warmQuery(client, receivedFeedQuery(receivedSince())),
     warmQuery(client, fleetPoolsQuery()),
   ])
@@ -88,10 +91,10 @@ export const prefetch: PrefetchMap = {
     ])
   },
 
-  // The inbox waits for the three feeds and the register of places.
-  "/inventory/exceptions": async (client, context) => {
+  // Missing waits for the list (first page) and the register of places.
+  "/inventory/missing": async (client) => {
     await Promise.all([
-      exceptionFeeds(client, context),
+      warmInfinite(client, missingRowsQuery()),
       warmQuery(client, unitsQuery()),
     ])
   },
@@ -165,4 +168,4 @@ export const prefetch: PrefetchMap = {
 /// as the Inventory menu is on screen, Stock's cards need them, and the fleet
 /// read among them is what every other Inventory screen opens with. The rest
 /// are asked on hover.
-export const warm = { "/inventory/exceptions": 6 }
+export const warm = { "/inventory/missing": 6 }

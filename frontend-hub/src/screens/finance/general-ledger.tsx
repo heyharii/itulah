@@ -8,7 +8,6 @@ import { AppLink } from "@/components/ui/app-link"
 import { Card, CardHeader, CardStrip, CardTitle } from "@/components/ui/card"
 import { LineSeries } from "@/components/ui/chart"
 import { DataTable } from "@/components/ui/data-table"
-import { Input } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { TotalsLadder } from "@/components/ui/rows"
 import { PageHeader } from "@/components/ui/page-header"
@@ -336,13 +335,6 @@ function TrialBalanceList({ onPick }: { onPick: (code: string) => void }) {
         crumb="Finance"
         title="Ledger"
         sub="Every account that has been posted to, and whether the two sides agree. Open one to read it down the page."
-        actions={
-          <Input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            className="h-8 w-48"
-          />
-        }
       />
 
       {/* The list below holds only accounts that have been posted to. A
@@ -373,7 +365,15 @@ function TrialBalanceList({ onPick }: { onPick: (code: string) => void }) {
             totals under the table belong to that narrowing — a second,
             browser-side location filter would leave the rows describing one
             place and the footer another. So it is not offered in here. */}
-        <FilterPanel model={filters} table={table} />
+        <FilterPanel
+          model={filters}
+          table={table}
+          search={{
+            value: query,
+            onChange: setQuery,
+            label: "Search accounts",
+          }}
+        />
         <Toolbar.Spacer />
         {/* The server's own answer, not the boxes': it echoes the date it
             actually read at, which is the figure the totals below belong to. */}
@@ -731,13 +731,6 @@ function AccountMovements({
         crumb="Finance"
         title="Ledger"
         sub="One account, down the page, in the order it happened."
-        actions={
-          <Input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            className="h-8 w-48"
-          />
-        }
       />
 
       <Toolbar>
@@ -754,7 +747,15 @@ function AccountMovements({
             Hiding rows out of the middle leaves the column stepping over gaps
             it cannot explain — true of the search box beside it too, which is
             why the opening and closing figures are drawn outside the table. */}
-        <FilterPanel model={filters} table={table} />
+        <FilterPanel
+          model={filters}
+          table={table}
+          search={{
+            value: query,
+            onChange: setQuery,
+            label: "Search entries",
+          }}
+        />
         <Toolbar.Spacer />
         {/* Back to the trial balance, which is where the accounts are — not to
             an empty card asking which one. */}

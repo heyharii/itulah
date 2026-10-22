@@ -12,7 +12,7 @@ import { Status } from "@/components/ui/pill"
 import { Screen } from "@/components/ui/screen"
 import { Segmented } from "@/components/ui/segmented"
 import { EmptyState } from "@/components/ui/states"
-import { count, moment } from "@/lib/format"
+import { articleId, count, moment, sku as skuText } from "@/lib/format"
 import { useGo } from "@/lib/go"
 import { useLayout } from "@/lib/layout"
 import { useParam } from "@/lib/params"
@@ -313,7 +313,9 @@ function MovementCard({
         ),
         status: (
           <span className="font-mono text-[0.875rem] text-mute">
-            {sku ?? `…${row.epc.slice(-6)}`}
+            {sku === null
+              ? `…${row.epc.slice(-6)}`
+              : `${articleId(bySku.get(sku)?.article_code, sku)} · ${skuText(sku)}`}
           </span>
         ),
       }}
@@ -340,7 +342,9 @@ function Product({
       {name !== undefined && (
         <span className="min-w-0 truncate text-text">{name}</span>
       )}
-      <span className="shrink-0 font-mono text-id text-body">{sku}</span>
+      <span className="shrink-0 font-mono text-id text-body">
+        {articleId(bySku.get(sku)?.article_code, sku)} · {skuText(sku)}
+      </span>
     </span>
   )
 }

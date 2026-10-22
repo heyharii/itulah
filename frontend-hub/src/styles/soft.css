@@ -1,0 +1,354 @@
+/* ─────────────────────────────────────────────────────────────────────────
+   SOFT — drawn over All white, keyed on <html data-style="soft"> (lib/look.ts)
+
+   The owner, 2026-10-20, from `po-matte-options.html` "Soft cards": "nah oke
+   nih", then "defaultnya soft tapi bisa balik ke previous yaitu now". Kept
+   beside Now until the client chooses; the loser goes, this file with it.
+
+   What changes: a pastel ground under the floating panel and page; figures,
+   a table's heading and its totals as soft bands; filled fields in a bar and
+   a form; a segmented track for a list's tabs; phone cards that float on a
+   tinted page; the rail's departments as matte pictures (matte-picture.tsx),
+   coloured only where you are. What does not: every button — solid primary,
+   red Cancel, the outlined Print — and the tables' rows and type.
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* The rail draws both its line icon and its matte picture; one shows */
+html:not([data-style="soft"]) .look-soft-only,
+html[data-style="soft"] .look-now-only {
+  display: none;
+}
+/* the matte picture's parts (matte-picture.tsx): tones top → foot, no shine */
+.matte-picture .b { fill: var(--mp-b); }
+.matte-picture .d { fill: var(--mp-d); }
+.matte-picture .l { fill: var(--mp-l); }
+.matte-picture .b[stroke] { stroke: var(--mp-b); }
+.matte-picture .d[stroke] { stroke: var(--mp-d); }
+.matte-picture .w { fill: #f4f2ee; }
+.matte-picture .a { fill: var(--mp-accent); }
+.matte-picture .sa { fill: none; stroke: var(--mp-accent); stroke-width: 3.2; stroke-linecap: round; stroke-linejoin: round; }
+.matte-picture .sd { fill: none; stroke: var(--mp-shade); stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; }
+.matte-picture .sw { fill: none; stroke: #fff; stroke-opacity: 0.55; stroke-width: 2.4; stroke-linecap: round; }
+
+/* ── The ground: the Deep icon's pastel, not stone ───────────────────── */
+html[data-look="white"][data-style="soft"] {
+  --wt-stone: #e9eef8;
+  --soft-band: #f6f8fc;
+  --soft-fill: #eff2f8;
+  --soft-ground: #f4f6fb;
+  --soft-float: 0 1px 2px rgb(24 50 120 / 6%), 0 18px 48px -20px rgb(24 60 150 / 22%);
+  --soft-card: 0 1px 2px rgb(24 50 120 / 6%), 0 10px 24px -14px rgb(24 60 150 / 25%);
+}
+html[data-look="white"][data-style="soft"] .app-shell {
+  background: linear-gradient(180deg, #eef2fb, #e3eaf7);
+}
+html[data-look="white"][data-style="soft"] .app-shell:has(> .shell-rail) > .shell-page,
+html[data-look="white"][data-style="soft"] .app-shell .shell-panel {
+  box-shadow: var(--soft-float);
+}
+html[data-look="white"][data-style="soft"] .shell-panel [data-status="active"],
+html[data-look="white"][data-style="soft"] .shell-panel .bg-accent-bg {
+  background: #e3ebfb;
+}
+/* the lit department's tile on the rail holds a picture, not a blue glyph */
+html[data-look="white"][data-style="soft"] .shell-rail .bg-rail-3 {
+  box-shadow: 0 1px 2px rgb(24 50 120 / 8%), 0 4px 10px -4px rgb(24 60 150 / 18%);
+}
+
+/* ── Figures: each one a soft card, no rules between ─────────────────── */
+html[data-look="white"][data-style="soft"] .kpi-strip {
+  gap: 0.75rem;
+  margin-left: 0;
+  clip-path: none;
+}
+html[data-look="white"][data-style="soft"] .kpi-card {
+  padding: 0.625rem 1.125rem;
+  border-radius: 14px !important;
+  background: var(--soft-band) !important;
+}
+html[data-look="white"][data-style="soft"] .kpi-card::before {
+  display: none;
+}
+
+/* ── A list's tabs: a segmented track, the chosen tab a white capsule ── */
+html[data-look="white"][data-style="soft"] .sub-tabs:not(.door-tabs .sub-tabs) {
+  width: max-content;
+  max-width: 100%;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 10px;
+  background: #f1f4fa;
+  box-shadow: none;
+}
+html[data-look="white"][data-style="soft"] .sub-tabs:not(.door-tabs .sub-tabs) > .sub-tab {
+  position: relative;
+  z-index: 1;
+  min-height: 2.125rem;
+  padding: 0.375rem 0.875rem;
+  border-bottom: 0;
+  border-radius: 8px;
+}
+/* the sliding rule becomes the sliding capsule: same clip, the row's height */
+html[data-look="white"][data-style="soft"] .sub-tabs:not(.door-tabs .sub-tabs) > .sub-tab-indicator {
+  top: 3px;
+  bottom: 3px;
+  height: auto;
+  z-index: 0;
+  background: #ffffff;
+  clip-path: inset(0 var(--active-tab-right) 0 var(--active-tab-left) round 8px);
+}
+/* a tab list with no sliding indicator marks its chosen tab itself */
+html[data-look="white"][data-style="soft"] .sub-tabs:not(.door-tabs .sub-tabs):not(:has(.sub-tab-indicator)) > .sub-tab:is([aria-selected="true"], [class~="border-ink"], [class~="bg-ink"]) {
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgb(24 50 120 / 10%), 0 2px 6px rgb(24 50 120 / 6%);
+}
+
+/* ── Fields: filled, no line — in a list's bar, a sheet, a form ──────── */
+/* every box the White look treats as a field — the kit's, a textarea, a
+   screen's own input or the capsule round it — so none keeps a line; one
+   typed in, or wrong, keeps White's ring */
+html[data-look="white"][data-style="soft"] :is(
+  .ui-field,
+  :is(input, textarea, select)[class~="border-hairline-2"]:not([type="checkbox"], [type="radio"]),
+  :is(div, span, label)[class~="border-hairline-2"]:has(> input:not([type="checkbox"], [type="radio"])),
+  :is(label, div, span):is([class~="bg-soft"], [class~="bg-soft-2"], [class~="bg-soft-3"]):has(> input:not([type="checkbox"], [type="radio"])),
+  [class~="rounded-[1.25rem]"][class~="bg-soft-2"]
+):not(:focus, :focus-within, :focus-visible, [data-popup-open], [aria-invalid="true"]) {
+  border-color: transparent;
+  background-color: var(--soft-fill);
+}
+/* an input inside a filled capsule takes the capsule's fill */
+html[data-look="white"][data-style="soft"] :is(div, span, label):is([class~="border-hairline-2"], [class~="bg-soft"], [class~="bg-soft-2"], [class~="bg-soft-3"]):not(:focus-within) > input:not([type="checkbox"], [type="radio"]) {
+  background-color: transparent;
+}
+/* a variant grid's price box (a button standing in for a field) fills like
+   the pieces beside it; it rings in blue when hovered or typed in */
+html[data-look="white"][data-style="soft"] .sku-box:not(:focus, :focus-visible, :hover) {
+  box-shadow: none;
+  background-color: var(--soft-fill);
+}
+/* …and the rule before its "pcs" is a white cut, not a grey line */
+html[data-look="white"][data-style="soft"] .sku-box:not(:focus) + span[class~="border-l"] {
+  border-left: 2px solid #ffffff;
+}
+/* the bar's outlined controls (Columns, a switch) sit with the fields */
+html[data-look="white"][data-style="soft"] [class~="group/bar"] :is(button, label)[class~="border"]:not(.ui-field, [class~="bg-cta"], [class~="bg-accent"]) {
+  border-color: transparent;
+  background-color: var(--soft-fill);
+}
+
+/* ── A list table: no frame; its heading and totals as rounded bands ─── */
+html[data-look="white"][data-style="soft"] :is(.card, [class~="rounded-card"][class~="border"]):has(> table.dt, > * > table.dt) {
+  border-color: transparent;
+}
+html[data-look="white"][data-style="soft"] table.dt > thead > tr > th {
+  background: var(--soft-band);
+  box-shadow: none;
+  border-bottom-color: transparent;
+}
+/* a collapsed table ignores a cell's radius, so the band's ends are clipped */
+html[data-look="white"][data-style="soft"] table.dt > thead > tr > th:first-child,
+html[data-look="white"][data-style="soft"] table.dt > tfoot > tr > td:first-child {
+  clip-path: inset(0 round 12px 0 0 12px);
+}
+html[data-look="white"][data-style="soft"] table.dt > thead > tr > th:last-child,
+html[data-look="white"][data-style="soft"] table.dt > tfoot > tr > td:last-child {
+  clip-path: inset(0 round 0 12px 12px 0);
+}
+html[data-look="white"][data-style="soft"] table.dt > thead > tr > th:only-child,
+html[data-look="white"][data-style="soft"] table.dt > tfoot > tr > td:only-child {
+  clip-path: inset(0 round 12px);
+}
+html[data-look="white"][data-style="soft"] table.dt > tfoot > tr {
+  border-top-color: transparent;
+  background: transparent;
+}
+html[data-look="white"][data-style="soft"] table.dt > tfoot > tr > td {
+  background: var(--soft-band);
+}
+
+/* ── Every other table: the same bands ────────────────────────────────
+   The White look frames every table on a page or in a sheet with a square
+   grey heading; Soft gives them all the list's rounded bands, so a screen's
+   own table (Sales, Stock, a report, a card's mini table) reads like the
+   Purchase Orders list. The matrix grids keep their own heads. */
+html[data-look="white"][data-style="soft"] :is(.shell-page, .sheet-pop, .sheet-drawer) table:not(.ui-matrix table) > thead > tr > th {
+  background: var(--soft-band);
+  border-bottom-color: transparent;
+}
+html[data-look="white"][data-style="soft"] :is(.shell-page, .sheet-pop, .sheet-drawer) table:not(.ui-matrix table) > tbody > tr:first-child > :is(td, th) {
+  border-top-color: transparent;
+}
+html[data-look="white"][data-style="soft"] :is(.shell-page, .sheet-pop, .sheet-drawer) table:not(.ui-matrix table) > thead > tr:only-child > th:first-child,
+html[data-look="white"][data-style="soft"] :is(.shell-page, .sheet-pop, .sheet-drawer) table:not(.ui-matrix table) > tfoot > tr:only-child > :is(td, th):first-child {
+  clip-path: inset(0 round 12px 0 0 12px);
+}
+html[data-look="white"][data-style="soft"] :is(.shell-page, .sheet-pop, .sheet-drawer) table:not(.ui-matrix table) > thead > tr:only-child > th:last-child,
+html[data-look="white"][data-style="soft"] :is(.shell-page, .sheet-pop, .sheet-drawer) table:not(.ui-matrix table) > tfoot > tr:only-child > :is(td, th):last-child {
+  clip-path: inset(0 round 0 12px 12px 0);
+}
+html[data-look="white"][data-style="soft"] :is(.shell-page, .sheet-pop, .sheet-drawer) table:not(.ui-matrix table) > :is(thead, tfoot) > tr:only-child > :is(td, th):only-child {
+  clip-path: inset(0 round 12px);
+}
+html[data-look="white"][data-style="soft"] :is(.shell-page, .sheet-pop, .sheet-drawer) table:not(.ui-matrix table) > tfoot > tr {
+  background: transparent;
+}
+html[data-look="white"][data-style="soft"] :is(.shell-page, .sheet-pop, .sheet-drawer) table:not(.ui-matrix table) > tfoot > tr > :is(td, th) {
+  background: var(--soft-band);
+}
+html[data-look="white"][data-style="soft"] :is(.shell-page, .sheet-pop, .sheet-drawer) table:not(.ui-matrix table) > tfoot > tr:first-child > :is(td, th) {
+  border-top-color: transparent;
+}
+
+/* ── A record's sheet: the same bands ────────────────────────────────── */
+html[data-look="white"][data-style="soft"] .sheet-pop {
+  border-radius: 20px;
+}
+html[data-look="white"][data-style="soft"] .items-box {
+  border-color: transparent;
+  border-radius: 0;
+}
+html[data-look="white"][data-style="soft"] :is(.items-head, .items-box thead th) {
+  background: var(--soft-band);
+}
+html[data-look="white"][data-style="soft"] .items-box thead th:first-child {
+  clip-path: inset(0 round 12px 0 0 12px);
+}
+html[data-look="white"][data-style="soft"] .items-box thead th:last-child {
+  clip-path: inset(0 round 0 12px 12px 0);
+}
+html[data-look="white"][data-style="soft"] .items-box tbody tr:first-child > td {
+  border-top-color: transparent;
+}
+html[data-look="white"][data-style="soft"] .items-box tfoot td {
+  background: var(--soft-band);
+}
+html[data-look="white"][data-style="soft"] .items-box tfoot tr:first-child td:first-child { border-top-left-radius: 12px; }
+/* an order's totals (detail, form, Review Count): one band at the right */
+html[data-look="white"][data-style="soft"] .order-totals {
+  padding: 0.5rem 1rem;
+  border-radius: 12px;
+  background: var(--soft-band);
+}
+/* on a desk the band's padding goes outside the ladder's own width, so its
+   words keep the room they had and nothing wraps */
+@media (min-width: 48rem) {
+  html[data-look="white"][data-style="soft"] .order-totals {
+    box-sizing: content-box;
+  }
+}
+/* a field standing on a band is white, or it vanishes into it */
+/* (the class twice: it must outweigh the fill rule above) */
+html[data-look="white"][data-style="soft"] :is(.items-box tfoot, .items-totals, .order-totals) .ui-field.ui-field:not(:focus, :focus-visible) {
+  background-color: #ffffff;
+}
+
+/* An order's notes and terms (detail, review): a soft band, not loose text */
+html[data-look="white"][data-style="soft"] .record-note {
+  padding: 0.75rem 1.125rem;
+  border-radius: 14px;
+  background: var(--soft-band);
+}
+
+/* ── A phone: a tinted page, every block a white card that floats ────── */
+@media (max-width: 47.99rem) {
+  html[data-look="white"][data-style="soft"] .shell-page {
+    background: var(--soft-ground);
+  }
+  html[data-look="white"][data-style="soft"] .phone-card {
+    border-color: transparent;
+    border-radius: 16px;
+    box-shadow: var(--soft-card);
+  }
+  html[data-look="white"][data-style="soft"] .phone-card :is([class~="border-t"], [class~="border-b"]) {
+    border-color: #f0f2f7;
+  }
+  html[data-look="white"][data-style="soft"] .list-said {
+    margin: 0 0 0.75rem;
+    padding: 0.75rem 0.875rem;
+    border: 0;
+    border-radius: 16px;
+    background: #ffffff;
+    box-shadow: 0 1px 2px rgb(24 50 120 / 6%);
+  }
+  /* figures on a phone: one white card, two to a row inside it */
+  html[data-look="white"][data-style="soft"] .kpi-strip {
+    padding: 0.875rem 1rem;
+    border-radius: 16px;
+    background: #ffffff;
+    box-shadow: var(--soft-card);
+  }
+  html[data-look="white"][data-style="soft"] .kpi-card {
+    padding: 0;
+    border-radius: 0 !important;
+    background: transparent !important;
+  }
+  /* a record's sheet on a phone: tinted, its lines and totals white cards */
+  html[data-look="white"][data-style="soft"] :is(.sheet-pop, .sheet-drawer) :is(.sheet-body, .sheet-foot) {
+    background: var(--soft-ground);
+  }
+  html[data-look="white"][data-style="soft"] .items-list {
+    gap: 0.75rem;
+    overflow: visible;
+  }
+  html[data-look="white"][data-style="soft"] .items-list > li {
+    border-top: 0;
+    border-radius: 16px;
+    background: #ffffff;
+    box-shadow: var(--soft-card);
+  }
+  html[data-look="white"][data-style="soft"] .record-note {
+    background: #ffffff;
+    box-shadow: var(--soft-card);
+  }
+  /* the bar's icons, the matte way: the tab you are on filled pastel with a
+     blue that darkens toward its foot, the rest a grey that does the same
+     (bottom-bar.tsx draws the two paints) */
+  html[data-look="white"][data-style="soft"] nav[aria-label="Main"] svg.lucide {
+    stroke: url(#tab-matte-rest);
+  }
+  html[data-look="white"][data-style="soft"] nav[aria-label="Main"] [aria-current="page"] svg.lucide {
+    fill: #dce7fb;
+    stroke: url(#tab-matte-lit);
+    stroke-width: 1.8;
+  }
+  /* a table of lines on the tinted page: one white card, like the figures */
+  html[data-look="white"][data-style="soft"] .items-box {
+    border-radius: 16px;
+    background: #ffffff;
+    box-shadow: var(--soft-card);
+  }
+  html[data-look="white"][data-style="soft"] :is(.items-totals, .order-totals) {
+    border: 0;
+    border-radius: 16px;
+    background: #ffffff;
+    box-shadow: var(--soft-card);
+  }
+}
+
+/* What is waiting in a department on the phone's Home grid (MatteTile): a red
+   tag with Gojek's tail at its foot, on the pastel square's corner */
+.matte-tag {
+  position: absolute;
+  top: -0.5625rem;
+  left: -0.5625rem;
+  min-width: 1.5rem;
+  height: 1.5rem;
+  padding: 0 0.4375rem;
+  border-radius: 0.5rem 0.5rem 0.5rem 0;
+  background: var(--bad-fg);
+  color: #ffffff;
+  font-size: 0.9375rem;
+  line-height: 1.5rem;
+  font-weight: 600;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.matte-tag::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: -0.3125rem;
+  border-left: 0.4375rem solid var(--bad-fg);
+  border-bottom: 0.375rem solid transparent;
+}

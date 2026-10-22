@@ -9,7 +9,7 @@ import {
   MiniTable,
   SheetSection,
 } from "@/components/ui/rows"
-import { count, money, percent, quantity } from "@/lib/format"
+import { count, money, percent, quantity, sku as skuText } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import { cn } from "@/lib/utils"
 import {
@@ -218,7 +218,7 @@ function SkuGrid({ data }: { data: SalesExplorer }) {
               </div>
               {code !== null && (
                 <span className="font-mono text-[0.9375rem] text-mute">
-                  {code}
+                  {skuText(code)}
                 </span>
               )}
               {stores.map((store) => {
@@ -276,7 +276,7 @@ function SkuGrid({ data }: { data: SalesExplorer }) {
                       </span>
                       {code !== null && (
                         <span className="font-mono text-[0.9375rem] text-mute">
-                          {code}
+                          {skuText(code)}
                         </span>
                       )}
                     </span>

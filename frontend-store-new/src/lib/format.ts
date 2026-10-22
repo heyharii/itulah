@@ -14,6 +14,11 @@ export function count(value: number | null | undefined): string {
   return plain.format(value)
 }
 
+/// "1 pc", "12 pcs".
+export function pcs(value: number | null | undefined): string {
+  return `${count(value)} ${value === 1 ? "pc" : "pcs"}`
+}
+
 /// A date in English month names, day first ("06 Oct 2026") — the hub's
 /// `dateText`. The app is English (owner, 2026-10-06): Indonesian month names —
 /// "Okt", "Agu", "Mei", "Des" — read as a mistake beside it; amounts keep the
@@ -156,4 +161,29 @@ export function initialOf(name: string | null | undefined): string {
   if (trimmed === "") return "?"
   const letter = trimmed.match(/\p{L}/u)?.[0]
   return (letter ?? Array.from(trimmed)[0] ?? "?").toLocaleUpperCase()
+}
+
+/// ── SKU ─────────────────────────────────────────────────────────────────────
+
+/// A SKU as a person reads it (owner, 21 Oct 2026): the article's eight digits,
+/// a middle dot, then colour + size — "00000004103" → "00000004·103". The
+/// stored code stays eleven plain digits; this is display only, so barcodes,
+/// QR and search keep the raw value. Anything not eleven digits is returned
+/// as it came.
+export function sku(code: string | null | undefined): string {
+  if (code === null || code === undefined || code === "") return "—"
+  return /^\d{11}$/.test(code) ? `${code.slice(0, 8)}·${code.slice(8)}` : code
+}
+
+/// The article id a line names: its `article_code` when the API sent one,
+/// otherwise the first eight digits of an eleven-digit SKU; "—" when neither.
+export function articleId(
+  articleCode: string | null | undefined,
+  skuCode?: string | null,
+): string {
+  if (articleCode !== null && articleCode !== undefined && articleCode !== "")
+    return articleCode
+  return skuCode !== null && skuCode !== undefined && /^\d{11}$/.test(skuCode)
+    ? skuCode.slice(0, 8)
+    : "—"
 }

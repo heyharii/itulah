@@ -71,7 +71,7 @@ import { isWhiteLook } from "@/lib/look"
 ///
 /// | `size`      | width      | what it holds                                  |
 /// |-------------|------------|-------------------------------------------------|
-/// | `rail`      | ≈ 480px    | a record of ≤ 10 facts + short tables, or a form of ≤ 8 fields: settings editors, a term, a colour, a count, a store, a user |
+/// | `rail`      | ≈ 560px    | a record of ≤ 10 facts + short tables, or a form of ≤ 8 fields: settings editors, a term, a colour, a count, a store, a user |
 /// | `wide`      | ≈ 900px    | a document with lines: PO, supplier, return, composer, tabbed hubs (contract, asset, repair) |
 /// | `table`     | ≈ 1020px   | a grid read across: receiving count, pool, SKU matrix, allotment lines, attendance |
 /// | `workspace` | ≈ 1340px   | a list and the work beside it: New articles, Import, a rule or campaign form |
@@ -164,7 +164,9 @@ export interface SheetMoreItem {
 /// The width of each size. `rail` is the anatomy's ≈ 480px; the other three are
 /// what `width` always meant.
 const SIZE: Readonly<Record<SheetSize, string>> = {
-  rail: "md:w-[clamp(27.5rem,40vw,30rem)]",
+  // ≈ 560 from 1400 (owner, 2026-10-19: a 480 rail was cramped — fields
+  // half a name wide, two-line labels on every icon tile).
+  rail: "md:w-[clamp(30rem,40vw,35rem)]",
   // The record sheet of hub-ui-patterns (14 Oct): 960, 1040 from 1440, all
   // but 80px of a tablet.
   wide: "md:w-[calc(100vw-5rem)] xl:w-[min(60rem,calc(100vw-18.75rem))] min-[90rem]:w-[min(65rem,calc(100vw-22.5rem))]",
@@ -471,7 +473,7 @@ export function Sheet({
         )}
       >
         {sections ? (
-          <div ref={sectionsBody} className="flex flex-col gap-8">
+          <div ref={sectionsBody} className="flex flex-col gap-10">
             {sections.map((section, index) => (
               <section
                 key={section.value}
@@ -749,7 +751,7 @@ export function Facts({
     .filter((token) => token !== "" && !OWN_SPACING.test(token))
     .join(" ")
   return (
-    <dl className={cn("grid grid-cols-2 gap-x-8 gap-y-4", kept)} {...props} />
+    <dl className={cn("grid grid-cols-2 gap-x-10 gap-y-5", kept)} {...props} />
   )
 }
 

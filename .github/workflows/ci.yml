@@ -49,7 +49,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # handheld-rfid too: the estate's work is pushed there directly, with no
+    # pull request, and the code that is deployed was never seen by this file.
+    branches: [main, handheld-rfid]
   pull_request:
 
 env:

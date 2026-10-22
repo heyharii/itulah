@@ -32,7 +32,7 @@ use crate::cloud::http::auth::Principal;
 use crate::cloud::{AppError, AppState};
 use crate::edge::inbound::{
     StoreInboundCountRequest, StoreInboundDelivery, StoreInboundDetail, StoreInboundLine,
-    StoreInboundList, StoreInboundReceiveRequest, StoreInboundResult, STATUS_IN_TRANSIT,
+    StoreInboundList, StoreInboundManifestItem, StoreInboundReceiveRequest, StoreInboundResult, STATUS_IN_TRANSIT,
     STATUS_RECEIVED, STORE_INBOUND_LIST_LIMIT, STORE_INBOUND_MAX_EPCS,
 };
 use crate::sync::flow::{InboundReceivedLine, InboundReceivedPayload, FLOW_FACT_SCHEMA_VERSION};
@@ -134,6 +134,7 @@ fn delivery_from(row: &sqlx::postgres::PgRow) -> Result<StoreInboundDelivery, Ap
         received_at: row.try_get("received_at")?,
         received_by: row.try_get("received_by")?,
         result,
+        in_review: false,
     })
 }
 
@@ -167,11 +168,42 @@ async fn load_detail(
         .await?
         .ok_or_else(|| AppError::NotFound(format!("inbound delivery {delivery_id}")))?;
     let delivery = delivery_from(&row)?;
+    // What the koli carry, by SKU and named, never how many: the count sheet
+    // lists the articles and the Gudang counts them blind, as Receiving PO
+    // lists the order's articles (owner, 18 Oct 2026: "List + add").
+    let manifest_items: Vec<StoreInboundManifestItem> = sqlx::query(
+        "SELECT m.sku_code, article.name, sku.color, sku.size
+           FROM (SELECT DISTINCT upper(unit.sku_code) AS sku_code
+                   FROM dc_inbound_koli koli
+                   JOIN edge_fulfillment_progress_unit unit
+                     ON unit.progress_event_id = koli.event_id
+                  WHERE koli.delivery_id = $1) m
+           LEFT JOIN sku ON upper(sku.sku_code) = m.sku_code
+           LEFT JOIN article ON article.id = sku.article_id
+          ORDER BY article.name NULLS LAST, m.sku_code",
+    )
+    .bind(delivery_id)
+    .fetch_all(&mut *conn)
+    .await?
+    .into_iter()
+    .map(|row| StoreInboundManifestItem {
+        sku_code: row.get("sku_code"),
+        name: row.get("name"),
+        color: row.get("color"),
+        size: row.get("size"),
+    })
+    .collect();
+    let manifest_skus = manifest_items
+        .iter()
+        .map(|item| item.sku_code.clone())
+        .collect();
     if delivery.status != STATUS_RECEIVED {
         return Ok(StoreInboundDetail {
             delivery,
             lines: Vec::new(),
             skipped_epcs: Vec::new(),
+            manifest_skus,
+            manifest_items,
         });
     }
     let skipped_epcs: Vec<String> = row
@@ -243,6 +275,8 @@ async fn load_detail(
         delivery,
         lines,
         skipped_epcs,
+        manifest_skus,
+        manifest_items,
     })
 }
 
@@ -277,14 +311,24 @@ pub(super) async fn receive(
     hosted()?;
     let actor = actor_of(&principal)?;
     let key = require_key(&request.idempotency_key)?;
-    let detail = receive_epcs(&state, delivery_id.trim(), &request.epcs, &actor, &key).await?;
+    let detail = receive_epcs(
+        &state,
+        delivery_id.trim(),
+        &request.epcs,
+        &BTreeMap::new(),
+        &actor,
+        &key,
+    )
+    .await?;
     Ok(Json(detail))
 }
 
 /// Receive without a reader: a blind count per SKU becomes that many of the
 /// delivery's own manifest pieces of the SKU, chosen in tag order and never by
 /// outcome — so a retry resolves the same tags — and then the ordinary
-/// receipt. A count above what was sent books what was sent.
+/// receipt. A count above what was sent books what was sent and the rest
+/// too, as untagged EXTRA pieces of the SKU in the same landing pool — as a
+/// purchase receipt books every counted piece, not only the ordered ones.
 pub(super) async fn receive_count(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
@@ -319,6 +363,7 @@ pub(super) async fn receive_count(
         )));
     }
     let mut epcs = Vec::new();
+    let mut extras: BTreeMap<String, i64> = BTreeMap::new();
     for (sku_code, quantity) in &counts {
         if *quantity == 0 {
             continue;
@@ -336,14 +381,18 @@ pub(super) async fn receive_count(
         .bind(quantity)
         .fetch_all(&state.db)
         .await?;
+        let sent = found.len() as i64;
+        if *quantity > sent {
+            extras.insert(sku_code.clone(), quantity - sent);
+        }
         epcs.extend(found);
     }
-    if epcs.is_empty() {
+    if epcs.is_empty() && extras.is_empty() {
         return Err(AppError::Validation(
             "nothing counted matches this delivery; count what came off the lorry".into(),
         ));
     }
-    let detail = receive_epcs(&state, &delivery_id, &epcs, &actor, &key).await?;
+    let detail = receive_epcs(&state, &delivery_id, &epcs, &extras, &actor, &key).await?;
     Ok(Json(detail))
 }
 
@@ -360,6 +409,8 @@ async fn receive_epcs(
     state: &AppState,
     delivery_id: &str,
     raw_epcs: &[String],
+    // Pieces counted beyond the manifest, per SKU: no tag, booked untagged.
+    counted_extras: &BTreeMap<String, i64>,
     actor: &str,
     key: &str,
 ) -> Result<StoreInboundDetail, AppError> {
@@ -374,14 +425,19 @@ async fn receive_epcs(
     for raw in raw_epcs {
         epcs.insert(normalized_epc(raw)?);
     }
-    if epcs.is_empty() {
+    if epcs.is_empty() && counted_extras.is_empty() {
         return Err(AppError::Validation(
             "a receipt of no tags is not a receipt; sweep the delivery first".into(),
         ));
     }
     let digest = crate::security::sha256_hex(
         epcs.iter()
-            .map(String::as_str)
+            .cloned()
+            .chain(
+                counted_extras
+                    .iter()
+                    .map(|(sku_code, quantity)| format!("+{sku_code}x{quantity}")),
+            )
             .collect::<Vec<_>>()
             .join("\n"),
     );
@@ -577,6 +633,63 @@ async fn receive_epcs(
         }
     }
 
+    // Pieces counted beyond what was sent: each its own untagged piece of
+    // the SKU, into the same landing pool. (key, sku, subject)
+    let mut counted_extra: Vec<(String, String, Uuid)> = Vec::new();
+    for (sku_code, quantity) in counted_extras {
+        let sku: Option<Uuid> =
+            sqlx::query_scalar("SELECT id FROM sku WHERE upper(sku_code) = $1")
+                .bind(sku_code)
+                .fetch_optional(&mut *tx)
+                .await?;
+        let Some(sku) = sku else {
+            return Err(AppError::Validation(format!(
+                "{sku_code} is not in the catalogue; count only what came off the lorry"
+            )));
+        };
+        for index in 0..*quantity {
+            let subject = Uuid::new_v4();
+            sqlx::query(
+                "INSERT INTO inventory_subject (id, subject_type, sku_id, epc, quantity, uom, created_at)
+                 VALUES ($1, 'QUANTITY', $2, NULL, 1, 'EA', $3)",
+            )
+            .bind(subject)
+            .bind(sku)
+            .bind(occurred_at)
+            .execute(&mut *tx)
+            .await?;
+            counted_extra.push((format!("COUNTED-{sku_code}-{}", index + 1), sku_code.clone(), subject));
+        }
+    }
+    for (index, chunk) in counted_extra.chunks(CHUNK).enumerate() {
+        let command = MovementCommand {
+            movement_group_id: MovementGroupId::new(),
+            lines: chunk
+                .iter()
+                .map(|(_, _, subject)| MovementLine {
+                    subject_id: SubjectId(*subject),
+                    quantity: 1,
+                    from: Place::System {
+                        place: SystemPlace::Opening,
+                    },
+                    to: landing.clone(),
+                })
+                .collect(),
+            cause: MovementCause::ReturnToWarehouse,
+            reference_type: Some("RETURN_RECEIPT".into()),
+            reference_id: Some(receipt_id.to_string()),
+            reason: format!("{reason} · counted above what was sent"),
+            actor_id: actor.to_owned(),
+            occurred_at,
+        };
+        write_movement(
+            &mut tx,
+            &command,
+            &format!("dc-return-receipt:{receipt_id}#counted-{index}"),
+        )
+        .await?;
+    }
+
     sqlx::query(
         "INSERT INTO dc_inbound_receipt
              (delivery_id, receipt_id, source_site_id, destination_site_id, shipment_reference,
@@ -640,6 +753,19 @@ async fn receive_epcs(
         .execute(&mut *tx)
         .await?;
     }
+    for (unit_key, sku_code, subject) in &counted_extra {
+        sqlx::query(
+            "INSERT INTO dc_inbound_unit
+                 (delivery_id, epc, sku_code, koli_id, allotment_line_id, outcome, subject_id)
+             VALUES ($1, $2, $3, NULL, NULL, 'EXTRA', $4)",
+        )
+        .bind(delivery_id)
+        .bind(unit_key)
+        .bind(sku_code)
+        .bind(subject)
+        .execute(&mut *tx)
+        .await?;
+    }
 
     // A RECEIVED claim per booked piece, as the DC server's receipt sent
     // them: owned by the Gudang as the shop's fact spells it, so it pairs
@@ -695,7 +821,8 @@ async fn receive_epcs(
     let extra_units = booked
         .iter()
         .filter(|(.., on_manifest)| !on_manifest)
-        .count() as i64;
+        .count() as i64
+        + counted_extra.len() as i64;
     let payload = InboundReceivedPayload {
         schema_version: FLOW_FACT_SCHEMA_VERSION,
         receipt_id,
@@ -717,6 +844,8 @@ async fn receive_epcs(
             )
             .collect(),
         extra_units,
+        // The Gudang receives a return by its tags: nothing typed to keep.
+        counted: Vec::new(),
         received_by: actor.to_owned(),
         received_at: occurred_at,
     };

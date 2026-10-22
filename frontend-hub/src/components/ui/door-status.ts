@@ -15,7 +15,9 @@ export const DoorHead = createContext(false)
 /// whose own tabs give way to the door's (`SubTabs`, `DockTools`).
 export function useInDoor(): boolean {
   const own = useContext(DoorHead)
-  const pathname = useRouterState({ select: (s) => s.location.pathname })
+  const pathname = useRouterState({
+    select: (s) => (s.resolvedLocation ?? s.location).pathname,
+  })
   return !own && doorForPath(pathname) !== undefined
 }
 

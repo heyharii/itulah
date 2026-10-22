@@ -1,7 +1,7 @@
 import { Dialog as BaseDialog } from "@base-ui/react/dialog"
 import { Drawer } from "@base-ui/react/drawer"
-import { Check, X } from "lucide-react"
-import { useEffect, useEffectEvent, useRef, useState } from "react"
+import { X } from "lucide-react"
+import { useEffect, useEffectEvent, useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { type ButtonStyle } from "@/components/ui/button-style"
@@ -10,6 +10,7 @@ import { pendingLabel } from "@/components/ui/pending-label"
 import { PhoneDrawer } from "@/components/ui/phone-drawer"
 import { Problem } from "@/components/ui/states"
 import { useLayout } from "@/lib/layout"
+import { toast } from "@/lib/toast"
 import { cn } from "@/lib/utils"
 
 /// A reason the action needs before it can be taken — "why is this order
@@ -57,11 +58,16 @@ export function Dialog({
   reason,
   problem,
   ready = true,
+  size = "default",
   onConfirm,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   title: React.ReactNode
+  /// `wide`: a 900px card whose body scrolls under a pinned foot — only for
+  /// a question whose answer must show, in lines, what it will do (Return &
+  /// reallot, owner 18 Oct 2026). Everything else is the 384px card.
+  size?: "default" | "wide"
   /// What the action will do, said plainly, in one or two sentences. Not a
   /// warning triangle and not "are you sure" — those say nothing. Left out
   /// when the title already says it all.
@@ -127,7 +133,13 @@ export function Dialog({
       <Problem error={problem ?? null} className="mt-4" />
       {/* Side by side on every width, Cancel quiet and the act last — the
           sheet foot's own order. A thumb gets 44px, the desk 36. */}
-      <div className="mt-5 flex justify-end gap-2 max-md:[&>*]:h-11 max-md:[&>*]:flex-1">
+      <div
+        className={cn(
+          "mt-5 flex justify-end gap-2 max-md:[&>*]:h-11 max-md:[&>*]:flex-1",
+          size === "wide" &&
+            "sticky bottom-[-1.25rem] -mx-5 -mb-5 border-t border-hairline bg-canvas px-5 py-3"
+        )}
+      >
         {/* Beside a red, irreversible act the way out is the blue one, so
             the two never wear the same red (owner, 2026-10-16). */}
         <Parts.Close
@@ -169,7 +181,13 @@ export function Dialog({
           forceRender
           className="fixed inset-0 z-50 bg-[var(--scrim)] backdrop-blur-[2px] transition-opacity duration-(--t-panel) ease-(--ease-out) data-[ending-style]:opacity-0 data-[starting-style]:opacity-0"
         />
-        <BaseDialog.Popup className="fixed top-1/2 left-1/2 z-50 w-[24rem] max-w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 rounded-card border border-hairline-2 bg-canvas p-5 shadow-float transition-[opacity,scale] duration-(--t-panel) ease-(--ease-out) data-[ending-style]:scale-[0.96] data-[ending-style]:opacity-0 data-[starting-style]:scale-[0.96] data-[starting-style]:opacity-0 motion-reduce:data-[ending-style]:scale-100 motion-reduce:data-[starting-style]:scale-100">
+        <BaseDialog.Popup
+          className={cn(
+            "fixed top-1/2 left-1/2 z-50 w-[24rem] max-w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 rounded-card border border-hairline-2 bg-canvas p-5 shadow-float transition-[opacity,scale] duration-(--t-panel) ease-(--ease-out) data-[ending-style]:scale-[0.96] data-[ending-style]:opacity-0 data-[starting-style]:scale-[0.96] data-[starting-style]:opacity-0 motion-reduce:data-[ending-style]:scale-100 motion-reduce:data-[starting-style]:scale-100",
+            size === "wide" &&
+              "max-h-[calc(100vh-4rem)] w-[56.25rem] overflow-y-auto"
+          )}
+        >
           {body}
         </BaseDialog.Popup>
       </BaseDialog.Portal>
@@ -177,26 +195,13 @@ export function Dialog({
   )
 }
 
-/// How long a receipt stays on the glass before it lets itself go.
-const SAVED_MS = 3000
-
-/// Longer when the receipt carries a way to take the save back: a button to
-/// press is not read and decided on in three seconds.
-const UNDO_MS = 5000
-
-/// A save that landed, said in the middle of the screen, and then gone.
+/// A save that landed, said in the bottom-right corner, and then gone.
 ///
-/// The receipt for the writes that mint an identity — an order's PO number, a
-/// supplier's code (the owner, 2026-10-04: "dibikin dialog tengah saja,
-/// dialog kecil"). A corner toast used to say the number once and take it
-/// back after five seconds; the number is the one fact somebody walks across
-/// the office with, so it is set large, in the middle, where the eyes are.
-///
-/// It asks nothing and has no button: it closes itself after three seconds
-/// (the owner, 2026-10-04 — "ga harus ada okenya"), and a bar under the number
-/// empties so the wait can be seen. Resting the pointer on it holds the count
-/// for somebody copying the number down, and Escape still works — an overlay
-/// you cannot leave from the keyboard is a trap.
+/// It used to be a dialog in the middle of the screen (the owner,
+/// 2026-10-04); since 2026-10-17 every save answers the same way a PO does —
+/// a toast at the bottom right (`<Toasts>`), so the reader learns one place.
+/// The name and the props stay, so no screen had to change: opening it raises
+/// the toast and hands `open` straight back.
 export function SavedDialog({
   open,
   onOpenChange,
@@ -212,142 +217,38 @@ export function SavedDialog({
   /// One line under it, where the caller has something to add — the total,
   /// what to do next.
   children?: React.ReactNode
-  /// A verb under the receipt, when it opens a next step — "View rollout" on a
-  /// published price change. The dialog waits while the pointer is on it, and
-  /// the verb does not have to close anything, because a navigation takes the
-  /// dialog with its screen.
+  /// A verb on the toast, when it opens a next step — "View rollout" on a
+  /// published price change.
   action?: {
     readonly label: React.ReactNode
     onClick: () => void
   }
-  /// A way to take the save back while the dialog is still up — red, and its
-  /// fill empties with the time left, like a ride that can still be called
-  /// off. The dialog waits while the pointer is on it, and closes once the
-  /// call has been made.
+  /// A way to take the save back while the toast is still up.
   undo?: {
     readonly label: React.ReactNode
     readonly onClick: () => Promise<unknown> | void
   }
 }) {
-  const duration = undo === undefined ? SAVED_MS : UNDO_MS
-  const [undoing, setUndoing] = useState(false)
-  const phone = useLayout() === "phone"
-  const Title: React.ElementType = phone ? Drawer.Title : BaseDialog.Title
-  const [held, setHeld] = useState(false)
-  const letGo = useEffectEvent(() => onOpenChange(false))
-  const left = useRef<number | null>(null)
+  const say = useEffectEvent(() => {
+    const said =
+      children === undefined || children === null || children === false
+        ? undefined
+        : children
+    toast.success(title, {
+      description: said,
+      action:
+        undo !== undefined
+          ? { label: undo.label, onClick: () => void undo.onClick() }
+          : action !== undefined
+            ? { label: action.label, onClick: action.onClick }
+            : undefined,
+    })
+    onOpenChange(false)
+  })
   useEffect(() => {
-    if (!open) {
-      left.current = null
-      setUndoing(false)
-      return
-    }
-    if (held) return
-    // Set when it opens, not when it closes: whether the receipt carries an
-    // undo is only known once there is a receipt.
-    const remaining = left.current ?? duration
-    const started = performance.now()
-    const timer = window.setTimeout(letGo, remaining)
-    return () => {
-      window.clearTimeout(timer)
-      left.current = Math.max(0, remaining - (performance.now() - started))
-    }
-  }, [open, held, duration])
-
-  const body = (
-    <div
-      onPointerEnter={() => setHeld(true)}
-      onPointerLeave={() => setHeld(false)}
-      className="flex flex-col items-center gap-4 px-2 pt-2 pb-1 text-center"
-    >
-      <span className="grid size-14 place-items-center rounded-full bg-ok-bg text-ok-fg">
-        <Check className="size-7" strokeWidth={2.25} aria-hidden />
-      </span>
-      <div className="flex min-w-0 flex-col gap-1.5">
-        <Title className="text-[1.5rem] leading-tight font-semibold tracking-tight text-ink tabular-nums">
-          {title}
-        </Title>
-        {children !== undefined && children !== null && children !== false && (
-          <div className="text-[1rem] leading-relaxed text-body tabular-nums">
-            {children}
-          </div>
-        )}
-      </div>
-      {action !== undefined && (
-        <Button variant="ghost" onClick={action.onClick}>
-          {action.label}
-        </Button>
-      )}
-      {undo !== undefined ? (
-        <Button
-          variant="danger"
-          size="lg"
-          disabled={undoing}
-          onClick={() => {
-            setUndoing(true)
-            void Promise.resolve(undo.onClick())
-              .then(() => onOpenChange(false))
-              .catch(() => setUndoing(false))
-          }}
-          className="relative mt-1 w-full max-w-64 overflow-hidden"
-        >
-          <span
-            aria-hidden
-            className="countdown-bar absolute inset-0 bg-bad-fg/15 motion-reduce:hidden"
-            style={{
-              animationDuration: `${duration}ms`,
-              animationPlayState: held || undoing ? "paused" : "running",
-            }}
-          />
-          <span className="relative">
-            {undoing ? "Cancelling…" : undo.label}
-          </span>
-        </Button>
-      ) : (
-        // The wait, drawn. Gone under reduced motion, where the dialog still
-        // closes by itself.
-        <span
-          aria-hidden
-          className="mt-1 h-1 w-28 overflow-hidden rounded-full bg-soft-2 motion-reduce:hidden"
-        >
-          <span
-            className="countdown-bar block h-full rounded-full bg-ok-fg/50"
-            style={{
-              animationDuration: `${SAVED_MS}ms`,
-              animationPlayState: held ? "paused" : "running",
-            }}
-          />
-        </span>
-      )}
-    </div>
-  )
-
-  if (phone) {
-    return (
-      <PhoneDrawer open={open} onOpenChange={onOpenChange}>
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-5 pb-7">
-          {body}
-        </div>
-      </PhoneDrawer>
-    )
-  }
-
-  return (
-    <BaseDialog.Root open={open} onOpenChange={onOpenChange}>
-      <BaseDialog.Portal>
-        <BaseDialog.Backdrop
-          // Drawn even when this dialog opens on top of a sheet: Base UI skips
-          // a nested dialog's backdrop by default, which left the sheet behind
-          // a confirmation sharp and clickable-looking.
-          forceRender
-          className="fixed inset-0 z-50 bg-[var(--scrim)] backdrop-blur-[2px] transition-opacity duration-(--t-panel) ease-(--ease-out) data-[ending-style]:opacity-0 data-[starting-style]:opacity-0"
-        />
-        <BaseDialog.Popup className="fixed top-1/2 left-1/2 z-50 w-[26rem] max-w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 rounded-card border border-hairline-2 bg-canvas p-7 shadow-float transition-[opacity,scale] duration-(--t-panel) ease-(--ease-out) data-[ending-style]:scale-[0.96] data-[ending-style]:opacity-0 data-[starting-style]:scale-[0.96] data-[starting-style]:opacity-0 motion-reduce:data-[ending-style]:scale-100 motion-reduce:data-[starting-style]:scale-100">
-          {body}
-        </BaseDialog.Popup>
-      </BaseDialog.Portal>
-    </BaseDialog.Root>
-  )
+    if (open) say()
+  }, [open])
+  return null
 }
 
 /// A dialog that holds a **working surface** rather than a question.

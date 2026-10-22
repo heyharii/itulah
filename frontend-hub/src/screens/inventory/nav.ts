@@ -13,25 +13,20 @@ import {
   Workflow,
 } from "lucide-react"
 
-import { SHOW_MISSING } from "@/lib/features"
 import type { AppModule } from "@/lib/navigation"
-import { useOpenExceptionCount } from "@/screens/inventory/exceptions-data"
+import { useMissingCount } from "@/screens/inventory/missing-data"
 
 /// This module's row in the sidebar and the sub-items under it.
 /// Owned by the module, composed by `lib/navigation.ts` — so adding a screen
 /// here never touches another module's file.
 ///
-/// # Six rows, and why not eleven
+/// # Four rows
 ///
-/// This was eleven screens in four groups, then one, and is now six. The
-/// owner's Inventory menu of 4 Oct 2026 names what the module is opened for:
 /// **Stock** — the store-cards board, one card per place the fleet stands in —
-/// and **Exceptions**, the cases the readings raise. Counts and Movements keep
-/// their rows (the records a number sends somebody to); the remaining readings
-/// — Observations, Satuan & conversions — sit under the department's **More**
-/// fold, and the doubting surfaces (As of, Control, Time machine) stay hidden,
-/// still routed, still linkable and still in ⌘K, because `hidden` only means
-/// "not a sub-item".
+/// **Missing**, the pieces the readings cannot find (it replaced Exceptions, 19
+/// Oct 2026), **Counts** and the **Stock card**. The other screens (Observations,
+/// Movements, As of, Control, Time machine…) stay routed, linkable and in ⌘K,
+/// because `hidden` only means "not a sub-item".
 ///
 /// What the earlier collapse buried were the three surfaces that are not
 /// readings of stock at all:
@@ -71,10 +66,10 @@ export const inventoryNav: AppModule = {
       items: [
         { path: "/inventory", label: "Stock", icon: Boxes },
         {
-          path: "/inventory/exceptions",
-          label: "Exceptions",
+          path: "/inventory/missing",
+          label: "Missing",
           icon: PackageX,
-          useCount: useOpenExceptionCount,
+          useCount: useMissingCount,
           badge: "warn",
         },
         {
@@ -99,11 +94,13 @@ export const inventoryNav: AppModule = {
           icon: ArrowLeftRight,
           hidden: true,
         },
+        // Observations stays routed (a place's sheet links to it) and in ⌘K;
+        // it is no longer a sidebar row.
         {
           path: "/inventory/observations",
           label: "Observations",
           icon: Radar,
-          more: true,
+          hidden: true,
         },
         // Flow templates (0615-0619): the order of stages each route of goods
         // runs, who raises its plan and who does each stage. Sought by name —
@@ -118,16 +115,6 @@ export const inventoryNav: AppModule = {
           icon: Workflow,
           hidden: true,
         },
-        // Hidden while SHOW_MISSING is off; the route stays declared.
-        ...(SHOW_MISSING
-          ? [
-              {
-                path: "/inventory/missing",
-                label: "Missing",
-                icon: PackageX,
-              },
-            ]
-          : []),
         {
           path: "/inventory/reconciliations",
           label: "Reconciliations",

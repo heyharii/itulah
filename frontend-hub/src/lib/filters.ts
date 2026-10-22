@@ -1,5 +1,6 @@
 import type { ColumnDef, RowData } from "@tanstack/react-table"
 import { useNavigate, useSearch } from "@tanstack/react-router"
+import type { LucideIcon } from "lucide-react"
 import { useCallback, useMemo, type ReactNode } from "react"
 
 import type { SheetSearch } from "@/lib/sheets"
@@ -429,6 +430,10 @@ export interface FilterSpec {
   /// Something to set beside the option's label — a colour swatch, a status
   /// dot. `ui/facets` calls the same idea `leadingOf`.
   readonly leading?: (value: string) => ReactNode
+  /// The mark an answer wears as a chip in `<ListFilters>` (owner,
+  /// 2026-10-18: "pakai radio icon"): a car for vehicles, a printer for
+  /// stationery. `null` is "All".
+  readonly icon?: (value: string | null) => LucideIcon | undefined
   /// At most one clause on this column; a second replaces the first.
   ///
   /// True for every server-backed field, because each maps to ONE array on the

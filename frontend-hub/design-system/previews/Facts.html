@@ -1,0 +1,57 @@
+<!-- @dsCard group="Records" height=740 subtitle="Static rendition of sheet.tsx (Facts, Fact) in the All white look" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>Facts — preview</title><style>
+body{margin:0}
+.ds-facts-rail{width:min(480px,100%)}
+.ds-facts-rail .ds-sheet{width:100%}
+.ds-facts-rail .ds-sheet-body{padding-top:20px}
+.ds-facts-phone{margin:0;width:min(414px,100%)}
+.ds-facts-phone .ds-phone-body{padding:20px var(--phone-gutter) 24px}
+</style></head>
+<body>
+<div class="ds ds-stage">
+
+  <div class="ds-col">
+    <p class="ds-caption">In a rail sheet: wide facts, an empty value, a record link</p>
+    <div class="ds-facts-rail">
+      <div class="ds-sheet ds-sheet--rail">
+        <div class="ds-sheet-body">
+          <section class="ds-section">
+            <h3 class="ds-section-title">Company</h3>
+            <dl class="ds-facts">
+              <div class="ds-fact ds-fact--wide"><dt>Address</dt><dd>Jl. Cibaduyut Raya No. 88, Bandung 40239</dd></div>
+              <div class="ds-fact"><dt>Phone number</dt><dd>+62 22 5401 2288</dd></div>
+              <div class="ds-fact"><dt>NPWP</dt><dd>—</dd></div>
+              <div class="ds-fact ds-fact--wide"><dt>Email</dt><dd>sales@sepatusejahtera.id</dd></div>
+              <div class="ds-fact"><dt>PKP</dt><dd>No</dd></div>
+              <div class="ds-fact"><dt>Last order</dt><dd><button class="ds-link" type="button">PO-151026-004</button></dd></div>
+            </dl>
+          </section>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ds-col">
+    <p class="ds-caption">The same facts on a phone: two columns, the same order</p>
+    <div class="ds-phone ds-facts-phone">
+      <div class="ds-phone-body">
+        <section class="ds-section">
+          <h3 class="ds-section-title">Company</h3>
+          <dl class="ds-facts">
+            <div class="ds-fact ds-fact--wide"><dt>Address</dt><dd>Jl. Cibaduyut Raya No. 88, Bandung 40239</dd></div>
+            <div class="ds-fact"><dt>Phone number</dt><dd>+62 22 5401 2288</dd></div>
+            <div class="ds-fact"><dt>NPWP</dt><dd>—</dd></div>
+            <div class="ds-fact ds-fact--wide"><dt>Email</dt><dd>sales@sepatusejahtera.id</dd></div>
+            <div class="ds-fact"><dt>PKP</dt><dd>No</dd></div>
+            <div class="ds-fact"><dt>Last order</dt><dd><button class="ds-link" type="button">PO-151026-004</button></dd></div>
+          </dl>
+        </section>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

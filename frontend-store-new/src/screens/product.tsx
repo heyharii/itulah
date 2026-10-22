@@ -8,7 +8,7 @@ import { Segmented } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { EmptyState, LoadingState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
-import { count, label } from "@/lib/format"
+import { articleId, count, label, sku as skuText } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import { reaches } from "@/lib/deals"
 import { isDown } from "@/lib/prices"
@@ -110,7 +110,13 @@ export function ProductSheet({
     <Sheet
       open={sku !== undefined}
       onOpenChange={(next) => !next && onClose()}
-      id={record?.sku_code ?? sku}
+      id={
+        record === undefined
+          ? sku === undefined
+            ? undefined
+            : skuText(sku)
+          : `${articleId(record.article_code, record.sku_code)} · ${skuText(record.sku_code)}`
+      }
       title={record?.name ?? (loaded ? "Not in this range" : "Reading…")}
       badge={down ? <Pill tone="bad">Price down</Pill> : undefined}
       caption={division}
@@ -157,7 +163,7 @@ export function ProductSheet({
           <EmptyState>
             {sku === undefined
               ? "No article was named."
-              : `${sku} is not in this shop's priced range.`}
+              : `${skuText(sku)} is not in this shop's priced range.`}
           </EmptyState>
         ) : (
           <LoadingState>Reading this shop's range…</LoadingState>
@@ -253,11 +259,14 @@ function Details({
                 <span className="font-mono">{row.barcode}</span>
               </Fact>
             )}
-            {row.article_code !== null && (
-              <Fact term="Article">
-                <span className="font-mono">{row.article_code}</span>
-              </Fact>
-            )}
+            <Fact term="Article">
+              <span className="font-mono">
+                {articleId(row.article_code, row.sku_code)}
+              </span>
+            </Fact>
+            <Fact term="SKU">
+              <span className="font-mono">{skuText(row.sku_code)}</span>
+            </Fact>
             {row.tags.length > 0 && (
               <Fact term="Tags" wide>
                 <span className="flex flex-wrap gap-1.5">

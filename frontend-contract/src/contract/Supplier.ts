@@ -17,6 +17,17 @@ category: string,
  */
 expense_account_code: string | null, 
 /**
+ * The chart's name for that account, read with it (never stored here).
+ * Absent on a read that did not join the chart.
+ */
+expense_account_name: string | null, 
+/**
+ * What we buy from them, one of [`SUPPLIER_KINDS`] (0981). Set by a
+ * person, or taken from the account's kind when nobody said; absent on
+ * a merchandise supplier, whose bills debit stock.
+ */
+kind: string | null, 
+/**
  * Nomor Pokok Wajib Pajak, as printed on the faktur — punctuation and
  * all. Stored as typed because it is copied onto documents rather than
  * matched on, and one company has exactly one. See migration 0302.

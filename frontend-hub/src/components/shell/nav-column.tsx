@@ -17,6 +17,7 @@ import {
 } from "react"
 
 import { BrandMark } from "@/components/brand-mark"
+import { hasMattePicture, MattePicture } from "@/components/ui/matte-picture"
 import { AccountOrb } from "@/components/shell/account-orb"
 import { RailTip } from "@/components/ui/rail-tip"
 import { officeFor } from "@/lib/apps"
@@ -246,6 +247,7 @@ export function NavColumn({
         {!homeNav.hidden && (
           <DepartmentLink
             icon={House}
+            art="home"
             label={homeNav.label}
             to="/"
             lit={active.id === homeNav.id}
@@ -278,9 +280,9 @@ export function NavColumn({
       {/* The rail's foot held chat, discussions, the bell, the profile and
           Sign out. They are the account orb now (`account-orb.tsx`, owner,
           2026-10-16), pinned here on a desk; undocked it floats. */}
-      {!drawer && onSearch && (
+      {!drawer && (
         <div className="flex shrink-0 justify-center pt-2 pb-4">
-          <AccountOrb pinned onSearch={onSearch} />
+          <AccountOrb pinned />
         </div>
       )}
     </nav>
@@ -331,6 +333,7 @@ function Department({
     return (
       <DepartmentLink
         icon={Icon}
+        art={domain.id}
         label={domain.label}
         to={domainHome(domain)}
         lit={open}
@@ -883,6 +886,7 @@ function ScreenRow({
 /// it carries one — as the dot at its corner.
 function DepartmentLink({
   icon: Icon,
+  art,
   label,
   to,
   lit,
@@ -892,6 +896,9 @@ function DepartmentLink({
   onPick,
 }: {
   icon: LucideIcon
+  /// The department's matte picture, drawn instead of the line icon in the
+  /// Soft style (`lib/look.ts`): in colour where you are, grey elsewhere.
+  art?: string
   label: string
   to: string
   lit: boolean
@@ -904,6 +911,7 @@ function DepartmentLink({
   /// belongs to the caller's element, never to a loop over these rows.
   badge?: ReactNode
 }) {
+  const matte = art !== undefined && hasMattePicture(art) ? art : null
   const link = (
     <Link
       to={to}
@@ -929,9 +937,17 @@ function DepartmentLink({
       <Icon
         className={cn(
           "size-[1.125rem] shrink-0 stroke-[1.6] transition-colors",
-          lit ? "text-rail-ink" : "text-rail-mute group-hover:text-rail-text"
+          lit ? "text-rail-ink" : "text-rail-mute group-hover:text-rail-text",
+          matte !== null && "look-now-only"
         )}
       />
+      {matte !== null && (
+        <MattePicture
+          id={matte}
+          tone={lit ? "colour" : "grey"}
+          className="look-soft-only size-[1.625rem]"
+        />
+      )}
       {!folded && <span className="min-w-0 flex-1 truncate">{label}</span>}
       {folded && badge}
     </Link>

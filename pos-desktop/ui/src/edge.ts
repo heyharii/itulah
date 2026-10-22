@@ -171,12 +171,55 @@ export async function device(
   return invoke<DeviceState>(which)
 }
 
-/// Read one EPC with the local Chainway R3. The Rust command mutes the buzzer
-/// and verifies it before inventory, so the page cannot start a noisy sweep.
-export async function readRfidSingle(): Promise<string> {
+/// One tag the R3's pad heard — `PadTag` in `src-tauri/src/rfid.rs`.
+export type PadTag = {
+  /// Upper-case hex, without the PC word.
+  readonly epc: string
+  /// The strongest it was heard at, in dBm.
+  readonly rssi_dbm: number
+  readonly reads: number
+}
+
+/// One read of the R3's pad — `PadRead` in `src-tauri/src/rfid.rs`.
+export type PadRead = {
+  /// Each EPC once, strongest first.
+  readonly tags: readonly PadTag[]
+  /// Tags heard only below this till's signal floor, left out.
+  readonly too_weak: number
+  /// Records the reader sent that did not read as a PC word and its EPC.
+  readonly unreadable: number
+  readonly power_dbm: number
+  readonly window_ms: number
+  readonly min_rssi_dbm: number
+  /// The reader's firmware version, as it reported it.
+  readonly firmware: string
+  readonly profile: RadioProfile
+}
+
+/// The radio profile a read ran with, as the R3 read it back when the shell
+/// last set it up (on opening, or after a reset) — `RadioProfile` in
+/// `src-tauri/src/rfid.rs`.
+export type RadioProfile = {
+  readonly fast_id: boolean
+  readonly tag_focus: boolean
+  /// The session the Query asks, "S0" to "S3".
+  readonly session: string
+  /// The flag the Query asks for, "A" or "B".
+  readonly target: string
+  /// The RF link mode, as the vendor's API document names it.
+  readonly rf_link: string
+  /// The Gen2X mode the shell moved the reader off, not saved in the reader.
+  readonly rf_link_moved_from: string | null
+}
+
+/// Read every tag on the local Chainway R3's pad. The shell asks the buzzer
+/// and the power (a reset moves one or the other, and then everything is set
+/// again) and runs one short inventory off the window's thread
+/// (`src-tauri/src/rfid.rs`); nothing reads until this is called.
+export async function readRfidPad(): Promise<PadRead> {
   const invoke = bridge()
   if (invoke === null) {
     throw new Error("The Chainway R3 can only be read from the Windows till app.")
   }
-  return invoke<string>("rfid_read_single")
+  return invoke<PadRead>("rfid_read_pad")
 }

@@ -27,11 +27,7 @@ import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { Fab } from "@/components/ui/fab"
 import { Field, Input, Money, Select, Textarea } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
-import {
-  BarSpacer,
-  ColumnsMenu,
-  ExpandingSearch,
-} from "@/components/ui/list-chrome"
+import { BarSpacer, ColumnsMenu } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill, Status } from "@/components/ui/pill"
 import {
@@ -41,6 +37,7 @@ import {
   MiniTable,
   SubHead,
 } from "@/components/ui/rows"
+import { CellMoney } from "@/components/ui/rows-switch"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState, NoMatch } from "@/components/ui/states"
 import { useFilters } from "@/lib/filters"
@@ -327,7 +324,7 @@ const columns: ColumnDef<TableSetup, AssetRow>[] = [
       row.original.capitalized_cost_minor === null ? (
         <span className="text-faint">—</span>
       ) : (
-        money(row.original.capitalized_cost_minor)
+        <CellMoney minor={row.original.capitalized_cost_minor} />
       ),
   },
   {
@@ -343,7 +340,7 @@ const columns: ColumnDef<TableSetup, AssetRow>[] = [
       row.original.accumulated_minor === 0 ? (
         <span className="text-faint">—</span>
       ) : (
-        money(row.original.accumulated_minor)
+        <CellMoney minor={row.original.accumulated_minor} />
       ),
   },
   {
@@ -364,7 +361,7 @@ const columns: ColumnDef<TableSetup, AssetRow>[] = [
         <span className="text-faint">—</span>
       ) : (
         <span className="font-medium text-ink tabular-nums">
-          {money(row.original.book_value_minor)}
+          <CellMoney minor={row.original.book_value_minor} />
         </span>
       ),
   },
@@ -633,11 +630,6 @@ function AssetRegisterScreen() {
 
       {!phone && (
         <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2">
-          <ExpandingSearch
-            value={query}
-            onChange={setQuery}
-            label="Search assets"
-          />
           <SiteSelect
             value={site}
             onChange={setSite}
@@ -647,7 +639,15 @@ function AssetRegisterScreen() {
           {/* Location is not among the questions inside: the select beside this
             asks it on the wire, and the figure to the right is the answer for
             whatever it asked. */}
-          <FilterPanel model={filters} table={table} />
+          <FilterPanel
+            model={filters}
+            table={table}
+            search={{
+              value: query,
+              onChange: setQuery,
+              label: "Search assets",
+            }}
+          />
           <BarSpacer />
           {/* The effective answer, in words. Which location, how many assets
             the server found, and what they are worth — the same figure the

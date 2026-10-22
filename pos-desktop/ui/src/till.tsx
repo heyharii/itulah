@@ -2,20 +2,27 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import * as api from "@/api"
 import { publish } from "@/customer-link"
-import { useApproval } from "@/approval"
-import { device, inShell, openCustomerDisplay, readRfidSingle } from "@/edge"
+import { useApproval, type Approved } from "@/approval"
+import { device, inShell, openCustomerDisplay, readRfidPad } from "@/edge"
 import { isWeb } from "@/edition"
 import { Icon, type IconName } from "@/icons"
 import { useWaitingTills } from "@/joining"
 import {
-  BagPicker,
+  BAGS,
   CancelSale,
   HoldList,
   ReceiptPreview,
   Sheet,
 } from "@/screens/dialogs"
 import { useShortcuts } from "@/shortcuts"
-import { enqueue, flush, forget, useOutbox } from "@/outbox"
+import {
+  enqueue,
+  flush,
+  resolveRefused,
+  useOutbox,
+  type OutboxEntry,
+  type Swap,
+} from "@/outbox"
 import { drawerOnSale, printReceiptHere, receiptTarget } from "@/peripherals"
 import { authorizeVoucher, releaseVoucher } from "@/vouchers"
 import {
@@ -28,14 +35,17 @@ import { seatNow, useSeat } from "@/seat"
 import { lookupBenefit, returnBenefit, spendBenefit, type BenefitHolder } from "@/benefit"
 import { useNodeConfig, useSession } from "@/session"
 import { refreshPaymentMethods, usePaymentMethods } from "@/payment-methods"
+import { articleId, sku as skuText } from "@/sku"
 import { readScan } from "@epc"
 import { money } from "@itulah/contract/money"
 
 /// The counter, and everywhere a cashier goes from it.
 ///
-/// The shape is `prototypes/pos` — scanning and the board on the left, the
-/// basket and the money on the right, payment as a page of its own rather than
-/// a dialog, and a basket that counts tags instead of quantities.
+/// The shape is the approved Flipped · Labels layout — the basket on the left
+/// with one scan field above it, the money on the right (member, coupon, bags,
+/// the total, the one blue button), what a cashier does mid-sale in the header,
+/// payment as a dialog over the basket, and a basket that counts tags: the same
+/// article twice reads "× 2", but each unit is still its own tag.
 ///
 /// Navigation is a `when` over a union rather than a router. Six destinations
 /// do not need a graph, and a back stack that could strand somebody two screens
@@ -84,6 +94,12 @@ type Quote = {
   readonly grantedLines: readonly api.GrantedLine[]
   /// Limited coupons the node would not apply without a hold from head office.
   readonly toAuthorize: readonly string[]
+  /// The basket this answer prices (`basisOf`). Payment opens only on an
+  /// answer for exactly the basket on the counter.
+  readonly basis: string | null
+  /// Tags the node will not sell from this shop's floor. Taken off the basket
+  /// as soon as they are named; payment waits until the answer has none.
+  readonly unsellable: readonly api.Unsellable[]
 }
 
 const emptyQuote = (): Quote => ({
@@ -95,10 +111,35 @@ const emptyQuote = (): Quote => ({
   promotions: [],
   grantedLines: [],
   toAuthorize: [],
+  basis: null,
+  unsellable: [],
 })
+
+/// Everything a quote is asked about, as one string, so "is this answer about
+/// the basket on the counter" is one comparison.
+function basisOf(
+  epcs: readonly string[],
+  coupons: readonly string[],
+  customerId: string | null,
+  charges: readonly api.Charge[],
+  holds: readonly CouponHold[],
+): string {
+  return JSON.stringify([epcs, coupons, customerId, charges, holds])
+}
+
+/// What one scan came to, for a caller that scans many at once (the R3's pad).
+type ScanOutcome = "added" | "already" | "other"
+
+/// "Kemeja Oxford · …A1B2C3D4": a unit named the way a cashier finds it — the
+/// article, and the end of its tag, which is what tells two of them apart.
+function unitName(unit: Unit): string {
+  return `${unit.name ?? skuText(unit.sku_code)} · …${unit.epc.slice(-8)}`
+}
 
 export type Sold = {
   readonly id: string
+  /// The outbox row it was written down as — what Resolve opens on a refusal.
+  readonly localId: string
   /// The node's own id, once it has one. Null while the sale is still in the
   /// outbox — and a receipt cannot be printed for a sale the node has never
   /// heard of, which is why this is separate from the local id above.
@@ -109,7 +150,18 @@ export type Sold = {
   /// waiting for the line to come back. A receipt that said "done" for a sale
   /// nobody has accepted yet is the most expensive lie a till can tell.
   readonly accepted: boolean
+  /// The node read it and said no. Not resent on its own and never discarded:
+  /// it waits in the refused list on the sale screen until a supervisor
+  /// resolves it (`ResolveSale`) and it goes again.
+  readonly refused: boolean
   readonly problem: string | null
+  /// The tags it named, as the cashier reads them, for the refusal.
+  readonly tags: readonly string[]
+  /// Set when the person's seat turned out to be gone as the sale was
+  /// written: who took it, or null when it simply ended. Undefined: still
+  /// theirs. The sale goes to the node either way; the seat is dealt with
+  /// after it.
+  readonly seatLost?: string | null
 }
 
 // How the shopper pays — the tiles and their banks — now comes from Finance's
@@ -276,11 +328,25 @@ export function Till({
   // not in `Where` because leaving them is always "back to this basket" — a
   // cashier who cancelled a bag picker has not gone anywhere.
   const [panel, setPanel] = useState<
-    null | "cancel" | "hold" | "bags" | "rfid" | { readonly receipt: string }
+    | null
+    | "cancel"
+    | "hold"
+    | "rfid"
+    | "member"
+    | "coupon"
+    | { readonly receipt: string }
+    /// A refused sale being resolved, by its outbox row.
+    | { readonly resolve: string }
   >(null)
+  // The bag choices open in their row, not in a dialog.
+  const [bagPick, setBagPick] = useState(false)
   const [customerId, setCustomerId] = useState<string | null>(null)
   const [note, setNote] = useState<{ bad: boolean; text: string } | null>(null)
   const [rfidBusy, setRfidBusy] = useState(false)
+  // Taking one unit off a line of several: the line's SKU while the cashier
+  // reads or picks the exact tag that goes, so the tag handed back is the tag
+  // taken off — never whichever of them was scanned last.
+  const [removing, setRemoving] = useState<string | null>(null)
   const [check, setCheck] = useState<readonly api.CatalogRow[]>([])
   const [quote, setQuote] = useState<Quote>(emptyQuote)
   const quoteRequest = useRef(0)
@@ -304,17 +370,73 @@ export function Till({
     void refreshPaymentMethods()
   }, [])
 
+  // The price book as last walked: the catalogue generation it was read under
+  // (null when unknown, or when the walk failed), when a walk last started, and
+  // whether one is running. The poll below compares the generation; the quote
+  // compares the prices (`askForQuote`).
+  const bookKey = useRef<string | null>(null)
+  const bookWalkedAt = useRef(0)
+  const bookWalking = useRef(false)
+  const bookNow = useRef<ReadonlyMap<string, api.CatalogRow>>(new Map())
+  // Read by the quote's answer without making every screen change a new quote.
+  const whereNow = useRef(where)
+  whereNow.current = where
+
+  /// Walk the whole price book — every page, not the first hundred rows — and
+  /// put it on the counter; the lines already in the basket take their names
+  /// and prices from it. One walk at a time. A walk that fails keeps the last
+  /// good book and says why.
+  const loadBook = useCallback(async () => {
+    if (bookWalking.current) return
+    bookWalking.current = true
+    bookWalkedAt.current = Date.now()
+    try {
+      // The generation first: a catalogue swapped during the walk then no
+      // longer matches it, and the next look walks again.
+      const state = await api.catalogueState()
+      const walked = await api.wholeCatalogue()
+      if (!walked.ok) {
+        bookKey.current = null
+        setBookProblem(walked.problem)
+        return
+      }
+      bookKey.current =
+        state.ok && state.body
+          ? `${state.body.generation}:${state.body.content_hash}`
+          : null
+      setBookProblem(null)
+      // A node that answers with no book at all keeps the last good one here,
+      // as the refresh always has.
+      if (!walked.hasPriceBook && bookNow.current.size > 0) return
+      setRows(walked.rows)
+      const byCode = new Map(walked.rows.map((row) => [row.sku_code, row] as const))
+      setUnits((previous) => {
+        let changed = false
+        const next = previous.map((unit) => {
+          const row = byCode.get(unit.sku_code)
+          if (
+            row === undefined ||
+            (row.name === unit.name && row.unit_price_minor === unit.unitPriceMinor)
+          ) {
+            return unit
+          }
+          changed = true
+          return { ...unit, name: row.name, unitPriceMinor: row.unit_price_minor }
+        })
+        return changed ? next : previous
+      })
+    } finally {
+      bookWalking.current = false
+    }
+  }, [])
+
   // Load the resident book immediately so a basket can be drawn while the node
-  // is busy. While a basket is open, the poll below refreshes this cached view
-  // and asks the node for a fresh quote so a Cloud publication reaches an
+  // is busy. While a basket is open, the poll below looks for a new catalogue
+  // and asks the node for a fresh quote, so a Cloud publication reaches an
   // already-open till without requiring the cashier to rescan an item.
   useEffect(() => {
-    void (async () => {
-      const reply = await api.catalogue()
-      if (reply.ok) setRows(reply.body?.items ?? [])
-      else setBookProblem(reply.problem)
-    })()
-  }, [])
+    void loadBook()
+  }, [loadBook])
 
   // Parked baskets survive this window: written on every change, so a crash —
   // or the app being closed between two customers — still finds them in the
@@ -341,6 +463,7 @@ export function Till({
     for (const row of rows) index.set(row.sku_code, row)
     return index
   }, [rows])
+  bookNow.current = bySku
 
   const booked = units.reduce((sum, unit) => sum + (unit.unitPriceMinor ?? 0), 0)
   const unpriced = units.some((unit) => unit.unitPriceMinor === null)
@@ -348,10 +471,90 @@ export function Till({
   const total = quote.totalMinor ?? booked + chargeTotal
   const currency = rows[0]?.currency ?? "IDR"
 
+  // What is on the counter now, against what the last answer priced.
+  const basis = basisOf(
+    units.map((unit) => unit.epc),
+    coupons,
+    customerId,
+    charges,
+    couponHolds,
+  )
+  // The figure on screen is the node's for exactly this basket: not one still
+  // on its way, not one for the basket as it stood a scan ago, and not one that
+  // named a tag this shop cannot sell. A total the node could not give (no
+  // price book) is still the honest figure, as it always was.
+  const figureRight =
+    !quote.stale &&
+    quote.basis === basis &&
+    quote.unsellable.length === 0 &&
+    (quote.totalMinor !== null || quote.problem === null)
+  // Payment opens only on that, and only while the node is answering: a basket
+  // the node cannot price now is a basket it may refuse after the money.
+  const quoteReady = units.length > 0 && figureRight && quote.problem === null
+  // Why it is not, in the words under the total.
+  const quoteNote =
+    units.length === 0
+      ? null
+      : quote.stale || quote.basis !== basis
+        ? "Calculating…"
+        : quote.problem !== null
+          ? quote.problem
+          : quote.unsellable.length > 0
+            ? `Can't be sold from this shop — ${quote.unsellable
+                .map((one) => {
+                  const unit = units.find(
+                    (each) => each.epc.toUpperCase() === one.epc.toUpperCase(),
+                  )
+                  return `${unit === undefined ? `…${one.epc.slice(-8)}` : unitName(unit)}: ${one.reason}`
+                })
+                .join("; ")}. It comes off at the basket.`
+            : quote.totalMinor === null
+              ? "Provisional — the node has no price book"
+              : null
+
+  // One line per article: the same SKU at the same price is "× 3", not three
+  // rows. A unit is still its tag — taking one off names that tag's EPC.
+  const groups = useMemo(() => {
+    const byKey = new Map<
+      string,
+      { key: string; sku: string; name: string | null; price: number | null; units: Unit[] }
+    >()
+    for (const unit of units) {
+      const key = `${unit.sku_code}|${unit.unitPriceMinor ?? "none"}`
+      const found = byKey.get(key)
+      if (found === undefined) {
+        byKey.set(key, {
+          key,
+          sku: unit.sku_code,
+          name: unit.name,
+          price: unit.unitPriceMinor,
+          units: [unit],
+        })
+      } else {
+        found.units.push(unit)
+      }
+    }
+    return [...byKey.values()]
+  }, [units])
+  // The newest tag is marked, never animated: scans are scanner input, a
+  // hundred a day, and the line just has to be where the eye lands.
+  const newestEpc = units.length > 0 ? units[units.length - 1].epc : null
+  const newestRow = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    newestRow.current?.scrollIntoView({ block: "nearest" })
+  }, [units.length])
+
   const askForQuote = useCallback(
     async (markStale: boolean) => {
       const request = ++quoteRequest.current
       if (markStale) setQuote((was) => ({ ...was, stale: true, problem: null }))
+      const asked = basisOf(
+        units.map((unit) => unit.epc),
+        coupons,
+        customerId,
+        charges,
+        couponHolds,
+      )
       const reply = await api.quote(
         units.map((unit) => unit.epc),
         coupons,
@@ -360,28 +563,87 @@ export function Till({
         onTheWire(couponHolds),
       )
       if (request !== quoteRequest.current) return
-      setQuote(
-        reply.ok
-          ? {
-              totalMinor:
-                reply.body?.amount_due_minor ??
-                reply.body?.total_minor ??
-                null,
-              stale: false,
-              problem: null,
-              discountTotalMinor: reply.body?.discount_total_minor ?? 0,
-              pointsEarned: reply.body?.points_earned ?? 0,
-              promotions: reply.body?.promotions ?? [],
-              grantedLines: reply.body?.granted_lines ?? [],
-              toAuthorize: reply.body?.coupons_to_authorize ?? [],
-            }
-          : {
-              ...emptyQuote(),
-              problem: reply.problem,
-            },
-      )
+      if (!reply.ok) {
+        // A refresh of the basket that was already priced keeps the figure it
+        // had and says why it could not be checked; anything else has no figure.
+        const problem =
+          reply.problem ?? `The node did not price this basket (HTTP ${reply.status}).`
+        setQuote((was) =>
+          !was.stale && was.basis === asked && was.problem === null
+            ? { ...was, problem }
+            : { ...emptyQuote(), problem, basis: asked },
+        )
+        return
+      }
+      const unsellable = reply.body?.unsellable ?? []
+      setQuote({
+        totalMinor:
+          reply.body?.amount_due_minor ??
+          reply.body?.total_minor ??
+          null,
+        stale: false,
+        problem: null,
+        discountTotalMinor: reply.body?.discount_total_minor ?? 0,
+        pointsEarned: reply.body?.points_earned ?? 0,
+        promotions: reply.body?.promotions ?? [],
+        grantedLines: reply.body?.granted_lines ?? [],
+        toAuthorize: reply.body?.coupons_to_authorize ?? [],
+        basis: asked,
+        unsellable,
+      })
+
+      // A tag the node will not sell from this floor — sold already, in the
+      // stockroom, set aside — comes off at once, named, before any money.
+      // Not under the payment dialog, where it would vanish unseen: there the
+      // answer holds the payment back (`figureRight`) and names the tag, and
+      // it comes off once the cashier is back at the basket.
+      if (unsellable.length > 0 && whereNow.current !== "payment") {
+        const why = new Map(
+          unsellable.map((one) => [one.epc.toUpperCase(), one.reason] as const),
+        )
+        const going = units.filter((unit) => why.has(unit.epc.toUpperCase()))
+        setUnits((previous) =>
+          previous.filter((unit) => !why.has(unit.epc.toUpperCase())),
+        )
+        if (going.length > 0) {
+          setNote({
+            bad: true,
+            text: `Taken off the basket — ${going
+              .map((unit) => `${unitName(unit)}: ${why.get(unit.epc.toUpperCase())}`)
+              .join("; ")}.`,
+          })
+        }
+      }
+
+      // The shelf price of every line, this minute, from the engine the sale
+      // runs: the lines on screen follow it. A price the book on this till does
+      // not have means the book is out of date, so it is walked again — at
+      // most once a minute, since a book walk is every page of the range.
+      const shelf = new Map<string, number>()
+      for (const line of reply.body?.lines ?? []) {
+        if (typeof line?.sku_code === "string" && typeof line.unit_price_minor === "number") {
+          shelf.set(line.sku_code, line.unit_price_minor)
+        }
+      }
+      if (shelf.size > 0) {
+        setUnits((previous) => {
+          let changed = false
+          const next = previous.map((unit) => {
+            const price = shelf.get(unit.sku_code)
+            if (price === undefined || price === unit.unitPriceMinor) return unit
+            changed = true
+            return { ...unit, unitPriceMinor: price }
+          })
+          return changed ? next : previous
+        })
+        const book = bookNow.current
+        const behind = [...shelf].some(
+          ([sku, price]) => book.get(sku)?.unit_price_minor !== price,
+        )
+        if (behind && Date.now() - bookWalkedAt.current > 60_000) void loadBook()
+      }
     },
-    [units, coupons, customerId, charges, couponHolds],
+    [units, coupons, customerId, charges, couponHolds, loadBook],
   )
 
   /// Hold a limited coupon at head office, the moment the node says it needs
@@ -449,6 +711,12 @@ export function Till({
   // till or its payment page remains open. The node is local, so this remains
   // useful when the Cloud link is down; failures keep the last good catalogue
   // and let askForQuote surface the node's actual quote status.
+  //
+  // The book is not downloaded every two seconds: the poll asks for the
+  // catalogue's generation (one small row) and walks every page again only
+  // when it moved. Prices move without it — a price book, a markdown's hour —
+  // and those reach the basket through the quote, whose lines carry this
+  // minute's shelf price and walk the book again when it has fallen behind.
   useEffect(() => {
     if (
       units.length === 0 ||
@@ -463,43 +731,14 @@ export function Till({
       inFlight = true
       void (async () => {
         try {
-          const reply = await api.catalogue()
-          if (reply.ok && reply.body?.has_price_book) {
-            const nextRows = reply.body.items ?? []
-            setRows((previous) => {
-              const unchanged =
-                previous.length === nextRows.length &&
-                nextRows.every(
-                  (row, index) =>
-                    previous[index]?.sku_code === row.sku_code &&
-                    previous[index]?.name === row.name &&
-                    previous[index]?.unit_price_minor === row.unit_price_minor,
-                )
-              return unchanged ? previous : nextRows
-            })
-            const byCode = new Map(
-              nextRows.map((row) => [row.sku_code, row] as const),
-            )
-            setUnits((previous) => {
-              let changed = false
-              const next = previous.map((unit) => {
-                const row = byCode.get(unit.sku_code)
-                if (
-                  row === undefined ||
-                  (row.name === unit.name &&
-                    row.unit_price_minor === unit.unitPriceMinor)
-                ) {
-                  return unit
-                }
-                changed = true
-                return {
-                  ...unit,
-                  name: row.name,
-                  unitPriceMinor: row.unit_price_minor,
-                }
-              })
-              return changed ? next : previous
-            })
+          const state = await api.catalogueState()
+          if (state.ok && state.body) {
+            const key = `${state.body.generation}:${state.body.content_hash}`
+            const moved = bookKey.current !== null && key !== bookKey.current
+            // Never walked to the end yet: tried again, twice a minute at most.
+            const owed =
+              bookKey.current === null && Date.now() - bookWalkedAt.current > 30_000
+            if (moved || owed) void loadBook()
           }
           await askForQuote(false)
         } finally {
@@ -512,13 +751,36 @@ export function Till({
     }, 2_000)
 
     return () => window.clearInterval(timer)
-  }, [where, units.length, askForQuote])
+  }, [where, units.length, askForQuote, loadBook])
 
   const onScan = useCallback(
-    (raw: string) => {
+    (raw: string): ScanOutcome => {
       const text = raw.trim()
-      if (text === "") return
+      if (text === "") return "other"
       setCheck([])
+
+      // Taking one off a line of several: the tag scanned is the tag that
+      // goes, after the same second person every removal needs.
+      if (removing !== null) {
+        const tag = readScan(text.replace(/·/g, ""))
+        const unit =
+          tag.kind === "epc" ? units.find((one) => one.epc === tag.epc) : undefined
+        if (unit === undefined || unit.sku_code !== removing) {
+          setNote({
+            bad: true,
+            text:
+              tag.kind !== "epc"
+                ? "Scan the tag of the garment to take off."
+                : unit === undefined
+                  ? "That tag is not in the basket."
+                  : "That tag is on another line — press × on that line to take it off.",
+          })
+          return "other"
+        }
+        setRemoving(null)
+        askRemove([unit])
+        return "other"
+      }
 
       // A member card held up to the scanner. The member app prints `M1:` +
       // the card number as a Code 128 barcode (`frontend-customer/src/lib/
@@ -528,18 +790,20 @@ export function Till({
       if (card !== null) {
         setCustomerId(card)
         setNote({ bad: false, text: `Member card ${card} read.` })
-        return
+        return "other"
       }
 
-      const scanned = readScan(text)
+      const scanned = readScan(text.replace(/·/g, ""))
 
       if (scanned.kind === "epc") {
         if (units.some((unit) => unit.epc === scanned.epc)) {
           setNote({
             bad: true,
-            text: "That tag is already in the basket. One tag is one item.",
+            text:
+              "That tag is already in the basket. One tag is one item — to take " +
+              "it off, press × on its line.",
           })
-          return
+          return "already"
         }
         const row = bySku.get(scanned.sku_code)
         setUnits((was) => [
@@ -552,7 +816,7 @@ export function Till({
           },
         ])
         setNote(null)
-        return
+        return "added"
       }
 
       if (scanned.kind === "sku") {
@@ -560,7 +824,7 @@ export function Till({
         if (row !== undefined) {
           setCheck([row])
           setNote(null)
-          return
+          return "other"
         }
       }
 
@@ -569,21 +833,73 @@ export function Till({
       if (found.length > 0) {
         setCheck(found.slice(0, 8))
         setNote(null)
-        return
+        return "other"
       }
       setNote({
         bad: true,
         text: `Nothing matches “${text}”. Scan the garment's tag, or type part of its name.`,
       })
+      return "other"
     },
-    [bySku, rows, units],
+    [bySku, rows, units, removing],
   )
 
+  /// Read every garment on the R3's pad at once. Each of this shop's tags goes
+  /// through `onScan`, so "already in the basket" and one tag one item are
+  /// decided where a single scan decides them; tags that are not this shop's
+  /// are counted and left alone. While taking one off a line, that line's tags
+  /// on the pad are the ones that go — named, after a second person's yes.
   const readWithR3 = useCallback(async () => {
     if (rfidBusy) return
     setRfidBusy(true)
     try {
-      onScan(await readRfidSingle())
+      const read = await readRfidPad()
+      const ours: string[] = []
+      for (const tag of read.tags) {
+        const scanned = readScan(tag.epc)
+        if (scanned.kind === "epc") ours.push(scanned.epc)
+      }
+      const foreign = read.tags.length - ours.length
+      const leftOut =
+        (read.too_weak > 0 ? ` ${read.too_weak} too faint to be on the pad, left out.` : "") +
+        (read.unreadable > 0 ? ` ${read.unreadable} unreadable.` : "")
+      if (removing !== null) {
+        const going = units.filter(
+          (unit) => unit.sku_code === removing && ours.includes(unit.epc),
+        )
+        if (going.length === 0) {
+          setNote({
+            bad: true,
+            text:
+              (read.tags.length === 0
+                ? "No tag on the pad."
+                : "None of the tags on the pad is on that line.") + leftOut,
+          })
+          return
+        }
+        setRemoving(null)
+        askRemove(going)
+        return
+      }
+      if (read.tags.length === 0) {
+        setNote({ bad: true, text: `No tag on the pad.${leftOut}` })
+        return
+      }
+      let added = 0
+      let already = 0
+      for (const epc of ours) {
+        const outcome = onScan(epc)
+        if (outcome === "added") added += 1
+        else if (outcome === "already") already += 1
+      }
+      setNote({
+        bad: added === 0,
+        text:
+          `${added} added from the pad` +
+          (already > 0 ? `, ${already} already in the basket` : "") +
+          (foreign > 0 ? `, ${foreign} not this shop's tags` : "") +
+          `.${leftOut}`,
+      })
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)
       setNote({ bad: true, text: `Chainway R3: ${detail}` })
@@ -591,7 +907,7 @@ export function Till({
       setRfidBusy(false)
       scan.current?.focus()
     }
-  }, [onScan, rfidBusy])
+  }, [onScan, rfidBusy, removing, units])
 
   // Back to the scan field whenever the counter is at rest — including after a
   // panel over it closes, so the next tag lands in the basket.
@@ -599,7 +915,7 @@ export function Till({
     if (where === "sale" && sold === null && panel === null && !approval.open) {
       scan.current?.focus()
     }
-  }, [where, sold, panel, approval.open])
+  }, [where, sold, panel, approval.open, bagPick])
 
   /// Empty the counter. The coupon holds go back to head office unless the
   /// basket was SOLD — then the sale carries them, and head office commits
@@ -627,7 +943,9 @@ export function Till({
     setCoupons([])
     setCustomerId(null)
     setCharges([])
+    setBagPick(false)
     setPanel(null)
+    setRemoving(null)
   }
 
   // What the shopper's screen shows, if one is open. Published on every change
@@ -675,51 +993,41 @@ export function Till({
       ? { Escape: () => setPanel(null) }
       : {
       F1: () => scan.current?.focus(),
-      F2: () => units.length > 0 && onGo("payment"),
+      F2: () => pay(),
       F3: () => onGo("return"),
-      F4: () => setPanel("bags"),
+      F4: () => setBagPick((was) => !was),
       F6: () => setPanel("rfid"),
       F8: () => units.length > 0 && setPanel("cancel"),
       F9: () => setPanel("hold"),
-      F10: () => units.length > 0 && onGo("payment"),
+      F10: () => pay(),
       F12: () => onGo("shift"),
-      Escape: () => setPanel(null),
+      Escape: () => {
+        setPanel(null)
+        setRemoving(null)
+      },
     },
     where === "sale" && sold === null && !approval.open,
   )
 
-  if (sold !== null) {
-    return (
-      <Sale
-        sold={sold}
-        currency={currency}
-        onNext={() => {
-          setSold(null)
-          clearBasket(true)
-          onGo("sale")
-        }}
-      />
-    )
+  /// Payment, only on the node's answer for exactly this basket (`quoteReady`).
+  /// Pressed early, it says what it is waiting for instead.
+  function pay() {
+    if (units.length === 0) return
+    if (quoteReady) {
+      onGo("payment")
+      return
+    }
+    setNote({ bad: true, text: quoteNote ?? "Calculating…" })
   }
 
-  if (where === "payment") {
-    return (
-      <Payment
-        units={units}
-        currency={currency}
-        totalMinor={total}
-        provisional={quote.totalMinor === null}
-        basketHasPromotion={quote.promotions.some((one) => one.applied)}
-        coupons={coupons}
-        couponHolds={couponHolds}
-        customerId={customerId}
-        charges={charges}
-        actorId={actorId}
-        onBack={() => onGo("sale")}
-        onSold={setSold}
-        onSeatLost={onSeatLost}
-      />
-    )
+  function dropCoupon(code: string) {
+    setCoupons((was) => was.filter((one) => one !== code))
+    // Its hold goes back: this basket will not use it.
+    for (const hold of couponHolds.filter((one) => one.code === code)) {
+      void releaseCoupon(hold, "coupon released").catch(() => undefined)
+    }
+    setCouponHolds((was) => was.filter((one) => one.code !== code))
+    couponAsks.current.delete(code)
   }
 
   const unapplied = quote.stale
@@ -733,14 +1041,105 @@ export function Till({
           ),
       )
 
+  const bagCount = (description: string) =>
+    charges.filter((charge) => charge.description === description).length
+  const addedBags = BAGS.filter((bag) => bagCount(bag.description) > 0)
+  // A free bag is a decision (it is on the bill at nought) but not a figure:
+  // only the ones that cost something are totalled below.
+  const billedBags = addedBags.filter((bag) => bag.amount_minor > 0)
+  const bagOne = (bag: api.Charge) => setCharges((was) => [...was, bag])
+  const bagLess = (bag: api.Charge) =>
+    setCharges((was) => {
+      const at = was.map((one) => one.description).lastIndexOf(bag.description)
+      return at < 0 ? was : was.filter((_, index) => index !== at)
+    })
+
+  function holdBasket() {
+    setHeld((was) => [
+      ...was,
+      {
+        id: crypto.randomUUID(),
+        units,
+        coupons,
+        customerId,
+        at: new Date().toLocaleTimeString("id-ID", {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+      },
+    ])
+    clearBasket()
+  }
+
+  /// Taking units off needs a second person, and names each tag it takes off:
+  /// the exact tags read, scanned or picked, never "one of these".
+  function askRemove(going: readonly Unit[]) {
+    if (going.length === 0) return
+    const named = going.map(
+      (unit) =>
+        `${unitName(unit)}${
+          unit.unitPriceMinor === null
+            ? ""
+            : ` · ${money(unit.unitPriceMinor, currency)}`
+        }`,
+    )
+    approval.ask({
+      action: "EDIT_CART",
+      title:
+        going.length === 1
+          ? "Remove item from basket"
+          : `Remove ${going.length} items from basket`,
+      detail: named.join("; "),
+      epcs: going.map((unit) => unit.epc),
+      amountMinor: going.some((unit) => unit.unitPriceMinor === null)
+        ? null
+        : going.reduce((sum, unit) => sum + (unit.unitPriceMinor ?? 0), 0),
+      onApproved: (by) => {
+        const gone = new Set(going.map((unit) => unit.epc))
+        setUnits((was) => was.filter((one) => !gone.has(one.epc)))
+        setNote({
+          bad: false,
+          text: `Removed ${going.map(unitName).join("; ")} — approved by ${by.username}.`,
+        })
+      },
+    })
+  }
+
+  /// The × on a line. One unit is that unit; of several, the cashier reads or
+  /// picks the exact tag being handed back.
+  function removeFromLine(sku: string, lineUnits: readonly Unit[]) {
+    if (lineUnits.length === 1) {
+      askRemove(lineUnits)
+      return
+    }
+    setRemoving(sku)
+    setNote(null)
+    scan.current?.focus()
+  }
+
+  // The refused sale being resolved. Found by its row, refused or not: while
+  // it is being sent it is neither, and the sheet stays to say how it went.
+  const resolving =
+    panel !== null && typeof panel === "object" && "resolve" in panel
+      ? (outbox.entries.find((entry) => entry.localId === panel.resolve) ?? null)
+      : null
+
   return (
     <div id="app" data-screen="sale">
-      <Topbar
+      <SellHeader
         terminalId={terminalId}
-        actorId={actorId}
         unsent={outbox.unsent}
         waiting={waiting}
         onWaiting={() => onGo("joins")}
+        held={held.length}
+        hasUnits={units.length > 0}
+        onHold={holdBasket}
+        onHeld={() => setPanel("hold")}
+        onReturn={() => onGo("return")}
+        onVoid={() => onGo("void")}
+        onRedeem={() => onGo("redeem")}
+        onCancel={() => setPanel("cancel")}
+        onShift={() => onGo("shift")}
         onFinish={() => onGo("finish")}
         onLock={onLock}
         // The second window is a Tauri window `openCustomerDisplay` opens on
@@ -766,15 +1165,15 @@ export function Till({
         <div className="banner warn">
           <Icon name="alert" />
           <span className="grow">
-            {outbox.refused} sales refused by the node — sort them out before finishing
+            {outbox.refused} sales refused by the node — resolve them before finishing
             the shift.
           </span>
         </div>
       )}
-      {/* Each refusal with the node's own sentence and the one thing a cashier
-          can do about it here: take it off this till once it has been dealt
-          with. `forget` ignores anything that is not a refusal, so a sale the
-          node has not answered can never be thrown away from this list. */}
+      {/* Each refusal with the node's own sentence and the one thing to do
+          about it: Resolve, with a store manager. A paid sale is never dropped
+          from this till (owner, 21 Oct 2026: "Jangan Discard, wajib
+          diselesaikan") — there is no discard here, and none in the outbox. */}
       {outbox.entries
         .filter((entry) => entry.refused)
         .map((entry) => (
@@ -787,26 +1186,18 @@ export function Till({
             <button
               type="button"
               className="btn"
-              onClick={() => {
-                if (
-                  window.confirm(
-                    "Discard this refused sale from the terminal? The node never " +
-                      "recorded it, so nothing is cancelled there.",
-                  )
-                ) {
-                  forget(entry.localId)
-                }
-              }}
+              onClick={() => setPanel({ resolve: entry.localId })}
             >
-              Buang
+              Resolve
             </button>
           </div>
         ))}
-      <main className="workspace">
-        <section className="pane-left">
-          <div className="block">
+      <main className={sold === null ? "t-main" : "t-main dim"}>
+        {/* The basket, on the left: what is on the counter is what the eye is on. */}
+        <section className="t-card t-basket">
+          <div className="t-scan">
             <form
-              className="scan-row"
+              className="t-scanfield"
               onSubmit={(event) => {
                 event.preventDefault()
                 const field = scan.current
@@ -815,51 +1206,104 @@ export function Till({
                 field.value = ""
               }}
             >
-              <div className="scan-field">
-                <Icon name="scan" />
-                <input
-                  ref={scan}
-                  autoFocus
-                  autoComplete="off"
-                  placeholder="Scan a tag or search items"
-                  aria-label="Scan a tag or search items"
-                />
-                <button className="scan-go" type="submit" aria-label="Tambahkan">
-                  <Icon name="arrow" />
-                </button>
-              </div>
-              {/* The R3 is a USB reader bound in the shell — `readRfidSingle`
+              <Icon name="scan" />
+              <input
+                ref={scan}
+                autoFocus
+                autoComplete="off"
+                placeholder={
+                  removing === null
+                    ? "Scan a tag, member card or item name"
+                    : "Scan the tag of the one to take off"
+                }
+                aria-label="Scan a tag, member card or item name"
+              />
+              {/* The R3 is a USB reader bound in the shell — `readRfidPad`
                   refuses outright with no bridge — so a browser tab never
                   draws a button that can only ever refuse. */}
               {!isWeb && (
                 <button
-                  className="scan-r3"
+                  className="t-ib"
                   type="button"
                   onClick={() => void readWithR3()}
                   disabled={!inShell() || rfidBusy}
-                  aria-label="Read one tag with the Chainway R3"
+                  aria-label={
+                    removing === null
+                      ? "Read every tag on the Chainway R3's pad"
+                      : "Read the one to take off on the Chainway R3's pad"
+                  }
+                  title={
+                    removing === null
+                      ? "Read every tag on the Chainway R3's pad"
+                      : "Read the one to take off on the Chainway R3's pad"
+                  }
                 >
-                  {rfidBusy ? "Membaca…" : "Baca R3"}
+                  <Icon name="plug" />
                 </button>
               )}
-            </form>
-            {note !== null && (
-              <div
-                className={note.bad ? "notice warn" : "notice"}
-                style={{ marginTop: 10 }}
-                role="status"
+              <button
+                className="t-ib"
+                type="button"
+                onClick={() => setPanel("rfid")}
+                aria-label="Pull from handheld"
+                title="From handheld · F6"
               >
-                {note.text}
-              </div>
-            )}
+                <Icon name="rfid" />
+              </button>
+            </form>
           </div>
 
+          {/* Taking one off a line of several: the tag handed back is the tag
+              taken off, so the cashier reads it, scans it or picks it here —
+              each named by the end of its EPC. Escape leaves. */}
+          {removing !== null && (
+            <div className="notice warn t-flash" role="status">
+              <p style={{ margin: 0 }}>
+                Take one{" "}
+                {units.find((unit) => unit.sku_code === removing)?.name ?? skuText(removing)}{" "}
+                off:{" "}
+                {isWeb
+                  ? "scan its tag, or pick it below."
+                  : "put it on the pad and press the reader button, scan its tag, or pick it below."}
+              </p>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
+                {units
+                  .filter((unit) => unit.sku_code === removing)
+                  .map((unit) => (
+                    <button
+                      key={unit.epc}
+                      type="button"
+                      className="btn num"
+                      onClick={() => {
+                        setRemoving(null)
+                        askRemove([unit])
+                      }}
+                    >
+                      …{unit.epc.slice(-8)}
+                    </button>
+                  ))}
+                <button type="button" className="btn ghost" onClick={() => setRemoving(null)}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
+          {note !== null && (
+            <div
+              className={note.bad ? "notice warn t-flash" : "notice t-flash"}
+              role="status"
+            >
+              {note.text}
+            </div>
+          )}
+
           {check.length > 0 && (
-            <div className="block">
+            <div className="t-check">
               <div className="block-head">
                 <span className="label">Price check</span>
                 <button
-                  className="icon-btn"
+                  className="t-ib sm"
                   aria-label="Close price check"
                   onClick={() => setCheck([])}
                 >
@@ -871,7 +1315,9 @@ export function Till({
                   <div className="pick" key={row.sku_code}>
                     <div className="grow">
                       <strong>{row.name}</strong>
-                      <small className="num">{row.sku_code}</small>
+                      <small className="num">
+                        {articleId(row.article_code, row.sku_code)} · {skuText(row.sku_code)}
+                      </small>
                     </div>
                     <strong className="num">
                       {money(row.unit_price_minor, currency)}
@@ -882,220 +1328,311 @@ export function Till({
             </div>
           )}
 
-          <Extras
-            coupons={coupons}
-            unappliedCoupons={unapplied}
-            customerId={customerId}
-            onCoupon={(code) =>
-              setCoupons((was) =>
-                was.includes(code) ? was : [...was, code],
-              )
-            }
-            onDropCoupon={(code) => {
-              setCoupons((was) => was.filter((one) => one !== code))
-              // Its hold goes back: this basket will not use it.
-              for (const hold of couponHolds.filter((one) => one.code === code)) {
-                void releaseCoupon(hold, "coupon released").catch(() => undefined)
-              }
-              setCouponHolds((was) => was.filter((one) => one.code !== code))
-              couponAsks.current.delete(code)
-            }}
-            onCustomer={setCustomerId}
-          />
-
-          <div className="spacer" />
-          <Board
-            held={held.length}
-            canHold={units.length > 0}
-            onHold={() => {
-              setHeld((was) => [
-                ...was,
-                {
-                  id: crypto.randomUUID(),
-                  units,
-                  coupons,
-                  customerId,
-                  at: new Date().toLocaleTimeString("id-ID", {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  }),
-                },
-              ])
-              clearBasket()
-            }}
-            onResume={() => setPanel("hold")}
-            onBags={() => setPanel("bags")}
-            onRfid={() => setPanel("rfid")}
-            onGo={onGo}
-          />
-        </section>
-
-        <section className="pane-right">
-          <div className="cart-head">
-            <h2>
-              Basket <span className="badge plain">{units.length} {units.length === 1 ? "item" : "items"}</span>
-            </h2>
-          </div>
-
           {units.length === 0 ? (
-            <div className="empty">
+            <div className="t-empty">
               <Icon name="scan" />
               <h3>Ready for a new sale</h3>
-              <p>Scan the first tag to start.</p>
+              <p>Scan the first tag.</p>
             </div>
           ) : (
-            <div className="cart-list no-bar">
-              {units.map((unit) => (
-                <div className="cart-row" key={unit.epc}>
-                  <div className="cart-main">
-                    <div className="cart-copy">
-                      <div className="cart-meta">
-                        <span className="num">{unit.sku_code}</span>
-                        <span className="num">· …{unit.epc.slice(-8)}</span>
-                        {unit.unitPriceMinor === null && (
+            <div className="t-lines no-bar">
+              {groups.map((group) => {
+                const quantity = group.units.length
+                const newest = group.units.some((unit) => unit.epc === newestEpc)
+                const last = group.units[quantity - 1]
+                return (
+                  <div
+                    className={newest ? "t-ln last" : "t-ln"}
+                    key={group.key}
+                    ref={newest ? newestRow : undefined}
+                  >
+                    <div className="t-it">
+                      <p className="t-nm">{group.name ?? "Not in the price book"}</p>
+                      <p className="t-mt num">
+                        {articleId(bySku.get(group.sku)?.article_code, group.sku)} · {skuText(group.sku)}
+                        {quantity === 1 && <> · …{last.epc.slice(-8)}</>}
+                        {group.price === null && (
                           <span className="flag manual">NO PRICE</span>
                         )}
-                      </div>
-                      <p>{unit.name ?? "Not in the price book"}</p>
+                      </p>
                     </div>
-                    <span className="cart-total num">
-                      {unit.unitPriceMinor === null
-                        ? "—"
-                        : money(unit.unitPriceMinor, currency)}
+                    <span className="t-q num">
+                      {quantity > 1 ? `× ${quantity}` : ""}
                     </span>
+                    <div className="t-pr num">
+                      {group.price === null
+                        ? "—"
+                        : money(group.price * quantity, currency)}
+                      {quantity > 1 && group.price !== null && (
+                        <p className="t-mt">{money(group.price, currency)} each</p>
+                      )}
+                    </div>
                     <button
-                      className="icon-btn"
-                      aria-label={`Remove ${unit.name ?? unit.sku_code}`}
-                      onClick={() =>
-                        approval.ask({
-                          action: "EDIT_CART",
-                          title: "Remove item from basket",
-                          detail: `${unit.name ?? unit.sku_code} · …${unit.epc.slice(-8)}${
-                            unit.unitPriceMinor === null
-                              ? ""
-                              : ` · ${money(unit.unitPriceMinor, currency)}`
-                          }`,
-                          epcs: [unit.epc],
-                          amountMinor: unit.unitPriceMinor,
-                          onApproved: () =>
-                            setUnits((was) =>
-                              was.filter((one) => one.epc !== unit.epc),
-                            ),
-                        })
-                      }
+                      className="t-ib"
+                      aria-label={`Remove one ${group.name ?? skuText(group.sku)}`}
+                      onClick={() => removeFromLine(group.sku, group.units)}
                     >
                       <Icon name="x" />
                     </button>
                   </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <div className="totals">
-            <div className="total-line">
-              <span className="muted">Subtotal</span>
-              <span className="num">{money(booked, currency)}</span>
-            </div>
-            {/* A bag is on the bill, not in the basket — so it is shown here,
-                where the money is, and not among the tags. A fee the cashier
-                cannot see is a fee they cannot take back off. */}
-            {charges.map((charge, at) => (
-              <div className="total-line" key={`${charge.code}-${at}`}>
-                <span className="muted">
-                  {charge.description}{" "}
-                  <button
-                    className="btn ghost"
-                    style={{ minHeight: 20, padding: "0 6px", fontSize: 11 }}
-                    onClick={() =>
-                      setCharges((was) => was.filter((_, index) => index !== at))
-                    }
-                  >
-                    remove
-                  </button>
-                </span>
-                <span className="num">
-                  {money(charge.amount_minor, currency)}
-                </span>
-              </div>
-            ))}
-            {!quote.stale &&
-              quote.promotions
-                .filter((promotion) => promotion.applied)
-                .map((promotion) => (
-                  <div className="total-line cut" key={promotion.rule_id}>
-                    <span>{promotion.name}</span>
-                    <span className="num">
-                      −{money(promotion.benefit_minor, currency)}
-                    </span>
-                  </div>
-                ))}
-            {!quote.stale &&
-              quote.grantedLines.map((line, index) => (
-                <div
-                  className="total-line cut"
-                  key={`${line.sku_code}-${index}`}
-                >
-                  <span>
-                    Gratis · {bySku.get(line.sku_code)?.name ?? line.sku_code} ×{" "}
-                    {line.quantity}
-                  </span>
-                  <span className="num">
-                    {money(line.value_minor, currency)}
-                  </span>
-                </div>
-              ))}
-            {!quote.stale &&
-              customerId !== null &&
-              quote.pointsEarned > 0 && (
-                <div className="total-line">
-                  <span className="muted">Estimated points</span>
-                  <span className="num">+{quote.pointsEarned}</span>
-                </div>
-              )}
-            <div className="grand">
-              <span>TOTAL</span>
-              <strong className="num">{money(total, currency)}</strong>
-            </div>
-            {(quote.problem !== null ||
-              unpriced ||
-              (units.length > 0 && quote.totalMinor === null)) && (
-              <div className="total-line">
-                <span className="muted" style={{ fontSize: 11.5 }}>
-                  {quote.problem ??
-                    (quote.stale ? "Calculating…" : "Provisional — the node has not answered")}
-                </span>
-                {unpriced && <span className="badge warn">Some items have no price</span>}
-              </div>
-            )}
-          </div>
-
-          {units.length > 0 && (
-            <div className="action-bar">
-              <button
-                className="btn"
-                onClick={() => setPanel("cancel")}
-                aria-keyshortcuts="F8"
-              >
-                <Icon name="x" />
-                Cancel <kbd aria-hidden="true">F8</kbd>
-              </button>
-              <button
-                className="pay"
-                onClick={() => onGo("payment")}
-                aria-keyshortcuts="F10"
-              >
-                <span>
-                  <Icon name="cash" />
-                  Bayar {money(total, currency)}
-                </span>
-                <kbd aria-hidden="true">F10</kbd>
-              </button>
+                )
+              })}
             </div>
           )}
         </section>
+
+        {/* The money, on the right: the figure a cashier watches does not move
+            when payment starts — the dialog opens over this column. */}
+        <aside className="t-card t-money">
+          <div className="t-scroll">
+            <div className="t-rows">
+              {/* Written onto the sale exactly as typed. This node cannot check
+                  it — the member directory is central and this terminal
+                  addresses only its own shop, which is what keeps the till
+                  selling when the line to head office is down. */}
+              <div className="t-row">
+                <Icon name="user" />
+                <span className="k">Member</span>
+                {customerId === null ? (
+                  <button className="t-link" onClick={() => setPanel("member")}>
+                    Add
+                  </button>
+                ) : (
+                  <>
+                    <span className="v num">{customerId}</span>
+                    <button
+                      className="t-ib sm"
+                      aria-label="Remove member"
+                      onClick={() => setCustomerId(null)}
+                    >
+                      <Icon name="x" />
+                    </button>
+                  </>
+                )}
+              </div>
+
+              {/* A coupon is a code the shopper produced. It is not priced here:
+                  it is handed to the node with the quote and again with the
+                  sale, because the engine that grants a discount is the one
+                  that has to see the code. */}
+              <div className="t-row">
+                <Icon name="tag" />
+                <span className="k">Coupon</span>
+                {coupons.length > 0 && (
+                  <span className="v">
+                    {coupons.map((code) => (
+                      <span className="t-code" key={code}>
+                        {code}
+                        <button
+                          className="t-ib sm"
+                          aria-label={`Remove coupon ${code}`}
+                          onClick={() => dropCoupon(code)}
+                        >
+                          <Icon name="x" />
+                        </button>
+                      </span>
+                    ))}
+                  </span>
+                )}
+                <button
+                  className={coupons.length === 0 ? "t-link" : "t-link push"}
+                  onClick={() => setPanel("coupon")}
+                >
+                  Add
+                </button>
+              </div>
+
+              {/* A bag is on the bill, not in the basket. It is picked in the
+                  row itself — no dialog — and only the bags added show. */}
+              <div className="t-row">
+                <Icon name="bag" />
+                <span className="k">Bags</span>
+                <button
+                  className="t-link"
+                  aria-expanded={bagPick}
+                  onClick={() => setBagPick((was) => !was)}
+                >
+                  {bagPick ? "Done" : "Add"}
+                </button>
+              </div>
+              {bagPick && (
+                <div className="t-bagpk" aria-label="Shopping bags">
+                  {BAGS.map((bag) => (
+                    <button
+                      key={bag.description}
+                      className="t-bpk"
+                      aria-label={`Add one ${bag.description}`}
+                      onClick={() => {
+                        bagOne(bag)
+                        setBagPick(false)
+                      }}
+                    >
+                      <BagTile bag={bag} />
+                      <span className="tx">
+                        <span className="nm">{bagShort(bag)}</span>
+                        <span className="mt">
+                          {bag.amount_minor === 0
+                            ? "Free"
+                            : money(bag.amount_minor, currency)}
+                        </span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {addedBags.length > 0 && (
+                <div className="t-bagsub">
+                  {addedBags.map((bag) => {
+                    const many = bagCount(bag.description)
+                    return (
+                      <div className="t-bgr" key={bag.description}>
+                        <BagTile bag={bag} />
+                        <span className="tx">
+                          <span className="nm">{bagShort(bag)}</span>
+                          <span className="mt num">
+                            {bag.amount_minor === 0
+                              ? "Free"
+                              : money(bag.amount_minor * many, currency)}
+                          </span>
+                        </span>
+                        <span className="t-ctl">
+                          <button
+                            className="t-round"
+                            aria-label={`One ${bag.description} less`}
+                            onClick={() => bagLess(bag)}
+                          >
+                            <Icon name="minus" />
+                          </button>
+                          <b className="num">{many}</b>
+                          <button
+                            className="t-round"
+                            aria-label={`One ${bag.description} more`}
+                            onClick={() => bagOne(bag)}
+                          >
+                            <Icon name="plus" />
+                          </button>
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="t-tot">
+            <div className="t-totals">
+              <div className="t-tl">
+                <span>
+                  Subtotal · {units.length} {units.length === 1 ? "item" : "items"}
+                </span>
+                <span className="v num">{money(booked, currency)}</span>
+              </div>
+              {billedBags.map((bag) => (
+                <div className="t-tl" key={bag.description}>
+                  <span>
+                    {bag.description} × {bagCount(bag.description)}
+                  </span>
+                  <span className="v num">
+                    {money(bag.amount_minor * bagCount(bag.description), currency)}
+                  </span>
+                </div>
+              ))}
+              {!quote.stale &&
+                quote.promotions
+                  .filter((promotion) => promotion.applied)
+                  .map((promotion) => (
+                    <div className="t-tl cut" key={promotion.rule_id}>
+                      <span>{promotion.name}</span>
+                      <span className="v num">
+                        −{money(promotion.benefit_minor, currency)}
+                      </span>
+                    </div>
+                  ))}
+              {!quote.stale &&
+                quote.grantedLines.map((line, index) => (
+                  <div
+                    className="t-tl cut"
+                    key={`${line.sku_code}-${index}`}
+                  >
+                    <span>
+                      Free · {bySku.get(line.sku_code)?.name ?? skuText(line.sku_code)} ×{" "}
+                      {line.quantity}
+                    </span>
+                    <span className="v num">
+                      {money(line.value_minor, currency)}
+                    </span>
+                  </div>
+                ))}
+              {unapplied.map((code) => (
+                <div className="t-tl warn" key={code}>
+                  <span>{code}</span>
+                  <span className="v">No discount</span>
+                </div>
+              ))}
+              <div className="t-gt">
+                <span>Total</span>
+                <strong className="num">{money(total, currency)}</strong>
+              </div>
+              {(quoteNote !== null || unpriced) && (
+                <div className="t-tl">
+                  <span className="muted">{quoteNote}</span>
+                  {unpriced && (
+                    <span className="badge warn">Some items have no price</span>
+                  )}
+                </div>
+              )}
+            </div>
+            <button
+              className="t-paybtn"
+              onClick={pay}
+              disabled={!quoteReady}
+              aria-keyshortcuts="F10"
+            >
+              <span>Pay</span>
+              <kbd aria-hidden="true">F10</kbd>
+            </button>
+          </div>
+        </aside>
       </main>
       <Statusbar unsent={outbox.unsent} refused={outbox.refused} />
+
+      {where === "payment" && sold === null && (
+        <Payment
+          units={units}
+          currency={currency}
+          totalMinor={total}
+          provisional={quote.totalMinor === null || !figureRight}
+          holdBack={figureRight ? null : (quoteNote ?? "Calculating…")}
+          basketHasPromotion={quote.promotions.some((one) => one.applied)}
+          coupons={coupons}
+          couponHolds={couponHolds}
+          customerId={customerId}
+          charges={charges}
+          actorId={actorId}
+          onBack={() => onGo("sale")}
+          onSold={setSold}
+        />
+      )}
+
+      {sold !== null && (
+        <Sale
+          sold={sold}
+          currency={currency}
+          onNext={(resolveIt) => {
+            const lost = sold.seatLost
+            setSold(null)
+            clearBasket(true)
+            onGo("sale")
+            // The seat went while this sale was being written down. The sale
+            // is kept; the seat is dealt with now that the customer is served.
+            if (lost !== undefined) onSeatLost(lost)
+            // A refusal, resolved at once: the garment is still on the
+            // counter, so its real tag can be read now.
+            else if (resolveIt) setPanel({ resolve: sold.localId })
+          }}
+        />
+      )}
 
       {panel === "cancel" && (
         <CancelSale
@@ -1126,6 +1663,23 @@ export function Till({
         />
       )}
 
+      {/* Before the approval sheet, so the store manager's yes opens over it
+          and the sheet is still there, with the outcome, afterwards. */}
+      {resolving !== null && (
+        <ResolveSale
+          key={resolving.localId}
+          entry={resolving}
+          bySku={bySku}
+          currency={currency}
+          ask={approval.ask}
+          onClose={() => setPanel(null)}
+          onDone={(text, bad) => {
+            setPanel(null)
+            setNote({ bad, text })
+          }}
+        />
+      )}
+
       {approval.sheet}
 
       {panel === "hold" && (
@@ -1149,7 +1703,7 @@ export function Till({
             approval.ask({
               action: "DROP_HOLD",
               title: "Discard held sale",
-              detail: `${found.units.length} unit · ditahan ${found.at}`,
+              detail: `${found.units.length} ${found.units.length === 1 ? "item" : "items"} · held ${found.at}`,
               epcs: found.units.map((unit) => unit.epc),
               amountMinor: found.units.reduce(
                 (sum, unit) => sum + (unit.unitPriceMinor ?? 0),
@@ -1222,18 +1776,36 @@ export function Till({
         />
       )}
 
-      {panel === "bags" && (
-        <BagPicker
-          currency={currency}
-          onBack={() => setPanel(null)}
-          onAdd={(charge) => {
-            setCharges((was) => [...was, charge])
+      {panel === "member" && (
+        <AddCode
+          title="Member"
+          label="Member number"
+          placeholder="0812 3456 7788"
+          cta="Add"
+          onClose={() => setPanel(null)}
+          onSubmit={(code) => {
+            setCustomerId(memberFromScan(code) ?? code)
             setPanel(null)
           }}
         />
       )}
 
-      {panel !== null && typeof panel === "object" && (
+      {panel === "coupon" && (
+        <AddCode
+          title="Coupon"
+          label="Coupon code"
+          placeholder="HEMAT50"
+          cta="Apply"
+          upper
+          onClose={() => setPanel(null)}
+          onSubmit={(code) => {
+            setCoupons((was) => (was.includes(code) ? was : [...was, code]))
+            setPanel(null)
+          }}
+        />
+      )}
+
+      {panel !== null && typeof panel === "object" && "receipt" in panel && (
         <ReceiptPreview
           saleId={panel.receipt}
           currency={currency}
@@ -1280,7 +1852,7 @@ export function Topbar({
   const seat = useSeat()
   const terminal = terminalId ?? session.terminalId
   const who =
-    actorId ?? session.me?.display_name ?? session.me?.username ?? null
+    session.me?.display_name ?? session.me?.username ?? actorId ?? null
   return (
     <header className="topbar">
       <Brand />
@@ -1324,8 +1896,11 @@ export function Topbar({
           {seat !== null ? seat.label : kasirLabel(terminal)}
         </span>
         {who !== null && (
-          <span className="avatar" title={who}>
-            {who.slice(0, 2).toUpperCase()}
+          <span className="top-who">
+            <span className="avatar" aria-hidden="true">
+              {initials(who)}
+            </span>
+            {who}
           </span>
         )}
         {onFinish !== undefined && (
@@ -1338,6 +1913,15 @@ export function Topbar({
   )
 }
 
+/// Two letters for an avatar: the first of the first two names ("Dian
+/// Pertiwi" → "DP"), or the first two of a single one ("maya" → "MA").
+export function initials(name: string): string {
+  const words = name.trim().split(/\s+/).filter((word) => word !== "")
+  if (words.length === 0) return ""
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase()
+  return (words[0][0] + words[1][0]).toUpperCase()
+}
+
 /// The mark in the corner of every screen, and on the sign-in card.
 export function Brand() {
   return (
@@ -1347,99 +1931,291 @@ export function Brand() {
   )
 }
 
-/// A coupon is a code the shopper produced, and a member is a number copied
-/// from a card. Neither is priced here — both are handed to the node with the
-/// quote and again with the sale, because the engine that grants a discount is
-/// the one that has to see the code.
-function Extras({
-  coupons,
-  unappliedCoupons,
-  customerId,
-  onCoupon,
-  onDropCoupon,
-  onCustomer,
+/// Whether the last thing the person did was point at the screen. Motion is for
+/// a mouse or a finger: F10, Enter and Esc are pressed hundreds of times a day
+/// and get none, and a scanner types its tag as keys, so it gets none either.
+let viaPointer = false
+if (typeof window !== "undefined") {
+  window.addEventListener(
+    "pointerdown",
+    () => {
+      viaPointer = true
+    },
+    true,
+  )
+  window.addEventListener(
+    "keydown",
+    () => {
+      viaPointer = false
+    },
+    true,
+  )
+}
+
+/// The mark on its own, the way the hub's rail wears it.
+function Mark() {
+  return (
+    <svg className="t-mark" viewBox="0 0 32 32" aria-label="Central" role="img">
+      <rect width="32" height="32" rx="7.5" fill="#111214" />
+      <rect x=".5" y=".5" width="31" height="31" rx="7" fill="none" stroke="rgb(255 255 255 / 10%)" />
+      <path
+        d="M18.2 11.6A6.5 6.5 0 1 0 18.2 20.4"
+        fill="none"
+        stroke="#fff"
+        strokeWidth="3.6"
+        strokeLinecap="round"
+      />
+      <circle cx="23.4" cy="16" r="2.2" fill="#2563eb" />
+    </svg>
+  )
+}
+
+/// The sale screen's header: the mark, what a cashier does mid-sale, and the
+/// person. Everything that used to be a button on the left pane lives here or
+/// in the two menus, each button named, none of them a tile.
+///
+/// Held shows only when something is held. Return and Void are two supervisor
+/// flows under one button. The person's menu holds what is done a couple of
+/// times a shift: the drawer, points, lock, finishing.
+function SellHeader({
+  terminalId,
+  unsent,
+  waiting,
+  onWaiting,
+  held,
+  hasUnits,
+  onHold,
+  onHeld,
+  onReturn,
+  onVoid,
+  onRedeem,
+  onCancel,
+  onShift,
+  onFinish,
+  onLock,
+  onDisplay,
 }: {
-  coupons: readonly string[]
-  unappliedCoupons: readonly string[]
-  customerId: string | null
-  onCoupon: (code: string) => void
-  onDropCoupon: (code: string) => void
-  onCustomer: (id: string | null) => void
+  terminalId?: string
+  unsent?: number
+  /// Tills waiting for a supervisor at this node. Shown only when some are.
+  waiting?: number | null
+  onWaiting?: () => void
+  held: number
+  hasUnits: boolean
+  onHold: () => void
+  onHeld: () => void
+  onReturn: () => void
+  onVoid: () => void
+  onRedeem: () => void
+  onCancel: () => void
+  onShift: () => void
+  onFinish: () => void
+  onLock?: () => void
+  onDisplay?: () => void
+}) {
+  const session = useSession()
+  const seat = useSeat()
+  const terminal = terminalId ?? session.terminalId
+  const who = session.me?.display_name ?? session.me?.username ?? null
+  const till = seat !== null && seat.label !== "" ? seat.label : kasirLabel(terminal)
+  const [open, setOpen] = useState<null | "ret" | "me">(null)
+  const [animate, setAnimate] = useState(false)
+  useShortcuts({ Escape: () => setOpen(null) }, open !== null)
+
+  const toggle = (menu: "ret" | "me") => {
+    setAnimate(viaPointer)
+    setOpen((was) => (was === menu ? null : menu))
+  }
+  const pick = (action: () => void) => () => {
+    setOpen(null)
+    action()
+  }
+  const item = (
+    icon: IconName,
+    label: string,
+    action: () => void,
+    key?: string,
+  ) => (
+    <button role="menuitem" onClick={pick(action)}>
+      <Icon name={icon} />
+      <span>{label}</span>
+      {key !== undefined && <kbd aria-hidden="true">{key}</kbd>}
+    </button>
+  )
+
+  return (
+    <header className="t-hdr">
+      <Mark />
+      <nav className="t-bar" aria-label="Sale">
+        <button className="t-tb" onClick={onHold} disabled={!hasUnits} title="Hold the basket">
+          <Icon name="hold" />
+          <span className="tbl">Hold</span>
+        </button>
+        {held > 0 && (
+          <button className="t-tb" onClick={onHeld} title="Held baskets · F9">
+            <Icon name="list" />
+            <span className="tbl">Held</span>
+            <span className="t-count">{held}</span>
+          </button>
+        )}
+        <span className="t-popw">
+          <button
+            className={open === "ret" ? "t-tb on" : "t-tb"}
+            aria-haspopup="menu"
+            aria-expanded={open === "ret"}
+            onClick={() => toggle("ret")}
+            title="Return · F3"
+          >
+            <Icon name="return" />
+            <span className="tbl">Return</span>
+            <span className="car">
+              <Icon name="down" />
+            </span>
+          </button>
+          {open === "ret" && (
+            <>
+              <span className="t-popscrim" onMouseDown={() => setOpen(null)} />
+              <div className={animate ? "t-pop l enter" : "t-pop l"} role="menu">
+                {item("return", "Return items", onReturn, "F3")}
+                {item("void", "Void a sale", onVoid)}
+              </div>
+            </>
+          )}
+        </span>
+      </nav>
+      <span className="grow" />
+      {/* Another till is asking to join: somebody is standing at it with a code
+          on the screen, waiting for a supervisor to notice. */}
+      {waiting !== undefined && waiting !== null && waiting > 0 && (
+        <button
+          className="t-tb"
+          onClick={onWaiting}
+          disabled={onWaiting === undefined}
+          title="Open the waiting tills to match the code and approve"
+        >
+          <Icon name="plug" />
+          <span className="badge warn">{waiting} waiting for approval</span>
+        </button>
+      )}
+      {unsent !== undefined && unsent > 0 && (
+        <span className="badge warn">{unsent} not sent</span>
+      )}
+      {hasUnits && (
+        <button className="t-tb bad" onClick={onCancel} title="Cancel the sale · F8">
+          <Icon name="x" />
+          <span className="tbl">Cancel sale</span>
+        </button>
+      )}
+      <span className="t-popw">
+        <button
+          className={open === "me" ? "t-me on" : "t-me"}
+          aria-haspopup="menu"
+          aria-expanded={open === "me"}
+          aria-label={who === null ? till : `${who}, ${till}`}
+          onClick={() => toggle("me")}
+        >
+          <span className="av">{initials(who ?? till)}</span>
+          {/* The name is read, not decoded: whoever stands at the counter
+              should see it is their own session at a glance. */}
+          <span className="t-meid">
+            {who !== null && <span className="nm">{who}</span>}
+            <span className="mt">{till}</span>
+          </span>
+          <span className="car">
+            <Icon name="down" />
+          </span>
+        </button>
+        {open === "me" && (
+          <>
+            <span className="t-popscrim" onMouseDown={() => setOpen(null)} />
+            <div className={animate ? "t-pop r enter" : "t-pop r"} role="menu">
+              <div className="t-who">
+                {who !== null && <div className="nm">{who}</div>}
+                <div className="mt">{till}</div>
+              </div>
+              <span className="sep" />
+              {onLock !== undefined && item("lock", "Lock", onLock)}
+              {item("wallet", "Shift & cash", onShift, "F12")}
+              {item("star", "Redeem points", onRedeem)}
+              {onDisplay !== undefined && item("monitor", "Customer display", onDisplay)}
+              <span className="sep" />
+              {item("logout", "Finish shift", onFinish)}
+            </div>
+          </>
+        )}
+      </span>
+    </header>
+  )
+}
+
+/// "Small paper bag" → "Small paper": the row already says Bags.
+function bagShort(bag: api.Charge): string {
+  return bag.description.replace(/ bag$/i, "")
+}
+
+/// A bag's icon tile: paper or plastic, drawn larger for a large one.
+function BagTile({ bag }: { bag: api.Charge }) {
+  const plastic = /plastic/i.test(bag.description)
+  const large = /large/i.test(bag.description)
+  return (
+    <span className="t-bico">
+      <Icon name={plastic ? "bag-plastic" : "bag-paper"} size={large ? 28 : 22} />
+    </span>
+  )
+}
+
+/// A coupon code or a member number, typed once. Written onto the sale exactly
+/// as typed — the node is the one that knows what it is worth.
+function AddCode({
+  title,
+  label,
+  placeholder,
+  cta,
+  upper,
+  onSubmit,
+  onClose,
+}: {
+  title: string
+  label: string
+  placeholder: string
+  cta: string
+  upper?: boolean
+  onSubmit: (code: string) => void
+  onClose: () => void
 }) {
   const [typed, setTyped] = useState("")
+  const go = () => {
+    const code = typed.trim()
+    if (code === "") return
+    onSubmit(upper === true ? code.toUpperCase() : code)
+  }
   return (
-    <div className="block">
-      <div className="block-head">
-        <span className="label">Coupon &amp; member</span>
-      </div>
-      <form
-        className="inline-form"
-        onSubmit={(event) => {
-          event.preventDefault()
-          const code = typed.trim().toUpperCase()
-          if (code === "") return
-          onCoupon(code)
-          setTyped("")
-        }}
-      >
-        <div className="field-wrap">
-          <Icon name="tag" />
-          <input
-            value={typed}
-            onChange={(event) => setTyped(event.target.value)}
-            placeholder="Coupon code"
-            autoComplete="off"
-            aria-label="Coupon code"
-          />
-        </div>
-        <button className="btn" type="submit">
-          Apply
+    <Sheet
+      title={title}
+      onClose={onClose}
+      foot={
+        <button className="btn primary" onClick={go} disabled={typed.trim() === ""}>
+          {cta}
         </button>
-      </form>
-      {coupons.length > 0 && (
-        <div className="chips">
-          {coupons.map((code) => (
-            <button
-              key={code}
-              className="chip on"
-              onClick={() => onDropCoupon(code)}
-              aria-label={`Remove coupon ${code}`}
-            >
-              {code}
-              <Icon name="x" />
-            </button>
-          ))}
-        </div>
-      )}
-      {unappliedCoupons.length > 0 && (
-        <div className="notice warn" role="status" style={{ marginTop: 8 }}>
-          {unappliedCoupons.join(", ")} — no discount yet.
-        </div>
-      )}
-      {/* Written onto the sale exactly as typed. This node cannot check it —
-          the member directory is central and this terminal addresses only its
-          own shop, which is what keeps the till selling when the line to head
-          office is down. */}
-      <div className="inline-form" style={{ marginTop: 8 }}>
-        <div className="field-wrap">
-          <Icon name="user" />
-          <input
-            value={customerId ?? ""}
-            onChange={(event) =>
-              onCustomer(
-                event.target.value.trim() === ""
-                  ? null
-                  : (memberFromScan(event.target.value) ?? event.target.value),
-              )
-            }
-            placeholder="Member number"
-            autoComplete="off"
-            aria-label="Member number"
-            maxLength={64}
-          />
-        </div>
-      </div>
-    </div>
+      }
+    >
+      <label className="field">
+        {label}
+        <input
+          value={typed}
+          onChange={(event) => setTyped(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter") return
+            event.preventDefault()
+            go()
+          }}
+          placeholder={placeholder}
+          autoComplete="off"
+          maxLength={64}
+          autoFocus
+        />
+      </label>
+    </Sheet>
   )
 }
 
@@ -1537,74 +2313,13 @@ function ReaderSessions({
                 disabled={busy !== null}
                 onClick={() => void pull(one.reader_session_id)}
               >
-                {busy === one.reader_session_id ? "Menarik…" : "Tarik"}
+                {busy === one.reader_session_id ? "Pulling…" : "Pull"}
               </button>
             </div>
           ))}
         </div>
       )}
     </Sheet>
-  )
-}
-
-/// The board: what a cashier does mid-sale, and what they do twice a day.
-///
-/// It never moves and never scrolls. At four in the afternoon the interface is
-/// muscle memory, and a key that shifted position is a key that has to be read
-/// again every time — so it is two fixed rows of four, the sale's own tools
-/// above and the counter's below, each with the F-key it answers to.
-function Board({
-  held,
-  canHold,
-  onHold,
-  onResume,
-  onBags,
-  onRfid,
-  onGo,
-}: {
-  held: number
-  canHold: boolean
-  onHold: () => void
-  onResume: () => void
-  onBags: () => void
-  onRfid: () => void
-  onGo: (next: Where) => void
-}) {
-  const tile = (
-    icon: IconName,
-    label: string,
-    onClick: () => void,
-    extra?: { key?: string; disabled?: boolean; count?: number },
-  ) => (
-    <button
-      className="util"
-      onClick={onClick}
-      disabled={extra?.disabled}
-      aria-keyshortcuts={extra?.key}
-    >
-      {extra?.key !== undefined && <kbd aria-hidden="true">{extra.key}</kbd>}
-      <Icon name={icon} />
-      {label}
-      {extra?.count !== undefined && extra.count > 0 && (
-        <span className="count">{extra.count}</span>
-      )}
-    </button>
-  )
-  return (
-    <div className="utility">
-      <div className="utility-row">
-        {tile("hold", "Hold", onHold, { disabled: !canHold })}
-        {tile("list", "Held", onResume, { key: "F9", disabled: held === 0, count: held })}
-        {tile("bag", "Bags", onBags, { key: "F4" })}
-        {tile("rfid", "From handheld", onRfid, { key: "F6" })}
-      </div>
-      <div className="utility-row">
-        {tile("return", "Return", () => onGo("return"), { key: "F3" })}
-        {tile("void", "Void", () => onGo("void"))}
-        {tile("star", "Redeem points", () => onGo("redeem"))}
-        {tile("wallet", "Shift & cash", () => onGo("shift"), { key: "F12" })}
-      </div>
-    </div>
   )
 }
 
@@ -1676,17 +2391,18 @@ function Statusbar({
   )
 }
 
-/// Taking the money — a page, not a dialog.
+/// Taking the money — a dialog over the counter.
 ///
-/// The rail is on the right: the same column the basket keeps its money in, so
-/// the figure a cashier watches does not move across the screen when payment
-/// starts. And it carries the basket, because this screen replaced the one that
-/// had it, and "what am I taking money for" must not cost a cancelled payment.
+/// The basket stays behind it, dimmed, because "what am I taking money for"
+/// must not cost a cancelled payment. Methods, amount and keypad are on the
+/// left; only the money — what is due, or what has been taken — is on the
+/// right, in the column the basket keeps its own total in.
 function Payment({
   units,
   currency,
   totalMinor,
   provisional,
+  holdBack,
   basketHasPromotion,
   coupons,
   couponHolds,
@@ -1695,12 +2411,16 @@ function Payment({
   actorId,
   onBack,
   onSold,
-  onSeatLost,
 }: {
   units: readonly Unit[]
   currency: string
   totalMinor: number
   provisional: boolean
+  /// Why no money may be taken this moment — the figure is being worked out
+  /// again, or names a tag this shop cannot sell — or null when it may. A node
+  /// that stopped answering after the figure was given does not hold the sale
+  /// back: that figure stands, and the outbox carries the sale to the node.
+  holdBack: string | null
   /// Whether the quote applied any promotion. An employee balance cannot be
   /// spent on such a basket, and the node refuses it too.
   basketHasPromotion: boolean
@@ -1712,9 +2432,13 @@ function Payment({
   actorId: string
   onBack: () => void
   onSold: (sale: Sold) => void
-  onSeatLost: (by: string | null) => void
 }) {
   const tiles = usePaymentMethods()
+  // The dialog fades in for a pointer; F10 opens it as if it had always been there.
+  const [enter] = useState(viaPointer)
+  // Once the sale is settled the caret has nowhere to be: the finishing button
+  // takes it, so the Enter its label promises really finishes the sale.
+  const finish = useRef<HTMLButtonElement>(null)
   // The tile's key (a tender type, or the old tile value on the fallback list).
   const [picked, setPicked] = useState<string>("CASH")
   const [typed, setTyped] = useState("")
@@ -1748,6 +2472,8 @@ function Payment({
     }[]
   >([])
   const [busy, setBusy] = useState(false)
+  // Set by the first press of "Complete sale"; this dialog closes on the sale.
+  const completing = useRef(false)
   const [problem, setProblem] = useState<string | null>(null)
   // The employee balance: the code the holder showed, and who it turned out to
   // be once looked up. The `sale_ref` is minted once per basket and kept — the
@@ -1796,31 +2522,18 @@ function Payment({
   }, [method, outstanding])
 
   async function complete() {
+    // The reason is already on screen beside the money (`holdBack`).
+    if (holdBack !== null) return
+    // One sale per press: the write below comes first now, so a second press
+    // landing before the button greys out would write the sale twice.
+    if (completing.current) return
+    completing.current = true
     setBusy(true)
     setProblem(null)
-    // The node attaches a sale to the shift of whoever rings it, so a person
-    // whose seat was taken since the last poll would be ringing money into
-    // nobody's drawer. Asked once more right before the money is recorded. A
-    // node that cannot answer does not stop the sale — the outbox is for that.
-    const seat = seatNow()
-    if (seat !== null) {
-      const mine = await api.myShifts()
-      if (
-        mine.ok &&
-        (mine.body.open === null || mine.body.open.shift_id !== seat.shift_id)
-      ) {
-        setBusy(false)
-        // Back out the way a cashier would, so a voucher hold taken for this
-        // basket is given back, then let the counter know.
-        await leavePayment()
-        onSeatLost(
-          mine.body.uncounted.find((one) => one.shift_id === seat.shift_id)
-            ?.taken_over_by ?? null,
-        )
-        return
-      }
-    }
-    // Written to disk, with its key, before a single byte goes on the wire.
+    // Written to disk, with its key, before anything else: before a single
+    // byte goes on the wire, and before the seat is asked about below. Until
+    // this line the tenders exist only in this window, and a node slow to
+    // answer must not be what keeps them there.
     // Everything after this line is the outbox's problem — including the case
     // where this terminal never manages to send it at all.
     // Cash is sent as handed over, not as applied: the node works the change
@@ -1853,19 +2566,45 @@ function Payment({
       charges,
       quotedTotalMinor: totalMinor,
     })
-    const outcome = await flush()
+    // The node attaches a sale to the shift of whoever rings it, so the seat
+    // is asked about once more — beside the send now, not before the write.
+    // The sale stands whatever the answer: it is written, and its voucher
+    // holds and employee balance are what it spends, so nothing is given
+    // back. A seat that went is dealt with once the customer has their change
+    // (`Sale`). A node that cannot answer does not stop the sale — the outbox
+    // is for that.
+    const seat = seatNow()
+    const [outcome, mine] = await Promise.all([
+      flush(),
+      seat === null ? Promise.resolve(null) : api.myShifts().catch(() => null),
+    ])
     setBusy(false)
+    const seatLost =
+      seat !== null &&
+      mine !== null &&
+      mine.ok &&
+      (mine.body.open === null || mine.body.open.shift_id !== seat.shift_id)
+        ? (mine.body.uncounted.find((one) => one.shift_id === seat.shift_id)
+            ?.taken_over_by ?? null)
+        : undefined
     // The entry is updated in place by the outbox, so by here it carries its
     // own outcome — including the node's sale id, which is what a receipt can
-    // be printed against and a local id never could be.
+    // be printed against and a local id never could be — and whether the node
+    // refused it, in which case it waits for a supervisor to resolve it
+    // (`ResolveSale`) before it is sent again.
     const accepted = outcome.sent.includes(entry.localId)
+    const refused = !accepted && entry.refused
     onSold({
       id: entry.saleId ?? entry.localId,
+      localId: entry.localId,
       saleId: entry.saleId,
       totalMinor,
       changeMinor: change,
       accepted,
-      problem: accepted ? null : outcome.problem,
+      refused,
+      problem: accepted ? null : refused ? entry.problem : outcome.problem,
+      tags: units.map(unitName),
+      seatLost,
     })
   }
 
@@ -1948,6 +2687,8 @@ function Payment({
       await findHolder()
       return
     }
+    // The reason is already on screen beside the money (`holdBack`).
+    if (holdBack !== null) return
     if (basketHasPromotion) {
       setProblem("Employee balance can't be used with a promotion.")
       return
@@ -2005,11 +2746,36 @@ function Payment({
     setTaken((was) => was.filter((_, index) => index !== at))
   }
 
+  /// Take any tender back off. A balance goes back to its holder and a voucher's
+  /// hold goes back to head office; the rest is only the cashier's own entry.
+  async function removeTender(at: number) {
+    const one = taken[at]
+    if (one === undefined) return
+    if (one.method === "BENEFIT") {
+      await removeBenefit(at)
+      return
+    }
+    if (one.voucherCheckoutId !== null && one.reference !== null) {
+      setBusy(true)
+      setProblem(null)
+      try {
+        await releaseVoucher(one.reference, one.voucherCheckoutId, "payment taken off")
+      } catch {
+        // The hold lapses by itself in minutes; the cashier is not kept for it.
+      }
+      setBusy(false)
+    }
+    setTaken((was) => was.filter((_, index) => index !== at))
+  }
+
   async function takeIt() {
     if (isBenefit) {
       await takeBenefit()
       return
     }
+    // Nothing is taken against a figure that is being worked out again; why
+    // is already on screen beside the money (`holdBack`).
+    if (holdBack !== null) return
     if (needsBank && choice === null) {
       setProblem("Choose the bank.")
       return
@@ -2090,211 +2856,247 @@ function Payment({
     setProblem(null)
   }
 
+  useEffect(() => {
+    if (settled) finish.current?.focus()
+  }, [settled])
+
+  const referenceLabel =
+    method === "VOUCHER"
+      ? "Voucher code"
+      : method === "QRIS"
+        ? "QRIS reference number"
+        : method === "EWALLET"
+          ? "E-wallet reference number"
+          : "EDC approval code"
+
+  // The cash figure the cashier is changing: what they typed, or the balance.
+  const cashChange =
+    method === "CASH" && !settled && offered > outstanding
+      ? offered - outstanding
+      : 0
+
   return (
-    <div id="app" data-screen="payment">
-      <Topbar actorId={actorId} />
-      <main className="pay-page">
-        <section className="pay-main">
-          <div className="pay-main-inner">
-            {settled ? (
-              <div className="pay-done">
-                <span className="seal">
-                  <Icon name="check" />
-                </span>
-                <h3>Lunas</h3>
-                <p>
-                  {change > 0
-                    ? <>Change <strong className="num">{money(change, currency)}</strong></>
-                    : "No change"}
-                </p>
+    <div
+      className={enter ? "t-scrim enter" : "t-scrim"}
+      onMouseDown={(event) => {
+        // Closing by the scrim is only safe while nothing has been taken: a
+        // card, a voucher hold and an employee balance each go back on leaving.
+        if (event.target === event.currentTarget && !busy && taken.length === 0) {
+          void leavePayment()
+        }
+      }}
+    >
+      <section
+        className={enter ? "t-paydlg enter" : "t-paydlg"}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Payment"
+      >
+        <button
+          className="t-ib t-x"
+          aria-label="Back to basket"
+          title="Back to basket · Esc"
+          disabled={busy}
+          onClick={() => void leavePayment()}
+        >
+          <Icon name="x" />
+        </button>
+
+        {/* The same skeleton for every method — methods, amount, one slot,
+            the keypad, the button — so switching method never moves a thing. */}
+        <div className="t-pd-main">
+          {settled ? (
+            <div className="t-done">
+              <span className="seal">
+                <Icon name="check" />
+              </span>
+              <h3>Paid in full</h3>
+              <p>
+                {change > 0 ? (
+                  <>
+                    Change <strong className="num">{money(change, currency)}</strong>
+                  </>
+                ) : (
+                  "No change"
+                )}
+              </p>
+            </div>
+          ) : (
+            <>
+              <div
+                className="t-meth"
+                role="group"
+                aria-label="Payment method"
+                style={{
+                  gridTemplateColumns: `repeat(${
+                    tiles.length <= 5 ? tiles.length : Math.ceil(tiles.length / 2)
+                  },minmax(0,1fr))`,
+                }}
+              >
+                {tiles.map((one) => (
+                  <button
+                    key={one.key}
+                    aria-pressed={chosen.key === one.key}
+                    disabled={
+                      one.wire === "BENEFIT" && (basketHasPromotion || benefitTaken)
+                    }
+                    title={
+                      one.wire === "BENEFIT" && basketHasPromotion
+                        ? "Not valid with a promotion"
+                        : undefined
+                    }
+                    onClick={() => {
+                      setPicked(one.key)
+                      setBank(null)
+                      setProblem(null)
+                    }}
+                  >
+                    <Icon name={one.icon} />
+                    {one.label}
+                  </button>
+                ))}
               </div>
-            ) : (
-              <>
-                <div>
-                  <span className="label">Payment method</span>
-                  <div className="method-grid" style={{ marginTop: 8 }}>
-                    {tiles.map((one) => (
+
+              <div>
+                <div className="t-lbl">
+                  <span>{method === "CASH" ? "Received" : "Amount"}</span>
+                  {cashChange > 0 && (
+                    <span className="chg num">
+                      Change {money(cashChange, currency)}
+                    </span>
+                  )}
+                </div>
+                <label className="t-amt">
+                  <span>Rp</span>
+                  <input
+                    value={entered > 0 ? entered.toLocaleString("id-ID") : ""}
+                    onChange={(event) =>
+                      setTyped(event.target.value.replace(/\D/g, ""))
+                    }
+                    onKeyDown={onFieldKey}
+                    inputMode="numeric"
+                    placeholder={(isBenefit && holder !== null
+                      ? Math.min(outstanding, holder.balance_minor)
+                      : outstanding
+                    ).toLocaleString("id-ID")}
+                    aria-label="Payment amount"
+                    autoFocus={!isBenefit}
+                  />
+                </label>
+              </div>
+
+              {/* One slot, one height, whatever the method. */}
+              {method === "CASH" ? (
+                <div className="t-slot pre">
+                  {presets.map((value) => (
+                    <button
+                      key={value}
+                      className={String(value) === typed ? "on" : undefined}
+                      onClick={() => setTyped(String(value))}
+                    >
+                      {value === outstanding
+                        ? "Exact"
+                        : value.toLocaleString("id-ID")}
+                    </button>
+                  ))}
+                </div>
+              ) : isBenefit ? (
+                <div className="t-slot">
+                  <input
+                    className="t-in"
+                    value={benefitCode}
+                    onChange={(event) => {
+                      setBenefitCode(event.target.value.replace(/\D/g, "").slice(0, 6))
+                      setHolder(null)
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter" || busy) return
+                      event.preventDefault()
+                      if (holder === null) void findHolder()
+                      else void takeBenefit()
+                    }}
+                    inputMode="numeric"
+                    autoComplete="off"
+                    placeholder="6-digit code from the employee's phone"
+                    aria-label="Employee balance code"
+                    autoFocus
+                  />
+                </div>
+              ) : (
+                <div className="t-slot" role={needsBank ? "radiogroup" : undefined} aria-label={needsBank ? "Bank" : undefined}>
+                  {needsBank &&
+                    chosen.choices.map((one) => (
                       <button
-                        key={one.key}
-                        className="method"
-                        aria-pressed={chosen.key === one.key}
-                        disabled={
-                          one.wire === "BENEFIT" &&
-                          (basketHasPromotion || benefitTaken)
-                        }
+                        key={one.code ?? one.label}
+                        type="button"
+                        role="radio"
+                        aria-checked={choice === one}
+                        className={choice === one ? "t-chip on" : "t-chip"}
                         onClick={() => {
-                          setPicked(one.key)
-                          setBank(null)
+                          setBank(one.label)
                           setProblem(null)
                         }}
                       >
-                        <Icon name={one.icon} />
                         {one.label}
-                        {one.wire === "BENEFIT" && basketHasPromotion && (
-                          <small className="muted"> Not valid with a promotion</small>
-                        )}
                       </button>
                     ))}
-                  </div>
+                  <input
+                    className="t-in"
+                    value={reference}
+                    onChange={(event) => setReference(event.target.value)}
+                    onKeyDown={onFieldKey}
+                    autoComplete="off"
+                    placeholder={needsBank ? "Approval code" : referenceLabel}
+                    aria-label={referenceLabel}
+                  />
                 </div>
+              )}
 
-                {needsBank && (
-                  <div role="radiogroup" aria-label="Bank">
-                    <span className="label">Bank / mesin EDC</span>
-                    <div className="bank-grid" style={{ marginTop: 8 }}>
-                      {chosen.choices.map((one) => (
-                        <button
-                          key={one.code ?? one.label}
-                          type="button"
-                          role="radio"
-                          aria-checked={choice === one}
-                          onClick={() => {
-                            setBank(one.label)
-                            setProblem(null)
-                          }}
-                        >
-                          {one.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {isBenefit && (
-                  <>
-                    <label className="field">
-                      Employee balance code
-                      <input
-                        value={benefitCode}
-                        onChange={(event) => {
-                          setBenefitCode(event.target.value.replace(/\D/g, "").slice(0, 6))
-                          setHolder(null)
-                        }}
-                        onKeyDown={(event) => {
-                          if (event.key !== "Enter" || busy) return
-                          event.preventDefault()
-                          if (holder === null) void findHolder()
-                          else void takeBenefit()
-                        }}
-                        inputMode="numeric"
-                        autoComplete="off"
-                        placeholder="6 digits from the employee's phone"
-                        autoFocus
-                      />
-                    </label>
-                    {holder !== null && (
-                      <div className="kv">
-                        <span>{holder.full_name ?? holder.employee_code}</span>
-                        <strong className="num">
-                          {money(holder.balance_minor, currency)}
-                        </strong>
-                      </div>
-                    )}
-                  </>
-                )}
-
-                {needsReference && (
-                  <label className="field">
-                    {method === "VOUCHER"
-                      ? "Voucher code"
-                      : method === "QRIS"
-                        ? "QRIS reference number"
-                        : method === "EWALLET"
-                          ? "E-wallet reference number"
-                          : "EDC approval code"}
-                    <input
-                      value={reference}
-                      onChange={(event) => setReference(event.target.value)}
-                      onKeyDown={onFieldKey}
-                      autoComplete="off"
-                    />
-                  </label>
-                )}
-
-                <div>
-                  <span className="label">Amount</span>
-                  <div className="amount-field" style={{ marginTop: 8 }}>
-                    <span className="rp">Rp</span>
-                    <input
-                      value={entered > 0 ? entered.toLocaleString("id-ID") : ""}
-                      onChange={(event) =>
-                        setTyped(event.target.value.replace(/\D/g, ""))
+              <div className="t-np">
+                {["7", "8", "9", "4", "5", "6", "1", "2", "3", "000", "0", "⌫"].map(
+                  (key) => (
+                    <button
+                      key={key}
+                      aria-label={key === "⌫" ? "Delete one digit" : key}
+                      onClick={() =>
+                        setTyped((was) =>
+                          key === "⌫"
+                            ? was.slice(0, -1)
+                            : String(Number(was + key) || ""),
+                        )
                       }
-                      onKeyDown={onFieldKey}
-                      inputMode="numeric"
-                      placeholder={(isBenefit && holder !== null
-                        ? Math.min(outstanding, holder.balance_minor)
-                        : outstanding
-                      ).toLocaleString("id-ID")}
-                      aria-label="Payment amount"
-                      autoFocus={!isBenefit}
-                    />
-                  </div>
-                </div>
-
-                {method === "CASH" && (
-                  <div className="numpad">
-                    {["7","8","9","4","5","6","1","2","3","⌫","0","000"].map(
-                      (key) => (
-                        <button
-                          key={key}
-                          className={key === "⌫" ? "del" : undefined}
-                          aria-label={key === "⌫" ? "Delete one digit" : undefined}
-                          onClick={() =>
-                            setTyped((was) =>
-                              key === "⌫"
-                                ? was.slice(0, -1)
-                                : String(Number(was + key) || ""),
-                            )
-                          }
-                        >
-                          {key}
-                        </button>
-                      ),
-                    )}
-                  </div>
+                    >
+                      {key === "⌫" ? <Icon name="del" /> : key}
+                    </button>
+                  ),
                 )}
+              </div>
+            </>
+          )}
 
-                {presets.length > 0 && (
-                  <div className="presets">
-                    {presets.map((value) => (
-                      <button
-                        key={value}
-                        className={String(value) === typed ? "on" : undefined}
-                        onClick={() => setTyped(String(value))}
-                      >
-                        {money(value, currency)}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </>
-            )}
-
-            {problem !== null && <p className="error">{problem}</p>}
-
-            <div className="pay-cta">
-              <button
-                className="btn primary"
-                disabled={busy || (!settled && offered <= 0)}
-                onClick={() => (settled ? void complete() : takeIt())}
-              >
-                <Icon name={settled ? "check" : "wallet"} />
-                {settled
-                  ? busy
-                    ? "Membukukan…"
-                    : "Complete sale"
-                  : isBenefit
-                    ? holder === null
-                      ? "Check balance"
-                      : `Use balance ${money(
-                          Math.min(
-                            entered > 0 ? entered : outstanding,
-                            outstanding,
-                            holder.balance_minor,
-                          ),
-                          currency,
-                        )}`
+          <span className="grow" />
+          <button
+            ref={finish}
+            className="t-paybtn"
+            disabled={busy || holdBack !== null || (!settled && offered <= 0)}
+            onClick={() => (settled ? void complete() : takeIt())}
+          >
+            <span>
+              {settled
+                ? busy
+                  ? "Saving…"
+                  : "Complete sale"
+                : isBenefit
+                  ? holder === null
+                    ? "Check balance"
+                    : `Use balance ${money(
+                        Math.min(
+                          entered > 0 ? entered : outstanding,
+                          outstanding,
+                          holder.balance_minor,
+                        ),
+                        currency,
+                      )}`
                   : `${partial ? "Part payment" : "Pay"} ${money(
                       partial ? entered : offered,
                       currency,
@@ -2304,129 +3106,88 @@ function Payment({
                       // terminal gets used.
                       needsBank && bank !== null ? ` · ${chosen.label} ${bank}` : ""
                     }`}
-                <kbd aria-hidden="true">Enter</kbd>
-              </button>
-            </div>
-          </div>
-        </section>
-
-        <aside className="pay-side">
-          <button className="pay-back" onClick={() => void leavePayment()}>
-            <Icon name="back" />
-            Back to basket
-            <kbd aria-hidden="true">Esc</kbd>
+            </span>
+            <kbd aria-hidden="true">Enter</kbd>
           </button>
-          <div className="pay-summary">
-            <div className="total-line">
-              <span className="muted">Item</span>
-              <span>{units.length} unit</span>
-            </div>
-            <div className="grand" style={{ marginTop: 4 }}>
-              <span>TOTAL</span>
-              <strong className="num">{money(totalMinor, currency)}</strong>
-            </div>
-            {provisional && (
-              <div className="total-line">
-                <span className="badge warn">Sementara</span>
-              </div>
-            )}
-          </div>
+        </div>
 
-          <div className="pay-scroll no-bar">
-            <span className="label">Items</span>
-            <div className="pay-items">
-              {units.map((unit) => (
-                <div className="pay-item" key={unit.epc}>
-                  <span>{unit.name ?? unit.sku_code}</span>
-                  <span className="num">
-                    {unit.unitPriceMinor === null
-                      ? "—"
-                      : money(unit.unitPriceMinor, currency)}
+        {/* Only the money, on the right: what is due, or the ledger of what has
+            been taken. Total and methods are never mixed in one column. */}
+        <div className="t-pd-side">
+          {taken.length === 0 ? (
+            <div className="t-due">
+              <div className="t-lbl">Due</div>
+              <div className="t-duev num">{money(outstanding, currency)}</div>
+              {provisional && <span className="badge warn">Provisional</span>}
+            </div>
+          ) : (
+            <div className="t-led">
+              <div className="t-ltl">
+                <span>Total</span>
+                <span className="v num">{money(totalMinor, currency)}</span>
+                <span />
+              </div>
+              {taken.map((one, at) => (
+                <div className="t-ltl pd" key={at}>
+                  <span>
+                    <Icon name="check" />
+                    {one.label}
+                    {one.shown !== null && (
+                      <small className="muted"> {one.shown}</small>
+                    )}
                   </span>
+                  <span className="v num">−{money(one.amountMinor, currency)}</span>
+                  <button
+                    className="t-ib sm"
+                    aria-label={`Remove ${one.label} payment`}
+                    disabled={busy}
+                    onClick={() => void removeTender(at)}
+                  >
+                    <Icon name="x" />
+                  </button>
+                </div>
+              ))}
+              <div className="t-lgt">
+                {settled ? (
+                  <>
+                    <span>Change</span>
+                    <strong className="num ok">{money(change, currency)}</strong>
+                  </>
+                ) : (
+                  <>
+                    <span>Still due</span>
+                    <strong className="num">{money(outstanding, currency)}</strong>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
+          {isBenefit && holder !== null && !settled && (
+            <div className="t-kv">
+              <span>{holder.full_name ?? holder.employee_code}</span>
+              <strong className="num">{money(holder.balance_minor, currency)}</strong>
+            </div>
+          )}
+
+          {settled && change > 0 && (
+            <div className="t-denoms">
+              <div className="t-lbl">Hand back</div>
+              {countOut(change).map(([many, denomination]) => (
+                <div className="t-denom" key={denomination}>
+                  <span>
+                    {many}× {money(denomination, currency)}
+                  </span>
+                  <span className="num">{money(many * denomination, currency)}</span>
                 </div>
               ))}
             </div>
+          )}
 
-            {coupons.length > 0 && (
-              <>
-                <span className="label" style={{ marginTop: 4 }}>
-                  Coupon
-                </span>
-                <div className="chips">
-                  {coupons.map((code) => (
-                    <span className="chip" key={code}>
-                      {code}
-                    </span>
-                  ))}
-                </div>
-              </>
-            )}
-
-            {taken.length > 0 && (
-              <>
-                <span className="label" style={{ marginTop: 4 }}>
-                  Diterima
-                </span>
-                {taken.map((one, at) => (
-                  <div className="recorded" key={at}>
-                    <span>
-                      <Icon name="check" />
-                      {one.label}
-                      {one.shown !== null && (
-                        <small className="muted"> {one.shown}</small>
-                      )}
-                    </span>
-                    <strong className="num">
-                      {money(one.amountMinor, currency)}
-                    </strong>
-                    {one.method === "BENEFIT" && (
-                      <button
-                        className="btn"
-                        disabled={busy}
-                        onClick={() => void removeBenefit(at)}
-                      >
-                        Batalkan
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </>
-            )}
-
-          </div>
-
-          <div className={settled ? "pay-due settled" : "pay-due"}>
-            {settled ? (
-              <>
-                <div className="due-line change">
-                  <span>Change</span>
-                  <strong className="num">{money(change, currency)}</strong>
-                </div>
-                {change > 0 && (
-                  <div className="denoms">
-                    <span className="label">Hand back</span>
-                    {countOut(change).map(([many, denomination]) => (
-                      <div className="denom" key={denomination}>
-                        <span>
-                          {many}× {money(denomination, currency)}
-                        </span>
-                        <span className="num">
-                          {money(many * denomination, currency)}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className="due-line rest">
-                <span>Sisa</span>
-                <strong className="num">{money(outstanding, currency)}</strong>
-              </div>
-            )}
-          </div>
-        </aside>
-      </main>
+          {holdBack !== null && <p className="muted">{holdBack}</p>}
+          {problem !== null && <p className="error">{problem}</p>}
+        </div>
+      </section>
     </div>
   )
 }
@@ -2444,7 +3205,8 @@ function Sale({
 }: {
   sold: Sold
   currency: string
-  onNext: () => void
+  /// On to the next customer — and, for a refusal, straight into resolving it.
+  onNext: (resolve: boolean) => void
 }) {
   const { config } = useNodeConfig()
   // Where the receipt goes is this till's peripheral setting: a printer the
@@ -2499,73 +3261,604 @@ function Sale({
     void print(false)
   }, [print])
 
+  // Three different things, and the cashier reads which one before the next
+  // customer: taken by the node; refused by it, which waits for a supervisor
+  // to resolve it; or not answered yet, which the outbox sends again.
+  const heading = sold.accepted
+    ? "Sale complete"
+    : sold.refused
+      ? "Refused by the node"
+      : "Saved on this terminal"
+
   return (
-    <div id="app" data-screen="sale">
-      <Topbar />
-      <div className="overlay">
-        <div
-          className="overlay-card"
-          role="dialog"
-          aria-modal="true"
-          aria-label={sold.accepted ? "Sale complete" : "Saved on this terminal"}
-        >
-          <span className={sold.accepted ? "seal" : "seal warn"}>
-            <Icon name={sold.accepted ? "check" : "clock"} />
-          </span>
-          <h3>{sold.accepted ? "Sale complete" : "Saved on this terminal"}</h3>
-          <p className="overlay-total num">{money(sold.totalMinor, currency)}</p>
-          {sold.changeMinor > 0 && (
-            <div className="overlay-change">
-              <small>Change</small>
-              <strong className="num">
-                {money(sold.changeMinor, currency)}
-              </strong>
-            </div>
-          )}
-          {!sold.accepted && (
-            <div className="notice warn" style={{ width: "100%" }}>
-              Waiting to be sent to the node — it is resent automatically.
-              {sold.problem !== null && <> {sold.problem}</>}
-            </div>
-          )}
-          <p className="muted num" style={{ fontSize: 11.5 }}>
-            {sold.id}
-          </p>
-          {printer === null && here === null ? (
-            noPrint !== null && (
-              <p className="muted" style={{ fontSize: 11.5 }}>
-                {noPrint}
-              </p>
-            )
-          ) : (
-            <>
-              {printed !== null && (
-                <p className="muted" style={{ fontSize: 11.5 }}>
-                  {printed}
-                </p>
-              )}
-              <button
-                className="btn"
-                style={{ width: "100%" }}
-                disabled={sold.saleId === null}
-                onClick={() => void print(true)}
-              >
-                <Icon name="print" />
-                Reprint
-              </button>
-            </>
-          )}
+    <div className="overlay">
+      <div
+        className="overlay-card"
+        role="dialog"
+        aria-modal="true"
+        aria-label={heading}
+      >
+        <span className={sold.accepted ? "seal" : "seal warn"}>
+          <Icon name={sold.accepted ? "check" : sold.refused ? "alert" : "clock"} />
+        </span>
+        <h3>{heading}</h3>
+        <p className="overlay-total num">{money(sold.totalMinor, currency)}</p>
+        {sold.changeMinor > 0 && (
+          <div className="overlay-change">
+            <small>Change</small>
+            <strong className="num">{money(sold.changeMinor, currency)}</strong>
+          </div>
+        )}
+        {!sold.accepted && !sold.refused && (
+          <div className="notice warn" style={{ width: "100%" }}>
+            Waiting to be sent to the node — it is resent automatically.
+            {sold.problem !== null && <> {sold.problem}</>}
+          </div>
+        )}
+        {sold.refused && (
+          <div className="notice warn" style={{ width: "100%" }}>
+            The node refused this sale, so it is not recorded yet.
+            {sold.problem !== null && <> The node said: {sold.problem}</>}
+            <br />
+            Tags: {sold.tags.join("; ")}.
+            <br />
+            A store manager resolves it — now, or from the sale screen —
+            before the shift can be finished.
+          </div>
+        )}
+        {sold.seatLost !== undefined && (
+          <div className="notice warn" style={{ width: "100%" }}>
+            {sold.seatLost === null
+              ? "Your shift on this till ended while this sale was being paid."
+              : `Your shift on this till was taken over by ${sold.seatLost} while this sale was being paid.`}
+            {!sold.refused && " The sale is kept under your name."}
+          </div>
+        )}
+        <p className="muted num">{sold.id}</p>
+        {printer === null && here === null ? (
+          noPrint !== null && <p className="muted">{noPrint}</p>
+        ) : (
+          <>
+            {printed !== null && <p className="muted">{printed}</p>}
+            <button
+              className="t-link"
+              disabled={sold.saleId === null}
+              onClick={() => void print(true)}
+            >
+              <Icon name="print" />
+              Reprint
+            </button>
+          </>
+        )}
+        {sold.refused && (
           <button
-            className="btn primary"
+            className="btn"
             style={{ width: "100%" }}
-            onClick={onNext}
-            autoFocus
+            onClick={() => onNext(true)}
           >
-            Next sale
+            Resolve
           </button>
-        </div>
+        )}
+        <button
+          className="btn primary lg"
+          style={{ width: "100%" }}
+          onClick={() => onNext(false)}
+          autoFocus
+        >
+          Next sale
+        </button>
       </div>
     </div>
+  )
+}
+
+/// What the node says a refused sale comes to, if it went now with these tags.
+type Verdict =
+  | { readonly for: string; readonly ok: false; readonly problem: string }
+  | {
+      readonly for: string
+      readonly ok: true
+      /// Tags it will not sell from this shop's floor, and why.
+      readonly unsellable: readonly api.Unsellable[]
+      /// What the tenders settle against — the figure the customer paid at the
+      /// counter (`quotedTotalMinor`). Null when the node has no price for it.
+      readonly dueMinor: number | null
+      /// The article of each tag, in the order sent: one line per tag.
+      readonly skus: readonly string[]
+    }
+
+/// Ask the node what a refused sale comes to with these tags: the counter's own
+/// quote, with the sale's coupons and their holds, member and fees, so it is
+/// priced exactly as it will be sold.
+async function priceFor(
+  entry: OutboxEntry,
+  epcs: readonly string[],
+): Promise<Verdict> {
+  const key = epcs.join(",")
+  try {
+    const reply = await api.quote(
+      epcs,
+      entry.couponCodes,
+      entry.customerId,
+      entry.charges,
+      entry.couponAuthorizations,
+    )
+    if (!reply.ok) {
+      return {
+        for: key,
+        ok: false,
+        problem:
+          reply.problem ?? `The node did not price this sale (HTTP ${reply.status}).`,
+      }
+    }
+    return {
+      for: key,
+      ok: true,
+      unsellable: reply.body?.unsellable ?? [],
+      dueMinor: reply.body?.amount_due_minor ?? reply.body?.total_minor ?? null,
+      skus: (reply.body?.lines ?? []).map((line) => line.sku_code),
+    }
+  } catch (cause) {
+    return {
+      for: key,
+      ok: false,
+      problem: `The store node did not answer: ${
+        cause instanceof Error ? cause.message : String(cause)
+      }`,
+    }
+  }
+}
+
+/// What the store manager is shown, and what the node writes beside their name
+/// (`till_approval.detail`, under 240 characters): the sale, and exactly what
+/// is done to it.
+function resolveDetail(
+  entry: OutboxEntry,
+  swaps: readonly Swap[],
+  currency: string,
+): string {
+  const sale = `Refused sale ${new Date(entry.takenAt).toLocaleString("id-ID")} · ${money(
+    entry.quotedTotalMinor,
+    currency,
+  )}`
+  if (swaps.length === 0) return `${sale} · send again unchanged`
+  const each = swaps
+    .map((one) => `…${one.from.slice(-8)} with …${one.to.slice(-8)}`)
+    .join(", ")
+  const full = `${sale} · replace ${each} (same article) and send again`
+  return full.length <= 240
+    ? full
+    : `${sale} · replace ${swaps.length} tags (same article) and send again`
+}
+
+/// A sale the node refused after the money was taken, put right.
+///
+/// Owner, 21 Oct 2026: "Jangan Discard, wajib diselesaikan". A paid sale is
+/// never dropped from the till; it is resolved, so the money, the goods and an
+/// employee's benefit stay matched. Two ways, both behind a store manager's yes
+/// (`useApproval`), and both send the sale's own tenders — a BENEFIT one
+/// included — exactly as they were taken:
+///
+/// - **Replace** a tag the node will not sell with the garment's real tag, read
+///   on the pad or scanned. Only a tag of the same SKU, so the money taken is
+///   still right, and only one the node quotes as sellable.
+/// - **Send again** unchanged, once the reason is gone — the stock moved to the
+///   shop floor in the store app, say. "Check again" asks the node.
+///
+/// Either way the node prices the sale first, and it goes only when that comes
+/// to what was paid. A different article or a different price is not a
+/// resolve: it needs a return and a new sale, and the sheet says so.
+///
+/// The yes is asked for at the moment of sending, for exactly what is sent, so
+/// the node's record of it (`till_approval`: who, when, which tags) names the
+/// swap. The node has no approval action of its own for this; it is filed as
+/// `EDIT_CART` — the basket's tags edited — with the detail saying what. The
+/// sale goes under its own idempotency key: `resolveRefused` says why.
+function ResolveSale({
+  entry,
+  bySku,
+  currency,
+  ask,
+  onClose,
+  onDone,
+}: {
+  entry: OutboxEntry
+  bySku: ReadonlyMap<string, api.CatalogRow>
+  currency: string
+  ask: ReturnType<typeof useApproval>["ask"]
+  onClose: () => void
+  /// Sent, or saved to go: the sheet closes with this said at the counter.
+  onDone: (text: string, bad: boolean) => void
+}) {
+  // The swaps planned so far, each with the article both of its tags are.
+  const [swaps, setSwaps] = useState<readonly (Swap & { readonly sku: string })[]>([])
+  // The tag whose real one is being read or scanned.
+  const [replacing, setReplacing] = useState<string | null>(null)
+  const [verdict, setVerdict] = useState<Verdict | null>(null)
+  const [problem, setProblem] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const asked = useRef(0)
+  const field = useRef<HTMLInputElement>(null)
+
+  const planOf = (list: readonly Swap[]) =>
+    entry.epcs.map((epc) => list.find((one) => one.from === epc)?.to ?? epc)
+  const plan = planOf(swaps)
+  // Only an answer about the sale as it would go now counts.
+  const current = verdict !== null && verdict.for === plan.join(",") ? verdict : null
+  const named = new Map<string, api.Unsellable>()
+  if (current !== null && current.ok) {
+    for (const one of current.unsellable) named.set(one.epc.toUpperCase(), one)
+  }
+
+  /// The article a tag is: the node's word for it when it named the tag —
+  /// that is what the customer was charged for — else the tag's own encoding.
+  const skuOf = (epc: string): string | null => {
+    const node = named.get(epc.toUpperCase())?.sku_code
+    if (node !== undefined) return node
+    const read = readScan(epc)
+    return read.kind === "epc" ? read.sku_code : null
+  }
+  const nameOf = (sku: string | null) =>
+    (sku === null ? undefined : bySku.get(sku)?.name) ?? skuText(sku)
+  // The node's own idempotency conflict ("conflict: idempotency key was
+  // already used…"): it already holds this sale's key. Today's node stores a
+  // key only with a sale (`resolveRefused`), so an earlier send landed while
+  // its answer was lost. Under that key the node prices and sells nothing new,
+  // so the one move is to send it again unchanged, which lets it answer with
+  // what it holds. No tag is swapped — the tags it holds are the ones sent —
+  // and the stock check below does not apply: those tags read "sold already",
+  // sold by this very sale. The price check still does, in case the key is
+  // somehow no longer there and the node would price the sale afresh.
+  const landed = /idempotency key/i.test(entry.problem ?? "")
+
+  const check = useCallback(
+    async (epcs: readonly string[]) => {
+      const request = ++asked.current
+      setVerdict(null)
+      const answer = await priceFor(entry, epcs)
+      if (request === asked.current) setVerdict(answer)
+    },
+    [entry],
+  )
+
+  // What the node says now about the sale as it was rung: which tags, and why.
+  useEffect(() => {
+    void check(entry.epcs)
+  }, [check, entry])
+
+  // Why it cannot go yet, or null when it can.
+  const blocked: string | null =
+    current === null
+      ? "Checking with the node…"
+      : !current.ok
+        ? current.problem
+        : !landed && current.unsellable.length > 0
+          ? "Still refused. Replace the tag, or move the stock to the shop floor in the store app and check again."
+          : current.dueMinor === null
+            ? "The node has no price for this sale now, so the money can't be checked."
+            : current.dueMinor !== entry.quotedTotalMinor
+              ? `The node now prices this sale at ${money(current.dueMinor, currency)}, but ${money(
+                  entry.quotedTotalMinor,
+                  currency,
+                )} was paid. A price change can't be made here — it needs a return and a new sale.`
+              : swaps.some((one) => current.skus[entry.epcs.indexOf(one.from)] !== one.sku)
+                ? "The node has a replacement tag as another article. That needs a return and a new sale."
+                : null
+
+  /// The tag read or scanned, as the real tag for `replacing` — only one of the
+  /// same SKU, and only when the node would sell the sale with it.
+  async function tryReplace(raw: string) {
+    const from = replacing
+    if (from === null || busy) return
+    setProblem(null)
+    const read = readScan(raw.trim().replace(/·/g, ""))
+    if (read.kind !== "epc") {
+      setProblem("That is not a garment's tag. Read it on the pad, or scan the tag itself.")
+      return
+    }
+    const wanted = skuOf(from)
+    if (wanted === null) {
+      setProblem("This tag's article can't be told, so it can't be replaced here.")
+      return
+    }
+    if (plan.some((epc) => epc.toUpperCase() === read.epc.toUpperCase())) {
+      setProblem("That tag is already on this sale.")
+      return
+    }
+    if (read.sku_code !== wanted) {
+      setProblem(
+        `That is ${nameOf(read.sku_code)} (${skuText(read.sku_code)}), not ${nameOf(
+          wanted,
+        )} (${skuText(wanted)}). A different article can't be swapped in here — ` +
+          "it needs a return and a new sale.",
+      )
+      return
+    }
+    const next = [...swaps, { from, to: read.epc, sku: wanted }]
+    setBusy(true)
+    const answer = await priceFor(entry, planOf(next))
+    setBusy(false)
+    if (!answer.ok) {
+      setProblem(answer.problem)
+      return
+    }
+    const refusal = answer.unsellable.find(
+      (one) => one.epc.toUpperCase() === read.epc.toUpperCase(),
+    )
+    if (refusal !== undefined) {
+      setProblem(`…${read.epc.slice(-8)} can't be sold from this shop either: ${refusal.reason}.`)
+      return
+    }
+    const at = entry.epcs.indexOf(from)
+    if (answer.skus.length === entry.epcs.length && answer.skus[at] !== wanted) {
+      setProblem(
+        `The node has …${read.epc.slice(-8)} as ${skuText(answer.skus[at])}, not ${skuText(
+          wanted,
+        )}. That needs a return and a new sale.`,
+      )
+      return
+    }
+    // Whatever was still being asked is about the sale before this swap.
+    asked.current += 1
+    setSwaps(next)
+    setVerdict(answer)
+    setReplacing(null)
+  }
+
+  /// The garment alone on the R3's pad: the one tag there of the same SKU that
+  /// is not on the sale already. Two of them, and it is not guessed.
+  async function fromPad() {
+    const from = replacing
+    if (from === null || busy) return
+    setProblem(null)
+    const wanted = skuOf(from)
+    if (wanted === null) {
+      setProblem("This tag's article can't be told, so it can't be replaced here.")
+      return
+    }
+    setBusy(true)
+    let read: Awaited<ReturnType<typeof readRfidPad>>
+    try {
+      read = await readRfidPad()
+    } catch (error) {
+      setBusy(false)
+      setProblem(`Chainway R3: ${error instanceof Error ? error.message : String(error)}`)
+      return
+    }
+    setBusy(false)
+    const fresh: { readonly epc: string; readonly sku: string }[] = []
+    for (const tag of read.tags) {
+      const one = readScan(tag.epc)
+      if (one.kind !== "epc") continue
+      if (plan.some((epc) => epc.toUpperCase() === one.epc.toUpperCase())) continue
+      fresh.push({ epc: one.epc, sku: one.sku_code })
+    }
+    const same = fresh.filter((one) => one.sku === wanted)
+    if (same.length === 1) {
+      await tryReplace(same[0].epc)
+      return
+    }
+    setProblem(
+      same.length > 1
+        ? `${same.length} tags of ${nameOf(wanted)} on the pad. Leave only the garment the customer took.`
+        : fresh.length > 0
+          ? `No tag of ${nameOf(wanted)} on the pad. A different article can't be swapped in here — it needs a return and a new sale.`
+          : "No tag on the pad that isn't on this sale already.",
+    )
+  }
+
+  function undo(from: string) {
+    const next = swaps.filter((one) => one.from !== from)
+    setSwaps(next)
+    setProblem(null)
+    void check(planOf(next))
+  }
+
+  /// A store manager's yes for exactly this, then the resolve.
+  function send() {
+    if (blocked !== null || busy || replacing !== null) return
+    const planned: readonly Swap[] = swaps.map(({ from, to }) => ({ from, to }))
+    ask({
+      action: "EDIT_CART",
+      title: "Resolve refused sale",
+      detail: resolveDetail(entry, planned, currency),
+      reason: entry.problem,
+      epcs:
+        planned.length === 0 ? entry.epcs : planned.flatMap((one) => [one.from, one.to]),
+      amountMinor: entry.quotedTotalMinor,
+      onApproved: (by) => void go(by, planned),
+    })
+  }
+
+  /// Written down first — who, when, which tags — and then sent.
+  async function go(by: Approved, planned: readonly Swap[]) {
+    setBusy(true)
+    setProblem(null)
+    const again = resolveRefused(entry.localId, {
+      at: new Date().toISOString(),
+      by: by.username,
+      approvalId: by.approvalId,
+      replaced: planned,
+      refusal: entry.problem,
+    })
+    if (again === null) {
+      setBusy(false)
+      setProblem("This sale is no longer waiting to be resolved.")
+      return
+    }
+    try {
+      await flush()
+    } finally {
+      setBusy(false)
+    }
+    if (again.saleId !== null) {
+      onDone(`Refused sale sent and recorded — resolved by ${by.username}.`, false)
+      return
+    }
+    if (again.refused) {
+      // The node's new sentence is at the top; the plan starts again from the
+      // sale as it now stands, its swaps included.
+      setSwaps([])
+      setReplacing(null)
+      setProblem("The node refused it again.")
+      void check(again.epcs)
+      return
+    }
+    onDone(
+      "Resolved and saved on this terminal — it goes to the node as soon as the node answers.",
+      true,
+    )
+  }
+
+  return (
+    <Sheet
+      title="Resolve refused sale"
+      onClose={() => {
+        if (!busy) onClose()
+      }}
+      foot={
+        <>
+          <button
+            type="button"
+            className="btn"
+            disabled={busy || current === null}
+            onClick={() => {
+              setProblem(null)
+              void check(plan)
+            }}
+          >
+            Check again
+          </button>
+          <button
+            type="button"
+            className="btn primary"
+            disabled={blocked !== null || busy || replacing !== null}
+            onClick={send}
+          >
+            {busy ? "Sending…" : swaps.length > 0 ? "Replace and send" : "Send again"}
+          </button>
+        </>
+      }
+    >
+      <div className="notice warn">
+        {new Date(entry.takenAt).toLocaleString("id-ID")} ·{" "}
+        <span className="num">{money(entry.quotedTotalMinor, currency)}</span>
+        {entry.problem !== null && <> — the node said: {entry.problem}</>}
+      </div>
+      {landed && (
+        <p className="notice">
+          The node already holds this sale&apos;s own key: an earlier send reached
+          it, and nothing can be sold twice under that key. Send it again
+          unchanged while {entry.actorId} is signed in, so the node can answer
+          with what it holds. Refused again, head office has to match it on the
+          node.
+        </p>
+      )}
+
+      <div className="rows">
+        {entry.epcs.map((epc) => {
+          const swap = swaps.find((one) => one.from === epc)
+          const sku = swap?.sku ?? skuOf(epc)
+          const why = named.get((swap?.to ?? epc).toUpperCase())?.reason
+          // Offered for a tag the node names, or for every tag when the node
+          // could not answer about the sale at all.
+          const canReplace =
+            !landed &&
+            swap === undefined &&
+            current !== null &&
+            (!current.ok || named.has(epc.toUpperCase()))
+          return (
+            <div className="row-item" key={epc}>
+              <div className="grow">
+                <h3>{nameOf(sku)}</h3>
+                <p className="num">
+                  {skuText(sku)} · …{epc.slice(-8)}
+                  {swap !== undefined && <> → …{swap.to.slice(-8)}</>}
+                </p>
+                {why !== undefined && <p>{why}</p>}
+              </div>
+              {swap !== undefined ? (
+                <button
+                  type="button"
+                  className="btn ghost"
+                  disabled={busy}
+                  onClick={() => undo(epc)}
+                >
+                  Undo
+                </button>
+              ) : canReplace ? (
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={busy || replacing === epc}
+                  onClick={() => {
+                    setReplacing(epc)
+                    setProblem(null)
+                  }}
+                >
+                  Replace
+                </button>
+              ) : null}
+            </div>
+          )
+        })}
+      </div>
+
+      {replacing !== null && (
+        <form
+          key={replacing}
+          className="rows"
+          onSubmit={(event) => {
+            event.preventDefault()
+            const input = field.current
+            if (input === null) return
+            const value = input.value
+            input.value = ""
+            void tryReplace(value)
+          }}
+        >
+          <label className="field">
+            Real tag of the {nameOf(skuOf(replacing))} for …{replacing.slice(-8)}
+            <input
+              ref={field}
+              autoFocus
+              autoComplete="off"
+              spellCheck={false}
+              placeholder={isWeb ? "Scan the tag" : "Scan the tag, or read it on the pad"}
+            />
+          </label>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {!isWeb && (
+              <button
+                type="button"
+                className="btn"
+                disabled={!inShell() || busy}
+                onClick={() => void fromPad()}
+              >
+                Read the pad
+              </button>
+            )}
+            <button
+              type="button"
+              className="btn ghost"
+              disabled={busy}
+              onClick={() => {
+                setReplacing(null)
+                setProblem(null)
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+
+      {problem !== null ? (
+        <p className="error">{problem}</p>
+      ) : (
+        blocked !== null && <p className="muted">{blocked}</p>
+      )}
+    </Sheet>
   )
 }
 

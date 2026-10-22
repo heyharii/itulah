@@ -1,0 +1,94 @@
+<!-- @dsCard group="Records" height=817 subtitle="Static rendition of rows.tsx (MiniTable, SheetSection, TotalsLadder) in the All white look" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>MiniTable — preview</title><style>
+body{margin:0}
+.ds-minitable-rail{width:min(480px,100%)}
+.ds-minitable-rail .ds-sheet{width:100%}
+.ds-minitable-rail .ds-sheet-body{padding-top:20px}
+.ds-minitable-subhead{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:4px 8px}
+.ds-minitable-subhead h4{font-size:15px;line-height:20px;font-weight:600;color:var(--ink)}
+.ds-minitable-aside{font-size:15px;color:var(--mute);font-variant-numeric:tabular-nums}
+.ds-minitable-table{width:100%;border-collapse:collapse;font-size:15px}
+.ds-minitable-table th{padding:0 0 10px 12px;background:var(--band);border-bottom:1px solid var(--hairline);color:var(--mute);font-weight:500;text-align:right}
+.ds-minitable-table th:first-child{padding:0 8px 10px 0;text-align:left}
+.ds-minitable-table tbody tr{border-top:1px solid var(--hairline)}
+.ds-minitable-table td{padding:12px 0 12px 12px;color:var(--text);text-align:right;font-variant-numeric:tabular-nums}
+.ds-minitable-table td:first-child{padding:12px 8px 12px 0;text-align:left;font-variant-numeric:normal}
+.ds-minitable-name{display:block;color:var(--ink)}
+.ds-minitable-code{display:block;color:var(--mute)}
+.ds-minitable-ladder{display:flex;flex-direction:column;gap:4px;padding-top:10px;border-top:1px solid var(--hairline);font-size:15px}
+.ds-minitable-ladder div{display:flex;justify-content:space-between;gap:12px;color:var(--body)}
+.ds-minitable-ladder div span:last-child{font-variant-numeric:tabular-nums}
+.ds-minitable-ladder .ds-minitable-total{font-weight:600;color:var(--ink)}
+.ds-minitable-phone{margin:0;width:min(414px,100%)}
+.ds-minitable-phone .ds-phone-body{padding:20px var(--phone-gutter) 24px}
+.ds-minitable-stack,.ds-minitable-stack tbody{display:block;width:100%}
+.ds-minitable-stack thead{display:none}
+.ds-minitable-stack tbody tr{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:16px;row-gap:8px;padding-block:12px}
+.ds-minitable-stack td,.ds-minitable-stack td:first-child{display:block;min-width:0;padding:0;text-align:left;overflow-wrap:anywhere}
+.ds-minitable-stack td:first-child{grid-column:1/-1;font-weight:500;color:var(--ink)}
+.ds-minitable-stack td:first-child .ds-minitable-code{font-weight:400}
+.ds-minitable-stack td[data-label]:not(:first-child)::before{content:attr(data-label);display:block;margin-bottom:2px;font-size:15px;font-weight:400;color:var(--mute)}
+</style></head>
+<body>
+<div class="ds ds-stage">
+
+  <div class="ds-col">
+    <p class="ds-caption">In a rail sheet: a section, its table, then the ladder</p>
+    <div class="ds-minitable-rail">
+      <div class="ds-sheet ds-sheet--rail">
+        <div class="ds-sheet-body">
+          <section class="ds-section">
+            <div class="ds-minitable-subhead"><h4>Order items</h4><span class="ds-minitable-aside">2</span></div>
+            <table class="ds-minitable-table">
+              <thead><tr><th>Item</th><th>Quantity</th><th>Amount</th></tr></thead>
+              <tbody>
+                <tr>
+                  <td><span class="ds-minitable-name">Kemeja Flanel Kotak, Navy / M</span><span class="ds-minitable-code">KFK-NV-M</span></td>
+                  <td>36 pcs</td><td>Rp 3.060.000</td>
+                </tr>
+                <tr>
+                  <td><span class="ds-minitable-name">Kaos Polos Oversize, Hitam / L</span><span class="ds-minitable-code">KPO-BK-L</span></td>
+                  <td>60 pcs</td><td>Rp 5.100.000</td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+          <div class="ds-minitable-ladder">
+            <div><span>Subtotal</span><span>Rp 8.160.000</span></div>
+            <div><span>Paid</span><span>−Rp 4.000.000</span></div>
+            <div class="ds-minitable-total"><span>Outstanding</span><span>Rp 4.160.000</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ds-col">
+    <p class="ds-caption">On a phone the same table stacks: the name across the top, the rest under their headings</p>
+    <div class="ds-phone ds-minitable-phone">
+      <div class="ds-phone-body">
+        <section class="ds-section">
+          <div class="ds-minitable-subhead"><h4>Order items</h4><span class="ds-minitable-aside">2</span></div>
+          <table class="ds-minitable-table ds-minitable-stack">
+            <thead><tr><th>Item</th><th>Quantity</th><th>Amount</th></tr></thead>
+            <tbody>
+              <tr>
+                <td><span class="ds-minitable-name">Kemeja Flanel Kotak, Navy / M</span><span class="ds-minitable-code">KFK-NV-M</span></td>
+                <td data-label="Quantity">36 pcs</td><td data-label="Amount">Rp 3.060.000</td>
+              </tr>
+              <tr>
+                <td><span class="ds-minitable-name">Kaos Polos Oversize, Hitam / L</span><span class="ds-minitable-code">KPO-BK-L</span></td>
+                <td data-label="Quantity">60 pcs</td><td data-label="Amount">Rp 5.100.000</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

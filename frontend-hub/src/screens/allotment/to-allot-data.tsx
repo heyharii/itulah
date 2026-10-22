@@ -55,6 +55,8 @@ export interface PickArticle {
   readonly sizesRun: boolean
   /// When the article was set up (its record created); null until read.
   readonly setupAt: string | null
+  /// Its free SKUs' numbers, in SKU order.
+  readonly skuCodes: readonly string[]
 }
 
 /// The pages of the article master read, newest first, to find when the
@@ -213,6 +215,19 @@ export function useAllotSelection() {
   return { walk, steps, selection, select }
 }
 
+/// Into the grid and back out of it: the screens panel slides away and the
+/// page widens over the space it left (`focus` in index.css), instead of the
+/// panel vanishing and the page jumping 232px in one frame (owner, 17 Oct
+/// 2026: "transisi … allot all itu ga rapi"). Only where the browser can scope
+/// a transition by type — without it the router would cross-fade the whole
+/// screen, so there the cut stays a cut.
+export function focusTransition() {
+  return typeof window !== "undefined" &&
+    window.CSS?.supports?.("selector(:active-view-transition-type(a))")
+    ? { types: ["focus"] }
+    : false
+}
+
 /// Opens the grid on the first supplier, the others queued behind it.
 export function useMakeAllotment() {
   const navigate = useNavigate()
@@ -221,6 +236,7 @@ export function useMakeAllotment() {
     void navigate({
       to: "/allotment/new" as never,
       search: walkSearch([], picks[0], picks.slice(1)) as never,
+      viewTransition: focusTransition(),
     })
   }
 }
@@ -350,6 +366,7 @@ export function useToAllot(enabled = true) {
                 termLabel(vocabulary.data?.tags, tag)
               ),
               free: skus.reduce((total, one) => total + one.on_hand_qty, 0),
+              skuCodes: skus.map((one) => one.sku_code),
               orders: [
                 ...new Set(
                   skus.flatMap((one) =>
@@ -413,5 +430,7 @@ export function useToAllot(enabled = true) {
     status,
     /// How many articles have something to allot, for the tab's count.
     articles: suppliers.reduce((total, one) => total + one.articles.length, 0),
+    /// Pieces the DC holds free to allot, for the In stock figure.
+    pieces: suppliers.reduce((total, one) => total + one.free, 0),
   }
 }

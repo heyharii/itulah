@@ -3,7 +3,7 @@
 
 /// The Missing concept (units counted as missing or lost). Owner decision,
 /// 2 Oct 2026: not shown for now. Set to `true` to bring every surface back.
-export const SHOW_MISSING = false
+export const SHOW_MISSING = true
 
 /// A column list without its Missing columns while `SHOW_MISSING` is off.
 /// Matches by `accessorKey` or `id`, so a table keeps declaring the column and

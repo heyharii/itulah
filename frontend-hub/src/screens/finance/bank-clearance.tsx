@@ -17,6 +17,7 @@ import { Fab } from "@/components/ui/fab"
 import { Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Status } from "@/components/ui/pill"
+import { CellMoney } from "@/components/ui/rows-switch"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { count, day, money } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
@@ -188,9 +189,11 @@ function BankClearanceScreen() {
         enableSorting: false,
         meta: { align: "right", card: "metric" },
         cell: ({ row }) =>
-          row.original.direction === "IN"
-            ? money(row.original.amount_minor)
-            : "",
+          row.original.direction === "IN" ? (
+            <CellMoney minor={row.original.amount_minor} />
+          ) : (
+            ""
+          ),
       },
       {
         id: "credit",
@@ -201,9 +204,11 @@ function BankClearanceScreen() {
         enableSorting: false,
         meta: { align: "right", card: "metric" },
         cell: ({ row }) =>
-          row.original.direction === "OUT"
-            ? money(row.original.amount_minor)
-            : "",
+          row.original.direction === "OUT" ? (
+            <CellMoney minor={row.original.amount_minor} />
+          ) : (
+            ""
+          ),
       },
       {
         id: "party",

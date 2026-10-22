@@ -1,0 +1,98 @@
+<!-- @dsCard group="Feedback" height=810 subtitle="Static rendition of states.tsx in the All white look" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>LoadingState — preview</title>
+<style>
+body{margin:0}
+.ds-loadingstate-set{display:flex;flex-direction:column;gap:24px;padding:24px 28px}
+.ds-loadingstate-cols{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px;align-items:start}
+.ds-loadingstate-col{display:flex;flex-direction:column;gap:24px;min-width:0}
+.ds-loadingstate-block{display:flex;flex-direction:column;gap:8px;min-width:0}
+.ds-loadingstate-label{font-weight:500;color:var(--ink)}
+/* LoadingState: a centred sentence, 56px above and below */
+.ds-loadingstate-plain{max-width:28em;margin:0 auto;padding:56px 16px;text-align:center;font-size:15px;line-height:22px;color:var(--body)}
+.ds-loadingstate-frame{border:1px solid var(--hairline);border-radius:var(--r-card);background:var(--canvas)}
+/* ListSkeleton (states.tsx): eight 56px rows in a hairline frame, pills in soft */
+.ds-loadingstate-list{border:1px solid var(--hairline);border-radius:var(--r-inner);overflow:hidden}
+.ds-loadingstate-row{display:flex;align-items:center;gap:24px;height:56px;padding:0 16px;border-top:1px solid var(--hairline)}
+.ds-loadingstate-row:first-child{border-top:0}
+.ds-loadingstate-bar{display:block;flex:none;height:14px;border-radius:var(--r-full);background:var(--soft)}
+.ds-loadingstate-bar--end{margin-left:auto;width:64px}
+.ds-loadingstate-bar--last{width:80px}
+/* SheetLoading (sheet-states.tsx) */
+.ds-loadingstate-sheetload{display:flex;flex-direction:column;gap:12px}
+.ds-loadingstate-sheetload p{font-size:15px;line-height:22px;color:var(--mute)}
+.ds-loadingstate-sheetload-bars{display:flex;flex-direction:column;gap:10px}
+.ds-loadingstate-sheetload-bars .ds-loadingstate-bar{width:66.667%}
+.ds-loadingstate-sheetload-bars .ds-loadingstate-bar+.ds-loadingstate-bar{width:50%}
+.ds-loadingstate-sheet .ds-sheet-body{padding-top:20px}
+/* BootSkeleton: the shell's silhouette. Rules as frontend-store-new/index.html draws them */
+.ds-loadingstate-boot{display:flex;gap:12px;height:220px;padding:12px 12px 12px 0;overflow:hidden;border-radius:var(--r-card);background:var(--stone)}
+.ds-loadingstate-boot .ds-loadingstate-rail{flex:0 0 68px;margin:-12px 0;display:flex;flex-direction:column;align-items:center;padding-top:14px;gap:22px}
+.ds-loadingstate-boot .ds-loadingstate-mark{width:24px;height:24px;border-radius:6px;background:var(--ink)}
+.ds-loadingstate-boot .ds-loadingstate-dot{width:22px;height:22px;border-radius:7px;background:rgb(0 0 0 / 7%)}
+.ds-loadingstate-boot .ds-loadingstate-panel{flex:0 0 216px;padding:15px 14px;border-radius:var(--r-sheet);background:var(--canvas)}
+.ds-loadingstate-boot .ds-loadingstate-blabel,.ds-loadingstate-boot .ds-loadingstate-brow,.ds-loadingstate-boot .ds-loadingstate-bcell,.ds-loadingstate-boot .ds-loadingstate-bhead{border-radius:6px;background:#e6e6e9}
+.ds-loadingstate-boot .ds-loadingstate-blabel{width:104px;height:12px;margin-bottom:16px}
+.ds-loadingstate-boot .ds-loadingstate-brow{height:13px;margin-bottom:12px;background:#eaeaed}
+.ds-loadingstate-boot .ds-loadingstate-bbody{flex:1;min-width:0;overflow:hidden;padding:24px 28px;border-radius:var(--r-sheet);background:var(--canvas)}
+.ds-loadingstate-boot .ds-loadingstate-bhead{width:176px;height:18px;margin-bottom:20px}
+.ds-loadingstate-boot .ds-loadingstate-bcell{height:40px;margin-bottom:8px;background:var(--soft-2)}
+.ds-loadingstate-boot .ds-loadingstate-bcell:first-of-type{background:#eaeaed}
+</style></head>
+<body>
+<div class="ds ds-loadingstate-set">
+
+  <div class="ds-loadingstate-cols">
+    <div class="ds-loadingstate-block">
+      <div class="ds-loadingstate-label">ListSkeleton</div>
+      <div class="ds-loadingstate-list" role="status" aria-label="Reading the orders…">
+        <div class="ds-loadingstate-row"><span class="ds-loadingstate-bar" style="width:40%"></span><span class="ds-loadingstate-bar ds-loadingstate-bar--end"></span><span class="ds-loadingstate-bar ds-loadingstate-bar--last"></span></div>
+        <div class="ds-loadingstate-row"><span class="ds-loadingstate-bar" style="width:33.333%"></span><span class="ds-loadingstate-bar ds-loadingstate-bar--end"></span><span class="ds-loadingstate-bar ds-loadingstate-bar--last"></span></div>
+        <div class="ds-loadingstate-row"><span class="ds-loadingstate-bar" style="width:50%"></span><span class="ds-loadingstate-bar ds-loadingstate-bar--end"></span><span class="ds-loadingstate-bar ds-loadingstate-bar--last"></span></div>
+        <div class="ds-loadingstate-row"><span class="ds-loadingstate-bar" style="width:40%"></span><span class="ds-loadingstate-bar ds-loadingstate-bar--end"></span><span class="ds-loadingstate-bar ds-loadingstate-bar--last"></span></div>
+        <div class="ds-loadingstate-row"><span class="ds-loadingstate-bar" style="width:28%"></span><span class="ds-loadingstate-bar ds-loadingstate-bar--end"></span><span class="ds-loadingstate-bar ds-loadingstate-bar--last"></span></div>
+        <div class="ds-loadingstate-row"><span class="ds-loadingstate-bar" style="width:50%"></span><span class="ds-loadingstate-bar ds-loadingstate-bar--end"></span><span class="ds-loadingstate-bar ds-loadingstate-bar--last"></span></div>
+        <div class="ds-loadingstate-row"><span class="ds-loadingstate-bar" style="width:40%"></span><span class="ds-loadingstate-bar ds-loadingstate-bar--end"></span><span class="ds-loadingstate-bar ds-loadingstate-bar--last"></span></div>
+        <div class="ds-loadingstate-row"><span class="ds-loadingstate-bar" style="width:33.333%"></span><span class="ds-loadingstate-bar ds-loadingstate-bar--end"></span><span class="ds-loadingstate-bar ds-loadingstate-bar--last"></span></div>
+      </div>
+    </div>
+
+    <div class="ds-loadingstate-col">
+      <div class="ds-loadingstate-block">
+        <div class="ds-loadingstate-label">LoadingState</div>
+        <div class="ds-loadingstate-frame"><p class="ds-loadingstate-plain" role="status">Reading the basket…</p></div>
+      </div>
+      <div class="ds-loadingstate-block">
+        <div class="ds-loadingstate-label">SheetLoading</div>
+        <div class="ds-sheet ds-loadingstate-sheet" style="box-shadow:var(--shadow-sheet)">
+          <div class="ds-sheet-head">
+            <div class="ds-sheet-headtext">
+              <div class="ds-sheet-crumb"><span>Suppliers</span></div>
+              <div class="ds-sheet-titlerow"><h2 class="ds-sheet-title">Supplier</h2></div>
+            </div>
+            <button class="ds-sheet-close" type="button" aria-label="Close"><span class="ds-ico ds-ico-x ds-ico--17"></span></button>
+          </div>
+          <div class="ds-sheet-body">
+            <div class="ds-loadingstate-sheetload" role="status">
+              <p>Reading the supplier…</p>
+              <div class="ds-loadingstate-sheetload-bars" aria-hidden="true"><span class="ds-loadingstate-bar"></span><span class="ds-loadingstate-bar"></span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ds-loadingstate-block">
+    <div class="ds-loadingstate-label">BootSkeleton</div>
+    <div class="ds-loadingstate-boot" aria-hidden="true">
+      <div class="ds-loadingstate-rail"><div class="ds-loadingstate-mark"></div><div class="ds-loadingstate-dot"></div><div class="ds-loadingstate-dot"></div><div class="ds-loadingstate-dot"></div><div class="ds-loadingstate-dot"></div></div>
+      <div class="ds-loadingstate-panel"><div class="ds-loadingstate-blabel"></div><div class="ds-loadingstate-brow"></div><div class="ds-loadingstate-brow" style="width:78%"></div><div class="ds-loadingstate-brow" style="width:86%"></div><div class="ds-loadingstate-brow" style="width:70%"></div></div>
+      <div class="ds-loadingstate-bbody"><div class="ds-loadingstate-bhead"></div><div class="ds-loadingstate-bcell"></div><div class="ds-loadingstate-bcell"></div><div class="ds-loadingstate-bcell"></div><div class="ds-loadingstate-bcell"></div></div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

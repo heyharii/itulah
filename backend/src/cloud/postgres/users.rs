@@ -1023,7 +1023,7 @@ pub async fn change_password(
         "UPDATE app_user
          SET password_hash=$2,auth_version=auth_version+1,updated_at=now(),
              failed_login_count=0,failed_login_window_started_at=NULL,
-             login_blocked_until=NULL
+             login_blocked_until=NULL,must_change_password=false
          WHERE id=$1",
     )
     .bind(user_id)
@@ -1065,10 +1065,12 @@ pub async fn admin_reset_password(
     let new_hash = hash_password(&request.new_password).await?;
     let mut tx = pool.begin().await?;
     sqlx::query(
+        // A password an administrator set is a temporary one: the person
+        // chooses their own at the next sign-in (0980, owner 2026-10-18).
         "UPDATE app_user
          SET password_hash=$2,auth_version=auth_version+1,updated_at=now(),
              failed_login_count=0,failed_login_window_started_at=NULL,
-             login_blocked_until=NULL
+             login_blocked_until=NULL,must_change_password=true
          WHERE id=$1",
     )
     .bind(user_id)
@@ -1225,4 +1227,17 @@ pub async fn provision_account(
             .and_then(|policy| policy.get("version"))
             .and_then(Value::as_i64),
     })
+}
+
+
+/// Whether the signed-in person must choose a new password before using the
+/// hub: true after an administrator set a temporary one (0980).
+pub async fn must_change_password(pool: &PgPool, username: &str) -> Result<bool, AppError> {
+    Ok(
+        sqlx::query_scalar("SELECT must_change_password FROM app_user WHERE username = $1")
+            .bind(username)
+            .fetch_optional(pool)
+            .await?
+            .unwrap_or(false),
+    )
 }

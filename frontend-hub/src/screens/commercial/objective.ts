@@ -235,7 +235,7 @@ export const TARGET_MODELS: readonly TargetModelKind[] = [
   },
   {
     value: "KEEP_BELOW",
-    label: "Keep below",
+    label: "Stay under",
     hint: "A ceiling on the total. What a discount budget is.",
     needsBaseline: false,
     needsUpper: false,
@@ -244,7 +244,7 @@ export const TARGET_MODELS: readonly TargetModelKind[] = [
   },
   {
     value: "REACH_PER_DAY",
-    label: "Reach per day",
+    label: "Reach each day",
     hint: "A floor on the daily rate, so a short campaign and a long one can be given the same number — and so a running one can be scored today.",
     needsBaseline: false,
     needsUpper: false,
@@ -253,7 +253,7 @@ export const TARGET_MODELS: readonly TargetModelKind[] = [
   },
   {
     value: "BEAT_BASELINE",
-    label: "Beat the precedent",
+    label: "Beat a past campaign",
     hint: "Better than the campaign this one is read against, per day, by this much. 20% means a fifth better than last Eid.",
     needsBaseline: true,
     needsUpper: false,
@@ -264,7 +264,7 @@ export const TARGET_MODELS: readonly TargetModelKind[] = [
   },
   {
     value: "STAY_WITHIN",
-    label: "Stay within a band",
+    label: "Stay between",
     hint: "A floor and a ceiling on the same figure, for the metrics that are wrong at both ends.",
     needsBaseline: false,
     needsUpper: true,

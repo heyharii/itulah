@@ -12,6 +12,11 @@ category?: string | null,
  */
 expense_account_code?: string | null, 
 /**
+ * What we buy from them; `null` clears it. Absent while the account or
+ * the book changes and the kind follows the new account.
+ */
+kind?: string | null, 
+/**
  * The tax number; `null` clears it, for the supplier whose NPWP was
  * typed off the wrong line of a faktur.
  */

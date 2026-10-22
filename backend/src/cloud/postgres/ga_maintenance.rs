@@ -64,6 +64,14 @@ pub struct GaMaintenanceScope {
     /// Only the rows whose own row names this site. Ignored by the lists that
     /// have no site of their own (inspections, replacements).
     pub site_id: Option<String>,
+    /// Only the rows about this one asset — what an asset's own sheet lists
+    /// (its repairs, its tasks, its inspections, the replacements and
+    /// disposals it is either side of). Applied in the query, before the
+    /// page and the totals, so an asset with many repairs pages honestly.
+    pub asset_id: Option<Uuid>,
+    /// Only the rows that name this supplier — what a supplier's own sheet
+    /// lists. Read by the repair list; the others have no use for it yet.
+    pub supplier_id: Option<Uuid>,
     /// A `next_cursor` from the previous page, verbatim.
     pub cursor: Option<String>,
     pub limit: i64,
@@ -151,6 +159,11 @@ pub struct GaMaintenanceTaskRow {
     pub interval_kind: String,
     pub interval_value: i32,
     pub next_due: Option<NaiveDate>,
+    /// For a KM task: the odometer reading the next service is due at (0975).
+    pub next_due_km: Option<i32>,
+    /// The vehicle's latest odometer reading, for a task about one — what
+    /// `next_due_km` is measured against.
+    pub odometer_km: Option<i32>,
     pub contract_id: Option<Uuid>,
     /// The number ON THE PAPER of the contract the service is under.
     pub contract_number: Option<String>,
@@ -176,6 +189,10 @@ pub struct RecordGaTaskRequest {
     /// Absent means the server computes the first due date from the interval
     /// and the business day; a KM task has none.
     pub next_due: Option<NaiveDate>,
+    /// For a KM task: the reading the first service is due at. Absent means
+    /// the first multiple of the interval past the vehicle's latest reading.
+    #[serde(default)]
+    pub next_due_km: Option<i32>,
     pub contract_id: Option<Uuid>,
     pub supplier_id: Option<Uuid>,
     pub notes: Option<String>,
@@ -195,6 +212,9 @@ pub struct UpdateGaTaskRequest {
     pub interval_kind: Option<String>,
     pub interval_value: Option<i32>,
     pub next_due: Option<NaiveDate>,
+    /// For a KM task: the reading the next service is due at.
+    #[serde(default)]
+    pub next_due_km: Option<i32>,
     pub contract_id: Option<Uuid>,
     pub supplier_id: Option<Uuid>,
     /// `ACTIVE` or `PAUSED`.
@@ -283,6 +303,10 @@ pub struct RecordGaInspectionRequest {
     pub result: String,
     pub findings: String,
     pub task_id: Option<Uuid>,
+    /// The odometer at the visit, for a vehicle (0975). Kept as the car's
+    /// reading, and what a KM task's next service is counted from.
+    #[serde(default)]
+    pub odometer_km: Option<i32>,
 }
 
 /// The one thing the inspection list can be narrowed by.
@@ -344,6 +368,9 @@ pub struct GaRepair {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct GaRepairRow {
     pub repair_id: Uuid,
+    /// The number people say: `RPR-DDMMYY-NNN`, the Jakarta day it was
+    /// recorded and its place in that day (0981). Given by the database.
+    pub repair_number: String,
     pub site_id: String,
     pub asset_id: Option<Uuid>,
     pub asset_name: Option<String>,
@@ -362,7 +389,18 @@ pub struct GaRepairRow {
     pub approved_by: Option<String>,
     pub approved_at: Option<DateTime<Utc>>,
     pub failure_at: NaiveDate,
+    /// The day the work was done, as GA records it (and may correct).
     pub completed_at: Option<NaiveDate>,
+    /// Who moved it to each stage, and when (0981). `approved_*` above is the
+    /// budget's; completion's day is `completed_at`. A stage the repair never
+    /// reached is null, and so is a "who" from before the stamps existed.
+    pub started_at: Option<DateTime<Utc>>,
+    pub started_by: Option<String>,
+    pub completed_by: Option<String>,
+    pub closed_at: Option<DateTime<Utc>>,
+    pub closed_by: Option<String>,
+    pub cancelled_at: Option<DateTime<Utc>>,
+    pub cancelled_by: Option<String>,
     pub status: String,
     pub notes: Option<String>,
     /// Σ baris tagihan POSTED yang menunjuk perbaikan ini (0370's
@@ -417,7 +455,8 @@ pub struct UpdateGaRepairRequest {
 pub struct MoveGaRepairRequest {
     /// The state to move to.
     pub to: String,
-    /// A sentence appended to the notes, so the row says why it moved.
+    /// What the person moving it has to say, added to the notes on a line of
+    /// its own. Who moved it and when are the stage's own stamps.
     pub note: Option<String>,
 }
 
@@ -811,7 +850,7 @@ async fn asset_class_of(
 }
 
 /// The object a repair is for: the one given, or the one the asset's class says.
-async fn resolve_repair_object(
+pub(super) async fn resolve_repair_object(
     pool: &PgPool,
     given: Option<&str>,
     asset_id: Option<Uuid>,
@@ -835,6 +874,17 @@ async fn resolve_repair_object(
         })
 }
 
+/// Add a line to a notes column, or leave it alone.
+fn appended_line(existing: Option<String>, line: Option<&str>) -> Option<String> {
+    let Some(line) = nothing_if_blank(line) else {
+        return existing;
+    };
+    Some(match existing.map(|text| text.trim().to_string()) {
+        Some(text) if !text.is_empty() => format!("{text}\n{line}"),
+        _ => line.to_string(),
+    })
+}
+
 /// Append a sentence to a notes column, or leave it alone.
 fn appended_note(existing: Option<String>, line: Option<&str>) -> Option<String> {
     let line = nothing_if_blank(line)?;
@@ -850,9 +900,11 @@ fn appended_note(existing: Option<String>, line: Option<&str>) -> Option<String>
 
 /// The task list's columns, shared by the page and the single read.
 const GA_TASK_SELECT: &str = "SELECT t.task_id, t.asset_id, t.site_id, t.title, t.interval_kind,
-        t.interval_value, t.next_due, t.contract_id, t.supplier_id, t.status, t.notes,
-        t.created_by, t.created_at, t.updated_by, t.updated_at, t.version,
-        a.name AS asset_name, c.contract_number
+        t.interval_value, t.next_due, t.next_due_km, t.contract_id, t.supplier_id, t.status,
+        t.notes, t.created_by, t.created_at, t.updated_by, t.updated_at, t.version,
+        a.name AS asset_name, c.contract_number,
+        (SELECT max(o.odometer_km) FROM ga_odometer_reading o
+          WHERE o.asset_id = t.asset_id) AS odometer_km
    FROM ga_maintenance_task t
    LEFT JOIN fixed_asset a ON a.asset_id = t.asset_id
    LEFT JOIN ga_contract c ON c.contract_id = t.contract_id";
@@ -867,6 +919,8 @@ fn to_task_row(row: &sqlx::postgres::PgRow) -> Result<GaMaintenanceTaskRow, AppE
         interval_kind: row.try_get("interval_kind")?,
         interval_value: row.try_get("interval_value")?,
         next_due: row.try_get("next_due")?,
+        next_due_km: row.try_get("next_due_km")?,
+        odometer_km: row.try_get("odometer_km")?,
         contract_id: row.try_get("contract_id")?,
         contract_number: row.try_get("contract_number")?,
         supplier_id: row.try_get("supplier_id")?,
@@ -894,6 +948,7 @@ pub async fn ga_maintenance_task_page(
     let sql = format!(
         "{GA_TASK_SELECT}
           WHERE ($1::text IS NULL OR t.site_id = $1)
+            AND ($4::uuid IS NULL OR t.asset_id = $4)
             AND ($2::uuid IS NULL
                  OR (COALESCE(t.next_due, 'infinity'::date), t.title, t.task_id) >
                     (SELECT COALESCE(x.next_due, 'infinity'::date), x.title, x.task_id
@@ -905,6 +960,7 @@ pub async fn ga_maintenance_task_page(
         .bind(&scope.site_id)
         .bind(after)
         .bind(limit)
+        .bind(scope.asset_id)
         .fetch_all(pool)
         .await?;
     let out = rows
@@ -914,7 +970,9 @@ pub async fn ga_maintenance_task_page(
     let next_cursor = next_cursor_after(out.last().map(|row| row.task_id), out.len(), limit)?;
 
     let facet_rows = sqlx::query(
-        "WITH t AS (SELECT * FROM ga_maintenance_task WHERE $1::text IS NULL OR site_id = $1)
+        "WITH t AS (SELECT * FROM ga_maintenance_task
+                     WHERE ($1::text IS NULL OR site_id = $1)
+                       AND ($2::uuid IS NULL OR asset_id = $2))
          SELECT 'site' AS kind, t.site_id AS value,
                 (SELECT s.name FROM site s WHERE s.id = t.site_id) AS label,
                 COUNT(*)::bigint AS n
@@ -926,6 +984,7 @@ pub async fn ga_maintenance_task_page(
          SELECT 'all', '', NULL::text, COUNT(*)::bigint FROM t",
     )
     .bind(&scope.site_id)
+    .bind(scope.asset_id)
     .fetch_all(pool)
     .await?;
     let mut facets = GaMaintenanceTaskFacets {
@@ -1008,12 +1067,31 @@ pub async fn ga_maintenance_task_record(
     let next_due = request
         .next_due
         .or_else(|| next_due_from(&interval_kind, request.interval_value, today));
+    // A KM task's first service: the reading given, else the first multiple of
+    // the interval past the vehicle's latest reading (0975) — the schedule a
+    // service book prints. Unknown while the vehicle has no reading.
+    let next_due_km = if interval_kind == "KM" {
+        match (request.next_due_km, request.asset_id) {
+            (Some(km), _) if km <= 0 => {
+                return Err(AppError::Validation(
+                    "the next service is due at a reading above zero".into(),
+                ))
+            }
+            (Some(km), _) => Some(km),
+            (None, Some(asset_id)) => super::ga_odometer::ga_odometer_latest(pool, asset_id)
+                .await?
+                .map(|top| (top / request.interval_value + 1) * request.interval_value),
+            (None, None) => None,
+        }
+    } else {
+        None
+    };
 
     let row = sqlx::query(
         "INSERT INTO ga_maintenance_task
-           (asset_id, site_id, title, interval_kind, interval_value, next_due,
+           (asset_id, site_id, title, interval_kind, interval_value, next_due, next_due_km,
             contract_id, supplier_id, notes, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
          RETURNING task_id",
     )
     .bind(request.asset_id)
@@ -1022,6 +1100,7 @@ pub async fn ga_maintenance_task_record(
     .bind(&interval_kind)
     .bind(request.interval_value)
     .bind(next_due)
+    .bind(next_due_km)
     .bind(request.contract_id)
     .bind(request.supplier_id)
     .bind(nothing_if_blank(request.notes.as_deref()))
@@ -1075,6 +1154,11 @@ pub async fn ga_maintenance_task_update(
         }
         None => current.try_get("status")?,
     };
+    if request.next_due_km.is_some_and(|km| km <= 0) {
+        return Err(AppError::Validation(
+            "the next service is due at a reading above zero".into(),
+        ));
+    }
     let title = match request.title.as_deref() {
         Some(raw) if raw.trim().is_empty() => {
             return Err(AppError::Validation(
@@ -1097,7 +1181,9 @@ pub async fn ga_maintenance_task_update(
                 notes          = COALESCE($9, notes),
                 updated_by     = $10,
                 updated_at     = now(),
-                version        = version + 1
+                version        = version + 1,
+                -- A reading to be due at belongs to a KM task alone (0975).
+                next_due_km    = CASE WHEN $3 = 'KM' THEN COALESCE($11, next_due_km) END
           WHERE task_id = $1",
     )
     .bind(task_id)
@@ -1110,6 +1196,7 @@ pub async fn ga_maintenance_task_update(
     .bind(&status)
     .bind(request.notes.as_deref())
     .bind(actor)
+    .bind(request.next_due_km)
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;
@@ -1157,16 +1244,18 @@ pub async fn ga_inspection_page(
     let after = scope.after()?;
     let sql = format!(
         "{GA_INSPECTION_SELECT}
-          WHERE $1::uuid IS NULL
-             OR (i.inspected_on, i.recorded_at, i.inspection_id) <
-                (SELECT x.inspected_on, x.recorded_at, x.inspection_id
-                   FROM ga_inspection x WHERE x.inspection_id = $1)
+          WHERE ($1::uuid IS NULL
+                 OR (i.inspected_on, i.recorded_at, i.inspection_id) <
+                    (SELECT x.inspected_on, x.recorded_at, x.inspection_id
+                       FROM ga_inspection x WHERE x.inspection_id = $1))
+            AND ($3::uuid IS NULL OR i.asset_id = $3)
           ORDER BY i.inspected_on DESC, i.recorded_at DESC, i.inspection_id DESC
           LIMIT $2"
     );
     let rows = sqlx::query(&sql)
         .bind(after)
         .bind(limit)
+        .bind(scope.asset_id)
         .fetch_all(pool)
         .await?;
     let out = rows
@@ -1176,11 +1265,13 @@ pub async fn ga_inspection_page(
     let next_cursor = next_cursor_after(out.last().map(|row| row.inspection_id), out.len(), limit)?;
 
     let facet_rows = sqlx::query(
-        "SELECT 'result' AS kind, i.result AS value, NULL::text AS label, COUNT(*)::bigint AS n
-           FROM ga_inspection i GROUP BY i.result
+        "WITH i AS (SELECT * FROM ga_inspection WHERE $1::uuid IS NULL OR asset_id = $1)
+         SELECT 'result' AS kind, i.result AS value, NULL::text AS label, COUNT(*)::bigint AS n
+           FROM i GROUP BY i.result
           UNION ALL
-         SELECT 'all', '', NULL::text, COUNT(*)::bigint FROM ga_inspection",
+         SELECT 'all', '', NULL::text, COUNT(*)::bigint FROM i",
     )
+    .bind(scope.asset_id)
     .fetch_all(pool)
     .await?;
     let mut facets = GaInspectionFacets {
@@ -1254,6 +1345,28 @@ pub async fn ga_inspection_record(
     .await?;
     let inspection_id: Uuid = row.try_get("inspection_id")?;
 
+    // The odometer at the visit is the car's reading too (0975), checked to
+    // run forward like any other.
+    if let Some(km) = request.odometer_km {
+        if !super::ga_odometer::asset_is_vehicle(&mut *tx, request.asset_id).await? {
+            return Err(AppError::Validation(
+                "only a vehicle has an odometer; leave the reading out for this asset".into(),
+            ));
+        }
+        super::ga_odometer::write_odometer_reading(
+            &mut tx,
+            request.asset_id,
+            request.inspected_on,
+            km,
+            "SERVICE",
+            None,
+            Some(inspection_id),
+            None,
+            actor,
+        )
+        .await?;
+    }
+
     if let Some(task_id) = request.task_id {
         let task = sqlx::query(
             "SELECT interval_kind, interval_value FROM ga_maintenance_task
@@ -1265,6 +1378,27 @@ pub async fn ga_inspection_record(
         .ok_or_else(|| AppError::NotFound("maintenance task".into()))?;
         let kind: String = task.try_get("interval_kind")?;
         let value: i32 = task.try_get("interval_value")?;
+        // A KM service moves on from the odometer at the visit — or the latest
+        // reading when none was typed — as a dated one moves on from the day.
+        if kind == "KM" {
+            let at = match request.odometer_km {
+                Some(km) => Some(km),
+                None => super::ga_odometer::ga_odometer_latest(&mut *tx, request.asset_id).await?,
+            };
+            if let Some(at) = at {
+                sqlx::query(
+                    "UPDATE ga_maintenance_task
+                        SET next_due_km = $2, updated_by = $3, updated_at = now(),
+                            version = version + 1
+                      WHERE task_id = $1",
+                )
+                .bind(task_id)
+                .bind(at.saturating_add(value))
+                .bind(actor)
+                .execute(&mut *tx)
+                .await?;
+            }
+        }
         if let Some(next) = next_due_from(&kind, value, request.inspected_on) {
             sqlx::query(
                 "UPDATE ga_maintenance_task
@@ -1299,6 +1433,7 @@ fn repair_actual_cost_select() -> &'static str {
 fn to_repair_row(row: &sqlx::postgres::PgRow) -> Result<GaRepairRow, AppError> {
     Ok(GaRepairRow {
         repair_id: row.try_get("repair_id")?,
+        repair_number: row.try_get("repair_number")?,
         site_id: row.try_get("site_id")?,
         asset_id: row.try_get("asset_id")?,
         asset_name: row.try_get("asset_name")?,
@@ -1317,6 +1452,13 @@ fn to_repair_row(row: &sqlx::postgres::PgRow) -> Result<GaRepairRow, AppError> {
         approved_at: row.try_get("approved_at")?,
         failure_at: row.try_get("failure_at")?,
         completed_at: row.try_get("completed_at")?,
+        started_at: row.try_get("started_at")?,
+        started_by: row.try_get("started_by")?,
+        completed_by: row.try_get("completed_by")?,
+        closed_at: row.try_get("closed_at")?,
+        closed_by: row.try_get("closed_by")?,
+        cancelled_at: row.try_get("cancelled_at")?,
+        cancelled_by: row.try_get("cancelled_by")?,
         status: row.try_get("status")?,
         notes: row.try_get("notes")?,
         actual_cost_minor: row.try_get("actual_cost_minor")?,
@@ -1348,7 +1490,9 @@ pub async fn ga_repair_page(
                 r.contract_id, r.task_id, r.inspection_id, r.estimated_cost_minor,
                 r.approved_budget_minor, r.approved_by, r.approved_at, r.failure_at,
                 r.completed_at, r.status, r.notes, r.created_by, r.created_at,
-                r.updated_by, r.updated_at, r.version,
+                r.updated_by, r.updated_at, r.version, r.repair_number,
+                r.started_at, r.started_by, r.completed_by, r.closed_at, r.closed_by,
+                r.cancelled_at, r.cancelled_by,
                 o.name AS objek_name, a.name AS asset_name, s.name AS supplier_name,
                 c.contract_number, {actual} AS actual_cost_minor
            FROM ga_repair r
@@ -1357,6 +1501,8 @@ pub async fn ga_repair_page(
            JOIN supplier s ON s.supplier_id = r.supplier_id
            LEFT JOIN ga_contract c ON c.contract_id = r.contract_id
           WHERE ($1::text IS NULL OR r.site_id = $1)
+            AND ($4::uuid IS NULL OR r.asset_id = $4)
+            AND ($5::uuid IS NULL OR r.supplier_id = $5)
             AND ($2::uuid IS NULL
                  OR (r.failure_at, r.repair_id) <
                     (SELECT x.failure_at, x.repair_id FROM ga_repair x WHERE x.repair_id = $2))
@@ -1367,6 +1513,8 @@ pub async fn ga_repair_page(
         .bind(&scope.site_id)
         .bind(after)
         .bind(limit)
+        .bind(scope.asset_id)
+        .bind(scope.supplier_id)
         .fetch_all(pool)
         .await?;
     let out = rows
@@ -1377,7 +1525,10 @@ pub async fn ga_repair_page(
     let next_cursor = next_cursor_after(out.last().map(|row| row.repair_id), out.len(), limit)?;
 
     let facet_rows = sqlx::query(
-        "WITH r AS (SELECT * FROM ga_repair WHERE $1::text IS NULL OR site_id = $1)
+        "WITH r AS (SELECT * FROM ga_repair
+                     WHERE ($1::text IS NULL OR site_id = $1)
+                       AND ($2::uuid IS NULL OR asset_id = $2)
+                       AND ($3::uuid IS NULL OR supplier_id = $3))
          SELECT 'site' AS kind, r.site_id AS value,
                 (SELECT s.name FROM site s WHERE s.id = r.site_id) AS label,
                 COUNT(*)::bigint AS n
@@ -1393,6 +1544,8 @@ pub async fn ga_repair_page(
          SELECT 'all', '', NULL::text, COUNT(*)::bigint FROM r",
     )
     .bind(&scope.site_id)
+    .bind(scope.asset_id)
+    .bind(scope.supplier_id)
     .fetch_all(pool)
     .await?;
     let mut facets = GaRepairFacets {
@@ -1408,7 +1561,8 @@ pub async fn ga_repair_page(
             ("status", &mut facets.statuses),
         ],
     )?;
-    let summary = ga_repair_summary(pool, scope.site_id.as_deref(), today).await?;
+    let summary =
+        ga_repair_summary(pool, scope.site_id.as_deref(), scope.supplier_id, today).await?;
     Ok(GaRepairPage {
         rows: out,
         next_cursor,
@@ -1427,6 +1581,7 @@ pub async fn ga_repair_page(
 async fn ga_repair_summary(
     pool: &PgPool,
     site_id: Option<&str>,
+    supplier_id: Option<Uuid>,
     today: NaiveDate,
 ) -> Result<GaRepairSummary, AppError> {
     let actual = repair_actual_cost_select();
@@ -1443,11 +1598,13 @@ async fn ga_repair_summary(
                      = EXTRACT(YEAR FROM $2::date)), 0)::bigint AS actual_this_year
            FROM ga_repair r
            CROSS JOIN LATERAL (SELECT {actual} AS actual) cost
-          WHERE $1::text IS NULL OR r.site_id = $1"
+          WHERE ($1::text IS NULL OR r.site_id = $1)
+            AND ($3::uuid IS NULL OR r.supplier_id = $3)"
     );
     let row = sqlx::query(&sql)
         .bind(site_id)
         .bind(today)
+        .bind(supplier_id)
         .fetch_one(pool)
         .await?;
     Ok(GaRepairSummary {
@@ -1467,7 +1624,9 @@ pub async fn ga_repair(pool: &PgPool, repair_id: Uuid) -> Result<GaRepairRow, Ap
                 r.contract_id, r.task_id, r.inspection_id, r.estimated_cost_minor,
                 r.approved_budget_minor, r.approved_by, r.approved_at, r.failure_at,
                 r.completed_at, r.status, r.notes, r.created_by, r.created_at,
-                r.updated_by, r.updated_at, r.version,
+                r.updated_by, r.updated_at, r.version, r.repair_number,
+                r.started_at, r.started_by, r.completed_by, r.closed_at, r.closed_by,
+                r.cancelled_at, r.cancelled_by,
                 o.name AS objek_name, a.name AS asset_name, s.name AS supplier_name,
                 c.contract_number, {actual} AS actual_cost_minor
            FROM ga_repair r
@@ -1653,6 +1812,14 @@ pub async fn ga_repair_move(
             REPAIR_STATUSES.join(", ")
         )));
     }
+    // Approval is a budget somebody signs for, and only `approve-budget`
+    // records one (17 Oct 2026: a plain move to APPROVED left a repair
+    // approved with no budget and no approver).
+    if to == "APPROVED" {
+        return Err(AppError::Validation(
+            "a repair is approved with its budget: use approve-budget, not a move".into(),
+        ));
+    }
     let mut tx = pool.begin().await?;
     let current = sqlx::query(
         "SELECT status, created_by, notes FROM ga_repair WHERE repair_id = $1 FOR UPDATE",
@@ -1677,18 +1844,22 @@ pub async fn ga_repair_move(
         )));
     }
 
-    let note = format!("{from} -> {to} oleh {actor} ({today})");
-    let note = match nothing_if_blank(request.note.as_deref()) {
-        Some(extra) => format!("{note}: {extra}"),
-        None => note,
-    };
-    let notes = appended_note(current.try_get("notes")?, Some(&note));
+    // Who and when are the stage's own stamps (0981); the notes get only what
+    // the person had to say, on a line of its own.
+    let notes = appended_line(current.try_get("notes")?, request.note.as_deref());
 
     sqlx::query(
         "UPDATE ga_repair
             SET status       = $2,
                 completed_at = CASE WHEN $2 = 'COMPLETED' THEN COALESCE(completed_at, $3)
                                     ELSE completed_at END,
+                started_at   = CASE WHEN $2 = 'IN_PROGRESS' THEN now() ELSE started_at END,
+                started_by   = CASE WHEN $2 = 'IN_PROGRESS' THEN $5 ELSE started_by END,
+                completed_by = CASE WHEN $2 = 'COMPLETED' THEN $5 ELSE completed_by END,
+                closed_at    = CASE WHEN $2 = 'CLOSED' THEN now() ELSE closed_at END,
+                closed_by    = CASE WHEN $2 = 'CLOSED' THEN $5 ELSE closed_by END,
+                cancelled_at = CASE WHEN $2 = 'CANCELLED' THEN now() ELSE cancelled_at END,
+                cancelled_by = CASE WHEN $2 = 'CANCELLED' THEN $5 ELSE cancelled_by END,
                 notes        = $4,
                 updated_by   = $5,
                 updated_at   = now(),
@@ -1816,16 +1987,18 @@ pub async fn ga_replacement_page(
     let after = scope.after()?;
     let sql = format!(
         "{GA_REPLACEMENT_SELECT}
-          WHERE $1::uuid IS NULL
-             OR (p.proposed_on, p.replacement_id) <
-                (SELECT x.proposed_on, x.replacement_id
-                   FROM ga_replacement x WHERE x.replacement_id = $1)
+          WHERE ($1::uuid IS NULL
+                 OR (p.proposed_on, p.replacement_id) <
+                    (SELECT x.proposed_on, x.replacement_id
+                       FROM ga_replacement x WHERE x.replacement_id = $1))
+            AND ($3::uuid IS NULL OR p.old_asset_id = $3 OR p.new_asset_id = $3)
           ORDER BY p.proposed_on DESC, p.replacement_id DESC
           LIMIT $2"
     );
     let rows = sqlx::query(&sql)
         .bind(after)
         .bind(limit)
+        .bind(scope.asset_id)
         .fetch_all(pool)
         .await?;
     let out = rows
@@ -1836,11 +2009,14 @@ pub async fn ga_replacement_page(
         next_cursor_after(out.last().map(|row| row.replacement_id), out.len(), limit)?;
 
     let facet_rows = sqlx::query(
-        "SELECT 'status' AS kind, p.status AS value, NULL::text AS label, COUNT(*)::bigint AS n
-           FROM ga_replacement p GROUP BY p.status
+        "WITH p AS (SELECT * FROM ga_replacement
+                     WHERE $1::uuid IS NULL OR old_asset_id = $1 OR new_asset_id = $1)
+         SELECT 'status' AS kind, p.status AS value, NULL::text AS label, COUNT(*)::bigint AS n
+           FROM p GROUP BY p.status
           UNION ALL
-         SELECT 'all', '', NULL::text, COUNT(*)::bigint FROM ga_replacement",
+         SELECT 'all', '', NULL::text, COUNT(*)::bigint FROM p",
     )
+    .bind(scope.asset_id)
     .fetch_all(pool)
     .await?;
     let mut facets = GaReplacementFacets {
@@ -2118,24 +2294,37 @@ fn to_disposal_row(row: &sqlx::postgres::PgRow) -> Result<GaDisposalRow, AppErro
 }
 
 /// The disposal list, newest request first.
-pub async fn ga_disposal_page(pool: &PgPool, limit: i64) -> Result<GaDisposalPage, AppError> {
+pub async fn ga_disposal_page(
+    pool: &PgPool,
+    limit: i64,
+    asset_id: Option<Uuid>,
+) -> Result<GaDisposalPage, AppError> {
     let limit = limit.clamp(1, MAX_GA_MAINTENANCE_LIMIT);
-    let sql = format!("{GA_DISPOSAL_SELECT} ORDER BY d.requested_on DESC, d.disposal_id LIMIT $1");
-    let rows = sqlx::query(&sql).bind(limit).fetch_all(pool).await?;
+    let sql = format!(
+        "{GA_DISPOSAL_SELECT} WHERE ($2::uuid IS NULL OR d.asset_id = $2)
+          ORDER BY d.requested_on DESC, d.disposal_id LIMIT $1"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(limit)
+        .bind(asset_id)
+        .fetch_all(pool)
+        .await?;
     let out = rows
         .iter()
         .map(to_disposal_row)
         .collect::<Result<Vec<_>, _>>()?;
 
     let facet_rows = sqlx::query(
-        "SELECT 'status' AS kind, d.status AS value, NULL::text AS label, COUNT(*)::bigint AS n
-           FROM ga_disposal d GROUP BY d.status
+        "WITH d AS (SELECT * FROM ga_disposal WHERE $1::uuid IS NULL OR asset_id = $1)
+         SELECT 'status' AS kind, d.status AS value, NULL::text AS label, COUNT(*)::bigint AS n
+           FROM d GROUP BY d.status
           UNION ALL
          SELECT 'method', d.method, NULL::text, COUNT(*)::bigint
-           FROM ga_disposal d GROUP BY d.method
+           FROM d GROUP BY d.method
           UNION ALL
-         SELECT 'all', '', NULL::text, COUNT(*)::bigint FROM ga_disposal",
+         SELECT 'all', '', NULL::text, COUNT(*)::bigint FROM d",
     )
+    .bind(asset_id)
     .fetch_all(pool)
     .await?;
     let mut facets = GaDisposalFacets {

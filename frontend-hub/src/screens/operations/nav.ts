@@ -271,7 +271,6 @@ export const operationsNav: AppModule = {
           icon: Printer,
           useCount: useTagging,
           badge: "warn",
-          more: true,
         },
         /// One per sealed carton — the paper that prints when it is sealed.
         {

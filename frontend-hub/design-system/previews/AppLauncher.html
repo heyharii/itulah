@@ -1,0 +1,98 @@
+<!-- @dsCard group="Phone" height=820 subtitle="Static rendition of apps.tsx, app-icon.tsx and app-sheet.tsx in the All white look" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>AppLauncher — preview</title><style>
+body{margin:0}
+/* AppLauncher: the phone's Apps tab (414px) and the department tiles, one hue each (the app-* tokens, used nowhere else). */
+.ds-launcher-layout{display:flex;align-items:flex-start;gap:24px;width:644px;max-width:100%;margin:0 auto}
+.ds-launcher-phone{flex:none;position:relative;width:414px;overflow:hidden;border-radius:24px;background:var(--canvas);box-shadow:0 0 0 1px var(--hairline)}
+.ds-launcher-page{padding:16px 16px 24px}
+.ds-launcher-hello{margin-bottom:20px}
+.ds-launcher-day{margin:0;font-size:15px;line-height:22px;font-weight:500;color:var(--mute)}
+.ds-launcher-name{margin:4px 0 0;font-size:28px;line-height:1.12;font-weight:600;letter-spacing:-0.025em;color:var(--ink)}
+.ds-launcher-label{margin:0 0 10px;padding:0 4px;font-size:15px;line-height:22px;font-weight:600;letter-spacing:-0.01em;color:var(--ink)}
+.ds-launcher-list{margin:0;padding:0;overflow:hidden;list-style:none;border:1px solid var(--hairline);border-radius:24px;background:var(--canvas)}
+.ds-launcher-list li+li{border-top:1px solid var(--hairline)}
+.ds-launcher-row{display:flex;align-items:center;gap:12px;height:56px;padding:0 14px;color:var(--ink)}
+.ds-launcher-row.is-hover,.ds-launcher-row.is-press{background:var(--soft)}
+.ds-launcher-row .ds-launcher-name-row{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:16px;font-weight:500}
+.ds-launcher-row .ds-launcher-chev{color:var(--line-ico)}
+.ds-launcher-tile{--tile:var(--app-system);display:grid;place-items:center;flex:none;width:36px;height:36px;border-radius:11px;color:var(--on-dark);background:linear-gradient(180deg,rgb(255 255 255 / 0.2),rgb(255 255 255 / 0) 58%),var(--tile);box-shadow:0 1px 2px rgb(24 39 60 / 12%),inset 0 0 0 0.5px rgb(0 0 0 / 6%)}
+.ds-launcher-tile .ds-ico{width:18px;height:18px}
+.ds-launcher-tile--lg{width:56px;height:56px;border-radius:17px}
+.ds-launcher-tile--lg .ds-ico{width:26px;height:26px}
+.ds-launcher-tile--sm{width:32px;height:32px;border-radius:10px}
+.ds-launcher-tile--sm .ds-ico{width:17px;height:17px}
+.ds-launcher-tile.is-press{scale:.92}
+.ds-launcher-search{margin-top:12px}
+.ds-launcher-search .ds-launcher-glass{display:grid;place-items:center;flex:none;width:36px;height:36px;border-radius:11px;background:var(--soft-2);color:var(--body)}
+.ds-launcher-side{flex:none;display:flex;flex-direction:column;gap:12px;width:206px}
+.ds-launcher-sizes{display:flex;align-items:flex-end;gap:12px}
+.ds-launcher-hues{display:flex;flex-direction:column;gap:4px}
+.ds-launcher-hue{display:flex;align-items:center;gap:12px;min-height:40px}
+.ds-launcher-hue p{margin:0;font-size:15px;line-height:20px;color:var(--ink)}
+.ds-launcher-hue p+p{color:var(--mute)}
+.ds-launcher-ico-layout-dashboard{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect width='7' height='9' x='3' y='3' rx='1'/%3E%3Crect width='7' height='5' x='14' y='3' rx='1'/%3E%3Crect width='7' height='9' x='14' y='12' rx='1'/%3E%3Crect width='7' height='5' x='3' y='16' rx='1'/%3E%3C/svg%3E")}
+.ds-launcher-ico-truck{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2'/%3E%3Cpath d='M15 18H9'/%3E%3Cpath d='M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14'/%3E%3Ccircle cx='17' cy='18' r='2'/%3E%3Ccircle cx='7' cy='18' r='2'/%3E%3C/svg%3E")}
+.ds-launcher-ico-boxes{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.97 12.92A2 2 0 0 0 2 14.63v3.24a2 2 0 0 0 .97 1.71l3 1.8a2 2 0 0 0 2.06 0L12 19v-5.5l-5-3-4.03 2.42Z'/%3E%3Cpath d='m7 16.5-4.74-2.85'/%3E%3Cpath d='m7 16.5 5-3'/%3E%3Cpath d='M7 16.5v5.17'/%3E%3Cpath d='M12 13.5V19l3.97 2.38a2 2 0 0 0 2.06 0l3-1.8a2 2 0 0 0 .97-1.71v-3.24a2 2 0 0 0-.97-1.71L17 10.5l-5 3Z'/%3E%3Cpath d='m17 16.5-5-3'/%3E%3Cpath d='m17 16.5 4.74-2.85'/%3E%3Cpath d='M17 16.5v5.17'/%3E%3Cpath d='M7.97 4.42A2 2 0 0 0 7 6.13v4.37l5 3 5-3V6.13a2 2 0 0 0-.97-1.71l-3-1.8a2 2 0 0 0-2.06 0l-3 1.8Z'/%3E%3Cpath d='M12 8 7.26 5.15'/%3E%3Cpath d='m12 8 4.74-2.85'/%3E%3Cpath d='M12 13.5V8'/%3E%3C/svg%3E")}
+.ds-launcher-ico-landmark{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='3' x2='21' y1='22' y2='22'/%3E%3Cline x1='6' x2='6' y1='18' y2='11'/%3E%3Cline x1='10' x2='10' y1='18' y2='11'/%3E%3Cline x1='14' x2='14' y1='18' y2='11'/%3E%3Cline x1='18' x2='18' y1='18' y2='11'/%3E%3Cpolygon points='12 2 20 7 4 7'/%3E%3C/svg%3E")}
+.ds-launcher-ico-messages-square{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z'/%3E%3Cpath d='M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1'/%3E%3C/svg%3E")}
+.ds-launcher-ico-folder-open{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2'/%3E%3C/svg%3E")}
+.ds-launcher-ico-file-chart-column-increasing{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z'/%3E%3Cpath d='M14 2v4a2 2 0 0 0 2 2h4'/%3E%3Cpath d='M8 18v-2'/%3E%3Cpath d='M12 18v-4'/%3E%3Cpath d='M16 18v-6'/%3E%3C/svg%3E")}
+.ds-launcher-ico-settings-2{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 7h-9'/%3E%3Cpath d='M14 17H5'/%3E%3Ccircle cx='17' cy='17' r='3'/%3E%3Ccircle cx='7' cy='7' r='3'/%3E%3C/svg%3E")}
+.ds-launcher-ico-sunrise{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 2v8'/%3E%3Cpath d='m4.93 10.93 1.41 1.41'/%3E%3Cpath d='M2 18h2'/%3E%3Cpath d='M20 18h2'/%3E%3Cpath d='m19.07 10.93-1.41 1.41'/%3E%3Cpath d='M22 22H2'/%3E%3Cpath d='m8 6 4-4 4 4'/%3E%3Cpath d='M16 18a4 4 0 0 0-8 0'/%3E%3C/svg%3E")}
+</style></head>
+<body>
+<div class="ds ds-stage">
+<div class="ds-launcher-layout">
+
+  <div class="ds-launcher-phone">
+    <div class="ds-launcher-page">
+      <header class="ds-launcher-hello">
+        <p class="ds-launcher-day">Sat 17 Oct</p>
+        <h1 class="ds-launcher-name">Good morning, Rina</h1>
+      </header>
+      <h2 class="ds-launcher-label">Apps</h2>
+      <ul class="ds-launcher-list">
+        <li><div class="ds-launcher-row"><span class="ds-launcher-tile" style="--tile:var(--app-executive)"><span class="ds-ico ds-launcher-ico-layout-dashboard"></span></span><span class="ds-launcher-name-row">Executive</span><span class="ds-ico ds-ico-chevron-right ds-launcher-chev"></span></div></li>
+        <li><div class="ds-launcher-row is-hover"><span class="ds-launcher-tile is-press" style="--tile:var(--app-buying)"><span class="ds-ico ds-ico-cart"></span></span><span class="ds-launcher-name-row">Procurement</span><span class="ds-count">3</span><span class="ds-ico ds-ico-chevron-right ds-launcher-chev"></span></div></li>
+        <li><div class="ds-launcher-row"><span class="ds-launcher-tile" style="--tile:var(--app-merchandise)"><span class="ds-ico ds-ico-shirt"></span></span><span class="ds-launcher-name-row">Merchandise</span><span class="ds-ico ds-ico-chevron-right ds-launcher-chev"></span></div></li>
+        <li><div class="ds-launcher-row"><span class="ds-launcher-tile" style="--tile:var(--app-ops)"><span class="ds-ico ds-launcher-ico-truck"></span></span><span class="ds-launcher-name-row">Ops</span><span class="ds-count">12</span><span class="ds-ico ds-ico-chevron-right ds-launcher-chev"></span></div></li>
+        <li><div class="ds-launcher-row"><span class="ds-launcher-tile" style="--tile:var(--app-inventory)"><span class="ds-ico ds-launcher-ico-boxes"></span></span><span class="ds-launcher-name-row">Inventory</span><span class="ds-ico ds-ico-chevron-right ds-launcher-chev"></span></div></li>
+        <li><div class="ds-launcher-row"><span class="ds-launcher-tile" style="--tile:var(--app-marketing)"><span class="ds-ico ds-ico-megaphone"></span></span><span class="ds-launcher-name-row">Marketing</span><span class="ds-ico ds-ico-chevron-right ds-launcher-chev"></span></div></li>
+        <li><div class="ds-launcher-row"><span class="ds-launcher-tile" style="--tile:var(--app-selling)"><span class="ds-ico ds-ico-store"></span></span><span class="ds-launcher-name-row">Sales</span><span class="ds-ico ds-ico-chevron-right ds-launcher-chev"></span></div></li>
+      </ul>
+      <div class="ds-launcher-row ds-launcher-list ds-launcher-search"><span class="ds-launcher-glass"><span class="ds-ico ds-ico-search ds-ico--17"></span></span><span class="ds-launcher-name-row">Search or jump to…</span><span class="ds-ico ds-ico-chevron-right ds-launcher-chev"></span></div>
+    </div>
+  </div>
+
+  <div class="ds-launcher-side">
+    <p class="ds-caption">Three sizes</p>
+    <div class="ds-launcher-sizes">
+      <span class="ds-launcher-tile ds-launcher-tile--lg" style="--tile:var(--app-buying)"><span class="ds-ico ds-ico-cart"></span></span>
+      <span class="ds-launcher-tile" style="--tile:var(--app-buying)"><span class="ds-ico ds-ico-cart"></span></span>
+      <span class="ds-launcher-tile ds-launcher-tile--sm" style="--tile:var(--app-buying)"><span class="ds-ico ds-ico-cart"></span></span>
+    </div>
+    <p class="ds-caption">One hue per department</p>
+    <div class="ds-launcher-hues">
+    <div class="ds-launcher-hue"><span class="ds-launcher-tile ds-launcher-tile--sm" style="--tile:var(--app-home)"><span class="ds-ico ds-launcher-ico-sunrise"></span></span><div><p>Home</p><p>app-home</p></div></div>
+    <div class="ds-launcher-hue"><span class="ds-launcher-tile ds-launcher-tile--sm" style="--tile:var(--app-executive)"><span class="ds-ico ds-launcher-ico-layout-dashboard"></span></span><div><p>Executive</p><p>app-executive</p></div></div>
+    <div class="ds-launcher-hue"><span class="ds-launcher-tile ds-launcher-tile--sm" style="--tile:var(--app-buying)"><span class="ds-ico ds-ico-cart"></span></span><div><p>Procurement</p><p>app-buying</p></div></div>
+    <div class="ds-launcher-hue"><span class="ds-launcher-tile ds-launcher-tile--sm" style="--tile:var(--app-merchandise)"><span class="ds-ico ds-ico-shirt"></span></span><div><p>Merchandise</p><p>app-merchandise</p></div></div>
+    <div class="ds-launcher-hue"><span class="ds-launcher-tile ds-launcher-tile--sm" style="--tile:var(--app-ops)"><span class="ds-ico ds-launcher-ico-truck"></span></span><div><p>Ops</p><p>app-ops</p></div></div>
+    <div class="ds-launcher-hue"><span class="ds-launcher-tile ds-launcher-tile--sm" style="--tile:var(--app-inventory)"><span class="ds-ico ds-launcher-ico-boxes"></span></span><div><p>Inventory</p><p>app-inventory</p></div></div>
+    <div class="ds-launcher-hue"><span class="ds-launcher-tile ds-launcher-tile--sm" style="--tile:var(--app-marketing)"><span class="ds-ico ds-ico-megaphone"></span></span><div><p>Marketing</p><p>app-marketing</p></div></div>
+    <div class="ds-launcher-hue"><span class="ds-launcher-tile ds-launcher-tile--sm" style="--tile:var(--app-selling)"><span class="ds-ico ds-ico-store"></span></span><div><p>Sales</p><p>app-selling</p></div></div>
+    <div class="ds-launcher-hue"><span class="ds-launcher-tile ds-launcher-tile--sm" style="--tile:var(--app-finance)"><span class="ds-ico ds-launcher-ico-landmark"></span></span><div><p>Finance</p><p>app-finance</p></div></div>
+    <div class="ds-launcher-hue"><span class="ds-launcher-tile ds-launcher-tile--sm" style="--tile:var(--app-hr)"><span class="ds-ico ds-ico-users"></span></span><div><p>HR</p><p>app-hr</p></div></div>
+    <div class="ds-launcher-hue"><span class="ds-launcher-tile ds-launcher-tile--sm" style="--tile:var(--app-ga)"><span class="ds-ico ds-launcher-ico-messages-square"></span></span><div><p>GA</p><p>app-ga</p></div></div>
+    <div class="ds-launcher-hue"><span class="ds-launcher-tile ds-launcher-tile--sm" style="--tile:var(--app-library)"><span class="ds-ico ds-launcher-ico-folder-open"></span></span><div><p>Files</p><p>app-library</p></div></div>
+    <div class="ds-launcher-hue"><span class="ds-launcher-tile ds-launcher-tile--sm" style="--tile:var(--app-reports)"><span class="ds-ico ds-launcher-ico-file-chart-column-increasing"></span></span><div><p>Reports</p><p>app-reports</p></div></div>
+    <div class="ds-launcher-hue"><span class="ds-launcher-tile ds-launcher-tile--sm" style="--tile:var(--app-system)"><span class="ds-ico ds-launcher-ico-settings-2"></span></span><div><p>System, and any tile with no hue</p><p>app-system</p></div></div>
+    </div>
+  </div>
+
+</div>
+</div>
+</body>
+</html>

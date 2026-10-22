@@ -86,8 +86,12 @@ function Counter() {
     const seat = seatNow()
     if (seat === null) return
     holdSeat(null)
+    // Taken over means somebody else sat down at this kasir; anything else —
+    // closed from another window, or by a supervisor — simply ended it.
     setLost(
-      `Your shift at ${seat.label} was taken over${by !== null ? ` by ${by}` : ""}.`,
+      by !== null
+        ? `Your shift at ${seat.label} was taken over by ${by}.`
+        : `Your shift at ${seat.label} has ended.`,
     )
     setWhere("sale")
   }, [])

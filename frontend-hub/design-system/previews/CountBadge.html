@@ -1,0 +1,67 @@
+<!-- @dsCard group="Status" height=308 subtitle="Static rendition of nav-column.tsx in the All white look" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>CountBadge — preview</title><style>body{margin:0}
+/* CountBadge: the rail and panel fragment as the hub draws them (tiles 2px apart, rows 400 until active). */
+.ds-countbadge-layout{display:flex;flex-wrap:wrap;align-items:flex-start;gap:24px 32px}
+.ds-countbadge-shell{min-height:0;width:max-content;border-radius:var(--r-sheet);overflow:hidden}
+.ds-countbadge-rail{gap:2px}
+.ds-countbadge-rail .ds-rail-btn{border-radius:var(--r-inner);color:var(--rail-mute)}
+.ds-countbadge-rail .ds-rail-btn.is-current{color:var(--accent)}
+.ds-countbadge-rail .ds-ico{width:18px;height:18px}
+.ds-countbadge-panel{padding:0 10px 10px}
+.ds-countbadge-panel .ds-panel-title{display:flex;align-items:center;height:52px;padding:0 6px}
+.ds-countbadge-panel .ds-nav{gap:2px}
+.ds-countbadge-panel .ds-nav-row{font-weight:400}
+.ds-countbadge-panel .ds-nav-row.is-active{font-weight:600}
+.ds-countbadge-alert{margin-left:6px;padding:0 6px;box-shadow:none;vertical-align:1px}
+.ds-countbadge-side{display:flex;flex-direction:column;gap:28px;flex:1 1 340px;min-width:0}
+.ds-countbadge-side .ds-tabs{margin-bottom:0}
+.ds-countbadge-values{display:flex;align-items:center;gap:16px}
+</style></head>
+<body>
+<div class="ds ds-stage">
+  <div class="ds-countbadge-layout">
+    <div class="ds-col">
+      <div class="ds-caption">Rail dot and panel count</div>
+      <div class="ds-shell ds-countbadge-shell">
+        <div class="ds-rail ds-countbadge-rail">
+          <span class="ds-rail-btn is-current" aria-label="Procurement"><span class="ds-ico ds-ico-cart"></span></span>
+          <span class="ds-rail-btn" aria-label="Merchandise"><span class="ds-ico ds-ico-shirt"></span><span class="ds-dot-alert"></span></span>
+          <span class="ds-rail-btn" aria-label="Inventory"><span class="ds-ico ds-ico-package"></span><span class="ds-dot-alert"></span></span>
+          <span class="ds-rail-btn" aria-label="Marketing"><span class="ds-ico ds-ico-megaphone"></span></span>
+          <span class="ds-rail-btn" aria-label="Finance"><span class="ds-ico ds-ico-wallet"></span><span class="ds-dot-alert"></span></span>
+        </div>
+        <div class="ds-panel ds-countbadge-panel">
+          <div class="ds-panel-title">Procurement</div>
+          <div class="ds-nav">
+            <span class="ds-nav-row">Purchase Orders</span>
+            <span class="ds-nav-row">Suppliers</span>
+            <span class="ds-nav-row is-active">Return PO<span class="ds-count">2</span></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ds-countbadge-side">
+      <div class="ds-col">
+        <div class="ds-caption">Alert after a tab's word</div>
+        <div class="ds-tabs">
+          <button class="ds-tab" type="button">To be returned</button>
+          <button class="ds-tab is-selected" type="button">In progress<span class="ds-count ds-countbadge-alert">3</span></button>
+          <button class="ds-tab" type="button">Completed</button>
+        </div>
+      </div>
+      <div class="ds-col">
+        <div class="ds-caption">The number, and 99+ as its cap</div>
+        <div class="ds-countbadge-values">
+          <span class="ds-count">2</span>
+          <span class="ds-count">18</span>
+          <span class="ds-count">99+</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

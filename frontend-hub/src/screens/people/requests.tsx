@@ -43,6 +43,7 @@ import { everyoneBalancesKey } from "@/lib/queries/hr-time"
 import { useCanWrite } from "@/lib/session"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
+import { statusWord } from "@/lib/words"
 import { AppLink } from "@/components/ui/app-link"
 import { CardButton, CardName, PhoneCards } from "@/components/ui/phone-cards"
 import { usePeopleInbox } from "@/screens/people/badges"
@@ -83,7 +84,7 @@ import type {
 type LeaveRow = LeaveRequestView & { readonly name: string }
 
 /// A swap, with the names of both people whose day it moves.
-type SwapRow = RosterSwapView & {
+export type SwapRow = RosterSwapView & {
   readonly name: string
   readonly withName: string
 }
@@ -355,8 +356,7 @@ export function RequestQueues() {
     details.find((row) => row.id === id) ?? null
   /// Read from every proposal, not only the waiting ones: right after Approve
   /// the sheet stays open on the same request to create the account.
-  const openHire =
-    (inbox.hires.data ?? []).find((row) => row.id === id) ?? null
+  const openHire = (inbox.hires.data ?? []).find((row) => row.id === id) ?? null
 
   return (
     <>
@@ -440,7 +440,7 @@ export function RequestQueues() {
 }
 
 /// What a correction claims, in the words the inbox reads: "Arrived 08:10".
-function correctionWords(row: CorrectionRow): string {
+export function correctionWords(row: CorrectionRow): string {
   const arrived =
     row.corrected_arrival === null
       ? null
@@ -484,7 +484,7 @@ function useNames(): (id: string) => string {
 
 /// A unit id → its name, out of the units the caller reaches; the id itself
 /// for one the list does not carry.
-function useUnitName(): (id: string) => string {
+export function useUnitName(): (id: string) => string {
   const units = useReachableUnits()
   return useMemo(() => {
     const names = new Map((units.data ?? []).map((one) => [one.id, one.name]))
@@ -494,7 +494,7 @@ function useUnitName(): (id: string) => string {
 
 /// What a correction claims, in words. A code this screen has not been taught
 /// is shown as the server spelled it rather than given a guessed name.
-function effectLabel(code: string): string {
+export function effectLabel(code: string): string {
   switch (code) {
     case "ARRIVAL":
       return "Arrival"
@@ -513,10 +513,24 @@ function effectLabel(code: string): string {
 /// `… 02:00+1` for a departure past midnight. The date is the row's own
 /// business date, so only the time is drawn; the `+1` is kept in words,
 /// because it is the difference between a two-hour shift and a twenty-six.
-function correctedTime(value: string | null): string {
+export function correctedTime(value: string | null): string {
   if (value === null) return "—"
   const time = value.slice(value.indexOf(" ") + 1)
   return time.endsWith("+1") ? `${time.slice(0, -2)} next day` : time
+}
+
+/// How the state of a request that was asked of somebody is tinted: waiting
+/// is amber, the one that went ahead green, and a refusal or a taking back
+/// stays grey — a closed question is not a problem to look at.
+export function decisionTone(state: string): "ok" | "warn" | "neutral" {
+  switch (state) {
+    case "PENDING":
+      return "warn"
+    case "APPROVED":
+      return "ok"
+    default:
+      return "neutral"
+  }
 }
 
 /// The half of every sheet here that decides: a reason, then one of two verbs.
@@ -709,7 +723,11 @@ function RequestSheet({
 /// did see — and that lives on the attendance screen, so the sheet links to
 /// the person's days rather than restating them. What it carries itself is
 /// what the correction claims and why.
-function CorrectionSheet({
+///
+/// Opened from the inbox (always pending) and from Attendance › Corrections
+/// (any state): the verdict is offered only while the correction is waiting,
+/// and a decided one says who decided, when and why instead.
+export function CorrectionSheet({
   correction,
   onClose,
 }: {
@@ -741,6 +759,7 @@ function CorrectionSheet({
   })
 
   if (correction === null) return null
+  const pending = correction.state === "PENDING"
 
   return (
     <Sheet
@@ -750,7 +769,7 @@ function CorrectionSheet({
       }}
       id={correction.id}
       footer={
-        phone ? (
+        phone && pending ? (
           <VerdictButtons
             reason={reason}
             busy={decide.isPending}
@@ -760,7 +779,9 @@ function CorrectionSheet({
       }
       title="Attendance correction"
     >
-      <Status tone="warn">Waiting on a decision</Status>
+      <Status tone={decisionTone(correction.state)}>
+        {pending ? "Waiting on a decision" : statusWord(correction.state)}
+      </Status>
 
       <Facts>
         <Fact term="Employee">{correction.display_name}</Fact>
@@ -780,6 +801,15 @@ function CorrectionSheet({
         <Fact term="Asked by">{nameOfLogin(correction.requested_by)}</Fact>
         <Fact term="Asked at">{moment(correction.requested_at)}</Fact>
         <Fact term="Reason">{correction.reason}</Fact>
+        {correction.decided_by !== null && (
+          <Fact term="Decided by">{nameOfLogin(correction.decided_by)}</Fact>
+        )}
+        {correction.decided_at !== null && (
+          <Fact term="Decided">{moment(correction.decided_at)}</Fact>
+        )}
+        {correction.decision_reason !== null && (
+          <Fact term="Why">{correction.decision_reason}</Fact>
+        )}
       </Facts>
 
       <p className="mt-4 text-body">
@@ -791,13 +821,15 @@ function CorrectionSheet({
         </AppLink>
       </p>
 
-      <Verdict
-        reason={reason}
-        onReason={setReason}
-        busy={decide.isPending}
-        failed={failed}
-        onDecide={(approve) => decide.mutate(approve)}
-      />
+      {pending && (
+        <Verdict
+          reason={reason}
+          onReason={setReason}
+          busy={decide.isPending}
+          failed={failed}
+          onDecide={(approve) => decide.mutate(approve)}
+        />
+      )}
     </Sheet>
   )
 }
@@ -807,7 +839,10 @@ function CorrectionSheet({
 /// Approving moves both roster days at once, as roster revisions — so the
 /// roster answers are dropped with the queue, or the week on the Roster
 /// screen would still show each person on the other's shift.
-function SwapSheet({
+///
+/// The verdict is offered only while the swap is waiting; a decided one says
+/// who decided it, when, and the reason they gave.
+export function SwapSheet({
   swap,
   onClose,
 }: {
@@ -837,6 +872,7 @@ function SwapSheet({
   })
 
   if (swap === null) return null
+  const pending = swap.state === "PENDING"
 
   return (
     <Sheet
@@ -846,7 +882,7 @@ function SwapSheet({
       }}
       id={swap.id}
       footer={
-        phone ? (
+        phone && pending ? (
           <VerdictButtons
             reason={reason}
             busy={decide.isPending}
@@ -856,7 +892,9 @@ function SwapSheet({
       }
       title="Roster swap"
     >
-      <Status tone="warn">Waiting on a decision</Status>
+      <Status tone={decisionTone(swap.state)}>
+        {pending ? "Waiting on a decision" : statusWord(swap.state)}
+      </Status>
 
       <Facts>
         <Fact term="Employee">{swap.name}</Fact>
@@ -865,15 +903,26 @@ function SwapSheet({
         <Fact term="Day">{day(swap.on_date)}</Fact>
         <Fact term="Asked by">{nameOfLogin(swap.requested_by)}</Fact>
         <Fact term="Reason">{swap.reason}</Fact>
+        {swap.decided_by !== null && (
+          <Fact term="Decided by">{nameOfLogin(swap.decided_by)}</Fact>
+        )}
+        {swap.decided_at !== null && (
+          <Fact term="Decided on">{moment(swap.decided_at)}</Fact>
+        )}
+        {swap.decision_reason !== null && swap.decision_reason !== "" && (
+          <Fact term="Decision reason">{swap.decision_reason}</Fact>
+        )}
       </Facts>
 
-      <Verdict
-        reason={reason}
-        onReason={setReason}
-        busy={decide.isPending}
-        failed={failed}
-        onDecide={(approve) => decide.mutate(approve)}
-      />
+      {pending && (
+        <Verdict
+          reason={reason}
+          onReason={setReason}
+          busy={decide.isPending}
+          failed={failed}
+          onDecide={(approve) => decide.mutate(approve)}
+        />
+      )}
     </Sheet>
   )
 }

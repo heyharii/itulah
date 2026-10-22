@@ -21,7 +21,6 @@ import { ExceptionQueue } from "@/components/ui/exception-queue"
 import { Field, Input, Select, Textarea } from "@/components/ui/field"
 import { useUnits } from "@/lib/queries/organisation"
 import { FilterPanel } from "@/components/ui/filter-panel"
-import { ExpandingSearch } from "@/components/ui/list-chrome"
 import { Choices } from "@/components/ui/form"
 import { Fab } from "@/components/ui/fab"
 import { PageHeader } from "@/components/ui/page-header"
@@ -108,6 +107,8 @@ import { LeaveMoves } from "@/screens/people/leave-extras"
 import { LoansPanel } from "@/screens/people/loans"
 import { PayPanel } from "@/screens/people/pay"
 import { PlacementPanel } from "@/screens/people/placement"
+import { BenefitPanel } from "@/screens/people/benefit-page"
+import { ClaimSheet } from "@/screens/people/claims"
 import { AddEmployeeSheet } from "@/screens/people/add-employee"
 import { ImportExportSheet } from "@/screens/people/import-export"
 
@@ -668,12 +669,14 @@ export function Directory() {
 
       <div className="max-md:hidden">
         <Toolbar className="group/bar">
-          <ExpandingSearch
-            value={query}
-            onChange={setQuery}
-            label="Search employees"
+          <FilterPanel
+            model={{ ...filters, fields: counted }}
+            search={{
+              value: query,
+              onChange: setQuery,
+              label: "Search employees",
+            }}
           />
-          <FilterPanel model={{ ...filters, fields: counted }} />
           {/* The server's count of everything the search and the chips match,
             not of the rows loaded so far. A bounded caller is told whose list
             this is: a supervisor posted to one shop is served that shop and
@@ -770,6 +773,7 @@ const TABS = [
   { value: "discipline", label: "Discipline" },
   { value: "pay", label: "Pay" },
   { value: "loans", label: "Loans" },
+  { value: "benefit", label: "Benefit" },
   { value: "exit", label: "Exit" },
   { value: "change", label: "Change" },
 ] as const
@@ -809,6 +813,7 @@ function tabsFor(
           one.value !== "change" &&
           one.value !== "pay" &&
           one.value !== "loans" &&
+          one.value !== "benefit" &&
           one.value !== "position" &&
           one.value !== "discipline"
       )
@@ -1013,6 +1018,13 @@ function employeeSections(
     position: <PlacementPanel employeeId={person.employee_id} />,
     pay: <PayPanel employeeId={person.employee_id} />,
     loans: <LoansPanel employeeId={person.employee_id} />,
+    benefit: (
+      <BenefitPanel
+        employeeId={person.employee_id}
+        name={listed?.full_name ?? person.employee_code}
+        code={person.employee_code}
+      />
+    ),
     exit: <ExitTab employeeId={person.employee_id} employer={employer} />,
     change: (
       <Changes employeeId={person.employee_id} account={person.account} />
@@ -2329,6 +2341,8 @@ function ClaimsTab({ employeeId }: { employeeId: string }) {
     queryKey: claimsKeys.of(employeeId),
     queryFn: ({ signal }) => claimsOf(employeeId, signal),
   })
+  /// A claim opens the sheet Claims opens, as a layer over this record.
+  const [openId, setOpenId] = useState<string | null>(null)
   const advances = useQuery({
     queryKey: claimsKeys.advances(employeeId),
     queryFn: ({ signal }) => openAdvances(employeeId, signal),
@@ -2365,10 +2379,14 @@ function ClaimsTab({ employeeId }: { employeeId: string }) {
                   {rows.map((row) => (
                     <MiniRow key={row.claim_id}>
                       <MiniCell>
-                        <span className="block font-mono text-[0.9375rem] text-ink">
+                        <button
+                          type="button"
+                          onClick={() => setOpenId(row.claim_id)}
+                          className="block text-left text-[0.9375rem] font-medium text-accent hover:underline"
+                        >
                           {row.claim_number}
-                        </span>
-                        <span className="font-mono text-[0.9375rem] text-mute">
+                        </button>
+                        <span className="text-[0.9375rem] text-mute">
                           {claimStateLabel(row.state)}
                           {row.decided_by !== null && ` · ${row.decided_by}`}
                         </span>
@@ -2447,6 +2465,10 @@ function ClaimsTab({ employeeId }: { employeeId: string }) {
         })}
       </div>
       <ClaimBalances employeeId={employeeId} editable />
+      <ClaimSheet
+        row={(claims.data ?? []).find((row) => row.claim_id === openId) ?? null}
+        onClose={() => setOpenId(null)}
+      />
     </div>
   )
 }

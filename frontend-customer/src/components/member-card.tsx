@@ -2,7 +2,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from 
 import {
   animate,
   motion,
-  useMotionTemplate,
+  useAnimationControls,
   useMotionValue,
   useReducedMotion,
   useSpring,
@@ -11,15 +11,16 @@ import {
 } from "motion/react"
 
 import { Barcode } from "@/components/barcode"
+import { MatteC } from "@/components/matte"
 import { memberCardPayload } from "@/lib/member-card"
 import { SPRING_THROW, SPRING_TRACK } from "@/lib/motion"
 import { cn } from "@/lib/utils"
 
 const MONTH = new Intl.DateTimeFormat("id-ID", { month: "2-digit", year: "2-digit" })
 
-/// How far a pointer or finger may tip the card, in degrees. Enough to catch
-/// the light; not so much that the number stops being readable.
-const TILT = 9
+/// How far a pointer or finger may tip the card, in degrees. Matte has no
+/// light to catch, so the lean is only what makes it feel held: small.
+const TILT = 5
 
 /// Apple's momentum projection (Designing Fluid Interfaces): where a flick
 /// would come to rest if nothing stopped it. The card lands on the face
@@ -35,15 +36,15 @@ export interface MemberCardHandle {
 
 /// The member card, drawn as an object rather than as a box.
 ///
-/// Two poses. On Beranda it rests tipped back and to one side, the way a card
-/// lies on a table, and leans toward the pointer or the pressing finger. On
-/// the card screen (`stage`) it faces the viewer, and it has two sides: drag
-/// it sideways and it turns with the finger, let go and it settles on whichever
-/// face the throw was heading for, carrying the finger's velocity into the
-/// spring so there is no seam between dragging and animating.
-///
-/// Everything that moves is a transform. The sheen is a background position
-/// driven by the same tilt, so the light slides across the metal as it turns.
+/// Matte · Deep (owner, 2026-10-20): the icon's blue, lit from the top and
+/// darkening toward its foot, with the icon's pale C standing on it and a
+/// soft contact shadow under the card. It lies flat — no resting tilt, no
+/// sheen — and leans a little toward the pointer or the pressing finger, the
+/// way a card does in the hand. On the card screen (`stage`) it has two
+/// sides: drag it sideways and it turns with the finger, let go and it
+/// settles on whichever face the throw was heading for, carrying the finger's
+/// velocity into the spring so there is no seam between dragging and
+/// animating. Everything that moves is a transform.
 export const MemberCard = forwardRef<
   MemberCardHandle,
   {
@@ -54,10 +55,10 @@ export const MemberCard = forwardRef<
     flippable?: boolean
     className?: string
     onFlipChange?: (back: boolean) => void
-    /// Change it to run the shine across the face again — Beranda bumps it
-    /// when the balance goes up, so the card catches the light at the moment
-    /// something good happened to it.
-    shine?: number
+    /// Change it to lift the card once — Beranda bumps it when the balance
+    /// goes up, so the card answers at the moment something good happened
+    /// to it.
+    lift?: number
   }
 >(function MemberCard(
   {
@@ -68,13 +69,14 @@ export const MemberCard = forwardRef<
     flippable = false,
     className,
     onFlipChange,
-    shine = 0,
+    lift = 0,
   },
   ref,
 ) {
   const reduce = useReducedMotion()
-  const rest =
-    pose === "rest" ? { x: 14, y: -9, z: -3 } : { x: 6, y: 0, z: 0 }
+  // Flat in both poses: matte is an object lying still, not metal tipped to
+  // the light. The stage keeps a breath of lean back so it stands up.
+  const rest = pose === "rest" ? { x: 0, y: 0, z: 0 } : { x: 4, y: 0, z: 0 }
 
   // Pointer tilt: springs, so the card lags the finger a touch like a real
   // object with weight (SPRING_TRACK), rather than snapping to it.
@@ -88,9 +90,15 @@ export const MemberCard = forwardRef<
     [turn, tiltY],
     ([spin, lean]: number[]) => rest.y + spin + lean,
   )
-  const sheenX = useTransform(rotateY, [-40, 40], [100, 0])
-  const sheenY = useTransform(rotateX, [-30, 30], [100, 0])
-  const sheen = useMotionTemplate`${sheenX}% ${sheenY}%`
+
+  // A small hop when points land: up, and settling back on the same spring a
+  // throw uses. Not on the first value — opening the app is not earning.
+  const hop = useAnimationControls()
+  const firstLift = useRef(lift)
+  useEffect(() => {
+    if (reduce || lift === firstLift.current) return
+    void hop.start({ y: [0, -10, 0], transition: { duration: 0.5, ease: "easeOut" } })
+  }, [hop, lift, reduce])
 
   const back = useRef(false)
   const settle = useCallback(
@@ -217,7 +225,7 @@ export const MemberCard = forwardRef<
 
   return (
     <div
-      className={cn("[perspective:1400px]", className)}
+      className={cn("relative [perspective:1400px]", className)}
       onPointerMove={lean}
       onPointerDown={(event) => {
         askForMotion.current?.()
@@ -227,138 +235,99 @@ export const MemberCard = forwardRef<
       onPointerLeave={straighten}
       onPointerCancel={straighten}
     >
-      <motion.div
-        initial={
-          reduce
-            ? { opacity: 0 }
-            : pose === "rest"
-              ? { opacity: 0, rotateZ: -12, y: 28, scale: 0.94 }
-              : { opacity: 0, y: 16, scale: 0.96 }
-        }
-        animate={{ opacity: 1, rotateZ: rest.z, y: 0, scale: 1 }}
-        transition={{ type: "spring", duration: 0.7, bounce: 0 }}
-        style={{
-          rotateX: reduce ? rest.x : rotateX,
-          rotateY: reduce ? rest.y : rotateY,
-          transformStyle: "preserve-3d",
-          touchAction: flippable ? "pan-y" : "auto",
-        }}
-        onPanStart={flippable && !reduce ? onPanStart : undefined}
-        onPan={flippable && !reduce ? onPan : undefined}
-        onPanEnd={flippable && !reduce ? onPanEnd : undefined}
-        className="card-shadow relative aspect-[1.586] w-full rounded-member-card will-change-transform"
-      >
-        {/* Front */}
-        <div
-          className="card-face absolute inset-0 overflow-hidden rounded-member-card [backface-visibility:hidden]"
-          aria-label={`Kartu member ${display}, nomor ${memberId}`}
-          role="img"
+      {/* Where the card would touch the floor. */}
+      <div aria-hidden className="card-floor pointer-events-none absolute inset-x-[8%] -bottom-5 h-10" />
+      <motion.div animate={hop}>
+        <motion.div
+          initial={
+            reduce
+              ? { opacity: 0 }
+              : pose === "rest"
+                ? { opacity: 0, y: 20, scale: 0.96 }
+                : { opacity: 0, y: 16, scale: 0.96 }
+          }
+          animate={{ opacity: 1, rotateZ: rest.z, y: 0, scale: 1 }}
+          transition={{ type: "spring", duration: 0.7, bounce: 0 }}
+          style={{
+            rotateX: reduce ? rest.x : rotateX,
+            rotateY: reduce ? rest.y : rotateY,
+            transformStyle: "preserve-3d",
+            touchAction: flippable ? "pan-y" : "auto",
+          }}
+          onPanStart={flippable && !reduce ? onPanStart : undefined}
+          onPan={flippable && !reduce ? onPan : undefined}
+          onPanEnd={flippable && !reduce ? onPanEnd : undefined}
+          className="relative aspect-[1.586] w-full rounded-member-card will-change-transform"
         >
-          <div aria-hidden className="card-sash absolute inset-0" />
-          <div aria-hidden className="card-sash-line absolute inset-0" />
-          <div aria-hidden className="card-sash-gloss absolute inset-0" />
-          <div aria-hidden className="card-grain absolute inset-0" />
-          <motion.div
-            aria-hidden
-            className="card-sheen absolute inset-0"
-            style={{ backgroundPosition: sheen }}
-          />
-          {/* One band of light crossing the face — on arrival, and again when
-              `shine` changes. Keyed so a new value restarts it from the edge. */}
-          {!reduce && (
-            <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
-              <div key={shine} className="card-shine-band" />
-            </div>
-          )}
-          {/* The mark, blown up and barely there — a watermark the light
-              finds as the card turns. */}
-          <Mark className="absolute -right-[16%] -bottom-[36%] size-[86%] text-on-dark opacity-[0.05]" />
-          <div className="relative flex h-full flex-col justify-between p-[6.5%]">
-            <div className="flex items-start justify-between">
-              <div className="flex items-center gap-2">
-                <Mark className="size-[1.375rem] text-on-dark/90" />
-                <span className="text-[1.0625rem] font-semibold tracking-[-0.02em] text-on-dark">
-                  Central
+          {/* Front */}
+          <div
+            className="card-matte absolute inset-0 overflow-hidden rounded-member-card [backface-visibility:hidden]"
+            aria-label={`Kartu member ${display}, nomor ${memberId}`}
+            role="img"
+          >
+            {/* The icon's C, standing on the card as an object with its own
+                shadow — the picture the member also has on their home screen. */}
+            <MatteC className="absolute top-[26%] right-[5%] w-[36%]" />
+            <div className="relative flex h-full flex-col justify-between p-[6.5%]">
+              <div className="flex items-start justify-between">
+                <div className="flex items-center gap-2">
+                  <MatteC floor={false} className="size-[1.375rem]" />
+                  <span className="text-card-title font-semibold text-on-dark">
+                    Central
+                  </span>
+                </div>
+                <span className="text-nav font-semibold text-on-dark/85">
+                  Member
                 </span>
               </div>
-              <span className="text-[0.625rem] font-semibold tracking-[0.2em] text-on-dark/90 uppercase [text-shadow:0_1px_1px_rgb(0_0_0/0.25)]">
-                Member
-              </span>
-            </div>
-            <div className="flex items-end justify-between gap-3">
-              <div className="min-w-0">
-                <p className="truncate text-[0.9375rem] font-medium tracking-[-0.01em] text-on-dark/95">
-                  {display}
-                </p>
-                <p className="mt-0.5 truncate font-mono text-[0.8125rem] tracking-[0.16em] text-on-dark/60 uppercase">
-                  {memberId}
-                </p>
-              </div>
-              {sinceLabel !== null && (
-                <div className="shrink-0 text-right">
-                  <p className="text-[0.5625rem] font-semibold tracking-[0.16em] text-on-dark/45 uppercase">
-                    Sejak
+              <div className="flex items-end justify-between gap-3">
+                {/* Stops short of the C standing on the right half. */}
+                <div className="min-w-0 max-w-[60%]">
+                  <p className="truncate text-card-title font-semibold text-on-dark">
+                    {display}
                   </p>
-                  <p className="num font-mono text-[0.8125rem] text-on-dark/70">
-                    {sinceLabel}
+                  <p className="mt-0.5 truncate font-mono text-id tracking-[0.08em] text-on-dark/80 uppercase">
+                    {memberId}
                   </p>
                 </div>
-              )}
+                {sinceLabel !== null && (
+                  <div className="shrink-0 text-right">
+                    <p className="text-nav text-on-dark/70">Sejak</p>
+                    <p className="num text-nav font-semibold text-on-dark">
+                      {sinceLabel}
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* Back — turned half a revolution so it faces the viewer when the
-            card has flipped. Only drawn where the card can flip. */}
-        {flippable && (
-          <div
-            className="card-back absolute inset-0 overflow-hidden rounded-member-card [backface-visibility:hidden] [transform:rotateY(180deg)]"
-          >
-            <div aria-hidden className="mt-[7%] h-[17%] w-full bg-ink/85" />
-            <div aria-hidden className="h-[2.5%] w-full bg-[var(--brand-red)]" />
-            <div className="flex flex-col items-center px-[7%] pt-[5%]">
-              <div className="w-full rounded-[0.5rem] bg-canvas px-3 pt-3 pb-2 shadow-[0_1px_2px_rgb(0_0_0/0.06)]">
-                <Barcode
-                  value={memberCardPayload(memberId)}
-                  label={`Barcode nomor member ${memberId}`}
-                  className="h-[3.25rem] text-ink"
-                />
-                <p className="mt-1.5 text-center font-mono text-[0.75rem] tracking-[0.22em] text-ink uppercase">
-                  {memberId}
+          {/* Back — turned half a revolution so it faces the viewer when the
+              card has flipped. Only drawn where the card can flip. */}
+          {flippable && (
+            <div
+              className="card-matte-back absolute inset-0 overflow-hidden rounded-member-card [backface-visibility:hidden] [transform:rotateY(180deg)]"
+            >
+              <div aria-hidden className="card-band mt-[7%] h-[17%] w-full" />
+              <div className="flex flex-col items-center px-[7%] pt-[6%]">
+                <div className="w-full rounded-[0.625rem] bg-canvas px-3 pt-3 pb-2 shadow-[0_1px_2px_rgb(0_0_0/0.06)]">
+                  <Barcode
+                    value={memberCardPayload(memberId)}
+                    label={`Barcode nomor member ${memberId}`}
+                    className="h-[3.25rem] text-ink"
+                  />
+                  <p className="mt-1.5 text-center font-mono text-id tracking-[0.16em] text-ink uppercase">
+                    {memberId}
+                  </p>
+                </div>
+                <p className="mt-[4%] text-meta text-body">
+                  Pindai di kasir untuk mengumpulkan poin
                 </p>
               </div>
-              <p className="mt-[4%] text-[0.6875rem] text-body">
-                Pindai di kasir untuk mengumpulkan poin
-              </p>
             </div>
-          </div>
-        )}
+          )}
+        </motion.div>
       </motion.div>
     </div>
   )
 })
-
-/// The Central mark: two arcs and a red dot — a shutter half-open, a coin seen
-/// edge-on. The arcs are `currentColor`, so the mark takes whatever surface it
-/// is on; the dot is always the brand red.
-export function Mark({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden className={className} fill="none">
-      <path
-        d="M12 2.75a9.25 9.25 0 1 1-9.05 7.33"
-        stroke="currentColor"
-        strokeWidth="2.2"
-        strokeLinecap="round"
-      />
-      <path
-        d="M12 7.25a4.75 4.75 0 1 1-4.64 3.76"
-        stroke="currentColor"
-        strokeWidth="2.2"
-        strokeLinecap="round"
-        opacity="0.6"
-      />
-      {/* Central's red, and the only colour in the mark. */}
-      <circle cx="12" cy="12" r="1.9" className="fill-[var(--brand-red)]" />
-    </svg>
-  )
-}

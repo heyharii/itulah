@@ -2213,15 +2213,14 @@ fn apply_auth_policy(tx: &Transaction<'_>, snapshot: &AuthPolicySnapshot) -> Res
             .map(String::as_str)
             .filter(|kind| crate::sync::device::is_rfid_kind(kind))
             .unwrap_or(crate::sync::device::KIND_RFID_READER);
-        let key_changed = tx
-            .prepare_cached("SELECT auth_key_sha256<>?2 FROM edge_rfid_device WHERE device_id=?1")
-            .map_err(err)?
-            .query_row(params![device.device_id, device.auth_key_sha256], |row| {
-                row.get::<_, bool>(0)
-            })
-            .optional()
-            .map_err(err)?
-            .unwrap_or(false);
+        // A rotated key starts a fresh monotonic sequence epoch (the CASE
+        // below). Its batch receipts are kept: they no longer reserve
+        // sequence numbers (sqlite 0082), and they are what answers a batch
+        // whose reply was lost under the old key and is filed again under
+        // the new one. Deleting them made that retry a second filing, with a
+        // new batch and new observation ids — evidence the cloud, which
+        // deduplicates by observation id, stored twice. A replay still needs
+        // the device's signature under its current key.
         tx.prepare_cached(
             "INSERT INTO edge_rfid_device
                  (device_id,label,auth_key_sha256,active,valid_until,updated_at,policy_version,
@@ -2251,15 +2250,6 @@ fn apply_auth_policy(tx: &Transaction<'_>, snapshot: &AuthPolicySnapshot) -> Res
             kind,
         ])
         .map_err(err)?;
-        if key_changed {
-            // A rotated key starts a fresh monotonic sequence epoch. Old
-            // receipts remain represented by immutable sightings/sync facts,
-            // but cannot reserve sequence numbers for the new credential.
-            tx.prepare_cached("DELETE FROM edge_rfid_batch_receipt WHERE device_id=?1")
-                .map_err(err)?
-                .execute(params![device.device_id])
-                .map_err(err)?;
-        }
         tx.prepare_cached("DELETE FROM edge_rfid_device_pool WHERE device_id=?1")
             .map_err(err)?
             .execute(params![device.device_id])
@@ -3436,6 +3426,15 @@ fn apply_command_effect(tx: &Transaction<'_>, command: &PushedCommand) -> Result
             crate::edge::inbound::apply_announcement(tx, command.command_id, &payload)
                 .map_err(|error| err(error.to_string()))
         }
+        // MD answered the review of a trip this shop was on: what of its
+        // hold it keeps, and what goes back to HO (owner, 17–18 Oct 2026).
+        crate::sync::workflow::INVENTORY_STORE_INBOUND_ON_HOLD_V1 => {
+            let payload = crate::sync::workflow::parse_store_inbound_on_hold(&command.payload)
+                .map_err(err)?;
+            let node = resident_node(tx)?;
+            crate::edge::SqliteEdge::apply_store_on_hold(tx, &node, command.command_id, &payload)
+                .map_err(|error| err(error.to_string()))
+        }
         // A site of ours counted in what this one sent: let go of it here.
         // Only ever sent to a node whose heartbeat carries the goods-route
         // capability, so an older build never receives it.
@@ -3836,8 +3835,16 @@ impl SyncStore for SqliteSyncStore {
                 })
                 .map_err(err)?;
             let mut facts = Vec::new();
+            // Read no further than one upload can carry. The cycle cuts the
+            // batch to `SYNC_BATCH_MAX_BYTES` itself (`sync::run_cycle`); this
+            // only stops the read there too, so a backlog of large RFID
+            // batches is not parsed a hundred at a time to send a few. The
+            // fact that crosses the line is still read — the cycle sends at
+            // least one — and nothing after it.
+            let mut payload_bytes: usize = 0;
             for row in rows {
                 let (seq, event_id, event_type, payload, created_at) = row.map_err(err)?;
+                payload_bytes = payload_bytes.saturating_add(payload.len());
                 facts.push(SyncFact {
                     seq,
                     event_id: Uuid::parse_str(&event_id)
@@ -3847,6 +3854,9 @@ impl SyncStore for SqliteSyncStore {
                         .map_err(|error| err(format!("malformed payload: {error}")))?,
                     created_at: parse_time(&created_at)?,
                 });
+                if payload_bytes > crate::sync::port::SYNC_BATCH_MAX_BYTES {
+                    break;
+                }
             }
             Ok(facts)
         })
@@ -4824,7 +4834,10 @@ mod tests {
             .map_err(err)?
             .query_row([], |row| Ok((row.get(0)?, row.get(1)?)))
             .unwrap_or_else(|error| panic!("rotated device state: {error}"));
-        assert_eq!((sequence, receipts), (0, 0));
+        // A new key, a new sequence epoch — and the old receipt still there,
+        // to answer a batch filed under the old key and sent again under the
+        // new one instead of filing it a second time.
+        assert_eq!((sequence, receipts), (0, 1));
     }
 
     #[tokio::test]

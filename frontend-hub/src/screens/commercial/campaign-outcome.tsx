@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Field, Money, Select } from "@/components/ui/field"
 import { Meter } from "@/components/ui/meter"
 import { ErrorState } from "@/components/ui/states"
-import { count, day, money } from "@/lib/format"
+import { count, day, decimal, money } from "@/lib/format"
 import { queryState } from "@/lib/query-state"
 import {
   campaignKeys,
@@ -221,7 +221,7 @@ export function CampaignGoal({
                   size="sm"
                   onClick={() => setEditing(true)}
                 >
-                  Change
+                  Edit goal
                 </Button>
               }
             >
@@ -306,8 +306,8 @@ function Did({ scored }: { scored: CampaignOutcomeView }) {
   if (reading.sale_count === 0) return <Quiet>No sales yet.</Quiet>
   return (
     <div className="flex flex-col gap-5">
-      <Pair label="Sales">{money(reading.basket_revenue_minor)}</Pair>
-      <Pair label="Given away">{money(reading.spend_minor)}</Pair>
+      <Pair label="Promo sales">{money(reading.basket_revenue_minor)}</Pair>
+      <Pair label="Discount given">{money(reading.spend_minor)}</Pair>
       <Pair label="Transactions">{count(reading.sale_count)}</Pair>
       {/* Revenue less a cost of nought is revenue, and under the word "profit"
           that is the most flattering number on the panel. Only where costed. */}
@@ -346,15 +346,15 @@ function Against({
   const name = before.name ?? before.campaign_id
   return (
     <div className="flex flex-col gap-5 border-t border-hairline pt-5">
-      <Pair label="Against">{name}</Pair>
+      <Pair label="Compared with">{name}</Pair>
       <Compare
-        term="Sales"
+        term="Promo sales"
         now={mine.basket_revenue_minor}
         was={before.reading.basket_revenue_minor}
         draw={money}
       />
       <Compare
-        term="Given away"
+        term="Discount given"
         now={mine.spend_minor}
         was={before.reading.spend_minor}
         draw={money}
@@ -400,8 +400,8 @@ function Compare({
               good === true ? "text-ok-fg" : "text-bad-fg"
             )}
           >
-            {change >= 0 ? "+" : ""}
-            {change}%
+            {change > 0 ? "+" : ""}
+            {decimal(change, 1)}%
           </span>
         )}
       </span>
@@ -601,7 +601,7 @@ function IntentEditor({
             </Select>
           </Field>
 
-          <Field label="Metric">
+          <Field label="Measured by">
             <Select
               value={metric}
               onChange={(next) => {
@@ -622,7 +622,7 @@ function IntentEditor({
             </Select>
           </Field>
 
-          <Field label="Measured as">
+          <Field label="Target type">
             <Select value={model} onChange={setModel}>
               {offered.map((one) => (
                 <option key={one.value} value={one.value}>
@@ -633,13 +633,7 @@ function IntentEditor({
           </Field>
 
           <Field
-            label={
-              shape?.needsUpper === true
-                ? "From"
-                : `Target (${
-                    chosen?.direction === "AT_MOST" ? "at most" : "at least"
-                  })`
-            }
+            label={shape?.needsUpper === true ? "Lowest" : "Target"}
             required
           >
             <Money
@@ -652,7 +646,7 @@ function IntentEditor({
           </Field>
 
           {shape?.needsUpper === true && (
-            <Field label="To" required>
+            <Field label="Highest" required>
               <Money
                 value={upper}
                 onChange={setUpper}
@@ -671,7 +665,7 @@ function IntentEditor({
             className="sm:col-span-2"
           >
             <Select value={baseline} onChange={setBaseline}>
-              <option value="">Nothing</option>
+              <option value="">None</option>
               {campaigns
                 .filter((one) => one.campaign_id !== campaign.campaign_id)
                 .map((one) => (
@@ -705,7 +699,7 @@ function IntentEditor({
               disabled={problem !== undefined}
               onClick={() => save.mutate()}
             >
-              {save.isPending ? "Submitting…" : "Submit"}
+              {save.isPending ? "Saving…" : "Save goal"}
             </Button>
           </span>
         </div>

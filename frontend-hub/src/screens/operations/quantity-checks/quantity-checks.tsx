@@ -1,20 +1,25 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Plus, X } from "lucide-react"
-import { useState } from "react"
+import { Plus, Search, X } from "lucide-react"
+import type { ColumnDef, SortingState } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
+import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { Input, Select } from "@/components/ui/field"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { SubTabs } from "@/components/ui/sub-tabs"
-import { Sheet } from "@/components/ui/sheet"
+import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { EmptyState, Problem } from "@/components/ui/states"
 import { Thumbnail } from "@/components/ui/thumbnail"
 import { cn } from "@/lib/utils"
-import { ago, count, day, dayMonth } from "@/lib/format"
+import { ago, count, dayMonth, quantity, recentMoment, countPcs } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
+import { tableSetup, type TableSetup } from "@/lib/table"
 import { useNameOfLogin } from "@/lib/queries/hr-employees"
 import { colourKeys, listColours } from "@/lib/queries/colours"
 import { catalogueVocabulary, procurementKeys } from "@/lib/queries/procurement"
@@ -27,12 +32,17 @@ import {
   type QuantityCheckRow,
 } from "@/lib/queries/quantity-checks"
 import { queryState } from "@/lib/query-state"
+import { useIntakeSearch } from "@/screens/operations/intake/header"
 import { COUNT_HEAD, COUNT_ROW } from "@/screens/operations/intake/receiving"
+import { ROOMY } from "@/screens/operations/roomy"
 import { TwoLines } from "@/screens/operations/two-lines"
 import { titled } from "@/screens/procurement/po-print"
 import { STAMP, termLabel } from "@/screens/procurement/shared"
 import { VariantPhoto, variantLabel } from "@/screens/procurement/variant-photo"
-import { useSupplierName } from "@/screens/procurement/supplier-name"
+import {
+  SupplierName,
+  useSupplierName,
+} from "@/screens/procurement/supplier-name"
 
 /// **Quantity Checks** — counts head office asked the warehouse for.
 ///
@@ -43,106 +53,283 @@ import { useSupplierName } from "@/screens/procurement/supplier-name"
 /// compared with the delivery's own count.
 type Stage = "REQUESTED" | "COUNTED"
 
+/// What a counted check came to, in pieces.
+const piecesOf = (one: QuantityCheck) =>
+  one.lines.reduce((sum, line) => sum + line.quantity, 0)
+
+/// The search over the table, as Receiving PO sets it.
+const SEARCH_LABEL = "Search articles, orders or suppliers"
+
 export function QuantityChecks() {
   const [opened, setOpened] = useState<string | null>(null)
   /// Where a check stands (owner, 16 Oct 2026): asked of the warehouse, or
   /// counted by it. Those are the two statuses the node keeps.
   const [tab, setTab] = useState<Stage>("REQUESTED")
+  const search = useIntakeSearch()
+  const nameOf = useSupplierName()
+  const [sorting, setSorting] = useState<SortingState>([
+    { id: "asked", desc: true },
+  ])
   const open = useQuery({
     queryKey: quantityCheckKeys.book(),
     queryFn: ({ signal }) => listQuantityChecks(signal),
     refetchInterval: 15_000,
   })
-  const all = open.data ?? []
+  const all = useMemo(() => open.data ?? [], [open.data])
   const asked = all.filter((one) => one.status === "REQUESTED")
   const counted = all.filter((one) => one.status === "COUNTED")
-  const rows = tab === "REQUESTED" ? asked : counted
-  const countedPieces = counted.reduce(
-    (sum, one) => sum + one.lines.reduce((s, line) => s + line.quantity, 0),
-    0
+  const countedPieces = counted.reduce((sum, one) => sum + piecesOf(one), 0)
+  const rows = useMemo(
+    () =>
+      all.filter(
+        (one) =>
+          one.status === tab &&
+          (search.needle === "" ||
+            one.article_name.toLowerCase().includes(search.needle) ||
+            one.po_number.toLowerCase().includes(search.needle) ||
+            nameOf(one.supplier_id, one.supplier_name)
+              .toLowerCase()
+              .includes(search.needle))
+      ),
+    [all, tab, search.needle, nameOf]
   )
   // One still asked for opens to be answered; one counted opens to be read.
   const chosen = all.find((one) => one.check_id === opened) ?? null
+
+  const columns = useMemo<ColumnDef<TableSetup, QuantityCheck>[]>(
+    () => [
+      {
+        // The article as head office named it, its photo, and the order it
+        // came on under it.
+        id: "article",
+        accessorFn: (row: QuantityCheck) => row.article_name,
+        header: "Article",
+        size: 280,
+        meta: { card: "title", grow: 280 },
+        cell: ({ row }) => (
+          <span className="flex min-w-0 items-center gap-3 py-1">
+            <Thumbnail
+              url={row.original.image_url}
+              name={row.original.article_name}
+              className="size-11 shrink-0 rounded-inner border border-hairline"
+            />
+            <span className="flex min-w-0 flex-col gap-0.5 leading-5">
+              <span className="block truncate font-medium text-ink max-md:font-semibold">
+                {row.original.article_name}
+              </span>
+              <span className="font-mono text-id text-mute">
+                {row.original.po_number}
+              </span>
+            </span>
+          </span>
+        ),
+      },
+      {
+        id: "supplier",
+        accessorFn: (row: QuantityCheck) =>
+          row.supplier_name ?? row.supplier_id,
+        header: "Supplier",
+        size: 210,
+        meta: { card: "hide" },
+        cell: ({ row }) => (
+          <span className="block truncate">
+            <SupplierName
+              code={row.original.supplier_id}
+              name={row.original.supplier_name}
+            />
+          </span>
+        ),
+      },
+      {
+        // Who asked, and when: the newest ask leads.
+        id: "asked",
+        accessorFn: (row: QuantityCheck) => row.requested_at,
+        header: "Asked",
+        size: 160,
+        meta: { card: "hide" },
+        cell: ({ row }) => <AskedCell check={row.original} />,
+      },
+      {
+        id: "received",
+        accessorFn: (row: QuantityCheck) => row.receipt_quantity,
+        header: "Received",
+        size: 100,
+        meta: { align: "right", card: "hide" },
+        cell: ({ row }) => `${countPcs(row.original.receipt_quantity)}`,
+      },
+      // Two columns that exist only on a card (a phone), as Receiving PO's:
+      // the figure it leads with, and the foot's left side.
+      {
+        id: "lead",
+        accessorFn: (row: QuantityCheck) => row.receipt_quantity,
+        header: "",
+        enableHiding: false,
+        enableSorting: false,
+        meta: { card: "lead" },
+        cell: ({ row }) => (
+          <span className="flex flex-col items-end tabular-nums">
+            <span className="text-[1.5rem] leading-tight font-semibold tracking-tight text-ink">
+              {count(row.original.receipt_quantity)}
+            </span>
+            <span className="text-[0.9375rem] text-mute">pcs received</span>
+          </span>
+        ),
+      },
+      {
+        id: "foot",
+        accessorFn: (row: QuantityCheck) => row.requested_at,
+        header: "",
+        enableHiding: false,
+        enableSorting: false,
+        meta: { card: "foot" },
+        cell: ({ row }) => <AskedCell check={row.original} card />,
+      },
+      {
+        // One column for the count: what was counted, who and when, once it is
+        // counted; the Count button while it is not.
+        id: "count",
+        accessorFn: (row: QuantityCheck) =>
+          row.status === "COUNTED" ? piecesOf(row) : -1,
+        header: "Count",
+        size: 230,
+        meta: { align: "right", card: "status" },
+        cell: function Status({ row }) {
+          const check = row.original
+          const card = useLayout() === "phone"
+          if (check.status === "COUNTED")
+            return card ? (
+              <span className={cn(STAMP, "text-ok-fg")}>
+                Counted
+                {check.counted_at !== null && (
+                  <span className="block tabular-nums">
+                    {dayMonth(check.counted_at)}
+                  </span>
+                )}
+              </span>
+            ) : (
+              <CountedCell check={check} />
+            )
+          return (
+            <Button
+              variant="primary"
+              size="card"
+              onClick={(event) => {
+                event.stopPropagation()
+                setOpened(check.check_id)
+              }}
+            >
+              Count
+            </Button>
+          )
+        },
+      },
+    ],
+    []
+  )
+
+  const phone = useLayout() === "phone"
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: rows,
+        columns,
+        getRowId: (row: QuantityCheck) => row.check_id,
+        state: {
+          sorting,
+          columnVisibility: { lead: phone, foot: phone },
+        },
+        onSortingChange: (
+          next: SortingState | ((prev: SortingState) => SortingState)
+        ) =>
+          setSorting((was) => (typeof next === "function" ? next(was) : next)),
+      }),
+      [rows, columns, sorting, phone]
+    )
+  )
+  const stages = [
+    { value: "REQUESTED", label: "To count", count: asked.length },
+    { value: "COUNTED", label: "Counted", count: counted.length },
+  ]
 
   return (
     <PageContent>
       <PageHeader crumb="Operations" title="Quantity Checks" />
       <DockTools
+        search={{ ...search, label: SEARCH_LABEL }}
+        sort={dockSortOf(table)}
         status={{
           value: tab,
-          options: [
-            { value: "REQUESTED", label: "To count", count: asked.length },
-            { value: "COUNTED", label: "Counted", count: counted.length },
-          ],
+          options: stages,
           onChange: (next) => setTab(next as Stage),
         }}
       />
       <KpiStrip className="grid-cols-3">
-        <Kpi label="To count" value={count(asked.length)} />
-        <Kpi label="Counted" value={count(counted.length)} />
-        <Kpi label="Pieces counted" value={`${count(countedPieces)} pcs`} />
+        <Kpi
+          label="To count"
+          value={`${count(asked.length)} ${asked.length === 1 ? "check" : "checks"}`}
+        />
+        <Kpi
+          label="Counted"
+          value={`${count(counted.length)} ${counted.length === 1 ? "check" : "checks"}`}
+        />
+        <Kpi label="Pieces counted" value={quantity(countedPieces)} />
       </KpiStrip>
       {/* On a phone the two stages are the dock's status button. */}
       <SubTabs
         className="max-md:hidden"
         value={tab}
         onChange={(next) => setTab(next as Stage)}
-        tabs={[
-          { value: "REQUESTED", label: `To count ${count(asked.length)}` },
-          { value: "COUNTED", label: `Counted ${count(counted.length)}` },
-        ]}
+        tabs={stages.map((one) => ({
+          value: one.value,
+          label: `${one.label} ${count(one.count)}`,
+        }))}
       />
-      {queryState(open, {
-        loading: "Loading the counts asked for…",
-        render: () =>
-          rows.length === 0 ? (
-            <EmptyState>
-              {tab === "COUNTED"
-                ? "Nothing counted yet."
-                : "No counts are asked for."}
-            </EmptyState>
-          ) : (
-            <Card className="overflow-hidden">
-              {rows.map((one) => (
-                <button
-                  key={one.check_id}
-                  type="button"
-                  onClick={() => setOpened(one.check_id)}
-                  className="flex min-h-16 w-full items-center gap-3 px-4 py-2.5 text-left transition-colors not-first:border-t not-first:border-hairline hover:bg-soft active:bg-soft-2"
-                >
-                  <Thumbnail
-                    url={one.image_url}
-                    name={one.article_name}
-                    className="size-11 shrink-0 rounded-inner border border-hairline"
-                  />
-                  <span className="flex min-w-0 flex-1 flex-col">
-                    <span className="truncate text-[0.9375rem] font-medium text-ink">
-                      {one.article_name}
-                    </span>
-                    <span className="truncate text-[0.9375rem] text-mute">
-                      {one.po_number} · {count(one.receipt_quantity)} pcs
-                      received
-                    </span>
-                  </span>
-                  {one.status === "COUNTED" ? (
-                    <span className={cn(STAMP, "shrink-0 text-ok-fg")}>
-                      Counted
-                      {one.counted_at !== null && (
-                        <span className="block tabular-nums">
-                          {dayMonth(one.counted_at)}
-                        </span>
-                      )}
-                    </span>
-                  ) : (
-                    <span className="shrink-0 text-[0.9375rem] text-mute">
-                      {ago(one.requested_at)}
-                    </span>
-                  )}
-                </button>
-              ))}
-            </Card>
-          ),
-      })}
+      {/* On a desk the search sits over the table; on a phone it is the
+          dock's, as on Receiving PO. */}
+      <div className="relative mb-3.5 w-80 max-md:hidden">
+        <Search
+          aria-hidden
+          className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-mute"
+        />
+        <Input
+          type="search"
+          aria-label={SEARCH_LABEL}
+          placeholder={SEARCH_LABEL}
+          value={search.value}
+          onChange={(event) => search.onChange(event.target.value)}
+          className="pl-9"
+        />
+      </div>
+
+      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+        {queryState(open, {
+          loading: "Loading the counts asked for…",
+          render: () =>
+            rows.length === 0 ? (
+              <EmptyState>
+                {search.needle !== ""
+                  ? "No checks match."
+                  : tab === "COUNTED"
+                    ? "Nothing counted yet."
+                    : "Nothing to count."}
+              </EmptyState>
+            ) : (
+              <DataTable<QuantityCheck>
+                refresh={[open]}
+                table={table}
+                touch
+                onRowClick={(row) => setOpened(row.check_id)}
+                isSelected={(row) => row.check_id === opened}
+                pageScroll
+                cardSort={false}
+                cardsApart
+                cardLead
+                className={ROOMY}
+              />
+            ),
+        })}
+      </Card>
       <CountSheet
         check={chosen?.status === "REQUESTED" ? chosen : null}
         onClose={() => setOpened(null)}
@@ -152,6 +339,67 @@ export function QuantityChecks() {
         onClose={() => setOpened(null)}
       />
     </PageContent>
+  )
+}
+
+/// Who asked for the count and how long ago. On a card's foot, a counted
+/// check says what it came to instead.
+function AskedCell({
+  check,
+  card = false,
+}: {
+  check: QuantityCheck
+  card?: boolean
+}) {
+  const nameOfLogin = useNameOfLogin()
+  if (card && check.status === "COUNTED")
+    return (
+      <span className="flex flex-col leading-6 tabular-nums">
+        <span>
+          {"Counted "}
+          <span className="text-cell font-semibold text-ink">
+            {`${countPcs(piecesOf(check))}`}
+          </span>
+        </span>
+        {check.counted_by !== null && (
+          <span className="truncate">
+            {titled(nameOfLogin(check.counted_by))}
+          </span>
+        )}
+      </span>
+    )
+  return (
+    <span
+      className={cn(
+        "flex min-w-0 flex-col leading-5",
+        card ? "leading-6" : "py-1"
+      )}
+    >
+      <span className={cn("truncate", !card && "text-ink")}>
+        {titled(nameOfLogin(check.requested_by))}
+      </span>
+      <span className="text-mute">{ago(check.requested_at)}</span>
+    </span>
+  )
+}
+
+/// The count in one cell: the pieces, and under them who counted and when —
+/// as Receiving PO draws a count waiting for review.
+function CountedCell({ check }: { check: QuantityCheck }) {
+  const nameOfLogin = useNameOfLogin()
+  const who = check.counted_by ? titled(nameOfLogin(check.counted_by)) : "—"
+  const when = check.counted_at ? recentMoment(check.counted_at) : ""
+  return (
+    <span className="flex flex-col items-end leading-5 whitespace-nowrap tabular-nums">
+      <span className="font-medium text-ink">{`${countPcs(piecesOf(check))}`}</span>
+      <span
+        className="flex max-w-[16.5rem] text-mute"
+        title={when ? `${who} · ${when}` : who}
+      >
+        <span className="min-w-0 truncate">{who}</span>
+        {when && <span className="shrink-0">{`\u00a0· ${when}`}</span>}
+      </span>
+    </span>
   )
 }
 
@@ -198,20 +446,18 @@ function CountedSheet({
     >
       {check && (
         <div className="flex min-w-0 flex-col gap-4">
-          <dl className="grid grid-cols-[auto_1fr] gap-x-8 gap-y-2 text-[0.9375rem]">
-            <dt className="text-mute">Counted by</dt>
-            <dd className="text-ink">
+          <Facts>
+            <Fact term="Counted by">
               {check.counted_by ? titled(nameOfLogin(check.counted_by)) : "—"}
-            </dd>
-            <dt className="text-mute">Counted on</dt>
-            <dd className="text-ink tabular-nums">
-              {check.counted_at ? day(check.counted_at) : "—"}
-            </dd>
-            <dt className="text-mute">Asked by</dt>
-            <dd className="text-ink">
+            </Fact>
+            <Fact term="Counted at">
+              {check.counted_at ? recentMoment(check.counted_at) : "—"}
+            </Fact>
+            <Fact term="Asked by">
               {titled(nameOfLogin(check.requested_by))}
-            </dd>
-          </dl>
+            </Fact>
+            <Fact term="Asked at">{recentMoment(check.requested_at)}</Fact>
+          </Facts>
           <Card className="overflow-hidden">
             <div
               className={cn(
@@ -239,14 +485,14 @@ function CountedSheet({
                           top={group.name}
                           bottom={
                             groups.length === 1
-                              ? `${count(received)} pcs received`
+                              ? `${countPcs(received)} received`
                               : "—"
                           }
                           className="min-h-11"
                         />
                         <span className="max-sm:hidden" />
                         <span className="flex min-h-11 items-center justify-end text-right font-medium text-ink tabular-nums">
-                          {count(sum)} pcs
+                          {countPcs(sum)}
                         </span>
                       </div>
                       <div className="flex flex-col gap-2">
@@ -272,7 +518,7 @@ function CountedSheet({
                                 </span>
                               </span>
                               <span className="text-[0.9375rem] text-ink tabular-nums">
-                                {count(line.quantity)} pcs
+                                {countPcs(line.quantity)}
                               </span>
                               <span className="max-sm:hidden" />
                             </div>
@@ -292,13 +538,13 @@ function CountedSheet({
                 Total Counted
               </dt>
               <dd className="flex min-h-11 items-center justify-end text-right text-[1.0625rem] font-semibold text-ink">
-                {count(counted)} pcs
+                {countPcs(counted)}
               </dd>
               <dt className="flex min-h-11 items-center text-[1rem] font-medium text-ink">
                 Pieces Received
               </dt>
               <dd className="flex min-h-11 items-center justify-end text-right text-[1.0625rem] font-semibold text-ink">
-                {count(received)} pcs
+                {countPcs(received)}
               </dd>
             </dl>
           </div>
@@ -486,7 +732,7 @@ function CountSheet({
                           top={group.name}
                           bottom={
                             groups.length === 1
-                              ? [`${count(received)} pcs received`, kind]
+                              ? [`${countPcs(received)} received`, kind]
                                   .filter((part) => part !== "")
                                   .join(" · ")
                               : kind || "—"
@@ -500,7 +746,7 @@ function CountSheet({
                             sum > 0 ? "font-medium text-ink" : "text-mute"
                           )}
                         >
-                          {sum > 0 ? `${count(sum)} pcs` : "—"}
+                          {sum > 0 ? `${countPcs(sum)}` : "—"}
                         </span>
                       </div>
                       <div className="flex flex-col gap-2">
@@ -558,7 +804,7 @@ function CountSheet({
               <div className="flex flex-col gap-4 px-4 py-3.5">
                 <TwoLines
                   top={check.article_name}
-                  bottom={[`${count(received)} pcs received`, kind]
+                  bottom={[`${countPcs(received)} received`, kind]
                     .filter((part) => part !== "")
                     .join(" · ")}
                 />
@@ -641,13 +887,13 @@ function CountSheet({
                 Total Counted
               </dt>
               <dd className="flex min-h-11 items-center justify-end text-right text-[1.0625rem] font-semibold text-ink">
-                {count(counted)} pcs
+                {countPcs(counted)}
               </dd>
               <dt className="flex min-h-11 items-center text-[1rem] font-medium text-ink">
                 Pieces Received
               </dt>
               <dd className="flex min-h-11 items-center justify-end text-right text-[1.0625rem] font-semibold text-ink">
-                {count(received)} pcs
+                {countPcs(received)}
               </dd>
               <dt className="flex min-h-11 items-center text-[1rem] font-medium text-ink">
                 {left < 0 ? "Over" : "Left"}
@@ -658,7 +904,7 @@ function CountSheet({
                   tone
                 )}
               >
-                {count(Math.abs(left))} pcs
+                {countPcs(Math.abs(left))}
               </dd>
             </dl>
           </div>

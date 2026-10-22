@@ -1,0 +1,68 @@
+<!-- @dsCard group="Overlays" height=850 subtitle="Static rendition of dialog.tsx in the All white look" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>Dialog — preview</title>
+<style>
+body{margin:0}
+/* the white veil every overlay floats on: scrim with a 2px blur */
+.ds-dialog-stage{display:flex;flex-wrap:wrap;align-items:flex-start;align-content:center;justify-content:center;gap:24px;min-height:100vh;padding:24px}
+.ds-dialog-col{display:flex;flex-direction:column;gap:24px;width:384px;min-width:0;max-width:100%}
+.ds-dialog-col .ds-dialog{width:100%;max-width:100%}
+/* dialog.tsx: the title is text-card-title (16px, 600, -0.01em); the sentence is relaxed 15px, 8px under it */
+.ds-dialog-q{font-size:16px;line-height:23px;font-weight:600;letter-spacing:-0.16px;color:var(--ink)}
+.ds-dialog-s{margin-top:8px;font-size:15px;line-height:1.625;color:var(--body)}
+.ds-dialog-reason{margin-top:16px}
+/* a form box in a dialog: 3 rows of 24px, padding 12px 14px */
+.ds-dialog-area{min-height:98px;padding:12px 14px;line-height:24px;resize:none}
+/* SavedDialog: 416px, padding 28px, the receipt number at lead-figure size */
+.ds-dialog-saved-col{width:416px;min-width:0;max-width:100%}
+.ds-dialog-saved{width:100%;padding:28px;border:1px solid var(--hairline-2);border-radius:var(--r-card);background:var(--canvas);box-shadow:var(--shadow-float)}
+.ds-dialog-saved-body{display:flex;flex-direction:column;align-items:center;gap:16px;padding:8px 8px 4px;text-align:center}
+.ds-dialog-saved-tick{display:grid;place-items:center;width:56px;height:56px;border-radius:var(--r-full);background:var(--ok-bg);color:var(--ok-fg)}
+.ds-dialog-saved-tick .ds-ico{width:28px;height:28px}
+.ds-dialog-saved-title{font-size:24px;line-height:30px;font-weight:600;letter-spacing:-0.6px;color:var(--ink);font-variant-numeric:tabular-nums}
+.ds-dialog-saved-wait{width:112px;height:4px;margin-top:4px;border-radius:var(--r-full);background:var(--soft-2);overflow:hidden}
+.ds-dialog-saved-wait>span{display:block;width:62%;height:100%;border-radius:inherit;background:var(--ok-fg);opacity:.5}
+</style></head>
+<body>
+<div class="ds ds-veil ds-dialog-stage">
+
+  <div class="ds-dialog-col">
+    <div class="ds-dialog" role="dialog" aria-labelledby="d1">
+      <h2 class="ds-dialog-q" id="d1">Close short PO-161026-010?</h2>
+      <p class="ds-dialog-s">40 pcs will be removed from the order, and the PO completes as received. This can't be undone.</p>
+      <div class="ds-field ds-dialog-reason">
+        <span class="ds-field-label">Reason for closing</span>
+        <textarea class="ds-input ds-input--area ds-dialog-area" rows="3" aria-label="Reason for closing"></textarea>
+      </div>
+      <div class="ds-dialog-actions">
+        <button class="ds-btn ds-btn--primary" type="button">Cancel</button>
+        <button class="ds-btn ds-btn--destructive" type="button">Close short</button>
+      </div>
+    </div>
+
+    <div class="ds-dialog" role="dialog" aria-labelledby="d2">
+      <h2 class="ds-dialog-q" id="d2">Recall this count?</h2>
+      <p class="ds-dialog-s">The count stays in history as Recalled. Stock does not change. You count again for the same arrival.</p>
+      <div class="ds-dialog-actions">
+        <button class="ds-btn ds-btn--destructive" type="button">Cancel</button>
+        <button class="ds-btn ds-btn--primary" type="button">Recall count</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="ds-dialog-saved-col">
+    <div class="ds-dialog-saved" role="dialog" aria-labelledby="d3">
+      <div class="ds-dialog-saved-body">
+        <span class="ds-dialog-saved-tick"><span class="ds-ico ds-ico-check"></span></span>
+        <div>
+          <h2 class="ds-dialog-saved-title" id="d3">Picklist accepted</h2>
+        </div>
+        <span class="ds-dialog-saved-wait" aria-hidden="true"><span></span></span>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

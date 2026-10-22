@@ -1,0 +1,219 @@
+<!-- @dsCard group="Patterns" height=896 page subtitle="Template · copy /merchandise/new-articles and /allotment/new" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>WorkspacePage — preview</title><style>body{margin:0}
+/* WorkspacePage. Top: the `workspace` sheet of New articles, drawn for a 1130px window and scaled to 80% so its two panes fit
+   (the form and the 22rem Quantity Check stand side by side from a 1024px form, 1085px of sheet). Bottom: New allotment, the
+   page that asks the shell to fold its screens panel: the rail stays, the page carries its own bar. */
+.ds-workspace-stage{gap:12px;padding:20px 24px 24px}
+.ds-workspace-note{margin:0}
+.ds-workspace-scroll{max-width:100%;overflow-x:auto}
+.ds-workspace-zoom{zoom:.8;width:1130px}
+.ds-workspace-window{position:relative;width:1130px;background:var(--stone);border-radius:var(--r-sheet);overflow:hidden}
+.ds-workspace-window .ds-veil{height:590px;padding:var(--float);align-items:stretch}
+.ds-workspace-sheet{width:1085px;max-width:100%}
+.ds-workspace-sheet .ds-sheet-body{flex:1 1 auto;min-height:0;overflow:hidden}
+.ds-workspace-panes{display:grid;grid-template-columns:minmax(0,1fr) 22rem;align-items:start}
+.ds-workspace-form{display:flex;flex-direction:column;gap:28px;min-width:0;padding-right:24px}
+.ds-workspace-top{display:grid;grid-template-columns:9rem minmax(0,1fr);align-items:start;gap:20px 32px}
+.ds-workspace-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;gap:20px 32px;min-width:0}
+.ds-workspace-fields .is-wide{grid-column:span 2}
+.ds-workspace-photo{display:flex;flex-direction:column;align-items:flex-start;gap:8px}
+.ds-workspace-photo .ds-thumb{width:144px;height:144px;border:1px solid var(--hairline)}
+.ds-workspace-photo .ds-ico{width:20px;height:20px}
+.ds-workspace-change{font-weight:500;color:var(--accent)}
+.ds-workspace-aside{margin-top:0;padding:14px;border:1px solid var(--hairline);border-radius:var(--r-card);background:var(--canvas)}
+.ds-workspace-aside .ds-section{gap:12px;margin-top:12px}
+.ds-workspace-answer{font-size:15px;line-height:22px}
+.ds-workspace-answer .ds-workspace-by{padding-bottom:4px;color:var(--mute)}
+.ds-workspace-answer .ds-workspace-article{padding-bottom:4px;font-weight:500;color:var(--ink)}
+.ds-workspace-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:6px 0;border-top:1px solid var(--hairline);color:var(--ink);font-variant-numeric:tabular-nums}
+.ds-workspace-row.is-total{color:var(--mute)}
+.ds-workspace-actions{display:flex;justify-content:flex-end;gap:8px}
+
+/* New allotment: the shell with the panel folded */
+.ds-workspace-shell{min-height:0;height:296px;border-radius:var(--r-sheet);overflow:hidden}
+.ds-workspace-shell .ds-rail{gap:2px}
+.ds-workspace-shell .ds-rail-btn{border-radius:var(--r-inner);color:var(--rail-mute)}
+.ds-workspace-shell .ds-rail-btn.is-current{color:var(--accent)}
+.ds-workspace-shell .ds-rail-btn.ds-workspace-search{margin-bottom:10px;border-radius:var(--r-card);color:var(--rail-text)}
+.ds-workspace-shell .ds-rail .ds-ico{width:18px;height:18px}
+.ds-workspace-shell .ds-page{display:flex;flex-direction:column}
+.ds-workspace-head{display:flex;align-items:center;gap:12px;flex:none;padding:10px 16px;border-bottom:1px solid var(--hairline)}
+.ds-workspace-head h1{min-width:0;margin:0;font-size:15px;line-height:20px;font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ds-workspace-walk{display:flex;align-items:center;gap:8px;margin-left:auto}
+.ds-workspace-of{margin-right:8px;color:var(--mute);font-variant-numeric:tabular-nums}
+.ds-workspace-toolbar{display:flex;align-items:center;gap:12px;flex:none;height:64px;padding:0 16px;border-bottom:1px solid var(--hairline)}
+.ds-workspace-filter{display:flex;align-items:center;flex:1;gap:8px;min-width:0;max-width:42rem;min-height:34px;padding:4px 6px 4px 10px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas);color:var(--body)}
+.ds-workspace-filter .ds-ico{color:var(--line-ico)}
+.ds-workspace-token{display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 8px;border-radius:6px;background:var(--soft-2);color:var(--ink)}
+.ds-workspace-token span{color:var(--mute)}
+.ds-workspace-submit{display:flex;gap:8px;margin-left:auto}
+.ds-workspace-submit .is-mute{color:var(--mute);font-weight:400;font-variant-numeric:tabular-nums}
+.ds-workspace-grid{display:flex;flex-direction:column;min-width:0;overflow:hidden}
+.ds-workspace-line{display:flex;align-items:stretch;min-width:0}
+.ds-workspace-line > *{flex:none}
+.ds-workspace-ident{display:flex;align-items:center;gap:12px;width:280px;padding:0 12px}
+.ds-workspace-free{display:flex;align-items:center;justify-content:flex-end;width:80px;padding:0 8px;font-variant-numeric:tabular-nums}
+.ds-workspace-col{display:flex;align-items:center;justify-content:center;width:112px;padding:0 8px;font-variant-numeric:tabular-nums}
+.ds-workspace-left{display:flex;align-items:center;justify-content:center;width:88px;padding:0 8px;font-variant-numeric:tabular-nums}
+.ds-workspace-line.is-head{height:76px;background:var(--canvas)}
+.ds-workspace-line.is-head .ds-workspace-ident{flex-direction:column;align-items:flex-start;justify-content:center;gap:0;color:var(--mute)}
+.ds-workspace-line.is-head .ds-workspace-ident b{font-weight:500}
+.ds-workspace-line.is-head .ds-workspace-free{flex-direction:column;align-items:flex-end;justify-content:center;color:var(--mute)}
+.ds-workspace-line.is-head .ds-workspace-free b{font-weight:500}
+.ds-workspace-line.is-head .ds-workspace-col{flex-direction:column;gap:6px;font-weight:600;color:var(--body)}
+.ds-workspace-line.is-head .ds-workspace-col.is-on{color:var(--accent)}
+.ds-workspace-line.is-head .ds-workspace-left{font-weight:500;color:var(--mute)}
+.ds-workspace-chip{display:inline-flex;align-items:center;justify-content:center;height:24px;min-width:36px;padding:0 10px;border-radius:var(--r-full);background:var(--accent-bg);color:var(--accent);font-weight:600}
+.ds-workspace-chip.is-outline{border:1px solid var(--hairline-2);background:var(--canvas);font-weight:500}
+.ds-workspace-line.is-article{min-height:64px;background:var(--band)}
+.ds-workspace-line.is-article .ds-workspace-ident{gap:8px;padding:8px 12px}
+.ds-workspace-line.is-article .ds-workspace-free{font-weight:500;color:var(--ink)}
+.ds-workspace-line.is-article .ds-workspace-col{color:var(--accent)}
+.ds-workspace-line.is-sku{height:56px}
+.ds-workspace-line.is-sku .ds-workspace-ident{padding-left:40px}
+.ds-workspace-name{min-width:0}
+.ds-workspace-name b{display:block;font-weight:500;color:var(--ink)}
+.ds-workspace-name span{display:block;color:var(--mute);font-variant-numeric:tabular-nums}
+.ds-workspace-line .ds-thumb{width:40px;height:40px}
+.ds-workspace-line .ds-thumb .ds-ico{width:14px;height:14px}
+.ds-workspace-box{width:100%;height:44px;border:1px solid var(--hairline);border-radius:var(--r-inner);background:var(--canvas);text-align:center;color:var(--ink);font-variant-numeric:tabular-nums}
+.ds-workspace-box.is-set{background:var(--accent-bg);color:var(--accent);font-weight:500}
+.ds-workspace-state{display:inline-flex;align-items:center;justify-content:center;height:24px;min-width:36px;padding:0 10px;border-radius:var(--r-full);font-weight:500}
+.ds-workspace-state--warn{background:var(--warn-bg);color:var(--warn-fg)}
+</style></head>
+<body>
+<div class="ds ds-stage ds-workspace-stage">
+
+  <p class="ds-caption ds-workspace-note">The work in a sheet: size workspace, drawn for a 1130px window at 80%</p>
+  <div class="ds-workspace-scroll">
+  <div class="ds-workspace-zoom">
+  <div class="ds-workspace-window">
+    <div class="ds ds-veil">
+      <div class="ds-sheet ds-sheet--workspace ds-workspace-sheet" role="dialog" aria-label="Kemeja Flanel Pria">
+
+        <div class="ds-sheet-head">
+          <div class="ds-sheet-headtext">
+            <div class="ds-sheet-crumb"><span>New Articles</span><span class="ds-sep">/</span><span>New Article</span></div>
+            <div class="ds-sheet-titlerow"><h2 class="ds-sheet-title">Kemeja Flanel Pria</h2></div>
+            <div class="ds-sheet-caption">Garmen Nusantara, PT</div>
+          </div>
+          <button class="ds-sheet-close" type="button" aria-label="Close"><span class="ds-ico ds-ico-x ds-ico--17"></span></button>
+        </div>
+
+        <div class="ds-sheet-body">
+          <div class="ds-workspace-panes">
+
+            <div class="ds-workspace-form">
+              <div class="ds-workspace-top">
+                <div class="ds-field">
+                  <span class="ds-field-label">Photo</span>
+                  <div class="ds-workspace-photo"><span class="ds-thumb"><span class="ds-ico ds-ico-image"></span></span><span class="ds-workspace-change">Change photo</span></div>
+                </div>
+                <div class="ds-workspace-fields">
+                  <label class="ds-field is-wide"><span class="ds-field-label">Name</span><input class="ds-input" value="Kemeja Flanel Pria"></label>
+                  <div class="ds-field"><span class="ds-field-label">Division<span class="ds-req">*</span></span><div class="ds-select"><div class="ds-input">Pria</div><span class="ds-ico ds-ico-chevron-down"></span></div></div>
+                  <div class="ds-field"><span class="ds-field-label">Tags</span><div class="ds-select"><div class="ds-input">Basic</div><span class="ds-ico ds-ico-chevron-down"></span></div></div>
+                  <label class="ds-field is-wide"><span class="ds-field-label">Description</span><textarea class="ds-input ds-input--area" rows="2">Flanel lengan panjang, kancing depan, dua saku.</textarea></label>
+                </div>
+              </div>
+              <div class="ds-workspace-fields">
+                <label class="ds-field"><span class="ds-field-label">Base price</span><input class="ds-input" value="Rp 189.000"></label>
+                <label class="ds-field"><span class="ds-field-label">Markup</span><input class="ds-input" value="90%"></label>
+              </div>
+            </div>
+
+            <aside class="ds-workspace-aside" aria-label="Quantity check">
+              <div class="ds-section">
+                <h3 class="ds-section-title">Quantity check</h3>
+                <div class="ds-workspace-answer">
+                  <div class="ds-workspace-by">Counted by Rina Kusuma · 3d ago</div>
+                  <div class="ds-workspace-article">Kemeja Flanel Pria</div>
+                  <div class="ds-workspace-row"><span>Biru · S</span><span>12</span></div>
+                  <div class="ds-workspace-row"><span>Biru · M</span><span>24</span></div>
+                  <div class="ds-workspace-row"><span>Hitam · S</span><span>12</span></div>
+                  <div class="ds-workspace-row"><span>Hitam · M</span><span>24</span></div>
+                  <div class="ds-workspace-row is-total"><span>Total</span><span>72 pcs</span></div>
+                </div>
+                <div class="ds-workspace-actions">
+                  <button class="ds-btn ds-btn--ghost" type="button">Recount</button>
+                  <button class="ds-btn ds-btn--primary" type="button">Use count</button>
+                </div>
+              </div>
+            </aside>
+
+          </div>
+        </div>
+
+        <div class="ds-sheet-foot">
+          <button class="ds-btn ds-btn--ghost" type="button">Save as draft</button>
+          <button class="ds-btn ds-btn--ghost" type="button">Submit and next</button>
+          <button class="ds-btn ds-btn--primary" type="button">Submit</button>
+        </div>
+
+      </div>
+    </div>
+  </div>
+  </div>
+  </div>
+
+  <p class="ds-caption ds-workspace-note">The work as a page: the screens panel folded away, the rail kept</p>
+  <div class="ds-shell ds-workspace-shell">
+    <div class="ds-rail">
+      <span class="ds-rail-btn ds-workspace-search" aria-label="Search"><span class="ds-ico ds-ico-search"></span></span>
+      <span class="ds-rail-btn" aria-label="Procurement"><span class="ds-ico ds-ico-cart"></span></span>
+      <span class="ds-rail-btn is-current" aria-label="Merchandise"><span class="ds-ico ds-ico-shirt"></span></span>
+      <span class="ds-rail-btn" aria-label="Inventory"><span class="ds-ico ds-ico-package"></span></span>
+      <span class="ds-rail-btn" aria-label="Marketing"><span class="ds-ico ds-ico-megaphone"></span></span>
+      <span class="ds-rail-btn" aria-label="Sales"><span class="ds-ico ds-ico-store"></span></span>
+    </div>
+    <div class="ds-page">
+      <div class="ds-workspace-head">
+        <button class="ds-btn ds-btn--ghost" type="button">Back</button>
+        <h1>Allotment - Garmen Nusantara, PT</h1>
+        <div class="ds-workspace-walk">
+          <span class="ds-workspace-of">2 of 3</span>
+          <button class="ds-btn ds-btn--ghost" type="button"><span class="ds-ico ds-ico-chevron-left"></span>Previous</button>
+          <button class="ds-btn ds-btn--ghost" type="button">Next<span class="ds-ico ds-ico-chevron-right"></span></button>
+        </div>
+      </div>
+      <div class="ds-workspace-toolbar">
+        <div class="ds-workspace-filter"><span class="ds-ico ds-ico-search ds-ico--14"></span><span class="ds-workspace-token"><span>Division</span>Pria</span>Filter by article, tag or division</div>
+        <div class="ds-workspace-submit">
+          <button class="ds-btn ds-btn--ghost" type="button">To be allotted <span class="is-mute">24 pcs</span></button>
+          <button class="ds-btn ds-btn--primary" type="button">Submit all</button>
+        </div>
+      </div>
+      <div class="ds-workspace-grid">
+        <div class="ds-workspace-line is-head">
+          <div class="ds-workspace-ident"><b>Article</b><span>2 articles</span></div>
+          <div class="ds-workspace-free"><b>Stock</b><span>120 pcs</span></div>
+          <div class="ds-workspace-col is-on">C001<span class="ds-workspace-chip">24</span></div>
+          <div class="ds-workspace-col">C002<span class="ds-empty-value">—</span></div>
+          <div class="ds-workspace-col is-on">C004<span class="ds-workspace-chip">12</span></div>
+          <div class="ds-workspace-left">Left</div>
+        </div>
+        <div class="ds-workspace-line is-article">
+          <div class="ds-workspace-ident"><span class="ds-ico ds-ico-chevron-down ds-ico--14"></span><span class="ds-thumb"><span class="ds-ico ds-ico-image"></span></span><div class="ds-workspace-name"><b>Kemeja Flanel Pria</b><span>00000412</span></div></div>
+          <div class="ds-workspace-free">120</div>
+          <div class="ds-workspace-col"><span class="ds-workspace-chip is-outline">24</span></div>
+          <div class="ds-workspace-col"></div>
+          <div class="ds-workspace-col"><span class="ds-workspace-chip is-outline">12</span></div>
+          <div class="ds-workspace-left"><button class="ds-btn ds-btn--primary" type="button" style="height:36px;padding:0 10px">Submit</button></div>
+        </div>
+        <div class="ds-workspace-line is-sku">
+          <div class="ds-workspace-ident"><span class="ds-thumb"><span class="ds-ico ds-ico-image"></span></span><div class="ds-workspace-name"><b style="font-weight:400">Biru · M</b><span>00000412031</span></div></div>
+          <div class="ds-workspace-free ds-mute">60</div>
+          <div class="ds-workspace-col"><div class="ds-workspace-box is-set" style="display:grid;place-items:center">24</div></div>
+          <div class="ds-workspace-col"><div class="ds-workspace-box"></div></div>
+          <div class="ds-workspace-col"><div class="ds-workspace-box is-set" style="display:grid;place-items:center">12</div></div>
+          <div class="ds-workspace-left"><span class="ds-workspace-state ds-workspace-state--warn">24</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

@@ -31,7 +31,7 @@
 //! [`assert_own_site`], rather than in the route, so that no second route can
 //! be written that forgets it.
 
-use chrono::NaiveDate;
+use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
@@ -45,6 +45,9 @@ use crate::cloud::domain::supply_may_move;
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct GaSupplyRequestRow {
     pub request_id: Uuid,
+    /// The number people say: `SR-DDMMYY-NNN`, the Jakarta day it was filed
+    /// and its place in that day (0981). Given by the database.
+    pub request_number: String,
     pub site_id: String,
     pub requested_by: String,
     pub category_code: String,
@@ -73,6 +76,13 @@ pub struct GaSupplyRequestRow {
     /// Finance figure read back, not stored. Drafts and held bills do not move
     /// it beyond POSTED; a held bill still counts (hold bukan batal).
     pub billed_minor: i64,
+    /// The bill GA sent for this request, newest first when there are
+    /// several: whose paper it is and its number. Absent until one is sent;
+    /// a void or rejected paper is not one.
+    pub bill: Option<super::GaLinkedBill>,
+    pub notes: Option<String>,
+    pub created_by: String,
+    pub created_at: DateTime<Utc>,
     pub version: i32,
 }
 
@@ -93,10 +103,20 @@ pub struct GaSupplyScope {
     pub site_id: Option<String>,
     /// `REQUESTED`, `APPROVED`, ... — any subset; empty means all.
     pub statuses: Vec<String>,
-    /// Free text against the item, who asked and the PO number.
+    /// Free text against the item, who asked, the request's number and the
+    /// PO number.
     pub needle: Option<String>,
+    /// `ATK`, `MESS`, ... — any subset; empty means all.
+    pub categories: Vec<String>,
+    /// `Some(day)` keeps only what is overdue on that day: needed before it
+    /// and not yet received ([`BEFORE_RECEIPT`]).
+    pub overdue_on: Option<NaiveDate>,
     pub limit: i64,
 }
+
+/// The states a request can be late in: it has not reached the shop yet.
+/// Received is somebody else's wait, not a need that went unmet.
+pub const BEFORE_RECEIPT: [&str; 3] = ["REQUESTED", "APPROVED", "ORDERED"];
 
 /// The list's first page when a caller does not say.
 pub const DEFAULT_GA_SUPPLY_LIMIT: i64 = 200;
@@ -152,16 +172,84 @@ pub struct UpdateGaSupplyRequest {
 
 /// The request joined to the category it needs, named once so every read sees
 /// the same answer.
-const GA_SUPPLY_SELECT: &str = "SELECT q.request_id, q.site_id, q.requested_by, q.category_code,
-        c.name AS category_name, c.account_code, q.item, q.quantity,
+const GA_SUPPLY_SELECT: &str = "SELECT q.request_id, q.request_number, q.site_id, q.requested_by,
+        q.category_code, c.name AS category_name, c.account_code, q.item, q.quantity,
         trim_scale(q.quantity_value)::text AS quantity_value, q.unit_code, q.needed_by,
-        q.estimated_cost_minor, q.po_reference, q.status, q.rejected_reason, q.version,
+        q.estimated_cost_minor, q.po_reference, q.status, q.rejected_reason, q.notes,
+        q.created_by, q.created_at, q.version,
         (SELECT COALESCE(SUM(bl.amount_minor), 0)::bigint
            FROM supplier_invoice_expense_line bl
            JOIN supplier_invoice si ON si.invoice_id = bl.invoice_id
-          WHERE bl.supply_request_id = q.request_id AND si.status = 'POSTED') AS billed_minor
+          WHERE bl.supply_request_id = q.request_id AND si.status = 'POSTED') AS billed_minor,
+        bill.invoice_id AS bill_invoice_id, bill.invoice_number AS bill_invoice_number,
+        bill.invoice_date AS bill_invoice_date, bill.supplier_id AS bill_supplier_id,
+        bill.supplier_name AS bill_supplier_name, bill.status AS bill_status,
+        bill.amount_minor AS bill_amount_minor
    FROM ga_supply_request q
-   JOIN ga_supply_category c ON c.category_code = q.category_code";
+   JOIN ga_supply_category c ON c.category_code = q.category_code
+   LEFT JOIN LATERAL (
+        SELECT si.invoice_id, si.invoice_number, si.invoice_date, si.supplier_id,
+               __BILL_SUPPLIER_NAME__ AS supplier_name, si.status,
+               sum(bl.amount_minor)::bigint AS amount_minor
+          FROM supplier_invoice_expense_line bl
+          JOIN supplier_invoice si ON si.invoice_id = bl.invoice_id
+         WHERE bl.supply_request_id = q.request_id
+           AND si.status NOT IN ('VOID', 'REJECTED')
+         GROUP BY si.invoice_id
+         ORDER BY si.invoice_date DESC, si.recorded_at DESC
+         LIMIT 1
+   ) bill ON true";
+
+/// [`GA_SUPPLY_SELECT`] with the bill's supplier name spliced in, once.
+fn supply_select() -> String {
+    GA_SUPPLY_SELECT.replace("__BILL_SUPPLIER_NAME__", super::ga::BILL_SUPPLIER_NAME)
+}
+
+/// The narrowing every supply read shares, over `q` and the parameters
+/// `$1` site, `$2` states, `$3` search, `$4` categories and `$5` the overdue
+/// day — spelled once so the page, the array and the counts agree.
+const GA_SUPPLY_FILTERS: &str = "($1::text IS NULL OR q.site_id = $1)
+            AND ($2::text[] IS NULL OR q.status = ANY($2))
+            AND ($3::text IS NULL OR q.item ILIKE $3
+                 OR q.requested_by ILIKE $3
+                 OR q.request_number ILIKE $3
+                 OR q.po_reference ILIKE $3)
+            AND ($4::text[] IS NULL OR q.category_code = ANY($4))
+            AND ($5::date IS NULL
+                 OR (q.needed_by < $5 AND q.status IN ('REQUESTED', 'APPROVED', 'ORDERED')))";
+
+/// The scope's parameters, cleaned: blank is nothing, a search is a pattern.
+struct SupplyParams {
+    site: Option<String>,
+    statuses: Option<Vec<String>>,
+    needle: Option<String>,
+    categories: Option<Vec<String>>,
+    overdue_on: Option<NaiveDate>,
+    limit: i64,
+}
+
+impl SupplyParams {
+    fn of(scope: &GaSupplyScope) -> Self {
+        Self {
+            site: scope
+                .site_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|text| !text.is_empty())
+                .map(str::to_string),
+            statuses: (!scope.statuses.is_empty()).then(|| scope.statuses.clone()),
+            needle: scope
+                .needle
+                .as_deref()
+                .map(str::trim)
+                .filter(|text| !text.is_empty())
+                .map(|text| format!("%{text}%")),
+            categories: (!scope.categories.is_empty()).then(|| scope.categories.clone()),
+            overdue_on: scope.overdue_on,
+            limit: scope.limit.clamp(1, MAX_GA_SUPPLY_LIMIT),
+        }
+    }
+}
 
 /// The typed quantity read against the units master: "2 rim" is 2 and RIM.
 /// Anything else — no number, two parts, a word the master does not know —
@@ -186,8 +274,21 @@ fn nothing_if_blank(raw: Option<&str>) -> Option<&str> {
 }
 
 fn to_supply_row(row: &sqlx::postgres::PgRow) -> Result<GaSupplyRequestRow, AppError> {
+    let bill = match row.try_get::<Option<Uuid>, _>("bill_invoice_id")? {
+        Some(invoice_id) => Some(super::GaLinkedBill {
+            invoice_id,
+            invoice_number: row.try_get("bill_invoice_number")?,
+            invoice_date: row.try_get("bill_invoice_date")?,
+            supplier_id: row.try_get("bill_supplier_id")?,
+            supplier_name: row.try_get("bill_supplier_name")?,
+            status: row.try_get("bill_status")?,
+            amount_minor: row.try_get("bill_amount_minor")?,
+        }),
+        None => None,
+    };
     Ok(GaSupplyRequestRow {
         request_id: row.try_get("request_id")?,
+        request_number: row.try_get("request_number")?,
         site_id: row.try_get("site_id")?,
         requested_by: row.try_get("requested_by")?,
         category_code: row.try_get("category_code")?,
@@ -203,6 +304,10 @@ fn to_supply_row(row: &sqlx::postgres::PgRow) -> Result<GaSupplyRequestRow, AppE
         status: row.try_get("status")?,
         rejected_reason: row.try_get("rejected_reason")?,
         billed_minor: row.try_get("billed_minor")?,
+        bill,
+        notes: row.try_get("notes")?,
+        created_by: row.try_get("created_by")?,
+        created_at: row.try_get("created_at")?,
         version: row.try_get("version")?,
     })
 }
@@ -265,7 +370,7 @@ async fn read_supply_request(
     pool: &PgPool,
     request_id: Uuid,
 ) -> Result<GaSupplyRequestRow, AppError> {
-    let sql = format!("{GA_SUPPLY_SELECT} WHERE q.request_id = $1");
+    let sql = format!("{} WHERE q.request_id = $1", supply_select());
     let row = sqlx::query(&sql)
         .bind(request_id)
         .fetch_optional(pool)
@@ -282,35 +387,21 @@ pub async fn ga_supply_requests(
     pool: &PgPool,
     scope: GaSupplyScope,
 ) -> Result<Vec<GaSupplyRequestRow>, AppError> {
-    let site = scope
-        .site_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|text| !text.is_empty())
-        .map(str::to_string);
-    let statuses = (!scope.statuses.is_empty()).then(|| scope.statuses.clone());
-    let needle = scope
-        .needle
-        .as_deref()
-        .map(str::trim)
-        .filter(|text| !text.is_empty())
-        .map(|text| format!("%{text}%"));
-    let limit = scope.limit.clamp(1, MAX_GA_SUPPLY_LIMIT);
+    let params = SupplyParams::of(&scope);
     let sql = format!(
-        "{GA_SUPPLY_SELECT}
-          WHERE ($1::text IS NULL OR q.site_id = $1)
-            AND ($2::text[] IS NULL OR q.status = ANY($2))
-            AND ($3::text IS NULL OR q.item ILIKE $3
-                 OR q.requested_by ILIKE $3
-                 OR q.po_reference ILIKE $3)
+        "{}
+          WHERE {GA_SUPPLY_FILTERS}
           ORDER BY q.created_at DESC, q.request_id
-          LIMIT $4"
+          LIMIT $6",
+        supply_select()
     );
     let rows = sqlx::query(&sql)
-        .bind(&site)
-        .bind(&statuses)
-        .bind(&needle)
-        .bind(limit)
+        .bind(&params.site)
+        .bind(&params.statuses)
+        .bind(&params.needle)
+        .bind(&params.categories)
+        .bind(params.overdue_on)
+        .bind(params.limit)
         .fetch_all(pool)
         .await?;
     rows.iter().map(to_supply_row).collect()
@@ -330,6 +421,13 @@ pub struct GaSupplyPage {
     /// How the requests in the site and the search split by stage, ignoring
     /// which stages are ticked — what the screen's strip counts.
     pub statuses: Vec<super::GaMaintenanceFacet>,
+    /// How the requests in the site, the search and the ticked stages (the
+    /// tab) split by category, ignoring which categories are ticked. Every
+    /// category is listed, an empty one with 0; the label is its name.
+    pub categories: Vec<super::GaMaintenanceFacet>,
+    /// Requests in the site and the search that are overdue on the business
+    /// day: needed before it and not yet received. Whatever the tab.
+    pub overdue: i64,
 }
 
 /// Where the previous page stopped: the last request's id.
@@ -348,45 +446,32 @@ pub async fn ga_supply_page(
     pool: &PgPool,
     scope: GaSupplyScope,
     cursor: Option<&str>,
+    today: NaiveDate,
 ) -> Result<GaSupplyPage, AppError> {
-    let site = scope
-        .site_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|text| !text.is_empty())
-        .map(str::to_string);
-    let statuses = (!scope.statuses.is_empty()).then(|| scope.statuses.clone());
-    let needle = scope
-        .needle
-        .as_deref()
-        .map(str::trim)
-        .filter(|text| !text.is_empty())
-        .map(|text| format!("%{text}%"));
-    let limit = scope.limit.clamp(1, MAX_GA_SUPPLY_LIMIT);
+    let params = SupplyParams::of(&scope);
     let after = cursor
         .map(super::decode_cursor::<GaSupplyCursor>)
         .transpose()?
         .map(|cursor| cursor.request_id);
     let sql = format!(
-        "{GA_SUPPLY_SELECT}
-          WHERE ($1::text IS NULL OR q.site_id = $1)
-            AND ($2::text[] IS NULL OR q.status = ANY($2))
-            AND ($3::text IS NULL OR q.item ILIKE $3
-                 OR q.requested_by ILIKE $3
-                 OR q.po_reference ILIKE $3)
-            AND ($4::uuid IS NULL
+        "{}
+          WHERE {GA_SUPPLY_FILTERS}
+            AND ($6::uuid IS NULL
                  OR (q.created_at, q.request_id) <
                     (SELECT x.created_at, x.request_id
-                       FROM ga_supply_request x WHERE x.request_id = $4))
+                       FROM ga_supply_request x WHERE x.request_id = $6))
           ORDER BY q.created_at DESC, q.request_id DESC
-          LIMIT $5"
+          LIMIT $7",
+        supply_select()
     );
     let rows = sqlx::query(&sql)
-        .bind(&site)
-        .bind(&statuses)
-        .bind(&needle)
+        .bind(&params.site)
+        .bind(&params.statuses)
+        .bind(&params.needle)
+        .bind(&params.categories)
+        .bind(params.overdue_on)
         .bind(after)
-        .bind(limit)
+        .bind(params.limit)
         .fetch_all(pool)
         .await?;
     let out = rows
@@ -394,54 +479,95 @@ pub async fn ga_supply_page(
         .map(to_supply_row)
         .collect::<Result<Vec<_>, _>>()?;
     let next_cursor = match out.last() {
-        Some(last) if out.len() as i64 == limit => Some(super::encode_cursor(&GaSupplyCursor {
-            request_id: last.request_id,
-        })?),
+        Some(last) if out.len() as i64 == params.limit => {
+            Some(super::encode_cursor(&GaSupplyCursor {
+                request_id: last.request_id,
+            })?)
+        }
         _ => None,
     };
 
-    // The stage counts read the SEARCHED set, ignoring the ticked stages; the
-    // total reads the filtered one — the split every facet here keeps.
+    // The stage counts read the SEARCHED set (site and search), ignoring the
+    // ticked stages; the categories read the searched set within the ticked
+    // stages — the tab — ignoring the ticked categories; the overdue figure
+    // reads the searched set whatever is ticked; the total reads the filtered
+    // set.
     let counted = sqlx::query(
         "WITH searched AS (
-             SELECT q.status FROM ga_supply_request q
+             SELECT q.status, q.category_code, q.needed_by FROM ga_supply_request q
               WHERE ($1::text IS NULL OR q.site_id = $1)
                 AND ($3::text IS NULL OR q.item ILIKE $3
                      OR q.requested_by ILIKE $3
+                     OR q.request_number ILIKE $3
                      OR q.po_reference ILIKE $3)
+         ), tabbed AS (
+             SELECT * FROM searched WHERE $2::text[] IS NULL OR status = ANY($2)
          )
-         SELECT 'status' AS kind, status AS value, COUNT(*)::bigint AS n
+         SELECT 'status' AS kind, status AS value, NULL::text AS label, COUNT(*)::bigint AS n
            FROM searched GROUP BY status
           UNION ALL
-         SELECT 'all', '', COUNT(*)::bigint
-           FROM searched WHERE $2::text[] IS NULL OR status = ANY($2)",
+         SELECT 'category', c.category_code, c.name, COUNT(t.category_code)::bigint
+           FROM ga_supply_category c
+           LEFT JOIN tabbed t ON t.category_code = c.category_code
+          GROUP BY c.category_code, c.name
+          UNION ALL
+         SELECT 'overdue', '', NULL, COUNT(*)::bigint
+           FROM searched
+          WHERE needed_by < $6 AND status IN ('REQUESTED', 'APPROVED', 'ORDERED')
+          UNION ALL
+         SELECT 'all', '', NULL, COUNT(*)::bigint
+           FROM tabbed
+          WHERE ($4::text[] IS NULL OR category_code = ANY($4))
+            AND ($5::date IS NULL
+                 OR (needed_by < $5 AND status IN ('REQUESTED', 'APPROVED', 'ORDERED')))",
     )
-    .bind(&site)
-    .bind(&statuses)
-    .bind(&needle)
+    .bind(&params.site)
+    .bind(&params.statuses)
+    .bind(&params.needle)
+    .bind(&params.categories)
+    .bind(params.overdue_on)
+    .bind(today)
     .fetch_all(pool)
     .await?;
     let mut total = 0i64;
+    let mut overdue = 0i64;
     let mut by_status = Vec::new();
+    let mut by_category = Vec::new();
     for row in &counted {
         let kind: String = row.try_get("kind")?;
         let count: i64 = row.try_get("n")?;
-        if kind == "status" {
-            by_status.push(super::GaMaintenanceFacet {
+        let facet = || -> Result<super::GaMaintenanceFacet, AppError> {
+            Ok(super::GaMaintenanceFacet {
                 value: row.try_get("value")?,
-                label: None,
+                label: row.try_get("label")?,
                 count,
-            });
-        } else {
-            total = count;
+            })
+        };
+        match kind.as_str() {
+            "status" => by_status.push(facet()?),
+            "category" => by_category.push(facet()?),
+            "overdue" => overdue = count,
+            _ => total = count,
         }
     }
     by_status.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.value.cmp(&b.value)));
+    // The categories stand in the client's own order, the order the form's
+    // tiles take, rather than by size: a chip row that reorders as requests
+    // are filed is a row nobody can learn.
+    let order = ga_supply_categories(pool).await?;
+    by_category.sort_by_key(|facet| {
+        order
+            .iter()
+            .position(|one| one.category_code == facet.value)
+            .unwrap_or(usize::MAX)
+    });
     Ok(GaSupplyPage {
         rows: out,
         next_cursor,
         total,
         statuses: by_status,
+        categories: by_category,
+        overdue,
     })
 }
 

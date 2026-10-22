@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useMemo, useRef } from "react"
 
+import { confirm } from "@/components/ui/confirm"
 import { Button } from "@/components/ui/button"
 import { Pill } from "@/components/ui/pill"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
@@ -14,7 +15,7 @@ import {
   type StoreCount,
 } from "@/lib/counts"
 import { describe } from "@/lib/errors"
-import { count, day, moment } from "@/lib/format"
+import { articleId, count, day, moment, pcs as pcsOf, sku as skuText } from "@/lib/format"
 import { useHeld } from "@/screens/stock/open-record"
 import { FOOT, Row, RowList, SheetSection } from "@/screens/stock/parts"
 import { kindLabel, poolName, statusOf } from "@/screens/stock/count-words"
@@ -25,7 +26,7 @@ import { idempotencyKey } from "@itulah/contract/client"
 /// files its own entries; this sheet only shows what it has filed so far and
 /// sends the count. Blind: no expected quantity, difference or match anywhere.
 
-const pcs = (n: number) => `${count(n)} pcs`
+const pcs = pcsOf
 
 // ── The sheet ───────────────────────────────────────────────────────────────
 
@@ -80,11 +81,15 @@ function CountSheetFor({
     },
   })
 
-  function submit() {
-    const ok = window.confirm(
+  async function submit() {
+    const ok = await confirm(
       total === 0
-        ? "Submit an empty count?"
-        : `Submit ${pcs(total)}? You can't change it after.`,
+        ? { title: "Submit an empty count?", action: "Submit count" }
+        : {
+            title: `Submit ${pcs(total)}?`,
+            body: "You can't change it after.",
+            action: "Submit count",
+          },
     )
     if (ok) send.mutate()
   }
@@ -199,11 +204,12 @@ function Counted({
           {rows.map((row) => (
             <Row
               key={row.sku}
-              title={bySku.get(row.sku)?.name ?? row.sku}
+              title={bySku.get(row.sku)?.name ?? skuText(row.sku)}
               sub={
-                bySku.get(row.sku) === undefined ? undefined : (
-                  <span className="font-mono">{row.sku}</span>
-                )
+                <span className="font-mono">
+                  {articleId(bySku.get(row.sku)?.article_code, row.sku)} ·{" "}
+                  {skuText(row.sku)}
+                </span>
               }
               figure={count(row.quantity)}
             />

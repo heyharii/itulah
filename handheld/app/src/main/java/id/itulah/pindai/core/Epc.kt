@@ -56,3 +56,11 @@ object Epc {
     /** True when a tag is ours rather than a factory EPC or somebody else's GS1. */
     fun isOurs(hex: String) = decode(hex) != null
 }
+
+/**
+ * A SKU, as a person reads it: the 8-digit article, a middle dot, then colour
+ * and size — `00000004103` reads `00000004·103`. Display only; the EPC, the
+ * wire and every lookup keep the plain 11 digits.
+ */
+fun skuDisplay(code: String): String =
+    if (code.length == 11 && code.all { it in '0'..'9' }) code.take(8) + "·" + code.drop(8) else code

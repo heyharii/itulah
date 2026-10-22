@@ -1164,6 +1164,13 @@ pub trait EdgeInventory: Send + Sync {
             "a shop's returns are kept by the SQLite edge".into(),
         ))
     }
+    /// What this shop counted that it could not book, until MD answers —
+    /// see [`super::inbound::StoreOnHoldList`].
+    fn store_on_hold(&self) -> Result<super::inbound::StoreOnHoldList, EdgeError> {
+        Err(EdgeError::Forbidden(
+            "announced deliveries are only available on Store Edge".into(),
+        ))
+    }
     fn store_inbound_list(
         &self,
         _status: Option<&str>,

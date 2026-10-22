@@ -147,6 +147,18 @@ pub fn sku_parts(sku: &str) -> Result<(&str, char, &str), String> {
     ))
 }
 
+/// A SKU as a person reads it: the article, a middle dot, then colour and
+/// size — `00000004103` reads `00000004·103`. For human-readable text only;
+/// barcodes, QR and EPC payloads, stored values and the wire keep the plain
+/// eleven digits. Anything that is not a canonical SKU comes back as it was.
+pub fn sku_display(sku: &str) -> String {
+    if validate_sku_code(sku).is_ok() {
+        format!("{}\u{00b7}{}", &sku[..ARTICLE_CODE_LEN], &sku[ARTICLE_CODE_LEN..])
+    } else {
+        sku.to_string()
+    }
+}
+
 /// What goes on the label as a QR: one per SKU, identical on every unit of
 /// that SKU. The QR says WHAT this is; the EPC says WHICH ONE.
 pub fn qr_payload(sku: &str) -> Result<String, String> {
@@ -285,9 +297,14 @@ pub fn decode_epc(hex: &str) -> Result<(String, u64), String> {
 /// Is this hex one of our tags at all? Cheap enough to run on every read.
 pub fn is_retail_private_epc(hex: &str) -> bool {
     let normalised = hex.trim().to_ascii_lowercase();
+    // Read off the constant, never spelled out: a literal "a0" outlived the
+    // move to 0xA1 here and called every tag we own somebody else's.
+    let header = normalised
+        .get(..2)
+        .and_then(|h| u8::from_str_radix(h, 16).ok());
     normalised.len() == EPC_HEX_LEN
         && normalised.bytes().all(|b| b.is_ascii_hexdigit())
-        && normalised.starts_with("a0")
+        && header == Some(RETAIL_PRIVATE_HEADER)
 }
 
 #[cfg(test)]
@@ -302,6 +319,12 @@ mod tests {
     // below strands physical tags on physical garments, so these tests exist
     // to make that break loud and immediate rather than discovered on a
     // warehouse floor six months later.
+
+    #[test]
+    fn a_sku_reads_as_article_dot_colour_and_size() {
+        assert_eq!(sku_display("00000004103"), "00000004\u{00b7}103");
+        assert_eq!(sku_display("KOLI-1"), "KOLI-1");
+    }
 
     #[test]
     fn sku_golden_vectors_match_the_deployed_encoder() {

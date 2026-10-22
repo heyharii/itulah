@@ -28,10 +28,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -69,6 +71,15 @@ val SheetShape = RoundedCornerShape(Radius.sheet)
  * this system specifies: a soft grey fill and a scale of 0.99 over 120 ms.
  * Deliberately quieter than the spring this kit used to have — a card that
  * flinches is a card that looks broken on the tenth press of a shift.
+ *
+ * # A card nobody can press is only drawn
+ *
+ * Every card used to pay for the press whether or not it could be pressed: an
+ * interaction source, the pressed state collected twice, a colour animation, a
+ * scale animation and a graphics layer for the scale — on every product row of
+ * a result list, none of which has an action. Without `onPress` the card is now
+ * its shadow, fill and hairline and nothing else, and it looks exactly as it
+ * did: the wash and the scale only ever moved under a finger.
  */
 @Composable
 fun HubCard(
@@ -77,44 +88,84 @@ fun HubCard(
     padding: PaddingValues = PaddingValues(Space.lg),
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val source = remember { MutableInteractionSource() }
-    val pressed by source.collectIsPressedAsState()
-    val fill by animateColorAsState(
-        targetValue = if (pressed && onPress != null) Surface.soft2 else Surface.canvas,
-        animationSpec = tween(Motion.press, easing = Motion.easeOut),
-        label = "press-wash",
-    )
+    val surface = if (onPress == null) {
+        Modifier
+            .shadow(1.dp, CardShape, ambientColor = Surface.shadow, spotColor = Surface.shadow)
+            .background(Surface.canvas, CardShape)
+            .border(1.dp, Surface.hairline, CardShape)
+    } else {
+        Modifier.pressableCard(onPress)
+    }
     Column(
         modifier
             .fillMaxWidth()
-            .pressScale(source)
-            .shadow(1.dp, CardShape, ambientColor = Surface.shadow, spotColor = Surface.shadow)
-            .background(fill, CardShape)
-            .border(1.dp, Surface.hairline, CardShape)
-            // Material's ripple is not this system's press feedback; the wash
-            // above is, so the indication is switched off rather than restyled.
-            .then(
-                if (onPress == null) Modifier
-                else Modifier.clickable(
-                    interactionSource = source, indication = null, onClick = onPress,
-                ),
-            )
+            .then(surface)
             .padding(padding),
         content = content,
     )
 }
 
-/** The press scale. 0.99, and only while a finger is actually down. */
+/**
+ * The surface of a card that can be pressed: the 0.99 scale, the shadow, the
+ * wash, the hairline, and the press itself — in the order they were always
+ * drawn in.
+ *
+ * The pressed state is collected ONCE and drives both animations. Neither
+ * animated value is read while composing: the scale is read by the graphics
+ * layer and the wash by the draw, so the 120 ms of a press re-draws the card
+ * instead of recomposing it on every frame.
+ */
 @Composable
-private fun Modifier.pressScale(source: MutableInteractionSource): Modifier {
+private fun Modifier.pressableCard(onPress: () -> Unit): Modifier {
+    val source = remember { MutableInteractionSource() }
     val pressed by source.collectIsPressedAsState()
     val motion = LocalMotion.current
-    val scale by animateFloatAsState(
+    val scale = animateFloatAsState(
         targetValue = if (pressed && motion) 0.99f else 1f,
         animationSpec = tween(Motion.press, easing = Motion.easeOut),
         label = "press-scale",
     )
-    return this.scale(scale)
+    val fill = animateColorAsState(
+        targetValue = if (pressed) Surface.soft2 else Surface.canvas,
+        animationSpec = tween(Motion.press, easing = Motion.easeOut),
+        label = "press-wash",
+    )
+    return this
+        .graphicsLayer {
+            scaleX = scale.value
+            scaleY = scale.value
+        }
+        .shadow(1.dp, CardShape, ambientColor = Surface.shadow, spotColor = Surface.shadow)
+        // `background(fill, CardShape)` with the colour read in the draw: the
+        // same rounded rectangle, corner for corner.
+        .drawBehind {
+            drawRoundRect(color = fill.value, cornerRadius = CornerRadius(Radius.card.toPx()))
+        }
+        .border(1.dp, Surface.hairline, CardShape)
+        // Material's ripple is not this system's press feedback; the wash
+        // above is, so the indication is switched off rather than restyled.
+        .clickable(interactionSource = source, indication = null, onClick = onPress)
+}
+
+/**
+ * The press scale. 0.99, and only while a finger is actually down.
+ *
+ * Read by the graphics layer, not by the composition: a press used to
+ * recompose the whole button on every frame of its 120 ms.
+ */
+@Composable
+private fun Modifier.pressScale(source: MutableInteractionSource): Modifier {
+    val pressed by source.collectIsPressedAsState()
+    val motion = LocalMotion.current
+    val scale = animateFloatAsState(
+        targetValue = if (pressed && motion) 0.99f else 1f,
+        animationSpec = tween(Motion.press, easing = Motion.easeOut),
+        label = "press-scale",
+    )
+    return this.graphicsLayer {
+        scaleX = scale.value
+        scaleY = scale.value
+    }
 }
 
 /**

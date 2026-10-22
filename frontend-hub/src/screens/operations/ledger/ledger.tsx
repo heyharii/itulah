@@ -11,7 +11,7 @@ import { Select } from "@/components/ui/field"
 import { ExpandingSearch } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { EmptyState } from "@/components/ui/states"
-import { label as humanise, count, moment } from "@/lib/format"
+import { label as humanise, count, moment, sku as skuNumber } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import {
   fleetPools,
@@ -150,12 +150,12 @@ export function StockLedger() {
           row.original.article_name ? (
             <TwoLines
               top={row.original.article_name}
-              bottom={row.original.sku_code ?? "—"}
+              bottom={skuNumber(row.original.sku_code)}
               mono
             />
           ) : (
             <span className="font-mono text-id text-ink">
-              {row.original.sku_code ?? "—"}
+              {skuNumber(row.original.sku_code)}
             </span>
           ),
       },
@@ -213,8 +213,8 @@ export function StockLedger() {
         accessorFn: (row) => row.article_name ?? row.sku_code ?? "",
         cell: ({ row }) => (
           <CardName
-            name={row.original.article_name ?? row.original.sku_code ?? "—"}
-            code={row.original.article_name ? row.original.sku_code : undefined}
+            name={row.original.article_name ?? skuNumber(row.original.sku_code)}
+            code={row.original.article_name ? skuNumber(row.original.sku_code) : undefined}
           />
         ),
       },

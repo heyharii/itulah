@@ -914,6 +914,90 @@ pub const TRANSIT_SHORT_CAPABILITY: &str = "inventory.transit_short.v1";
 /// A node that takes `inventory.allotment.close_short.v1`.
 pub const CLOSE_SHORT_CAPABILITY: &str = "inventory.allotment_close_short.v1";
 
+/// MD's answer to a trip's review, for one shop of the trip (owner, 17–18 Oct
+/// 2026; `cloud::postgres::allotment_store_review`).
+///
+/// The shop counted its delivery blind and what it counted differs from what
+/// was sent, so nothing of it was booked: a delivery in review is the shop's
+/// only when MD has answered (owner, 18 Oct 2026). MD answers for the whole
+/// trip, and each shop of it whose count differed is told what that answer
+/// means for it:
+///
+/// - `book`: the pieces it now books into its stockroom, by EPC — a typed
+///   count reads no tag, so head office names them. Its own pieces, as many
+///   of each SKU as it counted up to what was sent, and (on Accept as
+///   delivered) another shop's pieces of the trip that arrived here.
+/// - `send_back`: pieces that go back to HO — what nobody sent, and (on
+///   Return & reallot) another shop's pieces.
+///
+/// Sent only to a shop whose heartbeat carries [`STORE_ON_HOLD_CAPABILITY`].
+/// No `deny_unknown_fields`, like every command a shop reads.
+pub const INVENTORY_STORE_INBOUND_ON_HOLD_V1: &str = "inventory.store_inbound.on_hold.v1";
+
+/// A shop that takes [`INVENTORY_STORE_INBOUND_ON_HOLD_V1`].
+pub const STORE_ON_HOLD_CAPABILITY: &str = "inventory.store_inbound.on_hold.v1";
+
+pub const STORE_INBOUND_ON_HOLD_SCHEMA_VERSION: u32 = 1;
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct StoreInboundBook {
+    pub epc: String,
+    pub sku_code: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct StoreInboundSendBack {
+    pub sku_code: String,
+    pub pieces: i64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct StoreInboundOnHoldPayload {
+    pub schema_version: u32,
+    /// The trip MD reviewed.
+    pub dispatch_number: String,
+    /// `AS_DELIVERED` or `RETURN_REALLOT`.
+    pub decision: String,
+    /// The shop's surat jalan on that trip: the delivery it received.
+    pub shipment_reference: String,
+    #[serde(default)]
+    pub book: Vec<StoreInboundBook>,
+    #[serde(default)]
+    pub send_back: Vec<StoreInboundSendBack>,
+    pub decided_by: String,
+    pub decided_at: DateTime<Utc>,
+}
+
+pub fn parse_store_inbound_on_hold(payload: &Value) -> Result<StoreInboundOnHoldPayload, String> {
+    let decided: StoreInboundOnHoldPayload = serde_json::from_value(payload.clone())
+        .map_err(|error| format!("malformed {INVENTORY_STORE_INBOUND_ON_HOLD_V1}: {error}"))?;
+    if decided.schema_version != STORE_INBOUND_ON_HOLD_SCHEMA_VERSION {
+        return Err(format!(
+            "{INVENTORY_STORE_INBOUND_ON_HOLD_V1} schema_version must be {STORE_INBOUND_ON_HOLD_SCHEMA_VERSION}"
+        ));
+    }
+    required(&decided.dispatch_number, "dispatch_number")?;
+    required(&decided.shipment_reference, "shipment_reference")?;
+    required(&decided.decided_by, "decided_by")?;
+    if decided.decision != "AS_DELIVERED" && decided.decision != "RETURN_REALLOT" {
+        return Err(format!(
+            "decision must be AS_DELIVERED or RETURN_REALLOT, not {}",
+            decided.decision
+        ));
+    }
+    for book in &decided.book {
+        required(&book.epc, "book.epc")?;
+        required(&book.sku_code, "book.sku_code")?;
+    }
+    for back in &decided.send_back {
+        required(&back.sku_code, "send_back.sku_code")?;
+        if back.pieces <= 0 {
+            return Err(format!("{} to send back must be positive", back.sku_code));
+        }
+    }
+    Ok(decided)
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct StoreInboundAnnounceUnit {
     pub epc: String,

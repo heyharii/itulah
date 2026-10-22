@@ -1,3 +1,4 @@
+import { unitsQuery } from "@/lib/queries/organisation"
 import { warmQuery, type PrefetchMap } from "@/lib/prefetch"
 import { placesQuery } from "@/screens/locations/places-data"
 
@@ -5,8 +6,12 @@ import { placesQuery } from "@/screens/locations/places-data"
 /// The list is read with `useSuspenseQuery` inside a `<Suspense>`, so the
 /// server starts the read too and streams the real page.
 export const prefetch: PrefetchMap = {
-  // Every place, nothing searched. Mirrors `LocationBook` in `locations.tsx`.
+  // Every place, nothing searched, and the units whose names the rows wear.
+  // Mirrors `LocationBook` in `locations.tsx`.
   "/locations": async (client) => {
-    await warmQuery(client, placesQuery({}))
+    await Promise.all([
+      warmQuery(client, placesQuery({})),
+      warmQuery(client, unitsQuery()),
+    ])
   },
 }

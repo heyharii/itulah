@@ -8,7 +8,9 @@ import {
   Monitor,
   MoveVertical,
   Paintbrush,
+  Plus,
   Snowflake,
+  X,
   Zap,
 } from "lucide-react"
 import { useState } from "react"
@@ -17,6 +19,7 @@ import { Button } from "@/components/ui/button"
 import { Field, Input, Money, Select } from "@/components/ui/field"
 import { Choices, Section, Toggle } from "@/components/ui/form"
 import type { Tile } from "@/components/ui/form"
+import { PickOne } from "@/components/ui/pick"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner } from "@/components/ui/states"
 import {
@@ -25,6 +28,7 @@ import {
   type UnitAccount,
 } from "@/lib/queries/finance"
 import {
+  gaAssets,
   gaContractTypes,
   gaKeys,
   recordGaContract,
@@ -32,8 +36,13 @@ import {
 } from "@/lib/queries/ga"
 import { useUnits } from "@/lib/queries/organisation"
 import { procurementKeys, supplierPage } from "@/lib/queries/procurement"
+import { TextAction } from "@/screens/assets/asset-sections"
+import {
+  coversAssets,
+  coversVehiclesOnly,
+  fitsCover,
+} from "@/screens/contracts/claim-words"
 import { CONTRACT_GROUPS } from "@/screens/contracts/groups"
-import { FinanceMark } from "@/screens/contracts/parts"
 import type { GaContractType } from "@itulah/contract"
 
 /// Recording a contract, the way the paper describes it.
@@ -56,6 +65,7 @@ import type { GaContractType } from "@itulah/contract"
 export function ContractComposer({
   open,
   group,
+  presetAsset,
   onClose,
   onSaved,
 }: {
@@ -64,17 +74,36 @@ export function ContractComposer({
   /// the composer opens on the chip it came from; empty when it was showing
   /// every group, and the composer asks for one first.
   group: string
+  /// Opened from an asset's own sheet: the contract covers that asset, so it
+  /// is the first on Covers and the site starts at the asset's. Shown for the
+  /// types that cover things; any other type leaves Covers out.
+  presetAsset?: { asset_id: string; name: string; site_id: string }
   onClose: () => void
   onSaved: (contractId: string) => void
 }) {
   const client = useQueryClient()
   const [form, setForm] = useState<Record<string, string>>({})
   const [problems, setProblems] = useState<Record<string, string>>({})
+  // What the contract covers (0975): the preset asset first, then whatever is
+  // added. One policy over a fleet is one contract with six chips.
+  const start: readonly Cover[] =
+    presetAsset === undefined
+      ? []
+      : [{ asset_id: presetAsset.asset_id, label: presetAsset.name }]
+  const [covers, setCovers] = useState<readonly Cover[]>(start)
+  const [pickingCover, setPickingCover] = useState(false)
   const set = (key: string, value: string) => {
     // Editing a field takes its error back (brief §10.2): a problem sentence
     // survives only while the field itself is still wrong.
     setProblems((current) => ({ ...current, [key]: "" }))
     setForm((current) => ({ ...current, [key]: value }))
+  }
+
+  // A new site changes which assets can be named, so the asset chosen under
+  // the old one is dropped with it.
+  const chooseSite = (next: string) => {
+    set("site", next)
+    setCovers(start)
   }
 
   // `group` is the door this composer was opened from; the screen keys the
@@ -85,11 +114,18 @@ export function ContractComposer({
   const disewakan = groupCode === "DISEWAKAN"
   const langganan = groupCode === "LANGGANAN"
   const scope = form.scope ?? "SITE"
+  // The site the form stands on: what was chosen, else the preset asset's.
+  const siteValue = form.site ?? presetAsset?.site_id
+  // Whether the type covers things, and which things it may cover. The
+  // server decides (`assert_contract_assets`); the list is the same question
+  // asked early, so the picker offers what will be accepted.
+  const assetTyped = coversAssets(typeCode)
+  const vehicleTyped = coversVehiclesOnly(typeCode)
 
   // The site list, from GA's own locations — the same cached answer every GA
   // form asks, because a site is a site in all of them.
   const { sites: siteOptions } = useGaSites(open)
-  const site = form.site || null
+  const site = siteValue || null
 
   // The types, with their proposed accounts, resolved for the chosen site —
   // and for the server's default site while no site is chosen, which is the
@@ -99,6 +135,30 @@ export function ContractComposer({
     queryFn: ({ signal }) => gaContractTypes(site, signal),
     enabled: open,
   })
+
+  // The assets the contract may cover: at the chosen site when there is one
+  // (a vehicle is covered wherever it is parked), a vehicle for the vehicle
+  // types. The ones already on Covers are not offered twice.
+  const assetScope = {
+    site: vehicleTyped ? undefined : (site ?? undefined),
+    build: vehicleTyped ? "VEHICLE" : undefined,
+  }
+  const assets = useQuery({
+    queryKey: [...gaKeys.assets(assetScope), "pick"],
+    queryFn: ({ signal }) => gaAssets({ ...assetScope, limit: 300 }, signal),
+    enabled: open && assetTyped,
+    staleTime: 60 * 1000,
+  })
+  const assetChoices = (assets.data?.rows ?? [])
+    .filter(
+      (one) =>
+        fitsCover(typeCode, one) &&
+        !covers.some((cover) => cover.asset_id === one.asset_id)
+    )
+    .map((one) => ({
+      value: one.asset_id,
+      label: `${one.name} · ${one.asset_number}`,
+    }))
 
   // The vendors, from the book of parties that send bills — the same list
   // Vendors keeps, narrowed to it.
@@ -216,9 +276,9 @@ export function ContractComposer({
         objek: typeCode === "JASA_MAINTENANCE" ? (form.objek ?? null) : null,
         supplier_id: disewakan ? null : (form.vendor ?? null),
         counterparty_name: disewakan ? blank(form.tenant) : null,
-        site_id: scope === "SITE" ? (form.site ?? null) : null,
+        site_id: scope === "SITE" ? (siteValue ?? null) : null,
         site_scope: scope === "SITE" ? null : scope,
-        asset_id: null,
+        asset_ids: assetTyped ? covers.map((cover) => cover.asset_id) : [],
         starts_on: form.starts_on ?? "",
         ends_on: blank(form.ends_on),
         contract_value_minor:
@@ -237,6 +297,7 @@ export function ContractComposer({
       // does.
       void client.invalidateQueries({ queryKey: gaKeys.all })
       setForm({})
+      setCovers(start)
       onSaved(row.contract_id)
     },
   })
@@ -247,7 +308,7 @@ export function ContractComposer({
       next.vendor = "Choose a vendor first."
     if (disewakan && (form.tenant ?? "").trim() === "")
       next.tenant = "Enter the tenant's name first."
-    if (!multiSite && scope === "SITE" && (form.site ?? "") === "")
+    if (!multiSite && scope === "SITE" && (siteValue ?? "") === "")
       next.site = "Choose a site first."
     if ((form.starts_on ?? "") === "") next.starts_on = "Enter the start date."
     if (
@@ -274,7 +335,6 @@ export function ContractComposer({
       onOpenChange={(next) => !next && onClose()}
       width="wide"
       title="New contract"
-      caption="This records the agreement: its type, party and time window. Bills are still raised in Finance."
       footer={
         <div className="flex items-center justify-between gap-3">
           <span className="text-pill text-mute">
@@ -296,7 +356,7 @@ export function ContractComposer({
           <Banner tone="bad">{save.error.message}</Banner>
         )}
 
-        <Section title="Group" aside="same door as the register">
+        <Section title="Group">
           <Choices
             label="Group"
             columns={3}
@@ -311,6 +371,7 @@ export function ContractComposer({
                 type: "",
                 objek: "",
               }))
+              setCovers(start)
             }}
             options={CONTRACT_GROUPS.map((one) => ({
               value: one.group_code,
@@ -320,10 +381,7 @@ export function ContractComposer({
           />
         </Section>
 
-        <Section
-          title="Contract type"
-          aside="the card carries its proposed accounts"
-        >
+        <Section title="Contract type">
           {typeOptions.length === 0 ? (
             <p className="text-meta text-mute">
               {/* Opened from the whole register rather than from one group,
@@ -348,6 +406,9 @@ export function ContractComposer({
                   objek: "",
                   scope: "SITE",
                 }))
+                // Covers go back to the asset it was opened from: each type
+                // covers its own kind of thing.
+                setCovers(start)
               }}
               options={typeOptions.map((one) => ({
                 value: one.code,
@@ -359,10 +420,7 @@ export function ContractComposer({
         </Section>
 
         {typeCode === "JASA_MAINTENANCE" && (
-          <Section
-            title="Object being maintained"
-            aside="expense follows the object"
-          >
+          <Section title="Object being maintained">
             <Choices
               label="Object being maintained"
               columns={3}
@@ -378,7 +436,6 @@ export function ContractComposer({
             <Field
               label="Tenant"
               required
-              aside="text, not a vendor"
               problem={problems.tenant || undefined}
             >
               <Input
@@ -427,8 +484,8 @@ export function ContractComposer({
                 <Field label="Site" problem={problems.site || undefined}>
                   <SiteSelect
                     sites={siteOptions}
-                    site={form.site ?? ""}
-                    onChange={(next) => set("site", next)}
+                    site={siteValue ?? ""}
+                    onChange={chooseSite}
                   />
                 </Field>
               )}
@@ -437,16 +494,78 @@ export function ContractComposer({
             <Field label="Site" problem={problems.site || undefined} required>
               <SiteSelect
                 sites={siteOptions}
-                site={form.site ?? ""}
-                onChange={(next) => set("site", next)}
+                site={siteValue ?? ""}
+                onChange={chooseSite}
               />
+            </Field>
+          )}
+
+          {assetTyped && (
+            <Field label="Covers" aside={vehicleTyped ? "vehicles" : undefined}>
+              <div className="flex flex-col gap-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  {covers.map((cover) => (
+                    <span
+                      key={cover.asset_id}
+                      className="inline-flex h-8 max-w-full items-center gap-1.5 rounded-inner bg-soft-2 pr-1.5 pl-2.5 text-[0.9375rem] text-ink"
+                    >
+                      <span className="truncate">{cover.label}</span>
+                      <button
+                        type="button"
+                        aria-label={`Remove ${cover.label}`}
+                        className="grid size-6 place-items-center rounded-full text-mute transition-colors hover:bg-soft hover:text-ink"
+                        onClick={() =>
+                          setCovers((current) =>
+                            current.filter(
+                              (one) => one.asset_id !== cover.asset_id
+                            )
+                          )
+                        }
+                      >
+                        <X className="size-3.5" />
+                      </button>
+                    </span>
+                  ))}
+                  {!pickingCover && (
+                    <TextAction onClick={() => setPickingCover(true)}>
+                      <Plus />
+                      Add asset
+                    </TextAction>
+                  )}
+                </div>
+                {pickingCover && (
+                  <PickOne
+                    label="Add asset"
+                    choices={assetChoices}
+                    value={null}
+                    onChange={(next) => {
+                      const chosen = assetChoices.find(
+                        (one) => one.value === next
+                      )
+                      if (chosen !== undefined)
+                        setCovers((current) => [
+                          ...current,
+                          { asset_id: chosen.value, label: chosen.label },
+                        ])
+                      setPickingCover(false)
+                    }}
+                    placeholder={
+                      assets.isPending
+                        ? "Reading the assets…"
+                        : assetChoices.length === 0
+                          ? "Nothing else fits here"
+                          : "Choose an asset…"
+                    }
+                  />
+                )}
+              </div>
             </Field>
           )}
 
           {langganan && (
             <Field
               label="Customer no."
-              aside="PLN / PDAM / Telkom connection number"
+              hint="PLN, PDAM or Telkom connection number"
             >
               <Input
                 value={form.customer_number ?? ""}
@@ -458,19 +577,13 @@ export function ContractComposer({
 
         <Section title="Term and value">
           <div className="grid grid-cols-2 gap-4">
-            <Field
-              label="Number on the agreement"
-              aside="the paper's own number, not made up"
-            >
+            <Field label="Agreement no.">
               <Input
                 value={form.contract_number ?? ""}
                 onChange={(event) => set("contract_number", event.target.value)}
               />
             </Field>
-            <Field
-              label="Notes"
-              aside="appears below the party in the register"
-            >
+            <Field label="Notes">
               <Input
                 value={form.notes ?? ""}
                 onChange={(event) => set("notes", event.target.value)}
@@ -491,7 +604,7 @@ export function ContractComposer({
             </Field>
             <Field
               label="Ends"
-              aside="empty = open-ended"
+              hint="Empty = open-ended"
               problem={problems.ends_on || undefined}
             >
               <Input
@@ -501,10 +614,7 @@ export function ContractComposer({
               />
             </Field>
           </div>
-          <Field
-            label="Contract value"
-            aside="total for the whole contract, can be left empty"
-          >
+          <Field label="Contract value">
             <Money
               value={form.value ?? ""}
               onChange={(next) => set("value", next)}
@@ -536,15 +646,9 @@ export function ContractComposer({
           )}
         </Section>
 
-        <Section
-          title="Accounts proposed to Finance"
-          aside="from this site's account map"
-        >
+        <Section title="Accounts proposed to Finance">
           {proposed.length === 0 ? (
-            <p className="text-meta text-mute">
-              Choose the type first — proposed accounts follow the contract type
-              and site.
-            </p>
+            <p className="text-meta text-mute">Choose a type first.</p>
           ) : (
             <div className="flex flex-col">
               {proposed.map((row) => (
@@ -565,11 +669,6 @@ export function ContractComposer({
               ))}
             </div>
           )}
-          <p className="flex items-center gap-1.5 text-pill text-mute">
-            <FinanceMark className="align-[0.0625rem]" /> Set by Finance in the
-            Account map; proposed on the bill line, and Finance can still change
-            it.
-          </p>
         </Section>
       </div>
     </Sheet>
@@ -634,6 +733,12 @@ function mapName(
 function blank(value: string | undefined): string | null {
   const trimmed = (value ?? "").trim()
   return trimmed === "" ? null : trimmed
+}
+
+/// One asset on Covers, as its chip says it.
+interface Cover {
+  readonly asset_id: string
+  readonly label: string
 }
 
 /// The four types a contract may span the estate for, as the server's own

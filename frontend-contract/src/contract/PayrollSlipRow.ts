@@ -5,7 +5,11 @@ import type { SlipLineRow } from "./SlipLineRow";
 /**
  * What one person's line says.
  */
-export type PayrollSlipRow = { run_id: string, employee_id: string, employee_code: string, full_name: string | null, base_minor: number, fixed_allowances: Array<AllowanceLine>, 
+export type PayrollSlipRow = { run_id: string, 
+/**
+ * The run's month, `YYYY-MM`.
+ */
+period: string, employee_id: string, employee_code: string, full_name: string | null, base_minor: number, fixed_allowances: Array<AllowanceLine>, 
 /**
  * Base plus fixed allowances. The figure statutory rules are computed
  * *against*; which rule multiplies it by what is not recorded here.

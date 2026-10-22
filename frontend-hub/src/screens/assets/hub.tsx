@@ -1,59 +1,121 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import {
-  ArrowRight,
-  Banknote,
-  FileText,
-  MoveRight,
-  PackageX,
-  Paperclip,
-  Repeat,
-  Trash2,
-  TriangleAlert,
-  Users,
-} from "lucide-react"
+import { useQuery } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
-import { Choices } from "@/components/ui/form"
-import { Field, Input, Money, Select } from "@/components/ui/field"
-import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import { Banner, LoadingState } from "@/components/ui/states"
 import { Pill } from "@/components/ui/pill"
-import { buildOf } from "@/lib/builds"
+import { Sheet } from "@/components/ui/sheet"
+import { SheetFooter } from "@/components/ui/sheet-footer"
+import { SheetQuery } from "@/components/ui/sheet-states"
 import { day } from "@/lib/format"
-import { financeKeys, unitAccounts } from "@/lib/queries/finance"
-import { unitLabel, useUnits } from "@/lib/queries/organisation"
+import { gaAssetHub, gaKeys, useGaSites } from "@/lib/queries/ga"
 import {
-  gaAssetBuilds,
-  gaAssetHub,
-  gaKeys,
-  gaRepairs,
-  recordGaReplacement,
-  requestGaDisposal,
-  transferGaAsset,
-  updateGaAsset,
-  useGaSites,
-} from "@/lib/queries/ga"
-import { procurementKeys, supplierPage } from "@/lib/queries/procurement"
-import { uploadDocument } from "@/lib/queries/workplace"
-import type { GaAssetRow, GaDocument } from "@itulah/contract"
+  assetContractsQuery,
+  assetDisposalsQuery,
+  assetInspectionsQuery,
+  assetRepairsQuery,
+  assetReplacementsQuery,
+  assetTasksQuery,
+  claimsQuery,
+  odometerQuery,
+  operatingExpensesQuery,
+  papersQuery,
+  type GaOriginalRow,
+} from "@/lib/queries/ga-records"
+import { useSheet } from "@/lib/sheets"
+import {
+  CompleteDraft,
+  DisposeSheet,
+  MoveSheet,
+  ReplaceSheet,
+  UploadSheet,
+} from "@/screens/assets/asset-forms"
+import {
+  AccountsSection,
+  AssetFigures,
+  ContractsSection,
+  DocumentsSection,
+  IdentitySection,
+  LocationSection,
+  MovesSection,
+  RepairsSection,
+  ScheduleSection,
+} from "@/screens/assets/asset-sections"
+import { headStatus, isLive, lastOdometer } from "@/screens/assets/asset-words"
+import {
+  ExpenseSheet,
+  ExpensesSection,
+  RecordExpenseSheet,
+} from "@/screens/assets/expenses"
+import { useLayer } from "@/screens/assets/layers"
+import { OdometerSheet } from "@/screens/assets/odometer"
+import { isClaimablePolicy } from "@/screens/contracts/claim-words"
+import {
+  AssetClaimsSection,
+  ClaimComposer,
+  ClaimSheetHost,
+} from "@/screens/contracts/claims"
+import { ContractComposer } from "@/screens/contracts/composer"
+import { ContractHubSheet } from "@/screens/contracts/hub"
+import { RepairSheet } from "@/screens/maintenance/hub"
+import { RepairComposer } from "@/screens/maintenance/repairs"
+import {
+  InspectionComposer,
+  TaskComposer,
+} from "@/screens/maintenance/schedule"
+import {
+  OriginalSheet,
+  PaperSheet,
+  RecordPaperSheet,
+  ReleaseOriginalSheet,
+  ReturnOriginalSheet,
+} from "@/screens/workplace/original-sheets"
 
-/// One asset, as GA keeps it — and nothing about what it is worth.
+/// The forms and composers the sheet opens over itself, one at a time.
+type Form =
+  | "move"
+  | "replace"
+  | "dispose"
+  | "upload"
+  | "paper"
+  | "expense"
+  | "contract"
+  | "task"
+  | "inspection"
+  | "repair"
+  | "claim"
+
+/// One asset, with everything connected to it, in one scroll.
 ///
-/// # Why there is no rupiah on this sheet
+/// # What is on it
+///
+/// The thing (its identity, where it is and who holds it), then everything
+/// filed against it, in the order a person asks: its papers, its contracts, its
+/// schedule and inspections, its repairs, what it costs to run, and what has
+/// happened to it. Each section reads from the list that owns the records
+/// (Files, Contracts, Service Schedule, Repairs), filtered to this asset, and a
+/// row opens the same record those screens open, as a layer over this one. The
+/// `+` at a section's heading opens that screen's own form with this asset
+/// already chosen.
+///
+/// # Why there is no rupiah on the register's facts
 ///
 /// Finance has the same asset with the cost, the method and the monthly charge
 /// on it, and that is the screen for somebody deciding what to do with the
-/// money. This one is for the person standing in front of the thing: where it
-/// is, what is written on its plate, who holds it, whether it still works, and
-/// which papers about it are about to expire. A shop manager can be handed this
-/// screen without being shown what the company carries its building at.
+/// money. This one is for the person standing in front of the thing. The only
+/// money here is what GA itself records: the operating expenses.
 ///
-/// # Why the history is a tab and not a column
+/// # Why there are no tabs
 ///
-/// Because it grows without limit and it is read occasionally — when somebody
-/// asks "when did this move to C012". The facts are what the sheet is opened
-/// for; the history is what it is consulted for.
+/// A record has one scroll of sections (design system, sheets). The three
+/// things GA does to an asset — Move, Propose replacement, Request disposal —
+/// are the foot's verbs, and each opens as a rail layer over the sheet.
+///
+/// # Papers and originals are keyed in the address
+///
+/// A paper opens through the `paper` sheet key and an original through
+/// `original`, so a paper opened from here, from Files or from the Overview is
+/// the same record opened the same way. Their sheets are mounted here for the
+/// screen this sheet stands on.
 export function AssetHubSheet({
   assetId,
   open,
@@ -66,972 +128,375 @@ export function AssetHubSheet({
   onClose: () => void
   /// Opens the replacement sheet when a proposal is filed — the swap is a
   /// record people read in Maintenance › Replacement, and the proposal
-  /// should land them on it, not leave them guessing whether it saved.
+  /// should land them on it, not leave them guessing whether it saved. A
+  /// replacement in the asset's history opens the same way.
   onProposeReplacement?: (replacementId: string) => void
   /// Opens the disposal sheet when a request is filed, for the same reason.
   onRequestDisposal?: (disposalId: string) => void
 }) {
+  const id = assetId ?? ""
+  const enabled = open && assetId !== undefined
+
   const hub = useQuery({
-    queryKey: gaKeys.asset(assetId ?? ""),
-    queryFn: ({ signal }) => gaAssetHub(assetId ?? "", signal),
-    enabled: open && assetId !== undefined,
+    queryKey: gaKeys.asset(id),
+    queryFn: ({ signal }) => gaAssetHub(id, signal),
+    enabled,
+  })
+  // Everything filed against the asset. Each key is under the GA prefix, so
+  // every GA write that invalidates `["ga"]` refreshes the sections too.
+  const papers = useQuery({ ...papersQuery({ asset: id }), enabled })
+  const contracts = useQuery({ ...assetContractsQuery(id), enabled })
+  const tasks = useQuery({ ...assetTasksQuery(id), enabled })
+  const inspections = useQuery({ ...assetInspectionsQuery(id), enabled })
+  const repairs = useQuery({ ...assetRepairsQuery(id), enabled })
+  const replacements = useQuery({ ...assetReplacementsQuery(id), enabled })
+  const disposals = useQuery({ ...assetDisposalsQuery(id), enabled })
+  const expenses = useQuery({
+    ...operatingExpensesQuery({ asset: id }),
+    enabled,
+  })
+  const claims = useQuery({ ...claimsQuery({ asset: id }), enabled })
+  // A vehicle's odometer readings (0975), once the hub says it is one.
+  const vehicle = hub.data?.asset.build === "VEHICLE"
+  const readings = useQuery({
+    ...odometerQuery(id),
+    enabled: enabled && vehicle,
   })
 
+  const { sites } = useGaSites(enabled)
+  const siteName = (siteId: string) =>
+    sites.find((one) => one.value === siteId)?.label ?? siteId
+
+  // What is open over this sheet. Forms and composers are local and one at a
+  // time; `round` counts the openings so a form starts clean each time.
+  const [form, setForm] = useState<{ name: Form | null; round: number }>({
+    name: null,
+    round: 0,
+  })
+  const openForm = (name: Form) =>
+    setForm((current) => ({ name, round: current.round + 1 }))
+  const closeForm = () => setForm((current) => ({ ...current, name: null }))
+
+  // Records with an address of their own open through their sheet key, so the
+  // link can be sent and Esc walks back one layer.
+  const contractSheet = useSheet("contract")
+  const repairSheet = useSheet("repair")
+  const paperSheet = useSheet("paper")
+  const originalSheet = useSheet("original")
+  const claimSheet = useSheet("claim")
+  // And the ones with none are layers held here.
+  const expense = useLayer<string>()
+  const release = useLayer<GaOriginalRow>()
+  const giveBack = useLayer<GaOriginalRow>()
+  const [odometerOpen, setOdometerOpen] = useState(false)
+
+  const asset = hub.data?.asset
+  const status = asset === undefined ? undefined : headStatus(asset.status)
+  const live = asset !== undefined && isLive(asset.status)
+  const lastReading = lastOdometer(readings.data ?? [])
+  const odometer = lastReading?.km ?? null
+  // The policies a claim about this asset can be made under: the activated
+  // vehicle and property policies covering it today.
+  const policies = (contracts.data ?? []).filter(isClaimablePolicy)
+
   return (
-    <Sheet
-      open={open}
-      onOpenChange={(next) => !next && onClose()}
-      width="wide"
-      title={hub.data === undefined ? "Asset" : hub.data.asset.name}
-      id={hub.data?.asset.asset_number}
-      caption={hub.data?.asset.acquired_via ?? undefined}
-      subject={
-        assetId === undefined ? undefined : { kind: "asset", id: assetId }
-      }
-      badge={
-        hub.data === undefined ? undefined : (
-          <>
-            <Pill tone={gaStatusTone(hub.data.asset.status)}>
-              {gaStatusWords(hub.data.asset.status)}
-            </Pill>
-            <Pill
-              tone={
-                hub.data.asset.finance_decision === null ? "warn" : "neutral"
-              }
-            >
-              {hub.data.asset.finance_decision === null
-                ? "Not yet assessed by Finance"
-                : "Assessed by Finance"}
-            </Pill>
-          </>
-        )
-      }
-      tabs={
-        hub.data === undefined
-          ? undefined
-          : [
-              {
-                value: "detail",
-                label: "Detail",
-                content: (
-                  <DetailTab
-                    asset={hub.data.asset}
-                    onProposeReplacement={onProposeReplacement}
-                    onRequestDisposal={onRequestDisposal}
-                  />
-                ),
-              },
-              {
-                value: "documents",
-                label: "Documents",
-                content: (
-                  <DocumentsTab
-                    asset={hub.data.asset}
-                    documents={hub.data.documents}
-                  />
-                ),
-              },
-              {
-                value: "history",
-                label: "History",
-                content: (
-                  <ol className="flex flex-col">
-                    {hub.data.events.map((event) => (
-                      <li
-                        key={event.event_id}
-                        className="flex items-baseline gap-3 border-b border-hairline py-2.5 last:border-b-0"
-                      >
-                        <span className="w-24 shrink-0 text-pill text-mute tabular-nums">
-                          {day(event.occurred_on)}
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="block text-cell text-ink">
-                            {event.reason}
-                          </span>
-                          <span className="block text-pill text-mute">
-                            {event.recorded_by}
-                          </span>
-                        </span>
-                      </li>
-                    ))}
-                  </ol>
-                ),
-              },
-              {
-                value: "accounts",
-                label: "Class accounts",
-                content: <AccountsTab asset={hub.data.asset} />,
-              },
-            ]
-      }
+    <ClaimSheetHost
+      onOpenPolicy={contractSheet.open}
+      onOpenRepair={repairSheet.open}
     >
-      {hub.isLoading && <LoadingState>Opening the asset…</LoadingState>}
-      {hub.error instanceof Error && (
-        <Banner tone="bad">{hub.error.message}</Banner>
-      )}
-    </Sheet>
-  )
-}
-
-/// The facts, and the things GA can do to them from here.
-///
-/// # Three actions, one open at a time
-///
-/// Move, Replace and Request disposal are the three ways an asset leaves
-/// this state, and each is a form with a reason in it. They are gated on the
-/// asset being LIVE: a draft nobody has walked the floor for cannot be
-/// swapped, and an asset already replaced or disposed has no further business
-/// on this sheet's action row.
-function DetailTab({
-  asset,
-  onProposeReplacement,
-  onRequestDisposal,
-}: {
-  asset: GaAssetRow
-  onProposeReplacement?: (replacementId: string) => void
-  onRequestDisposal?: (disposalId: string) => void
-}) {
-  const client = useQueryClient()
-  const [action, setAction] = useState<"move" | "replace" | "dispose" | null>(
-    null
-  )
-
-  // The build's own field names, so a spec reads "Kapasitas" rather than
-  // "capacity". The same cached list the register form uses — one fetch for the
-  // whole app, because the eleven do not change.
-  const schema = useQuery({
-    queryKey: gaKeys.builds(),
-    queryFn: ({ signal }) => gaAssetBuilds(signal),
-    staleTime: Infinity,
-  })
-  const specFields = schema.data?.builds.find(
-    (one) => one.build === asset.build
-  )?.fields
-
-  const { sites: siteOptions } = useGaSites()
-
-  const build = buildOf(asset.build)
-  const live = asset.status === "REGISTERED" || asset.status === "IN_SERVICE"
-
-  const done = () => {
-    setAction(null)
-    void client.invalidateQueries({ queryKey: gaKeys.all })
-  }
-
-  return (
-    <div className="flex flex-col gap-5">
-      {asset.status === "DRAFT" && <CompleteDraft asset={asset} />}
-
-      <section>
-        <h4 className="mb-2.5 border-b border-hairline pb-1.5 text-card-title font-semibold text-ink">
-          Detail
-        </h4>
-        <Facts>
-          <Fact term="Type">{build.label}</Fact>
-          <Fact term="Class">{asset.class_name}</Fact>
-          <Fact term="Site">{asset.site_id}</Fact>
-          <Fact term="Area">{asset.sub_location ?? "—"}</Fact>
-          <Fact term="Holder">{asset.holder ?? "—"}</Fact>
-          <Fact term="Condition">{conditionWords(asset.condition)}</Fact>
-          <Fact term="Serial / plate">{asset.serial_number ?? "—"}</Fact>
-          <Fact term="Acquired">{day(asset.acquired_on)}</Fact>
-          <Fact term="Purchase bill">
-            {asset.acquired_via ?? "not yet linked"}
-          </Fact>
-          <Fact term="Finance status">
-            {asset.finance_decision === null
-              ? "not yet assessed"
-              : asset.finance_decision}
-          </Fact>
-        </Facts>
-      </section>
-
-      {Object.keys(asset.specs).length > 0 && (
-        <section>
-          <h4 className="mb-2.5 border-b border-hairline pb-1.5 text-card-title font-semibold text-ink">
-            {`Detail ${build.label.toLowerCase()}`}
-          </h4>
-          <Facts>
-            {Object.entries(asset.specs).map(([key, value]) => (
-              <Fact
-                key={key}
-                term={
-                  specFields?.find((field) => field.key === key)?.label ?? key
-                }
-              >
-                {String(value)}
-              </Fact>
-            ))}
-          </Facts>
-        </section>
-      )}
-
-      <section>
-        <h4 className="mb-2.5 border-b border-hairline pb-1.5 text-card-title font-semibold text-ink">
-          Actions
-        </h4>
-        {action === null && (
-          <div className="flex flex-wrap items-center gap-2">
-            <Button variant="soft" onClick={() => setAction("move")}>
-              <MoveRight />
-              Move
-            </Button>
-            {live && (
-              <>
-                <Button variant="soft" onClick={() => setAction("replace")}>
-                  <Repeat />
+      <Sheet
+        open={open}
+        onOpenChange={(next) => !next && onClose()}
+        size="wide"
+        stack
+        context="Assets"
+        title={asset === undefined ? "Asset" : asset.name}
+        id={asset?.asset_number}
+        badge={
+          status === undefined ? undefined : (
+            <Pill tone={status.tone}>{status.word}</Pill>
+          )
+        }
+        caption={
+          asset === undefined
+            ? undefined
+            : asset.acquired_via === null
+              ? `Acquired ${day(asset.acquired_on)}`
+              : `Bought on ${asset.acquired_via} · ${day(asset.acquired_on)}`
+        }
+        subject={
+          assetId === undefined ? undefined : { kind: "asset", id: assetId }
+        }
+        footer={
+          live ? (
+            <SheetFooter
+              start={
+                <Button variant="ghost" onClick={() => openForm("replace")}>
                   Replace
                 </Button>
-                <Button variant="soft" onClick={() => setAction("dispose")}>
-                  <PackageX />
+              }
+              danger={
+                <Button
+                  variant="destructive"
+                  onClick={() => openForm("dispose")}
+                >
                   Request disposal
                 </Button>
-              </>
-            )}
-          </div>
-        )}
-        {action === "move" && (
-          <MoveForm
-            asset={asset}
-            sites={siteOptions.map((one) => one.value)}
-            onDone={done}
-            onCancel={() => setAction(null)}
-          />
-        )}
-        {action === "replace" && (
-          <ReplaceForm
-            asset={asset}
-            onSaved={(replacementId) => {
-              setAction(null)
-              void client.invalidateQueries({ queryKey: gaKeys.all })
-              onProposeReplacement?.(replacementId)
-            }}
-            onCancel={() => setAction(null)}
-          />
-        )}
-        {action === "dispose" && (
-          <DisposeForm
-            asset={asset}
-            onSaved={(disposalId) => {
-              setAction(null)
-              void client.invalidateQueries({ queryKey: gaKeys.all })
-              onRequestDisposal?.(disposalId)
-            }}
-            onCancel={() => setAction(null)}
-          />
-        )}
-      </section>
-    </div>
-  )
-}
-
-/// A thing that arrived on a bill and that nobody has walked the floor for.
-///
-/// The bill came first and made the row; GA's job is to say where the thing
-/// actually is and who has it, which is the half a purchase document cannot
-/// know.
-function CompleteDraft({ asset }: { asset: GaAssetRow }) {
-  const client = useQueryClient()
-  const [form, setForm] = useState<Record<string, string>>({})
-  const set = (key: string, value: string) =>
-    setForm((current) => ({ ...current, [key]: value }))
-
-  const schema = useQuery({
-    queryKey: gaKeys.builds(),
-    queryFn: ({ signal }) => gaAssetBuilds(signal),
-    staleTime: Infinity,
-  })
-  const build = schema.data?.builds.find((one) => one.build === asset.build)
-
-  const save = useMutation({
-    mutationFn: () =>
-      updateGaAsset(asset.asset_id, {
-        name: blank(form.name),
-        sub_location: blank(form.sub_location),
-        holder: blank(form.holder),
-        serial_number: blank(form.serial_number),
-        condition: form.condition ?? asset.condition,
-        specs: specsOf(build, form),
-        // Absent means "no change" on this surface, and the form does not show
-        // a note, so it sends the "leave it" spelling rather than the empty
-        // string, which the server would take as "erase it".
-        notes: null,
-      }),
-    onSuccess: () => {
-      void client.invalidateQueries({ queryKey: gaKeys.all })
-    },
-  })
-
-  const ready =
-    (form.sub_location ?? "").trim() !== "" && (form.holder ?? "").trim() !== ""
-
-  return (
-    <section className="rounded-inner border border-warn-fg/30 bg-warn-bg/40 p-3.5">
-      <h4 className="text-card-title font-semibold text-ink">
-        The bill arrived first
-      </h4>
-      <p className="mt-1 mb-3 text-meta text-body">
-        This asset was created automatically when Finance posted the bill. Make
-        sure the item is there, then fill in its area and holder.
-      </p>
-      {save.error instanceof Error && (
-        <Banner tone="bad">{save.error.message}</Banner>
-      )}
-      <div className="grid grid-cols-2 gap-4">
-        <Field label="Area" required>
-          <Input
-            value={form.sub_location ?? ""}
-            onChange={(event) => set("sub_location", event.target.value)}
-          />
-        </Field>
-        <Field label="Holder" required>
-          <Input
-            value={form.holder ?? ""}
-            onChange={(event) => set("holder", event.target.value)}
-          />
-        </Field>
-        <Field label="Serial / plate">
-          <Input
-            value={form.serial_number ?? ""}
-            onChange={(event) => set("serial_number", event.target.value)}
-          />
-        </Field>
-        <Field label="Condition">
-          <Select
-            value={form.condition ?? asset.condition}
-            onChange={(next) => set("condition", next)}
-            aria-label="Condition"
-          >
-            <option value="BAIK">Good</option>
-            <option value="PERLU_SERVIS">Needs service</option>
-            <option value="RUSAK">Broken</option>
-          </Select>
-        </Field>
-        {(build?.fields ?? []).map((field) => (
-          <Field key={field.key} label={field.label}>
-            <Input
-              type={field.kind === "DATE" ? "date" : "text"}
-              value={form[`spec:${field.key}`] ?? ""}
-              onChange={(event) => set(`spec:${field.key}`, event.target.value)}
+              }
+              primary={{ label: "Move", onClick: () => openForm("move") }}
             />
-          </Field>
-        ))}
-      </div>
-      <div className="mt-3">
-        <Button
-          variant="primary"
-          pending={save.isPending}
-          disabled={!ready}
-          onClick={() => save.mutate()}
-        >
-          {save.isPending ? "Submitting…" : "Submit"}
-        </Button>
-      </div>
-    </section>
-  )
-}
-
-/// Moving one, with a reason and a date.
-///
-/// The reason is required by the server and by the form: a thing that moves
-/// without one is a thing nobody can reconcile six months later, and the site
-/// is what Finance's next month of depreciation follows.
-function MoveForm({
-  asset,
-  sites,
-  onDone,
-  onCancel,
-}: {
-  asset: GaAssetRow
-  sites: readonly string[]
-  onDone: () => void
-  onCancel: () => void
-}) {
-  const [form, setForm] = useState<Record<string, string>>({
-    to_site: sites.find((one) => one !== asset.site_id) ?? "",
-    occurred_on: new Date().toISOString().slice(0, 10),
-  })
-  const set = (key: string, value: string) =>
-    setForm((current) => ({ ...current, [key]: value }))
-
-  const move = useMutation({
-    mutationFn: () =>
-      transferGaAsset(asset.asset_id, {
-        to_site: form.to_site ?? "",
-        to_sub_location: blank(form.to_sub_location),
-        to_holder: blank(form.to_holder),
-        reason: (form.reason ?? "").trim(),
-        occurred_on: form.occurred_on ?? "",
-      }),
-    onSuccess: onDone,
-  })
-
-  const ready = (form.to_site ?? "") !== "" && (form.reason ?? "").trim() !== ""
-
-  return (
-    <div className="flex flex-col gap-3.5">
-      {move.error instanceof Error && (
-        <Banner tone="bad">{move.error.message}</Banner>
-      )}
-      <p className="text-meta text-body">
-        From <b className="text-ink">{asset.site_id}</b> ·{" "}
-        {asset.sub_location ?? "no area"}
-      </p>
-      <div className="grid grid-cols-2 gap-4">
-        <Field label="To site" required>
-          <Select
-            value={form.to_site ?? ""}
-            onChange={(next) => set("to_site", next)}
-            aria-label="To site"
-          >
-            <option value="">Select…</option>
-            {sites
-              .filter((one) => one !== asset.site_id)
-              .map((one) => (
-                <option key={one} value={one}>
-                  {one}
-                </option>
-              ))}
-          </Select>
-        </Field>
-        <Field label="Area">
-          <Input
-            value={form.to_sub_location ?? ""}
-            onChange={(event) => set("to_sub_location", event.target.value)}
-          />
-        </Field>
-        <Field label="New holder">
-          <Input
-            value={form.to_holder ?? ""}
-            onChange={(event) => set("to_holder", event.target.value)}
-          />
-        </Field>
-        <Field label="Date moved" required>
-          <Input
-            type="date"
-            value={form.occurred_on ?? ""}
-            onChange={(event) => set("occurred_on", event.target.value)}
-          />
-        </Field>
-      </div>
-      <Field label="Reason" required aside="goes into the asset's history">
-        <Input
-          value={form.reason ?? ""}
-          onChange={(event) => set("reason", event.target.value)}
-        />
-      </Field>
-      <div className="flex items-center gap-2">
-        <Button
-          variant="primary"
-          pending={move.isPending}
-          disabled={!ready}
-          onClick={() => move.mutate()}
-        >
-          <ArrowRight />
-          {move.isPending ? "Moving…" : "Move"}
-        </Button>
-        <Button data-cancel variant="ghost" onClick={onCancel}>
-          Cancel
-        </Button>
-      </div>
-    </div>
-  )
-}
-
-/// Proposing a replacement for this asset — the swap that ends with the old
-/// thing marked REPLACED and a new one standing where it stood.
-///
-/// # Why the vendor and the repair are optional
-///
-/// The reason is required, because a swap without a why is a question six
-/// months later. The vendor and the repair that led here are facts that may
-/// not exist yet: a mannequin that cracks was never repaired, and the
-/// supplier of the new one may not be chosen. The server takes them null;
-/// the form does not invent them.
-function ReplaceForm({
-  asset,
-  onSaved,
-  onCancel,
-}: {
-  asset: GaAssetRow
-  onSaved: (replacementId: string) => void
-  onCancel: () => void
-}) {
-  const [form, setForm] = useState<Record<string, string>>({
-    proposed_on: new Date().toISOString().slice(0, 10),
-  })
-  const [problems, setProblems] = useState<Record<string, string>>({})
-  const set = (key: string, value: string) => {
-    setProblems((current) => ({ ...current, [key]: "" }))
-    setForm((current) => ({ ...current, [key]: value }))
-  }
-
-  // This asset's own repairs, so the one that led here can be named. Read
-  // from the book's first page and sifted here — the register's per-asset
-  // question is a small slice of a small book, and a second endpoint for it
-  // would be a second answer to keep in step.
-  const repairs = useQuery({
-    queryKey: gaKeys.repairs({}),
-    queryFn: ({ signal }) => gaRepairs({ limit: 200 }, signal),
-    staleTime: 5 * 60 * 1000,
-  })
-  const ownRepairs = (repairs.data?.rows ?? []).filter(
-    (one) => one.asset_id === asset.asset_id
-  )
-
-  const vendors = useQuery({
-    queryKey: [...procurementKeys.suppliers(), "book", "EXPENSE"],
-    queryFn: ({ signal }) => supplierPage({ category: "EXPENSE" }, signal),
-    staleTime: 5 * 60 * 1000,
-  })
-
-  const save = useMutation({
-    mutationFn: () =>
-      recordGaReplacement({
-        old_asset_id: asset.asset_id,
-        reason: (form.reason ?? "").trim(),
-        repair_id: form.repair === "" ? null : (form.repair ?? null),
-        supplier_id: form.vendor === "" ? null : (form.vendor ?? null),
-        proposed_on: form.proposed_on ?? "",
-      }),
-    onSuccess: (row) => {
-      setForm({ proposed_on: new Date().toISOString().slice(0, 10) })
-      onSaved(row.replacement_id)
-    },
-  })
-
-  const submit = () => {
-    if ((form.reason ?? "").trim() === "") {
-      setProblems({ reason: "Write the reason first." })
-      return
-    }
-    save.mutate()
-  }
-
-  return (
-    <div className="flex flex-col gap-3.5">
-      {save.error instanceof Error && (
-        <Banner tone="bad">{save.error.message}</Banner>
-      )}
-      <p className="text-meta text-body">
-        The replacement is recorded as an event on this asset; the new asset is
-        created once its stage reaches <b className="text-ink">Installed</b>, in
-        Maintenance › Replacement.
-      </p>
-      <Field
-        label="Reason for replacement"
-        required
-        problem={problems.reason || undefined}
+          ) : (
+            <SheetFooter onCancel={onClose} cancelLabel="Close" />
+          )
+        }
       >
-        <Input
-          value={form.reason ?? ""}
-          onChange={(event) => set("reason", event.target.value)}
-        />
-      </Field>
-      <div className="grid grid-cols-2 gap-4">
-        <Field label="Related repair">
-          <Select
-            value={form.repair ?? ""}
-            onChange={(next) => set("repair", next)}
-            aria-label="Related repair"
-          >
-            <option value="">None</option>
-            {ownRepairs.map((one) => (
-              <option key={one.repair_id} value={one.repair_id}>
-                {one.title}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Field label="Vendor" aside="choosing the new asset comes later">
-          <Select
-            value={form.vendor ?? ""}
-            onChange={(next) => set("vendor", next)}
-            aria-label="Vendor"
-          >
-            <option value="">Not chosen yet</option>
-            {(vendors.data?.rows ?? []).map((one) => (
-              <option key={one.supplier_id} value={one.supplier_id}>
-                {one.name}
-              </option>
-            ))}
-          </Select>
-        </Field>
-      </div>
-      <Field label="Date proposed" required>
-        <Input
-          type="date"
-          value={form.proposed_on ?? ""}
-          onChange={(event) => set("proposed_on", event.target.value)}
-        />
-      </Field>
-      <div className="flex items-center gap-2">
-        <Button variant="primary" pending={save.isPending} onClick={submit}>
-          {save.isPending ? "Proposing…" : "Propose replacement"}
-        </Button>
-        <Button data-cancel variant="ghost" onClick={onCancel}>
-          Cancel
-        </Button>
-      </div>
-    </div>
-  )
-}
+        <SheetQuery query={hub} what="asset">
+          {(loaded) => (
+            <>
+              {loaded.asset.status === "DRAFT" && (
+                <CompleteDraft asset={loaded.asset} />
+              )}
 
-/// The four ways an asset leaves the company, as cards (brief §10.2), with
-/// the sale's proceeds asked only when the thing is being SOLD. Filing the
-/// request marks the asset DISPOSAL_REQUESTED; Finance's booking of the gain
-/// or loss is its own act, in tahap 6.
-function DisposeForm({
-  asset,
-  onSaved,
-  onCancel,
-}: {
-  asset: GaAssetRow
-  onSaved: (disposalId: string) => void
-  onCancel: () => void
-}) {
-  const [form, setForm] = useState<Record<string, string>>({
-    method: "SOLD",
-    requested_on: new Date().toISOString().slice(0, 10),
-  })
-  const [problems, setProblems] = useState<Record<string, string>>({})
-  const set = (key: string, value: string) => {
-    setProblems((current) => ({ ...current, [key]: "" }))
-    setForm((current) => ({ ...current, [key]: value }))
-  }
+              <AssetFigures
+                asset={loaded.asset}
+                tasks={tasks.data}
+                repairs={repairs.data}
+                contracts={contracts.data}
+                odometer={odometer}
+              />
 
-  const method = form.method ?? "SOLD"
+              <IdentitySection
+                asset={loaded.asset}
+                odometer={lastReading}
+                onOpenOdometer={
+                  vehicle ? () => setOdometerOpen(true) : undefined
+                }
+              />
+              <LocationSection
+                asset={loaded.asset}
+                siteName={siteName(loaded.asset.site_id)}
+                since={
+                  // The last time it moved or changed hands.
+                  loaded.events
+                    .filter((event) =>
+                      ["REGISTERED", "TRANSFER", "ASSIGN"].includes(event.kind)
+                    )
+                    .map((event) => event.occurred_on)
+                    .sort()
+                    .pop() ?? null
+                }
+              />
 
-  const save = useMutation({
-    mutationFn: () =>
-      requestGaDisposal({
-        asset_id: asset.asset_id,
-        method,
-        // Proceeds only make sense for a sale; the wire CHECK agrees, so
-        // the other three methods send absence rather than zero.
-        proceeds_minor:
-          method === "SOLD" && (form.proceeds ?? "") !== ""
-            ? Number(form.proceeds)
-            : null,
-        reason: (form.reason ?? "").trim(),
-        requested_on: form.requested_on ?? "",
-      }),
-    onSuccess: (row) => {
-      setForm({
-        method: "SOLD",
-        requested_on: new Date().toISOString().slice(0, 10),
-      })
-      onSaved(row.disposal_id)
-    },
-  })
+              <DocumentsSection
+                papers={papers}
+                onOpenPaper={paperSheet.open}
+                onOpenOriginal={originalSheet.open}
+                onRelease={release.open}
+                onReturn={giveBack.open}
+                onRecord={() => openForm("paper")}
+                onUpload={() => openForm("upload")}
+              />
 
-  const submit = () => {
-    const next: Record<string, string> = {}
-    if ((form.reason ?? "").trim() === "")
-      next.reason = "Write the reason first."
-    if (Object.keys(next).length > 0) {
-      setProblems(next)
-      return
-    }
-    save.mutate()
-  }
+              <ContractsSection
+                contracts={contracts}
+                onOpen={contractSheet.open}
+                onAdd={() => openForm("contract")}
+              />
 
-  return (
-    <div className="flex flex-col gap-3.5">
-      {save.error instanceof Error && (
-        <Banner tone="bad">{save.error.message}</Banner>
+              <AssetClaimsSection
+                claims={claims}
+                policies={policies}
+                onOpen={claimSheet.open}
+                onAdd={() => openForm("claim")}
+              />
+
+              <ScheduleSection
+                tasks={tasks}
+                inspections={inspections}
+                odometer={odometer}
+                onAddTask={() => openForm("task")}
+                onAddInspection={() => openForm("inspection")}
+              />
+
+              <RepairsSection
+                repairs={repairs}
+                onOpen={repairSheet.open}
+                onAdd={() => openForm("repair")}
+              />
+
+              <ExpensesSection
+                expenses={expenses}
+                onOpen={expense.open}
+                onAdd={() => openForm("expense")}
+              />
+
+              <MovesSection
+                assetId={loaded.asset.asset_id}
+                events={loaded.events}
+                replacements={replacements}
+                disposals={disposals}
+                siteName={siteName}
+                onOpenReplacement={onProposeReplacement}
+                onOpenDisposal={onRequestDisposal}
+              />
+
+              <AccountsSection asset={loaded.asset} />
+            </>
+          )}
+        </SheetQuery>
+      </Sheet>
+
+      {asset !== undefined && (
+        <>
+          {/* The three things GA does to an asset, and the forms its sections
+              open. Ours are keyed by their opening so a form starts clean; the
+              composers of other screens keep their own state, so they are keyed
+              by the asset they were opened for. */}
+          <MoveSheet
+            key={`move:${asset.asset_id}:${form.round}`}
+            asset={asset}
+            open={form.name === "move"}
+            onClose={closeForm}
+          />
+          <ReplaceSheet
+            key={`replace:${asset.asset_id}:${form.round}`}
+            asset={asset}
+            open={form.name === "replace"}
+            onClose={closeForm}
+            onSaved={onProposeReplacement}
+          />
+          <DisposeSheet
+            key={`dispose:${asset.asset_id}:${form.round}`}
+            asset={asset}
+            open={form.name === "dispose"}
+            onClose={closeForm}
+            onSaved={onRequestDisposal}
+          />
+          <UploadSheet
+            key={`upload:${asset.asset_id}:${form.round}`}
+            asset={asset}
+            open={form.name === "upload"}
+            onClose={closeForm}
+          />
+          <RecordExpenseSheet
+            key={`new-expense:${asset.asset_id}:${form.round}`}
+            asset={asset}
+            siteName={siteName(asset.site_id)}
+            open={form.name === "expense"}
+            onClose={closeForm}
+          />
+          <RecordPaperSheet
+            key={`new-paper:${asset.asset_id}`}
+            open={form.name === "paper"}
+            onClose={closeForm}
+            subject={{ kind: "asset", id: asset.asset_id, label: asset.name }}
+          />
+          <ContractComposer
+            key={`new-contract:${asset.asset_id}`}
+            open={form.name === "contract"}
+            group=""
+            presetAsset={{
+              asset_id: asset.asset_id,
+              name: asset.name,
+              site_id: asset.site_id,
+            }}
+            onClose={closeForm}
+            onSaved={(contractId) => {
+              closeForm()
+              contractSheet.open(contractId)
+            }}
+          />
+          <TaskComposer
+            key={`new-task:${asset.asset_id}`}
+            open={form.name === "task"}
+            presetAssetId={asset.asset_id}
+            onClose={closeForm}
+          />
+          <InspectionComposer
+            key={`new-inspection:${asset.asset_id}`}
+            open={form.name === "inspection"}
+            presetAssetId={asset.asset_id}
+            onClose={closeForm}
+          />
+          <ClaimComposer
+            key={`new-claim:${asset.asset_id}:${form.round}`}
+            open={form.name === "claim"}
+            policies={policies}
+            asset={{ asset_id: asset.asset_id, name: asset.name }}
+            onClose={closeForm}
+            onSaved={(claimId) => {
+              closeForm()
+              claimSheet.open(claimId)
+            }}
+          />
+          {vehicle && (
+            <OdometerSheet
+              asset={asset}
+              readings={readings}
+              open={odometerOpen}
+              onClose={() => setOdometerOpen(false)}
+            />
+          )}
+          <RepairComposer
+            key={`new-repair:${asset.asset_id}`}
+            open={form.name === "repair"}
+            presetAssetId={asset.asset_id}
+            onClose={closeForm}
+            onSaved={(repairId) => {
+              closeForm()
+              repairSheet.open(repairId)
+            }}
+          />
+        </>
       )}
-      <p className="text-meta text-body">
-        GA files the request; the asset is flagged for disposal until a decision
-        is made, and Finance books the gain or loss.
-      </p>
-      <Choices
-        label="Disposal method"
-        columns={2}
-        value={method}
-        onChange={(next) => set("method", next)}
-        options={[
-          {
-            value: "SOLD",
-            label: "Sold",
-            icon: Banknote,
-            note: "There's a buyer for it.",
-          },
-          {
-            value: "SCRAPPED",
-            label: "Scrap",
-            icon: Trash2,
-            note: "No longer worth anything; thrown away.",
-          },
-          {
-            value: "DONATED",
-            label: "Donated",
-            icon: Users,
-            note: "Given away, no payment.",
-          },
-          {
-            value: "LOST",
-            label: "Lost",
-            icon: TriangleAlert,
-            note: "Not found; recorded as stolen or destroyed.",
-          },
-        ]}
+
+      {/* The records the sections open. They stand over this sheet as layers.
+          The contract and the repair are mounted only while the address names
+          one, keyed per record as the screens that own them key them. */}
+      {contractSheet.value !== undefined && (
+        <ContractHubSheet
+          key={`contract:${contractSheet.value}`}
+          contractId={contractSheet.value}
+          open={contractSheet.isOpen}
+          onClose={contractSheet.close}
+        />
+      )}
+      {repairSheet.value !== undefined && (
+        <RepairSheet
+          key={`repair:${repairSheet.value}`}
+          repairId={repairSheet.value}
+          open={repairSheet.isOpen}
+          onClose={repairSheet.close}
+        />
+      )}
+      <PaperSheet
+        documentId={paperSheet.value}
+        open={paperSheet.isOpen}
+        onClose={paperSheet.close}
       />
-      {method === "SOLD" && (
-        <Field
-          label="Sale proceeds"
-          aside="if the amount is known already; leave blank if not"
-        >
-          <Money
-            value={form.proceeds ?? ""}
-            onChange={(next) => set("proceeds", next)}
-          />
-        </Field>
-      )}
-      <Field label="Reason" required problem={problems.reason || undefined}>
-        <Input
-          value={form.reason ?? ""}
-          onChange={(event) => set("reason", event.target.value)}
-        />
-      </Field>
-      <div className="flex items-center gap-2">
-        <Button variant="primary" pending={save.isPending} onClick={submit}>
-          {save.isPending ? "Requesting…" : "Request disposal"}
-        </Button>
-        <Button data-cancel variant="ghost" onClick={onCancel}>
-          Cancel
-        </Button>
-      </div>
-    </div>
-  )
-}
-
-/// The papers with a date on them.
-///
-/// A BPKB has no expiry and a STNK has one, and the difference is the whole
-/// reason this tab exists: the certificate that lapses is the one that stops a
-/// lift or a lorry working.
-///
-/// # Why the paper is filed from here and not from the Library
-///
-/// Because the person who has the paper in their hand is standing at the thing
-/// it belongs to. Sending them to another screen to type the asset's number in
-/// again is how a register ends up with the documents filed under nothing.
-/// What they file still lands in the Library like every other document — this
-/// is a door onto the same room, not a second drawer.
-function DocumentsTab({
-  asset,
-  documents,
-}: {
-  asset: GaAssetRow
-  documents: readonly GaDocument[]
-}) {
-  const client = useQueryClient()
-  const [adding, setAdding] = useState(false)
-
-  return (
-    <div className="flex flex-col gap-4">
-      {documents.length === 0 ? (
-        <p className="text-meta text-body">
-          No documents yet. Paper that's just paper — BPKB, operating
-          certificate, warranty — gets attached here and indexed in the Library.
-        </p>
-      ) : (
-        <ul className="flex flex-col">
-          {documents.map((document) => (
-            <li
-              key={document.document_id}
-              className="flex items-center gap-3 border-b border-hairline py-2.5 last:border-b-0"
-            >
-              <FileText className="size-4 shrink-0 stroke-[1.7] text-line-ico" />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-cell text-ink">
-                  {document.doc_type ?? document.title ?? document.name}
-                </span>
-                <span className="block truncate font-mono text-pill text-mute">
-                  {document.doc_number ?? document.name}
-                </span>
-              </span>
-              <span className="shrink-0 text-pill text-mute tabular-nums">
-                {document.expires_on === null
-                  ? "No expiry"
-                  : `Until ${day(document.expires_on)}`}
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {adding ? (
-        <AttachForm
-          asset={asset}
-          onDone={() => {
-            setAdding(false)
-            void client.invalidateQueries({ queryKey: gaKeys.all })
-          }}
-          onCancel={() => setAdding(false)}
-        />
-      ) : (
-        <div>
-          <Button variant="soft" onClick={() => setAdding(true)}>
-            <Paperclip />
-            Attach document
-          </Button>
-        </div>
-      )}
-    </div>
-  )
-}
-
-/// Filing one paper against this asset.
-///
-/// The file is uploaded first and the document filed afterwards, which is the
-/// two-step the Library already uses: a slow photograph never blocks the form,
-/// and a form that fails does not lose the upload.
-function AttachForm({
-  asset,
-  onDone,
-  onCancel,
-}: {
-  asset: GaAssetRow
-  onDone: () => void
-  onCancel: () => void
-}) {
-  const [file, setFile] = useState<File | null>(null)
-  const [form, setForm] = useState<Record<string, string>>({})
-  const set = (key: string, value: string) =>
-    setForm((current) => ({ ...current, [key]: value }))
-
-  const save = useMutation({
-    mutationFn: () => {
-      if (file === null) throw new Error("Choose the file first.")
-      return uploadDocument(file, {
-        title: blank(form.title) ?? undefined,
-        doc_type: blank(form.doc_type) ?? undefined,
-        doc_number: blank(form.doc_number) ?? undefined,
-        issuer: blank(form.issuer) ?? undefined,
-        issued_on: blank(form.issued_on) ?? undefined,
-        expires_on: blank(form.expires_on) ?? undefined,
-        path_tokens: ["GA", asset.asset_number],
-        tags: [],
-        links: [{ subject_kind: "asset", subject_id: asset.asset_id }],
-      })
-    },
-    onSuccess: onDone,
-  })
-
-  return (
-    <div className="rounded-inner border border-hairline-2 p-3.5">
-      {save.error instanceof Error && (
-        <Banner tone="bad">{save.error.message}</Banner>
-      )}
-      <div className="grid grid-cols-2 gap-4">
-        <Field label="File" required>
-          <Input
-            type="file"
-            onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-          />
-        </Field>
-        <Field
-          label="Paper type"
-          hint="STNK, BPKB, operating certificate, warranty"
-        >
-          <Input
-            value={form.doc_type ?? ""}
-            onChange={(event) => set("doc_type", event.target.value)}
-          />
-        </Field>
-        <Field label="Number">
-          <Input
-            value={form.doc_number ?? ""}
-            onChange={(event) => set("doc_number", event.target.value)}
-          />
-        </Field>
-        <Field label="Issuer">
-          <Input
-            value={form.issuer ?? ""}
-            onChange={(event) => set("issuer", event.target.value)}
-          />
-        </Field>
-        <Field label="Issued">
-          <Input
-            type="date"
-            value={form.issued_on ?? ""}
-            onChange={(event) => set("issued_on", event.target.value)}
-          />
-        </Field>
-        <Field label="Valid until" aside="empty = the paper has no expiry">
-          <Input
-            type="date"
-            value={form.expires_on ?? ""}
-            onChange={(event) => set("expires_on", event.target.value)}
-          />
-        </Field>
-      </div>
-      <div className="mt-3 flex items-center gap-2">
-        <Button
-          variant="primary"
-          pending={save.isPending}
-          disabled={file === null}
-          onClick={() => save.mutate()}
-        >
-          {save.isPending ? "Submitting…" : "Submit"}
-        </Button>
-        <Button data-cancel variant="ghost" onClick={onCancel}>
-          Cancel
-        </Button>
-      </div>
-    </div>
-  )
-}
-
-/// Which accounts this class posts to — Finance's decision, read here.
-///
-/// Read-only, and deliberately so: the class is GA's fact and the account is
-/// Finance's, and a GA screen that could set one would be a GA screen that
-/// could change the chart. It is shown because the person registering a thing
-/// is the person who can tell whether the class is right, and the account is
-/// how they check.
-function AccountsTab({ asset }: { asset: GaAssetRow }) {
-  // The asset stays at its site; its accounts are the books of the unit
-  // owning that site (0605).
-  const units = useUnits()
-  const unit = (units.data ?? []).find((one) =>
-    one.sites.some((premises) => premises.id === asset.site_id)
-  )
-  const map = useQuery({
-    queryKey: financeKeys.unitAccounts(unit?.id ?? null),
-    queryFn: ({ signal }) => unitAccounts(unit?.id ?? null, signal),
-    enabled: unit !== undefined,
-  })
-
-  const rows = (map.data ?? []).filter(
-    (row) => row.source_id === asset.class_code
-  )
-
-  if (units.isLoading || map.isLoading)
-    return <LoadingState>Reading Finance accounts…</LoadingState>
-
-  if (rows.length === 0) {
-    return (
-      <p className="text-meta text-body">
-        This class doesn't have an account in{" "}
-        {unit === undefined ? "its unit's books" : `${unitLabel(unit)}'s books`}{" "}
-        yet. Finance maps it; until then, depreciation for this class will be
-        rejected with a message naming the class and its unit.
-      </p>
-    )
-  }
-
-  return (
-    <Facts>
-      {rows.map((row) => (
-        <Fact key={`${row.role}:${row.source_id}`} term={row.role}>
-          <span className="font-mono text-id">{row.account_code}</span>{" "}
-          {row.account_name}
-        </Fact>
-      ))}
-    </Facts>
+      <OriginalSheet
+        originalId={originalSheet.value}
+        open={originalSheet.isOpen}
+        onClose={originalSheet.close}
+      />
+      <ReleaseOriginalSheet
+        original={release.value}
+        open={release.isOpen}
+        onClose={release.close}
+      />
+      <ReturnOriginalSheet
+        original={giveBack.value}
+        open={giveBack.isOpen}
+        onClose={giveBack.close}
+      />
+      <ExpenseSheet
+        key={`expense-sheet:${expense.session}`}
+        expenseId={expense.value}
+        rows={expenses.data?.rows ?? []}
+        open={expense.isOpen}
+        onClose={expense.close}
+      />
+    </ClaimSheetHost>
   )
 }
 
@@ -1040,7 +505,8 @@ function AccountsTab({ asset }: { asset: GaAssetRow }) {
 /// DISPOSAL_REQUESTED and REPLACED are tahap 4's additions: statuses GA's
 /// own actions write (a disposal request, a replacement installed) and that
 /// Finance never touches — the money side of leaving service is the other
-/// desk's record, not this status.
+/// desk's record, not this status. The sheet's head says it in four words
+/// (`headStatus`); the register's list still prints these.
 export function gaStatusWords(status: string): string {
   switch (status) {
     case "DRAFT":
@@ -1058,39 +524,4 @@ export function gaStatusWords(status: string): string {
     default:
       return "Registered"
   }
-}
-
-function gaStatusTone(status: string): "ok" | "warn" | "neutral" {
-  if (status === "DRAFT") return "warn"
-  if (status === "DISPOSAL_REQUESTED") return "warn"
-  if (status === "DISPOSED" || status === "REPLACED") return "neutral"
-  return "ok"
-}
-
-function conditionWords(condition: string): string {
-  switch (condition) {
-    case "PERLU_SERVIS":
-      return "Needs service"
-    case "RUSAK":
-      return "Broken"
-    default:
-      return "Good"
-  }
-}
-
-function specsOf(
-  build: { fields: readonly { key: string }[] } | undefined,
-  form: Readonly<Record<string, string>>
-): Record<string, string> {
-  const out: Record<string, string> = {}
-  for (const field of build?.fields ?? []) {
-    const value = (form[`spec:${field.key}`] ?? "").trim()
-    if (value !== "") out[field.key] = value
-  }
-  return out
-}
-
-function blank(value: string | undefined): string | null {
-  const trimmed = (value ?? "").trim()
-  return trimmed === "" ? null : trimmed
 }

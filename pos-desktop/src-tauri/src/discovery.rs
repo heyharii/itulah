@@ -200,8 +200,8 @@ pub fn normalise_base(typed: &str) -> Result<String, String> {
 /// Ask an address who it is, and accept only our node's answer.
 pub fn identify(base_url: &str, patience: Duration) -> Result<NodeIdentity, String> {
     let url = format!("{}{IDENTITY_PATH}", base_url.trim_end_matches('/'));
-    match ureq::get(&url)
-        .timeout(patience)
+    match crate::edge::http(patience)
+        .get(&url)
         .set("Accept", "application/json")
         .call()
     {

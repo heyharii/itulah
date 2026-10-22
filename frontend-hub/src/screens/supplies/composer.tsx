@@ -1,70 +1,55 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useMemo, useState } from "react"
+import { useState } from "react"
 
-import { Button } from "@/components/ui/button"
-import { Field, Input, Money, Select } from "@/components/ui/field"
-import { Choices, Section } from "@/components/ui/form"
+import { Day } from "@/components/ui/day"
+import { Field, Input, Money, Select, Textarea } from "@/components/ui/field"
+import { Choices } from "@/components/ui/form"
 import { Sheet } from "@/components/ui/sheet"
-import { Banner } from "@/components/ui/states"
+import { SheetFooter } from "@/components/ui/sheet-footer"
+import { today } from "@/lib/calendar"
+import { gaKeys, recordGaSupplyRequest, useGaSites } from "@/lib/queries/ga"
+import { useUnits } from "@/lib/queries/units"
+import { useIdentity } from "@/lib/session"
 import {
-  gaKeys,
-  gaSupplyCategories,
-  recordGaSupplyRequest,
-  useGaSites,
-} from "@/lib/queries/ga"
-import { useUnits, type UnitOfMeasure } from "@/lib/queries/units"
-
-/// What the server's own quantity parser (0655) would make of what was
-/// typed, read the same way it reads it: the trailing word is the unit —
-/// matched against a unit's code or one of its aliases, case-insensitively —
-/// and everything before it is the number. Shown as a preview so a person
-/// finds out their spelling didn't parse before they submit, not after.
-function readQuantity(
-  text: string,
-  units: readonly UnitOfMeasure[]
-): { value: string; unit: UnitOfMeasure } | null {
-  const trimmed = text.trim()
-  if (trimmed === "") return null
-  const at = trimmed.lastIndexOf(" ")
-  if (at === -1) return null
-  const value = trimmed.slice(0, at).trim()
-  const word = trimmed
-    .slice(at + 1)
-    .trim()
-    .toLowerCase()
-  if (value === "" || word === "" || Number.isNaN(Number(value))) return null
-  const unit = units.find(
-    (one) =>
-      one.active &&
-      (one.code.toLowerCase() === word || one.aliases.includes(word))
-  )
-  return unit === undefined ? null : { value, unit }
-}
+  categoryIcon,
+  readQuantityNumber,
+  supplyCategoriesQuery,
+} from "@/screens/supplies/book-data"
 
 /// Asking for something, as the place that needs it.
 ///
-/// # The category is a card, not a dropdown
+/// # The category is a tile, not a dropdown
 ///
-/// Because the category IS the choice the request turns on: each one proposes
-/// the account its bills will charge, and the code rides on the card as its
-/// `tag`, so the person asking sees "Rumah tangga · 6042" rather than having
-/// to open a dropdown to learn what a word costs (brief §10.2, §9.4). Seven
-/// cards fit a column; seven hidden options do not say anything until opened.
+/// Seven answers, each with its own mark, all on view: the eye finds the
+/// printer for stationery before it reads the word. The account the bills will
+/// charge is not asked here and not shown: it follows the category, and
+/// Finance's map owns it. Nothing is chosen at first — a category picked for
+/// the person is a cost booked under the wrong heading — and the request cannot
+/// go until one is.
 ///
 /// # Read from the server, never written here
 ///
 /// The seven are `ga_supply_category`, seeded by the migration and the same
 /// table the request is VALIDATED against — so the form and the validator
-/// cannot disagree about what GA may ask for. The two categories that belong
-/// to somebody else (Customer Supplies, kantong belanja) are absent from that
-/// table by design, which is why no code in this file has to exclude them.
+/// cannot disagree about what GA may ask for. The two categories that belong to
+/// somebody else (Customer Supplies, shopping bags) are absent from that table
+/// by design, which is why no code in this file has to exclude them.
 ///
-/// # Site first after the category
+/// # How many, and in what
+///
+/// A number and a unit, never one box of free text. "1.000 pcs" typed into a
+/// single box was filed as 1, because the server takes the dot for a decimal
+/// point; the number box here reads the way an Indonesian types it ("1.000" is
+/// a thousand) and sends it plain ("1000 PCS"). A unit counted whole (pieces,
+/// boxes) takes digits only; one that is not (kilograms, litres) takes a
+/// decimal.
+///
+/// # A place and a name
 ///
 /// A request is for a PLACE — the shop that ran out, the mess that needs a
-/// kettle — and the site is what makes the cost readable per location later.
-/// The requester is a name, not a login: the form may be filled in for
-/// somebody standing at the counter.
+/// kettle — and the place is what makes the cost readable per location later.
+/// The requester is a name, prefilled with whoever is signed in: the form may be
+/// filled in for somebody standing at the counter.
 export function SupplyComposer({
   open,
   onClose,
@@ -78,235 +63,222 @@ export function SupplyComposer({
   const [form, setForm] = useState<Record<string, string>>({})
   const [problems, setProblems] = useState<Record<string, string>>({})
   const set = (key: string, value: string) => {
-    // Editing a field takes its error back (brief §10.2): a problem sentence
-    // survives only while the field itself is still wrong.
+    // Editing a field takes its error back: a problem sentence survives only
+    // while the field itself is still wrong.
     setProblems((current) => ({ ...current, [key]: "" }))
     setForm((current) => ({ ...current, [key]: value }))
   }
 
-  // The seven GA categories, with their accounts — the server's own list, the
-  // same one the request is validated against.
-  const categories = useQuery({
-    queryKey: gaKeys.supplyCategories(),
-    queryFn: ({ signal }) => gaSupplyCategories(signal),
-    enabled: open,
-    staleTime: Infinity,
-  })
-
-  // Sites, from GA's own locations — the same list every GA form offers,
-  // because a site is a site in all of them.
-  const { sites: siteOptions } = useGaSites(open)
-
-  // For the "reads as" preview beside the quantity field — the same master
-  // the server checks the free text against (0655).
+  const categories = useQuery({ ...supplyCategoriesQuery(), enabled: open })
+  const { sites } = useGaSites(open)
   const units = useUnits()
-  const activeUnits = useMemo(
-    () => units.units.filter((one) => one.active),
-    [units.units]
-  )
-  const quantityPreview = useMemo(
-    () => readQuantity(form.quantity ?? "", units.units),
-    [form.quantity, units.units]
-  )
+  const me = useIdentity().data?.display_name ?? ""
 
-  const category = form.category ?? categories.data?.[0]?.category_code ?? ""
+  const activeUnits = units.units.filter((one) => one.active)
+  const unitCode = form.unit ?? units.baseUnit
+  const unit = units.units.find((one) => one.code === unitCode)
+  const requester = form.requested_by ?? me
+
+  /// Typed into anything but the person's own name.
+  const dirty = [
+    "item",
+    "quantity",
+    "needed_by",
+    "category",
+    "site",
+    "estimate",
+    "notes",
+  ].some((key) => (form[key] ?? "") !== "")
+
+  const leave = () => {
+    setForm({})
+    setProblems({})
+    onClose()
+  }
 
   const save = useMutation({
-    mutationFn: () =>
-      recordGaSupplyRequest({
+    mutationFn: () => {
+      const amount = readQuantityNumber(form.quantity ?? "") ?? 0
+      return recordGaSupplyRequest({
         site_id: form.site ?? "",
-        requested_by: (form.requested_by ?? "").trim(),
-        category_code: category,
+        requested_by: requester.trim(),
+        category_code: form.category ?? "",
         item: (form.item ?? "").trim(),
-        quantity: blank(form.quantity),
+        // Plain digits and a point, so the server's own reading of the text
+        // (which takes a dot for a decimal point) agrees with the one typed.
+        quantity: `${amount} ${unitCode}`,
         needed_by: blank(form.needed_by),
         estimated_cost_minor:
           (form.estimate ?? "") === "" ? null : Number(form.estimate),
         notes: blank(form.notes),
-      }),
+      })
+    },
     onSuccess: (row) => {
       // A new request moves the overview's new-request list and this screen's
       // own book; the GA namespace drops as one, as every GA write here does.
       void client.invalidateQueries({ queryKey: gaKeys.all })
       setForm({})
+      setProblems({})
       onSaved(row.request_id)
     },
   })
 
   const submit = () => {
     const next: Record<string, string> = {}
-    if (category === "") next.category = "Choose a category first."
+    const amount = readQuantityNumber(form.quantity ?? "")
     if ((form.item ?? "").trim() === "") next.item = "Enter the item first."
-    if ((form.site ?? "") === "") next.site = "Choose a location first."
-    if ((form.requested_by ?? "").trim() === "")
-      next.requested_by = "Enter the requester's name."
-    if (Object.keys(next).length > 0) {
-      setProblems(next)
-      return
-    }
+    if (amount === null || amount <= 0) next.quantity = "Enter how many."
+    else if (unit?.whole_number === true && !Number.isInteger(amount))
+      next.quantity = `${unit.label} is counted in whole numbers.`
+    if ((form.category ?? "") === "") next.category = "Choose a category."
+    if ((form.site ?? "") === "") next.site = "Choose a location."
+    if (requester.trim() === "") next.requested_by = "Enter who asks for it."
+    setProblems(next)
+    if (Object.keys(next).length > 0) return
     save.mutate()
   }
 
   return (
     <Sheet
       open={open}
-      onOpenChange={(next) => !next && onClose()}
-      width="wide"
-      title="Request supplies"
-      caption="Consumables for the office, warehouse, stores and mess. The proposed account follows the category; the bill is raised in Finance."
+      onOpenChange={(next) => !next && leave()}
+      size="rail"
+      title="New supply request"
+      dirty={dirty}
       footer={
-        <div className="flex items-center justify-between gap-3">
-          <span className="text-pill text-mute">
-            {category === ""
-              ? "Choose a category first"
-              : (categories.data?.find((one) => one.category_code === category)
-                  ?.name ?? "Category")}
-          </span>
-          <div className="flex items-center gap-2">
-            <Button data-cancel variant="ghost" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              pending={save.isPending}
-              disabled={category === ""}
-              onClick={submit}
-            >
-              {save.isPending ? "Submitting…" : "Submit"}
-            </Button>
-          </div>
-        </div>
+        <SheetFooter
+          error={save.error}
+          onCancel={leave}
+          primary={{
+            label: "Request supplies",
+            pending: save.isPending,
+            pendingLabel: "Requesting…",
+            onClick: submit,
+          }}
+        />
       }
     >
-      <div className="flex flex-col gap-5">
-        {save.error instanceof Error && (
-          <Banner tone="bad">{save.error.message}</Banner>
-        )}
+      <div className="grid gap-6 sm:grid-cols-2">
+        <Field
+          label="Item"
+          required
+          problem={problems.item || undefined}
+          className="sm:col-span-2"
+        >
+          <Input
+            value={form.item ?? ""}
+            onChange={(event) => set("item", event.target.value)}
+            autoFocus
+          />
+        </Field>
 
-        <Section title="Category" aside="each card shows its proposed account">
+        <Field
+          label="Quantity"
+          required
+          problem={problems.quantity || undefined}
+        >
+          <div className="flex">
+            <Input
+              value={form.quantity ?? ""}
+              onChange={(event) => set("quantity", event.target.value)}
+              inputMode={unit?.whole_number === false ? "decimal" : "numeric"}
+              placeholder="0"
+              aria-label="Quantity"
+              className="relative min-w-0 flex-1 rounded-r-none focus:z-10"
+            />
+            <Select
+              value={unitCode}
+              onChange={(next) => set("unit", next)}
+              aria-label="Unit"
+              className="-ml-px w-28 shrink-0 rounded-l-none"
+            >
+              {activeUnits.map((one) => (
+                <option key={one.code} value={one.code}>
+                  {one.label}
+                </option>
+              ))}
+            </Select>
+          </div>
+        </Field>
+
+        <Field label="Needed by">
+          <Day
+            value={form.needed_by ?? ""}
+            onChange={(next) => set("needed_by", next)}
+            notBefore={today()}
+            label="Needed by"
+          />
+        </Field>
+
+        <Field
+          label="Category"
+          required
+          problem={problems.category || undefined}
+          className="sm:col-span-2"
+        >
           {categories.data === undefined ? (
-            <p className="text-meta text-mute">
+            <p className="text-[0.9375rem] text-mute">
               {categories.isLoading
-                ? "Reading the category list…"
+                ? "Reading the categories…"
                 : "No categories."}
             </p>
           ) : (
             <Choices
               label="Category"
               columns={2}
-              value={category}
+              value={form.category ?? ""}
               onChange={(next) => set("category", next)}
               options={categories.data.map((one) => ({
                 value: one.category_code,
                 label: one.name,
-                tag: one.account_code,
+                icon: categoryIcon(one.category_code),
               }))}
             />
           )}
-          {problems.category !== undefined && problems.category !== "" && (
-            <p className="text-pill text-bad">{problems.category}</p>
-          )}
-        </Section>
+        </Field>
 
-        <Section title="Item">
-          <Field label="Item" required problem={problems.item || undefined}>
-            <Input
-              value={form.item ?? ""}
-              onChange={(event) => set("item", event.target.value)}
-              autoFocus
-            />
-          </Field>
-          <div className="grid grid-cols-2 gap-4">
-            <Field
-              label="Quantity"
-              aside="free text, e.g. 10 pcs, 2 reams, 5 boxes"
-            >
-              <Input
-                value={form.quantity ?? ""}
-                onChange={(event) => set("quantity", event.target.value)}
-                list="ga-supply-units"
-              />
-              {/* Recognised units, so a person types "rim" rather than
-                  guessing at "ream". Only a hint — any text still submits,
-                  the same as before this master existed. */}
-              <datalist id="ga-supply-units">
-                {activeUnits.map((one) => (
-                  <option key={one.code} value={one.label} />
-                ))}
-              </datalist>
-              <p className="mt-1 text-pill text-mute">
-                {quantityPreview !== null
-                  ? `Reads as: ${quantityPreview.value} ${quantityPreview.unit.label}`
-                  : `Recognised units: ${activeUnits.map((one) => one.label).join(", ")}`}
-              </p>
-            </Field>
-            <Field label="Needed by">
-              <Input
-                type="date"
-                value={form.needed_by ?? ""}
-                onChange={(event) => set("needed_by", event.target.value)}
-              />
-            </Field>
-          </div>
-        </Section>
-
-        <Section title="Location and requester">
-          <div className="grid grid-cols-2 gap-4">
-            <Field
-              label="Location"
-              required
-              problem={problems.site || undefined}
-            >
-              <Select
-                value={form.site ?? ""}
-                onChange={(next) => set("site", next)}
-                aria-label="Location"
-              >
-                <option value="">Select…</option>
-                {siteOptions.map((one) => (
-                  <option key={one.value} value={one.value}>
-                    {one.label ?? one.value}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Field
-              label="Requested by"
-              required
-              problem={problems.requested_by || undefined}
-            >
-              <Input
-                value={form.requested_by ?? ""}
-                onChange={(event) => set("requested_by", event.target.value)}
-              />
-            </Field>
-          </div>
-        </Section>
-
-        <Section title="Estimate and notes">
-          <Field
-            label="Estimated cost"
-            aside="GA's own estimate; the actual bill follows in Finance"
+        <Field label="Location" required problem={problems.site || undefined}>
+          <Select
+            value={form.site ?? ""}
+            onChange={(next) => set("site", next)}
+            aria-label="Location"
           >
-            <Money
-              value={form.estimate ?? ""}
-              onChange={(next) => set("estimate", next)}
-            />
-          </Field>
-          <Field label="Notes">
-            <Input
-              value={form.notes ?? ""}
-              onChange={(event) => set("notes", event.target.value)}
-            />
-          </Field>
-        </Section>
+            <option value="">Choose…</option>
+            {sites.map((one) => (
+              <option key={one.value} value={one.value}>
+                {one.label ?? one.value}
+              </option>
+            ))}
+          </Select>
+        </Field>
 
-        {/* The one sentence this form owes the reader: two categories that look
-            like they belong here are somebody else's. */}
-        <p className="text-pill text-mute">
-          Customer supplies and shopping bags don't go through here: they belong
-          to Commercial and Inventory respectively.
-        </p>
+        <Field label="Estimate">
+          <Money
+            prefix="Rp"
+            value={form.estimate ?? ""}
+            onChange={(next) => set("estimate", next)}
+          />
+        </Field>
+
+        <Field
+          label="Requested by"
+          required
+          problem={problems.requested_by || undefined}
+          className="sm:col-span-2"
+        >
+          <Input
+            value={requester}
+            onChange={(event) => set("requested_by", event.target.value)}
+          />
+        </Field>
+
+        <Field label="Notes" className="sm:col-span-2">
+          <Textarea
+            rows={3}
+            value={form.notes ?? ""}
+            onChange={(event) => set("notes", event.target.value)}
+          />
+        </Field>
       </div>
     </Sheet>
   )

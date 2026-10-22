@@ -5,6 +5,7 @@ import { usePrinter } from "@/lib/operations/printer"
 import type { Printer } from "@/lib/operations/printer"
 import { keys } from "@/lib/operations/keys"
 import { useEdgeActor } from "@/lib/edge-session"
+import { toast } from "@/lib/toast"
 import { idempotencyKey } from "@itulah/contract/client"
 import type { PrintSessionSummary, TaggingWorkJob } from "@itulah/contract"
 
@@ -95,8 +96,15 @@ async function drain(
       // One tracked unit per label: applied twice it is twice the warehouse.
       idempotency_key: idempotencyKey(),
     })
+    return session
   }
-  return session
+  // A pass that printed nothing stopped the run: say so, rather than leave
+  // the button looking as if it had worked (e2e 20 Oct 2026).
+  // Pending already counts the labels that failed: they go again.
+  const left = session.pending_count
+  throw new Error(
+    `The printer at ${session.printer_host}:${session.printer_port} did not take the labels · ${left} still to print. Check it is on, then Print again.`
+  )
 }
 
 /// Print every job in `jobs` that still has labels to come.
@@ -114,6 +122,13 @@ export function usePrintJobs(
         if (run !== null && run.pending_count === 0) continue
         await sendJob(job, run, printer, actor)
       }
+    },
+    // Said as a toast too: the row the button stood in is drawn again when
+    // the lists refresh, and the message under it went with it.
+    onError: (error) => {
+      toast.error("Nothing printed", {
+        description: error instanceof Error ? error.message : String(error),
+      })
     },
     onSettled: () => {
       void client.invalidateQueries({ queryKey: keys.taggingJobs() })

@@ -18,6 +18,7 @@ import { Checkbox, Field, Input, Money } from "@/components/ui/field"
 import { ExpandingSearch } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Status } from "@/components/ui/pill"
+import { CellMoney } from "@/components/ui/rows-switch"
 import { Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { SheetFooter } from "@/components/ui/sheet-footer"
@@ -180,11 +181,14 @@ function RecurringBillsScreen() {
         size: 150,
         enableSorting: false,
         meta: { align: "right", card: "metric" },
-        cell: ({ row }) =>
-          money(
-            row.original.expected_subtotal_minor +
+        cell: ({ row }) => (
+          <CellMoney
+            minor={
+              row.original.expected_subtotal_minor +
               row.original.expected_tax_minor
-          ),
+            }
+          />
+        ),
       },
       {
         id: "status",

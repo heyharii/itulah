@@ -4,6 +4,7 @@ import { Bell, ChevronRight, Search } from "lucide-react"
 
 import { AppIcon } from "@/components/shell/app-icon"
 import { PageContent } from "@/components/shell/app-shell"
+import { hasMattePicture, MatteTile } from "@/components/ui/matte-picture"
 import { useOpenPalette } from "@/components/shell/palette-opener"
 import { appsFor, landingOf, type AppTile } from "@/lib/apps"
 import { weekday } from "@/lib/format"
@@ -13,13 +14,21 @@ import { cn } from "@/lib/utils"
 
 const noCount = () => null
 
+/// A tile's count, once the page is hydrated: the server renders before the
+/// counts arrive and the browser may already hold them, and a figure (or a
+/// label naming it) only one side drew is a hydration mismatch.
+function useHydratedCount(tile: AppTile) {
+  const count = (tile.useCount ?? noCount)()
+  return useHydrated() ? count : null
+}
+
 /// What is waiting in a department, at the end of its row: the same total the
 /// desk rail's mark carries. Nothing is drawn for none, and "99+" for a pile —
 /// the figure is a nudge, the department has the numbers.
 function Waiting({ tile }: { tile: AppTile }) {
   // A hook that is the same one on every render of this row (a tile's count
   // never changes), so calling it here is safe.
-  const waiting = (tile.useCount ?? noCount)()
+  const waiting = useHydratedCount(tile)
   if (typeof waiting !== "number" || waiting <= 0) return null
   return (
     <span
@@ -32,6 +41,41 @@ function Waiting({ tile }: { tile: AppTile }) {
     >
       {waiting > 99 ? "99+" : waiting}
     </span>
+  )
+}
+
+/// One department on the Soft grid: its matte picture stepping out of its
+/// pastel square, what is waiting as the red tag on it, its name under.
+/// A tile the matte set has no picture for keeps its coloured glyph.
+function GridTile({ tile }: { tile: AppTile }) {
+  // The same per-tile hook `Waiting` calls: a tile's count never changes.
+  const waiting = useHydratedCount(tile)
+  const to = landingOf(tile)
+  return (
+    <li>
+      <Link
+        to={(to ?? "/apps") as string}
+        aria-label={
+          typeof waiting === "number" && waiting > 0
+            ? `${tile.label}, ${waiting} waiting`
+            : tile.label
+        }
+        className="group flex flex-col items-center gap-1.5 rounded-2xl pt-2.5 pb-1.5 transition-colors duration-(--t-press) active:bg-soft"
+      >
+        {hasMattePicture(tile.id) ? (
+          <MatteTile
+            id={tile.id}
+            count={waiting}
+            className="transition-[scale] duration-(--t-press) ease-(--ease-out) group-active:scale-[0.92]"
+          />
+        ) : (
+          <AppIcon id={tile.id} icon={tile.icon} size="lg" className="my-0.5" />
+        )}
+        <span className="w-full text-center text-[0.9375rem] leading-5 tracking-[-0.015em] whitespace-nowrap text-[#484848]">
+          {tile.label}
+        </span>
+      </Link>
+    </li>
   )
 }
 
@@ -59,7 +103,9 @@ export function Apps() {
     queryFn: ({ signal }) => listNotifications(8, signal),
     staleTime: 30_000,
   })
-  const unread = feed.data?.unread ?? 0
+  // Read once hydrated, like the counts: the server has no unread figure yet
+  const hydrated = useHydrated()
+  const unread = hydrated ? (feed.data?.unread ?? 0) : 0
 
   const name = (
     identity.data?.display_name ??
@@ -69,7 +115,6 @@ export function Apps() {
   // The weekday and the time of day are the browser's own: the server's
   // clock (and zone) is not the person's, so the page names neither until it
   // is hydrated, and says "Hello" in the meantime rather than a wrong hour.
-  const hydrated = useHydrated()
   const now = hydrated ? new Date() : null
   const hour = now?.getHours() ?? 0
   const greeting =
@@ -119,7 +164,7 @@ export function Apps() {
         </Link>
       )}
 
-      <h2 className="mb-2.5 px-1 text-[0.9375rem] font-semibold tracking-[-0.01em] text-ink">
+      <h2 className="look-now-only mb-2.5 px-1 text-[0.9375rem] font-semibold tracking-[-0.01em] text-ink">
         Apps
       </h2>
       {identity.isPending ? null : tiles.length === 0 ? (
@@ -133,31 +178,41 @@ export function Apps() {
         // a 375px phone left each name 83px, and "Procurement" and
         // "Merchandise" touched; a row gives any name the width of the line
         // and has room, at its right, for what is waiting in the department.
-        <ul className="overflow-hidden rounded-3xl border border-hairline bg-canvas shadow-soft [&>li+li]:border-t [&>li+li]:border-hairline">
-          {tiles.map((one) => {
-            const to = landingOf(one)
-            return (
-              <li key={one.id}>
-                <Link
-                  to={(to ?? "/apps") as string}
-                  className="group flex h-14 w-full items-center gap-3 px-3.5 text-left transition-colors duration-(--t-press) active:bg-soft"
-                >
-                  <AppIcon
-                    id={one.id}
-                    icon={one.icon}
-                    size="md"
-                    className="transition-[scale] duration-(--t-press) ease-(--ease-out) group-active:scale-[0.92]"
-                  />
-                  <span className="min-w-0 flex-1 truncate text-[1rem] font-medium text-ink">
-                    {one.label}
-                  </span>
-                  <Waiting tile={one} />
-                  <ChevronRight className="size-4 shrink-0 text-line-ico" />
-                </Link>
-              </li>
-            )
-          })}
-        </ul>
+        <>
+          {/* Soft (lib/look.ts): the departments as Gojek's grid of matte
+            pictures, three across on a phone and four from 440px: at 414 four
+            across put "Procurement" and "Merchandise" end to end. */}
+          <ul className="look-soft-only grid grid-cols-3 gap-y-2 rounded-3xl bg-canvas px-1 py-3 shadow-soft min-[440px]:grid-cols-4 md:grid-cols-6 md:py-5">
+            {tiles.map((one) => (
+              <GridTile key={one.id} tile={one} />
+            ))}
+          </ul>
+          <ul className="look-now-only overflow-hidden rounded-3xl border border-hairline bg-canvas shadow-soft [&>li+li]:border-t [&>li+li]:border-hairline">
+            {tiles.map((one) => {
+              const to = landingOf(one)
+              return (
+                <li key={one.id}>
+                  <Link
+                    to={(to ?? "/apps") as string}
+                    className="group flex h-14 w-full items-center gap-3 px-3.5 text-left transition-colors duration-(--t-press) active:bg-soft"
+                  >
+                    <AppIcon
+                      id={one.id}
+                      icon={one.icon}
+                      size="md"
+                      className="transition-[scale] duration-(--t-press) ease-(--ease-out) group-active:scale-[0.92]"
+                    />
+                    <span className="min-w-0 flex-1 truncate text-[1rem] font-medium text-ink">
+                      {one.label}
+                    </span>
+                    <Waiting tile={one} />
+                    <ChevronRight className="size-4 shrink-0 text-line-ico" />
+                  </Link>
+                </li>
+              )
+            })}
+          </ul>
+        </>
       )}
 
       {/* A phone has no ⌘K, and the screens kept out of the menus (Stores,

@@ -1,6 +1,7 @@
 import { useSuspenseQueries } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
+import { Store, Warehouse } from "lucide-react"
 import { Suspense, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -8,7 +9,6 @@ import { DockTools } from "@/components/shell/dock-tools"
 import { Card } from "@/components/ui/card"
 import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { FilterPanel } from "@/components/ui/filter-panel"
-import { ExpandingSearch } from "@/components/ui/list-chrome"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { EmptyState, LoadingState } from "@/components/ui/states"
@@ -71,7 +71,14 @@ const columns: ColumnDef<TableSetup, DestinationRow>[] = [
     // making different decisions, and the list says which is which — and it is
     // the one question worth asking a two-value column, because "only the
     // warehouses" is how a container is routed.
-    meta: { card: "hide", filter: { kind: "option" } },
+    meta: {
+      card: "hide",
+      filter: {
+        kind: "option",
+        icon: (value) =>
+          value === null ? undefined : value === "DC" ? Warehouse : Store,
+      },
+    },
     cell: ({ row }) => (
       <Tag tone={row.original.node_role === "DC" ? "accent" : "neutral"}>
         {row.original.node_role}
@@ -294,12 +301,15 @@ function DestinationBook() {
           quieter answer to "how many places can a delivery go", and the
           question this screen exists to answer is the unnarrowed one. */}
       <div className="group/bar mb-3.5 flex min-h-[2.25rem] flex-wrap items-center gap-2 max-md:hidden">
-        <ExpandingSearch
-          value={query}
-          onChange={setQuery}
-          label="Search destinations"
+        <FilterPanel
+          model={filters}
+          table={table}
+          search={{
+            value: query,
+            onChange: setQuery,
+            label: "Search destinations",
+          }}
         />
-        <FilterPanel model={filters} table={table} />
       </div>
       <DockTools
         search={{

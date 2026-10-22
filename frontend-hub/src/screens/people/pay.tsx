@@ -4,13 +4,22 @@ import { useState } from "react"
 import { Day } from "@/components/ui/day"
 import { Button } from "@/components/ui/button"
 import { Field, Input, Select } from "@/components/ui/field"
-import { KeyValue, SubHead } from "@/components/ui/rows"
+import {
+  KeyValue,
+  MiniCell,
+  MiniRow,
+  MiniTable,
+  SubHead,
+} from "@/components/ui/rows"
+import { Sheet } from "@/components/ui/sheet"
+import { SheetFooter } from "@/components/ui/sheet-footer"
 import { Banner } from "@/components/ui/states"
 import { Timeline } from "@/components/ui/timeline"
-import { day, money, moment } from "@/lib/format"
+import { day, money, moment, monthYear } from "@/lib/format"
 import {
   agreePay,
   amendPayrollIdentity,
+  employeePayslips,
   payKeys,
   readPay,
   readPayrollIdentity,
@@ -21,6 +30,7 @@ import {
 import { queryState } from "@/lib/query-state"
 import { Quiet } from "@/screens/people/parts"
 import { AllowanceLines } from "@/screens/people/payroll-setup"
+import { SlipBreakdown } from "@/screens/people/slip-view"
 
 /// What somebody is paid, and who they are to payroll — the Pay tab of the
 /// employee's sheet.
@@ -141,6 +151,76 @@ export function PayPanel({ employeeId }: { employeeId: string }) {
       <SetTaxIdentity employeeId={employeeId} />
       <SetAccount employeeId={employeeId} />
       <ResetPayslipPassword employeeId={employeeId} />
+      <EmployeePayslips employeeId={employeeId} />
+    </div>
+  )
+}
+
+/// The payslips of approved runs, newest month first. A row opens the slip
+/// Payroll › Payslips opens (`SlipBreakdown`).
+function EmployeePayslips({ employeeId }: { employeeId: string }) {
+  const [openRun, setOpenRun] = useState<string | null>(null)
+  const slips = useQuery({
+    queryKey: payKeys.employeeSlips(employeeId),
+    queryFn: ({ signal }) => employeePayslips(employeeId, signal),
+  })
+  const shown = slips.data?.find((slip) => slip.run_id === openRun) ?? null
+
+  return (
+    <div>
+      <SubHead>Payslips</SubHead>
+      {queryState(slips, {
+        loading: "Reading the payslips…",
+        render: (rows) =>
+          rows.length === 0 ? (
+            <Quiet>No approved payslip yet.</Quiet>
+          ) : (
+            <MiniTable head={["Month", "Gross", "Deductions", "Take-home"]}>
+              {rows.map((slip) => (
+                <MiniRow key={slip.run_id}>
+                  <MiniCell>
+                    <button
+                      type="button"
+                      onClick={() => setOpenRun(slip.run_id)}
+                      className="text-left text-[0.9375rem] text-ink hover:underline"
+                    >
+                      {monthYear(slip.period)}
+                    </button>
+                  </MiniCell>
+                  <MiniCell align="right">{money(slip.gross_minor)}</MiniCell>
+                  <MiniCell align="right">
+                    {money(slip.deduction_total_minor)}
+                  </MiniCell>
+                  <MiniCell align="right">{money(slip.net_minor)}</MiniCell>
+                </MiniRow>
+              ))}
+            </MiniTable>
+          ),
+      })}
+
+      {shown !== null && (
+        <Sheet
+          open
+          onOpenChange={(next) => {
+            if (!next) setOpenRun(null)
+          }}
+          id={`Payslip · ${monthYear(shown.period)}`}
+          title={shown.full_name ?? shown.employee_code}
+          footer={
+            <SheetFooter
+              cancelLabel="Close"
+              onCancel={() => setOpenRun(null)}
+            />
+          }
+        >
+          {shown.withheld && (
+            <Banner tone="warn" className="mb-4">
+              Pay is held on this run.
+            </Banner>
+          )}
+          <SlipBreakdown slip={shown} />
+        </Sheet>
+      )}
     </div>
   )
 }
@@ -224,6 +304,7 @@ function AgreePay({ employeeId }: { employeeId: string }) {
       setFailed(null)
       setReason("")
       void client.invalidateQueries({ queryKey: payKeys.pay(employeeId) })
+      void client.invalidateQueries({ queryKey: payKeys.runs() })
     },
     onError: (error: Error) => setFailed(error.message),
   })
@@ -318,6 +399,7 @@ function SetAccount({ employeeId }: { employeeId: string }) {
       setNumber("")
       setReason("")
       void client.invalidateQueries({ queryKey: payKeys.identity(employeeId) })
+      void client.invalidateQueries({ queryKey: payKeys.runs() })
     },
     onError: (error: Error) => setFailed(error.message),
   })
@@ -420,6 +502,7 @@ function SetTaxIdentity({ employeeId }: { employeeId: string }) {
       setReason("")
       setFailed(null)
       void client.invalidateQueries({ queryKey: payKeys.identity(employeeId) })
+      void client.invalidateQueries({ queryKey: payKeys.runs() })
     },
     onError: (error: Error) => setFailed(error.message),
   })

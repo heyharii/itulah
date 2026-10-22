@@ -1,6 +1,8 @@
 import { createIsomorphicFn } from "@tanstack/react-start"
 import { getCookie, getRequestHeader } from "@tanstack/react-start/server"
 
+import { asStyle, STYLE_COOKIE, type LookStyle } from "@/lib/look"
+
 /// What the request says about the screen it will be drawn on, for the parts
 /// of the first HTML that differ by layout: the server cannot measure a
 /// window, so it reads what the browser told it last time (the `hub-vw`
@@ -14,6 +16,8 @@ export interface DeviceHint {
   readonly phone: boolean
   /// The window's CSS width, as last measured, or the usual one for the kind.
   readonly width: number
+  /// Soft or Now, as this browser chose (`lib/look.ts`), Soft until it does.
+  readonly style: LookStyle
 }
 
 /// The cookie the browser keeps its window width in.
@@ -39,7 +43,7 @@ export const deviceHint = createIsomorphicFn()
         : phone
           ? PHONE_WIDTH
           : DESK_WIDTH
-    return { phone, width }
+    return { phone, width, style: asStyle(getCookie(STYLE_COOKIE)) }
   })
   .client((): DeviceHint => {
     const root = document.documentElement
@@ -48,6 +52,7 @@ export const deviceHint = createIsomorphicFn()
     return {
       phone,
       width: width > 0 ? width : phone ? PHONE_WIDTH : DESK_WIDTH,
+      style: asStyle(root.dataset.style),
     }
   })
 

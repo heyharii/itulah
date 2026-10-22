@@ -1,0 +1,71 @@
+<!-- @dsCard group="Figures" height=673 subtitle="Static rendition of kpi.tsx in the All white look" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>KpiStrip — preview</title><style>body{margin:0}
+/* KpiStrip: bundle .ds-kpis is the desk strip; these are the delta line and the phone's two columns. */
+.ds-kpistrip-flush{margin-bottom:0}
+.ds-kpistrip-delta{padding-top:6px;font-size:15px;font-weight:600;color:var(--mute)}
+.ds-kpistrip-sheet{max-width:620px}
+.ds-kpistrip-phone{margin:0;width:414px;max-width:100%}
+.ds-kpistrip-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 24px;margin:0;clip-path:none}
+.ds-kpistrip-grid .ds-kpi{padding:0}
+.ds-kpistrip-grid .ds-kpi::before{display:none}
+</style></head>
+<body>
+<div class="ds ds-stage">
+  <div class="ds-col">
+    <div class="ds-caption">On a page</div>
+    <div class="ds-kpis ds-kpistrip-flush">
+      <div class="ds-kpi"><div class="ds-kpi-label">Orders</div><div class="ds-kpi-value">18</div></div>
+      <div class="ds-kpi"><div class="ds-kpi-label">Still open</div><div class="ds-kpi-value">18</div></div>
+      <div class="ds-kpi"><div class="ds-kpi-label">Overdue</div><div class="ds-kpi-value">0</div></div>
+      <div class="ds-kpi"><div class="ds-kpi-label">On order</div><div class="ds-kpi-value" title="Rp 102.718.000">Rp 102,7 M</div></div>
+    </div>
+  </div>
+
+  <div class="ds-col">
+    <div class="ds-caption">With a third line</div>
+    <div class="ds-kpis ds-kpistrip-flush">
+      <div class="ds-kpi"><div class="ds-kpi-label">Transactions</div><div class="ds-kpi-value">1.254</div><div class="ds-kpistrip-delta">12 voided</div></div>
+      <div class="ds-kpi"><div class="ds-kpi-label">Sold</div><div class="ds-kpi-value">3.480 pcs</div><div class="ds-kpistrip-delta">2,8 pcs each</div></div>
+      <div class="ds-kpi"><div class="ds-kpi-label">Sales</div><div class="ds-kpi-value">Rp 245,3 M</div><div class="ds-kpistrip-delta">Rp 4,1 M discount · avg Rp 195.600</div></div>
+    </div>
+  </div>
+
+  <div class="ds-col">
+    <div class="ds-caption">In a sheet</div>
+    <div class="ds-sheet ds-kpistrip-sheet">
+      <div class="ds-sheet-head">
+        <div class="ds-sheet-headtext">
+          <div class="ds-sheet-crumb"><span>Purchase Orders</span><span class="ds-sep">/</span><span>PO-151026-001</span></div>
+          <div class="ds-sheet-titlerow"><span class="ds-sheet-title">Garmen Mitra Sentosa, PT</span></div>
+        </div>
+        <button class="ds-sheet-close" type="button" aria-label="Close"><span class="ds-ico ds-ico-x ds-ico--17"></span></button>
+      </div>
+      <div class="ds-sheet-body">
+        <div class="ds-kpis ds-kpis--in-sheet ds-kpistrip-flush">
+          <div class="ds-kpi"><div class="ds-kpi-label">Delivery date</div><div class="ds-kpi-value is-bad">20 Oct 2026</div></div>
+          <div class="ds-kpi"><div class="ds-kpi-label">Payment</div><div class="ds-kpi-value">Giro · 30 days</div></div>
+          <div class="ds-kpi"><div class="ds-kpi-label">Ordered</div><div class="ds-kpi-value">300 pcs</div></div>
+          <div class="ds-kpi"><div class="ds-kpi-label">Grand total</div><div class="ds-kpi-value">Rp 58.000.000</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ds-col">
+    <div class="ds-caption">On a phone</div>
+    <div class="ds-phone ds-kpistrip-phone">
+      <div class="ds-phone-body">
+        <div class="ds-kpis ds-kpistrip-grid">
+          <div class="ds-kpi"><div class="ds-kpi-label">Articles</div><div class="ds-kpi-value">12</div></div>
+          <div class="ds-kpi"><div class="ds-kpi-label">Divisions</div><div class="ds-kpi-value">5</div></div>
+          <div class="ds-kpi"><div class="ds-kpi-label">Colors</div><div class="ds-kpi-value">11</div></div>
+          <div class="ds-kpi"><div class="ds-kpi-label">Sizes</div><div class="ds-kpi-value">8</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

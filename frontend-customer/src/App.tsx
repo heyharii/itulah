@@ -1,6 +1,6 @@
 import { RouterProvider } from "@tanstack/react-router"
 
-import { Mark } from "@/components/member-card"
+import { CentralMark } from "@/components/matte"
 import { PairingForm } from "@/components/pairing-form"
 import { SessionProvider, useMemberSession, useSignOut } from "@/lib/session"
 import { router } from "@/router"
@@ -25,7 +25,7 @@ export default function App() {
         {/* The mark, breathing in once rather than a spinner: most of the
             time this lasts a few hundred milliseconds and a spinner that
             flashes on and off reads as a glitch. */}
-        <Mark className="size-9 text-ink motion-safe:animate-[page-fade_600ms_var(--ease-out)_both]" />
+        <CentralMark className="size-14 motion-safe:animate-[page-fade_600ms_var(--ease-out)_both]" />
         <span className="sr-only">Memeriksa…</span>
       </main>
     )
@@ -37,7 +37,7 @@ export default function App() {
   if (session.isError) {
     return (
       <main className="flex min-h-svh flex-col items-center justify-center gap-4 bg-backdrop p-6 text-center">
-        <Mark className="size-9 text-faint" />
+        <CentralMark className="size-14 opacity-50 grayscale" />
         <p role="alert" className="max-w-[17rem] text-nav text-body">
           Tidak dapat menghubungi server. Coba lagi sebentar lagi.
         </p>

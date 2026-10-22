@@ -9,7 +9,7 @@ import { MiniCell, MiniRow, MiniTable, SubHead } from "@/components/ui/rows"
 import { Segmented } from "@/components/ui/segmented"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner, ErrorState } from "@/components/ui/states"
-import { count, day, money } from "@/lib/format"
+import { count, day, money, sku } from "@/lib/format"
 import { describeChangeKind, type ChangeKind } from "@/lib/queries/changes"
 import {
   BookWrittenNotPublished,
@@ -793,11 +793,8 @@ export function PublishSheet({
       const first = receipts[0]
       if (shops > 0 && first !== undefined) {
         setPublished({
-          title:
-            receipts.length === 1
-              ? `“${name.trim()}” published`
-              : `“${name.trim()}” published as ${count(receipts.length)} price changes`,
-          note: `Sent to ${count(shops)} store${shops === 1 ? "" : "s"}.`,
+          title: `“${name.trim()}” published`,
+          note: `${receipts.length === 1 ? "" : `${count(receipts.length)} price changes · `}${count(shops)} store${shops === 1 ? "" : "s"}`,
           to: first.id,
         })
       }
@@ -812,15 +809,12 @@ export function PublishSheet({
   /// The books this sheet published, held in the receipt dialog until they
   /// are read. Kept across the sheet's own close, which resets the form but
   /// not this.
-  const [published, setPublished] = useState<
-    | {
-        readonly title: string
-        readonly note: string
-        /// The first book's id, for View rollout.
-        readonly to: string
-      }
-    | null
-  >(null)
+  const [published, setPublished] = useState<{
+    readonly title: string
+    readonly note: string
+    /// The first book's id, for View rollout.
+    readonly to: string
+  } | null>(null)
 
   const ready =
     actor !== "" &&
@@ -872,264 +866,266 @@ export function PublishSheet({
   return (
     <>
       <Sheet
-      open={open}
-      onOpenChange={(next) => !next && onClose()}
-      title="Publish these prices"
-      footer={
-        <div className="flex items-center justify-between gap-3">
-          <span
-            className={cn(
-              "min-w-0 truncate text-[0.9375rem]",
-              problem !== undefined ? "text-bad" : "text-text"
-            )}
-          >
-            {problem ??
-              [
-                sales.length > 0
-                  ? `${count(sales.length)} sale price${sales.length === 1 ? "" : "s"}`
-                  : null,
-                priced.length > 0
-                  ? `${count(priced.length)} new price${priced.length === 1 ? "" : "s"}`
-                  : null,
-              ]
-                .filter((one) => one !== null)
-                .join(" · ")}
-          </span>
-          <Button
-            variant="primary"
-            pending={publish.isPending}
-            disabled={edits.length === 0 || actor === ""}
-            onClick={() => {
-              // Pressed before it could go: say why, beside the fields.
-              setTried(true)
-              if (ready) publish.mutate()
-            }}
-          >
-            {publish.isPending ? "Publishing…" : "Publish to all stores"}
-          </Button>
-        </div>
-      }
-    >
-      <div className="flex flex-col gap-6">
-        {publish.isError && sent.length > 0 && (
-          // Said before the error itself, because it is the half that changed
-          // the world: those versions are live at the tills now, and retrying
-          // must not send them again.
-          <Banner tone="warn">
-            {count(sent.length)} of {count(books.length)} price changes already
-            published. Discard those before trying again.
-          </Banner>
-        )}
+        open={open}
+        onOpenChange={(next) => !next && onClose()}
+        title="Publish these prices"
+        footer={
+          <div className="flex items-center justify-between gap-3">
+            <span
+              className={cn(
+                "min-w-0 truncate text-[0.9375rem]",
+                problem !== undefined ? "text-bad" : "text-text"
+              )}
+            >
+              {problem ??
+                [
+                  sales.length > 0
+                    ? `${count(sales.length)} sale price${sales.length === 1 ? "" : "s"}`
+                    : null,
+                  priced.length > 0
+                    ? `${count(priced.length)} new price${priced.length === 1 ? "" : "s"}`
+                    : null,
+                ]
+                  .filter((one) => one !== null)
+                  .join(" · ")}
+            </span>
+            <Button
+              variant="primary"
+              pending={publish.isPending}
+              disabled={edits.length === 0 || actor === ""}
+              onClick={() => {
+                // Pressed before it could go: say why, beside the fields.
+                setTried(true)
+                if (ready) publish.mutate()
+              }}
+            >
+              {publish.isPending ? "Publishing…" : "Publish to all stores"}
+            </Button>
+          </div>
+        }
+      >
+        <div className="flex flex-col gap-6">
+          {publish.isError && sent.length > 0 && (
+            // Said before the error itself, because it is the half that changed
+            // the world: those versions are live at the tills now, and retrying
+            // must not send them again.
+            <Banner tone="warn">
+              {count(sent.length)} of {count(books.length)} price changes
+              already published. Discard those before trying again.
+            </Banner>
+          )}
 
-        {halted !== null ? (
-          <Banner tone="bad">{halted.message}</Banner>
-        ) : publish.isError ? (
-          <ErrorState error={publish.error} />
-        ) : null}
+          {halted !== null ? (
+            <Banner tone="bad">{halted.message}</Banner>
+          ) : publish.isError ? (
+            <ErrorState error={publish.error} />
+          ) : null}
 
-        {/* A price carries no date of its own — every till reads the book's
+          {/* A price carries no date of its own — every till reads the book's
             window — so prices starting on different days go out as one book
             per date. A shop reads every open book, so the later ones add a
             price where they name one and leave the rest standing. */}
-        {books.length > 1 && (
-          <Banner tone="info">
-            Goes out as {count(books.length)} price changes, one per start date.
-          </Banner>
-        )}
+          {books.length > 1 && (
+            <Banner tone="info">
+              Goes out as {count(books.length)} price changes, one per start
+              date.
+            </Banner>
+          )}
 
-        {/* A book holds one rule per tax class, so one of the two readings
+          {/* A book holds one rule per tax class, so one of the two readings
             would be applied to both. */}
-        {taxConflict !== undefined && (
-          <Banner tone="bad">
-            Two prices under {taxConflict.taxCategory} have different tax rates.
-          </Banner>
-        )}
+          {taxConflict !== undefined && (
+            <Banner tone="bad">
+              Two prices under {taxConflict.taxCategory} have different tax
+              rates.
+            </Banner>
+          )}
 
-        <Field label="Name" required problem={nameProblem}>
-          <Input
-            value={name}
-            autoFocus
-            onChange={(event) => setName(event.target.value)}
-            onBlur={() => setNameLeft(true)}
-          />
-        </Field>
+          <Field label="Name" required problem={nameProblem}>
+            <Input
+              value={name}
+              autoFocus
+              onChange={(event) => setName(event.target.value)}
+              onBlur={() => setNameLeft(true)}
+            />
+          </Field>
 
-        {/* The kind is what Changes files this under, and it cannot be set
+          {/* The kind is what Changes files this under, and it cannot be set
             after publishing. Defaulted from what the batch carries; Markdown
             and Clearance look the same in the data, so the person says. */}
-        <Field
-          label="Kind"
-          required
-          aside={declared === null ? "suggested" : undefined}
-        >
-          <Select
-            value={kind}
-            onChange={(next) => setDeclared(next as DeclaredKind)}
+          <Field
+            label="Kind"
+            required
+            aside={declared === null ? "suggested" : undefined}
           >
-            {DECLARED_KINDS.map((one) => (
-              <option key={one} value={one}>
-                {describeChangeKind(one)}
-              </option>
-            ))}
-          </Select>
-        </Field>
+            <Select
+              value={kind}
+              onChange={(next) => setDeclared(next as DeclaredKind)}
+            >
+              {DECLARED_KINDS.map((one) => (
+                <option key={one} value={one}>
+                  {describeChangeKind(one)}
+                </option>
+              ))}
+            </Select>
+          </Field>
 
-        {/* Before the start the tills keep charging what the last book gave
+          {/* Before the start the tills keep charging what the last book gave
             them. The end is optional; each sale price can also end earlier on
             its own. */}
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Starts" required problem={startProblem}>
-            <Input
-              type="datetime-local"
-              value={from}
-              onChange={(event) => setFrom(event.target.value)}
-            />
-          </Field>
-          <Field
-            label="Ends"
-            problem={
-              windowBroken ? "The end has to be after the start." : undefined
-            }
-          >
-            <Input
-              type="datetime-local"
-              value={until}
-              onChange={(event) => setUntil(event.target.value)}
-            />
-          </Field>
-        </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Starts" required problem={startProblem}>
+              <Input
+                type="datetime-local"
+                value={from}
+                onChange={(event) => setFrom(event.target.value)}
+              />
+            </Field>
+            <Field
+              label="Ends"
+              problem={
+                windowBroken ? "The end has to be after the start." : undefined
+              }
+            >
+              <Input
+                type="datetime-local"
+                value={until}
+                onChange={(event) => setUntil(event.target.value)}
+              />
+            </Field>
+          </div>
 
-        {/* Hours belong to a markdown and to nothing else, in the shop's own
+          {/* Hours belong to a markdown and to nothing else, in the shop's own
             time. Outside them the tills charge the full price again — the
             label on the garment will not. */}
-        {sales.length > 0 && (
-          <Field
-            label="Sale hours"
-            problem={slotBroken ? "Give both hours, or neither." : undefined}
-          >
-            <div className="flex items-center gap-3">
-              <Input
-                type="time"
-                value={slotFrom}
-                onChange={(event) => setSlotFrom(event.target.value)}
-              />
-              <span className="text-[0.9375rem] text-mute">to</span>
-              <Input
-                type="time"
-                value={slotTo}
-                onChange={(event) => setSlotTo(event.target.value)}
-              />
-            </div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {WEEKDAYS.map((label, index) => {
-                const day = index + 1
-                const on = slotDays.includes(day)
-                return (
-                  <button
-                    key={label}
-                    type="button"
-                    aria-pressed={on}
-                    onClick={() =>
-                      setSlotDays(
+          {sales.length > 0 && (
+            <Field
+              label="Sale hours"
+              problem={slotBroken ? "Give both hours, or neither." : undefined}
+            >
+              <div className="flex items-center gap-3">
+                <Input
+                  type="time"
+                  value={slotFrom}
+                  onChange={(event) => setSlotFrom(event.target.value)}
+                />
+                <span className="text-[0.9375rem] text-mute">to</span>
+                <Input
+                  type="time"
+                  value={slotTo}
+                  onChange={(event) => setSlotTo(event.target.value)}
+                />
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {WEEKDAYS.map((label, index) => {
+                  const day = index + 1
+                  const on = slotDays.includes(day)
+                  return (
+                    <button
+                      key={label}
+                      type="button"
+                      aria-pressed={on}
+                      onClick={() =>
+                        setSlotDays(
+                          on
+                            ? slotDays.filter((one) => one !== day)
+                            : [...slotDays, day].sort((a, b) => a - b)
+                        )
+                      }
+                      className={cn(
+                        "h-8 rounded-full px-3 text-[0.9375rem] font-medium transition-colors",
                         on
-                          ? slotDays.filter((one) => one !== day)
-                          : [...slotDays, day].sort((a, b) => a - b)
-                      )
-                    }
-                    className={cn(
-                      "h-8 rounded-full px-3 text-[0.9375rem] font-medium transition-colors",
-                      on
-                        ? "bg-ink text-white"
-                        : "border border-hairline-2 bg-canvas text-body"
-                    )}
-                  >
-                    {label}
-                  </button>
-                )
-              })}
+                          ? "bg-ink text-white"
+                          : "border border-hairline-2 bg-canvas text-body"
+                      )}
+                    >
+                      {label}
+                    </button>
+                  )
+                })}
+              </div>
+            </Field>
+          )}
+
+          {sales.length > 0 && (
+            <div>
+              <SubHead>Sale prices</SubHead>
+              <MiniTable
+                head={["Cell", { label: "Until", align: "left" }, "Price"]}
+              >
+                {sales.map((edit) => (
+                  <MiniRow key={cellKey(edit.articleCode, edit.siteId)}>
+                    <MiniCell className="py-3.5">
+                      <Named
+                        name={edit.articleName ?? edit.articleCode}
+                        code={`${edit.articleCode} · ${edit.siteLabel}`}
+                      />
+                    </MiniCell>
+                    <MiniCell className="py-3.5">
+                      <span className="text-[0.9375rem] text-body">
+                        {edit.until === null ? "No end date" : day(edit.until)}
+                      </span>
+                    </MiniCell>
+                    <MiniCell align="right" className="py-3.5">
+                      {money(edit.priceMinor)}
+                    </MiniCell>
+                  </MiniRow>
+                ))}
+              </MiniTable>
             </div>
-          </Field>
-        )}
+          )}
 
-        {sales.length > 0 && (
-          <div>
-            <SubHead>Sale prices</SubHead>
-            <MiniTable
-              head={["Cell", { label: "Until", align: "left" }, "Price"]}
-            >
-              {sales.map((edit) => (
-                <MiniRow key={cellKey(edit.articleCode, edit.siteId)}>
-                  <MiniCell className="py-3.5">
-                    <Named
-                      name={edit.articleName ?? edit.articleCode}
-                      code={`${edit.articleCode} · ${edit.siteLabel}`}
-                    />
-                  </MiniCell>
-                  <MiniCell className="py-3.5">
-                    <span className="text-[0.9375rem] text-body">
-                      {edit.until === null ? "No end date" : day(edit.until)}
-                    </span>
-                  </MiniCell>
-                  <MiniCell align="right" className="py-3.5">
-                    {money(edit.priceMinor)}
-                  </MiniCell>
-                </MiniRow>
-              ))}
-            </MiniTable>
-          </div>
-        )}
-
-        {priced.length > 0 && (
-          <div>
-            <SubHead>New prices</SubHead>
-            <MiniTable
-              head={["SKU", { label: "Where", align: "left" }, "Price"]}
-            >
-              {priced.map((price) => (
-                <MiniRow key={price.key}>
-                  <MiniCell className="py-3.5">
-                    <Named
-                      name={price.articleName ?? price.articleCode}
-                      code={[price.skuCode, price.variant]
-                        .filter((one) => one !== "")
-                        .join(" · ")}
-                    />
-                  </MiniCell>
-                  <MiniCell className="py-3.5">
-                    <span className="block text-[0.9375rem] text-body">
-                      {price.where}
-                    </span>
-                    {/* Only where it differs from the book's, because a date
+          {priced.length > 0 && (
+            <div>
+              <SubHead>New prices</SubHead>
+              <MiniTable
+                head={["SKU", { label: "Where", align: "left" }, "Price"]}
+              >
+                {priced.map((price) => (
+                  <MiniRow key={price.key}>
+                    <MiniCell className="py-3.5">
+                      <Named
+                        name={price.articleName ?? price.articleCode}
+                        code={[sku(price.skuCode), price.variant]
+                          .filter((one) => one !== "")
+                          .join(" · ")}
+                      />
+                    </MiniCell>
+                    <MiniCell className="py-3.5">
+                      <span className="block text-[0.9375rem] text-body">
+                        {price.where}
+                      </span>
+                      {/* Only where it differs from the book's, because a date
                         printed on every row would read as a per-row window,
                         which is the one thing a price rule does not have. */}
-                    {price.from !== null && (
-                      <span className="block text-[0.9375rem] text-mute">
-                        from {day(instantOf(price.from) ?? price.from)}
-                      </span>
-                    )}
-                  </MiniCell>
-                  <MiniCell align="right" className="py-3.5">
-                    {/* The figure it supersedes, struck, beside the new one.
+                      {price.from !== null && (
+                        <span className="block text-[0.9375rem] text-mute">
+                          from {day(instantOf(price.from) ?? price.from)}
+                        </span>
+                      )}
+                    </MiniCell>
+                    <MiniCell align="right" className="py-3.5">
+                      {/* The figure it supersedes, struck, beside the new one.
                         A price on its own cannot be read as a rise or a cut,
                         and that is the first thing anybody checks before a
                         book goes to thirty tills. */}
-                    {price.wasMinor !== null &&
-                      price.wasMinor !== price.priceMinor && (
-                        <span className="mr-1.5 text-mute tabular-nums line-through decoration-1">
-                          {money(price.wasMinor)}
-                        </span>
-                      )}
-                    <span className="tabular-nums">
-                      {money(price.priceMinor)}
-                    </span>
-                  </MiniCell>
-                </MiniRow>
-              ))}
-            </MiniTable>
-          </div>
-        )}
-      </div>
-    </Sheet>
+                      {price.wasMinor !== null &&
+                        price.wasMinor !== price.priceMinor && (
+                          <span className="mr-1.5 text-mute tabular-nums line-through decoration-1">
+                            {money(price.wasMinor)}
+                          </span>
+                        )}
+                      <span className="tabular-nums">
+                        {money(price.priceMinor)}
+                      </span>
+                    </MiniCell>
+                  </MiniRow>
+                ))}
+              </MiniTable>
+            </div>
+          )}
+        </div>
+      </Sheet>
       <SavedDialog
         open={published !== null}
         onOpenChange={(next) => {

@@ -27,7 +27,7 @@ import { Field, Select } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill, Status } from "@/components/ui/pill"
-import { BarSpacer, ExpandingSearch } from "@/components/ui/list-chrome"
+import { BarSpacer } from "@/components/ui/list-chrome"
 import { Segmented } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet, type SheetTab } from "@/components/ui/sheet"
 import { Banner, EmptyState, LoadingState } from "@/components/ui/states"
@@ -57,7 +57,7 @@ import { useDebounced } from "@/lib/use-debounced"
 import { cn } from "@/lib/utils"
 import { InviteSheet } from "@/screens/people/invite-sheet"
 import { usersFeedQuery } from "@/screens/system/data"
-import { Secret } from "@/screens/system/shared"
+import { CopyButton } from "@/screens/people/invite-sheet"
 import { saying } from "@/screens/system/units"
 
 /// Users & roles — who can sign in at the centre, what each of them may do,
@@ -484,12 +484,10 @@ function UserRegister({
           it is split in the middle, its tally at the right. The one act is the
           head's. */}
       <div className="group/bar mb-3.5 flex min-h-[2.25rem] flex-wrap items-center gap-2 max-md:hidden">
-        <ExpandingSearch
-          value={query}
-          onChange={setQuery}
-          label="Search accounts"
+        <FilterPanel
+          model={model}
+          search={{ value: query, onChange: setQuery, label: "Search accounts" }}
         />
-        <FilterPanel model={model} />
         <Segmented
           options={GROUP_OPTIONS}
           value={groupBy}
@@ -708,10 +706,17 @@ function UserSheet({
     onSuccess: () => void invalidate(),
   })
 
+  /// A temporary password, made here and shown once (owner, 2026-10-18): the
+  /// person signs in with it and is asked to choose their own straight away
+  /// (0980), so the administrator knows it only until it is used.
   const reset = useMutation({
-    mutationFn: () => resetUserPassword(user!.id, { new_password: password }),
-    onSuccess: () => {
-      setPassword("")
+    mutationFn: async () => {
+      const temporary = temporaryPassword()
+      await resetUserPassword(user!.id, { new_password: temporary })
+      return temporary
+    },
+    onSuccess: (temporary) => {
+      setPassword(temporary)
       void invalidate()
     },
   })
@@ -886,28 +891,38 @@ function UserSheet({
                         <h4 className="mb-2 text-card-title font-semibold text-ink">
                           Password
                         </h4>
-                        <div className="flex items-end gap-2.5">
-                          <Field
-                            label="New password"
-                            required
-                            className="flex-1"
-                          >
-                            <Secret
-                              value={password}
-                              onChange={(event) =>
-                                setPassword(event.target.value)
-                              }
-                            />
-                          </Field>
+                        {password === "" ? (
                           <Button
-                            className="mb-[0.1875rem]"
+                            variant="primary"
                             pending={reset.isPending}
-                            disabled={password === ""}
                             onClick={() => reset.mutate()}
                           >
-                            {reset.isPending ? "Setting…" : "Set password"}
+                            Set temporary password
                           </Button>
-                        </div>
+                        ) : (
+                          <div className="flex flex-col gap-3 rounded-card border border-hairline p-4">
+                            <p className="text-[0.9375rem] text-body">
+                              Shown once. {user.username} signs in with it and
+                              chooses a new password straight away.
+                            </p>
+                            <p className="font-mono text-[1.125rem] font-semibold tracking-wide text-ink">
+                              {password}
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                              <CopyButton text={password} />
+                              <a
+                                className="inline-flex h-9 items-center rounded-inner px-3 text-[0.9375rem] font-medium text-accent hover:bg-accent-bg"
+                                href={`https://wa.me/?text=${encodeURIComponent(
+                                  `Password sementara Central untuk ${user.username}: ${password}\nMasuk dengan password ini, lalu buat password baru.`
+                                )}`}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                Send on WhatsApp
+                              </a>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   ),
@@ -937,4 +952,11 @@ function UserSheet({
       ) : null}
     </Sheet>
   )
+}
+
+/// Ten characters a person can read aloud and type on a phone: no 0/O, 1/l/I.
+function temporaryPassword(): string {
+  const alphabet = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+  const bytes = crypto.getRandomValues(new Uint8Array(10))
+  return Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join("")
 }

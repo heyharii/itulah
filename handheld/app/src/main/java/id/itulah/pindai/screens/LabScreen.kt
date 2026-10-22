@@ -6,6 +6,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import id.itulah.pindai.ui.kit.*
@@ -30,7 +31,10 @@ private val FootClearance = 120.dp
  * scroll away and each one sits next to the number it changes.
  */
 @Composable
-fun LabScreen(vm: SweepViewModel, state: SweepState) {
+fun LabScreen(vm: SweepViewModel, holder: State<SweepState>) {
+    // The bench reads nearly everything, so it takes the whole value — but in
+    // its own scope, so the shell around it does not recompose with it.
+    val state = holder.value
     Column(
         Modifier.fillMaxSize().background(Surface.canvas)
             .verticalScroll(rememberScrollState())

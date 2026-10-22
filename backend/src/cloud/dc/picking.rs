@@ -84,7 +84,9 @@ pub fn routes(router: Router<AppState>) -> Router<AppState> {
 /// work, not the picker's.
 ///
 /// Only allotments to a shop from the Gudang that the cloud executes itself
-/// and that are still open.
+/// and that are still open. One MD cancelled is never picked, even while its
+/// header stays ACTIVE for pieces already on the road (owner, 21 Oct 2026:
+/// "kenapa ga ada allotment, tapi ada picklist?").
 const OPEN_PICK_LINES: &str = "
     SELECT line.id AS allotment_line_id, line.allotment_id, header.allotment_number,
            header.created_at, line.destination_id, line.sku_id, sku.sku_code,
@@ -104,7 +106,8 @@ const OPEN_PICK_LINES: &str = "
        AND header.type = 'TO_SITE'
        AND line.destination_type = 'STORE'
        AND header.activation_target_origin_id IS NULL
-       AND header.status IN ('ACTIVE', 'IN_PROGRESS')";
+       AND header.status IN ('ACTIVE', 'IN_PROGRESS')
+       AND header.cancelled_at IS NULL";
 
 /// Timestamps on the wire the way the DC server writes them.
 fn stamp(at: DateTime<Utc>) -> String {
@@ -373,6 +376,12 @@ async fn refusals(db: &PgPool, session_id: Uuid) -> Result<Vec<PicklistRefusal>,
 ///
 /// A row lock on the round is held throughout: a second delivery of the same
 /// accept waits, then finds the round closed and answers with it.
+///
+/// The round runs in its own task, so it finishes even if the screen that
+/// asked goes away part-way — a reload, a tablet off the Wi-Fi. Step 3 is one
+/// transaction per line, and a dropped request used to stop between them: on
+/// 17 Oct a hub reload left a piece off the rack that no pack ever saw, the
+/// round OPEN, and its key gone with the page that held it.
 async fn create_picklist(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
@@ -380,6 +389,17 @@ async fn create_picklist(
 ) -> Result<(StatusCode, Json<PicklistResult>), AppError> {
     common::require_hosted()?;
     request.actor_id = principal.username.trim().to_owned();
+    tokio::spawn(async move { pick_round(state, request).await })
+        .await
+        .map_err(|error| AppError::Configuration(format!("the pick round stopped: {error}")))?
+        .map(|result| (StatusCode::CREATED, Json(result)))
+}
+
+/// The pick itself, out of the request's hands (`create_picklist`).
+async fn pick_round(
+    state: AppState,
+    mut request: CreatePicklistRequest,
+) -> Result<PicklistResult, AppError> {
     let allotment_id = normalise(&state.db, &mut request).await?;
     let site = common::gudang_site(&state.db).await?;
     // The flows a pick parks are told who picked under the Gudang's own
@@ -413,10 +433,7 @@ async fn create_picklist(
 
     let summary = session_summary(&state.db, session_id).await?;
     let refused = refusals(&state.db, session_id).await?;
-    Ok((
-        StatusCode::CREATED,
-        Json(PicklistResult { summary, refused }),
-    ))
+    Ok(PicklistResult { summary, refused })
 }
 
 /// The DC server's checks on a picklist, in its words. Returns the allotment

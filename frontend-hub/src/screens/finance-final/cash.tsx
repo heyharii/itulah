@@ -4,6 +4,7 @@ import { Fragment, Suspense, useDeferredValue, useMemo, useState } from "react"
 import { PageContent } from "@/components/shell/app-shell"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
+import { CellMoney } from "@/components/ui/rows-switch"
 import { Toolbar } from "@/components/ui/segmented"
 import { EmptyState, LoadingState } from "@/components/ui/states"
 import { day, money } from "@/lib/format"
@@ -253,7 +254,7 @@ function CashScreen() {
                 />
               </>
             ) : (
-              <Grid>
+              <Grid followRows giveUp={[2, 3]}>
                 <thead>
                   <tr>
                     <Th>Unit / drawer</Th>
@@ -417,7 +418,7 @@ function DrawerRow({ drawer }: { drawer: Drawer }) {
       </Td>
       <Td align="right">
         <span className="font-medium text-ink">
-          {money(account.per_books_minor)}
+          <CellMoney minor={account.per_books_minor} />
         </span>
       </Td>
       <Td>
@@ -446,7 +447,7 @@ function DrawerRow({ drawer }: { drawer: Drawer }) {
           <>
             <span className="font-medium text-bad-fg">
               {last.variance_minor > 0 ? "+" : ""}
-              {money(last.variance_minor)}
+              <CellMoney minor={last.variance_minor} />
             </span>
             <span className="block text-[0.9375rem] text-mute">
               {last.entry_id === null ? "not in the books" : last.entry_number}

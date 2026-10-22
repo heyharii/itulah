@@ -8,6 +8,7 @@ import { PinPad } from "@/pinpad"
 import { supervisorByFinger, supervisorByPin } from "@/session"
 import { Topbar } from "@/till"
 import { readScan } from "@epc"
+import { articleId, sku } from "@/sku"
 import { money } from "@itulah/contract/money"
 
 /// Undoing a sale, the two ways a shop is allowed to.
@@ -600,7 +601,7 @@ function Authorisation({ hold }: { hold: Supervision }) {
 
   return (
     <>
-      <span className="label">Otorisasi supervisor</span>
+      <span className="label">Supervisor approval</span>
       {granted !== null && left !== null ? (
         <>
           {/* Who, before anything else. A cashier has to be able to see that a
@@ -843,7 +844,10 @@ function SaleSummary({ sale }: { sale: Sale }) {
         {sale.lines.map((line, at) => (
           <div className="receipt-line" key={`${line.skuCode}-${at}`}>
             <span>
-              {line.name} <small className="num muted">{line.skuCode}</small>
+              {line.name}{" "}
+              <small className="num muted">
+                {articleId(null, line.skuCode)} · {sku(line.skuCode)}
+              </small>
             </span>
             <strong className="num">
               {line.lineTotalMinor === null ? "—" : money(line.lineTotalMinor)}
@@ -983,7 +987,7 @@ export function ReturnScreen({
   function onTag(raw: string) {
     const typed = raw.trim()
     if (typed === "") return
-    const scanned = readScan(typed)
+    const scanned = readScan(typed.replace(/·/g, ""))
     // A barcode names a product, not a garment. The shop has forty of that
     // shirt and this says nothing about which one came home — and `lines` on
     // the wire is a list of EPCs, so there is no field for it either.
@@ -1187,7 +1191,7 @@ export function ReturnScreen({
               3 · Destination, reason, how it goes back
             </span>
             <span className={ready ? "active" : undefined}>
-              4 · Otorisasi supervisor
+              4 · Supervisor approval
             </span>
           </div>
 
@@ -1238,9 +1242,9 @@ export function ReturnScreen({
                   {coming.map((one) => (
                     <div className="row-item" key={one.epc}>
                       <div className="grow">
-                        <h3>{one.name ?? one.skuCode}</h3>
+                        <h3>{one.name ?? sku(one.skuCode)}</h3>
                         <p className="num">
-                          {one.skuCode} · …{one.epc.slice(-8)}
+                          {articleId(null, one.skuCode)} · {sku(one.skuCode)} · …{one.epc.slice(-8)}
                         </p>
                         <div className="chips">
                           {DISPOSITIONS.map((where) => (
@@ -1511,7 +1515,7 @@ export function VoidScreen({
               2 · Reason for voiding
             </span>
             <span className={ready ? "active" : undefined}>
-              3 · Otorisasi supervisor
+              3 · Supervisor approval
             </span>
           </div>
 

@@ -1,0 +1,110 @@
+<!-- @dsCard group="Page" height=784 subtitle="Static rendition of notification-bell.tsx and push-control.tsx in the All white look" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>NotificationBell — preview</title><style>
+body{margin:0}
+/* NotificationBell: the popup at its real width (352px, radius 10, shadow-pop), and the push strip one state at a time. */
+.ds-bell-stage{gap:0}
+.ds-bell-layout{display:flex;align-items:flex-start;gap:24px;width:644px;max-width:100%;margin:0 auto}
+.ds-bell-col{display:flex;flex-direction:column;gap:8px;min-width:0}
+.ds-bell-col--pop{flex:none;width:352px}
+.ds-bell-col--side{flex:none;width:268px}
+.ds-bell-col .ds-caption{margin-top:12px}
+.ds-bell-col .ds-caption:first-child{margin-top:0}
+.ds-bell-pop{overflow:hidden;border:1px solid var(--hairline);border-radius:var(--r-card);background:var(--canvas);box-shadow:var(--shadow-pop)}
+.ds-bell-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;border-bottom:1px solid var(--hairline)}
+.ds-bell-title{font-size:15px;font-weight:600;color:var(--ink)}
+.ds-bell-unread{font-size:15px;color:var(--mute);font-variant-numeric:tabular-nums}
+.ds-bell-list{margin:0;padding:0;list-style:none}
+.ds-bell-row{display:flex;gap:8px;padding:10px 12px;border-bottom:1px solid var(--hairline);text-align:left}
+.ds-bell-row:last-child{border-bottom:0}
+.ds-bell-row.is-unread{background:var(--soft)}
+.ds-bell-row.is-hover{background:var(--soft-2)}
+.ds-bell-dot{flex:none;width:6px;height:6px;margin-top:6px;border-radius:var(--r-full);background:var(--hairline-2)}
+.ds-bell-row.is-unread .ds-bell-dot{background:var(--accent)}
+.ds-bell-what{margin:0;font-size:15px;line-height:1.375;font-weight:500;color:var(--ink)}
+.ds-bell-body{display:-webkit-box;margin:2px 0 0;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:2;font-size:15px;line-height:1.375;color:var(--body)}
+.ds-bell-when{margin:2px 0 0;font-size:15px;color:var(--mute)}
+.ds-bell-none{margin:0;padding:24px 12px;text-align:center;font-size:15px;color:var(--mute)}
+.ds-bell-push{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border-top:1px solid var(--hairline)}
+.ds-bell-foot{padding:8px 12px;border-top:1px solid var(--hairline)}
+.ds-bell-link{font-size:15px;font-weight:500;color:var(--accent)}
+.ds-bell-box{display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:10px 12px;border:1px solid var(--hairline);border-radius:var(--r-card)}
+.ds-bell-line{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%}
+.ds-bell-note{display:flex;gap:8px;margin:0;font-size:15px;line-height:1.375;color:var(--body)}
+.ds-bell-note .ds-ico{flex:none;margin-top:3px;color:var(--line-ico)}
+.ds-bell-steps{display:flex;flex-direction:column;gap:4px;margin:0 0 0 24px;padding:0;font-size:15px;line-height:1.375;color:var(--body)}
+.ds-bell-steps b{font-weight:500;color:var(--ink)}
+.ds-bell-col--side .ds-toast{width:100%}
+.ds-bell-ico-bell-ring{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10.268 21a2 2 0 0 0 3.464 0'/%3E%3Cpath d='M22 8c0-2.3-.8-4.3-2-6'/%3E%3Cpath d='M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326'/%3E%3Cpath d='M4 2C2.8 3.7 2 5.7 2 8'/%3E%3C/svg%3E")}
+.ds-bell-ico-bell-off{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10.268 21a2 2 0 0 0 3.464 0'/%3E%3Cpath d='M17 17H4a1 1 0 0 1-.74-1.673C4.59 13.956 6 12.499 6 8a6 6 0 0 1 .258-1.742'/%3E%3Cpath d='m2 2 20 20'/%3E%3Cpath d='M8.668 3.01A6 6 0 0 1 18 8c0 2.687.77 4.653 1.707 6.05'/%3E%3C/svg%3E")}
+</style></head>
+<body>
+<div class="ds ds-stage ds-bell-stage">
+<div class="ds-bell-layout">
+
+  <div class="ds-bell-col ds-bell-col--pop">
+    <p class="ds-caption">Opened from the orb: unread rows carry a dot</p>
+    <div class="ds-bell-pop" role="dialog" aria-label="Notifications">
+      <div class="ds-bell-head"><span class="ds-bell-title">Notifications</span><span class="ds-bell-unread">2 unread</span></div>
+      <ul class="ds-bell-list">
+        <li class="ds-bell-row is-unread"><span class="ds-bell-dot"></span><div>
+          <p class="ds-bell-what">A supplier invoiced a different price</p>
+          <p class="ds-bell-body">Rina Kusuma at DC-CIKUPA accepted a delivery invoiced at 38.500 per piece against an agreed 36.000, a difference of +2.500.</p>
+          <p class="ds-bell-when">17 Oct 2026, 10:56</p>
+        </div></li>
+        <li class="ds-bell-row is-unread"><span class="ds-bell-dot"></span><div>
+          <p class="ds-bell-what">Cikupa's server is ready</p>
+          <p class="ds-bell-body">Data up to 10:56</p>
+          <p class="ds-bell-when">17 Oct 2026, 10:52</p>
+        </div></li>
+        <li class="ds-bell-row is-hover"><span class="ds-bell-dot"></span><div>
+          <p class="ds-bell-what">Garmen Nusantara delivery is short</p>
+          <p class="ds-bell-body">Rina Kusuma mentioned you — Can you recount the 24 pcs?</p>
+          <p class="ds-bell-when">16 Oct 2026, 16:30</p>
+        </div></li>
+      </ul>
+      <div class="ds-bell-push">
+        <button class="ds-btn ds-btn--ghost" type="button" style="align-self:flex-start"><span class="ds-ico ds-bell-ico-bell-ring"></span>Turn on notifications</button>
+      </div>
+      <div class="ds-bell-foot"><span class="ds-bell-link">See everything</span></div>
+    </div>
+
+    <p class="ds-caption">Nothing waiting</p>
+    <div class="ds-bell-pop" role="dialog" aria-label="Notifications">
+      <div class="ds-bell-head"><span class="ds-bell-title">Notifications</span></div>
+      <p class="ds-bell-none">Nothing is waiting for you.</p>
+      <div class="ds-bell-push">
+        <div class="ds-bell-line"><p class="ds-bell-note"><span class="ds-ico ds-bell-ico-bell-ring"></span><span>Notifications are on for this device.</span></p><button class="ds-btn ds-btn--ghost" type="button">Turn off</button></div>
+      </div>
+      <div class="ds-bell-foot"><span class="ds-bell-link">See everything</span></div>
+    </div>
+  </div>
+
+  <div class="ds-bell-col ds-bell-col--side">
+    <p class="ds-caption">Push, blocked by the browser</p>
+    <div class="ds-bell-box">
+      <p class="ds-bell-note"><span class="ds-ico ds-bell-ico-bell-off"></span><span>Notifications are blocked for this site. Allow them in the browser’s site settings, then reload the page.</span></p>
+    </div>
+
+    <p class="ds-caption">Push on an iPhone that has not installed the app</p>
+    <div class="ds-bell-box">
+      <p class="ds-bell-note"><span class="ds-ico ds-bell-ico-bell-ring"></span><span>On iPhone and iPad, notifications can only be received once this app is added to the Home Screen.</span></p>
+      <ol class="ds-bell-steps">
+        <li>Tap <b>Share</b> in Safari.</li>
+        <li>Choose <b>Add to Home Screen</b>.</li>
+        <li>Open <b>Central</b> from the Home Screen, then tap <b>Turn on notifications</b> here.</li>
+      </ol>
+    </div>
+
+    <p class="ds-caption">News the person waits for is a toast, not a row</p>
+    <div class="ds-toast">
+      <div class="ds-toast-text"><span class="ds-toast-title">Cikupa's server is ready</span><span class="ds-toast-desc">Data up to 10:56</span></div>
+      <span class="ds-toast-action">Open</span>
+    </div>
+  </div>
+
+</div>
+</div>
+</body>
+</html>

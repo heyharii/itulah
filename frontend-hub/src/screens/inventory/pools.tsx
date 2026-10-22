@@ -23,13 +23,7 @@ import { Card } from "@/components/ui/card"
 import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { Field, Input } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
-import {
-  BarSpacer,
-  ColumnsMenu,
-  DockedFilters,
-  ExpandingSearch,
-  SortMenu,
-} from "@/components/ui/list-chrome"
+import { BarSpacer, ColumnsMenu, SortMenu } from "@/components/ui/list-chrome"
 import { Dial } from "@/components/ui/meter"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
@@ -44,8 +38,8 @@ import {
 import { Tag } from "@/components/ui/tag"
 import { SHOW_MISSING, withoutMissing } from "@/lib/features"
 import { useFilters } from "@/lib/filters"
-import { ago, count, label as humanise, moment } from "@/lib/format"
-import { useLayout, usePanelDock } from "@/lib/layout"
+import { ago, count, label as humanise, moment, sku as skuNumber } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   allotmentsByPool,
   correctPlacement,
@@ -355,7 +349,7 @@ function poolColumns(
     },
     {
       accessorKey: "observed",
-      header: "Observed",
+      header: "Seen",
       size: 120,
       meta: { align: "right", priority: 3, card: "hide" },
       /// Distinct tags a reader saw in the window. Evidence rather than a
@@ -548,9 +542,6 @@ export function PoolsBody({ display: given }: { display?: DisplayUnit } = {}) {
   const display = given ?? own
   const phone = useLayout() === "phone"
   const [query, setQuery] = useState("")
-  /// Whether the filter panel has room to stand beside the list. Below it the
-  /// same model is a sheet behind a Filter button, and the panel unmounts.
-  const docked = usePanelDock()
   const pool = useSheet("pool")
   const poolAllotments = useSheet("pool-allotments")
   const poolSightings = useSheet("pool-sightings")
@@ -886,7 +877,7 @@ export function PoolsBody({ display: given }: { display?: DisplayUnit } = {}) {
           the Filter button in the omnibox above, which is the same model drawn
           as a sheet. Same shape as the order book and the count book, because
           it is the same act: narrow a list, order it, name the question. */}
-      <div className="grid min-w-0 items-start gap-5 dock:grid-cols-[minmax(0,1fr)_16rem]">
+      <div className="grid min-w-0 items-start gap-5">
         <div className="flex min-w-0 flex-col">
           {/* A phone's search, filter and order are the dock's. */}
           <DockTools
@@ -899,17 +890,15 @@ export function PoolsBody({ display: given }: { display?: DisplayUnit } = {}) {
           />
 
           <div className="group/bar mb-3 flex flex-wrap items-center gap-1.5 max-md:hidden">
-            <ExpandingSearch
-              value={query}
-              onChange={setQuery}
-              label="Search pools"
+            <FilterPanel
+              model={filters}
+              table={table}
+              search={{
+                value: query,
+                onChange: setQuery,
+                label: "Search pools",
+              }}
             />
-            {/* The same model as the panel, as the chips over the table and
-                a Filter button beside them — for every width the panel cannot
-                dock at. Rendered only there: the panel unmounts below the dock
-                width rather than hiding, because both of these carry a sheet
-                on the same `?filters=` key. */}
-            {!docked && <FilterPanel model={filters} table={table} />}
             {given === undefined && <DisplayUnitPicker display={display} />}
             <BarSpacer />
             <SortMenu
@@ -965,19 +954,6 @@ export function PoolsBody({ display: given }: { display?: DisplayUnit } = {}) {
             {fleet.data.lost_risk_window_days} days
           </p>
         </div>
-
-        {/* The table is what the panel narrows, and it is handed over because
-            this list is narrowed in the BROWSER: the values a one-tap row
-            offers are the ones the rows actually hold. A server-narrowed list
-            passes `counted` facets instead and needs no table. */}
-        <DockedFilters
-          model={filters}
-          table={table}
-          kpis={fleetKpis(tree)}
-          id="pools"
-          subject="Pool"
-          className="hidden dock:flex"
-        />
       </div>
 
       <PoolSheet id={pool.value ?? null} onClose={pool.close} />
@@ -991,42 +967,6 @@ export function PoolsBody({ display: given }: { display?: DisplayUnit } = {}) {
       />
     </>
   )
-}
-
-/// Three figures about the fleet as it stands, over the WHOLE tree rather than
-/// over a page — this list arrives in one read, so these are exact and there is
-/// no "of n shown" to qualify them with.
-///
-/// Not the four the Stock screen prints above this table: those are pieces, and
-/// these are shelves. "Never counted" is the one that changes a decision — a
-/// pool nobody has ever stood in front of is a number nobody has ever checked.
-function fleetKpis(tree: readonly PoolRow[]) {
-  if (tree.length === 0) return undefined
-  /// Every shelf under a site, however deep it is drawn. Outbound leaves sit
-  /// one level further down than the rest now, and a flat read of the site's
-  /// own children would count a stage total as one pool and its thirteen
-  /// shops as none — which is exactly the miscount the nesting exists to
-  /// prevent, moved into the tiles above it.
-  const shelves = (row: PoolRow): PoolRow[] =>
-    row.subRows === undefined
-      ? [row]
-      : row.subRows.flatMap((child) => shelves(child))
-  const pools = tree.flatMap((site) => site.subRows?.flatMap(shelves) ?? [])
-  const never = pools.filter((one) => one.last_count === null).length
-  return [
-    { label: "Sites", value: count(tree.length) },
-    { label: "Pools", value: count(pools.length) },
-    {
-      label: "Never counted",
-      value: count(never),
-      note: "Pools no official count has ever been opened against.",
-    },
-    {
-      label: "Disputed",
-      value: count(pools.filter((one) => one.disputed !== null).length),
-      note: "Two sources reporting different quantities for one shelf.",
-    },
-  ]
 }
 
 export function Pools() {
@@ -1218,7 +1158,7 @@ function PoolSheet({
                             </span>
                           </td>
                           <td className="py-2 text-right font-mono text-[0.9375rem] text-body">
-                            {item.sku_code ?? "—"}
+                            {skuNumber(item.sku_code)}
                           </td>
                           <td className="py-2 text-right tabular-nums">
                             {count(item.quantity)}
@@ -1240,7 +1180,7 @@ function PoolSheet({
                   {pool.missing.map((item) => (
                     <tr key={item.id} className="border-t border-hairline">
                       <td className="py-2 pr-2 font-mono text-[0.9375rem] text-body">
-                        {item.epc ?? item.sku_code ?? item.subject_id}
+                        {item.epc ?? (item.sku_code ? skuNumber(item.sku_code) : item.subject_id)}
                       </td>
                       <td className="py-2 text-right text-warn-fg">
                         {age(item.age_hours)}
@@ -1285,7 +1225,7 @@ function PoolSheet({
 
             {/* The server has been sending these all along and the panel
                 dropped them on the floor. A pool's sightings are the evidence
-                behind its Observed column, and the one reading on this screen
+                behind its Seen column, and the one reading on this screen
                 that comes from a machine rather than from the ledger. */}
             {pool.observations.length > 0 && (
               <section>
@@ -1619,7 +1559,7 @@ function PoolSightingsSheet({
           const items = data.pages.flatMap((page) => page.rows)
           return items.length === 0 ? (
             <EmptyState>
-              No tag has been read here. Observed counts distinct tags a reader
+              No tag has been read here. Seen counts distinct tags a reader
               saw inside the window, and nothing has swept this pool in it.
             </EmptyState>
           ) : (
@@ -1642,7 +1582,7 @@ function PoolSightingsSheet({
                         {item.epc}
                       </span>
                       <span className="font-mono text-[0.9375rem] text-mute">
-                        {item.sku_code ?? "unknown SKU"}
+                        {item.sku_code ? skuNumber(item.sku_code) : "unknown SKU"}
                       </span>
                     </td>
                     <td className="py-2 pr-2 text-[0.9375rem] text-body">

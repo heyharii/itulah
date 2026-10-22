@@ -283,8 +283,8 @@ fn call(
     patience: Duration,
 ) -> EdgeReply {
     let url = format!("{}{}", base_url.trim_end_matches('/'), path);
-    let mut request = ureq::request(method, &url)
-        .timeout(patience)
+    let mut request = edge::http(patience)
+        .request(method, &url)
         .set("Accept", "application/json");
     if let Some(token) = token {
         request = request.set("Authorization", &format!("Bearer {token}"));

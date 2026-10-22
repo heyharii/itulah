@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query"
 import { useParams } from "@tanstack/react-router"
-import { ShoppingBag, Sparkles, Undo2 } from "lucide-react"
+import { Sparkles } from "lucide-react"
 
+import { MattePicture } from "@/components/matte"
 import { ErrorState, LoadingRows } from "@/components/states"
 import { CardLabel } from "@/components/ui/card"
 import { ListGroup } from "@/components/ui/list"
@@ -62,19 +63,11 @@ export function TransactionView() {
   return (
     <div className="flex flex-col">
       <section className="rise flex flex-col items-center text-center" style={step(0)}>
-        <span
-          aria-hidden
-          className={cn(
-            "flex size-14 items-center justify-center rounded-full",
-            voided ? "bg-soft-2" : "bg-ink",
-          )}
-        >
-          {voided ? (
-            <Undo2 className="size-6 text-mute" strokeWidth={2} />
-          ) : (
-            <ShoppingBag className="size-6 text-on-dark" strokeWidth={2} />
-          )}
-        </span>
+        {voided ? (
+          <MattePicture art="undo" tone="mute" size={64} />
+        ) : (
+          <MattePicture art="bag" size={64} />
+        )}
         <p
           className={cn(
             "num mt-4 text-[2.75rem] leading-none font-semibold tracking-[-0.045em]",

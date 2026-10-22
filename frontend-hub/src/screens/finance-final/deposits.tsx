@@ -10,6 +10,7 @@ import { DataTable } from "@/components/ui/data-table"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill, type PillProps } from "@/components/ui/pill"
+import { CellMoney } from "@/components/ui/rows-switch"
 import { Toolbar } from "@/components/ui/segmented"
 import { EmptyState } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
@@ -615,7 +616,7 @@ const DEPOSIT_COLUMNS: ColumnDef<TableSetup, StoreDeposit>[] = [
     meta: { align: "right", card: "lead" },
     cell: ({ row }) => (
       <span className="font-medium text-ink">
-        {money(row.original.amount_minor)}
+        <CellMoney minor={row.original.amount_minor} />
       </span>
     ),
   },
@@ -735,7 +736,7 @@ const ARRIVAL_COLUMNS: ColumnDef<TableSetup, Arrival>[] = [
     meta: { align: "right", card: "metric" },
     cell: ({ row }) => (
       <span className="font-medium text-ink">
-        {money(row.original.line.credit_minor)}
+        <CellMoney minor={row.original.line.credit_minor} />
       </span>
     ),
   },
@@ -750,7 +751,7 @@ const ARRIVAL_COLUMNS: ColumnDef<TableSetup, Arrival>[] = [
       row.original.line.allocated_minor === 0 ? (
         <span className="text-hairline-strong">·</span>
       ) : (
-        money(row.original.line.allocated_minor)
+        <CellMoney minor={row.original.line.allocated_minor} />
       ),
   },
   {
@@ -765,7 +766,7 @@ const ARRIVAL_COLUMNS: ColumnDef<TableSetup, Arrival>[] = [
         <span className="text-hairline-strong">·</span>
       ) : (
         <span className="text-bad-fg">
-          {money(row.original.line.unallocated_minor)}
+          <CellMoney minor={row.original.line.unallocated_minor} />
         </span>
       ),
   },

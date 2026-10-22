@@ -15,12 +15,11 @@ import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { Fab } from "@/components/ui/fab"
-import { BarSpacer, ExpandingSearch } from "@/components/ui/list-chrome"
+import { BarSpacer } from "@/components/ui/list-chrome"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { MiniTable } from "@/components/ui/rows"
-import { Segmented } from "@/components/ui/segmented"
 import { Sheet } from "@/components/ui/sheet"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { EmptyState, LoadingState } from "@/components/ui/states"
@@ -99,7 +98,7 @@ const columns: ColumnDef<TableSetup, CatalogueRow>[] = [
     accessorFn: (row) => row.supplierName,
     header: "Supplier",
     size: 190,
-    meta: { card: "hide", filter: { kind: "option" } },
+    meta: { card: "hide", filter: { kind: "option", searchable: true } },
     cell: ({ row }) => row.original.supplierName,
   },
   {
@@ -396,16 +395,16 @@ function CatalogueBook() {
         }
       />
 
-      {/* On a phone the tab and the offer status are the one button in the
-          dock: Everything, On offer, Cancelled, or the vocabulary. */}
+      {/* The offer status and the vocabulary are one row of tabs, as they
+          are the one button in the dock on a phone. */}
       <SubTabs
         className="max-md:hidden"
-        tabs={[
-          { value: "items", label: "Items" },
-          { value: "vocabulary", label: "Vocabulary" },
-        ]}
-        value={tab}
-        onChange={setTab}
+        tabs={PHONE_VIEWS.map((one) => ({
+          value: one.value,
+          label: one.label,
+        }))}
+        value={tab === "vocabulary" ? "VOCABULARY" : status}
+        onChange={pickView}
       />
       {tab === "items" ? (
         <DockTools
@@ -439,20 +438,14 @@ function CatalogueBook() {
       {tab === "items" ? (
         <>
           <div className="group/bar mb-3.5 flex min-h-[2.25rem] flex-wrap items-center gap-2 max-md:hidden">
-            <ExpandingSearch
-              value={needle}
-              onChange={setNeedle}
-              label="Search catalogue"
-            />
-            <FilterPanel model={filters} table={table} />
-            <Segmented
-              options={[
-                { value: "ALL", label: "Everything" },
-                { value: "ACTIVE", label: "On offer" },
-                { value: "INACTIVE", label: "Cancelled" },
-              ]}
-              value={status}
-              onChange={setStatus}
+            <FilterPanel
+              model={filters}
+              table={table}
+              search={{
+                value: needle,
+                onChange: setNeedle,
+                label: "Search catalogue",
+              }}
             />
             <BarSpacer />
             <span className="text-[0.9375rem] text-mute tabular-nums">

@@ -3,6 +3,7 @@ import type { UnfilledList } from "@itulah/contract"
 import { useMemo } from "react"
 
 import type { AllotmentList, AllotmentRow } from "@/lib/queries/inventory"
+import { sku as skuNumber } from "@/lib/format"
 
 /// Problems: allotments that will not, or did not, arrive in full.
 ///
@@ -119,7 +120,7 @@ export function useProblems(
       kind: "Over-promised",
       short: one.shortage_qty,
       pieces: one.allotted_qty,
-      detail: `${one.article_name} · ${one.sku_code}`,
+      detail: `${one.article_name} · ${skuNumber(one.sku_code)}`,
     }))
     return [...open, ...atStore, ...over, ...closed]
   }, [enabled, unfilled.data, active.data, completed.data])

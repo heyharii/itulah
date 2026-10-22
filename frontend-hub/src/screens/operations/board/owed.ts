@@ -25,6 +25,21 @@ import {
 export const pickCardKey = (allotmentId: string, destinationId: string) =>
   `${allotmentId}~${destinationId}`
 
+/// The picklists MD answered Continue on (0976): the card says so until the
+/// remainder is picked.
+export function continuedMarks(
+  items: readonly ShortPick[]
+): ReadonlyMap<string, string> {
+  const by = new Map<string, string>()
+  for (const one of items)
+    if (one.status === "CONTINUED")
+      by.set(
+        pickCardKey(one.allotment_id, one.destination_id),
+        one.continued_by ?? "MD"
+      )
+  return by
+}
+
 export interface ShortMark {
   /// How many pieces are still short on this picklist.
   readonly pieces: number
@@ -44,7 +59,8 @@ export function shortPickMarks(
     const key = pickCardKey(one.allotment_id, one.destination_id)
     const row = by.get(key) ?? { pieces: 0, reasons: new Set<string>() }
     row.pieces += one.still_short
-    row.reasons.add(shortReasonLabel(one.reason))
+    // Cannot pick asks a note, not a reason (owner, 18 Oct 2026).
+    row.reasons.add(one.note ?? shortReasonLabel(one.reason))
     by.set(key, row)
   }
   return new Map(
@@ -214,6 +230,10 @@ export interface MoveBackTarget {
   readonly to?: "picked" | "pick"
   readonly destinationId: string
   readonly koliId?: string
+  /// "Back to Pick" (owner, 18 Oct 2026): what is missing or damaged at Pack,
+  /// or a koli that cannot go at Dispatch, goes back on the picklist to be
+  /// picked again. Always to Pick; out of the pile the lines start at none.
+  readonly back?: boolean
 }
 
 /// How many of each SKU on the source MD already took out, by SKU: what a
@@ -249,6 +269,11 @@ export interface ChangeTag {
   /// (allotment-ops-prototype). Absent on "Cancelled" and "Added +N".
   readonly was?: number
   readonly now?: number
+  /// Which allotment, where a tag stands over a whole store (Picked): a bare
+  /// "Cancelled" there does not say what was cancelled.
+  readonly allotment?: string
+  /// When MD made the change: the day under a Cancelled stamp.
+  readonly at?: string
 }
 
 /// The tags of the changes a card carries (one allotment × store for a To pick
@@ -290,7 +315,8 @@ export interface ChangePlacement {
 export function placeChanges(
   changes: readonly DcChange[],
   picks: readonly { allotment_id: string; destination_id: string }[],
-  pickedShops: ReadonlySet<string>,
+  /// The allotment numbers with pieces on each shop's Picked card.
+  pickedShops: ReadonlyMap<string, ReadonlySet<string>>,
   cartons: readonly { koli_id: string; destination_id: string }[],
   owed: readonly OwedWork[]
 ): ChangePlacement {
@@ -309,7 +335,9 @@ export function placeChanges(
       put(pick, key, one)
       continue
     }
-    if (pickedShops.has(one.destination_id)) {
+    // Only on a Picked card holding this allotment's pieces: a cancel of an
+    // allotment nobody picked is not news for another allotment's card.
+    if (pickedShops.get(one.destination_id)?.has(one.allotment_number)) {
       put(shop, one.destination_id, one)
       continue
     }

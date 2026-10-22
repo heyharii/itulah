@@ -752,7 +752,16 @@ pub async fn ingest_batch(pool: &PgPool, batch: &IngestBatch) -> Result<IngestRe
                     batch.generation,
                     inventory_binding.as_ref(),
                 )
-                .err(),
+                .err()
+                // What a reader can have read, judged where evidence enters
+                // and not again at apply: a batch accepted before this check
+                // existed must still land rather than stop its stream.
+                .or_else(|| {
+                    payload
+                        .validate_reads()
+                        .err()
+                        .map(|error| error.to_string())
+                }),
                 Err(error) => Some(format!("invalid RFID observation batch: {error}")),
             }
         } else {
@@ -3002,6 +3011,62 @@ pub(crate) async fn reconcile_transfer_allotment_attribution(
         .collect::<Vec<_>>();
     let unique_same_sku =
         in_transit.len() == 1 && received.len() == 1 && in_transit[0].2 == received[0].2;
+    // MD accepted this piece as delivered here though the Gudang sent it to
+    // another store of the trip (owner, 18 Oct 2026; `edge_transfer_redirect`,
+    // 0977): this receipt settles that store's in-transit claim, so the
+    // Gudang lets go of it and that store's allotment line completes.
+    // Cloud-run Gudang only.
+    if in_transit.is_empty() && received.len() == 1 {
+        let redirect = sqlx::query(
+            "SELECT meant_destination_id, meant_shipment_reference
+               FROM edge_transfer_redirect
+              WHERE source_dc_id=$1 AND destination_store_id=$2
+                AND shipment_reference=$3 AND epc=$4",
+        )
+        .bind(source_dc_id)
+        .bind(destination_store_id)
+        .bind(shipment_reference)
+        .bind(epc)
+        .fetch_optional(&mut **tx)
+        .await?;
+        if let Some(redirect) = redirect {
+            let meant = sqlx::query(
+                "SELECT event_id,claim_kind,sku_code,origin_id
+                 FROM edge_transfer_claim
+                 WHERE source_dc_id=$1 AND destination_store_id=$2
+                   AND shipment_reference=$3 AND epc=$4
+                 ORDER BY claim_kind,event_id FOR KEY SHARE",
+            )
+            .bind(source_dc_id)
+            .bind(redirect.get::<String, _>("meant_destination_id"))
+            .bind(redirect.get::<String, _>("meant_shipment_reference"))
+            .bind(epc)
+            .fetch_all(&mut **tx)
+            .await?;
+            let sent = meant
+                .iter()
+                .filter(|row| row.get::<String, _>("claim_kind") == "IN_TRANSIT")
+                .collect::<Vec<_>>();
+            let received_there = meant
+                .iter()
+                .any(|row| row.get::<String, _>("claim_kind") == "RECEIVED");
+            if sent.len() == 1
+                && !received_there
+                && sent[0].get::<String, _>("origin_id") == crate::cloud::dc::common::CLOUD_DC_ORIGIN
+                && sent[0].get::<String, _>("sku_code") == received[0].2
+            {
+                return crate::cloud::dc::packing::reconcile_counted_in_tx(
+                    tx,
+                    source_dc_id,
+                    destination_store_id,
+                    shipment_reference,
+                    epc,
+                    Some((sent[0].get::<Uuid, _>("event_id"), received[0].0)),
+                )
+                .await;
+            }
+        }
+    }
     // Sent by the cloud-run Gudang (DC-CLOUD-NATIVE.md, `cloud::dc::packing`):
     // its allotment lines keep their own rungs (no progress row) and it lets
     // go of the piece in its own ledger, so the pair is settled there.
@@ -3756,12 +3821,16 @@ async fn apply_official_count_adjustment_result(
     if !inserted {
         return Ok(false);
     }
+    // Refused is an outcome too. The node checked the shelf and booked
+    // nothing; the result can never be sent again (one adjustment per count),
+    // so leaving the count in REVIEW kept it "To do" for ever behind an Apply
+    // that could only answer 409. It closes, with the node's reason kept on
+    // `edge_official_count_adjustment_result`, and the place is counted again.
     sqlx::query(
         "UPDATE official_count
          SET edge_adjustment_status=$2,edge_adjustment_completion_id=$3,
              edge_adjustment_received_at=now(),
-             status=CASE WHEN $2='APPLIED' THEN 'CLOSED' ELSE status END,
-             closed_at=CASE WHEN $2='APPLIED' THEN now() ELSE closed_at END
+             status='CLOSED',closed_at=now()
          WHERE id=$1",
     )
     .bind(result.count_id)
@@ -5027,17 +5096,26 @@ pub(crate) async fn announce_store_inbound_tx(
     tx: &mut Transaction<'_, Postgres>,
     progress: &FulfillmentProgressPayload,
 ) -> Result<(), AppError> {
+    announce_store_inbound_payload_tx(tx, StoreInboundAnnouncePayload::from_progress(progress))
+        .await
+}
+
+/// [`announce_store_inbound_tx`] from the announcement itself: also how a
+/// node enrolled after the koli left is told of it (`resend_open_work`).
+pub(crate) async fn announce_store_inbound_payload_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    mut payload: StoreInboundAnnouncePayload,
+) -> Result<(), AppError> {
     let forced = match store_inbound_commands_override() {
         Some(false) => return Ok(()),
         Some(true) => true,
         None => false,
     };
-    let destination = canonical_site_id_tx(tx, &progress.destination_store_id).await?;
+    let destination = canonical_site_id_tx(tx, &payload.destination_store_id).await?;
     let Some(origin_id) = inventory_owner_tx(tx, &destination).await? else {
         return Ok(());
     };
-    let mut payload = StoreInboundAnnouncePayload::from_progress(progress);
-    let source = canonical_site_id_tx(tx, &progress.source_site_id).await?;
+    let source = canonical_site_id_tx(tx, &payload.source_site_id).await?;
     let return_pool = super::sites::return_pool_for(&mut **tx, &destination, &source).await?;
     // A return to the Gudang always asks the heartbeat, forced or not: it
     // was never announced before the goods routes.
@@ -5758,6 +5836,11 @@ fn validate_issued_command(command_type: &str, payload: &Value) -> Result<(), Ap
             // A shop that cannot read it blocks its command stream.
             parse_store_inbound_announcement(payload).map_err(AppError::Validation)?;
         }
+        crate::sync::workflow::INVENTORY_STORE_INBOUND_ON_HOLD_V1 => {
+            // MD's answer to a trip's review: same reason.
+            crate::sync::workflow::parse_store_inbound_on_hold(payload)
+                .map_err(AppError::Validation)?;
+        }
         crate::cloud::domain::COMMAND_PAYMENT_METHODS_REPLACE => {
             crate::cloud::domain::parse_payment_method_book(payload)
                 .map_err(AppError::Validation)?;
@@ -5961,6 +6044,23 @@ pub(crate) async fn node_site_id_tx(
 /// allotment activation, a return announced to a warehouse, the in-transit
 /// release — as its latest heartbeat says (`sync::workflow`). An older build
 /// that were sent one would block its whole command stream on it.
+/// Whether the origin's last heartbeat says its build takes `capability`.
+pub(super) async fn origin_takes_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    origin_id: &str,
+    capability: &str,
+) -> Result<bool, AppError> {
+    Ok(sqlx::query_scalar::<_, bool>(
+        "SELECT COALESCE(status->'capabilities' ? $2, false)
+           FROM node_heartbeat WHERE origin_id = $1",
+    )
+    .bind(origin_id)
+    .bind(capability)
+    .fetch_optional(&mut **tx)
+    .await?
+    .unwrap_or(false))
+}
+
 pub(super) async fn origin_takes_goods_routes_tx(
     tx: &mut Transaction<'_, Postgres>,
     origin_id: &str,
@@ -6948,7 +7048,10 @@ pub async fn publish_catalog_if_changed(
     .await?;
     // Nothing the catalogue is made of has been written since the last
     // publication was built: there is nothing to look at.
-    if last.as_ref().is_some_and(|(_, _, built_from)| *built_from == Some(revision)) {
+    if last
+        .as_ref()
+        .is_some_and(|(_, _, built_from)| *built_from == Some(revision))
+    {
         return Ok(None);
     }
 
@@ -6970,11 +7073,13 @@ pub async fn publish_catalog_if_changed(
         if *previous == content_hash {
             // Written to, but to the same effect (a save that changed nothing
             // the tills read). Remember that this revision was looked at.
-            sqlx::query("UPDATE catalog_publication SET source_revision = $2 WHERE generation = $1")
-                .bind(generation)
-                .bind(revision)
-                .execute(pool)
-                .await?;
+            sqlx::query(
+                "UPDATE catalog_publication SET source_revision = $2 WHERE generation = $1",
+            )
+            .bind(generation)
+            .bind(revision)
+            .execute(pool)
+            .await?;
             return Ok(None);
         }
     }

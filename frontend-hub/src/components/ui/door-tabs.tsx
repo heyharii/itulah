@@ -31,7 +31,7 @@ export function DoorTabs({
   module,
   title,
   tabs: every,
-  tab,
+  tab: currentTab,
   view,
 }: {
   /// Whose door: its `useAudience` says which tabs this person sees. Give the
@@ -45,7 +45,7 @@ export function DoorTabs({
 }) {
   const audience = (module.useAudience ?? noAudience)()
   const tabs = doorTabsFor(every, audience)
-  tab = tabs.find((one) => one.label === tab.label) ?? tab
+  const tab = tabs.find((one) => one.label === currentTab.label) ?? currentTab
   const navigate = useNavigate()
   const go = (path: string) => void navigate({ to: path } as never)
   const shell = useDock()
@@ -54,10 +54,10 @@ export function DoorTabs({
       <DoorChoice title={title} tabs={tabs} tab={tab} view={view} go={go} />
     )
   return (
-    <div className="door-tabs flex items-end gap-3">
+    <div className="door-tabs flex flex-wrap items-end gap-x-4 gap-y-2">
       <DoorHead.Provider value>
         <SubTabs
-          className="min-w-0 flex-1"
+          className="max-w-full min-w-0 flex-[1_1_max-content]"
           tabs={tabs.map((one) => ({ value: one.label, label: one.label }))}
           value={tab.label}
           onChange={(label) => {
@@ -67,15 +67,18 @@ export function DoorTabs({
         />
       </DoorHead.Provider>
       {tab.views.length > 1 && (
-        <div className="mb-1.5 w-48 shrink-0">
-          <Select aria-label={tab.label} value={view.path} onChange={go}>
-            {tab.views.map((one) => (
-              <option key={one.path} value={one.path}>
-                {one.label}
-              </option>
-            ))}
-          </Select>
-        </div>
+        <label className="mb-1.5 flex max-w-full shrink-0 items-center gap-2 text-[0.9375rem] text-mute">
+          <span>View</span>
+          <span className="w-56 max-w-full min-w-0">
+            <Select aria-label={tab.label} value={view.path} onChange={go}>
+              {tab.views.map((one) => (
+                <option key={one.path} value={one.path}>
+                  {one.label}
+                </option>
+              ))}
+            </Select>
+          </span>
+        </label>
       )}
     </div>
   )
@@ -136,7 +139,9 @@ function DoorChoice({
           onClick={() => setOpen(true)}
           aria-haspopup="dialog"
           aria-label={`${title}: ${here}`}
-          className="inline-flex h-11 max-w-full items-center gap-1 rounded-full bg-soft-2 pr-3 pl-4 text-[0.9375rem] font-medium text-ink transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.97]"
+          // First in the dock whenever it mounts: a screen's own chips (a
+          // month, a unit) can portal in before it.
+          className="order-first inline-flex h-11 max-w-full items-center gap-1 rounded-full bg-soft-2 pr-3 pl-4 text-[0.9375rem] font-medium text-ink transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.97]"
         >
           <span className="truncate">{here}</span>
           <ChevronDown className="size-4 shrink-0 text-line-ico" />

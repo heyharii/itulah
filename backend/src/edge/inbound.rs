@@ -88,6 +88,10 @@ pub struct StoreInboundDelivery {
     pub received_at: Option<DateTime<Utc>>,
     pub received_by: Option<String>,
     pub result: Option<StoreInboundResult>,
+    /// Counted, and what was counted differs from what was sent: nothing of
+    /// it is booked until MD answers the trip's review (owner, 18 Oct 2026).
+    #[serde(default)]
+    pub in_review: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -122,6 +126,25 @@ pub struct StoreInboundDetail {
     pub lines: Vec<StoreInboundLine>,
     #[serde(default)]
     pub skipped_epcs: Vec<String>,
+    /// The SKUs the delivery carries, with no quantity — the count sheet lists
+    /// their articles and the shop counts them blind (owner, 18 Oct 2026:
+    /// "List + add"; what is hidden is how many, not what).
+    #[serde(default)]
+    pub manifest_skus: Vec<String>,
+    /// The same SKUs named — article, colour, size — where the server holds
+    /// the catalogue (the Gudang in the cloud). Still no quantity.
+    #[serde(default)]
+    pub manifest_items: Vec<StoreInboundManifestItem>,
+}
+
+/// One SKU a delivery carries, named, with nothing of how many.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct StoreInboundManifestItem {
+    pub sku_code: String,
+    pub name: Option<String>,
+    pub color: Option<String>,
+    pub size: Option<String>,
 }
 
 /// What the handheld submits: every tag it read, nothing it expected.
@@ -346,7 +369,7 @@ pub(crate) fn enqueue_received(
     received_at: DateTime<Utc>,
 ) -> Result<(), EdgeError> {
     use crate::sync::flow::{
-        InboundReceivedLine, InboundReceivedPayload, FLOW_FACT_SCHEMA_VERSION,
+        InboundCountedLine, InboundReceivedLine, InboundReceivedPayload, FLOW_FACT_SCHEMA_VERSION,
         INVENTORY_INBOUND_RECEIVED_V1,
     };
     let mut by_line = tx
@@ -397,6 +420,24 @@ pub(crate) fn enqueue_received(
             |row| row.get(0),
         )
         .map_err(db)?;
+    // What the shop counted, as typed (0080): empty from a sweep.
+    let mut by_count = tx
+        .prepare(
+            "SELECT sku_code, counted FROM store_inbound_count
+             WHERE delivery_id=?1 ORDER BY sku_code",
+        )
+        .map_err(db)?;
+    let counted: Vec<InboundCountedLine> = by_count
+        .query_map([delivery_id], |row| {
+            Ok(InboundCountedLine {
+                sku_code: row.get(0)?,
+                quantity: row.get(1)?,
+            })
+        })
+        .map_err(db)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(db)?;
+    drop(by_count);
     let payload = InboundReceivedPayload {
         schema_version: FLOW_FACT_SCHEMA_VERSION,
         receipt_id,
@@ -408,6 +449,7 @@ pub(crate) fn enqueue_received(
         koli_ids,
         lines,
         extra_units,
+        counted,
         received_by: received_by.to_owned(),
         received_at,
     };
@@ -477,6 +519,15 @@ fn present(connection: &Connection, row: DeliveryRow) -> Result<StoreInboundDeli
     } else {
         None
     };
+    let in_review: bool = row.status == STATUS_RECEIVED
+        && connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM store_inbound_review
+                                WHERE delivery_id=?1 AND decided_at IS NULL)",
+                [&row.delivery_id],
+                |r| r.get(0),
+            )
+            .map_err(db)?;
     Ok(StoreInboundDelivery {
         delivery_id: row.delivery_id,
         shipment_reference: row.shipment_reference,
@@ -487,6 +538,7 @@ fn present(connection: &Connection, row: DeliveryRow) -> Result<StoreInboundDeli
         received_at: row.received_at.as_deref().map(parse_time).transpose()?,
         received_by: row.received_by,
         result,
+        in_review,
     })
 }
 
@@ -529,11 +581,24 @@ pub fn detail(connection: &Connection, delivery_id: &str) -> Result<StoreInbound
         Vec::new()
     };
     let delivery = present(connection, row)?;
+    let manifest_skus: Vec<String> = connection
+        .prepare(
+            "SELECT DISTINCT upper(sku_code) FROM store_inbound_unit
+              WHERE delivery_id=?1 AND late_announcement=0
+              ORDER BY 1",
+        )
+        .map_err(db)?
+        .query_map([delivery_id], |row| row.get::<_, String>(0))
+        .map_err(db)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(db)?;
     if !received {
         return Ok(StoreInboundDetail {
             delivery,
             lines: Vec::new(),
             skipped_epcs,
+            manifest_skus,
+            manifest_items: Vec::new(),
         });
     }
 
@@ -614,5 +679,117 @@ pub fn detail(connection: &Connection, delivery_id: &str) -> Result<StoreInbound
         delivery,
         lines,
         skipped_epcs,
+        manifest_skus,
+        manifest_items: Vec::new(),
     })
+}
+
+/// One SKU of a received delivery the shop counted more of than it could
+/// book: on hold, set aside, until MD answers the trip's review (owner, 17–18
+/// Oct 2026).
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct StoreOnHoldLine {
+    pub delivery_id: String,
+    pub shipment_reference: Option<String>,
+    pub received_at: Option<DateTime<Utc>>,
+    pub sku_code: String,
+    /// From the resident catalogue, when this shop holds the SKU.
+    pub name: Option<String>,
+    pub counted: i64,
+    /// Booked into stock: what matched the delivery, and what MD kept.
+    pub booked: i64,
+    /// Still set aside.
+    pub on_hold: i64,
+    /// `WAITING_FOR_MD` until MD answers, then `RETURN_TO_HO` for what goes
+    /// back.
+    #[cfg_attr(feature = "ts", ts(type = "\"WAITING_FOR_MD\" | \"RETURN_TO_HO\""))]
+    pub state: String,
+    pub decided_by: Option<String>,
+    pub decided_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct StoreOnHoldList {
+    pub lines: Vec<StoreOnHoldLine>,
+}
+
+/// What this shop has on hold, newest delivery first.
+pub fn on_hold(connection: &Connection) -> Result<StoreOnHoldList, EdgeError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT d.delivery_id, d.shipment_reference, d.received_at, c.sku_code, c.counted,
+                    (SELECT COUNT(*) FROM store_inbound_unit u
+                      WHERE u.delivery_id=d.delivery_id AND upper(u.sku_code)=c.sku_code
+                        AND u.outcome='RECEIVED' AND u.late_announcement=0)
+                  + (SELECT COUNT(*) FROM store_inbound_extra x
+                      WHERE x.delivery_id=d.delivery_id AND upper(x.sku_code)=c.sku_code) AS booked,
+                    h.send_back, h.decided_by, h.decided_at,
+                    (SELECT name FROM catalog_item WHERE sku_code=c.sku_code) AS name
+               FROM store_inbound_count c
+               JOIN store_inbound_delivery d ON d.delivery_id=c.delivery_id
+               LEFT JOIN store_inbound_hold_decision h
+                 ON h.delivery_id=c.delivery_id AND h.sku_code=c.sku_code
+              WHERE d.status='RECEIVED'
+              ORDER BY d.received_at DESC, c.sku_code",
+        )
+        .map_err(db)?;
+    type Row = (
+        String,
+        Option<String>,
+        Option<String>,
+        String,
+        i64,
+        i64,
+        Option<i64>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    );
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+                row.get(5)?,
+                row.get(6)?,
+                row.get(7)?,
+                row.get(8)?,
+                row.get(9)?,
+            ))
+        })
+        .map_err(db)?
+        .collect::<Result<Vec<Row>, _>>()
+        .map_err(db)?;
+    let mut lines = Vec::new();
+    for (delivery_id, reference, received_at, sku_code, counted, booked, send_back, by, at, name) in
+        rows
+    {
+        let on_hold = counted - booked;
+        if on_hold <= 0 {
+            continue;
+        }
+        lines.push(StoreOnHoldLine {
+            delivery_id,
+            shipment_reference: reference,
+            received_at: received_at.as_deref().map(parse_time).transpose()?,
+            sku_code,
+            name,
+            counted,
+            booked,
+            on_hold,
+            state: if send_back.is_some() {
+                "RETURN_TO_HO".to_owned()
+            } else {
+                "WAITING_FOR_MD".to_owned()
+            },
+            decided_by: by,
+            decided_at: at.as_deref().map(parse_time).transpose()?,
+        });
+    }
+    Ok(StoreOnHoldList { lines })
 }

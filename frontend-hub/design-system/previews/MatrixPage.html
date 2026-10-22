@@ -1,0 +1,172 @@
+<!-- @dsCard group="Patterns" height=886 page subtitle="Template · copy /commercial/prices" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>MatrixPage — preview</title><style>body{margin:0}
+/* MatrixPage: the Pricelist, By store, at the hub's real sizes in a 960px frame (at 1440 three stores show before the box scrolls;
+   here one and a half). Below it the small colour × size grid of a sheet or form (.ui-matrix in the white look). */
+.ds-matrix-ground{padding:var(--float);background:var(--stone)}
+.ds-matrix-page{margin:0}
+.ds-matrix-page .ds-kpis{margin-bottom:var(--figures-to-tabs)}
+.ds-matrix-bar{margin-bottom:var(--bar-to-table)}
+.ds-matrix-bar .ds-search{flex:1 1 280px;max-width:none}
+.ds-matrix-bar .ds-search .ds-ico{margin-top:-7px}
+.ds-matrix-pad{padding:0 12px}
+.ds-matrix-ico-eye{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0'/%3E%3Ccircle cx='12' cy='12' r='3'/%3E%3C/svg%3E")}
+
+/* The grid: one scroll box, frozen columns at the left (checkbox 48, article 312, All stores 224), one 160px column a store. */
+.ds-matrix-card{overflow:hidden;border:1px solid var(--hairline);border-radius:var(--r-card);background:var(--canvas)}
+.ds-matrix-scroll{overflow-x:auto}
+.ds-matrix-grid{width:1384px;table-layout:fixed;border-collapse:separate;border-spacing:0;font-size:15px;line-height:1.45}
+.ds-matrix-grid th,.ds-matrix-grid td{padding:0;text-align:left;vertical-align:top}
+.ds-matrix-grid thead th{padding:12px 14px;background:var(--band);border-bottom:1px solid var(--hairline);color:var(--mute);font-weight:500;white-space:nowrap}
+.ds-matrix-grid thead th.is-num{text-align:right}
+.ds-matrix-grid tbody td,.ds-matrix-grid tbody th{border-bottom:1px solid var(--row-line);font-weight:400}
+.ds-matrix-grid tbody tr:last-child td,.ds-matrix-grid tbody tr:last-child th{border-bottom:0}
+.ds-matrix-grid .is-frozen{position:sticky;z-index:2;background:var(--canvas)}
+.ds-matrix-grid thead .is-frozen{background:var(--band);z-index:3}
+.ds-matrix-grid .f0{left:0}
+.ds-matrix-grid .f1{left:48px}
+.ds-matrix-grid .f2{left:360px;border-right:1px solid var(--hairline-strong)}
+.ds-matrix-grid thead .f2{border-right-color:var(--hairline-2)}
+.ds-matrix-grid td.is-open{background:var(--soft-2)}
+.ds-matrix-grid td.is-away{padding:14px;text-align:right;color:var(--line-ico)}
+.ds-matrix-box{display:flex;align-items:center;height:44px;padding:14px 14px 0 14px;box-sizing:content-box}
+.ds-matrix-art{display:flex;align-items:flex-start;gap:12px;padding:14px 14px 14px 8px}
+.ds-matrix-chev{display:grid;place-items:center;flex:none;width:24px;height:24px;margin-top:12px;color:var(--mute)}
+.ds-matrix-chev.is-open .ds-ico{transform:rotate(90deg)}
+.ds-matrix-art .ds-thumb{width:48px;height:48px}
+.ds-matrix-art b{display:block;font-weight:500;color:var(--ink)}
+.ds-matrix-art span{display:block;margin-top:2px;color:var(--mute);font-variant-numeric:tabular-nums}
+.ds-matrix-art b + span{margin-top:2px}
+.ds-matrix-sku{padding:14px 14px 14px 100px}
+.ds-matrix-sku b{display:block;font-weight:400;color:var(--ink)}
+.ds-matrix-sku span{display:block;color:var(--mute);font-variant-numeric:tabular-nums}
+.ds-matrix-price{display:flex;flex-direction:column;align-items:flex-end;padding:14px;text-align:right;font-variant-numeric:tabular-nums}
+.ds-matrix-fig{color:var(--ink)}
+.ds-matrix-fig.is-same{color:var(--line-ico)}
+.ds-matrix-fig i{margin-left:6px;font-style:normal;color:var(--mute)}
+.ds-matrix-pcs{margin-top:2px;color:var(--mute)}
+.ds-matrix-pcs.is-none{color:var(--line-ico)}
+.ds-matrix-pcs .ds-matrix-dot{margin:0 6px;color:var(--mute)}
+.ds-matrix-tag--promo{color:var(--ok-fg)}
+.ds-matrix-tag--markdown{color:var(--new-fg)}
+.ds-matrix-late{display:flex;align-items:center;justify-content:flex-end;gap:6px;margin-top:2px;font-weight:400;color:var(--warn-fg)}
+.ds-matrix-late::before{content:"";width:6px;height:6px;border-radius:var(--r-full);background:var(--warn)}
+
+/* The small grid: colour down, size across; rules across only; the box scrolls and the colour column stays. */
+.ds-matrix-small-row{display:flex;align-items:flex-start;gap:24px;margin:16px 28px 12px}
+.ds-matrix-small-note{margin:8px 0 0;max-width:260px}
+.ds-matrix-small-box{flex:none;width:584px;max-width:100%;overflow-x:auto}
+.ds-matrix-small{width:100%;min-width:max-content;table-layout:fixed;border-collapse:separate;border-spacing:0;font-size:15px;line-height:1.45}
+.ds-matrix-small th,.ds-matrix-small td{height:36px;padding:0 8px;vertical-align:middle}
+.ds-matrix-small thead th{background:var(--canvas);border-bottom:1px solid var(--hairline);color:var(--body);font-weight:400;text-align:right}
+.ds-matrix-small thead th:first-child,.ds-matrix-small tbody th,.ds-matrix-small tfoot th{position:sticky;left:0;z-index:1;padding:0 12px;text-align:left;background:var(--canvas)}
+.ds-matrix-small thead th.is-total{padding:0 12px;font-weight:500;color:var(--ink)}
+.ds-matrix-small tbody th{border-top:1px solid var(--hairline);font-weight:500;color:var(--ink)}
+.ds-matrix-small tbody td{border-top:1px solid var(--hairline);text-align:right;font-variant-numeric:tabular-nums;color:var(--ink)}
+.ds-matrix-small tbody td.is-total{padding:0 12px;font-weight:500}
+.ds-matrix-small tbody td.is-none{color:var(--mute)}
+.ds-matrix-small tfoot th,.ds-matrix-small tfoot td{border-top:1px solid var(--hairline);font-weight:600;font-variant-numeric:tabular-nums;color:var(--ink)}
+.ds-matrix-small tfoot th{color:var(--body)}
+.ds-matrix-small tfoot td{text-align:right}
+.ds-matrix-small tfoot td.is-total{padding:0 12px}
+</style></head>
+<body>
+<div class="ds">
+<div class="ds-matrix-ground">
+  <div class="ds-page ds-matrix-page">
+    <div class="ds-page-content">
+
+      <div class="ds-page-head"><div><h1 class="ds-title">Pricelist</h1></div></div>
+
+      <div class="ds-kpis">
+        <div class="ds-kpi"><div class="ds-kpi-label">Articles</div><div class="ds-kpi-value">12</div></div>
+        <div class="ds-kpi"><div class="ds-kpi-label">On promotion</div><div class="ds-kpi-value">3</div></div>
+        <div class="ds-kpi"><div class="ds-kpi-label">Markdown</div><div class="ds-kpi-value">2</div></div>
+        <div class="ds-kpi"><div class="ds-kpi-label">Store price</div><div class="ds-kpi-value">4</div></div>
+        <div class="ds-kpi"><div class="ds-kpi-label">Below cost</div><div class="ds-kpi-value">0</div></div>
+      </div>
+
+      <div class="ds-tabs">
+        <button class="ds-tab is-selected" type="button">Prices<span class="ds-tab-count">12</span></button>
+        <button class="ds-tab" type="button">Price changes<span class="ds-tab-count">4</span></button>
+      </div>
+
+      <div class="ds-bar ds-matrix-bar">
+        <div class="ds-seg" role="group" aria-label="Read by"><button class="ds-seg-item" type="button">By article</button><button class="ds-seg-item is-on" type="button">By store</button></div>
+        <label class="ds-search"><span class="ds-ico ds-ico-search ds-ico--14"></span><input type="text" placeholder="Search or filter" aria-label="Search or filter"></label>
+        <button class="ds-btn ds-btn--ghost ds-matrix-pad" type="button"><span class="ds-ico ds-matrix-ico-eye ds-ico--14"></span>Show</button>
+      </div>
+
+      <div class="ds-matrix-card"><div class="ds-matrix-scroll">
+        <table class="ds-matrix-grid">
+          <colgroup><col style="width:48px"><col style="width:312px"><col style="width:224px"><col style="width:160px"><col style="width:160px"><col style="width:160px"><col style="width:160px"><col style="width:160px"></colgroup>
+          <thead>
+            <tr>
+              <th class="is-frozen f0" scope="col"><span class="ds-check-box" aria-label="Select every loaded article"></span></th>
+              <th class="is-frozen f1" scope="col">Article</th>
+              <th class="is-frozen f2 is-num" scope="col">All stores</th>
+              <th class="is-num" scope="col">Kemang<span class="ds-matrix-late">Not updated yet</span></th>
+              <th class="is-num" scope="col">PIK Avenue</th>
+              <th class="is-num" scope="col">Dago</th>
+              <th class="is-num" scope="col">Tunjungan</th>
+              <th class="is-num" scope="col">Malioboro</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="is-frozen f0"><span class="ds-matrix-box"><span class="ds-check-box"></span></span></td>
+              <th class="is-frozen f1" scope="row"><span class="ds-matrix-art"><span class="ds-matrix-chev is-open"><span class="ds-ico ds-ico-chevron-right"></span></span><span class="ds-thumb"><span class="ds-ico ds-ico-image"></span></span><span><b>Kemeja Flanel Pria</b><span>00000412 · Pria</span></span></span></th>
+              <td class="is-frozen f2"><span class="ds-matrix-price"><span class="ds-matrix-fig is-same">Rp 189.000</span><span class="ds-matrix-pcs">96 pcs</span></span></td>
+              <td><span class="ds-matrix-price"><span class="ds-matrix-fig is-same">Rp 189.000</span><span class="ds-matrix-pcs">36 pcs</span></span></td>
+              <td class="is-open"><span class="ds-matrix-price"><span class="ds-matrix-fig">Rp 199.000<i>+5%</i></span><span class="ds-matrix-pcs">24 pcs</span></span></td>
+              <td><span class="ds-matrix-price"><span class="ds-matrix-fig">Rp 151.200<i>−20%</i></span><span class="ds-matrix-pcs">20 pcs<span class="ds-matrix-dot">·</span><span class="ds-matrix-tag--promo">Promo</span></span></span></td>
+              <td class="is-away">Not sold</td>
+              <td><span class="ds-matrix-price"><span class="ds-matrix-fig is-same">Rp 189.000</span><span class="ds-matrix-pcs">16 pcs</span></span></td>
+            </tr>
+            <tr>
+              <td class="is-frozen f0"></td>
+              <th class="is-frozen f1" scope="row"><span class="ds-matrix-sku"><b>M · Biru</b><span>00000412031</span></span></th>
+              <td class="is-frozen f2"><span class="ds-matrix-price"><span class="ds-matrix-fig is-same">Rp 189.000</span><span class="ds-matrix-pcs">28 pcs</span></span></td>
+              <td><span class="ds-matrix-price"><span class="ds-matrix-fig is-same">Rp 189.000</span><span class="ds-matrix-pcs">12 pcs</span></span></td>
+              <td><span class="ds-matrix-price"><span class="ds-matrix-fig">Rp 199.000<i>+5%</i></span><span class="ds-matrix-pcs">8 pcs</span></span></td>
+              <td><span class="ds-matrix-price"><span class="ds-matrix-fig">Rp 151.200<i>−20%</i></span><span class="ds-matrix-pcs">4 pcs<span class="ds-matrix-dot">·</span><span class="ds-matrix-tag--promo">Promo</span></span></span></td>
+              <td class="is-away">Not sold</td>
+              <td><span class="ds-matrix-price"><span class="ds-matrix-fig is-same">Rp 189.000</span><span class="ds-matrix-pcs">4 pcs</span></span></td>
+            </tr>
+            <tr>
+              <td class="is-frozen f0"><span class="ds-matrix-box"><span class="ds-check-box"></span></span></td>
+              <th class="is-frozen f1" scope="row"><span class="ds-matrix-art"><span class="ds-matrix-chev"><span class="ds-ico ds-ico-chevron-right"></span></span><span class="ds-thumb"><span class="ds-ico ds-ico-image"></span></span><span><b>Skinny Ankle Denim</b><span>00000409 · Wanita</span></span></span></th>
+              <td class="is-frozen f2"><span class="ds-matrix-price"><span class="ds-matrix-fig is-same">Rp 259.000</span><span class="ds-matrix-pcs">120 pcs</span></span></td>
+              <td><span class="ds-matrix-price"><span class="ds-matrix-fig is-same">Rp 259.000</span><span class="ds-matrix-pcs">48 pcs</span></span></td>
+              <td><span class="ds-matrix-price"><span class="ds-matrix-fig is-same">Rp 259.000</span><span class="ds-matrix-pcs">30 pcs</span></span></td>
+              <td><span class="ds-matrix-price"><span class="ds-matrix-fig">Rp 207.200<i>−20%</i></span><span class="ds-matrix-pcs">0 pcs<span class="ds-matrix-dot">·</span><span class="ds-matrix-tag--markdown">Markdown</span></span></span></td>
+              <td><span class="ds-matrix-price"><span class="ds-matrix-fig is-same">Rp 259.000</span><span class="ds-matrix-pcs">22 pcs</span></span></td>
+              <td><span class="ds-matrix-price"><span class="ds-matrix-fig is-same">Rp 259.000</span><span class="ds-matrix-pcs">20 pcs</span></span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div></div>
+
+    </div>
+  </div>
+</div>
+
+  <div class="ds-matrix-small-row">
+  <div class="ds-matrix-small-box">
+    <table class="ds-matrix-small">
+      <colgroup><col style="width:144px"><col style="width:88px"><col style="width:88px"><col style="width:88px"><col style="width:88px"><col style="width:88px"></colgroup>
+      <thead><tr><th scope="col">Colour</th><th scope="col">S</th><th scope="col">M</th><th scope="col">L</th><th scope="col">XL</th><th scope="col" class="is-total">Quantity</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Biru</th><td>12</td><td>24</td><td>24</td><td>12</td><td class="is-total">72</td></tr>
+        <tr><th scope="row">Hitam</th><td>12</td><td>24</td><td>36</td><td>12</td><td class="is-total">84</td></tr>
+        <tr><th scope="row">Putih</th><td>6</td><td>12</td><td>12</td><td class="is-none">—</td><td class="is-total">30</td></tr>
+      </tbody>
+      <tfoot><tr><th scope="row">Quantity</th><td>30</td><td>60</td><td>72</td><td>24</td><td class="is-total">186</td></tr></tfoot>
+    </table>
+  </div>
+  <p class="ds-caption ds-matrix-small-note">Colour × size, in a sheet or a form</p>
+  </div>
+</div>
+</body>
+</html>

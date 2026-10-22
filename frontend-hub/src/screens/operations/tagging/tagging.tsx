@@ -21,7 +21,7 @@ import {
 } from "@/screens/operations/tagging/print-queue"
 import { printedOf, useRuns } from "@/screens/operations/tagging/print-run"
 import { dc } from "@/lib/api"
-import { count, day } from "@/lib/format"
+import { count, day, sku as skuNumber } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import { CardFigure, CardName } from "@/components/ui/phone-cards"
 import { ROOMY } from "@/screens/operations/roomy"
@@ -426,7 +426,7 @@ export function PoSheet({
                 >
                   <td className="py-3.5 text-mute">{index + 1}</td>
                   <td className="py-3.5 pl-3 font-mono text-id text-ink">
-                    {line.sku_code}
+                    {skuNumber(line.sku_code)}
                   </td>
                   <td className="py-3.5 pl-3">{job.article_name}</td>
                   <td className="py-3.5 pl-3">{line.colour_label}</td>

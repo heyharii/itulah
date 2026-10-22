@@ -1,0 +1,64 @@
+<!-- @dsCard group="Overlays" height=410 subtitle="Static rendition of rail-tip.tsx in the All white look" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>Tooltip — preview</title>
+<style>
+body{margin:0}
+/* Tooltip (rail-tip.tsx): a dark chip 10px to the right of an icon, centred on it; 27px high, radius 8, padding 6px 10px, 15px at 500. */
+.ds-tooltip-stone{display:flex;flex-wrap:nowrap;padding:0 0 20px;border-radius:var(--r-sheet);background:var(--stone)}
+.ds-tooltip-cell{display:flex;flex:1 1 0;min-width:0}
+.ds-tooltip-rail{display:flex;flex-direction:column;align-items:center;gap:2px;flex:none;width:var(--rail);padding-top:12px}
+.ds-tooltip-rail .ds-rail-btn{border-radius:var(--r-inner);color:var(--rail-mute)}
+.ds-tooltip-rail .ds-rail-btn.is-hover{color:var(--rail-text)}
+.ds-tooltip-rail .ds-rail-btn.is-current{color:var(--accent)}
+.ds-tooltip-rail .ds-rail-btn.is-focus{outline:2px solid var(--accent);outline-offset:1px}
+.ds-tooltip-rail .ds-rail-btn.ds-tooltip-search{margin-bottom:10px;border-radius:var(--r-card);color:var(--rail-text)}
+.ds-tooltip-rail .ds-ico{width:18px;height:18px}
+.ds-tooltip-item{position:relative}
+.ds-tooltip-chip{position:absolute;left:calc(100% + 10px);top:50%;z-index:2;transform:translateY(-50%);padding:6px 10px;border-radius:var(--r-inner);background:var(--tooltip);box-shadow:var(--shadow-float);font-size:15px;line-height:15px;font-weight:500;color:var(--on-dark);white-space:pre;pointer-events:none}
+.ds-tooltip-note{display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:12px 16px;border:1px solid var(--hairline);border-radius:var(--r-card)}
+.ds-tooltip-note .ds-foot-note{margin-right:auto}
+</style></head>
+<body>
+<div class="ds ds-stage">
+
+  <div class="ds-col">
+    <p class="ds-caption">The name appears at once, 10px to the right, for the pointer and for the keyboard</p>
+    <div class="ds-tooltip-stone">
+
+      <div class="ds-tooltip-cell"><div class="ds-tooltip-rail">
+        <div class="ds-tooltip-item"><span class="ds-rail-btn ds-tooltip-search is-hover" aria-label="Search"><span class="ds-ico ds-ico-search"></span></span><span class="ds-tooltip-chip" role="tooltip">Search  ⌘K</span></div>
+        <div class="ds-tooltip-item"><span class="ds-rail-btn is-current" aria-label="Procurement"><span class="ds-ico ds-ico-cart"></span></span></div>
+        <div class="ds-tooltip-item"><span class="ds-rail-btn" aria-label="Merchandise"><span class="ds-ico ds-ico-shirt"></span></span></div>
+        <div class="ds-tooltip-item"><span class="ds-rail-btn" aria-label="Inventory"><span class="ds-ico ds-ico-package"></span></span></div>
+      </div></div>
+
+      <div class="ds-tooltip-cell"><div class="ds-tooltip-rail">
+        <div class="ds-tooltip-item"><span class="ds-rail-btn ds-tooltip-search" aria-label="Search"><span class="ds-ico ds-ico-search"></span></span></div>
+        <div class="ds-tooltip-item"><span class="ds-rail-btn is-current" aria-label="Procurement"><span class="ds-ico ds-ico-cart"></span></span></div>
+        <div class="ds-tooltip-item"><span class="ds-rail-btn is-hover" aria-label="Merchandise"><span class="ds-ico ds-ico-shirt"></span></span><span class="ds-tooltip-chip" role="tooltip">Merchandise</span></div>
+        <div class="ds-tooltip-item"><span class="ds-rail-btn" aria-label="Inventory"><span class="ds-ico ds-ico-package"></span></span></div>
+      </div></div>
+
+      <div class="ds-tooltip-cell"><div class="ds-tooltip-rail">
+        <div class="ds-tooltip-item"><span class="ds-rail-btn ds-tooltip-search" aria-label="Search"><span class="ds-ico ds-ico-search"></span></span></div>
+        <div class="ds-tooltip-item"><span class="ds-rail-btn is-current" aria-label="Procurement"><span class="ds-ico ds-ico-cart"></span></span></div>
+        <div class="ds-tooltip-item"><span class="ds-rail-btn" aria-label="Merchandise"><span class="ds-ico ds-ico-shirt"></span></span></div>
+        <div class="ds-tooltip-item"><span class="ds-rail-btn is-hover is-focus" aria-label="Inventory"><span class="ds-ico ds-ico-package"></span></span><span class="ds-tooltip-chip" role="tooltip">Inventory</span></div>
+      </div></div>
+
+    </div>
+  </div>
+
+  <div class="ds-col">
+    <p class="ds-caption">Not a tooltip: why Save is off is written in the foot</p>
+    <div class="ds-tooltip-note">
+      <span class="ds-foot-note">Add a delivery date to save</span>
+      <button class="ds-btn ds-btn--destructive ds-btn--foot" type="button">Cancel</button>
+      <button class="ds-btn ds-btn--primary ds-btn--foot" type="button" disabled>Save changes</button>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

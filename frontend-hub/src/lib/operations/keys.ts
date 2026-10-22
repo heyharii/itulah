@@ -99,6 +99,8 @@ export const keys = {
   /// Pickers who could not finish a line, and why (`GET /api/v1/dc/short-picks`):
   /// the amber Short pick strip on a To pick card.
   shortPicks: () => ["dc", "short-picks"] as const,
+  /// Moves back to the picklist of the last two days (board strips).
+  moveBacks: () => ["dc", "move-backs"] as const,
   /// MD changes the warehouse has not acknowledged yet (`GET /api/v1/dc/changes`):
   /// the board's tags and "Got it", and the picker's banner.
   changes: () => ["dc", "changes"] as const,

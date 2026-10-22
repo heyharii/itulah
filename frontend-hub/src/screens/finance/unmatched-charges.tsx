@@ -8,10 +8,12 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Field, Input, Select, Textarea } from "@/components/ui/field"
+import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { MiniCell, MiniRow, MiniTable, SubHead } from "@/components/ui/rows"
-import { Segmented, Toolbar } from "@/components/ui/segmented"
+import { Toolbar } from "@/components/ui/segmented"
+import { SubTabs } from "@/components/ui/sub-tabs"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { useFilters } from "@/lib/filters"
@@ -170,15 +172,19 @@ export function UnmatchedCharges() {
         sub="Money a shop took where no sale was written. The shop's own day report balances, so nobody there can see it."
       />
 
-      <Toolbar>
-        <Segmented
-          options={[
-            { value: "open", label: "Still owed" },
-            { value: "all", label: "Everything" },
-          ]}
-          value={openOnly ? "open" : "all"}
-          onChange={(next) => setOpenOnly(next === "open")}
-        />
+      <Toolbar
+        lead={
+          <SubTabs
+            tabs={[
+              { value: "open", label: "Still owed" },
+              { value: "all", label: "Everything" },
+            ]}
+            value={openOnly ? "open" : "all"}
+            onChange={(next) => setOpenOnly(next === "open")}
+          />
+        }
+      >
+        <FilterPanel model={filters} table={table} />
       </Toolbar>
 
       {owedCount > 0 && (

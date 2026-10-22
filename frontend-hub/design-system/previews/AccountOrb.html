@@ -1,0 +1,122 @@
+<!-- @dsCard group="Page" height=748 subtitle="Static rendition of account-orb.tsx in the All white look" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>AccountOrb — preview</title><style>
+body{margin:0}
+/* AccountOrb: the orb (56px floating, 48px pinned), its 3 × 2 panel and a phone's bottom, at the hub's real sizes (index.css .account-orb). */
+.ds-account-stage{gap:20px}
+.ds-account-states{display:flex;flex-wrap:wrap;align-items:flex-end;gap:16px 32px}
+.ds-account-state{display:flex;flex-direction:column;align-items:center;gap:8px}
+.ds-account-state .ds-caption{text-align:center}
+.ds-account-slot{display:grid;place-items:center;min-width:88px;height:136px}
+.ds-account-rail{display:flex;flex-direction:column;align-items:center;justify-content:space-between;width:var(--rail);height:136px;padding:12px 0 12px;border-radius:var(--r-sheet);background:var(--stone)}
+.ds-account-rail .ds-rail-btn{color:var(--rail-mute)}
+.ds-account-orb{position:relative;display:grid;place-items:center;flex:none;width:56px;height:56px;padding:0;border:0;border-radius:var(--r-full);background:color-mix(in srgb,var(--canvas) 92%,transparent);-webkit-backdrop-filter:blur(14px) saturate(1.6);backdrop-filter:blur(14px) saturate(1.6);box-shadow:0 0 0 2px var(--accent),var(--shadow-float)}
+.ds-account-orb.is-pinned{width:48px;height:48px;box-shadow:0 0 0 2px var(--accent)}
+.ds-account-orb.is-resting{opacity:.85;scale:.92}
+.ds-account-orb.is-held{scale:1.06}
+.ds-account-face{display:grid;place-items:center;width:42px;height:42px;border-radius:var(--r-full);background:var(--accent-bg);color:var(--accent);font-size:17px;font-weight:600}
+.ds-account-orb.is-pinned .ds-account-face{width:38px;height:38px}
+.ds-account-badge{position:absolute;display:grid;place-items:center;min-width:18px;height:18px;padding:0 5px;border-radius:var(--r-full);background:var(--bad-fg);color:var(--on-dark);font-size:15px;line-height:1;font-weight:600;font-variant-numeric:tabular-nums;box-shadow:0 0 0 2px var(--canvas)}
+.ds-account-orb .ds-account-badge{top:1px;right:1px}
+.ds-account-panel{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;width:312px;max-width:calc(100% - 16px);padding:10px;border-radius:20px;background:color-mix(in srgb,var(--canvas) 94%,transparent);-webkit-backdrop-filter:blur(18px) saturate(1.6);backdrop-filter:blur(18px) saturate(1.6);box-shadow:0 0 0 1px rgb(0 0 0 / 6%),var(--shadow-float)}
+.ds-account-tile{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;height:72px;border-radius:14px;font-size:15px;line-height:20px;font-weight:500;color:var(--ink)}
+.ds-account-tile.is-hover{background:var(--soft)}
+.ds-account-tile .ds-ico{width:22px;height:22px;color:var(--mute)}
+.ds-account-tile.is-danger,.ds-account-tile.is-danger .ds-ico{color:var(--bad-fg)}
+.ds-account-tile .ds-account-badge{top:6px;left:calc(50% + 4px)}
+.ds-account-phone{position:relative;width:414px;max-width:100%;height:468px;margin:0 auto;overflow:hidden;border-radius:24px;background:var(--canvas);box-shadow:0 0 0 1px var(--hairline)}
+.ds-account-phone .ds-phone-head{padding-top:16px}
+.ds-account-phone .ds-phone-body{gap:12px}
+.ds-account-stack{position:absolute;left:0;right:0;bottom:0}
+.ds-account-dockwrap{padding:0 8px 8px}
+.ds-account-dock{border:1px solid rgb(0 0 0 / 0.06);border-radius:28px;background:color-mix(in srgb,var(--canvas) 95%,transparent);box-shadow:var(--shadow-float)}
+.ds-account-dock .ds-dock{padding:8px;gap:6px}
+.ds-account-dock .ds-dock-chip{flex:none;padding:0 12px 0 16px;gap:4px}
+.ds-account-dock .ds-dock-search{color:var(--mute)}
+.ds-account-stack .ds-tabbar{border-top-color:rgb(0 0 0 / 0.06)}
+.ds-account-phone .ds-account-orb{position:absolute;right:16px;bottom:140px}
+.ds-account-phone .ds-account-panel{position:absolute;right:82px;bottom:140px}
+.ds-account-ico-message-square{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'/%3E%3C/svg%3E")}
+.ds-account-ico-messages-square{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z'/%3E%3Cpath d='M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1'/%3E%3C/svg%3E")}
+.ds-account-ico-bell{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10.268 21a2 2 0 0 0 3.464 0'/%3E%3Cpath d='M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326'/%3E%3C/svg%3E")}
+.ds-account-ico-user-round{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='8' r='5'/%3E%3Cpath d='M20 21a8 8 0 0 0-16 0'/%3E%3C/svg%3E")}
+.ds-account-ico-log-out{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4'/%3E%3Cpolyline points='16 17 21 12 16 7'/%3E%3Cline x1='21' x2='9' y1='12' y2='12'/%3E%3C/svg%3E")}
+</style></head>
+<body>
+<div class="ds ds-stage ds-account-stage">
+
+  <div class="ds-account-states">
+    <div class="ds-account-state">
+      <div class="ds-account-slot"><div class="ds-account-rail">
+        <span class="ds-rail-btn" aria-label="Procurement"><span class="ds-ico ds-ico-cart ds-ico--17"></span></span>
+        <button class="ds-account-orb is-pinned" type="button" aria-label="Rina Kusuma, 3 waiting"><span class="ds-account-face">R</span><span class="ds-account-badge">3</span></button>
+      </div></div>
+      <p class="ds-caption">In the rail, 48px</p>
+    </div>
+    <div class="ds-account-state">
+      <div class="ds-account-slot"><button class="ds-account-orb" type="button" aria-label="Rina Kusuma, 3 waiting"><span class="ds-account-face">R</span><span class="ds-account-badge">3</span></button></div>
+      <p class="ds-caption">Floating, 56px</p>
+    </div>
+    <div class="ds-account-state">
+      <div class="ds-account-slot"><button class="ds-account-orb is-resting" type="button" aria-label="Rina Kusuma"><span class="ds-account-face">R</span></button></div>
+      <p class="ds-caption">Resting after 2.5s</p>
+    </div>
+    <div class="ds-account-state">
+      <div class="ds-account-slot"><button class="ds-account-orb is-held" type="button" aria-label="Rina Kusuma, 3 waiting"><span class="ds-account-face">R</span><span class="ds-account-badge">3</span></button></div>
+      <p class="ds-caption">Being dragged</p>
+    </div>
+  </div>
+
+  <p class="ds-caption">On a phone: above the dock, its panel opens toward the middle</p>
+  <div class="ds-account-phone">
+    <div class="ds-phone-head"><div class="ds-title">Purchase Orders</div></div>
+    <div class="ds-phone-body">
+      <div class="ds-card">
+        <div class="ds-card-top">
+          <div>
+            <div class="ds-card-name">Garmen Nusantara, PT</div>
+            <div class="ds-card-line">PO-161026-010 · 1 item</div>
+            <div class="ds-card-line">Delivery 29 Oct 2026</div>
+          </div>
+          <div class="ds-card-figure"><span class="ds-lead">24<span class="ds-lead-unit">pcs</span></span><span class="ds-card-line">Rp 2.040.000</span></div>
+        </div>
+        <div class="ds-card-foot"><span>Received 0 pcs</span><span class="ds-status ds-status--ok">Active</span></div>
+      </div>
+      <div class="ds-card">
+        <div class="ds-card-top">
+          <div>
+            <div class="ds-card-name">Sepatu Sejahtera, CV</div>
+            <div class="ds-card-line">PO-151026-001 · 2 items</div>
+          </div>
+          <div class="ds-card-figure"><span class="ds-lead">300<span class="ds-lead-unit">pcs</span></span></div>
+        </div>
+      </div>
+    </div>
+    <div class="ds-account-stack">
+      <div class="ds-account-dockwrap"><div class="ds-account-dock"><div class="ds-dock">
+        <span class="ds-dock-chip">Active<span class="ds-ico ds-ico-chevron-down"></span></span>
+        <span class="ds-dock-search"><span class="ds-ico ds-ico-search"></span>Search Orders</span>
+        <span class="ds-fab"><span class="ds-ico ds-ico-plus ds-ico--20"></span></span>
+      </div></div></div>
+      <nav class="ds-tabbar" aria-label="Main">
+        <a class="ds-tabbar-item"><span class="ds-ico ds-ico-home"></span>Home</a>
+        <a class="ds-tabbar-item is-active"><span class="ds-ico ds-ico-cart"></span>Orders</a>
+        <a class="ds-tabbar-item"><span class="ds-ico ds-ico-package"></span>Receiving</a>
+        <a class="ds-tabbar-item"><span class="ds-ico ds-ico-store"></span>Suppliers</a>
+      </nav>
+    </div>
+    <div class="ds-account-panel" role="menu" aria-label="Account">
+      <span class="ds-account-tile" role="menuitem"><span class="ds-ico ds-account-ico-message-square"></span>Chat<span class="ds-account-badge">1</span></span>
+      <span class="ds-account-tile" role="menuitem"><span class="ds-ico ds-account-ico-messages-square"></span>Discussions</span>
+      <span class="ds-account-tile is-hover" role="menuitem"><span class="ds-ico ds-account-ico-bell"></span>Notifications<span class="ds-account-badge">2</span></span>
+      <span class="ds-account-tile" role="menuitem"><span class="ds-ico ds-account-ico-user-round"></span>Profile</span>
+      <span class="ds-account-tile" role="menuitem"><span class="ds-ico ds-ico-search"></span>Search</span>
+      <span class="ds-account-tile is-danger" role="menuitem"><span class="ds-ico ds-account-ico-log-out"></span>Sign out</span>
+    </div>
+    <button class="ds-account-orb" type="button" aria-label="Rina Kusuma, 3 waiting" aria-expanded="true"><span class="ds-account-face">R</span><span class="ds-account-badge">3</span></button>
+  </div>
+
+</div>
+</body>
+</html>

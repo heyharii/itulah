@@ -1,0 +1,105 @@
+<!-- @dsCard group="Lists" height=884 subtitle="Static rendition of filter-bar.tsx, filter-chip.tsx and list-chrome.tsx in the All white look" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>FilterChips — preview</title><style>
+body{margin:0}
+/* FilterChips: the clause chip (32px, round, soft-2) in the bar, its two editors, and the phone's list-options sheet. */
+.ds-chips-stage{gap:12px}
+.ds-chips-bar{margin-bottom:0}
+.ds-chips-bar .ds-search .ds-ico{margin-top:-7px}
+.ds-chips-pad{padding:0 12px}
+.ds-chips-group{display:flex;flex-wrap:wrap;align-items:center;gap:7px;width:644px;max-width:100%;min-width:0}
+.ds-chips-count{color:var(--mute);font-weight:400;font-variant-numeric:tabular-nums}
+.ds-chips-chip{display:inline-flex;align-items:stretch;flex:none;max-width:100%;height:32px;overflow:hidden;border-radius:var(--r-full);background:var(--soft-2);font-size:15px;line-height:20px;white-space:nowrap}
+.ds-chips-chip>*{display:flex;align-items:center}
+.ds-chips-field{max-width:160px;padding:0 10px;overflow:hidden;text-overflow:ellipsis;font-weight:500;color:var(--ink)}
+.ds-chips-op{padding:0 8px;border-inline:1px solid var(--hairline);background:var(--soft);color:var(--body)}
+.ds-chips-value{padding:0 10px;overflow:hidden;text-overflow:ellipsis;font-weight:500;color:var(--accent)}
+.ds-chips-value.is-hover{color:var(--ink)}
+.ds-chips-x{padding:0 8px;border-left:1px solid var(--hairline);color:var(--line-ico)}
+.ds-chips-chip.is-bare .ds-chips-op{border-right:0}
+.ds-chips-cols{display:grid;grid-template-columns:240px 388px;gap:0 16px;width:644px;max-width:100%;margin:0 auto}
+.ds-chips-colbox{display:flex;flex-direction:column;gap:8px;min-width:0}
+.ds-chips-colbox .ds-caption{margin-top:4px}
+.ds-chips-pop{padding:5px;border:1px solid var(--hairline);border-radius:var(--r-card);background:var(--canvas);box-shadow:var(--shadow-pop);font-size:15px}
+.ds-chips-pop--menu{width:240px}
+.ds-chips-head{padding:8px 10px 4px;font-size:15px;line-height:20px;font-weight:600;color:var(--mute)}
+.ds-chips-item{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 8px;border-radius:var(--r-inner);color:var(--text)}
+.ds-chips-item.is-hover{background:var(--soft-2);color:var(--ink)}
+.ds-chips-item>span:first-child{display:flex;align-items:center;gap:8px;min-width:0}
+.ds-chips-tick{display:grid;place-items:center;flex:none;width:14px;color:var(--ink)}
+.ds-chips-key{flex:none;padding:1px 6px;border:1px solid var(--hairline-2);border-radius:var(--r-chip);background:var(--canvas);font-size:15px;line-height:20px;color:var(--body)}
+.ds-chips-typed{display:flex;flex-direction:column;gap:6px;width:208px;padding:4px}
+.ds-chips-typed span{display:flex;align-items:center;gap:8px}
+.ds-chips-typed label{flex:none;width:32px;color:var(--mute)}
+.ds-chips-box{flex:1;display:flex;align-items:center;height:32px;padding:0 12px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas);color:var(--ink)}
+.ds-chips-phone{width:414px;max-width:100%;margin:0 auto}
+.ds-chips-hdr{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:4px 16px 8px}
+.ds-chips-hdr-l{display:flex;align-items:center;gap:8px;min-width:0}
+.ds-chips-back{display:grid;place-items:center;width:var(--tap);height:var(--tap);margin-left:-8px;color:var(--line-ico)}
+.ds-chips-title{font-size:16px;line-height:24px;font-weight:600;color:var(--ink)}
+.ds-chips-clear{height:var(--tap);padding:0 12px;border:0;background:none;font-size:15px;font-weight:500;color:var(--accent)}
+.ds-chips-rows{padding:0 8px 12px}
+.ds-chips-row{display:flex;align-items:center;gap:12px;min-height:48px;padding:0 12px;border-radius:var(--r-inner);font-size:15px;color:var(--ink)}
+.ds-chips-row>span:first-child{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ds-chips-row .ds-chips-set{max-width:50%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--body)}
+.ds-chips-row .ds-chips-set.is-on{font-weight:500;color:var(--accent)}
+.ds-chips-row .ds-ico{color:var(--line-ico)}
+</style></head>
+<body>
+<div class="ds ds-stage ds-chips-stage">
+
+  <p class="ds-caption">In the bar, after Filter: one chip a clause</p>
+  <div class="ds-bar ds-chips-bar">
+    <label class="ds-search"><span class="ds-ico ds-ico-search ds-ico--14"></span><input placeholder="Search orders" aria-label="Search orders"></label>
+    <div class="ds-chips-group">
+      <button class="ds-btn ds-btn--ghost ds-chips-pad" type="button"><span class="ds-ico ds-ico-filter ds-ico--14"></span>Filter<span class="ds-chips-count">2</span></button>
+      <span class="ds-chips-chip"><span class="ds-chips-field">Status</span><span class="ds-chips-op">in</span><span class="ds-chips-value">2 selected</span><span class="ds-chips-x"><span class="ds-ico ds-ico-x ds-ico--14"></span></span></span>
+      <span class="ds-chips-chip"><span class="ds-chips-field">Supplier</span><span class="ds-chips-op">=</span><span class="ds-chips-value is-hover">Garmen Nusantara, PT</span><span class="ds-chips-x"><span class="ds-ico ds-ico-x ds-ico--14"></span></span></span>
+    </div>
+  </div>
+
+  <div class="ds-chips-cols" style="margin-top:12px">
+    <div class="ds-chips-colbox">
+      <p class="ds-caption">The operator menu</p>
+      <div class="ds-chips-pop ds-chips-pop--menu" role="menu">
+        <div class="ds-chips-head">Comparison</div>
+        <div class="ds-chips-item"><span><span class="ds-chips-tick"></span>is</span><span class="ds-chips-key">=</span></div>
+        <div class="ds-chips-item"><span><span class="ds-chips-tick"></span>is not</span><span class="ds-chips-key">&lt;&gt;</span></div>
+        <div class="ds-chips-head">In lists</div>
+        <div class="ds-chips-item is-hover"><span><span class="ds-chips-tick"><span class="ds-ico ds-ico-check ds-ico--14"></span></span>is any of</span><span class="ds-chips-key">in</span></div>
+        <div class="ds-chips-item"><span><span class="ds-chips-tick"></span>is none of</span><span class="ds-chips-key">not in</span></div>
+        <div class="ds-chips-head">Emptiness</div>
+        <div class="ds-chips-item"><span><span class="ds-chips-tick"></span>is empty</span><span class="ds-chips-key">is null</span></div>
+        <div class="ds-chips-item"><span><span class="ds-chips-tick"></span>is not empty</span><span class="ds-chips-key">not null</span></div>
+      </div>
+    </div>
+    <div class="ds-chips-colbox">
+      <p class="ds-caption">A range: From and To</p>
+      <div><span class="ds-chips-chip"><span class="ds-chips-field">Delivery date</span><span class="ds-chips-op">[ ]</span><span class="ds-chips-value">01–31 Oct 2026</span><span class="ds-chips-x"><span class="ds-ico ds-ico-x ds-ico--14"></span></span></span></div>
+      <div class="ds-chips-pop ds-chips-typed" role="dialog">
+        <span><label>From</label><span class="ds-chips-box">01 Oct 2026</span></span>
+        <span><label>To</label><span class="ds-chips-box">31 Oct 2026</span></span>
+      </div>
+      <p class="ds-caption">No value to type</p>
+      <div><span class="ds-chips-chip is-bare"><span class="ds-chips-field">Photo</span><span class="ds-chips-op">is null</span><span class="ds-chips-x"><span class="ds-ico ds-ico-x ds-ico--14"></span></span></span></div>
+    </div>
+  </div>
+
+  <p class="ds-caption" style="margin-top:12px">On a phone: the Filter page of the sheet</p>
+  <div class="ds-drawer ds-chips-phone">
+    <div class="ds-drawer-grip"></div>
+    <div class="ds-chips-hdr">
+      <span class="ds-chips-hdr-l"><span class="ds-chips-back"><span class="ds-ico ds-ico-chevron-left ds-ico--20"></span></span><span class="ds-chips-title">Filter</span></span>
+      <button class="ds-chips-clear" type="button">Clear</button>
+    </div>
+    <div class="ds-chips-rows">
+      <div class="ds-chips-row"><span>Status</span><span class="ds-chips-set is-on">2 chosen</span><span class="ds-ico ds-ico-chevron-right"></span></div>
+      <div class="ds-chips-row"><span>Supplier</span><span class="ds-chips-set is-on">Garmen Nusantara, PT</span><span class="ds-ico ds-ico-chevron-right"></span></div>
+      <div class="ds-chips-row"><span>Delivery date</span><span class="ds-chips-set is-on">01–31 Oct 2026</span><span class="ds-ico ds-ico-chevron-right"></span></div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

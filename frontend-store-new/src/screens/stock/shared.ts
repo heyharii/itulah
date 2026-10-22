@@ -17,7 +17,7 @@ import type { CatalogRow, MovementView } from "@itulah/contract"
 export const PLACES = [
   { code: "warehouse", label: "Store room" },
   { code: "floor", label: "Sales floor" },
-  { code: "reject", label: "Reject" },
+  { code: "reject", label: "Return" },
 ] as const
 
 export type PlaceCode = (typeof PLACES)[number]["code"]
@@ -219,5 +219,9 @@ export function matches(
   ...fields: readonly (string | null | undefined)[]
 ): boolean {
   if (needle === "") return true
-  return fields.some((field) => field?.toLowerCase().includes(needle) === true)
+  const plain = needle.replace(/·/g, "")
+  return fields.some((field) => {
+    const low = field?.toLowerCase()
+    return low?.includes(needle) === true || low?.includes(plain) === true
+  })
 }

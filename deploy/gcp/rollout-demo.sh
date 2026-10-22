@@ -27,7 +27,7 @@ ssh_vm() { g compute ssh "$VM" --zone "$ZONE" --tunnel-through-iap --command "$1
 bash -n "$here/startup-demo.sh" || { echo "startup-demo.sh does not parse" >&2; exit 1; }
 grep -qxF 'if [ "$mode" = rollout ]; then' "$here/startup-demo.sh" || { echo "startup-demo.sh has no rollout" >&2; exit 1; }
 g compute scp "$here/startup-demo.sh" "$VM:/tmp/itulah-ctl" --zone "$ZONE" --tunnel-through-iap >/dev/null 2>&1
-out="$(ssh_vm "sudo install -m 0755 -D /tmp/itulah-ctl /var/lib/itulah/bin/itulah-ctl && sudo /var/lib/itulah/bin/itulah-ctl rollout '$IMAGE'; echo EXIT=\$?")"
+out="$(ssh_vm "sudo install -m 0755 -D /tmp/itulah-ctl /var/lib/itulah/bin/itulah-ctl && sudo ITULAH_SKIP_STORES=${SKIP_STORES:-} /var/lib/itulah/bin/itulah-ctl rollout '$IMAGE'; echo EXIT=\$?")"
 echo "$out" | tail -25
 echo "$out" | grep -q "ROLLOUT OK:" || { echo "rollout did not complete: metadata left as it was" >&2; exit 1; }
 

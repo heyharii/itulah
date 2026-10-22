@@ -14,7 +14,7 @@ import { DataTable } from "@/components/ui/data-table"
 import { ConfirmButton, SavedDialog } from "@/components/ui/dialog"
 import { BarSpacer, ExpandingSearch } from "@/components/ui/list-chrome"
 import { EmptyState } from "@/components/ui/states"
-import { count, day, quantity } from "@/lib/format"
+import { count, day, quantity, sku as skuNumber } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import { shortReasonLabel } from "@/lib/operations/changes"
 import {
@@ -50,7 +50,7 @@ function articleCell(row: { article_name: string; sku_code: string }) {
     <span className="block min-w-0">
       <span className="block truncate text-ink">{row.article_name}</span>
       <span className="block truncate font-mono text-[0.9375rem] font-normal text-mute">
-        {row.sku_code}
+        {skuNumber(row.sku_code)}
       </span>
     </span>
   )
@@ -390,7 +390,7 @@ function matches(
 ): boolean {
   return `${row.allotment_number} ${storeOf(row)} ${row.article_name} ${row.article_code} ${row.sku_code}`
     .toLowerCase()
-    .includes(needle)
+    .includes(needle.replace(/·/g, ""))
 }
 
 /// The two tabs' body. Row click opens the allotment sheet.

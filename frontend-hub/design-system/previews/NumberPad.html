@@ -1,0 +1,81 @@
+<!-- @dsCard group="Inputs" height=580 subtitle="Static rendition of number-pad.tsx in the All white look" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>NumberPad — preview</title>
+<style>
+body{margin:0}
+.ds-numberpad-set{display:flex;flex-wrap:wrap;gap:28px;align-items:flex-start;padding:24px 28px}
+.ds-numberpad-block{display:flex;flex-direction:column;gap:12px;min-width:0}
+.ds-numberpad-block--states{flex:1 1 200px;max-width:300px}
+.ds-numberpad-label{font-weight:500;color:var(--ink)}
+/* the phone: the page under the scrim, the drawer at the bottom edge */
+.ds-numberpad-phone{display:flex;align-items:flex-end;width:414px;max-width:100%;height:490px;overflow:hidden;border-radius:var(--r-sheet);background:var(--scrim)}
+.ds-numberpad{display:flex;flex-direction:column;width:100%;border-top:1px solid var(--hairline);border-radius:var(--r-sheet) var(--r-sheet) 0 0;background:var(--canvas);box-shadow:var(--shadow-float);overflow:hidden}
+.ds-numberpad-grip{display:flex;justify-content:center;padding-top:8px}
+.ds-numberpad-grip span{width:36px;height:4px;border-radius:var(--r-full);background:var(--hairline-strong)}
+.ds-numberpad-head{display:flex;align-items:flex-start;gap:12px;padding:12px 16px 0}
+.ds-numberpad-title{flex:1;min-width:0;font-size:15px;line-height:20px;font-weight:500;color:var(--body)}
+.ds-numberpad-close{display:grid;place-items:center;flex:none;width:44px;height:44px;margin:-8px -8px 0 0;border:0;border-radius:var(--r-inner);background:none;color:var(--line-ico)}
+/* the figure: 40/44 at 600, tracked -0.03em; empty it is a faint 0 */
+.ds-numberpad-figure{padding:4px 16px 12px;overflow:hidden;white-space:nowrap;font-size:40px;line-height:44px;font-weight:600;letter-spacing:-1.2px;font-variant-numeric:tabular-nums;color:var(--ink)}
+.ds-numberpad-figure.is-empty{color:color-mix(in srgb,var(--mute) 50%,transparent)}
+.ds-numberpad-figure .is-selected{display:inline-block;border-radius:4px;background:var(--accent-bg)}
+.ds-numberpad-caret{display:inline-block;width:3px;height:.85em;margin:0 1px;transform:translateY(.08em);background:var(--accent)}
+/* keys: 56px, radius 16, 24px at 500, soft-2; delete is quiet */
+.ds-numberpad-keys{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding:0 16px 12px}
+.ds-numberpad-key{display:grid;place-items:center;height:56px;border:0;border-radius:16px;background:var(--soft-2);font-size:24px;font-weight:500;color:var(--ink);font-variant-numeric:tabular-nums}
+.ds-numberpad-key.is-press{background:var(--hairline);scale:.96}
+.ds-numberpad-key--quiet{background:none;color:var(--body)}
+.ds-numberpad-key svg{width:24px;height:24px}
+.ds-numberpad-foot{padding:12px 16px;border-top:1px solid var(--hairline)}
+.ds-numberpad-foot .ds-btn{width:100%;height:var(--tap)}
+/* three states of the figure */
+.ds-numberpad-states{display:flex;flex-direction:column;width:100%;border:1px solid var(--hairline);border-radius:var(--r-card);background:var(--canvas)}
+.ds-numberpad-state{display:flex;flex-direction:column;gap:2px;padding:12px 0 4px;border-top:1px solid var(--hairline)}
+.ds-numberpad-state:first-child{border-top:0}
+.ds-numberpad-state>span{padding:0 16px;color:var(--mute)}
+</style></head>
+<body>
+<div class="ds ds-numberpad-set">
+
+  <div class="ds-numberpad-block">
+    <div class="ds-numberpad-label">On a phone</div>
+    <div class="ds-numberpad-phone">
+      <div class="ds-numberpad" role="dialog" aria-label="Kemeja Flanel Pria · Black M">
+        <div class="ds-numberpad-grip" aria-hidden="true"><span></span></div>
+        <div class="ds-numberpad-head">
+          <div class="ds-numberpad-title">Kemeja Flanel Pria · Black M</div>
+          <button class="ds-numberpad-close" type="button" aria-label="Close"><span class="ds-ico ds-ico-x"></span></button>
+        </div>
+        <output class="ds-numberpad-figure"><span class="is-selected">24</span></output>
+        <div class="ds-numberpad-keys">
+          <button class="ds-numberpad-key" type="button">1</button>
+          <button class="ds-numberpad-key" type="button">2</button>
+          <button class="ds-numberpad-key" type="button">3</button>
+          <button class="ds-numberpad-key" type="button">4</button>
+          <button class="ds-numberpad-key is-press" type="button">5</button>
+          <button class="ds-numberpad-key" type="button">6</button>
+          <button class="ds-numberpad-key" type="button">7</button>
+          <button class="ds-numberpad-key" type="button">8</button>
+          <button class="ds-numberpad-key" type="button">9</button>
+          <span aria-hidden="true"></span>
+          <button class="ds-numberpad-key" type="button">0</button>
+          <button class="ds-numberpad-key ds-numberpad-key--quiet" type="button" aria-label="Delete"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 5a2 2 0 0 0-1.344.519l-6.328 5.74a1 1 0 0 0 0 1.481l6.328 5.741A2 2 0 0 0 10 19h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2z"/><path d="m12 9 6 6"/><path d="m18 9-6 6"/></svg></button>
+        </div>
+        <div class="ds-numberpad-foot"><button class="ds-btn ds-btn--primary" type="button">Done</button></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ds-numberpad-block ds-numberpad-block--states">
+    <div class="ds-numberpad-label">The figure</div>
+    <div class="ds-numberpad-states">
+      <div class="ds-numberpad-state"><span>Empty</span><output class="ds-numberpad-figure is-empty">0</output></div>
+      <div class="ds-numberpad-state"><span>Selected</span><output class="ds-numberpad-figure"><span class="is-selected">24</span></output></div>
+      <div class="ds-numberpad-state"><span>Caret</span><output class="ds-numberpad-figure">1.2<span class="ds-numberpad-caret"></span>50</output></div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

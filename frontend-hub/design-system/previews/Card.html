@@ -1,0 +1,109 @@
+<!-- @dsCard group="Records" height=608 subtitle="Static rendition of card.tsx and record-card.tsx in the All white look" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>Card — preview</title>
+<style>
+body{margin:0}
+/* Card: 1px hairline, radius 10, no shadow (white.css). CardHeader pads 14 16 11; CardTitle is 16/600 on a page. */
+.ds-card-cols{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:24px;align-items:start}
+.ds-card-stack{display:flex;flex-direction:column;gap:16px;min-width:0}
+.ds-card-panelhead{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 16px 11px}
+.ds-card-paneltitle{font-size:16px;font-weight:600;letter-spacing:-0.16px;color:var(--ink)}
+.ds-card-panellink{font-size:15px;font-weight:500;color:var(--accent)}
+.ds-card-text{display:flex;flex-direction:column;gap:2px;min-width:0}
+.ds-card-panel td{white-space:nowrap}
+/* a board card: padding 16, title 17/24 at 600, the step a 30px solid button; the pointer lifts the edge to hairline-2 and adds shadow-board-hover */
+.ds-card-board{overflow:hidden;border:1px solid var(--hairline);border-radius:var(--r-card);background:var(--canvas)}
+.ds-card-board.is-hover{border-color:var(--hairline-2);box-shadow:var(--shadow-board-hover)}
+.ds-card-boardbody{display:flex;flex-direction:column;gap:4px;padding:16px}
+.ds-card-boardrow{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.ds-card-boardtitle{font-size:17px;line-height:24px;font-weight:600;color:var(--ink)}
+.ds-card-boardmeta{color:var(--body);white-space:nowrap}
+.ds-card-boardsub{color:var(--body)}
+.ds-card-boardfig{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:8px}
+.ds-card-boardfig b{font-weight:600;font-variant-numeric:tabular-nums}
+.ds-card-boardfig span span{font-weight:400;color:var(--body)}
+.ds-card-boardact{display:flex;justify-content:flex-end;padding:0 12px 12px}
+.ds-card-step{display:inline-flex;align-items:center;height:30px;padding:0 14px;border:0;border-radius:var(--r-inner);background:var(--cta);color:var(--cta-fg);font-size:15px;font-weight:600}
+.ds-card-board.is-hover .ds-card-step{background:var(--cta-hover)}
+/* what the kit still draws and the white look keeps: a band across the top (CardStrip, RecordHead) */
+.ds-card-strip{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--hairline);background:var(--band)}
+.ds-card-strip b{flex:1;font-size:16px;font-weight:600;color:var(--ink)}
+.ds-card-strip span{color:var(--mute);font-variant-numeric:tabular-nums}
+.ds-card-line-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px}
+.ds-card-line-row + .ds-card-line-row{border-top:1px solid var(--row-line)}
+.ds-card-rechead{display:flex;align-items:center;gap:10px;min-height:var(--tap);padding:8px 14px;border-bottom:1px solid var(--hairline);background:var(--band)}
+.ds-card-rectile{display:grid;place-items:center;flex:none;width:27px;height:27px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas);color:var(--body)}
+.ds-card-rectile .ds-ico{width:15px;height:15px}
+.ds-card-rectext{flex:1;min-width:0}
+.ds-card-rectext b{display:block;overflow:hidden;font-weight:600;color:var(--ink);text-overflow:ellipsis;white-space:nowrap}
+.ds-card-rectext span{display:block;overflow:hidden;color:var(--mute);text-overflow:ellipsis;white-space:nowrap}
+.ds-card-recbody{padding:12px 14px;font-variant-numeric:tabular-nums}
+.ds-card-recact{display:flex;gap:8px;padding:10px 14px;border-top:1px solid var(--hairline)}
+</style></head>
+<body>
+<div class="ds ds-stage">
+
+  <div class="ds-card-cols">
+    <div class="ds-col">
+      <p class="ds-caption">A titled panel: its title, a link, a framed table</p>
+      <div class="ds-table-card ds-card-panel">
+        <div class="ds-card-panelhead"><h3 class="ds-card-paneltitle">Latest back over the counter</h3><a class="ds-card-panellink">All returns</a></div>
+        <table class="ds-table">
+          <thead><tr><th>Return</th><th class="is-num">Refund</th></tr></thead>
+          <tbody>
+            <tr class="ds-opens"><td>Toko Bandung<span class="ds-sub">SALE-0042</span></td><td class="is-num">Rp 120.000</td></tr>
+            <tr class="ds-opens is-hover"><td>Toko Kemang<span class="ds-sub">SALE-0038</span></td><td class="is-num">Rp 45.000</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="ds-col">
+      <p class="ds-caption">A phone record and a board card</p>
+      <div class="ds-card-stack">
+        <div class="ds-card">
+          <div class="ds-card-top">
+            <div class="ds-card-text">
+              <span class="ds-card-name">Garmen Nusantara, PT</span>
+              <span class="ds-card-line">PO-161026-010 · 1 item</span>
+            </div>
+            <div class="ds-card-figure"><span class="ds-lead">24<span class="ds-lead-unit"> pcs</span></span></div>
+          </div>
+          <div class="ds-card-foot"><span>Received 0 pcs</span><span class="ds-status ds-status--ok">Active</span></div>
+        </div>
+        <div class="ds-card-board is-hover">
+          <div class="ds-card-boardbody">
+            <div class="ds-card-boardrow"><span class="ds-card-boardtitle">Toko Bandung</span><span class="ds-card-boardmeta">3 koli</span></div>
+            <span class="ds-card-boardsub">ALT-00000412</span>
+            <div class="ds-card-boardfig"><span><b>24</b> <span>pcs</span></span><span class="ds-pill ds-pill--info">Picked</span></div>
+          </div>
+          <div class="ds-card-boardact"><span class="ds-card-step">Pack</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ds-col">
+    <p class="ds-caption">Retired: a band across the top of a card, in CardStrip and in RecordCard</p>
+    <div class="ds-card-cols">
+      <div class="ds-card" style="overflow:hidden">
+        <div class="ds-card-rechead">
+          <span class="ds-card-rectile"><span class="ds-ico ds-ico-package"></span></span>
+          <span class="ds-card-rectext"><b>PO-161026-010</b><span>Garmen Nusantara, PT</span></span>
+          <span class="ds-pill ds-pill--ok">Active</span>
+        </div>
+        <div class="ds-card-recbody">24 pcs · Rp 2.040.000</div>
+        <div class="ds-card-recact"><button class="ds-btn ds-btn--ghost" type="button">Open</button></div>
+      </div>
+      <div class="ds-card">
+        <div class="ds-card-strip"><b>Garmen Nusantara, PT</b><span>2 lines</span></div>
+        <div class="ds-card-line-row"><span>Kemeja Flanel Pria</span><span class="ds-num">24 pcs</span></div>
+        <div class="ds-card-line-row"><span>Kaos Polos Oversize</span><span class="ds-num">96 pcs</span></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

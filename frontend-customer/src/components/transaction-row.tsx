@@ -1,8 +1,7 @@
 import { Link } from "@tanstack/react-router"
-import { ShoppingBag, Undo2 } from "lucide-react"
-
+import { MattePicture } from "@/components/matte"
 import { Pill } from "@/components/ui/pill"
-import { shortDate, timeOfDay } from "@/lib/dates"
+import { rowDate, timeOfDay } from "@/lib/dates"
 import { money, units } from "@/lib/money"
 import { cn } from "@/lib/utils"
 import type { CustomerTransaction } from "@itulah/contract"
@@ -29,25 +28,20 @@ export function TransactionRow({
     <Link
       to="/riwayat/$saleId"
       params={{ saleId: transaction.sale_id }}
-      className="flex items-center gap-3.5 rounded-inner px-3 py-3 transition-colors duration-[var(--t-hover)] ease-[var(--ease-out)] active:bg-soft-2"
+      className="flex items-center gap-3 rounded-inner px-3 py-2.5 transition-colors duration-[var(--t-hover)] ease-[var(--ease-out)] active:bg-soft-2"
     >
-      <span
-        aria-hidden
-        className="flex size-11 shrink-0 items-center justify-center rounded-full bg-soft-2"
-      >
-        {voided ? (
-          <Undo2 className="size-[1.125rem] text-mute" strokeWidth={2} />
-        ) : (
-          <ShoppingBag className="size-[1.125rem] text-ink" strokeWidth={2} />
-        )}
-      </span>
+      {voided ? (
+        <MattePicture art="undo" tone="mute" />
+      ) : (
+        <MattePicture art="bag" />
+      )}
       <div className="min-w-0 flex-1">
         <p className="truncate text-metric font-medium text-ink">
           {transaction.site_name ?? transaction.site_id.toUpperCase()}
         </p>
         <p className="truncate text-meta text-body">
           {when === "date"
-            ? shortDate(transaction.occurred_at)
+            ? rowDate(transaction.occurred_at)
             : timeOfDay(transaction.occurred_at)}{" "}
           · {units(transaction.item_count)} barang
         </p>

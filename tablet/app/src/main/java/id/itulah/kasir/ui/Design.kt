@@ -1,5 +1,6 @@
 package id.itulah.kasir.ui
 
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
@@ -24,6 +25,10 @@ import id.itulah.kasir.R
  * indigo to a plain blue, the radii tightened a step and the type scale was
  * reset. Every value below is copied from there rather than re-derived, so a
  * shade that changes at the centre changes here by the same edit.
+ *
+ * Re-copied on 2026-10-17 for the Flipped counter (`pos-web-options.html`, F ·
+ * Labels · Today · Pay 5): the neutral greys, the 15 sp type floor (owner,
+ * 2026-10-14 — nothing on the till is smaller) and the 22 sp page title.
  *
  * The *shape* — topbar, two white panes on the pale ground, the function
  * board, the payment page — is `pos-desktop`'s, so the counter looks the same
@@ -51,23 +56,23 @@ import id.itulah.kasir.R
 // white read as paper rather than as screen.
 val Ink = Color(0xFF20242C)
 val Text = Color(0xFF394150)
-val Body = Color(0xFF626B78)
-val Mute = Color(0xFF737C89)
+val Body = Color(0xFF565F6D)
+val Mute = Color(0xFF666F7D)
 val Faint = Color(0xFFB9C0C9)
 val LineIco = Color(0xFF89919D)
 
 // ── surfaces ────────────────────────────────────────────────────────────
 /** White. Cards and panes sit on it; the page does not. */
 val Canvas = Color(0xFFFFFFFF)
-val Soft = Color(0xFFF8F9FB)
-val Soft2 = Color(0xFFF0F2F5)
-/** The till's ground, behind the two panes — pos-desktop's `#f7f8fa`. */
-val Soft3 = Color(0xFFF7F8FA)
-val Hairline = Color(0xFFE7EAF0)
-val Hairline2 = Color(0xFFDCE1E8)
-val HairlineStrong = Color(0xFFC7CED8)
+val Soft = Color(0xFFF8F8F9)
+val Soft2 = Color(0xFFF0F0F2)
+/** The till's ground, behind the white panes — the hub's `--soft-3`. */
+val Soft3 = Color(0xFFF6F6F7)
+val Hairline = Color(0xFFE6E6E9)
+val Hairline2 = Color(0xFFDADADE)
+val HairlineStrong = Color(0xFFC6C6CC)
 val Dark = Color(0xFF191B20)
-val Backdrop = Color(0xFFDFE3EA)
+val Backdrop = Color(0xFFE0E0E4)
 /**
  * The veil is WHITE.
  *
@@ -75,7 +80,13 @@ val Backdrop = Color(0xFFDFE3EA)
  * near-white. A black scrim is the single most recognisable way a screen stops
  * being Cloud Hub.
  */
-val Scrim = Color(0xB8F7F8FA)
+val Scrim = Color(0xB8F6F6F7)
+/**
+ * The veil behind the payment dialog, as `pos-web-options.html` draws it
+ * (`rgb(32 36 44 / 22%)`): a light ink wash rather than the white [Scrim], so
+ * the counter stays legible behind the money.
+ */
+val Dim = Color(0x3820242C)
 val OnDark = Color(0xFFFFFFFF)
 
 /**
@@ -115,22 +126,36 @@ val BadBg = Color(0xFFFBEAEA)
  * tint they fail contrast, which is why the system carries a second, darker
  * value for the words themselves.
  */
-val OkFg = Color(0xFF15803D)
-val WarnFg = Color(0xFFB45309)
+val OkFg = Color(0xFF137A37)
+val WarnFg = Color(0xFFA64A08)
 val BadFg = Color(0xFFBE123C)
 
 /** The avatar wash — the system's one soft ramp. */
 val AvatarFrom = Color(0xFFE8DEF4)
 val AvatarTo = Color(0xFFF8DDE8)
 
+/** A focused field: border `#93b4f5` and a 4 dp ring of the accent at 8%. */
+val Focus = Color(0xFF93B4F5)
+val FocusRing = Color(0x142563EB)
+
 // ── geometry ────────────────────────────────────────────────────────────
 val RInner = 7.dp
+/** Buttons, segments, chips (`.btn`, `.chip`, `.mseg button`). */
+val RControl = 8.dp
+/** Inputs and keys (`.f-in`, `.np button`). */
+val RField = 10.dp
 val RCard = 12.dp
 val RShell = 16.dp
 val RSheet = 16.dp
 
 /** The touch floor. Named once so a device that argues with it is one edit. */
 val Tap = 44.dp
+
+/**
+ * Emil's strong ease-out, `cubic-bezier(.23, 1, .32, 1)` — the curve every
+ * entrance and every press uses. Nothing here moves for longer than 200 ms.
+ */
+val EaseOutStrong = CubicBezierEasing(0.23f, 1f, 0.32f, 1f)
 
 /**
  * The system's two faces, carried in the APK.
@@ -143,29 +168,36 @@ val Tap = 44.dp
 val Sans = FontFamily(Font(R.font.inter_variable))
 val Mono = FontFamily(Font(R.font.jetbrains_mono_variable))
 
-/** The scale, from `@theme` in the hub's stylesheet. Sizes are never guessed. */
+/**
+ * The scale, from `@theme` in the hub's stylesheet. Sizes are never guessed.
+ *
+ * **Nothing is smaller than 15** — the owner's ruling of 2026-10-14. Quieter is
+ * a lighter ink or a lighter weight, never a smaller size. Figures carry
+ * tabular digits so a total does not shimmer sideways as it changes.
+ */
 object Type {
-    val hero = TextStyle(fontFamily = Sans, fontSize = 17.sp, lineHeight = 24.sp,
-        letterSpacing = (-0.34).sp, fontWeight = FontWeight.SemiBold, color = Ink)
+    val hero = TextStyle(fontFamily = Sans, fontSize = 22.sp, lineHeight = 30.sp,
+        letterSpacing = (-0.44).sp, fontWeight = FontWeight.SemiBold, color = Ink)
     val kpi = TextStyle(fontFamily = Sans, fontSize = 18.sp, lineHeight = 24.sp,
-        letterSpacing = (-0.1).sp, fontWeight = FontWeight.SemiBold, color = Ink)
+        letterSpacing = (-0.1).sp, fontWeight = FontWeight.SemiBold, color = Ink,
+        fontFeatureSettings = "tnum")
     /** The one deliberate departure: the figure read across a counter. */
-    val money = TextStyle(fontFamily = Sans, fontSize = 28.sp, letterSpacing = (-0.8).sp,
-        fontWeight = FontWeight.SemiBold, color = Ink)
+    val money = TextStyle(fontFamily = Sans, fontSize = 28.sp, letterSpacing = (-0.6).sp,
+        fontWeight = FontWeight.SemiBold, color = Ink, fontFeatureSettings = "tnum")
     val metric = TextStyle(fontFamily = Sans, fontSize = 15.sp, color = Ink)
-    val cardTitle = TextStyle(fontFamily = Sans, fontSize = 15.sp, letterSpacing = (-0.15).sp,
+    val cardTitle = TextStyle(fontFamily = Sans, fontSize = 16.sp, letterSpacing = (-0.16).sp,
         fontWeight = FontWeight.SemiBold, color = Ink)
-    val prose = TextStyle(fontFamily = Sans, fontSize = 14.sp, color = Text)
-    val control = TextStyle(fontFamily = Sans, fontSize = 13.sp, lineHeight = 20.sp,
+    val prose = TextStyle(fontFamily = Sans, fontSize = 15.sp, color = Text)
+    val control = TextStyle(fontFamily = Sans, fontSize = 15.sp, lineHeight = 20.sp,
         fontWeight = FontWeight.Medium, color = Ink)
-    val nav = TextStyle(fontFamily = Sans, fontSize = 13.sp, color = Text)
-    val meta = TextStyle(fontFamily = Sans, fontSize = 12.sp, color = Body)
-    val cell = TextStyle(fontFamily = Sans, fontSize = 13.sp, color = Text)
-    val section = TextStyle(fontFamily = Sans, fontSize = 13.sp, color = Body)
-    val eyebrow = TextStyle(fontFamily = Sans, fontSize = 12.sp, letterSpacing = 0.48.sp,
+    val nav = TextStyle(fontFamily = Sans, fontSize = 15.sp, color = Text)
+    val meta = TextStyle(fontFamily = Sans, fontSize = 15.sp, color = Body)
+    val cell = TextStyle(fontFamily = Sans, fontSize = 15.sp, color = Text, fontFeatureSettings = "tnum")
+    val section = TextStyle(fontFamily = Sans, fontSize = 15.sp, color = Body)
+    val eyebrow = TextStyle(fontFamily = Sans, fontSize = 15.sp, letterSpacing = 0.6.sp,
         fontWeight = FontWeight.Medium, color = Mute)
-    val pill = TextStyle(fontFamily = Sans, fontSize = 11.sp, color = Body)
-    val id = TextStyle(fontFamily = Mono, fontSize = 12.sp, color = Mute)
+    val pill = TextStyle(fontFamily = Sans, fontSize = 15.sp, color = Body)
+    val id = TextStyle(fontFamily = Mono, fontSize = 15.sp, color = Mute)
 }
 
 private val scheme = lightColorScheme(

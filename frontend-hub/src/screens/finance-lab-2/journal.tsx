@@ -35,9 +35,7 @@ export function JournalWorkspace() {
         open={writing}
         onClose={() => setWriting(false)}
         onPosted={(number) =>
-          toast.success(`${number} posted`, {
-            description: "The entry is in the books.",
-          })
+          toast.success(`${number} posted`)
         }
       />
     </>

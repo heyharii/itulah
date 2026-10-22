@@ -7,13 +7,14 @@ import { PageContent } from "@/components/shell/app-shell"
 import { DockTools } from "@/components/shell/dock-tools"
 import { Card } from "@/components/ui/card"
 import { DataTable, dockSortOf } from "@/components/ui/data-table"
-import { Select } from "@/components/ui/field"
-import { FilterSheet } from "@/components/ui/filter-sheet"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
+import { ListFilters } from "@/components/ui/list-filters"
 import { BarSpacer, ColumnsMenu } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
+import { CellMoney } from "@/components/ui/rows-switch"
 import { EmptyState } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
+import { useFilterState, type FilterField } from "@/lib/filters"
 import { count, dateText, money } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import {
@@ -100,14 +101,14 @@ const columns: ColumnDef<TableSetup, TaxPeriod>[] = [
     header: "Owed or credit",
     size: 170,
     meta: { align: "right", card: "metric" },
-    cell: ({ row }) => money(amountOf(row.original)),
+    cell: ({ row }) => <CellMoney minor={amountOf(row.original)} />,
   },
   {
     accessorKey: "settled_minor",
     header: "Paid",
     size: 150,
     meta: { align: "right", card: "metric" },
-    cell: ({ row }) => money(row.original.settled_minor),
+    cell: ({ row }) => <CellMoney minor={row.original.settled_minor} />,
   },
   {
     accessorKey: "outstanding_minor",
@@ -122,9 +123,11 @@ const columns: ColumnDef<TableSetup, TaxPeriod>[] = [
             : "text-mute"
         }
       >
-        {row.original.outstanding_minor === 0
-          ? "·"
-          : money(row.original.outstanding_minor)}
+        {row.original.outstanding_minor === 0 ? (
+          "·"
+        ) : (
+          <CellMoney minor={row.original.outstanding_minor} />
+        )}
       </span>
     ),
   },
@@ -174,10 +177,30 @@ function TaxScreen() {
     queries: [taxPeriodsQuery(), taxReconciliationQuery()],
   })
   const [show, setShow] = useState<Show>("OPEN")
-  const [taxType, setTaxType] = useState("")
-  const [filtering, setFiltering] = useState(false)
 
   const all = periods.data
+  const fields = useMemo<FilterField[]>(() => {
+    const names = new Map((types.data ?? []).map((row) => [row.code, row.name]))
+    return [
+      {
+        column: "tax_type_code",
+        label: "Tax",
+        spec: {
+          kind: "option",
+          single: true,
+          format: (value) => names.get(value) ?? value,
+          counted: (types.data ?? []).map((row) => ({
+            value: row.code,
+            count: all.filter((one) => one.tax_type_code === row.code).length,
+          })),
+        },
+      },
+    ]
+  }, [types.data, all])
+  const filterState = useFilterState(fields)
+  const taxType =
+    filterState.filters.find((one) => one.column === "tax_type_code")
+      ?.values[0] ?? ""
   const payable = all
     .filter((row) => row.nature === "PAYABLE")
     .reduce((total, row) => total + row.outstanding_minor, 0)
@@ -297,19 +320,7 @@ function TaxScreen() {
           value={show}
           onChange={(next) => setShow(next as Show)}
         />
-        <Select
-          value={taxType}
-          onChange={setTaxType}
-          className="h-control w-56"
-          aria-label="Tax"
-        >
-          <option value="">Every tax</option>
-          {(types.data ?? []).map((row) => (
-            <option key={row.code} value={row.code}>
-              {row.name}
-            </option>
-          ))}
-        </Select>
+        <ListFilters model={filterState} />
         <BarSpacer />
         <ColumnsMenu table={table} />
       </div>
@@ -317,8 +328,8 @@ function TaxScreen() {
       <DockTools
         sort={dockSortOf(table)}
         filter={{
-          count: taxType === "" ? 0 : 1,
-          onOpen: () => setFiltering(true),
+          count: filterState.filters.length,
+          panel: { model: filterState },
         }}
         status={{
           value: show,
@@ -339,26 +350,6 @@ function TaxScreen() {
           })),
           onChange: (next) => setShow(next as Show),
         }}
-      />
-
-      <FilterSheet
-        open={filtering}
-        onOpenChange={setFiltering}
-        groups={[
-          {
-            key: "tax",
-            label: "Tax",
-            value: taxType === "" ? null : taxType,
-            options: [
-              { value: null, label: "Every tax" },
-              ...(types.data ?? []).map((row) => ({
-                value: row.code,
-                label: row.name,
-              })),
-            ],
-            onChange: (next) => setTaxType(next ?? ""),
-          },
-        ]}
       />
 
       {rows.length === 0 ? (

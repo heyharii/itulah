@@ -1,0 +1,81 @@
+<!-- @dsCard group="Page" height=853 subtitle="Static rendition of door-tabs.tsx in the All white look" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>DoorTabs — preview</title><style>body{margin:0}
+/* DoorTabs: the head ends on its tabs (no padding under them); the phone's chip and sheet are drawn here. */
+.ds-doortabs-ground{padding:12px;background:var(--stone);border-radius:var(--r-sheet)}
+.ds-doortabs-frame.ds-page{flex:none;margin:0}
+.ds-doortabs-frame .ds-page-content{padding-bottom:0}
+.ds-doortabs-head{display:flex;flex-direction:column;gap:12px;margin:0 calc(-1 * var(--page-gutter)) var(--head-gap);padding:0 var(--page-gutter);border-bottom:1px solid var(--hairline)}
+.ds-doortabs-top{display:flex;align-items:center;justify-content:space-between;gap:20px}
+.ds-doortabs-actions{display:flex;align-items:center;gap:8px}
+.ds-doortabs-row{display:flex;align-items:flex-end;gap:12px}
+.ds-doortabs-tabs{flex:1;min-width:0;margin-bottom:0;box-shadow:none}
+.ds-doortabs-view{flex:none;width:192px;margin-bottom:6px}
+.ds-doortabs-phone{width:414px;max-width:100%}
+.ds-doortabs-chip{display:inline-flex;align-items:center;gap:4px;height:var(--tap);max-width:100%;padding:0 12px 0 16px;border-radius:var(--r-full);background:var(--soft-2);font-size:15px;font-weight:500;color:var(--ink);white-space:nowrap}
+.ds-doortabs-chip .ds-ico{color:var(--line-ico)}
+.ds-doortabs-grip{display:flex;justify-content:center;padding:10px 0 4px}
+.ds-doortabs-grip span{width:36px;height:4px;border-radius:var(--r-full);background:var(--hairline-strong)}
+.ds-doortabs-title{padding:4px 16px 8px;font-size:16px;font-weight:600;color:var(--ink)}
+.ds-doortabs-rows{padding:0 8px 12px}
+.ds-doortabs-group{padding:12px 12px 4px;font-size:15px;font-weight:600;color:var(--mute)}
+.ds-doortabs-item{display:flex;align-items:center;gap:12px;min-height:48px;padding:0 12px;border-radius:var(--r-inner);font-size:15px;color:var(--ink)}
+.ds-doortabs-item > span:first-child{flex:1}
+.ds-doortabs-item.is-on{font-weight:500;color:var(--accent)}
+.ds-doortabs-item .ds-ico{flex:none}
+</style></head>
+<body>
+<div class="ds ds-stage">
+  <div class="ds-doortabs-ground">
+  <div class="ds-page ds-doortabs-frame">
+    <div class="ds-page-content">
+      <div class="ds-doortabs-head">
+        <div class="ds-doortabs-top">
+          <h1 class="ds-title">People</h1>
+          <div class="ds-doortabs-actions">
+            <button class="ds-btn ds-btn--ghost" type="button">Import &amp; export</button>
+            <button class="ds-btn ds-btn--primary" type="button">Add employee</button>
+          </div>
+        </div>
+        <div class="ds-doortabs-row">
+          <div class="ds-tabs ds-doortabs-tabs">
+            <button class="ds-tab is-selected" type="button">Employees</button>
+            <button class="ds-tab is-hover" type="button">Changes</button>
+            <button class="ds-tab" type="button">Onboarding</button>
+            <button class="ds-tab" type="button">Invitations</button>
+          </div>
+          <div class="ds-doortabs-view">
+            <div class="ds-select"><div class="ds-input">List</div><span class="ds-ico ds-ico-chevron-down"></span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  </div>
+
+  <div class="ds-col">
+    <div class="ds-caption">On a phone</div>
+    <div class="ds-doortabs-phone">
+      <div class="ds-dock"><span class="ds-doortabs-chip">Employees<span class="ds-ico ds-ico-chevron-down"></span></span></div>
+      <div class="ds-drawer">
+        <div class="ds-doortabs-grip"><span></span></div>
+        <div class="ds-doortabs-title">People</div>
+        <div class="ds-doortabs-rows">
+          <div class="ds-doortabs-group">Employees</div>
+          <div class="ds-doortabs-item is-on"><span>List</span><span class="ds-ico ds-ico-check"></span></div>
+          <div class="ds-doortabs-item"><span>Org chart</span></div>
+          <div class="ds-doortabs-group">Changes</div>
+          <div class="ds-doortabs-item"><span>Changes</span></div>
+          <div class="ds-doortabs-item"><span>Reprimands</span></div>
+          <div class="ds-doortabs-group">Onboarding</div>
+          <div class="ds-doortabs-item"><span>Joining</span></div>
+          <div class="ds-doortabs-item"><span>Leaving</span></div>
+          <div class="ds-doortabs-item"><span>Invitations</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

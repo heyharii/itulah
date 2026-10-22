@@ -13,7 +13,8 @@ import { DataTable } from "@/components/ui/data-table"
 import { Field } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Status } from "@/components/ui/pill"
-import { Segmented, Toolbar } from "@/components/ui/segmented"
+import { Toolbar } from "@/components/ui/segmented"
+import { SubTabs } from "@/components/ui/sub-tabs"
 import { Sheet } from "@/components/ui/sheet"
 import { EmptyState, LoadingState, Problem } from "@/components/ui/states"
 import { count } from "@/lib/format"
@@ -158,6 +159,10 @@ export function ChecklistBoard({
         ),
     [everyone, slice, people.data]
   )
+  const finished = useMemo(() => {
+    const done = everyone.filter((row) => row.done === row.total).length
+    return { open: everyone.length - done, done }
+  }, [everyone])
   const has = useMemo(
     () => new Set(everyone.map((row) => row.employeeId)),
     [everyone]
@@ -211,15 +216,28 @@ export function ChecklistBoard({
           )}
         </>
       ) : (
-        <Toolbar>
-          <Segmented<Slice>
-            options={[
-              { value: "OPEN", label: "In progress" },
-              { value: "DONE", label: "Completed" },
-            ]}
-            value={slice}
-            onChange={setSlice}
-          />
+        <Toolbar
+          lead={
+            <SubTabs
+              tabs={[
+                { value: "OPEN", label: "In progress", n: finished.open },
+                { value: "DONE", label: "Completed", n: finished.done },
+              ].map((one) => ({
+                value: one.value,
+                label: (
+                  <span>
+                    {one.label}
+                    <span className="ml-1.5 text-body tabular-nums">
+                      {count(one.n)}
+                    </span>
+                  </span>
+                ),
+              }))}
+              value={slice}
+              onChange={(next) => setSlice(next as Slice)}
+            />
+          }
+        >
           <Toolbar.Spacer />
           <span className="text-[0.9375rem] text-mute tabular-nums">
             {count(rows.length)} {rows.length === 1 ? "person" : "people"}

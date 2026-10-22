@@ -1,6 +1,6 @@
 import { DocStamp } from "@/components/ui/doc-stamp"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Download, Printer, ChevronRight, Search } from "lucide-react"
+import { ChevronRight, Search } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { ConfirmButton } from "@/components/ui/dialog"
 import { Input, Select } from "@/components/ui/field"
+import { ChoiceMenu } from "@/components/ui/list-chrome"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { Segmented } from "@/components/ui/segmented"
@@ -19,7 +20,7 @@ import { SubTabs } from "@/components/ui/sub-tabs"
 import { Tag } from "@/components/ui/tag"
 import { EmptyState, Problem } from "@/components/ui/states"
 import { Timeline, type TimelineEvent } from "@/components/ui/timeline"
-import { count, day, money, quantity } from "@/lib/format"
+import { count, day, money, quantity, sku as skuNumber } from "@/lib/format"
 import { useAppNavigate } from "@/lib/navigate"
 import { pullIn, useSaid } from "@/lib/pull-in"
 import {
@@ -56,10 +57,12 @@ import { useNameOfLogin } from "@/lib/queries/hr-employees"
 import { useSheet } from "@/lib/sheets"
 import { cn } from "@/lib/utils"
 import { sourcePoolsFor } from "@/screens/inventory/shared"
-import { titled } from "@/screens/procurement/po-print"
+import { titled, type Paper } from "@/screens/procurement/po-print"
+import { PrintMenu } from "@/screens/procurement/print-menu"
 import { openPrintWindow, printInto } from "@/screens/procurement/print"
 import {
   groupBySupplier,
+  type Group,
   ReturnGroups,
   usePoDates,
 } from "@/screens/procurement/supplier-return-groups"
@@ -320,6 +323,41 @@ export function useReturnRows() {
   return { all, returns, over }
 }
 
+/// How the Completed tab is ordered.
+interface ClosedOrder {
+  readonly by: "completed" | "po"
+  readonly desc: boolean
+}
+
+const CLOSED_ORDERS = [
+  { value: "completed:desc", label: "Completed date, newest" },
+  { value: "completed:asc", label: "Completed date, oldest" },
+  { value: "po:desc", label: "PO number, Z–A" },
+  { value: "po:asc", label: "PO number, A–Z" },
+]
+
+/// The returns in one order across suppliers; a supplier's run of rows stays
+/// one group so a phone card still names whose they are.
+function inOrder(groups: readonly Group[], order: ClosedOrder): Group[] {
+  const key = (row: Group["rows"][number]) =>
+    order.by === "po" ? (row.reference ?? row.number) : (row.handedOverAt ?? "")
+  const rows = groups
+    .flatMap((group) => group.rows)
+    .sort((left, right) => {
+      const said = key(left).localeCompare(key(right), undefined, {
+        numeric: true,
+      })
+      return order.desc ? -said : said
+    })
+  const out: { supplier: string; rows: Group["rows"][number][] }[] = []
+  for (const row of rows) {
+    const last = out[out.length - 1]
+    if (last?.supplier === row.supplier) last.rows.push(row)
+    else out.push({ supplier: row.supplier, rows: [row] })
+  }
+  return out
+}
+
 export function SupplierReturns() {
   const [tab, setTab] = useState<Tab>("todo")
   const [asking, setAsking] = useState(false)
@@ -347,7 +385,19 @@ export function SupplierReturns() {
   const opened = all.find((row) => row.id === sheet.value) ?? null
 
   const poDates = usePoDates()
-  const groups = useMemo(() => groupBySupplier(rows, poDates), [rows, poDates])
+  /// Completed reads as a register (owner, 18 Oct 2026): by PO number or by
+  /// the day it was completed, newest first until someone asks otherwise.
+  const [order, setOrder] = useState<ClosedOrder>({
+    by: "completed",
+    desc: true,
+  })
+  const groups = useMemo(
+    () =>
+      tab === "closed"
+        ? inOrder(groupBySupplier(rows, poDates), order)
+        : groupBySupplier(rows, poDates),
+    [rows, poDates, tab, order]
+  )
 
   if (asking) return <NewReturn onDone={() => setAsking(false)} />
 
@@ -406,6 +456,17 @@ export function SupplierReturns() {
           />
         </span>
         <span className="flex-1" />
+        {tab === "closed" && (
+          <ChoiceMenu
+            heading="Sort by"
+            value={`${order.by}:${order.desc ? "desc" : "asc"}`}
+            options={CLOSED_ORDERS}
+            onChange={(next) => {
+              const [by, way] = (next ?? "completed:desc").split(":")
+              setOrder({ by: by as ClosedOrder["by"], desc: way === "desc" })
+            }}
+          />
+        )}
         <Button variant="primary" onClick={() => setAsking(true)}>
           New return
         </Button>
@@ -426,6 +487,23 @@ export function SupplierReturns() {
           ],
           onChange: (next) => setTab(next as Tab),
         }}
+        sort={
+          tab === "closed"
+            ? {
+                label: order.by === "po" ? "PO number" : "Completed date",
+                choices: {
+                  options: [
+                    { value: "completed", label: "Completed date" },
+                    { value: "po", label: "PO number" },
+                  ],
+                  value: order.by,
+                  desc: order.desc,
+                  onChange: (by, desc) =>
+                    setOrder({ by: by as ClosedOrder["by"], desc }),
+                },
+              }
+            : undefined
+        }
       />
 
       {queryState(returns, {
@@ -476,7 +554,9 @@ export function noteOf(
       returns.length === 1 && !returns[0].open
         ? {
             word:
-              returns[0].status === "Closed short" ? "CLOSED SHORT" : "COMPLETED",
+              returns[0].status === "Closed short"
+                ? "CLOSED SHORT"
+                : "COMPLETED",
             at:
               [
                 ...returns[0].settlements.map((one) => one.recorded_at),
@@ -491,9 +571,28 @@ export function noteOf(
 
 /// Print the note. Call it straight from the click: a window opened after an
 /// await is blocked as a pop-up.
-export function printReturnNote(note: PrintableNote) {
+export function printReturnNote(note: PrintableNote, paper?: Paper) {
   const view = openPrintWindow()
-  if (view !== null) printInto(view, supplierReturnHtml(note))
+  if (view !== null) printInto(view, supplierReturnHtml(note, paper))
+}
+
+/// Print or Download PDF from the Print sheet, as the PO's (owner, 2026-10-18).
+export function ReturnPrintMenu({
+  note,
+  iconOnly,
+}: {
+  note: PrintableNote
+  iconOnly?: boolean
+}) {
+  return (
+    <PrintMenu
+      title={note.number ?? undefined}
+      iconOnly={iconOnly}
+      onChoose={({ paper, pdf }) =>
+        pdf ? downloadReturnPdf(note, paper) : printReturnNote(note, paper)
+      }
+    />
+  )
 }
 
 export function ReturnSheet({
@@ -588,8 +687,7 @@ export function ReturnSheet({
         void pullIn({
           from: expectSaid.start(),
           pill: "Replacement",
-          title: "Replacement expected",
-          description: row?.number,
+          title: `${row?.number ?? "Return"} replacement expected`,
         })
       })
     },
@@ -687,26 +785,9 @@ export function ReturnSheet({
           // Download / Confirm) the note's buttons live there instead.
           row &&
           extra === undefined && (
-            <>
-              <Button
-                variant="ghost"
-                onClick={() =>
-                  printReturnNote(withNoteLink(noteOf([row], row.pic), link))
-                }
-              >
-                <Printer />
-                Print
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={() =>
-                  downloadReturnPdf(withNoteLink(noteOf([row], row.pic), link))
-                }
-              >
-                <Download />
-                Download
-              </Button>
-            </>
+            <ReturnPrintMenu
+              note={withNoteLink(noteOf([row], row.pic), link)}
+            />
           )
         }
         footer={
@@ -864,6 +945,9 @@ export function ReturnSheet({
                       <tr key={one.sku} className="border-t border-hairline">
                         <td className="pl-4 leading-snug font-medium text-ink">
                           {one.name}
+                          <span className="block font-mono text-[0.9375rem] font-normal text-mute">
+                            {one.sku}
+                          </span>
                         </td>
                         <NoteCell sku={one.sku} row={row} notes={notes} />
                         <td className="pr-4 text-right tabular-nums">
@@ -1037,11 +1121,11 @@ function NewReturn({ onDone }: { onDone: () => void }) {
         void pullIn({
           from: said.start(),
           pill: quantity(total),
-          title:
+          title: `${raised.allotment_number} confirmed`,
+          description:
             raised.letter_number !== null
-              ? `Return confirmed · surat ${raised.letter_number}`
-              : "Return confirmed",
-          description: quantity(total),
+              ? `Surat ${raised.letter_number} · ${quantity(total)}`
+              : quantity(total),
         })
       })
     },
@@ -1169,7 +1253,7 @@ function NewReturn({ onDone }: { onDone: () => void }) {
                               {item.article_name}
                             </span>
                             <span className="mt-1 block font-mono text-[0.9375rem] text-mute">
-                              {item.sku_code}
+                              {skuNumber(item.sku_code)}
                             </span>
                           </td>
                           <td className="text-right tabular-nums">
@@ -1179,7 +1263,7 @@ function NewReturn({ onDone }: { onDone: () => void }) {
                             <Input
                               inputMode="numeric"
                               className="text-right"
-                              aria-label={`Return ${item.sku_code}`}
+                              aria-label={`Return ${skuNumber(item.sku_code)}`}
                               value={quantities[item.sku_code] ?? ""}
                               onChange={(event) =>
                                 setQuantities((was) => ({

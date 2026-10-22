@@ -1,3 +1,5 @@
+> **Navigasi terkini (17 Oktober 2026):** sembilan menu utama beserta tab dan kelompoknya ada di [Finance navigation](finance-navigation.md). Dokumen di bawah menyimpan keputusan struktur September dan bukan daftar sidebar yang berjalan sekarang.
+
 # Menu Finance final — keputusan, bukan pilihan
 
 **Tanggal:** 13 September 2026 · **Status:** diputuskan, menggantikan §9 `docs/finance.md`

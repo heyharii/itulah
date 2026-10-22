@@ -90,6 +90,92 @@ const SORTS: [Sort; 4] = [
     },
 ];
 
+/// A letter a person writes from a template, rather than one drawn from a
+/// record (owner, 2026-10-17): a goods out letter for a BPKB, a warning
+/// letter, a notice. All of them are `GENERAL` letters; the form names which
+/// paper it is, which group the register files it under, and its own series —
+/// `SKB/2610/0007` — so a Surat Keluar Barang is not numbered as a Surat.
+///
+/// The letters the system writes (surat jalan, goods receipt note, return
+/// note) are not here: their own flows make them.
+struct Form {
+    key: &'static str,
+    prefix: &'static str,
+    title: &'static str,
+    group: &'static str,
+}
+
+const FORMS: [Form; 10] = [
+    Form {
+        key: "goods_out",
+        prefix: "SKB",
+        title: "Surat Keluar Barang",
+        group: "goods",
+    },
+    Form {
+        key: "goods_in",
+        prefix: "STM",
+        title: "Surat Terima Barang",
+        group: "goods",
+    },
+    Form {
+        key: "handover",
+        prefix: "BAST",
+        title: "Berita Acara Serah Terima",
+        group: "goods",
+    },
+    Form {
+        key: "authority",
+        prefix: "SKP",
+        title: "Surat Kuasa Pengambilan Barang",
+        group: "goods",
+    },
+    Form {
+        key: "assignment",
+        prefix: "ST",
+        title: "Surat Tugas",
+        group: "people",
+    },
+    Form {
+        key: "warning",
+        prefix: "SPR",
+        title: "Surat Peringatan",
+        group: "people",
+    },
+    Form {
+        key: "employment",
+        prefix: "SKK",
+        title: "Surat Keterangan Kerja",
+        group: "people",
+    },
+    Form {
+        key: "notice",
+        prefix: "SPB",
+        title: "Surat Pemberitahuan",
+        group: "notices",
+    },
+    Form {
+        key: "request",
+        prefix: "SPM",
+        title: "Surat Permohonan",
+        group: "notices",
+    },
+    Form {
+        key: "blank",
+        prefix: "SRT",
+        title: "Surat",
+        group: "notices",
+    },
+];
+
+fn form_of(key: &str) -> Option<&'static Form> {
+    FORMS.iter().find(|form| form.key == key)
+}
+
+/// The register's groups, as the filter names them: the three a person writes
+/// in, and `system` for the letters the system writes.
+const GROUPS: [&str; 4] = ["goods", "people", "notices", "system"];
+
 fn sort_of(kind: &str) -> Result<&'static Sort, AppError> {
     SORTS
         .iter()
@@ -154,6 +240,11 @@ pub struct LetterRow {
     pub counterparty: String,
     pub place: String,
     pub quantity: i64,
+    /// Which written form a `GENERAL` letter is — `goods_out`, `warning` — and
+    /// the register group it files under. Empty on the letters the system
+    /// writes, and on a blank letter written before forms existed.
+    pub form: String,
+    pub group: String,
     pub created_by: String,
     pub created_at: DateTime<Utc>,
     pub issued_at: Option<DateTime<Utc>>,
@@ -174,6 +265,26 @@ pub struct LetterList {
     /// Drafts waiting to be issued, across every kind. The one number a person
     /// coming to this screen wants before they have read a row.
     pub drafts: i64,
+    /// How the letters the kind and the search match split, for the chips.
+    pub facets: LetterFacets,
+}
+
+/// The register's two chip rows, counted the way a click would answer: each
+/// row honours the other row's choice and ignores its own.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct LetterFacets {
+    /// `goods`, `people`, `notices` and `system`, each listed, 0 or not.
+    pub groups: Vec<LetterFacet>,
+    /// `DRAFT`, `ISSUED` and `VOID`, each listed, 0 or not.
+    pub statuses: Vec<LetterFacet>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct LetterFacet {
+    pub value: String,
+    pub count: i64,
 }
 
 /// One letter, whole.
@@ -218,6 +329,9 @@ pub struct NewLetter {
     pub subject_id: String,
     /// A pattern to start from, when somebody picked one.
     pub template_id: Option<Uuid>,
+    /// The written form, for a `GENERAL` letter — see [`FORMS`].
+    #[serde(default)]
+    pub form: Option<String>,
 }
 
 /// Keep what somebody typed.
@@ -272,6 +386,9 @@ pub struct LetterQuery {
     pub kind: Option<String>,
     pub status: Option<String>,
     pub q: Option<String>,
+    /// `goods`, `people`, `notices` (written letters by their form's group) or
+    /// `system` (everything that is not written by a person).
+    pub group: Option<String>,
     /// A `next_cursor` from the previous page, verbatim.
     pub cursor: Option<String>,
     /// The page size; clamped to [`LETTER_MAX_LIMIT`].
@@ -319,6 +436,8 @@ fn row_to_letter(row: &sqlx::postgres::PgRow) -> LetterRow {
             .get("quantity")
             .and_then(Value::as_i64)
             .unwrap_or_default(),
+        form: text("form"),
+        group: text("group"),
         created_by: row.get("created_by"),
         created_at: row.get("created_at"),
         issued_at: row.get("issued_at"),
@@ -353,25 +472,41 @@ pub async fn list_letters(pool: &PgPool, query: LetterQuery) -> Result<LetterLis
         .as_deref()
         .map(super::decode_cursor::<LetterCursor>)
         .transpose()?;
+    let group = query.group.as_deref().filter(|value| !value.is_empty());
+    if let Some(group) = group {
+        if !GROUPS.contains(&group) {
+            return Err(AppError::Validation(format!(
+                "unknown letter group: {group}"
+            )));
+        }
+    }
 
     // One definition of which letters match, for the page and for the count.
+    //
+    // A written letter with no group — a blank one from before the forms —
+    // files under notices, where the blank letter lives now.
     const MATCHED: &str = "FROM letter \
          WHERE ($1::text IS NULL OR kind = $1) \
            AND ($2::text IS NULL OR status = $2) \
            AND ($3::text IS NULL OR letter_number ILIKE '%' || $3 || '%' \
                 OR title ILIKE '%' || $3 || '%' \
                 OR facts->>'reference' ILIKE '%' || $3 || '%' \
-                OR facts->>'counterparty' ILIKE '%' || $3 || '%')";
+                OR facts->>'counterparty' ILIKE '%' || $3 || '%') \
+           AND ($4::text IS NULL \
+                OR ($4 = 'system' AND kind <> 'GENERAL') \
+                OR (kind = 'GENERAL' \
+                    AND COALESCE(NULLIF(facts->>'group', ''), 'notices') = $4))";
     let rows = sqlx::query(&format!(
         "SELECT letter_id,kind,status,letter_number,title,subject_kind,subject_id,\
          facts,created_by,created_at,issued_at,issued_by,voided_at \
          {MATCHED} \
-           AND ($4::timestamptz IS NULL OR (created_at, letter_id) < ($4, $5)) \
-         ORDER BY created_at DESC, letter_id DESC LIMIT $6"
+           AND ($5::timestamptz IS NULL OR (created_at, letter_id) < ($5, $6)) \
+         ORDER BY created_at DESC, letter_id DESC LIMIT $7"
     ))
     .bind(kind)
     .bind(status)
     .bind(needle)
+    .bind(group)
     .bind(cursor.as_ref().map(|c| c.created_at))
     .bind(cursor.as_ref().map(|c| c.letter_id))
     .bind(limit)
@@ -391,6 +526,7 @@ pub async fn list_letters(pool: &PgPool, query: LetterQuery) -> Result<LetterLis
         .bind(kind)
         .bind(status)
         .bind(needle)
+        .bind(group)
         .fetch_one(pool)
         .await?;
 
@@ -398,11 +534,68 @@ pub async fn list_letters(pool: &PgPool, query: LetterQuery) -> Result<LetterLis
         .fetch_one(pool)
         .await?;
 
+    // The group a letter files under, as `MATCHED` reads `$4`.
+    let counted = sqlx::query(
+        "WITH searched AS (
+             SELECT status,
+                    CASE WHEN kind <> 'GENERAL' THEN 'system'
+                         ELSE COALESCE(NULLIF(facts->>'group', ''), 'notices') END AS grp
+               FROM letter
+              WHERE ($1::text IS NULL OR kind = $1)
+                AND ($2::text IS NULL OR letter_number ILIKE '%' || $2 || '%'
+                     OR title ILIKE '%' || $2 || '%'
+                     OR facts->>'reference' ILIKE '%' || $2 || '%'
+                     OR facts->>'counterparty' ILIKE '%' || $2 || '%')
+         )
+         SELECT 'group' AS facet, grp AS value, count(*)::bigint AS n
+           FROM searched WHERE $3::text IS NULL OR status = $3 GROUP BY grp
+          UNION ALL
+         SELECT 'status', status, count(*)::bigint
+           FROM searched WHERE $4::text IS NULL OR grp = $4 GROUP BY status",
+    )
+    .bind(kind)
+    .bind(needle)
+    .bind(status)
+    .bind(group)
+    .fetch_all(pool)
+    .await?;
+    let mut facets = LetterFacets {
+        groups: GROUPS
+            .into_iter()
+            .map(|value| LetterFacet {
+                value: value.to_string(),
+                count: 0,
+            })
+            .collect(),
+        statuses: ["DRAFT", "ISSUED", "VOID"]
+            .into_iter()
+            .map(|value| LetterFacet {
+                value: value.to_string(),
+                count: 0,
+            })
+            .collect(),
+    };
+    for row in &counted {
+        let facet: String = row.get("facet");
+        let value: String = row.get("value");
+        let n: i64 = row.get("n");
+        let list = if facet == "group" {
+            &mut facets.groups
+        } else {
+            &mut facets.statuses
+        };
+        match list.iter_mut().find(|one| one.value == value) {
+            Some(one) => one.count = n,
+            None => list.push(LetterFacet { value, count: n }),
+        }
+    }
+
     Ok(LetterList {
         rows: out,
         next_cursor,
         total,
         drafts,
+        facets,
     })
 }
 
@@ -567,12 +760,26 @@ pub async fn letters_written(pool: &PgPool, kind: &str) -> Result<i64, AppError>
 /// The typed ones and nothing else. A template that remembered the supplier,
 /// the order number or the arrival date would be last month's delivery printed
 /// onto this month's letter — and those come from the record every time.
-const TEMPLATE_FACTS: [&str; 5] = [
+///
+/// A written letter's form and its typed details travel too — a pattern of a
+/// warning letter is a warning letter — but never its items: those are what
+/// this one letter hands over.
+const TEMPLATE_FACTS: [&str; 15] = [
     "reference",
     "counterparty",
     "carrier",
     "vehicle",
     "signatures",
+    "form",
+    "group",
+    "to",
+    "from",
+    "purpose",
+    "subject",
+    "employee",
+    "role",
+    "level",
+    "place_to",
 ];
 
 /// Every pattern offered for this kind, newest name first.
@@ -1066,12 +1273,26 @@ pub async fn draft_letter(
 
     // A blank letter draws on nothing, names itself, and starts with the head
     // a person is going to type rather than with one read off a record.
+    let form = match request.form.as_deref().filter(|key| !key.is_empty()) {
+        Some(key) if sort.kind == "GENERAL" => Some(
+            form_of(key)
+                .ok_or_else(|| AppError::Validation(format!("unknown letter form: {key}")))?,
+        ),
+        Some(_) => {
+            return Err(AppError::Validation(
+                "only a written letter has a form".into(),
+            ))
+        }
+        None => None,
+    };
+
     let (subject_id, drawn, lines) = if sort.kind == "GENERAL" {
-        (
-            letter_id.to_string(),
-            json!({ "reference": "", "counterparty": "", "place": "" }),
-            Vec::new(),
-        )
+        let mut head = json!({ "reference": "", "counterparty": "", "place": "" });
+        if let (Some(form), Some(fields)) = (form, head.as_object_mut()) {
+            fields.insert("form".into(), json!(form.key));
+            fields.insert("group".into(), json!(form.group));
+        }
+        (letter_id.to_string(), head, Vec::new())
     } else {
         let mut conn = pool.acquire().await?;
         let (drawn, lines) = draw(&mut conn, sort, &request.subject_id).await?;
@@ -1119,7 +1340,7 @@ pub async fn draft_letter(
     .bind(&subject_id)
     .bind(&facts)
     .bind(serde_json::to_value(&lines).unwrap_or_else(|_| json!([])))
-    .bind(sort.title)
+    .bind(form.map_or(sort.title, |form| form.title))
     .bind(author)
     .bind(&body)
     .execute(pool)
@@ -1165,11 +1386,13 @@ pub async fn save_letter(pool: &PgPool, id: Uuid, edit: &LetterEdit) -> Result<(
 /// the series exactly as it was. The counter row is the lock — two people
 /// issuing into the same month queue on it rather than both reading `0004`.
 pub async fn issue_letter(pool: &PgPool, id: Uuid, actor: &str) -> Result<String, AppError> {
-    let letter = sqlx::query("SELECT kind,status,subject_id FROM letter WHERE letter_id = $1")
-        .bind(id)
-        .fetch_optional(pool)
-        .await?
-        .ok_or_else(|| AppError::NotFound("letter".into()))?;
+    let letter = sqlx::query(
+        "SELECT kind,status,subject_id,facts->>'form' AS form FROM letter WHERE letter_id = $1",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| AppError::NotFound("letter".into()))?;
 
     let status: String = letter.get("status");
     if status != "DRAFT" {
@@ -1180,6 +1403,22 @@ pub async fn issue_letter(pool: &PgPool, id: Uuid, actor: &str) -> Result<String
     let kind: String = letter.get("kind");
     let subject_id: String = letter.get("subject_id");
     let sort = sort_of(&kind)?;
+    // A written form numbers in its own series and counts on its own row; a
+    // blank letter stays on the `GENERAL` row it has always counted on, so the
+    // SRT series carries on where it was.
+    let form = if sort.kind == "GENERAL" {
+        letter
+            .get::<Option<String>, _>("form")
+            .as_deref()
+            .and_then(form_of)
+    } else {
+        None
+    };
+    let prefix = form.map_or(sort.prefix, |form| form.prefix);
+    let series = match form {
+        Some(form) if form.prefix != sort.prefix => format!("{}/{}", sort.kind, form.prefix),
+        _ => kind,
+    };
 
     // Read off the record as it stands NOW, outside the transaction that takes
     // the number: it is a read, and holding the counter row while it runs
@@ -1205,12 +1444,12 @@ pub async fn issue_letter(pool: &PgPool, id: Uuid, actor: &str) -> Result<String
          DO UPDATE SET next_number = letter_number_counter.next_number + 1 \
          RETURNING next_number - 1",
     )
-    .bind(&kind)
+    .bind(&series)
     .bind(&period)
     .fetch_one(&mut *tx)
     .await?;
 
-    let number = format!("{}/{}/{:04}", sort.prefix, period, next);
+    let number = format!("{}/{}/{:04}", prefix, period, next);
 
     let changed = sqlx::query(
         "UPDATE letter SET status='ISSUED', letter_number=$2, period=$3, issued_by=$4,\

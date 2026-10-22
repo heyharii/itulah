@@ -1,7 +1,7 @@
 import { cloneElement, isValidElement } from "react"
 import { ChevronRight } from "lucide-react"
-import type { LucideIcon } from "lucide-react"
 
+import { MattePicture, type MatteArt } from "@/components/matte"
 import { cn } from "@/lib/utils"
 
 /// Rows grouped on one white card, the way a settings screen groups them.
@@ -19,14 +19,15 @@ export function ListGroup({
   )
 }
 
-/// One row: an icon, what it is, optionally a line about it, and on the right
-/// either a value or the chevron that says it goes somewhere.
+/// One row: a matte picture, what it is, optionally a line about it, and on
+/// the right either a value or the chevron that says it goes somewhere. The
+/// danger row's picture turns red with its words.
 ///
 /// Press feedback is a tint, not a shrink — a row inside a card is part of a
 /// surface, and a surface does not pull away from the finger the way a button
 /// does. It lands on pointer-down (`:active`) so it is never late.
 export function ListRow({
-  icon: Icon,
+  art,
   title,
   description,
   trailing,
@@ -36,7 +37,7 @@ export function ListRow({
   className,
   ...props
 }: {
-  icon?: LucideIcon
+  art?: MatteArt
   title: React.ReactNode
   description?: React.ReactNode
   trailing?: React.ReactNode
@@ -47,22 +48,15 @@ export function ListRow({
 } & Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, "title">) {
   const interactive = render !== undefined || props.onClick !== undefined
   const classes = cn(
-    "flex w-full items-center gap-3.5 rounded-inner px-3.5 py-3.5 text-left",
+    "flex w-full items-center gap-3 rounded-inner px-3 py-2.5 text-left",
     interactive &&
       "transition-colors duration-[var(--t-hover)] ease-[var(--ease-out)] active:bg-soft-2",
     className,
   )
   const body = (
     <>
-      {Icon !== undefined && (
-        <Icon
-          aria-hidden
-          className={cn(
-            "size-[1.3125rem] shrink-0",
-            tone === "danger" ? "text-bad" : "text-text",
-          )}
-          strokeWidth={1.75}
-        />
+      {art !== undefined && (
+        <MattePicture art={art} tone={tone === "danger" ? "bad" : "deep"} />
       )}
       <span className="min-w-0 flex-1">
         <span

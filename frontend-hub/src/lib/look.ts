@@ -20,6 +20,43 @@ export type LookName = "white"
 
 export const LOOK: LookName = "white"
 
+/// SOFT (owner, 2026-10-20: "defaultnya soft tapi bisa balik ke previous yaitu
+/// now"): the "Soft cards" level of `po-matte-options.html`, drawn over All
+/// white by `styles/soft.css`, keyed on `<html data-style="soft">`. A pastel
+/// ground; figures, a table's heading and its totals as soft bands; filled
+/// fields; a segmented tab strip; phone cards that float; the rail's
+/// departments as matte pictures, coloured only where you are. Buttons are
+/// the same in both. "now" is All white as it stood on 20 Oct.
+///
+/// Each person picks in Profile (`screens/me/profile.tsx`) and keeps it in the
+/// `hub-style` cookie, so the server draws the chosen one from the first byte;
+/// `?style=now` or `?style=soft` in an address sets it, so one link shows a
+/// client either. Kept both until the client chooses; the loser then goes.
+export type LookStyle = "soft" | "now"
+
+/// Now is the default again (owner, 21 Oct 2026: "ganti taste design ke look
+/// now as default"); Soft stays a choice in Profile.
+export const LOOK_STYLE_DEFAULT: LookStyle = "now"
+
+/// The cookie the choice is kept in; the server reads it with the window's
+/// width (`deviceHint`, `lib/device.ts`) to draw the first HTML in it.
+export const STYLE_COOKIE = "hub-style"
+
+export function asStyle(value: unknown): LookStyle {
+  return value === "now" || value === "soft" ? value : LOOK_STYLE_DEFAULT
+}
+
+/// The style the page was drawn in, in the browser.
+export function styleHint(): LookStyle {
+  if (typeof document === "undefined") return LOOK_STYLE_DEFAULT
+  return asStyle(document.documentElement.dataset.style)
+}
+
+export function setLookStyle(style: LookStyle) {
+  document.documentElement.dataset.style = style
+  document.cookie = `${STYLE_COOKIE}=${style}; path=/; max-age=31536000; samesite=lax`
+}
+
 /// One aid each, and they combine.
 /// "Layered menu" left the list on 14 Oct: the floating panel is the hub's
 /// shell now (hub-ui-patterns, `po-shell-layers.html` A).
@@ -91,6 +128,9 @@ function applyAids(aids: readonly LookAid[]) {
 export function startLook() {
   if (typeof document === "undefined") return
   document.documentElement.dataset.look = LOOK
+  const style = new URLSearchParams(window.location.search).get("style")
+  if (style === "now" || style === "soft") setLookStyle(style)
+  else document.documentElement.dataset.style = styleHint()
   const asked = new URLSearchParams(window.location.search).get("aids")
   if (asked !== null) {
     const parts = asked.split(",")

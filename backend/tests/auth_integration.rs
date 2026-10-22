@@ -895,7 +895,11 @@ async fn cloud_policy_store_login_rfid_rotation_revocation_and_sync(pool: PgPool
         headers
     };
 
-    let wrong_pool = make_rfid_request("rfid-wrong-pool", "store-07.warehouse", "EPC00000001");
+    let wrong_pool = make_rfid_request(
+        "rfid-wrong-pool",
+        "store-07.warehouse",
+        "E28000000000000000000001",
+    );
     assert_eq!(
         send(
             app.clone(),
@@ -908,7 +912,7 @@ async fn cloud_policy_store_login_rfid_rotation_revocation_and_sync(pool: PgPool
         .status,
         StatusCode::FORBIDDEN
     );
-    let body = make_rfid_request("rfid-valid-1", "store-07.floor", "EPC00000001");
+    let body = make_rfid_request("rfid-valid-1", "store-07.floor", "E28000000000000000000001");
     let accepted = send(
         app.clone(),
         "POST",
@@ -923,7 +927,7 @@ async fn cloud_policy_store_login_rfid_rotation_revocation_and_sync(pool: PgPool
         "POST",
         "/api/v1/rfid/observations",
         operator_headers(&raw_device_key, 1, &body),
-        Some(body),
+        Some(body.clone()),
     )
     .await;
     assert_eq!(replay.status, StatusCode::CREATED);
@@ -973,6 +977,28 @@ async fn cloud_policy_store_login_rfid_rotation_revocation_and_sync(pool: PgPool
     .unwrap_or_else(|error| panic!("revoke Edge assignment: {error}"));
     run_store_cycle(&store_sync, &pool, sync_key).await;
     assert!(auth.authenticate(&cashier_token, false).is_err());
+    // A bearer that no longer authenticates is attribution that could not be
+    // made, not a refusal: the reads the device signed are filed, with no
+    // operator, instead of waiting for somebody to sign in again.
+    let stale_bearer = make_rfid_request(
+        "rfid-stale-bearer",
+        "store-07.floor",
+        "E28000000000000000000004",
+    );
+    let filed = send(
+        app.clone(),
+        "POST",
+        "/api/v1/rfid/observations",
+        operator_headers(&raw_device_key, 2, &stale_bearer),
+        Some(stale_bearer),
+    )
+    .await;
+    assert_eq!(
+        filed.status,
+        StatusCode::CREATED,
+        "a revoked bearer must not refuse a signed batch: {}",
+        filed.body
+    );
 
     cloud::set_rfid_device_active(
         &pool,
@@ -983,7 +1009,11 @@ async fn cloud_policy_store_login_rfid_rotation_revocation_and_sync(pool: PgPool
     .await
     .unwrap_or_else(|error| panic!("disable RFID: {error}"));
     run_store_cycle(&store_sync, &pool, sync_key).await;
-    let disabled_body = make_rfid_request("rfid-disabled", "store-07.floor", "EPC00000002");
+    let disabled_body = make_rfid_request(
+        "rfid-disabled",
+        "store-07.floor",
+        "E28000000000000000000002",
+    );
     assert_eq!(
         send(
             app.clone(),
@@ -1005,7 +1035,8 @@ async fn cloud_policy_store_login_rfid_rotation_revocation_and_sync(pool: PgPool
         .unwrap_or_else(|| panic!("rotated RFID key"))
         .to_string();
     run_store_cycle(&store_sync, &pool, sync_key).await;
-    let old_key_body = make_rfid_request("rfid-old-key", "store-07.floor", "EPC00000002");
+    let old_key_body =
+        make_rfid_request("rfid-old-key", "store-07.floor", "E28000000000000000000002");
     assert_eq!(
         send(
             app.clone(),
@@ -1018,7 +1049,8 @@ async fn cloud_policy_store_login_rfid_rotation_revocation_and_sync(pool: PgPool
         .status,
         StatusCode::UNAUTHORIZED
     );
-    let new_key_body = make_rfid_request("rfid-new-key", "store-07.floor", "EPC00000002");
+    let new_key_body =
+        make_rfid_request("rfid-new-key", "store-07.floor", "E28000000000000000000002");
     let new_key_headers = {
         let timestamp = chrono::Utc::now().timestamp();
         let signing_key = derive_rfid_signing_key(&rotated_key);
@@ -1051,6 +1083,23 @@ async fn cloud_policy_store_login_rfid_rotation_revocation_and_sync(pool: PgPool
         StatusCode::CREATED,
         "rotated key resets the monotonic sequence and old key no longer works"
     );
+    // The receipt outlives the key (sqlite 0082): the batch filed under the
+    // old key, sent again under the new one after its answer was lost, gets
+    // the answer it was given — not a second filing under a new batch id with
+    // new observation ids, which the cloud would keep twice.
+    let refiled = send(
+        app.clone(),
+        "POST",
+        "/api/v1/rfid/observations",
+        signed_headers(&rotated_key, 2, &body),
+        Some(body),
+    )
+    .await;
+    assert_eq!(refiled.status, StatusCode::CREATED);
+    assert_eq!(
+        refiled.body, accepted.body,
+        "answered from its receipt, not filed again"
+    );
     {
         let shared = edge.connection();
         let connection = shared
@@ -1066,7 +1115,8 @@ async fn cloud_policy_store_login_rfid_rotation_revocation_and_sync(pool: PgPool
             )
             .unwrap_or_else(|error| panic!("expire RFID lease: {error}"));
     }
-    let expired_body = make_rfid_request("rfid-expired", "store-07.floor", "EPC00000003");
+    let expired_body =
+        make_rfid_request("rfid-expired", "store-07.floor", "E28000000000000000000003");
     assert_eq!(
         send(
             app,

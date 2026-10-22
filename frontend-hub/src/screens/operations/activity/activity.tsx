@@ -1,18 +1,19 @@
 import { useInfiniteQuery } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
+import { Pencil, Plus, Trash2 } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { DockTools } from "@/components/shell/dock-tools"
 import { Card } from "@/components/ui/card"
 import { DataTable, dockSortOf } from "@/components/ui/data-table"
-import { Input } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
-import { Segmented, Toolbar } from "@/components/ui/segmented"
+import { Toolbar } from "@/components/ui/segmented"
 import { EmptyState } from "@/components/ui/states"
+import { SubTabs } from "@/components/ui/sub-tabs"
 import { Tag } from "@/components/ui/tag"
 import { useFilterState, type Filter, type FilterField } from "@/lib/filters"
 import { count, moment } from "@/lib/format"
@@ -311,7 +312,19 @@ export function OpsActivityLog() {
       {
         column: "method",
         label: "Method",
-        spec: { kind: "option", single: true, operators: ["isAnyOf"] },
+        spec: {
+          kind: "option",
+          single: true,
+          operators: ["isAnyOf"],
+          icon: (value) =>
+            value === "POST"
+              ? Plus
+              : value === "DELETE"
+                ? Trash2
+                : value === "PATCH" || value === "PUT"
+                  ? Pencil
+                  : undefined,
+        },
       },
     ],
     []
@@ -416,6 +429,15 @@ export function OpsActivityLog() {
   // One choice of a few for the dock: the flow, or the refusals. The two are
   // separate controls on a desk and a refused list across every flow is what
   // the second is for, so on a phone Refused is a place of its own.
+  const choosePlace = (next: string) => {
+    if (next === "Refused") {
+      setOnly("refused")
+      setFlow("All")
+      return
+    }
+    setOnly("all")
+    setFlow(next as FlowTab)
+  }
   const place = only === "refused" ? "Refused" : flow
   const places = [
     ...FLOWS.map((one) => ({ value: one, label: one })),
@@ -434,18 +456,44 @@ export function OpsActivityLog() {
         sub="What the centre recorded, newest first, sorted into the flows Ops runs. Work done on this warehouse's edge node never passes the cloud, so floor actions do not appear here."
       />
 
-      <div className="mb-4 flex flex-wrap items-center gap-3 max-md:hidden">
-        <Segmented
-          options={FLOWS.map((one) => ({ value: one, label: one }))}
-          value={flow}
-          onChange={setFlow}
-        />
-        {flow !== "All" && (
-          <span className="text-meta text-mute">
-            Flow is grouped from what loaded
-          </span>
-        )}
-      </div>
+      {/* The flow and the refusals are one row of tabs, as in the dock. The
+          flow is the one thing the server is not asked for, so its figures
+          are the rows that have loaded. */}
+      <SubTabs
+        className="max-md:hidden"
+        tabs={[
+          ...FLOWS.map((one) => ({
+            value: one,
+            label: (
+              <span>
+                {one}
+                <span className="ml-1.5 text-body tabular-nums">
+                  {count(
+                    one === "All"
+                      ? rows.length
+                      : rows.filter((row) => flowOf(row) === one).length
+                  )}
+                </span>
+              </span>
+            ),
+          })),
+          {
+            value: "Refused",
+            label: (
+              <span>
+                Refused
+                {refused !== undefined && (
+                  <span className="ml-1.5 text-body tabular-nums">
+                    {count(refused)}
+                  </span>
+                )}
+              </span>
+            ),
+          },
+        ]}
+        value={place}
+        onChange={choosePlace}
+      />
 
       {/* On a phone the flow, the search, the filter and the sort are the dock's. */}
       <DockTools
@@ -462,46 +510,21 @@ export function OpsActivityLog() {
         status={{
           value: place,
           options: places,
-          onChange: (next) => {
-            if (next === "Refused") {
-              setOnly("refused")
-              setFlow("All")
-              return
-            }
-            setOnly("all")
-            setFlow(next as FlowTab)
-          },
+          onChange: choosePlace,
         }}
       />
 
       <Toolbar className="max-md:hidden">
-        <Segmented
-          options={[
-            { value: "all", label: "Everything" },
-            {
-              value: "refused",
-              label:
-                refused === undefined
-                  ? "Refused"
-                  : `Refused · ${count(refused)}`,
-            },
-          ]}
-          value={only}
-          onChange={setOnly}
+        <FilterPanel
+          model={{ ...filters, fields: counted }}
+          search={{ value: query, onChange: setQuery, label: "Search the log" }}
         />
-        <FilterPanel model={{ ...filters, fields: counted }} />
         <Toolbar.Spacer />
         {head?.total !== undefined && head.total !== null && (
           <span className="text-meta text-mute tabular-nums">
             {count(head.total)} actions
           </span>
         )}
-        <Input
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search"
-          className="h-8 w-56"
-        />
       </Toolbar>
 
       <Card

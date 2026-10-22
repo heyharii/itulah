@@ -1,14 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
-import {
-  ChevronRight,
-  CreditCard,
-  Gift,
-  Hash,
-  LogOut,
-  ReceiptText,
-  ShieldCheck,
-} from "lucide-react"
+import { ChevronRight } from "lucide-react"
 
 import { Avatar } from "@/components/avatar"
 import { ScreenTitle } from "@/components/app-shell"
@@ -42,10 +34,10 @@ export function ProfileView() {
         <p className="mt-4 text-hero font-semibold text-ink">{name}</p>
         <Link
           to="/kartu"
-          className="press mt-2 inline-flex items-center gap-1 rounded-full bg-canvas px-3.5 py-1.5 text-meta font-semibold text-ink shadow-soft"
+          className="press mt-2 inline-flex items-center gap-1 rounded-full bg-matte-ground px-3.5 py-1.5 text-meta font-semibold text-matte-foot"
         >
           Member Central
-          <ChevronRight className="size-3.5 text-mute" />
+          <ChevronRight className="size-4 text-matte-foot" />
         </Link>
         <p className="mt-2 text-meta text-body">
           Sejak {JOINED.format(new Date(member.joined_on))}
@@ -54,23 +46,23 @@ export function ProfileView() {
 
       <ListGroup className="rise mt-7" style={step(1)}>
         <ListRow
-          icon={CreditCard}
+          art="card"
           title="Kartu member"
           description="Tunjukkan atau pindai di kasir"
           chevron
           render={<Link to="/kartu" />}
         />
         <ListRow
-          icon={Hash}
+          art="profile"
           title="Nomor member"
           trailing={
-            <span className="font-mono text-meta font-medium tracking-[0.12em] text-ink uppercase select-all">
+            <span className="font-mono text-meta font-medium tracking-[0.02em] text-ink uppercase select-all">
               {member.member_id}
             </span>
           }
         />
         <ListRow
-          icon={ReceiptText}
+          art="receipt"
           title="Riwayat belanja"
           trailing={
             summary.data === undefined ? (
@@ -85,7 +77,7 @@ export function ProfileView() {
           render={<Link to="/riwayat" />}
         />
         <ListRow
-          icon={Gift}
+          art="gift"
           title="Tukar poin"
           chevron
           render={<Link to="/tukar-poin" />}
@@ -94,7 +86,7 @@ export function ProfileView() {
 
       <ListGroup className="rise mt-4" style={step(2)}>
         <ListRow
-          icon={ShieldCheck}
+          art="shield"
           title="Keamanan"
           description="Ponsel ini terhubung lewat kode dari kasir. Tidak ada kata sandi yang disimpan."
         />
@@ -105,7 +97,7 @@ export function ProfileView() {
             the person pressing this needs to know what it costs them:
             getting back in means asking a cashier for another code. */}
         <ListRow
-          icon={LogOut}
+          art="logout"
           title="Putuskan ponsel ini"
           description="Untuk menghubungkan lagi, minta kode baru ke kasir."
           tone="danger"

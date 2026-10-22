@@ -98,7 +98,7 @@ export function describeChangeStatus(status: ChangeStatus): string {
     case "SCHEDULED":
       return "Scheduled"
     case "ACTIVE":
-      return "Active"
+      return "Live"
     default:
       return "Ended"
   }
@@ -225,20 +225,20 @@ export const priceEventPagesQuery = (
 
 /// What each kind says, in the fewest words that keep the five apart.
 ///
-/// "Published" and "In service" are deliberately not near-synonyms: the whole
+/// "Published" and "Applied" are deliberately not near-synonyms: the whole
 /// point of the split is that one is head office and the other is a till.
 export function describeEventKind(kind: string): string {
   switch (kind) {
     case "PUBLISHED":
       return "Published"
     case "SENT":
-      return "Sent to shop"
+      return "Sent to store"
     case "ACTIVATED":
-      return "In service"
+      return "Applied"
     case "FAILED":
       return "Failed"
     case "EXPIRED":
-      return "Expired"
+      return "Ended"
     default:
       return kind
   }

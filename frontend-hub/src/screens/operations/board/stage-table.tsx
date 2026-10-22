@@ -17,7 +17,7 @@ import {
 import { RefreshStrip, type Refreshable } from "@/components/ui/refresh-stamp"
 import { EmptyState } from "@/components/ui/states"
 import { Segmented } from "@/components/ui/segmented"
-import { count as figure } from "@/lib/format"
+import { count as figure, countPcs } from "@/lib/format"
 import { ago } from "@/lib/format"
 import { useAppNavigate } from "@/lib/navigate"
 import { useLayout } from "@/lib/layout"
@@ -366,7 +366,7 @@ function columnsFor(
             </span>
             <span className="text-[0.9375rem] text-mute">
               {one.of !== undefined && one.change === undefined
-                ? `of ${figure(one.of)} pcs`
+                ? `of ${countPcs(one.of)}`
                 : "pcs"}
             </span>
           </span>
@@ -466,7 +466,7 @@ function LaneHeading({
       </span>
       <span className="flex-1" />
       <span className="text-[0.9375rem] text-mute tabular-nums">
-        {`${figure(pieces)} pcs`}
+        {`${countPcs(pieces)}`}
       </span>
       <ChevronDown
         className={cn(
@@ -505,7 +505,7 @@ function StageCard({
   const tick = row.pick !== undefined && row.pick.disabled !== true
   const caption =
     row.of !== undefined && row.change === undefined
-      ? `of ${figure(row.of)} pcs`
+      ? `of ${countPcs(row.of)}`
       : "pcs"
   const captionShown =
     struck?.was === undefined ? (

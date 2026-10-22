@@ -1,0 +1,66 @@
+<!-- @dsCard group="Media" height=724 subtitle="Static rendition of thumbnail.tsx in the All white look" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>Thumbnail — preview</title><style>body{margin:0}
+/* Thumbnail: the empty tile at each size in use, in an item line, and the viewer a tap opens. */
+.ds-thumbnail-sizes{display:flex;flex-wrap:wrap;align-items:flex-end;gap:16px 28px}
+.ds-thumbnail-size{display:flex;flex-direction:column;align-items:center;gap:6px;color:var(--mute)}
+.ds-thumbnail-32{width:32px;height:32px}
+.ds-thumbnail-40{width:40px;height:40px}
+.ds-thumbnail-48{width:48px;height:48px}
+.ds-thumbnail-64{width:64px;height:64px}
+.ds-thumbnail-zoom{padding:0;border:0;cursor:zoom-in}
+.ds-thumbnail-line{display:flex;align-items:flex-start;gap:12px;min-width:0}
+.ds-thumbnail-line > div{display:flex;flex-direction:column;gap:2px;min-width:0}
+.ds-thumbnail-table{max-width:640px}
+.ds-thumbnail-viewer{position:relative;display:grid;place-items:center;max-width:640px;height:290px;border-radius:var(--r-card);background:rgb(0 0 0 / 0.9);overflow:hidden}
+.ds-thumbnail-viewer-body{display:flex;flex-direction:column;align-items:center;gap:12px}
+.ds-thumbnail-viewer-body p{color:rgb(255 255 255 / 0.8)}
+.ds-thumbnail-large{width:200px;height:200px;border-radius:var(--r-card)}
+.ds-thumbnail-large svg{display:block;width:100%;height:100%;padding:6%}
+.ds-thumbnail-close{position:absolute;top:12px;right:12px;display:grid;place-items:center;width:var(--tap);height:var(--tap);border:0;border-radius:var(--r-full);background:rgb(255 255 255 / 0.15);color:var(--on-dark)}
+</style></head>
+<body>
+<div class="ds ds-stage">
+  <div class="ds-col">
+    <div class="ds-caption">The tile at each size</div>
+    <div class="ds-thumbnail-sizes">
+      <div class="ds-thumbnail-size"><span class="ds-thumb ds-thumbnail-32"><span class="ds-ico ds-ico-image ds-ico--14"></span></span>32</div>
+      <div class="ds-thumbnail-size"><span class="ds-thumb ds-thumbnail-40"><span class="ds-ico ds-ico-image"></span></span>40</div>
+      <div class="ds-thumbnail-size"><span class="ds-thumb"><span class="ds-ico ds-ico-image"></span></span>44</div>
+      <div class="ds-thumbnail-size"><span class="ds-thumb ds-thumbnail-48"><span class="ds-ico ds-ico-image ds-ico--20"></span></span>48</div>
+      <div class="ds-thumbnail-size"><span class="ds-thumb ds-thumbnail-64"><span class="ds-ico ds-ico-image ds-ico--20"></span></span>64</div>
+    </div>
+  </div>
+
+  <div class="ds-table-card ds-thumbnail-table">
+    <table class="ds-table">
+      <thead><tr><th>Item</th><th class="is-num">Ordered</th><th class="is-num">Amount</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><div class="ds-thumbnail-line"><button class="ds-thumb ds-thumbnail-40 ds-thumbnail-zoom" type="button" aria-label="View Kemeja Test Demo"><span class="ds-ico ds-ico-image"></span></button><div><button class="ds-link" type="button">Kemeja Test Demo</button><span class="ds-sub">Pria · Basic</span></div></div></td>
+          <td class="is-num">24 pcs</td><td class="is-num">Rp 2.040.000</td>
+        </tr>
+        <tr>
+          <td><div class="ds-thumbnail-line"><button class="ds-thumb ds-thumbnail-40 ds-thumbnail-zoom" type="button" aria-label="View Kaos Uji Uj16"><span class="ds-ico ds-ico-image"></span></button><div><button class="ds-link" type="button">Kaos Uji Uj16</button><span class="ds-sub">Pria · Basic</span></div></div></td>
+          <td class="is-num">8 pcs</td><td class="is-num">Rp 320.000</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="ds-col">
+    <div class="ds-caption">A tap opens the photo; with none, the silhouette and "No photo yet"</div>
+    <div class="ds-thumbnail-viewer">
+      <button class="ds-thumbnail-close" type="button" aria-label="Close photo"><span class="ds-ico ds-ico-x ds-ico--20"></span></button>
+      <div class="ds-thumbnail-viewer-body">
+        <span class="ds-thumb ds-thumbnail-large">
+          <svg viewBox="0 0 100 100" aria-hidden="true"><path d="M33 12 L42 9 L50 15 L58 9 L67 12 L84 24 L91 72 L81 74 L74 38 L74 92 L26 92 L26 38 L19 74 L9 72 L16 24 Z" style="fill:#C9CCD1" stroke="rgb(0 0 0 / .25)" stroke-width="1.2" stroke-linejoin="round"/></svg>
+        </span>
+        <p>No photo yet</p>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

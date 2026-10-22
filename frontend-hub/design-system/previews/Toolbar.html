@@ -1,0 +1,83 @@
+<!-- @dsCard group="Lists" height=636 subtitle="Static rendition of segmented.tsx and list-chrome.tsx in the All white look" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>Toolbar — preview</title><style>
+body{margin:0}
+.ds-toolbar-pad{padding:0 12px}
+.ds-toolbar-bar{margin-bottom:0;flex-wrap:nowrap}
+.ds-toolbar-grown{flex:1 1 0}
+.ds-toolbar-bar .ds-search .ds-ico{margin-top:-7px}
+.ds-toolbar-bar .ds-search input.is-focus{border-color:var(--accent);box-shadow:var(--shadow-focus)}
+.ds-toolbar-date{display:inline-flex;align-items:center;justify-content:space-between;gap:10px;flex:none;width:176px;height:var(--control);padding:0 12px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas);color:var(--mute);font-size:15px;white-space:nowrap}
+.ds-toolbar-count{color:var(--mute);font-weight:400;font-variant-numeric:tabular-nums}
+.ds-toolbar-quiet{padding:0 9px;border:0;color:var(--body)}
+.ds-toolbar-quiet.is-hover{color:var(--ink)}
+.ds-toolbar-busy{opacity:.6;pointer-events:none}
+.ds-toolbar-anchor{position:relative;min-height:284px}
+.ds-toolbar-menu{position:absolute;right:0;top:calc(var(--control) + 4px);min-width:208px;padding:6px;border:1px solid var(--hairline);border-radius:var(--r-card);background:var(--canvas);box-shadow:var(--shadow-pop)}
+.ds-toolbar-menu-head{padding:4px 8px 6px;font-size:15px;font-weight:600;color:var(--mute)}
+.ds-toolbar-item{display:flex;align-items:center;gap:8px;min-height:32px;padding:0 8px;border-radius:var(--r-inner);font-size:15px;color:var(--text)}
+.ds-toolbar-item.is-on{color:var(--ink)}
+.ds-toolbar-item.is-hover{background:var(--soft-2)}
+.ds-toolbar-tick{display:grid;place-items:center;flex:none;width:14px;color:var(--accent)}
+</style></head>
+<body>
+<div class="ds ds-stage">
+
+  <div class="ds-col">
+    <p class="ds-caption">At rest</p>
+    <div class="ds-bar ds-toolbar-bar">
+      <label class="ds-search"><span class="ds-ico ds-ico-search ds-ico--14"></span><input placeholder="Search orders" aria-label="Search orders"></label>
+      <button class="ds-btn ds-btn--ghost ds-toolbar-pad" type="button"><span class="ds-ico ds-ico-filter ds-ico--14"></span>Filter</button>
+      <span class="ds-toolbar-date">Created at<span class="ds-ico ds-ico-calendar ds-ico--14"></span></span>
+      <span class="ds-bar-spacer"></span>
+      <button class="ds-btn ds-btn--ghost ds-toolbar-pad" type="button"><span class="ds-ico ds-ico-columns ds-ico--14"></span>Columns</button>
+    </div>
+  </div>
+
+  <div class="ds-col">
+    <p class="ds-caption">Typing: the search takes the space; two filters on; Export CSV working</p>
+    <div class="ds-bar ds-toolbar-bar">
+      <label class="ds-search ds-toolbar-grown"><span class="ds-ico ds-ico-search ds-ico--14"></span><input class="is-focus" value="Garmen Nusantara" aria-label="Search orders"></label>
+      <button class="ds-btn ds-btn--ghost ds-toolbar-pad" type="button"><span class="ds-ico ds-ico-filter ds-ico--14"></span>Filter<span class="ds-toolbar-count">2</span></button>
+      <button class="ds-btn ds-btn--ghost ds-toolbar-pad" type="button"><span class="ds-ico ds-ico-columns ds-ico--14"></span>Columns</button>
+      <button class="ds-btn ds-btn--ghost ds-toolbar-busy" style="padding:0 12px" type="button" disabled><span class="ds-ico ds-ico-download ds-ico--14"></span>Exporting…</button>
+    </div>
+  </div>
+
+  <div class="ds-col">
+    <p class="ds-caption">A switch on; Columns hovered</p>
+    <div class="ds-bar ds-toolbar-bar">
+      <label class="ds-search"><span class="ds-ico ds-ico-search ds-ico--14"></span><input placeholder="Search suppliers" aria-label="Search suppliers"></label>
+      <label class="ds-switch-pill"><button class="ds-switch is-on" type="button" role="switch" aria-checked="true" aria-label="Active order"></button>Active order</label>
+      <span class="ds-bar-spacer"></span>
+      <button class="ds-btn ds-btn--ghost ds-toolbar-pad is-hover" type="button"><span class="ds-ico ds-ico-columns ds-ico--14"></span>Columns</button>
+      <button class="ds-btn ds-btn--ghost" style="padding:0 12px" type="button"><span class="ds-ico ds-ico-download ds-ico--14"></span>Export CSV</button>
+    </div>
+  </div>
+
+  <div class="ds-col">
+    <p class="ds-caption">Columns open</p>
+    <div class="ds-toolbar-anchor">
+      <div class="ds-bar ds-toolbar-bar">
+        <label class="ds-search"><span class="ds-ico ds-ico-search ds-ico--14"></span><input placeholder="Search orders" aria-label="Search orders"></label>
+        <button class="ds-btn ds-btn--ghost ds-toolbar-pad" type="button"><span class="ds-ico ds-ico-filter ds-ico--14"></span>Filter</button>
+        <span class="ds-bar-spacer"></span>
+        <button class="ds-btn ds-btn--ghost ds-toolbar-pad is-hover" type="button" aria-expanded="true"><span class="ds-ico ds-ico-columns ds-ico--14"></span>Columns</button>
+        <button class="ds-btn ds-btn--ghost" style="padding:0 12px" type="button"><span class="ds-ico ds-ico-download ds-ico--14"></span>Export CSV</button>
+      </div>
+      <div class="ds-toolbar-menu" role="menu">
+        <div class="ds-toolbar-menu-head">Columns</div>
+        <div class="ds-toolbar-item is-on"><span class="ds-toolbar-tick"><span class="ds-ico ds-ico-check ds-ico--14"></span></span>PO</div>
+        <div class="ds-toolbar-item is-on is-hover"><span class="ds-toolbar-tick"><span class="ds-ico ds-ico-check ds-ico--14"></span></span>Delivery date</div>
+        <div class="ds-toolbar-item is-on"><span class="ds-toolbar-tick"><span class="ds-ico ds-ico-check ds-ico--14"></span></span>Quantity</div>
+        <div class="ds-toolbar-item is-on"><span class="ds-toolbar-tick"><span class="ds-ico ds-ico-check ds-ico--14"></span></span>Grand total</div>
+        <div class="ds-toolbar-item"><span class="ds-toolbar-tick"></span>Invoicing</div>
+        <div class="ds-toolbar-item is-on"><span class="ds-toolbar-tick"><span class="ds-ico ds-ico-check ds-ico--14"></span></span>Status</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

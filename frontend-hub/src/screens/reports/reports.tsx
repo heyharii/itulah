@@ -468,12 +468,9 @@ function Answer({
             assistant composed is a starting position, and narrowing it further
             is a gesture somebody already knows.
 
-            The panel and not the inline bar, and the button beside it is why:
-            "Keep these filters in the report" writes a version, and it had
-            been sharing a row with the controls that build the clauses — the
-            gesture that reads a report standing next to the one that changes
-            it. The clauses now open in the shell's right column and the row
-            holds what is in force and the one act. */}
+            "Keep these filters in the report" writes a version, and it shares
+            the row with the controls that build the clauses: the act stands
+            last, after what is in force. */}
         <div className="flex flex-wrap items-center gap-2 border-b border-hairline px-4 pb-3 max-md:hidden">
           <FilterPanel model={model} table={table} />
           {keep}

@@ -7,4 +7,8 @@ export type NewLetter = { kind: string, subject_id: string,
 /**
  * A pattern to start from, when somebody picked one.
  */
-template_id: string | null, };
+template_id: string | null, 
+/**
+ * The written form, for a `GENERAL` letter — see [`FORMS`].
+ */
+form: string | null, };

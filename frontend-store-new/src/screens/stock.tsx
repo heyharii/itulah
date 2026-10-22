@@ -9,7 +9,7 @@ import { Fab } from "@/components/ui/fab"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { Screen } from "@/components/ui/screen"
 import { Segmented } from "@/components/ui/segmented"
-import { count } from "@/lib/format"
+import { count, sku as skuText } from "@/lib/format"
 import { useGo } from "@/lib/go"
 import {
   catalogueQuery,
@@ -85,7 +85,7 @@ export function Stock() {
     const index = new Map<string, string>()
     for (const article of articles)
       for (const one of article.skus)
-        index.set(one.sku, `${article.name} ${one.label}`)
+        index.set(one.sku, `${article.name} ${one.label} · ${skuText(one.sku)}`)
     return index
   }, [articles])
 
@@ -248,7 +248,7 @@ export function Stock() {
                 )}
               </div>
               {move.moving && (
-                <MovePanel move={move} nameOf={(sku) => names.get(sku) ?? sku} />
+                <MovePanel move={move} nameOf={(sku) => names.get(sku) ?? skuText(sku)} />
               )}
             </div>
             {/* Room for the panel that sits over a phone's foot. */}

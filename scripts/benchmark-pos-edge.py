@@ -51,6 +51,12 @@ SKU_COUNT = 5_000
 PLACE_FLOOR = "store-07.floor:on_hand"
 
 
+def bench_epc(i: int) -> str:
+    """The i-th bench tag: 24 hex digits, as a reader reports one. The node
+    refuses an RFID read that is not hex, so `EPC-00001` no longer files."""
+    return f"{i:024X}"
+
+
 def sign_rfid(device_key: str, device_id: str, ts: int, seq: int, body: bytes) -> str:
     signing_key = hashlib.sha256(device_key.encode()).hexdigest()
     digest = hashlib.sha256(body).hexdigest()
@@ -167,7 +173,7 @@ def seed(db: Path, skus: int):
     )
     subjects = []
     for i in range(skus):
-        subjects.append((str(uuid.uuid4()), f"EPC-{i:05d}", f"B{i:05d}",
+        subjects.append((str(uuid.uuid4()), bench_epc(i), f"B{i:05d}",
                          100_000 + (i % 50) * 1_000))
     con.executemany(
         "INSERT INTO inventory_subject (id, subject_type, epc, sku_code, quantity,"
@@ -213,7 +219,7 @@ class RfidStream(threading.Thread):
             started = time.perf_counter()
             n += 1
             sightings = [
-                {"epc": f"EPC-{(n * self.batch + j) % SKU_COUNT:05d}", "rssi": -50,
+                {"epc": bench_epc((n * self.batch + j) % SKU_COUNT), "rssi": -50,
                  "antenna": "A1", "read_count": 1}
                 for j in range(self.batch)
             ]
@@ -323,7 +329,7 @@ def main() -> int:
         def take_epcs(k: int) -> list[str]:
             nonlocal next_epc
             with epc_lock:
-                batch = [f"EPC-{next_epc + j:05d}" for j in range(k)]
+                batch = [bench_epc(next_epc + j) for j in range(k)]
                 next_epc += k
             return batch
 
@@ -398,7 +404,7 @@ def main() -> int:
         burst.start()
         time.sleep(0.5)
         big_seq = int(time.time() * 1000) + 10_000
-        big = [{"epc": f"EPC-{j % args.skus:05d}", "rssi": -50, "read_count": 1}
+        big = [{"epc": bench_epc(j % args.skus), "rssi": -50, "read_count": 1}
                for j in range(2_000)]
         payload = {"site_id": "store-07", "pool": "store-07.floor",
                    "reader_session_id": "BENCH-SWEEP",
@@ -493,7 +499,7 @@ def main() -> int:
              "SELECT quantity FROM inventory_projection"
              " WHERE subject_id='x' AND place_id='y'"),
             ("subject by epc",
-             "SELECT id FROM inventory_subject WHERE epc='EPC-00001'"),
+             f"SELECT id FROM inventory_subject WHERE epc='{bench_epc(1)}'"),
             ("sale_line by sku (reporting path)",
              "SELECT COUNT(*) FROM sale_line WHERE sku_code='B00001'"),
         ]:

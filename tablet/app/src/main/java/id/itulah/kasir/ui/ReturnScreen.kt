@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import id.itulah.kasir.data.Config
 import id.itulah.kasir.data.Money
+import id.itulah.kasir.data.skuDisplay
 import id.itulah.kasir.data.ReturnLine
 import id.itulah.kasir.data.Tender
 import id.itulah.kasir.pos.TillState
@@ -185,7 +186,7 @@ fun ReturnScreen(
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis,
                                         )
-                                        Text("…" + line.epc.takeLast(6), style = Type.id)
+                                        Text(skuDisplay(line.skuCode) + "  …" + line.epc.takeLast(6), style = Type.id)
                                     }
                                     GhostButton(
                                         "Layak jual",

@@ -10,9 +10,10 @@ import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
+import { CellMoney } from "@/components/ui/rows-switch"
 import { Toolbar } from "@/components/ui/segmented"
 import { EmptyState } from "@/components/ui/states"
-import { count, money } from "@/lib/format"
+import { count } from "@/lib/format"
 import {
   bankStatementsQuery,
   companyBankAccountsQuery,
@@ -292,7 +293,7 @@ function ReconciliationAccounts() {
         size: 150,
         enableSorting: false,
         meta: { align: "right", card: "metric" },
-        cell: ({ row }) => money(row.original.closing),
+        cell: ({ row }) => <CellMoney minor={row.original.closing} />,
       },
       {
         id: "books",
@@ -301,7 +302,9 @@ function ReconciliationAccounts() {
         size: 150,
         enableSorting: false,
         meta: { align: "right", card: "metric" },
-        cell: ({ row }) => money(books.get(row.original.key) ?? 0),
+        cell: ({ row }) => (
+          <CellMoney minor={books.get(row.original.key) ?? 0} />
+        ),
       },
       {
         id: "difference",
@@ -316,7 +319,9 @@ function ReconciliationAccounts() {
           return difference === 0 ? (
             <span className="text-mute">0</span>
           ) : (
-            <span className="font-medium text-bad-fg">{money(difference)}</span>
+            <span className="font-medium text-bad-fg">
+              <CellMoney minor={difference} />
+            </span>
           )
         },
       },

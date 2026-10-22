@@ -200,6 +200,7 @@ export const rfidSession = (readerSessionId: string) =>
 
 export type CatalogRow = {
   readonly sku_code: string
+  readonly article_code?: string | null
   readonly barcode: string | null
   readonly name: string
   readonly unit_price_minor: number
@@ -207,19 +208,78 @@ export type CatalogRow = {
   readonly currency: string
 }
 
-/// `GET /api/v1/store/catalog` — this shop's sellable range at this shop's
-/// prices. Read once and held: it is what lets a basket be drawn and priced
-/// while the line to the node is unsteady.
-export const catalogue = () =>
-  edge<{
-    items?: CatalogRow[]
-    currency?: string
-    has_price_book?: boolean
-    publication_version?: number | null
-  }>(
+export type CataloguePage = {
+  readonly items?: CatalogRow[]
+  readonly currency?: string
+  readonly has_price_book?: boolean
+  readonly publication_version?: number | null
+  /// The last SKU of this page, to ask for the next one with; null on the last.
+  readonly next_cursor?: string | null
+}
+
+/// The node's own ceiling for one page (`store_catalog_page` in
+/// `backend/src/edge/pricing.rs` clamps `limit` to 1–500, default 100).
+const CATALOGUE_PAGE = 500
+
+/// `GET /api/v1/store/catalog?limit=&cursor=` — one page of this shop's
+/// sellable range at this shop's prices, keyset-paged by SKU code.
+///
+/// The cursor is always sent, empty for the first page. The node treats an
+/// empty cursor as the start, and a page asked for with a cursor is never
+/// answered from its whole-book ETag — which is the catalogue's generation,
+/// not the price book's, so a browser holding the first page could keep
+/// yesterday's prices on it.
+export const cataloguePage = (cursor: string) =>
+  edge<CataloguePage>(
     "GET",
-    "/api/v1/store/catalog",
+    `/api/v1/store/catalog?limit=${CATALOGUE_PAGE}&cursor=${encodeURIComponent(cursor)}`,
   )
+
+/// `GET /api/v1/catalog/snapshot` — which generation of the catalogue the node
+/// holds: one small row, the cheap way to ask whether the products changed.
+/// It says nothing about prices; those are checked against the quote.
+export type CatalogueState = {
+  readonly generation: number
+  readonly item_count: number
+  readonly content_hash: string
+  readonly activated_at: string | null
+}
+
+export const catalogueState = () =>
+  edge<CatalogueState>("GET", "/api/v1/catalog/snapshot")
+
+/// The whole price book, page after page. Read at the till's start and again
+/// only when it changed: one page is at most 500 rows, and the counter needs
+/// every row, not the first page of them. All or nothing — a book that broke
+/// off halfway is reported, never shown as if it were the whole range.
+export async function wholeCatalogue(): Promise<
+  | { readonly ok: true; readonly rows: CatalogRow[]; readonly hasPriceBook: boolean }
+  | { readonly ok: false; readonly problem: string }
+> {
+  const rows: CatalogRow[] = []
+  let hasPriceBook = false
+  let cursor = ""
+  // Far beyond any range this estate sells; a node that kept answering with
+  // a next page past it would be a node walking in a circle.
+  for (let page = 0; page < 2_000; page += 1) {
+    const reply = await cataloguePage(cursor)
+    if (!reply.ok) {
+      return {
+        ok: false,
+        problem: reply.problem ?? `The price book could not be read (HTTP ${reply.status}).`,
+      }
+    }
+    rows.push(...(reply.body?.items ?? []))
+    hasPriceBook ||= reply.body?.has_price_book === true
+    const next = reply.body?.next_cursor ?? null
+    if (next === null || next === "") return { ok: true, rows, hasPriceBook }
+    if (next === cursor) {
+      return { ok: false, problem: "The node's price book pages did not move forward." }
+    }
+    cursor = next
+  }
+  return { ok: false, problem: "The price book has more pages than this till will read." }
+}
 
 // ── pricing a basket ────────────────────────────────────────────────────
 
@@ -236,12 +296,32 @@ export type QuoteReply = {
   readonly amount_due_minor?: number
   readonly discount_total_minor?: number
   readonly points_earned?: number
-  readonly lines?: readonly unknown[]
+  readonly lines?: readonly QuotedLine[]
   readonly promotions?: readonly PromotionOutcome[]
   readonly granted_lines?: readonly GrantedLine[]
   /// Limited coupons (a cap across every shop) that came without a hold from
   /// head office, so did not apply. The till's cue to hold them — `coupons.ts`.
   readonly coupons_to_authorize?: readonly string[]
+  /// Tags in the basket the node will not sell: not on this shop's floor
+  /// (`quote_basket` in `backend/src/edge/sqlite.rs`). A sale naming one is
+  /// refused, so the till takes them off before the money is taken.
+  readonly unsellable?: readonly Unsellable[]
+}
+
+/// One line as the engine priced it (`QuotedLine` in
+/// `backend/src/edge/pricing.rs`); only what the till reads.
+export type QuotedLine = {
+  readonly sku_code: string
+  /// What one costs after markdown, before any promotion — the shelf price,
+  /// this minute.
+  readonly unit_price_minor: number
+}
+
+/// A tag the node will not sell from this shop's floor, and why.
+export type Unsellable = {
+  readonly epc: string
+  readonly sku_code: string
+  readonly reason: string
 }
 
 export type PromotionOutcome = {

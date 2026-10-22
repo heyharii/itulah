@@ -61,6 +61,20 @@ pub const DRAWER_PRINTER_PULSE: &str = "PRINTER_PULSE";
 /// as "do not pulse".
 pub const DRAWER_MANUAL: &str = "MANUAL";
 
+/// The Chainway R3's power at a counter nobody has measured yet, in dBm: low,
+/// so a reader that was never tuned reaches the pad and not the rack beside
+/// it. The real figure is chosen on the bench (README).
+pub const R3_POWER_DBM: u8 = 15;
+/// The power the R3 takes, in dBm (`UHFSetPower` in the vendor's SDK).
+pub const R3_POWER_RANGE: std::ops::RangeInclusive<u8> = 1..=30;
+/// How long one pad read listens, in milliseconds.
+pub const R3_READ_MS: u32 = 500;
+pub const R3_READ_RANGE: std::ops::RangeInclusive<u32> = 200..=2_000;
+/// The weakest signal a pad read keeps, in dBm. Lenient until the bench says
+/// otherwise: the power is what keeps the rack out of reach.
+pub const R3_MIN_RSSI_DBM: i16 = -70;
+pub const R3_MIN_RSSI_RANGE: std::ops::RangeInclusive<i16> = -100..=-20;
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct Peripherals {
@@ -72,6 +86,15 @@ pub struct Peripherals {
     /// The USB desk RFID reader's model — `Chainway R3` on the counters
     /// today. `None`: no reader on this till.
     pub desk_reader: Option<String>,
+    /// The Chainway R3's transmit power at this counter, in dBm: set every
+    /// time the reader is opened, never saved in the reader, and read back.
+    /// Chosen on the bench so that only the pad reads (README).
+    pub r3_power_dbm: u8,
+    /// How long one read of the pad listens, in milliseconds.
+    pub r3_read_ms: u32,
+    /// The weakest signal a read of the pad keeps, in dBm: a tag heard only
+    /// below it is left out.
+    pub r3_min_rssi_dbm: i16,
     /// How the cash drawer opens: [`DRAWER_PRINTER_PULSE`] or
     /// [`DRAWER_MANUAL`]. `None`: no drawer at this till.
     pub cash_drawer: Option<String>,
@@ -108,6 +131,9 @@ impl Default for Peripherals {
             customer_display: false,
             customer_display_on_start: false,
             desk_reader: None,
+            r3_power_dbm: R3_POWER_DBM,
+            r3_read_ms: R3_READ_MS,
+            r3_min_rssi_dbm: R3_MIN_RSSI_DBM,
             cash_drawer: Some(DRAWER_PRINTER_PULSE.into()),
             scanner: None,
             receipt_printer: RECEIPT_ADDRESS.into(),
@@ -119,6 +145,37 @@ impl Default for Peripherals {
             reported_at: None,
         }
     }
+}
+
+/// The R3's settings, refused when out of range rather than stretched to fit:
+/// a power quietly raised to the top reads the racks. Asked by the save and
+/// again by every read (`rfid.rs`), because `node.json` can be edited by hand.
+pub fn check_desk_reader(peripherals: &Peripherals) -> Result<(), String> {
+    if !R3_POWER_RANGE.contains(&peripherals.r3_power_dbm) {
+        return Err(format!(
+            "The R3 power is set between {} and {} dBm, not {} dBm.",
+            R3_POWER_RANGE.start(),
+            R3_POWER_RANGE.end(),
+            peripherals.r3_power_dbm
+        ));
+    }
+    if !R3_READ_RANGE.contains(&peripherals.r3_read_ms) {
+        return Err(format!(
+            "One read of the pad lasts between {} and {} ms, not {} ms.",
+            R3_READ_RANGE.start(),
+            R3_READ_RANGE.end(),
+            peripherals.r3_read_ms
+        ));
+    }
+    if !R3_MIN_RSSI_RANGE.contains(&peripherals.r3_min_rssi_dbm) {
+        return Err(format!(
+            "The weakest signal kept is between {} and {} dBm, not {} dBm.",
+            R3_MIN_RSSI_RANGE.start(),
+            R3_MIN_RSSI_RANGE.end(),
+            peripherals.r3_min_rssi_dbm
+        ));
+    }
+    Ok(())
 }
 
 fn filled(value: &Option<String>) -> Option<String> {
@@ -134,6 +191,7 @@ fn filled(value: &Option<String>) -> Option<String> {
 /// says so rather than pretending.
 fn tidy(mut next: Peripherals) -> Result<Peripherals, String> {
     next.desk_reader = filled(&next.desk_reader);
+    check_desk_reader(&next)?;
     next.scanner = filled(&next.scanner).map(|kind| kind.to_ascii_uppercase());
     next.cash_drawer = filled(&next.cash_drawer).map(|how| how.to_ascii_uppercase());
     if let Some(how) = next.cash_drawer.as_deref() {

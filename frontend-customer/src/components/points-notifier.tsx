@@ -1,9 +1,9 @@
 import { useEffect, useRef } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useRouterState } from "@tanstack/react-router"
-import { Sparkles } from "lucide-react"
 import { toast } from "sonner"
 
+import { MattePicture } from "@/components/matte"
 import { cacheKey } from "@/lib/api"
 import { units } from "@/lib/money"
 import { at, markSeen, newest, readSeen, usePointsFeed } from "@/lib/points-feed"
@@ -123,9 +123,7 @@ function PointsToast({
       onClick={onOpen}
       className="press flex w-[min(22rem,calc(100vw-2rem))] items-center gap-3 rounded-[1.25rem] bg-canvas px-3.5 py-3 text-left shadow-[0_2px_8px_rgb(0_0_0/0.06),0_16px_40px_rgb(0_0_0/0.12)]"
     >
-      <span className="relative flex size-11 shrink-0 items-center justify-center rounded-full bg-ok-bg">
-        <Sparkles className="size-5 text-ok" strokeWidth={2.25} />
-      </span>
+      <MattePicture art="spark" />
       <span className="min-w-0 flex-1">
         <span className="block text-metric font-semibold text-ink">
           +{units(points)} poin masuk

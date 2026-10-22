@@ -1,33 +1,44 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { ChevronRight, X } from "lucide-react"
-import { useState } from "react"
+import { useMemo, useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { confirm } from "@/components/ui/confirm"
 import { Input } from "@/components/ui/field"
 import { Pill } from "@/components/ui/pill"
+import { Photograph } from "@/screens/catalogue-parts"
 import { ScanField } from "@/components/ui/scan-field"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { ErrorState, LoadingState, Problem } from "@/components/ui/states"
-import { count, day } from "@/lib/format"
+import { articleId, count, day, sku as skuText } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import {
+  fetchIdentities,
+  fetchOnHold,
+  identitiesKey,
   inboundDeliveryKey,
   inboundListKey,
+  onHoldKey,
   receiveInboundByCount,
 } from "@/lib/queries"
 import { cn } from "@/lib/utils"
 import {
   byTrouble,
-  deliveryName,
+  fromName,
   useInboundDelivery,
   verdictOf,
 } from "@/screens/stock/inbound"
 import { useHeld } from "@/screens/stock/open-record"
 import { Code, FOOT, SheetSection } from "@/screens/stock/parts"
-import { sourceName, useRange } from "@/screens/stock/shared"
+import { useRange } from "@/screens/stock/shared"
+import { shapeBook } from "@/lib/variants"
 import { idempotencyKey } from "@itulah/contract/client"
-import type { StoreInboundDelivery, StoreInboundLine } from "@itulah/contract"
+import type {
+  CatalogRow,
+  StoreInboundDelivery,
+  StoreInboundLine,
+} from "@itulah/contract"
 
 /// One delivery, opened over its list: a count to take while it is in transit,
 /// and the items with what was packed against what was counted once it is in.
@@ -89,25 +100,44 @@ function DeliverySheetFor({
       onOpenChange={(next) => {
         if (!next) onClose()
       }}
-      title={deliveryName(delivery)}
+      id={`Receive / ${delivery.shipment_reference ?? delivery.delivery_id}`}
+      title={`From ${fromName(delivery.source_site_id)}`}
       caption={
         received
           ? `Received ${day(delivery.received_at)}${
               delivery.received_by === null ? "" : ` by ${delivery.received_by}`
             }`
-          : `Departed ${day(delivery.departed_at)}`
+          : undefined
       }
       badge={<Pill tone={verdict.tone}>{verdict.label}</Pill>}
       width="wide"
       footer={
         received ? undefined : (
           <div className="flex items-center justify-end gap-3">
+            {taking.unknown.size > 0 && (
+              <span className="mr-auto text-[0.9375rem] text-bad">
+                Check the red rows
+              </span>
+            )}
             <Button
               variant="primary"
               className={FOOT}
               pending={taking.receive.isPending}
-              disabled={taking.counted.length === 0}
-              onClick={() => taking.receive.mutate()}
+              disabled={taking.unknown.size > 0}
+              onClick={async () => {
+                // Nothing came off the lorry is still a count: every piece
+                // of the delivery goes to MD as missing (owner, 17 Oct 2026).
+                if (
+                  taking.counted.length === 0 &&
+                  !(await confirm({
+                    title: "Nothing arrived?",
+                    body: "Every piece on this delivery goes to MD as missing.",
+                    action: "Submit 0 pcs",
+                  }))
+                )
+                  return
+                taking.receive.mutate()
+              }}
             >
               {taking.receive.isPending ? "Sending…" : "Submit count"}
             </Button>
@@ -117,7 +147,9 @@ function DeliverySheetFor({
     >
       <div className="flex flex-col gap-6">
         <DeliveryFacts delivery={delivery} />
-        {received ? (
+        {received && delivery.in_review === true ? (
+          <InReview delivery={delivery} />
+        ) : received ? (
           <Received delivery={delivery} />
         ) : (
           <CountReceive taking={taking} />
@@ -133,12 +165,74 @@ function DeliverySheetFor({
 /// request that books it. Held by the sheet so its foot can send it.
 function useCountReceive(delivery: StoreInboundDelivery) {
   const client = useQueryClient()
+  const { catalogue, bySku } = useRange()
   const [counts, setCounts] = useState<Readonly<Record<string, number>>>({})
+  /// The SKUs the delivery carries, with no quantity (owner, 18 Oct 2026:
+  /// "List + add" — the sheet lists what came, never how many).
+  const listing = useInboundDelivery(
+    delivery.delivery_id,
+    delivery.status !== "RECEIVED",
+  )
+  const manifest = useMemo(
+    () => listing.data?.manifest_skus ?? [],
+    [listing.data],
+  )
+  /// Articles the shop added by search: on no list, found in the koli.
+  const [added, setAdded] = useState<readonly string[]>([])
 
   /// What goes to the node: the SKUs with something counted. A box a person has
   /// emptied to type a new figure is still a row — it only leaves on Remove — so
   /// the number pad is not taken away from under their thumb.
   const counted = Object.entries(counts).filter(([, quantity]) => quantity > 0)
+
+  /// The shop catalogue drops every SKU that has no price, so a delivery's
+  /// unpriced garments are named from the node's identity table instead.
+  const missing = useMemo(
+    () =>
+      [...new Set([...manifest, ...Object.keys(counts)])]
+        .filter((sku) => !bySku.has(sku))
+        .sort(),
+    [manifest, counts, bySku],
+  )
+  const identities = useQuery({
+    queryKey: identitiesKey(missing),
+    queryFn: ({ signal }) => fetchIdentities(missing, signal),
+    enabled: catalogue.data !== undefined && missing.length > 0,
+    staleTime: 5 * 60_000,
+  })
+  /// The catalogue's rows, then the identity rows it lacked (shaped like
+  /// them, so the same reader splits name, colour and size).
+  const book = useMemo(() => {
+    const extra = (identities.data ?? [])
+      .filter((one) => !bySku.has(one.sku_code))
+      .map(
+        (one) =>
+          ({
+            sku_code: one.sku_code,
+            name: one.name,
+            article_code: one.article_code,
+            division_code: one.division_code,
+            barcode: one.barcode,
+            has_image: one.image_url !== null,
+            tags: one.tags,
+          }) as unknown as CatalogRow,
+      )
+    const rows = [...(catalogue.data?.items ?? []), ...extra]
+    const all = new Map<string, CatalogRow>()
+    for (const row of rows) all.set(row.sku_code, row)
+    return { all, shapes: shapeBook(rows) }
+  }, [catalogue.data, identities.data, bySku])
+
+  /// A SKU the shop's catalogue does not know is a mistyped or misread code,
+  /// never a piece of the delivery: it turns red and holds the Submit until it
+  /// is removed (owner, 11 Oct 2026). Counted silently, it made a short
+  /// delivery add up — 12 real pieces and one bad code came to the 13 sent
+  /// (17 Oct 2026). Judged only once the catalogue is in.
+  const unknown = new Set(
+    catalogue.data === undefined || identities.isLoading
+      ? []
+      : Object.keys(counts).filter((sku) => !book.all.has(sku)),
+  )
 
   const receive = useMutation({
     mutationFn: () =>
@@ -157,6 +251,7 @@ function useCountReceive(delivery: StoreInboundDelivery) {
       void client.invalidateQueries({
         queryKey: inboundDeliveryKey(delivery.delivery_id),
       })
+      void client.invalidateQueries({ queryKey: onHoldKey() })
     },
   })
 
@@ -179,14 +274,42 @@ function useCountReceive(delivery: StoreInboundDelivery) {
   /// carton rather than piece by piece. Anything else adds one.
   const onScan = (raw: string) => {
     const match = raw.trim().match(/^(.*?)(?:[\s*xX]+(\d+))?$/)
-    const sku = (match?.[1] ?? raw).trim().toUpperCase()
+    const sku = (match?.[1] ?? raw).replace(/·/g, "").trim().toUpperCase()
     if (sku === "") return
     const qty = match?.[2] ? Number(match[2]) : 1
     setCounts((current) => ({ ...current, [sku]: (current[sku] ?? 0) + qty }))
   }
 
+  const addArticle = (key: string) =>
+    setAdded((current) => (current.includes(key) ? current : [...current, key]))
+  /// An added article taken off again, with whatever was counted of it.
+  const removeArticle = (key: string) => {
+    setAdded((current) => current.filter((one) => one !== key))
+    setCounts((current) =>
+      Object.fromEntries(
+        Object.entries(current).filter(
+          ([sku]) => (book.all.get(sku)?.article_code ?? sku) !== key,
+        ),
+      ),
+    )
+  }
+
   const total = counted.reduce((sum, [, qty]) => sum + qty, 0)
-  return { counts, counted, setQty, remove, onScan, total, receive }
+  return {
+    counts,
+    counted,
+    unknown,
+    setQty,
+    remove,
+    onScan,
+    total,
+    receive,
+    manifest,
+    book,
+    added,
+    addArticle,
+    removeArticle,
+  }
 }
 
 type Taking = ReturnType<typeof useCountReceive>
@@ -214,21 +337,29 @@ function pcs(n: number): string {
   return `${count(n)} ${n === 1 ? "pc" : "pcs"}`
 }
 
-/// A name over a quieter second line (the article over its SKU).
+/// A name over a quieter second line (the article over its colour and size).
+/// `plain` sets the second line in the body face rather than mono.
 function TwoLines({
   top,
   bottom,
+  plain = false,
 }: {
   top: React.ReactNode
   bottom?: React.ReactNode
+  plain?: boolean
 }) {
   return (
     <span className="flex min-h-11 min-w-0 flex-col justify-center py-1">
       <span className="block truncate text-[0.9375rem] leading-[1.4] font-medium text-ink">
         {top}
       </span>
-      {bottom !== undefined && (
-        <span className="mt-1 block truncate font-mono text-[0.875rem] leading-[1.4] text-mute">
+      {bottom !== undefined && bottom !== "" && (
+        <span
+          className={cn(
+            "mt-1 block truncate text-[0.9375rem] leading-[1.4] text-mute",
+            !plain && "font-mono",
+          )}
+        >
           {bottom}
         </span>
       )}
@@ -236,25 +367,120 @@ function TwoLines({
   )
 }
 
-/// A blind count per SKU — scanned or typed, Enter adds one — with nothing
-/// about `delivery` shown while it is being taken. Owner, 29 Sep 2026:
-/// receiving needs no RFID, so this replaces the handheld as the ordinary way
-/// a delivery is received; the node turns each count into that many of the
-/// delivery's own manifest pieces and books them exactly as a sweep would.
+/// A SKU's photograph as a 48px tile — or the colourway stand-in when the node
+/// holds none — as the hub's count sheet rows.
+function ArticleThumb({
+  name,
+  sku,
+  has,
+}: {
+  name: string
+  sku: string | undefined
+  has: boolean
+}) {
+  return (
+    <span className="size-12 shrink-0 overflow-hidden rounded-inner bg-soft-2">
+      <Photograph sku={sku ?? ""} has={has} name={name} />
+    </span>
+  )
+}
+
+/// A blind count, **List + add** (owner, 18 Oct 2026), by SKU (owner, 20 Oct):
+/// one row per SKU the delivery carries — the article's name over its colour ·
+/// size, a box for the amount counted — what is hidden is how many, never
+/// what. An article the shop finds that is on no list is added from the last
+/// row of the table and counted the same way. A scan still adds one to its
+/// SKU. It reads like the hub's PO count sheet (`frontend-hub` › Receiving
+/// `CountSheet`).
 ///
-/// It reads like the DC's count sheet (owner, 9 Oct 2026: one UI), with one
-/// difference that is the point: the DC's rows are listed from the order, and
-/// here a row exists only once its SKU has been scanned or typed. Nothing of
-/// the manifest — no SKU, no name, no quantity — reaches this sheet before the
-/// count is in. The name beside a SKU is the shop's own catalogue book, which
-/// every till holds anyway.
+/// A SKU's code is never a title: names come from the shop catalogue, or from
+/// the node's identity table for the unpriced SKUs the catalogue drops.
+///
+/// What the shop counts beyond what was sent is not booked: it waits on hold
+/// until MD answers (`Receive` › On hold).
 ///
 /// A quantity on a phone is picked on the number pad (the `Input` opens it), so
 /// the keyboard never covers the row being counted.
 function CountReceive({ taking }: { taking: Taking }) {
-  const { bySku } = useRange()
   const phone = useLayout() === "phone"
-  const lines = Object.entries(taking.counts)
+  const { all, shapes } = taking.book
+  const keyOf = (sku: string) => all.get(sku)?.article_code ?? sku
+  /// An article's SKUs in the order its colours and sizes read.
+  const skusOf = (key: string): string[] => {
+    const shape = shapes.get(key)
+    if (shape === undefined) return [key]
+    const order = shape.colours.flatMap((colour) =>
+      colour.skus.map((row) => row.sku_code),
+    )
+    const sizeRank = (sku: string) =>
+      shape.sizes.indexOf(shape.variant.get(sku)?.size ?? "")
+    const colourRank = (sku: string) =>
+      shape.colours.findIndex((c) => c.skus.some((r) => r.sku_code === sku))
+    return [...order].sort(
+      (a, b) => colourRank(a) - colourRank(b) || sizeRank(a) - sizeRank(b),
+    )
+  }
+  const isUnknown = (sku: string) => taking.unknown.has(sku)
+  /// Every row: only what the shop scanned or typed first, and the articles
+  /// it added — never the delivery's own list (owner, 21 Oct 2026: a blind
+  /// count; "input dlu skunya atau barcodenya, dan baru bisa isi count nya").
+  /// Grouped by article, in reading order.
+  const listedSkus = new Set(taking.manifest)
+  const wanted = new Set<string>([
+    ...taking.added.flatMap(skusOf),
+    ...Object.keys(taking.counts).filter((sku) => !isUnknown(sku)),
+  ])
+  const keys = [...new Set([...wanted].map(keyOf))]
+  const grouped = keys.flatMap((key) =>
+    skusOf(key).filter((sku) => wanted.has(sku)),
+  )
+  /// SKUs the book never named and that sit in no article: rows all the same.
+  const strays = [...wanted].filter((sku) => !grouped.includes(sku))
+  const rows = [...grouped, ...strays]
+  const unknownRows = Object.keys(taking.counts).filter(isUnknown)
+
+  const amount = (sku: string, label: string, removeKey: string | null) => {
+    const qty = taking.counts[sku] ?? 0
+    return (
+      <>
+        <div className="flex items-center gap-2 max-md:order-last max-md:col-span-2">
+          <Input
+            className="h-11 w-24 text-center font-semibold"
+            inputMode="numeric"
+            autoComplete="off"
+            placeholder="0"
+            aria-label={`Quantity for ${label}`}
+            padLabel={`${label} · pcs`}
+            value={qty === 0 ? "" : String(qty)}
+            onChange={(event) => {
+              const digits = event.target.value.replace(/\D/g, "")
+              taking.setQty(sku, digits === "" ? 0 : Number(digits))
+            }}
+          />
+          <span className="w-8 text-[0.9375rem] text-body">pcs</span>
+          {removeKey !== null && (
+            <Button
+              variant="quiet"
+              size="lg"
+              className="w-11 px-0"
+              aria-label={`Remove ${label}`}
+              onClick={() => taking.removeArticle(removeKey)}
+            >
+              <X />
+            </Button>
+          )}
+        </div>
+        <span
+          className={cn(
+            "flex min-h-11 items-center justify-end text-right tabular-nums",
+            qty === 0 ? "text-mute" : "font-medium text-ink",
+          )}
+        >
+          {qty === 0 ? "—" : pcs(qty)}
+        </span>
+      </>
+    )
+  }
 
   return (
     <SheetSection title="Count">
@@ -281,69 +507,72 @@ function CountReceive({ taking }: { taking: Taking }) {
           </div>
 
           <div className="divide-y divide-hairline">
-            {lines.length === 0 ? (
+            {rows.length === 0 && unknownRows.length === 0 && (
               <p className="flex min-h-11 items-center px-4 py-3.5 text-meta text-mute">
                 Nothing counted yet.
               </p>
-            ) : (
-              lines.map(([sku, qty]) => {
-                const name = bySku.get(sku)?.name
-                return (
-                  <div key={sku} className={cn(COUNT_ROW, "py-3.5")}>
-                    <TwoLines
-                      top={name ?? sku}
-                      bottom={name === undefined ? undefined : sku}
-                    />
-
-                    <div className="flex items-center gap-2 max-md:order-last max-md:col-span-2">
-                      <Input
-                        className="h-11 w-24 text-center font-semibold"
-                        inputMode="numeric"
-                        autoComplete="off"
-                        placeholder="0"
-                        aria-label={`Quantity for ${name ?? sku}`}
-                        padLabel={`${name ?? sku} · pcs`}
-                        // A box a person has emptied to type a new figure
-                        // stays a row, empty, until Remove.
-                        value={qty === 0 ? "" : String(qty)}
-                        onChange={(event) => {
-                          const digits = event.target.value.replace(/\D/g, "")
-                          taking.setQty(sku, digits === "" ? 0 : Number(digits))
-                        }}
-                      />
-                      <span className="w-8 text-[0.875rem] text-body">pcs</span>
-                      <Button
-                        variant="quiet"
-                        size="lg"
-                        className="w-11 px-0"
-                        aria-label={`Remove ${name ?? sku}`}
-                        onClick={() => taking.remove(sku)}
-                      >
-                        <X />
-                      </Button>
-                    </div>
-
-                    <span
-                      className={cn(
-                        "flex min-h-11 items-center justify-end text-right tabular-nums",
-                        qty === 0 ? "text-mute" : "font-medium text-ink",
-                      )}
-                    >
-                      {qty === 0 ? "—" : pcs(qty)}
-                    </span>
-                  </div>
-                )
-              })
             )}
+            {rows.map((sku) => {
+              const row = all.get(sku)
+              const key = keyOf(sku)
+              const shape = shapes.get(key)
+              const variant = shape?.variant.get(sku)
+              const title = shape?.name ?? row?.name ?? "Unnamed article"
+              const detail = [variant?.colour, variant?.size]
+                .filter(Boolean)
+                .join(" · ")
+              const codes = `${articleId(row?.article_code, sku)} · ${skuText(sku)}`
+              const added = !listedSkus.has(sku) && taking.added.includes(key)
+              return (
+                <div key={sku} className={cn(COUNT_ROW, "py-3")}>
+                  <span className="flex min-w-0 items-center gap-3">
+                    <ArticleThumb
+                      name={title}
+                      sku={sku}
+                      has={row?.has_image ?? false}
+                    />
+                    <TwoLines
+                      top={title}
+                      bottom={detail === "" ? codes : `${codes} · ${detail}`}
+                      plain
+                    />
+                  </span>
+                  {amount(
+                    sku,
+                    detail === "" ? title : `${title} ${detail}`,
+                    added ? key : null,
+                  )}
+                </div>
+              )
+            })}
+            {unknownRows.map((sku) => (
+              <div key={sku} className={cn(COUNT_ROW, "py-3.5")}>
+                <TwoLines
+                  top={<span className="text-bad">No SKU {skuText(sku)}</span>}
+                />
+                <div className="flex items-center gap-2 max-md:order-last max-md:col-span-2">
+                  <span className="w-24 text-center font-semibold tabular-nums">
+                    {count(taking.counts[sku] ?? 0)}
+                  </span>
+                  <Button
+                    variant="quiet"
+                    size="lg"
+                    className="w-11 px-0"
+                    aria-label={`Remove ${skuText(sku)}`}
+                    onClick={() => taking.remove(sku)}
+                  >
+                    <X />
+                  </Button>
+                </div>
+                <span />
+              </div>
+            ))}
           </div>
 
           {/* The counted amounts added up — in the same column as each row's
               own figure. */}
           <div
-            className={cn(
-              COUNT_ROW,
-              "border-t border-hairline bg-soft py-3.5",
-            )}
+            className={cn(COUNT_ROW, "border-t border-hairline bg-soft py-3.5")}
           >
             <span className="flex min-h-11 items-center font-medium text-ink">
               Total Counted
@@ -357,6 +586,108 @@ function CountReceive({ taking }: { taking: Taking }) {
 
         <Problem error={taking.receive.error} />
       </div>
+    </SheetSection>
+  )
+}
+
+// ── In review ───────────────────────────────────────────────────────────────
+
+/// Counted, and the count differs from what was sent. What matched went into
+/// stock when it was counted; what came beyond it is on hold until MD answers
+/// the trip's review (owner, 20 Oct 2026). Each article says both, and
+/// nothing about what was sent.
+function InReview({ delivery }: { delivery: StoreInboundDelivery }) {
+  const detail = useInboundDelivery(delivery.delivery_id, true)
+  const onHold = useQuery({
+    queryKey: onHoldKey(),
+    queryFn: ({ signal }) => fetchOnHold(signal),
+    refetchInterval: 15_000,
+  })
+  const held = (onHold.data ?? []).filter(
+    (line) => line.delivery_id === delivery.delivery_id,
+  )
+  const rows = new Map<
+    string,
+    { name: string | null; inStock: number; onHold: number }
+  >()
+  for (const line of detail.data?.lines ?? [])
+    if (line.received > 0)
+      rows.set(line.sku_code, {
+        name: line.name,
+        inStock: line.received,
+        onHold: 0,
+      })
+  for (const line of held) {
+    const row = rows.get(line.sku_code) ?? {
+      name: line.name,
+      inStock: 0,
+      onHold: 0,
+    }
+    rows.set(line.sku_code, { ...row, onHold: row.onHold + line.on_hold })
+  }
+  const lines = [...rows.entries()]
+  const total = lines.reduce((sum, [, row]) => sum + row.inStock + row.onHold, 0)
+  return (
+    <SheetSection title="Counted · waiting for MD">
+      <Card>
+        <div
+          className={cn(
+            COUNT_ROW,
+            "h-10 items-center border-b border-hairline bg-soft",
+          )}
+        >
+          <span className={COUNT_HEAD}>Article</span>
+          <span className={cn(COUNT_HEAD, "max-md:hidden")} />
+          <span className={cn(COUNT_HEAD, "text-right")}>Counted</span>
+        </div>
+        <div className="divide-y divide-hairline">
+          {(detail.isPending || onHold.isPending) && <LoadingState />}
+          {lines.map(([sku, row]) => {
+            const where = [
+              row.inStock > 0 && `${pcs(row.inStock)} in stock`,
+              row.onHold > 0 && `${pcs(row.onHold)} on hold`,
+            ]
+              .filter(Boolean)
+              .join(" · ")
+            return (
+            <div key={sku} className={cn(COUNT_ROW, "py-3")}>
+              {/* A phone has no middle column: where the pieces are goes
+                  under the name instead. */}
+              <TwoLines
+                top={row.name ?? skuText(sku)}
+                bottom={
+                  <>
+                    <span className="max-md:hidden">
+                      {articleId(null, sku)} · {skuText(sku)}
+                    </span>
+                    <span className="md:hidden">
+                      {articleId(null, sku)} · {skuText(sku)} · {where}
+                    </span>
+                  </>
+                }
+              />
+              <span className="flex min-h-11 items-center text-mute max-md:hidden">
+                {where}
+              </span>
+              <span className="flex min-h-11 items-center justify-end font-medium text-ink tabular-nums">
+                {pcs(row.inStock + row.onHold)}
+              </span>
+            </div>
+            )
+          })}
+        </div>
+        <div
+          className={cn(COUNT_ROW, "border-t border-hairline bg-soft py-3.5")}
+        >
+          <span className="flex min-h-11 items-center font-medium text-ink">
+            Total Counted
+          </span>
+          <span className="max-md:hidden" />
+          <span className="flex min-h-11 items-center justify-end font-medium text-ink tabular-nums">
+            {pcs(total)}
+          </span>
+        </div>
+      </Card>
     </SheetSection>
   )
 }
@@ -437,7 +768,7 @@ function ItemRow({ line, name }: { line: StoreInboundLine; name: string }) {
             {name}
           </span>
           <span className="block truncate font-mono text-[0.875rem] text-mute">
-            {line.sku_code}
+            {articleId(null, line.sku_code)} · {skuText(line.sku_code)}
           </span>
         </span>
         {/* A phone: one line, counted of sent, and the difference under it. */}
@@ -518,8 +849,9 @@ function Difference({
 function DeliveryFacts({ delivery }: { delivery: StoreInboundDelivery }) {
   return (
     <Facts>
-      <Fact term="From">{sourceName(delivery.source_site_id)}</Fact>
-      <Fact term="Cartons">{count(delivery.koli_count)}</Fact>
+      <Fact term="From">{fromName(delivery.source_site_id)}</Fact>
+      <Fact term="Delivery note">{delivery.shipment_reference ?? "—"}</Fact>
+      <Fact term="Koli">{count(delivery.koli_count)}</Fact>
       <Fact term="Departed">{day(delivery.departed_at)}</Fact>
       {delivery.status === "RECEIVED" && (
         <>

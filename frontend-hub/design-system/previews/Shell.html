@@ -1,0 +1,94 @@
+<!-- @dsCard group="Page" height=496 subtitle="Static rendition of app-shell.tsx in the All white look" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>Shell — preview</title><style>body{margin:0}
+/* Shell: stone, rail, floating panel and floating page at the hub's real sizes, the window narrowed to fit. */
+.ds-shell-scroll{overflow-x:auto;border-radius:var(--r-sheet)}
+.ds-shell-window{height:440px;min-height:0;min-width:780px;border-radius:var(--r-sheet);overflow:hidden}
+.ds-shell-rail{gap:2px}
+.ds-shell-rail .ds-rail-btn{border-radius:var(--r-inner);color:var(--rail-mute)}
+.ds-shell-rail .ds-rail-btn.is-hover{color:var(--rail-text)}
+.ds-shell-rail .ds-rail-btn.is-current{color:var(--accent)}
+.ds-shell-rail .ds-rail-btn.ds-shell-search{margin-bottom:10px;border-radius:var(--r-card);color:var(--rail-text)}
+.ds-shell-rail .ds-ico{width:18px;height:18px}
+.ds-shell-panel{display:flex;flex-direction:column;padding:0}
+.ds-shell-panelhead{display:flex;align-items:center;gap:4px;height:52px;padding:0 8px 0 16px}
+.ds-shell-panelhead .ds-panel-title{flex:1;padding:0}
+.ds-shell-fold{display:grid;place-items:center;flex:none;width:32px;height:32px;border-radius:var(--r-inner);color:var(--mute)}
+.ds-shell-panelbody{flex:1;padding:10px}
+.ds-shell-panel .ds-nav{gap:2px}
+.ds-shell-panel .ds-nav-row{font-weight:400}
+.ds-shell-panel .ds-nav-row.is-active{font-weight:600}
+.ds-shell-panelfoot{display:flex;align-items:center;height:52px;padding:0 16px}
+.ds-shell-time{display:inline-flex;flex:none;white-space:nowrap;align-items:center;gap:10px;height:32px;margin-left:-10px;padding:0 10px;border-radius:var(--r-inner);font-weight:500;color:var(--panel-ink);font-variant-numeric:tabular-nums}
+.ds-shell-time .ds-ico{width:18px;height:18px;color:var(--line-ico)}
+.ds-shell-page{overflow:hidden}
+.ds-shell-page .ds-page-head{margin-bottom:var(--head-gap)}
+</style></head>
+<body>
+<div class="ds ds-stage">
+  <div class="ds-shell-scroll">
+  <div class="ds-shell ds-shell-window">
+    <div class="ds-rail ds-shell-rail">
+      <span class="ds-rail-btn ds-shell-search" aria-label="Search"><span class="ds-ico ds-ico-search"></span></span>
+      <span class="ds-rail-btn is-current" aria-label="Procurement"><span class="ds-ico ds-ico-cart"></span></span>
+      <span class="ds-rail-btn" aria-label="Merchandise"><span class="ds-ico ds-ico-shirt"></span><span class="ds-dot-alert"></span></span>
+      <span class="ds-rail-btn" aria-label="Inventory"><span class="ds-ico ds-ico-package"></span><span class="ds-dot-alert"></span></span>
+      <span class="ds-rail-btn" aria-label="Marketing"><span class="ds-ico ds-ico-megaphone"></span></span>
+      <span class="ds-rail-btn is-hover" aria-label="Sales"><span class="ds-ico ds-ico-store"></span></span>
+      <span class="ds-rail-btn" aria-label="Finance"><span class="ds-ico ds-ico-wallet"></span><span class="ds-dot-alert"></span></span>
+      <span class="ds-rail-btn" aria-label="HR"><span class="ds-ico ds-ico-users"></span></span>
+    </div>
+
+    <div class="ds-panel ds-shell-panel">
+      <div class="ds-shell-panelhead">
+        <div class="ds-panel-title">Procurement</div>
+        <span class="ds-shell-fold" aria-label="Hide the screens"><span class="ds-ico ds-ico-chevron-left"></span></span>
+      </div>
+      <div class="ds-shell-panelbody">
+        <div class="ds-nav">
+          <span class="ds-nav-row is-active">Purchase Orders</span>
+          <span class="ds-nav-row is-hover">Suppliers</span>
+          <span class="ds-nav-row">Return PO<span class="ds-count">2</span></span>
+        </div>
+      </div>
+      <div class="ds-shell-panelfoot"><span class="ds-shell-time"><span class="ds-ico ds-ico-clock"></span>17 Oct 2026 · 10:56</span></div>
+    </div>
+
+    <div class="ds-page ds-shell-page">
+      <div class="ds-page-content">
+        <div class="ds-page-head">
+          <div><h1 class="ds-title">Purchase Orders</h1></div>
+          <button class="ds-btn ds-btn--primary" type="button"><span class="ds-ico ds-ico-plus"></span>New order</button>
+        </div>
+        <div class="ds-kpis">
+          <div class="ds-kpi"><div class="ds-kpi-label">Orders</div><div class="ds-kpi-value">18</div></div>
+          <div class="ds-kpi"><div class="ds-kpi-label">Still open</div><div class="ds-kpi-value">18</div></div>
+          <div class="ds-kpi"><div class="ds-kpi-label">Overdue</div><div class="ds-kpi-value">0</div></div>
+          <div class="ds-kpi"><div class="ds-kpi-label">On order</div><div class="ds-kpi-value">Rp 102,7 M</div></div>
+        </div>
+        <div class="ds-tabs">
+          <button class="ds-tab is-selected" type="button">Active PO<span class="ds-tab-count">18</span></button>
+          <button class="ds-tab" type="button">Completed PO<span class="ds-tab-count">14</span></button>
+          <button class="ds-tab" type="button">Cancelled PO<span class="ds-tab-count">13</span></button>
+        </div>
+        <div class="ds-bar">
+          <div class="ds-search"><span class="ds-ico ds-ico-search"></span><input type="text" placeholder="Search orders" aria-label="Search orders"></div>
+          <button class="ds-btn ds-btn--ghost" type="button"><span class="ds-ico ds-ico-filter"></span>Filter</button>
+        </div>
+        <div class="ds-table-card">
+          <table class="ds-table">
+            <thead><tr><th>PO</th><th class="is-num">Ordered</th></tr></thead>
+            <tbody>
+              <tr><td>Garmen Nusantara, PT<span class="ds-sub">PO-161026-010 · 1 item</span></td><td class="is-num">24 pcs<span class="ds-sub">Rp 2.040.000</span></td></tr>
+              <tr><td>Garmen Mitra Sentosa, PT<span class="ds-sub">PO-151026-001 · 2 items</span></td><td class="is-num">300 pcs<span class="ds-sub">Rp 58.000.000</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+  </div>
+</div>
+</body>
+</html>

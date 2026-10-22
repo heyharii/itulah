@@ -20,7 +20,15 @@ import { SubHead } from "@/components/ui/rows"
 import { EmptyState } from "@/components/ui/states"
 import { Thumbnail } from "@/components/ui/thumbnail"
 import { BAND_NEUTRAL, BAND_TONES } from "@/lib/chart-bands"
-import { count, day, money, moment, span } from "@/lib/format"
+import {
+  count,
+  day,
+  dayMonth,
+  money,
+  moment,
+  percent,
+  span,
+} from "@/lib/format"
 import {
   changeKeys,
   describeChangeKind,
@@ -213,7 +221,7 @@ export function CommercialOverview() {
   const leadFigures = (
     <>
       <Kpi
-        label="Given away"
+        label="Discount given"
         value={money(rules.isPending ? undefined : given.benefit_minor)}
         delta={
           rules.isPending
@@ -222,7 +230,7 @@ export function CommercialOverview() {
               ? gaveBefore.benefit_minor === 0 && given.benefit_minor > 0
                 ? "new this period"
                 : undefined
-              : `${movement > 0 ? "+" : ""}${movement}% vs previous ${WINDOW_DAYS} days`
+              : `${percent(movement, { digits: 1, signed: true })} vs previous ${WINDOW_DAYS} days`
         }
         // Up is not good here. Every other strip in this app reads a rise as
         // progress; this one is margin let go of, so a bigger number is a
@@ -230,27 +238,27 @@ export function CommercialOverview() {
         tone={movement === null ? "flat" : movement > 0 ? "down" : "up"}
       />
       <Kpi
-        label="Baskets touched"
+        label="Transactions"
         value={count(rules.isPending ? undefined : given.sale_count)}
         delta={
           rules.isPending
             ? undefined
-            : `${count(ruleRows.length)} promotions earning`
+            : `from ${count(ruleRows.length)} promotions`
         }
       />
       <Kpi
-        label="Campaigns running"
+        label="Campaigns live"
         value={count(campaigns.isPending ? undefined : board.live.length)}
         delta={
           board.rows.length > board.live.length
-            ? `${count(board.rows.length - board.live.length)} not running`
+            ? `${count(board.rows.length - board.live.length)} not live`
             : undefined
         }
       />
       <Kpi
         label="Vouchers outstanding"
         value={money(ledger?.outstanding_minor)}
-        delta={ledger ? `${count(ledger.outstanding_count)} cards` : undefined}
+        delta={ledger ? `${count(ledger.outstanding_count)} live vouchers` : undefined}
       />
     </>
   )
@@ -284,7 +292,7 @@ export function CommercialOverview() {
     )),
     field<RulePerformance>(
       "shape",
-      "Shape",
+      "Trend",
       (rule) => (
         <Sparkline
           values={rule.series.map((one) => one.benefit_minor)}
@@ -300,13 +308,13 @@ export function CommercialOverview() {
     ),
     field<RulePerformance>(
       "given",
-      "Given Away",
+      "Discount given",
       (rule) => money(rule.benefit_minor),
       { right: true, by: (rule) => rule.benefit_minor }
     ),
     field<RulePerformance>(
       "baskets",
-      "Baskets",
+      "Transactions",
       (rule) => count(rule.sale_count),
       { right: true, by: (rule) => rule.sale_count, priority: 2 }
     ),
@@ -316,7 +324,7 @@ export function CommercialOverview() {
   /// never merged into "late": a failure is a till that tried and could not;
   /// a closed window with shops waiting is work the calendar did not do.
   const unfinishedColumns = [
-    field<PriceChange>("change", "Unfinished", (change) => (
+    field<PriceChange>("change", "Price change", (change) => (
       <>
         <span className="block truncate text-ink">{change.name}</span>
         <span className="block truncate text-[0.9375rem] text-mute">
@@ -326,18 +334,18 @@ export function CommercialOverview() {
     )),
     field<PriceChange>(
       "why",
-      "Why",
+      "Problem",
       (change) =>
         change.rollout.failed > 0 ? (
           <Status tone="bad">Reported a failure</Status>
         ) : (
-          <Status tone="warn">Closed, stores waiting</Status>
+          <Status tone="warn">Ended, stores waiting</Status>
         ),
       { card: "status" }
     ),
     field<PriceChange>(
       "stores",
-      "Stores",
+      "Applied at",
       (change) => (
         <span className="tabular-nums">
           {count(change.rollout.activated)}/{count(change.rollout.target)}
@@ -361,12 +369,12 @@ export function CommercialOverview() {
         {!phone && (
           <>
             <Kpi
-              label="Changes need attention"
+              label="Changes with a problem"
               value={count(changes.isPending ? undefined : attention.length)}
               delta={
                 changes.isPending
                   ? undefined
-                  : `of ${count(outstanding.length)} outstanding`
+                  : `of ${count(outstanding.length)} in progress`
               }
               tone={attention.length > 0 ? "down" : "flat"}
             />
@@ -379,7 +387,7 @@ export function CommercialOverview() {
                 fleet.isPending
                   ? undefined
                   : silent.length > 0
-                    ? `${count(silent.length)} never reported`
+                    ? `${count(silent.length)} never updated`
                     : `of ${count(fleet.data?.shop_count ?? 0)}`
               }
               tone={behind.length + silent.length > 0 ? "down" : "flat"}
@@ -391,15 +399,15 @@ export function CommercialOverview() {
       {phone ? (
         <div className="mb-6">
           <SubHead
-            aside={`${day(scope.from)} – ${day(new Date(now).toISOString())}`}
+            aside={span(scope.from, new Date(now).toISOString())}
           >
-            Gave away most
+            Top discounts
           </SubHead>
           {queryState(rules, {
             loading: "Loading…",
             render: () =>
               stack.earning.length === 0 ? (
-                <EmptyState>Nothing given away.</EmptyState>
+                <EmptyState>No discount given.</EmptyState>
               ) : (
                 <ul className="mt-3 flex flex-col gap-2.5">
                   {stack.earning.slice(0, 3).map((rule) => (
@@ -425,7 +433,7 @@ export function CommercialOverview() {
                       lead={
                         <CardFigure
                           value={money(rule.benefit_minor)}
-                          caption={`${count(rule.sale_count)} ${rule.sale_count === 1 ? "basket" : "baskets"}`}
+                          caption={`${count(rule.sale_count)} ${rule.sale_count === 1 ? "transaction" : "transactions"}`}
                         />
                       }
                     />
@@ -437,15 +445,15 @@ export function CommercialOverview() {
       ) : (
         <Card className="mb-6 p-6">
           <SubHead
-            aside={`${day(scope.from)} – ${day(new Date(now).toISOString())}`}
+            aside={span(scope.from, new Date(now).toISOString())}
           >
-            What the offers gave away
+            Discount given per day
           </SubHead>
           {queryState(rules, {
             loading: "Loading…",
             render: () =>
               stack.rows.length === 0 ? (
-                <EmptyState>Nothing given away.</EmptyState>
+                <EmptyState>No discount given.</EmptyState>
               ) : (
                 <>
                   <BandLegend bands={stack.bands} />
@@ -454,8 +462,8 @@ export function CommercialOverview() {
                     bands={stack.bands}
                     format={money}
                     titleOf={(bucket) => day(bucket)}
-                    labelOf={(bucket) => bucket.slice(5).replace("-", "/")}
-                    totalLabel="All offers"
+                    labelOf={(bucket) => dayMonth(bucket)}
+                    totalLabel="All promotions"
                   />
                 </>
               ),
@@ -518,7 +526,7 @@ export function CommercialOverview() {
                 </AppLink>
               }
             >
-              Promotions doing the work
+              Top promotions
             </SubHead>
             {queryState(rules, {
               loading: "Loading…",
@@ -562,7 +570,7 @@ export function CommercialOverview() {
               </AppLink>
             }
           >
-            What the business still owes
+            Vouchers outstanding
           </SubHead>
           {queryState(vouchers, {
             loading: "Loading…",
@@ -575,7 +583,7 @@ export function CommercialOverview() {
                     {money(book.ledger.outstanding_minor)}
                   </div>
                   <div className="mb-5 text-[0.9375rem] text-mute">
-                    {count(book.ledger.outstanding_count)} live cards of{" "}
+                    {count(book.ledger.outstanding_count)} live of{" "}
                     {count(book.ledger.issued_count)} issued
                   </div>
                   <Share
@@ -583,7 +591,7 @@ export function CommercialOverview() {
                     parts={[
                       {
                         key: "outstanding",
-                        label: "Still owed",
+                        label: "Outstanding",
                         value: book.ledger.outstanding_minor,
                         colour: "var(--accent)",
                       },
@@ -609,7 +617,8 @@ export function CommercialOverview() {
                   {book.ledger.expired_count > 0 && (
                     <p className="mt-5 border-t border-hairline pt-4 text-[0.9375rem] text-bad-fg">
                       {money(book.ledger.expired_minor)} on{" "}
-                      {count(book.ledger.expired_count)} cards past their date.
+                      {count(book.ledger.expired_count)} expired{" "}
+                      {book.ledger.expired_count === 1 ? "voucher" : "vouchers"}.
                     </p>
                   )}
                 </>
@@ -623,15 +632,15 @@ export function CommercialOverview() {
           aside={
             <span className="flex gap-4">
               <AppLink to="/commercial/prices" className="text-accent">
-                Open Prices
+                Open Pricelist
               </AppLink>
               <AppLink to="/commercial/changes" className="text-accent">
-                Open Changes
+                Open Price changes
               </AppLink>
             </span>
           }
         >
-          Prices
+          Price updates
         </SubHead>
         <div className="grid items-start gap-5 min-[900px]:grid-cols-[1fr_1.2fr] [&>*]:min-w-0">
           {queryState(fleet, {
@@ -658,7 +667,7 @@ export function CommercialOverview() {
                     },
                     {
                       key: "silent",
-                      label: "Never reported",
+                      label: "Never updated",
                       value: silent.length,
                       colour: "var(--bad)",
                     },
@@ -693,8 +702,8 @@ export function CommercialOverview() {
                         )}
                         <span className="shrink-0 text-[0.9375rem] text-mute">
                           {shop.has_ever_activated
-                            ? `${count(shop.behind_by ?? 0)} price change${(shop.behind_by ?? 0) === 1 ? "" : "s"} behind · ${moment(shop.activated_at)}`
-                            : "never reported"}
+                            ? `${count(shop.behind_by ?? 0)} price change${(shop.behind_by ?? 0) === 1 ? "" : "s"} behind · last update ${moment(shop.activated_at)}`
+                            : "never updated"}
                         </span>
                       </li>
                     ))}
@@ -952,7 +961,7 @@ function CampaignCard({ row }: { row: BoardRow }) {
             </span>
           </span>
           <Status tone={row.running ? "ok" : "neutral"}>
-            {row.running ? "Running" : describeStatus(row.status)}
+            {row.running ? "Live" : describeStatus(row.status)}
           </Status>
         </div>
 
@@ -961,7 +970,7 @@ function CampaignCard({ row }: { row: BoardRow }) {
         ) : (
           <>
             <div className="grid grid-cols-3 gap-4 text-[0.9375rem]">
-              <Figure label="Given away" value={money(row.benefit_minor)} />
+              <Figure label="Discount given" value={money(row.benefit_minor)} />
               {/* Per campaign, this IS the server's own figure rather than a
                   sum of overlapping rows — so it can be drawn here and not in
                   the strip above. It is still influenced revenue: the whole
@@ -970,7 +979,7 @@ function CampaignCard({ row }: { row: BoardRow }) {
                 label="Promo sales"
                 value={money(row.basket_revenue_minor)}
               />
-              <Figure label="Baskets" value={count(row.sale_count)} />
+              <Figure label="Transactions" value={count(row.sale_count)} />
             </div>
             {spend !== null && (
               <div className="mt-4 flex items-center gap-3">
@@ -979,7 +988,8 @@ function CampaignCard({ row }: { row: BoardRow }) {
                   tone={spend > 0.9 ? "bad" : spend > 0.7 ? "warn" : "accent"}
                 />
                 <span className="shrink-0 text-[0.9375rem] text-mute tabular-nums">
-                  {Math.round(spend * 100)}% of {money(row.budget_minor)}
+                  Budget used {Math.round(spend * 100)}% of{" "}
+                  {money(row.budget_minor)}
                 </span>
               </div>
             )}
@@ -1031,7 +1041,7 @@ function More({ hidden, to }: { hidden: number; to: string }) {
 function describeStatus(status: string | null): string {
   switch (status) {
     case "ACTIVE":
-      return "Not in window"
+      return "Outside dates"
     case "SCHEDULED":
       return "Scheduled"
     case "PAUSED":

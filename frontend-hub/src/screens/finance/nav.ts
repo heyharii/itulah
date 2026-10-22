@@ -84,12 +84,12 @@ import { useUnagreedLineCount } from "@/screens/finance-lab-2/hooks"
 /// | Door | Tabs |
 /// |---|---|
 /// | Overview | — |
-/// | Stores | Days · Cash · Counts |
-/// | Payables | Bills · Due · Suppliers · Loans |
-/// | Cash & Bank | BKK · BKM · Giro · Bank |
-/// | Journal | Entries · Repeating |
-/// | Assets | Register · Projects |
-/// | Month End | Checklist · Accruals · Inventory · Tax |
+/// | Stores | Sales · Settlement · Deposits · Cash · Cash counts |
+/// | Payables | Bills · Due dates · Suppliers · Credit notes · Loans |
+/// | Cash & Bank | BKK · BKM · Giro · Bank · Advances |
+/// | Journal | Entries · Templates |
+/// | Assets | Register · Projects · Disposals |
+/// | Month End | Checklist · Periods · Accruals · Inventory · Tax |
 /// | Reports | Profit and Loss · Balance Sheet · Cash Flow · Ledger · Sales by Division |
 /// | Setup | one page of every master (`setup-index.tsx`) |
 ///
@@ -131,22 +131,27 @@ export const financeSetupGroups: readonly {
       "/finance/accounting/chart-of-accounts",
       "/finance/settings/accounts",
       "/finance/setup/dimensions",
+    ],
+  },
+  {
+    label: "Posting",
+    paths: [
+      "/finance/setup/account-links",
+      "/finance/setup/posting-readiness",
       "/finance/settings/posting-policies",
       "/finance/settings/permissions",
     ],
   },
   {
-    label: "Account links",
+    label: "Categories",
     paths: [
-      "/finance/setup/account-links",
-      "/finance/setup/posting-readiness",
       "/finance/setup/pay-components",
       "/finance/setup/expense-categories",
       "/finance/setup/line-categories",
     ],
   },
   {
-    label: "Money",
+    label: "Payments",
     paths: [
       "/finance/setup/payment-methods",
       "/finance/setup/shop-payment-methods",
@@ -189,25 +194,28 @@ export const financeNav: AppModule = {
           label: "Overview",
           icon: ChartColumn,
         },
+      ],
+    },
+    {
+      label: "Daily work",
+      chip: true,
+      items: [
         door({
           label: "Stores",
           icon: Store,
           tabs: [
             {
-              label: "Days",
+              label: "Sales",
               views: [
                 { label: "Sales by day", path: "/finance/stores/sales" },
                 {
-                  label: "Till, drawer and bank",
-                  path: "/finance/receivables/card-settlement",
-                },
-                {
-                  label: "Postings",
+                  label: "Sales postings",
                   path: "/finance/receivables/sales-postings",
                 },
-                { label: "Deposits", path: "/finance/cash-bank/deposits" },
               ],
             },
+            one("Settlement", "/finance/receivables/card-settlement"),
+            one("Deposits", "/finance/cash-bank/deposits"),
             {
               label: "Cash",
               views: [
@@ -229,7 +237,7 @@ export const financeNav: AppModule = {
               ],
             },
             {
-              label: "Counts",
+              label: "Cash counts",
               views: [
                 { label: "Counts", path: "/finance/stores/cash-counts" },
                 { label: "Last counted", path: "/finance/reports/cash-bank" },
@@ -249,19 +257,18 @@ export const financeNav: AppModule = {
               views: [
                 { label: "Bills", path: "/finance/payables/bills" },
                 {
-                  label: "Credit notes",
-                  path: "/finance/payables/credit-notes",
-                },
-                {
-                  label: "Repeating",
+                  label: "Recurring bills",
                   path: "/finance/payables/recurring-bills",
                 },
               ],
             },
             {
-              label: "Due",
+              label: "Due dates",
               views: [
-                { label: "By due date", path: "/finance/payables/projection" },
+                {
+                  label: "Payment calendar",
+                  path: "/finance/payables/projection",
+                },
                 { label: "Aging", path: "/finance/payables/aging" },
               ],
             },
@@ -275,6 +282,7 @@ export const financeNav: AppModule = {
                 { label: "Ledger", path: "/finance/payables/supplier-ledger" },
               ],
             },
+            one("Credit notes", "/finance/payables/credit-notes"),
             one("Loans", "/finance/financing/loans"),
           ],
         }),
@@ -286,13 +294,7 @@ export const financeNav: AppModule = {
           useCount: useUnagreedLineCount,
           moved: ["/finance/cash-bank/cash-documents"],
           tabs: [
-            {
-              label: "BKK",
-              views: [
-                { label: "BKK", path: "/finance/cash-bank/bkk" },
-                { label: "Advances", path: "/finance/receivables/employee" },
-              ],
-            },
+            one("BKK", "/finance/cash-bank/bkk"),
             one("BKM", "/finance/cash-bank/bkm"),
             one("Giro", "/finance/cash-bank/giro"),
             {
@@ -311,11 +313,21 @@ export const financeNav: AppModule = {
                   label: "Month summary",
                   path: "/finance/reports/bank-reconciliation-summary",
                 },
-                { label: "Rules", path: "/finance/cash-bank/bank-rules" },
+                {
+                  label: "Matching rules",
+                  path: "/finance/cash-bank/bank-rules",
+                },
               ],
             },
+            one("Advances", "/finance/receivables/employee"),
           ],
         }),
+      ],
+    },
+    {
+      label: "Accounting",
+      chip: true,
+      items: [
         door({
           label: "Journal",
           icon: BookOpenCheck,
@@ -331,7 +343,7 @@ export const financeNav: AppModule = {
           ],
           tabs: [
             one("Entries", "/finance/accounting/journal-entries"),
-            one("Repeating", "/finance/setup/journal-templates"),
+            one("Templates", "/finance/setup/journal-templates"),
           ],
         }),
         door({
@@ -355,13 +367,10 @@ export const financeNav: AppModule = {
                   label: "By category",
                   path: "/finance/reports/asset-register",
                 },
-                {
-                  label: "Disposals",
-                  path: "/finance/reports/asset-disposals",
-                },
               ],
             },
             one("Projects", "/finance/assets/contractor-projects"),
+            one("Disposals", "/finance/reports/asset-disposals"),
           ],
         }),
         door({
@@ -377,19 +386,28 @@ export const financeNav: AppModule = {
               label: "Checklist",
               views: [
                 { label: "Checklist", path: "/finance/period-close" },
-                { label: "Periods", path: "/finance/setup/periods" },
                 {
                   label: "Closing voucher",
                   path: "/finance/closing/period-closing-voucher",
                 },
               ],
             },
+            one("Periods", "/finance/setup/periods"),
             {
               label: "Accruals",
               views: [
-                { label: "Accruals", path: "/finance/payables/accruals" },
-                { label: "Prepaids", path: "/finance/accounting/prepaids" },
-                { label: "Balances", path: "/finance/accounting/accruals" },
+                {
+                  label: "Unbilled expenses",
+                  path: "/finance/payables/accruals",
+                },
+                {
+                  label: "Prepaid expenses",
+                  path: "/finance/accounting/prepaids",
+                },
+                {
+                  label: "Accrual balances",
+                  path: "/finance/accounting/accruals",
+                },
               ],
             },
             {
@@ -429,7 +447,7 @@ export const financeNav: AppModule = {
           moved: ["/finance/reports", "/finance/reports/site-pl"],
           tabs: [
             {
-              label: "Profit and Loss",
+              label: "Profit and loss",
               views: [
                 {
                   label: "Standard",
@@ -450,7 +468,7 @@ export const financeNav: AppModule = {
               ],
             },
             {
-              label: "Balance Sheet",
+              label: "Balance sheet",
               views: [
                 { label: "Standard", path: "/finance/reports/balance-sheet" },
                 {
@@ -463,7 +481,7 @@ export const financeNav: AppModule = {
                 },
               ],
             },
-            one("Cash Flow", "/finance/reports/cash-flow"),
+            one("Cash flow", "/finance/reports/cash-flow"),
             // One book read two ways (owner, 2026-10-16: at most five tabs a
             // door).
             {
@@ -479,9 +497,15 @@ export const financeNav: AppModule = {
                 },
               ],
             },
-            one("Sales by Division", "/finance/reports/sales-by-division"),
+            one("Sales by division", "/finance/reports/sales-by-division"),
           ],
         }),
+      ],
+    },
+    {
+      label: "Configuration",
+      chip: true,
+      items: [
         {
           path: "/finance/accounts-setup",
           label: "Setup",
@@ -492,7 +516,10 @@ export const financeNav: AppModule = {
           useCount: useUnmappedMeaningCount,
           alsoLights: financeSetupGroups.flatMap((group) => group.paths),
         },
-
+      ],
+    },
+    {
+      items: [
         // ── the screens behind the doors, under the names they had ──
         // Stores
         {

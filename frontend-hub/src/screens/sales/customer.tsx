@@ -9,7 +9,7 @@ import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
-import { DeskFilterButton, DeskFilterChips } from "@/components/ui/desk-filter"
+import { DeskFilterButton } from "@/components/ui/desk-filter"
 import { Input } from "@/components/ui/field"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
@@ -18,7 +18,7 @@ import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { useFilterState, type Filter, type FilterField } from "@/lib/filters"
-import { count, money, moment } from "@/lib/format"
+import { count, money, moment, sku } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import {
   customerSummary,
@@ -386,7 +386,6 @@ export function Member() {
             </Button>
             {customerId !== "" && <DeskFilterButton model={filters} />}
           </div>
-          {customerId !== "" && <DeskFilterChips model={filters} />}
         </>
       )}
 
@@ -594,7 +593,7 @@ function MemberReceiptSheet({
                     >
                       <td className="py-2 pr-2">
                         <span className="font-mono text-[0.9375rem] text-ink">
-                          {line.sku_code}
+                          {sku(line.sku_code)}
                         </span>
                       </td>
                       <td className="py-2 text-right tabular-nums">

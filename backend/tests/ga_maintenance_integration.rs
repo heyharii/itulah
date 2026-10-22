@@ -92,6 +92,7 @@ async fn a_task(
             interval_kind: interval_kind.into(),
             interval_value,
             next_due,
+            next_due_km: None,
             contract_id: None,
             supplier_id: None,
             notes: None,
@@ -858,7 +859,18 @@ async fn the_overview_lists_what_is_due_and_open(pool: PgPool) {
 
     let open = a_repair(&pool, Some(asset), Some("AC")).await;
     let closed = a_repair(&pool, Some(asset), Some("AC")).await;
-    for to in ["APPROVED", "IN_PROGRESS", "COMPLETED", "CLOSED"] {
+    // Approval goes through the budget, never a plain move (17 Oct 2026).
+    cloud::ga_repair_approve_budget(
+        &pool,
+        closed.repair_id,
+        &cloud::ApproveGaRepairRequest {
+            approved_budget_minor: 1_000_000,
+        },
+        CHECKER,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("approve: {error}"));
+    for to in ["IN_PROGRESS", "COMPLETED", "CLOSED"] {
         cloud::ga_repair_move(
             &pool,
             closed.repair_id,

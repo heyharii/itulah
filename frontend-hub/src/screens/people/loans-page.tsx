@@ -156,7 +156,9 @@ export function Loans() {
   )
 }
 
-function LoanSheet({
+/// One loan in a sheet, found in the list by its id. Shared with Loans ›
+/// Repayments, so a repayment opens the very record the loan's row opens.
+export function LoanSheet({
   openId,
   onClose,
 }: {

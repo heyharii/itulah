@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { useEffect, useState } from "react"
 
-import { count, label, moment } from "@/lib/format"
+import { count, label, moment, sku } from "@/lib/format"
 import { offersQuery } from "@/lib/queries"
 import type {
   Applicability,
@@ -217,7 +217,7 @@ export function describeEffect(effect: Effect): string {
           ? ""
           : ` for every ${count(effect.every_matched_quantity)}`
       const which =
-        effect.sku_code === null ? "free" : `free (${effect.sku_code})`
+        effect.sku_code === null ? "free" : `free (${sku(effect.sku_code)})`
       return `${count(effect.quantity)} ${which}${each}`
     }
     case "EARN_POINTS":
@@ -264,7 +264,7 @@ export function benefitOf(effect: Effect): {
     case "FREE_ITEM":
       return {
         figure: "Free",
-        caption: `${count(effect.quantity)} ${effect.sku_code ?? "item"}${
+        caption: `${count(effect.quantity)} ${effect.sku_code === null ? "item" : sku(effect.sku_code)}${
           effect.every_matched_quantity === null
             ? ""
             : ` for every ${count(effect.every_matched_quantity)}`
@@ -316,7 +316,7 @@ export function describeScope(scope: Applicability | null): string {
   switch (scope.on) {
     case "SKU":
       return scope.sku_codes.length === 1
-        ? `Article ${scope.sku_codes[0]}`
+        ? `Article ${sku(scope.sku_codes[0])}`
         : `${count(scope.sku_codes.length)} articles`
     case "ARTICLE":
       return scope.article_codes.length === 1
@@ -339,7 +339,7 @@ export function scopeCodes(scope: Applicability | null): readonly string[] {
   if (scope === null) return []
   switch (scope.on) {
     case "SKU":
-      return scope.sku_codes
+      return scope.sku_codes.map(sku)
     case "ARTICLE":
       return scope.article_codes
     case "DIVISION":

@@ -1,16 +1,23 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
 import type { ColumnDef } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { useLayout } from "@/lib/layout"
+import { AppLink } from "@/components/ui/app-link"
 import { Fab } from "@/components/ui/fab"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Day } from "@/components/ui/day"
 import { Field, Input, Select } from "@/components/ui/field"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill, Status } from "@/components/ui/pill"
 import {
@@ -21,17 +28,18 @@ import {
   SubHead,
 } from "@/components/ui/rows"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
-import { Toolbar } from "@/components/ui/segmented"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Timeline } from "@/components/ui/timeline"
-import { day, money, moment, monthYear } from "@/lib/format"
+import { count, day, money, moment, monthYear } from "@/lib/format"
 import { PickOne } from "@/components/ui/pick"
 import {
+  attendancePeriods,
   handOverRun,
   handoverLabel,
   listRuns,
   openRun,
   payKeys,
+  payrollReadiness,
   readHandover,
   rebuildRun,
   setRunThr,
@@ -40,6 +48,7 @@ import {
   runWithholdings,
   runReconciliation,
   runSlips,
+  rosterKeys,
   runStateLabel,
   stepRun,
   useReachableUnits,
@@ -48,9 +57,19 @@ import { queryState } from "@/lib/query-state"
 import { useCanWrite } from "@/lib/session"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
-import type { PayrollRunView, RunReconciliation } from "@itulah/contract"
+import type {
+  PayReadinessRow,
+  PayrollRunView,
+  RunReconciliation,
+} from "@itulah/contract"
 
-import { CardMonth, CardName } from "@/components/ui/phone-cards"
+import { CardMonth, CardName, PhoneCards } from "@/components/ui/phone-cards"
+import {
+  HrScope,
+  useHrMonth,
+  useUnit,
+  useUnitFilter,
+} from "@/screens/people/parts"
 import { SlipBreakdown } from "@/screens/people/slip-view"
 
 /// Payroll runs. The place asks for its own; head office answers.
@@ -115,6 +134,7 @@ function unitName(
 type Units = readonly { readonly id: string; readonly name: string }[]
 
 const NO_RUNS: PayrollRunView[] = []
+const NO_MISSING: PayReadinessRow[] = []
 
 function columnsFor(units: Units): ColumnDef<TableSetup, PayrollRunView>[] {
   return [
@@ -238,7 +258,10 @@ export function PayrollRuns() {
   const canWrite = useCanWrite()
   const phone = useLayout() === "phone"
   const [opening, setOpening] = useState(false)
-  const [unitFilter, setUnitFilter] = useState("")
+  // The unit and the month are HR's own, kept as you move between its pages.
+  const place = useUnitFilter()
+  const own = useUnit()
+  const [month, setMonth] = useHrMonth()
   const [stateFilter, setStateFilter] = useState("")
   const reachable = useReachableUnits()
   const units = useMemo(() => reachable.data ?? [], [reachable.data])
@@ -252,10 +275,24 @@ export function PayrollRuns() {
     () =>
       rows.filter(
         (row) =>
-          (unitFilter === "" || row.unit_id === unitFilter) &&
+          row.period === month &&
+          (place.unitId === null || row.unit_id === place.unitId) &&
           (stateFilter === "" || row.state === stateFilter)
       ),
-    [rows, unitFilter, stateFilter]
+    [rows, month, place.unitId, stateFilter]
+  )
+  /// The units this month's payroll is for: the one chosen, every unit head
+  /// office reaches, or a manager's own.
+  const scope = useMemo(
+    () =>
+      place.unitId !== null
+        ? [place.unitId]
+        : place.units.length > 0
+          ? place.units.map((one) => one.id)
+          : own.unitId !== null
+            ? [own.unitId]
+            : [],
+    [place.unitId, place.units, own.unitId]
   )
   const columns = useMemo(() => columnsFor(units), [units])
   const table = useTable(
@@ -265,8 +302,16 @@ export function PayrollRuns() {
         data: shown,
         columns,
         getRowId: (row: PayrollRunView) => row.id,
-        // The card's own columns are drawn on a phone and never on a desk.
-        state: { columnVisibility: { head: phone, lead: phone, foot: phone } },
+        // The card's own columns are drawn on a phone and never on a desk,
+        // and the month is the bar's: every row is of it.
+        state: {
+          columnVisibility: {
+            period: false,
+            head: phone,
+            lead: phone,
+            foot: phone,
+          },
+        },
       }),
       [shown, columns, phone]
     )
@@ -287,19 +332,7 @@ export function PayrollRuns() {
       />
       {canWrite && <Fab label="Open run" onClick={() => setOpening(true)} />}
 
-      <Toolbar>
-        <Select
-          value={unitFilter}
-          onChange={setUnitFilter}
-          className="h-8 w-52"
-        >
-          <option value="">Every unit</option>
-          {units.map((one) => (
-            <option key={one.id} value={one.id}>
-              {one.name}
-            </option>
-          ))}
-        </Select>
+      <HrScope unit={place} month={[month, setMonth]}>
         <Select
           value={stateFilter}
           onChange={setStateFilter}
@@ -312,7 +345,9 @@ export function PayrollRuns() {
             </option>
           ))}
         </Select>
-      </Toolbar>
+      </HrScope>
+
+      <ReadyToRun month={month} unitIds={scope} runs={rows} units={units} />
 
       <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(runs, {
@@ -321,7 +356,11 @@ export function PayrollRuns() {
             rows.length === 0 ? (
               <EmptyState>No run has been opened yet.</EmptyState>
             ) : shown.length === 0 ? (
-              <EmptyState>No run matches these filters.</EmptyState>
+              <EmptyState>
+                {stateFilter === ""
+                  ? `No run for ${monthYear(month)}.`
+                  : "No run matches these filters."}
+              </EmptyState>
             ) : (
               <DataTable<PayrollRunView>
                 refresh={[runs]}
@@ -343,6 +382,200 @@ export function PayrollRuns() {
         onClose={run.close}
       />
     </PageContent>
+  )
+}
+
+/// Whether the month is ready to be paid, and how far its pay has gone.
+///
+/// A run is worked out from the attendance month, so the month's own close
+/// readiness is what "the data is complete" means: leave nobody decided,
+/// overtime nobody answered and corrections still open are each a figure on
+/// somebody's payslip that is not settled yet. Closed months have nothing
+/// left to resolve. Then the run itself, and the hand-over to Finance — an
+/// approved run is not paid until Finance holds it.
+function ReadyToRun({
+  month,
+  unitIds,
+  runs,
+  units,
+}: {
+  month: string
+  unitIds: readonly string[]
+  runs: readonly PayrollRunView[]
+  units: Units
+}) {
+  const [listing, setListing] = useState(false)
+  // One unit asks for that unit; several are asked for as the caller reaches
+  // them, which is what the strip covers.
+  const readinessUnit = unitIds.length === 1 ? (unitIds[0] ?? null) : null
+  const readiness = useQuery({
+    queryKey: payKeys.readiness(month, readinessUnit),
+    queryFn: ({ signal }) => payrollReadiness(month, readinessUnit, signal),
+    enabled: unitIds.length > 0,
+  })
+  const missing = readiness.data?.missing ?? NO_MISSING
+  const periods = useQueries({
+    queries: unitIds.map((unitId) => ({
+      queryKey: rosterKeys.periods(unitId),
+      queryFn: ({ signal }: { signal: AbortSignal }) =>
+        attendancePeriods(unitId, signal),
+    })),
+  })
+  const answered = periods.every((one) => one.data !== undefined)
+  const months = periods.map((one) =>
+    (one.data ?? []).find((period) => period.period === month)
+  )
+  const closed = months.filter((one) => one?.status === "CLOSED").length
+  const toResolve = months.reduce(
+    (sum, one) =>
+      one === undefined || one.status === "CLOSED" || one.readiness === null
+        ? sum
+        : sum +
+          one.readiness.unresolved_leave +
+          one.readiness.unanswered_overtime +
+          (one.readiness.open_corrections ?? 0),
+    0
+  )
+  const ofMonth = runs.filter(
+    (run) => run.period === month && unitIds.includes(run.unit_id)
+  )
+  const approved = ofMonth.filter((run) => run.state === "APPROVED")
+  const withFinance = approved.filter((run) => run.handover !== null).length
+  if (unitIds.length === 0) return null
+  const ofUnits = (n: number) =>
+    unitIds.length === 1
+      ? n === 1
+        ? "Yes"
+        : "No"
+      : `${count(n)} of ${count(unitIds.length)}`
+
+  return (
+    <>
+      <KpiStrip>
+        <Kpi
+          label="Attendance closed"
+          value={answered ? ofUnits(closed) : "—"}
+        />
+        <Kpi
+          label="To resolve"
+          value={
+            !answered ? (
+              "—"
+            ) : toResolve > 0 ? (
+              <span className="text-bad-fg">{count(toResolve)}</span>
+            ) : (
+              count(0)
+            )
+          }
+        />
+        <Kpi
+          label="Pay details missing"
+          value={
+            readiness.data === undefined ? (
+              "—"
+            ) : missing.length > 0 ? (
+              <span className="text-bad-fg">{count(missing.length)}</span>
+            ) : (
+              count(0)
+            )
+          }
+          onClick={missing.length > 0 ? () => setListing(true) : undefined}
+        />
+        <Kpi label="Runs approved" value={ofUnits(approved.length)} />
+        <Kpi
+          label="Handed to Finance"
+          value={
+            approved.length === 0
+              ? "—"
+              : `${count(withFinance)} of ${count(approved.length)}`
+          }
+        />
+      </KpiStrip>
+      {listing && (
+        <MissingSheet
+          rows={missing}
+          units={units}
+          onClose={() => setListing(false)}
+        />
+      )}
+    </>
+  )
+}
+
+/// What payroll can be missing for a person, in words.
+const MISSING_LABEL: Readonly<Record<string, string>> = {
+  PAY_AGREEMENT: "Pay agreement",
+  BANK_ACCOUNT: "Bank account",
+  PTKP: "PTKP",
+  BPJS_KESEHATAN: "BPJS Kesehatan",
+  BPJS_KETENAGAKERJAAN: "BPJS Ketenagakerjaan",
+}
+
+function missingWords(row: PayReadinessRow): string {
+  return row.missing.map((one) => MISSING_LABEL[one] ?? one).join(", ")
+}
+
+/// The people a month's runs would pay and cannot yet, each with what is
+/// missing; the name opens their sheet, where it is entered.
+function MissingSheet({
+  rows,
+  units,
+  onClose,
+}: {
+  rows: readonly PayReadinessRow[]
+  units: Units
+  onClose: () => void
+}) {
+  const phone = useLayout() === "phone"
+  const who = (row: PayReadinessRow) => (
+    <AppLink
+      to="/people"
+      sheet={{ key: "employee", value: row.employee_id }}
+      className="text-ink hover:underline"
+    >
+      {row.full_name ?? row.employee_code}
+    </AppLink>
+  )
+
+  return (
+    <Sheet
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose()
+      }}
+      title="Pay details missing"
+    >
+      {phone ? (
+        <PhoneCards
+          rows={rows}
+          rowId={(row) => `${row.unit_id}:${row.employee_id}`}
+          spec={{
+            title: (row) => (
+              <CardName
+                name={who(row)}
+                line={[unitName(units, row.unit_id), missingWords(row)]}
+              />
+            ),
+          }}
+        />
+      ) : (
+        <MiniTable
+          head={[
+            "Employee",
+            { label: "Unit", align: "left" },
+            { label: "Missing", align: "left" },
+          ]}
+        >
+          {rows.map((row) => (
+            <MiniRow key={`${row.unit_id}:${row.employee_id}`}>
+              <MiniCell>{who(row)}</MiniCell>
+              <MiniCell>{unitName(units, row.unit_id)}</MiniCell>
+              <MiniCell>{missingWords(row)}</MiniCell>
+            </MiniRow>
+          ))}
+        </MiniTable>
+      )}
+    </Sheet>
   )
 }
 

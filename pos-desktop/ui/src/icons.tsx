@@ -32,13 +32,24 @@ const PATHS = {
   clock: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18ZM12 7v5l3 2",
   finger: "M12 11v4a6 6 0 0 1-1 3.5M8 7.5A5 5 0 0 1 17 11v2M7 11a5 5 0 0 1 .3-1.7M16.6 16A10 10 0 0 1 15 20M4.5 8a9 9 0 0 1 15.3.5M20 13v-1M8 14.5V11a4 4 0 0 1 4-4",
   plug: "M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0zM12 18v4",
+  down: "m6 9 6 6 6-6",
+  plus: "M12 5v14M5 12h14",
+  minus: "M5 12h14",
+  del: "M21 5H9l-6 7 6 7h12a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1ZM17 9l-4 6M13 9l4 6",
+  "bag-paper": "M5.5 8.5h13l-1.1 12.5H6.6zM9 8.5V7a3 3 0 0 1 6 0v1.5",
+  "bag-plastic": "M5 4h3.2v2.6a3.8 3.8 0 0 0 7.6 0V4H19v15.2a1.8 1.8 0 0 1-1.8 1.8H6.8A1.8 1.8 0 0 1 5 19.2z",
 } as const
 
 export type IconName = keyof typeof PATHS
 
-export function Icon({ name }: { name: IconName }) {
+export function Icon({ name, size }: { name: IconName; size?: number }) {
   return (
-    <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">
+    <svg
+      className="icon"
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      style={size === undefined ? undefined : { width: size, height: size }}
+    >
       <path d={PATHS[name]} />
     </svg>
   )

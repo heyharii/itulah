@@ -5,7 +5,7 @@ import { DockSelection } from "@/components/shell/dock-selection"
 import { DockTools, type DockStatus } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/ui/states"
-import { ago, count, quantity } from "@/lib/format"
+import { ago, count, quantity, sku as skuNumber } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import {
   asPicks,
@@ -427,8 +427,10 @@ function ArticleChoice({
         <span className="text-[0.9375rem] font-medium break-words text-ink">
           {article.name}
         </span>
+        {/* Three lines (owner, 21 Oct 2026): the name, the article number
+            with its colours and sizes, its SKU numbers. */}
         <span className="flex flex-wrap items-center gap-x-2.5 text-[0.9375rem] text-mute">
-          <span className="font-mono">{article.code}</span>
+          <span className="font-mono text-body">{article.code}</span>
           {(article.colours.length > 0 || sizes !== "") && (
             <span
               className="min-w-0"
@@ -447,6 +449,14 @@ function ArticleChoice({
             </span>
           )}
         </span>
+        {article.skuCodes.length > 0 && (
+          <span
+            className="truncate font-mono text-[0.9375rem] text-mute"
+            title={article.skuCodes.map(skuNumber).join(", ")}
+          >
+            {article.skuCodes.map(skuNumber).join(", ")}
+          </span>
+        )}
       </span>
       <span className="flex flex-col items-end gap-0.5 tabular-nums">
         <span className="text-[0.9375rem] font-semibold whitespace-nowrap text-ink">

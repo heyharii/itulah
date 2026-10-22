@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { ExportButton } from "@/components/ui/export-button"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
+import { CellMoney } from "@/components/ui/rows-switch"
 import { EmptyState, LoadMore } from "@/components/ui/states"
 import { fileSafe, monthStamp, type ExportSheet } from "@/lib/export-xlsx"
 import { count, day, label, money } from "@/lib/format"
@@ -372,7 +373,7 @@ function GeneralLedgerScreen() {
                     balance above is still what it held.
                   </EmptyState>
                 ) : (
-                  <Grid>
+                  <Grid followRows giveUp={[4, 3, 5]}>
                     <thead>
                       <tr>
                         <Th width="6.5rem">Date</Th>
@@ -420,7 +421,7 @@ function GeneralLedgerScreen() {
                         <Td />
                         <Td />
                         <Td align="right" className="font-medium text-ink">
-                          {money(data.opening_minor)}
+                          <CellMoney minor={data.opening_minor} />
                         </Td>
                       </tr>
 
@@ -542,6 +543,7 @@ function GeneralLedgerScreen() {
                             <DebitCredit
                               debit={row.debit_minor}
                               credit={row.credit_minor}
+                              followRows
                             />
                             <Td
                               align="right"
@@ -551,11 +553,11 @@ function GeneralLedgerScreen() {
                                   : "font-medium text-ink"
                               }
                             >
-                              {money(row.running_minor)}
+                              <CellMoney minor={row.running_minor} />
                             </Td>
                           </tr>,
                           isOpen && voucher !== undefined ? (
-                            <tr key={`${row.line_id}-voucher`}>
+                            <tr key={`${row.line_id}-voucher`} data-sub>
                               <Td />
                               <td
                                 colSpan={9}

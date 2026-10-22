@@ -1,0 +1,71 @@
+<!-- @dsCard group="Inputs" height=734 subtitle="Static rendition of form.tsx and rows.tsx sections in the All white look" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>FormSection — preview</title>
+<style>
+body{margin:0}
+/* FormSection: a title at 15/600 with no glyph and no rule, 12px over its fields, 24px between sections; the fields 2 across on a rail sheet and 4 across on a wide one, 24px apart. */
+.ds-formsection-quad{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--section-gap)}
+.ds-formsection-duo{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--section-gap)}
+.ds-formsection-sel .ds-ico{right:14px;margin-top:-7px}
+.ds-formsection-sel .ds-input{overflow:hidden;white-space:nowrap}
+.ds-formsection-day .ds-input{padding-right:32px}
+.ds-formsection-day .ds-ico{right:10px}
+.ds-formsection-money{position:relative;display:flex;align-items:center}
+.ds-formsection-money > span{position:absolute;left:14px;color:var(--mute);pointer-events:none}
+.ds-formsection-money .ds-input{padding-left:36px;font-variant-numeric:tabular-nums}
+.ds-formsection-area{min-height:98px;padding:12px 14px;line-height:24px}
+.ds-formsection-quad .ds-field-label,.ds-formsection-duo .ds-field-label{white-space:nowrap}
+</style></head>
+<body>
+<div class="ds ds-stage">
+
+  <div class="ds-col">
+    <p class="ds-caption">On a rail sheet (480px): two across</p>
+    <div class="ds-sheet ds-sheet--rail">
+      <div class="ds-sheet-body">
+        <section class="ds-section">
+          <h4 class="ds-section-title">Company</h4>
+          <div class="ds-formsection-duo">
+            <label class="ds-field"><span class="ds-field-label">Name<span class="ds-req" aria-hidden="true">*</span></span><input class="ds-input" type="text" value="Garmen Nusantara, PT"></label>
+            <label class="ds-field"><span class="ds-field-label">Phone</span><input class="ds-input" type="tel" value="0812 3456 7890"></label>
+          </div>
+        </section>
+        <section class="ds-section">
+          <h4 class="ds-section-title">Payment</h4>
+          <div class="ds-formsection-duo">
+            <label class="ds-field"><span class="ds-field-label">Payment terms</span><span class="ds-select ds-formsection-sel"><button class="ds-input" type="button">30 days</button><span class="ds-ico ds-ico-chevron-down ds-ico--14"></span></span></label>
+            <label class="ds-field"><span class="ds-field-label">Credit limit</span><span class="ds-formsection-money"><span>Rp</span><input class="ds-input" type="text" inputmode="numeric" value="50.000.000"></span></label>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <div class="ds-col">
+    <p class="ds-caption">On a wide sheet (1040px at 1440): four across</p>
+    <div class="ds-sheet">
+      <div class="ds-sheet-body">
+        <section class="ds-section">
+          <h4 class="ds-section-title">Order details</h4>
+          <div class="ds-formsection-quad">
+            <label class="ds-field"><span class="ds-field-label">Supplier<span class="ds-req" aria-hidden="true">*</span></span><span class="ds-select ds-formsection-sel"><button class="ds-input" type="button"></button><span class="ds-ico ds-ico-chevron-down ds-ico--14"></span></span></label>
+            <label class="ds-field"><span class="ds-field-label">Delivery date<span class="ds-req" aria-hidden="true">*</span></span><span class="ds-select ds-formsection-sel ds-formsection-day"><button class="ds-input" type="button">29 Oct 2026</button><span class="ds-ico ds-ico-calendar ds-ico--14"></span></span></label>
+            <label class="ds-field"><span class="ds-field-label">Payment terms</span><span class="ds-select ds-formsection-sel"><button class="ds-input" type="button">30 days</button><span class="ds-ico ds-ico-chevron-down ds-ico--14"></span></span></label>
+            <label class="ds-field"><span class="ds-field-label">Payment method<span class="ds-req" aria-hidden="true">*</span></span><span class="ds-select ds-formsection-sel"><button class="ds-input" type="button">Transfer</button><span class="ds-ico ds-ico-chevron-down ds-ico--14"></span></span></label>
+          </div>
+        </section>
+        <section class="ds-section">
+          <h4 class="ds-section-title">Additional information</h4>
+          <div class="ds-formsection-duo">
+            <label class="ds-field"><span class="ds-field-label">Notes</span><textarea class="ds-input ds-input--area ds-formsection-area" rows="3"></textarea></label>
+            <label class="ds-field"><span class="ds-field-label">Terms and conditions</span><textarea class="ds-input ds-input--area ds-formsection-area" rows="3"></textarea></label>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

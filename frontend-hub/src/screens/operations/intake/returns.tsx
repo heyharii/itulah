@@ -2,12 +2,14 @@ import { useShopName } from "@/components/operations/outbound-papers"
 import { useQuery } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
+import { Search } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/field"
 import {
   IntakeHeader,
   useIntakeSearch,
@@ -43,36 +45,25 @@ import type { StoreInboundDelivery } from "@itulah/contract"
 /// missing, extra — exists only after it is received, on the same record.
 type StatusFilter = ReturnsStatus
 
-/// Columns after the prototype: No. · Return · Store · Sent on · Koli · Count.
-/// A delivery on the way carries the verb; one already counted carries what
-/// the count found. The manifest's items are not shown while it is blind, so
-/// Koli stands where the prototype's Items does.
+/// Columns as Receiving PO draws its orders: the store over its return's
+/// reference, when it left, its koli (the one number a blind delivery has),
+/// and the count — the verb while it is on the way, what the count found once
+/// it is counted.
 const columns: ColumnDef<TableSetup, StoreInboundDelivery>[] = [
   {
-    id: "no",
-    header: "No.",
-    size: 70,
-    enableSorting: false,
-    meta: { align: "right", priority: 2, card: "hide" },
-    cell: ({ row }) => <span className="text-mute">{row.index + 1}</span>,
-  },
-  {
-    accessorKey: "shipment_reference",
+    id: "return",
+    accessorFn: (row) => row.shipment_reference ?? "",
     header: "Return",
-    size: 200,
-    meta: { card: "hide" },
+    size: 320,
+    meta: { card: "hide", grow: 320 },
     cell: ({ row }) => (
-      <span className="font-mono text-id text-ink">
-        {row.original.shipment_reference ?? "—"}
+      <span className="flex min-w-0 flex-col gap-0.5 py-1 leading-5">
+        <StoreName id={row.original.source_site_id} />
+        <span className="font-mono text-id text-mute">
+          {row.original.shipment_reference ?? "—"}
+        </span>
       </span>
     ),
-  },
-  {
-    accessorKey: "source_site_id",
-    header: "Store",
-    size: 240,
-    meta: { card: "hide", grow: 240 },
-    cell: ({ row }) => <StoreName id={row.original.source_site_id} />,
   },
   {
     accessorKey: "departed_at",
@@ -83,7 +74,7 @@ const columns: ColumnDef<TableSetup, StoreInboundDelivery>[] = [
   },
   {
     accessorKey: "koli_count",
-    header: "Cartons",
+    header: "Koli",
     size: 100,
     meta: { align: "right", card: "hide" },
     cell: ({ row }) => count(row.original.koli_count),
@@ -121,7 +112,7 @@ const columns: ColumnDef<TableSetup, StoreInboundDelivery>[] = [
         <span className="text-[1.5rem] leading-tight font-semibold tracking-tight text-ink">
           {count(row.original.koli_count)}
         </span>
-        <span className="text-[0.9375rem] text-mute">cartons</span>
+        <span className="text-[0.9375rem] text-mute">koli</span>
       </span>
     ),
   },
@@ -136,8 +127,8 @@ const columns: ColumnDef<TableSetup, StoreInboundDelivery>[] = [
   },
   {
     id: "result",
-    header: "",
-    size: 260,
+    header: "Count",
+    size: 300,
     meta: { card: "status", align: "right" },
     cell: function Result({ row }) {
       const delivery = row.original
@@ -274,6 +265,7 @@ export function ReceiveStoreReturn() {
     [all, search.needle]
   )
 
+  const phone = useLayout() === "phone"
   const table = useTable(
     useMemo(
       () => ({
@@ -281,10 +273,14 @@ export function ReceiveStoreReturn() {
         data: rows,
         columns,
         getRowId: (row: StoreInboundDelivery) => row.delivery_id,
-        state: { sorting },
+        // The card-only columns stay off the desk's table.
+        state: {
+          sorting,
+          columnVisibility: { head: phone, lead: phone, foot: phone },
+        },
         onSortingChange: setSorting,
       }),
-      [rows, sorting]
+      [rows, sorting, phone]
     )
   )
 
@@ -293,7 +289,7 @@ export function ReceiveStoreReturn() {
       <IntakeHeader
         tab="returns"
         search={search}
-        searchLabel="Search Returns"
+        searchLabel="Search returns or stores"
         table={table}
         returns={{ value: status, onChange: setStatus }}
       />
@@ -301,7 +297,7 @@ export function ReceiveStoreReturn() {
       <KpiStrip className="grid-cols-2 md:grid-cols-2 xl:grid-cols-2">
         <Kpi
           label="To receive"
-          value={`${count(sum(onWay, (row) => row.koli_count))} cartons`}
+          value={`${count(sum(onWay, (row) => row.koli_count))} koli`}
         />
         <Kpi
           label="Received"
@@ -328,17 +324,34 @@ export function ReceiveStoreReturn() {
         ]}
       />
 
+      {/* On a desk the search sits over the table, as on Receiving PO; on a
+          phone it is the dock's. */}
+      <div className="relative mb-3.5 w-80 max-md:hidden">
+        <Search
+          aria-hidden
+          className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-mute"
+        />
+        <Input
+          type="search"
+          aria-label="Search returns or stores"
+          placeholder="Search returns or stores"
+          value={search.value}
+          onChange={(event) => search.onChange(event.target.value)}
+          className="pl-9"
+        />
+      </div>
+
       <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(list, {
           loading: "Reading the returns…",
           render: () =>
             rows.length === 0 ? (
               <EmptyState>
-                {all.length === 0
-                  ? status === "RECEIVED"
+                {search.needle !== ""
+                  ? "No returns match."
+                  : status === "RECEIVED"
                     ? "Nothing received yet."
-                    : "Nothing to receive."
-                  : "No returns match."}
+                    : "Nothing to receive."}
               </EmptyState>
             ) : (
               <DataTable<StoreInboundDelivery>

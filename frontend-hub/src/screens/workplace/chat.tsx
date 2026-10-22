@@ -1183,9 +1183,7 @@ function Room({
           .then((updated) => {
             writeMessage(updated)
             void client.invalidateQueries({ queryKey: workplaceKeys.pins(id) })
-            toast.success(
-              pinned ? "Pinned for everybody in the room" : "Unpinned"
-            )
+            toast.success(pinned ? "Message pinned" : "Message unpinned")
           })
           .catch((error: Error) => toast.error(error.message))
       },

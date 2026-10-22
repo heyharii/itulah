@@ -8,7 +8,6 @@ import { useLayout } from "@/lib/layout"
 import { DockTools } from "@/components/shell/dock-tools"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
-import { Select } from "@/components/ui/field"
 import { ExpandingSearch } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { MiniCell, MiniTable } from "@/components/ui/rows"
@@ -28,7 +27,7 @@ import {
   HolidayWorkedForm,
   PayOutForm,
 } from "@/screens/people/leave-extras"
-import { Quiet } from "@/screens/people/parts"
+import { Quiet, UnitFilter, useUnitFilter } from "@/screens/people/parts"
 import { CardFigure, CardName } from "@/components/ui/phone-cards"
 import { usePeopleAudience } from "@/screens/people/scope"
 import type { EmployeeSummary, LeaveBalanceRow } from "@itulah/contract"
@@ -175,18 +174,9 @@ export function TimeOffBalances() {
   const phone = useLayout() === "phone"
   const { people, team } = useActiveEmployees()
   const [search, setSearch] = useState("")
-  const [unit, setUnit] = useState("")
+  // The unit is HR's own, kept as you move between its pages.
+  const place = useUnitFilter()
   const [opened, setOpened] = useState<EmployeeSummary | null>(null)
-
-  const units = useMemo(() => {
-    const seen = new Map<string, string>()
-    for (const one of people) {
-      if (one.unit_id !== null) {
-        seen.set(one.unit_id, one.unit_name ?? one.unit_id)
-      }
-    }
-    return [...seen.entries()].sort((a, b) => a[1].localeCompare(b[1]))
-  }, [people])
 
   /// Everybody's figures in one read. Not a reason to hold the list back:
   /// the people draw at once, and the figures fill in when they come.
@@ -217,7 +207,7 @@ export function TimeOffBalances() {
   const rows = useMemo<BalanceRow[]>(
     () =>
       people
-        .filter((one) => unit === "" || one.unit_id === unit)
+        .filter((one) => place.unitId === null || one.unit_id === place.unitId)
         .filter(
           (one) =>
             needle === "" ||
@@ -226,7 +216,7 @@ export function TimeOffBalances() {
             (one.position ?? "").toLowerCase().includes(needle)
         )
         .map((one) => ({ ...one, balances: byPerson.get(one.employee_id) })),
-    [people, unit, needle, byPerson]
+    [people, place.unitId, needle, byPerson]
   )
   const table = useTable(
     useMemo(
@@ -249,45 +239,32 @@ export function TimeOffBalances() {
       {/* On a phone the search and the unit are in the dock over the bottom
           bar. */}
       {phone ? (
-        <DockTools
-          search={{
-            value: search,
-            onChange: setSearch,
-            label: "Search People",
-          }}
-          status={
-            units.length > 1
-              ? {
-                  value: unit,
-                  options: [
-                    { value: "", label: "Every unit" },
-                    ...units.map(([id, name]) => ({
-                      value: id,
-                      label: name,
-                    })),
-                  ],
-                  onChange: setUnit,
-                }
-              : undefined
-          }
-        />
+        <>
+          <UnitFilter
+            unitId={place.unitId}
+            units={place.units}
+            onChange={place.setUnitId}
+          />
+          <DockTools
+            search={{
+              value: search,
+              onChange: setSearch,
+              label: "Search People",
+            }}
+          />
+        </>
       ) : (
         <Toolbar className="group/bar">
+          <UnitFilter
+            unitId={place.unitId}
+            units={place.units}
+            onChange={place.setUnitId}
+          />
           <ExpandingSearch
             value={search}
             onChange={setSearch}
             label="Search people"
           />
-          {units.length > 1 && (
-            <Select value={unit} onChange={setUnit} className="h-8 w-52">
-              <option value="">Every unit</option>
-              {units.map(([id, name]) => (
-                <option key={id} value={id}>
-                  {name}
-                </option>
-              ))}
-            </Select>
-          )}
         </Toolbar>
       )}
 

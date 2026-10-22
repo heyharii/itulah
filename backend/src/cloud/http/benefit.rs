@@ -2,17 +2,17 @@
 //! till's spend and return.
 
 use super::auth::Principal;
-use super::employment::resolve;
+use super::employment::{reach_of, resolve};
 use crate::cloud::{
     application::{AppError, AppState},
-    domain::{actions, required_role_for_action, role_allows, Authorization},
+    domain::{actions, required_role_for_action, role_allows, Authorization, Reach},
     postgres::{
         self as infrastructure, BenefitAccountView, BenefitBalanceRow, BenefitCodeView,
-        BenefitHolderView, BenefitSettingView,
+        BenefitHolderView, BenefitMovementRow, BenefitSettingView,
     },
 };
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     Extension, Json,
 };
 use chrono::{NaiveDate, Utc};
@@ -41,6 +41,47 @@ pub async fn balances(
 ) -> Result<Json<Vec<BenefitBalanceRow>>, AppError> {
     require(&principal, actions::BENEFIT_MANAGE)?;
     Ok(Json(infrastructure::benefit_balances(&state.db).await?))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MovementsQuery {
+    pub from: Option<NaiveDate>,
+    pub to: Option<NaiveDate>,
+    pub unit: Option<String>,
+}
+
+/// Every balance's movements, newest first — Benefits › History. Bounded by
+/// the caller's reach like the rest of HR: a caller posted at one unit reads
+/// that unit's people, and asking for another is refused.
+pub async fn movements(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Query(query): Query<MovementsQuery>,
+) -> Result<Json<Vec<BenefitMovementRow>>, AppError> {
+    require(&principal, actions::BENEFIT_MANAGE)?;
+    let asked = query
+        .unit
+        .as_deref()
+        .map(str::trim)
+        .filter(|u| !u.is_empty());
+    let unit = match (reach_of(&state, &principal).await?, asked) {
+        (Reach::Nowhere, _) => return Ok(Json(Vec::new())),
+        (reach, Some(unit)) => {
+            if !reach.covers(Some(unit)) {
+                return Err(AppError::Forbidden(format!(
+                    "{} is not posted anywhere that reaches {unit}",
+                    principal.username
+                )));
+            }
+            Some(unit.to_owned())
+        }
+        (Reach::Only(own), None) => Some(own.as_str().to_owned()),
+        (Reach::Everywhere, None) => None,
+    };
+    Ok(Json(
+        infrastructure::benefit_movements(&state.db, query.from, query.to, unit.as_deref()).await?,
+    ))
 }
 
 /// One person's balance and its history. `me` reads one's own.

@@ -11,20 +11,14 @@ import { DockTools } from "@/components/shell/dock-tools"
 import { AppLink } from "@/components/ui/app-link"
 import { Card } from "@/components/ui/card"
 import { DataTable, dockSortOf } from "@/components/ui/data-table"
-import {
-  BarSpacer,
-  ColumnsMenu,
-  DockedFilters,
-  ExpandingSearch,
-  SortMenu,
-} from "@/components/ui/list-chrome"
+import { BarSpacer, ColumnsMenu, SortMenu } from "@/components/ui/list-chrome"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
 import { EmptyState, LoadingState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { useFilterState, type FilterField } from "@/lib/filters"
-import { useLayout, usePanelDock } from "@/lib/layout"
-import { count, label as humanise, moment } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
+import { count, label as humanise, moment, sku as skuNumber } from "@/lib/format"
 import {
   fleetPoolsQuery,
   movementScopeFromFilters,
@@ -358,7 +352,7 @@ const movementColumns = (
     meta: { align: "right", card: "status" },
     cell: ({ row }) => (
       <span className="font-mono text-[0.9375rem] text-mute">
-        {row.original.sku_code ?? "—"}
+        {skuNumber(row.original.sku_code)}
       </span>
     ),
   },
@@ -390,9 +384,6 @@ function MovementLedger() {
   /// What was typed, in the URL like every other narrowing in the app: a
   /// filtered ledger is a thing people send each other.
   const search = useSheet("q")
-  /// Whether the filter panel has room to stand beside the list. Below it the
-  /// same model is a sheet behind a Filter button, and the panel unmounts.
-  const docked = usePanelDock()
   const phone = useLayout() === "phone"
   // Newest first, which is the order the ledger is read in and the one the
   // server returns before anybody asks.
@@ -475,7 +466,13 @@ function MovementLedger() {
       {
         column: "actor_id",
         label: "Posted by",
-        spec: { kind: "option", single: true, operators: ["isAnyOf"] },
+        // People are looked up by name, never laid out as chips.
+        spec: {
+          kind: "option",
+          single: true,
+          searchable: true,
+          operators: ["isAnyOf"],
+        },
       },
     ],
     [poolOptions]
@@ -576,29 +573,21 @@ function MovementLedger() {
       {/* The panel docks where there is room for it — narrower than 1440 it is
           the Filter button in the omnibox, which is the same model drawn as a
           sheet. */}
-      <div className="grid min-w-0 items-start gap-5 dock:grid-cols-[minmax(0,1fr)_16rem]">
+      <div className="grid min-w-0 items-start gap-5">
         <div className="flex min-w-0 flex-col">
           {/* One line the width of the table, carrying everything that acts on
               it: what narrows it at the left, what orders and shapes it at the
               right. The page header above keeps the title and nothing else. */}
           <div className="group/bar mb-3 flex flex-wrap items-center gap-1.5 max-md:hidden">
-            <ExpandingSearch
-              value={search.value ?? ""}
-              onChange={(next) => (next ? search.open(next) : search.close())}
-              label="Search movements"
+            <FilterPanel
+              model={{ ...filters, fields: counted }}
+              search={{
+                value: search.value ?? "",
+                onChange: (next) => (next ? search.open(next) : search.close()),
+                label: "Search movements",
+              }}
             />
             <BarSpacer />
-            {/* The same model as the panel, as the chips over the table and
-                a Filter button beside them — for every width the panel cannot
-                dock at. Rendered only there: the panel unmounts below the dock
-                width rather than hiding, because both of these carry a sheet
-                on the same `?filters=` key. */}
-            {!docked && (
-              <FilterPanel
-                model={{ ...filters, fields: counted }}
-                className="mr-auto"
-              />
-            )}
             <SortMenu
               table={table}
               sorting={sorting}
@@ -660,48 +649,7 @@ function MovementLedger() {
             )}
           </Card>
         </div>
-
-        <DockedFilters
-          model={{ ...filters, fields: counted }}
-          kpis={ledgerKpis(head?.total, rows.length)}
-          id="movements"
-          subject="Movement"
-          className="hidden dock:flex"
-        />
       </div>
     </>
   )
-}
-
-/// Two figures about the log as it currently stands, where a banner used to be.
-///
-/// The banner said, over the table, that the three hundred rows below it were
-/// not the whole ledger and that its figures were not totals. It was right and
-/// it was furniture: a paragraph nobody dismissed, re-read on every visit, in
-/// the place a heading belongs.
-///
-/// These say the same thing in the panel, as numbers rather than as a warning.
-/// **Postings** is the server's own count over everything the search and the
-/// chips match, so it is true whatever is loaded; **Loaded** is how much of it
-/// has been fetched, and Show more is directly under the table that grows it.
-/// A caller that passed `count=0` gets no total, which is an em dash and never
-/// a nought — this screen does not pass it, but the absence is drawn honestly
-/// if it ever arrives.
-function ledgerKpis(total: number | null | undefined, loaded: number) {
-  if (total === undefined) return undefined
-  return [
-    {
-      label: "Postings",
-      value: total === null ? "—" : count(total),
-      note:
-        total === null
-          ? "This read was answered without a count."
-          : "Every posting the search and the filters match.",
-    },
-    {
-      label: "Loaded",
-      value: count(loaded),
-      note: "Fetched so far. Show more walks the rest of the log.",
-    },
-  ]
 }

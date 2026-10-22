@@ -1,9 +1,10 @@
 import { useState } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { AnimatePresence, motion, useReducedMotion } from "motion/react"
-import { ArrowLeft, Sparkles, Store } from "lucide-react"
+import { ArrowLeft } from "lucide-react"
 
-import { Mark, MemberCard } from "@/components/member-card"
+import { CentralMark, MattePicture, type MatteArt } from "@/components/matte"
+import { MemberCard } from "@/components/member-card"
 import { SuccessMark } from "@/components/success-mark"
 import { Button } from "@/components/ui/button"
 import { Chip } from "@/components/ui/chip"
@@ -80,12 +81,18 @@ export function PairingForm() {
   )
 }
 
+/// What connecting a card gives, each beside its matte picture.
+const PROMISES: ReadonlyArray<{ art: MatteArt; text: string }> = [
+  { art: "spark", text: "Poin dari setiap belanja, di toko Central mana pun" },
+  { art: "store", text: "Riwayat belanja dan struk, selalu ada" },
+]
+
 function Welcome({ onStart }: { onStart: () => void }) {
   const reduce = useReducedMotion()
   return (
     <>
       <div className="flex items-center gap-2 pt-1">
-        <Mark className="size-6 text-ink" />
+        <CentralMark className="size-9" />
         <span className="text-card-title font-semibold tracking-[-0.02em] text-ink">Central</span>
       </div>
 
@@ -105,8 +112,8 @@ function Welcome({ onStart }: { onStart: () => void }) {
             transition={{ type: "spring", duration: 0.8, bounce: 0, delay: blank.delay }}
             className={
               index === 0
-                ? "card-back card-shadow absolute aspect-[1.586] w-[62%] rounded-member-card"
-                : "card-face card-shadow absolute aspect-[1.586] w-[62%] rounded-member-card opacity-90"
+                ? "card-matte absolute aspect-[1.586] w-[62%] rounded-member-card opacity-45"
+                : "card-matte absolute aspect-[1.586] w-[62%] rounded-member-card opacity-70"
             }
           />
         ))}
@@ -116,7 +123,7 @@ function Welcome({ onStart }: { onStart: () => void }) {
           transition={{ type: "spring", duration: 0.9, bounce: 0, delay: 0.12 }}
           className="absolute w-[66%]"
         >
-          <MemberCard memberId="••••••" name="Member Central" since={null} />
+          <MemberCard memberId="••••••" name="Nama kamu" since={null} />
         </motion.div>
       </div>
 
@@ -127,14 +134,9 @@ function Welcome({ onStart }: { onStart: () => void }) {
           sekarang di ponsel.
         </h1>
         <ul className="mt-5 flex flex-col gap-3.5">
-          {[
-            { icon: Sparkles, text: "Poin dari setiap belanja, di toko Central mana pun" },
-            { icon: Store, text: "Riwayat belanja dan struk, selalu ada" },
-          ].map((item) => (
+          {PROMISES.map((item) => (
             <li key={item.text} className="flex items-center gap-3">
-              <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-canvas shadow-soft">
-                <item.icon className="size-4 text-ink" strokeWidth={2} />
-              </span>
+              <MattePicture art={item.art} size={40} />
               <span className="text-nav text-text">{item.text}</span>
             </li>
           ))}

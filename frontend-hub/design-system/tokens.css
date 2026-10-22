@@ -1,0 +1,180 @@
+/* Central — generated from tokens.json. Do not edit by hand: change tokens.json (and the hub's styles/index.css or white.css it mirrors), then run node scripts/design-tokens-css.mjs. */
+:root {
+  --ink: #1d1d1f;
+  --text: var(--ink);
+  --body: #6e6e73;
+  --mute: var(--body);
+  --faint: #c7c7cc;
+  --crumb-sep: #aeaeb2;
+  --line-ico: #8e8e93;
+  --canvas: #ffffff;
+  --soft: #fafafb;
+  --soft-2: #f2f2f5;
+  --soft-3: #f5f5f7;
+  --band: #fafafb;
+  --segment-track: #f2f2f4;
+  --row-line: #eeeef1;
+  --hairline: #e8e8ec;
+  --hairline-2: #dcdce1;
+  --hairline-strong: #c7c7cc;
+  --stone: #e8ebf0;
+  --panel: var(--canvas);
+  --scrim: rgba(208, 208, 213, 0.48);
+  --tooltip: #101012;
+  --dark: #191b20;
+  --on-dark: #ffffff;
+  --rail-text: #344054;
+  --rail-mute: #475467;
+  --rail-hover: rgba(0, 0, 0, 0.05);
+  --rail-tile: var(--canvas);
+  --panel-ink: #1d2939;
+  --panel-body: #344054;
+  --panel-mute: #667085;
+  --panel-hover: #f2f4f7;
+  --accent: #2862dc;
+  --accent-bg: #eef3fc;
+  --cta: var(--accent);
+  --cta-hover: #2055c7;
+  --cta-fg: #ffffff;
+  --focus-ring: rgba(40, 98, 220, 0.12);
+  --ok: #36b827;
+  --ok-bg: #d9f4d2;
+  --ok-fg: #248a3d;
+  --warn: #c9892e;
+  --warn-bg: #faeacd;
+  --warn-fg: #a66c1f;
+  --bad: #d70015;
+  --bad-bg: #fbeaea;
+  --bad-fg: #d70015;
+  --bad-hover: #b80013;
+  --info: #2f86d8;
+  --info-bg: #ddebfa;
+  --info-fg: #496b9c;
+  --new-fg: #d6447e;
+  --new-bg: #fdeaf1;
+  --a-orange: #e0823c;
+  --a-green: #46a06a;
+  --a-blue: #4a82f0;
+  --a-pink: #d65b95;
+  --a-violet: #8a6cf0;
+  --fill-green: #38c018;
+  --fill-sky: #4090f0;
+  --fill-orange: #ee8b2e;
+  --app-home: #f08a24;
+  --app-executive: #3a3a3c;
+  --app-merchandise: #e8456b;
+  --app-inventory: #b7791f;
+  --app-ops: #1f9fb4;
+  --app-marketing: #9b51e0;
+  --app-buying: #2f6fed;
+  --app-selling: #2ea44f;
+  --app-finance: #5856d6;
+  --app-finance-new: #1a8fd0;
+  --app-hr: #e9604f;
+  --app-ga: #0f9d8f;
+  --app-library: #8b6b4a;
+  --app-reports: #6d6af2;
+  --app-system: #5b6472;
+  --brand-tile: #2f63d8;
+  --avatar-from: #e8def4;
+  --avatar-to: #f8dde8;
+  --space-a: #ece9f6;
+  --space-mid: #c9bdf0;
+  --space-b: #8b6bd0;
+  --space-core: #5a3ca6;
+  --space-ink: #2b1f55;
+  --space-ink-2: #2f2360;
+  --shadow-sheet: 0 0 0 1px rgba(0, 0, 0, 0.05), 0 2px 8px rgba(0, 0, 0, 0.05), 0 24px 64px rgba(0, 0, 0, 0.14);
+  --shadow-page: 0 0 0 1px rgba(0, 0, 0, 0.05), 0 2px 8px rgba(0, 0, 0, 0.04), 0 24px 72px rgba(0, 0, 0, 0.08);
+  --shadow-panel: 0 0 0 1px rgba(0, 0, 0, 0.05), 0 2px 6px rgba(0, 0, 0, 0.04);
+  --shadow-rail-tile: 0 0 0 1px rgba(16, 24, 40, 0.07), 0 1px 2px rgba(16, 24, 40, 0.08);
+  --shadow-primary: 0 1px 2px rgba(20, 50, 100, 0.1);
+  --shadow-pop: 0 4px 8px rgba(24, 39, 60, 0.04), 0 12px 32px rgba(24, 39, 60, 0.08);
+  --shadow-float: 0 8px 24px rgba(24, 39, 60, 0.06), 0 24px 64px rgba(24, 39, 60, 0.12);
+  --shadow-segment: 0 1px 3px rgba(0, 0, 0, 0.12);
+  --shadow-focus: 0 0 0 2px rgba(40, 98, 220, 0.12);
+  --shadow-board-hover: 0 4px 14px rgba(0, 0, 0, 0.05);
+  --page-gutter: 28px;
+  --phone-gutter: 16px;
+  --page-top: 24px;
+  --head-bottom: 16px;
+  --head-gap: 24px;
+  --figure-pad: 24px;
+  --figures-to-tabs: 32px;
+  --tab-gap: 20px;
+  --tabs-to-bar: 16px;
+  --bar-gap: 8px;
+  --bar-to-table: 12px;
+  --cell-x: 16px;
+  --cell-y: 12px;
+  --float: 12px;
+  --sheet-body-top: 20px;
+  --sheet-body-bottom: 24px;
+  --foot-y: 12px;
+  --section-gap: 24px;
+  --facts-gap-x: 32px;
+  --facts-gap-y: 16px;
+  --label-gap: 8px;
+  --fact-gap: 4px;
+  --icon-gap: 6px;
+  --dot-gap: 7px;
+  --control: 36px;
+  --field: 40px;
+  --tap: 44px;
+  --card-button: 32px;
+  --board-step: 30px;
+  --table-head: 40px;
+  --row: 52px;
+  --sheet-foot: 64px;
+  --nav-row: 36px;
+  --rail-button: 40px;
+  --rail: 68px;
+  --panel-width: 216px;
+  --search: 280px;
+  --sheet-rail: 480px;
+  --sheet-wide: 1040px;
+  --sheet-table: 1024px;
+  --sheet-workspace: 1344px;
+  --dot: 6px;
+  --count-badge: 20px;
+  --switch-w: 30px;
+  --r-inner: 8px;
+  --r-chip: 6px;
+  --r-card: 10px;
+  --r-sheet: 16px;
+  --r-segment-track: 9px;
+  --r-segment: 7px;
+  --r-link: 4px;
+  --r-full: 999px;
+  --t-press: 120ms;
+  --t-hover: 120ms;
+  --t-pop: 160ms;
+  --t-page: 180ms;
+  --t-panel: 200ms;
+  --t-sheet: 280ms;
+  --t-exit: 200ms;
+  --t-drawer: 450ms;
+  --t-swap-in: 160ms;
+  --t-swap-out: 100ms;
+  --t-spring: 500ms;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --spring: linear(0, 0.009, 0.035 2.1%, 0.141, 0.281 6.7%, 0.723 12.9%, 0.938 16.7%, 1.017 19.4%, 1.051 22.3%, 1.057 24.4%, 1.045 28%, 1.011 34.8%, 0.995 41.2%, 0.997 52.1%, 1);
+  --font-sans: "Inter Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, "SF Mono", Menlo, monospace;
+}
+.ds-text-panel-title { font-family: var(--font-sans); font-size: 20px; line-height: 28px; font-weight: 600; letter-spacing: -0.4px; }
+.ds-text-title { font-family: var(--font-sans); font-size: 17px; line-height: 24px; font-weight: 600; letter-spacing: -0.3px; }
+.ds-text-lead-figure { font-family: var(--font-sans); font-size: 24px; line-height: 30px; font-weight: 600; letter-spacing: -0.6px; }
+.ds-text-figure { font-family: var(--font-sans); font-size: 16px; line-height: 22px; font-weight: 600; }
+.ds-text-card-name { font-family: var(--font-sans); font-size: 16px; line-height: 20px; font-weight: 600; letter-spacing: -0.16px; }
+.ds-text-section { font-family: var(--font-sans); font-size: 15px; line-height: 20px; font-weight: 600; }
+.ds-text-body { font-family: var(--font-sans); font-size: 15px; line-height: 1.45; font-weight: 400; }
+.ds-text-body-medium { font-family: var(--font-sans); font-size: 15px; line-height: 1.45; font-weight: 500; }
+.ds-text-label { font-family: var(--font-sans); font-size: 15px; line-height: 20px; font-weight: 400; }
+.ds-text-crumb { font-family: var(--font-sans); font-size: 15px; line-height: 18px; font-weight: 400; }
+.ds-text-control { font-family: var(--font-sans); font-size: 15px; line-height: 20px; font-weight: 500; }
+.ds-text-control-strong { font-family: var(--font-sans); font-size: 15px; line-height: 20px; font-weight: 600; }
+.ds-text-count { font-family: var(--font-sans); font-size: 15px; line-height: 1; font-weight: 600; }
+@font-face { font-family: "Inter Variable"; src: url("../node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2") format("woff2"); font-weight: 100 900; font-style: normal; font-display: swap; }

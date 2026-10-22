@@ -3,7 +3,7 @@ import { useMemo } from "react"
 
 import { CardName, PhoneCard, PhoneList } from "@/components/ui/phone-cards"
 import { LoadMore, type Pageable } from "@/components/ui/states"
-import { count, money, moneyCompact, percent, quantity } from "@/lib/format"
+import { count, money, moneyCompact, percent, quantity, sku } from "@/lib/format"
 import { FOCUSED, openable } from "@/lib/openable"
 import { cn } from "@/lib/utils"
 import {
@@ -253,7 +253,7 @@ function NameTd({ group, row }: { group: GroupKey; row: ExplorerRow }) {
       </span>
       {(code !== null || detail !== null) && (
         <span className="block text-[0.9375rem] leading-5 text-mute">
-          {code !== null && <span className="font-mono">{code}</span>}
+          {code !== null && <span className="font-mono">{sku(code)}</span>}
           {code !== null && detail !== null && " · "}
           {detail}
         </span>
@@ -727,7 +727,7 @@ export function PhoneGrid({
               head={
                 <CardName
                   name={title}
-                  code={code ?? undefined}
+                  code={code === null ? undefined : sku(code)}
                   line={[sub, meta.join(" · ")]}
                 />
               }

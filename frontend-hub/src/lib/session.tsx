@@ -8,6 +8,7 @@ import {
 import { auth, cacheKey, edge, edgeAuth, setEdgeToken } from "@/lib/api"
 import { forgetPushOnSignOut } from "@/lib/push"
 import type { SectionCode } from "@/lib/queries/invitations"
+import { wakeUp } from "@/lib/sleep"
 import { isTenancySignOut, tenancyQueryKey } from "@/lib/tenancy"
 import { ApiError, type Identity } from "@itulah/contract/client"
 
@@ -219,6 +220,9 @@ export function useSignOut() {
     },
     onSettled: () => {
       setEdgeToken(null)
+      // Signed out is not asleep: the next person meets the sign-in door,
+      // and after it the hub open, not the sleep screen.
+      wakeUp()
       client.setQueryData<Identity | null>(cacheKey.me(), null)
       // And every answer fetched under it — an order book, a ledger, somebody's
       // employment record — none of which the next person at this desk is

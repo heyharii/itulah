@@ -37,9 +37,9 @@ jobs:
         working-directory: pos-desktop/ui
         run: npm ci
 
-      - name: Test POS native commands
-        run: cargo test --manifest-path pos-desktop/src-tauri/Cargo.toml --lib
-
+      # The SDK comes before the tests: on Windows the Tauri build script checks
+      # every resource in tauri.windows.conf.json, so `cargo test` cannot even
+      # compile until rfid-native/ holds every DLL listed there.
       - name: Download and verify the official Chainway R3 SDK
         shell: pwsh
         run: |
@@ -80,6 +80,32 @@ jobs:
           New-Item -ItemType Directory -Force -Path $native | Out-Null
           Copy-Item $api.FullName (Join-Path $native 'UHFAPI.dll')
           Copy-Item $usb (Join-Path $native 'libusb-1.0.dll')
+
+      # UHFAPI.dll imports MSVCP140, VCRUNTIME140 and VCRUNTIME140_1 (libusb
+      # imports VCRUNTIME140), and a shop PC may not have the Visual C++
+      # redistributable. Microsoft allows these three to be deployed app-local,
+      # so they ship in rfid-native beside the SDK and rfid.rs loads them from
+      # there before libusb and UHFAPI. Taken from this x64 runner's own
+      # System32, and refused unless each one is an x64 image.
+      - name: Ship the Visual C++ runtime beside the R3 SDK
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $native = Join-Path $env:GITHUB_WORKSPACE 'pos-desktop/src-tauri/rfid-native'
+          $system = Join-Path $env:SystemRoot 'System32'
+          foreach ($name in @('vcruntime140.dll', 'vcruntime140_1.dll', 'msvcp140.dll')) {
+            $source = Join-Path $system $name
+            if (-not (Test-Path $source)) { throw "$name is not in $system on this runner." }
+            $bytes = [System.IO.File]::ReadAllBytes($source)
+            $pe = [BitConverter]::ToInt32($bytes, 0x3C)
+            $machine = [BitConverter]::ToUInt16($bytes, $pe + 4)
+            if ($machine -ne 0x8664) { throw "$name in $system is not an x64 image." }
+            Copy-Item $source (Join-Path $native $name)
+            Write-Host "$name $((Get-Item $source).VersionInfo.FileVersion)"
+          }
+
+      - name: Test POS native commands
+        run: cargo test --manifest-path pos-desktop/src-tauri/Cargo.toml --lib
 
       - name: Build the Windows installer
         working-directory: pos-desktop

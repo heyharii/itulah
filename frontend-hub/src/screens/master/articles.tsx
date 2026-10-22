@@ -22,23 +22,14 @@ import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
-import { PickOne, type Choice } from "@/components/ui/pick"
-import { Pill } from "@/components/ui/pill"
+import { CardName } from "@/components/ui/phone-cards"
+import { Pill, Status } from "@/components/ui/pill"
 import { EmptyState, LoadingState, LoadMore } from "@/components/ui/states"
-import { Tag } from "@/components/ui/tag"
-import { FilterOmnibox } from "@/components/ui/filter-omnibox"
-import {
-  ChoiceMenu,
-  ColumnsMenu,
-  ExpandingSearch,
-} from "@/components/ui/list-chrome"
-import {
-  useFilterState,
-  type Filter,
-  type FilterField,
-  type FilterState,
-} from "@/lib/filters"
-import { count, money } from "@/lib/format"
+import { FilterPanel } from "@/components/ui/filter-panel"
+import { Toolbar } from "@/components/ui/segmented"
+import { BarSpacer, ColumnsMenu } from "@/components/ui/list-chrome"
+import { useFilterState, type FilterField } from "@/lib/filters"
+import { count, money, countPcs } from "@/lib/format"
 import { colourwayFill } from "@/lib/colourway-fill"
 import { cn } from "@/lib/utils"
 import { SubTabs } from "@/components/ui/sub-tabs"
@@ -129,6 +120,11 @@ interface CatalogueRow {
   /// added to the table after it was written — the comment above it said so,
   /// and said this was what would replace it.
   readonly sizes: string
+  /// Every size, in size order ("M", "L", "XL"): the desk and the phone card
+  /// write them all out (owner, 17 Oct); the span above is the grid card's.
+  readonly sizeList: readonly string[]
+  /// The tags as words, "Kaos", "Basic" — the third line of the Article cell.
+  readonly tags: readonly string[]
 }
 
 /// The card-only columns, hidden on a desk.
@@ -142,48 +138,36 @@ const columns: ColumnDef<TableSetup, CatalogueRow>[] = [
     size: 300,
     // Takes what the others leave, down to 220px: the name is what the row is.
     meta: { card: "hide", grow: 220 },
-    cell: ({ row }) => (
-      <span className="flex items-center gap-2.5">
-        <Thumbnail
-          url={row.original.article.image_url}
-          name={row.original.article.name}
-          division={row.original.article.division_code}
-          colours={firstColourway(row.original.article)}
-          className="size-8 shrink-0 rounded-inner border border-hairline"
-        />
-        <span className="flex min-w-0 flex-col">
-          <span className="truncate font-medium text-ink">
-            {row.original.article.name}
-          </span>
-          <span className="font-mono text-[0.9375rem] text-mute">
-            {row.original.article.article_code}
+    // Three lines, one font, as Pricelist draws an article (owner, 17 Oct):
+    // the name; the article id and division; the tags. Division and Tags are
+    // not columns of their own. Always three lines tall, so every row is one
+    // height and a wrapped colour lines up with the id or the tags beside it.
+    cell: ({ row }) => {
+      const { article, divisionLabel, tags } = row.original
+      return (
+        <span className="flex items-start gap-3">
+          <Thumbnail
+            url={article.image_url}
+            name={article.name}
+            division={article.division_code}
+            colours={firstColourway(article)}
+            className="size-12 shrink-0 rounded-[8px]"
+          />
+          <span className="flex min-h-[3lh] min-w-0 flex-col">
+            <span className="truncate font-medium text-ink">
+              {article.name}
+            </span>
+            <span className="truncate text-mute tabular-nums">
+              {article.article_code}
+              {divisionLabel !== "" && ` · ${divisionLabel}`}
+            </span>
+            {tags.length > 0 && (
+              <span className="truncate text-mute">{tags.join(", ")}</span>
+            )}
           </span>
         </span>
-      </span>
-    ),
-  },
-  {
-    id: "division",
-    accessorFn: (row) => row.divisionLabel,
-    header: "Division",
-    // Wide enough for "Anak Perempuan" in the Tag's mono face (132px, chip and
-    // all) beside the cell's own padding. At 130 the chip ran 2px past its
-    // column and sat on the first swatch of Colors.
-    size: 176,
-    // No sideways scroll (owner, 2026-10-10): on a narrow card the columns go,
-    // SKUs first, then Sizes, then Division — the filters above still offer
-    // all three. Colors, Price Range and Status stay.
-    meta: { card: "hide", priority: 2 },
-    // Empty rather than an em dash in the accessor, so unfiled articles sort
-    // together at one end instead of under D. The dash is drawn by the cell.
-    cell: ({ row }) =>
-      row.original.article.division_code === null ? (
-        <span className="text-mute">—</span>
-      ) : (
-        <Tag className="max-w-full" title={row.original.divisionLabel}>
-          <span className="truncate">{row.original.divisionLabel}</span>
-        </Tag>
-      ),
+      )
+    },
   },
   {
     id: "colours",
@@ -191,17 +175,21 @@ const columns: ColumnDef<TableSetup, CatalogueRow>[] = [
     // question a merchandiser actually sorts on is "what only comes in one".
     accessorFn: (row) => row.article.colours.length,
     header: "Colors",
-    size: 130,
+    // "Black, White, Navy," a line; the Article cell keeps the rest at 1440,
+    // so "00000009 · Sandal dan Sepatu" is whole.
+    size: 164,
     meta: { card: "hide" },
-    cell: ({ row }) => <Swatches colours={row.original.article.colours} />,
+    cell: ({ row }) => (
+      <Words words={row.original.article.colours.map((way) => way.label)} />
+    ),
   },
   {
     id: "sizes",
     accessorFn: (row) => row.article.size_codes.length,
     header: "Sizes",
-    size: 120,
+    size: 140,
     meta: { card: "hide", priority: 3 },
-    cell: ({ row }) => row.original.sizes,
+    cell: ({ row }) => <Words words={row.original.sizeList} />,
   },
   {
     // Pieces on hand, everywhere, in place of the SKU count (owner,
@@ -209,20 +197,23 @@ const columns: ColumnDef<TableSetup, CatalogueRow>[] = [
     id: "stock",
     accessorFn: (row) => row.article.stock_qty ?? -1,
     header: "Stock",
-    size: 100,
-    meta: { align: "right", card: "hide", priority: 3 },
+    size: 104,
+    // On a narrow card Sizes goes first, then Stock (owner, 17 Oct: stock
+    // stays); Colors, Price range and Status never go.
+    meta: { align: "right", card: "hide", priority: 2 },
     cell: ({ row }) =>
       row.original.article.stock_qty === undefined ? (
         <span className="text-mute">—</span>
       ) : (
-        `${count(row.original.article.stock_qty)} pcs`
+        `${countPcs(row.original.article.stock_qty)}`
       ),
   },
   {
     id: "price",
     accessorFn: (row) => row.article.base_price_min_minor ?? -1,
-    header: "Price Range",
-    size: 200,
+    header: "Price range",
+    // "Rp 1.249.000–1.399.000" on one line, never cut (owner, 17 Oct).
+    size: 216,
     meta: { align: "right", card: "hide" },
     // `-1` rather than null in the accessor: unpriced articles are what
     // somebody sorting by price is usually looking for, and a null sorts
@@ -233,18 +224,19 @@ const columns: ColumnDef<TableSetup, CatalogueRow>[] = [
     id: "status",
     accessorFn: (row) => row.article.active,
     header: "Status",
-    size: 110,
+    // Room for "Inactive" and the › a row shows under the pointer.
+    size: 116,
     meta: { card: "hide" },
     cell: ({ row }) => (
-      <Pill tone={row.original.article.active ? "ok" : "neutral"}>
+      <Status tone={row.original.article.active ? "ok" : "neutral"}>
         {row.original.article.active ? "Active" : "Inactive"}
-      </Pill>
+      </Status>
     ),
   },
   // Four columns that exist only on a card (`cardLead`; a phone), the same card
-  // as every other list: the article over its code, division and colours, the
-  // price it leads with, a foot that says how many SKUs in what sizes, and the
-  // Edit button (owner, 2026-10-06). The desk says the same in its own columns.
+  // as every other list, saying what the desk's columns say (owner, 17 Oct):
+  // the Article cell's three lines, the price it leads with, a foot of stock,
+  // colours and sizes in words, and the Edit button.
   {
     id: "head",
     accessorFn: (row) => row.article.name,
@@ -253,9 +245,9 @@ const columns: ColumnDef<TableSetup, CatalogueRow>[] = [
     enableSorting: false,
     meta: { card: "title" },
     cell: ({ row }) => {
-      const one = row.original.article
+      const { article: one, divisionLabel, tags } = row.original
       return (
-        <span className="flex min-w-0 items-center gap-3">
+        <span className="flex min-w-0 items-start gap-3">
           <Thumbnail
             url={one.image_url}
             name={one.name}
@@ -263,37 +255,28 @@ const columns: ColumnDef<TableSetup, CatalogueRow>[] = [
             colours={firstColourway(one)}
             className="size-11 shrink-0 rounded-inner border border-hairline"
           />
-          <span className="flex min-w-0 flex-col gap-0.5">
-            <span
-              className={cn(
-                "inline-flex items-center gap-2 text-[1rem] font-semibold",
-                one.active ? "text-ink" : "text-mute"
-              )}
-            >
-              {!one.active && (
-                <EyeOff
-                  aria-label="Inactive"
-                  className="size-4 shrink-0 text-mute"
-                />
-              )}
-              <span className="min-w-0 break-words">{one.name}</span>
-            </span>
-            <span className="font-mono text-[0.9375rem] font-normal text-mute">
-              {one.article_code}
-            </span>
-            {(one.division_code !== null || one.colours.length > 0) && (
-              <span className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 font-normal">
-                {one.division_code !== null && (
-                  <Tag className="max-w-full">
-                    <span className="truncate">
-                      {row.original.divisionLabel}
-                    </span>
-                  </Tag>
+          <CardName
+            muted={!one.active}
+            name={
+              <>
+                {!one.active && (
+                  <EyeOff
+                    aria-label="Inactive"
+                    className="mr-2 inline size-4 align-[-0.125em] text-mute"
+                  />
                 )}
-                <Swatches colours={one.colours} cap={4} />
-              </span>
-            )}
-          </span>
+                {one.name}
+              </>
+            }
+            // The narrow column wraps at a dot or a comma, so "Sandal dan
+            // Sepatu" and "Lengan Pendek" stay whole on their line.
+            line={[
+              divisionLabel === ""
+                ? one.article_code
+                : `${one.article_code}\u00a0· ${wordList([divisionLabel])}`,
+              wordList(tags),
+            ]}
+          />
         </span>
       )
     },
@@ -335,15 +318,22 @@ const columns: ColumnDef<TableSetup, CatalogueRow>[] = [
     enableHiding: false,
     enableSorting: false,
     meta: { card: "foot" },
+    // "8 pcs · Black, White · M, L": the desk's Stock, Colors and Sizes in
+    // that order (same on every device). A long one wraps at a comma or a dot,
+    // never inside "1.204 pcs" or "No Size".
     cell: ({ row }) => {
-      // The stock, as the desk's Stock column says it (same on every device).
-      const n = row.original.article.stock_qty
-      const sizes = row.original.sizes
+      const { article, sizeList } = row.original
+      const n = article.stock_qty
       return (
         <span className="tabular-nums">
-          {n === undefined ? "—" : `${count(n)} pcs`}
-          {sizes !== "" && sizes !== "—" && ` · ${sizes}`}
-          {!row.original.article.active && " · Inactive"}
+          {[
+            n === undefined ? "—" : `${count(n)}\u00a0pcs`,
+            wordList(article.colours.map((way) => way.label)),
+            wordList(sizeList),
+            article.active ? "" : "Inactive",
+          ]
+            .filter((part) => part !== "")
+            .join("\u00a0· ")}
         </span>
       )
     },
@@ -362,6 +352,23 @@ const columns: ColumnDef<TableSetup, CatalogueRow>[] = [
     ),
   },
 ]
+
+/// Colours or sizes written out with commas, every one of them: the cell wraps
+/// rather than cutting ("Black, White, Navy," over "Olive, Maroon"), and a
+/// word never splits across lines ("No Size" stays whole).
+function Words({ words }: { words: readonly string[] }) {
+  if (words.length === 0) return <span className="text-mute">—</span>
+  return (
+    <span className="block whitespace-normal" title={words.join(", ")}>
+      {wordList(words)}
+    </span>
+  )
+}
+
+/// "Black, Light Blue": the words with commas, each one kept whole.
+function wordList(words: readonly string[]): string {
+  return words.map((word) => word.replace(/ /g, "\u00a0")).join(", ")
+}
 
 /// The card's Edit: the article's sheet, already on its edit form.
 function EditArticle({ code, name }: { code: string; name: string }) {
@@ -610,6 +617,10 @@ function ArticleCatalogue() {
             ? ""
             : termLabel(vocabulary.data?.divisions, one.division_code),
         sizes: sizeSpan(vocabulary.data?.sizes, one.size_codes),
+        sizeList: one.size_codes.map((code) =>
+          sizeLabel(vocabulary.data?.sizes, code)
+        ),
+        tags: one.tags.map((code) => termLabel(vocabulary.data?.tags, code)),
       })),
     [articles, vocabulary.data]
   )
@@ -709,77 +720,34 @@ function ArticleCatalogue() {
         onChange={(next) => setTab(next as ArticleTab)}
       />
 
-      {/* Two columns from 1440 up: the catalogue, and the facets standing
-          beside it.
-
-          The facets stood in a 15.5rem column on the LEFT until 2026-09-12,
-          which made the screen read as three layers of chrome before any work —
-          rail, module sidebar, filters, and only then the catalogue. Then they
-          spent a day inside `<Sheet>`, behind a button, which cost a click
-          before a merchandiser could see what else the catalogue holds.
-
-          This is the shape Sourcing already wears, and it is the right one for
-          the same reason: a catalogue is BROWSED, not queried. Somebody arrives
-          without knowing what they want, and the counted facets are how they
-          discover that the thing they are after is filed under a division they
-          had not thought of — which a panel they have to open first cannot do.
-          Below 1440 it is the same model, reached from the omnibox. */}
       <div className="grid min-w-0 items-start">
         <div className="@container flex min-w-0 flex-col">
-          {/* One line, as the order book draws it: the search and what narrows
-              the catalogue at the left, what orders and shapes it at the right.
-              No saved views here (owner, 2026-10-05).
+          {/* One bar, as every list draws it (owner, 17 Oct): the search, which
+              also offers Division, Tag, Color and Size by name with the
+              server's counts, then Columns at the right. A table sorts
+              by its headings, so there is no order control on a desk.
               The box is one box for every identifier, because somebody holding
               a garment does not know which of them they are holding — the QR on
               the swing tag, the SKU on the label, the supplier's own code on
               the carton. The server does the matching; this only sends `q`.
               EPC is not named (owner, 2026-09-12): it identifies one physical
               unit, and this screen is the product definition. */}
-          <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2 max-md:hidden">
-            <ExpandingSearch
-              value={search.value ?? ""}
-              onChange={(next) => (next ? search.open(next) : search.close())}
-              label="Search Articles"
-            />
-            <div className="hidden lg:contents">
-              <FacetPickers
-                filters={filters}
-                divisions={facets?.divisions}
-                tags={facets?.tags}
-                colours={facets?.colours}
-                sizes={facets?.sizes}
-                divisionLabel={divisionLabel}
-                tagLabel={tagLabel}
-                colourLabel={colourLabel}
-                sizeLabel={sizeLabelOf}
+          <div className="max-md:hidden">
+            <Toolbar className="group/bar">
+              <FilterPanel
+                model={{ ...filters, fields: counted }}
+                search={{
+                  value: search.value ?? "",
+                  onChange: (next) =>
+                    next ? search.open(next) : search.close(),
+                  label: "Search articles",
+                }}
               />
-            </div>
-            <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-              {/* The order the SERVER reads the master in, so it applies to the
-                whole catalogue and not only to the pages loaded. */}
-              <ChoiceMenu
-                heading="Order"
-                value={articleOrder.value ?? null}
-                options={ORDERS}
-                onChange={(next) =>
-                  next ? articleOrder.open(next) : articleOrder.close()
-                }
-              />
+              <BarSpacer />
               {view === "table" && <ColumnsMenu table={table} />}
-            </div>
+            </Toolbar>
           </div>
 
-          {/* The same model as the panel, drawn as one line, for the widths
-              where the panel is not on screen. Searching and filtering are one
-              thought — "kaus, kidswear, size M" is a sentence somebody says in
-              one breath — and this is the control that lets them say it
-              without a column to spare. */}
-          <FilterOmnibox
-            model={{ ...filters, fields: counted }}
-            text={search.value ?? undefined}
-            onText={(next) => (next ? search.open(next) : search.close())}
-            className="mb-3 max-md:hidden lg:hidden"
-          />
           {/* On a phone the search, the facets and the order are the dock's,
               as on every list (owner, 2026-10-06): nothing at the top of the
               page but the figures. */}
@@ -787,7 +755,7 @@ function ArticleCatalogue() {
             search={{
               value: search.value ?? "",
               onChange: (next) => (next ? search.open(next) : search.close()),
-              label: "Search Articles",
+              label: "Search articles",
             }}
             status={{
               value: tab,
@@ -874,6 +842,7 @@ function ArticleCatalogue() {
                       // The window scrolls, not the table (owner,
                       // 2026-10-05): no box inside the card with its own bars.
                       pageScroll
+                      cellsTop
                       cardsApart
                       cardLead
                       cardSort={false}
@@ -910,97 +879,6 @@ function ArticleCatalogue() {
         onClose={closeArticle}
         edit={edit.isOpen}
       />
-    </>
-  )
-}
-
-/// The two orders the master can be read in.
-///
-/// `null` is newest first. The absent value carries the DEFAULT rather than
-/// the historical order, so there is still one spelling of "no order chosen"
-/// and the plain URL is still the plain catalogue — the catalogue just leads
-/// with what was minted last, which is what a person opening this screen
-/// without searching came to see.
-///
-/// "Newest" is `created_at` and not the article code, which matters here: the
-/// codes this server mints do run in order, but the seeded and legacy articles
-/// carry hand-written ones — `ART-TSHIRT` — and every one of them sorts above
-/// `00000001`. Ordering by code would have put the oldest rows in the company
-/// at the top of a list labelled Newest.
-const ORDERS = [
-  { value: null, label: "Newest first" },
-  { value: "oldest", label: "Oldest first" },
-]
-
-/// The four questions the catalogue is narrowed by, in the line over the
-/// table: one box each, with the server's count beside every value so it is
-/// clear whether a filter is worth pressing before it is.
-/// Each box edits the same `isAnyOf` clause the phone's omnibox does, so a
-/// narrowed catalogue reads the same from either, and from a shared link.
-function FacetPickers({
-  filters,
-  divisions,
-  tags,
-  colours,
-  sizes,
-  divisionLabel,
-  tagLabel,
-  colourLabel,
-  sizeLabel,
-}: {
-  filters: FilterState
-  divisions: readonly FacetCount[] | undefined
-  tags: readonly FacetCount[] | undefined
-  colours: readonly FacetCount[] | undefined
-  sizes: readonly FacetCount[] | undefined
-  divisionLabel: (code: string) => string
-  tagLabel: (code: string) => string
-  colourLabel: (code: string) => string
-  sizeLabel: (code: string) => string
-}) {
-  const valueOf = (column: string): string | null =>
-    filters.filters.find(
-      (one) => one.column === column && one.operator === "isAnyOf"
-    )?.values[0] ?? null
-  const setValue = (column: string, value: string | null) =>
-    filters.set([
-      ...filters.filters.filter((one) => one.column !== column),
-      ...(value === null
-        ? []
-        : [{ column, operator: "isAnyOf", values: [value] } as Filter]),
-    ])
-  const box = (
-    column: string,
-    label: string,
-    facet: readonly FacetCount[] | undefined,
-    read: (code: string) => string
-  ) => {
-    const choices: Choice[] = (facet ?? []).map((one) => ({
-      value: one.value,
-      label: `${read(one.value)} · ${count(one.count)}`,
-    }))
-    const here = valueOf(column)
-    return (
-      <PickOne
-        key={column}
-        label={label}
-        placeholder={label}
-        choices={choices}
-        value={here}
-        onChange={(next) => setValue(column, next)}
-        className={cn(
-          "h-[2.125rem] min-h-0 w-32 shrink-0 py-0",
-          here !== null && "border-accent/40 bg-accent-bg [&_input]:text-accent"
-        )}
-      />
-    )
-  }
-  return (
-    <>
-      {box("division", "Division", divisions, divisionLabel)}
-      {box("tag", "Tag", tags, tagLabel)}
-      {box("colour", "Color", colours, colourLabel)}
-      {box("size", "Size", sizes, sizeLabel)}
     </>
   )
 }
@@ -1087,7 +965,7 @@ function ArticleCard({
           <span className="shrink-0 text-[0.9375rem] text-mute tabular-nums">
             {article.stock_qty === undefined
               ? "—"
-              : `${count(article.stock_qty)} pcs`}
+              : `${countPcs(article.stock_qty)}`}
           </span>
         </div>
       </div>

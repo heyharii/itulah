@@ -8,6 +8,16 @@ import {
 } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
+import {
+  CircleCheck,
+  CirclePause,
+  CreditCard,
+  Fingerprint,
+  Printer,
+  Radio,
+  Smartphone,
+  Store,
+} from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -126,7 +136,11 @@ const columns: ColumnDef<TableSetup, RegistryDevice>[] = [
     accessorFn: (row) => row.site_name ?? row.site_id,
     header: "Site",
     size: 150,
-    meta: { filter: { kind: "option", label: "Site" }, card: "hide" },
+    // Names, found in the search box: the chip line is for the kind.
+    meta: {
+      filter: { kind: "option", label: "Site", searchable: true },
+      card: "hide",
+    },
     cell: ({ row }) => (
       <span className="text-ink">
         {row.original.site_name ?? row.original.site_id}
@@ -138,7 +152,27 @@ const columns: ColumnDef<TableSetup, RegistryDevice>[] = [
     accessorFn: (row) => KIND_LABEL[row.kind] ?? row.kind,
     header: "Kind",
     size: 150,
-    meta: { filter: { kind: "option", label: "Kind" }, card: "hide" },
+    meta: {
+      filter: {
+        kind: "option",
+        label: "Kind",
+        icon: (value) =>
+          value === "Till"
+            ? Store
+            : value === "Handheld"
+              ? Smartphone
+              : value === "RFID reader"
+                ? Radio
+                : value === "Printer"
+                  ? Printer
+                  : value === "EDC"
+                    ? CreditCard
+                    : value === "Attendance terminal"
+                      ? Fingerprint
+                      : undefined,
+      },
+      card: "hide",
+    },
     cell: ({ row }) => (
       <Tag>{KIND_LABEL[row.original.kind] ?? row.original.kind}</Tag>
     ),
@@ -333,13 +367,11 @@ function DevicesTab() {
   return (
     <>
       <div className={DESK_BAR}>
-        <Input
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search"
-          className="h-8 w-48"
+        <FilterPanel
+          model={filters}
+          table={table}
+          search={{ value: query, onChange: setQuery, label: "Search devices" }}
         />
-        <FilterPanel model={filters} table={table} />
       </div>
 
       <DockTools
@@ -411,12 +443,31 @@ const READER_SORTS: Record<string, string> = {
 const READER_NODE: FilterField = {
   column: "origin_id",
   label: "Store server",
-  spec: { kind: "option", single: true, operators: ["isAnyOf"] },
+  spec: {
+    kind: "option",
+    single: true,
+    operators: ["isAnyOf"],
+    searchable: true,
+  },
 }
 const READER_STATE: FilterField = {
   column: "state",
   label: "State",
-  spec: { kind: "option", single: true, operators: ["isAnyOf"] },
+  spec: {
+    kind: "option",
+    single: true,
+    operators: ["isAnyOf"],
+    options: [
+      { value: "ACTIVE", label: "Active" },
+      { value: "OFF", label: "Off" },
+    ],
+    icon: (value) =>
+      value === "ACTIVE"
+        ? CircleCheck
+        : value === "OFF"
+          ? CirclePause
+          : undefined,
+  },
 }
 const READER_FIELDS: FilterField[] = [READER_NODE, READER_STATE]
 
@@ -638,6 +689,29 @@ function ReadersTab({
   // some named the same — "State" — as these, and a clause typed on one tab
   // must not half-apply itself the moment somebody switches to the other.
   const filters = useFilterState(READER_FIELDS, "f2")
+  // The store servers a reader can sit on, offered by name in the search box.
+  const servers = useQuery({
+    queryKey: systemKeys.origins(),
+    queryFn: ({ signal }) => listOrigins(signal),
+  })
+  const readerFields = useMemo<FilterField[]>(
+    () =>
+      READER_FIELDS.map((field) =>
+        field.column === "origin_id"
+          ? {
+              ...field,
+              spec: {
+                ...field.spec,
+                options: (servers.data ?? []).map((one: SyncOrigin) => ({
+                  value: one.origin_id,
+                  label: one.label ?? one.origin_id,
+                })),
+              },
+            }
+          : field
+      ),
+    [servers.data]
+  )
   const needle = useDebounced(query.trim(), 400)
   const scope = useMemo<AccessScope>(() => {
     const by = sorting[0]
@@ -724,20 +798,17 @@ function ReadersTab({
         </Banner>
       )}
       <div className={DESK_BAR}>
-        <Input
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search"
-          className="h-8 w-48"
+        <FilterPanel
+          model={{ ...filters, fields: readerFields }}
+          search={{ value: query, onChange: setQuery, label: "Search readers" }}
         />
-        <FilterPanel model={{ ...filters, fields: READER_FIELDS }} />
       </div>
 
       <DockTools
         search={{ value: query, onChange: setQuery, label: "Search readers" }}
         filter={{
           count: filters.filters.length,
-          panel: { model: { ...filters, fields: READER_FIELDS }, table },
+          panel: { model: { ...filters, fields: readerFields }, table },
         }}
         sort={dockSortOf(table)}
       />

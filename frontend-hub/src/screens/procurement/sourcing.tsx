@@ -21,7 +21,7 @@ import {
   LoadingState,
   LoadMore,
 } from "@/components/ui/states"
-import { FilterOmnibox } from "@/components/ui/filter-omnibox"
+import { ListFilters } from "@/components/ui/list-filters"
 import {
   ChoiceMenu,
   DockedFilters,
@@ -461,12 +461,16 @@ function SourcingBook() {
               breath. The rail also spent permanent width on a control most
               buyers touch twice a day, and this screen's grid is sized by what
               is left over. */}
-          <FilterOmnibox
-            model={{ ...filters, fields: counted }}
-            text={search.value ?? undefined}
-            onText={(next) => (next ? search.open(next) : search.close())}
-            className="mb-3 max-md:hidden"
-          />
+          <div className="mb-3 flex min-w-0 flex-wrap items-center gap-2 max-md:hidden">
+            <ListFilters
+              model={{ ...filters, fields: counted }}
+              search={{
+                value: search.value ?? "",
+                onChange: (next) => (next ? search.open(next) : search.close()),
+                label: "Search items",
+              }}
+            />
+          </div>
 
           {/* One line the width of the grid, carrying everything that acts on
               it — the same line the order book and the supplier book wear, and

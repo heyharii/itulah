@@ -8,19 +8,18 @@ import { Suspense, useDeferredValue, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { DockPortal } from "@/components/shell/dock"
-import { DockChoice } from "@/components/shell/dock-tools"
 import { PushControl } from "@/components/shell/push-control"
 import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { PageHeader } from "@/components/ui/page-header"
-import { Segmented } from "@/components/ui/segmented"
 import {
   Banner,
   EmptyState,
   LoadingState,
   LoadMore,
 } from "@/components/ui/states"
+import { SubTabs } from "@/components/ui/sub-tabs"
 import { Tag } from "@/components/ui/tag"
 import { count, label, moment } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
@@ -92,14 +91,6 @@ export function Notifications() {
         actions={
           phone ? undefined : (
             <>
-              <Segmented<Slice>
-                options={[
-                  { value: "all", label: "All" },
-                  { value: "unread", label: "Unread" },
-                ]}
-                value={slice}
-                onChange={setSlice}
-              />
               <Suspense
                 fallback={
                   <Button variant="primary" disabled>
@@ -120,14 +111,9 @@ export function Notifications() {
 
       {/* On a phone the slice is the dock's button, and the one thing this page
           does is the wide button beside it. */}
-      <DockChoice
-        value={slice}
-        onChange={(next) => setSlice(next as Slice)}
-        options={[
-          { value: "all", label: "All", short: "All" },
-          { value: "unread", label: "Unread", short: "Unread" },
-        ]}
-      />
+      <Suspense fallback={<SliceTabs slice={slice} onChange={setSlice} />}>
+        <SliceTabsCounted slice={slice} asked={asked} onChange={setSlice} />
+      </Suspense>
       <Suspense fallback={null}>
         <MarkAllReadDock
           slice={asked}
@@ -173,6 +159,43 @@ function useUnread(slice: Slice): number {
     notificationFeedQuery(slice === "unread")
   )
   return page.data.pages[0]?.unread ?? 0
+}
+
+/// All or Unread, the unread ones counted by the server.
+function SliceTabs({
+  slice,
+  unread,
+  onChange,
+}: {
+  slice: Slice
+  unread?: number
+  onChange: (slice: Slice) => void
+}) {
+  return (
+    <SubTabs
+      className="mb-3.5"
+      tabs={[
+        { value: "all", label: "All" },
+        { value: "unread", label: "Unread", alert: unread },
+      ]}
+      value={slice}
+      onChange={(next) => onChange(next as Slice)}
+    />
+  )
+}
+
+function SliceTabsCounted({
+  slice,
+  asked,
+  onChange,
+}: {
+  slice: Slice
+  asked: Slice
+  onChange: (slice: Slice) => void
+}) {
+  return (
+    <SliceTabs slice={slice} unread={useUnread(asked)} onChange={onChange} />
+  )
 }
 
 /// The head's button: clears everything unread, and is dim when nothing is.

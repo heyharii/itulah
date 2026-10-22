@@ -19,13 +19,13 @@ import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.pulltorefresh.PullToRefreshContainer
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -34,6 +34,8 @@ import id.itulah.pindai.data.InboundDelivery
 import id.itulah.pindai.data.InboundLine
 import id.itulah.pindai.data.InboundReceipt
 import id.itulah.pindai.data.InboundResult
+import id.itulah.pindai.core.skuDisplay
+
 import id.itulah.pindai.ui.kit.*
 import id.itulah.pindai.ui.theme.*
 import kotlinx.coroutines.delay
@@ -62,12 +64,13 @@ private enum class Stage { LIST, SWEEP, RESULT }
  * shop has committed to what it found.
  */
 @Composable
-internal fun ReceivingScreen(vm: SweepViewModel, state: SweepState) {
-    val receipt = state.inbound.receipt
-    val stage = when {
-        receipt != null -> Stage.RESULT
-        state.isReceivingDelivery -> Stage.SWEEP
-        else -> Stage.LIST
+internal fun ReceivingScreen(vm: SweepViewModel, state: State<SweepState>) {
+    val stage by state.slice {
+        when {
+            it.inbound.receipt != null -> Stage.RESULT
+            it.isReceivingDelivery -> Stage.SWEEP
+            else -> Stage.LIST
+        }
     }
     // Direction-aware, like the tab bar: forward into a delivery slides from
     // the right, Done or Change delivery slides back from the left, so the
@@ -84,30 +87,72 @@ internal fun ReceivingScreen(vm: SweepViewModel, state: SweepState) {
         label = "receiving",
     ) { shown ->
         when (shown) {
-            Stage.RESULT -> state.inbound.receipt?.let { ReceiptView(vm, state, it) }
+            Stage.RESULT -> ReceiptStage(vm, state)
             Stage.SWEEP -> DeliverySweep(vm, state)
             Stage.LIST -> DeliveryList(vm, state)
         }
     }
 }
 
+/** The receipt, while there is one. Empty while the stage fades out after Done. */
+@Composable
+private fun ReceiptStage(vm: SweepViewModel, state: State<SweepState>) {
+    val receipt by state.slice { it.inbound.receipt }
+    receipt?.let { ReceiptView(vm, it) }
+}
+
 // ------------------------------------------------------------------- list
+
+/** What the delivery list draws, and only that. */
+private data class DeliveryListView(
+    val inbound: InboundState,
+    /** Tags already swept and held for whichever delivery is chosen next. */
+    val held: Int,
+    val sweeping: Boolean,
+    val message: String?,
+    val failed: Boolean,
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun DeliveryList(vm: SweepViewModel, state: SweepState) {
-    val inbound = state.inbound
-    val pull = rememberPullToRefreshState()
-    if (pull.isRefreshing) {
-        LaunchedEffect(Unit) { vm.loadInbound() }
+private fun DeliveryList(vm: SweepViewModel, state: State<SweepState>) {
+    val view by state.slice {
+        DeliveryListView(
+            inbound = it.inbound,
+            held = it.counts.units + it.counts.unknownUnits,
+            sweeping = it.sweeping,
+            message = it.message,
+            failed = it.failed,
+        )
     }
-    // Stopped by the END of a refresh, however it ended — see
-    // InboundState.refreshes for why not by `loading`.
-    LaunchedEffect(inbound.refreshes) { pull.endRefresh() }
+    val current = view
+    val inbound = current.inbound
+    // Material 3 1.3 leaves `refreshing` to the caller; 1.2 kept it inside the
+    // pull state, and that API is gone. Same behaviour: on when the pull is
+    // released past the threshold, off when a refresh ENDS, however it ended —
+    // see InboundState.refreshes for why not by `loading`.
+    val pull = rememberPullToRefreshState()
+    var refreshing by remember { mutableStateOf(false) }
+    LaunchedEffect(inbound.refreshes) { refreshing = false }
 
-    Box(
-        Modifier.fillMaxSize().background(Surface.canvas)
-            .nestedScroll(pull.nestedScrollConnection),
+    PullToRefreshBox(
+        isRefreshing = refreshing,
+        onRefresh = {
+            refreshing = true
+            vm.loadInbound()
+        },
+        modifier = Modifier.fillMaxSize().background(Surface.canvas),
+        state = pull,
+        indicator = {
+            PullToRefreshDefaults.Indicator(
+                state = pull,
+                isRefreshing = refreshing,
+                modifier = Modifier.align(Alignment.TopCenter),
+                containerColor = Surface.canvas,
+                // In motion, so INFO — not the accent, which means selected.
+                color = Info,
+            )
+        },
     ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -127,17 +172,18 @@ private fun DeliveryList(vm: SweepViewModel, state: SweepState) {
                 }
             }
 
-            val held = state.counts.units + state.counts.unknownUnits
-            if (held > 0 && !state.sweeping) {
+            val held = current.held
+            if (held > 0 && !current.sweeping) {
                 item(key = "held") { HeldSweepCard(vm, held) }
             }
 
             inbound.note?.let { note ->
                 item(key = "note") { Text(note, style = Type.cell, color = BadFg) }
             }
-            state.message?.let { message ->
+            current.message?.let { message ->
+                val failed = current.failed
                 item(key = "message") {
-                    Text(message, style = Type.cell, color = if (state.failed) BadFg else OkFg)
+                    Text(message, style = Type.cell, color = if (failed) BadFg else OkFg)
                 }
             }
 
@@ -166,8 +212,11 @@ private fun DeliveryList(vm: SweepViewModel, state: SweepState) {
                 }
             }
 
+            // A bound reference rather than a lambda per row: it is equal to
+            // the next one made from the same view model, so an unchanged row
+            // is skipped.
             items(inbound.deliveries, key = { it.deliveryId }, contentType = { "delivery" }) { d ->
-                DeliveryRow(d) { vm.chooseDelivery(d) }
+                DeliveryRow(d, onChoose = vm::chooseDelivery)
             }
 
             item(key = "refresh") {
@@ -199,13 +248,6 @@ private fun DeliveryList(vm: SweepViewModel, state: SweepState) {
                 }
             }
         }
-        PullToRefreshContainer(
-            state = pull,
-            modifier = Modifier.align(Alignment.TopCenter),
-            containerColor = Surface.canvas,
-            // In motion, so INFO — not the accent, which means selected.
-            contentColor = Info,
-        )
     }
 }
 
@@ -218,9 +260,9 @@ private fun DeliveryList(vm: SweepViewModel, state: SweepState) {
  * answers, blind.
  */
 @Composable
-private fun DeliveryRow(delivery: InboundDelivery, onClick: () -> Unit) {
+private fun DeliveryRow(delivery: InboundDelivery, onChoose: (InboundDelivery) -> Unit) {
     HubCard(
-        onPress = onClick,
+        onPress = { onChoose(delivery) },
         padding = PaddingValues(horizontal = Space.lg, vertical = Space.md),
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -281,11 +323,27 @@ private fun HeldSweepCard(vm: SweepViewModel, held: Int) {
  * anywhere. The trigger adds to it, pull after pull, until it is received.
  */
 @Composable
-private fun DeliverySweep(vm: SweepViewModel, state: SweepState) {
-    val counts = state.counts
-    val delivery = state.inbound.chosen
+private fun DeliverySweep(vm: SweepViewModel, state: State<SweepState>) {
+    val view by state.slice {
+        DeliverySweepView(
+            delivery = it.inbound.chosen,
+            ours = it.counts.units + it.counts.unknownUnits,
+            unknownUnits = it.counts.unknownUnits,
+            skus = it.counts.skus,
+            articles = it.counts.articles,
+            foreign = it.counts.foreign,
+            busy = it.busy,
+            sweeping = it.sweeping,
+            message = it.message,
+            failed = it.failed,
+            lines = it.lines,
+            outboxPending = it.outboxPending,
+        )
+    }
+    val current = view
+    val delivery = current.delivery
     val unannounced = delivery == null
-    val ours = counts.units + counts.unknownUnits
+    val ours = current.ours
     val figure = remember { Type.display.copy(fontSize = 64.sp, lineHeight = 70.sp) }
 
     LazyColumn(
@@ -312,7 +370,7 @@ private fun DeliverySweep(vm: SweepViewModel, state: SweepState) {
                 Spacer(Modifier.height(Space.md))
                 QuietButton(
                     "Change delivery", onClick = vm::backToDeliveries,
-                    enabled = !state.busy, modifier = Modifier.fillMaxWidth(),
+                    enabled = !current.busy, modifier = Modifier.fillMaxWidth(),
                 )
             }
         }
@@ -321,8 +379,8 @@ private fun DeliverySweep(vm: SweepViewModel, state: SweepState) {
             Column(Modifier.padding(top = Space.sm, bottom = Space.xs)) {
                 Text("$ours", style = figure, color = Ink.ink)
                 Row(horizontalArrangement = Arrangement.spacedBy(Space.xxl)) {
-                    Text("${counts.skus} sku", style = Type.metric, color = Ink.body)
-                    Text("${counts.articles} articles", style = Type.metric, color = Ink.body)
+                    Text("${current.skus} sku", style = Type.metric, color = Ink.body)
+                    Text("${current.articles} articles", style = Type.metric, color = Ink.body)
                 }
                 Spacer(Modifier.height(Space.xs))
                 Text(
@@ -330,9 +388,9 @@ private fun DeliverySweep(vm: SweepViewModel, state: SweepState) {
                     else "Every pull adds to this delivery until you receive it.",
                     style = Type.meta, color = Ink.mute,
                 )
-                if (counts.unknownUnits > 0) {
+                if (current.unknownUnits > 0) {
                     Text(
-                        "${counts.unknownUnits} of them this handheld cannot name" +
+                        "${current.unknownUnits} of them this handheld cannot name" +
                             // The unannounced path is the old receive, which
                             // books in named products only. Say so rather than
                             // let the figure above promise more than it sends.
@@ -341,9 +399,9 @@ private fun DeliverySweep(vm: SweepViewModel, state: SweepState) {
                         style = Type.meta, color = WarnFg,
                     )
                 }
-                if (counts.foreign > 0) {
+                if (current.foreign > 0) {
                     Text(
-                        "${counts.foreign} tags that are not ours · left out",
+                        "${current.foreign} tags that are not ours · left out",
                         style = Type.meta, color = Ink.faint,
                     )
                 }
@@ -354,16 +412,16 @@ private fun DeliverySweep(vm: SweepViewModel, state: SweepState) {
             PrimaryButton(
                 Mode.RECEIVING.verb,
                 onClick = if (unannounced) vm::commit else vm::receiveDelivery,
-                enabled = ours > 0 && !state.sweeping,
-                loading = state.busy,
+                enabled = ours > 0 && !current.sweeping,
+                loading = current.busy,
                 big = true,
                 modifier = Modifier.fillMaxWidth(),
             )
         }
 
-        state.message?.let { message ->
+        current.message?.let { message ->
             item(key = "message") {
-                Text(message, style = Type.cell, color = if (state.failed) BadFg else Ink.mute)
+                Text(message, style = Type.cell, color = if (current.failed) BadFg else Ink.mute)
             }
         }
 
@@ -376,8 +434,8 @@ private fun DeliverySweep(vm: SweepViewModel, state: SweepState) {
             }
         }
 
-        items(state.lines, key = { it.skuCode }, contentType = { "product" }) { line ->
-            ProductRow(line)
+        items(current.lines, key = { it.skuCode }, contentType = { "product" }) { line ->
+            ProductRow(line.identity?.name, line.skuCode, line.qty)
         }
 
         if (ours > 0) {
@@ -385,16 +443,34 @@ private fun DeliverySweep(vm: SweepViewModel, state: SweepState) {
                 Box(Modifier.padding(top = Space.lg)) { DiscardButton(ours, vm::discardSweep) }
             }
         }
-        if (state.outboxPending > 0) {
+        if (current.outboxPending > 0) {
             item(key = "outbox") {
                 Text(
-                    "${state.outboxPending} batches of evidence waiting for the node",
+                    "${current.outboxPending} batches of evidence waiting for the node",
                     style = Type.meta, color = Ink.faint,
                 )
             }
         }
     }
 }
+
+/** What a delivery's sweep draws between pulls, and only that. */
+private data class DeliverySweepView(
+    /** Null on the unannounced path. */
+    val delivery: InboundDelivery?,
+    /** Every tag of ours, named or not: what this delivery will receive. */
+    val ours: Int,
+    val unknownUnits: Int,
+    val skus: Int,
+    val articles: Int,
+    val foreign: Int,
+    val busy: Boolean,
+    val sweeping: Boolean,
+    val message: String?,
+    val failed: Boolean,
+    val lines: List<ResultLine>,
+    val outboxPending: Int,
+)
 
 /**
  * Two taps, no dialog.
@@ -421,10 +497,12 @@ private fun DiscardButton(tags: Int, onDiscard: () -> Unit) {
  *
  * Which delivery, and nothing about what it should hold — while the radio is
  * live least of all, because that is when a number to aim at does its damage.
+ *
+ * Handed the delivery alone, so the count climbing beside it never redraws it.
+ * Null is the unannounced path.
  */
 @Composable
-internal fun ReceivingBanner(state: SweepState) {
-    val delivery = state.inbound.chosen
+internal fun ReceivingBanner(delivery: InboundDelivery?) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
             delivery?.title ?: "Unannounced delivery",
@@ -450,7 +528,7 @@ internal fun ReceivingBanner(state: SweepState) {
  * stockroom with when a line is short.
  */
 @Composable
-private fun ReceiptView(vm: SweepViewModel, state: SweepState, receipt: InboundReceipt) {
+private fun ReceiptView(vm: SweepViewModel, receipt: InboundReceipt) {
     var open by remember(receipt) { mutableStateOf<String?>(null) }
     val delivery = receipt.delivery
     val totals = delivery.result ?: InboundResult(
@@ -577,7 +655,7 @@ private fun ReceiptRow(line: InboundLine, expanded: Boolean, onToggle: () -> Uni
                     color = if (line.name == null) WarnFg else Ink.ink,
                     maxLines = 2, overflow = TextOverflow.Ellipsis,
                 )
-                Text(line.skuCode, style = Type.id, color = Ink.faint)
+                Text(skuDisplay(line.skuCode), style = Type.id, color = Ink.faint)
                 Spacer(Modifier.height(Space.xs))
                 Text(
                     "expected ${line.expected} · received ${line.received}",

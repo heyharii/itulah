@@ -18,6 +18,7 @@ import { Field, Select } from "@/components/ui/field"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
+import { CellMoney } from "@/components/ui/rows-switch"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { SheetFooter } from "@/components/ui/sheet-footer"
 import { SubTabs } from "@/components/ui/sub-tabs"
@@ -134,7 +135,7 @@ function AdvancesScreen() {
         size: 130,
         enableSorting: false,
         meta: { align: "right", card: "metric" },
-        cell: ({ row }) => money(row.original.amount_minor),
+        cell: ({ row }) => <CellMoney minor={row.original.amount_minor} />,
       },
       {
         id: "remaining",
@@ -143,7 +144,7 @@ function AdvancesScreen() {
         size: 130,
         enableSorting: false,
         meta: { align: "right", card: "metric" },
-        cell: ({ row }) => money(row.original.outstanding_minor),
+        cell: ({ row }) => <CellMoney minor={row.original.outstanding_minor} />,
       },
       {
         id: "age",

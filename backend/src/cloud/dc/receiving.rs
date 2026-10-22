@@ -641,9 +641,6 @@ async fn count_purchase(
     )
     .await?;
     tx.commit().await?;
-    // After the count is committed, and best effort: a failure here only
-    // means the count waits for the manual review.
-    auto_receive_exact_counts(&state, purchase_order_id).await;
     Ok((StatusCode::CREATED, Json(response)))
 }
 
@@ -1067,9 +1064,6 @@ async fn count_purchase_batch(
     )
     .await?;
     tx.commit().await?;
-    // After the sheet is committed, and best effort, once for the whole
-    // order: a failure here only means the counts wait for the manual review.
-    auto_receive_exact_counts(&state, purchase_order_id).await;
     Ok((StatusCode::CREATED, Json(response)))
 }
 
@@ -2089,141 +2083,6 @@ async fn verify(
     .await?;
     tx.commit().await?;
     Ok(response)
-}
-
-/// Receive an order whose counts came out exactly as owed, without waiting
-/// for anybody to press Accept (owner, 2026-10-02).
-///
-/// Every line still owed goods has exactly one count waiting, each exactly
-/// what the line owes, none naming mismatched pieces, and no count waits on a
-/// line that owes nothing. Then each is accepted through [`verify`] — the
-/// path a manual Accept takes — in the name of whoever raised the order.
-/// That person may have counted it themselves: counting and accepting are
-/// permissions, not two people (0828). Anything else waits for review.
-async fn auto_receive_exact_counts(state: &AppState, purchase_order_id: Uuid) {
-    let candidates = match exact_counts_of_order(&state.db, purchase_order_id).await {
-        Ok(candidates) => candidates,
-        Err(error) => {
-            tracing::warn!(%error, %purchase_order_id, "auto-receive check failed; the count waits for review");
-            return;
-        }
-    };
-    let Some((raised_by, count_ids)) = candidates else {
-        return;
-    };
-    for count_id in count_ids {
-        let request = PurchaseVerifyRequest {
-            count_id,
-            verifier_actor_id: raised_by.clone(),
-            decision: PurchaseVerifyDecision::Accept,
-            note: None,
-            invoiced_price_minor: None,
-            idempotency_key: format!("auto-receive:{count_id}"),
-        };
-        if let Err(error) = verify(state, request).await {
-            tracing::warn!(%error, %count_id, %purchase_order_id, "auto-receive refused; the count waits for review");
-            return;
-        }
-    }
-}
-
-/// The order's raiser and the counts to accept when its waiting counts match
-/// what it still owes exactly; `None` when anything differs.
-async fn exact_counts_of_order(
-    db: &PgPool,
-    purchase_order_id: Uuid,
-) -> Result<Option<(String, Vec<Uuid>)>, AppError> {
-    let header = sqlx::query(
-        "SELECT created_by, order_status FROM purchase_order WHERE purchase_order_id = $1",
-    )
-    .bind(purchase_order_id)
-    .fetch_optional(db)
-    .await?;
-    let Some(header) = header else {
-        return Ok(None);
-    };
-    let status: String = header.try_get("order_status")?;
-    if status == "CANCELLED" {
-        return Ok(None);
-    }
-    let Some(raised_by) = header
-        .try_get::<Option<String>, _>("created_by")?
-        .map(|who| who.trim().to_owned())
-        .filter(|who| !who.is_empty())
-    else {
-        return Ok(None);
-    };
-    // What each line still owes, the way the receipt applier reckons it.
-    let mut owed = std::collections::HashMap::new();
-    for row in sqlx::query(
-        "SELECT l.po_line_id,
-                CASE WHEN l.closed_short_at IS NOT NULL OR l.line_status = 'CANCELLED' THEN 0
-                     ELSE GREATEST(l.ordered_quantity
-                                   - COALESCE((SELECT sum(g.matched_quantity)
-                                                 FROM goods_receipt_line g
-                                                WHERE g.po_line_id = l.po_line_id), 0), 0)
-                END::bigint AS owed
-           FROM purchase_order_line l
-          WHERE l.purchase_order_id = $1",
-    )
-    .bind(purchase_order_id)
-    .fetch_all(db)
-    .await?
-    {
-        let line: Uuid = row.try_get("po_line_id")?;
-        let outstanding: i64 = row.try_get("owed")?;
-        if outstanding > 0 {
-            owed.insert(line, outstanding);
-        }
-    }
-    if owed.is_empty() {
-        return Ok(None);
-    }
-    let waiting = sqlx::query(
-        "SELECT c.count_id, c.po_line_id, c.counted_quantity, c.wrong_quantity
-           FROM dc_receiving_count c
-           JOIN purchase_order_line l ON l.po_line_id = c.po_line_id
-          WHERE l.purchase_order_id = $1 AND c.status = 'AWAITING_VERIFICATION'
-          ORDER BY c.counted_at",
-    )
-    .bind(purchase_order_id)
-    .fetch_all(db)
-    .await?;
-    // One count per owing line, each exactly what it owes, nothing else.
-    if waiting.len() != owed.len() {
-        return Ok(None);
-    }
-    // A line counted per variant is exact only when every variant is (owner,
-    // 2026-10-10): ten black for five black and five white adds up and is
-    // still the wrong goods, which is exactly what the buyer has to see.
-    let variants_differ: bool = sqlx::query_scalar(
-        "SELECT EXISTS (
-             SELECT 1
-               FROM dc_receiving_count c
-               JOIN purchase_order_line l ON l.po_line_id = c.po_line_id
-               CROSS JOIN LATERAL dc_receiving_count_breakdown(c.count_id) v
-              WHERE l.purchase_order_id = $1 AND c.status = 'AWAITING_VERIFICATION'
-                AND v.counted_quantity <> v.outstanding_quantity)",
-    )
-    .bind(purchase_order_id)
-    .fetch_one(db)
-    .await?;
-    if variants_differ {
-        return Ok(None);
-    }
-    let mut seen = std::collections::HashSet::with_capacity(waiting.len());
-    let mut count_ids = Vec::with_capacity(waiting.len());
-    for row in waiting {
-        let line: Uuid = row.try_get("po_line_id")?;
-        let counted: i64 = row.try_get("counted_quantity")?;
-        let wrong: i64 = row.try_get("wrong_quantity")?;
-        // Mismatched goods are exactly what a buyer has to see.
-        if wrong > 0 || owed.get(&line) != Some(&counted) || !seen.insert(line) {
-            return Ok(None);
-        }
-        count_ids.push(row.try_get("count_id")?);
-    }
-    Ok(Some((raised_by, count_ids)))
 }
 
 // ---- the delivery document ----------------------------------------------------

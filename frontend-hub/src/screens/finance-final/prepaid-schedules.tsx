@@ -17,6 +17,7 @@ import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { BottomSheet } from "@/components/ui/picker-sheet"
 import { Pill } from "@/components/ui/pill"
+import { CellMoney } from "@/components/ui/rows-switch"
 import { Toolbar } from "@/components/ui/segmented"
 import { EmptyState } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
@@ -107,7 +108,7 @@ const columns: ColumnDef<TableSetup, PrepaidSchedule>[] = [
     size: 130,
     enableSorting: false,
     meta: { align: "right", card: "metric", priority: 2 },
-    cell: ({ row }) => money(row.original.amount_minor),
+    cell: ({ row }) => <CellMoney minor={row.original.amount_minor} />,
   },
   {
     id: "expensed",
@@ -116,7 +117,7 @@ const columns: ColumnDef<TableSetup, PrepaidSchedule>[] = [
     size: 165,
     enableSorting: false,
     meta: { align: "right", card: "metric", priority: 2 },
-    cell: ({ row }) => money(row.original.allocated_minor),
+    cell: ({ row }) => <CellMoney minor={row.original.allocated_minor} />,
   },
   {
     id: "remaining",
@@ -125,7 +126,7 @@ const columns: ColumnDef<TableSetup, PrepaidSchedule>[] = [
     size: 130,
     enableSorting: false,
     meta: { align: "right", card: "metric" },
-    cell: ({ row }) => money(row.original.remaining_minor),
+    cell: ({ row }) => <CellMoney minor={row.original.remaining_minor} />,
   },
   {
     id: "status",

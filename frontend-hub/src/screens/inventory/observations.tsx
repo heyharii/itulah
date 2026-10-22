@@ -20,13 +20,13 @@ import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { Fab } from "@/components/ui/fab"
 import { Field, Input, Textarea } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
-import { BarSpacer, ExpandingSearch } from "@/components/ui/list-chrome"
+import { BarSpacer } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState, LoadingState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { useFilterState, type Filter, type FilterField } from "@/lib/filters"
-import { count, moment } from "@/lib/format"
+import { count, moment, sku as skuNumber } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import {
   fleetPools,
@@ -84,7 +84,7 @@ const sightings: ColumnDef<TableSetup, Observation>[] = [
     cell: ({ row }) =>
       row.original.sku_code ? (
         <span className="font-mono text-id text-body">
-          {row.original.sku_code}
+          {skuNumber(row.original.sku_code)}
         </span>
       ) : (
         // An unknown tag is still a fact, and hiding it would hide the exact
@@ -159,7 +159,7 @@ const sightingCards: ColumnDef<TableSetup, Observation>[] = [
     accessorFn: (row) => row.sku_code ?? "",
     cell: ({ row }) => (
       <CardName // An unknown tag is still a fact, and is said so.
-        name={row.original.sku_code ?? "Unknown tag"}
+        name={row.original.sku_code ? skuNumber(row.original.sku_code) : "Unknown tag"}
         code={row.original.epc}
       />
     ),
@@ -220,16 +220,29 @@ const SIGHTING_FIELDS: FilterField[] = [
     label: "Reader",
     spec: { kind: "option", single: true, operators: ["isAnyOf"] },
   },
+  {
+    column: "pool_id",
+    label: "Pool",
+    spec: {
+      kind: "option",
+      single: true,
+      operators: ["isAnyOf"],
+      searchable: true,
+    },
+  },
 ]
 
 function sightingScopeFromFilters(filters: readonly Filter[]): {
   device_id?: string
+  pool_id?: string
 } {
+  const scope: { device_id?: string; pool_id?: string } = {}
   for (const { column, operator, values } of filters) {
-    if (column === "device_id" && operator === "isAnyOf" && values.length > 0)
-      return { device_id: values[0] }
+    if (operator !== "isAnyOf" || values.length === 0) continue
+    if (column === "device_id") scope.device_id = values[0]
+    else if (column === "pool_id") scope.pool_id = values[0]
   }
-  return {}
+  return scope
 }
 
 export function Observations() {
@@ -270,7 +283,6 @@ export function Observations() {
 
 function ObservationBook() {
   const phone = useLayout() === "phone"
-  const [pool, setPool] = useState("")
   const [text, setText] = useState("")
   const [sighted, setSighted] = useState<SortingState>([
     { id: "last_seen_at", desc: true },
@@ -291,14 +303,13 @@ function ObservationBook() {
     const sort = by === undefined ? undefined : SIGHTING_SORTS[by.id]
     return {
       ...sightingScopeFromFilters(readFilters.filters),
-      ...(pool === "" ? {} : { pool_id: pool }),
       ...(needle === "" ? {} : { q: needle }),
       sort,
       // The house order (`last_seen_at`) is newest first already, so `desc`
       // there asks for the other way — see `sightingsPage`.
       desc: sort === "last_seen_at" ? by?.desc !== true : by?.desc === true,
     }
-  }, [readFilters.filters, pool, needle, sighted])
+  }, [readFilters.filters, needle, sighted])
 
   // The deferred scope keeps the rows in hand on screen while the next
   // question is read, so a keystroke does not empty the table.
@@ -311,6 +322,15 @@ function ObservationBook() {
   )
   const readHead = reads.data.pages[0]
 
+  const poolOptions = useMemo(
+    () =>
+      placements(fleet.data.items).map((item) => ({
+        value: item.id,
+        label: `${item.site_id} · ${item.label}`,
+      })),
+    [fleet.data]
+  )
+
   /// The reader chip, carrying the server's exact tally over everything the
   /// pool and the search match.
   const readModel = useMemo(
@@ -319,11 +339,14 @@ function ObservationBook() {
       fields: readHead
         ? SIGHTING_FIELDS.map((field) => ({
             ...field,
-            spec: { ...field.spec, counted: readHead.facets.devices },
+            spec:
+              field.column === "pool_id"
+                ? { ...field.spec, options: poolOptions }
+                : { ...field.spec, counted: readHead.facets.devices },
           }))
         : SIGHTING_FIELDS,
     }),
-    [readFilters, readHead]
+    [readFilters, readHead, poolOptions]
   )
 
   const readTable = useTable(
@@ -340,15 +363,6 @@ function ObservationBook() {
       }),
       [readRows, sightingColumns, sighted]
     )
-  )
-
-  const poolOptions = useMemo(
-    () =>
-      placements(fleet.data.items).map((item) => ({
-        value: item.id,
-        label: `${item.site_id} · ${item.label}`,
-      })),
-    [fleet.data]
   )
 
   return (
@@ -368,17 +382,13 @@ function ObservationBook() {
         sort={dockSortOf(readTable)}
       />
       <div className="group/bar mb-3.5 flex min-h-[2.25rem] flex-wrap items-center gap-2 max-md:hidden">
-        <ExpandingSearch
-          value={text}
-          onChange={setText}
-          label="Search observations"
-        />
-        <FilterPanel model={readModel} />
-        <Choice
-          value={pool}
-          onChange={setPool}
-          options={[{ value: "", label: "Every pool" }, ...poolOptions]}
-          className="max-w-72"
+        <FilterPanel
+          model={readModel}
+          search={{
+            value: text,
+            onChange: setText,
+            label: "Search observations",
+          }}
         />
         <BarSpacer />
         {readHead && (
@@ -394,7 +404,7 @@ function ObservationBook() {
       >
         {readRows.length === 0 ? (
           <EmptyState>
-            {pool === "" && needle === "" && readFilters.filters.length === 0
+            {needle === "" && readFilters.filters.length === 0
               ? "No reader has reported an observation to this node."
               : "No observation matches what you asked for."}
           </EmptyState>

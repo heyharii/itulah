@@ -23,11 +23,7 @@ import { Fab } from "@/components/ui/fab"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { BottomSheet } from "@/components/ui/picker-sheet"
 import { MiniTable } from "@/components/ui/rows"
-import {
-  BarSpacer,
-  ColumnsMenu,
-  ExpandingSearch,
-} from "@/components/ui/list-chrome"
+import { BarSpacer, ColumnsMenu } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Status } from "@/components/ui/pill"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
@@ -405,15 +401,10 @@ function PeriodsScreen() {
 
       {!phone && (
         <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2">
-          <ExpandingSearch
-            value={needle}
-            onChange={setNeedle}
-            label="Search months"
-          />
           {/* The two selects are not a filter on this list — they name the
-            month the button in the head opens. So the Filter button is the
-            only thing here that narrows what is on screen, and it stands
-            beside them. Wrapped for the reason `<UnitSelect>` is: `<Select>`
+            month the button in the head opens. So the filters are the only
+            thing here that narrows what is on screen, and they stand beside
+            them. Wrapped for the reason `<UnitSelect>` is: `<Select>`
             draws a `w-full` span around the native control, and in a wrapping
             bar that claims the whole row. */}
           <span className="inline-flex w-40 shrink-0">
@@ -449,7 +440,15 @@ function PeriodsScreen() {
               ))}
             </Select>
           </span>
-          <FilterPanel model={filters} table={table} />
+          <FilterPanel
+            model={filters}
+            table={table}
+            search={{
+              value: needle,
+              onChange: setNeedle,
+              label: "Search months",
+            }}
+          />
           <BarSpacer />
           {/* The effective answer, like every other bar in this module: what
             the two selects add up to, and how much calendar there is. The

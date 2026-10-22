@@ -83,13 +83,13 @@ export const commercialNav: AppModule = {
           // Price changes are a tab of the Pricelist now; the path stays
           // routed for the links that name it.
           path: "/commercial/changes",
-          label: "Changes",
+          label: "Price changes",
           icon: Waypoints,
           hidden: true,
         },
         {
           path: "/commercial/history",
-          label: "History",
+          label: "Price updates",
           icon: Clock,
           more: true,
         },

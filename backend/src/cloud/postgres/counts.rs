@@ -822,7 +822,11 @@ pub async fn get_count(pool: &PgPool, count_id: Uuid) -> Result<Value, AppError>
                 activation_target_origin_id,edge_result_id,edge_result_received_at,
                 adjustment_id,adjustment_command_id,adjustment_target_origin_id,
                 edge_adjustment_status,edge_adjustment_completion_id,
-                edge_adjustment_received_at
+                edge_adjustment_received_at,
+                (SELECT result.reason FROM edge_official_count_adjustment_result result
+                 WHERE result.count_id=official_count.id
+                   AND result.completion_id=official_count.edge_adjustment_completion_id)
+                    edge_adjustment_reason
          FROM official_count WHERE id=$1",
     )
     .bind(count_id)
@@ -934,6 +938,7 @@ pub async fn get_count(pool: &PgPool, count_id: Uuid) -> Result<Value, AppError>
         "edge_adjustment_status":row.get::<Option<String>,_>("edge_adjustment_status"),
         "edge_adjustment_completion_id":row.get::<Option<Uuid>,_>("edge_adjustment_completion_id"),
         "edge_adjustment_received_at":row.get::<Option<DateTime<Utc>>,_>("edge_adjustment_received_at"),
+        "edge_adjustment_reason":row.get::<Option<String>,_>("edge_adjustment_reason"),
         "summary":summary,
         "lines":lines
     }))

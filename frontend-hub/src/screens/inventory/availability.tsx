@@ -9,15 +9,15 @@ import { Suspense, useDeferredValue, useMemo, useState } from "react"
 import { PageContent } from "@/components/shell/app-shell"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
-import { Input } from "@/components/ui/field"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
+import { ListFilters } from "@/components/ui/list-filters"
 import { PageHeader } from "@/components/ui/page-header"
-import { Segmented, Toolbar } from "@/components/ui/segmented"
+import { Toolbar } from "@/components/ui/segmented"
 import { EmptyState, LoadingState } from "@/components/ui/states"
 import { Pill } from "@/components/ui/pill"
 import { Tag } from "@/components/ui/tag"
 import { SHOW_MISSING, withoutMissing } from "@/lib/features"
-import { count } from "@/lib/format"
+import { count, sku as skuNumber } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import {
   AVAILABILITY_OPENING_POOL,
@@ -25,9 +25,9 @@ import {
   fleetPoolsQuery,
   type AvailabilityItem,
 } from "@/lib/queries/inventory"
+import { useFilterState, type FilterField } from "@/lib/filters"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { useDebounced } from "@/lib/use-debounced"
-import { Choice } from "@/screens/inventory/parts"
 import { placements } from "@/screens/inventory/shared"
 import { CardFigure, CardName } from "@/components/ui/phone-cards"
 import {
@@ -96,7 +96,7 @@ function availabilityColumns(
       meta: { card: "hide" },
       cell: ({ row }) => (
         <span className="font-mono text-id text-body">
-          {row.original.sku_code}
+          {skuNumber(row.original.sku_code)}
         </span>
       ),
     },
@@ -205,7 +205,7 @@ function availabilityColumns(
             line={
               <>
                 {variant !== "" && <>{variant} · </>}
-                <span className="font-mono">{row.original.sku_code}</span>
+                <span className="font-mono">{skuNumber(row.original.sku_code)}</span>
               </>
             }
           />
@@ -281,15 +281,51 @@ export function Availability() {
 
 function AvailabilityPool() {
   const phone = useLayout() === "phone"
-  const [pool, setPool] = useState(AVAILABILITY_OPENING_POOL)
   const [text, setText] = useState("")
-  const [view, setView] = useState<"all" | "short">("all")
 
   // Debounced: every keystroke folds the pool's ledger again.
   const needle = useDebounced(text.trim(), 400)
-  const shortfall = view === "short"
 
   const pools = useSuspenseQuery(fleetPoolsQuery())
+
+  const poolOptions = useMemo(
+    () =>
+      placements(pools.data.items).map((item) => ({
+        value: item.id,
+        label: `${item.site_id} · ${item.label}`,
+      })),
+    [pools.data]
+  )
+
+  /// Both travel with the request, so neither is a clause on the rows in hand.
+  const fields = useMemo<FilterField[]>(
+    () => [
+      {
+        column: "pool",
+        label: "Pool",
+        spec: {
+          kind: "option",
+          single: true,
+          operators: ["isAnyOf"],
+          searchable: true,
+          options: poolOptions,
+        },
+      },
+      {
+        column: "short",
+        label: "Over-promised",
+        spec: { kind: "boolean", single: true, operators: ["is"] },
+      },
+    ],
+    [poolOptions]
+  )
+  const filters = useFilterState(fields)
+  const pool =
+    filters.filters.find((one) => one.column === "pool")?.values[0] ??
+    AVAILABILITY_OPENING_POOL
+  const shortfall = filters.filters.some(
+    (one) => one.column === "short" && one.values[0] === "true"
+  )
 
   // Shared with the prefetcher (`screens/inventory/prefetch.ts`). The deferred
   // question keeps the rows in hand on screen while the next one is read.
@@ -334,15 +370,6 @@ function AvailabilityPool() {
       }),
       [rows, columns, phone]
     )
-  )
-
-  const poolOptions = useMemo(
-    () =>
-      placements(pools.data.items).map((item) => ({
-        value: item.id,
-        label: `${item.site_id} · ${item.label}`,
-      })),
-    [pools.data]
   )
 
   return (
@@ -390,28 +417,12 @@ function AvailabilityPool() {
       </KpiStrip>
 
       <Toolbar>
-        <Choice
-          value={pool}
-          onChange={setPool}
-          options={poolOptions}
-          className="max-w-72"
-        />
-        <Input
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-          placeholder="Search"
-          className="h-8 w-64"
+        <ListFilters
+          model={filters}
+          search={{ value: text, onChange: setText, label: "Search" }}
         />
         <Toolbar.Spacer />
         <DisplayUnitPicker display={display} />
-        <Segmented
-          options={[
-            { value: "all", label: "Every SKU" },
-            { value: "short", label: "Over-promised" },
-          ]}
-          value={view}
-          onChange={setView}
-        />
       </Toolbar>
 
       <Card

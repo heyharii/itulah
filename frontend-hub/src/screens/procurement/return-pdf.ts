@@ -2,7 +2,11 @@ import { jsPDF } from "jspdf"
 
 import { count, day } from "@/lib/format"
 import { COMPANY } from "@/screens/finance-lab/print"
-import { NOT_AS_ORDERED_PAPER_ROW, UNKNOWN_NOTE } from "@/screens/procurement/return-lines"
+import {
+  NOT_AS_ORDERED_PAPER_ROW,
+  UNKNOWN_NOTE,
+} from "@/screens/procurement/return-lines"
+import { paperShape, type Paper } from "@/screens/procurement/po-print"
 import {
   noteFigures,
   type PrintableNote,
@@ -19,21 +23,37 @@ const MUTE = [91, 97, 88] as const
 /// The PO's green stamp ink (`po-pdf.ts`).
 const STAMP_OK = [120, 184, 150] as const
 
-const W = 210
-const H = 297
-const MARGIN = 16
+/// The page being drawn — set by `buildReturnPdf` from the paper chosen in the
+/// Print sheet, as the PO's (owner, 2026-10-18: Return PO prints like PO).
+let W = 210
+let H = 297
+let MARGIN = 16
 
 /// The supplier's copy stamp: the PO stamp's tilt, in the hub's blue.
 const STAMP_COPY = [47, 95, 208] as const
 /// The items table and what hangs under it span the page, as the print's
 /// (owner, 2026-10-16: back to the full width once Keterangan came in).
-const TABLE = W - 2 * MARGIN
+let TABLE = W - 2 * MARGIN
 
 /// The note as a document, before it is saved: the download saves it, and a
 /// preview can show it. Two pages, as the print: the one the Gudang keeps,
 /// then the SUPPLIER COPY, stamped; the supplier signs both as Penerima.
-export function buildReturnPdf(note: PrintableNote): jsPDF {
-  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" })
+export function buildReturnPdf(
+  note: PrintableNote,
+  paper: Paper = "A4-portrait"
+): jsPDF {
+  const { size, portrait } = paperShape(paper)
+  const long = size === "A4" ? 297 : 210
+  const short = size === "A4" ? 210 : 148
+  W = portrait ? short : long
+  H = portrait ? long : short
+  MARGIN = size === "A4" ? 16 : 10
+  TABLE = W - 2 * MARGIN
+  const doc = new jsPDF({
+    orientation: portrait ? "portrait" : "landscape",
+    unit: "mm",
+    format: size === "A4" ? "a4" : "a5",
+  })
   drawNote(doc, note, false)
   doc.addPage()
   drawNote(doc, note, true)
@@ -70,12 +90,10 @@ function drawNote(doc: jsPDF, note: PrintableNote, copy: boolean): void {
       .setFontSize(16)
       .text(note.stamp.word, W / 2 + 4, y + 9, { align: "center", angle: 6 })
     if (note.stamp.at !== null)
-      doc
-        .setFontSize(10)
-        .text(day(note.stamp.at), W / 2 + 4, y + 14, {
-          align: "center",
-          angle: 6,
-        })
+      doc.setFontSize(10).text(day(note.stamp.at), W / 2 + 4, y + 14, {
+        align: "center",
+        angle: 6,
+      })
   }
 
   const meta = right - 62
@@ -201,7 +219,7 @@ function drawNote(doc: jsPDF, note: PrintableNote, copy: boolean): void {
   const lines = [
     ...figures.items.map((one) => ({
       name: one.name,
-      sub: null as string | null,
+      sub: one.sku as string | null,
       note: figures.notes[one.sku] ?? "",
       qty: one.qty,
     })),
@@ -259,31 +277,39 @@ function drawNote(doc: jsPDF, note: PrintableNote, copy: boolean): void {
   doc.text(figures.pic, MARGIN + doc.getTextWidth("PIC : "), y)
   y += 9
 
-  // — hormat kami, and penerima beside it, on both copies —
-  if (y + 30 > H - MARGIN) {
+  // — hormat kami beside penerima at the right, two lines lower (owner,
+  // 2026-10-18), on both copies —
+  y += 10
+  // Room to sign: less on A5, so the names stay on the same page.
+  const space = H < 200 ? 18 : 26
+  if (y + space + 4 > H - MARGIN) {
     doc.addPage()
     y = MARGIN
   }
+  const signWidth = 50
+  const receiverX = tableRight - signWidth
+  const senderX = receiverX - signWidth - 10
   ink()
   doc.setFont("helvetica", "normal").setFontSize(9.5)
-  doc.text("Hormat kami,", MARGIN, y)
-  doc.setFont("helvetica", "bold")
-  doc.text(`( ${figures.sender} )`, MARGIN, y + 26)
-  // The supplier who takes the goods back signs at the far right, where the
-  // QR stood (owner, 2026-10-16: no QR on the paper).
-  doc.setFont("helvetica", "normal")
+  doc.text("Hormat kami,", senderX, y)
+  // Penerima flush with the right edge (owner, 2026-10-18).
   doc.text("Penerima,", tableRight, y, { align: "right" })
   doc.setFont("helvetica", "bold")
   doc.text(
-    doc.splitTextToSize(`( ${note.supplier} )`, TABLE / 2 - 8),
+    doc.splitTextToSize(`( ${figures.sender} )`, signWidth),
+    senderX,
+    y + space
+  )
+  doc.text(
+    doc.splitTextToSize(`( ${note.supplier} )`, signWidth),
     tableRight,
-    y + 26,
+    y + space,
     { align: "right" }
   )
 }
 
-export function downloadReturnPdf(note: PrintableNote): void {
-  buildReturnPdf(note).save(
+export function downloadReturnPdf(note: PrintableNote, paper?: Paper): void {
+  buildReturnPdf(note, paper).save(
     `surat-jalan-retur-${note.supplier.replace(/[^\w]+/g, "-")}.pdf`
   )
 }

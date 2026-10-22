@@ -14,11 +14,13 @@ import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Day } from "@/components/ui/day"
 import { Fab } from "@/components/ui/fab"
-import { Field, Input, Select, Textarea } from "@/components/ui/field"
+import { Field, Input, Textarea } from "@/components/ui/field"
 import { ExpandingSearch } from "@/components/ui/list-chrome"
+import { ListFilters } from "@/components/ui/list-filters"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill, Status } from "@/components/ui/pill"
 import { SubHead } from "@/components/ui/rows"
+import { CellMoney } from "@/components/ui/rows-switch"
 import { Toolbar } from "@/components/ui/segmented"
 import { SheetFooter } from "@/components/ui/sheet-footer"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
@@ -28,6 +30,7 @@ import {
   NoAccessState,
   NoMatch,
 } from "@/components/ui/states"
+import { useFilterState, type FilterField } from "@/lib/filters"
 import { count, day, label, money, moment } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import {
@@ -201,7 +204,7 @@ const columns: ColumnDef<TableSetup, JournalEntryRow>[] = [
     size: 150,
     enableSorting: false,
     meta: { align: "right", card: "lead" },
-    cell: ({ row }) => money(row.original.total_minor),
+    cell: ({ row }) => <CellMoney minor={row.original.total_minor} />,
   },
   {
     id: "status",
@@ -235,9 +238,20 @@ export function Journals() {
   )
 }
 
+/// The type of an entry, asked of the list the way every list is asked: its
+/// answers (and their counts) are the server's, so they are filled in below,
+/// once the first page is in.
+const KIND_FIELD: FilterField = {
+  column: "kind",
+  label: "Entry type",
+  spec: { kind: "option", single: true, format: (value) => label(value) },
+}
+
 function JournalsScreen() {
   const range = useSettledWindow()
-  const [kind, setKind] = useState("")
+  const filterState = useFilterState([KIND_FIELD])
+  const kind =
+    filterState.filters.find((one) => one.column === "kind")?.values[0] ?? ""
   const [unit, setUnit] = useState("")
   const [needle, setNeedle] = useState("")
   // In the URL rather than in state, so a link from a bill, a deposit or a
@@ -314,6 +328,21 @@ function JournalsScreen() {
   // alone — so the strip is labelled as a fact about the window and not about
   // the list below it.
   const kinds = head?.facets.kinds ?? []
+  const kindModel: typeof filterState = {
+    ...filterState,
+    fields: [
+      {
+        ...KIND_FIELD,
+        spec: {
+          ...KIND_FIELD.spec,
+          counted: kinds.map((facet) => ({
+            value: facet.value,
+            count: facet.count,
+          })),
+        },
+      },
+    ],
+  }
 
   const table = useTable(
     useMemo(
@@ -350,21 +379,7 @@ function JournalsScreen() {
           label="Search entries"
         />
         <WindowControl range={range} />
-        <span className="inline-flex w-44 shrink-0">
-          <Select
-            value={kind}
-            onChange={setKind}
-            className="h-control w-44"
-            aria-label="Entry type"
-          >
-            <option value="">All types</option>
-            {kinds.map((facet) => (
-              <option key={facet.value} value={facet.value}>
-                {label(facet.value)}
-              </option>
-            ))}
-          </Select>
-        </span>
+        <ListFilters model={kindModel} />
         <UnitSelect
           value={unit}
           onChange={setUnit}

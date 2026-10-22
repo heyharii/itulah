@@ -8,7 +8,7 @@ import { DockTools } from "@/components/shell/dock-tools"
 import { Card } from "@/components/ui/card"
 import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { FilterPanel } from "@/components/ui/filter-panel"
-import { BarSpacer, ExpandingSearch } from "@/components/ui/list-chrome"
+import { BarSpacer } from "@/components/ui/list-chrome"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
@@ -16,7 +16,7 @@ import { SubTabs } from "@/components/ui/sub-tabs"
 import { Banner, EmptyState, LoadingState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { useFilterState, type Filter, type FilterField } from "@/lib/filters"
-import { count, moment } from "@/lib/format"
+import { count, moment, sku as skuNumber } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import {
   reconciliationsPageQuery,
@@ -138,7 +138,7 @@ const columns: ColumnDef<TableSetup, Reconciliation>[] = [
     cell: ({ row }) =>
       row.original.sku_code ? (
         <span className="font-mono text-id text-body">
-          {row.original.sku_code}
+          {skuNumber(row.original.sku_code)}
         </span>
       ) : (
         <Tag tone="warn">{count(row.original.sku_codes.length)} CODES</Tag>
@@ -444,12 +444,14 @@ function ClaimBook() {
             />
 
             <div className="group/bar mb-3.5 flex min-h-[2.25rem] flex-wrap items-center gap-2 max-md:hidden">
-              <ExpandingSearch
-                value={query}
-                onChange={setQuery}
-                label="Search claims"
+              <FilterPanel
+                model={model}
+                search={{
+                  value: query,
+                  onChange: setQuery,
+                  label: "Search claims",
+                }}
               />
-              <FilterPanel model={model} />
               <BarSpacer />
               <span className="text-[0.9375rem] text-mute tabular-nums">
                 {count(data.total)} claims

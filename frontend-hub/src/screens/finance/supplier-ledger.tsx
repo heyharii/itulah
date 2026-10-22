@@ -5,6 +5,7 @@ import { useState } from "react"
 import { PageContent } from "@/components/shell/app-shell"
 import { ExportButton } from "@/components/ui/export-button"
 import { PageHeader } from "@/components/ui/page-header"
+import { CellMoney } from "@/components/ui/rows-switch"
 import { EmptyState } from "@/components/ui/states"
 import { count, day, label, money } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
@@ -48,6 +49,17 @@ import type { PartyMovementRow, PartyMovements } from "@itulah/contract"
 /// A balance as an accountant writes it: owed to us, in brackets.
 function balance(minor: number): string {
   return minor < 0 ? `(${money(-minor)})` : money(minor)
+}
+
+/// `balance`, as a row of the table prints it: without the "Rp" in a compact one.
+function BalanceCell({ minor }: { minor: number }) {
+  return minor < 0 ? (
+    <>
+      (<CellMoney minor={-minor} />)
+    </>
+  ) : (
+    <CellMoney minor={minor} />
+  )
 }
 
 /// The year so far, which is what a ledger is read over. `useWindow`'s
@@ -259,7 +271,7 @@ function Ledger({ data }: { data: PartyMovements }) {
           />
         )
       ) : (
-        <Grid>
+        <Grid followRows>
           <thead>
             <tr>
               <Th width="7.5rem">Date</Th>
@@ -289,7 +301,7 @@ function Ledger({ data }: { data: PartyMovements }) {
               <Td />
               <Td align="right">
                 <span className="font-medium text-ink">
-                  {balance(data.opening_minor)}
+                  <BalanceCell minor={data.opening_minor} />
                 </span>
               </Td>
             </tr>
@@ -401,19 +413,19 @@ function MovementRow({ row }: { row: PartyMovementRow }) {
         {row.debit_minor === 0 ? (
           <span className="text-faint">·</span>
         ) : (
-          money(row.debit_minor)
+          <CellMoney minor={row.debit_minor} />
         )}
       </Td>
       <Td align="right">
         {row.credit_minor === 0 ? (
           <span className="text-faint">·</span>
         ) : (
-          money(row.credit_minor)
+          <CellMoney minor={row.credit_minor} />
         )}
       </Td>
       <Td align="right">
         <span className="font-medium text-ink">
-          {balance(row.balance_minor)}
+          <BalanceCell minor={row.balance_minor} />
         </span>
       </Td>
     </tr>

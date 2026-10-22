@@ -251,7 +251,7 @@ function Body({ report }: { report: Report }) {
           />
         </>
       ) : (
-        <Grid>
+        <Grid followRows giveUp={[7]}>
           <thead>
             <tr>
               <Th>Division</Th>

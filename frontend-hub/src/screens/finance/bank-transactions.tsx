@@ -20,6 +20,7 @@ import { Field, Input, Money, Select, Textarea } from "@/components/ui/field"
 import { ExpandingSearch } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Status } from "@/components/ui/pill"
+import { CellMoney } from "@/components/ui/rows-switch"
 import { Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
@@ -282,7 +283,7 @@ export function BankTransactions() {
         cell: ({ row }) =>
           row.original.line.debit_minor > 0 ? (
             <span className="text-ink">
-              {money(row.original.line.debit_minor)}
+              <CellMoney minor={row.original.line.debit_minor} />
             </span>
           ) : (
             <span className="text-hairline-strong">·</span>
@@ -299,7 +300,7 @@ export function BankTransactions() {
         cell: ({ row }) =>
           row.original.line.credit_minor > 0 ? (
             <span className="font-medium text-ok-fg">
-              {money(row.original.line.credit_minor)}
+              <CellMoney minor={row.original.line.credit_minor} />
             </span>
           ) : (
             <span className="text-hairline-strong">·</span>

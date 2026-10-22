@@ -20,4 +20,15 @@ total: number,
  * How the requests in the site and the search split by stage, ignoring
  * which stages are ticked — what the screen's strip counts.
  */
-statuses: Array<GaMaintenanceFacet>, };
+statuses: Array<GaMaintenanceFacet>, 
+/**
+ * How the requests in the site, the search and the ticked stages (the
+ * tab) split by category, ignoring which categories are ticked. Every
+ * category is listed, an empty one with 0; the label is its name.
+ */
+categories: Array<GaMaintenanceFacet>, 
+/**
+ * Requests in the site and the search that are overdue on the business
+ * day: needed before it and not yet received. Whatever the tab.
+ */
+overdue: number, };

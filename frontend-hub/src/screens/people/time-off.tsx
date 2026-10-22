@@ -26,11 +26,9 @@ import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { dateRange, day } from "@/lib/format"
 import {
-  currentMonth,
   fileLeaveFor,
   monthBounds,
   monthTitle,
-  stepMonth,
   useActiveEmployees,
 } from "@/lib/queries/hr-time"
 import {
@@ -45,7 +43,13 @@ import {
 } from "@/lib/queries/people"
 import { queryState } from "@/lib/query-state"
 import { tableSetup, type TableSetup } from "@/lib/table"
-import { monthOptions } from "@/screens/people/parts"
+import {
+  MonthChoice,
+  UnitFilter,
+  monthOptions,
+  useHrMonth,
+  useUnitFilter,
+} from "@/screens/people/parts"
 import { CardFigure, CardName } from "@/components/ui/phone-cards"
 import type { LeaveRequestView } from "@itulah/contract"
 
@@ -69,6 +73,7 @@ interface Row {
   readonly key: string
   readonly employeeId: string
   readonly name: string
+  readonly unitId: string
   /// The unit's name, as the people list spells it.
   readonly unit: string
   readonly kind: string
@@ -196,7 +201,9 @@ const columns: ColumnDef<TableSetup, Row>[] = [
 export function TimeOffRequests() {
   const phone = useLayout() === "phone"
   const [view, setView] = useState<View>("WAITING")
-  const [month, setMonth] = useState(currentMonth)
+  // The month and unit are HR's own, kept as you move between its pages.
+  const [month, setMonth] = useHrMonth()
+  const place = useUnitFilter()
   const [search, setSearch] = useState("")
   const [opened, setOpened] = useState<Row | null>(null)
   const [filing, setFiling] = useState(false)
@@ -245,6 +252,7 @@ export function TimeOffRequests() {
         key: one.id,
         employeeId: one.employee_id,
         name: nameOf(one.employee_id),
+        unitId: one.unit_id,
         unit: unitNames.get(one.unit_id) ?? one.unit_id,
         kind: one.leave_type_name,
         leaveType: one.leave_type,
@@ -274,6 +282,7 @@ export function TimeOffRequests() {
         key: `${span.employee_id}-${span.leave_type}-${span.from_date}-${span.to_date}`,
         employeeId: span.employee_id,
         name: span.full_name ?? span.employee_code,
+        unitId: span.unit_id,
         unit: unitNames.get(span.unit_id) ?? span.unit_id,
         kind: span.leave_name,
         leaveType: span.leave_type,
@@ -292,15 +301,16 @@ export function TimeOffRequests() {
       (view === "WAITING" ? waitingRows : monthRows)
         .filter(
           (row) =>
-            needle === "" ||
-            row.name.toLowerCase().includes(needle) ||
-            row.kind.toLowerCase().includes(needle) ||
-            row.unit.toLowerCase().includes(needle)
+            (place.unitId === null || row.unitId === place.unitId) &&
+            (needle === "" ||
+              row.name.toLowerCase().includes(needle) ||
+              row.kind.toLowerCase().includes(needle) ||
+              row.unit.toLowerCase().includes(needle))
         )
         .sort(
           (a, b) => a.from.localeCompare(b.from) || a.name.localeCompare(b.name)
         ),
-    [view, waitingRows, monthRows, needle]
+    [view, waitingRows, monthRows, needle, place.unitId]
   )
   const table = useTable(
     useMemo(
@@ -329,7 +339,7 @@ export function TimeOffRequests() {
   return (
     <PageContent>
       <PageHeader
-        title="Time off"
+        title="Leave"
         actions={
           !phone && (
             <Button variant="primary" onClick={() => setFiling(true)}>
@@ -350,6 +360,11 @@ export function TimeOffRequests() {
       {phone ? (
         <>
           <Fab label="Request leave" onClick={() => setFiling(true)} />
+          <UnitFilter
+            unitId={place.unitId}
+            units={place.units}
+            onChange={place.setUnitId}
+          />
           <DockTools
             search={{
               value: search,
@@ -394,26 +409,13 @@ export function TimeOffRequests() {
               { value: "MONTH", label: "By month" },
             ]}
           />
+          <UnitFilter
+            unitId={place.unitId}
+            units={place.units}
+            onChange={place.setUnitId}
+          />
           {view === "MONTH" && (
-            <ButtonGroup>
-              <Button
-                variant="ghost"
-                aria-label="Previous month"
-                onClick={() => setMonth(stepMonth(month, -1))}
-              >
-                ‹
-              </Button>
-              <Button variant="ghost" onClick={() => setMonth(currentMonth())}>
-                {monthTitle(month)}
-              </Button>
-              <Button
-                variant="ghost"
-                aria-label="Next month"
-                onClick={() => setMonth(stepMonth(month, 1))}
-              >
-                ›
-              </Button>
-            </ButtonGroup>
+            <MonthChoice month={month} onChange={setMonth} />
           )}
           <Toolbar.Spacer />
           <ExpandingSearch

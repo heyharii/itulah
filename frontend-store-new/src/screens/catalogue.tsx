@@ -17,7 +17,7 @@ import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { Screen } from "@/components/ui/screen"
 import { Segmented } from "@/components/ui/segmented"
 import { Banner, EmptyState } from "@/components/ui/states"
-import { count, label } from "@/lib/format"
+import { articleId, count, label, pcs, sku as skuText } from "@/lib/format"
 import { useGo } from "@/lib/go"
 import { useLayout } from "@/lib/layout"
 import { useParam, type Search as UrlSearch } from "@/lib/params"
@@ -627,7 +627,11 @@ function matchesWords(row: CatalogRow, needle: string): boolean {
   if (needle === "") return true
   const haystack =
     `${row.name} ${row.sku_code} ${row.barcode ?? ""} ${row.article_code ?? ""}`.toLowerCase()
-  return needle.split(/\s+/).every((word) => haystack.includes(word))
+  return needle
+    .split(/\s+/)
+    .every(
+      (word) => haystack.includes(word) || haystack.includes(word.replace(/·/g, "")),
+    )
 }
 
 /// One article — or one SKU — as a shop's product tile.
@@ -796,6 +800,11 @@ function ProductTile({
         <p className="line-clamp-2 text-[0.9375rem] leading-snug font-medium break-words text-ink">
           {shape.name}
         </p>
+        <p className="truncate font-mono text-[0.875rem] text-mute">
+          {bySku
+            ? `${articleId(lead.row.article_code, lead.row.sku_code)} · ${skuText(lead.row.sku_code)}`
+            : articleId(lead.row.article_code, lead.row.sku_code)}
+        </p>
         {deal !== undefined && (
           <p className="truncate text-[0.875rem] text-accent">{deal}</p>
         )}
@@ -840,7 +849,7 @@ function ProductTile({
             )}
           </span>
           {pieces !== null && !stamped && (
-            <span className="shrink-0 tabular-nums">{count(pieces)} pcs</span>
+            <span className="shrink-0 tabular-nums">{pcs(pieces)}</span>
           )}
         </div>
       </div>

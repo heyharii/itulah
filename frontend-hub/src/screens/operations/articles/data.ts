@@ -20,6 +20,7 @@ import {
 } from "@/lib/queries/supplier-returns"
 import { SHOW_MISSING } from "@/lib/features"
 import { useMissingRows } from "@/screens/inventory/missing-data"
+import { sku as skuNumber } from "@/lib/format"
 
 /// Ops › Stock by article: every pool of Ops › Stock, read per SKU and folded
 /// to one row per article.
@@ -315,7 +316,11 @@ export function useArticles() {
         (parts.code !== undefined ? byCode.get(parts.code) : undefined)
       if (known !== undefined) return draft(known, name, parts.code ?? "")
       const own = parts.code ?? parts.sku ?? name
-      return draft(`c:${own}`, name, own)
+      return draft(
+        `c:${own}`,
+        name,
+        parts.code ?? (parts.sku !== undefined ? skuNumber(parts.sku) : name)
+      )
     }
     const put = (
       a: Draft,

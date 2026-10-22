@@ -42,10 +42,11 @@ const DC_CAPABILITIES: [&str; 8] = [
     crate::sync::node_ops::NODE_ACTIONS_CAPABILITY,
 ];
 
-const STORE_CAPABILITIES: [&str; 8] = [
+const STORE_CAPABILITIES: [&str; 9] = [
     "inventory.pools.owned",
     "inventory.movements.read",
     crate::sync::workflow::STORE_INBOUND_CAPABILITY,
+    crate::sync::workflow::STORE_ON_HOLD_CAPABILITY,
     crate::sync::workflow::GOODS_ROUTES_CAPABILITY,
     crate::sync::workflow::TRANSIT_SHORT_CAPABILITY,
     crate::sync::flow::FLOWS_CAPABILITY,

@@ -3,6 +3,16 @@ import java.util.Properties
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    // The Compose compiler, versioned with Kotlin (root build.gradle.kts). It
+    // replaces `composeOptions.kotlinCompilerExtensionVersion`, which is gone.
+    //
+    // Strong skipping is its default from Kotlin 2.0.20 and it is what this app
+    // relies on: a composable whose arguments are the SAME instances as last
+    // time is skipped even when their types are not provably stable, and a
+    // lambda is remembered by what it captures instead of rebuilt on every
+    // recomposition. Without it, a screen handed a data class with a List in it
+    // could never skip at all.
+    id("org.jetbrains.kotlin.plugin.compose")
 }
 // The release signing material, when this machine has it.
 //
@@ -37,7 +47,6 @@ android {
             }
         }
     }
-    composeOptions { kotlinCompilerExtensionVersion = "1.5.14" }
     buildTypes {
         debug {
             isMinifyEnabled = false
@@ -55,12 +64,19 @@ android {
             buildConfigField("boolean", "BENCH", "true")
         }
         release {
-            // R8 is off: the vendor DeviceAPI aar references classes it does not
-            // ship, and shrinking it needs keep rules that are a separate piece
-            // of work. The speed that matters here does not come from R8 anyway
-            // — it comes from the build not being debuggable, which turns off
-            // Compose's composition tracing.
+            // R8 is off: the vendor DeviceAPI aar references a class it does not
+            // ship and is called into by name from its own native libraries, so
+            // shrinking it needs keep rules. They are written (proguard-rules.pro)
+            // and wired below, and do nothing while this stays false. Switch it on
+            // only after a release built with them has swept, filed and received
+            // on a real C5. The speed that matters most here does not come from
+            // R8 anyway — it comes from the build not being debuggable, which
+            // turns off Compose's composition tracing.
             isMinifyEnabled = false
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
             // Nothing that can make a count mean something other than what it
             // says survives into a release. See `Lab` and `openCatalogue`.
             buildConfigField("boolean", "BENCH", "false")
@@ -87,7 +103,11 @@ android {
 }
 dependencies {
     implementation(files("libs/DeviceAPI_ver20251103_release.aar"))
-    implementation(platform("androidx.compose:compose-bom:2024.06.00"))
+    // Compose 1.7.3 and Material 3 1.3.0. Both still build against compileSdk
+    // 34; Compose 1.8 is the release that asks for 35. Compose UI 1.7 itself
+    // pulls lifecycle-runtime-compose up to 2.8.3 and needs activity 1.7+, so
+    // the versions below stay as they are.
+    implementation(platform("androidx.compose:compose-bom:2024.09.03"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")

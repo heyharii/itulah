@@ -336,7 +336,7 @@ async fn signed_rfid_evidence_survives_offline_queue_and_reaches_cloud(pool: PgP
         observed_at,
         idempotency_key: "rfid-offline-1".into(),
         observations: vec![RfidRead {
-            epc: "EPC00000001".into(),
+            epc: "E28000000000000000000001".into(),
             antenna: Some("A1".into()),
             rssi: Some(-43.0),
             phase: None,
@@ -387,7 +387,10 @@ async fn signed_rfid_evidence_survives_offline_queue_and_reaches_cloud(pool: PgP
     .fetch_one(&pool)
     .await
     .unwrap_or_else(|error| panic!("Cloud observation: {error}"));
-    assert_eq!(observation.get::<String, _>("epc"), "EPC00000001");
+    assert_eq!(
+        observation.get::<String, _>("epc"),
+        "E28000000000000000000001"
+    );
     assert_eq!(observation.get::<String, _>("device_id"), "RFID-07");
     assert_eq!(
         observation

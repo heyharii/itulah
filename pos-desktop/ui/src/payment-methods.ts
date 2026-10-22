@@ -42,11 +42,11 @@ const SHAPE: Record<
 > = {
   CASH: { label: "Cash", icon: "cash", wire: "CASH", cardKind: null, order: 0 },
   DEBIT_CARD: { label: "Debit", icon: "card", wire: "CARD", cardKind: "DEBIT", order: 1 },
-  CREDIT_CARD: { label: "Kredit", icon: "card", wire: "CARD", cardKind: "CREDIT", order: 2 },
+  CREDIT_CARD: { label: "Credit", icon: "card", wire: "CARD", cardKind: "CREDIT", order: 2 },
   QRIS: { label: "QRIS", icon: "qr", wire: "QRIS", cardKind: null, order: 3 },
-  EWALLET: { label: "E-Wallet", icon: "wallet", wire: "EWALLET", cardKind: null, order: 4 },
+  EWALLET: { label: "E-wallet", icon: "wallet", wire: "EWALLET", cardKind: null, order: 4 },
   VOUCHER: { label: "Voucher", icon: "voucher", wire: "VOUCHER", cardKind: null, order: 5 },
-  BENEFIT: { label: "Saldo karyawan", icon: "wallet", wire: "BENEFIT", cardKind: null, order: 6 },
+  BENEFIT: { label: "Employee balance", icon: "wallet", wire: "BENEFIT", cardKind: null, order: 6 },
   // POINTS is deliberately absent: not offered on the till yet.
 }
 
@@ -68,7 +68,7 @@ export const FALLBACK_TILES: readonly MethodTile[] = [
   { key: "CREDIT", ...SHAPE.CREDIT_CARD, needsBank: true, choices: bankChoices() },
   { key: "QRIS", ...SHAPE.QRIS, needsBank: true, choices: bankChoices() },
   { key: "VOUCHER", ...SHAPE.VOUCHER, needsBank: false, choices: [{ code: null, label: "Voucher", acquirer: null }] },
-  { key: "BENEFIT", ...SHAPE.BENEFIT, needsBank: false, choices: [{ code: null, label: "Saldo karyawan", acquirer: null }] },
+  { key: "BENEFIT", ...SHAPE.BENEFIT, needsBank: false, choices: [{ code: null, label: "Employee balance", acquirer: null }] },
 ].map(({ order: _order, ...tile }) => tile)
 
 /// Group the master's methods into tiles. Null when nothing usable came back,

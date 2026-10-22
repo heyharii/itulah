@@ -1,7 +1,7 @@
 import { count, day } from "@/lib/format"
 import { COMPANY } from "@/screens/finance-lab/print"
 import { escapeHtml } from "@/screens/procurement/print"
-import { titled } from "@/screens/procurement/po-print"
+import { paperShape, titled, type Paper } from "@/screens/procurement/po-print"
 import {
   foldLines,
   NOT_AS_ORDERED_PAPER_ROW,
@@ -89,7 +89,12 @@ export function noteFigures(note: PrintableNote) {
 /// Two A4 pages, both signed by the supplier as Penerima: the one the Gudang
 /// keeps, then the SUPPLIER COPY, stamped across like the PO's stamp, which
 /// the supplier takes away.
-export function supplierReturnHtml(note: PrintableNote): string {
+export function supplierReturnHtml(
+  note: PrintableNote,
+  paper: Paper = "A4-portrait"
+): string {
+  const { size, portrait } = paperShape(paper)
+  const small = size === "A5"
   const e = escapeHtml
   const figures = noteFigures(note)
   const pcs = (n: number) => `${count(n)} pcs`
@@ -97,7 +102,7 @@ export function supplierReturnHtml(note: PrintableNote): string {
   const rows = [
     ...figures.items.map((one) => ({
       name: one.name,
-      sub: null as string | null,
+      sub: one.sku as string | null,
       note: figures.notes[one.sku] ?? "",
       qty: one.qty,
     })),
@@ -178,10 +183,10 @@ ${copy ? `<div class="copy">SUPPLIER COPY</div>` : ""}
   return `<!doctype html><html lang="id"><head><meta charset="utf-8"><title>${e(
     `Surat jalan retur ${note.supplier}`
   )}</title><style>
-@page { size: A4 portrait; margin: 0; }
+@page { size: ${size} ${portrait ? "portrait" : "landscape"}; margin: 0; }
 * { box-sizing: border-box; }
-body { font-family: Inter, -apple-system, "Segoe UI", sans-serif; font-size: 13px; color: #1d1f1a; margin: 0; }
-.page { padding: 14mm 16mm; position: relative; break-after: page; page-break-after: always; }
+body { font-family: Inter, -apple-system, "Segoe UI", sans-serif; font-size: ${small ? (portrait ? 11 : 10) : 13}px; color: #1d1f1a; margin: 0; }
+.page { padding: ${small ? "9mm 10mm" : "14mm 16mm"}; position: relative; break-after: page; page-break-after: always; }
 .page:last-child { break-after: auto; page-break-after: auto; }
 .stamp { position: absolute; top: 16mm; left: 50%; transform: translateX(-30%) rotate(-6deg); border: 3px solid #78b896; color: #78b896; border-radius: 6px; padding: 2px 12px; font-size: 20px; font-weight: 700; letter-spacing: .12em; text-align: center; opacity: .8; pointer-events: none; }
 .stamp span { display: block; font-size: 13px; letter-spacing: .04em; }
@@ -190,7 +195,7 @@ body { font-family: Inter, -apple-system, "Segoe UI", sans-serif; font-size: 13p
 .head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; border-bottom: 2px solid #1d1f1a; padding-bottom: 8px; }
 .company { font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
 .muted { color: #5b6158; }
-h1 { font-size: 18px; letter-spacing: .04em; margin: 0 0 6px; }
+h1 { font-size: ${small ? 15 : 18}px; letter-spacing: .04em; margin: 0 0 6px; }
 .meta { border-collapse: collapse; flex-shrink: 0; }
 .meta td { padding: 1px 0; vertical-align: top; }
 .meta td:first-child { color: #5b6158; padding-right: 10px; }
@@ -199,7 +204,7 @@ h1 { font-size: 18px; letter-spacing: .04em; margin: 0 0 6px; }
 .to .label { color: #5b6158; }
 table.lines { width: 100%; border-collapse: collapse; margin-top: 6px; border: 1px solid #1d1f1a; }
 table.lines th { text-align: left; font-weight: 500; color: #5b6158; border: 1px solid #1d1f1a; padding: 7px 8px; }
-table.lines td { border: 1px solid #1d1f1a; padding: 9px 8px; vertical-align: top; }
+table.lines td { border: 1px solid #1d1f1a; padding: ${small ? 5 : 9}px 8px; vertical-align: top; }
 table.lines .num, table.lines th.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; width: 30mm; }
 .it { display: flex; gap: 10px; }
 .it .no { width: 18px; flex-shrink: 0; }
@@ -210,11 +215,12 @@ table.lines tr.total td:first-child { text-align: right; }
 thead { display: table-header-group; }
 tr { break-inside: avoid; page-break-inside: avoid; }
 .sender { margin-top: 10px; }
-.sign { margin-top: 22px; break-inside: avoid; display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; }
-/* Hormat kami at the left, Penerima at the far right (owner, 2026-10-16). */
-.sign .pair { display: flex; justify-content: space-between; gap: 56px; width: 100%; }
+.sign { margin-top: calc(${small ? 8 : 22}px + 2.6em); break-inside: avoid; display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; }
+/* Hormat kami beside Penerima at the right, two lines lower (owner, 2026-10-18). */
+.sign .pair { display: flex; justify-content: flex-end; gap: 10mm; width: 100%; }
+.sign .pair > div { width: 50mm; }
 .sign .pair > div:last-child { text-align: right; }
-.sign .space { height: 70px; }
+.sign .space { height: ${small ? 34 : 70}px; }
 .sign .who { font-weight: 600; }
 </style></head><body>
 ${page(false)}

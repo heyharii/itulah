@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react"
 
 import * as api from "@/api"
 import { Icon } from "@/icons"
+import { articleId, sku } from "@/sku"
 import { money } from "@itulah/contract/money"
 
 /// Four things a cashier does that are neither scanning nor taking money.
@@ -272,23 +273,23 @@ export function HoldList({
                         onDrop(one.id)
                       }}
                     >
-                      Ya, buang
+                      Yes, discard
                     </button>
                   </>
                 ) : (
                   <>
                     <button
-                      className="btn"
+                      className="btn ghost"
                       onClick={() => setDropping(one.id)}
                     >
-                      Buang
+                      Discard
                     </button>
                     <button
                       className="btn primary"
                       disabled={!canResume}
                       onClick={() => onResume(one.id)}
                     >
-                      Lanjutkan
+                      Resume
                     </button>
                   </>
                 )}
@@ -691,9 +692,14 @@ export function ReceiptPreview({
                   {doc.lines.map((line, at) => (
                     <div className="receipt-line" key={`${line.skuCode}-${at}`}>
                       <span>
-                        {line.name ?? line.skuCode ?? "No name on the receipt"}{" "}
+                        {line.name ??
+                          (line.skuCode === null
+                            ? "No name on the receipt"
+                            : sku(line.skuCode))}{" "}
                         <small className="num muted">
-                          {line.skuCode ?? "no SKU"}
+                          {line.skuCode === null
+                            ? "no SKU"
+                            : `${articleId(null, line.skuCode)} · ${sku(line.skuCode)}`}
                         </small>
                         {line.quantity !== null && line.quantity !== 1 && (
                           <small className="num muted">
@@ -869,7 +875,7 @@ type Charge = {
 /// What is deliberately not on this list: a tote sold as merchandise. That is
 /// goods, it carries a tag, and selling it as a fee would take it off the
 /// counter without taking it out of stock.
-const BAGS: readonly Charge[] = [
+export const BAGS: readonly Charge[] = [
   {
     code: "PACKAGING",
     description: "Small paper bag",

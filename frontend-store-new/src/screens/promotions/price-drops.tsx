@@ -11,7 +11,7 @@ import { OpenButton } from "@/components/ui/open-rows"
 import { Screen } from "@/components/ui/screen"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { EmptyState } from "@/components/ui/states"
-import { count, moment } from "@/lib/format"
+import { articleId, count, moment, sku } from "@/lib/format"
 import { useGo } from "@/lib/go"
 import { useLayout } from "@/lib/layout"
 import { isDown } from "@/lib/prices"
@@ -114,7 +114,10 @@ function DropList({ offers }: { offers: StoreOffers }) {
   const articles = marked.filter(
     (row) =>
       needle === "" ||
-      `${row.name} ${row.sku_code}`.toLowerCase().includes(needle),
+      `${row.name} ${row.sku_code}`.toLowerCase().includes(needle) ||
+      `${row.name} ${row.sku_code}`
+        .toLowerCase()
+        .includes(needle.replace(/·/g, "")),
   )
 
   if (every.length === 0) {
@@ -206,7 +209,8 @@ function DropList({ offers }: { offers: StoreOffers }) {
                       {row.name}
                     </span>
                     <span className="block font-mono text-id text-mute">
-                      {row.sku_code}
+                      {articleId(row.article_code, row.sku_code)} ·{" "}
+                      {sku(row.sku_code)}
                     </span>
                   </OpenButton>
                 ),
@@ -256,7 +260,7 @@ function DropList({ offers }: { offers: StoreOffers }) {
                 />
               ),
               title: row.name,
-              code: row.sku_code,
+              code: `${articleId(row.article_code, row.sku_code)} · ${sku(row.sku_code)}`,
               lead: {
                 figure: money(row.unit_price_minor, currency),
                 // Both numbers, because a was-price with nothing struck through

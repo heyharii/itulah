@@ -27,6 +27,7 @@ fn request(name: &str, code: Option<&str>, legal_form: Option<&str>) -> CreateSu
         default_payment_terms_code: None,
         legal_form: legal_form.map(str::to_owned),
         notes: None,
+        kind: None,
     }
 }
 

@@ -416,7 +416,14 @@ class ScanEngine {
      * count that gets filed. Tags read in the last few milliseconds are still in
      * the ring, and stopping without draining loses exactly the tags somebody
      * was reaching for when they stopped.
+     *
+     * Synchronized because two callers can arrive at once: a sweep's stop is
+     * allowed to finish while the screen is being torn down, and the teardown
+     * stops the engine too. Two drains running together would absorb into the
+     * worker's maps from two threads; one after the other, the second finds
+     * nothing left to do.
      */
+    @Synchronized
     fun stop() {
         running = false
         worker?.let { runCatching { it.join(1_000) } }

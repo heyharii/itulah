@@ -33,6 +33,29 @@ pub struct BenefitEntryView {
     pub at: DateTime<Utc>,
 }
 
+/// One movement in the company-wide history: the entry, and whose balance
+/// it moved.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct BenefitMovementRow {
+    pub id: String,
+    pub employee_id: String,
+    pub employee_code: String,
+    pub full_name: Option<String>,
+    /// Where the person is posted now — what the unit filter reads.
+    pub employee_unit_id: Option<String>,
+    /// `ADD`, `REMOVE`, `RESET`, `SPEND` or `RETURN`.
+    pub kind: String,
+    pub delta_minor: i64,
+    pub balance_after: i64,
+    pub reason: String,
+    /// The till's unit, on a spend or a return.
+    pub unit_id: Option<String>,
+    pub sale_ref: Option<String>,
+    pub by: String,
+    pub at: DateTime<Utc>,
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct BenefitAccountView {
@@ -277,6 +300,63 @@ pub async fn benefit_account(
         balance_minor: entries.first().map_or(0, |entry| entry.balance_after),
         entries,
     })
+}
+
+/// Every movement of every balance, newest first: Benefits › History.
+///
+/// `from`/`to` are calendar days in Jakarta, both ends included; `unit` is
+/// where the person is posted now, the same unit the balances list shows.
+pub async fn benefit_movements(
+    pool: &PgPool,
+    from: Option<NaiveDate>,
+    to: Option<NaiveDate>,
+    unit: Option<&str>,
+) -> Result<Vec<BenefitMovementRow>, AppError> {
+    let rows = sqlx::query(
+        "SELECT b.id, b.employee_id, e.code, p.full_name, posted.unit_id AS employee_unit_id,
+                b.kind, b.delta_minor, b.balance_after, b.reason, b.unit_id, b.sale_ref,
+                b.by_actor->>'actor' AS by_name, b.created_at
+           FROM benefit_entry b
+           JOIN employee e ON e.id = b.employee_id
+           LEFT JOIN employee_profile p ON p.employee_id = b.employee_id
+           LEFT JOIN LATERAL (
+                SELECT a.unit_id FROM employee_assignment a
+                 WHERE a.employee_id = b.employee_id
+                   AND (a.valid_to IS NULL OR a.valid_to >= current_date)
+                 ORDER BY a.valid_from LIMIT 1
+           ) posted ON TRUE
+          WHERE ($1::date IS NULL OR (b.created_at AT TIME ZONE 'Asia/Jakarta')::date >= $1)
+            AND ($2::date IS NULL OR (b.created_at AT TIME ZONE 'Asia/Jakarta')::date <= $2)
+            AND ($3::text IS NULL OR posted.unit_id = $3)
+          ORDER BY b.created_at DESC, b.id DESC
+          LIMIT 1000",
+    )
+    .bind(from)
+    .bind(to)
+    .bind(unit)
+    .fetch_all(pool)
+    .await?;
+    rows.iter()
+        .map(|row| {
+            Ok(BenefitMovementRow {
+                id: row.try_get("id")?,
+                employee_id: row.try_get("employee_id")?,
+                employee_code: row.try_get("code")?,
+                full_name: row.try_get("full_name")?,
+                employee_unit_id: row.try_get("employee_unit_id")?,
+                kind: row.try_get("kind")?,
+                delta_minor: row.try_get("delta_minor")?,
+                balance_after: row.try_get("balance_after")?,
+                reason: row.try_get("reason")?,
+                unit_id: row.try_get("unit_id")?,
+                sale_ref: row.try_get("sale_ref")?,
+                by: row
+                    .try_get::<Option<String>, _>("by_name")?
+                    .unwrap_or_default(),
+                at: row.try_get("created_at")?,
+            })
+        })
+        .collect()
 }
 
 /// Everybody working, with what they hold — zero included, so a list is

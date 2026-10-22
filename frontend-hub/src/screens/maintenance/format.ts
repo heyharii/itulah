@@ -2,10 +2,14 @@ import {
   AppWindow,
   Armchair,
   Building2,
+  Calendar,
+  CalendarDays,
   Car,
   CircleCheck,
   CircleX,
   Droplets,
+  Gauge,
+  House,
   Monitor,
   MoveVertical,
   Paintbrush,
@@ -16,9 +20,12 @@ import {
 } from "lucide-react"
 
 import type { Tile } from "@/components/ui/form"
+import { today } from "@/lib/calendar"
 import { count, day } from "@/lib/format"
+import { kmDue } from "@/screens/assets/asset-words"
 import type {
   GaInspectionRow,
+  GaMaintenanceTaskRow,
   GaRepairObject,
   GaRepairRow,
 } from "@itulah/contract"
@@ -42,7 +49,7 @@ const OBJECT_ICONS: Readonly<Record<string, LucideIcon>> = {
   SOFTWARE: AppWindow,
   KOMPUTER: Monitor,
   BANGUNAN: Building2,
-  STAFF_HOUSE: Building2,
+  STAFF_HOUSE: House,
   KENDARAAN: Car,
   AC: Snowflake,
   POWER_PLANT: Zap,
@@ -55,9 +62,8 @@ export function repairObjectIcon(code: string): LucideIcon {
   return OBJECT_ICONS[code] ?? Paintbrush
 }
 
-/// The composer's cards, straight off the wire. The account code rides as
-/// the tile's `tag` — a figure the reader checks against the chart, not
-/// prose — for the same reason the contract types' cards carry theirs.
+/// The composer's cards, straight off the wire: the object's name and its
+/// glyph. The account it bills to is Finance's map, so it stays off the tile.
 export function repairObjectTiles(
   objects: readonly GaRepairObject[]
 ): readonly (Tile<string> & { code: string })[] {
@@ -66,7 +72,6 @@ export function repairObjectTiles(
     code: one.code,
     label: one.name,
     icon: repairObjectIcon(one.code),
-    tag: one.account_code,
   }))
 }
 
@@ -102,13 +107,46 @@ export function repairStageWords(status: string): string {
   }
 }
 
+/// What a repair reads as in a list or a sheet's head: a word and the tone of
+/// its dot. The one stage that wants a person (the budget waiting for an
+/// approver) is warm; the finished ones recede.
+export function repairState(status: string): {
+  word: string
+  tone: "warn" | "info" | "neutral" | "done"
+} {
+  switch (status) {
+    case "OPEN":
+      return { word: "Needs approval", tone: "warn" }
+    case "APPROVED":
+      return { word: "Approved", tone: "neutral" }
+    case "IN_PROGRESS":
+      return { word: "In progress", tone: "info" }
+    case "COMPLETED":
+      return { word: "Done", tone: "done" }
+    case "CLOSED":
+      return { word: "Closed", tone: "done" }
+    default:
+      return { word: "Cancelled", tone: "done" }
+  }
+}
+
+/// Whether a repair is still somebody's work: the Open tab. Done, closed and
+/// cancelled repairs are the Done tab.
+export function repairIsOpen(status: string): boolean {
+  return status === "OPEN" || status === "APPROVED" || status === "IN_PROGRESS"
+}
+
 /// Which stages a repair may move to from here — the legal `to` list, in
 /// flow order. CANCELLED is reachable from everywhere but the ends, and the
 /// ends offer nothing: a cancelled repair stays a cancelled repair.
+///
+/// From OPEN the only way to APPROVED is the "Approve budget" action, which
+/// records the approved figure; the plain move would skip it, so it is not
+/// offered here.
 export function repairNextStages(status: string): readonly string[] {
   switch (status) {
     case "OPEN":
-      return ["APPROVED", "CANCELLED"]
+      return ["CANCELLED"]
     case "APPROVED":
       return ["IN_PROGRESS", "CANCELLED"]
     case "IN_PROGRESS":
@@ -144,6 +182,26 @@ export function replacementStageWords(status: string): string {
       return "Installed"
     default:
       return "Done"
+  }
+}
+
+/// What a replacement reads as in a list or a sheet's head: a word and the tone
+/// of its dot. A proposal waiting for a decision is warm; the one being
+/// installed is in motion; a closed swap recedes.
+export function replacementState(status: string): {
+  word: string
+  tone: "warn" | "info" | "neutral" | "done"
+} {
+  switch (status) {
+    case "PROPOSED":
+      return { word: "Proposed", tone: "warn" }
+    case "APPROVED":
+    case "PURCHASED":
+      return { word: replacementStageWords(status), tone: "neutral" }
+    case "INSTALLED":
+      return { word: "Installed", tone: "info" }
+    default:
+      return { word: "Done", tone: "done" }
   }
 }
 
@@ -236,6 +294,14 @@ export function nextDueAfter(
   return null
 }
 
+/// Whole days from the reader's today to `iso` — negative once it has passed.
+export function daysUntil(iso: string): number {
+  return Math.round(
+    (Date.parse(`${iso}T00:00:00`) - Date.parse(`${today()}T00:00:00`)) /
+      86_400_000
+  )
+}
+
 /// A task's own status, read off its next date — the prototype's three
 /// tones: late in bad, inside a week in warn, otherwise the date itself in
 /// quiet. Today is the browser's because the schedule is read against the
@@ -250,14 +316,78 @@ export function taskState(nextDue: string | null): {
     // calendar. Saying "overdue" about it would be inventing a fact.
     return { tone: "neutral", label: "follows odometer" }
   }
-  const today = new Date().toISOString().slice(0, 10)
-  const days = Math.round(
-    (Date.parse(`${nextDue}T00:00:00`) - Date.parse(`${today}T00:00:00`)) /
-      86_400_000
-  )
+  const days = daysUntil(nextDue)
   if (days < 0) return { tone: "bad", label: `${-days} days overdue` }
   if (days <= 7) return { tone: "warn", label: `in ${days} days` }
   return { tone: "neutral", label: day(nextDue) }
+}
+
+/// The three ways a schedule counts to its next service, with the glyph each
+/// wears on the bar's chips and the form's tiles.
+export const INTERVAL_KINDS = [
+  { value: "DAYS", label: "Days", icon: CalendarDays },
+  { value: "MONTHS", label: "Months", icon: Calendar },
+  { value: "KM", label: "Kilometres", icon: Gauge },
+] as const
+
+/// Where a task stands, said for a table row: the word and the tone of its
+/// dot, and what its Next due cell reads. A task is late once its date has
+/// passed, or the latest odometer reading has reached its distance — and only
+/// then is the cell red.
+export function taskStanding(row: GaMaintenanceTaskRow): {
+  word: string
+  tone: "bad" | "warn" | "neutral" | "done"
+  late: boolean
+  due: string
+} {
+  const byDistance = row.interval_kind === "KM"
+  const reading = row.odometer_km ?? null
+  const target = byDistance ? kmDue(row, reading) : null
+  const due = byDistance
+    ? target === null
+      ? "—"
+      : `At ${count(target)} km`
+    : row.next_due === null
+      ? "—"
+      : day(row.next_due)
+  const scheduled = {
+    word: "Scheduled",
+    tone: "neutral" as const,
+    late: false,
+    due,
+  }
+  if (row.status === "PAUSED")
+    return { word: "Paused", tone: "done", late: false, due }
+  if (byDistance) {
+    if (target === null || reading === null) return scheduled
+    const left = target - reading
+    if (left <= 0) return { word: "Overdue", tone: "bad", late: true, due }
+    // Inside a tenth of the interval: close enough to book the garage.
+    if (left <= row.interval_value / 10)
+      return { word: "Due soon", tone: "warn", late: false, due }
+    return scheduled
+  }
+  if (row.next_due === null) return { ...scheduled, word: "Not scheduled" }
+  const days = daysUntil(row.next_due)
+  if (days < 0) return { word: "Overdue", tone: "bad", late: true, due }
+  if (days <= 7)
+    return { word: "Due this week", tone: "warn", late: false, due }
+  return scheduled
+}
+
+/// An inspection's result as a dot and a word.
+export function inspectionState(result: string): {
+  word: string
+  tone: "ok" | "warn" | "bad"
+} {
+  switch (result) {
+    case "BAIK":
+      return { word: "Good", tone: "ok" }
+    case "PERHATIAN":
+      return { word: "Needs attention", tone: "warn" }
+    default:
+      return { word: "Broken", tone: "bad" }
+  }
 }
 
 // ── money facts ─────────────────────────────────────────────────────────────

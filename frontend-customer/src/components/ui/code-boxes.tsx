@@ -31,7 +31,7 @@ export function CodeDisplay({
           transition={{ duration: 0.32, delay: reduce ? 0 : index * 0.04, ease: EASE_OUT }}
           className={cn(
             "num flex h-[4.25rem] w-[3.25rem] items-center justify-center rounded-inner bg-canvas font-mono text-code font-medium shadow-soft",
-            dead ? "text-faint line-through" : "text-ink",
+            dead ? "text-faint line-through" : "text-matte-foot",
           )}
         >
           {digit}

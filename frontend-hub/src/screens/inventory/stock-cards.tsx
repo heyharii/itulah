@@ -1,13 +1,13 @@
+import { ChevronRight } from "lucide-react"
 import {
-  useMutation,
   useQuery,
-  useQueryClient,
   useSuspenseQueries,
 } from "@tanstack/react-query"
+import { useHydrated } from "@tanstack/react-router"
 import { Suspense, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
-import { AppLink } from "@/components/ui/app-link"
+import { Input } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
@@ -17,90 +17,81 @@ import { SheetFooter } from "@/components/ui/sheet-footer"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { PlaceStockCard } from "@/screens/inventory/stock-card"
 import { LoadingState } from "@/components/ui/states"
-import { count, day, dayMonth } from "@/lib/format"
+import { count, day, dayMonth, sku as skuNumber } from "@/lib/format"
 import {
-  activateCount,
   allotmentListQuery,
   countsBoardQuery,
-  createCount,
   fleetPoolsQuery,
-  idempotencyKey,
-  inventoryKeys,
   type AllotmentList,
   type AllotmentRow,
+  type CountRow,
   type FleetPool,
 } from "@/lib/queries/inventory"
 import { unitsQuery, type UnitView } from "@/lib/queries/organisation"
 import { useSheet } from "@/lib/sheets"
-import { signed, useActor } from "@/screens/inventory/shared"
 import {
-  useExceptionCases,
-  type ExceptionCase,
-} from "@/screens/inventory/exceptions-data"
+  groupMissing,
+  isTransitPool,
+  useMissingRows,
+} from "@/screens/inventory/missing-data"
+import { MissingSheet } from "@/screens/inventory/missing-list"
+import { CountedCell } from "@/screens/inventory/counts"
+import { signed } from "@/screens/inventory/shared"
+import {
+  handOf,
+  pocketsOf,
+  roleOf,
+  type Pocket,
+} from "@/screens/inventory/stock-pockets"
 import { cn } from "@/lib/utils"
 
-/// Stock, as the owner picked it (inventory-control-options.html, variant
-/// ★E "Store cards"): one card per place the business holds stock, Inventory
-/// beside Observed (C · Books | Seen, 16 Oct 2026), with its last count and
-/// its exceptions. HO, In transit and the stores are three groups: stock in a
-/// truck is at neither end. What is on order is not stock and is not here.
-/// Every figure is live — the fleet read, the allotment rollups and the
-/// exceptions inbox — and a number nobody can compute honestly draws a dash
-/// rather than a guess.
-///
-/// The sheet behind a card is the place's whole story: its figures, then
-/// tabs for the pools the number is made of, the exceptions standing against
-/// it, and the latest movements; the count is the foot's one verb.
+/// Stock, "table A · Calm" (missing-prototype.html): one table, a row per
+/// place. Inventory INCLUDES the place's Missing pocket; Observed is compared
+/// with the on-hand pockets only, because nobody can see what is missing.
+/// HO and In transit are single rows and only the stores get a heading. The
+/// sheet behind a row is the place's pockets, what is missing, its returns,
+/// its stock card and its counts. Every figure is live; a number nobody can
+/// compute honestly draws a dash rather than a guess.
 
-/// An observed/book gap past this share of the book is worth amber. The
-/// prototype's own threshold (1.5%); a hairline the fleet's counts sit
-/// either side of, not a number anybody negotiated.
+/// An observed/on-hand gap past this share of the on-hand is worth amber.
 const GAP_WARN_PCT = 1.5
 
-/// A count older than this is stale, and a place with an exception older
-/// than this wears the bad border. Both from the prototype's `sev()` and
-/// its thirty-day rule.
+/// A count older than this is stale.
 const STALE_DAYS = 30
-/// Exceptions younger than this are still news, not a warning.
-const SEVERE_AFTER_DAYS = 7
 
-/// The card that is not a place, keyed into the same sheet parameter as the
-/// places: values the root validator already accepts (any non-empty
-/// id), interpreted by this screen and by nothing else on this route.
+/// The row that is not a place, keyed into the same sheet parameter as the
+/// places: values the root validator already accepts (any non-empty id),
+/// interpreted by this screen and by nothing else on this route.
 const ROAD_SHEET = "road"
 
-const GRID =
-  "grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
+const TH = "pb-2.5 text-[0.9375rem] font-medium text-body"
+const TD = "py-3 text-[0.9375rem] text-text"
 
 // ---------------------------------------------------------------------------
 // Shapes
 // ---------------------------------------------------------------------------
 
-/// A unit read as a place: its sites, the pools standing in them, and the
-/// figures the card prints. `seen` is null when any contributing pool has
-/// no sightings behind it — a partial sighting total would read as a
-/// total, and the honest answer to "how much of this did a scanner see?"
-/// when only some of it was swept is "unknown".
 interface PlaceFigures {
+  /// Inventory: every pocket, Missing included.
   readonly book: number
+  readonly missing: number
+  /// Inventory without Missing — what a scanner can see.
+  readonly hand: number
+  /// Null when a pool that holds something has never been seen.
   readonly seen: number | null
   readonly lastCountedAt: string | null
   /// Days since that count, or null when the place has never been counted.
   readonly days: number | null
-  /// Every pool at the place's sites, rollups included — the Where section
-  /// filters again, because it shows what goods sit IN, and a rollup is a
-  /// sum of other pools.
+  /// The pools the place is made of (rollups, the road and, at a store, its
+  /// outbound pools left out).
   readonly pools: readonly FleetPool[]
   /// The pool a count starts against: the stockroom (a store's own
-  /// warehouse) or head office's warehouse — the shelf the site's books
-  /// live on.
+  /// warehouse) or head office's warehouse.
   readonly mainPool: FleetPool | undefined
 }
 
 interface PlaceView {
-  /// The sheet parameter value this card opens. The unit's stock-holding
-  /// site — for a store the store itself, for head office the site that
-  /// actually holds pools.
+  /// The sheet parameter value this row opens: the site that holds pools.
   readonly key: string
   readonly kind: "ho" | "store"
   readonly unit: UnitView
@@ -108,12 +99,6 @@ interface PlaceView {
   readonly name: string
   readonly sub: string
   readonly fig: PlaceFigures
-  /// The open cases at this place, or null while the inbox is loading —
-  /// "No exceptions" is a finding, and a finding waits for its read.
-  readonly cases: readonly ExceptionCase[] | null
-  /// Pieces allotted to this place and not yet received, or null while the
-  /// allotment book is loading.
-  readonly onRoad: number | null
 }
 
 // ---------------------------------------------------------------------------
@@ -121,28 +106,44 @@ interface PlaceView {
 // ---------------------------------------------------------------------------
 
 function figuresFor(
+  kind: "ho" | "store",
   siteIds: readonly string[],
   fleet: readonly FleetPool[]
 ): PlaceFigures {
-  const pools = fleet.filter((pool) => siteIds.includes(pool.site_id))
   // Only what the server itself counts: a shadowed Cloud row under an Edge
   // node is a second telling of the same shelf, and the fleet read marks it.
-  const counted = pools.filter((pool) => pool.authority.included_in_fleet_total)
+  const here = fleet.filter(
+    (pool) =>
+      siteIds.includes(pool.site_id) &&
+      !pool.is_rollup &&
+      pool.authority.included_in_fleet_total
+  )
+  const pools = here.filter((pool) => {
+    const role = roleOf(pool)
+    if (role === "IN_TRANSIT") return false
+    // A store's own outbound pools are not its stock to show.
+    if (kind === "store") {
+      return role === "FLOOR" || role === "STOCKROOM" || role === "REJECT"
+    }
+    return true
+  })
 
-  const book = counted.reduce((running, pool) => running + pool.stock, 0)
+  const book = pools.reduce((sum, pool) => sum + pool.stock, 0)
+  const missing = pools.reduce((sum, pool) => sum + (pool.missing ?? 0), 0)
+  const hand = book - missing
 
   let seen: number | null = 0
-  for (const pool of counted) {
-    const observed = pool.observed
-    if (observed === null || observed === undefined) {
+  for (const pool of pools) {
+    if (handOf(pool) === 0 && (pool.observed ?? 0) === 0) continue
+    if (pool.observed === null || pool.observed === undefined) {
       seen = null
       break
     }
-    seen = (seen ?? 0) + observed
+    seen += pool.observed
   }
-  if (counted.length === 0) seen = null
+  if (pools.length === 0) seen = null
 
-  const countedAt = counted
+  const countedAt = pools
     .map((pool) => pool.last_counted_at)
     .filter((at): at is string => typeof at === "string")
   const lastCountedAt =
@@ -150,18 +151,18 @@ function figuresFor(
       ? countedAt.reduce((newest, at) => (at > newest ? at : newest))
       : null
 
-  // The shelf a count is aimed at. A store's stockroom and head office's
-  // warehouse both spell their pool code `WAREHOUSE`; the fallback takes the
-  // first place goods can actually sit, because a reject pool is where goods
-  // stop, not where they live.
-  const countable = pools
-    .filter((pool) => !pool.is_rollup && pool.group !== "REJECT")
+  // The shelf a count is aimed at: the warehouse/stockroom; failing that the
+  // first place goods can sit (a reject pool is where goods stop).
+  const countable = here
+    .filter((pool) => roleOf(pool) !== "REJECT" && roleOf(pool) !== "RETURN")
     .sort((left, right) => left.display_order - right.display_order)
   const mainPool =
-    countable.find((pool) => pool.pool_code === "WAREHOUSE") ?? countable[0]
+    countable.find((pool) => roleOf(pool) === "STOCKROOM") ?? countable[0]
 
   return {
     book,
+    missing,
+    hand,
     seen,
     lastCountedAt,
     days: lastCountedAt === null ? null : daysSince(lastCountedAt),
@@ -176,19 +177,111 @@ function daysSince(iso: string): number {
   return Math.floor((Date.now() - at) / 86_400_000)
 }
 
-/// A place's border: bad when an exception has sat for over a month, warn
-/// when one has sat for over a week, quiet otherwise. Fresh exceptions are
-/// news somebody has just been handed — they do not paint the card yet.
-function severityOf(cases: readonly ExceptionCase[] | null): 0 | 1 | 2 {
-  if (cases === null) return 0
-  if (cases.some((one) => (one.ageDays ?? 0) > STALE_DAYS)) return 2
-  if (cases.some((one) => (one.ageDays ?? 0) > SEVERE_AFTER_DAYS)) return 1
-  return 0
+function isStale(fig: PlaceFigures): boolean {
+  return fig.days === null || fig.days > STALE_DAYS
 }
 
-function ageText(days: number | null): string {
-  if (days === null) return "no date"
-  return days === 0 ? "today" : `${days} d`
+/// Observed minus on hand, or null when nothing was seen.
+function gapOf(fig: PlaceFigures): number | null {
+  return fig.seen === null ? null : fig.seen - fig.hand
+}
+
+function gapWarns(gap: number | null, hand: number): boolean {
+  if (gap === null || gap === 0) return false
+  if (hand <= 0) return true
+  return (Math.abs(gap) / hand) * 100 > GAP_WARN_PCT
+}
+
+// ---------------------------------------------------------------------------
+// The road
+// ---------------------------------------------------------------------------
+
+interface RoadBooks {
+  /// Pieces in the air to any destination, or null while the book loads.
+  readonly total: number | null
+  readonly toStores: number | null
+  readonly backToHo: number | null
+  readonly trips: readonly AllotmentRow[]
+  readonly rets: readonly AllotmentRow[]
+}
+
+function roadBooksOf(data: AllotmentList | undefined): RoadBooks {
+  if (data === undefined) {
+    return { total: null, toStores: null, backToHo: null, trips: [], rets: [] }
+  }
+  const moving = data.items.filter((row) => row.total_in_transit_quantity > 0)
+  const sum = (rows: readonly AllotmentRow[]) =>
+    rows.reduce((running, row) => running + row.total_in_transit_quantity, 0)
+  const trips = moving.filter(
+    (row) => row.type === "TO_STORE" || row.type === "TO_SITE"
+  )
+  // Stored as RETURN_TO_WAREHOUSE since 0611; RETURN_TO_DC is the old name.
+  const rets = moving.filter(
+    (row) =>
+      row.type === "RETURN_TO_DC" ||
+      (row.type as string) === "RETURN_TO_WAREHOUSE"
+  )
+  return {
+    total: sum(moving),
+    toStores: sum(trips),
+    backToHo: sum(rets),
+    trips,
+    rets,
+  }
+}
+
+interface Trip {
+  readonly key: string
+  readonly left: string
+  readonly rows: readonly AllotmentRow[]
+  readonly stores: number
+  readonly pieces: number
+}
+
+/// The allotment book carries no trip id and no koli count, so a trip is the
+/// SJs that last moved on the same day.
+function tripsOf(rows: readonly AllotmentRow[]): Trip[] {
+  const byDay = new Map<string, AllotmentRow[]>()
+  for (const row of rows) {
+    const key = row.updated_at.slice(0, 10)
+    const list = byDay.get(key)
+    if (list) list.push(row)
+    else byDay.set(key, [row])
+  }
+  return [...byDay]
+    .sort(([left], [right]) => (left < right ? 1 : -1))
+    .map(([key, list]) => ({
+      key,
+      left: list[0].updated_at,
+      rows: list,
+      stores: new Set(list.flatMap((row) => row.destination_names ?? [])).size,
+      pieces: list.reduce((sum, row) => sum + row.total_in_transit_quantity, 0),
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// View building
+// ---------------------------------------------------------------------------
+
+function placeViewOf(
+  unit: UnitView,
+  kind: "ho" | "store",
+  fleet: readonly FleetPool[]
+): PlaceView {
+  const siteIds = unit.sites.map((site) => site.id)
+  const fig = figuresFor(kind, siteIds, fleet)
+  // The sheet stands on the site that actually holds pools; a unit's other
+  // sites (an office beside the warehouse) have no stock to tell a story about.
+  const holding = fig.pools[0]?.site_id ?? siteIds[0] ?? unit.id
+  return {
+    key: holding,
+    kind,
+    unit,
+    siteIds,
+    name: unit.name,
+    sub: kind === "ho" ? "HO" : `Store · ${unit.code}`,
+    fig,
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -198,15 +291,7 @@ function ageText(days: number | null): string {
 export function StockCards() {
   return (
     <PageContent>
-      <PageHeader
-        title="Stock"
-        sub="Every place the business holds stock, one card each."
-      />
-
-      {/* The cards wait for the fleet and the stores and stream in with them
-          (the server starts both reads too). What a card says beyond them —
-          the exceptions, the road and the counts — is asked for by plain
-          hooks and fills in as each lands, as it always did. */}
+      <PageHeader title="Stock" />
       <Suspense fallback={<LoadingState>Counting the fleet…</LoadingState>}>
         <StockPlaces />
       </Suspense>
@@ -218,479 +303,296 @@ function StockPlaces() {
   const [fleet, units] = useSuspenseQueries({
     queries: [fleetPoolsQuery(), unitsQuery()],
   })
-  const { cases } = useExceptionCases()
-
-  // The road: one read of the allotment book. The per-destination rollup is
-  // computed by the server over the WHOLE table — not just the rows that
-  // came back — so "what is owed to each store" needs no second request.
-  const road = useQuery(allotmentListQuery("", ""))
-
-  // The count board, for the one thing a card cannot say about a count
-  // already running at the place.
-  const counts = useQuery(countsBoardQuery())
-
-  const client = useQueryClient()
-  const actor = useActor()
-  const counting = useMutation({
-    mutationFn: async (target: { siteId: string; poolId: string }) => {
-      const created = await createCount({
-        site_id: target.siteId,
-        pool_id: target.poolId,
-        kind: "FULL",
-        sku_ids: [],
-        epcs: [],
-        reason: "Requested from Stock",
-        actor_id: actor,
-        idempotency_key: idempotencyKey(),
-      })
-      return activateCount(created.id, {
-        actor_id: actor,
-        idempotency_key: idempotencyKey(),
-      })
-    },
-    onSuccess: () => {
-      // The board changed, the fleet's last-count line will change when the
-      // count closes, and the missing list gains the shortages the count
-      // books. All three answer under the same prefix.
-      client.invalidateQueries({ queryKey: inventoryKeys.counts() })
-      client.invalidateQueries({ queryKey: inventoryKeys.missing() })
-      client.invalidateQueries({ queryKey: inventoryKeys.fleet() })
-    },
-  })
+  // Plain reads the server does not draw: held back until the page is
+  // hydrated, so the server's HTML and the browser's first render agree.
+  const hydrated = useHydrated()
+  const roadRead = useQuery(allotmentListQuery("", ""))
+  const countsRead = useQuery(countsBoardQuery())
+  const road = { data: hydrated ? roadRead.data : undefined }
+  const counts = { data: hydrated ? countsRead.data : undefined }
+  const { query: missingQuery, rows: missingRead } = useMissingRows()
+  const missingRows = hydrated ? missingRead : []
+  const [find, setFind] = useState("")
 
   const place = useSheet("location")
-
   const roadBooks = useMemo(() => roadBooksOf(road.data), [road.data])
 
-  const countingActive =
-    place.value !== undefined &&
-    (counts.data?.active ?? []).some((row) => row.site_id === place.value)
+  const items = fleet.data.items
+  const ho = units.data.find((unit) => unit.kind === "HO")
+  const stores = units.data.filter(
+    (unit) => unit.kind === "STORE" && unit.status === "ACTIVE"
+  )
+  // A place's Missing is the Missing list's own pieces once they are read,
+  // so Stock, the Missing page and its rows say the same number. The pool
+  // figure stands in until then.
+  const listed =
+    hydrated && missingQuery.data !== undefined && !missingQuery.hasNextPage
+  const withListed = (view: PlaceView): PlaceView => {
+    if (!listed) return view
+    const sites = new Set(view.siteIds)
+    const missing = missingRead
+      .filter(
+        (row) => sites.has(row.site_id) && !isTransitPool(row.origin_pool)
+      )
+      .reduce((sum, row) => sum + Math.max(row.quantity, 0), 0)
+    return { ...view, fig: { ...view.fig, missing } }
+  }
+  const hoView = ho ? withListed(placeViewOf(ho, "ho", items)) : null
+  const storeViews = stores.map((unit) =>
+    withListed(placeViewOf(unit, "store", items))
+  )
+  const ordered = [...storeViews].sort(
+    (left, right) =>
+      right.fig.missing - left.fig.missing ||
+      left.name.localeCompare(right.name)
+  )
+
+  // What is on the road and was never received: the Missing of the
+  // IN_TRANSIT pools, wherever they stand.
+  const transitPools = items.filter(
+    (pool) =>
+      !pool.is_rollup &&
+      pool.authority.included_in_fleet_total &&
+      roleOf(pool) === "IN_TRANSIT"
+  )
+  const transitMissing = transitPools.reduce(
+    (sum, pool) => sum + (pool.missing ?? 0),
+    0
+  )
+  const roadInventory =
+    roadBooks.total === null ? null : roadBooks.total + transitMissing
+
+  const sheetLookup = new Map<string, PlaceView>()
+  for (const view of [hoView, ...storeViews]) {
+    if (view !== null) sheetLookup.set(view.key, view)
+  }
+
+  const activeSites = new Set(
+    (counts.data?.active ?? []).map((row) => row.site_id)
+  )
+  const allCounts: readonly CountRow[] = counts.data
+    ? [
+        ...counts.data.drafts,
+        ...counts.data.active,
+        ...counts.data.needs_review,
+        ...counts.data.history,
+      ]
+    : []
+
+  if (hoView === null && storeViews.length === 0) {
+    return (
+      <p className="py-14 text-center text-meta text-body">
+        No units are registered yet — Stock has nowhere to stand.
+      </p>
+    )
+  }
+
+  const places = [hoView, ...storeViews].filter(
+    (view): view is PlaceView => view !== null
+  )
+  const inventoryAll =
+    places.reduce((sum, view) => sum + view.fig.book, 0) + (roadInventory ?? 0)
+  const missingAll =
+    places.reduce((sum, view) => sum + view.fig.missing, 0) + transitMissing
+  const storesBook = storeViews.reduce((sum, view) => sum + view.fig.book, 0)
+  const storesMissing = storeViews.reduce(
+    (sum, view) => sum + view.fig.missing,
+    0
+  )
+
+  const needle = find.trim().toLowerCase()
+  const shown = (name: string) =>
+    needle === "" || name.toLowerCase().includes(needle)
+
+
+  const row = (view: PlaceView) => {
+    const gap = gapOf(view.fig)
+    return (
+      <tr
+        key={view.key}
+        onClick={() => place.open(view.key)}
+        className="cursor-pointer border-t border-hairline hover:bg-soft-2"
+      >
+        <td className={cn(TD, "pr-2 text-ink")}>{view.name}</td>
+        <td className={cn(TD, "pl-3 text-right tabular-nums")}>
+          {count(view.fig.book)}
+        </td>
+        <td
+          className={cn(
+            TD,
+            "pl-3 text-right tabular-nums max-sm:hidden",
+            gapWarns(gap, view.fig.hand) && "text-warn-fg"
+          )}
+        >
+          {view.fig.seen === null ? "—" : count(view.fig.seen)}
+        </td>
+        <td
+          className={cn(
+            TD,
+            "pl-3 text-right tabular-nums",
+            view.fig.missing > 0 ? "text-bad-fg" : "text-mute"
+          )}
+        >
+          {count(view.fig.missing)}
+        </td>
+        <td
+          className={cn(
+            TD,
+            "pl-3 text-right tabular-nums max-sm:hidden",
+            isStale(view.fig) ? "text-warn-fg" : "text-mute"
+          )}
+        >
+          {view.fig.lastCountedAt === null
+            ? "Never"
+            : day(view.fig.lastCountedAt)}
+        </td>
+      </tr>
+    )
+  }
+
+  const roadLine =
+    roadBooks.total === null
+      ? "…"
+      : `${new Set(tripsOf(roadBooks.trips).map((trip) => trip.key)).size} trips · ${roadBooks.trips.length} SJ · ${roadBooks.rets.length} return`
+
+  const storesShown = ordered.filter((view) => shown(view.name))
 
   return (
     <>
-      {(() => {
-        const ho = units.data.find((unit) => unit.kind === "HO")
-        const stores = units.data.filter(
-          (unit) => unit.kind === "STORE" && unit.status === "ACTIVE"
-        )
-        const hoView = ho
-          ? placeViewOf(ho, "ho", fleet.data.items, cases, roadBooks)
-          : null
-        const storeViews = stores.map((unit) =>
-          placeViewOf(unit, "store", fleet.data.items, cases, roadBooks)
-        )
+      <KpiStrip>
+        <Kpi label="Inventory" value={count(inventoryAll)} />
+        <Kpi
+          label="Missing"
+          value={
+            <span className={cn(missingAll > 0 && "text-bad-fg")}>
+              {count(missingAll)}
+            </span>
+          }
+        />
+        <Kpi label="In transit" value={count(roadInventory)} />
+        <Kpi label="Places" value={count(places.length)} />
+      </KpiStrip>
 
-        const ordered = [...storeViews].sort(byAttention)
+      <div className="mb-4 max-w-sm">
+        <Input
+          type="search"
+          aria-label="Search place"
+          placeholder="Search place"
+          value={find}
+          onChange={(event) => setFind(event.target.value)}
+        />
+      </div>
 
-        const storesBook = storeViews.reduce(
-          (running, view) => running + view.fig.book,
-          0
-        )
-        // The stores' shared Observed line only prints when every
-        // store that holds stock was actually swept — one unknown
-        // store and the sum would quietly claim to be the fleet's.
-        const allSeen = storeViews.every(
-          (view) => view.fig.seen !== null || view.fig.book === 0
-        )
-        const storesSeen = allSeen
-          ? storeViews.reduce(
-              (running, view) => running + (view.fig.seen ?? 0),
-              0
-            )
-          : null
-
-        const sheetLookup = new Map<string, PlaceView>()
-        for (const view of [hoView, ...storeViews]) {
-          if (view !== null) sheetLookup.set(view.key, view)
-        }
-
-        if (hoView === null && storeViews.length === 0) {
-          return (
-            <p className="py-14 text-center text-meta text-body">
-              No units are registered yet — Stock has nowhere to stand.
-            </p>
-          )
-        }
-
-        return (
-          <>
-            <div className="flex flex-col gap-6">
-              {hoView !== null && (
-                <section>
-                  <GroupHead
-                    label="HO"
-                    figures={
-                      <>
-                        <b className="font-semibold text-ink tabular-nums">
-                          {count(hoView.fig.book)}
-                        </b>{" "}
-                        inventory
-                      </>
-                    }
-                  />
-                  <div className={GRID}>
-                    <PlaceCard
-                      view={hoView}
-                      onOpen={() => place.open(hoView.key)}
-                    />
-                  </div>
-                </section>
-              )}
-
-              <section>
-                <GroupHead
-                  label="In transit"
-                  figures={
-                    <>
-                      <b className="font-semibold text-ink tabular-nums">
-                        {count(roadBooks.total)}
-                      </b>{" "}
-                      inventory
-                    </>
-                  }
-                />
-                <div className={GRID}>
-                  <TransitCard
-                    books={roadBooks}
-                    onOpen={() => place.open(ROAD_SHEET)}
-                  />
-                </div>
-              </section>
-
-              <section>
-                <GroupHead
-                  label={`Stores · ${storeViews.length}`}
-                  figures={
-                    <>
-                      <b className="font-semibold text-ink tabular-nums">
-                        {count(storesBook)}
-                      </b>{" "}
-                      inventory ·{" "}
-                      <b className="font-semibold text-ink tabular-nums">
-                        {count(storesSeen)}
-                      </b>{" "}
-                      observed
-                    </>
-                  }
-                />
-                {storeViews.length === 0 ? (
-                  <p className="text-[0.9375rem] text-mute">
-                    No stores are registered yet.
-                  </p>
-                ) : (
-                  <div className={GRID}>
-                    {ordered.map((view) => (
-                      <PlaceCard
-                        key={view.key}
-                        view={view}
-                        onOpen={() => place.open(view.key)}
-                      />
-                    ))}
-                  </div>
+      <table className="w-full border-collapse">
+        <thead>
+          <tr>
+            <th className={cn(TH, "pr-2 text-left")}>Place</th>
+            <th className={cn(TH, "pl-3 text-right")}>Inventory</th>
+            <th className={cn(TH, "pl-3 text-right max-sm:hidden")}>
+              Seen
+            </th>
+            <th className={cn(TH, "pl-3 text-right")}>Missing</th>
+            <th className={cn(TH, "pl-3 text-right max-sm:hidden")}>
+              Last count
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {hoView !== null && shown(hoView.name) && row(hoView)}
+          {shown("In transit") && (
+            <tr
+              onClick={() => place.open(ROAD_SHEET)}
+              className="cursor-pointer border-t border-hairline hover:bg-soft-2"
+            >
+              <td className={cn(TD, "pr-2 text-ink")}>
+                In transit <span className="text-mute">· {roadLine}</span>
+              </td>
+              <td className={cn(TD, "pl-3 text-right tabular-nums")}>
+                {count(roadInventory)}
+              </td>
+              <td className={cn(TD, "pl-3 text-right text-mute max-sm:hidden")}>
+                —
+              </td>
+              <td
+                className={cn(
+                  TD,
+                  "pl-3 text-right tabular-nums",
+                  transitMissing > 0 ? "text-bad-fg" : "text-mute"
                 )}
-              </section>
-            </div>
-
-            {place.value === ROAD_SHEET && (
-              <RoadSheet books={roadBooks} onClose={() => place.close()} />
-            )}
-            {place.value !== ROAD_SHEET &&
-              place.value !== undefined &&
-              (() => {
-                const view = sheetLookup.get(place.value)
-                return view === undefined ? null : (
-                  <PlaceSheet
-                    view={view}
-                    countingActive={countingActive}
-                    countingPending={counting.isPending}
-                    actorReady={actor !== ""}
-                    onCount={() =>
-                      view.fig.mainPool !== undefined &&
-                      counting.mutate({
-                        siteId: view.fig.mainPool.site_id,
-                        poolId: view.fig.mainPool.id,
-                      })
-                    }
-                    onClose={() => place.close()}
-                  />
-                )
-              })()}
-          </>
-        )
-      })()}
-    </>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Books
-// ---------------------------------------------------------------------------
-
-interface RoadBooks {
-  /// Pieces in the air to any destination, or null while the book loads.
-  readonly total: number | null
-  readonly toStores: number | null
-  readonly backToHo: number | null
-  readonly trips: readonly AllotmentRow[]
-  readonly rets: readonly AllotmentRow[]
-  /// Per destination site id, or null while loading.
-  readonly perDestination: ReadonlyMap<string, number> | null
-}
-
-function roadBooksOf(data: AllotmentList | undefined): RoadBooks {
-  if (data === undefined) {
-    return {
-      total: null,
-      toStores: null,
-      backToHo: null,
-      trips: [],
-      rets: [],
-      perDestination: null,
-    }
-  }
-  const book = data
-  const moving = book.items.filter((row) => row.total_in_transit_quantity > 0)
-  const sum = (rows: readonly AllotmentRow[]) =>
-    rows.reduce((running, row) => running + row.total_in_transit_quantity, 0)
-  const trips = moving.filter(
-    (row) => row.type === "TO_STORE" || row.type === "TO_SITE"
-  )
-  const rets = moving.filter((row) => row.type === "RETURN_TO_DC")
-  const perDestination = new Map<string, number>()
-  for (const rollup of book.by_destination) {
-    if (rollup.total_in_transit_quantity === 0) continue
-    perDestination.set(
-      rollup.destination_id,
-      (perDestination.get(rollup.destination_id) ?? 0) +
-        rollup.total_in_transit_quantity
-    )
-  }
-  return {
-    total: sum(moving),
-    toStores: sum(trips),
-    backToHo: sum(rets),
-    trips,
-    rets,
-    perDestination,
-  }
-}
-
-/// More and older exceptions first, then a stale count, then the name —
-/// the prototype's own "needs attention" order. A place that has never
-/// been counted ranks as stale: nobody has ever stood in front of that
-/// number, which is worse than a count that is merely old.
-function byAttention(left: PlaceView, right: PlaceView): number {
-  const severity = severityOf(right.cases) - severityOf(left.cases)
-  if (severity !== 0) return severity
-  const stale = (view: PlaceView) =>
-    view.fig.days === null || view.fig.days > STALE_DAYS ? 1 : 0
-  if (stale(right) !== stale(left)) return stale(right) - stale(left)
-  const load = (view: PlaceView) => view.cases?.length ?? 0
-  if (load(right) !== load(left)) return load(right) - load(left)
-  return left.name.localeCompare(right.name)
-}
-
-// ---------------------------------------------------------------------------
-// View building
-// ---------------------------------------------------------------------------
-
-function placeViewOf(
-  unit: UnitView,
-  kind: "ho" | "store",
-  fleet: readonly FleetPool[],
-  cases: readonly ExceptionCase[] | null,
-  road: RoadBooks
-): PlaceView {
-  const siteIds = unit.sites.map((site) => site.id)
-  const fig = figuresFor(siteIds, fleet)
-  // The sheet stands on the site that actually holds pools; a unit's other
-  // sites (an office beside the warehouse) have no stock to tell a story about.
-  const holding = fig.pools[0]?.site_id ?? siteIds[0] ?? unit.id
-  let onRoad: number | null = null
-  if (road.perDestination !== null) {
-    let owed = 0
-    for (const site of siteIds) owed += road.perDestination.get(site) ?? 0
-    onRoad = owed
-  }
-  return {
-    key: holding,
-    kind,
-    unit,
-    siteIds,
-    name: unit.name,
-    sub: kind === "ho" ? "HO" : `Store · ${unit.code}`,
-    fig,
-    cases:
-      cases === null
-        ? null
-        : cases.filter((one) => siteIds.includes(one.place)),
-    onRoad,
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Cards
-// ---------------------------------------------------------------------------
-
-function GroupHead({
-  label,
-  figures,
-}: {
-  label: string
-  figures: React.ReactNode
-}) {
-  return (
-    <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-      <h2 className="text-[0.9375rem] font-medium text-body">{label}</h2>
-      <p className="text-[0.9375rem] text-mute">{figures}</p>
-    </div>
-  )
-}
-
-function gapPct(fig: PlaceFigures): number {
-  if (fig.book === 0 || fig.seen === null) return 0
-  return (Math.abs(fig.seen - fig.book) / fig.book) * 100
-}
-
-/// The card frame every card on this board shares.
-const CARD =
-  "flex min-w-0 flex-col gap-3 rounded-card border border-hairline bg-canvas p-4 text-left transition-[border-color,scale] duration-150 ease-(--ease-out) hover:border-hairline-strong active:scale-[0.98]"
-
-/// Two figures side by side with a rule between — the books on the left, the
-/// other half on the right (owner, 16 Oct 2026: C · Books | Seen).
-function Halves({
-  left,
-  right,
-}: {
-  left: { label: string; value: React.ReactNode }
-  right: { label: string; value: React.ReactNode }
-}) {
-  return (
-    <div className="grid grid-cols-2">
-      {[left, right].map((half, index) => (
-        <div
-          key={half.label}
-          className={cn(
-            "min-w-0",
-            index > 0 && "border-l border-hairline pl-4"
+              >
+                {count(transitMissing)}
+              </td>
+              <td className={cn(TD, "pl-3 text-right text-mute max-sm:hidden")}>
+                —
+              </td>
+              <td className={TD} />
+            </tr>
           )}
-        >
-          <span className="block truncate text-[0.9375rem] text-mute">
-            {half.label}
-          </span>
-          <b className="block text-[1rem] font-semibold text-ink tabular-nums">
-            {half.value}
-          </b>
-        </div>
-      ))}
-    </div>
-  )
-}
+          <tr className="border-t border-hairline">
+            <td
+              colSpan={6}
+              className="pt-6 pb-1 text-[0.9375rem] font-medium text-body"
+            >
+              Stores · {storeViews.length}
+            </td>
+          </tr>
+          {storesShown.map(row)}
+          <tr className="border-t border-hairline">
+            <td className={cn(TD, "pr-2 font-semibold text-ink")}>
+              Stores total
+            </td>
+            <td
+              className={cn(
+                TD,
+                "pl-3 text-right font-semibold text-ink tabular-nums"
+              )}
+            >
+              {count(storesBook)}
+            </td>
+            <td className={cn(TD, "max-sm:hidden")} />
+            <td
+              className={cn(
+                TD,
+                "pl-3 text-right font-semibold tabular-nums",
+                storesMissing > 0 ? "text-bad-fg" : "text-mute"
+              )}
+            >
+              {count(storesMissing)}
+            </td>
+            <td className={cn(TD, "max-sm:hidden")} />
+            <td className={TD} />
+          </tr>
+        </tbody>
+      </table>
 
-/// One place: its name and the exceptions standing against it, Inventory
-/// beside Observed (with the gap when there is one), and when it was last
-/// counted.
-function PlaceCard({ view, onOpen }: { view: PlaceView; onOpen: () => void }) {
-  const fig = view.fig
-  const gap = fig.seen === null || fig.book === 0 ? null : fig.seen - fig.book
-  const gapWarn =
-    fig.seen !== null && fig.book > 0 && gapPct(fig) > GAP_WARN_PCT
-  const stale = fig.days === null || fig.days > STALE_DAYS
-  const severity = severityOf(view.cases)
-  const cases = view.cases?.length ?? 0
-  const transit = view.onRoad !== null && view.onRoad > 0 ? view.onRoad : null
-  return (
-    <button type="button" onClick={onOpen} className={CARD}>
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <span className="block truncate text-[0.9375rem] font-semibold text-ink">
-            {view.name}
-          </span>
-          <span className="block truncate text-[0.9375rem] text-mute">
-            {view.sub}
-          </span>
-        </div>
-        {cases > 0 && (
-          <span
-            className={cn(
-              "shrink-0 text-[0.9375rem] font-medium",
-              severity === 2
-                ? "text-bad-fg"
-                : severity === 1
-                  ? "text-warn-fg"
-                  : "text-body"
-            )}
-          >
-            {cases} {cases === 1 ? "exception" : "exceptions"}
-          </span>
-        )}
-      </div>
-      <Halves
-        left={{ label: "Inventory", value: count(fig.book) }}
-        right={{
-          label: "Observed",
-          value:
-            fig.seen === null ? (
-              "—"
-            ) : (
-              <span className={cn(gapWarn && "text-warn-fg")}>
-                {count(fig.seen)}
-                {gap !== null && gap !== 0 && (
-                  <span className="ml-1.5 font-normal text-mute">
-                    {signed(gap)}
-                  </span>
-                )}
-              </span>
-            ),
-        }}
-      />
-      <div className="mt-auto flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-t border-hairline pt-2.5 text-[0.9375rem]">
-        {fig.lastCountedAt === null ? (
-          <span className={cn(fig.book > 0 ? "text-warn-fg" : "text-mute")}>
-            Never counted
-          </span>
-        ) : (
-          <span className={cn(stale ? "text-warn-fg" : "text-mute")}>
-            Counted {dayMonth(fig.lastCountedAt)} · {ageText(fig.days)}
-          </span>
-        )}
-        {transit !== null && (
-          <span className="text-mute tabular-nums">
-            +{count(transit)} in transit
-          </span>
-        )}
-      </div>
-    </button>
-  )
-}
-
-/// In transit: stock in the books and in a truck, between HO and the stores
-/// — so it stands in a group of its own, under neither (owner, 16 Oct 2026).
-/// No Observed half: nothing on the road has been swept.
-function TransitCard({
-  books,
-  onOpen,
-}: {
-  books: RoadBooks
-  onOpen: () => void
-}) {
-  return (
-    <button type="button" onClick={onOpen} className={CARD}>
-      <div className="min-w-0">
-        <span className="block truncate text-[0.9375rem] font-semibold text-ink">
-          In transit
-        </span>
-        <span className="block truncate text-[0.9375rem] text-mute">
-          {books.total === null
-            ? "…"
-            : `${books.trips.length} ${books.trips.length === 1 ? "trip" : "trips"} · ${books.rets.length} ${books.rets.length === 1 ? "return" : "returns"}`}
-        </span>
-      </div>
-      <Halves
-        left={{ label: "To stores", value: count(books.toStores) }}
-        right={{ label: "Back to HO", value: count(books.backToHo) }}
-      />
-    </button>
+      {place.value === ROAD_SHEET && (
+        <RoadSheet
+          books={roadBooks}
+          missing={transitMissing}
+          pools={transitPools}
+          missingRows={missingRows}
+          onClose={() => place.close()}
+        />
+      )}
+      {place.value !== ROAD_SHEET &&
+        place.value !== undefined &&
+        (() => {
+          const view = sheetLookup.get(place.value)
+          return view === undefined ? null : (
+            <PlaceSheet
+              view={view}
+              stores={stores}
+              fleet={items}
+              missingRows={missingRows}
+              counts={allCounts.filter((one) =>
+                view.siteIds.includes(one.site_id)
+              )}
+              countingActive={activeSites.has(view.key)}
+              onClose={() => place.close()}
+            />
+          )
+        })()}
+    </>
   )
 }
 
@@ -698,225 +600,331 @@ function TransitCard({
 // Sheets
 // ---------------------------------------------------------------------------
 
-function SheetSection({
-  title,
-  aside,
-  children,
+type MissingRows = ReturnType<typeof useMissingRows>["rows"]
+
+const EMPTY_NOTE = "text-[0.9375rem] text-mute"
+
+/// The missing articles standing in a set of pools.
+function MissingTable({
+  rows,
+  poolIds,
 }: {
-  title: string
-  aside?: React.ReactNode
-  children: React.ReactNode
+  rows: MissingRows
+  poolIds: ReadonlySet<string>
 }) {
+  const groups = groupMissing(
+    rows.filter((one) => poolIds.has(one.origin_pool))
+  )
+  // The record opens over this sheet, as the prototype has it: the person
+  // stays on the place and comes back to it when the record closes.
+  const [openKey, setOpenKey] = useState<string | null>(null)
+  if (groups.length === 0)
+    return <p className={EMPTY_NOTE}>Nothing missing here</p>
   return (
-    <section>
-      <h3 className="mb-2 flex items-baseline justify-between gap-3 text-[0.9375rem] font-semibold text-ink">
-        {title}
-        {aside !== undefined && (
-          <span className="font-normal text-mute">{aside}</span>
-        )}
-      </h3>
-      {children}
-    </section>
+    <>
+      <MiniTable
+        head={[
+          "Article",
+          "Quantity",
+          { label: "Missing date", align: "left" },
+        ]}
+      >
+        {groups.map((group) => {
+          const since = group.rows[0]?.missing_since ?? null
+          return (
+            <MiniRow key={group.key}>
+              <MiniCell>
+                <button
+                  type="button"
+                  onClick={() => setOpenKey(group.key)}
+                  className="block text-left text-ink hover:underline"
+                >
+                  {group.name ?? skuNumber(group.sku)}
+                </button>
+                <span className="block text-mute">{skuNumber(group.sku)}</span>
+              </MiniCell>
+              <MiniCell align="right" className="font-semibold text-ink">
+                {count(group.left)}
+              </MiniCell>
+              <MiniCell className="text-mute">
+                {since === null ? "—" : dayMonth(since)}
+              </MiniCell>
+            </MiniRow>
+          )
+        })}
+      </MiniTable>
+      <MissingSheet
+        group={groups.find((group) => group.key === openKey) ?? null}
+        canResolve
+        onClose={() => setOpenKey(null)}
+      />
+    </>
   )
 }
 
-/// One place's whole story, as the owner picked it (inventory-detail-options
-/// .html, A · Pools table, version 2 · Tabs — 16 Oct 2026): the figures in
-/// the head, then three tabs — the pools the number is made of, the
-/// exceptions standing against the place, and the latest movements in and
-/// out of its pools. The count is the foot's one verb.
-///
-/// Pools with nothing in them are folded behind "Show n empty pools": a head
-/// office reads Packed / Store 01…07 at nought on most days, and seven
-/// noughts drown the three shelves that hold stock.
+const KIND_WORD: Record<string, string> = {
+  FULL: "Full",
+  CYCLE: "Cycle",
+  TARGETED: "Targeted",
+}
+
+function CountsTable({ rows }: { rows: readonly CountRow[] }) {
+  if (rows.length === 0) return <p className={EMPTY_NOTE}>Never counted</p>
+  const sorted = [...rows].sort((left, right) =>
+    (right.closed_at ?? right.created_at).localeCompare(
+      left.closed_at ?? left.created_at
+    )
+  )
+  return (
+    <MiniTable
+      head={[
+        "Date",
+        { label: "Count", align: "left" },
+        { label: "Status", align: "left" },
+        "Book",
+        "Counted",
+      ]}
+    >
+      {sorted.map((one) => {
+        const closed = one.status === "CLOSED"
+        const settled = closed || one.status === "REVIEW"
+        return (
+          <MiniRow key={one.id}>
+            <MiniCell className="text-mute">
+              {day(one.closed_at ?? one.created_at)}
+            </MiniCell>
+            <MiniCell>
+              {KIND_WORD[one.kind] ?? one.kind}{" "}
+              <span className="text-mute">· {one.id.slice(0, 8)}</span>
+            </MiniCell>
+            <MiniCell>
+              {closed ? (
+                <span className="text-mute">Done</span>
+              ) : (
+                <Pill tone="accent">To do</Pill>
+              )}
+            </MiniCell>
+            <MiniCell align="right">{count(one.expected)}</MiniCell>
+            <MiniCell align="right">
+              {settled ? <CountedCell expected={one.expected} found={one.found} /> : "—"}
+            </MiniCell>
+          </MiniRow>
+        )
+      })}
+    </MiniTable>
+  )
+}
+
 function PlaceSheet({
   view,
+  stores,
+  fleet,
+  missingRows,
+  counts,
   countingActive,
-  countingPending,
-  actorReady,
-  onCount,
   onClose,
 }: {
   view: PlaceView
+  stores: readonly UnitView[]
+  fleet: readonly FleetPool[]
+  missingRows: MissingRows
+  counts: readonly CountRow[]
   countingActive: boolean
-  countingPending: boolean
-  actorReady: boolean
-  onCount: () => void
   onClose: () => void
 }) {
   const fig = view.fig
-  const [tab, setTab] = useState("pools")
-  const [showEmpty, setShowEmpty] = useState(false)
-  const stale = fig.days === null || fig.days > STALE_DAYS
-  const gap = fig.seen === null || fig.book === 0 ? null : fig.seen - fig.book
-  const gapWarn =
-    gap !== null && (Math.abs(gap) / fig.book) * 100 > GAP_WARN_PCT
-  const where = fig.pools
-    .filter((pool) => !pool.is_rollup && pool.site_id === view.key)
-    .sort((left, right) => left.display_order - right.display_order)
-  const held = where.filter((pool) => pool.stock !== 0)
-  const empty = where.length - held.length
-  const shown = showEmpty ? where : held
-  const cases = view.cases
+  const [tab, setTab] = useState("pockets")
+  const gap = gapOf(fig)
+  const pockets = pocketsOf(view.kind, fig.pools)
+  const poolIds = new Set(fig.pools.map((pool) => pool.id))
+  const missingGroups = groupMissing(
+    missingRows.filter((one) => poolIds.has(one.origin_pool))
+  )
+
+  const origins = pockets
+    .filter((pocket) => pocket.missing > 0)
+    .map((pocket) => `${pocket.label} ${count(pocket.missing)}`)
+    .join(" · ")
 
   const figures = [
     { label: "Inventory", value: count(fig.book) },
-    {
-      label: "Observed",
-      value: fig.seen === null ? "—" : count(fig.seen),
-    },
+    { label: "Seen", value: fig.seen === null ? "—" : count(fig.seen) },
     {
       label: "Gap",
       value: (
-        <span className={cn(gapWarn && "text-warn-fg")}>
+        <span className={cn(gapWarns(gap, fig.hand) && "text-warn-fg")}>
           {gap === null ? "—" : signed(gap)}
+        </span>
+      ),
+    },
+    {
+      label: "Missing",
+      value: (
+        <span className={cn(fig.missing > 0 && "text-bad-fg")}>
+          {count(fig.missing)}
         </span>
       ),
     },
     {
       label: "Last count",
       value: (
-        <span className={cn(stale && "text-warn-fg")}>
+        <span className={cn(isStale(fig) && "text-warn-fg")}>
           {fig.lastCountedAt === null ? "Never" : day(fig.lastCountedAt)}
         </span>
       ),
     },
-    ...(view.onRoad !== null && view.onRoad > 0
-      ? [{ label: "In transit here", value: `+${count(view.onRoad)}` }]
-      : []),
   ]
 
-  // Tabs at the owner's word for this sheet (16 Oct 2026, "tabs saja"),
-  // drawn in the body: the shared `tabs` prop folds a record into one scroll.
-  const sections: readonly {
-    readonly value: string
-    readonly label: React.ReactNode
-    readonly content: React.ReactNode
-  }[] = [
-    {
-      value: "pools",
-      label: "Pools",
-      content:
-        where.length === 0 ? (
-          <p className="text-[0.9375rem] text-mute">No pools here</p>
-        ) : (
-          <div className="flex flex-col gap-3">
-            {shown.length > 0 && (
-              <MiniTable head={["Pool", "Inventory", "Observed", "Gap"]}>
-                {shown.map((pool) => (
-                  <MiniRow key={pool.id}>
-                    <MiniCell>{pool.label}</MiniCell>
-                    <MiniCell align="right">{count(pool.stock)}</MiniCell>
-                    <MiniCell align="right">
-                      {pool.observed == null ? "—" : count(pool.observed)}
-                    </MiniCell>
-                    <MiniCell align="right">
-                      {pool.observed == null
-                        ? "—"
-                        : signed(pool.observed - pool.stock)}
-                    </MiniCell>
-                  </MiniRow>
-                ))}
-                <MiniRow>
-                  <MiniCell className="font-semibold text-ink">Total</MiniCell>
-                  <MiniCell align="right" className="font-semibold text-ink">
-                    {count(fig.book)}
-                  </MiniCell>
-                  <MiniCell align="right" className="font-semibold text-ink">
-                    {fig.seen === null ? "—" : count(fig.seen)}
-                  </MiniCell>
-                  <MiniCell align="right" className="font-semibold text-ink">
-                    {gap === null ? "—" : signed(gap)}
-                  </MiniCell>
-                </MiniRow>
-              </MiniTable>
-            )}
-            {empty > 0 && (
-              <button
-                type="button"
-                onClick={() => setShowEmpty((open) => !open)}
-                className="self-start text-[0.9375rem] text-accent underline-offset-2 hover:underline"
-              >
-                {showEmpty ? "Hide" : "Show"} {count(empty)} empty{" "}
-                {empty === 1 ? "pool" : "pools"}
-              </button>
-            )}
-          </div>
-        ),
-    },
-    {
-      value: "exceptions",
-      label: (
-        <>
-          Exceptions
-          {cases !== null && cases.length > 0 && (
-            <span className="ml-1.5 text-mute">{count(cases.length)}</span>
-          )}
-        </>
-      ),
-      content:
-        cases === null ? (
-          <p className="text-[0.9375rem] text-mute">…</p>
-        ) : cases.length === 0 ? (
-          <p className="text-[0.9375rem] text-mute">No exceptions</p>
-        ) : (
-          <div className="flex flex-col gap-3">
-            <MiniTable
-              head={[
-                "Article",
-                { label: "Exception", align: "left" },
-                { label: "Pool", align: "left" },
-                "Pieces",
-                "Age",
-              ]}
-            >
-              {cases.map((one) => (
-                <MiniRow key={one.id}>
-                  <MiniCell>
-                    {one.article ?? one.sku ?? one.kind}
-                    {one.status === "Counting" && (
-                      <span className="ml-1.5 text-info-fg">· Counting</span>
-                    )}
-                  </MiniCell>
-                  <MiniCell>{one.kind}</MiniCell>
-                  <MiniCell className="text-mute">{one.poolLabel}</MiniCell>
-                  <MiniCell align="right">{signed(one.qty)}</MiniCell>
-                  <MiniCell
-                    align="right"
-                    className={cn(
-                      (one.ageDays ?? 0) > STALE_DAYS
-                        ? "text-bad-fg"
-                        : "text-mute"
-                    )}
-                  >
-                    {ageText(one.ageDays)}
-                  </MiniCell>
-                </MiniRow>
-              ))}
-            </MiniTable>
-            <AppLink
-              to="/inventory/exceptions"
-              className="self-start text-[0.9375rem] text-accent underline-offset-2 hover:underline"
-            >
-              Open in Exceptions
-            </AppLink>
-          </div>
-        ),
-    },
-    {
-      value: "card",
-      label: "Stock card",
-      content: tab === "card" && <PlaceStockCard site={view.key} />,
-    },
+  const pocketRow = (pocket: Pocket) => {
+    const pocketGap = pocket.seen === null ? null : pocket.seen - pocket.hand
+    return (
+      <MiniRow key={pocket.key}>
+        <MiniCell className={cn(pocket.hand === 0 && "text-mute")}>
+          {pocket.label}
+        </MiniCell>
+        <MiniCell
+          align="right"
+          className={cn(pocket.hand === 0 && "text-mute")}
+        >
+          {count(pocket.hand)}
+        </MiniCell>
+        <MiniCell align="right">
+          {pocket.seen === null ? "—" : count(pocket.seen)}
+        </MiniCell>
+        <MiniCell align="right">
+          {pocketGap === null ? "—" : signed(pocketGap)}
+        </MiniCell>
+      </MiniRow>
+    )
+  }
+
+  // Returns: Return HO is the REJECT pool; each store has its own RETURN pool.
+  const returnHo = fig.pools
+    .filter((pool) => roleOf(pool) === "REJECT")
+    .reduce((sum, pool) => sum + handOf(pool), 0)
+  const storeReturns = stores.map((unit) => {
+    const sites = unit.sites.map((site) => site.id)
+    const held = fig.pools
+      .filter(
+        (pool) =>
+          roleOf(pool) === "RETURN" &&
+          pool.store_origin_site_id !== null &&
+          sites.includes(pool.store_origin_site_id)
+      )
+      .reduce((sum, pool) => sum + handOf(pool), 0)
+    return { name: unit.name, held }
+  })
+  const returnTotal =
+    returnHo + storeReturns.reduce((sum, one) => sum + one.held, 0)
+
+  const tabs = [
+    { value: "pockets", label: "Pockets" },
+    { value: "missing", label: "Missing", alert: missingGroups.length },
+    ...(view.kind === "ho" ? [{ value: "return", label: "Return" }] : []),
+    { value: "card", label: "Stock card" },
+    { value: "counts", label: "Counts" },
   ]
-  const current =
-    sections.find((section) => section.value === tab) ?? sections[0]
+  const current = tabs.some((one) => one.value === tab) ? tab : "pockets"
+
+  let content: React.ReactNode
+  if (current === "pockets") {
+    content = (
+      <MiniTable head={["Pocket", "Inventory", "Seen", "Gap"]}>
+        {pockets.map(pocketRow)}
+        <tr
+          onClick={() => setTab("missing")}
+          className="cursor-pointer border-t border-hairline hover:bg-soft-2"
+        >
+          <MiniCell>
+            {/* Red with an arrow, as a way into the Missing tab (owner, 20
+                Oct 2026). */}
+            <span
+              className={cn(
+                "block",
+                fig.missing > 0 ? "text-bad-fg" : "text-ink"
+              )}
+            >
+              Missing
+            </span>
+            {fig.missing > 0 && (
+              <span className="block text-mute">from {origins}</span>
+            )}
+          </MiniCell>
+          <MiniCell
+            align="right"
+            className={cn(fig.missing > 0 ? "text-bad-fg" : "text-mute")}
+          >
+            {count(fig.missing)}
+          </MiniCell>
+          <MiniCell align="right" className="text-mute">
+            —
+          </MiniCell>
+          <MiniCell align="right" className="text-mute">
+            <span className="inline-flex items-center gap-1">
+              —
+              <ChevronRight aria-hidden className="size-4" />
+            </span>
+          </MiniCell>
+        </tr>
+        <MiniRow>
+          <MiniCell className="font-semibold text-ink">Total</MiniCell>
+          <MiniCell align="right" className="font-semibold text-ink">
+            {count(fig.book)}
+          </MiniCell>
+          <MiniCell align="right" className="font-semibold text-ink">
+            {fig.seen === null ? "—" : count(fig.seen)}
+          </MiniCell>
+          <MiniCell align="right" className="font-semibold text-ink">
+            {gap === null ? "—" : signed(gap)}
+          </MiniCell>
+        </MiniRow>
+      </MiniTable>
+    )
+  } else if (current === "missing") {
+    content = <MissingTable rows={missingRows} poolIds={poolIds} />
+  } else if (current === "return") {
+    content = (
+      <MiniTable head={["Return", "Quantity"]}>
+        <MiniRow>
+          <MiniCell className={cn(returnHo === 0 && "text-mute")}>
+            Return HO
+          </MiniCell>
+          <MiniCell align="right" className={cn(returnHo === 0 && "text-mute")}>
+            {count(returnHo)}
+          </MiniCell>
+        </MiniRow>
+        {storeReturns.map((one) => (
+          <MiniRow key={one.name}>
+            <MiniCell className={cn(one.held === 0 && "text-mute")}>
+              Return {one.name}
+            </MiniCell>
+            <MiniCell
+              align="right"
+              className={cn(one.held === 0 && "text-mute")}
+            >
+              {count(one.held)}
+            </MiniCell>
+          </MiniRow>
+        ))}
+        <MiniRow>
+          <MiniCell className="font-semibold text-ink">Total</MiniCell>
+          <MiniCell align="right" className="font-semibold text-ink">
+            {count(returnTotal)}
+          </MiniCell>
+        </MiniRow>
+      </MiniTable>
+    )
+  } else if (current === "card") {
+    content = <PlaceStockCard site={view.key} />
+  } else {
+    content = <CountsTable rows={counts} />
+  }
 
   return (
     <Sheet
       open
       onOpenChange={(open) => !open && onClose()}
-      id={view.key}
+      // The place by its name, never the site's raw id ("store-02").
       title={view.name}
       caption={view.sub}
       size="table"
@@ -925,115 +933,125 @@ function PlaceSheet({
           start={
             countingActive ? <Pill tone="info">Count active</Pill> : undefined
           }
-          primary={
-            countingActive
-              ? undefined
-              : {
-                  label: `Count ${view.kind === "ho" ? "HO" : "store"}`,
-                  onClick: onCount,
-                  pending: countingPending,
-                  disabled: !actorReady || fig.mainPool === undefined,
-                }
-          }
         />
       }
     >
       <div className="flex flex-col gap-6">
-        {/* The record's figures first, in the body, as the PO detail has
-            them (owner, 16 Oct 2026). */}
         <KpiStrip className="mb-2!">
           {figures.map((one) => (
             <Kpi key={one.label} label={one.label} value={one.value} />
           ))}
         </KpiStrip>
-        <SubTabs
-          tabs={sections.map(({ value, label }) => ({ value, label }))}
-          value={current.value}
-          onChange={setTab}
-        />
-        <div>{current.content}</div>
+        <SubTabs tabs={tabs} value={current} onChange={setTab} />
+        <div>{content}</div>
       </div>
     </Sheet>
   )
 }
 
-/// The in-transit sheet: what is in the air, split the way it travels — out to
-/// the stores, and back from them.
+/// The in-transit sheet: trips out to the stores with their SJ, and what
+/// never arrived.
 function RoadSheet({
   books,
+  missing,
+  pools,
+  missingRows,
   onClose,
 }: {
   books: RoadBooks
+  missing: number
+  pools: readonly FleetPool[]
+  missingRows: MissingRows
   onClose: () => void
 }) {
-  const tripRow = (row: AllotmentRow) => (
-    <tr key={row.id} className="border-t border-hairline">
-      <td className="py-2 pr-2">
-        <span className="block font-mono text-[0.9375rem] text-ink">
-          {row.allotment_number}
-        </span>
-        <span className="block truncate text-meta text-mute">
-          HO → {row.destination_names?.join(", ") ?? "—"}
-        </span>
-      </td>
-      <td className="py-2 text-right tabular-nums">
-        {count(row.total_in_transit_quantity)}
-      </td>
-      <td className="py-2 text-right text-meta text-mute">
-        {dayMonth(row.updated_at)}
-      </td>
-    </tr>
-  )
-  const retRow = (row: AllotmentRow) => (
-    <tr key={row.id} className="border-t border-hairline">
-      <td className="py-2 pr-2">
-        <span className="block font-mono text-[0.9375rem] text-ink">
-          {row.allotment_number}
-        </span>
-        <span className="block truncate text-meta text-mute">
-          From stores → HO
-        </span>
-      </td>
-      <td className="py-2 text-right tabular-nums">
-        {count(row.total_in_transit_quantity)}
-      </td>
-      <td className="py-2 text-right text-meta text-mute">
-        {dayMonth(row.updated_at)}
-      </td>
-    </tr>
-  )
+  const [tab, setTab] = useState("trips")
+  const poolIds = new Set(pools.map((pool) => pool.id))
+  const missingCount = groupMissing(
+    missingRows.filter((one) => poolIds.has(one.origin_pool))
+  ).length
+  const trips = tripsOf(books.trips)
+
+  const tabs = [
+    { value: "trips", label: "Trips" },
+    { value: "missing", label: "Missing", alert: missingCount },
+  ]
 
   return (
     <Sheet open onOpenChange={(open) => !open && onClose()} title="In transit">
       <div className="flex flex-col gap-6">
         <KpiStrip className="mb-2!">
-          <Kpi label="Inventory" value={count(books.total)} />
           <Kpi label="To stores" value={count(books.toStores)} />
           <Kpi label="Back to HO" value={count(books.backToHo)} />
+          <Kpi
+            label="Missing"
+            value={
+              <span className={cn(missing > 0 && "text-bad-fg")}>
+                {count(missing)}
+              </span>
+            }
+          />
         </KpiStrip>
-        <SheetSection title="To stores" aside={count(books.toStores)}>
-          {books.trips.length === 0 ? (
-            <p className="text-[0.9375rem] text-mute">
-              Nothing is on its way to a store.
-            </p>
-          ) : (
-            <MiniTable head={["Allotment", "Quantity", "Last Moved"]}>
-              {books.trips.map(tripRow)}
-            </MiniTable>
-          )}
-        </SheetSection>
-
-        <SheetSection title="Back to HO" aside={count(books.backToHo)}>
-          {books.rets.length === 0 ? (
-            <p className="text-[0.9375rem] text-mute">
-              Nothing is coming back.
-            </p>
-          ) : (
-            <MiniTable head={["Allotment", "Quantity", "Last Moved"]}>
-              {books.rets.map(retRow)}
-            </MiniTable>
-          )}
-        </SheetSection>
+        <SubTabs tabs={tabs} value={tab} onChange={setTab} />
+        {tab === "missing" ? (
+          <MissingTable rows={missingRows} poolIds={poolIds} />
+        ) : (
+          <div className="flex flex-col gap-6">
+            {trips.length === 0 ? (
+              <p className={EMPTY_NOTE}>Nothing is on its way to a store.</p>
+            ) : (
+              <MiniTable
+                head={["Trip", { label: "To", align: "left" }, "Pieces"]}
+              >
+                {trips.flatMap((trip) => [
+                  <MiniRow key={trip.key}>
+                    <MiniCell className="font-semibold text-ink">
+                      Trip{" "}
+                      <span className="font-normal text-mute">
+                        · left {dayMonth(trip.left)}
+                      </span>
+                    </MiniCell>
+                    <MiniCell className="text-mute">
+                      {trip.stores} {trip.stores === 1 ? "store" : "stores"}
+                    </MiniCell>
+                    <MiniCell align="right" className="font-semibold text-ink">
+                      {count(trip.pieces)}
+                    </MiniCell>
+                  </MiniRow>,
+                  ...trip.rows.map((row) => (
+                    <MiniRow key={row.id}>
+                      <MiniCell className="pl-6!">
+                        {row.allotment_number}
+                      </MiniCell>
+                      <MiniCell>
+                        {row.destination_names?.join(", ") ?? "—"}
+                      </MiniCell>
+                      <MiniCell align="right">
+                        {count(row.total_in_transit_quantity)}
+                      </MiniCell>
+                    </MiniRow>
+                  )),
+                ])}
+              </MiniTable>
+            )}
+            {books.rets.length > 0 && (
+              <div className="flex flex-col gap-2">
+                <h3 className="text-[0.9375rem] font-medium text-body">
+                  Back to HO
+                </h3>
+                <MiniTable head={["Return", "Pieces"]}>
+                  {books.rets.map((row) => (
+                    <MiniRow key={row.id}>
+                      <MiniCell>{row.allotment_number}</MiniCell>
+                      <MiniCell align="right">
+                        {count(row.total_in_transit_quantity)}
+                      </MiniCell>
+                    </MiniRow>
+                  ))}
+                </MiniTable>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </Sheet>
   )

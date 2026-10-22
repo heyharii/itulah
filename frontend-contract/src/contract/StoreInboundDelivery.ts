@@ -9,4 +9,9 @@ export type StoreInboundDelivery = { delivery_id: string, shipment_reference: st
 /**
  * When the delivery's last koli left the DC.
  */
-departed_at: string, status: "IN_TRANSIT" | "RECEIVED", koli_count: number, received_at: string | null, received_by: string | null, result: StoreInboundResult | null, };
+departed_at: string, status: "IN_TRANSIT" | "RECEIVED", koli_count: number, received_at: string | null, received_by: string | null, result: StoreInboundResult | null, 
+/**
+ * Counted, and what was counted differs from what was sent: nothing of
+ * it is booked until MD answers the trip's review (owner, 18 Oct 2026).
+ */
+in_review?: boolean, };

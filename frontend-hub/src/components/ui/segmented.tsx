@@ -6,6 +6,7 @@ import { createContext, useLayoutEffect, useRef, useState } from "react"
 import { DockPortal, useDock } from "@/components/shell/dock"
 import { useInDoor } from "@/components/ui/door-status"
 import { BottomSheet } from "@/components/ui/picker-sheet"
+import { RowsSwitch } from "@/components/ui/rows-switch"
 import { cn } from "@/lib/utils"
 
 /// True around a `Toolbar`'s `lead`: the screen's own tabs, which in a door
@@ -228,6 +229,9 @@ export function Toolbar({
       <span ref={probe} hidden aria-hidden />
       {first}
       {children}
+      {/* Comfortable or Compact rows, last in the bar, where a page offers
+          the choice (`lib/table-rows.ts`); never in a sheet's own bar. */}
+      {inside === false && <RowsSwitch />}
     </div>
   )
 }

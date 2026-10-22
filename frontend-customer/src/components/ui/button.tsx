@@ -3,12 +3,14 @@ import { cva, type VariantProps } from "class-variance-authority"
 
 import { cn } from "@/lib/utils"
 
-/// A pill, in four weights of emphasis.
+/// A button, in four weights of emphasis.
 ///
-/// `primary` is the one near-black action a screen holds — at most one. The
-/// rest step down: `secondary` is a white pill standing on the grey page,
-/// `soft` sits inside a white card, `quiet` is a text link that still has a
-/// 44px target.
+/// `primary` is the one matte-blue action a screen holds — at most one. The
+/// rest step down: `secondary` is the pastel ground with the blue on it,
+/// `ghost` a white button standing on the page, `soft` sits inside a white
+/// card, `quiet` is a blue text link that still has a 44px target. The two
+/// full sizes are rounded squares (16), as the matte prototype draws them;
+/// the small ones stay pills.
 ///
 /// Every variant shrinks to 0.97 on press (`.press`): the only feedback a
 /// touch screen can give on pointer-down, and the one that makes a button feel
@@ -17,24 +19,24 @@ const DISABLED =
   "disabled:pointer-events-none disabled:bg-none disabled:bg-soft-2 disabled:text-mute disabled:shadow-none disabled:[&_svg]:text-faint"
 
 const button = cva(
-  `press inline-flex shrink-0 items-center justify-center gap-2 rounded-full font-medium whitespace-nowrap select-none ${DISABLED} [&_svg]:shrink-0`,
+  `press inline-flex shrink-0 items-center justify-center gap-2 font-medium whitespace-nowrap select-none ${DISABLED} [&_svg]:shrink-0`,
   {
     variants: {
       variant: {
         primary: "cta-fill text-cta-fg [&_svg]:text-cta-fg",
         secondary:
-          "bg-canvas text-ink shadow-soft hover:bg-soft [&_svg]:text-ink",
-        ghost: "bg-canvas text-ink shadow-soft hover:bg-soft [&_svg]:text-ink",
+          "bg-matte-ground text-matte-foot hover:bg-matte-ground-2 [&_svg]:text-matte-foot",
+        ghost: "bg-canvas text-ink shadow-soft hover:bg-soft [&_svg]:text-matte-foot",
         soft: "bg-soft-2 text-ink hover:bg-hairline [&_svg]:text-text",
-        quiet: "text-body hover:text-ink [&_svg]:text-line-ico",
+        quiet: "text-matte-foot hover:text-matte-shade [&_svg]:text-matte-foot",
         danger: "bg-bad-bg text-bad-fg [&_svg]:text-bad-fg",
       },
       size: {
-        lg: "h-14 px-7 text-button font-semibold [&_svg]:size-5",
-        default: "h-12 px-6 text-nav font-semibold [&_svg]:size-[1.125rem]",
-        sm: "h-9 px-4 text-meta font-semibold [&_svg]:size-4",
-        inline: "h-8 px-3 text-meta [&_svg]:size-3.5",
-        icon: "size-11 [&_svg]:size-5",
+        lg: "h-14 rounded-[1rem] px-7 text-button font-semibold [&_svg]:size-5",
+        default: "h-12 rounded-[1rem] px-6 text-nav font-semibold [&_svg]:size-[1.125rem]",
+        sm: "h-10 rounded-full px-4 text-meta font-semibold [&_svg]:size-4",
+        inline: "h-9 rounded-full px-3 text-meta font-medium [&_svg]:size-4",
+        icon: "size-11 rounded-full [&_svg]:size-5",
       },
       block: { true: "w-full", false: "" },
     },

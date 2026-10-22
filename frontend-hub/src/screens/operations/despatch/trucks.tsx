@@ -1,25 +1,26 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { Printer, Truck } from "lucide-react"
-import { useMemo, useState } from "react"
+import { Check, Printer, Store, Truck } from "lucide-react"
+import { useMemo, useRef, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
-import { KoliPhotos } from "@/screens/operations/board/photos"
 import { DockTools } from "@/components/shell/dock-tools"
 import {
-  SuratJalanPrint,
-  TripSuratJalanPrint,
+  PackingListPrint,
+  SuratJalanPrintFlow,
+  type SuratJalanTarget,
   useShopName,
 } from "@/components/operations/outbound-papers"
 import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
+import { FilterChips } from "@/components/ui/filter-chips"
 import { DocStamp } from "@/components/ui/doc-stamp"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { DataTable, dockSortOf } from "@/components/ui/data-table"
-import { ConfirmButton, SavedDialog } from "@/components/ui/dialog"
+import { ConfirmButton } from "@/components/ui/dialog"
 import { Fab } from "@/components/ui/fab"
-import { Checkbox, Field, Textarea } from "@/components/ui/field"
+import { Field, Textarea } from "@/components/ui/field"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { ExpandingSearch } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
@@ -31,7 +32,10 @@ import { dc } from "@/lib/api"
 import { clock, count, dayMonth, quantity } from "@/lib/format"
 import { STAMP } from "@/screens/procurement/shared"
 import { useLayout } from "@/lib/layout"
+import { moveBack } from "@/lib/operations/changes"
 import { keys } from "@/lib/operations/keys"
+import { koliManifestQuery } from "@/lib/operations/queries"
+import { toast } from "@/lib/toast"
 import { tripDocumentNumber } from "@/lib/operations/trip-number"
 import { queryState } from "@/lib/query-state"
 import {
@@ -42,6 +46,19 @@ import { useEdgeActor, useEdgeIdentity } from "@/lib/edge-session"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { cn } from "@/lib/utils"
+import {
+  KoliContentsDialog,
+  KoliRow,
+  Pop,
+  PutOnTrip,
+  TripChooser,
+} from "@/screens/operations/despatch/koli-parts"
+import {
+  flyTo,
+  pulse,
+  tileOf,
+} from "@/screens/operations/despatch/motion"
+import type { Paper } from "@/screens/procurement/po-print"
 import { idempotencyKey } from "@itulah/contract/client"
 import type { Dispatch, Koli, Shipment } from "@itulah/contract"
 
@@ -431,30 +448,79 @@ export function Trucks() {
   )
 }
 
-/// The dispatch composer: which sealed cartons go on one trip, shop by shop,
-/// one free note, one press — and the delivery note print that follows. Owns its
-/// own queries, state and sheet (`?new-dispatch=true`), so the Dispatch screen
-/// and the Outbound board both open it in place.
+/// **Dispatch works like Pack: the packed koli are the pile, the trips are the
+/// boxes** (owner, 18 Oct 2026, pack-sheet-options.html, Dispatch).
 ///
-/// `only`: the cartons ticked on the board before it was opened. When given,
-/// the sheet opens with just those going and every other ready carton left
-/// off (still tickable here); absent, everything ready starts ticked.
+/// A shelf of big radios on top: Packed, one tile per trip, Back to Pick when
+/// koli are waiting to go back, and a dashed "+ Trip N". Under it a thin filter
+/// of store codes and the chosen tile's koli. A koli row is calm: a grey box,
+/// "Koli N · code", when it was packed, pieces, and a tinted "Put on trip". The
+/// box and the name open what is inside. No trip yet makes Trip 1, one trip
+/// takes it straight, two or more ask which. A trip tab has a red "Take out" per
+/// koli and a tinted "+ Add to Trip N" that raises a second layer over the
+/// sheet. The red "Back to Pick" in the foot opens a choice of waiting koli with
+/// red ticks; the ones chosen wait in the Back to Pick tile (Take out undoes
+/// it). The one solid button dispatches every trip (one delivery note per trip)
+/// and sends the Back to Pick koli back. No done screen: one toast answers.
+///
+/// Owns its own queries, state and sheet (`?new-dispatch=true`), so the Dispatch
+/// screen and the Outbound board both open it in place.
+///
+/// `only`: the koli the board says are ready to go (a koli MD still owes pieces
+/// from is not in it). When given, it is all the pile offers.
 export function DispatchSheet({
   only,
   onDispatched,
 }: {
   only?: ReadonlySet<string> | null
   onDispatched?: () => void
+  /// Kept so the board's call still fits; a koli goes back to Pick from the
+  /// foot's own dialog now, so this is never called.
+  onUnpack?: (koli: Koli) => void
 } = {}) {
   const actor = useEdgeActor()
   const identity = useEdgeIdentity()
   const client = useQueryClient()
   const shopName = useShopName()
   const composing = useSheet("new-dispatch")
-  const [left, setLeft] = useState<ReadonlySet<string>>(new Set())
-  const [focusShop, setFocusShop] = useState<string | null>(null)
+  const [trips, setTrips] = useState<readonly TripDraft[]>([])
+  /// One trip, filled in the sheet (owner, 21 Oct 2026: "isi trip data",
+  /// then Submit): every packed koli goes on it.
   const [tripNote, setTripNote] = useState("")
-  const [printing, setPrinting] = useState<Printing | null>(null)
+  const [view, setView] = useState<DispatchView>("pile")
+  const [store, setStore] = useState<string>("all")
+  /// The Add to Trip N layer, by trip number.
+  const [adding, setAdding] = useState<number | null>(null)
+  /// Koli waiting for the trip chooser (two or more trips), and where the press
+  /// that asked was, for the "+N" that flies to the trip chosen. Kept after the
+  /// chooser closes so its words do not change while it fades.
+  const [asking, setAsking] = useState<{
+    readonly ids: readonly string[]
+    readonly from?: DOMRect
+  } | null>(null)
+  const [askOpen, setAskOpen] = useState(false)
+  /// Koli chosen to go back to Pick: they wait in the Back to Pick tile until
+  /// Dispatch sends them.
+  const [back, setBack] = useState<readonly string[]>([])
+  /// The Back to Pick dialog: open, and which koli are ticked.
+  const [backOpen, setBackOpen] = useState(false)
+  const [backSel, setBackSel] = useState<readonly string[]>([])
+  /// The koli whose contents are showing, and the one being printed.
+  const [info, setInfo] = useState<string | null>(null)
+  const [printing, setPrinting] = useState<{
+    koliId: string
+    paper: Paper
+  } | null>(null)
+  /// Delivery notes waiting to print, one after another: filled only when the
+  /// toast's Print surat jalan is pressed.
+  const [printQueue, setPrintQueue] = useState<readonly string[]>([])
+  /// Dispatch & print (owner, 20 Oct 2026): the paper picked before the trip
+  /// left, so its surat jalan prints the moment it has a number.
+  const printAfter = useRef<Paper | null>(null)
+  const [queuePaper, setQueuePaper] = useState<Paper | null>(null)
+  /// A key per trip and per back koli, held across retries of a Submit that
+  /// half-failed: the same koli list lands once.
+  const keys_ = useRef(new Map<string, string>())
 
   const cartons = useQuery({
     queryKey: keys.koli({ ready: true }),
@@ -464,56 +530,60 @@ export function DispatchSheet({
   const ready = useMemo(
     () =>
       (cartons.data ?? []).filter(
-        (one) => one.position === "PACKED" || one.position === "SHIPMENT"
+        (one) =>
+          (one.position === "PACKED" || one.position === "SHIPMENT") &&
+          (!only || only.size === 0 || only.has(one.koli_id))
       ),
-    [cartons.data]
+    [cartons.data, only]
   )
-
-  const boxesByShop = useMemo(() => {
-    const map = new Map<string, Koli[]>()
-    for (const box of ready) {
-      const list = map.get(box.destination_store_id)
-      if (list) list.push(box)
-      else map.set(box.destination_store_id, [box])
+  const byId = useMemo(
+    () => new Map(ready.map((box) => [box.koli_id, box])),
+    [ready]
+  )
+  /// "Koli N": the koli's number among its store's, in the order they were sealed.
+  const numbers = useMemo(() => {
+    const out = new Map<string, number>()
+    const seen = new Map<string, number>()
+    for (const box of [...ready].sort(
+      (a, b) =>
+        (a.sealed_at ?? "").localeCompare(b.sealed_at ?? "") ||
+        a.koli_number.localeCompare(b.koli_number)
+    )) {
+      const next = (seen.get(box.destination_store_id) ?? 0) + 1
+      seen.set(box.destination_store_id, next)
+      out.set(box.koli_id, next)
     }
-    return map
+    return out
   }, [ready])
+  const noOf = (box: Koli) => numbers.get(box.koli_id) ?? 1
 
-  const shopIds = useMemo(
-    () => [...boxesByShop.keys()].sort((a, b) => a.localeCompare(b)),
-    [boxesByShop]
-  )
+  const staged = new Set([...trips.flatMap((trip) => trip.ids), ...back])
+  const pile = ready.filter((box) => !staged.has(box.koli_id))
+  const kolisOf = (ids: readonly string[]) =>
+    ids.flatMap((id) => {
+      const box = byId.get(id)
+      return box ? [box] : []
+    })
+  const nextNo = Math.max(0, ...trips.map((trip) => trip.no)) + 1
 
-  const shop =
-    focusShop !== null && boxesByShop.has(focusShop)
-      ? focusShop
-      : (shopIds[0] ?? null)
-  const mine = shop !== null ? (boxesByShop.get(shop) ?? []) : []
-  const mineTicked = mine.filter((box) => !left.has(box.koli_id))
-  const shopAllTicked = mine.length > 0 && mineTicked.length === mine.length
-  const shopNoneTicked = mineTicked.length === 0
-
-  /// Every shop with at least one carton still ticked — the exact set of
-  /// koli a Dispatch press is about to put on the trip.
-  const goingByShop = useMemo(() => {
-    const map = new Map<string, Koli[]>()
-    for (const id of shopIds) {
-      const ticked = (boxesByShop.get(id) ?? []).filter(
-        (box) => !left.has(box.koli_id)
-      )
-      if (ticked.length > 0) map.set(id, ticked)
-    }
-    return map
-  }, [shopIds, boxesByShop, left])
-  const going = [...goingByShop.entries()]
-  const goingKoliIds = going.flatMap(([, list]) =>
-    list.map((box) => box.koli_id)
-  )
-  const goingPieces = going.reduce(
-    (total, [, list]) =>
-      total + list.reduce((sum, box) => sum + box.unit_count, 0),
-    0
-  )
+  const shown: readonly Koli[] =
+    view === "pile"
+      ? pile
+      : view === "back"
+        ? kolisOf(back)
+        : kolisOf(trips.find((trip) => trip.no === view)?.ids ?? [])
+  const stores = [
+    ...new Set(shown.map((box) => box.destination_store_id)),
+  ].sort((a, b) => a.localeCompare(b))
+  const filter = stores.includes(store) ? store : "all"
+  const list =
+    filter === "all"
+      ? shown
+      : shown.filter((box) => box.destination_store_id === filter)
+  /// "C001" out of "C001 · Cikupa": the filter names a store by its code.
+  const codeOf = (id: string) => shopName(id).split(" · ")[0] ?? id
+  const piecesOf = (boxes: readonly Koli[]) =>
+    boxes.reduce((total, box) => total + box.unit_count, 0)
 
   const refresh = () => {
     // The cartons have left the dock — their list, ready row and manifests —
@@ -524,197 +594,707 @@ export function DispatchSheet({
     void client.invalidateQueries({ queryKey: ["dc", "shipment"] })
     void client.invalidateQueries({ queryKey: keys.dispatches() })
     void client.invalidateQueries({ queryKey: keys.pools() })
+    void client.invalidateQueries({ queryKey: keys.dc.all })
   }
 
-  // Composer state: reset whenever the sheet opens — every ready carton
-  // ticked, or only the board's picks when it handed some over.
+  const clear = () => {
+    setTrips([])
+    setTripNote("")
+    setView("pile")
+    setStore("all")
+    setAdding(null)
+    setAsking(null)
+    setAskOpen(false)
+    setBack([])
+    setBackOpen(false)
+    setBackSel([])
+    setInfo(null)
+  }
+
+  // Composer state: every ready koli in Packed, no trips, whenever it opens.
   const opening = composing.value === true
   const [wasOpening, setWasOpening] = useState(false)
   if (opening !== wasOpening) {
     setWasOpening(opening)
-    if (opening) {
-      setLeft(
-        only && only.size > 0
-          ? new Set(
-              ready
-                .filter((box) => !only.has(box.koli_id))
-                .map((box) => box.koli_id)
-            )
-          : new Set()
-      )
-      setFocusShop(null)
-      setTripNote("")
-    }
+    if (opening) clear()
   }
 
-  const dispatchTrip = useMutation({
-    mutationFn: (value: { koliIds: readonly string[]; note: string }) =>
-      dc.dispatchTrip({
-        koli_ids: [...value.koliIds],
-        trip_note: value.note.trim() === "" ? null : value.note.trim(),
-        actor_id: actor,
-        idempotency_key: idempotencyKey(),
-      }),
-    onSuccess: (detail) => {
-      // The trip just made is the trip to print: no second read for it.
-      client.setQueryData(keys.dispatch(detail.dispatch.dispatch_id), detail)
-      setPrinting({ dispatchId: detail.dispatch.dispatch_id })
-      composing.close()
-      setLeft(new Set())
-      setTripNote("")
-      refresh()
-      onDispatched?.()
-      setDispatched("1 delivery note · in transit")
+  /// What shows after the next paint: the tile a press is about to fill.
+  const afterPaint = (run: () => void) => {
+    requestAnimationFrame(run)
+  }
+
+  /// Koli onto a trip; `null` makes the next one. `from`: where the press was,
+  /// for the "+N" that flies to the tile.
+  const place = (
+    ids: readonly string[],
+    target: number | null,
+    from?: DOMRect
+  ) => {
+    const fresh = ids.filter((id) => !staged.has(id))
+    if (fresh.length === 0) return
+    const known = target !== null && trips.some((trip) => trip.no === target)
+    const no = known ? target : nextNo
+    setTrips((current) =>
+      known
+        ? current.map((trip) =>
+            trip.no === no ? { ...trip, ids: [...trip.ids, ...fresh] } : trip
+          )
+        : [...current, { no, ids: fresh, note: "" }]
+    )
+    afterPaint(() => {
+      const tile = tileOf(no)
+      flyTo(from, tile, `+${fresh.length}`)
+      pulse(tile)
+    })
+  }
+  /// Which trip a press goes on: the Add layer's, the only one there is, a new
+  /// Trip 1, or — with two or more — the one the chooser says.
+  const send = (ids: readonly string[], from?: DOMRect) => {
+    if (adding !== null) return place(ids, adding, from)
+    if (trips.length >= 2) {
+      setAsking({ ids, from })
+      setAskOpen(true)
+      return
+    }
+    place(ids, trips.length === 1 ? trips[0]!.no : null, from)
+  }
+
+  /// Koli chosen in the Back to Pick dialog wait in its tile.
+  const stageBack = (ids: readonly string[]) => {
+    setBack((current) => [
+      ...current,
+      ...ids.filter((id) => !current.includes(id)),
+    ])
+    afterPaint(() => pulse(tileOf("back")))
+  }
+  const unstageBack = (id: string) => {
+    const left = back.filter((one) => one !== id)
+    setBack(left)
+    if (left.length === 0) setView("pile")
+  }
+
+  const keyFor = (name: string) => {
+    const known = keys_.current.get(name)
+    if (known) return known
+    const made = idempotencyKey()
+    keys_.current.set(name, made)
+    return made
+  }
+
+  /// Dispatch: every trip leaves (one delivery note each), then the koli
+  /// waiting in Back to Pick go back to Pick (the reused move-back write).
+  const submit = useMutation({
+    mutationFn: async () => {
+      const drawn = trips.filter((trip) => trip.ids.length > 0)
+      const data = tripNote.trim()
+      const full: TripDraft[] =
+        drawn.length > 0
+          ? [...drawn]
+          : pile.length > 0
+            ? [{ no: 1, ids: pile.map((box) => box.koli_id), note: data }]
+            : []
+      let dispatched = 0
+      const made: string[] = []
+      for (const trip of full) {
+        const note = trip.note.trim()
+        const detail = await dc.dispatchTrip({
+          koli_ids: [...trip.ids],
+          trip_note: note === "" ? null : note,
+          actor_id: actor,
+          idempotency_key: keyFor(
+            `trip:${[...trip.ids].sort().join(",")}:${note}`
+          ),
+        })
+        // The trip just made is the trip to print: no second read for it.
+        client.setQueryData(keys.dispatch(detail.dispatch.dispatch_id), detail)
+        made.push(detail.dispatch.dispatch_id)
+        dispatched += 1
+        setTrips((current) => current.filter((one) => one.no !== trip.no))
+      }
+      let sent = 0
+      for (const id of back) {
+        const box = byId.get(id)
+        if (!box) continue
+        const manifest = await client.fetchQuery(koliManifestQuery(id))
+        const lines = new Map<string, number>()
+        for (const line of manifest.lines)
+          lines.set(
+            line.sku_code,
+            (lines.get(line.sku_code) ?? 0) + line.quantity
+          )
+        await moveBack({
+          idempotency_key: keyFor(`back:${id}`),
+          destination_id: box.destination_store_id,
+          from: "packed",
+          to: "pick",
+          koli_id: id,
+          lines: [...lines].map(([sku_code, quantity]) => ({
+            sku_code,
+            quantity,
+          })),
+        })
+        sent += 1
+        setBack((current) => current.filter((one) => one !== id))
+      }
+      return { dispatched, sent, made }
     },
+    onSuccess: ({ dispatched, sent, made }) => {
+      const after = printAfter.current
+      printAfter.current = null
+      if (after !== null && made.length > 0) {
+        setQueuePaper(after)
+        setPrintQueue(made)
+      }
+      refresh()
+      composing.close()
+      clear()
+      if (dispatched > 0) onDispatched?.()
+      // Nothing opens by itself: the toast offers the surat jalan, and Print
+      // surat jalan opens the same preview sheet as an order.
+      toast.success(
+        [
+          dispatched > 0
+            ? `${count(dispatched)} ${dispatched === 1 ? "trip" : "trips"} dispatched`
+            : "",
+          sent > 0 ? `${count(sent)} koli back to Pick` : "",
+        ]
+          .filter(Boolean)
+          .join(" · "),
+        made.length > 0
+          ? {
+              action: {
+                label: "Print surat jalan",
+                onClick: () => setPrintQueue(made),
+              },
+            }
+          : undefined
+      )
+    },
+    // Part of it may have gone before the failure: show what is left.
+    onError: refresh,
   })
 
-  /// The trip the sheet dispatched, held in the receipt dialog until it is
-  /// read — over the delivery note the press already opened for printing.
-  const [dispatched, setDispatched] = useState<string | null>(null)
-
-  const submit = () => {
-    if (goingKoliIds.length === 0) return
-    dispatchTrip.mutate({ koliIds: goingKoliIds, note: tripNote })
-  }
+  const full = trips.filter((trip) => trip.ids.length > 0)
+  const fullKoli = full.reduce((total, trip) => total + trip.ids.length, 0)
+  const summary = [
+    full.length > 0
+      ? `${count(full.length)} ${full.length === 1 ? "trip" : "trips"} · ${count(fullKoli)} koli`
+      : "",
+    back.length > 0 ? `${count(back.length)} koli back to Pick` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ")
 
   const siteId =
     identity.data && "site_id" in identity.data ? identity.data.site_id : null
 
+  const activeTrip =
+    typeof view === "number"
+      ? trips.find((trip) => trip.no === view)
+      : undefined
+  const infoBox = info ? (byId.get(info) ?? null) : null
+  const addingTrip =
+    adding === null ? undefined : trips.find((trip) => trip.no === adding)
+  /// What the chooser is asking about: one koli, or "All in".
+  const askBoxes = kolisOf(asking?.ids ?? [])
+  const askOne = askBoxes.length === 1 ? askBoxes[0] : undefined
+
+  const row = (box: Koli, action: React.ReactNode) => (
+    <KoliRow
+      key={box.koli_id}
+      box={box}
+      no={noOf(box)}
+      onOpen={() => setInfo(box.koli_id)}
+      action={action}
+    />
+  )
+  const putRow = (box: Koli) =>
+    row(
+      box,
+      <PutOnTrip
+        onPress={(event) =>
+          send([box.koli_id], event.currentTarget.getBoundingClientRect())
+        }
+      />
+    )
+
+  /// A line that says there is nothing here.
+  const nothing = (words: string) => (
+    <p className="py-7 text-center text-[0.9375rem] text-mute">{words}</p>
+  )
+
+  let body: React.ReactNode
+  if (view === "pile") {
+    body =
+      list.length === 0 ? (
+        nothing("Every koli is on a trip")
+      ) : (
+        <>
+          <div className="flex min-h-10 items-center gap-2">
+            <span className="text-[0.9375rem] text-mute tabular-nums">
+              {filter === "all" ? "" : `${shopName(filter)} · `}
+              {count(list.length)} koli · {quantity(piecesOf(list))}
+            </span>
+            <div className="flex-1" />
+            {/* Back to Pick beside All in, as on Pack (owner, 20 Oct 2026). */}
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => {
+                setBackSel([])
+                setBackOpen(true)
+              }}
+            >
+              Back to Picklist
+            </Button>
+          </div>
+          <StoreGroups
+            boxes={list}
+            all={filter === "all"}
+            shopName={shopName}
+            render={(box) => row(box, null)}
+          />
+        </>
+      )
+  } else if (view === "back") {
+    body = (
+      <StoreGroups
+        boxes={list}
+        all={filter === "all"}
+        shopName={shopName}
+        render={(box) =>
+          row(
+            box,
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => unstageBack(box.koli_id)}
+            >
+              Take out
+            </Button>
+          )
+        }
+      />
+    )
+  } else {
+    const tripNo = view
+    body = (
+      <>
+        <div className="flex min-h-10 items-center justify-end">
+          {pile.length > 0 && (
+            <Button variant="primary" size="sm" onClick={() => setAdding(tripNo)}>
+              + Add to Trip {tripNo}
+            </Button>
+          )}
+        </div>
+        {list.length === 0 ? (
+          nothing("Empty")
+        ) : (
+          <StoreGroups
+            boxes={list}
+            all={filter === "all"}
+            shopName={shopName}
+            render={(box) =>
+              row(
+                box,
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() =>
+                    setTrips((current) =>
+                      current.map((trip) =>
+                        trip.no === tripNo
+                          ? {
+                              ...trip,
+                              ids: trip.ids.filter((id) => id !== box.koli_id),
+                            }
+                          : trip
+                      )
+                    )
+                  }
+                >
+                  Take out
+                </Button>
+              )
+            }
+          />
+        )}
+        {activeTrip && (
+          <div className="mt-[1.375rem]">
+            <Field label={`Trip data · Trip ${activeTrip.no}`}>
+              <Textarea
+                rows={2}
+                value={activeTrip.note}
+                onChange={(event) =>
+                  setTrips((current) =>
+                    current.map((trip) =>
+                      trip.no === activeTrip.no
+                        ? { ...trip, note: event.target.value }
+                        : trip
+                    )
+                  )
+                }
+              />
+            </Field>
+          </div>
+        )}
+      </>
+    )
+  }
+
   return (
     <>
-      {/* One trip, composed in one sheet: which cartons, which shop, one free
-          note, one press. */}
       <Sheet
         open={composing.value === true}
         onOpenChange={(next) => {
-          if (!next) {
-            composing.close()
-            setLeft(new Set())
-            setTripNote("")
-            dispatchTrip.reset()
+          if (next) return
+          // Esc reaches the sheet under a stack, not the layer on top of it
+          // (Pack does the same): while Add to Trip is up, that close is the
+          // layer's, and Dispatch stays.
+          if (adding !== null) {
+            setAdding(null)
+            return
           }
+          composing.close()
+          clear()
+          submit.reset()
         }}
-        width="wide"
+        size="table"
+        context="Operations"
         title="Dispatch"
         footer={
-          <div className="flex flex-wrap items-center gap-2.5">
-            <span className="text-[0.9375rem] text-mute">
-              {goingKoliIds.length === 0
-                ? "Tick the koli going on it"
-                : `${count(going.length)} ${going.length === 1 ? "store" : "stores"} · ${count(goingKoliIds.length)} koli · ${quantity(goingPieces)}`}
+          // Back to Pick stands at the left, the summary after it, the one
+          // solid button at the right (prototype). Each button sits in a box
+          // of its own: the White look sends every button a foot holds
+          // straight to the right, and a spacer is hidden there.
+          <div className="flex w-full items-center gap-3">
+            <span className="text-[0.9375rem] text-mute tabular-nums max-md:hidden">
+              {summary}
             </span>
-            <div className="flex-1" />
-            <Button
-              variant="primary"
-              pending={dispatchTrip.isPending}
-              disabled={goingKoliIds.length === 0}
-              onClick={submit}
+            <div
+              className={cn(
+                "max-md:flex-1 max-md:[&>button]:w-full",
+                "ml-auto"
+              )}
             >
-              {/* Submit dispatches and prints the delivery note. */}
-              {dispatchTrip.isPending ? "Submitting…" : "Submit"}
+              <Button
+                variant="primary"
+                pending={submit.isPending}
+                disabled={pile.length === 0 && summary === ""}
+                onClick={() => submit.mutate()}
+              >
+                {submit.isPending ? "Submitting…" : "Submit"}
+              </Button>
+            </div>
+          </div>
+        }
+      >
+        {queryState(cartons, {
+          loading: "Reading the koli…",
+          render: () =>
+            ready.length === 0 ? (
+              <EmptyState
+                action={
+                  <AppLink to="/operations/packing" variant="soft">
+                    Go to Packing
+                  </AppLink>
+                }
+              >
+                No packed koli is waiting for a trip.
+              </EmptyState>
+            ) : (
+              <div className="flex flex-col gap-6">
+                {/* The PO list's strip (owner, 20 Oct 2026): what is
+                    waiting, what is on a trip, for how many stores. */}
+                <KpiStrip className="mb-0 md:grid-cols-4 xl:grid-cols-4">
+                  <Kpi label="Packed" value={`${count(pile.length)} koli`} />
+                  <Kpi label="On trips" value={`${count(fullKoli)} koli`} />
+                  <Kpi
+                    label="Stores"
+                    value={count(
+                      new Set(ready.map((one) => one.destination_store_id)).size
+                    )}
+                  />
+                  <Kpi label="Pieces" value={count(piecesOf(ready))} />
+                </KpiStrip>
+                {pile.length > 0 && (
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="md:col-span-2">
+                      <Field label="Trip data">
+                        <Textarea
+                          rows={2}
+                          value={tripNote}
+                          onChange={(event) => setTripNote(event.target.value)}
+                        />
+                      </Field>
+                    </div>
+                  </div>
+                )}
+
+                {/* Stores as chips above the koli, with how many koli each
+                    holds (owner, 20 Oct 2026: chips as in GA). */}
+                <div className="flex min-w-0 flex-col gap-3">
+                  {stores.length > 0 && (
+                    <FilterChips
+                      label="Store"
+                      value={filter === "all" ? null : filter}
+                      onChange={(next) => setStore(next ?? "all")}
+                      options={[
+                        {
+                          value: null,
+                          label: "All stores",
+                          icon: Store,
+                          count: shown.length,
+                        },
+                        ...stores.map((id) => ({
+                          value: id,
+                          label: codeOf(id),
+                          count: shown.filter(
+                            (box) => box.destination_store_id === id
+                          ).length,
+                        })),
+                      ]}
+                    />
+                  )}
+                  <div className="flex min-w-0 flex-col">{body}</div>
+                </div>
+
+                <Problem error={submit.error} />
+              </div>
+            ),
+        })}
+      </Sheet>
+
+      {/* The second layer: waiting koli, each straight onto this trip. */}
+      <Sheet
+        open={adding !== null}
+        onOpenChange={(next) => !next && setAdding(null)}
+        size="rail"
+        context={`Packed · ${count(pile.length)} koli`}
+        title={adding === null ? "Add to Trip" : `Add to Trip ${adding}`}
+        caption={
+          adding === null
+            ? undefined
+            : `Trip ${adding} · ${count(addingTrip?.ids.length ?? 0)} koli`
+        }
+        footer={
+          <div className="flex justify-end">
+            <Button variant="primary" onClick={() => setAdding(null)}>
+              Done
             </Button>
           </div>
         }
       >
-        <div className="flex flex-col gap-5">
-          {queryState(cartons, {
-            loading: "Reading the koli…",
-            render: () =>
-              ready.length === 0 ? (
-                <EmptyState
-                  action={
-                    <AppLink to="/operations/packing" variant="soft">
-                      Go to Packing
-                    </AppLink>
-                  }
-                >
-                  No packed koli is waiting for a trip.
-                </EmptyState>
-              ) : (
-                <div className="flex flex-col gap-4 sm:min-h-[26rem] sm:flex-row sm:gap-5">
-                  <ShopRail
-                    shopIds={shopIds}
-                    boxesByShop={boxesByShop}
-                    left={left}
-                    going={going.length}
-                    current={shop}
-                    onFocus={setFocusShop}
-                  />
-                  <div className="flex min-w-0 flex-1 flex-col gap-3">
-                    {shop === null ? (
-                      <Banner tone="ok">
-                        Every store with a packed koli is already on this trip.
-                      </Banner>
-                    ) : (
-                      <>
-                        <div>
-                          <h4 className="text-card-title font-semibold text-ink">
-                            {shopName(shop)}
-                          </h4>
-                          {shopNoneTicked && (
-                            <p className="mt-0.5 text-[0.9375rem] text-mute">
-                              Not going on this trip
-                            </p>
-                          )}
-                        </div>
-                        <CartonChoice
-                          cartons={mine}
-                          left={left}
-                          allTicked={shopAllTicked}
-                          indeterminate={!shopAllTicked && !shopNoneTicked}
-                          onToggleShop={(on) =>
-                            setLeft((current) => {
-                              const next = new Set(current)
-                              for (const box of mine) {
-                                if (on) next.delete(box.koli_id)
-                                else next.add(box.koli_id)
-                              }
-                              return next
-                            })
-                          }
-                          onToggleOne={(koliId, on) =>
-                            setLeft((current) => {
-                              const next = new Set(current)
-                              if (on) next.delete(koliId)
-                              else next.add(koliId)
-                              return next
-                            })
-                          }
-                        />
-                      </>
-                    )}
-                  </div>
-                </div>
-              ),
-          })}
-
-          <Field label="Trip data">
-            <Textarea
-              rows={3}
-              value={tripNote}
-              onChange={(event) => setTripNote(event.target.value)}
-            />
-          </Field>
-        </div>
-
-        <Problem error={dispatchTrip.error} className="mt-3" />
+        {pile.length === 0 ? (
+          nothing("Every koli is on a trip")
+        ) : (
+          <StoreGroups boxes={pile} all shopName={shopName} render={putRow} />
+        )}
       </Sheet>
 
+      <TripChooser
+        open={askOpen}
+        onClose={() => setAskOpen(false)}
+        title={
+          askOne ? (
+            <>
+              Koli {noOf(askOne)} · {askOne.koli_number}
+            </>
+          ) : (
+            "All in"
+          )
+        }
+        sub={
+          askOne
+            ? `${shopName(askOne.destination_store_id)} · ${quantity(askOne.unit_count)}`
+            : `${count(askBoxes.length)} koli · ${quantity(piecesOf(askBoxes))}`
+        }
+        trips={trips.map((trip) => ({ no: trip.no, koli: trip.ids.length }))}
+        nextNo={nextNo}
+        onChoose={(no) => {
+          const ids = asking?.ids ?? []
+          setAskOpen(false)
+          place(ids, no, asking?.from)
+        }}
+      />
+
+      <Pop
+        open={backOpen}
+        onOpenChange={(next) => !next && setBackOpen(false)}
+        width="back"
+        bodyClass="mt-2.5"
+        title="Back to Picklist"
+        foot={
+          <>
+            <Button variant="ghost" onClick={() => setBackOpen(false)}>
+              Keep
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={backSel.length === 0}
+              onClick={() => {
+                stageBack(backSel)
+                setBackOpen(false)
+                setBackSel([])
+              }}
+            >
+              {`Back to Picklist${backSel.length > 0 ? ` ${count(backSel.length)} koli` : ""}`}
+            </Button>
+          </>
+        }
+      >
+        <StoreGroups
+          boxes={pile}
+          all
+          shopName={shopName}
+          render={(box) => {
+            const toggle = () =>
+              setBackSel((current) =>
+                current.includes(box.koli_id)
+                  ? current.filter((id) => id !== box.koli_id)
+                  : [...current, box.koli_id]
+              )
+            return (
+              <KoliRow
+                key={box.koli_id}
+                box={box}
+                no={noOf(box)}
+                onOpen={() => setInfo(box.koli_id)}
+                onPress={toggle}
+                leading={
+                  <RedTick
+                    on={backSel.includes(box.koli_id)}
+                    label={`Koli ${noOf(box)}`}
+                  />
+                }
+                action={null}
+              />
+            )
+          }}
+        />
+      </Pop>
+
+      <KoliContentsDialog
+        box={infoBox}
+        no={infoBox ? noOf(infoBox) : 1}
+        store={infoBox ? shopName(infoBox.destination_store_id) : ""}
+        onClose={() => setInfo(null)}
+        onPrint={(koliId, paper) => setPrinting({ koliId, paper })}
+      />
+
       {printing !== null && (
-        <PrintSuratJalan
-          printing={printing}
+        <PackingListPrint
+          koliIds={[printing.koliId]}
+          paper={printing.paper}
+          open
           onClose={() => setPrinting(null)}
           siteId={siteId}
         />
       )}
-      <SavedDialog
-        open={dispatched !== null}
-        onOpenChange={(next) => {
-          if (!next) setDispatched(null)
-        }}
-        title={dispatched ?? ""}
-      />
+
+      {printQueue.length > 0 && (
+        <PrintSuratJalan
+          // One delivery note after another: the next opens as this closes.
+          key={printQueue[0]}
+          printing={{ dispatchId: printQueue[0]! }}
+          paper={queuePaper ?? undefined}
+          onClose={() =>
+            setPrintQueue((queue) => {
+              if (queue.length <= 1) setQueuePaper(null)
+              return queue.slice(1)
+            })
+          }
+          siteId={siteId}
+        />
+      )}
     </>
+  )
+}
+
+type DispatchView = "pile" | "back" | number
+
+interface TripDraft {
+  readonly no: number
+  readonly ids: readonly string[]
+  readonly note: string
+}
+
+/// Koli under their store's head: the name, "N koli · M pcs", and — when the
+/// caller gives it — a tinted "All in" for that store.
+function StoreGroups({
+  boxes,
+  all,
+  shopName,
+  render,
+  onAllIn,
+}: {
+  boxes: readonly Koli[]
+  /// Draw the store heads (the filter is on All stores).
+  all: boolean
+  shopName: (id: string) => string
+  render: (box: Koli) => React.ReactNode
+  onAllIn?: (ids: readonly string[], from: DOMRect) => void
+}) {
+  const out: React.ReactNode[] = []
+  let last: string | null = null
+  for (const box of boxes) {
+    const id = box.destination_store_id
+    if (all && id !== last) {
+      last = id
+      const mine = boxes.filter((one) => one.destination_store_id === id)
+      out.push(
+        <div key={`head-${id}`} className="flex items-center gap-3 pt-4 pb-2">
+          <div className="min-w-0 flex-1">
+            <b className="block truncate font-semibold text-ink">
+              {shopName(id)}
+            </b>
+            <span className="text-[0.9375rem] text-mute tabular-nums">
+              {count(mine.length)} koli ·{" "}
+              {quantity(mine.reduce((total, one) => total + one.unit_count, 0))}
+            </span>
+          </div>
+          {onAllIn && (
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={(event) =>
+                onAllIn(
+                  mine.map((one) => one.koli_id),
+                  event.currentTarget.getBoundingClientRect()
+                )
+              }
+            >
+              All in
+            </Button>
+          )}
+        </div>
+      )
+    }
+    out.push(<div key={box.koli_id}>{render(box)}</div>)
+  }
+  return <>{out}</>
+}
+
+/// A red tick box: the Back to Pick dialog's choice. The row it stands in is
+/// the press (it ticks and unticks); this is how it looks, and what a keyboard
+/// lands on.
+function RedTick({ on, label }: { on: boolean; label: string }) {
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={on}
+      aria-label={label}
+      className={cn(
+        "grid size-[1.375rem] shrink-0 place-items-center rounded-md border-[1.5px] transition-[background-color,border-color,scale] duration-150 ease-out active:scale-[0.9]",
+        on
+          ? "border-bad-fg bg-bad-fg text-white"
+          : "border-hairline-2 bg-canvas"
+      )}
+    >
+      {on && <Check className="size-4" />}
+    </button>
   )
 }
 
@@ -757,8 +1337,7 @@ export function ShipmentSheets() {
 
 /// What a "Print delivery note" press prints: the shipment's trip, as one
 /// document — or, for a shipment on no trip yet (a legacy run), its own page.
-type Printing =
-  { readonly dispatchId: string } | { readonly shipmentIds: readonly string[] }
+type Printing = SuratJalanTarget
 
 function printingFor(shipment: Shipment): Printing {
   return shipment.dispatch_id !== null
@@ -770,24 +1349,19 @@ function PrintSuratJalan({
   printing,
   onClose,
   siteId,
+  paper,
 }: {
   printing: Printing
   onClose: () => void
   siteId: string | null
+  paper?: Paper
 }) {
-  return "dispatchId" in printing ? (
-    <TripSuratJalanPrint
-      dispatchId={printing.dispatchId}
-      open
+  return (
+    <SuratJalanPrintFlow
+      target={printing}
       onClose={onClose}
       siteId={siteId}
-    />
-  ) : (
-    <SuratJalanPrint
-      shipmentIds={printing.shipmentIds}
-      open
-      onClose={onClose}
-      siteId={siteId}
+      paper={paper}
     />
   )
 }
@@ -820,143 +1394,6 @@ function ShopCell({
   shopName: (id: string) => string
 }) {
   return <span className="truncate text-ink">{shopName(id)}</span>
-}
-
-/// The left half of Dispatch: every shop with a carton ready, and how much of
-/// it is ticked for this trip. The same rail shape Packing's own composer
-/// used — a shop chosen before its cartons, because building a trip is one
-/// shop's cartons at a time.
-function ShopRail({
-  shopIds,
-  boxesByShop,
-  left,
-  going,
-  current,
-  onFocus,
-}: {
-  shopIds: readonly string[]
-  boxesByShop: ReadonlyMap<string, Koli[]>
-  left: ReadonlySet<string>
-  going: number
-  current: string | null
-  onFocus: (shopId: string) => void
-}) {
-  const shopName = useShopName()
-  return (
-    <div className="flex shrink-0 flex-col overflow-hidden rounded-inner border border-hairline sm:w-64">
-      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-hairline px-3">
-        <span className="font-medium text-ink">Stores</span>
-        <span className="flex-1" />
-        <span className="text-[0.9375rem] text-mute">{count(going)} going</span>
-      </div>
-      <div className="flex-1 overflow-y-auto">
-        {shopIds.map((id) => {
-          const mine = boxesByShop.get(id) ?? []
-          const ticked = mine.filter((box) => !left.has(box.koli_id)).length
-          return (
-            <button
-              key={id}
-              type="button"
-              onClick={() => onFocus(id)}
-              className={cn(
-                "flex w-full items-center gap-2.5 border-b border-hairline px-3 py-2 text-left transition-colors last:border-b-0",
-                id === current ? "bg-accent-bg" : "hover:bg-soft"
-              )}
-            >
-              <span className="min-w-0 flex-1 truncate">{shopName(id)}</span>
-              <span className="shrink-0 text-right text-[0.9375rem]">
-                {ticked === 0 ? (
-                  <span className="text-faint">—</span>
-                ) : ticked === mine.length ? (
-                  <span className="text-ink">{count(ticked)} koli</span>
-                ) : (
-                  <>
-                    <span className="text-ink">{count(ticked)}</span>
-                    <span className="text-mute"> / {count(mine.length)}</span>
-                  </>
-                )}
-              </span>
-            </button>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
-/// The right half of Dispatch: one shop's ready cartons, each already ticked
-/// unless it was left off.
-function CartonChoice({
-  cartons,
-  left,
-  allTicked,
-  indeterminate,
-  onToggleShop,
-  onToggleOne,
-}: {
-  cartons: readonly Koli[]
-  left: ReadonlySet<string>
-  allTicked: boolean
-  indeterminate: boolean
-  onToggleShop: (on: boolean) => void
-  onToggleOne: (koliId: string, on: boolean) => void
-}) {
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[28rem] border-collapse">
-        <thead>
-          <tr>
-            <th className="w-8 pr-2 pb-1.5 text-left">
-              <Checkbox
-                label={<span className="sr-only">Every koli</span>}
-                checked={allTicked}
-                indeterminate={indeterminate}
-                onChange={onToggleShop}
-              />
-            </th>
-            <th className="pr-2 pb-1.5 text-left font-mono text-eyebrow tracking-[0.04em] text-body uppercase">
-              Koli
-            </th>
-            <th className="pb-1.5 pl-3 text-right font-mono text-eyebrow tracking-[0.04em] text-body uppercase">
-              Pcs
-            </th>
-            <th className="pb-1.5 pl-3 text-right font-mono text-eyebrow tracking-[0.04em] text-body uppercase">
-              Packed
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {cartons.map((box) => {
-            const ticked = !left.has(box.koli_id)
-            return (
-              <MiniRow key={box.koli_id}>
-                <MiniCell>
-                  <Checkbox
-                    label={<span className="sr-only">{box.koli_number}</span>}
-                    checked={ticked}
-                    onChange={(on) => onToggleOne(box.koli_id, on)}
-                  />
-                </MiniCell>
-                <MiniCell>
-                  <span
-                    className={cn(
-                      "font-mono",
-                      ticked ? "text-ink" : "text-faint"
-                    )}
-                  >
-                    {box.koli_number}
-                  </span>
-                  <KoliPhotos koli={[box.koli_id]} className="mt-1.5" />
-                </MiniCell>
-                <MiniCell align="right">{count(box.unit_count)}</MiniCell>
-                <MiniCell align="right">{clock(box.sealed_at)}</MiniCell>
-              </MiniRow>
-            )
-          })}
-        </tbody>
-      </table>
-    </div>
-  )
 }
 
 /// The "In transit" card's columns.

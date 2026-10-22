@@ -1,0 +1,103 @@
+<!-- @dsCard group="Overlays" height=688 subtitle="Static rendition of lib/filter-chrome.ts, list-chrome.tsx and filter-chip.tsx in the All white look" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>Menu — preview</title>
+<style>
+body{margin:0}
+/* Menu: POPUP and ITEM from lib/filter-chrome.ts. Radius 10, 1px hairline, shadow-pop, padding 5; rows 36px with an 8px radius. */
+.ds-menu-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px 28px;align-items:start}
+.ds-menu-col{display:flex;flex-direction:column;gap:12px;min-width:0}
+.ds-menu-anchor{display:flex;flex-direction:column;min-width:0}
+.ds-menu-anchor.is-end{align-items:flex-end}
+.ds-menu-open{background:var(--soft-2)}
+.ds-menu-pad{padding:0 12px}
+.ds-menu-pop{width:fit-content;max-width:100%;min-width:192px;margin-top:4px;padding:5px;border:1px solid var(--hairline);border-radius:var(--r-card);background:var(--canvas);box-shadow:var(--shadow-pop)}
+.ds-menu-pop.is-wide{min-width:240px}
+.ds-menu-pop.is-narrow{max-width:300px}
+.ds-menu-head{padding:4px 8px;font-size:15px;line-height:22px;font-weight:600;color:var(--mute)}
+.ds-menu-head.is-group{padding-top:8px}
+.ds-menu-row{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:var(--r-inner);font-size:15px;color:var(--ink);white-space:nowrap}
+.ds-menu-row.is-hover{background:var(--soft-2)}
+.ds-menu-row.is-refused{flex-direction:column;align-items:flex-start;gap:0;opacity:.6;white-space:normal}
+.ds-menu-row.is-refused .ds-menu-why{color:var(--mute)}
+.ds-menu-tick{display:grid;place-items:center;flex:none;width:14px;color:var(--accent)}
+.ds-menu-glyph{color:var(--ink)}
+.ds-menu-copy{flex:none;width:14px;height:14px;color:var(--ink)}
+.ds-menu-key{margin-left:auto;padding:1px 6px;border:1px solid var(--hairline-2);border-radius:5px;background:var(--canvas);font-size:15px;line-height:21px;color:var(--body)}
+.ds-menu-row.has-key{justify-content:flex-start;min-width:0}
+.ds-menu-chip{display:inline-flex;align-self:flex-start;align-items:stretch;height:32px;overflow:hidden;border-radius:var(--r-full);background:var(--soft-2);font-size:15px;line-height:20px;white-space:nowrap}
+.ds-menu-chip > *{display:flex;align-items:center}
+.ds-menu-chip-field{padding:0 10px;font-weight:500;color:var(--ink)}
+.ds-menu-chip-op{padding:0 8px;border-inline:1px solid var(--hairline);background:var(--soft);color:var(--body)}
+.ds-menu-chip-op.is-open{background:var(--soft-2);color:var(--ink)}
+.ds-menu-chip-value{padding:0 10px;font-weight:500;color:var(--accent)}
+.ds-menu-chip-x{padding:0 8px;border-left:1px solid var(--hairline);color:var(--line-ico)}
+.ds-menu-sheetbar{display:flex;align-items:center;justify-content:flex-end;gap:2px}
+</style></head>
+<body>
+<div class="ds ds-stage">
+
+  <div class="ds-menu-grid">
+
+    <div class="ds-menu-col">
+      <p class="ds-caption">Choose: a tick at the left</p>
+      <div class="ds-menu-anchor is-end">
+        <button class="ds-btn ds-btn--ghost ds-menu-pad ds-menu-open" type="button" aria-expanded="true"><span class="ds-ico ds-ico-columns ds-ico--14"></span>Columns</button>
+        <div class="ds-menu-pop" role="menu">
+          <div class="ds-menu-head">Columns</div>
+          <div class="ds-menu-row" role="menuitemcheckbox" aria-checked="true"><span class="ds-menu-tick"><span class="ds-ico ds-ico-check ds-ico--14"></span></span>Delivery date</div>
+          <div class="ds-menu-row is-hover" role="menuitemcheckbox" aria-checked="true"><span class="ds-menu-tick"><span class="ds-ico ds-ico-check ds-ico--14"></span></span>Quantity</div>
+          <div class="ds-menu-row" role="menuitemcheckbox" aria-checked="true"><span class="ds-menu-tick"><span class="ds-ico ds-ico-check ds-ico--14"></span></span>Grand total</div>
+          <div class="ds-menu-row" role="menuitemcheckbox" aria-checked="false"><span class="ds-menu-tick"></span>Created by</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ds-menu-col">
+      <p class="ds-caption">Act: a refused row says why</p>
+      <div class="ds-menu-anchor is-end">
+        <button class="ds-btn ds-btn--ghost ds-menu-open" type="button" aria-expanded="true">Actions<span class="ds-ico ds-ico-chevron-down ds-ico--14"></span></button>
+        <div class="ds-menu-pop is-narrow" role="menu">
+          <div class="ds-menu-row" role="menuitem">Restart server</div>
+          <div class="ds-menu-row" role="menuitem">Resend initial data</div>
+          <div class="ds-menu-row is-refused" role="menuitem" aria-disabled="true"><span>Back up now</span><span class="ds-menu-why">Server version too old (0.9.0): update it to use this.</span></div>
+          <div class="ds-menu-row is-hover" role="menuitem">Sync now</div>
+          <div class="ds-menu-row" role="menuitem">Update server</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ds-menu-col">
+      <p class="ds-caption">Group: a heading per family</p>
+      <div class="ds-menu-anchor">
+        <span class="ds-menu-chip"><span class="ds-menu-chip-field">Status</span><span class="ds-menu-chip-op is-open">in</span><span class="ds-menu-chip-value">2 selected</span><span class="ds-menu-chip-x"><span class="ds-ico ds-ico-x ds-ico--14"></span></span></span>
+        <div class="ds-menu-pop is-wide" role="menu">
+          <div class="ds-menu-head">Comparison</div>
+          <div class="ds-menu-row has-key"><span class="ds-menu-tick"></span>is<span class="ds-menu-key">=</span></div>
+          <div class="ds-menu-row has-key is-hover"><span class="ds-menu-tick"></span>is not<span class="ds-menu-key">&lt;&gt;</span></div>
+          <div class="ds-menu-head is-group">In lists</div>
+          <div class="ds-menu-row has-key"><span class="ds-menu-tick"><span class="ds-ico ds-ico-check ds-ico--14"></span></span>is any of<span class="ds-menu-key">in</span></div>
+          <div class="ds-menu-row has-key"><span class="ds-menu-tick"></span>is none of<span class="ds-menu-key">not in</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ds-menu-col">
+      <p class="ds-caption">More: a sheet's ⋯, for the rest</p>
+      <div class="ds-menu-anchor is-end">
+        <div class="ds-menu-sheetbar">
+          <button class="ds-btn ds-btn--quiet ds-btn--icon ds-menu-open" type="button" aria-label="More" aria-expanded="true"><span class="ds-ico ds-ico-more"></span></button>
+          <button class="ds-sheet-close" type="button" aria-label="Close" style="margin:0"><span class="ds-ico ds-ico-x ds-ico--17"></span></button>
+        </div>
+        <div class="ds-menu-pop" role="menu" style="margin-right:38px">
+          <div class="ds-menu-row is-hover" role="menuitem"><span class="ds-ico ds-ico-download ds-ico--14 ds-menu-glyph"></span>Download PDF</div>
+          <div class="ds-menu-row" role="menuitem"><svg class="ds-menu-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>Duplicate</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+</body>
+</html>

@@ -135,24 +135,34 @@ export function folderOf(row: VaultRow): string {
   return row.folder.length === 0 ? "—" : `/${row.folder.join("/")}`
 }
 
+/// Where a row is kept, as the list's Where column and the sheet's crumb say
+/// it: the folder for a filed document (`GA / Aset`), the room for an
+/// attachment.
+export function placeOf(row: VaultRow): string {
+  if (row.room !== null) return row.room.title
+  return row.folder.length === 0 ? "—" : row.folder.join(" / ")
+}
+
 /// What the tile and the list call the state of a row, in one word each.
 ///
 /// The decision metric this screen sorts by: a row whose bytes are gone, or
-/// whose text was never extracted, is the only kind anybody has to act on.
+/// whose text was never read, is the only kind anybody has to act on. A row
+/// still being read is only waiting, so it is said quietly and not sorted up
+/// (owner, 17 Oct 2026, library-tidy-options.html A). "Ready" is a filter
+/// choice, never drawn in a row.
 export function stateOf(row: VaultRow): string {
-  if (!row.available) return "Gone"
-  if (row.processing === "FAILED") return "Not extracted"
+  if (!row.available) return "Missing"
+  if (row.processing === "FAILED") return "Not read"
   if (row.processing !== null && row.processing !== "COMPLETED")
     return "Reading"
-  return "There"
+  return "Ready"
 }
 
 /// Lowest first, so the rows that need somebody are at the top by default.
 export function attention(row: VaultRow): number {
   if (!row.available) return 0
   if (row.processing === "FAILED") return 1
-  if (row.processing !== null && row.processing !== "COMPLETED") return 2
-  return 3
+  return 2
 }
 
 /// The family a content type belongs to, for the facet. `application/pdf` and
@@ -167,6 +177,17 @@ export function kindOf(row: VaultRow): string {
   if (base.startsWith("text/")) return "Text"
   if (base.includes("word") || base.includes("document")) return "Document"
   return "Other"
+}
+
+/// The kind as the grey line under a name says it: `PDF`, the extension for a
+/// picture (`JPG`), else the family.
+export function kindWord(row: VaultRow): string {
+  const kind = kindOf(row)
+  if (kind !== "Image") return kind
+  const dot = row.name.lastIndexOf(".")
+  return dot < 0 || dot === row.name.length - 1
+    ? kind
+    : row.name.slice(dot + 1).toUpperCase()
 }
 
 /// Types a browser will really draw. The same allow-list the server enforces in

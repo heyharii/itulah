@@ -17,7 +17,8 @@ const JOINED = new Intl.DateTimeFormat("id-ID", { month: "long", year: "numeric"
 /// The card, presented.
 ///
 /// This is the screen a shopper holds up at the counter, so it is built for
-/// that moment: the card large and alone under a white spotlight, with nothing
+/// that moment: the card large and alone under a white spotlight on the matte
+/// ground, with nothing
 /// else in the cashier's eyeline, and a single action that turns it over to
 /// the barcode.
 /// The card can also be turned by hand: drag it, or flick it.
@@ -52,8 +53,7 @@ export function CardView() {
         </header>
 
         <div className="relative flex flex-1 flex-col justify-center py-8">
-          {/* The card's contact shadow on the floor of the stage. */}
-          <div aria-hidden className="stage-floor pointer-events-none absolute inset-x-[4%] top-1/2 h-24 translate-y-[45%]" />
+          {/* The card brings its own contact shadow (`.card-floor`). */}
           <motion.div layoutId="member-card" className="relative">
             <MemberCard
               ref={card}

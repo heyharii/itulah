@@ -18,6 +18,7 @@ import {
   type Session,
 } from "@/lib/queries/sessions"
 import { useReceipt } from "@/lib/till"
+import { articleId, sku } from "@/lib/format"
 import { dayTitle } from "@/screens/money/format"
 import { FactBox, FactRow } from "@/screens/money/sales-facts"
 import { clock, differenceWord, tenderWord } from "@/screens/money/sales-words"
@@ -262,7 +263,7 @@ export function ReceiptSheet({
                 <FactRow
                   key={`${line.sku_code}-${index}`}
                   label={line.name}
-                  sub={`${line.sku_code} · ${units(line.quantity)} × ${money(line.unit_price_minor)}${
+                  sub={`${articleId(null, line.sku_code)} · ${sku(line.sku_code)} · ${units(line.quantity)} × ${money(line.unit_price_minor)}${
                     was !== null && was !== line.unit_price_minor
                       ? ` · was ${money(was)}`
                       : ""

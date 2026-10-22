@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react"
 import { NumberPad } from "@/components/ui/number-pad"
 import { Pill } from "@/components/ui/pill"
 import { MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
-import { count, label, positionTone } from "@/lib/format"
+import { count, label, positionTone, sku as skuText } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import { useCatalogueIdentity } from "@/lib/operations/catalogue"
 import { cn } from "@/lib/utils"
@@ -45,11 +45,11 @@ export function SkuLines({
           <MiniRow key={line.sku_code}>
             <MiniCell>
               <div className="text-ink">
-                {identity?.article_name ?? line.sku_code}
+                {identity?.article_name ?? skuText(line.sku_code)}
               </div>
               <div className="text-mute">
                 {variant !== "" && <>{variant} · </>}
-                <span className="font-mono">{line.sku_code}</span>
+                <span className="font-mono">{skuText(line.sku_code)}</span>
               </div>
             </MiniCell>
             <MiniCell align="right">{count(line.quantity)}</MiniCell>

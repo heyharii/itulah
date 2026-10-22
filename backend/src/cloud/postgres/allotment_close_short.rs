@@ -472,6 +472,28 @@ pub async fn close_allotment_short(
                 if picked == 1 { "is" } else { "are" }
             )));
         }
+        // A Cannot pick MD accepts is Missing from the rack it was not on
+        // (owner, 19 Oct 2026) — read before the close takes the remainder.
+        // The cloud-run Gudang books it here; a node's Gudang keeps its own
+        // books and is told through the close-short command.
+        if origin.is_none() {
+            short_pick::book_missing_on_accept(
+                &mut tx,
+                allotment_id,
+                asked.allotment_line_id,
+                &line.get::<String, _>("destination_id"),
+                &sku_code,
+                &line.get::<String, _>("source_pool_id"),
+                asked.quantity,
+                &format!(
+                    "close-short:{close_short_id}:{}:missing",
+                    asked.allotment_line_id
+                ),
+                actor_id,
+                now,
+            )
+            .await?;
+        }
         let written = match origin.as_deref() {
             Some(origin_id) => sqlx::query(
                 "UPDATE edge_allotment_line_progress

@@ -177,6 +177,9 @@ export function useEdgeSignIn() {
 export function useEdgeCloudSignIn() {
   const client = useQueryClient()
   return useMutation({
+    // Runs by itself on entering Operations: a stamp drawn after it was not
+    // pressed by it (`DocStamp`).
+    meta: { finishesNothing: true },
     mutationFn: async (input: { originId: string }) => {
       const { ticket } = await node.post<{ ticket: string }>(
         "/api/v1/auth/edge-sso-ticket",

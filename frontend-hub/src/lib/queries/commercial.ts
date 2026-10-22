@@ -87,13 +87,13 @@ export function describeSource(source: string): string {
     case "SITE_GROUP_PRICE":
       return "Group price"
     case "TIER_PRICE":
-      return "Member tier"
+      return "Member price"
     case "COMPANY_PRICE":
-      return "Company price"
+      return "Base price"
     case "MARKDOWN":
-      return "Sale price"
+      return "Markdown price"
     case "MANUAL_OVERRIDE":
-      return "Typed in"
+      return "Set by hand"
     default:
       // A rung this build has not been told about is passed through rather
       // than guessed at: a price whose origin we cannot name is not a company
@@ -1791,7 +1791,7 @@ export function describeLevel(level: PriceLevel): string {
     case "SITE_GROUP":
       return `${level.site_ids.length} stores`
     default:
-      return "Every store"
+      return "All stores"
   }
 }
 

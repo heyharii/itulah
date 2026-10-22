@@ -320,9 +320,9 @@ function CloseRange({
       setRemarks("")
       onOpenChange(false)
       // The sheet is gone, so the receipt is said here.
-      toast.success(
-        `Closed ${day(closed.period_start)} – ${day(closed.period_end)}: ${money(Math.abs(closed.profit_minor))} ${closed.profit_minor >= 0 ? "profit" : "loss"} moved.`
-      )
+      toast.success("Period closed", {
+        description: `${day(closed.period_start)} – ${day(closed.period_end)} · ${money(Math.abs(closed.profit_minor))} ${closed.profit_minor >= 0 ? "profit" : "loss"}`,
+      })
       void client.invalidateQueries({ queryKey: financeKeys.all })
     },
   })

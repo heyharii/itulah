@@ -65,7 +65,8 @@ def main() -> int:
         help="optional Edge human bearer session for operator attribution",
     )
     parser.add_argument("--session", default=f"SIM-{uuid.uuid4()}")
-    parser.add_argument("--epc", default="EPC00000007")
+    # Hex digits, as a reader reports a tag: the node refuses anything else.
+    parser.add_argument("--epc", default="E28000000000000000000007")
     parser.add_argument("--reads", type=int, default=80)
     parser.add_argument("--retry", action="store_true", help="send the identical key and payload twice")
     args = parser.parse_args()
@@ -86,8 +87,8 @@ def main() -> int:
         "observations": [
             {"epc": args.epc, "rssi": -46, "antenna": "A1", "read_count": 1},
             {"epc": args.epc, "rssi": -53, "antenna": "A1", "read_count": args.reads - 1},
-            {"epc": "EPC00000002", "rssi": -61, "read_count": 1},
-            {"epc": "EPC00000003", "read_count": 1},
+            {"epc": "E28000000000000000000002", "rssi": -61, "read_count": 1},
+            {"epc": "E28000000000000000000003", "read_count": 1},
         ],
     }
     body = json.dumps(payload, separators=(",", ":")).encode()

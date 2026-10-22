@@ -118,6 +118,11 @@ pub struct RosterSwapView {
     pub state: String,
     pub requested_by: String,
     pub decided_by: Option<String>,
+    /// When the store head decided it; `null` while it waits and on a
+    /// withdrawn one, which nobody decided.
+    pub decided_at: Option<DateTime<Utc>>,
+    /// The reason the decider gave.
+    pub decision_reason: Option<String>,
 }
 
 fn swap_view(swap: &RosterSwap) -> RosterSwapView {
@@ -134,6 +139,11 @@ fn swap_view(swap: &RosterSwap) -> RosterSwapView {
             .decision
             .as_ref()
             .map(|d| d.authorization.actor().as_str().to_owned()),
+        decided_at: swap.decision.as_ref().map(|d| d.authorization.at()),
+        decision_reason: swap
+            .decision
+            .as_ref()
+            .map(|d| d.authorization.reason().as_str().to_owned()),
     }
 }
 
@@ -453,6 +463,60 @@ pub async fn pending_swaps(
 #[serde(deny_unknown_fields)]
 pub struct SwapListQuery {
     pub employee_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SwapsQuery {
+    /// `PENDING`, `APPROVED`, `REJECTED` or `WITHDRAWN`; every state when
+    /// left out.
+    pub state: Option<String>,
+    pub unit: Option<String>,
+    /// The roster days, both ends included.
+    pub from: Option<NaiveDate>,
+    pub to: Option<NaiveDate>,
+}
+
+/// Every swap the caller's reach covers, decided ones too — Schedules ›
+/// Swaps. The same key as the queue: whoever decides swaps at a place may
+/// read what was decided there. A unit outside the caller's reach is refused
+/// rather than answered empty.
+pub async fn list_swaps(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Query(query): Query<SwapsQuery>,
+) -> Result<Json<Vec<RosterSwapView>>, AppError> {
+    require(&principal, actions::ROSTER_SWAP_DECIDE)?;
+    let wanted = query
+        .state
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let known = ["PENDING", "APPROVED", "REJECTED", "WITHDRAWN"];
+    if let Some(word) = wanted.filter(|word| !known.contains(word)) {
+        return Err(invalid(format!(
+            "a swap is PENDING, APPROVED, REJECTED or WITHDRAWN; {word} is none of them"
+        )));
+    }
+    let asked = query
+        .unit
+        .as_deref()
+        .map(str::trim)
+        .filter(|u| !u.is_empty());
+    let reach = reach_of(&state, &principal).await?;
+    let unit = match (&reach, asked) {
+        (crate::cloud::domain::Reach::Nowhere, _) => return Ok(Json(Vec::new())),
+        (_, Some(unit)) => {
+            reach_covers(&reach, unit, &principal.username)?;
+            Some(unit.to_owned())
+        }
+        (crate::cloud::domain::Reach::Only(own), None) => Some(own.as_str().to_owned()),
+        (crate::cloud::domain::Reach::Everywhere, None) => None,
+    };
+    let swaps =
+        infrastructure::list_swaps(&state.db, wanted, unit.as_deref(), query.from, query.to)
+            .await?;
+    Ok(Json(swaps.iter().map(swap_view).collect()))
 }
 
 /// A person's swap history. Their own is always readable; anybody else's
@@ -2641,7 +2705,7 @@ pub fn lane_p_routes(router: axum::Router<AppState>) -> axum::Router<AppState> {
     use axum::routing::{get, post, put};
     router
         // Roster swaps: file your own, decide your place's, read your own.
-        .route("/api/v1/roster-swaps", post(file_swap))
+        .route("/api/v1/roster-swaps", get(list_swaps).post(file_swap))
         .route("/api/v1/roster-swaps/pending", get(pending_swaps))
         .route("/api/v1/roster-swaps/{id}/decision", post(decide_swap))
         .route("/api/v1/roster-swaps/{id}/withdrawal", post(withdraw_swap))

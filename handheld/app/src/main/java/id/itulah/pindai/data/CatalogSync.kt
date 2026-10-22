@@ -46,9 +46,11 @@ class CatalogSync(private val store: CatalogStore) {
      * Bring the local copy up to the node's generation, or leave it entirely
      * alone.
      *
-     * Blocking; call it from IO.
+     * Blocking; call it from IO. [onPulling] is called, on this thread, only
+     * when the generation differs and the whole catalogue is about to travel —
+     * the one moment worth telling a screen about.
      */
-    fun refresh(settings: Settings): SyncOutcome {
+    fun refresh(settings: Settings, onPulling: () -> Unit = {}): SyncOutcome {
         if (!settings.isConfigured) return SyncOutcome.Failed("settings are incomplete")
         val key = nodeKey(settings)
         val api = Api(settings, connectTimeoutMs = CONNECT_MS)
@@ -65,6 +67,7 @@ class CatalogSync(private val store: CatalogStore) {
             return SyncOutcome.UpToDate(generation, local.itemCount)
         }
 
+        onPulling()
         val rows = ArrayList<CatalogRow>(4096)
         var after: String? = null
         while (true) {

@@ -1,0 +1,56 @@
+<!-- @dsCard group="Feedback" height=360 subtitle="Static rendition of toast.tsx in the All white look" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>Toast — preview</title>
+<style>
+body{margin:0}
+.ds-toast-set{display:flex;flex-wrap:wrap;gap:24px;align-items:flex-start;padding:24px 28px}
+.ds-toast-stack{display:flex;flex-direction:column;gap:10px;width:356px;max-width:100%}
+/* toast.tsx classNames: the icon is a 16px box, 1px down; Sonner's own filled glyphs */
+.ds-toast-ic{display:flex;align-items:center;justify-content:center;flex:none;width:16px;height:16px;margin-top:1px}
+.ds-toast-ic svg{width:16px;height:16px}
+.ds-toast-ic--ok{color:var(--ok-fg)}
+.ds-toast-ic--bad{color:var(--bad-fg)}
+.ds-toast-ic--info{color:var(--info-fg)}
+.ds-toast-action{align-self:flex-start;font-family:inherit;cursor:pointer}
+</style></head>
+<body>
+<div class="ds ds-toast-set">
+
+  <div class="ds-toast-stack">
+    <div class="ds-toast" role="status">
+      <span class="ds-toast-ic ds-toast-ic--ok"><svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z"/></svg></span>
+      <div class="ds-toast-text">
+        <div class="ds-toast-title">PO-161026-010 created</div>
+        <div class="ds-toast-desc">Garmen Nusantara, PT · Rp&nbsp;2.040.000</div>
+      </div>
+      <button class="ds-toast-action" type="button">View</button>
+    </div>
+
+    <div class="ds-toast" role="alert">
+      <span class="ds-toast-ic ds-toast-ic--bad"><svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-5a.75.75 0 01.75.75v4.5a.75.75 0 01-1.5 0v-4.5A.75.75 0 0110 5zm0 10a1 1 0 100-2 1 1 0 000 2z"/></svg></span>
+      <div class="ds-toast-text">
+        <div class="ds-toast-title">The Excel file could not be written.</div>
+      </div>
+      <button class="ds-toast-action" type="button">Try again</button>
+    </div>
+  </div>
+
+  <div class="ds-toast-stack">
+    <div class="ds-toast" role="status">
+      <span class="ds-toast-ic ds-toast-ic--info"><svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a.75.75 0 000 1.5h.253a.25.25 0 01.244.304l-.459 2.066A1.75 1.75 0 0010.747 15H11a.75.75 0 000-1.5h-.253a.25.25 0 01-.244-.304l.459-2.066A1.75 1.75 0 009.253 9H9z"/></svg></span>
+      <div class="ds-toast-text">
+        <div class="ds-toast-title">Pick saved · the rest stays on the picklist</div>
+      </div>
+    </div>
+
+    <div class="ds-toast" role="status">
+      <div class="ds-toast-text">
+        <div class="ds-toast-title">Picklist changed by MD</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,95 @@
+<!-- @dsCard group="Status" height=676 subtitle="Static rendition of pill.tsx in the All white look" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>Status — preview</title><style>body{margin:0}
+/* Status (pill.tsx): a dot in the tone's colour and the word in ink; warn and bad colour the word. */
+.ds-status-word{display:inline-flex;align-items:center;gap:8px;white-space:nowrap;color:var(--ink)}
+.ds-status-word::before{content:"";flex:none;width:var(--dot);height:var(--dot);border-radius:var(--r-full);background:var(--mute)}
+.ds-status-word--ok::before{background:var(--ok)}
+.ds-status-word--warn{color:var(--warn-fg)}.ds-status-word--warn::before{background:var(--warn)}
+.ds-status-word--bad{color:var(--bad-fg)}.ds-status-word--bad::before{background:var(--bad)}
+.ds-status-word--info::before{background:var(--info)}
+/* Pill in a sheet head: the white look draws the dot and the word in the -fg colour at 500. */
+.ds-status-pill{font-weight:500}
+.ds-status-row{display:flex;flex-wrap:wrap;gap:8px 28px}
+.ds-status-pair{display:flex;flex-wrap:wrap;align-items:flex-start;gap:16px}
+.ds-status-pair .ds-card{flex:0 0 320px}
+.ds-status-pair .ds-sheet{flex:1 1 300px;min-width:0;max-width:480px}
+</style></head>
+<body>
+<div class="ds ds-stage">
+  <div class="ds-col">
+    <div class="ds-caption">Status, in a list or on a card</div>
+    <div class="ds-status-row">
+      <span class="ds-status-word ds-status-word--ok">Active</span>
+      <span class="ds-status-word">Inactive</span>
+      <span class="ds-status-word ds-status-word--bad">Cancelled</span>
+      <span class="ds-status-word ds-status-word--ok">Closed</span>
+      <span class="ds-status-word">Retired</span>
+      <span class="ds-status-word ds-status-word--warn">Pending</span>
+      <span class="ds-status-word ds-status-word--ok">Approved</span>
+      <span class="ds-status-word ds-status-word--bad">Rejected</span>
+      <span class="ds-status-word">Withdrawn</span>
+      <span class="ds-status-word ds-status-word--info">In transit</span>
+    </div>
+  </div>
+
+  <div class="ds-col">
+    <div class="ds-caption">Pill, in a sheet head</div>
+    <div class="ds-status-row">
+      <span class="ds-status ds-status--ok ds-status-pill">Active</span>
+      <span class="ds-status ds-status--neutral ds-status-pill">Inactive</span>
+      <span class="ds-status ds-status--bad ds-status-pill">Cancelled</span>
+      <span class="ds-status ds-status--ok ds-status-pill">Closed</span>
+      <span class="ds-status ds-status--neutral ds-status-pill">Retired</span>
+      <span class="ds-status ds-status--warn ds-status-pill">Pending</span>
+      <span class="ds-status ds-status--ok ds-status-pill">Approved</span>
+      <span class="ds-status ds-status--bad ds-status-pill">Rejected</span>
+      <span class="ds-status ds-status--neutral ds-status-pill">Withdrawn</span>
+      <span class="ds-status ds-status--info ds-status-pill">In transit</span>
+    </div>
+  </div>
+
+  <div class="ds-table-card">
+    <table class="ds-table">
+      <thead><tr><th>PO</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td>Garmen Nusantara, PT<span class="ds-sub">PO-161026-010 · 1 item</span></td><td><span class="ds-status-word ds-status-word--ok">Active</span></td></tr>
+        <tr><td>Garmen Mitra Sentosa, PT<span class="ds-sub">PO-151026-001 · 2 items</span></td><td><span class="ds-status-word ds-status-word--warn">Partially received</span></td></tr>
+        <tr><td>Sepatu Sejahtera, CV<span class="ds-sub">PO-141026-001 · 1 item</span></td><td><span class="ds-status-word ds-status-word--bad">Cancelled</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="ds-status-pair">
+    <div class="ds-card">
+      <div class="ds-card-top">
+        <div>
+          <div class="ds-card-name">Garmen Nusantara, PT</div>
+          <div class="ds-card-line">PO-161026-010 · 1 item</div>
+          <div class="ds-card-line">29 Oct 2026</div>
+        </div>
+        <div class="ds-card-figure">
+          <div class="ds-lead">24<span class="ds-lead-unit">pcs</span></div>
+          <div class="ds-card-line">Rp 2.040.000</div>
+        </div>
+      </div>
+      <div class="ds-card-foot"><span>Received 0 pcs</span><span class="ds-status-word ds-status-word--ok">Active</span></div>
+    </div>
+
+    <div class="ds-sheet">
+      <div class="ds-sheet-head">
+        <div class="ds-sheet-headtext">
+          <div class="ds-sheet-crumb"><span>Purchase Orders</span><span class="ds-sep">/</span><span>PO-161026-010</span></div>
+          <div class="ds-sheet-titlerow">
+            <span class="ds-sheet-title">Garmen Nusantara, PT</span>
+            <span class="ds-status ds-status--ok ds-status-pill">Active</span>
+          </div>
+        </div>
+        <button class="ds-sheet-close" type="button" aria-label="Close"><span class="ds-ico ds-ico-x ds-ico--17"></span></button>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

@@ -35,6 +35,14 @@ object Money {
 }
 
 /**
+ * A SKU, as a person reads it: the 8-digit article, a middle dot, then colour
+ * and size — `00000004103` reads `00000004·103`. Display only; the wire, the
+ * EPC and every lookup keep the plain 11 digits.
+ */
+fun skuDisplay(code: String): String =
+    if (code.length == 11 && code.all { it in '0'..'9' }) code.take(8) + "·" + code.drop(8) else code
+
+/**
  * Wire time, as a shop reads it.
  *
  * The node stamps every fact in UTC because a fact belongs to one instant

@@ -4,13 +4,13 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 /// A round icon button — the back chevron, the card shortcut. White on the
-/// grey page; there is no dark surface for it to sit on.
+/// page, its glyph in the matte blue; there is no dark surface for it to sit on.
 const chip = cva(
   "press inline-flex size-11 shrink-0 items-center justify-center rounded-full [&_svg]:size-5",
   {
     variants: {
       tone: {
-        light: "bg-canvas shadow-soft [&_svg]:text-ink",
+        light: "bg-canvas shadow-soft [&_svg]:text-matte-foot",
       },
     },
     defaultVariants: { tone: "light" },

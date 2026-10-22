@@ -11,12 +11,11 @@ import { Fab } from "@/components/ui/fab"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
-import { Field, Input, Select } from "@/components/ui/field"
+import { Field, Input } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { PickOne } from "@/components/ui/pick"
 import { Pill, Status } from "@/components/ui/pill"
 import { SubHead } from "@/components/ui/rows"
-import { Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { money, moment, monthYear } from "@/lib/format"
@@ -36,10 +35,16 @@ import { queryState } from "@/lib/query-state"
 import { useCanWrite } from "@/lib/session"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { OneOffImport } from "@/screens/people/one-off-import-card"
-import { useUnit } from "@/screens/people/parts"
+import {
+  HrScope,
+  useHrMonth,
+  useUnit,
+  useUnitFilter,
+} from "@/screens/people/parts"
 import { CardFigure, CardName } from "@/components/ui/phone-cards"
 
-/// Payroll › One-offs — the figures a place files into a month's batch that
+/// Payroll › Adjustments (One-offs until 2026-10-17) — the figures a place
+/// files into a month's batch that
 /// are not part of anyone's standing pay: an incentive, a commission, a
 /// kasbon instalment.
 ///
@@ -218,8 +223,10 @@ export function OneOffs() {
     [reachableUnits, postedId, postedName]
   )
   const columns = useMemo(() => columnsFor(unitLabel), [unitLabel])
-  const [unitId, setUnitId] = useState("")
-  const [period, setPeriod] = useState(thisMonth)
+  // The unit and the month are HR's own, kept as you move between its pages.
+  const place = useUnitFilter()
+  const unitId = place.unitId ?? ""
+  const [period, setPeriod] = useHrMonth(thisMonth)
   const [filing, setFiling] = useState(false)
   const [importing, setImporting] = useState(false)
   const [openId, setOpenId] = useState<string | null>(null)
@@ -260,7 +267,7 @@ export function OneOffs() {
   return (
     <PageContent>
       <PageHeader
-        title="One-offs"
+        title="Adjustments"
         actions={
           !phone &&
           canWrite && (
@@ -269,37 +276,21 @@ export function OneOffs() {
                 Import CSV
               </Button>
               <Button variant="primary" onClick={() => setFiling(true)}>
-                File one-off
+                New adjustment
               </Button>
             </>
           )
         }
       />
-      {canWrite && <Fab label="File one-off" onClick={() => setFiling(true)} />}
+      {canWrite && (
+        <Fab label="New adjustment" onClick={() => setFiling(true)} />
+      )}
 
-      <Toolbar>
-        {unit.units.length > 0 && (
-          <Select value={unitId} onChange={setUnitId} className="h-8 w-52">
-            <option value="">Every unit</option>
-            {unit.units.map((one) => (
-              <option key={one.id} value={one.id}>
-                {one.name}
-              </option>
-            ))}
-          </Select>
-        )}
-        <Input
-          type="month"
-          aria-label="Month"
-          value={period}
-          onChange={(event) => setPeriod(event.target.value)}
-          className="h-8 w-44"
-        />
-      </Toolbar>
+      <HrScope unit={place} month={[period, setPeriod]} />
 
       <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(rows, {
-          loading: "Reading the one-offs…",
+          loading: "Reading the adjustments…",
           render: () =>
             filed.length === 0 ? (
               <EmptyState>Nothing filed for {monthYear(period)}.</EmptyState>
@@ -545,7 +536,7 @@ function FileOneOffSheet({
       onOpenChange={(next) => {
         if (!next) onClose()
       }}
-      title="File one-off"
+      title="New adjustment"
       footer={
         <div className="flex justify-end gap-2">
           <Button data-cancel variant="quiet" onClick={onClose}>
@@ -707,7 +698,7 @@ function ImportSheet({
       onOpenChange={(next) => {
         if (!next) onClose()
       }}
-      title="Import one-offs from CSV"
+      title="Import adjustments from CSV"
       width="wide"
       footer={
         <div className="flex justify-end">

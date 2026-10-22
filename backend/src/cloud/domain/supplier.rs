@@ -63,6 +63,15 @@ pub struct Supplier {
     /// The account this party's bills usually debit. Only a non-merchandise
     /// party has one — merchandise debits inventory by rule.
     pub expense_account_code: Option<String>,
+    /// The chart's name for that account, read with it (never stored here).
+    /// Absent on a read that did not join the chart.
+    #[serde(default)]
+    pub expense_account_name: Option<String>,
+    /// What we buy from them, one of [`SUPPLIER_KINDS`] (0981). Set by a
+    /// person, or taken from the account's kind when nobody said; absent on
+    /// a merchandise supplier, whose bills debit stock.
+    #[serde(default)]
+    pub kind: Option<String>,
     /// Nomor Pokok Wajib Pajak, as printed on the faktur — punctuation and
     /// all. Stored as typed because it is copied onto documents rather than
     /// matched on, and one company has exactly one. See migration 0302.
@@ -92,6 +101,12 @@ pub struct Supplier {
     pub updated_by: String,
     pub updated_at: DateTime<Utc>,
 }
+
+/// What a non-merchandise supplier is for, the way GA says it. The CHECK on
+/// `supplier.kind` says the same.
+pub const SUPPLIER_KINDS: [&str; 8] = [
+    "UTILITIES", "CLEANING", "WORKSHOP", "AC", "LOGISTICS", "OFFICE", "LANDLORD", "OTHER",
+];
 
 /// The legal forms a supplier may name. The CHECK on `supplier.legal_form`
 /// says the same; this says it before the row is written, with a sentence.

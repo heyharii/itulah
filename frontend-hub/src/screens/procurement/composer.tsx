@@ -727,7 +727,7 @@ function OrderReview({
 
       {notes.trim() !== "" && (
         <Section title="Notes" rule={false} quiet>
-          <p className="text-[0.9375rem] leading-[1.375rem] whitespace-pre-wrap text-ink">
+          <p className="record-note text-[0.9375rem] leading-[1.375rem] whitespace-pre-wrap text-ink">
             {notes.trim()}
           </p>
         </Section>
@@ -735,7 +735,7 @@ function OrderReview({
 
       {conditions.trim() !== "" && (
         <Section title="Terms and Conditions" rule={false} quiet>
-          <p className="text-[0.9375rem] leading-[1.375rem] whitespace-pre-wrap text-ink">
+          <p className="record-note text-[0.9375rem] leading-[1.375rem] whitespace-pre-wrap text-ink">
             {conditions.trim()}
           </p>
         </Section>
@@ -1811,9 +1811,9 @@ export function OrderComposer({
         // Kept on the device, not sent: no number, no receipt. The order
         // stands in the list as one that has not been sent yet.
         idempotency.rotate()
-        toast.success(
-          "Saved on this device. It will be sent when you are back online."
-        )
+        toast.success("PO saved on this device", {
+          description: "Sent when back online",
+        })
         reset()
         onClose()
         return

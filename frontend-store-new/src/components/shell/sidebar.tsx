@@ -3,6 +3,7 @@ import { Link, useRouterState } from "@tanstack/react-router"
 import { ArrowUpRight, ChevronRight, LogOut, PanelLeft, X } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 
+import { confirm } from "@/components/ui/confirm"
 import { BrandMark } from "@/components/brand-mark"
 import { useOpenCounts } from "@/lib/counts"
 import { node } from "@/lib/api"
@@ -56,14 +57,17 @@ export function useGuardedSignOut() {
   const unsent = unsentCount(useSaleQueue())
   return {
     pending: signOut.isPending,
-    run: () => {
+    run: async () => {
       if (
         unsent > 0 &&
-        !window.confirm(
-          `${unsent} sale${unsent === 1 ? "" : "s"} on this device ${
+        !(await confirm({
+          title: "Sign out anyway?",
+          body: `${unsent} sale${unsent === 1 ? "" : "s"} on this device ${
             unsent === 1 ? "has" : "have"
-          } not reached the node yet. They are saved and will send when the line is back. Sign out anyway?`,
-        )
+          } not reached the node yet. They are saved and will send when the line is back.`,
+          action: "Sign out",
+          destructive: true,
+        }))
       ) {
         return
       }

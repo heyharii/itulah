@@ -8,6 +8,7 @@ import { ExportButton } from "@/components/ui/export-button"
 import { Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
+import { CellMoney } from "@/components/ui/rows-switch"
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states"
 import { fileSafe, type ExportSheet } from "@/lib/export-xlsx"
 import { count, money, span } from "@/lib/format"
@@ -377,7 +378,7 @@ export function BankReconciliationSummary() {
               ))}
             </PhoneList>
           ) : (
-            <Grid>
+            <Grid followRows giveUp={[2, 6, 8]}>
               <thead>
                 <tr>
                   <Th>Bank account</Th>
@@ -430,8 +431,12 @@ export function BankReconciliationSummary() {
                         )
                       )}
                     </Td>
-                    <Td align="right">{money(line.bank)}</Td>
-                    <Td align="right">{money(line.book)}</Td>
+                    <Td align="right">
+                      <CellMoney minor={line.bank} />
+                    </Td>
+                    <Td align="right">
+                      <CellMoney minor={line.book} />
+                    </Td>
                     <Td align="right">
                       {line.difference === null ? (
                         <span className="text-mute">—</span>
@@ -439,7 +444,7 @@ export function BankReconciliationSummary() {
                         <span className="text-mute">0</span>
                       ) : (
                         <span className="font-medium text-bad-fg">
-                          {money(line.difference)}
+                          <CellMoney minor={line.difference} />
                         </span>
                       )}
                     </Td>
@@ -461,7 +466,7 @@ export function BankReconciliationSummary() {
                         <span className="text-mute">0</span>
                       ) : (
                         <>
-                          {money(line.openNet)}
+                          <CellMoney minor={line.openNet} />
                           <span className="block text-[0.9375rem] text-mute">
                             {count(line.openCount)}{" "}
                             {line.openCount === 1 ? "posting" : "postings"}

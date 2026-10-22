@@ -1,0 +1,66 @@
+<!-- @dsCard group="Inputs" height=458 subtitle="Static rendition of scan-field.tsx in the All white look" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>ScanField — preview</title>
+<style>
+body{margin:0}
+/* ScanField as scan-field.tsx draws it in the All white look: a 44px round box (white.css paints its soft-2 fill white, so the edge only shows on hover or when refused) and a 36px ghost button. */
+.ds-scanfield-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 24px;align-items:start}
+.ds-scanfield-cell{display:flex;flex-direction:column;gap:6px;min-width:0}
+.ds-scanfield-line{display:flex;align-items:flex-start;gap:8px}
+.ds-scanfield-box{flex:1;min-width:0;height:var(--tap);padding:0 16px;border:1px solid transparent;border-radius:var(--r-full);background:var(--canvas);font-family:var(--font-mono);font-size:15px;letter-spacing:.02em;color:var(--ink)}
+.ds-scanfield-box.is-hover{border-color:var(--hairline-2)}
+.ds-scanfield-box.is-refused{border-color:var(--bad)}
+.ds-scanfield-box.is-disabled{opacity:.5}
+.ds-scanfield-box::placeholder{font-family:var(--font-sans);letter-spacing:0;color:var(--mute)}
+.ds-scanfield-line .ds-btn.is-busy{opacity:.75}
+.ds-scanfield-problem{font-size:15px;line-height:20px;color:var(--bad)}
+/* the store app's copy (frontend-store-new): a bordered 48px box with a glass, the prompt inside it */
+.ds-scanfield-store{display:flex;align-items:center;gap:10px;height:48px;padding:0 16px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas)}
+.ds-scanfield-store .ds-ico{width:18px;height:18px;color:var(--line-ico)}
+.ds-scanfield-store span:last-child{font-size:16px;color:var(--mute)}
+</style></head>
+<body>
+<div class="ds ds-stage">
+
+  <div class="ds-col">
+    <p class="ds-caption">As scan-field.tsx draws it today: the white look leaves the box no edge at rest</p>
+    <div class="ds-scanfield-grid">
+
+      <div class="ds-scanfield-cell">
+        <span class="ds-caption">At rest, the caret in it</span>
+        <form class="ds-scanfield-line"><input class="ds-scanfield-box" type="text" aria-label="Scan a tag" autocomplete="off" spellcheck="false"><button class="ds-btn ds-btn--ghost" type="submit">Add</button></form>
+      </div>
+
+      <div class="ds-scanfield-cell">
+        <span class="ds-caption">A code in, the pointer on it</span>
+        <form class="ds-scanfield-line"><input class="ds-scanfield-box is-hover" type="text" value="8991234500017" aria-label="Scan a tag"><button class="ds-btn ds-btn--ghost" type="submit">Add</button></form>
+      </div>
+
+      <div class="ds-scanfield-cell">
+        <span class="ds-caption">Refused, and why</span>
+        <form class="ds-scanfield-line"><input class="ds-scanfield-box is-refused" type="text" value="E2801160600002054F2F3A91" aria-invalid="true" aria-label="Scan a tag"><button class="ds-btn ds-btn--ghost" type="submit">Add</button></form>
+        <p class="ds-scanfield-problem" role="alert">This tag is not on the picklist.</p>
+      </div>
+
+      <div class="ds-scanfield-cell">
+        <span class="ds-caption">Checking the last scan</span>
+        <form class="ds-scanfield-line"><input class="ds-scanfield-box" type="text" aria-label="Scan a tag"><button class="ds-btn ds-btn--ghost is-busy" type="submit" aria-busy="true">Add</button></form>
+      </div>
+
+      <div class="ds-scanfield-cell">
+        <span class="ds-caption">Locked</span>
+        <form class="ds-scanfield-line"><input class="ds-scanfield-box is-disabled is-hover" type="text" value="8991234500017" disabled aria-label="Scan a tag"><button class="ds-btn ds-btn--ghost" type="submit" disabled>Add</button></form>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="ds-col">
+    <p class="ds-caption">As the store app draws its own: a bordered box, the glass, the prompt in the box</p>
+    <div class="ds-scanfield-store"><span class="ds-ico ds-ico-search"></span><span>Scan a barcode or type a SKU</span></div>
+  </div>
+
+</div>
+</body>
+</html>

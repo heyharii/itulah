@@ -1,0 +1,155 @@
+<!-- @dsCard group="Patterns" height=869 page subtitle="Template · copy /executive" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>DashboardPage — preview</title><style>body{margin:0}
+/* DashboardPage: the whole desk page on stone, 960 wide. Head, scope bar, figures, Needs attention, two cards. */
+.ds-dashboardpage-ground.ds-stage{padding:12px;gap:0;overflow-x:auto}
+.ds-dashboardpage-ground .ds-page{flex:none;margin:0;min-width:936px}
+/* the scope bar: a dashboard read over a period and a place puts it first, as a report does */
+.ds-dashboardpage-scope{flex-wrap:nowrap;margin-bottom:var(--head-gap)}
+.ds-dashboardpage-scope .ds-seg{flex:none}
+.ds-dashboardpage-scope .ds-seg-item{display:inline-flex;align-items:center}
+.ds-dashboardpage-store{flex:none;padding:0 10px 0 12px}
+.ds-dashboardpage-scope .ds-bar-spacer{flex:1 1 0}
+.ds-dashboardpage-span{flex:none;color:var(--mute);white-space:nowrap}
+/* the figures: a third line for the movement against the period before */
+.ds-dashboardpage-delta{padding-top:6px;font-size:15px;line-height:20px;font-weight:600;color:var(--mute);white-space:nowrap}
+.ds-dashboardpage-delta.is-up{color:var(--ok-fg)}
+.ds-dashboardpage-delta.is-down{color:var(--bad-fg)}
+.ds-dashboardpage-delta.is-note{font-weight:400}
+.ds-dashboardpage-delta span{font-weight:400;color:var(--mute)}
+/* sections stand 32px apart, as the figures stand from the tabs on a list */
+.ds-dashboardpage-section{display:flex;flex-direction:column;gap:12px;margin-bottom:var(--figures-to-tabs)}
+/* Needs attention: a framed list, rows of at least 48px, the count and a chevron at the right */
+.ds-dashboardpage-queue{border:1px solid var(--hairline);border-radius:var(--r-card);overflow:clip}
+.ds-dashboardpage-row{display:flex;align-items:center;gap:12px;min-height:48px;padding:0 16px;color:var(--ink);border-top:1px solid var(--row-line)}
+.ds-dashboardpage-row:first-child{border-top:0}
+.ds-dashboardpage-row.is-hover{background:var(--soft)}
+.ds-dashboardpage-row .ds-dashboardpage-what{flex:1;min-width:0}
+.ds-dashboardpage-n{font-weight:600;font-variant-numeric:tabular-nums}
+.ds-dashboardpage-n.is-warn{color:var(--warn-fg)}
+.ds-dashboardpage-n.is-bad{color:var(--bad-fg)}
+.ds-dashboardpage-row .ds-ico{color:var(--line-ico)}
+/* two cards, equal, 24px apart; each opens with its title at 16/600 and the link to the screen that does the work */
+.ds-dashboardpage-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--section-gap)}
+.ds-dashboardpage-card{display:flex;flex-direction:column;min-width:0;border:1px solid var(--hairline);border-radius:var(--r-card);background:var(--canvas);overflow:clip}
+.ds-dashboardpage-cardhead{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 18px 12px}
+.ds-dashboardpage-cardtitle{font-size:16px;line-height:24px;font-weight:600;letter-spacing:-0.01em;color:var(--ink)}
+.ds-dashboardpage-cardhead .ds-link{display:inline-flex;align-items:center;gap:4px;font-weight:500;white-space:nowrap}
+.ds-dashboardpage-cardbody{padding:0 18px 16px}
+/* the chart: the kit's own grammar (see Chart), drawn static */
+.ds-dashboardpage-legend{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;margin-bottom:8px;font-size:15px;color:var(--body)}
+.ds-dashboardpage-legend span{display:flex;align-items:center;gap:6px}
+.ds-dashboardpage-dot{flex:none;width:5px;height:5px;border-radius:var(--r-full)}
+.ds-dashboardpage-chart svg{display:block;max-width:100%;overflow:visible}
+.ds-dashboardpage-grid{stroke:var(--hairline);stroke-width:1;stroke-dasharray:2 3}
+.ds-dashboardpage-axis{stroke:var(--hairline-2);stroke-width:1}
+.ds-dashboardpage-tick{fill:var(--mute);font-family:var(--font-sans);font-size:15px;letter-spacing:.04em}
+.ds-dashboardpage-line{fill:none;stroke:var(--accent);stroke-width:1.5}
+.ds-dashboardpage-ghostline{fill:none;stroke:var(--hairline-2);stroke-width:1.25;stroke-dasharray:3 3}
+.ds-dashboardpage-wash-a{stop-color:var(--accent);stop-opacity:.18}
+.ds-dashboardpage-wash-b{stop-color:var(--accent);stop-opacity:.01}
+/* the short table: the card is its frame, the heading row sits straight under the card's head */
+.ds-dashboardpage-table td,.ds-dashboardpage-table th{white-space:nowrap}
+.ds-dashboardpage-table td{height:52px}
+.ds-dashboardpage-table tr.ds-opens > td:last-child{padding-right:36px}
+.ds-dashboardpage-table th:last-child{padding-right:36px}
+.ds-dashboardpage-table tr.is-hover td{background:var(--soft)}
+.ds-dashboardpage-table .is-up{color:var(--ok-fg)}
+.ds-dashboardpage-table .is-down{color:var(--bad-fg)}
+.ds-dashboardpage-table tbody tr:last-child td{border-bottom:0}
+</style></head>
+<body>
+<div class="ds ds-stage ds-stage--stone ds-dashboardpage-ground">
+  <div class="ds-page">
+    <div class="ds-page-content">
+
+      <div class="ds-page-head">
+        <div><h1 class="ds-title">Overview</h1></div>
+      </div>
+
+      <div class="ds-bar ds-dashboardpage-scope">
+        <div class="ds-seg" role="group" aria-label="Period">
+          <button class="ds-seg-item is-on" type="button" aria-pressed="true">This month</button>
+          <button class="ds-seg-item" type="button" aria-pressed="false">Last month</button>
+          <button class="ds-seg-item" type="button" aria-pressed="false">This quarter</button>
+          <button class="ds-seg-item" type="button" aria-pressed="false">This year</button>
+        </div>
+        <button class="ds-btn ds-btn--ghost ds-dashboardpage-store" type="button"><span class="ds-ico ds-ico-store ds-ico--14"></span>All stores<span class="ds-ico ds-ico-chevron-down ds-ico--14"></span></button>
+        <span class="ds-bar-spacer"></span>
+        <span class="ds-dashboardpage-span">1–17 October 2026 · vs 1–17 September 2026</span>
+      </div>
+
+      <div class="ds-kpis">
+        <div class="ds-kpi"><div class="ds-kpi-label">Net sales</div><div class="ds-kpi-value" title="Rp 1.272.000.000">Rp 1,3 B</div><div class="ds-dashboardpage-delta is-up">+5,4%<span> vs previous period</span></div></div>
+        <div class="ds-kpi"><div class="ds-kpi-label">Transactions</div><div class="ds-kpi-value">6.503</div><div class="ds-dashboardpage-delta is-up">+3,2%<span> vs previous period</span></div></div>
+        <div class="ds-kpi"><div class="ds-kpi-label">Gross profit</div><div class="ds-kpi-value" title="Rp 521.520.000">Rp 521,5 M</div><div class="ds-dashboardpage-delta is-up">+7,5%<span> vs previous period</span></div></div>
+        <div class="ds-kpi"><div class="ds-kpi-label">Cash &amp; bank</div><div class="ds-kpi-value" title="Rp 3.214.600.000">Rp 3,2 B</div><div class="ds-dashboardpage-delta is-note">As of 17 Oct 2026</div></div>
+      </div>
+
+      <div class="ds-dashboardpage-section">
+        <h2 class="ds-section-title">Needs attention</h2>
+        <div class="ds-dashboardpage-queue">
+          <div class="ds-dashboardpage-row"><span class="ds-dashboardpage-what">Bills past due</span><span class="ds-dashboardpage-n is-warn">4</span><span class="ds-ico ds-ico-chevron-right"></span></div>
+          <div class="ds-dashboardpage-row is-hover"><span class="ds-dashboardpage-what">Bank lines to match</span><span class="ds-dashboardpage-n">12</span><span class="ds-ico ds-ico-chevron-right"></span></div>
+          <div class="ds-dashboardpage-row"><span class="ds-dashboardpage-what">Month not open</span><span class="ds-dashboardpage-n">1</span><span class="ds-ico ds-ico-chevron-right"></span></div>
+          <div class="ds-dashboardpage-row"><span class="ds-dashboardpage-what">Postings with no account</span><span class="ds-dashboardpage-n is-bad">2</span><span class="ds-ico ds-ico-chevron-right"></span></div>
+        </div>
+      </div>
+
+      <div class="ds-dashboardpage-cards">
+
+        <div class="ds-dashboardpage-card">
+          <div class="ds-dashboardpage-cardhead">
+            <h3 class="ds-dashboardpage-cardtitle">Net sales</h3>
+            <a class="ds-link">Store performance<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></a>
+          </div>
+          <div class="ds-dashboardpage-cardbody">
+            <div class="ds-dashboardpage-legend"><span><i class="ds-dashboardpage-dot" style="background:var(--accent)"></i>This period</span><span><i class="ds-dashboardpage-dot" style="background:var(--hairline-2)"></i>Previous period</span></div>
+            <div class="ds-dashboardpage-chart">
+<svg width="392" height="200" viewBox="0 0 392 200" role="img" aria-label="Net sales by day, this period against the one before">
+<text class="ds-dashboardpage-tick" x="52" y="175.0" text-anchor="end">0</text>
+<line class="ds-dashboardpage-grid" x1="60" x2="388" y1="128.5" y2="128.5"/>
+<text class="ds-dashboardpage-tick" x="52" y="133.5" text-anchor="end">25 M</text>
+<line class="ds-dashboardpage-grid" x1="60" x2="388" y1="87.0" y2="87.0"/>
+<text class="ds-dashboardpage-tick" x="52" y="92.0" text-anchor="end">50 M</text>
+<line class="ds-dashboardpage-grid" x1="60" x2="388" y1="45.5" y2="45.5"/>
+<text class="ds-dashboardpage-tick" x="52" y="50.5" text-anchor="end">75 M</text>
+<line class="ds-dashboardpage-grid" x1="60" x2="388" y1="4.0" y2="4.0"/>
+<text class="ds-dashboardpage-tick" x="52" y="9.0" text-anchor="end">100 M</text>
+<line class="ds-dashboardpage-axis" x1="60" x2="388" y1="170" y2="170"/>
+<text class="ds-dashboardpage-tick" x="60.0" y="191" text-anchor="start">1 Oct</text>
+<text class="ds-dashboardpage-tick" x="224.0" y="191" text-anchor="middle">9 Oct</text>
+<text class="ds-dashboardpage-tick" x="388.0" y="191" text-anchor="end">17 Oct</text>
+<defs><linearGradient id="ds-dashboardpage-wash" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" class="ds-dashboardpage-wash-a"/><stop offset="100%" class="ds-dashboardpage-wash-b"/></linearGradient></defs>
+<path class="ds-dashboardpage-ghostline" d="M60.00,66.58C66.83,65.86 73.67,65.14 80.50,64.42C87.33,63.70 94.17,62.81 101.00,62.27C107.83,61.72 114.67,61.73 121.50,60.94C128.33,60.15 135.17,53.01 142.00,49.65C148.83,46.29 155.67,43.59 162.50,40.52C169.33,37.45 176.17,31.22 183.00,31.22C189.83,31.22 196.67,65.25 203.50,65.25C210.33,65.25 217.17,58.78 224.00,58.78C230.83,58.78 237.67,59.15 244.50,59.28C251.33,59.41 258.17,59.61 265.00,59.61C271.83,59.61 278.67,49.29 285.50,45.17C292.33,41.05 299.17,37.28 306.00,34.38C312.83,31.47 319.67,27.07 326.50,27.07C333.33,27.07 340.17,62.60 347.00,62.60C353.83,62.60 360.67,52.26 367.50,50.81C374.33,49.37 381.17,49.04 388.00,48.16"/>
+<path fill="url(#ds-dashboardpage-wash)" d="M60.00,64.26C66.83,61.49 73.67,56.96 80.50,55.96C87.33,54.96 94.17,54.13 101.00,54.13C107.83,54.13 114.67,58.78 121.50,58.78C128.33,58.78 135.17,50.11 142.00,45.17C148.83,40.23 155.67,31.75 162.50,28.90C169.33,26.05 176.17,23.09 183.00,23.09C189.83,23.09 196.67,63.76 203.50,63.76C210.33,63.76 217.17,54.34 224.00,52.64C230.83,50.93 237.67,49.32 244.50,49.32C251.33,49.32 258.17,55.29 265.00,55.29C271.83,55.29 278.67,47.67 285.50,42.68C292.33,37.69 299.17,28.17 306.00,24.25C312.83,20.33 319.67,15.62 326.50,15.62C333.33,15.62 340.17,60.11 347.00,60.11C353.83,60.11 360.67,50.66 367.50,46.99C374.33,43.33 381.17,40.69 388.00,37.53L388.00,170L60.00,170Z"/>
+<path class="ds-dashboardpage-line" d="M60.00,64.26C66.83,61.49 73.67,56.96 80.50,55.96C87.33,54.96 94.17,54.13 101.00,54.13C107.83,54.13 114.67,58.78 121.50,58.78C128.33,58.78 135.17,50.11 142.00,45.17C148.83,40.23 155.67,31.75 162.50,28.90C169.33,26.05 176.17,23.09 183.00,23.09C189.83,23.09 196.67,63.76 203.50,63.76C210.33,63.76 217.17,54.34 224.00,52.64C230.83,50.93 237.67,49.32 244.50,49.32C251.33,49.32 258.17,55.29 265.00,55.29C271.83,55.29 278.67,47.67 285.50,42.68C292.33,37.69 299.17,28.17 306.00,24.25C312.83,20.33 319.67,15.62 326.50,15.62C333.33,15.62 340.17,60.11 347.00,60.11C353.83,60.11 360.67,50.66 367.50,46.99C374.33,43.33 381.17,40.69 388.00,37.53"/>
+</svg>
+            </div>
+          </div>
+        </div>
+
+        <div class="ds-dashboardpage-card">
+          <div class="ds-dashboardpage-cardhead">
+            <h3 class="ds-dashboardpage-cardtitle">Stores</h3>
+            <a class="ds-link">All store figures<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></a>
+          </div>
+          <table class="ds-table ds-dashboardpage-table">
+            <thead><tr><th>Store</th><th class="is-num">Net sales</th><th class="is-num">Change</th></tr></thead>
+            <tbody>
+              <tr class="ds-opens"><td>Cikupa</td><td class="is-num" title="Rp 412.600.000">Rp 412,6 M</td><td class="is-num is-up">+9,8%</td></tr>
+              <tr class="ds-opens is-hover"><td>Bandung</td><td class="is-num" title="Rp 318.200.000">Rp 318,2 M</td><td class="is-num is-up">+4,1%</td></tr>
+              <tr class="ds-opens"><td>Surabaya</td><td class="is-num" title="Rp 276.900.000">Rp 276,9 M</td><td class="is-num is-down">−2,4%</td></tr>
+              <tr class="ds-opens"><td>Semarang</td><td class="is-num" title="Rp 264.300.000">Rp 264,3 M</td><td class="is-num is-up">+9,4%</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+      </div>
+
+    </div>
+  </div>
+</div>
+</body>
+</html>

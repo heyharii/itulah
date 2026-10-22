@@ -106,12 +106,21 @@ export function Field({
         )}
       </span>
       <FieldContext.Provider value={state}>{children}</FieldContext.Provider>
+      {/* The problem comes in rather than jumping in: it fades and settles
+          2px down when it appears, the red line under a box you are looking
+          at. Its own `key`, so it is a new line even where a hint stood and
+          its starting style plays. No shake — the red already says it.
+          Reduced motion keeps the fade. */}
       {invalid ? (
-        <span id={under} className="text-[0.9375rem] text-bad">
+        <span
+          key="problem"
+          id={under}
+          className="text-[0.9375rem] text-bad transition-[opacity,translate] duration-(--t-pop) ease-(--ease-out) starting:-translate-y-[2px] starting:opacity-0 motion-reduce:starting:translate-y-0"
+        >
           {problem}
         </span>
       ) : hint ? (
-        <span id={under} className="text-[0.9375rem] text-mute">
+        <span key="hint" id={under} className="text-[0.9375rem] text-mute">
           {hint}
         </span>
       ) : null}

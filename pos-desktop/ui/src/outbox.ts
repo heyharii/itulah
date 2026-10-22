@@ -43,8 +43,10 @@ import {
 /// is derived from what the node actually said about each entry, never from the
 /// pass having finished without complaint.
 ///
-/// **Nothing the node has not acknowledged is ever dropped.** `forget` touches
-/// refusals and nothing else; acknowledged sales age out; unsent ones never do.
+/// **Nothing the node has not acknowledged is ever dropped — a refusal
+/// included.** A refused sale was paid for, so it waits for a supervisor to
+/// resolve it (`resolveRefused`) and goes again (owner, 21 Oct 2026: "Jangan
+/// Discard, wajib diselesaikan"). Acknowledged sales age out; nothing else does.
 ///
 /// # What is deliberately not here
 ///
@@ -101,6 +103,28 @@ export type OutboxEntry = {
   /// The last thing that went wrong, in the node's own words where it gave any.
   readonly problem: string | null
   readonly refused: boolean
+  /// Every time a supervisor resolved a refusal of this sale, oldest first.
+  /// Kept here because the sale carries no note to the node; the node keeps
+  /// its own record of each yes (`till_approval`, named by `approvalId`).
+  readonly resolutions: readonly Resolution[]
+}
+
+/// One tag swapped on a refused sale: the tag the node would not sell, and the
+/// garment's real tag that went in its place.
+export type Swap = { readonly from: string; readonly to: string }
+
+/// A supervisor's yes that put a refused sale back in line.
+export type Resolution = {
+  /// When it was resolved — not when the money was taken (`takenAt`).
+  readonly at: string
+  /// The supervisor who approved it, as the node recorded them.
+  readonly by: string
+  /// The node's `till_approval` row for that yes.
+  readonly approvalId: string
+  /// The tags replaced; empty when the sale went again unchanged.
+  readonly replaced: readonly Swap[]
+  /// What the node had said. `problem` is cleared once the sale goes again.
+  readonly refusal: string | null
 }
 
 /// The same record, writable — and it is the *same object*, not a copy.
@@ -220,6 +244,10 @@ function revive(row: unknown): Mutable | null {
       typeof it.quotedTotalMinor === "number" ? it.quotedTotalMinor : 0,
     problem: typeof it.problem === "string" ? it.problem : null,
     refused: it.refused === true,
+    // A row written before refusals could be resolved has never been.
+    resolutions: Array.isArray(it.resolutions)
+      ? (it.resolutions as Resolution[])
+      : [],
   }
 }
 
@@ -354,21 +382,61 @@ export function enqueue(sale: SaleDraft): OutboxEntry {
     quotedTotalMinor: sale.quotedTotalMinor,
     problem: null,
     refused: false,
+    resolutions: [],
   }
   keep([...queue, entry])
   return entry
 }
 
-/// Stop waiting on one refused sale, once a person has dealt with it.
+/// Put a refused sale back in line, once a supervisor has resolved it.
 ///
-/// Only a refusal can be forgotten. Anything else in this queue is money the
-/// node has not acknowledged, and a button that could throw one of those away
-/// is a button that gets pressed by mistake on a Saturday afternoon. Asking to
-/// forget anything else does nothing, on purpose.
-export function forget(localId: string): void {
-  const going = queue.find((entry) => entry.localId === localId)
-  if (going === undefined || !going.refused) return
-  keep(queue.filter((entry) => entry !== going))
+/// There is no way to drop a refusal: the customer paid, so the sale is put
+/// right and sent again. Only the tags can change, and only one for one — the
+/// tenders (a BENEFIT one included), coupons and their holds, member and fees
+/// are what the customer paid with and go again exactly as they were. Returns
+/// the entry, on disk and owed again (`flush` sends it), or null when there is
+/// nothing to resolve: it is no longer a refusal, or a swap names a tag that is
+/// not on the sale or one that already is.
+///
+/// # Same idempotency key, on purpose
+///
+/// The node keys a sale's outcome in one transaction with the sale itself:
+/// `complete_sale` (`backend/src/edge/sqlite.rs`) checks `load_idempotent`
+/// first and writes `save_idempotent` last, just before the commit, and every
+/// refusal returns before that and rolls the whole transaction back. A refused
+/// sale leaves its key unused, so the same key sends it as a new sale, once.
+///
+/// A fresh key would also go through there — and it is the one that can sell
+/// twice. Not every refusal proves the key unused: a 409 "idempotency key was
+/// already used with a different request payload" is the node saying it
+/// already holds a sale under this key (one that landed while its answer was
+/// lost, then went again under another signed-in person — the node writes its
+/// own `actor_id`), and this file files that as a refusal like any 4xx. Under a
+/// fresh key a replaced tag would then be a second sale of a basket that has
+/// one. Under the same key the node answers with the sale it holds, or refuses
+/// again — never a second sale. Were a node ever to keep refusals under the
+/// key, the same is true: replayed or refused, still on screen, never doubled.
+export function resolveRefused(
+  localId: string,
+  resolution: Resolution,
+): OutboxEntry | null {
+  const entry = queue.find((one) => one.localId === localId)
+  if (entry === undefined || !entry.refused) return null
+  const same = (a: string, b: string) => a.toUpperCase() === b.toUpperCase()
+  const epcs = [...entry.epcs]
+  for (const swap of resolution.replaced) {
+    const at = epcs.findIndex((epc) => same(epc, swap.from))
+    if (at < 0 || epcs.some((epc) => same(epc, swap.to))) return null
+    epcs[at] = swap.to
+  }
+  // On disk before anything is sent, like the sale itself (`enqueue`).
+  patch(entry, {
+    epcs,
+    refused: false,
+    problem: null,
+    resolutions: [...entry.resolutions, resolution],
+  })
+  return entry
 }
 
 // ── the pump ────────────────────────────────────────────────────────────

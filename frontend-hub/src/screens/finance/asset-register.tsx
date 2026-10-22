@@ -6,6 +6,7 @@ import { AppLink } from "@/components/ui/app-link"
 import { ExportButton } from "@/components/ui/export-button"
 import { Input, Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
+import { CellMoney } from "@/components/ui/rows-switch"
 import { Sheet } from "@/components/ui/sheet"
 import { SheetFooter } from "@/components/ui/sheet-footer"
 import { Banner, EmptyState } from "@/components/ui/states"
@@ -318,7 +319,7 @@ function AssetRegisterScreen() {
                   ))}
                 </PhoneList>
               ) : (
-                <Grid>
+                <Grid followRows>
                   <thead>
                     <tr>
                       <Th>Asset</Th>
@@ -365,13 +366,13 @@ function AssetRegisterScreen() {
                               </span>
                             </Td>
                             <Td align="right">
-                              {money(row.capitalized_cost_minor)}
+                              <CellMoney minor={row.capitalized_cost_minor} />
                             </Td>
                             <Td align="right">
-                              {money(row.accumulated_minor)}
+                              <CellMoney minor={row.accumulated_minor} />
                             </Td>
                             <Td align="right" className="font-medium text-ink">
-                              {money(row.book_value_minor)}
+                              <CellMoney minor={row.book_value_minor} />
                             </Td>
                           </tr>
                         ))}

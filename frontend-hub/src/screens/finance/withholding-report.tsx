@@ -7,6 +7,7 @@ import { ExportButton } from "@/components/ui/export-button"
 import { Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
+import { CellMoney } from "@/components/ui/rows-switch"
 import { EmptyState } from "@/components/ui/states"
 import { fileSafe, type ExportSheet } from "@/lib/export-xlsx"
 import { count, day, money, percentBps } from "@/lib/format"
@@ -263,7 +264,7 @@ function Body({ rows }: { rows: WithholdingRow[] }) {
       {phone ? (
         <PhoneGroups groups={groups} base={base} withheld={withheld} />
       ) : (
-        <Grid>
+        <Grid followRows>
           <thead>
             <tr>
               <Th width="8rem">Date</Th>
@@ -488,10 +489,12 @@ function GroupRows({ group }: { group: Group }) {
               )}
             </span>
           </Td>
-          <Td align="right">{money(row.base_minor)}</Td>
+          <Td align="right">
+            <CellMoney minor={row.base_minor} />
+          </Td>
           <Td align="right">
             <span className="font-medium text-ink">
-              {money(row.withheld_minor)}
+              <CellMoney minor={row.withheld_minor} />
             </span>
           </Td>
         </tr>

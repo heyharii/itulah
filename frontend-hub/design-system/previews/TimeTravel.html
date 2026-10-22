@@ -1,0 +1,145 @@
+<!-- @dsCard group="Page" height=741 subtitle="Static rendition of time-travel.tsx, time-clock.tsx and particle-field.tsx in the All white look" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>TimeTravel — preview</title><style>
+body{margin:0}
+/* TimeTravel: the panel at its real width (24rem), the virtual clock card on the space-* tokens (violet means this time is not real), and where the clock stands. */
+.ds-timetravel-layout{display:flex;align-items:flex-start;gap:16px;width:644px;max-width:100%;margin:0 auto}
+.ds-timetravel-col{display:flex;flex-direction:column;gap:8px;min-width:0}
+.ds-timetravel-col--panel{flex:none;width:384px}
+.ds-timetravel-col--side{flex:none;width:244px}
+.ds-timetravel-col .ds-caption{margin-top:8px}
+.ds-timetravel-col .ds-caption:first-child{margin-top:0}
+.ds-timetravel-pop{overflow:hidden;border:1px solid var(--hairline);border-radius:var(--r-card);background:var(--canvas);box-shadow:var(--shadow-pop)}
+.ds-timetravel-head{padding:16px 20px}
+.ds-timetravel-title{margin:0;font-size:15px;line-height:22px;font-weight:600;color:var(--ink)}
+.ds-timetravel-field{background-image:linear-gradient(90deg,var(--space-a) 0%,var(--space-a) 25%,var(--space-mid) 55%,var(--space-b) 90%,var(--space-b) 100%);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--space-core) 14%,transparent)}
+.ds-timetravel-space{position:relative;isolation:isolate;overflow:hidden;margin-top:12px;border-radius:var(--r-card)}
+.ds-timetravel-spacebody{position:relative;display:flex;flex-direction:column;gap:12px;padding:14px 16px}
+.ds-timetravel-label{display:inline-flex;align-items:center;gap:8px;font-size:15px;line-height:22px;font-weight:500;white-space:nowrap;color:var(--space-ink)}
+.ds-timetravel-dot{flex:none;width:8px;height:8px;border-radius:var(--r-full);background:var(--space-core)}
+.ds-timetravel-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.ds-timetravel-moment{margin:0;font-size:18px;line-height:1.25;font-weight:600;letter-spacing:-0.01em;color:var(--space-ink);font-variant-numeric:tabular-nums}
+.ds-timetravel-ahead{margin:4px 0 0;font-size:15px;line-height:22px;color:var(--space-ink-2)}
+.ds-timetravel-disc{display:grid;place-items:center;flex:none;width:80px;height:80px;border-radius:var(--r-full);background:var(--space-core);color:var(--on-dark)}
+.ds-timetravel-jumps{display:flex;flex-direction:column;gap:16px;padding:16px 20px;border-top:1px solid var(--hairline)}
+.ds-timetravel-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.ds-timetravel-day{position:relative;display:flex;align-items:center;width:100%;height:40px;padding:0 12px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas);font-size:15px;color:var(--mute)}
+.ds-timetravel-day .ds-ico{position:absolute;right:12px;color:var(--line-ico)}
+.ds-timetravel-back{align-self:flex-start;margin-left:-10px}
+.ds-timetravel-more{display:flex;align-items:center;gap:6px;height:40px;padding:0 20px;border-top:1px solid var(--hairline);font-size:15px;color:var(--mute)}
+.ds-timetravel-real{display:flex;align-items:center;gap:16px}
+.ds-timetravel-real .ds-timetravel-moment{color:var(--ink)}
+.ds-timetravel-real .ds-timetravel-ahead{color:var(--mute);margin-top:4px}
+.ds-timetravel-foot{display:flex;align-items:center;width:216px;height:52px;padding:0 16px;border-top:1px solid var(--hairline);background:var(--canvas)}
+.ds-timetravel-foot .ds-timetravel-btn{margin-left:-10px}
+.ds-timetravel-btn{display:inline-flex;align-items:center;gap:10px;height:32px;padding:0 10px;border-radius:var(--r-inner);font-size:15px;font-weight:500;font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--ink)}
+.ds-timetravel-btn.is-hover{background:var(--soft-2)}
+.ds-timetravel-btn .ds-timetravel-face{color:var(--line-ico)}
+.ds-timetravel-pill{position:relative;isolation:isolate;display:inline-flex;align-items:center;justify-content:space-between;width:208px;height:28px;padding:0 2px 0 12px;overflow:hidden;border-radius:var(--r-full)}
+.ds-timetravel-pill .ds-timetravel-disc{position:relative;width:24px;height:24px}
+.ds-timetravel-pill .ds-timetravel-label{position:relative}
+.ds-timetravel-text{margin:0;font-size:15px;line-height:22px;font-variant-numeric:tabular-nums;color:var(--ink)}
+.ds-timetravel-text span{color:var(--mute)}
+.ds-timetravel-bar{display:flex;flex-wrap:wrap;gap:8px}
+.ds-timetravel-barbtn{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 10px;border-radius:var(--r-inner);font-size:15px;font-weight:500;color:var(--body)}
+.ds-timetravel-barbtn.is-bent{background:var(--warn-bg);color:var(--warn-fg)}
+.ds-timetravel-dust-card,.ds-timetravel-dust-pill{pointer-events:none}
+.ds-timetravel-dust-card{position:absolute;left:0;top:0;width:1px;height:1px;background:transparent;--ds-dust:color-mix(in srgb,var(--space-core) 30%,transparent);--ds-grain:color-mix(in srgb,var(--on-dark) 75%,transparent);box-shadow:316.5px 44.2px 0 0 var(--ds-grain),135.6px 7.5px 0 0.5px var(--ds-dust),248.0px 76.6px 0 0 var(--ds-grain),330.9px 22.8px 0 0.5px var(--ds-grain),226.0px 76.4px 0 0 var(--ds-grain),215.6px 98.8px 0 0.5px var(--ds-grain),120.6px 137.0px 0 0.5px var(--ds-dust),276.2px 54.7px 0 0 var(--ds-grain),239.4px 102.8px 0 0 var(--ds-grain),251.3px 25.4px 0 0 var(--ds-grain),213.3px 38.5px 0 0 var(--ds-grain),189.1px 106.9px 0 0 var(--ds-grain),260.2px 98.8px 0 0.5px var(--ds-grain),242.7px 120.9px 0 0.5px var(--ds-grain),328.0px 64.0px 0 0.5px var(--ds-grain),238.5px 71.8px 0 0.5px var(--ds-grain),183.0px 20.0px 0 0.5px var(--ds-grain),128.2px 116.1px 0 0.5px var(--ds-dust),246.7px 29.4px 0 0 var(--ds-grain),183.1px 57.8px 0 0 var(--ds-grain),300.5px 43.0px 0 0 var(--ds-grain),193.7px 39.7px 0 0 var(--ds-grain),238.8px 93.1px 0 0 var(--ds-grain),31.1px 95.9px 0 0 var(--ds-dust),271.3px 59.2px 0 0 var(--ds-grain),179.4px 116.5px 0 0 var(--ds-grain),213.3px 80.9px 0 0 var(--ds-grain),316.8px 67.3px 0 0 var(--ds-grain),108.1px 82.4px 0 0.5px var(--ds-dust),317.4px 38.2px 0 0.5px var(--ds-grain),302.1px 53.4px 0 0 var(--ds-grain),242.4px 40.0px 0 0 var(--ds-grain),299.2px 38.2px 0 0 var(--ds-grain),158.0px 49.8px 0 0.5px var(--ds-grain),323.5px 52.7px 0 0 var(--ds-grain),195.0px 99.7px 0 0 var(--ds-grain),260.6px 59.2px 0 0 var(--ds-grain),320.2px 71.5px 0 0.5px var(--ds-grain),311.0px 57.7px 0 0.5px var(--ds-grain),289.2px 46.1px 0 0 var(--ds-grain),184.1px 111.0px 0 0 var(--ds-grain),258.1px 102.1px 0 0 var(--ds-grain),317.3px 97.6px 0 0 var(--ds-grain),193.9px 54.8px 0 0.5px var(--ds-grain),312.3px 66.1px 0 0.5px var(--ds-grain),143.8px 98.2px 0 0.5px var(--ds-dust)}
+.ds-timetravel-dust-pill{position:absolute;left:0;top:0;width:1px;height:1px;background:transparent;--ds-dust:color-mix(in srgb,var(--space-core) 30%,transparent);--ds-grain:color-mix(in srgb,var(--on-dark) 75%,transparent);box-shadow:173.5px 18.3px 0 0 var(--ds-grain),129.4px 16.5px 0 0 var(--ds-grain),93.1px 14.1px 0 0.5px var(--ds-dust),187.7px 22.6px 0 0 var(--ds-grain),65.3px 25.5px 0 0 var(--ds-dust),111.5px 4.7px 0 0 var(--ds-grain),168.2px 7.6px 0 0.5px var(--ds-grain),187.8px 13.7px 0 0 var(--ds-grain),149.1px 13.7px 0 0 var(--ds-grain),174.3px 5.7px 0 0 var(--ds-grain),164.2px 9.4px 0 0 var(--ds-grain),185.9px 12.6px 0 0 var(--ds-grain),173.0px 11.3px 0 0.5px var(--ds-grain),182.9px 5.1px 0 0.5px var(--ds-grain),150.6px 25.9px 0 0.5px var(--ds-grain),164.8px 9.8px 0 0.5px var(--ds-grain)}
+.ds-timetravel-ico-clock-3{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpolyline points='12 6 12 12 16.5 12'/%3E%3C/svg%3E")}
+</style></head>
+<body>
+<div class="ds ds-stage">
+<div class="ds-timetravel-layout">
+
+  <div class="ds-timetravel-col ds-timetravel-col--panel">
+    <p class="ds-caption">The panel while the clock is bent</p>
+    <div class="ds-timetravel-pop" role="dialog" aria-label="Time travel">
+      <div class="ds-timetravel-head">
+        <h2 class="ds-timetravel-title">Time travel</h2>
+        <div class="ds-timetravel-space ds-timetravel-field">
+          <span class="ds-timetravel-dust-card ds-timetravel-dust-card"></span>
+          <div class="ds-timetravel-spacebody">
+            <span class="ds-timetravel-label"><span class="ds-timetravel-dot"></span>Virtual clock</span>
+            <div class="ds-timetravel-row">
+              <div>
+                <p class="ds-timetravel-moment">Fri 06 Nov 2026 · 14:05</p>
+                <p class="ds-timetravel-ahead">20 days ahead of real</p>
+              </div>
+              <span class="ds-timetravel-disc">
+                <svg viewBox="0 0 24 24" width="72" height="72" fill="none" stroke="currentColor" stroke-width="0.9" stroke-linecap="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="10"/>
+                  <line x1="12" y1="3.4" x2="12" y2="4.8"/><line x1="12" y1="3.4" x2="12" y2="4.8" transform="rotate(90 12 12)"/><line x1="12" y1="3.4" x2="12" y2="4.8" transform="rotate(180 12 12)"/><line x1="12" y1="3.4" x2="12" y2="4.8" transform="rotate(270 12 12)"/>
+                  <line x1="12" y1="12" x2="12" y2="7.4" transform="rotate(62.5 12 12)"/>
+                  <line x1="12" y1="12" x2="12" y2="4.6" transform="rotate(30 12 12)"/>
+                </svg>
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="ds-timetravel-jumps">
+        <div class="ds-timetravel-grid">
+          <button class="ds-btn ds-btn--ghost" type="button">+1 day</button>
+          <button class="ds-btn ds-btn--ghost is-hover" type="button">+7 days</button>
+          <button class="ds-btn ds-btn--ghost" type="button">+30 days</button>
+          <button class="ds-btn ds-btn--ghost" type="button">Next month</button>
+        </div>
+        <span class="ds-timetravel-day">Pick a date<span class="ds-ico ds-ico-calendar ds-ico--14"></span></span>
+        <button class="ds-btn ds-btn--quiet ds-timetravel-back" type="button">Back to real time</button>
+      </div>
+      <div class="ds-timetravel-more"><span class="ds-ico ds-ico-chevron-right"></span>Advanced</div>
+    </div>
+
+    <p class="ds-caption">Real time: the panel's head</p>
+    <div class="ds-timetravel-pop" role="dialog" aria-label="Time travel">
+      <div class="ds-timetravel-head">
+        <h2 class="ds-timetravel-title">Time travel</h2>
+        <div class="ds-timetravel-real" style="margin-top:12px">
+          <svg viewBox="0 0 24 24" width="72" height="72" fill="none" stroke="currentColor" stroke-width="0.9" stroke-linecap="round" aria-hidden="true" style="flex:none;color:var(--ink)">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="12" y1="3.4" x2="12" y2="4.8"/><line x1="12" y1="3.4" x2="12" y2="4.8" transform="rotate(90 12 12)"/><line x1="12" y1="3.4" x2="12" y2="4.8" transform="rotate(180 12 12)"/><line x1="12" y1="3.4" x2="12" y2="4.8" transform="rotate(270 12 12)"/>
+            <line x1="12" y1="12" x2="12" y2="7.4" transform="rotate(328 12 12)"/>
+            <line x1="12" y1="12" x2="12" y2="4.6" transform="rotate(336 12 12)"/>
+          </svg>
+          <div>
+            <p class="ds-timetravel-moment">Sat 17 Oct 2026 · 10:56</p>
+            <p class="ds-timetravel-ahead">Real time</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ds-timetravel-col ds-timetravel-col--side">
+    <p class="ds-caption">In the panel's foot, as a button</p>
+    <div class="ds-timetravel-foot">
+      <span class="ds-timetravel-btn is-hover">
+        <svg class="ds-timetravel-face" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="12" x2="12" y2="7.4" transform="rotate(328 12 12)"/><line x1="12" y1="12" x2="12" y2="4.6" transform="rotate(336 12 12)"/></svg>
+        17 Oct 2026 · 10:56
+      </span>
+    </div>
+
+    <p class="ds-caption">Bent: the pill, then the date</p>
+    <span class="ds-timetravel-pill ds-timetravel-field">
+      <span class="ds-timetravel-dust-pill"></span>
+      <span class="ds-timetravel-label"><span class="ds-timetravel-dot"></span>Virtual clock</span>
+      <span class="ds-timetravel-disc">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="12" x2="12" y2="7.4" transform="rotate(62.5 12 12)"/><line x1="12" y1="12" x2="12" y2="4.6" transform="rotate(30 12 12)"/></svg>
+      </span>
+    </span>
+    <p class="ds-timetravel-text">06 Nov 2026 · 14:05 <span>· 20 days ahead</span></p>
+
+    <p class="ds-caption">On a tablet's top bar, for an Admin</p>
+    <div class="ds-timetravel-bar">
+      <span class="ds-timetravel-barbtn"><span class="ds-ico ds-timetravel-ico-clock-3"></span>Time</span>
+      <span class="ds-timetravel-barbtn is-bent"><span class="ds-ico ds-timetravel-ico-clock-3"></span>06 Nov</span>
+    </div>
+
+  </div>
+
+</div>
+</div>
+</body>
+</html>

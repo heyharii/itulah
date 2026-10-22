@@ -1,0 +1,97 @@
+<!-- @dsCard group="Phone" height=585 subtitle="Static rendition of dock.tsx, dock-tools.tsx, fab.tsx and bottom-bar.tsx in the All white look" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>Dock — preview</title><style>
+body{margin:0}
+.ds-dock-stage{align-items:center;gap:12px}
+.ds-dock-stage .ds-caption{align-self:flex-start;max-width:100%}
+.ds-dock-phone{width:min(414px,100%);padding-top:8px;border-radius:24px;box-shadow:0 0 0 1px var(--hairline);background:var(--canvas);overflow:hidden}
+.ds-dock-wrap{padding:0 8px 8px}
+.ds-dock-card{border:1px solid rgb(0 0 0 / 0.06);border-radius:28px;background:color-mix(in srgb,var(--canvas) 95%,transparent);box-shadow:var(--shadow-float)}
+.ds-dock-row{display:flex;align-items:center;gap:6px;padding:8px}
+.ds-dock-statuschip{flex:none;padding:0 12px 0 16px;gap:4px;border:0}
+.ds-dock-statuschip .ds-ico{color:var(--line-ico)}
+.ds-dock-capsule{min-width:0;padding:0 4px 0 14px;gap:0}
+.ds-dock-capsule.is-on{background:var(--accent-bg)}
+.ds-dock-find{display:flex;align-items:center;gap:8px;flex:1;min-width:0;color:var(--mute);white-space:nowrap}
+.ds-dock-find span:last-child{overflow:hidden;text-overflow:ellipsis}
+.ds-dock-capsule.is-on .ds-dock-find{color:var(--ink);font-weight:500}
+.ds-dock-capsule.is-on .ds-dock-find .ds-ico{color:var(--accent)}
+.ds-dock-btn{display:grid;place-items:center;flex:none;width:36px;height:36px;border-radius:var(--r-full);color:var(--body)}
+.ds-dock-btn.is-on{background:var(--accent-bg);color:var(--accent)}
+.ds-dock-fab{flex:none}
+.ds-dock-reload{display:grid;place-items:center;flex:none;width:var(--tap);height:var(--tap);border:0;border-radius:var(--r-full);background:var(--soft-2);color:var(--body)}
+.ds-dock-slot{display:flex;flex:1 1 0%;min-width:0}
+.ds-dock-slot>*{flex:1;min-width:0;width:auto}
+.ds-dock-wide{display:inline-flex;align-items:center;justify-content:center;border:0}
+.ds-dock-sel{display:flex;align-items:center;flex:1;min-width:0;height:var(--tap);padding:0 12px 0 4px;border-radius:var(--r-full);background:var(--accent-bg)}
+.ds-dock-sel .ds-dock-btn{color:var(--accent)}
+.ds-dock-sel span:last-child{margin-left:4px;font-size:15px;font-weight:500;color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap}
+.ds-dock-tabs{border-top-color:rgb(0 0 0 / 0.06)}
+.ds-dock-tabs .ds-tabbar-item{position:relative;gap:2px;line-height:1.2;letter-spacing:0.005em}
+.ds-dock-tabs .ds-ico{width:22px;height:22px}
+.ds-dock-wash{position:absolute;inset:0;background:linear-gradient(to bottom,color-mix(in srgb,var(--accent) 15%,transparent),transparent)}
+.ds-dock-lit{position:absolute;top:0;left:50%;width:40px;height:3px;margin-left:-20px;border-radius:0 0 var(--r-full) var(--r-full);background:var(--accent)}
+.ds-dock-tabs .ds-tabbar-item>*:not(.ds-dock-wash):not(.ds-dock-lit){position:relative}
+.ds-dock-iconwrap{position:relative;display:inline-flex}
+.ds-dock-dot{position:absolute;top:-2px;right:-4px;width:10px;height:10px;border-radius:var(--r-full);background:var(--accent);box-shadow:0 0 0 2px var(--canvas)}
+</style></head>
+<body>
+<div class="ds ds-stage ds-dock-stage">
+
+  <p class="ds-caption">At rest: status, search with filter and sort, reload, New, over the tab bar</p>
+  <div class="ds-dock-phone">
+    <div class="ds-dock-wrap"><div class="ds-dock-card"><div class="ds-dock-row">
+      <button class="ds-dock-chip ds-dock-statuschip" type="button">Active<span class="ds-ico ds-ico-chevron-down"></span></button>
+      <div class="ds-dock-search ds-dock-capsule">
+        <span class="ds-dock-find"><span class="ds-ico ds-ico-search"></span><span>Search Orders</span></span>
+        <span class="ds-dock-btn"><span class="ds-ico ds-ico-filter"></span></span>
+      </div>
+      <button class="ds-dock-reload" type="button" aria-label="Reload"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg></button>
+      <button class="ds-fab ds-dock-fab" type="button" aria-label="Add New Order"><span class="ds-ico ds-ico-plus ds-ico--20"></span></button>
+    </div></div></div>
+    <nav class="ds-tabbar ds-dock-tabs" aria-label="Main">
+      <a class="ds-tabbar-item"><span class="ds-ico ds-ico-home"></span>Home</a>
+      <a class="ds-tabbar-item is-active" aria-current="page"><span class="ds-dock-wash"></span><span class="ds-dock-lit"></span><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></svg>Orders</a>
+      <a class="ds-tabbar-item"><span class="ds-dock-iconwrap"><span class="ds-ico ds-ico-package"></span><span class="ds-dock-dot"></span></span>Receiving</a>
+      <a class="ds-tabbar-item"><span class="ds-ico ds-ico-store"></span>Suppliers</a>
+      <a class="ds-tabbar-item"><span class="ds-ico ds-ico-more"></span>More</a>
+    </nav>
+  </div>
+
+  <p class="ds-caption">Searching with a filter on: the capsule is tinted and has a ×</p>
+  <div class="ds-dock-phone">
+    <div class="ds-dock-wrap"><div class="ds-dock-card"><div class="ds-dock-row">
+      <button class="ds-dock-chip ds-dock-statuschip" type="button">Active<span class="ds-ico ds-ico-chevron-down"></span></button>
+      <div class="ds-dock-search ds-dock-capsule is-on">
+        <span class="ds-dock-find"><span class="ds-ico ds-ico-search"></span><span>Garmen</span></span>
+        <span class="ds-dock-btn"><span class="ds-ico ds-ico-x"></span></span>
+        <span class="ds-dock-btn is-on"><span class="ds-ico ds-ico-filter"></span></span>
+      </div>
+      <button class="ds-dock-reload" type="button" aria-label="Reload"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg></button>
+      <button class="ds-fab ds-dock-fab" type="button" aria-label="Add New Order"><span class="ds-ico ds-ico-plus ds-ico--20"></span></button>
+    </div></div></div>
+  </div>
+
+  <p class="ds-caption">No status chip: the New bar takes the free width</p>
+  <div class="ds-dock-phone">
+    <div class="ds-dock-wrap"><div class="ds-dock-card"><div class="ds-dock-row">
+      <div class="ds-dock-slot"><div class="ds-dock-search ds-dock-capsule">
+        <span class="ds-dock-find"><span class="ds-ico ds-ico-search"></span><span>Search Orders</span></span>
+        <span class="ds-dock-btn"><span class="ds-ico ds-ico-filter"></span></span>
+      </div></div>
+      <div class="ds-dock-slot"><button class="ds-fab ds-fab--wide ds-dock-wide" type="button"><span class="ds-ico ds-ico-plus"></span>New order</button></div>
+    </div></div></div>
+  </div>
+
+  <p class="ds-caption">Rows ticked: the tools step aside</p>
+  <div class="ds-dock-phone">
+    <div class="ds-dock-wrap"><div class="ds-dock-card"><div class="ds-dock-row">
+      <div class="ds-dock-slot"><div class="ds-dock-sel"><span class="ds-dock-btn"><span class="ds-ico ds-ico-x"></span></span><span>3 selected</span></div></div>
+      <div class="ds-dock-slot"><button class="ds-fab ds-fab--wide ds-dock-wide" type="button">New allotment</button></div>
+    </div></div></div>
+  </div>
+
+</div>
+</body>
+</html>

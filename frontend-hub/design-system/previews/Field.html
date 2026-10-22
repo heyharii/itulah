@@ -1,0 +1,81 @@
+<!-- @dsCard group="Inputs" height=560 subtitle="Static rendition of field.tsx in the All white look" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>Field — preview</title>
+<style>
+body{margin:0}
+/* Field: label over its box; the label row may carry an aside, the box a sentence under it */
+.ds-field-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.ds-field-aside{flex:none;padding:0 6px;border-radius:var(--r-inner);background:var(--soft-2);font-size:15px;line-height:20px;color:var(--body)}
+.ds-field-hint{font-size:15px;line-height:20px;color:var(--mute)}
+.ds-field--wide{grid-column:1 / -1}
+/* a form's box: 40px, 14px in, 8px radius; its placeholder is mute (field.tsx) */
+.ds-fields .ds-input::placeholder{color:var(--mute)}
+.ds-fields button.ds-input{display:flex;align-items:center;text-align:left;cursor:pointer}
+.ds-fields .ds-select .ds-ico{right:14px;margin-top:-7px}
+.ds-fields .ds-input--area{min-height:98px;padding:12px 14px;line-height:24px}
+/* Money: the prefix sits 14px in, the figure starts at 36px */
+.ds-field-money{position:relative;display:flex;align-items:center}
+.ds-field-money .ds-field-affix{position:absolute;left:14px;color:var(--mute);pointer-events:none}
+.ds-field-money .ds-input{padding-left:36px;font-variant-numeric:tabular-nums}
+/* Checkbox: a 14px box, 4px radius, hairline-strong; the word 8px after it */
+.ds-field-checks{display:flex;flex-wrap:wrap;gap:12px 28px;align-items:center}
+.ds-field-check{display:inline-flex;align-items:center;gap:8px;font-size:15px;color:var(--text)}
+.ds-field-check .ds-field-box{display:grid;place-items:center;width:14px;height:14px;border:1px solid var(--hairline-strong);border-radius:4px;background:var(--canvas);color:var(--on-dark)}
+.ds-field-check.is-on .ds-field-box,.ds-field-check.is-mixed .ds-field-box{border-color:var(--accent);background:var(--accent)}
+.ds-field-check.is-off{opacity:.55}
+.ds-field-check svg{width:10px;height:10px}
+.ds-field-check .ds-field-hint{margin-left:2px}
+</style></head>
+<body>
+<div class="ds ds-stage">
+  <div class="ds-fields">
+
+    <label class="ds-field">
+      <span class="ds-field-label">Name<span class="ds-req" aria-hidden="true">*</span></span>
+      <input class="ds-input" type="text" aria-invalid="true" aria-required="true" aria-label="Name">
+      <span class="ds-field-error">Fill in the supplier's name.</span>
+    </label>
+
+    <label class="ds-field">
+      <span class="ds-field-label">Phone</span>
+      <input class="ds-input is-focus" type="tel" value="0812 3456 7890">
+    </label>
+
+    <label class="ds-field">
+      <span class="ds-field-label">Payment terms</span>
+      <span class="ds-select"><button class="ds-input" type="button">30 days</button><span class="ds-ico ds-ico-chevron-down ds-ico--14"></span></span>
+    </label>
+
+    <label class="ds-field">
+      <span class="ds-field-label">Credit limit</span>
+      <span class="ds-field-money"><span class="ds-field-affix">Rp</span><input class="ds-input" type="text" inputmode="numeric" value="50.000.000"></span>
+    </label>
+
+    <label class="ds-field">
+      <span class="ds-field-head"><span class="ds-field-label">NPWP</span><span class="ds-field-aside">16 digits</span></span>
+      <input class="ds-input" type="text" inputmode="numeric" value="0123456789012345">
+    </label>
+
+    <label class="ds-field">
+      <span class="ds-field-label">Tags</span>
+      <input class="ds-input" type="text" value="Garmen, Basic">
+      <span class="ds-field-hint">Comma separated, up to eight.</span>
+    </label>
+
+    <label class="ds-field ds-field--wide">
+      <span class="ds-field-label">Notes</span>
+      <textarea class="ds-input ds-input--area" rows="3"></textarea>
+    </label>
+
+    <div class="ds-field-checks ds-field--wide">
+      <span class="ds-field-check"><span class="ds-field-box"></span>Include settled</span>
+      <span class="ds-field-check is-on"><span class="ds-field-box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span>Include settled</span>
+      <span class="ds-field-check is-mixed"><span class="ds-field-box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/></svg></span>Select all</span>
+      <span class="ds-field-check is-off"><span class="ds-field-box"></span>Include settled</span>
+    </div>
+
+  </div>
+</div>
+</body>
+</html>

@@ -14,6 +14,7 @@ import { Select } from "@/components/ui/field"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { ExpandingSearch } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
+import { CellMoney } from "@/components/ui/rows-switch"
 import { Toolbar } from "@/components/ui/segmented"
 import { EmptyState, LoadingState } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
@@ -131,11 +132,13 @@ function StoresOverviewBody() {
         meta: { align: "right", card: "metric" },
         cell: ({ row }) => {
           const one = row.original.boxes[r]
-          return one?.isPending
-            ? "…"
-            : one?.data === undefined
-              ? "—"
-              : money(one.data.closing_minor)
+          return one?.isPending ? (
+            "…"
+          ) : one?.data === undefined ? (
+            "—"
+          ) : (
+            <CellMoney minor={one.data.closing_minor} />
+          )
         },
       })),
     ],
@@ -314,7 +317,7 @@ function CashLedger({
           row.original.debit_minor === 0 ? (
             <span className="text-mute">·</span>
           ) : (
-            money(row.original.debit_minor)
+            <CellMoney minor={row.original.debit_minor} />
           ),
       },
       {
@@ -328,7 +331,7 @@ function CashLedger({
           row.original.credit_minor === 0 ? (
             <span className="text-mute">·</span>
           ) : (
-            money(row.original.credit_minor)
+            <CellMoney minor={row.original.credit_minor} />
           ),
       },
       {
@@ -340,7 +343,7 @@ function CashLedger({
         meta: { align: "right", card: "metric" },
         cell: ({ row }) => (
           <span className={cn(q === "" && "text-ink")}>
-            {money(row.original.running_minor)}
+            <CellMoney minor={row.original.running_minor} />
           </span>
         ),
       },

@@ -15,14 +15,13 @@ import { Card } from "@/components/ui/card"
 import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { Input } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
-import { ExpandingSearch } from "@/components/ui/list-chrome"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { MiniTable, TotalsLadder } from "@/components/ui/rows"
-import { Segmented } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState, LoadingState } from "@/components/ui/states"
+import { SubTabs } from "@/components/ui/sub-tabs"
 import { useFilters } from "@/lib/filters"
 import { count, day, label, money, toneFor } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
@@ -81,7 +80,7 @@ const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
     accessorFn: (row) => row.supplier_name ?? row.supplier_id,
     header: "Supplier",
     size: 220,
-    meta: { card: "hide", filter: { kind: "option" } },
+    meta: { card: "hide", filter: { kind: "option", searchable: true } },
     cell: ({ row }) => (
       <span className="font-medium text-ink">
         <SupplierName
@@ -273,15 +272,16 @@ function OwedOrders() {
   // the same rows again to ask a narrower question. Only an order still open:
   // a cancelled one, or one closed short, owes nothing, though its row still
   // carries expected − received (`isOpenOrder`).
-  const rows = useMemo(
+  const owed = useMemo(
     () =>
       orders.data.filter(
-        (row) =>
-          isOpenOrder(row) &&
-          row.outstanding_stock_units > 0 &&
-          (age === "ALL" || row.issued_at !== null)
+        (row) => isOpenOrder(row) && row.outstanding_stock_units > 0
       ),
-    [orders.data, age]
+    [orders.data]
+  )
+  const rows = useMemo(
+    () => (age === "ALL" ? owed : owed.filter((row) => row.issued_at !== null)),
+    [owed, age]
   )
 
   const units = rows.reduce((sum, row) => sum + row.outstanding_stock_units, 0)
@@ -326,22 +326,41 @@ function OwedOrders() {
         <Kpi label="Units Still Owed" value={count(units)} />
       </KpiStrip>
 
+      <SubTabs
+        className="max-md:hidden"
+        tabs={[
+          { value: "ALL", label: "Everything owed", n: owed.length },
+          {
+            value: "ISSUED",
+            label: "Issued only",
+            n: owed.filter((row) => row.issued_at !== null).length,
+          },
+        ].map((one) => ({
+          value: one.value,
+          label: (
+            <span>
+              {one.label}
+              <span className="ml-1.5 text-body tabular-nums">
+                {count(one.n)}
+              </span>
+            </span>
+          ),
+        }))}
+        value={age}
+        onChange={(next) => setAge(next as "ALL" | "ISSUED")}
+      />
+
       {/* A desk's toolbar: on a phone the age is the dock's status button, and
           the search, the filter and the sort sit beside it. */}
       <div className="group/bar mb-3.5 flex min-h-[2.25rem] flex-wrap items-center gap-2 max-md:hidden">
-        <ExpandingSearch
-          value={query}
-          onChange={setQuery}
-          label="Search outstanding"
-        />
-        <FilterPanel model={filters} table={table} />
-        <Segmented
-          options={[
-            { value: "ALL", label: "Everything owed" },
-            { value: "ISSUED", label: "Issued only" },
-          ]}
-          value={age}
-          onChange={setAge}
+        <FilterPanel
+          model={filters}
+          table={table}
+          search={{
+            value: query,
+            onChange: setQuery,
+            label: "Search outstanding",
+          }}
         />
       </div>
       <DockTools

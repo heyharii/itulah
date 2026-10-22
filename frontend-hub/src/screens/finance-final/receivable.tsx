@@ -7,8 +7,9 @@ import { PageContent } from "@/components/shell/app-shell"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { PageHeader } from "@/components/ui/page-header"
+import { CellMoney } from "@/components/ui/rows-switch"
 import { EmptyState, LoadingState } from "@/components/ui/states"
-import { count, money } from "@/lib/format"
+import { count } from "@/lib/format"
 import { ledgerWindowQuery, moneyOverviewQuery } from "@/lib/queries/finance"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { Code } from "@/screens/finance-final/parts"
@@ -372,7 +373,7 @@ function Balance({ minor }: { minor: number | null }) {
         minor < 0 ? "font-medium text-warn-fg" : "font-medium text-ink"
       }
     >
-      {money(minor)}
+      <CellMoney minor={minor} />
     </span>
   )
 }

@@ -27,6 +27,7 @@ import { Status } from "@/components/ui/pill"
 import { Grid, Td, Th } from "@/screens/finance-final/parts"
 import { isoDay, todayIso } from "@/screens/finance/chart"
 import { PhoneList } from "@/components/ui/phone-cards"
+import { CellMoney } from "@/components/ui/rows-switch"
 import { PhoneChoice, PhoneFigures } from "@/screens/finance/parts"
 import { FactsSheet } from "@/screens/finance/phone-parts"
 import {
@@ -386,7 +387,7 @@ const TENDER_COLUMNS: ColumnDef<TableSetup, Tender>[] = [
     size: 190,
     enableSorting: false,
     meta: { align: "right", card: "metric" },
-    cell: ({ row }) => money(row.original.amount_minor),
+    cell: ({ row }) => <CellMoney minor={row.original.amount_minor} />,
   },
 ]
 
@@ -673,7 +674,7 @@ const COUNT_COLUMNS: ColumnDef<TableSetup, CashCountRow>[] = [
     size: 150,
     enableSorting: false,
     meta: { align: "right", card: "metric" },
-    cell: ({ row }) => money(row.original.per_books_minor),
+    cell: ({ row }) => <CellMoney minor={row.original.per_books_minor} />,
   },
   {
     id: "counted",
@@ -682,7 +683,7 @@ const COUNT_COLUMNS: ColumnDef<TableSetup, CashCountRow>[] = [
     size: 150,
     enableSorting: false,
     meta: { align: "right", card: "metric" },
-    cell: ({ row }) => money(row.original.counted_minor),
+    cell: ({ row }) => <CellMoney minor={row.original.counted_minor} />,
   },
   {
     id: "difference",
@@ -699,9 +700,11 @@ const COUNT_COLUMNS: ColumnDef<TableSetup, CashCountRow>[] = [
             : "font-medium text-bad-fg"
         }
       >
-        {row.original.variance_minor === 0
-          ? "·"
-          : money(row.original.variance_minor)}
+        {row.original.variance_minor === 0 ? (
+          "·"
+        ) : (
+          <CellMoney minor={row.original.variance_minor} />
+        )}
       </span>
     ),
   },

@@ -11,7 +11,6 @@ import {
   ListChecks,
   Percent,
   Plus,
-  Store,
   X,
   type LucideIcon,
 } from "lucide-react"
@@ -39,8 +38,7 @@ import { Status } from "@/components/ui/pill"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { cn } from "@/lib/utils"
 import { MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
-import { DeskFilterButton, DeskFilterChips } from "@/components/ui/desk-filter"
-import { ExpandingSearch } from "@/components/ui/list-chrome"
+import { DeskFilterButton } from "@/components/ui/desk-filter"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import {
@@ -225,9 +223,11 @@ const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
     // No text clause: the search box above the table asks the server for the
     // name, the id and the coupon code, and a clause here could only narrow
     // the pages already loaded.
-    meta: { card: "hide", priority: 1, grow: 280 },
+    meta: { card: "hide", priority: 1, grow: 200 },
     cell: ({ row }) => (
-      <span className="font-medium text-ink">{row.original.row.name}</span>
+      <span className="block truncate font-medium text-ink">
+        {row.original.row.name}
+      </span>
     ),
   },
   {
@@ -237,11 +237,11 @@ const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
     // also says what it does, and this is the one that says what the shopper
     // gets.
     header: "Benefit",
-    size: 220,
+    size: 200,
     enableSorting: false,
     meta: { card: "hide", priority: 1 },
     cell: ({ row }) => (
-      <span className="text-text">
+      <span className="block truncate text-text">
         {describeEffect(row.original.row.definition.effect)}
       </span>
     ),
@@ -250,7 +250,7 @@ const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
     id: "live",
     accessorFn: (row) => row.row.status,
     header: "Status",
-    size: 130,
+    size: 100,
     enableSorting: false,
     // The PHASE, the same word the tabs use — not the stored status, which
     // says "on" for a promotion whose end date has passed. The word only:
@@ -270,8 +270,8 @@ const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
   {
     id: "reached",
     accessorFn: (row) => row.reached,
-    header: "Stores",
-    size: 110,
+    header: "Applied at",
+    size: 100,
     // Sorted and filtered by the SERVER (`stores`, `stores_min`/`stores_max`),
     // which counts the same `activated_by` this cell counts.
     //
@@ -283,7 +283,7 @@ const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
       align: "right",
       filter: {
         kind: "number",
-        label: "Stores",
+        label: "Applied at",
         unit: "stores",
         operators: BAND_OPERATORS,
         single: true,
@@ -309,7 +309,7 @@ const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
           }
         >
           {count(shops)}
-          {of === null ? " stores" : ` / ${count(of)}`}
+          {of === null ? ` store${shops === 1 ? "" : "s"}` : ` / ${count(of)}`}
         </span>
       )
     },
@@ -349,7 +349,7 @@ const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
     // Times used, one figure; what it gave away is in the sheet.
     cell: ({ row }) =>
       (row.original.usage?.uses ?? 0) === 0 ? (
-        <span className="text-mute">None</span>
+        <span className="text-mute">0</span>
       ) : (
         <span className="text-text tabular-nums">
           {count(row.original.usage!.uses)}
@@ -369,7 +369,7 @@ const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
       return Number.isNaN(at) ? Number.POSITIVE_INFINITY : at
     },
     header: "Ends",
-    size: 140,
+    size: 110,
     // Sorted by the server's `ends` — the rule's own end date, with no end
     // sorting as infinity, which is this accessor's rule too.
     // The first column to go when the table is in a narrow card. Every other
@@ -391,7 +391,7 @@ const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
   // Four columns that exist only on a card (`cardLead`; a phone): the promotion
   // over what it offers, what it gave away as the figure, a foot that says
   // where it stands — the switch that pauses it, the phase, the period and how
-  // many stores carry it — and Edit, which opens the sheet the card's own tap
+  // many stores carry it — and Open, which opens the sheet the card's own tap
   // opens (owner, 2026-10-06).
   {
     id: "head",
@@ -427,8 +427,8 @@ const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
           value={never ? "—" : money(usage.spent_minor)}
           caption={
             never
-              ? "Never used"
-              : `${count(usage.uses)} use${usage.uses === 1 ? "" : "s"}`
+              ? "No transactions"
+              : `${count(usage.uses)} transaction${usage.uses === 1 ? "" : "s"}`
           }
           tone={never ? "quiet" : undefined}
         />
@@ -471,7 +471,10 @@ const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
               : `${count(reached)} / ${count(of)} stores`}
           </span>
           {failed > 0 && (
-            <span className="text-bad-fg"> · {count(failed)} failed</span>
+            <span className="text-bad-fg">
+              {" "}
+              · {count(failed)} {failed === 1 ? "store" : "stores"} failed
+            </span>
           )}
         </CardFoot>
       )
@@ -489,9 +492,9 @@ const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
       <Button
         variant="tint"
         size="card"
-        aria-label={`Edit ${row.original.row.name}`}
+        aria-label={`Open ${row.original.row.name}`}
       >
-        Edit
+        Open
       </Button>
     ),
   },
@@ -638,7 +641,10 @@ function PromotionBook() {
   /// A switch or publish that went through, held in the receipt dialog until
   /// it is read. One state for the three writes — pause, end, publish —
   /// because only one of them can land at a time.
-  const [switched, setSwitched] = useState<string | null>(null)
+  const [switched, setSwitched] = useState<{
+    readonly title: string
+    readonly note: string
+  } | null>(null)
   /// The live promotion somebody asked to pause, waiting on a yes.
   const [pausing, setPausing] = useState<PromotionLine | null>(null)
   /// Usage, highest first, ordered by the server — which joins the usage
@@ -848,9 +854,10 @@ function PromotionBook() {
     onSuccess: (published, line) => {
       setReceipt(published)
       if (published.delivered_to.length > 0)
-        setSwitched(
-          `${line.row.status === "ACTIVE" ? "Paused" : "Resumed"} — sent to ${storesWord(published.delivered_to.length)}`
-        )
+        setSwitched({
+          title: `${line.row.name} ${line.row.status === "ACTIVE" ? "paused" : "resumed"}`,
+          note: storesWord(published.delivered_to.length),
+        })
     },
     onSettled: () => {
       setBusy(null)
@@ -871,12 +878,13 @@ function PromotionBook() {
         actorId: actor,
         idempotencyKey: crypto.randomUUID(),
       }),
-    onSuccess: (published) => {
+    onSuccess: (published, line) => {
       setReceipt(published)
       if (published.delivered_to.length > 0)
-        setSwitched(
-          `Ended — sent to ${storesWord(published.delivered_to.length)}`
-        )
+        setSwitched({
+          title: `${line.row.name} ended`,
+          note: storesWord(published.delivered_to.length),
+        })
     },
     onSettled: () => client.invalidateQueries({ queryKey: commercialKeys.all }),
   })
@@ -1109,9 +1117,9 @@ function PromotionBook() {
             }
           />
           <Kpi label="Transactions" value={count(totals.uses)} />
-          <Kpi label="Given away" value={money(totals.spent)} />
+          <Kpi label="Discount given" value={money(totals.spent)} />
           <Kpi
-            label="Over budget"
+            label="Budget used up"
             value={
               <span className={cn(totals.near > 0 && "text-bad-fg")}>
                 {count(totals.near)}
@@ -1154,12 +1162,15 @@ function PromotionBook() {
           />
           {!phone && (
             <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2">
-              <ExpandingSearch
-                value={query}
-                onChange={setQuery}
-                label="Search promotions"
+              <DeskFilterButton
+                model={filters}
+                table={promotionTable}
+                search={{
+                  value: query,
+                  onChange: setQuery,
+                  label: "Search promotions",
+                }}
               />
-              <DeskFilterButton model={filters} table={promotionTable} />
               {/* The campaign the Campaign screen narrowed this to, said and
                 removable — a filter nobody can see is a list that lies. */}
               {campaignName !== null && (
@@ -1179,7 +1190,6 @@ function PromotionBook() {
               )}
             </div>
           )}
-          {!phone && <DeskFilterChips model={filters} table={promotionTable} />}
 
           {/* A phone's one line of what the list is narrowed to when it came
               from a campaign — the status, the search and New are in the
@@ -1202,7 +1212,7 @@ function PromotionBook() {
 
           <Card
             aria-busy={asked !== scope || undefined}
-            className="list-swap overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none"
+            className="list-swap overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none"
           >
             {campaignName !== null && needle === "" && everyCount === 0 ? (
               <EmptyState
@@ -1241,7 +1251,8 @@ function PromotionBook() {
                 cardSort={false}
                 cardsApart
                 cardLead
-                className={`${ROOMY} max-h-[calc(100dvh-19rem)]`}
+                className={ROOMY}
+                pageScroll
               />
             )}
           </Card>
@@ -1255,7 +1266,7 @@ function PromotionBook() {
         search={{
           value: query,
           onChange: setQuery,
-          label: "Search Promotions",
+          label: "Search promotions",
         }}
         filter={{
           count: filters.filters.length,
@@ -1314,9 +1325,10 @@ function PromotionBook() {
         onPublished={(published) => {
           setReceipt(published)
           if (published.delivered_to.length > 0)
-            setSwitched(
-              `Published — sent to ${storesWord(published.delivered_to.length)}`
-            )
+            setSwitched({
+              title: "Promotion published",
+              note: storesWord(published.delivered_to.length),
+            })
           setSeed(null)
           if (newRule.isOpen) newRule.close()
         }}
@@ -1345,8 +1357,10 @@ function PromotionBook() {
         onOpenChange={(next) => {
           if (!next) setSwitched(null)
         }}
-        title={switched ?? ""}
-      />
+        title={switched?.title ?? ""}
+      >
+        {switched?.note}
+      </SavedDialog>
     </PageContent>
   )
 }
@@ -1505,16 +1519,16 @@ function PromotionSheet({
     line === null || rule === undefined ? undefined : (
       <div className="flex flex-col gap-8 pb-6">
         {endError !== null && <ErrorState error={endError} />}
-        <Block icon={Percent} title="Offer">
+        <Block icon={Percent} title="At a glance">
           <Facts className="gap-y-5">
             <Fact term="Benefit">{describeEffect(rule.effect)}</Fact>
             <Fact term="Applies to">{describeScope(rule, named)}</Fact>
             {/* `null` is BOTH ends open: a rule with no window starts when it
                 is published and stops when somebody stops it. */}
-            <Fact term="Period">{describePeriod(rule) ?? "Always on"}</Fact>
+            <Fact term="Dates">{describePeriod(rule) ?? "Always on"}</Fact>
             <Fact term="Campaign">
               {campaignId === null ? (
-                "On its own"
+                "No campaign"
               ) : (
                 <AppLink
                   to="/commercial/campaigns"
@@ -1525,24 +1539,22 @@ function PromotionSheet({
                 </AppLink>
               )}
             </Fact>
-            <Fact term="Last changed">
-              {moment(line.row.book.effective_from)}
-            </Fact>
+            <Fact term="Published">{moment(line.row.book.effective_from)}</Fact>
           </Facts>
         </Block>
 
-        <Block icon={ListChecks} title="Rules">
+        <Block icon={ListChecks} title="Conditions">
           <Facts className="gap-y-5">
-            <Fact term="Shoppers">{describeCustomers(rule)}</Fact>
-            <Fact term="Items already on sale">
+            <Fact term="Open to">{describeCustomers(rule)}</Fact>
+            <Fact term="Marked-down items">
               {(rule.markdown_policy ?? "EXCLUDE") === "ALLOW"
-                ? "Sale items too"
-                : "Not on sale items"}
+                ? "Included"
+                : "Left out"}
             </Fact>
-            <Fact term="Other offers">
+            <Fact term="Combines with">
               {(rule.exclusive_scope ?? "BASKET") === "LINE"
-                ? "Blocks offers on its items"
-                : "Blocks every other offer"}
+                ? "Offers on other items"
+                : "No other offer"}
             </Fact>
             {conditionsOf(rule).min_quantity > 0 && (
               <Fact term="Minimum items">
@@ -1550,12 +1562,12 @@ function PromotionSheet({
               </Fact>
             )}
             {conditionsOf(rule).min_amount.minor > 0 && (
-              <Fact term="Minimum basket">
+              <Fact term="Minimum spend">
                 {money(conditionsOf(rule).min_amount.minor)}
               </Fact>
             )}
             {coupon !== null && (
-              <Fact term="Code">
+              <Fact term="Coupon code">
                 <span className="font-mono">{coupon}</span>
               </Fact>
             )}
@@ -1563,10 +1575,10 @@ function PromotionSheet({
               <Fact term="Budget">{money(caps.budget.minor)}</Fact>
             )}
             {caps?.max_uses != null && (
-              <Fact term="Transactions limit">{count(caps.max_uses)}</Fact>
+              <Fact term="Max. transactions">{count(caps.max_uses)}</Fact>
             )}
             {rule.max_uses_per_customer != null && (
-              <Fact term="Per shopper">
+              <Fact term="Max. per member">
                 {count(rule.max_uses_per_customer)}
               </Fact>
             )}
@@ -1577,7 +1589,7 @@ function PromotionSheet({
         </Block>
         <Block icon={ChartNoAxesColumn} title="Performance">
           {budget === null ? (
-            <Row label="Spent">
+            <Row label="Discount given">
               {money(spent)}{" "}
               <span className="font-normal text-mute">· No budget</span>
             </Row>
@@ -1625,7 +1637,7 @@ function PromotionSheet({
               { value: "details", label: "Details", content: details },
               {
                 value: "stores",
-                label: `Stores (${count(rollout.standings.length)})`,
+                label: `At the stores (${count(rollout.standings.length)})`,
                 content: stores,
               },
               {
@@ -1633,7 +1645,7 @@ function PromotionSheet({
                 label: "Activity",
                 content:
                   subject === undefined ? undefined : (
-                    <RecordPanel subject={subject} />
+                    <RecordPanel subject={subject} expanded />
                   ),
               },
             ]
@@ -1702,7 +1714,7 @@ function PromotionSheet({
                 property a promotion has — it is the ordinary case. */}
             {coupon !== null && (
               <span className="text-[0.9375rem] text-body">
-                Needs code <span className="font-mono text-ink">{coupon}</span>
+                Coupon <span className="font-mono text-ink">{coupon}</span>
               </span>
             )}
           </span>
@@ -1907,26 +1919,33 @@ type Standings = ReturnType<typeof useRollout>
 function Rollout({ events, standings }: Standings) {
   const tally = (state: ShopState) =>
     standings.filter((one) => one.state === state).length
-  const waiting = tally("PENDING") + tally("SILENT")
   const summary = [
-    `${count(tally("ACTIVE"))} in service`,
-    waiting > 0 && `${count(waiting)} pending`,
+    `${count(tally("ACTIVE"))} applied`,
+    tally("PENDING") > 0 && `${count(tally("PENDING"))} waiting`,
+    tally("SILENT") > 0 && `${count(tally("SILENT"))} not sent`,
     tally("FAILED") > 0 && `${count(tally("FAILED"))} failed`,
   ]
     .filter(Boolean)
     .join(" · ")
 
   return (
-    <Block icon={Store} title="Stores" aside={summary}>
-      {events.isError && <Banner tone="warn">Rollout log unavailable.</Banner>}
+    // The sheet's section already says "At the stores (n)": no second heading here,
+    // only the tally under it.
+    <section className="flex flex-col gap-4">
+      {summary !== "" && (
+        <p className="text-[0.9375rem] text-mute">{summary}</p>
+      )}
+      {events.isError && (
+        <Banner tone="warn">Store updates unavailable.</Banner>
+      )}
       {standings.length === 0 ? (
         <p className="text-meta text-mute">No stores.</p>
       ) : (
         <MiniTable
           head={[
             "Store",
-            { label: "Status", align: "left" },
-            { label: "When", align: "left" },
+            { label: "Till status", align: "left" },
+            { label: "Last update", align: "left" },
           ]}
         >
           {standings.map((shop) => (
@@ -1953,15 +1972,15 @@ function Rollout({ events, standings }: Standings) {
           ))}
         </MiniTable>
       )}
-    </Block>
+    </section>
   )
 }
 
 const STATE_WORD: Record<ShopState, string> = {
-  ACTIVE: "In service",
+  ACTIVE: "Applied",
   FAILED: "Failed",
-  PENDING: "Sent, not applied",
-  SILENT: "No report",
+  PENDING: "Waiting",
+  SILENT: "Not sent",
 }
 
 const STATE_TONE: Record<ShopState, "ok" | "bad" | "warn" | "neutral"> = {

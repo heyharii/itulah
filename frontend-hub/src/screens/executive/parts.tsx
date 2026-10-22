@@ -6,10 +6,12 @@ import { PageContent } from "@/components/shell/app-shell"
 import { DockPortal, useDock } from "@/components/shell/dock"
 import { CardHeader, CardTitle } from "@/components/ui/card"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
-import { ChoiceMenu, SHEET_ROW } from "@/components/ui/list-chrome"
+import { SHEET_ROW } from "@/components/ui/list-chrome"
+import { ListFilters } from "@/components/ui/list-filters"
 import { PageHeader } from "@/components/ui/page-header"
 import { BottomSheet } from "@/components/ui/picker-sheet"
 import { Segmented } from "@/components/ui/segmented"
+import type { Filter, FilterState } from "@/lib/filters"
 import { cn } from "@/lib/utils"
 import { change, changeTone, percent } from "@/screens/executive/format"
 import { usePlaces } from "@/screens/executive/places"
@@ -158,6 +160,40 @@ function ScopeBar({
       ? [...stores, { site_id: scope.store, name: nameOf(scope.store) }]
       : stores
 
+  // The shop is the report's one filter, held by the scope rather than the
+  // address bar's filter parameter: this adapts it to the model the list
+  // filters read, so the shop is found by name like any long list.
+  const storeFilters: Filter[] =
+    scope.store === undefined
+      ? []
+      : [{ column: "store", operator: "isAnyOf", values: [scope.store] }]
+  const storeOf = (next: readonly Filter[]) =>
+    next.find((one) => one.column === "store")?.values[0]
+  const storeModel: FilterState = {
+    filters: storeFilters,
+    fields: [
+      {
+        column: "store",
+        label: "Store",
+        spec: {
+          kind: "option",
+          single: true,
+          searchable: true,
+          options: offered.map((place) => ({
+            value: place.site_id,
+            label: place.name,
+          })),
+        },
+      },
+    ],
+    addColumn: () => {},
+    commit: (next) => scope.setStore(storeOf([next])),
+    update: (_at, next) => scope.setStore(storeOf([next])),
+    remove: () => scope.setStore(undefined),
+    clear: () => scope.setStore(undefined),
+    set: (next) => scope.setStore(storeOf(next)),
+  }
+
   return (
     <>
       {/* On a phone the period and the shop are the dock's two buttons, and
@@ -168,22 +204,7 @@ function ScopeBar({
           value={scope.term}
           onChange={scope.setTerm}
         />
-        {storeFilter && (
-          <ChoiceMenu
-            heading="Store"
-            icon={Store}
-            value={scope.store ?? null}
-            options={[
-              { value: null, label: "All stores" },
-              ...offered.map((place) => ({
-                value: place.site_id,
-                label: place.name,
-              })),
-            ]}
-            onChange={(value) => scope.setStore(value ?? undefined)}
-            className="border border-hairline-2 bg-canvas"
-          />
-        )}
+        {storeFilter && <ListFilters model={storeModel} />}
         <span className="ml-auto text-[0.9375rem] text-mute">
           {scope.label}
           {storeFilter &&

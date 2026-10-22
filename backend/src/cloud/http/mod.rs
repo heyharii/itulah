@@ -23,6 +23,7 @@ pub mod acquirer;
 pub mod allocations;
 /// MD edits an allotment in place and reads what a cancel would cost.
 pub mod allotment_amend;
+pub mod allotment_store_review;
 pub mod articles;
 pub mod asset_classes;
 pub mod assets;
@@ -70,6 +71,8 @@ pub mod fleet;
 /// "Goods flows". See `domain::flow`.
 pub mod flows;
 pub mod ga;
+/// GA's papers, originals and operating expenses (0974).
+pub mod ga_records;
 pub mod giro_print;
 pub mod grievance;
 pub mod hire;
@@ -240,6 +243,8 @@ pub fn router(state: AppState) -> Router {
     )
     // MD edits an allotment in place, and what a cancel would cost.
     .merge(allotment_amend::routes(Router::new()))
+    // MD's review of what the stores of a trip counted (owner, 18 Oct 2026).
+    .merge(allotment_store_review::routes(Router::new()))
     .route("/api/v1/inventory/availability", get(availability))
     .route(
         "/api/v1/inventory/movements",
@@ -769,6 +774,7 @@ pub fn router(state: AppState) -> Router {
     .route("/api/v1/auth/edge-sso-ticket", post(auth::edge_sso_ticket))
     .route("/api/v1/auth/logout", post(auth::logout))
     .route("/api/v1/auth/change-password", post(auth::change_password))
+    .route("/api/v1/auth/password-state", get(auth::password_state))
     .route(
         "/api/v1/auth/users",
         get(auth::list_users).post(auth::create_user),
@@ -829,7 +835,16 @@ pub fn router(state: AppState) -> Router {
         get(invitations::preview).post(invitations::accept),
     )
     .route("/api/v1/sync/status", get(sync_status))
-    .route("/api/v1/sync/ingest", post(sync_ingest))
+    // Its own body limit, replacing the router-wide two megabytes for this
+    // route alone. A node bounds each upload to `SYNC_BATCH_MAX_BYTES`, but a
+    // single fact larger than that still goes, by itself, and must land: a
+    // 413 here is a stream that stops, and every sale behind it with it.
+    .route(
+        "/api/v1/sync/ingest",
+        post(sync_ingest).layer(DefaultBodyLimit::max(
+            crate::sync::port::SYNC_INGEST_MAX_BYTES,
+        )),
+    )
     // The three calls a shop's till cannot answer on its own — see
     // `relay_voucher_*` in `edge/http.rs`. Machine-authenticated for the same
     // reason ingest is: the caller is a node proving which shop it is, not a
@@ -1568,6 +1583,7 @@ pub fn router(state: AppState) -> Router {
     // GA: the register and its upkeep, which is a department of its own and
     // not a corner of the books. See `http/ga.rs`.
     .merge(ga::routes(Router::new()))
+    .merge(ga_records::routes(Router::new()))
     .merge(tax::routes(Router::new()))
     // The two lists the forty-account chart made necessary: what a line may
     // be categorised as, and what an asset may be filed as. Read-only — both
@@ -2547,6 +2563,7 @@ pub fn router(state: AppState) -> Router {
     .route("/api/v1/personal-data-requests", get(data_requests::queue))
     // The employee benefit balance (0818).
     .route("/api/v1/benefit/balances", get(benefit::balances))
+    .route("/api/v1/benefit/entries", get(benefit::movements))
     .route("/api/v1/benefit/adjustments", post(benefit::adjust))
     .route(
         "/api/v1/benefit/settings",
@@ -2643,6 +2660,9 @@ pub fn router(state: AppState) -> Router {
     )
     .route("/api/v1/payroll/loans", get(pay::all_loans))
     .route("/api/v1/payroll/loans/{id}/stop", post(pay::stop_loan))
+    .route("/api/v1/payroll/loans/{id}/repayments", post(pay::repay_loan))
+    .route("/api/v1/payroll/slips", get(pay::period_slips))
+    .route("/api/v1/payroll/readiness", get(pay::payroll_readiness))
     .route("/api/v1/payroll/annual-tax", get(pay::annual_tax_all))
     .route(
         "/api/v1/payroll/schedule",
@@ -4986,12 +5006,23 @@ async fn open_setup_session(
     Json(request): Json<infrastructure::NewSetupSession>,
 ) -> Result<(StatusCode, Json<Value>), AppError> {
     let session_id = if options.background {
-        infrastructure::create_setup_session_background(
+        let session_id = infrastructure::create_setup_session_background(
             &s.db,
             &request,
             setup_request_key(&headers)?,
         )
-        .await?
+        .await?;
+        crate::cloud::media::adopt_order_photos_later(
+            s.db.clone(),
+            s.media.clone(),
+            vec![session_id],
+        );
+        infrastructure::issue_queued_setups_now(&s.db, &[session_id]).await?;
+        acted_on.set(RecordKind::ArticleSetup, session_id.to_string());
+        return Ok((
+            StatusCode::CREATED,
+            Json(infrastructure::setup_session_status(&s.db, session_id).await?),
+        ));
     } else {
         infrastructure::create_setup_session(&s.db, &request).await?
     };
@@ -5014,8 +5045,23 @@ async fn open_split_setup(
     Json(request): Json<infrastructure::NewSplitSetup>,
 ) -> Result<(StatusCode, Json<Value>), AppError> {
     let session_ids = if options.background {
-        infrastructure::create_split_setup_background(&s.db, &request, setup_request_key(&headers)?)
-            .await?
+        let session_ids = infrastructure::create_split_setup_background(
+            &s.db,
+            &request,
+            setup_request_key(&headers)?,
+        )
+        .await?;
+        crate::cloud::media::adopt_order_photos_later(
+            s.db.clone(),
+            s.media.clone(),
+            session_ids.clone(),
+        );
+        if let Some(first) = session_ids.first() {
+            acted_on.set(RecordKind::ArticleSetup, first.to_string());
+        }
+        infrastructure::issue_queued_setups_now(&s.db, &session_ids).await?;
+        let items = infrastructure::setup_sessions_status(&s.db, &session_ids).await?;
+        return Ok((StatusCode::CREATED, Json(json!({ "items": items }))));
     } else {
         infrastructure::create_split_setup(&s.db, &request).await?
     };
@@ -5075,6 +5121,9 @@ async fn issue_setup_session(
     }
     if options.background {
         infrastructure::enqueue_setup_issue(&s.db, id, &request.issued_by).await?;
+        // Minted here, as the save does: a mint that cannot happen answers
+        // 409 with its reason instead of "processing" forever.
+        infrastructure::issue_queued_setups_now(&s.db, &[id]).await?;
         return Ok(Json(infrastructure::setup_session_status(&s.db, id).await?));
     }
     let (job_id, command_id) =

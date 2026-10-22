@@ -14,13 +14,13 @@ import { DockTools } from "@/components/shell/dock-tools"
 import { AppLink } from "@/components/ui/app-link"
 import { Card } from "@/components/ui/card"
 import { DataTable, dockSortOf } from "@/components/ui/data-table"
-import { Input } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
-import { Segmented, Toolbar } from "@/components/ui/segmented"
+import { Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { EmptyState, LoadingState, NoMatch } from "@/components/ui/states"
+import { SubTabs } from "@/components/ui/sub-tabs"
 import { isComplete, useFilters } from "@/lib/filters"
 import { count, day, money } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
@@ -453,34 +453,12 @@ function columnsFor(
 }
 
 export function Members() {
-  // A phone draws the members as cards and keeps the search, the segment and
-  // the filters in the drawer over the bottom bar (`DockTools`).
-  const phone = useLayout() === "phone"
-  /// What was typed. In the URL like every other search box in this app: a
-  /// filtered directory is a thing people send each other, and a `useState`
-  /// box cannot be sent.
-  const search = useSheet("q")
-
   return (
     <PageContent>
       <PageHeader
         crumb="Members"
         title="Members"
         sub="Everybody holding a card, and what they buy."
-        actions={
-          phone ? undefined : (
-            <Input
-              value={search.value ?? ""}
-              onChange={(event) =>
-                event.target.value === ""
-                  ? search.close()
-                  : search.open(event.target.value)
-              }
-              placeholder="Search"
-              className="h-8 w-56"
-            />
-          )
-        }
       />
 
       <Suspense fallback={<LoadingState>Reading the directory…</LoadingState>}>
@@ -500,6 +478,9 @@ function MemberBook() {
   // hydrated finds the dock already there and would draw into it, where the
   // server drew nothing.
   const hydrated = useHydrated()
+  /// What was typed. In the URL like every other search box in this app: a
+  /// filtered directory is a thing people send each other, and a `useState`
+  /// box cannot be sent.
   const search = useSheet("q")
   /// Which segment is being read. Also in the URL, and that is the whole
   /// mechanism behind the Segments screen: every count there is a link to a
@@ -650,14 +631,33 @@ function MemberBook() {
       )}
 
       {!phone && (
-        <Toolbar>
-          <Segmented
-            options={[
-              { value: "ALL", label: "Everyone" },
+        <>
+          <SubTabs
+            tabs={[
+              {
+                value: "ALL",
+                label: (
+                  <span>
+                    Everyone
+                    <span className="ml-1.5 text-body tabular-nums">
+                      {count(book.member_count)}
+                    </span>
+                  </span>
+                ),
+              },
               ...SEGMENT_ORDER.map((key) => ({
                 value: key,
-                label:
-                  windows === null ? key : describeSegment(key, windows).label,
+                label: (
+                  <span>
+                    {describeSegment(key, windows).label}
+                    <span className="ml-1.5 text-body tabular-nums">
+                      {count(
+                        book.segments.find((one) => one.key === key)?.members ??
+                          0
+                      )}
+                    </span>
+                  </span>
+                ),
               })),
             ]}
             value={segment.value ?? "ALL"}
@@ -667,35 +667,45 @@ function MemberBook() {
                 : segment.open(next as SegmentKey)
             }
           />
-          {written.value !== undefined && (
-            /* Named and dismissible. A list narrowed by something the reader
+          <Toolbar>
+            {written.value !== undefined && (
+              /* Named and dismissible. A list narrowed by something the reader
              cannot see is the failure this whole feature would otherwise
              introduce: the six are visible in the strip above, and a written
              one has to be just as visible or the count below is unexplained. */
-            <button
-              type="button"
-              onClick={() => written.close()}
-              className="ml-2 inline-flex h-8 items-center gap-1.5 rounded-full bg-soft-2 px-3 text-[0.9375rem] text-ink transition-colors hover:bg-soft-3"
-            >
-              <span className="text-mute">Segment</span>
-              {narrowedBy?.name ?? "…"}
-              <X className="size-3.5 text-line-ico" />
-            </button>
-          )}
-          {/* Segment is deliberately not among the questions in here: the
-            strip to the left already asks it, and two places to set one
+              <button
+                type="button"
+                onClick={() => written.close()}
+                className="ml-2 inline-flex h-8 items-center gap-1.5 rounded-full bg-soft-2 px-3 text-[0.9375rem] text-ink transition-colors hover:bg-soft-3"
+              >
+                <span className="text-mute">Segment</span>
+                {narrowedBy?.name ?? "…"}
+                <X className="size-3.5 text-line-ico" />
+              </button>
+            )}
+            {/* Segment is deliberately not among the questions in here: the
+            tabs above already ask it, and two places to set one
             question is two answers to reconcile. */}
-          <FilterPanel model={filters} />
-          <Toolbar.Spacer />
-          <span className="text-[0.9375rem] text-mute tabular-nums">
-            {/* Two different numbers, and the difference is the point: the first
+            <FilterPanel
+              model={filters}
+              search={{
+                value: search.value ?? "",
+                onChange: (next) =>
+                  next === "" ? search.close() : search.open(next),
+                label: "Search members",
+              }}
+            />
+            <Toolbar.Spacer />
+            <span className="text-[0.9375rem] text-mute tabular-nums">
+              {/* Two different numbers, and the difference is the point: the first
               is everybody the search, segment and chips match — the server's
               count, not the rows loaded so far — and the second is everybody
               enrolled, so a filtered list can say what it is a fraction of. */}
-            {count(head?.total ?? 0)} found · {count(head?.member_count ?? 0)}{" "}
-            enrolled
-          </span>
-        </Toolbar>
+              {count(head?.total ?? 0)} found · {count(head?.member_count ?? 0)}{" "}
+              enrolled
+            </span>
+          </Toolbar>
+        </>
       )}
 
       <Card

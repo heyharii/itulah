@@ -1,0 +1,90 @@
+<!-- @dsCard group="Feedback" height=720 subtitle="Static rendition of states.tsx in the All white look" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>ErrorState — preview</title>
+<style>
+body{margin:0}
+.ds-errorstate-set{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px;padding:24px 28px;align-items:start}
+.ds-errorstate-col{display:flex;flex-direction:column;gap:24px;min-width:0}
+.ds-errorstate-block{display:flex;flex-direction:column;gap:8px;min-width:0}
+.ds-errorstate-label{font-weight:500;color:var(--ink)}
+.ds-errorstate-frame{border:1px solid var(--hairline);border-radius:var(--r-card);background:var(--canvas)}
+/* ErrorState: a centred sentence in bad, then Try again; 56px above and below */
+.ds-errorstate-state{display:flex;flex-direction:column;align-items:center;gap:12px;max-width:28em;margin:0 auto;padding:56px 16px;text-align:center}
+.ds-errorstate-state p{font-size:15px;line-height:22px;color:var(--bad)}
+/* NoAccessState draws the EmptyState block */
+.ds-errorstate-art{display:block;width:136px;height:auto}
+/* Banner (states.tsx): radius 8, padding 10px 14px, relaxed leading, the words in the tone's -fg */
+.ds-errorstate-banner{display:flex;align-items:flex-start;gap:10px;padding:10px 14px;border-radius:var(--r-inner);font-size:15px;line-height:1.625}
+.ds-errorstate-banner>span{min-width:0;flex:1}
+.ds-errorstate-banner--bad{background:var(--bad-bg);color:var(--bad-fg)}
+.ds-errorstate-banner--warn{background:var(--warn-bg);color:var(--warn-fg)}
+.ds-errorstate-banner--info{background:var(--info-bg);color:var(--info-fg)}
+.ds-errorstate-banner button{padding:0;border:0;background:none;font:inherit;font-weight:500;color:inherit;text-decoration:underline;text-underline-offset:2px;cursor:pointer}
+.ds-errorstate-banner b{font-weight:500}
+</style></head>
+<body>
+<div class="ds ds-errorstate-set">
+
+  <div class="ds-errorstate-col">
+    <div class="ds-errorstate-block">
+      <div class="ds-errorstate-label">ErrorState</div>
+      <div class="ds-errorstate-frame">
+        <div class="ds-errorstate-state" role="alert">
+          <p>The server could not be reached.</p>
+          <button class="ds-btn ds-btn--ghost" type="button">Try again</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="ds-errorstate-block">
+      <div class="ds-errorstate-label">NoAccessState</div>
+      <div class="ds-errorstate-frame">
+        <div class="ds-empty">
+          <svg class="ds-errorstate-art" viewBox="0 0 160 112" role="presentation" aria-hidden="true" fill="none" stroke="#8a93a3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="80" cy="54" r="44" fill="#eef3ff" stroke="none"/>
+        <ellipse cx="80" cy="101" rx="38" ry="4.5" fill="#e9ebef" stroke="none"/>
+        <rect x="62" y="22" width="36" height="26" rx="6" fill="#ffffff" stroke-dasharray="4 4"/>
+        <path d="M42 62h76l-7 30H49z" fill="#dbe6ff"/>
+        <path d="M42 62h76"/>
+        <path d="M58 74h44" stroke="#ffffff" stroke-width="3"/>
+        <path d="M30 26v7M26.5 29.5h7" stroke-width="1.75"/>
+        <circle cx="131" cy="24" r="3" fill="#2563eb" stroke="none" opacity="0.45"/>
+        <circle cx="136" cy="80" r="2" fill="#8a93a3" stroke="none" opacity="0.5"/>
+      </svg>
+          <p>You do not have access to the journal. This is about permission, not about the data being absent. Reading the books takes a supervisor's sign-in; posting to them, head office's.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ds-errorstate-col">
+    <div class="ds-errorstate-block">
+      <div class="ds-errorstate-label">Problem</div>
+      <div class="ds-errorstate-banner ds-errorstate-banner--bad" role="alert"><span>This order can no longer be edited.</span></div>
+    </div>
+
+    <div class="ds-errorstate-block">
+      <div class="ds-errorstate-label">SheetError</div>
+      <div class="ds-errorstate-banner ds-errorstate-banner--bad" role="alert"><span>The server could not be reached. <button type="button">Try again</button></span></div>
+    </div>
+
+    <div class="ds-errorstate-block">
+      <div class="ds-errorstate-label">Banner, warn</div>
+      <div class="ds-errorstate-banner ds-errorstate-banner--warn"><span>Couldn’t refresh — showing what loaded at 10:48. The server could not be reached. <button type="button">Try again</button></span></div>
+    </div>
+
+    <div class="ds-errorstate-block">
+      <div class="ds-errorstate-label">Truncated</div>
+      <div class="ds-errorstate-banner ds-errorstate-banner--warn"><span>Showing the first 300 of 1.284 bills. This list is searched and sorted in the browser, over these rows only, so there may be more that never arrived — <b>do not read the figures below as totals.</b></span></div>
+    </div>
+
+    <div class="ds-errorstate-block">
+      <div class="ds-errorstate-label">Banner, info</div>
+      <div class="ds-errorstate-banner ds-errorstate-banner--info"><span>3 start dates — published as 3 price changes.</span></div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

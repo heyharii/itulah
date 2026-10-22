@@ -36,7 +36,7 @@ fn a_lease() -> cloud::RecordGaContractRequest {
         counterparty_name: Some("Pasar Raya Inkubator".into()),
         site_id: Some("dc".into()),
         site_scope: None,
-        asset_id: None,
+        asset_ids: vec![],
         starts_on: day(2026, 3, 1),
         ends_on: Some(day(2027, 2, 28)),
         contract_value_minor: Some(240_000_000),
@@ -111,6 +111,7 @@ fn a_scope() -> cloud::GaContractScope {
         sites: vec![],
         standings: vec![],
         archived: None,
+        supplier_id: None,
         today: today(),
         limit: cloud::DEFAULT_GA_CONTRACT_LIMIT,
     }

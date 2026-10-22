@@ -101,6 +101,36 @@ pub async fn pending_swaps(pool: &PgPool, unit: Option<&str>) -> Result<Vec<Rost
     rows.iter().map(decode_swap).collect()
 }
 
+/// Every swap at one place or everywhere, any state unless one is named, over
+/// the roster days `from..=to` when given. Schedules › Swaps reads it, so a
+/// decided swap stays findable after it has left the queue.
+pub async fn list_swaps(
+    pool: &PgPool,
+    state: Option<&str>,
+    unit: Option<&str>,
+    from: Option<NaiveDate>,
+    to: Option<NaiveDate>,
+) -> Result<Vec<RosterSwap>, AppError> {
+    let rows = sqlx::query(
+        "SELECT id, employee_id, with_employee_id, unit_id, on_date, reason, state,
+                requested, decision
+           FROM roster_swap_request
+          WHERE ($1::text IS NULL OR state = $1)
+            AND ($2::text IS NULL OR unit_id = $2)
+            AND ($3::date IS NULL OR on_date >= $3)
+            AND ($4::date IS NULL OR on_date <= $4)
+          ORDER BY on_date DESC, created_at DESC
+          LIMIT 500",
+    )
+    .bind(state)
+    .bind(unit)
+    .bind(from)
+    .bind(to)
+    .fetch_all(pool)
+    .await?;
+    rows.iter().map(decode_swap).collect()
+}
+
 pub async fn swaps_of_employee(
     pool: &PgPool,
     employee_id: &str,

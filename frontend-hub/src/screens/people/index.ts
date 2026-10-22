@@ -3,10 +3,11 @@ import { lazyScreen, type ScreenMap } from "@/screens/registry"
 /// Screens this module has written. Keys must be paths declared in
 /// `lib/navigation.ts`; anything not listed here renders `Placeholder`.
 ///
-/// One page per tab or view of HR's five doors (`nav.ts`, owner, 16 Oct
+/// One page per tab or view of HR's nine menus (`nav.ts`, owner, 17 Oct
 /// 2026): a list with its actions in the header, every form in a sheet. The
-/// old tabbed Settings page answers at `/people/settings` only as a redirect
-/// to Company & NPP (`moved` in `nav.ts`).
+/// old Settings and Setup pages answer at `/people/settings` and
+/// `/people/hr-setup` only as redirects to Company & NPP (`moved` in
+/// `nav.ts`).
 export const screens: ScreenMap = {
   // Overview
   "/people/overview": lazyScreen(
@@ -14,7 +15,7 @@ export const screens: ScreenMap = {
     () => import("@/screens/people/overview"),
     (m) => m.PeopleOverview
   ),
-  // People
+  // Employees
   "/people": lazyScreen(
     "people/directory",
     () => import("@/screens/people/directory"),
@@ -40,7 +41,7 @@ export const screens: ScreenMap = {
     () => import("@/screens/people/offboarding"),
     (m) => m.Offboarding
   ),
-  "/people/reprimands": lazyScreen(
+  "/people/discipline": lazyScreen(
     "people/reprimands",
     () => import("@/screens/people/reprimands"),
     (m) => m.Reprimands
@@ -50,7 +51,7 @@ export const screens: ScreenMap = {
     () => import("@/screens/people/invitations"),
     (m) => m.Invitations
   ),
-  // Time
+  // Attendance
   "/people/leave": lazyScreen(
     "people/time-off",
     () => import("@/screens/people/time-off"),
@@ -71,6 +72,12 @@ export const screens: ScreenMap = {
     () => import("@/screens/people/overtime"),
     (m) => m.Overtime
   ),
+  "/people/corrections": lazyScreen(
+    "people/corrections",
+    () => import("@/screens/people/corrections"),
+    (m) => m.Corrections
+  ),
+  // Schedules
   "/people/roster": lazyScreen(
     "people/roster",
     () => import("@/screens/people/roster"),
@@ -81,36 +88,59 @@ export const screens: ScreenMap = {
     () => import("@/screens/people/team-calendar"),
     (m) => m.TeamCalendar
   ),
-  // Pay
+  "/people/swaps": lazyScreen(
+    "people/swaps",
+    () => import("@/screens/people/swaps"),
+    (m) => m.Swaps
+  ),
+  // Claims
   "/people/claims": lazyScreen(
     "people/claims",
     () => import("@/screens/people/claims"),
     (m) => m.Claims
   ),
+  "/people/claim-history": lazyScreen(
+    "people/claims",
+    () => import("@/screens/people/claims"),
+    (m) => m.ClaimHistory
+  ),
+  // Loans
   "/people/loans": lazyScreen(
     "people/loans-page",
     () => import("@/screens/people/loans-page"),
     (m) => m.Loans
   ),
-  "/people/claim-allowances": lazyScreen(
-    "people/allowances-page",
-    () => import("@/screens/people/allowances-page"),
-    (m) => m.ClaimAllowancesPage
+  "/people/loan-repayments": lazyScreen(
+    "people/loan-repayments",
+    () => import("@/screens/people/loan-repayments"),
+    (m) => m.LoanRepayments
   ),
+  // Benefits
   "/people/benefit": lazyScreen(
     "people/benefit-page",
     () => import("@/screens/people/benefit-page"),
     (m) => m.BenefitPage
   ),
+  "/people/benefit-history": lazyScreen(
+    "people/benefit-history",
+    () => import("@/screens/people/benefit-history"),
+    (m) => m.BenefitHistory
+  ),
+  // Payroll
   "/people/payroll": lazyScreen(
     "people/payroll",
     () => import("@/screens/people/payroll"),
     (m) => m.PayrollRuns
   ),
-  "/people/one-offs": lazyScreen(
+  "/people/adjustments": lazyScreen(
     "people/one-offs",
     () => import("@/screens/people/one-offs"),
     (m) => m.OneOffs
+  ),
+  "/people/payslips": lazyScreen(
+    "people/payslips",
+    () => import("@/screens/people/payslips"),
+    (m) => m.Payslips
   ),
   "/people/tax-report": lazyScreen(
     "people/tax-report-page",
@@ -128,13 +158,7 @@ export const screens: ScreenMap = {
     () => import("@/screens/people/reports"),
     (m) => m.PeopleReports
   ),
-  // Setup
-  "/people/hr-setup": lazyScreen(
-    "people/setup-index",
-    () => import("@/screens/people/setup-index"),
-    (m) => m.PeopleSetup
-  ),
-  // Setup · Company
+  // Settings · Organization
   "/people/settings/company": lazyScreen(
     "people/settings-company",
     () => import("@/screens/people/settings-company"),
@@ -155,7 +179,7 @@ export const screens: ScreenMap = {
     () => import("@/screens/people/settings-levels"),
     (m) => m.LevelSettings
   ),
-  // Setup · Time
+  // Settings · Attendance
   "/people/settings/attendance": lazyScreen(
     "people/settings-attendance",
     () => import("@/screens/people/settings-attendance"),
@@ -186,7 +210,7 @@ export const screens: ScreenMap = {
     () => import("@/screens/people/settings-overtime"),
     (m) => m.OvertimeSettings
   ),
-  // Setup · Pay
+  // Settings · Payroll
   "/people/settings/payroll-schedule": lazyScreen(
     "people/settings-payroll-schedule",
     () => import("@/screens/people/settings-payroll-schedule"),
@@ -217,13 +241,19 @@ export const screens: ScreenMap = {
     () => import("@/screens/people/claim-types"),
     (m) => m.ClaimTypesPage
   ),
+  "/people/claim-allowances": lazyScreen(
+    "people/allowances-page",
+    () => import("@/screens/people/allowances-page"),
+    (m) => m.ClaimAllowancesPage
+  ),
+  // Settings · Benefits
   "/people/settings/benefit": lazyScreen(
     "people/settings-benefit",
     () => import("@/screens/people/settings-benefit"),
     (m) => m.BenefitSettings
   ),
-  // Setup · Access
-  "/people/job-roles": lazyScreen(
+  // Settings · Access
+  "/people/roles": lazyScreen(
     "people/job-roles",
     () => import("@/screens/people/job-roles"),
     (m) => m.JobRoles

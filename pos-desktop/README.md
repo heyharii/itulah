@@ -45,11 +45,11 @@ a shell somebody has to take on trust.
 
 What the same document said about the *hardware* still stands, with one
 counter-specific addition: the Chainway R3 is attached directly to the Windows
-till and reads one tag at a time.
+till and reads the garments on its pad when the cashier asks.
 
 | Device | Whether .NET wins |
 |---|---|
-| RFID | No. The networked lane still POSTs signed sweeps to `/api/v1/rfid/observations`. The counter's Chainway R3 is the local exception: Rust calls Chainway's Windows C SDK, keeps the reader open with its buzzer muted, verifies the buzzer before each single-tag read, then sends that EPC through the same basket validation as a keyboard scan. |
+| RFID | No. The networked lane still POSTs signed sweeps to `/api/v1/rfid/observations`. The counter's Chainway R3 is the local exception: Rust calls Chainway's Windows C SDK, keeps the reader open with its buzzer muted, EPC-only output, this counter's power, no tag filter and a pinned radio profile, asks the buzzer and the power before each read of the pad (a reset moves one or the other, and then everything is set again), then sends each EPC through the same basket validation as a keyboard scan. |
 | Fingerprint | No, though it looks like it does. `pos-fp-host/Native/ZkfpNative.cs` is a P/Invoke surface over `libzkfp.dll` from `libzkfp.h` — a plain **C** API. Rust binds a C API the same way. What C# has is a binding that already works, not a capability Rust lacks. **And it is not Windows-bound:** ZKTeco publishes an official ZKFinger SDK for Linux covering the SLK20R and ZK series, so a Linux till — or a Linux VM with USB passthrough, for testing — uses the same FFI. No official native macOS SDK was found; the only macOS mention is a third-party wrapper needing .NET/Mono, which is not evidence of a driver. Verify against the model actually bought. |
 | Printer / drawer | No. Receipts are ESC/POS from the edge, which is already the party on the printer's LAN. |
 
@@ -71,8 +71,8 @@ ui/              React + Vite. The shape is prototypes/pos.
   src/pos.css    Taken from the prototype unchanged.
 src-tauri/
   src/edge.rs    Proxy to the shop node. Holds the address, the token, the timeout.
-  src/device.rs  The Chainway R3 read command, fingerprint and drawer status.
-  src/rfid.rs    Windows SDK binding; reader kept open, reads refuse unless the buzzer is verified off.
+  src/device.rs  The Chainway R3 commands (off the window's thread), fingerprint and drawer status.
+  src/rfid.rs    Windows SDK binding; SDK loaded once, reader kept open, one short inventory per read of the pad.
   src/discovery.rs  Finds the shop's node on the LAN (mDNS), confirms each answer.
   src/join.rs       Asks the node to let this till in; the key never reaches the page.
   src/peripherals.rs  What is plugged into this till, reported to the node.
@@ -230,7 +230,11 @@ keep), and pulling a handheld's sweep onto the basket (`GET
 /api/v1/rfid/sessions`, board button or F6 — the reader's lane ends at the
 node, so the till pulls and never polls).
 
-The Chainway R3 USB binding is implemented for Windows. The **fingerprint
+The Chainway R3 USB binding is implemented for Windows, for the R3 and the R3S:
+the reader's firmware version must name one of them (a comma-separated part
+equal to `R3` or `R3S`, any case), and any other reader is refused with the
+firmware string it reported. **Test read** shows that string, so an R3S's real
+one can be confirmed on the bench. The **fingerprint
 scanner** remains an honest stub (`src-tauri/src/device.rs`; it needs the ZK SDK
 on Linux or Windows); the **price-check-to-basket** path for a garment whose tag has come
 off (it has to be re-tagged; the wire has no field for a line without one);
@@ -241,11 +245,75 @@ wired, PAYOUT and CORRECTION are not, because their supervisor field is not.
 ## Windows POS build
 
 `.github/workflows/pos-windows.yml` builds on a pinned `windows-2022` GitHub
-runner, tests the native commands, downloads the official Chainway R3 Windows
-SDK, verifies its archive and DLL hashes, and packages an MSI. Pull requests
-and pushes that touch `pos-desktop` upload the MSI as a 30-day Actions artifact.
-The Windows build keeps the vendor DLLs in the installer without committing
-them to this repository. In the sale screen, **Baca R3** performs one read on
-a reader that stays open between scans (opened on first use, reopened once if
-it was unplugged); the command refuses to inventory unless the SDK identifies
-an R3 and the buzzer reads back as off.
+runner, downloads the official Chainway R3 Windows SDK, verifies its archive and
+DLL hashes, copies the x64 Visual C++ runtime the SDK imports (`vcruntime140`,
+`vcruntime140_1`, `msvcp140`, app-local beside it in `rfid-native/`), tests the
+native commands, and packages an MSI. Pull requests and pushes that touch
+`pos-desktop` upload the MSI as a 30-day Actions artifact. The Windows build
+keeps the vendor DLLs in the installer without committing them to this
+repository. A local Windows build needs the same five DLLs in
+`src-tauri/rfid-native/` (`tauri.windows.conf.json` lists them), so copy the
+three runtime DLLs from `C:\Windows\System32` beside the SDK's two.
+
+### The Chainway R3 at the counter
+
+The reader button beside the scan field reads **the pad**: one short continuous
+inventory (start, collect for the read window, stop, collect what was already
+on its way), each EPC once with the strongest signal it was heard at. Every
+tag of this shop's goes through the same scan path a keyboard scan does, so
+"already in the basket" and one tag one item are decided in one place; tags
+that are not this shop's are counted and left alone. Nothing reads on its own —
+an always-reading mode is left out until the bench says whether it is wanted.
+
+The shell opens the reader once and sets it up: any inventory a previous run
+left going stopped, the buzzer muted, EPC-only output, the power set *without*
+saving it in the reader and read back, tag filters cleared, the radio profile
+pinned. While the till holds the reader no other app can change it; what can
+is a reset putting back what the reader has saved, which turns the buzzer back
+on and puts back the reader's saved power. So each read of the pad asks those
+two first:
+
+| Before a read | Round trips |
+|---|---|
+| Buzzer off and power as this till set it, the counter's | 2, then the read |
+| Buzzer on, power moved or changed in *Till devices*, or the last read came back with TID bytes | about 25: set up again exactly as on opening, then the read |
+| No answer | the reader is reopened, which sets everything up |
+
+A read that comes back with TID bytes shows the reader reverted anyway: it is
+not used and the cashier is asked to read again. **Blind spot:** a reset of
+the radio alone — Chainway keeps the buzzer with the reader's own settings and
+the rest with the radio's — on a reader whose saved power happens to equal
+this counter's moves neither answer, and unless its saved output carries TIDs
+the read runs on whatever the reader had saved. The SDK and its DLLs are
+loaded once per process and never unloaded.
+
+**The radio profile is pinned, never inherited** from whatever app used the
+reader last. Tag filters are cleared on the EPC, TID and USER banks the way
+Chainway's demo resets them (length 0, not saved) — the SDK cannot read a
+filter back, so the reader's answer is what is checked. FastID and Tag Focus
+are switched off, and the Query asks session S0 for target A, every other Gen2
+field (Q, any Select, the link frequency) written back as the reader held it.
+On the handheld's module our own tags lost 16 of 58 to FastID, answered 11 of
+31 on a Gen2X link, and stayed silent long after a read in S2 and S3. A Gen2X
+RF link (modes 10–15 in Chainway's API document) is moved to the PR-ASK mode
+with the same Miller encoding and link frequency (0–5); any other link is left
+and shown. Fast Inventory is not set. Nothing is saved in the reader, and
+everything it can read back is read back once all of it is set. A reader that
+will not take a setting, or whose link cannot be read, is not read at all and
+the cashier is told why. **Test read** shows the firmware and the profile the
+read ran with. Measure the bench values below with this profile in place.
+
+To take one unit off a line of several, press × on the line and read the
+garment being handed back on the pad (or scan or pick its tag): that tag is the
+one removed, after the supervisor's approval, never the last one scanned.
+
+**Bench values — measure these on the real counter before a shop uses it**, in
+*Till devices* (saved in this till's `node.json` as `r3_power_dbm`,
+`r3_read_ms`, `r3_min_rssi_dbm`):
+
+| Setting | Default | What to measure |
+|---|---|---|
+| Power | 15 dBm (1–30) | Lay garments on the pad and others where the racks, the bag shelf and the customer's side of the counter are. Lower the power until **Test read** lists only the pad's garments, then check a full pile on the pad still reads completely. Only the pad may be in reach. |
+| One read | 500 ms (200–2000) | The shortest window in which a full pile on the pad is read completely every time, over a few dozen tries. |
+| Weakest kept | −70 dBm (−100 to −20) | The signal **Test read** shows for the pad's garments against the strongest seen from off the pad; set it between the two. A second guard only: the power is what keeps the racks out of reach. |
+| Exclusive access | — | With the till holding the R3 (after a **Test read**), open Chainway's demo app and try to connect to the R3: it must fail. If it connects, another app can change the reader under the till, which the two questions before each read do not cover. |

@@ -5,22 +5,22 @@ use crate::edge::{
     derive_allotment_status, sku_stock_pools, validate_command, AdvanceKoliRequest,
     BeginCheckoutRequest, CatalogIdentity, CatalogSnapshotItem, CatalogSnapshotPage,
     CatalogSnapshotQuery, CatalogSnapshotState, CheckoutResult, CheckoutTenderState, CommandResult,
-    CreateKoliShipmentRequest, CreatePicklistRequest, EdgeError, EdgeInventory,
+    CouponHoldRecord, CreateKoliShipmentRequest, CreatePicklistRequest, EdgeError, EdgeInventory,
     EdgeOfficialCountDetail, EdgeOfficialCountLine, EdgeOfficialCountSummary, EdgeRole,
     FulfillmentProgressResult, GoodsReceiptView, IntakeRequest, InventoryState, InvoiceDocument,
-    InvoiceDocumentView, MoveBySkuRequest, MoveRequest, MovementCause, MovementCommand, MovementGroupId, MovementId,
-    MovementLine, MovementView, NodeContext, OfficialCountEntriesRequest,
-    OfficialCountSubmitRequest, OfficialCountSubmitResult, OpenGoodsReceiptRequest,
-    OperationalPool, PackKoliRequest, PackRequest, PickRequest, PickResult, PicklistRefusal,
-    PicklistResult, Place, PoolBalance, PoolRole, PurchaseCountAwaitingVerification,
-    PurchaseCountBatchRequest, PurchaseCountBatchResult, PurchaseCountRequest, PurchaseCountResult,
-    PurchaseReturnHandoverRequest, PurchaseReturnWork, PurchaseReturnWorkLine,
-    PurchaseVerifyDecision, PurchaseVerifyRequest, PurchaseVerifyResult, PurchaseWorkLine,
-    ReceiveBatchRequest, ReceiveRequest, RecordInvoiceRequest, RejectDeliveryRequest,
-    ResolveCheckoutRequest, SaleRequest, SaleResult, SiteId, SiteKind, SkuStockRow,
-    StoreInvoiceDocumentRequest, SubjectId, SystemPlace, TaggingConfirmRequest,
+    InvoiceDocumentView, MoveBySkuRequest, MoveRequest, MovementCause, MovementCommand,
+    MovementGroupId, MovementId, MovementLine, MovementView, NodeContext,
+    OfficialCountEntriesRequest, OfficialCountSubmitRequest, OfficialCountSubmitResult,
+    OpenGoodsReceiptRequest, OperationalPool, PackKoliRequest, PackRequest, PickRequest,
+    PickResult, PicklistRefusal, PicklistResult, Place, PoolBalance, PoolRole,
+    PurchaseCountAwaitingVerification, PurchaseCountBatchRequest, PurchaseCountBatchResult,
+    PurchaseCountRequest, PurchaseCountResult, PurchaseReturnHandoverRequest, PurchaseReturnWork,
+    PurchaseReturnWorkLine, PurchaseVerifyDecision, PurchaseVerifyRequest, PurchaseVerifyResult,
+    PurchaseWorkLine, ReceiveBatchRequest, ReceiveRequest, RecordInvoiceRequest,
+    RejectDeliveryRequest, ResolveCheckoutRequest, SaleRequest, SaleResult, SiteId, SiteKind,
+    SkuStockRow, StoreInvoiceDocumentRequest, SubjectId, SystemPlace, TaggingConfirmRequest,
     TaggingConfirmResult, TaggingWorkJob, TaggingWorkLine, TenderOutcomeRequest,
-    CouponHoldRecord, UnresolvedCheckout, VoucherHoldRecord,
+    UnresolvedCheckout, VoucherHoldRecord,
 };
 use crate::sync::workflow::{
     FulfillmentProgressPayload, FulfillmentStage, OfficialCountResultLine,
@@ -193,6 +193,14 @@ pub(crate) const COUPON_HOLD_SCHEMA: &str = include_str!(concat!(
     "/migrations/sqlite/0078_a_till_takes_only_the_coupon_uses_head_office_held.sql"
 ));
 
+/// What a shop counted of an announced delivery, per SKU, as it was typed
+/// (`0080`): kept for head office's review, beyond what the count could book.
+/// `IF NOT EXISTS`, so it runs on every open.
+pub(crate) const STORE_INBOUND_COUNT_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0080_a_shop_remembers_what_it_counted.sql"
+));
+
 /// The style, division and tags a range-wide markdown matches on.
 pub(crate) const CATALOG_MERCHANDISE_SCHEMA: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -254,6 +262,22 @@ pub(crate) const PUTAWAY_GONE_SCHEMA: &str = include_str!(concat!(
 pub(crate) const RFID_DEVICE_HEALTH_SCHEMA: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/migrations/sqlite/0064_a_reader_says_it_is_alive_even_when_it_reads_nothing.sql"
+));
+
+/// A shared RFID session read by its name (`0081`, `edge::rfid`): the index
+/// the handhelds' two-second poll needs. Creates only, so it runs on every
+/// open.
+pub(crate) const RFID_SESSION_INDEX_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0081_a_shared_session_is_read_by_its_name.sql"
+));
+
+/// A reader's batch receipts outlive its key (`0082`, `edge::rfid`): the
+/// receipt table rebuilt without `UNIQUE(device_id, sequence)`. Applied once,
+/// while that constraint is still in the table.
+pub(crate) const RFID_RECEIPT_KEEP_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0082_a_reader_keeps_its_receipts_when_its_key_changes.sql"
 ));
 
 /// The last backup's result and the internet outages the node sold through
@@ -1058,6 +1082,9 @@ impl SqliteEdge {
         connection.execute_batch(ALLOWANCE_SCHEMA).map_err(db)?;
         connection.execute_batch(VOUCHER_HOLD_SCHEMA).map_err(db)?;
         connection.execute_batch(COUPON_HOLD_SCHEMA).map_err(db)?;
+        connection
+            .execute_batch(STORE_INBOUND_COUNT_SCHEMA)
+            .map_err(db)?;
         // Asks after the style, which is the column the engine actually reads.
         // A catalogue without it prices every product correctly and quietly
         // ignores every markdown written against a range.
@@ -1505,6 +1532,26 @@ impl SqliteEdge {
         connection
             .execute_batch(NODE_HEALTH_MEMORY_SCHEMA)
             .map_err(db)?;
+        // A shared RFID session read by its name (`0081`). Creates only.
+        connection
+            .execute_batch(RFID_SESSION_INDEX_SCHEMA)
+            .map_err(db)?;
+        // RFID receipts outlive a key (`0082`): a rebuild, so only while 0004's
+        // `UNIQUE(device_id, sequence)` — the one index a UNIQUE constraint
+        // (origin 'u') makes on that table — is still there.
+        let receipts_reserve_sequences: i64 = connection
+            .prepare_cached(
+                "SELECT COUNT(*) FROM pragma_index_list('edge_rfid_batch_receipt')
+                  WHERE origin='u'",
+            )
+            .map_err(db)?
+            .query_row([], |row| row.get(0))
+            .map_err(db)?;
+        if receipts_reserve_sequences > 0 {
+            connection
+                .execute_batch(RFID_RECEIPT_KEEP_SCHEMA)
+                .map_err(db)?;
+        }
         // Remote actions (`0067`): what head office asked for. Creates only.
         connection.execute_batch(NODE_ACTION_SCHEMA).map_err(db)?;
         // Purchase returns (`0068`): excess going back to the supplier.
@@ -3341,6 +3388,96 @@ impl SqliteEdge {
         Ok(lines)
     }
 
+    /// The book a count is compared with is the pool as it stands when the
+    /// count is submitted, not as it stood when the count was opened.
+    ///
+    /// A store keeps trading while a count is open — it sells, it sends a
+    /// return to HO, it receives. Frozen at activation, every piece that left
+    /// by a recorded move stayed "expected", the count called it short, and
+    /// the adjustment was then refused because the piece was no longer on
+    /// hand (20 Oct: a return of 4 left Store 02 between opening and
+    /// submitting its full count; Book 23 against a shelf of 19).
+    ///
+    /// So at submission: a piece that has since left the pool drops out — its
+    /// move already accounts for it, and a scan of it from before it left is
+    /// dropped with it; a piece that has since arrived is expected.
+    fn rebase_official_count_expected(
+        tx: &Transaction<'_>,
+        count_id: Uuid,
+        pool_id: &str,
+        scope: &crate::sync::workflow::OfficialCountScope,
+    ) -> Result<(), EdgeError> {
+        let count = count_id.to_string();
+        let place_id = format!("{pool_id}:on_hand");
+        let left = "SELECT expected.subject_id FROM dc_official_count_expected expected
+                    WHERE expected.count_id=?1 AND NOT EXISTS (
+                        SELECT 1 FROM inventory_projection projection
+                        WHERE projection.subject_id=expected.subject_id
+                          AND projection.place_id=?2 AND projection.quantity>0)";
+        tx.execute(
+            &format!(
+                "DELETE FROM dc_official_count_entry
+                 WHERE count_id=?1 AND subject_id IN ({left})"
+            ),
+            params![count, place_id],
+        )
+        .map_err(db)?;
+        tx.execute(
+            &format!(
+                "DELETE FROM dc_official_count_expected
+                 WHERE count_id=?1 AND subject_id IN ({left})"
+            ),
+            params![count, place_id],
+        )
+        .map_err(db)?;
+        let arrived = {
+            let mut statement = tx
+                .prepare(
+                    "SELECT projection.subject_id,subject.epc,subject.sku_code,projection.quantity
+                     FROM inventory_projection projection
+                     JOIN inventory_subject subject ON subject.id=projection.subject_id
+                     WHERE projection.place_id=?2 AND projection.quantity>0
+                       AND subject.epc IS NOT NULL
+                       AND NOT EXISTS (
+                           SELECT 1 FROM dc_official_count_expected expected
+                           WHERE expected.count_id=?1
+                             AND (expected.subject_id=projection.subject_id
+                                  OR expected.epc=subject.epc))
+                     ORDER BY subject.epc",
+                )
+                .map_err(db)?;
+            let rows = statement
+                .query_map(params![count, place_id], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, i64>(3)?,
+                    ))
+                })
+                .map_err(db)?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(db)?;
+            rows
+        };
+        for (subject_id, epc, sku_code, quantity) in arrived {
+            if (!scope.sku_codes.is_empty() && !scope.sku_codes.contains(&sku_code))
+                || (!scope.epcs.is_empty() && !scope.epcs.contains(&epc))
+            {
+                continue;
+            }
+            tx.prepare_cached(
+                "INSERT INTO dc_official_count_expected
+                     (count_id,subject_id,epc,sku_code,expected_quantity)
+                 VALUES (?1,?2,?3,?4,?5)",
+            )
+            .map_err(db)?
+            .execute(params![count, subject_id, epc, sku_code, quantity])
+            .map_err(db)?;
+        }
+        Ok(())
+    }
+
     fn official_count_summary(
         connection: &Connection,
         count_id: Uuid,
@@ -3664,13 +3801,14 @@ impl SqliteEdge {
             tx.commit().map_err(db)?;
             return Ok(response);
         }
-        let (site_id, pool_id, status): (String, String, String) = tx
+        let (site_id, pool_id, status, scope_json): (String, String, String, String) = tx
             .prepare_cached(
-                "SELECT site_id,pool_id,status FROM dc_official_count_work WHERE count_id=?1",
+                "SELECT site_id,pool_id,status,scope_json
+                 FROM dc_official_count_work WHERE count_id=?1",
             )
             .map_err(db)?
             .query_row([count_id.to_string()], |row| {
-                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
             })
             .optional()
             .map_err(db)?
@@ -3685,6 +3823,9 @@ impl SqliteEdge {
                 "Official Count submission requires ACTIVE status, currently {status}"
             )));
         }
+        let scope: crate::sync::workflow::OfficialCountScope = serde_json::from_str(&scope_json)
+            .map_err(|error| EdgeError::Persistence(error.to_string()))?;
+        Self::rebase_official_count_expected(&tx, count_id, &pool_id, &scope)?;
         let lines = Self::official_count_lines(&tx, count_id)?;
         let submitted_at = self.clock.now();
         let result_id = Uuid::new_v4();
@@ -6824,6 +6965,11 @@ impl EdgeInventory for SqliteEdge {
         crate::edge::store_returns::asks(&connection)
     }
 
+    fn store_on_hold(&self) -> Result<crate::edge::inbound::StoreOnHoldList, EdgeError> {
+        let connection = self.lock()?;
+        crate::edge::inbound::on_hold(&connection)
+    }
+
     fn store_inbound_list(
         &self,
         status: Option<&str>,
@@ -6917,7 +7063,7 @@ impl EdgeInventory for SqliteEdge {
             }
             *counts.entry(sku_code).or_default() += line.quantity;
         }
-        let epcs = {
+        let (epcs, in_review) = {
             let connection = self.lock()?;
             let known: i64 = connection
                 .prepare_cached("SELECT COUNT(*) FROM store_inbound_delivery WHERE delivery_id=?1")
@@ -6929,41 +7075,91 @@ impl EdgeInventory for SqliteEdge {
                     "inbound delivery {delivery_id}"
                 )));
             }
-            let mut statement = connection
-                .prepare(
-                    "SELECT epc FROM store_inbound_unit
-                      WHERE delivery_id=?1 AND upper(sku_code)=?2
-                      ORDER BY epc LIMIT ?3",
-                )
-                .map_err(db)?;
-            let mut epcs = Vec::new();
-            for (sku_code, quantity) in &counts {
-                if *quantity == 0 {
-                    continue;
-                }
-                let found = statement
-                    .query_map(params![delivery_id, sku_code, quantity], |row| {
-                        row.get::<_, String>(0)
-                    })
-                    .map_err(db)?
-                    .collect::<Result<Vec<_>, _>>()
+            // What was sent of each SKU, and whether the delivery came from an
+            // allotment — the only goods MD reviews.
+            let mut sent: std::collections::BTreeMap<String, i64> =
+                std::collections::BTreeMap::new();
+            let mut from_allotment = false;
+            {
+                let mut statement = connection
+                    .prepare(
+                        "SELECT upper(sku_code), COUNT(*), MAX(allotment_line_id IS NOT NULL)
+                           FROM store_inbound_unit
+                          WHERE delivery_id=?1 AND late_announcement=0
+                          GROUP BY 1",
+                    )
                     .map_err(db)?;
-                epcs.extend(found);
+                let rows = statement
+                    .query_map([&delivery_id], |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, i64>(2)?,
+                        ))
+                    })
+                    .map_err(db)?;
+                for row in rows {
+                    let (sku_code, pieces, allotted) = row.map_err(db)?;
+                    from_allotment |= allotted != 0;
+                    sent.insert(sku_code, pieces);
+                }
             }
-            epcs
+            let counted: std::collections::BTreeMap<String, i64> = counts
+                .iter()
+                .filter(|(_, quantity)| **quantity > 0)
+                .map(|(sku_code, quantity)| (sku_code.clone(), *quantity))
+                .collect();
+            // A shop's count books at once what matches its delivery, SKU by
+            // SKU up to what was sent (owner, 20 Oct 2026: "yg sesuai masuk,
+            // yg ga on hold"). A count that differs also goes to MD's review
+            // of the trip; what it counted beyond what was sent is on hold
+            // until MD answers. One that matches completes its allotment.
+            let in_review =
+                self.node.role != EdgeRole::Dc && from_allotment && counted != sent;
+            let mut epcs = Vec::new();
+            {
+                let mut statement = connection
+                    .prepare(
+                        "SELECT epc FROM store_inbound_unit
+                          WHERE delivery_id=?1 AND upper(sku_code)=?2
+                          ORDER BY epc LIMIT ?3",
+                    )
+                    .map_err(db)?;
+                for (sku_code, quantity) in &counts {
+                    if *quantity == 0 {
+                        continue;
+                    }
+                    let found = statement
+                        .query_map(params![delivery_id, sku_code, quantity], |row| {
+                            row.get::<_, String>(0)
+                        })
+                        .map_err(db)?
+                        .collect::<Result<Vec<_>, _>>()
+                        .map_err(db)?;
+                    epcs.extend(found);
+                }
+            }
+            (epcs, in_review)
         };
-        if epcs.is_empty() {
+        // At a shop, a count that matches nothing of the delivery is still a
+        // count — the lorry brought something else, or nothing at all (owner,
+        // 17 Oct 2026): nothing is booked, every piece of it stays missing,
+        // and the count goes to head office for MD's review. The Gudang
+        // receiving a shop's return keeps its old rule.
+        if epcs.is_empty() && !in_review && self.node.role == EdgeRole::Dc {
             return Err(EdgeError::Validation(
                 "nothing counted matches this delivery; count what came off the lorry".into(),
             ));
         }
-        self.receive_store_inbound(
+        self.receive_inbound_counted(
             &delivery_id,
             crate::edge::inbound::StoreInboundReceiveRequest {
                 epcs,
                 actor_id: request.actor_id,
                 idempotency_key: request.idempotency_key,
             },
+            Some(&counts),
+            in_review,
         )
     }
 
@@ -6972,350 +7168,7 @@ impl EdgeInventory for SqliteEdge {
         delivery_id: &str,
         request: crate::edge::inbound::StoreInboundReceiveRequest,
     ) -> Result<crate::edge::inbound::StoreInboundDetail, EdgeError> {
-        use crate::edge::inbound::{self, StoreInboundDetail, STORE_INBOUND_MAX_EPCS};
-        // Any site of ours receives: a shop its allotment or transfer, the
-        // Gudang a shop's return (owner, 2026-09-27). Where the goods land is
-        // the delivery's to say, below.
-        Self::validate_command_identity(&request.idempotency_key, &request.actor_id)?;
-        let delivery_id = delivery_id.trim().to_owned();
-        let actor_id = request.actor_id.trim().to_owned();
-        let idempotency_key = request.idempotency_key.trim().to_owned();
-        if request.epcs.len() > STORE_INBOUND_MAX_EPCS {
-            return Err(EdgeError::Validation(format!(
-                "receive at most {STORE_INBOUND_MAX_EPCS} tags per delivery, not {}",
-                request.epcs.len()
-            )));
-        }
-        // A double read is one garment, so the set is what counts.
-        let mut epcs = BTreeSet::new();
-        for raw in &request.epcs {
-            epcs.insert(Self::normalized_epc(raw)?);
-        }
-        if epcs.is_empty() {
-            return Err(EdgeError::Validation(
-                "a receipt of no tags is not a receipt; sweep the delivery first".into(),
-            ));
-        }
-        let digest = crate::security::sha256_hex(
-            epcs.iter()
-                .map(String::as_str)
-                .collect::<Vec<_>>()
-                .join("\n"),
-        );
-        let request_json = Self::encode_idempotent_request(&serde_json::json!({
-            "delivery_id": delivery_id,
-            "epcs": epcs,
-            "actor_id": actor_id,
-        }))?;
-
-        let mut connection = self.lock()?;
-        let tx = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(db)?;
-        if let Some(saved) = Self::load_idempotent::<StoreInboundDetail>(
-            &tx,
-            &idempotency_key,
-            "STORE_INBOUND_RECEIVE",
-            &request_json,
-        )? {
-            tx.commit().map_err(db)?;
-            return Ok(saved);
-        }
-        type Header = (
-            String,
-            Option<String>,
-            String,
-            Option<String>,
-            Option<String>,
-        );
-        let header: Option<Header> = tx
-            .prepare_cached(
-                "SELECT source_site_id,shipment_reference,status,receive_digest,destination_pool_id
-                 FROM store_inbound_delivery WHERE delivery_id=?1",
-            )
-            .map_err(db)?
-            .query_row([&delivery_id], |row| {
-                Ok((
-                    row.get(0)?,
-                    row.get(1)?,
-                    row.get(2)?,
-                    row.get(3)?,
-                    row.get(4)?,
-                ))
-            })
-            .optional()
-            .map_err(db)?;
-        let Some((source_site_id, shipment_reference, status, received_digest, landing_pool_id)) =
-            header
-        else {
-            return Err(EdgeError::NotFound(format!(
-                "inbound delivery {delivery_id}"
-            )));
-        };
-        // Where the goods land. A delivery that names no pool lands in this
-        // site's stockroom, as every shop's always did. One that names one —
-        // a store's return pool at the Gudang — lands there, and the pool must
-        // be this site's own and a pool goods arrive in. The receipt rules are
-        // the same either way: one receipt, nothing refused, what arrived is
-        // what is received, and what did not arrive stays MISSING.
-        let landing = match landing_pool_id.as_deref() {
-            None => OperationalPool::Stockroom {
-                site_id: self.node.site_id.clone(),
-            },
-            Some(pool_id) => {
-                let pool = OperationalPool::from_str(pool_id)
-                    .map_err(|error| EdgeError::Persistence(error.to_string()))?;
-                if !self.node.owns_pool(&pool) || !pool.role().is_arrival() {
-                    return Err(EdgeError::Conflict(format!(
-                        "delivery {delivery_id} names {pool_id}, which is not a pool goods arrive in here"
-                    )));
-                }
-                pool
-            }
-        };
-        // What kind of arrival this is. A GUDANG books a shop's return in —
-        // into that store's return pool where one exists, else its stockroom —
-        // and that is RETURN_TO_WAREHOUSE. A SHOP books an announced delivery
-        // from the Gudang in, and that is STORE_RECEIVE.
-        //
-        // The cause used to follow the landing pool's role alone, so a Gudang
-        // whose delivery named no pool (the shop has no return pool there yet)
-        // landed in the stockroom and wrote a STORE_RECEIVE — a cause
-        // `NodeContext::authorize_line` forbids a DC to write, which blocked
-        // the node's whole command stream over a delivery nobody could
-        // receive.
-        let (arrival_cause, reference_type) = if self.node.role == EdgeRole::Dc
-            || landing.role() == crate::pool_role::PoolRole::Return
-        {
-            (MovementCause::ReturnToWarehouse, "RETURN_RECEIPT")
-        } else {
-            (MovementCause::StoreReceive, "STORE_RECEIPT")
-        };
-        if status == inbound::STATUS_RECEIVED {
-            // The same sweep sent again under a new key is a resend, not a
-            // second receipt; a different sweep is a second receipt, and a
-            // delivery is received once.
-            if received_digest.as_deref() == Some(digest.as_str()) {
-                let detail = inbound::detail(&tx, &delivery_id)?;
-                tx.commit().map_err(db)?;
-                return Ok(detail);
-            }
-            return Err(EdgeError::Conflict(format!(
-                "delivery {delivery_id} was already received with a different set of tags"
-            )));
-        }
-
-        let manifest: std::collections::BTreeMap<String, String> = {
-            let mut statement = tx
-                .prepare(
-                    "SELECT epc,sku_code FROM store_inbound_unit
-                     WHERE delivery_id=?1 AND late_announcement=0",
-                )
-                .map_err(db)?;
-            let rows = statement
-                .query_map([&delivery_id], |row| Ok((row.get(0)?, row.get(1)?)))
-                .map_err(db)?
-                .collect::<Result<std::collections::BTreeMap<String, String>, _>>()
-                .map_err(db);
-            rows?
-        };
-
-        // (epc, sku, on the manifest)
-        let mut to_book: Vec<(String, String, bool)> = Vec::new();
-        let mut skipped: Vec<String> = Vec::new();
-        for epc in &epcs {
-            // On the books means standing somewhere here now, not merely
-            // having stood here once. A garment the Gudang shipped and a shop
-            // sends back is one the Gudang knows by its EPC and no longer
-            // holds; it is booked in again, under the subject it always had.
-            let on_books = tx
-                .prepare_cached(
-                    "SELECT 1 FROM inventory_subject subject
-                       JOIN inventory_projection projection ON projection.subject_id=subject.id
-                      WHERE subject.epc=?1 AND projection.quantity>0
-                      LIMIT 1",
-                )
-                .map_err(db)?
-                .query_row([epc], |_| Ok(()))
-                .optional()
-                .map_err(db)?
-                .is_some();
-            if on_books {
-                // Already this shop's; it cannot arrive twice. On the manifest
-                // it therefore stays MISSING for this delivery — it was not
-                // booked by it — and the shop is told why.
-                skipped.push(epc.clone());
-                continue;
-            }
-            match manifest.get(epc) {
-                Some(sku_code) => to_book.push((epc.clone(), sku_code.clone(), true)),
-                None => match crate::cloud::domain::decode_epc(epc) {
-                    Ok((sku_code, _)) => to_book.push((epc.clone(), sku_code, false)),
-                    Err(_) => skipped.push(epc.clone()),
-                },
-            }
-        }
-
-        let occurred_at = self.clock.now();
-        let receipt_id = Uuid::new_v4();
-        let reason = format!(
-            "Announced delivery {} from {source_site_id} received into {}",
-            shipment_reference.as_deref().unwrap_or(&delivery_id),
-            landing.id()
-        );
-        // At most a thousand lines per movement group, as the batch receipt
-        // takes: one movement fact per chunk keeps each upload a sane size.
-        const CHUNK: usize = 1000;
-        for (chunk_index, chunk) in to_book.chunks(CHUNK).enumerate() {
-            let mut lines = Vec::with_capacity(chunk.len());
-            let mut subjects = Vec::with_capacity(chunk.len());
-            for (epc, sku_code, _) in chunk {
-                let unit_price_minor: i64 = tx
-                    .prepare_cached("SELECT base_price_minor FROM catalog_item WHERE sku_code=?1")
-                    .map_err(db)?
-                    .query_row([sku_code], |row| row.get::<_, Option<i64>>(0))
-                    .optional()
-                    .map_err(db)?
-                    .flatten()
-                    .unwrap_or(0)
-                    .max(0);
-                // Known here already (it left, and has come back): the same
-                // subject, so one garment keeps one identity at this site.
-                let subject = match Self::subject_by_epc(&tx, epc) {
-                    Ok(known) => known,
-                    Err(EdgeError::NotFound(_)) => {
-                        Self::insert_subject(&tx, epc, sku_code, unit_price_minor)?
-                    }
-                    Err(error) => return Err(error),
-                };
-                lines.push(MovementLine {
-                    subject_id: subject.id,
-                    quantity: 1,
-                    from: Place::System {
-                        place: SystemPlace::Opening,
-                    },
-                    to: Place::Operational {
-                        pool: landing.clone(),
-                        state: InventoryState::Normal,
-                    },
-                });
-                subjects.push(subject);
-            }
-            let command = MovementCommand {
-                movement_group_id: MovementGroupId::new(),
-                lines,
-                cause: arrival_cause,
-                reference_type: Some(reference_type.into()),
-                reference_id: Some(receipt_id.to_string()),
-                reason: reason.clone(),
-                actor_id: actor_id.clone(),
-                occurred_at,
-            };
-            let movement_key = if chunk_index == 0 {
-                idempotency_key.clone()
-            } else {
-                format!("{idempotency_key}#{chunk_index}")
-            };
-            let response = self.append_command(&tx, &movement_key, &command)?;
-            for subject in &subjects {
-                let claim = TransferClaimPayload::new(
-                    TransferClaimKind::Received,
-                    Some(source_site_id.clone()),
-                    self.node.site_id.to_string(),
-                    shipment_reference.clone(),
-                    subject.epc.clone(),
-                    subject.sku_code.clone(),
-                    response.movement_group_id,
-                    Some(receipt_id),
-                    occurred_at,
-                )
-                .map_err(|error| EdgeError::Validation(error.to_string()))?;
-                tx.prepare_cached("INSERT INTO store_receipt(id,idempotency_key,subject_id,source_dc_id,shipment_reference,movement_group_id,received_at) VALUES(?1,?2,?3,?4,?5,?6,?7)"
-    ).map_err(db)?.execute(
-                    params![
-                        Uuid::new_v4().to_string(),
-                        format!("{idempotency_key}:{}", subject.epc),
-                        subject.id.to_string(),
-                        source_site_id,
-                        shipment_reference.as_deref(),
-                        response.movement_group_id.to_string(),
-                        time_text(occurred_at)
-                    ],
-                )
-                .map_err(db)?;
-                Self::enqueue_transfer_claim(&tx, &claim)?;
-            }
-        }
-
-        let now = now_text();
-        tx.prepare_cached(
-            "UPDATE store_inbound_unit SET outcome='MISSING'
-             WHERE delivery_id=?1 AND late_announcement=0",
-        )
-        .map_err(db)?
-        .execute([&delivery_id])
-        .map_err(db)?;
-        for (epc, sku_code, on_manifest) in &to_book {
-            if *on_manifest {
-                tx.prepare_cached(
-                    "UPDATE store_inbound_unit SET outcome='RECEIVED'
-                     WHERE delivery_id=?1 AND epc=?2 AND late_announcement=0",
-                )
-                .map_err(db)?
-                .execute(params![delivery_id, epc])
-                .map_err(db)?;
-            } else {
-                tx.prepare_cached(
-                    "INSERT INTO store_inbound_extra(delivery_id,epc,sku_code,created_at)
-                     VALUES(?1,?2,?3,?4)",
-                )
-                .map_err(db)?
-                .execute(params![delivery_id, epc, sku_code, now])
-                .map_err(db)?;
-            }
-        }
-        let skipped_json = serde_json::to_string(&skipped)
-            .map_err(|error| EdgeError::Persistence(error.to_string()))?;
-        tx.prepare_cached(
-            "UPDATE store_inbound_delivery
-             SET status='RECEIVED',received_at=?2,received_by=?3,receive_idempotency_key=?4,
-                 receive_digest=?5,skipped_epcs_json=?6,updated_at=?7
-             WHERE delivery_id=?1 AND status='IN_TRANSIT'",
-        )
-        .map_err(db)?
-        .execute(params![
-            delivery_id,
-            time_text(occurred_at),
-            actor_id,
-            idempotency_key,
-            digest,
-            skipped_json,
-            now
-        ])
-        .map_err(db)?;
-        // The delivery as one receipt, for the flow its goods travel on: after
-        // the claims above, so head office has every claim of it first.
-        inbound::enqueue_received(
-            &tx,
-            self.node.site_id.as_str(),
-            &delivery_id,
-            receipt_id,
-            &source_site_id,
-            shipment_reference.as_deref(),
-            &landing.id(),
-            &actor_id,
-            occurred_at,
-        )?;
-        let detail = inbound::detail(&tx, &delivery_id)?;
-        Self::save_idempotent(
-            &tx,
-            &idempotency_key,
-            "STORE_INBOUND_RECEIVE",
-            &request_json,
-            &detail,
-        )?;
-        tx.commit().map_err(db)?;
-        Ok(detail)
+        self.receive_inbound_counted(delivery_id, request, None, false)
     }
 
     fn move_stock(&self, request: MoveRequest) -> Result<CommandResult, EdgeError> {
@@ -8655,6 +8508,51 @@ impl EdgeInventory for SqliteEdge {
             .iter()
             .map(|subject| subject.sku_code.clone())
             .collect();
+        // Every tag must stand on this shop's floor, the one place
+        // `complete_sale` takes a sold unit from. Until now a tag sold already
+        // or sitting in the stockroom priced like any other, and the sale then
+        // failed after the money with a 409 that named no tag. Each one is named
+        // here with where it is instead, so the till refuses it at the scan.
+        // Pricing is left exactly as it was; the till takes these off and asks
+        // again.
+        let floor = Self::normal_place(OperationalPool::StoreFloor {
+            store_id: self.node.site_id.clone(),
+        })
+        .id();
+        let mut unsellable = Vec::new();
+        for subject in &subjects {
+            if Self::operational_balance(&tx, subject.id, &floor)? >= 1 {
+                continue;
+            }
+            let held_at: Option<String> = tx
+                .prepare_cached(
+                    "SELECT place_id FROM inventory_projection
+                      WHERE subject_id=?1 AND quantity > 0
+                      ORDER BY place_id LIMIT 1",
+                )
+                .map_err(db)?
+                .query_row([subject.id.to_string()], |row| row.get(0))
+                .optional()
+                .map_err(db)?;
+            let reason = match held_at.as_deref().map(Place::from_str) {
+                None => "not in this shop's stock: sold already, or never received here",
+                Some(Ok(place)) => match (place.pool().map(OperationalPool::role), place.state()) {
+                    (Some(PoolRole::Stockroom), _) => "in the stockroom, not on the shop floor",
+                    (Some(PoolRole::Reject), _) => "set aside as damaged",
+                    (Some(PoolRole::Floor), Some(InventoryState::Missing)) => {
+                        "marked missing on the shop floor"
+                    }
+                    _ => "not on the shop floor",
+                },
+                Some(Err(_)) => "not on the shop floor",
+            };
+            unsellable.push(serde_json::json!({
+                "epc": subject.epc,
+                "sku_code": subject.sku_code,
+                "place_id": held_at,
+                "reason": reason,
+            }));
+        }
         // The same call `complete_sale` makes, at the same instant resolution,
         // against the same resident book. If these two ever answer differently
         // the counter is quoting a price the till will not honour, which is the
@@ -8676,7 +8574,7 @@ impl EdgeInventory for SqliteEdge {
             &request.charges,
             &coupon_holds,
         )?;
-        Ok(match quoted {
+        let mut answer = match quoted {
             Some(quote) => serde_json::to_value(quote)
                 .map_err(|error| EdgeError::Persistence(error.to_string()))?,
             // No book, or no price for these goods. Said plainly rather than
@@ -8690,7 +8588,11 @@ impl EdgeInventory for SqliteEdge {
                 "promotions": [],
                 "total_minor": null,
             }),
-        })
+        };
+        if let Some(fields) = answer.as_object_mut() {
+            fields.insert("unsellable".into(), serde_json::Value::Array(unsellable));
+        }
+        Ok(answer)
     }
 
     /// Resolve many SKUs in ONE query, at any node role.
@@ -11007,7 +10909,10 @@ mod tests {
         // A sheet that does not add up to the drop is refused, and so is a
         // denomination written twice.
         assert!(store
-            .record_cash_movement(&shift.shift_id, drop_request("drop-short", -250_000, sheet.clone()))
+            .record_cash_movement(
+                &shift.shift_id,
+                drop_request("drop-short", -250_000, sheet.clone())
+            )
             .is_err());
         let twice = vec![
             CashCount {
@@ -12435,9 +12340,8 @@ impl SqliteEdge {
             &response,
         )?;
         tx.commit().map_err(db)?;
-        // The lock is not re-entrant, and receiving takes it again.
-        drop(connection);
-        self.auto_receive_exact_counts(&purchase_order_id);
+        // A count that matches the order waits for Review Count + Submit like
+        // any other; nothing is received until the buyer submits it.
         Ok(response)
     }
 
@@ -12690,166 +12594,9 @@ impl SqliteEdge {
             &response,
         )?;
         tx.commit().map_err(db)?;
-        // The lock is not re-entrant, and receiving takes it again.
-        drop(connection);
-        self.auto_receive_exact_counts(&purchase_order_id);
+        // A count that matches the order waits for Review Count + Submit like
+        // any other; nothing is received until the buyer submits it.
         Ok(response)
-    }
-
-    /// Receive an order whose count came out exactly as ordered, without
-    /// waiting for anybody to press Accept (owner, 2026-10-02).
-    ///
-    /// The rule: every line of the order still owed goods (not closed short,
-    /// something outstanding) has exactly one count waiting, each of those
-    /// counts is exactly what the line still owes, and no count is waiting on
-    /// a line that owes nothing. Then there is nothing for the PO's creator to
-    /// decide, and each count is accepted through `verify_purchase_impl` — the
-    /// very path the manual "Review count → Accept" takes — in the creator's
-    /// name, so the movement, the receipt line, the fact sent to the centre
-    /// and the flow's verification stage are the same as if they had pressed
-    /// it. A count short or over, a second count on a line, a line not yet
-    /// counted, an order with no recorded creator, or a count the creator took
-    /// themselves (the counter can never verify their own count) is left in
-    /// the creator's review queue exactly as before.
-    ///
-    /// Best effort: the count is already committed, and a failure here only
-    /// means the count waits for the manual review.
-    fn auto_receive_exact_counts(&self, purchase_order_id: &str) {
-        let candidates = match self.exact_counts_of_order(purchase_order_id) {
-            Ok(candidates) => candidates,
-            Err(error) => {
-                tracing::warn!(%error, purchase_order_id, "auto-receive check failed; the count waits for review");
-                return;
-            }
-        };
-        let Some((raised_by, count_ids)) = candidates else {
-            return;
-        };
-        for count_id in count_ids {
-            let request = PurchaseVerifyRequest {
-                count_id,
-                verifier_actor_id: raised_by.clone(),
-                decision: PurchaseVerifyDecision::Accept,
-                note: None,
-                invoiced_price_minor: None,
-                idempotency_key: format!("auto-receive:{count_id}"),
-            };
-            if let Err(error) = self.verify_purchase_impl(request) {
-                tracing::warn!(%error, %count_id, purchase_order_id, "auto-receive refused; the count waits for review");
-                return;
-            }
-        }
-    }
-
-    /// The creator and the counts to accept when an order's waiting counts
-    /// match what it still owes exactly; `None` when anything differs.
-    fn exact_counts_of_order(
-        &self,
-        purchase_order_id: &str,
-    ) -> Result<Option<(String, Vec<Uuid>)>, EdgeError> {
-        let connection = self.lock()?;
-        let header: Option<(Option<String>, Option<String>)> = connection
-            .prepare_cached(
-                "SELECT created_by, cancelled_at FROM purchase_order WHERE purchase_order_id = ?1",
-            )
-            .map_err(db)?
-            .query_row(params![purchase_order_id], |row| {
-                Ok((row.get(0)?, row.get(1)?))
-            })
-            .optional()
-            .map_err(db)?;
-        let Some((raised_by, cancelled_at)) = header else {
-            return Ok(None);
-        };
-        if cancelled_at.is_some() {
-            return Ok(None);
-        }
-        let Some(raised_by) = raised_by
-            .map(|who| who.trim().to_owned())
-            .filter(|who| !who.is_empty())
-        else {
-            return Ok(None);
-        };
-        // What each line still owes, the way acceptance reckons it.
-        let mut owed: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
-        {
-            let mut statement = connection
-                .prepare(
-                    "SELECT l.po_line_id,
-                            CASE WHEN l.closed_short_at IS NOT NULL THEN 0
-                                 ELSE MAX(l.ordered_quantity
-                                          - COALESCE((SELECT SUM(a.matched_quantity)
-                                                        FROM receiving_count a
-                                                       WHERE a.po_line_id = l.po_line_id
-                                                         AND a.status = 'ACCEPTED'), 0), 0)
-                            END
-                       FROM purchase_order_line l
-                      WHERE l.purchase_order_id = ?1",
-                )
-                .map_err(db)?;
-            let rows = statement
-                .query_map(params![purchase_order_id], |row| {
-                    Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-                })
-                .map_err(db)?;
-            for row in rows {
-                let (line, outstanding) = row.map_err(db)?;
-                if outstanding > 0 {
-                    owed.insert(line, outstanding);
-                }
-            }
-        }
-        if owed.is_empty() {
-            return Ok(None);
-        }
-        let mut waiting: Vec<(String, String, i64, i64, String)> = Vec::new();
-        {
-            let mut statement = connection
-                .prepare(
-                    "SELECT c.count_id, c.po_line_id, c.counted_quantity, c.wrong_quantity,
-                            c.counted_by
-                       FROM receiving_count c
-                       JOIN purchase_order_line l ON l.po_line_id = c.po_line_id
-                      WHERE l.purchase_order_id = ?1
-                        AND c.status = 'AWAITING_VERIFICATION'
-                      ORDER BY c.counted_at",
-                )
-                .map_err(db)?;
-            let rows = statement
-                .query_map(params![purchase_order_id], |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, i64>(2)?,
-                        row.get::<_, i64>(3)?,
-                        row.get::<_, String>(4)?,
-                    ))
-                })
-                .map_err(db)?;
-            for row in rows {
-                waiting.push(row.map_err(db)?);
-            }
-        }
-        // One count per owing line, each exactly what it owes, nothing else.
-        if waiting.len() != owed.len() {
-            return Ok(None);
-        }
-        let mut seen = std::collections::HashSet::with_capacity(waiting.len());
-        let mut count_ids = Vec::with_capacity(waiting.len());
-        for (count_id, line, counted, wrong, _counted_by) in &waiting {
-            // Whoever raised the order may have counted it themselves:
-            // counting and accepting are permissions, not two people (0075),
-            // exactly as the cloud-run Gudang reckons it.
-            // A count that names mismatched goods is exactly what a buyer has
-            // to see; the automatic acceptance is for clean deliveries only.
-            if wrong > &0 || owed.get(line) != Some(counted) || !seen.insert(line.clone()) {
-                return Ok(None);
-            }
-            let count_id = Uuid::parse_str(count_id)
-                .map_err(|error| EdgeError::Persistence(format!("stored count id: {error}")))?;
-            count_ids.push(count_id);
-        }
-        Ok(Some((raised_by, count_ids)))
     }
 }
 
@@ -15334,5 +15081,667 @@ mod counting_in_units {
         assert_eq!(pieces_of("9.53", "20"), None);
         assert_eq!(pieces_of("0", "20"), None);
         assert_eq!(pieces_of("abc", "20"), None);
+    }
+}
+
+/// The receipt behind both ways a shop receives an announced delivery.
+impl SqliteEdge {
+    /// MD answered the review of a trip this shop was on
+    /// (`inventory.store_inbound.on_hold.v1`, owner 17–18 Oct 2026).
+    ///
+    /// A delivery whose count differed booked what matched when it was
+    /// counted (owner, 20 Oct 2026); a piece already on the books is passed
+    /// over here. `book` names every piece it books, by EPC — its own (the
+    /// delivery's units, now RECEIVED) and, on
+    /// Accept as delivered, another shop's of the trip that arrived here
+    /// (booked as an extra of this delivery). Each carries a RECEIVED claim
+    /// under this shop's surat jalan; head office pairs another shop's piece
+    /// through MD's answer (`edge_transfer_redirect`, 0978). What MD sends
+    /// back is written per SKU for the shop's On hold list. Applied once per
+    /// command; a trip this shop has no received delivery of is passed over,
+    /// never blocking the stream.
+    pub(crate) fn apply_store_on_hold(
+        tx: &Transaction<'_>,
+        node: &NodeContext,
+        command_id: Uuid,
+        payload: &crate::sync::workflow::StoreInboundOnHoldPayload,
+    ) -> Result<(), EdgeError> {
+        let delivery: Option<(String, String)> = tx
+            .prepare_cached(
+                "SELECT delivery_id, source_site_id FROM store_inbound_delivery
+                  WHERE shipment_reference=?1 AND status='RECEIVED'
+                  ORDER BY received_at DESC LIMIT 1",
+            )
+            .map_err(db)?
+            .query_row([&payload.shipment_reference], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .optional()
+            .map_err(db)?;
+        let Some((delivery_id, source_site_id)) = delivery else {
+            tracing::warn!(
+                shipment = %payload.shipment_reference,
+                dispatch = %payload.dispatch_number,
+                "MD answered a review for a delivery this shop has not received; passed over"
+            );
+            return Ok(());
+        };
+        let applied: i64 = tx
+            .prepare_cached(
+                "SELECT COUNT(*) FROM store_inbound_review
+                  WHERE delivery_id=?1 AND command_id=?2",
+            )
+            .map_err(db)?
+            .query_row(params![delivery_id, command_id.to_string()], |row| {
+                row.get(0)
+            })
+            .map_err(db)?;
+        if applied > 0 {
+            return Ok(());
+        }
+        let occurred_at = chrono::Utc::now();
+        let now = now_text();
+        let landing = OperationalPool::Stockroom {
+            site_id: node.site_id.clone(),
+        };
+        // The delivery's own pieces, by EPC.
+        let manifest: std::collections::BTreeSet<String> = {
+            let mut statement = tx
+                .prepare(
+                    "SELECT epc FROM store_inbound_unit
+                      WHERE delivery_id=?1 AND late_announcement=0",
+                )
+                .map_err(db)?;
+            let rows = statement
+                .query_map([&delivery_id], |row| row.get::<_, String>(0))
+                .map_err(db)?
+                .collect::<Result<std::collections::BTreeSet<_>, _>>()
+                .map_err(db);
+            rows?
+        };
+
+        // (subject, its own piece)
+        let mut lines = Vec::new();
+        let mut subjects: Vec<(SubjectRow, bool)> = Vec::new();
+        let mut kept: std::collections::BTreeMap<String, i64> = std::collections::BTreeMap::new();
+        for book in &payload.book {
+            let epc = Self::normalized_epc(&book.epc)?;
+            let sku_code = book.sku_code.trim().to_ascii_uppercase();
+            let on_books = tx
+                .prepare_cached(
+                    "SELECT 1 FROM inventory_subject subject
+                       JOIN inventory_projection projection ON projection.subject_id=subject.id
+                      WHERE subject.epc=?1 AND projection.quantity>0
+                      LIMIT 1",
+                )
+                .map_err(db)?
+                .query_row([&epc], |_| Ok(()))
+                .optional()
+                .map_err(db)?
+                .is_some();
+            if on_books {
+                continue;
+            }
+            let unit_price_minor: i64 = tx
+                .prepare_cached("SELECT base_price_minor FROM catalog_item WHERE sku_code=?1")
+                .map_err(db)?
+                .query_row([&sku_code], |row| row.get::<_, Option<i64>>(0))
+                .optional()
+                .map_err(db)?
+                .flatten()
+                .unwrap_or(0)
+                .max(0);
+            let subject = match Self::subject_by_epc(tx, &epc) {
+                Ok(known) => known,
+                Err(EdgeError::NotFound(_)) => {
+                    Self::insert_subject(tx, &epc, &sku_code, unit_price_minor)?
+                }
+                Err(error) => return Err(error),
+            };
+            lines.push(MovementLine {
+                subject_id: subject.id,
+                quantity: 1,
+                from: Place::System {
+                    place: SystemPlace::Opening,
+                },
+                to: Place::Operational {
+                    pool: landing.clone(),
+                    state: InventoryState::Normal,
+                },
+            });
+            let own = manifest.contains(&epc);
+            if !own {
+                *kept.entry(sku_code).or_default() += 1;
+            }
+            subjects.push((subject, own));
+        }
+        if !lines.is_empty() {
+            let receipt_id = command_id;
+            let command = MovementCommand {
+                movement_group_id: MovementGroupId::new(),
+                lines,
+                cause: MovementCause::StoreReceive,
+                reference_type: Some("STORE_RECEIPT".into()),
+                reference_id: Some(receipt_id.to_string()),
+                reason: format!(
+                    "Booked on MD's review of {} ({}, {})",
+                    payload.dispatch_number,
+                    payload.shipment_reference,
+                    if payload.decision == "AS_DELIVERED" {
+                        "accepted as delivered"
+                    } else {
+                        "return & reallot"
+                    }
+                ),
+                actor_id: payload.decided_by.clone(),
+                occurred_at,
+            };
+            let key = format!("store-review-{command_id}");
+            let response = Self::append_movement(node, tx, &key, &command)?;
+            for (subject, own) in &subjects {
+                let claim = TransferClaimPayload::new(
+                    TransferClaimKind::Received,
+                    Some(source_site_id.clone()),
+                    node.site_id.to_string(),
+                    Some(payload.shipment_reference.clone()),
+                    subject.epc.clone(),
+                    subject.sku_code.clone(),
+                    response.movement_group_id,
+                    Some(receipt_id),
+                    occurred_at,
+                )
+                .map_err(|error| EdgeError::Validation(error.to_string()))?;
+                tx.prepare_cached(
+                    "INSERT INTO store_receipt(id,idempotency_key,subject_id,source_dc_id,shipment_reference,movement_group_id,received_at) VALUES(?1,?2,?3,?4,?5,?6,?7)",
+                )
+                .map_err(db)?
+                .execute(params![
+                    Uuid::new_v4().to_string(),
+                    format!("{key}:{}", subject.epc),
+                    subject.id.to_string(),
+                    source_site_id,
+                    payload.shipment_reference,
+                    response.movement_group_id.to_string(),
+                    time_text(occurred_at)
+                ])
+                .map_err(db)?;
+                Self::enqueue_transfer_claim(tx, &claim)?;
+                if *own {
+                    tx.prepare_cached(
+                        "UPDATE store_inbound_unit SET outcome='RECEIVED'
+                          WHERE delivery_id=?1 AND epc=?2 AND late_announcement=0",
+                    )
+                    .map_err(db)?
+                    .execute(params![delivery_id, subject.epc])
+                    .map_err(db)?;
+                } else {
+                    tx.prepare_cached(
+                        "INSERT INTO store_inbound_extra(delivery_id,epc,sku_code,created_at)
+                         VALUES(?1,?2,?3,?4)",
+                    )
+                    .map_err(db)?
+                    .execute(params![delivery_id, subject.epc, subject.sku_code, now])
+                    .map_err(db)?;
+                }
+            }
+            Self::enqueue_pool_snapshot(tx, node, Uuid::new_v4())?;
+        }
+
+        // What MD answered, per SKU, for the shop's On hold list.
+        let mut back: std::collections::BTreeMap<String, i64> = std::collections::BTreeMap::new();
+        for line in &payload.send_back {
+            *back
+                .entry(line.sku_code.trim().to_ascii_uppercase())
+                .or_default() += line.pieces;
+        }
+        let skus: std::collections::BTreeSet<&String> = kept.keys().chain(back.keys()).collect();
+        for sku_code in skus {
+            tx.prepare_cached(
+                "INSERT INTO store_inbound_hold_decision
+                     (delivery_id,sku_code,kept,send_back,decision,dispatch_number,
+                      decided_by,decided_at,command_id)
+                 VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)
+                 ON CONFLICT(delivery_id,sku_code) DO UPDATE SET
+                     kept=excluded.kept, send_back=excluded.send_back,
+                     decision=excluded.decision, dispatch_number=excluded.dispatch_number,
+                     decided_by=excluded.decided_by, decided_at=excluded.decided_at,
+                     command_id=excluded.command_id",
+            )
+            .map_err(db)?
+            .execute(params![
+                delivery_id,
+                sku_code,
+                kept.get(sku_code).copied().unwrap_or(0),
+                back.get(sku_code).copied().unwrap_or(0),
+                payload.decision,
+                payload.dispatch_number,
+                payload.decided_by,
+                time_text(payload.decided_at),
+                command_id.to_string()
+            ])
+            .map_err(db)?;
+        }
+        // The review is over: the delivery is the shop's as answered.
+        tx.prepare_cached(
+            "INSERT INTO store_inbound_review
+                 (delivery_id,opened_at,decision,dispatch_number,decided_by,decided_at,command_id)
+             VALUES(?1,?2,?3,?4,?5,?6,?7)
+             ON CONFLICT(delivery_id) DO UPDATE SET
+                 decision=excluded.decision, dispatch_number=excluded.dispatch_number,
+                 decided_by=excluded.decided_by, decided_at=excluded.decided_at,
+                 command_id=excluded.command_id",
+        )
+        .map_err(db)?
+        .execute(params![
+            delivery_id,
+            now,
+            payload.decision,
+            payload.dispatch_number,
+            payload.decided_by,
+            time_text(payload.decided_at),
+            command_id.to_string()
+        ])
+        .map_err(db)?;
+        Ok(())
+    }
+
+    /// Receive an announced delivery from the tags read, in one transaction.
+    /// `counted` is the blind count per SKU the tags were taken from, when
+    /// the shop counted rather than swept (`receive_store_inbound_by_count`):
+    /// it is kept as typed (`store_inbound_count`, 0080) and travels to head
+    /// office on the receipt, so MD sees what does not match — beyond what
+    /// the count could book.
+    fn receive_inbound_counted(
+        &self,
+        delivery_id: &str,
+        request: crate::edge::inbound::StoreInboundReceiveRequest,
+        counted: Option<&std::collections::BTreeMap<String, i64>>,
+        in_review: bool,
+    ) -> Result<crate::edge::inbound::StoreInboundDetail, EdgeError> {
+        use crate::edge::inbound::{self, StoreInboundDetail, STORE_INBOUND_MAX_EPCS};
+        // Any site of ours receives: a shop its allotment or transfer, the
+        // Gudang a shop's return (owner, 2026-09-27). Where the goods land is
+        // the delivery's to say, below.
+        Self::validate_command_identity(&request.idempotency_key, &request.actor_id)?;
+        let delivery_id = delivery_id.trim().to_owned();
+        let actor_id = request.actor_id.trim().to_owned();
+        let idempotency_key = request.idempotency_key.trim().to_owned();
+        if request.epcs.len() > STORE_INBOUND_MAX_EPCS {
+            return Err(EdgeError::Validation(format!(
+                "receive at most {STORE_INBOUND_MAX_EPCS} tags per delivery, not {}",
+                request.epcs.len()
+            )));
+        }
+        // A double read is one garment, so the set is what counts.
+        let mut epcs = BTreeSet::new();
+        for raw in &request.epcs {
+            epcs.insert(Self::normalized_epc(raw)?);
+        }
+        if epcs.is_empty() && counted.is_none() {
+            return Err(EdgeError::Validation(
+                "a receipt of no tags is not a receipt; sweep the delivery first".into(),
+            ));
+        }
+        let tags = epcs
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>()
+            .join("\n");
+        // A count is the same receipt only with the same count: two counts
+        // can book the same tags and still say different things.
+        let digest = match counted {
+            None => crate::security::sha256_hex(tags),
+            Some(counted) => crate::security::sha256_hex(format!(
+                "{tags}\n#counted\n{}",
+                counted
+                    .iter()
+                    .map(|(sku_code, quantity)| format!("{sku_code}={quantity}"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            )),
+        };
+        let request_json = Self::encode_idempotent_request(&serde_json::json!({
+            "delivery_id": delivery_id,
+            "epcs": epcs,
+            "actor_id": actor_id,
+            "counted": counted,
+        }))?;
+
+        let mut connection = self.lock()?;
+        let tx = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db)?;
+        if let Some(saved) = Self::load_idempotent::<StoreInboundDetail>(
+            &tx,
+            &idempotency_key,
+            "STORE_INBOUND_RECEIVE",
+            &request_json,
+        )? {
+            tx.commit().map_err(db)?;
+            return Ok(saved);
+        }
+        type Header = (
+            String,
+            Option<String>,
+            String,
+            Option<String>,
+            Option<String>,
+        );
+        let header: Option<Header> = tx
+            .prepare_cached(
+                "SELECT source_site_id,shipment_reference,status,receive_digest,destination_pool_id
+                 FROM store_inbound_delivery WHERE delivery_id=?1",
+            )
+            .map_err(db)?
+            .query_row([&delivery_id], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            })
+            .optional()
+            .map_err(db)?;
+        let Some((source_site_id, shipment_reference, status, received_digest, landing_pool_id)) =
+            header
+        else {
+            return Err(EdgeError::NotFound(format!(
+                "inbound delivery {delivery_id}"
+            )));
+        };
+        // Where the goods land. A delivery that names no pool lands in this
+        // site's stockroom, as every shop's always did. One that names one —
+        // a store's return pool at the Gudang — lands there, and the pool must
+        // be this site's own and a pool goods arrive in. The receipt rules are
+        // the same either way: one receipt, nothing refused, what arrived is
+        // what is received, and what did not arrive stays MISSING.
+        let landing = match landing_pool_id.as_deref() {
+            None => OperationalPool::Stockroom {
+                site_id: self.node.site_id.clone(),
+            },
+            Some(pool_id) => {
+                let pool = OperationalPool::from_str(pool_id)
+                    .map_err(|error| EdgeError::Persistence(error.to_string()))?;
+                if !self.node.owns_pool(&pool) || !pool.role().is_arrival() {
+                    return Err(EdgeError::Conflict(format!(
+                        "delivery {delivery_id} names {pool_id}, which is not a pool goods arrive in here"
+                    )));
+                }
+                pool
+            }
+        };
+        // What kind of arrival this is. A GUDANG books a shop's return in —
+        // into that store's return pool where one exists, else its stockroom —
+        // and that is RETURN_TO_WAREHOUSE. A SHOP books an announced delivery
+        // from the Gudang in, and that is STORE_RECEIVE.
+        //
+        // The cause used to follow the landing pool's role alone, so a Gudang
+        // whose delivery named no pool (the shop has no return pool there yet)
+        // landed in the stockroom and wrote a STORE_RECEIVE — a cause
+        // `NodeContext::authorize_line` forbids a DC to write, which blocked
+        // the node's whole command stream over a delivery nobody could
+        // receive.
+        let (arrival_cause, reference_type) = if self.node.role == EdgeRole::Dc
+            || landing.role() == crate::pool_role::PoolRole::Return
+        {
+            (MovementCause::ReturnToWarehouse, "RETURN_RECEIPT")
+        } else {
+            (MovementCause::StoreReceive, "STORE_RECEIPT")
+        };
+        if status == inbound::STATUS_RECEIVED {
+            // The same sweep sent again under a new key is a resend, not a
+            // second receipt; a different sweep is a second receipt, and a
+            // delivery is received once.
+            if received_digest.as_deref() == Some(digest.as_str()) {
+                let detail = inbound::detail(&tx, &delivery_id)?;
+                tx.commit().map_err(db)?;
+                return Ok(detail);
+            }
+            return Err(EdgeError::Conflict(format!(
+                "delivery {delivery_id} was already received with a different set of tags"
+            )));
+        }
+
+        let manifest: std::collections::BTreeMap<String, String> = {
+            let mut statement = tx
+                .prepare(
+                    "SELECT epc,sku_code FROM store_inbound_unit
+                     WHERE delivery_id=?1 AND late_announcement=0",
+                )
+                .map_err(db)?;
+            let rows = statement
+                .query_map([&delivery_id], |row| Ok((row.get(0)?, row.get(1)?)))
+                .map_err(db)?
+                .collect::<Result<std::collections::BTreeMap<String, String>, _>>()
+                .map_err(db);
+            rows?
+        };
+
+        // (epc, sku, on the manifest)
+        let mut to_book: Vec<(String, String, bool)> = Vec::new();
+        let mut skipped: Vec<String> = Vec::new();
+        for epc in &epcs {
+            // On the books means standing somewhere here now, not merely
+            // having stood here once. A garment the Gudang shipped and a shop
+            // sends back is one the Gudang knows by its EPC and no longer
+            // holds; it is booked in again, under the subject it always had.
+            let on_books = tx
+                .prepare_cached(
+                    "SELECT 1 FROM inventory_subject subject
+                       JOIN inventory_projection projection ON projection.subject_id=subject.id
+                      WHERE subject.epc=?1 AND projection.quantity>0
+                      LIMIT 1",
+                )
+                .map_err(db)?
+                .query_row([epc], |_| Ok(()))
+                .optional()
+                .map_err(db)?
+                .is_some();
+            if on_books {
+                // Already this shop's; it cannot arrive twice. On the manifest
+                // it therefore stays MISSING for this delivery — it was not
+                // booked by it — and the shop is told why.
+                skipped.push(epc.clone());
+                continue;
+            }
+            match manifest.get(epc) {
+                Some(sku_code) => to_book.push((epc.clone(), sku_code.clone(), true)),
+                None => match crate::cloud::domain::decode_epc(epc) {
+                    Ok((sku_code, _)) => to_book.push((epc.clone(), sku_code, false)),
+                    Err(_) => skipped.push(epc.clone()),
+                },
+            }
+        }
+
+        let occurred_at = self.clock.now();
+        let receipt_id = Uuid::new_v4();
+        let reason = format!(
+            "Announced delivery {} from {source_site_id} received into {}",
+            shipment_reference.as_deref().unwrap_or(&delivery_id),
+            landing.id()
+        );
+        // At most a thousand lines per movement group, as the batch receipt
+        // takes: one movement fact per chunk keeps each upload a sane size.
+        const CHUNK: usize = 1000;
+        for (chunk_index, chunk) in to_book.chunks(CHUNK).enumerate() {
+            let mut lines = Vec::with_capacity(chunk.len());
+            let mut subjects = Vec::with_capacity(chunk.len());
+            for (epc, sku_code, _) in chunk {
+                let unit_price_minor: i64 = tx
+                    .prepare_cached("SELECT base_price_minor FROM catalog_item WHERE sku_code=?1")
+                    .map_err(db)?
+                    .query_row([sku_code], |row| row.get::<_, Option<i64>>(0))
+                    .optional()
+                    .map_err(db)?
+                    .flatten()
+                    .unwrap_or(0)
+                    .max(0);
+                // Known here already (it left, and has come back): the same
+                // subject, so one garment keeps one identity at this site.
+                let subject = match Self::subject_by_epc(&tx, epc) {
+                    Ok(known) => known,
+                    Err(EdgeError::NotFound(_)) => {
+                        Self::insert_subject(&tx, epc, sku_code, unit_price_minor)?
+                    }
+                    Err(error) => return Err(error),
+                };
+                lines.push(MovementLine {
+                    subject_id: subject.id,
+                    quantity: 1,
+                    from: Place::System {
+                        place: SystemPlace::Opening,
+                    },
+                    to: Place::Operational {
+                        pool: landing.clone(),
+                        state: InventoryState::Normal,
+                    },
+                });
+                subjects.push(subject);
+            }
+            let command = MovementCommand {
+                movement_group_id: MovementGroupId::new(),
+                lines,
+                cause: arrival_cause,
+                reference_type: Some(reference_type.into()),
+                reference_id: Some(receipt_id.to_string()),
+                reason: reason.clone(),
+                actor_id: actor_id.clone(),
+                occurred_at,
+            };
+            let movement_key = if chunk_index == 0 {
+                idempotency_key.clone()
+            } else {
+                format!("{idempotency_key}#{chunk_index}")
+            };
+            let response = self.append_command(&tx, &movement_key, &command)?;
+            for subject in &subjects {
+                let claim = TransferClaimPayload::new(
+                    TransferClaimKind::Received,
+                    Some(source_site_id.clone()),
+                    self.node.site_id.to_string(),
+                    shipment_reference.clone(),
+                    subject.epc.clone(),
+                    subject.sku_code.clone(),
+                    response.movement_group_id,
+                    Some(receipt_id),
+                    occurred_at,
+                )
+                .map_err(|error| EdgeError::Validation(error.to_string()))?;
+                tx.prepare_cached("INSERT INTO store_receipt(id,idempotency_key,subject_id,source_dc_id,shipment_reference,movement_group_id,received_at) VALUES(?1,?2,?3,?4,?5,?6,?7)"
+    ).map_err(db)?.execute(
+                    params![
+                        Uuid::new_v4().to_string(),
+                        format!("{idempotency_key}:{}", subject.epc),
+                        subject.id.to_string(),
+                        source_site_id,
+                        shipment_reference.as_deref(),
+                        response.movement_group_id.to_string(),
+                        time_text(occurred_at)
+                    ],
+                )
+                .map_err(db)?;
+                Self::enqueue_transfer_claim(&tx, &claim)?;
+            }
+        }
+
+        let now = now_text();
+        tx.prepare_cached(
+            "UPDATE store_inbound_unit SET outcome='MISSING'
+             WHERE delivery_id=?1 AND late_announcement=0",
+        )
+        .map_err(db)?
+        .execute([&delivery_id])
+        .map_err(db)?;
+        for (epc, sku_code, on_manifest) in &to_book {
+            if *on_manifest {
+                tx.prepare_cached(
+                    "UPDATE store_inbound_unit SET outcome='RECEIVED'
+                     WHERE delivery_id=?1 AND epc=?2 AND late_announcement=0",
+                )
+                .map_err(db)?
+                .execute(params![delivery_id, epc])
+                .map_err(db)?;
+            } else {
+                tx.prepare_cached(
+                    "INSERT INTO store_inbound_extra(delivery_id,epc,sku_code,created_at)
+                     VALUES(?1,?2,?3,?4)",
+                )
+                .map_err(db)?
+                .execute(params![delivery_id, epc, sku_code, now])
+                .map_err(db)?;
+            }
+        }
+        let skipped_json = serde_json::to_string(&skipped)
+            .map_err(|error| EdgeError::Persistence(error.to_string()))?;
+        tx.prepare_cached(
+            "UPDATE store_inbound_delivery
+             SET status='RECEIVED',received_at=?2,received_by=?3,receive_idempotency_key=?4,
+                 receive_digest=?5,skipped_epcs_json=?6,updated_at=?7
+             WHERE delivery_id=?1 AND status='IN_TRANSIT'",
+        )
+        .map_err(db)?
+        .execute(params![
+            delivery_id,
+            time_text(occurred_at),
+            actor_id,
+            idempotency_key,
+            digest,
+            skipped_json,
+            now
+        ])
+        .map_err(db)?;
+        // A count that differs from what was sent booked what matched above;
+        // the rest waits for MD's review of its trip.
+        if in_review {
+            tx.prepare_cached(
+                "INSERT INTO store_inbound_review(delivery_id,opened_at) VALUES(?1,?2)
+                 ON CONFLICT(delivery_id) DO NOTHING",
+            )
+            .map_err(db)?
+            .execute(params![delivery_id, now])
+            .map_err(db)?;
+        }
+        // What the shop counted, as typed: what it booked is above, the rest
+        // of it is on hold for MD's review.
+        if let Some(counted) = counted {
+            tx.prepare_cached("DELETE FROM store_inbound_count WHERE delivery_id=?1")
+                .map_err(db)?
+                .execute([&delivery_id])
+                .map_err(db)?;
+            for (sku_code, quantity) in counted.iter().filter(|(_, quantity)| **quantity > 0) {
+                tx.prepare_cached(
+                    "INSERT INTO store_inbound_count(delivery_id,sku_code,counted,counted_at)
+                     VALUES(?1,?2,?3,?4)",
+                )
+                .map_err(db)?
+                .execute(params![delivery_id, sku_code, quantity, now])
+                .map_err(db)?;
+            }
+        }
+        // The delivery as one receipt, for the flow its goods travel on: after
+        // the claims above, so head office has every claim of it first.
+        inbound::enqueue_received(
+            &tx,
+            self.node.site_id.as_str(),
+            &delivery_id,
+            receipt_id,
+            &source_site_id,
+            shipment_reference.as_deref(),
+            &landing.id(),
+            &actor_id,
+            occurred_at,
+        )?;
+        let detail = inbound::detail(&tx, &delivery_id)?;
+        Self::save_idempotent(
+            &tx,
+            &idempotency_key,
+            "STORE_INBOUND_RECEIVE",
+            &request_json,
+            &detail,
+        )?;
+        tx.commit().map_err(db)?;
+        Ok(detail)
     }
 }

@@ -995,6 +995,20 @@ pub async fn post_operational_outflow(
         .fetch_optional(&mut **tx)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("sku {sku}")))?;
+    // Pieces that never came in on a receipt (seed or opening stock) carry no
+    // basis. The operational event still stands; it costs only the basis
+    // there is, and nothing when there is none — refusing would leave the
+    // pieces unwritable-off.
+    lock_article_basis(tx, article).await?;
+    let available: i64 = read_queue(tx, article, Some(economic_date))
+        .await?
+        .iter()
+        .map(|layer| layer.remaining_quantity)
+        .sum();
+    let quantity = quantity.min(available);
+    if quantity <= 0 {
+        return Ok(None);
+    }
     let posting = stock_ledger_consume(
         tx,
         &StockOutflow {

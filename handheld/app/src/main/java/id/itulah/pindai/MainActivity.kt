@@ -3,6 +3,7 @@ package id.itulah.pindai
 import android.os.Bundle
 import android.os.SystemClock
 import android.view.KeyEvent
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedContent
@@ -49,6 +50,7 @@ import id.itulah.pindai.core.Reader
 import id.itulah.pindai.core.Trigger
 import id.itulah.pindai.data.CatalogStore
 import id.itulah.pindai.data.ConfigStore
+import id.itulah.pindai.data.RadioProfile
 import id.itulah.pindai.screens.*
 import id.itulah.pindai.ui.kit.Chip
 import id.itulah.pindai.ui.theme.*
@@ -56,7 +58,8 @@ import java.util.concurrent.Executors
 
 class MainActivity : ComponentActivity() {
 
-    private val reader = Reader()
+    /** The process's one radio. See [sharedReader]. */
+    private val reader = sharedReader
     // Reader shutdown can wait for a vendor UART call and must not hold the
     // activity's main thread. Reader operations are synchronized in Reader, so
     // this teardown cannot free the module while a ViewModel operation uses it.
@@ -64,7 +67,6 @@ class MainActivity : ComponentActivity() {
         Thread(task, "reader-lifecycle").apply { isDaemon = true }
     }
     private lateinit var store: ConfigStore
-    private var catalog: CatalogStore? = null
 
     /** Set by the sweep screen while it is on top; the trigger belongs to it. */
     @Volatile var onTrigger: (() -> Unit)? = null
@@ -80,10 +82,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        alive++
         SweepViewModel.appContext = applicationContext
         store = ConfigStore(applicationContext)
-        val catalogStore = CatalogStore(applicationContext)
-        catalog = catalogStore
+        val catalogStore = sharedCatalog ?: CatalogStore(applicationContext).also { sharedCatalog = it }
 
         // Open the UART before the first pixel, not after the first frame.
         //
@@ -99,7 +101,18 @@ class MainActivity : ComponentActivity() {
         // office because somebody launched an app is worse than a slow one.
         readerLifecycle.execute {
             runCatching {
-                store.load().readerPower.takeIf { it > 0 }?.let { reader.setPower(it) }
+                val saved = store.load()
+                // The floor's radio profile goes to the reader BEFORE the module
+                // opens, so this open applies it. This is usually the first open
+                // of the day, and it used to be the one that skipped the profile.
+                reader.useProfile(
+                    rfLink = saved.rfLink,
+                    target = RadioProfile.TARGET,
+                    tagFocus = saved.tagFocus,
+                    fastId = RadioProfile.FAST_ID,
+                    session = saved.gen2Session,
+                )
+                saved.readerPower.takeIf { it > 0 }?.let { reader.setPower(it) }
                 reader.init(applicationContext)
             }
             runOnUiThread { readerReady = true }
@@ -147,10 +160,41 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        readerLifecycle.execute { reader.close() }
+        alive--
+        // Only a real exit lets go of the radio, and only the last one. A
+        // configuration change destroys this activity while its view model —
+        // and any sweep in it — carries on into the next, and closing the
+        // module here closed it under that sweep. A relaunch can also create
+        // the next activity before this one is destroyed, so a finishing
+        // activity that is not the last one alive leaves the module open.
+        if (isFinishing && alive == 0) readerLifecycle.execute { reader.close() }
         readerLifecycle.shutdown()
-        catalog?.close()
+        // The database is not closed at all. It belongs to the process, the
+        // view model can still be writing to it — a sweep's last record and
+        // spool are allowed to finish as the activity goes — and SQLite gives
+        // its handle back when the process ends.
         super.onDestroy()
+    }
+
+    private companion object {
+        /**
+         * One radio for the process, not one per activity.
+         *
+         * Each activity used to make its own Reader and close it in onDestroy,
+         * while the view model — which outlives a configuration change — kept
+         * the FIRST activity's. After a font change or a dark-mode switch the
+         * screen and the sweep were driving two objects over one module, and
+         * the old activity's close freed the module under a reader that still
+         * believed it was open. The vendor's own instance is one per process
+         * anyway; this makes ours match it.
+         */
+        val sharedReader = Reader()
+
+        /** One database helper for the process, for the same reason. */
+        var sharedCatalog: CatalogStore? = null
+
+        /** How many of these activities are alive; see [onDestroy]. */
+        var alive = 0
     }
 }
 
@@ -177,7 +221,14 @@ private fun Shell(
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
             SweepViewModel(reader, store, catalog) as T
     })
-    val state by vm.state.collectAsStateWithLifecycle()
+    // The State, not its value.
+    //
+    // Read here, the value made the shell — app bar, tab bar, page transition —
+    // recompose on every publish, five times a second while the radio is live,
+    // and handed every screen a new object so nothing under them could skip.
+    // The shell reads one derived flag below; each screen picks what it draws.
+    // See [slice].
+    val state = vm.state.collectAsStateWithLifecycle()
     val lifecycleOwner = LocalLifecycleOwner.current
 
     // The local catalogue is opened once, and scanning is available the moment
@@ -194,10 +245,36 @@ private fun Shell(
 
     DisposableEffect(lifecycleOwner, vm) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP) vm.releaseReader()
+            when (event) {
+                // The catalogue poll runs only while somebody can see it.
+                Lifecycle.Event.ON_START -> vm.setForeground(true)
+                Lifecycle.Event.ON_STOP -> {
+                    vm.setForeground(false)
+                    vm.releaseReader()
+                }
+                else -> Unit
+            }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    // The screen stays on while the radio is live, or about to be.
+    //
+    // A sweep is latched — one pull starts it, the next stops it — so nothing
+    // touches the screen in between, and the screen timeout was what ended it:
+    // a dark screen stops this activity, and a stopped activity stops the sweep
+    // (above). The vendor SDK lets go of the module itself when the screen goes
+    // off, too. Cleared the moment the sweep is over, so a handheld left on a
+    // shelf still sleeps.
+    //
+    // The only part of the state the shell reads, and it changes twice a sweep.
+    val live = state.slice { it.sweeping || it.starting }.value
+    DisposableEffect(live) {
+        if (!live) return@DisposableEffect onDispose {}
+        val window = activity.window
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        onDispose { window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
     }
 
     LaunchedEffect(tab) {
@@ -255,12 +332,13 @@ private fun Shell(
                         current == Tab.LAB && BuildConfig.BENCH -> LabScreen(vm, state)
                         current == Tab.SETTINGS ->
                             SettingsScreen(
-                                activity, store, reader, vm, state,
+                                activity, store, vm, state,
                                 // Pointing a handheld at a different node is
-                                // exactly when its catalogue is wrong, so the
-                                // check happens on Save rather than waiting for
-                                // the next launch to notice.
-                                onSaved = { vm.refreshCatalogue() },
+                                // exactly when its catalogue is wrong — and when
+                                // evidence the old node refused may be accepted
+                                // at last — so both are checked on Save rather
+                                // than left for the next launch to notice.
+                                onSaved = { vm.settingsSaved() },
                             )
                         showSessions -> SessionsScreen(vm, state) { showSessions = false }
                         else -> SweepScreen(vm, state) { showSessions = true }

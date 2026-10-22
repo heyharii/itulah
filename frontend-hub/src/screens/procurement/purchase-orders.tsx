@@ -62,8 +62,7 @@ import {
   moneyCompact,
   percentBps,
   quantity,
-  recentMoment,
-} from "@/lib/format"
+  recentMoment, countPcs } from "@/lib/format"
 import { prefetchOrder } from "@/screens/procurement/prefetch"
 import {
   createPurchaseOrderLink,
@@ -2136,7 +2135,7 @@ function SummaryBand({
       ref={band}
       title={said?.note}
       className={cn(
-        "mb-5 min-h-6 text-[0.9375rem] leading-normal text-pretty text-body max-md:-mx-4 max-md:-mt-4 max-md:mb-4 max-md:border-b max-md:border-hairline max-md:bg-canvas max-md:px-4 max-md:pt-0.5 max-md:pb-3.5",
+        "list-said mb-5 min-h-6 text-[0.9375rem] leading-normal text-pretty text-body max-md:-mx-4 max-md:-mt-4 max-md:mb-4 max-md:border-b max-md:border-hairline max-md:bg-canvas max-md:px-4 max-md:pt-0.5 max-md:pb-3.5",
         className
       )}
     >
@@ -2340,7 +2339,10 @@ export function OrderSheet({
           {/* Close Short first, at the left of the rest (owner,
               2026-10-16). */}
           {closeShortButton}
-          <PrintMenu onChoose={(choice) => void print(order, choice)} />
+          <PrintMenu
+            title={order.po_number}
+            onChoose={(choice) => void print(order, choice)}
+          />
           {cancelButton}
           {edit}
           {!settled && <ReturnToSupplierButton order={order} />}
@@ -2521,7 +2523,7 @@ function CountBanner({ po, cancelled }: { po: string; cancelled: boolean }) {
         <span className="min-w-0 flex-1">
           <span className="block font-semibold">Recalled by the warehouse</span>
           <span className="block text-[0.9375rem]">
-            {`${titled(nameOfLogin(recalled.by))}, ${recentMoment(recalled.at)} · was ${count(recalled.was)} pcs`}
+            {`${titled(nameOfLogin(recalled.by))}, ${recentMoment(recalled.at)} · was ${countPcs(recalled.was)}`}
           </span>
         </span>
       </div>
@@ -2900,7 +2902,7 @@ function OrderDocument({
       {order.terms_and_conditions != null &&
         order.terms_and_conditions.trim() !== "" && (
           <Section title="Terms and Conditions" rule={false} quiet>
-            <p className="text-[0.9375rem] leading-[1.375rem] whitespace-pre-wrap text-ink">
+            <p className="record-note text-[0.9375rem] leading-[1.375rem] whitespace-pre-wrap text-ink">
               {order.terms_and_conditions.trim()}
             </p>
           </Section>
@@ -2908,7 +2910,7 @@ function OrderDocument({
 
       {cancelReason !== null && (
         <Section title="Cancel Reason" rule={false} quiet>
-          <p className="text-[0.9375rem] leading-[1.375rem] whitespace-pre-wrap text-ink">
+          <p className="record-note text-[0.9375rem] leading-[1.375rem] whitespace-pre-wrap text-ink">
             {cancelReason}
           </p>
         </Section>
@@ -2918,7 +2920,7 @@ function OrderDocument({
         order.notes !== undefined &&
         order.notes.trim() !== "" && (
           <Section title="Notes" rule={false} quiet>
-            <p className="text-[0.9375rem] leading-[1.375rem] whitespace-pre-wrap text-ink">
+            <p className="record-note text-[0.9375rem] leading-[1.375rem] whitespace-pre-wrap text-ink">
               {order.notes.trim()}
             </p>
           </Section>

@@ -56,8 +56,10 @@ export interface ReportShortPickRequest {
 
 /// OPEN: still short. FOUND: the count found them (the remainder can be picked).
 /// LOST: the count booked them Missing (MD closes the remainder). PICKED: the
-/// remainder was picked. CLOSED: MD closed the remainder.
-export type ShortPickStatus = "OPEN" | "FOUND" | "LOST" | "PICKED" | "CLOSED"
+/// remainder was picked. CLOSED: MD closed the remainder. CONTINUED: MD
+/// answered Continue in her review — the picker tries again (0976).
+export type ShortPickStatus =
+  "OPEN" | "FOUND" | "LOST" | "PICKED" | "CLOSED" | "CONTINUED"
 
 export interface ShortPick {
   id: string
@@ -76,11 +78,38 @@ export interface ShortPick {
   reported_at: string
   count_id: string | null
   status: ShortPickStatus
+  /// Who answered Continue in MD's review, and when (0976).
+  continued_by?: string | null
+  continued_at?: string | null
 }
 
 /// The flag stays on the card while the remainder is open or lost.
 export const flagged = (one: ShortPick) =>
   one.status === "OPEN" || one.status === "LOST"
+
+/// A move back to the picklist (`GET /api/v1/dc/move-backs`): what the board
+/// marks "Back from Pack" / "Back from Dispatch" (owner, 18 Oct 2026).
+export interface MoveBackToPick {
+  move_back_id: string
+  destination_id: string
+  allotment_id: string | null
+  /// `picked`: from Pack. `packed`: a koli, from Dispatch.
+  from_stage: "picked" | "packed"
+  moved: number
+  actor_id: string
+  created_at: string
+  sku_codes: string[]
+}
+
+export async function moveBacksToPick(
+  signal?: AbortSignal
+): Promise<MoveBackToPick[]> {
+  const body = await dcNode().get<{ items: MoveBackToPick[] }>(
+    "/api/v1/dc/move-backs",
+    { signal }
+  )
+  return body.items
+}
 
 export function reportShortPick(request: ReportShortPickRequest) {
   return dcNode().post<ShortPick>("/api/v1/dc/short-picks", request)
@@ -198,6 +227,9 @@ export interface AmendAllotmentRequest {
   /// what is already sent.
   lines: { allotment_line_id: string; to: number }[]
   add?: AmendNewLine[]
+  /// MD's Edit (18 Oct 2026): only moves pieces between stores — each SKU's
+  /// total stays what it was. The server refuses anything else.
+  move_only?: boolean
 }
 
 /// One line as the change left it.

@@ -1,4 +1,5 @@
 import { ActivityFold } from "@/components/ui/activity-fold"
+import { ArticleCards } from "@/screens/allotment/article-cards"
 import { useShopName } from "@/components/operations/outbound-papers"
 import {
   keepPreviousData,
@@ -10,6 +11,7 @@ import {
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { useEffect, useMemo, useState } from "react"
+import { useSearch } from "@tanstack/react-router"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { DockTools } from "@/components/shell/dock-tools"
@@ -29,16 +31,17 @@ import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { MiniTable } from "@/components/ui/rows"
 import { SubTabs } from "@/components/ui/sub-tabs"
-import { Fact, Facts, Sheet } from "@/components/ui/sheet"
+import { Sheet } from "@/components/ui/sheet"
 import { SheetFooter } from "@/components/ui/sheet-footer"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Timeline, type TimelineEvent } from "@/components/ui/timeline"
 import { useFilters } from "@/lib/filters"
-import { count, dayMonth, label, moment, quantity } from "@/lib/format"
-import { STAMP } from "@/screens/procurement/shared"
+import { count, label, moment, quantity, countPcs, sku as skuNumber } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import { useAppNavigate } from "@/lib/navigate"
 import { useCatalogueIdentity } from "@/lib/operations/catalogue"
+import { useSiteLabel } from "@/lib/queries/organisation"
+import { useNameOfLogin } from "@/lib/queries/hr-employees"
 import { amendAllotment } from "@/lib/operations/changes"
 import {
   allotmentDetail,
@@ -61,15 +64,27 @@ import {
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { DeliveryCards } from "@/screens/allotment/delivery-cards"
+import {
+  useDcReviews,
+  useStoreReviews,
+  type DcReview,
+  type StoreReview,
+} from "@/screens/allotment/review-data"
+import { InReview } from "@/screens/allotment/review-list"
+import { DcReviewSheet } from "@/screens/allotment/review-sheet"
+import { StoreReviewSheet } from "@/screens/allotment/store-review-sheet"
+import { EndedStamp } from "@/screens/allotment/finished-cards"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { cn } from "@/lib/utils"
 import { Choice, Metric, MetricRow } from "@/screens/inventory/parts"
 import { toast } from "@/lib/toast"
 import {
+  amendmentsOf,
   cancelOf,
   draftEditOf,
   draftNoteOf,
   floorOf,
+  onPicklistOf,
   pendingOf,
   roomOf,
   stagesOf,
@@ -103,9 +118,10 @@ import { type DisplayUnit } from "@/screens/inventory/unit-display"
 /// MD's (§10; §13 step 3).
 
 /// The page's tabs: what is still to allot, the allotments still in progress,
-/// the ones that have finished (Completed — done, closed short or received
-/// short) and the ones MD called off (Cancelled, owner 10 Oct 2026).
-type View = "unallotted" | "allotted" | "completed" | "cancelled"
+/// what waits for MD's answer (In review, owner 18 Oct 2026), the ones that
+/// have finished (Completed — done, closed short or received short) and the
+/// ones MD called off (Cancelled, owner 10 Oct 2026).
+type View = "unallotted" | "allotted" | "review" | "completed" | "cancelled"
 
 /// Called off by MD (or refused by the DC) rather than worked to the end.
 /// `cancelled_at` is what tells MD's cancel from a close short: both end
@@ -113,9 +129,41 @@ type View = "unallotted" | "allotted" | "completed" | "cancelled"
 function isCancelled(row: AllotmentRow): boolean {
   return (
     row.status === "REJECTED" ||
+    (row.cancelled_at ?? null) !== null ||
     (row.status === "CANCELLED" && (row.cancelled_at ?? null) !== null) ||
     (row.status === "CANCELLED" && row.activation_target_origin_id !== null)
   )
+}
+
+/// Still on its way: a cancelled, refused or closed allotment never belongs
+/// to the In progress book, whatever the server's Active read returns.
+function isOpen(row: AllotmentRow): boolean {
+  return (
+    row.status !== "CANCELLED" &&
+    row.status !== "REJECTED" &&
+    row.fulfillment_status !== "CLOSED" &&
+    // MD called it off after part of it had left (owner, 20 Oct 2026): it
+    // reads as Cancelled, its card still saying what is on the road.
+    (row.cancelled_at ?? null) === null &&
+    !isCancelled(row)
+  )
+}
+
+/// The tab a link names, by its value or its label ("progress", "in-progress").
+function viewOf(tab: string | undefined): View | undefined {
+  const words = String(tab ?? "").toLowerCase().replace(/[^a-z]/g, "")
+  if (words === "") return undefined
+  if (words === "progress" || words === "inprogress" || words === "active")
+    return "allotted"
+  if (words === "finished" || words === "done") return "completed"
+  const views: readonly View[] = [
+    "unallotted",
+    "allotted",
+    "review",
+    "completed",
+    "cancelled",
+  ]
+  return views.find((view) => view === words)
 }
 
 /// The three readings the Allotted tab's own picker offers.
@@ -179,26 +227,6 @@ function destinationShort(id: string): string {
   return id.replace(/^store-?/i, "") || id
 }
 
-/// What an allotment that is over is called: cancelled by MD, some of it was
-/// closed, a store received less than was sent, or it was received in full.
-///
-/// A cancel MD made on a cloud-owned allotment is "Cancelled" whatever was
-/// picked — what was picked is the warehouse's to move back, not a remainder.
-/// A DC-owned one keeps the old reading: nothing picked is "Cancelled", the
-/// rest "Closed short". A store receipt below what was sent (214 of 220) is
-/// "Received short", never "Completed", and wins over a closed remainder: it is
-/// what happened at the store, the other is what MD decided.
-function endedWord(row: AllotmentRow): string {
-  if (row.status === "CANCELLED" || row.status === "REJECTED") {
-    return row.activation_target_origin_id === null ||
-      (row.total_picked_quantity === 0 && row.received_qty === 0)
-      ? "Cancelled"
-      : "Closed short"
-  }
-  if (row.receiving_gap_qty > 0) return "Received short"
-  return row.closed_short_qty > 0 ? "Closed short" : "Completed"
-}
-
 /// The status word every screen in this app now draws instead of a pill: a
 /// 5px dot and a word, no border, no fill (house rule, 28 Sep 2026). Colour is
 /// the only thing that carries meaning here — Active is the accent, Completed
@@ -225,28 +253,6 @@ function StatusWord({
         )}
       />
       {text}
-    </span>
-  )
-}
-
-/// A finished allotment's status, pressed on like the rubber stamp a finished
-/// order wears in Procurement: the word over the day it was reached. Completed
-/// is ok, a closed remainder wants a look, received short is red and a
-/// cancelled one is quiet.
-function EndedStamp({ row }: { row: AllotmentRow }) {
-  const word = endedWord(row)
-  return (
-    <span
-      className={cn(
-        STAMP,
-        word === "Completed" && "text-ok-fg",
-        word === "Closed short" && "text-warn-fg",
-        word === "Received short" && "text-bad-fg",
-        word === "Cancelled" && "text-mute"
-      )}
-    >
-      {word}
-      <span className="block tabular-nums">{dayMonth(row.updated_at)}</span>
     </span>
   )
 }
@@ -285,29 +291,24 @@ function columns(finished = false): ColumnDef<TableSetup, AllotmentRow>[] {
     },
     {
       id: "stores",
-      accessorFn: (row) => (row.destination_names ?? []).join(", "),
+      accessorFn: (row) => placesOf(row).ids.join(", "),
       header: "Store",
       meta: { grow: 220, card: "title" },
-      cell: ({ row }) => {
-        const names = row.original.destination_names ?? []
-        const full = names.join(", ") || "—"
-        // A card has one line: the first three, and how many more.
-        const short =
-          names.length > 3
-            ? `${names.slice(0, 3).join(", ")} +${names.length - 3}`
-            : full
-        return (
-          <>
-            <span
-              className="block truncate text-ink max-md:hidden"
-              title={names.join(", ") || undefined}
-            >
-              {full}
-            </span>
-            <span className="block text-ink md:hidden">{short}</span>
-          </>
-        )
-      },
+      cell: ({ row }) => <StoresCell row={row.original} />,
+    },
+    {
+      // Only here so the search finds a row by the articles it carries.
+      id: "articles",
+      accessorFn: (row) =>
+        (
+          (row as { article_names?: readonly string[] | null }).article_names ??
+          []
+        ).join(" "),
+      header: "Articles",
+      enableSorting: false,
+      enableHiding: false,
+      meta: { card: "hide" },
+      cell: () => null,
     },
     {
       // Sorts by the pieces; the items ride underneath, the way the order
@@ -320,7 +321,7 @@ function columns(finished = false): ColumnDef<TableSetup, AllotmentRow>[] {
       cell: ({ row }) => (
         <span className="block text-right tabular-nums">
           <span className="block whitespace-nowrap text-ink">
-            {count(row.original.total_quantity)} pcs
+            {countPcs(row.original.total_quantity)}
           </span>
           <span className="block whitespace-nowrap text-mute">
             {count(row.original.article_count)}{" "}
@@ -446,7 +447,7 @@ function columns(finished = false): ColumnDef<TableSetup, AllotmentRow>[] {
           <span className="text-cell font-semibold text-ink">
             {count(row.original.received_qty)}
           </span>
-          {` of ${count(row.original.total_quantity)} pcs`}
+          {` of ${countPcs(row.original.total_quantity)}`}
         </span>
       ),
     },
@@ -464,6 +465,7 @@ function columns(finished = false): ColumnDef<TableSetup, AllotmentRow>[] {
   return [
     keep("allotment_number"),
     keep("supplier"),
+    keep("articles"),
     {
       id: "store_count",
       accessorFn: (row) => (row.destination_names ?? []).length,
@@ -485,6 +487,46 @@ function columns(finished = false): ColumnDef<TableSetup, AllotmentRow>[] {
     { ...keep("qty"), meta: { align: "right", card: "lead" } },
     keep("fulfillment_status"),
   ]
+}
+
+/// The stores a row is about. A return's stores are the ones sending goods
+/// back (the lines' sources, `source_site_ids` when the server names them);
+/// everything else, the ones receiving. `ids` are site ids to be read through
+/// `useSiteLabel`; `names` are already words.
+function placesOf(row: AllotmentRow): {
+  ids: readonly string[]
+  names: readonly string[]
+} {
+  const sources =
+    (row as { source_site_ids?: readonly string[] | null }).source_site_ids ??
+    []
+  return (row.type === "RETURN_TO_DC" || (row.type as string) === "RETURN_TO_WAREHOUSE") &&
+    sources.length > 0
+    ? { ids: sources, names: [] }
+    : { ids: [], names: row.destination_names ?? [] }
+}
+
+function StoresCell({ row }: { row: AllotmentRow }) {
+  const placeName = useSiteLabel()
+  const places = placesOf(row)
+  const names = [...places.ids.map((id) => placeName(id)), ...places.names]
+  const full = names.join(", ") || "—"
+  // A card has one line: the first three, and how many more.
+  const short =
+    names.length > 3
+      ? `${names.slice(0, 3).join(", ")} +${names.length - 3}`
+      : full
+  return (
+    <>
+      <span
+        className="block truncate text-ink max-md:hidden"
+        title={names.join(", ") || undefined}
+      >
+        {full}
+      </span>
+      <span className="block text-ink md:hidden">{short}</span>
+    </>
+  )
 }
 
 /// A card that wants a look: a DC that refused it, or pieces a store did not
@@ -670,7 +712,11 @@ export function Allotments({
   /// The page's three tabs. Unallotted and Problems are the store book's
   /// own: the return books have nothing to allot.
   const storeBook = type === "TO_STORE"
-  const [view, setView] = useState<View>(storeBook ? "unallotted" : "allotted")
+  // A link may name the tab (`?tab=progress`) and a search (`?q=`).
+  const linked = useSearch({ strict: false }) as { tab?: string; q?: string }
+  const [view, setView] = useState<View>(
+    () => viewOf(linked.tab) ?? (storeBook ? "unallotted" : "allotted")
+  )
   const [readingChoice, setReading] = useState<Reading>("allotments")
   // In progress is the Active book, Completed the finished one; the By store
   // and By article readings only exist for what is in progress.
@@ -678,7 +724,7 @@ export function Allotments({
   const tab: Tab = finishedView ? "completed" : "active"
   const reading: Reading = finishedView ? "allotments" : readingChoice
   const [store, setStore] = useState("")
-  const [query, setQuery] = useState("")
+  const [query, setQuery] = useState(() => String(linked.q ?? ""))
   // The note stays behind Columns: the three stage bars need its width, and
   // a list of allotments is read by number and progress, not by note.
   const [visibility, setVisibility] = useState<Record<string, boolean>>({
@@ -702,6 +748,10 @@ export function Allotments({
   const allotment = useSheet("allotment")
   /// What the card's foot asked the sheet to start with: Edit or Cancel.
   const [sheetStart, setSheetStart] = useState<"edit" | "cancel" | null>(null)
+  /// The card whose Cancel is asked: the dialog alone, no sheet under it
+  /// (owner, 20 Oct 2026).
+  const [cardCancel, setCardCancel] = useState<string | null>(null)
+  const goto = useAppNavigate()
   const expanding = useExpanding()
 
   /// The KPI strip's own read — always ACTIVE, always this book's type — kept
@@ -709,6 +759,13 @@ export function Allotments({
   /// when the Allotments reading's own Active tab is open the two share one
   /// fetch instead of asking the server twice for the same page.
   const activeQuery = useQuery({
+    queryKey: inventoryKeys.allotmentList(type, "ACTIVE"),
+    queryFn: ({ signal }) => listAllotments(type, "ACTIVE", signal),
+    select: (data) => ({ ...data, items: data.items.filter(isOpen) }),
+  })
+  /// The same Active read, whole: an allotment MD cancelled after part of it
+  /// had left is still Active on the server, and belongs in Cancelled.
+  const activeAll = useQuery({
     queryKey: inventoryKeys.allotmentList(type, "ACTIVE"),
     queryFn: ({ signal }) => listAllotments(type, "ACTIVE", signal),
   })
@@ -719,6 +776,28 @@ export function Allotments({
   })
 
   const toAllot = useToAllot(storeBook)
+  /// What waits for MD: picks that could not go on (At the DC). The store
+  /// book's own — a return has no picker short of it.
+  const dc = useDcReviews(storeBook)
+  /// …and trips whose stores counted something else (At the store).
+  const atStore = useStoreReviews(storeBook)
+  const inReview =
+    dc.reviews === undefined && atStore.data === undefined
+      ? undefined
+      : (dc.reviews?.length ?? 0) + (atStore.data?.length ?? 0)
+  const [review, setReview] = useState<DcReview | null>(null)
+  const [reviewOpen, setReviewOpen] = useState(false)
+  const [storeReview, setStoreReview] = useState<StoreReview | null>(null)
+  const [storeReviewOpen, setStoreReviewOpen] = useState(false)
+  // Every store of the trip answered: it leaves the review, and its sheet
+  // closes with it.
+  const tripGone =
+    storeReview !== null &&
+    atStore.data !== undefined &&
+    !atStore.data.some((one) => one.dispatch_id === storeReview.dispatch_id)
+  useEffect(() => {
+    if (tripGone) setStoreReviewOpen(false)
+  }, [tripGone])
   /// The finished book split in two: worked to the end, and called off.
   const finishedDone = completedQuery.data?.items.filter(
     (row) => !isCancelled(row)
@@ -771,9 +850,16 @@ export function Allotments({
   const rows = useMemo(() => {
     const all = (source.data?.items ?? []) as AllotmentRow[]
     if (view === "completed") return all.filter((row) => !isCancelled(row))
-    if (view === "cancelled") return all.filter(isCancelled)
-    return all
-  }, [source.data, view])
+    if (view === "cancelled") {
+      const gone = all.filter(isCancelled)
+      const seen = new Set(gone.map((row) => row.id))
+      const leftLate = (activeAll.data?.items ?? []).filter(
+        (row) => (row.cancelled_at ?? null) !== null && !seen.has(row.id)
+      ) as AllotmentRow[]
+      return reading === "store" ? gone : [...gone, ...leftLate]
+    }
+    return all.filter(isOpen)
+  }, [source.data, view, activeAll.data, reading])
 
   const tableColumns = useMemo(() => columns(finishedView), [finishedView])
   const filters = useFilters(tableColumns)
@@ -791,6 +877,7 @@ export function Allotments({
           sorting,
           columnVisibility: {
             ...visibility,
+            articles: false,
             lead: cards,
             foot: cards,
             ...(cards && !finishedView ? { fulfillment_status: true } : {}),
@@ -861,6 +948,9 @@ export function Allotments({
         label: "In progress",
         count: activeQuery.data?.items.length,
       },
+      ...(storeBook
+        ? [{ value: "review", label: "In review", count: inReview }]
+        : []),
       { value: "completed", label: "Completed", count: finishedDone },
       { value: "cancelled", label: "Cancelled", count: finishedCancelled },
     ],
@@ -916,17 +1006,27 @@ export function Allotments({
             {activeQuery.data.items.length === 1 ? "allotment" : "allotments"}
           </b>{" "}
           in progress. {qty(toPickPcs ?? 0)} pcs to pick,{" "}
-          {qty(inWarehouse ?? 0)} in stock, {qty(inTransit ?? 0)} in transit.
+          {qty(inWarehouse ?? 0)} at the DC, {qty(inTransit ?? 0)} in transit.
         </p>
       )}
       {/* What MD reads first (allotment-ops-prototype): how many are in
           progress, and where their pieces are — still to pick, in the
           warehouse, or dispatched and not yet received. */}
       <KpiStrip className="grid-cols-2 max-md:hidden md:grid-cols-4 xl:grid-cols-4">
-        <Kpi
-          label="In stock"
-          value={inWarehouse === undefined ? "—" : `${qty(inWarehouse)} pcs`}
-        />
+        {/* In stock is what the DC holds free to allot (e2e 20 Oct 2026: it
+            read 0 beside 16 pcs unallotted — it counted picked and packed
+            pieces, which a return book still calls At the DC). */}
+        {storeBook ? (
+          <Kpi
+            label="In stock"
+            value={toAllot.status === null ? `${qty(toAllot.pieces)} pcs` : "—"}
+          />
+        ) : (
+          <Kpi
+            label="At the DC"
+            value={inWarehouse === undefined ? "—" : `${qty(inWarehouse)} pcs`}
+          />
+        )}
         <Kpi
           label="Picklist"
           value={toPickPcs === undefined ? "—" : `${qty(toPickPcs)} pcs`}
@@ -950,11 +1050,15 @@ export function Allotments({
             [
               ["unallotted", "Unallotted", toAllot.articles],
               ["allotted", "In progress", activeQuery.data?.items.length],
+              ["review", "In review", inReview],
               ["completed", "Completed", finishedDone],
               ["cancelled", "Cancelled", finishedCancelled],
             ] as const
           )
-            .filter(([value]) => storeBook || value !== "unallotted")
+            .filter(
+              ([value]) =>
+                storeBook || (value !== "unallotted" && value !== "review")
+            )
             .map(([value, text, total]) => ({
               value,
               label: (
@@ -975,9 +1079,41 @@ export function Allotments({
           status={toAllot.status}
           dockStatus={storeBook ? pageTabs : undefined}
         />
+      ) : view === "review" ? (
+        <>
+          <DockTools status={pageTabs} />
+          <InReview
+            dc={dc.reviews}
+            store={atStore.data}
+            loading={dc.query.isPending || atStore.isPending}
+            onStoreReview={(one) => {
+              setStoreReview(one)
+              setStoreReviewOpen(true)
+            }}
+            supplierOf={(id) =>
+              activeQuery.data?.items.find((row) => row.id === id)
+                ?.supplier_names ?? null
+            }
+            onReview={(one) => {
+              setReview(one)
+              setReviewOpen(true)
+            }}
+            onEdit={(id) => {
+              setSheetStart("edit")
+              allotment.open(id)
+            }}
+          />
+        </>
       ) : (
         <>
-          <div className="group/bar mb-5 flex min-h-[2.25rem] flex-wrap items-center gap-2.5 md:flex-nowrap">
+          <div
+            className={cn(
+              "group/bar mb-5 flex min-h-[2.25rem] flex-wrap items-center gap-2.5 md:flex-nowrap",
+              // On a phone everything in it is the dock's but the store
+              // filter: an empty bar left a blank band above the cards.
+              reading !== "store" && reading !== "article" && "max-md:hidden"
+            )}
+          >
             {view === "allotted" && (
               <Select
                 aria-label="Reading"
@@ -1099,7 +1235,7 @@ export function Allotments({
                 {queryState(source, {
                   loading: "Reading the allotment book…",
                   render: () =>
-                    rows.length === 0 ? (
+                    rows.length === 0 || shown.length === 0 ? (
                       narrowed ? (
                         <EmptyState>
                           No allotment matches these filters.
@@ -1121,15 +1257,33 @@ export function Allotments({
                             allotment.open(id)
                           }}
                           onEdit={(id) => {
+                            // Edit is the grid itself, never the sheet first
+                            // (owner, 20 Oct 2026). A DC-run one keeps the
+                            // sheet's own Edit.
+                            const row = shown.find((one) => one.id === id)
+                            if (row?.activation_target_origin_id == null) {
+                              goto("/allotment/new", {
+                                key: "allotFrom",
+                                value: allotFromValue("edit", id),
+                              })
+                              return
+                            }
                             setSheetStart("edit")
                             allotment.open(id)
                           }}
-                          onCancel={(id) => {
-                            setSheetStart("cancel")
-                            allotment.open(id)
-                          }}
+                          onCancel={setCardCancel}
                         />
                       </>
+                    ) : finishedView && reading === "allotments" ? (
+                      <DeliveryCards
+                        rows={shown}
+                        stores={stores}
+                        ended={view === "cancelled" ? "cancelled" : "completed"}
+                        onOpen={(id) => {
+                          setSheetStart(null)
+                          allotment.open(id)
+                        }}
+                      />
                     ) : (
                       <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
                         <ExpandContext value={expanding}>
@@ -1170,6 +1324,29 @@ export function Allotments({
         </>
       )}
 
+      <DcReviewSheet
+        review={review}
+        open={reviewOpen}
+        onOpenChange={setReviewOpen}
+      />
+      <StoreReviewSheet
+        // The trip as the list reads it now — an answer given in the sheet
+        // shows at once; once the trip leaves the list, as it was last seen.
+        review={
+          (storeReview &&
+            atStore.data?.find(
+              (one) => one.dispatch_id === storeReview.dispatch_id
+            )) ??
+          storeReview
+        }
+        open={storeReviewOpen}
+        onOpenChange={setStoreReviewOpen}
+      />
+      <CardCancel
+        id={cardCancel}
+        actor={actor}
+        onClose={() => setCardCancel(null)}
+      />
       <AllotmentSheet
         id={allotment.value ?? null}
         onClose={() => {
@@ -1205,7 +1382,7 @@ function ByStoreSkus({
 }) {
   const qty = (n: number) => qtyOf(display, n)
   const catalogue = useCatalogueIdentity()
-  const wanted = needle.trim().toLowerCase()
+  const wanted = needle.trim().toLowerCase().replace(/·/g, "")
   const shown = useMemo(
     () =>
       [...rows]
@@ -1262,10 +1439,10 @@ function ByStoreSkus({
                 <tr key={row.sku_id} className="border-t border-hairline">
                   <td className="py-2 pr-2">
                     <span className="block text-[0.9375rem] text-ink">
-                      {identity?.article_name ?? row.sku_code}
+                      {identity?.article_name ?? skuNumber(row.sku_code)}
                     </span>
                     <span className="font-mono text-[0.9375rem] text-mute">
-                      {row.sku_code}
+                      {skuNumber(row.sku_code)}
                       {identity &&
                         ` · ${[identity.colour, identity.size].filter(Boolean).join(" · ")}`}
                     </span>
@@ -1359,11 +1536,10 @@ function ByArticle({
 ///    into a box. A typed total is spread over the sizes underneath, never
 ///    under what is already dispatched. **Save** sends the draft as one
 ///    `/amend` (per-line `to` targets).
-///  - **Ticks** pick the stores a Cancel is for. Cancelling stores is an
-///    `/amend` too: each of their lines down to what is dispatched (0 when
-///    nothing is). With no tick, and nothing dispatched anywhere, it is the
-///    whole allotment's `/cancel`; with part dispatched, "Cancel the rest" is
-///    the same `/amend` over every store.
+///  - **Ticks** pick the stores a Cancel is for. Cancel is only there while
+///    every piece is still on the picklist (owner, 21 Oct 2026). Cancelling
+///    stores is an `/amend` of each of their lines down to 0; with no tick it
+///    is the whole allotment's `/cancel`.
 ///  - Save and a store cancel answer in a toast with **Undo** for 10 s, which
 ///    sends the lines back to what they were — re-read first, never under what
 ///    has been dispatched since. The whole `/cancel` has no way back (there is
@@ -1371,6 +1547,63 @@ function ByArticle({
 ///
 /// A DC-owned allotment keeps the old Edit (close short, then New allotment
 /// filled in) and the old cancel: `/amend` answers only for the cloud's own.
+/// A card's Cancel: the Cancel dialog on its own, over the list. The card
+/// offers it only while everything is on the picklist, so it is always the whole
+/// allotment through `/cancel`.
+function CardCancel({
+  id,
+  actor,
+  onClose,
+}: {
+  id: string | null
+  actor: string
+  onClose: () => void
+}) {
+  const client = useQueryClient()
+  const detail = useQuery({
+    queryKey: inventoryKeys.allotment(id ?? ""),
+    queryFn: ({ signal }) => allotmentDetail(id!, signal),
+    enabled: id !== null,
+  })
+  const record = id === null ? undefined : detail.data
+  if (record === undefined) return null
+  const edge = record.activation_target_origin_id !== null
+  return (
+    <CancelDialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose()
+      }}
+      id={record.id}
+      number={record.allotment_number}
+      simple={edge}
+      toPack={record.to_pack_qty}
+      scope={edge ? undefined : { lines: record.lines, whole: true }}
+      onConfirm={async (reason) => {
+        const result = await cancelAllotment(record.id, {
+          reason,
+          actor_id: actor,
+          idempotency_key: idempotencyKey(),
+        })
+        client.invalidateQueries({ queryKey: inventoryKeys.allotments() })
+        client.invalidateQueries({ queryKey: inventoryKeys.fleet() })
+        const owed = result.owed_total ?? 0
+        toast.success(
+          result.edge_cancellation_status === "PENDING"
+            ? `${result.allotment_number} cancelling`
+            : `${result.allotment_number} cancelled`,
+          result.edge_cancellation_status !== "PENDING" && owed > 0
+            ? { description: `${quantity(owed)} put back by the warehouse` }
+            : result.edge_cancellation_status === "PENDING"
+              ? { description: "Passed to the DC" }
+              : undefined
+        )
+        onClose()
+      }}
+    />
+  )
+}
+
 function AllotmentSheet({
   id,
   onClose,
@@ -1523,21 +1756,25 @@ function AllotmentSheet({
   const editing = inPlace && draft !== null
   /// Edit is the New allotment grid (owner, 2026-10-16): same rows, Stock
   /// column, and a cell never goes over the free stock.
+  // The grid takes the sheet's place in the history: Back from it is the
+  // list, never this sheet again.
   const editInGrid = () => {
     if (!record) return
-    goto("/allotment/new", {
-      key: "allotFrom",
-      value: allotFromValue("edit", record.id),
-    })
+    goto(
+      "/allotment/new",
+      { key: "allotFrom", value: allotFromValue("edit", record.id) },
+      { replace: true }
+    )
   }
   // A card's Edit opens the grid once the allotment is known to be ours.
   const wantsGrid = start === "edit" && inPlace ? (record?.id ?? null) : null
   useEffect(() => {
     if (wantsGrid !== null)
-      goto("/allotment/new", {
-        key: "allotFrom",
-        value: allotFromValue("edit", wantsGrid),
-      })
+      goto(
+        "/allotment/new",
+        { key: "allotFrom", value: allotFromValue("edit", wantsGrid) },
+        { replace: true }
+      )
   }, [wantsGrid, goto])
 
   // What a Cancel is for: the ticked stores, or every store — only those with
@@ -1550,11 +1787,13 @@ function AllotmentSheet({
     scopeIds.includes(line.destination_id)
   )
   const whole = ticked.size === 0
-  /// Part of what the Cancel is for is dispatched already: it cancels the rest.
-  const rest = stagesOf(scopeLines).dispatched > 0
-  /// Anything of the allotment dispatched at all: then even the whole of it is
-  /// cancelled line by line, never by `/cancel`.
+  /// Anything of the allotment dispatched at all (a DC-run one's Cancel).
   const anyDispatched = stagesOf(lines).dispatched > 0
+  /// Cancel only while every piece is still on the picklist (owner, 21 Oct
+  /// 2026): once picking starts, Edit lowers what is still to pick.
+  const onPicklist = onPicklistOf(lines)
+  /// Something still to pick: the only thing Edit can move.
+  const toPickLeft = stagesOf(lines).toPick > 0
   const scopeNames = storesOf(scopeLines).map((store) => {
     const board = shopName(store.id)
     return board === store.id ? store.name : board
@@ -1563,25 +1802,25 @@ function AllotmentSheet({
     scopeNames.length === 1
       ? scopeNames[0]
       : `${count(scopeNames.length)} stores`
-  const cancelLabel = !whole
-    ? `${rest ? "Cancel the rest for" : "Cancel"} ${scopeWho}`
-    : rest
-      ? "Cancel the rest"
-      : "Cancel allotment"
+  // Just Cancel (owner, 17 Oct 2026): the dialog says what it takes.
+  const cancelLabel = "Cancel"
 
-  /// The cancel MD confirmed. The whole allotment with nothing dispatched is
-  /// `/cancel`; anything else is every scoped line down to its floor.
+  /// The cancel MD confirmed. The whole allotment is `/cancel`; some of its
+  /// stores is each of their lines down to nothing.
   const confirmCancel = async (reason: string) => {
     if (!record) return
-    if (!inPlace || (whole && !anyDispatched)) {
+    if (!inPlace || whole) {
       const result = await cancel.mutateAsync({ reason })
       const owed = result.owed_total ?? 0
       toast.success(
         result.edge_cancellation_status === "PENDING"
-          ? "Passed to the DC. Cancelling"
-          : `${result.allotment_number} cancelled${
-              owed > 0 ? ` · ${quantity(owed)} put back by the warehouse` : ""
-            }`
+          ? `${result.allotment_number} cancelling`
+          : `${result.allotment_number} cancelled`,
+        result.edge_cancellation_status !== "PENDING" && owed > 0
+          ? { description: `${quantity(owed)} put back by the warehouse` }
+          : result.edge_cancellation_status === "PENDING"
+            ? { description: "Passed to the DC" }
+            : undefined
       )
       setTicked(new Set())
       return
@@ -1595,9 +1834,8 @@ function AllotmentSheet({
     // and a closed-short line is not raised back by the same edit (tested on
     // the cloud Gudang, 16 Oct 2026).
     toast.success(
-      `${rest ? "Rest cancelled" : "Cancelled"} · ${
-        whole ? record.allotment_number : scopeWho
-      }`
+      `${record.allotment_number} cancelled`,
+      whole ? undefined : { description: scopeWho }
     )
   }
 
@@ -1617,15 +1855,13 @@ function AllotmentSheet({
           const raisedOnly = edit.lines.every(
             (line) => line.to > (before.get(line.allotment_line_id) ?? 0)
           )
-          toast.success(
-            `Saved · ${said}`,
-            raisedOnly
-              ? {
-                  duration: 10_000,
-                  action: { label: "Undo", onClick: undoOf(record.id, before) },
-                }
-              : undefined
-          )
+          toast.success(`${record.allotment_number} saved`, {
+            description: said,
+            ...(raisedOnly && {
+              duration: 10_000,
+              action: { label: "Undo", onClick: undoOf(record.id, before) },
+            }),
+          })
         },
       }
     )
@@ -1664,7 +1900,7 @@ function AllotmentSheet({
             <>
               <Button
                 variant="danger"
-                disabled={scopeLines.length === 0}
+                disabled={scopeLines.length === 0 || !onPicklist}
                 onClick={() => setCancelling(true)}
               >
                 {cancelLabel}
@@ -1684,8 +1920,18 @@ function AllotmentSheet({
           primary={{
             label: "Edit",
             onClick: editInGrid,
+            // Edit only moves what is still on the picklist.
+            disabled: !toPickLeft,
           }}
-          note={allSent ? "Everything has already been dispatched." : undefined}
+          note={
+            allSent
+              ? "Everything has already been dispatched."
+              : !toPickLeft
+                ? "Everything has been picked: nothing is left to cancel or edit."
+                : !onPicklist
+                  ? "Picking has started, so it can no longer be cancelled. Lower what is still to pick with Edit."
+                  : undefined
+          }
         />
       )
     ) : (
@@ -1704,7 +1950,7 @@ function AllotmentSheet({
               }
               onClick={() => setCancelling(true)}
             >
-              Cancel allotment
+              Cancel
             </Button>
             <CancelDialog
               open={cancelling}
@@ -1751,11 +1997,23 @@ function AllotmentSheet({
   return (
     <Sheet
       open={id !== null}
-      subject={id === null ? undefined : { kind: "allotment", id }}
+      // No `subject`: the sheet ends in the allotment's own Activity, which
+      // says who changed what, for which stores; the generic trail under it
+      // was a second "Activity" saying "amend on this record" (17 Oct 2026).
       onOpenChange={(open) => {
         if (!open) onClose()
       }}
-      title={record?.allotment_number ?? "Allotment"}
+      // The supplier is the title, the number and when under it (owner, 17
+      // Oct 2026). The detail does not carry the supplier: the list row the
+      // sheet was opened from does.
+      title={supplierOf(client, id) ?? record?.allotment_number ?? "Allotment"}
+      // The number on the crumb's row, "Allotments / ALT-…" (owner, 17 Oct
+      // 2026): who made it, when, and who cancelled it are the Activity's.
+      id={
+        record === undefined || supplierOf(client, id) === null
+          ? undefined
+          : record.allotment_number
+      }
       closeAs="back"
       // MD sees it at once: Cancelled, whoever's work is still to do.
       badge={gone?.cancelled ? <Pill tone="bad">Cancelled</Pill> : undefined}
@@ -1773,20 +2031,39 @@ function AllotmentSheet({
             record={data}
             display={display}
             lines={
-              <StoreLines
-                key={data.id}
-                lines={data.lines}
-                draft={draft ?? undefined}
-                onDraft={editing ? setDraft : undefined}
-                selected={inPlace ? ticked : undefined}
-                onSelect={inPlace ? setTicked : undefined}
-              />
+              !editing ? (
+                <ArticleCards key={data.id} lines={data.lines} />
+              ) : (
+                <StoreLines
+                  key={data.id}
+                  lines={data.lines}
+                  draft={draft ?? undefined}
+                  onDraft={editing ? setDraft : undefined}
+                  selected={inPlace ? ticked : undefined}
+                  onSelect={inPlace ? setTicked : undefined}
+                />
+              )
             }
           />
         ),
       })}
     </Sheet>
   )
+}
+
+/// Whose goods an allotment is, read off the list row it was opened from.
+function supplierOf(
+  client: ReturnType<typeof useQueryClient>,
+  id: string | null
+): string | null {
+  if (id === null) return null
+  for (const [, list] of client.getQueriesData<{
+    items?: readonly AllotmentRow[]
+  }>({ queryKey: inventoryKeys.allotments() })) {
+    const row = list?.items?.find((one) => one.id === id)
+    if (row?.supplier_names) return row.supplier_names
+  }
+  return null
 }
 
 const HIDDEN_EVENTS = new Set([
@@ -1802,11 +2079,22 @@ const EVENT_TITLE: Record<string, string> = {
   ALLOTMENT_SHORTAGE: "Short in the warehouse",
 }
 
-/// What MD's own changes are called in the history.
-const AMENDMENT_TITLE: Record<AllotmentAmendment["kind"], string> = {
-  REDUCE: "Quantity reduced",
-  ADD: "Quantity added",
-  CANCEL: "Cancelled",
+/// The reason the cancel dialog writes when MD picked none: it says nothing.
+const SAYS_NOTHING = new Set(["Cancelled", "Edited"])
+
+/// What MD did in one Save or one Cancel, named the way MD would: a cancel
+/// asks a reason and an edit does not (cancel-dialog.tsx, 17 Oct 2026), so a
+/// reduction with a reason is MD's Cancel — of some stores, or of the rest
+/// once part was sent — and never a warehouse's "Closed short".
+function actTitle(act: readonly AllotmentAmendment[]): string {
+  const reason = act[0].reason?.trim() ?? ""
+  if (reason === "Undo") return "Change undone"
+  if (act.some((one) => one.kind === "CANCEL")) return "Cancelled"
+  const reduced = act.some((one) => one.kind === "REDUCE")
+  const added = act.some((one) => one.kind === "ADD")
+  if (reduced && !added && reason !== "") return "Cancelled"
+  if (reduced && added) return "Quantity changed"
+  return added ? "Quantity added" : "Quantity reduced"
 }
 
 /// The allotment as a document: the fulfillment pipeline, the lines matrix,
@@ -1824,60 +2112,98 @@ function AllotmentDocument({
   lines: React.ReactNode
 }) {
   const qty = (n: number) => qtyOf(display, n)
-  /// The SKU and store an event names, when it names them.
-  const lineOf = (event: AllotmentDetail["events"][number]) =>
-    record.lines.find(
-      (line) =>
-        line.sku_id === event.sku_id &&
-        (event.destination_id === null ||
-          line.destination_id === event.destination_id)
+  // Stores as the board names them ("C001 · Cikupa"), people by name.
+  const shopName = useShopName()
+  const personOf = useNameOfLogin()
+  const storeOf = (id: string) => {
+    const board = shopName(id)
+    if (board !== id) return board
+    return (
+      record.lines.find((line) => line.destination_id === id)
+        ?.destination_name ?? destinationShort(id)
     )
-  const happened: { at: string; event: TimelineEvent }[] = record.events
-    .filter((event) => !HIDDEN_EVENTS.has(event.event_type))
-    .map((event) => {
-      const line = lineOf(event)
-      const where = line
-        ? [
-            [line.colour, line.size].filter(Boolean).join(" · ") ||
-              line.sku_code,
-            line.destination_name ?? destinationShort(line.destination_id),
-          ].join(" to ")
+  }
+  /// The stores a row is about: named up to three, counted beyond.
+  const storesSaid = (ids: readonly (string | null | undefined)[]) => {
+    const unique = [...new Set(ids.filter((id): id is string => !!id))]
+    if (unique.length === 0) return null
+    return unique.length > 3
+      ? `${count(unique.length)} stores`
+      : unique
+          .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+          .map(storeOf)
+          .join(", ")
+  }
+
+  // One row per act, never one per SKU line (17 Oct 2026: twelve "Created"
+  // rows for one allotment). The events are grouped by what happened, when
+  // and by whom; MD's changes are read from their amendments, the events each
+  // change wrote are not drawn again.
+  const groups = new Map<string, AllotmentDetail["events"][number][]>()
+  for (const event of record.events) {
+    if (HIDDEN_EVENTS.has(event.event_type)) continue
+    if (event.reference_type === "ALLOTMENT_AMENDMENT") continue
+    const key = `${event.event_type}|${event.actor_id}|${event.occurred_at}`
+    groups.set(key, [...(groups.get(key) ?? []), event])
+  }
+  const happened: { at: string; event: TimelineEvent }[] = []
+  for (const [key, group] of groups) {
+    const first = group[0]
+    const why =
+      record.cancellation !== null &&
+      record.cancellation.reason !== "" &&
+      first.event_type === "ALLOTMENT_CANCELLATION_REQUESTED"
+        ? record.cancellation.reason
         : null
-      const why =
-        record.cancellation !== null &&
-        record.cancellation.reason !== "" &&
-        event.event_type === "ALLOTMENT_CANCELLATION_REQUESTED"
-          ? record.cancellation.reason
-          : null
-      return {
-        at: event.occurred_at,
-        event: {
-          id: event.id,
-          title: EVENT_TITLE[event.event_type] ?? label(event.event_type),
-          detail: [qty(event.quantity), where, why].filter(Boolean).join(" · "),
-          at: moment(event.occurred_at),
-          state: "done" as const,
-        },
-      }
+    happened.push({
+      at: first.occurred_at,
+      event: {
+        id: `event-${key}`,
+        title: EVENT_TITLE[first.event_type] ?? label(first.event_type),
+        detail: [
+          quantity(sumOf(group, (one) => one.quantity)),
+          storesSaid(group.map((one) => one.destination_id)),
+          why,
+          personOf(first.actor_id),
+        ]
+          .filter(Boolean)
+          .join(" · "),
+        at: moment(first.occurred_at),
+        state: "done" as const,
+      },
     })
+  }
   // MD's edits and cancels, one entry per act: an edit that touched twenty
   // lines is one row in the history, not twenty.
   const acts = new Map<string, AllotmentAmendment[]>()
-  for (const one of record.amendments ?? []) {
-    const key = `${one.kind}|${one.actor_id}|${one.created_at}`
+  for (const one of amendmentsOf(record)) {
+    const key = `${one.actor_id}|${one.created_at}`
     acts.set(key, [...(acts.get(key) ?? []), one])
   }
-  for (const [key, group] of acts) {
-    const first = group[0]
+  for (const [key, act] of acts) {
+    const first = act[0]
+    const moved = (sign: 1 | -1) =>
+      sumOf(act, (one) =>
+        one.target_before === undefined || one.target_after === undefined
+          ? 0
+          : Math.max(0, sign * (one.target_after - one.target_before))
+      )
+    const taken = moved(-1)
+    const added = moved(1)
+    const reason = first.reason?.trim() ?? ""
     happened.push({
       at: first.created_at,
       event: {
         id: `amendment-${key}`,
-        title: AMENDMENT_TITLE[first.kind],
+        title: actTitle(act),
         detail: [
-          first.reason,
-          first.actor_id,
-          group.length > 1 ? `${count(group.length)} lines` : null,
+          taken > 0 ? `−${quantity(taken)}` : null,
+          added > 0 ? `+${quantity(added)}` : null,
+          storesSaid(act.map((one) => one.destination_id)),
+          reason === "" || reason === "Undo" || SAYS_NOTHING.has(reason)
+            ? null
+            : reason,
+          personOf(first.actor_id),
         ]
           .filter(Boolean)
           .join(" · "),
@@ -1889,18 +2215,12 @@ function AllotmentDocument({
   // The warehouse's side of MD's changes: seen per store (opening the work), and the pieces
   // it moved back.
   for (const one of record.acknowledgements ?? []) {
-    const store = record.lines.find(
-      (line) => line.destination_id === one.destination_id
-    )
     happened.push({
       at: one.at,
       event: {
         id: `acknowledged-${one.destination_id}-${one.at}`,
         title: "Warehouse saw the change",
-        detail: [
-          store?.destination_name ?? destinationShort(one.destination_id),
-          one.by,
-        ].join(" · "),
+        detail: [storeOf(one.destination_id), personOf(one.by)].join(" · "),
         at: moment(one.at),
         state: "done",
       },
@@ -1912,19 +2232,14 @@ function AllotmentDocument({
       event: {
         id: `move-back-${one.at}`,
         title: `Warehouse moved back ${quantity(one.pieces)}`,
-        detail: one.by,
+        detail: personOf(one.by),
         at: moment(one.at),
         state: "done",
       },
     })
   }
-  // The server's order stands until MD's changes join it.
-  if (
-    acts.size > 0 ||
-    (record.acknowledgements?.length ?? 0) > 0 ||
-    (record.move_backs?.length ?? 0) > 0
-  )
-    happened.sort((left, right) => Date.parse(left.at) - Date.parse(right.at))
+  // Oldest first; a sort that keeps the server's order where times tie.
+  happened.sort((left, right) => Date.parse(left.at) - Date.parse(right.at))
   const events = happened.map((one) => one.event)
 
   /// Cancelled, and by whom, why and when — the status alone when the detail
@@ -1970,19 +2285,6 @@ function AllotmentDocument({
           )}
         </div>
       )}
-
-      {gone.cancelled &&
-        (gone.by !== null || gone.at !== null || gone.reason !== null) && (
-          <Facts>
-            {gone.by !== null && <Fact term="Cancelled by">{gone.by}</Fact>}
-            {gone.at !== null && <Fact term="On">{moment(gone.at)}</Fact>}
-            {gone.reason !== null && (
-              <Fact term="Reason" wide>
-                {gone.reason}
-              </Fact>
-            )}
-          </Facts>
-        )}
 
       {/* No heading and no rule over it: the sheet is the allotment's items
           (owner, 10 Oct 2026). */}

@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react"
 
 import { GroupHeading } from "@/components/ui/phone-cards"
-import { count, quantity } from "@/lib/format"
+import { count, quantity, sku as skuNumber } from "@/lib/format"
 import type { AllotmentLine } from "@/lib/queries/inventory"
 import { targetOf } from "@/screens/allotment/amend-data"
 import { ArticleThumb, colourDigitOf } from "@/screens/allotment/article-thumb"
@@ -151,7 +151,7 @@ export function ReadLines({ lines }: { lines: readonly AllotmentLine[] }) {
                           {lineName(line)}
                         </span>
                         <span className="block truncate font-mono text-[0.9375rem] text-mute">
-                          {line.sku_code}
+                          {skuNumber(line.sku_code)}
                         </span>
                       </div>
                       <span

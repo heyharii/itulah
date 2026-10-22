@@ -1,0 +1,94 @@
+<!-- @dsCard group="Lists" height=672 subtitle="Static rendition of data-table.tsx in the All white look" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>DataTable — preview</title><style>
+body{margin:0}
+.ds-datatable-stage{padding:24px 24px;gap:12px}
+.ds-datatable-table td,.ds-datatable-table th{white-space:nowrap}
+.ds-datatable-name{display:block;line-height:20px}
+.ds-datatable-table .ds-sub{margin-top:2px;line-height:20px}
+.ds-datatable-table .is-late{font-weight:500}
+.ds-datatable-table th .ds-datatable-sort{display:inline-block;width:12px;height:12px;margin-left:4px;vertical-align:-1px;color:var(--ink)}
+.ds-datatable-table th .ds-datatable-up{transform:rotate(180deg)}
+.ds-datatable-table th.is-num .ds-datatable-sort{margin:0 4px 0 0}
+.ds-datatable-table tr.is-hover{background:var(--soft)}
+.ds-datatable-table tr.is-selected{background:var(--accent-bg)}
+.ds-datatable-table tfoot td{height:44px;padding-top:0;padding-bottom:0;font-weight:500}
+.ds-datatable-table tfoot .ds-datatable-light{font-weight:400;color:var(--body)}
+.ds-datatable-empty{padding:48px 16px}
+.ds-datatable-frame{container-type:inline-size}
+@container (max-width:800px){.ds-datatable-p3{display:none}}
+@container (max-width:700px){.ds-datatable-p2{display:none}}
+</style></head>
+<body>
+<div class="ds ds-stage ds-datatable-stage">
+
+  <p class="ds-caption">Pointer on the second row; the third is the record that is open</p>
+  <div class="ds-datatable-frame"><div class="ds-table-card">
+    <table class="ds-table ds-datatable-table">
+      <thead>
+        <tr>
+          <th>PO</th>
+          <th class="ds-datatable-p2">Delivery date<span class="ds-ico ds-ico-chevron-down ds-datatable-sort ds-datatable-up"></span></th>
+          <th class="is-num ds-datatable-p3">Quantity</th>
+          <th class="is-num">Grand total</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="ds-opens">
+          <td><span class="ds-datatable-name">Garmen Nusantara, PT</span><span class="ds-sub">PO-161026-010 · 1 item</span></td>
+          <td class="ds-datatable-p2">29 Oct 2026</td>
+          <td class="is-num ds-datatable-p3">24 pcs</td>
+          <td class="is-num">Rp 2.040.000</td>
+          <td><span class="ds-status ds-status--ok">Active</span></td>
+        </tr>
+        <tr class="ds-opens is-hover">
+          <td><span class="ds-datatable-name">Sepatu Sejahtera, CV</span><span class="ds-sub">PO-151026-004 · 6 items</span></td>
+          <td class="ds-datatable-p2">02 Nov 2026</td>
+          <td class="is-num ds-datatable-p3">360 pcs</td>
+          <td class="is-num">Rp 54.600.000</td>
+          <td><span class="ds-status ds-status--warn">Partially received</span></td>
+        </tr>
+        <tr class="ds-opens is-selected" aria-current="true">
+          <td><span class="ds-datatable-name">Busana Anggun Lestari, CV</span><span class="ds-sub">PO-141026-017 · 12 items</span></td>
+          <td class="is-late ds-datatable-p2">20 Oct 2026</td>
+          <td class="is-num ds-datatable-p3">1.200 pcs</td>
+          <td class="is-num">Rp 102.700.000</td>
+          <td><span class="ds-status ds-status--ok">Active</span></td>
+        </tr>
+        <tr class="ds-opens">
+          <td><span class="ds-datatable-name">Garmen Nusantara, PT</span><span class="ds-sub">PO-101026-003 · 3 items</span></td>
+          <td class="ds-datatable-p2">12 Oct 2026</td>
+          <td class="is-num ds-datatable-p3">96 pcs</td>
+          <td class="is-num">Rp 8.160.000</td>
+          <td><span class="ds-status ds-status--ok">Fully received</span></td>
+        </tr>
+        <tr class="ds-opens">
+          <td><span class="ds-datatable-name">Sepatu Sejahtera, CV</span><span class="ds-sub">PO-091026-002 · 2 items</span></td>
+          <td class="ds-datatable-p2">09 Oct 2026</td>
+          <td class="is-num ds-datatable-p3">48 pcs</td>
+          <td class="is-num">Rp 4.320.000</td>
+          <td><span class="ds-status ds-status--bad">Cancelled</span></td>
+        </tr>
+      </tbody>
+      <tfoot>
+        <tr>
+          <td>5 <span class="ds-datatable-light">orders</span></td>
+          <td class="ds-datatable-p2"></td>
+          <td class="is-num ds-datatable-p3">1.728 pcs</td>
+          <td class="is-num">Rp 171.820.000</td>
+          <td></td>
+        </tr>
+      </tfoot>
+    </table>
+  </div></div>
+
+  <p class="ds-caption">Nothing matches the filters</p>
+  <div class="ds-table-card">
+    <div class="ds-empty ds-datatable-empty"><p>No order matches these filters.</p></div>
+  </div>
+
+</div>
+</body>
+</html>

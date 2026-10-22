@@ -1,21 +1,19 @@
 import { useInfiniteQuery, useQueries, useQuery } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { Menu } from "@base-ui/react/menu"
 import type { Effect } from "@itulah/contract"
-import { ChevronRight, Eye } from "lucide-react"
+import { ChevronRight, Percent, Store, TrendingDown } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { DockTools, type DockStatus } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { Checkbox, Select } from "@/components/ui/field"
-import { FilterOmnibox } from "@/components/ui/filter-omnibox"
+import { Checkbox } from "@/components/ui/field"
+import { ListFilters } from "@/components/ui/list-filters"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { MiniCell, MiniRow, MiniTable, SubHead } from "@/components/ui/rows"
 import { Segmented } from "@/components/ui/segmented"
-import { Switch } from "@/components/ui/form"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { SheetFooter } from "@/components/ui/sheet-footer"
 import { SubTabs } from "@/components/ui/sub-tabs"
@@ -35,8 +33,8 @@ import {
   moment,
   percent,
   percentBps,
+  sku as skuText,
 } from "@/lib/format"
-import { POP_MOTION } from "@/lib/filter-chrome"
 import { cn } from "@/lib/utils"
 import {
   articlePrices,
@@ -66,9 +64,11 @@ import {
   type ArticlePriceShop,
   type ArticlePrices,
   type CommercialChannel,
+  type PriceLevel,
   type PriceScope,
   type PublishReceipt,
 } from "@/lib/queries/commercial"
+import { useNameOfLogin } from "@/lib/queries/hr-employees"
 import {
   fleetPools,
   inventoryKeys,
@@ -295,6 +295,30 @@ export function Pricelist() {
 
   const fields = useMemo<FilterField[]>(
     () => [
+      // The three marks a price can carry, answered in the browser over the
+      // page loaded. First, because the first short question is the line of
+      // chips.
+      {
+        column: "kind",
+        label: "Only articles with",
+        spec: {
+          kind: "option",
+          single: true,
+          operators: ["isAnyOf"],
+          options: KIND_TICKS.map((one) => ({
+            value: one.value,
+            label: one.label,
+          })),
+          icon: (value) =>
+            value === "promotion"
+              ? Percent
+              : value === "markdown"
+                ? TrendingDown
+                : value === "store"
+                  ? Store
+                  : undefined,
+        },
+      },
       {
         column: "division",
         label: "Division",
@@ -305,6 +329,12 @@ export function Pricelist() {
         label: "Tag",
         spec: { kind: "multi", single: true, operators: ["includesAnyOf"] },
       },
+      // The one store being read by article; the shops come with the page.
+      {
+        column: "store",
+        label: "Store",
+        spec: { kind: "option", single: true, operators: ["isAnyOf"] },
+      },
       {
         column: "price",
         label: "Price",
@@ -314,28 +344,8 @@ export function Pricelist() {
           operators: ["gte", "lte"],
         },
       },
-      // The three ticks a desk keeps in its side panel ("Only articles with"),
-      // as the one filter a phone has room for. Answered in the browser, over
-      // the page loaded, exactly as the ticks are — the server never hears it.
-      ...(phone
-        ? [
-            {
-              column: "kind",
-              label: "Only articles with",
-              spec: {
-                kind: "option",
-                single: true,
-                operators: ["isAnyOf"],
-                options: KIND_TICKS.map((one) => ({
-                  value: one.value,
-                  label: one.label,
-                })),
-              },
-            } satisfies FilterField,
-          ]
-        : []),
     ],
-    [phone]
+    []
   )
 
   const filters = useFilterState(fields)
@@ -345,7 +355,8 @@ export function Pricelist() {
   /// the stores that differ opened under it.
   const [by, setBy] = useState<"article" | "store">("article")
   /// By article: the one store being read, or "" for every store.
-  const [storeId, setStoreId] = useState("")
+  const storeId =
+    filters.filters.find((clause) => clause.column === "store")?.values[0] ?? ""
 
   const divisions = useQuery({
     queryKey: vocabularyKeys.list("divisions"),
@@ -506,26 +517,14 @@ export function Pricelist() {
 
   /// "Only articles with" — client-side, over the page already loaded: a row
   /// stays when some shop charges a promotion, a markdown or its own price.
-  const [kinds, setKinds] = useState<ReadonlySet<PriceKind>>(() => new Set())
-  const toggleKind = (kind: PriceKind, on: boolean) =>
-    setKinds((was) => {
-      const next = new Set(was)
-      if (on) next.add(kind)
-      else next.delete(kind)
-      return next
-    })
-  /// What the rows must carry: the desk's ticks, or on a phone the filter that
-  /// stands for them.
   const wanted = useMemo<ReadonlySet<PriceKind>>(
     () =>
-      phone
-        ? new Set(
-            filters.filters
-              .filter((clause) => clause.column === "kind")
-              .flatMap((clause) => clause.values as PriceKind[])
-          )
-        : kinds,
-    [phone, filters.filters, kinds]
+      new Set(
+        filters.filters
+          .filter((clause) => clause.column === "kind")
+          .flatMap((clause) => clause.values as PriceKind[])
+      ),
+    [filters.filters]
   )
 
   // ── selection and the "Change price" sheet ────────────────────────────────
@@ -696,15 +695,15 @@ export function Pricelist() {
       value: page === undefined ? "—" : count(figures.promotion),
     },
     {
-      label: "Markdown",
+      label: "On markdown",
       value: page === undefined ? "—" : count(figures.markdown),
     },
     {
-      label: "Store price",
+      label: "With a store price",
       value: page === undefined ? "—" : count(figures.store),
     },
     {
-      label: "Upcoming",
+      label: "With a next price",
       value: page === undefined ? "—" : count(figures.upcoming),
     },
     {
@@ -718,7 +717,7 @@ export function Pricelist() {
   ]
 
   return (
-    <PageContent fill={!phone && tab === "prices"}>
+    <PageContent>
       <PageHeader crumb="Marketing" title="Pricelist" />
 
       {/* Counted over the page loaded. A phone has its sentence under the list
@@ -802,32 +801,19 @@ export function Pricelist() {
                     value={by}
                     onChange={setBy}
                   />
-                  {by === "article" && (
-                    <Select
-                      aria-label="Store"
-                      value={storeId}
-                      onChange={setStoreId}
-                      className="w-44 shrink-0"
-                    >
-                      <option value="">All stores</option>
-                      {(page?.shops ?? []).map((one) => (
-                        <option key={one.site_id} value={one.site_id}>
-                          {one.label ?? one.site_id}
-                        </option>
-                      ))}
-                    </Select>
-                  )}
-                  <FilterOmnibox
-                    model={{ ...filters, fields: counted }}
-                    text={typed === "" ? undefined : typed}
-                    onText={(next) =>
-                      next ? search.open(next) : search.close()
-                    }
-                    className="min-w-0 flex-1"
-                  />
-                  <ShowMenu
-                    kinds={kinds}
-                    onKind={(value) => toggleKind(value, !kinds.has(value))}
+                  <ListFilters
+                    model={{
+                      ...filters,
+                      fields: counted.filter(
+                        (one) => by === "article" || one.column !== "store"
+                      ),
+                    }}
+                    search={{
+                      value: typed,
+                      onChange: (next) =>
+                        next ? search.open(next) : search.close(),
+                      label: "Search articles",
+                    }}
                   />
                 </>
               )}
@@ -904,7 +890,7 @@ export function Pricelist() {
                         </>
                       )}
 
-                      <Card className="flex min-h-0 flex-1 flex-col overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+                      <Card className="flex flex-col overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
                         {items.length === 0 ? (
                           needle === "" && filters.filters.length === 0 ? (
                             <EmptyState>No prices published yet.</EmptyState>
@@ -1019,7 +1005,7 @@ export function Pricelist() {
               value: typed,
               onChange: (next) =>
                 next ? search.replace(next) : search.close(),
-              label: "Search Pricelist",
+              label: "Search articles",
             }}
             filter={{
               count: filters.filters.length,
@@ -1128,6 +1114,17 @@ function useCountedFields(
     const tagNames = names(tagTerms)
     const facets = page?.facets
     return fields.map((field) => {
+      if (field.column === "store")
+        return {
+          ...field,
+          spec: {
+            ...field.spec,
+            options: (page?.shops ?? []).map((one) => ({
+              value: one.site_id,
+              label: one.label ?? one.site_id,
+            })),
+          },
+        }
       if (field.column === "division")
         return {
           ...field,
@@ -1218,9 +1215,10 @@ function skusOf(row: ArticlePriceRow): readonly SkuLine[] {
 }
 function sizeLabel(codes: readonly string[]): string {
   if (!codes.every((code) => SKU_SIZE.has(code)))
-    return `${count(codes.length)} SKU`
+    return `${count(codes.length)} ${codes.length === 1 ? "SKU" : "SKUs"}`
   const suffixes = [...new Set(codes.map((code) => SKU_SIZE.get(code)!))]
-  if (suffixes.length === 0) return `${count(codes.length)} SKU`
+  if (suffixes.length === 0)
+    return `${count(codes.length)} ${codes.length === 1 ? "SKU" : "SKUs"}`
   const known = suffixes.every((one) => SIZE_ORDER.includes(one.toUpperCase()))
   const numeric = suffixes.every((one) => /^\d+$/.test(one))
   const sorted = suffixes
@@ -1233,7 +1231,8 @@ function sizeLabel(codes: readonly string[]): string {
           ? Number(a) - Number(b)
           : a.localeCompare(b)
     )
-  if (sorted.length > 6) return `${count(codes.length)} SKU`
+  if (sorted.length > 6)
+    return `${count(codes.length)} ${codes.length === 1 ? "SKU" : "SKUs"}`
   return sorted.length > 2
     ? `${sorted[0]}–${sorted[sorted.length - 1]}`
     : sorted.join(", ")
@@ -1424,7 +1423,7 @@ function factsFor(
 // `factsFor` says what a price IS. The pricelist is also read for what it is
 // about to be: a markdown that ends on Saturday, a promotion that runs out, a
 // book that starts on the first. One function reads all three, so the tag
-// ("Changes 1 Nov"), the Ends column and the Next price column of the same
+// ("Next price 1 Nov"), the Ends column and the Next price column of the same
 // price cannot disagree.
 
 /// A date from the server as the calendar day it falls on in the browser's own
@@ -1885,13 +1884,14 @@ function tagsOf(slot: Slot, costMinor: number | null | undefined): PriceTag[] {
   const { facts, next } = slot
   if (facts === null || slot.prices > 1) return []
   const found: PriceTag[] = []
-  if (facts.kind === "promotion") found.push({ kind: "promo", label: "Promo" })
+  if (facts.kind === "promotion")
+    found.push({ kind: "promo", label: "Promotion" })
   if (facts.kind === "markdown")
     found.push({ kind: "markdown", label: "Markdown" })
   if (costMinor != null && costMinor > 0 && facts.amountMinor < costMinor)
     found.push({ kind: "below", label: "Below cost" })
   if (next !== null)
-    found.push({ kind: "changes", label: `Changes ${dayMonth(next.on)}` })
+    found.push({ kind: "changes", label: `Next price ${dayMonth(next.on)}` })
   return found
 }
 
@@ -1903,7 +1903,7 @@ const TAG_TEXT: Record<TagKind, string> = {
   changes: "text-[#2459c9]",
 }
 
-/// The pieces and, after them, what the price is — "4 pcs · Promo" — on one
+/// The pieces and, after them, what the price is — "4 pcs · Promotion" — on one
 /// line: the tags as coloured words rather than chips, so a row with a promo
 /// is as tall as one without (owner, 16 Oct).
 function PiecesAndTags({
@@ -2262,7 +2262,7 @@ function PriceGrid({
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto">
+    <div className="overflow-x-auto">
       <table className="w-full table-fixed border-separate border-spacing-0 text-cell">
         <colgroup>
           <col className="w-12" />
@@ -2296,7 +2296,7 @@ function PriceGrid({
               scope="col"
               className={cn(HEAD, "left-[22.5rem] z-30 border-r text-right")}
             >
-              All stores
+              Most stores
             </th>
             {shops.map((shopMeta) => (
               <th
@@ -2321,7 +2321,7 @@ function PriceGrid({
                     title={`${shopMeta.pending_publication.name} — published ${ago(shopMeta.pending_publication.published_at)}, not yet at the till`}
                   >
                     <span className="size-1.5 shrink-0 rounded-full bg-warn" />
-                    Not updated yet
+                    Behind
                   </span>
                 )}
               </th>
@@ -2411,7 +2411,7 @@ function PriceGrid({
                             {skuLabel(sku)}
                           </span>
                           <span className="block truncate font-mono text-id text-mute">
-                            {sku.code}
+                            {skuText(sku.code)}
                           </span>
                         </th>
                         {lineCells(view, slots, band, false, lineRule)}
@@ -2493,7 +2493,7 @@ function PhonePrices({
                   />
                   <CardName
                     name={name}
-                    code={`${row.article_code} · ${count(row.sku_count)} SKU`}
+                    code={`${row.article_code} · ${count(row.sku_count)} ${row.sku_count === 1 ? "SKU" : "SKUs"}`}
                     line={articleLine(row, divisionLabels, tagLabels)}
                   />
                 </div>
@@ -2636,12 +2636,12 @@ function HoverCard({ info }: { info: HoverInfo }) {
         </div>
       )}
       <div className="mt-0.5 border-t border-hairline pt-1.5">
-        {line("Charged now", money(facts.amountMinor), true)}
+        {line("Price now", money(facts.amountMinor), true)}
       </div>
       {info.stock !== null && line("Stock", count(info.stock))}
       {info.waiting !== null && (
         <div className="text-warn-fg">
-          Waiting for {info.store} to update · {info.waiting}
+          {info.store} is behind · {info.waiting}
         </div>
       )}
     </div>
@@ -2718,74 +2718,10 @@ function ArticleCell({
   )
 }
 
-/// Which kinds of price an article must carry to stay on the list — the ticks
-/// the right-hand panel used to hold, as a menu at the end of the search line.
-/// A count on the button says how many are on, so a closed menu never hides
-/// that the list is narrowed.
-function ShowMenu({
-  kinds,
-  onKind,
-}: {
-  kinds: ReadonlySet<PriceKind>
-  onKind: (value: PriceKind) => void
-}) {
-  const row =
-    "flex min-h-8 cursor-default items-center justify-between gap-4 rounded-inner px-2 text-[0.9375rem] text-ink outline-none select-none data-[highlighted]:bg-soft-2"
-  const heading =
-    "block px-2 pt-1 pb-1.5 text-eyebrow font-semibold tracking-[0.05em] text-mute uppercase"
-  return (
-    <Menu.Root>
-      <Menu.Trigger className="inline-flex h-control shrink-0 items-center gap-1.5 rounded-inner px-[0.5625rem] text-[0.9375rem] font-medium text-body transition-colors hover:bg-soft-2 hover:text-ink">
-        <Eye className="size-3.5 stroke-[1.7]" />
-        Show
-        {kinds.size > 0 && (
-          <span className="rounded-full bg-accent-bg px-1.5 text-accent tabular-nums">
-            {kinds.size}
-          </span>
-        )}
-      </Menu.Trigger>
-      <Menu.Portal>
-        <Menu.Positioner
-          side="bottom"
-          align="end"
-          sideOffset={4}
-          className="z-50"
-        >
-          <Menu.Popup
-            className={cn(
-              "min-w-[13rem] rounded-card border border-hairline bg-canvas p-1.5 shadow-pop",
-              POP_MOTION
-            )}
-          >
-            <span className={heading}>Only articles with</span>
-            {KIND_TICKS.map((tick) => (
-              <Menu.Item
-                key={tick.value}
-                closeOnClick={false}
-                onClick={() => onKind(tick.value)}
-                className={row}
-              >
-                {tick.label}
-                <span className="pointer-events-none">
-                  <Switch
-                    on={kinds.has(tick.value)}
-                    label={tick.label}
-                    onToggle={() => {}}
-                  />
-                </span>
-              </Menu.Item>
-            ))}
-          </Menu.Popup>
-        </Menu.Positioner>
-      </Menu.Portal>
-    </Menu.Root>
-  )
-}
-
 /// "M / Black" — the SKU's size and colour, else its code.
 function skuLabel(sku: SkuLine): string {
   const parts = [sku.size, sku.color].filter((one): one is string => !!one)
-  return parts.length === 0 ? sku.code : parts.join(" · ")
+  return parts.length === 0 ? skuText(sku.code) : parts.join(" · ")
 }
 
 // ── By article ─────────────────────────────────────────────────────────────
@@ -2918,7 +2854,7 @@ function ArticleTable({
   const nameOf = (index: number) => shops[index].label ?? shops[index].site_id
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto">
+    <div className="overflow-x-auto">
       {/* The article keeps at least 18rem; past that the table scrolls
           sideways rather than squeezing names letter by letter. */}
       <table className="w-full min-w-[62rem] table-fixed border-separate border-spacing-0 text-cell">
@@ -2952,7 +2888,7 @@ function ArticleTable({
               Article
             </th>
             <th scope="col" className={cn(HEAD, "text-right")}>
-              Current price
+              Price now
             </th>
             <th scope="col" className={HEAD}>
               Ends
@@ -2965,7 +2901,7 @@ function ArticleTable({
             </th>
             {!byStore && (
               <th scope="col" className={HEAD}>
-                Stores
+                Store exceptions
               </th>
             )}
           </tr>
@@ -3158,6 +3094,12 @@ function CellSheet({
       ? undefined
       : row.shops.find((one) => one.site_id === cell.siteId)
   const top = winner(shopRow)
+  /// Who a rung was written for, with a store's name rather than its code.
+  const placeOf = (level: PriceLevel): string => {
+    if (level.level !== "SITE") return describeLevel(level)
+    const siteId = level.site_id
+    return shops.find((one) => one.site_id === siteId)?.label ?? siteId
+  }
   const shopMeta =
     cell === null ? undefined : shops.find((one) => one.site_id === cell.siteId)
 
@@ -3214,7 +3156,7 @@ function CellSheet({
             <Fact term="Shelf price">
               {top === undefined ? "—" : amounts(top)}
             </Fact>
-            <Fact term="Set by">
+            <Fact term="Comes from">
               {top === undefined
                 ? "—"
                 : `${describeSource(top.source)} · ${bookNames.get(top.publication_version) ?? `v${top.publication_version}`}`}
@@ -3244,11 +3186,11 @@ function CellSheet({
               </div>
 
               <div>
-                <SubHead>Why this shelf price</SubHead>
+                <SubHead>Why this price</SubHead>
                 <MiniTable
                   head={[
                     "Comes from",
-                    { label: "Applies to", align: "left" },
+                    { label: "Stores", align: "left" },
                     "SKUs",
                     "Price",
                   ]}
@@ -3283,7 +3225,7 @@ function CellSheet({
                                   : "text-[0.9375rem] text-mute"
                               }
                             >
-                              {describeLevel(rule.applies_to)}
+                              {placeOf(rule.applies_to)}
                             </span>
                           )}
                         </MiniCell>
@@ -3314,11 +3256,11 @@ function CellSheet({
                 shopMeta !== undefined) ||
               laterDiffers ? (
                 <div>
-                  <SubHead>Upcoming</SubHead>
+                  <SubHead>Next price</SubHead>
                   <div className="flex flex-col gap-3">
                     {shopMeta?.pending_publication != null && (
                       <p className="text-[0.9375rem] text-body">
-                        Waiting for {shopMeta.label ?? cell.siteId} to update ·{" "}
+                        {shopMeta.label ?? cell.siteId} is behind ·{" "}
                         {shopMeta.pending_publication.name} · from{" "}
                         {day(shopMeta.pending_publication.effective_from)}
                       </p>
@@ -3343,7 +3285,9 @@ function CellSheet({
             />
           )}
 
-          {top !== undefined && <InService version={top.publication_version} />}
+          {top !== undefined && (
+            <InService version={top.publication_version} shops={shops} />
+          )}
         </div>
       )}
     </Sheet>
@@ -3515,7 +3459,7 @@ function TillCheck({
 
       {misses.size > 0 && (
         <div>
-          <p className="mb-2 text-[0.9375rem] text-body">Did not come off</p>
+          <p className="mb-2 text-[0.9375rem] text-body">Not applied</p>
           {[...misses.values()].map((rule) => (
             <div
               key={rule.rule_id}
@@ -3577,13 +3521,13 @@ function Receipt({
       )}
       <dl className="flex flex-col">
         <ReceiptRow
-          term="Pricelist"
+          term="Base price"
           amount={money(line?.base_unit_price_minor ?? null)}
         />
         {line !== undefined &&
           line.unit_price_minor < line.base_unit_price_minor && (
             <ReceiptRow
-              term="Sale price"
+              term="Markdown price"
               amount={money(line.unit_price_minor)}
             />
           )}
@@ -3597,7 +3541,7 @@ function Receipt({
         {walkIn.free_lines.map((free) => (
           <ReceiptRow
             key={`${free.sku_code}-${free.granted_by_rule_id}`}
-            term={`Free ${free.sku_code} × ${count(free.quantity)}`}
+            term={`Free ${skuText(free.sku_code)} × ${count(free.quantity)}`}
             amount={money(free.value_minor)}
           />
         ))}
@@ -3605,7 +3549,7 @@ function Receipt({
           <ReceiptRow term="Tax on top" amount={money(taxOnTop)} />
         )}
         <ReceiptRow
-          term="Walk-in pays"
+          term="Non-member pays"
           note={markup === null ? undefined : `${percentBps(markup)} markup`}
           amount={money(walkIn.amount_due_minor)}
           strong
@@ -3678,7 +3622,13 @@ function ReceiptRow({
 /// (`reported_at`) is the number to watch: a shop that switched an hour before
 /// the centre heard is priced correctly and reporting late, which is a
 /// different fault from a shop that never switched at all.
-function InService({ version }: { version: number }) {
+function InService({
+  version,
+  shops,
+}: {
+  version: number
+  shops: readonly PricelistShop[]
+}) {
   const books = useQuery({
     queryKey: commercialKeys.books(),
     queryFn: ({ signal }) => listPriceBooks(signal),
@@ -3696,20 +3646,25 @@ function InService({ version }: { version: number }) {
 
   return (
     <div>
-      <SubHead aside={book.name}>In service at</SubHead>
+      <SubHead aside={book.name}>At the stores</SubHead>
       {detail.data === undefined ? (
         <Quiet>Loading…</Quiet>
       ) : detail.data.activated_by.length === 0 ? (
-        <Quiet>Not in service at any store yet.</Quiet>
+        <Quiet>Not applied at any store yet.</Quiet>
       ) : (
         <MiniTable
-          head={["Store", { label: "Since", align: "left" }, "Rules Taken"]}
+          head={["Store", { label: "Applied", align: "left" }, "Rules loaded"]}
         >
           {detail.data.activated_by.map((activation) => (
             <MiniRow key={activation.origin_id}>
               <MiniCell className="py-3.5">
                 <Named
-                  name={activation.site_id ?? "Unsited"}
+                  name={
+                    activation.site_id === null
+                      ? "Unsited"
+                      : (shops.find((one) => one.site_id === activation.site_id)
+                          ?.label ?? activation.site_id)
+                  }
                   code={activation.origin_id}
                 />
               </MiniCell>
@@ -3759,6 +3714,7 @@ function PriceHistorySection({
   channel: CommercialChannel
   skuCount: number
 }) {
+  const nameOf = useNameOfLogin()
   const history = useQuery({
     queryKey: priceHistoryKeys.of(skuCode, siteId, channel),
     queryFn: ({ signal }) => priceHistory(skuCode, siteId, channel, signal),
@@ -3783,9 +3739,9 @@ function PriceHistorySection({
           ) : (
             <MiniTable
               head={[
-                "From",
-                { label: "Set by", align: "left" },
-                "Change",
+                "Dates",
+                { label: "Comes from", align: "left" },
+                "Difference",
                 "Price",
               ]}
             >
@@ -3807,7 +3763,7 @@ function PriceHistorySection({
                       {period.publication_name ??
                         `v${period.publication_version}`}
                       {period.published_by !== null &&
-                        ` · ${period.published_by}`}
+                        ` · ${nameOf(period.published_by)}`}
                     </span>
                   </MiniCell>
                   <MiniCell align="right" className="py-3.5 tabular-nums">
@@ -3904,13 +3860,13 @@ function ArticleSheet({
                       : `Base price ${money(baseMinor)}`
                   }
                 >
-                  {bands.length === 1 ? "Every store" : `Sizes ${band.label}`}
+                  {bands.length === 1 ? "All stores" : `Sizes ${band.label}`}
                 </SubHead>
                 <MiniTable
                   head={[
                     "Store",
-                    { label: "Price", align: "right" },
-                    "Set by",
+                    { label: "Price now", align: "right" },
+                    "Comes from",
                     "Dates",
                   ]}
                 >
@@ -3928,7 +3884,7 @@ function ArticleSheet({
                         <MiniRow key={shopMeta.site_id}>
                           <MiniCell className="py-3.5">{name}</MiniCell>
                           <MiniCell align="right" className="py-3.5">
-                            <span className="text-faint">not sold</span>
+                            <span className="text-faint">Not sold</span>
                           </MiniCell>
                           <MiniCell className="py-3.5">{null}</MiniCell>
                           <MiniCell className="py-3.5">{null}</MiniCell>
@@ -4106,9 +4062,9 @@ function StoreSheet({
                 <MiniTable
                   head={[
                     "Article",
-                    { label: "Pricelist", align: "right" },
-                    { label: "On Sale", align: "right" },
-                    { label: "Charged", align: "right" },
+                    { label: "Base price", align: "right" },
+                    { label: "On markdown", align: "right" },
+                    { label: "Shelf price", align: "right" },
                   ]}
                 >
                   {styles.map((style) => (

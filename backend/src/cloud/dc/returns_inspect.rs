@@ -161,8 +161,9 @@ async fn summary(
     })
 }
 
-/// Every received return with units still waiting to be inspected, newest
-/// receipt first.
+/// Every received return with units still waiting to be inspected, and the
+/// ones fully inspected in the last week (the Ops board's Received lane),
+/// newest receipt first.
 pub(super) async fn list(
     State(state): State<AppState>,
 ) -> Result<Json<ReturnInspectionList>, AppError> {
@@ -190,6 +191,7 @@ pub(super) async fn list(
                JOIN operational_pool pool ON pool.id = r.landing_pool_id AND pool.role = 'RETURN'
          ) returns
           WHERE waiting > 0
+             OR (inspected > 0 AND received_at > now() - interval '7 days')
           ORDER BY received_at DESC, delivery_id
           LIMIT 200",
     )

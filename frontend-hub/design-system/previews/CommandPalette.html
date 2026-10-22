@@ -1,0 +1,109 @@
+<!-- @dsCard group="Page" height=868 subtitle="Static rendition of command-palette.tsx in the All white look" -->
+<!doctype html>
+<html lang="en">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>CommandPalette — preview</title><style>
+body{margin:0}
+/* CommandPalette: the dialog at its real size (576px, radius 10, shadow-float) over the white veil, which here is scrim with no blur. */
+.ds-palette-stage{gap:12px}
+.ds-palette-window{position:relative;border-radius:var(--r-sheet);overflow:hidden;background:var(--canvas);box-shadow:0 0 0 1px var(--hairline)}
+.ds-palette-window--page{height:352px}
+.ds-palette-window--bare{padding:16px 0}
+.ds-palette-window--bare::before,.ds-palette-veil{content:"";position:absolute;inset:0;background:var(--scrim)}
+.ds-palette-behind{position:absolute;inset:0;background:var(--canvas)}
+.ds-palette-behind .ds-page-content{padding-top:var(--page-top)}
+.ds-palette-behind .ds-page-head{margin-bottom:var(--head-gap)}
+.ds-palette-behind .ds-table th,.ds-palette-behind .ds-table td{white-space:nowrap}
+.ds-palette{position:relative;width:576px;max-width:calc(100% - 32px);margin:0 auto;overflow:hidden;border:1px solid var(--hairline);border-radius:var(--r-card);background:var(--canvas);box-shadow:var(--shadow-float)}
+.ds-palette-window--page .ds-palette{margin-top:52px}
+.ds-palette-find{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--hairline)}
+.ds-palette-scope{display:inline-flex;align-items:center;gap:6px;flex:none;height:26px;padding:0 10px;border-radius:var(--r-full);background:var(--soft-2);color:var(--body);font-size:15px;line-height:20px;font-weight:500;white-space:nowrap}
+.ds-palette-scope.is-wide{background:var(--accent-bg);color:var(--accent)}
+.ds-palette-globe{width:12px;height:12px}
+.ds-palette-input{flex:1;min-width:0;font-size:15px;line-height:22px;color:var(--ink)}
+.ds-palette-key{flex:none;padding:1px 6px;border:1px solid var(--hairline-2);border-radius:var(--r-chip);background:var(--canvas);font-size:15px;line-height:20px;color:var(--body)}
+.ds-palette-list{max-height:384px;padding:6px 0;overflow-y:auto}
+.ds-palette-row{display:flex;align-items:center;gap:10px;padding:8px 14px;font-size:15px;line-height:22px}
+.ds-palette-row.is-at{background:var(--soft)}
+.ds-palette-row .ds-ico{color:var(--line-ico)}
+.ds-palette-slot{flex:none;width:16px;height:16px}
+.ds-palette-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500;color:var(--ink)}
+.ds-palette-sub{flex:none;white-space:nowrap;color:var(--mute)}
+.ds-palette-row .ds-palette-enter{width:12px;height:12px;color:var(--faint)}
+.ds-palette-group{margin-top:6px;padding:10px 14px 4px;border-top:1px solid var(--hairline);font-size:15px;line-height:20px;font-weight:600;color:var(--mute)}
+.ds-palette-wait{padding:8px 14px;font-size:15px;line-height:22px;color:var(--mute)}
+.ds-palette-none{padding:24px 14px;text-align:center;font-size:15px;line-height:22px;color:var(--body)}
+.ds-palette-ico-globe{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpath d='M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20'/%3E%3Cpath d='M2 12h20'/%3E%3C/svg%3E")}
+.ds-palette-ico-corner-down-left{--ds-ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='9 10 4 15 9 20'/%3E%3Cpath d='M20 4v7a4 4 0 0 1-4 4H4'/%3E%3C/svg%3E")}
+</style></head>
+<body>
+<div class="ds ds-stage ds-palette-stage">
+
+  <p class="ds-caption">Everywhere, with a query: screens first, then the Records</p>
+  <div class="ds-palette-window ds-palette-window--page">
+    <div class="ds-palette-behind">
+      <div class="ds-page-content">
+        <div class="ds-page-head">
+          <div><h1 class="ds-title">Purchase Orders</h1></div>
+          <button class="ds-btn ds-btn--primary" type="button"><span class="ds-ico ds-ico-plus"></span>New order</button>
+        </div>
+        <div class="ds-table-card">
+          <table class="ds-table">
+            <thead><tr><th>PO</th><th>Delivery date</th><th class="is-num">Ordered</th></tr></thead>
+            <tbody>
+              <tr><td>Garmen Nusantara, PT<span class="ds-sub">PO-161026-010 · 1 item</span></td><td>29 Oct 2026</td><td class="is-num">24 pcs</td></tr>
+              <tr><td>Sepatu Sejahtera, CV<span class="ds-sub">PO-151026-001 · 2 items</span></td><td>02 Nov 2026</td><td class="is-num">300 pcs</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="ds-palette-veil"></div>
+    <div class="ds-palette" role="dialog" aria-label="Search">
+      <div class="ds-palette-find">
+        <span class="ds-palette-scope is-wide"><span class="ds-ico ds-palette-ico-globe ds-palette-globe"></span>Everywhere</span>
+        <span class="ds-palette-input">sup</span>
+        <span class="ds-palette-key">tab</span>
+      </div>
+      <div class="ds-palette-list">
+        <div class="ds-palette-row is-at"><span class="ds-ico ds-ico-cart"></span><span class="ds-palette-title">Suppliers</span><span class="ds-palette-sub">Procurement</span><span class="ds-ico ds-palette-ico-corner-down-left ds-palette-enter"></span></div>
+        <div class="ds-palette-row"><span class="ds-ico ds-ico-wallet"></span><span class="ds-palette-title">Supplier Bills</span><span class="ds-palette-sub">Finance</span></div>
+        <div class="ds-palette-group">Records</div>
+        <div class="ds-palette-row"><span class="ds-palette-slot"></span><span class="ds-palette-title">Garmen Nusantara, PT</span><span class="ds-palette-sub">Suppliers · SUP-0012 · Active</span></div>
+        <div class="ds-palette-row"><span class="ds-palette-slot"></span><span class="ds-palette-title">Sepatu Sejahtera, CV</span><span class="ds-palette-sub">Suppliers · SUP-0007 · Active</span></div>
+        <div class="ds-palette-row"><span class="ds-palette-slot"></span><span class="ds-palette-title">Busana Anggun Lestari, CV</span><span class="ds-palette-sub">Suppliers · SUP-0003 · Active</span></div>
+      </div>
+    </div>
+  </div>
+
+  <p class="ds-caption">Narrowed to the module you are in, while the records are still being read</p>
+  <div class="ds-palette-window ds-palette-window--bare">
+    <div class="ds-palette" role="dialog" aria-label="Search">
+      <div class="ds-palette-find">
+        <span class="ds-palette-scope">Procurement</span>
+        <span class="ds-palette-input">sup</span>
+        <span class="ds-palette-key">tab</span>
+      </div>
+      <div class="ds-palette-list">
+        <div class="ds-palette-row is-at"><span class="ds-ico ds-ico-cart"></span><span class="ds-palette-title">Suppliers</span><span class="ds-palette-sub">Procurement</span><span class="ds-ico ds-palette-ico-corner-down-left ds-palette-enter"></span></div>
+        <div class="ds-palette-wait">Looking through Procurement…</div>
+      </div>
+    </div>
+  </div>
+
+  <p class="ds-caption">Nothing found anywhere: one sentence, no instruction</p>
+  <div class="ds-palette-window ds-palette-window--bare">
+    <div class="ds-palette" role="dialog" aria-label="Search">
+      <div class="ds-palette-find">
+        <span class="ds-palette-scope is-wide"><span class="ds-ico ds-palette-ico-globe ds-palette-globe"></span>Everywhere</span>
+        <span class="ds-palette-input">zzz</span>
+        <span class="ds-palette-key">tab</span>
+      </div>
+      <div class="ds-palette-list">
+        <p class="ds-palette-none">Nothing in any module matches “zzz”.</p>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

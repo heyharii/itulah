@@ -1342,6 +1342,84 @@ pub async fn run_slips(
     Ok(Json(infrastructure::run_slips(&state.db, &id).await?))
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PeriodQuery {
+    /// `YYYY-MM`.
+    pub period: String,
+    #[serde(default)]
+    pub unit: Option<String>,
+}
+
+/// The month's first day and the unit a month-wide read is narrowed to: the
+/// one asked for, which the caller must reach, or the caller's own bound.
+/// `None` is "posted nowhere", answered with nothing rather than refused.
+async fn period_scope(
+    state: &AppState,
+    principal: &Principal,
+    query: &PeriodQuery,
+) -> Result<Option<(NaiveDate, Option<String>)>, AppError> {
+    let month = AttendanceMonth::parse(query.period.trim())
+        .map_err(|_| AppError::Validation("period is a month, YYYY-MM".into()))?;
+    let first = infrastructure::month_first_day(month)?;
+    let reach = reach_of(state, principal).await?;
+    if reach.is_nowhere() {
+        return Ok(None);
+    }
+    let asked = query
+        .unit
+        .as_deref()
+        .map(str::trim)
+        .filter(|unit| !unit.is_empty());
+    let unit = match asked {
+        Some(unit) => {
+            reaches(principal, &reach, unit)?;
+            Some(unit.to_owned())
+        }
+        None => reach.sole_unit().map(ToString::to_string),
+    };
+    Ok(Some((first, unit)))
+}
+
+/// Every payslip of one month across the units the caller reaches, each with
+/// its run's place and state — Payroll › Payslips in one read instead of one
+/// per run.
+pub async fn period_slips(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Query(query): Query<PeriodQuery>,
+) -> Result<Json<Vec<infrastructure::PeriodSlipRow>>, AppError> {
+    require(&principal, actions::PAY_READ)?;
+    let Some((first, unit)) = period_scope(&state, &principal, &query).await? else {
+        return Ok(Json(Vec::new()));
+    };
+    Ok(Json(
+        infrastructure::period_slips(&state.db, first, unit.as_deref()).await?,
+    ))
+}
+
+/// Who a month's runs would pay without the data to pay them: no pay
+/// agreement, no bank account, no PTKP status or no BPJS numbers. Read
+/// before a run is opened, so the gaps are fixed first rather than found on
+/// the slips. Says only *that* something is missing — never the numbers.
+pub async fn payroll_readiness(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Query(query): Query<PeriodQuery>,
+) -> Result<Json<infrastructure::PayrollReadiness>, AppError> {
+    require(&principal, actions::PAY_READ)?;
+    let Some((first, unit)) = period_scope(&state, &principal, &query).await? else {
+        return Ok(Json(infrastructure::PayrollReadiness {
+            period: query.period.trim().to_owned(),
+            employees: 0,
+            missing: Vec::new(),
+        }));
+    };
+    Ok(Json(
+        infrastructure::payroll_readiness(&state.db, first, unit.as_deref()).await?,
+    ))
+}
+
 pub async fn run_reconciliation(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
@@ -1528,6 +1606,68 @@ pub async fn grant_loan(
         &granted,
     )
     .await?;
+    Ok(Json(
+        infrastructure::loans_of(&state.db, &access.employee_id).await?,
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct LoanRepaymentBody {
+    pub amount_minor: i64,
+    /// The day the money came back, `YYYY-MM-DD`.
+    pub posting_date: String,
+    /// Where it came back into: `petty_cash` (the loan's own unit), or
+    /// `bank_savings` / `bank_giro` with the bank's code as the qualifier.
+    pub cash_key: String,
+    #[serde(default)]
+    pub cash_qualifier: String,
+    pub reason: String,
+}
+
+/// Record a loan repayment the employee made directly (0804): money handed
+/// in or transferred, not taken off pay. Head office's, like granting and
+/// stopping. The balance drops when this is recorded and not before — it is
+/// the advance's `REFUND` settlement, and posts the journal that goes with it.
+pub async fn repay_loan(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(id): Path<String>,
+    Json(body): Json<LoanRepaymentBody>,
+) -> Result<Json<Vec<infrastructure::LoanView>>, AppError> {
+    require(&principal, actions::PAY_CHANGE)?;
+    let advance_id =
+        uuid::Uuid::parse_str(&id).map_err(|_| AppError::NotFound(format!("loan {id}")))?;
+    let employee = infrastructure::loan_employee(&state.db, advance_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("loan {id}")))?;
+    let access = resolve(&state, &principal, &employee).await?;
+    subject_is_reachable(&state, &access).await?;
+    let reason = body.reason.trim();
+    if reason.is_empty() {
+        return Err(AppError::Validation("say how the money came back".into()));
+    }
+    let posting_date = NaiveDate::parse_from_str(body.posting_date.trim(), "%Y-%m-%d")
+        .map_err(|_| AppError::Validation("posting_date is a day, YYYY-MM-DD".into()))?;
+    let cash_key = body.cash_key.trim();
+    if cash_key.is_empty() {
+        return Err(AppError::Validation(
+            "say which drawer or bank the money came back into".into(),
+        ));
+    }
+    let repayment = infrastructure::SettleAdvanceRequest {
+        kind: "REFUND".into(),
+        amount_minor: body.amount_minor,
+        posting_date,
+        account_code: None,
+        category_code: None,
+        cash_key: Some(cash_key.to_owned()),
+        cash_qualifier: body.cash_qualifier.trim().to_owned(),
+        evidence: None,
+        note: Some(reason.to_owned()),
+    };
+    infrastructure::repay_loan(&state.db, advance_id, &repayment, &principal.username).await?;
     Ok(Json(
         infrastructure::loans_of(&state.db, &access.employee_id).await?,
     ))

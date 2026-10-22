@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import QRCode from "qrcode"
 
-import { day } from "@/lib/format"
+import { day, sku } from "@/lib/format"
 import { fact, letterKind } from "@/lib/queries/letters"
 import { REASON_LABEL } from "@/lib/queries/supplier-returns"
 import type { SupplierReturnReason } from "@/lib/queries/supplier-returns"
@@ -72,7 +72,7 @@ export function PrintStyles() {
 ///
 /// Drawn client-side at render, so the QR always names the deployment it was
 /// printed from and a staging surat never points at production.
-function TrackQr({ letter }: { letter: LetterDetail }) {
+export function TrackQr({ letter }: { letter: LetterDetail }) {
   const [svg, setSvg] = useState<string | null>(null)
   useEffect(() => {
     let alive = true
@@ -314,7 +314,7 @@ function Goods({
               )}
             </td>
             <td className="py-1.5 align-top font-mono text-[0.875rem]">
-              {line.code}
+              {sku(line.code)}
             </td>
             {short && (
               <td className="py-1.5 text-right align-top tabular-nums">
