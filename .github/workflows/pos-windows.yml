@@ -59,7 +59,19 @@ jobs:
           & $sevenZip.Source x $archive "-o$extract" -y | Out-Null
           if ($LASTEXITCODE -ne 0) { throw "7-Zip extraction failed: $LASTEXITCODE" }
 
-          $api = Get-ChildItem -Path $extract -Filter UHFAPI.dll -Recurse |
+          # The DLLs are not in the outer archive itself: they sit in a second
+          # archive inside it, C#/API/win-UHF_LIB_<date>.rar. Only that one is
+          # opened, so a copy of UHFAPI.dll from the demo or the app archive can
+          # never be the one picked.
+          $lib = Get-ChildItem -Path $extract -Filter 'win-UHF_LIB_*.rar' -Recurse |
+            Select-Object -First 1
+          if (-not $lib) { throw 'The verified Chainway SDK archive has no win-UHF_LIB archive.' }
+          $libDir = Join-Path $env:RUNNER_TEMP 'chainway-r3-lib'
+          New-Item -ItemType Directory -Force -Path $libDir | Out-Null
+          & $sevenZip.Source x $lib.FullName "-o$libDir" -y | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "7-Zip extraction of $($lib.Name) failed: $LASTEXITCODE" }
+
+          $api = Get-ChildItem -Path $libDir -Filter UHFAPI.dll -Recurse |
             Where-Object { $_.Directory.Name -ieq 'x64' } |
             Select-Object -First 1
           if (-not $api) { throw 'The verified Chainway SDK archive has no x64 UHFAPI.dll.' }

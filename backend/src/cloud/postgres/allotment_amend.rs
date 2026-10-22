@@ -106,7 +106,7 @@ pub struct AmendAllotmentRequest {
     /// nothing is simply given back: a reduction alone is a Cancel. Absent
     /// (a cancel of some stores, an Undo), the totals may change.
     #[serde(default)]
-    #[cfg_attr(feature = "ts", ts(optional))]
+    #[cfg_attr(feature = "ts", ts(optional, type = "boolean"))]
     pub move_only: bool,
 }
 
