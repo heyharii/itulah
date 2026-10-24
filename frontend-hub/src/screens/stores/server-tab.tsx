@@ -34,6 +34,10 @@ import {
 } from "@/lib/queries/stores"
 import { cn } from "@/lib/utils"
 import { ServerActionsButton } from "@/screens/stores/actions"
+import {
+  ReplaceServerButton,
+  removalWords,
+} from "@/screens/stores/replace-server"
 import { ServerDot, serverStateLabel } from "@/screens/stores/shared"
 import { saying } from "@/screens/system/units"
 
@@ -159,13 +163,26 @@ export function ServerTab({
       machine={machine}
       store={store.name}
       removed={removed}
+      waitingRecords={server.waiting_records}
+      releasedUntil={server.released_until}
       onDisconnect={() => disconnect.mutateAsync()}
     />
   )
+  // Replacing the machine of an open store whose server has settled; a
+  // removed store only lets its server go.
+  const replaceButton =
+    canManage && !removed && settled && machine !== null ? (
+      <ReplaceServerButton
+        unit={unit}
+        server={server}
+        onDisconnect={() => disconnect.mutateAsync()}
+      />
+    ) : null
   const machineRow = (
     <MachineRow
       machine={machine}
       connectedAt={server.connected_at ?? null}
+      replace={replaceButton}
       disconnect={canManage ? disconnectButton : null}
     />
   )
@@ -481,14 +498,19 @@ function Spinner() {
   )
 }
 
-/// The machine that is serving this store, and the one way to let go of it.
+/// The machine that is serving this store, and the ways to replace or let go
+/// of it. On a phone the buttons drop to a line of their own.
 function MachineRow({
   machine,
   connectedAt,
+  replace,
   disconnect,
 }: {
   machine: ServerMachine | null
   connectedAt: string | null
+  /// Replace server, for an Admin at head office on an open store; `null`
+  /// otherwise.
+  replace: React.ReactNode
   /// Disconnect, for an Admin at head office; `null` for anybody else.
   disconnect: React.ReactNode
 }) {
@@ -496,11 +518,11 @@ function MachineRow({
   const windows = /windows/i.test(machine.os)
   const Icon = windows ? Monitor : Server
   return (
-    <div className="flex items-center gap-3 px-4 py-3.5">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-3 px-4 py-3.5">
       <span className="grid size-9 shrink-0 place-items-center rounded-inner bg-soft-2 text-ink">
         <Icon className="size-[1.125rem]" />
       </span>
-      <span className="min-w-0 flex-1">
+      <span className="min-w-[10rem] flex-1">
         <b className="block truncate font-medium text-ink">
           {machine.hostname}
         </b>
@@ -509,24 +531,42 @@ function MachineRow({
           {connectedAt ? ` · connected ${dayTime(connectedAt)}` : ""}
         </span>
       </span>
-      {disconnect}
+      {(replace || disconnect) && (
+        <span className="ml-auto flex items-center gap-2">
+          {replace}
+          {disconnect}
+        </span>
+      )}
     </div>
   )
 }
 
 /// Let go of the store's server: its key stops working. An open store is
 /// issued a new install code for the right machine; a removed one is not.
+/// The question says what is true of the machine: released for removal or
+/// not, and what it would strand.
 function DisconnectButton({
   machine,
   store,
   removed,
+  waitingRecords,
+  releasedUntil,
   onDisconnect,
 }: {
   machine: ServerMachine | null
   store: string
   removed: boolean
+  /// Records the server had still to send, as of its last heartbeat.
+  waitingRecords: number | null
+  /// Until when head office released it for removal; `null` if it did not.
+  releasedUntil: string | null
   onDisconnect: () => Promise<unknown>
 }) {
+  const words =
+    machine === null
+      ? null
+      : removalWords(machine.hostname, waitingRecords, releasedUntil)
+  const noCode = "No new install code is issued."
   return (
     <ConfirmButton
       label={
@@ -535,15 +575,21 @@ function DisconnectButton({
           Disconnect
         </>
       }
-      variant={removed ? "destructive" : "quiet"}
+      variant="destructive"
       tone="danger"
       title={`Disconnect ${machine?.hostname ?? `${store}’s server`}?`}
       description={
-        removed
-          ? "Its key stops working. Anything it has not sent stays on the machine. No new install code is issued."
-          : `It stops receiving ${store}’s data. A new install code is issued for the right machine.`
+        words !== null
+          ? removed
+            ? `${words.sentence} ${noCode}`
+            : words.sentence
+          : removed
+            ? `Its key stops working. Anything it has not sent stays on the machine. ${noCode}`
+            : `It stops receiving ${store}’s data. A new install code is issued for the right machine.`
       }
-      confirmLabel="Disconnect"
+      confirmLabel={
+        words !== null && !words.clear ? "Disconnect anyway" : "Disconnect"
+      }
       cancelLabel="Keep"
       onConfirm={onDisconnect}
     />
