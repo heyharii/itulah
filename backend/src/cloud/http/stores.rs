@@ -372,6 +372,28 @@ pub async fn person(
     ))
 }
 
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OneDeviceRequest {
+    /// On: a sign-in on a second device ends the first.
+    pub on: bool,
+}
+
+/// `PUT /api/v1/stores/{unit}/one-device`: whether a person may be signed in
+/// on one device at a time at the store. Head office's switch.
+pub async fn set_one_device(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Path(unit): Path<String>,
+    Json(request): Json<OneDeviceRequest>,
+) -> Result<Json<infrastructure::StoreDetail>, AppError> {
+    require_admin(&principal, "set the one-device rule for a store")?;
+    Ok(Json(
+        infrastructure::set_one_device(&state.db, unit.trim(), request.on, &principal.username)
+            .await?,
+    ))
+}
+
 /// `POST /api/v1/stores/{unit}/fingers/{submission_id}/approve`: the finger
 /// becomes the person's, at every POS they sign in at. Answers the tab.
 pub async fn approve_finger(

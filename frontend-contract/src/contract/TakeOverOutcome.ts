@@ -2,7 +2,7 @@
 import type { ShiftReport } from "./ShiftReport";
 
 /**
- * What a take-over did: the shift it ended, when the seat was held, and the
- * shift it opened.
+ * The shift it opened. `ended` is always null now: nobody's shift is ended
+ * by another person opening.
  */
 export type TakeOverOutcome = { ended: ShiftReport | null, shift: ShiftReport, };

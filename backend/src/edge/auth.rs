@@ -848,9 +848,13 @@ impl EdgeAuth {
             .map_err(|error| EdgeError::Persistence(format!("invalid edge user id: {error}")))?;
         let role =
             Role::from_str(&role).map_err(|error| EdgeError::Persistence(error.to_string()))?;
-        // The rule itself is switched centrally, and off for now — see
-        // `security::one_device_sign_in`.
-        if supersede && security::one_device_sign_in() {
+        // The rule is head office's to switch, per store (24 Oct 2026,
+        // `site_profile::own_one_device`); the environment can still force it
+        // on (`security::one_device_sign_in`).
+        if supersede
+            && (security::one_device_sign_in()
+                || crate::edge::site_profile::own_one_device(transaction))
+        {
             transaction
                 .execute(
                     "UPDATE edge_auth_session

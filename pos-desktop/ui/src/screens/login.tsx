@@ -28,7 +28,7 @@
 /// on mount, before anybody has signed in, which is exactly why that endpoint
 /// needs no session.
 
-import { useEffect, useId, useState, type CSSProperties, type FormEvent } from "react"
+import { useEffect, useId, useRef, useState, type CSSProperties, type FormEvent } from "react"
 
 import { authMethods, me, pairTerminal, tillPeople, type StepUp, type TillPerson } from "@/api"
 import { isWeb } from "@/edition"
@@ -91,6 +91,10 @@ export function Mark() {
   )
 }
 
+/// How long a finger's read stays on the sensor at the least, so the beam is
+/// seen crossing before the answer (the fill, or the shake).
+const READ_AT_LEAST_MS = 650
+
 export function LoginScreen({
   onSignedIn,
   onHold,
@@ -107,6 +111,11 @@ export function LoginScreen({
   const { config } = useNodeConfig()
   const [door, setDoor] = useState<Door>("touch")
   const [read, setRead] = useState<Read>("idle")
+  // When the sensor started reading. The scanner matches a finger in a few
+  // milliseconds and only then says one was placed, so the read is held for
+  // a moment: long enough for the beam to cross and be seen (owner, 25 Oct
+  // 2026: "saat buka ga ada animasi").
+  const readingSince = useRef(0)
   const [hint, setHint] = useState<string | null>(null)
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
@@ -195,9 +204,11 @@ export function LoginScreen({
   /// How a finger's answer lands: a refusal shakes the sensor red and says
   /// why; a sign-in fills it, then the person goes in.
   async function settle(fromHeadDoor: boolean, refusal: string | null) {
+    const left = READ_AT_LEAST_MS - (performance.now() - readingSince.current)
+    if (left > 0) await pause(left)
     setBusy(false)
     if (refusal !== null) {
-      if (fromHeadDoor) onHold(false)
+      onHold(false)
       setRead("no")
       sound.no()
       setHint(refusal)
@@ -223,8 +234,12 @@ export function LoginScreen({
       setBusy(true)
       setHint(null)
       setRead("reading")
+      readingSince.current = performance.now()
       sound.read()
-      if (fromHeadDoor) onHold(true)
+      // Held at the door for either door: the moment the node opens the
+      // session the app would otherwise leave for the till, and the finger's
+      // answer (the fill, the check, the welcome) would never be seen.
+      onHold(true)
     }
     if (explicit) begin()
     const refusal = await signInWithFinger(undefined, {
@@ -235,7 +250,7 @@ export function LoginScreen({
     if (refusal === NO_FINGER) {
       if (explicit) {
         setBusy(false)
-        if (fromHeadDoor) onHold(false)
+        onHold(false)
         setRead("idle")
         setHint(refusal)
       }
@@ -271,8 +286,9 @@ export function LoginScreen({
     setBusy(true)
     setHint(null)
     setRead("reading")
+    readingSince.current = performance.now()
     sound.read()
-    if (fromHeadDoor) onHold(true)
+    onHold(true)
     let refusal: string | null
     // Simulation (owner, 23 Oct 2026): with no scanner, pressing the sensor
     // counts as a finger placed — the first simulated cashier's at the door,

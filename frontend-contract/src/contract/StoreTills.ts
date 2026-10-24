@@ -13,7 +13,7 @@ active: number,
  */
 online: number, 
 /**
- * Tills waiting for a supervisor at the shop, as the server last said.
+ * New POS waiting for head office's approval, as the server last said.
  */
 waiting: number, 
 /**
@@ -21,4 +21,9 @@ waiting: number,
  * (`site.till_count`, 0714). Head office's number: a machine sits at a
  * seat, it does not add one. Nought for a store with no shop yet.
  */
-seats: number, };
+seats: number, 
+/**
+ * A person may be signed in on one device at a time here
+ * (`site.one_device_sign_in`, 0995). Head office's switch.
+ */
+one_device: boolean, };

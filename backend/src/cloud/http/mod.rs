@@ -541,6 +541,8 @@ pub fn router(state: AppState) -> Router {
     .route("/api/v1/stores/{unit}", get(stores::detail))
     .route("/api/v1/stores/{unit}/open", post(stores::open))
     .route("/api/v1/stores/{unit}/tills", put(stores::set_till_seats))
+    // One person, one device at the store: head office's switch.
+    .route("/api/v1/stores/{unit}/one-device", put(stores::set_one_device))
     // Head office stops a store, a cashier or (through the device register) a
     // till on the POS, and removes a store that closed for good (0990). The
     // Tills tab's read follows reach; the writes are Admin's, at the path and

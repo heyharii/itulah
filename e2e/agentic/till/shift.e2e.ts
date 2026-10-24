@@ -1,5 +1,5 @@
-// Seats and shifts: Pilih kasir, opening a drawer with a float, taking a held seat over, losing it
-// mid-sale, cash in/out of the drawer, and the blind count that closes a shift.
+// Seats and shifts: opening a drawer with a float, a held seat refused (nobody opens over another's
+// drawer, owner 23 Oct 2026), cash in/out of the drawer, and the blind count that closes a shift.
 import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
 import * as pos from '../support/pos.ts';
@@ -37,68 +37,21 @@ test('TILL-10 a free seat: Pilih kasir → Pakai Kasir 1 → the float → Buka 
   expect(mine.open.status).toBe('OPEN');
 });
 
-test('TILL-11 a held seat can be taken over: the warning, then the float; the other shift ends', { tags: ['pos'] }, async (fx) => {
-  const { app, screen, browser } = fx;
+test('TILL-11 a seat somebody holds is never opened over: the store server refuses and names who holds it', { tags: ['pos'] }, async () => {
   await cleanSeats();
   await pos.closeMyShift();
   const theirs = (await mayaShift()).shift;
   try {
-    await pos.signInTill({ app, screen, browser });
-    await expect(screen.getByRole('heading', 'Pilih kasir')).toBeVisible({ timeout: 30_000 });
-    await expect(screen.getByText(/^Dipegang maya sejak \d\d:\d\d$/)).toBeVisible();
-    await screen.getByRole('button', 'Ambil alih').tap();
-    await expect(screen.getByText(/akan berakhir\./)).toBeVisible();
-    await screen.getByRole('button', 'Ambil alih Kasir 1').tap();
-    await screen.getByLabel('Modal awal di laci').fill('250000');
-    await screen.getByRole('button', /^Buka shift/).tap();
-    await expect(pos.scanField(screen)).toBeVisible({ timeout: 30_000 });
-    expect((await pos.myShifts()).open.opening_float_minor).toBe(250_000);
+    const refused = await as('store', 'dian')
+      .post('/api/v1/store/shifts/take-over', { terminal_id: pos.TERMINAL, opening_float_minor: 250_000, actor_id: 'dian', idempotency_key: uid() })
+      .then(() => null, (error: any) => error);
+    expect(refused?.status).toBe(409);
+    expect(String(refused?.message ?? refused)).toMatch(/Kasir 1 masih dibuka .+\. Tutup kasir .+ dulu/);
     const maya = await as('store', 'maya').get('/api/v1/store/shifts/mine');
-    expect(maya.open).toBeNull();
-    expect(maya.uncounted.some((s: any) => s.shift_id === theirs.shift_id)).toBe(true);
+    expect(maya.open?.shift_id).toBe(theirs.shift_id);
+    expect((await pos.myShifts()).open).toBeNull();
   } finally {
     await cleanSeats();
-  }
-});
-
-test('TILL-12 whoever lost a seat must count their drawer before anything else (Hitung laci)', { tags: ['pos'] }, async (fx) => {
-  const { app, screen, browser } = fx;
-  await cleanSeats();
-  await pos.ensureShift();
-  await mayaShift(); // takes dian's seat over
-  try {
-    await pos.signInTill({ app, screen, browser });
-    await expect(screen.getByRole('heading', 'Hitung laci Kasir 1')).toBeVisible({ timeout: 30_000 });
-    await expect(screen.getByText(/diambil alih oleh maya/)).toBeVisible();
-    await screen.getByLabel('Jumlah lembar Rp 100.000').fill('2');
-    await screen.getByRole('button', 'Lanjut').tap();
-    await expect(screen.getByText('Periksa hitungan', { exact: true })).toBeVisible();
-    await screen.getByRole('button', 'Kunci hitungan').tap();
-    await expect(screen.getByRole('heading', 'Pilih kasir')).toBeVisible({ timeout: 20_000 });
-    expect((await pos.myShifts()).uncounted).toHaveLength(0);
-  } finally {
-    await cleanSeats();
-  }
-});
-
-test('TILL-13 the seat is taken over while a sale is being paid: the sale is not booked and the cashier is sent back to Pilih kasir', { tags: ['pos'] }, async (fx) => {
-  const { app, screen, browser } = fx;
-  const t = { app, screen, browser };
-  const unit = await pos.pickUnit('plain');
-  try {
-    await pos.openCounter(t);
-    await pos.scanUnits(t, unit.epc);
-    await pos.payTotal(t);
-    await pos.goToPayment(t);
-    await screen.getByRole('button', /^Bayar Rp/).tap();
-    await expect(screen.getByText('Lunas', { exact: true })).toBeVisible();
-    await mayaShift();
-    await screen.getByRole('button', 'Selesaikan transaksi').tap();
-    await expect(screen.getByText('Kasir 1 sudah diambil alih oleh maya — pilih kasir lagi.', { exact: true })).toBeVisible({ timeout: 20_000 });
-    expect(await pos.placeOf(unit.epc)).toBe(pos.FLOOR);
-  } finally {
-    await cleanSeats();
-    pos.release(unit.epc);
   }
 });
 

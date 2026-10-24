@@ -32,9 +32,7 @@ Actors: dian = cashier (seat Kasir 1), maya = store manager / supervisor, rina =
 | TILL-04 | – | – | Setelan: read-only node address, no devices/pairing; empty terminal number refused; save returns to the card showing the new id | sign-in::TILL-04 | pass |
 | TILL-05 | dian | counter | "Keluar" → card, field empty; reload does not restore the counter | sign-in::TILL-05 | pass |
 | TILL-10 | dian | shift closed, seat free | Pilih kasir → "Pakai Kasir 1" → float 500.000 → "Buka shift · Rp 500.000" → counter; node shows OPEN, float 500000 | shift.e2e.ts::TILL-10 | pass |
-| TILL-11 | dian, maya | maya holds Kasir 1 | "Dipegang maya sejak", "Ambil alih", warning, "Ambil alih Kasir 1", float → counter; maya's shift ends and is owed a count | shift::TILL-11 | pass |
-| TILL-12 | dian | her shift was taken over | gate "Hitung laci Kasir 1" → count 2×100.000 → Lanjut → Kunci hitungan → Pilih kasir; nothing uncounted | shift::TILL-12 | pass |
-| TILL-13 | dian, maya | at "Lunas" | maya takes the seat; "Selesaikan transaksi" → notice "Kasir 1 sudah diambil alih oleh maya — pilih kasir lagi."; unit still on floor | shift::TILL-13 | pass |
+| TILL-11 | dian, maya | maya holds Kasir 1 | dian's open is refused: "Kasir 1 masih dibuka … Tutup kasir … dulu"; maya's shift stays open | shift::TILL-11 | new |
 | TILL-14 | dian | shift open | Shift & kas: "Isi nominalnya.", "Alasan wajib diisi."; Setor 20.000 and Tambah 5.000 listed; node report has −20000 / +5000 | shift::TILL-14 | pass |
 | TILL-15 | dian | shift open | Tutup shift: count 4×100.000 + 1×50.000 → Lanjut → Periksa hitungan (Rp 450.000) → Hitung ulang → Lanjut → catatan → "Kunci hitungan & tutup shift" → "Shift ditutup"; node declared 450000 | shift::TILL-15 | pass |
 | TILL-20 | dian | shift open | cash sale with change: Bayar total == quote, "Lunas", change shown, card, sale in node window + receipt, unit off floor; void puts it back | sale-cash::TILL-20 | pass |

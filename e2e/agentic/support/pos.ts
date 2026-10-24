@@ -115,7 +115,7 @@ export const release = (...epcs: string[]) => epcs.forEach((e) => taken.delete(e
 
 export const myShifts = () => dian().get('/api/v1/store/shifts/mine');
 
-/** dian holds an open shift on KASIR-1 (taking the seat over when somebody else has it). Idempotent. */
+/** dian holds an open shift on KASIR-1 (the seat must be free: nobody opens over another's drawer). Idempotent. */
 export async function ensureShift(float = 500_000): Promise<Json> {
   const mine = await myShifts();
   if (mine.open?.terminal_id === TERMINAL) return mine.open;

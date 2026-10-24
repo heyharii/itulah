@@ -167,12 +167,15 @@ pub struct StoreTills {
     pub active: i64,
     /// Of those, seen within ten minutes.
     pub online: i64,
-    /// Tills waiting for a supervisor at the shop, as the server last said.
+    /// New POS waiting for head office's approval, as the server last said.
     pub waiting: i64,
     /// How many till seats the counter has — Kasir 1 to Kasir N
     /// (`site.till_count`, 0714). Head office's number: a machine sits at a
     /// seat, it does not add one. Nought for a store with no shop yet.
     pub seats: i32,
+    /// A person may be signed in on one device at a time here
+    /// (`site.one_device_sign_in`, 0995). Head office's switch.
+    pub one_device: bool,
 }
 
 /// One store, as the Stores list shows it.
@@ -374,6 +377,7 @@ struct StoreFacts {
     tills_active: i64,
     tills_online: i64,
     till_seats: i32,
+    one_device: bool,
     test_print_ok_at: Option<DateTime<Utc>>,
     test_print_failed_at: Option<DateTime<Utc>>,
     people: i64,
@@ -395,11 +399,12 @@ const STORE_FACTS: &str = "
                (now() AT TIME ZONE unit_business_timezone(u.id))::date AS today,
                shop.id AS site_id, shop.code AS site_code, shop.city,
                COALESCE(shop.till_count, 0) AS till_seats,
+               COALESCE(shop.one_device_sign_in, false) AS one_device,
                CASE WHEN shop.id IS NULL THEN NULL
                     ELSE site_business_timezone(shop.id) END AS timezone
           FROM unit u
           LEFT JOIN LATERAL (
-              SELECT s.id, s.code, s.city, s.till_count
+              SELECT s.id, s.code, s.city, s.till_count, s.one_device_sign_in
                 FROM site s
                WHERE s.unit_id = u.id
                ORDER BY (s.kind = 'STORE') DESC, s.id
@@ -410,7 +415,7 @@ const STORE_FACTS: &str = "
     )
     SELECT st.unit_id, st.code, st.name, st.unit_status, st.opened_at,
            st.stopped_at, st.stopped_by, st.stopped_reason, st.closed_at, st.closed_by,
-           st.site_id, st.site_code, st.city, st.timezone, st.till_seats,
+           st.site_id, st.site_code, st.city, st.timezone, st.till_seats, st.one_device,
            pic.employee_id AS pic_employee_id, pic.pic_name, pic.pic_code,
            (node.origin_id IS NOT NULL AND cred.revoked_at IS NULL) AS has_node,
            cred.created_at AS node_created_at,
@@ -647,6 +652,7 @@ async fn store_facts(
                 tills_active: row.try_get("tills_active")?,
                 tills_online: row.try_get("tills_online")?,
                 till_seats: row.try_get("till_seats")?,
+                one_device: row.try_get("one_device")?,
                 test_print_ok_at: row.try_get("test_print_ok_at")?,
                 test_print_failed_at: row.try_get("test_print_failed_at")?,
                 people: row.try_get("people")?,
@@ -1212,6 +1218,7 @@ fn summary_of(facts: &StoreFacts, judged: &[Judged], now: DateTime<Utc>) -> Stor
             online: facts.tills_online,
             waiting: facts.tills_waiting,
             seats: facts.till_seats,
+            one_device: facts.one_device,
         },
         fingers_waiting: facts.fingers_waiting,
     }
@@ -1519,6 +1526,47 @@ pub async fn set_till_seats(
     store_detail(pool, unit_id, true).await
 }
 
+/// Switch whether a person may be signed in on one device at a time at the
+/// store (owner, 24 Oct 2026). Sent to the store's servers at once, in their
+/// auth policy; one that is not reached now hears at its next renewal.
+pub async fn set_one_device(
+    pool: &PgPool,
+    unit_id: &str,
+    on: bool,
+    actor: &str,
+) -> Result<StoreDetail, AppError> {
+    let updated = sqlx::query(
+        "UPDATE site SET one_device_sign_in = $2
+          WHERE id = (SELECT s.id FROM site s JOIN unit u ON u.id = s.unit_id
+                       WHERE s.unit_id = $1 AND u.kind = 'STORE'
+                       ORDER BY (s.kind = 'STORE') DESC, s.id LIMIT 1)",
+    )
+    .bind(unit_id)
+    .bind(on)
+    .execute(pool)
+    .await?
+    .rows_affected();
+    if updated == 0 {
+        return Err(AppError::NotFound(format!("a store {unit_id} with a shop")));
+    }
+    let origins: Vec<String> = sqlx::query_scalar(
+        "SELECT c.origin_id
+           FROM sync_origin_credential c
+           JOIN site s ON s.id = c.site_id
+          WHERE s.unit_id = $1
+          ORDER BY c.origin_id",
+    )
+    .bind(unit_id)
+    .fetch_all(pool)
+    .await?;
+    for origin in origins {
+        if let Err(error) = publish_auth_policy(pool, &origin, actor).await {
+            tracing::warn!(%origin, %error, "the store's node was not sent the one-device rule now; it hears at the next renewal");
+        }
+    }
+    store_detail(pool, unit_id, true).await
+}
+
 // ── installing the server ───────────────────────────────────────────────
 
 /// Where the person at the shop downloads the installer: head office's
@@ -1743,6 +1791,7 @@ mod tests {
             tills_active: 0,
             tills_online: 0,
             till_seats: 0,
+            one_device: false,
             test_print_ok_at: None,
             test_print_failed_at: None,
             people: 0,

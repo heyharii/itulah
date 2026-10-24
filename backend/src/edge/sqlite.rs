@@ -1765,6 +1765,21 @@ impl SqliteEdge {
                 .execute_batch(STORE_OPEN_AND_TEST_PRINT_SCHEMA)
                 .map_err(db)?;
         }
+        // Whether head office lets a person be signed in on one device only
+        // (24 Oct 2026, `site_profile`, `auth::write_session`): an ALTER on
+        // 0049's table, probed by its column.
+        let the_directory_knows_one_device: i64 = connection
+            .prepare_cached(
+                "SELECT COUNT(*) FROM pragma_table_info('site_directory') WHERE name='one_device'",
+            )
+            .map_err(db)?
+            .query_row([], |row| row.get(0))
+            .map_err(db)?;
+        if the_directory_knows_one_device == 0 {
+            connection
+                .execute_batch("ALTER TABLE site_directory ADD COLUMN one_device INTEGER")
+                .map_err(db)?;
+        }
         // Till seats and one person's shift (`0070`): ALTERs on tables 0024
         // and 0049 create, so probed after both, by the first shift column.
         let a_shift_knows_its_day: i64 = connection
@@ -10991,6 +11006,35 @@ mod tests {
     #[test]
     fn the_opening_float_is_the_first_cash_movement() {
         let store = SqliteEdge::open_in_memory(node(EdgeRole::Store, "store-07"))
+    /// Nobody opens over another person's drawer (owner, 23 Oct 2026): the
+    /// second person is refused and told who holds the seat, and the first
+    /// shift stays open.
+    #[test]
+    fn a_seat_somebody_holds_is_never_opened_over() {
+        let store = SqliteEdge::open_in_memory(node(EdgeRole::Store, "store-07"))
+            .unwrap_or_else(|error| panic!("store: {error}"));
+        let open = |who: &str, key: &str| crate::edge::till::TakeOverRequest {
+            terminal_id: "KASIR-1".into(),
+            opening_float_minor: 500_000,
+            actor_id: who.into(),
+            idempotency_key: key.into(),
+        };
+        let first = store
+            .take_over_seat(open("siti", "seat-1"))
+            .unwrap_or_else(|error| panic!("first: {error}"));
+        assert!(first.ended.is_none());
+        match store.take_over_seat(open("budi", "seat-2")) {
+            Err(EdgeError::Conflict(message)) => {
+                assert!(message.contains("Kasir 1 masih dibuka siti"), "{message}");
+            }
+            other => panic!("expected a refusal, got {other:?}"),
+        }
+        let again = store
+            .take_over_seat(open("budi", "seat-3"))
+            .map(|outcome| outcome.shift.shift_id);
+        assert!(again.is_err(), "the seat is still siti's");
+    }
+
             .unwrap_or_else(|error| panic!("store: {error}"));
         let report = store
             .open_shift(crate::edge::till::OpenShiftRequest {

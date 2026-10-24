@@ -712,6 +712,7 @@ cloud	PUT	/api/v1/purchase-orders/{id}	Supervisor	purchase_order
 cloud	PUT	/api/v1/records/{kind}/{id}/tags/{code}	PerRecord	handler
 cloud	PUT	/api/v1/roles/{code}	Admin	-
 cloud	PUT	/api/v1/setup/company	Admin	-
+cloud	PUT	/api/v1/stores/{unit}/one-device	Admin	unit
 cloud	PUT	/api/v1/stores/{unit}/tills	Admin	unit
 dc	GET	/api/v1/dc/allotment-lines/{allotment_line_id}/position	-	-
 dc	GET	/api/v1/dc/destinations	-	-

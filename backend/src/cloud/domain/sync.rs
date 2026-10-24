@@ -1624,6 +1624,12 @@ pub struct SiteProfile {
     /// a node reads as one seat.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub till_count: Option<u32>,
+    /// A person may be signed in on one device at a time at this site: a
+    /// sign-in on a second device ends the first (`site.one_device_sign_in`,
+    /// postgres 0995). Head office's switch. Absent from an older centre,
+    /// which a node reads as off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub one_device: Option<bool>,
 }
 
 pub fn auth_policy_content_hash(snapshot: &AuthPolicySnapshot) -> String {

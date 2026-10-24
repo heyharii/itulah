@@ -3,7 +3,7 @@ import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/field"
-import { setTillSeats, storesKeys } from "@/lib/queries/stores"
+import { setOneDevice, setTillSeats, storesKeys } from "@/lib/queries/stores"
 import { saying } from "@/screens/system/units"
 
 /// "Till seats: 2 · Change" on the Overview's facts — how many drawers the
@@ -86,6 +86,51 @@ export function TillSeatsValue({
         <Button data-cancel variant="quiet" onClick={() => setEditing(false)}>
           Cancel
         </Button>
+      </span>
+      {save.isError && (
+        <span className="text-meta text-bad-fg">{saying(save.error)}</span>
+      )}
+    </span>
+  )
+}
+
+/// "One device per person: Off · Turn on" on the Overview's facts. On, a
+/// person signed in on a second POS at this store is signed out of the first.
+/// Head office's switch: an Admin turns it on or off; anyone else reads it.
+export function OneDeviceValue({
+  unit,
+  on,
+  canManage,
+}: {
+  unit: string
+  on: boolean
+  canManage: boolean
+}) {
+  const client = useQueryClient()
+  const save = useMutation({
+    mutationFn: () => setOneDevice(unit, !on),
+    onSuccess: (detail) => {
+      client.setQueryData(storesKeys.detail(unit), detail)
+      void client.invalidateQueries({ queryKey: storesKeys.list() })
+    },
+  })
+  return (
+    <span className="flex flex-col gap-1.5">
+      <span>
+        {on ? "On" : "Off"}
+        {canManage && (
+          <>
+            {" · "}
+            <button
+              type="button"
+              className="font-medium text-accent hover:underline disabled:opacity-50"
+              disabled={save.isPending}
+              onClick={() => save.mutate()}
+            >
+              {save.isPending ? "Saving…" : on ? "Turn off" : "Turn on"}
+            </button>
+          </>
+        )}
       </span>
       {save.isError && (
         <span className="text-meta text-bad-fg">{saying(save.error)}</span>

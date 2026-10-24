@@ -23,7 +23,7 @@ import { organisationKeys } from "@/lib/queries/organisation"
 import { cn } from "@/lib/utils"
 import { ExceptionsCard } from "@/screens/stores/exceptions-shared"
 import { serverStateLabel } from "@/screens/stores/shared"
-import { TillSeatsValue } from "@/screens/stores/till-seats"
+import { OneDeviceValue, TillSeatsValue } from "@/screens/stores/till-seats"
 import { FleetStoreStrip } from "@/screens/system/fleet-shared"
 
 /// Where a store page's tabs can be switched to from inside a tab.
@@ -108,6 +108,13 @@ export function OverviewTab({
             <TillSeatsValue
               unit={store.unit_id}
               seats={store.tills.seats}
+              canManage={can_manage}
+            />
+          </Fact>
+          <Fact term="One device per person">
+            <OneDeviceValue
+              unit={store.unit_id}
+              on={store.tills.one_device}
               canManage={can_manage}
             />
           </Fact>

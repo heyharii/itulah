@@ -470,6 +470,16 @@ export function setTillSeats(
   )
 }
 
+/// Switch whether a person may be signed in on one device at a time at the
+/// store (Admin only): on, a sign-in on a second POS ends the first. Sent to
+/// the store's server with its next policy. Answers the whole updated store.
+export function setOneDevice(unit: string, on: boolean): Promise<StoreDetail> {
+  return node.put<StoreDetail>(
+    `/api/v1/stores/${encodeURIComponent(unit)}/one-device`,
+    { on }
+  )
+}
+
 /// Issue an install code for this store's server — good for one hour, once. A
 /// store that already has one outstanding gets a new one — the new code
 /// cancels the old, same as `issueEnrolment` on System › Nodes. Answers 201; `response.ok` covers that

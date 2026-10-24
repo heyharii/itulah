@@ -1153,7 +1153,7 @@ async fn site_profiles(
                     AS utc_offset_minutes,
                 s.id IS NOT DISTINCT FROM head_office_site_id() AS is_head_office,
                 u.opened_at IS NOT NULL AS opened,
-                s.till_count
+                s.till_count, s.one_device_sign_in
            FROM site s
            LEFT JOIN unit u ON u.id = s.unit_id
           ORDER BY s.id",
@@ -1174,6 +1174,7 @@ async fn site_profiles(
             utc_offset_minutes: row.try_get("utc_offset_minutes")?,
             opened: Some(row.try_get("opened")?),
             till_count: u32::try_from(row.try_get::<i32, _>("till_count")?).ok(),
+            one_device: Some(row.try_get("one_device_sign_in")?),
         };
         if profile.site_id == node.site_id.as_str() {
             own = Some(profile.clone());

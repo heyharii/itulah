@@ -117,12 +117,8 @@ pub struct CloseShiftRequest {
     pub supervising: bool,
 }
 
-/// Take a seat somebody else is holding, and open your own drawer at it.
-///
-/// No approval: the person arriving takes the seat. The shift they end is
-/// closed with nothing declared — its holder took their money out and counts
-/// it themselves (`count_shift`), never the person arriving, who has only their
-/// own float in the drawer.
+/// Open your own drawer at a free seat. A seat somebody else is holding is
+/// refused: their drawer is counted and closed first (owner, 23 Oct 2026).
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct TakeOverRequest {
@@ -135,8 +131,8 @@ pub struct TakeOverRequest {
     pub idempotency_key: String,
 }
 
-/// What a take-over did: the shift it ended, when the seat was held, and the
-/// shift it opened.
+/// The shift it opened. `ended` is always null now: nobody's shift is ended
+/// by another person opening.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct TakeOverOutcome {
@@ -539,7 +535,8 @@ pub fn seats(connection: &Connection) -> Result<Vec<TillSeat>, EdgeError> {
 /// Open the drawer at a seat.
 ///
 /// Refuses a seat head office has not given the store, a seat somebody else
-/// holds (that is [`take_over`]), and a person who already holds a drawer. The
+/// holds (nobody opens over another's drawer, [`take_over`]), and a person
+/// who already holds a drawer. The
 /// unique index on one open shift per seat still does the final refusing: two
 /// people pressing "open" at the same second is exactly the race a check in
 /// application code loses.
@@ -552,7 +549,7 @@ pub fn open_shift(
     check_opening(tx, terminal, request.opening_float_minor, &request.actor_id, now)?;
     if let Some(existing) = open_shift_id(tx, terminal)? {
         return Err(EdgeError::Conflict(format!(
-            "{} is held by another shift ({existing}); take it over to sit there",
+            "{} is held by another shift ({existing}); it is closed first",
             seat_label(terminal)
         )));
     }
@@ -566,12 +563,16 @@ pub fn open_shift(
     )
 }
 
-/// Take a seat from whoever holds it and open your own drawer there.
+/// Open your own drawer at a free seat — the route the POS opens every shift
+/// through (`POST /api/v1/store/shifts/take-over`, the name it was given when
+/// it could take a seat over).
 ///
-/// No approval, on the owner's word: the person arriving takes the seat. The
-/// shift they end closes with its expectation computed now and nothing
-/// declared; its holder has taken their money out and counts it themselves
-/// ([`count_shift`]). A free seat is simply opened.
+/// A seat somebody else holds is not taken from them (owner, 23 Oct 2026:
+/// "nobody opens over it"): their drawer is counted and closed first — at
+/// that POS, or by the store head from the Shift screen. Refused in the till's
+/// language, naming who holds it, because it is read at the counter.
+/// `ended` is always `None` now; it stays in the answer so an older POS reads
+/// it.
 pub fn take_over(
     tx: &Transaction<'_>,
     request: &TakeOverRequest,
@@ -580,27 +581,24 @@ pub fn take_over(
     let terminal = request.terminal_id.trim();
     let actor = request.actor_id.trim();
     check_opening(tx, terminal, request.opening_float_minor, actor, now)?;
-    let ended = match open_shift_id(tx, terminal)? {
-        Some(held) => {
-            let running = report(tx, &held)?;
-            tx.prepare_cached(
-                "UPDATE cash_shift
-                    SET status='CLOSED', closed_by=?2, closed_at=?3,
-                        expected_cash_minor=?4, taken_over_by=?2
-                  WHERE id=?1 AND status='OPEN'",
+    if let Some(held) = open_shift_id(tx, terminal)? {
+        let running = report(tx, &held)?;
+        let holder: String = tx
+            .query_row(
+                "SELECT COALESCE(NULLIF(trim(display_name), ''), username)
+                   FROM edge_user WHERE username = ?1",
+                params![running.opened_by],
+                |row| row.get(0),
             )
+            .optional()
             .map_err(db)?
-            .execute(params![
-                held,
-                actor,
-                stamp(now),
-                running.expected_cash_minor
-            ])
-            .map_err(db)?;
-            Some(report(tx, &held)?)
-        }
-        None => None,
-    };
+            .unwrap_or_else(|| running.opened_by.clone());
+        let seat = seat_label(terminal);
+        return Err(EdgeError::Conflict(format!(
+            "{seat} masih dibuka {holder}. Tutup kasir {holder} dulu: hitung lacinya di \
+             {seat}, atau kepala toko menutupnya dari menu Shift."
+        )));
+    }
     let shift = insert_shift(
         tx,
         terminal,
@@ -609,7 +607,7 @@ pub fn take_over(
         &request.idempotency_key,
         now,
     )?;
-    Ok(TakeOverOutcome { ended, shift })
+    Ok(TakeOverOutcome { ended: None, shift })
 }
 
 /// What opening and taking over both refuse.

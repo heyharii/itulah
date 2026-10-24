@@ -32,6 +32,9 @@ pub struct KnownSite {
     pub opened: Option<bool>,
     /// Head office's number of till seats (`0070`). `None`: not said yet.
     pub till_count: Option<u32>,
+    /// Head office lets a person be signed in on one device at a time here
+    /// (`SiteProfile::one_device`). `None` from an older centre: off.
+    pub one_device: Option<bool>,
 }
 
 impl KnownSite {
@@ -58,8 +61,8 @@ pub fn replace(
         tx.execute(
             "INSERT INTO site_directory
                  (site_id, kind, code, name, timezone, utc_offset_minutes, is_own,
-                  policy_version, received_at, opened, till_count)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                  policy_version, received_at, opened, till_count, one_device)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
              ON CONFLICT(site_id) DO UPDATE SET
                  kind = excluded.kind, code = excluded.code, name = excluded.name,
                  timezone = excluded.timezone,
@@ -68,7 +71,8 @@ pub fn replace(
                  policy_version = excluded.policy_version,
                  received_at = excluded.received_at,
                  opened = excluded.opened,
-                 till_count = excluded.till_count",
+                 till_count = excluded.till_count,
+                 one_device = excluded.one_device",
             params![
                 profile.site_id,
                 profile.kind,
@@ -81,6 +85,7 @@ pub fn replace(
                 received_at,
                 profile.opened.map(i64::from),
                 profile.till_count.map(|count| i64::from(count.min(50))),
+                profile.one_device.map(i64::from),
             ],
         )
         .map(|_| ())
@@ -95,7 +100,7 @@ pub fn replace(
 }
 
 const COLUMNS: &str = "SELECT site_id, kind, code, name, timezone, utc_offset_minutes, opened,
-                                till_count
+                                till_count, one_device
                          FROM site_directory";
 
 fn known_site(row: &rusqlite::Row<'_>) -> rusqlite::Result<KnownSite> {
@@ -110,6 +115,7 @@ fn known_site(row: &rusqlite::Row<'_>) -> rusqlite::Result<KnownSite> {
         till_count: row
             .get::<_, Option<i64>>(7)?
             .and_then(|count| u32::try_from(count).ok()),
+        one_device: row.get::<_, Option<i64>>(8)?.map(|on| on == 1),
     })
 }
 
@@ -176,4 +182,12 @@ pub fn display_code(connection: &Connection, site_id: &str) -> String {
 /// never "not a shop" — a caller refuses only on a kind it was told.
 pub fn kind_of(connection: &Connection, site_id: &str) -> Option<SiteKind> {
     known(connection, site_id).and_then(|site| site.kind)
+}
+
+/// Whether head office lets a person be signed in on one device at a time at
+/// this node's own site. Off when nothing has been heard.
+pub fn own_one_device(connection: &Connection) -> bool {
+    own(connection)
+        .and_then(|site| site.one_device)
+        .unwrap_or(false)
 }
