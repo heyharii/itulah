@@ -2454,6 +2454,12 @@ pub fn router(state: AppState) -> Router {
         "/api/v1/attendance/terminal-sync",
         post(terminal::sync_templates),
     )
+    // The fingers HR enrolled, for the POS of the store server that asks
+    // (24 Oct 2026). Its own `x-sync-key`, never a session.
+    .route(
+        "/api/v1/sync/pos-fingers",
+        post(terminal::sync_pos_fingers),
+    )
     .route("/api/v1/attendance/punches", post(terminal::ingest_punches))
     // The second punch source, and the door it does NOT come through is
     // the one above. That route is a node's, behind `x-sync-key`, and

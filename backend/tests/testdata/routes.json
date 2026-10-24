@@ -678,6 +678,7 @@ cloud	POST	/api/v1/sync/origins	Admin	-
 cloud	POST	/api/v1/sync/origins/{origin_id}/bootstrap	Admin	-
 cloud	POST	/api/v1/sync/points/redeem-requests/lookup	Supervisor	-
 cloud	POST	/api/v1/sync/points/redeem-requests/{request_id}/confirm	Supervisor	-
+cloud	POST	/api/v1/sync/pos-fingers	Supervisor	-
 cloud	POST	/api/v1/sync/trigger	Admin	-
 cloud	POST	/api/v1/sync/vouchers/{code}/authorize	Supervisor	-
 cloud	POST	/api/v1/sync/vouchers/{code}/commit	Supervisor	-

@@ -307,7 +307,16 @@ pub async fn enrol_finger(
     let terminal = infrastructure::load_attendance_terminal(&state.db, &body.terminal_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("terminal {}", body.terminal_id)))?;
-    if terminal.unit().as_str() != unit {
+    // HR's desk at head office enrols anybody: HR enrols a person's fingers
+    // when it registers them (owner, 24 Oct 2026), and the templates follow
+    // them to every POS they sign in at (`sync_pos_fingers`). A shop's
+    // station enrols only its own people.
+    let at_head_office: bool = sqlx::query_scalar("SELECT kind = 'HO' FROM unit WHERE id = $1")
+        .bind(terminal.unit().as_str())
+        .fetch_optional(&state.db)
+        .await?
+        .unwrap_or(false);
+    if terminal.unit().as_str() != unit && !at_head_office {
         return Err(AppError::Conflict(format!(
             "terminal {} is at {}, and {} is posted to {unit}",
             body.terminal_id,
@@ -537,6 +546,41 @@ async fn node_unit(
                  unit whose people it could be asking about"
             ))
         })
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PosFingerSyncBody {
+    pub origin_id: String,
+}
+
+/// What a store server's POS may match against. Not a view type, and not
+/// exported to the browser, for the reason `TemplateBundle` is not.
+#[derive(Debug, Serialize)]
+pub struct PosFingerBundle {
+    pub origin_id: String,
+    pub generated_at: DateTime<Utc>,
+    pub fingers: Vec<infrastructure::PosFinger>,
+}
+
+/// `POST /api/v1/sync/pos-fingers`: the fingers HR enrolled for everybody who
+/// signs in at this store server (24 Oct 2026). The server asks every few
+/// minutes and replaces what it holds from head office with the answer
+/// (`edge::fingerprint::replace_from_head_office`), so a leaver's finger stops
+/// opening its tills at the next ask. Authenticated by the server's own
+/// `x-sync-key`, like the attendance stations' sync; no session reaches it.
+pub async fn sync_pos_fingers(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<PosFingerSyncBody>,
+) -> Result<Json<PosFingerBundle>, AppError> {
+    node_unit(&state, &headers, &body.origin_id).await?;
+    let fingers = infrastructure::pos_fingers_for_origin(&state.db, &body.origin_id).await?;
+    Ok(Json(PosFingerBundle {
+        origin_id: body.origin_id,
+        generated_at: Utc::now(),
+        fingers,
+    }))
 }
 
 #[derive(Debug, Deserialize)]

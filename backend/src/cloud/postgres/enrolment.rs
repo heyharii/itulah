@@ -713,6 +713,77 @@ pub async fn template_bundle_for_unit(
     Ok(bundle)
 }
 
+/// One finger that opens a POS, as a shop's server keeps it (24 Oct 2026).
+///
+/// The same template HR enrolled for the person (`fingerprint_template`), so
+/// a finger is enrolled once, by HR when it registers them, and follows them
+/// to whichever server they sign in at. Base64 because that is how the
+/// server keeps a template and hands it to its tills.
+#[derive(Debug, Clone, Serialize)]
+pub struct PosFinger {
+    pub username: String,
+    pub finger: String,
+    pub format: String,
+    pub template_base64: String,
+    pub revision: i32,
+}
+
+/// The fingers that open a POS at one store server: everybody on its
+/// sign-in list (`edge_identity_assignment`) whose login and employment are
+/// active, with every finger HR enrolled for them. Read only by the server
+/// itself, under its own `x-sync-key` — no session can ask — and a person who
+/// leaves, is moved off the server or has a finger withdrawn drops out of the
+/// next read, which is how the server forgets them.
+pub async fn pos_fingers_for_origin(
+    pool: &PgPool,
+    origin_id: &str,
+) -> Result<Vec<PosFinger>, AppError> {
+    use base64::Engine as _;
+    let rows = sqlx::query(
+        "SELECT u.username, f.employee_id, f.finger, f.format, f.sealed, f.nonce, f.key_id,
+                f.revision
+           FROM edge_identity_assignment a
+           JOIN app_user u ON u.id = a.user_id AND u.active
+           JOIN employee e ON e.id = u.employee_id AND e.status = 'ACTIVE'
+           JOIN fingerprint_template f ON f.employee_id = e.id
+          WHERE a.origin_id = $1 AND a.active
+          ORDER BY u.username, f.finger",
+    )
+    .bind(origin_id)
+    .fetch_all(pool)
+    .await?;
+    let mut fingers = Vec::with_capacity(rows.len());
+    for row in &rows {
+        let employee_id: String = row.try_get("employee_id")?;
+        let finger_code: String = row.try_get("finger")?;
+        let finger =
+            Finger::parse(&finger_code).map_err(|error| corrupt("finger", error.to_string()))?;
+        let format_code: String = row.try_get("format")?;
+        let format = TemplateFormat::parse(&format_code).ok_or_else(|| {
+            corrupt(
+                "template format",
+                format!("`{format_code}` is not a format"),
+            )
+        })?;
+        let sealed = SealedTemplate::new(
+            row.try_get::<Vec<u8>, _>("sealed")?,
+            row.try_get::<Vec<u8>, _>("nonce")?,
+            &row.try_get::<String, _>("key_id")?,
+            format,
+        )
+        .map_err(|error| corrupt("sealed template", error.to_string()))?;
+        let plaintext = open(&sealed, &employee_id, finger)?;
+        fingers.push(PosFinger {
+            username: row.try_get("username")?,
+            finger: finger.code().to_owned(),
+            format: format.code().to_owned(),
+            template_base64: base64::engine::general_purpose::STANDARD.encode(plaintext),
+            revision: row.try_get("revision")?,
+        });
+    }
+    Ok(fingers)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -5604,23 +5604,14 @@ async fn enrol_fingerprint(
         let guard = connection
             .lock()
             .map_err(|_| EdgeError::Persistence("edge connection is poisoned".into()))?;
+        // HR enrols a person's fingers when it registers them, and they
+        // arrive here from head office (owner, 24 Oct 2026;
+        // `fingerprint::spawn_head_office_pull`). An admin — IT at the shop —
+        // may still enrol one here when HR could not.
         if head_only {
-            let target = crate::security::normalize_username(&request.username)
-                .map_err(EdgeError::Validation)?;
-            let role: Option<String> = rusqlite::OptionalExtension::optional(guard.query_row(
-                "SELECT role FROM edge_user WHERE username=?1 AND active=1",
-                rusqlite::params![target],
-                |row| row.get(0),
-            ))
-            .map_err(|error| EdgeError::Persistence(error.to_string()))?;
-            let own = crate::security::normalize_username(&actor)
-                .is_ok_and(|actor| actor == target);
-            if !own && role.as_deref() != Some("CASHIER") {
-                return Err(EdgeError::Forbidden(
-                    "a store head enrols a cashier's finger or her own; ask an admin for anybody else"
-                        .into(),
-                ));
-            }
+            return Err(EdgeError::Forbidden(
+                "Sidik jari didaftarkan HR saat mendaftarkan karyawan.".into(),
+            ));
         }
         crate::edge::fingerprint::enrol(&guard, request, &actor)
     })

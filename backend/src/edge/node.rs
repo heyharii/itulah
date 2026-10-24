@@ -724,6 +724,8 @@ pub async fn run(
     // (`device.test_print.v1`); a till prints its own.
     crate::edge::devices::spawn_test_printer(inventory.connection());
     crate::edge::ops::spawn_runner(source.clone(), data_dir.clone(), stop_tx.clone());
+    // The fingers HR enrolled for the people who sign in here.
+    crate::edge::fingerprint::spawn_head_office_pull(inventory.connection(), sync.clone());
     if let Some(dir) = &data_dir {
         crate::edge::update::watch_trial(source.clone(), dir.clone());
     }

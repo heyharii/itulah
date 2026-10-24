@@ -1009,3 +1009,321 @@ pub fn unspend_benefit_grant(
         .map_err(db)?;
     Ok(())
 }
+
+// ── HR's enrolments, from head office (24 Oct 2026) ─────────────────────────
+//
+// The owner: HR enrols a person's fingers when it registers them. The
+// templates live sealed at head office (postgres 0233) and this server asks
+// for the ones of everybody who signs in here (`/api/v1/sync/pos-fingers`),
+// every few minutes. What it holds from head office is replaced by each
+// answer: a finger HR enrolled arrives, one withdrawn — or of somebody who
+// left, or was moved off this server — is retired and its template wiped.
+// A finger enrolled here before (`source = 'STORE'`) keeps working until its
+// owner leaves; a store head enrols no more (`http::enrol_fingerprint`).
+
+/// One finger as head office hands it down.
+#[derive(Debug, Clone, Deserialize)]
+pub struct HeadOfficeFinger {
+    pub username: String,
+    /// `RIGHT_INDEX`, `LEFT_THUMB`, ...
+    pub finger: String,
+    /// `ZKFINGER_V10`.
+    pub format: String,
+    pub template_base64: String,
+    #[serde(default)]
+    pub revision: i64,
+}
+
+#[derive(Debug, Deserialize)]
+struct HeadOfficeFingers {
+    fingers: Vec<HeadOfficeFinger>,
+}
+
+/// How often this server asks head office for its fingers.
+const HEAD_OFFICE_FINGERS_EVERY: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+
+/// The finger as the POS screen says it.
+fn finger_words(code: &str) -> String {
+    let (side, digit) = code.split_once('_').unwrap_or(("", code));
+    let digit = match digit {
+        "THUMB" => "Jempol",
+        "INDEX" => "Telunjuk",
+        "MIDDLE" => "Jari tengah",
+        "RING" => "Jari manis",
+        "LITTLE" => "Kelingking",
+        other => other,
+    };
+    match side {
+        "LEFT" => format!("{digit} kiri"),
+        "RIGHT" => format!("{digit} kanan"),
+        _ => digit.to_owned(),
+    }
+}
+
+/// Replace what this server holds from head office with `fingers`, and
+/// retire the finger of anybody who no longer signs in here, whoever enrolled
+/// it. A retired row keeps who and when, for "who let this happen", and loses
+/// its template: a biometric held without a purpose is the thing UU PDP
+/// forbids. Returns how many were taken and how many retired.
+pub fn replace_from_head_office(
+    connection: &mut Connection,
+    fingers: &[HeadOfficeFinger],
+) -> Result<(usize, usize), EdgeError> {
+    let tx = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(db)?;
+    let now = Utc::now().to_rfc3339();
+    let mut kept = std::collections::HashSet::new();
+    let mut taken = 0;
+    for finger in fingers {
+        let Ok(username) = security::normalize_username(&finger.username) else {
+            continue;
+        };
+        let here: bool = tx
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM edge_user WHERE username=?1 AND active=1)",
+                params![username],
+                |row| row.get(0),
+            )
+            .map_err(db)?;
+        if !here || finger.template_base64.trim().is_empty() {
+            continue;
+        }
+        let finger_id = format!("ho-{username}-{}", finger.finger);
+        taken += tx
+            .execute(
+                "INSERT INTO edge_fingerprint
+                   (finger_id,username,label,template_base64,reader_kind,
+                    enrolled_at,enrolled_by,active,updated_at,source)
+                 VALUES (?1,?2,?3,?4,?5,?6,'HR',1,?6,'HO')
+                 ON CONFLICT(finger_id) DO UPDATE SET
+                    template_base64 = excluded.template_base64,
+                    reader_kind = excluded.reader_kind,
+                    label = excluded.label,
+                    active = 1, retired_at = NULL,
+                    updated_at = excluded.updated_at
+                  WHERE edge_fingerprint.template_base64 <> excluded.template_base64
+                     OR edge_fingerprint.active = 0",
+                params![
+                    finger_id,
+                    username,
+                    finger_words(&finger.finger),
+                    finger.template_base64.trim(),
+                    finger.format,
+                    now
+                ],
+            )
+            .map_err(db)?;
+        kept.insert(finger_id);
+    }
+    let held: Vec<String> = tx
+        .prepare("SELECT finger_id FROM edge_fingerprint WHERE source='HO' AND active=1")
+        .map_err(db)?
+        .query_map([], |row| row.get(0))
+        .map_err(db)?
+        .collect::<Result<_, _>>()
+        .map_err(db)?;
+    let mut retired = 0;
+    for finger_id in held.iter().filter(|id| !kept.contains(*id)) {
+        retired += tx
+            .execute(
+                "UPDATE edge_fingerprint
+                    SET active=0, retired_at=?2, template_base64='', updated_at=?2
+                  WHERE finger_id=?1",
+                params![finger_id, now],
+            )
+            .map_err(db)?;
+    }
+    retired += tx
+        .execute(
+            "UPDATE edge_fingerprint
+                SET active=0, retired_at=?1, template_base64='', updated_at=?1
+              WHERE active=1
+                AND username NOT IN (SELECT username FROM edge_user WHERE active=1)",
+            params![now],
+        )
+        .map_err(db)?;
+    tx.commit().map_err(db)?;
+    Ok((taken, retired))
+}
+
+/// Ask head office for this server's fingers now and then, and take them.
+/// A server with no head office, or one that does not answer, keeps what it
+/// has: a till must not lose its fingers to a dropped line.
+pub fn spawn_head_office_pull(
+    connection: std::sync::Arc<std::sync::Mutex<Connection>>,
+    sync: Option<std::sync::Arc<crate::edge::sync::EdgeSyncHandle>>,
+) {
+    let Some(sync) = sync else {
+        return;
+    };
+    tokio::spawn(async move {
+        let client = match reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+        {
+            Ok(client) => client,
+            Err(error) => {
+                tracing::warn!(%error, "no client to ask head office for fingers");
+                return;
+            }
+        };
+        loop {
+            if let Some((base, key)) = sync.cloud().map(|(base, key)| (base, key.to_owned())) {
+                let origin = std::env::var("INVENTORY_NODE_ID").unwrap_or_default();
+                let answer = client
+                    .post(format!("{base}/api/v1/sync/pos-fingers"))
+                    .header("x-sync-key", key)
+                    .json(&serde_json::json!({ "origin_id": origin }))
+                    .send()
+                    .await;
+                match answer {
+                    Ok(response) if response.status().is_success() => {
+                        match response.json::<HeadOfficeFingers>().await {
+                            Ok(bundle) => {
+                                let connection = connection.clone();
+                                let outcome = tokio::task::spawn_blocking(move || {
+                                    let mut guard = connection.lock().map_err(|_| {
+                                        EdgeError::Persistence("edge connection is poisoned".into())
+                                    })?;
+                                    replace_from_head_office(&mut guard, &bundle.fingers)
+                                })
+                                .await;
+                                match outcome {
+                                    Ok(Ok((taken, retired))) if taken + retired > 0 => {
+                                        tracing::info!(taken, retired, "fingers from head office");
+                                    }
+                                    Ok(Ok(_)) => {}
+                                    Ok(Err(error)) => {
+                                        tracing::warn!(%error, "fingers from head office not kept")
+                                    }
+                                    Err(error) => tracing::warn!(%error, "finger task failed"),
+                                }
+                            }
+                            Err(error) => {
+                                tracing::warn!(%error, "head office's fingers did not read")
+                            }
+                        }
+                    }
+                    // An older head office answers 404: nothing to take yet.
+                    Ok(response) => {
+                        tracing::debug!(status = %response.status(), "no fingers from head office")
+                    }
+                    Err(error) => tracing::debug!(%error, "head office not reached for fingers"),
+                }
+            }
+            tokio::time::sleep(HEAD_OFFICE_FINGERS_EVERY).await;
+        }
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::edge::{EdgeRole, NodeContext, SiteId, SqliteEdge};
+
+    fn shop() -> SqliteEdge {
+        let node = NodeContext::new(
+            "store-07-edge".to_owned(),
+            EdgeRole::Store,
+            SiteId::new("store-07").unwrap_or_else(|error| panic!("site: {error}")),
+        )
+        .unwrap_or_else(|error| panic!("node: {error}"));
+        let shop = SqliteEdge::open_in_memory(node).unwrap_or_else(|error| panic!("open: {error}"));
+        {
+            let connection = shop.connection();
+            let guard = connection
+                .lock()
+                .unwrap_or_else(|error| panic!("lock: {error}"));
+            for (username, active) in [("siti", 1), ("budi", 1), ("lama", 0)] {
+                guard
+                    .execute(
+                        "INSERT INTO edge_user(id,username,display_name,password_hash,role,active,
+                                               auth_version,source,created_at,updated_at)
+                         VALUES(?1,?2,?2,'x','CASHIER',?3,1,'CLOUD','t','t')",
+                        params![Uuid::new_v4().to_string(), username, active],
+                    )
+                    .unwrap_or_else(|error| panic!("user {username}: {error}"));
+            }
+            for username in ["budi", "lama"] {
+                guard
+                    .execute(
+                        "INSERT INTO edge_fingerprint
+                           (finger_id,username,label,template_base64,reader_kind,
+                            enrolled_at,enrolled_by,active,updated_at)
+                         VALUES (?1,?2,'Jempol kanan','TE9DQUw=','ZK','t','kepala',1,'t')",
+                        params![format!("fp-{username}"), username],
+                    )
+                    .unwrap_or_else(|error| panic!("local finger {username}: {error}"));
+            }
+        }
+        shop
+    }
+
+    fn held(shop: &SqliteEdge) -> Vec<(String, i64, String)> {
+        let connection = shop.connection();
+        let guard = connection
+            .lock()
+            .unwrap_or_else(|error| panic!("lock: {error}"));
+        let mut statement = guard
+            .prepare(
+                "SELECT finger_id, active, template_base64 FROM edge_fingerprint ORDER BY finger_id",
+            )
+            .unwrap_or_else(|error| panic!("prepare: {error}"));
+        statement
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .unwrap_or_else(|error| panic!("query: {error}"))
+            .collect::<Result<_, _>>()
+            .unwrap_or_else(|error| panic!("rows: {error}"))
+    }
+
+    fn from_hr(username: &str) -> HeadOfficeFinger {
+        HeadOfficeFinger {
+            username: username.into(),
+            finger: "RIGHT_INDEX".into(),
+            format: "ZKFINGER_V10".into(),
+            template_base64: "SFJfVEVNUExBVEU=".into(),
+            revision: 1,
+        }
+    }
+
+    fn replace(shop: &SqliteEdge, fingers: &[HeadOfficeFinger]) -> (usize, usize) {
+        let connection = shop.connection();
+        let mut guard = connection
+            .lock()
+            .unwrap_or_else(|error| panic!("lock: {error}"));
+        replace_from_head_office(&mut guard, fingers).unwrap_or_else(|error| panic!("{error}"))
+    }
+
+    #[test]
+    fn hr_fingers_arrive_and_a_leavers_finger_is_retired_and_wiped() {
+        let shop = shop();
+        // HR's finger for siti arrives; one for somebody who does not sign in
+        // here is not taken; lama, who left, loses the finger enrolled here.
+        let (taken, retired) = replace(&shop, &[from_hr("siti"), from_hr("ghost")]);
+        assert_eq!((taken, retired), (1, 1));
+        assert_eq!(
+            held(&shop),
+            vec![
+                ("fp-budi".into(), 1, "TE9DQUw=".into()),
+                ("fp-lama".into(), 0, String::new()),
+                ("ho-siti-RIGHT_INDEX".into(), 1, "SFJfVEVNUExBVEU=".into()),
+            ]
+        );
+        // Asked again with the same answer, nothing moves.
+        assert_eq!(replace(&shop, &[from_hr("siti")]), (0, 0));
+        // HR withdraws it: retired and wiped here too; budi's local finger stays.
+        assert_eq!(replace(&shop, &[]), (0, 1));
+        let after = held(&shop);
+        assert!(after.contains(&("ho-siti-RIGHT_INDEX".into(), 0, String::new())));
+        assert!(after.contains(&("fp-budi".into(), 1, "TE9DQUw=".into())));
+        // Enrolled again: it comes back.
+        assert_eq!(replace(&shop, &[from_hr("siti")]), (1, 0));
+    }
+
+    #[test]
+    fn a_finger_is_said_in_the_tills_words() {
+        assert_eq!(finger_words("RIGHT_INDEX"), "Telunjuk kanan");
+        assert_eq!(finger_words("LEFT_THUMB"), "Jempol kiri");
+    }
+}

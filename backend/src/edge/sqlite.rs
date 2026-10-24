@@ -1513,6 +1513,24 @@ impl SqliteEdge {
                 )
                 .map_err(db)?;
         }
+        // Where a finger came from (24 Oct 2026): HR at head office
+        // (`fingerprint::replace_from_head_office`), or enrolled at this
+        // store before HR did it.
+        let a_finger_names_its_source: i64 = connection
+            .prepare_cached(
+                "SELECT COUNT(*) FROM pragma_table_info('edge_fingerprint') WHERE name='source'",
+            )
+            .map_err(db)?
+            .query_row([], |row| row.get(0))
+            .map_err(db)?;
+        if a_finger_names_its_source == 0 {
+            connection
+                .execute_batch(
+                    "ALTER TABLE edge_fingerprint ADD COLUMN source TEXT NOT NULL DEFAULT 'STORE'
+                     CHECK (source IN ('STORE', 'HO'))",
+                )
+                .map_err(db)?;
+        }
         // The attendance slice. Same reasoning again: five tables and four
         // indexes, all `IF NOT EXISTS`, no ALTER and no CHECK rebuilt, so it
         // creates rather than changes and needs no probe.
