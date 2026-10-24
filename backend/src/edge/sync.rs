@@ -3529,6 +3529,22 @@ fn apply_command_effect(tx: &Transaction<'_>, command: &PushedCommand) -> Result
             crate::edge::ops::enqueue_sync_now(action);
             Ok(())
         }
+        // Head office getting this server ready to leave its PC
+        // (`edge/removal.rs`). Only ever sent to a node advertising
+        // `node.removal.v1`.
+        crate::sync::node_ops::NODE_PREPARE_REMOVAL => {
+            let action = crate::sync::node_ops::parse_action(&command.payload).map_err(err)?;
+            crate::edge::ops::record_received(
+                tx,
+                action.action_id,
+                crate::sync::node_ops::NODE_PREPARE_REMOVAL,
+                &action.reason,
+                false,
+            )
+            .map_err(err)?;
+            crate::edge::ops::enqueue_prepare_removal(action);
+            Ok(())
+        }
         // The marker behind re-sent initial data. Everything ahead of it in
         // the stream is applied by now, so it is done where it stands.
         crate::sync::node_ops::NODE_RESNAPSHOT => {

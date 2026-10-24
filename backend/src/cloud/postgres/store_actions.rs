@@ -46,7 +46,8 @@ use crate::cloud::application::AppError;
 use crate::sync::device::{self as wire, TEST_PRINT_CAPABILITY};
 use crate::sync::node_ops::{
     ActionPayload, ActionReport, NodeOpPayload, NODE_ACTIONS_CAPABILITY, NODE_BACKUP,
-    NODE_DIAGNOSE, NODE_RESNAPSHOT, NODE_RESTART, NODE_SYNC_NOW,
+    NODE_DIAGNOSE, NODE_PREPARE_REMOVAL, NODE_REMOVAL_CAPABILITY, NODE_RESNAPSHOT, NODE_RESTART,
+    NODE_SYNC_NOW,
 };
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
@@ -61,6 +62,9 @@ pub const ACTION_RESEND_INITIAL_DATA: &str = "resend_initial_data";
 pub const ACTION_BACK_UP_NOW: &str = "back_up_now";
 pub const ACTION_DIAGNOSE: &str = "diagnose";
 pub const ACTION_SYNC_NOW: &str = "sync_now";
+/// Release the server to be uninstalled, once nothing would be lost
+/// (`edge/removal.rs`, 24 Oct 2026).
+pub const ACTION_PREPARE_REMOVAL: &str = "prepare_removal";
 /// Listed, never enabled: see [`UPDATE_DEFERRED`].
 pub const ACTION_UPDATE_SERVER: &str = "update_server";
 pub const ACTION_TEST_PRINT: &str = "test_print";
@@ -106,6 +110,7 @@ pub fn action_label(key: &str) -> &'static str {
         ACTION_BACK_UP_NOW => "Back up now",
         ACTION_DIAGNOSE => "Diagnose",
         ACTION_SYNC_NOW => "Sync now",
+        ACTION_PREPARE_REMOVAL => "Prepare for removal",
         ACTION_UPDATE_SERVER => "Update server",
         ACTION_TEST_PRINT => "Test print",
         // One word per idea with the store's Tills tab (0990): a suspended
@@ -124,6 +129,7 @@ fn target_of(key: &str) -> Option<&'static str> {
         | ACTION_BACK_UP_NOW
         | ACTION_DIAGNOSE
         | ACTION_SYNC_NOW
+        | ACTION_PREPARE_REMOVAL
         | ACTION_UPDATE_SERVER => Some(TARGET_SERVER),
         ACTION_TEST_PRINT
         | ACTION_SUSPEND_DEVICE
@@ -133,12 +139,16 @@ fn target_of(key: &str) -> Option<&'static str> {
     }
 }
 
-/// Restarting, re-sending everything and revoking cannot be taken back, so
-/// the request must say `confirm: true`.
+/// Restarting, re-sending everything and revoking cannot be taken back, and
+/// a release lets the server be uninstalled, so the request must say
+/// `confirm: true`.
 pub fn is_dangerous(key: &str) -> bool {
     matches!(
         key,
-        ACTION_RESTART_SERVER | ACTION_RESEND_INITIAL_DATA | ACTION_REVOKE_DEVICE
+        ACTION_RESTART_SERVER
+            | ACTION_RESEND_INITIAL_DATA
+            | ACTION_REVOKE_DEVICE
+            | ACTION_PREPARE_REMOVAL
     )
 }
 
@@ -149,6 +159,7 @@ fn node_command(key: &str) -> Option<&'static str> {
         ACTION_BACK_UP_NOW => Some(NODE_BACKUP),
         ACTION_DIAGNOSE => Some(NODE_DIAGNOSE),
         ACTION_SYNC_NOW => Some(NODE_SYNC_NOW),
+        ACTION_PREPARE_REMOVAL => Some(NODE_PREPARE_REMOVAL),
         _ => None,
     }
 }
@@ -160,8 +171,8 @@ fn node_command(key: &str) -> Option<&'static str> {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct StoreActionOption {
     /// `restart_server`, `resend_initial_data`, `back_up_now`, `diagnose`,
-    /// `sync_now`, `update_server`, `test_print`, `suspend_device`,
-    /// `reactivate_device` or `revoke_device`.
+    /// `sync_now`, `prepare_removal`, `update_server`, `test_print`,
+    /// `suspend_device`, `reactivate_device` or `revoke_device`.
     pub key: String,
     pub label: String,
     /// `server` or `device`.
@@ -427,6 +438,10 @@ fn build_menu(
         .capabilities
         .iter()
         .any(|capability| capability == TEST_PRINT_CAPABILITY);
+    let releasable = facts
+        .capabilities
+        .iter()
+        .any(|capability| capability == NODE_REMOVAL_CAPABILITY);
     let busy = |key: &str, device: Option<&str>| -> Option<String> {
         flying
             .iter()
@@ -458,6 +473,11 @@ fn build_menu(
             return Some("The server has not reported in yet.".into());
         }
         if needs_capability && !capable {
+            return Some(too_old());
+        }
+        // A build before it would block on the command (an unknown type
+        // stops the lane), and its uninstaller would not wait for it anyway.
+        if key == ACTION_PREPARE_REMOVAL && !releasable {
             return Some(too_old());
         }
         busy(key, None)
@@ -512,6 +532,16 @@ fn build_menu(
             ACTION_SYNC_NOW,
             true,
             format!("Send {name}'s waiting records to head office and fetch its instructions now?"),
+        ),
+        server(
+            ACTION_PREPARE_REMOVAL,
+            true,
+            format!(
+                "Let {name}'s server be uninstalled? It sends everything waiting and checks no \
+                 record is unsent, no cash drawer open and no basket held. If all is clear it \
+                 may be uninstalled within 24 hours, and its data leaves with it; if not, it \
+                 says what is in the way."
+            ),
         ),
         server(
             ACTION_UPDATE_SERVER,
@@ -802,14 +832,15 @@ pub async fn request_store_action(
             .await?;
             (Some(command), None, true)
         }
-        ACTION_SYNC_NOW => {
+        ACTION_SYNC_NOW | ACTION_PREPARE_REMOVAL => {
+            let kind = node_command(key).unwrap_or(NODE_SYNC_NOW);
             let payload = serde_json::to_value(ActionPayload {
                 action_id,
                 reason: reason.clone(),
             })?;
             let command = super::sync::issue_command_tx(
                 &mut tx,
-                NODE_SYNC_NOW,
+                kind,
                 &payload,
                 actor,
                 Some(expires_at),
@@ -1348,10 +1379,33 @@ mod tests {
         ] {
             assert!(find(&menu, key).is_some_and(|o| o.enabled), "{key}");
         }
+        // Not until the build also waits for the release when uninstalled.
+        assert!(find(&menu, ACTION_PREPARE_REMOVAL).is_some_and(|o| !o.enabled));
         assert!(find(&menu, ACTION_TEST_PRINT).is_some_and(|o| o.enabled));
         assert!(find(&menu, ACTION_SUSPEND_DEVICE).is_some_and(|o| o.note_required));
         assert!(find(&menu, ACTION_REACTIVATE_DEVICE).is_none());
         assert!(find(&menu, ACTION_REVOKE_DEVICE).is_some_and(|o| o.danger));
+    }
+
+    #[test]
+    fn a_server_that_waits_for_its_release_may_be_prepared_for_removal() {
+        let menu = build_menu(
+            &facts(&[NODE_ACTIONS_CAPABILITY, NODE_REMOVAL_CAPABILITY]),
+            &[],
+            &[],
+            true,
+            Utc::now(),
+        );
+        assert!(
+            find(&menu, ACTION_PREPARE_REMOVAL).is_some_and(|o| o.enabled
+                && o.danger
+                && o.target == TARGET_SERVER
+                && o.confirm_sentence.contains("24 hours"))
+        );
+        assert_eq!(
+            node_command(ACTION_PREPARE_REMOVAL),
+            Some(NODE_PREPARE_REMOVAL)
+        );
     }
 
     #[test]

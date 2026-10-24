@@ -24,8 +24,13 @@
   behaviour is tested once rather than once in Rust and once in XML.
 
   Upgrades replace the program and keep %ProgramData%\itulah\store — the
-  database, the enrolment, the logs — untouched. Uninstall keeps it too: it
-  may hold sales that never reached head office.
+  database, the enrolment, the logs — untouched. Uninstall waits for head
+  office: a connected server goes only once head office chose Prepare for
+  removal (a release good for 24 hours) and nothing is unsent, no drawer open
+  and no basket held — checked again at that moment (`edge/removal.rs`). The
+  data then goes with the program. FORCE_UNINSTALL=1, for a PC that can no
+  longer reach head office, skips the checks; whatever is unsent is first
+  copied to %ProgramData%\itulah\backups, administrators only.
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
@@ -38,6 +43,7 @@
     <MediaTemplate EmbedCab="yes" />
 
     <Property Id="ENROLL_CODE" Secure="yes" Hidden="yes" />
+    <Property Id="FORCE_UNINSTALL" Secure="yes" />
     <!-- Central's address, from the build (-d CloudUrl=…), so nobody types it.
          `msiexec … CLOUD_URL=…` still overrides it. -->
     <?ifndef CloudUrl?>
@@ -95,6 +101,23 @@
                   Execute="deferred" Impersonate="no" Return="ignore" />
     <CustomAction Id="InstallService" FileRef="StoreExe"
                   ExeCommand="install-service"
+                  Execute="deferred" Impersonate="no" Return="check" />
+    <!-- Removing the product asks `store.exe can-uninstall` first (as SYSTEM,
+         which may read the data folder) and stops there, nothing changed,
+         unless head office released the server and nothing would be lost.
+         With people at the PC it shows why in a window. `wipe-data` then
+         removes the data once the service is stopped, copying the database
+         to %ProgramData%\itulah\backups first when anything is still unsent
+         (a sale in the seconds before the stop, or a forced removal).
+         Upgrades skip all of it: the data stays for the new version. -->
+    <CustomAction Id="CheckUnsentUI" FileRef="StoreExe"
+                  ExeCommand="can-uninstall --ui"
+                  Execute="deferred" Impersonate="no" Return="check" />
+    <CustomAction Id="CheckUnsentQuiet" FileRef="StoreExe"
+                  ExeCommand="can-uninstall"
+                  Execute="deferred" Impersonate="no" Return="check" />
+    <CustomAction Id="WipeData" FileRef="StoreExe"
+                  ExeCommand="wipe-data"
                   Execute="deferred" Impersonate="no" Return="check" />
     <CustomAction Id="UninstallService" FileRef="StoreExe"
                   ExeCommand="uninstall-service"
@@ -170,8 +193,14 @@
     <UIRef Id="WixUI_Common" />
 
     <InstallExecuteSequence>
+      <Custom Action="CheckUnsentUI" Before="UninstallService"
+              Condition="Installed AND REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE AND NOT FORCE_UNINSTALL AND UILevel &gt; 2" />
+      <Custom Action="CheckUnsentQuiet" After="CheckUnsentUI"
+              Condition="Installed AND REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE AND NOT FORCE_UNINSTALL AND UILevel &lt;= 2" />
       <Custom Action="UninstallService" Before="RemoveFiles"
               Condition="Installed AND REMOVE=&quot;ALL&quot;" />
+      <Custom Action="WipeData" After="UninstallService"
+              Condition="Installed AND REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
       <Custom Action="StageCode" After="InstallFiles"
               Condition="NOT REMOVE AND ENROLL_CODE" />
       <Custom Action="InstallService" After="StageCode"

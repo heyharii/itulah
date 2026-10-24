@@ -31,6 +31,13 @@
 //! What came of each is written on the node (`edge_node_action`, sqlite
 //! 0067) and carried up in the heartbeat as [`ActionReport`]s — the same
 //! channel a test page's outcome already takes.
+//!
+//! # Letting a server go (24 Oct 2026)
+//!
+//! - `node.prepare_removal` — send what is waiting, then check nothing is
+//!   unsent, refused or in an open drawer; if so, release the server to be
+//!   uninstalled for a day (`edge/removal.rs`). Sent only to a node
+//!   advertising [`NODE_REMOVAL_CAPABILITY`].
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -52,6 +59,12 @@ pub const NODE_RESNAPSHOT: &str = "node.resnapshot";
 /// each (`NodeStatus::action_results`).
 pub const NODE_ACTIONS_CAPABILITY: &str = "node.actions.v1";
 
+/// Get the server ready to leave its PC (24 Oct 2026, `edge/removal.rs`).
+pub const NODE_PREPARE_REMOVAL: &str = "node.prepare_removal";
+/// What a node's heartbeat carries once its build takes
+/// [`NODE_PREPARE_REMOVAL`] and its uninstaller asks for the release.
+pub const NODE_REMOVAL_CAPABILITY: &str = "node.removal.v1";
+
 /// The four operations every build since 0475 takes. The fleet page's own
 /// `ask` endpoint is held to these: it does not look at capabilities.
 pub fn is_node_op(command_type: &str) -> bool {
@@ -61,9 +74,14 @@ pub fn is_node_op(command_type: &str) -> bool {
     )
 }
 
-/// The instructions only a node advertising [`NODE_ACTIONS_CAPABILITY`] takes.
+/// The instructions carried by an [`ActionPayload`], so always followed: only
+/// a node advertising [`NODE_ACTIONS_CAPABILITY`] takes them, and
+/// [`NODE_PREPARE_REMOVAL`] also needs [`NODE_REMOVAL_CAPABILITY`].
 pub fn is_action_op(command_type: &str) -> bool {
-    matches!(command_type, NODE_SYNC_NOW | NODE_RESNAPSHOT)
+    matches!(
+        command_type,
+        NODE_SYNC_NOW | NODE_RESNAPSHOT | NODE_PREPARE_REMOVAL
+    )
 }
 
 /// An action as the node last saw it, carried in every heartbeat until it is
@@ -197,7 +215,8 @@ pub struct NodeOpPayload {
     pub action_id: Option<Uuid>,
 }
 
-/// `node.sync_now` and `node.resnapshot`: always followed.
+/// `node.sync_now`, `node.resnapshot` and `node.prepare_removal`: always
+/// followed.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ActionPayload {
@@ -276,5 +295,13 @@ mod tests {
         assert!(validate(NODE_SYNC_NOW, &json!({ "reason": "now", "action_id": id })).is_ok());
         assert!(validate(NODE_RESNAPSHOT, &json!({ "reason": "now" })).is_err());
         assert!(!is_node_op(NODE_SYNC_NOW) && is_action_op(NODE_RESNAPSHOT));
+        // Never one the fleet page's `ask` may send: it reads no capability.
+        assert!(!is_node_op(NODE_PREPARE_REMOVAL));
+        assert!(validate(
+            NODE_PREPARE_REMOVAL,
+            &json!({ "reason": "ganti PC", "action_id": id })
+        )
+        .is_ok());
+        assert!(validate(NODE_PREPARE_REMOVAL, &json!({ "reason": "ganti PC" })).is_err());
     }
 }

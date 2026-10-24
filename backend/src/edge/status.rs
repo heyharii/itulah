@@ -42,7 +42,7 @@ const DC_CAPABILITIES: [&str; 8] = [
     crate::sync::node_ops::NODE_ACTIONS_CAPABILITY,
 ];
 
-const STORE_CAPABILITIES: [&str; 11] = [
+const STORE_CAPABILITIES: [&str; 12] = [
     "inventory.pools.owned",
     "inventory.movements.read",
     crate::sync::workflow::STORE_INBOUND_CAPABILITY,
@@ -55,6 +55,8 @@ const STORE_CAPABILITIES: [&str; 11] = [
     crate::sync::node_ops::NODE_ACTIONS_CAPABILITY,
     // Head office's take of a piece it matched an unmatched sale to.
     crate::sync::unmatched::UNMATCHED_SALE_TAKE_CAPABILITY,
+    // Prepare for removal, and an uninstaller that waits for it.
+    crate::sync::node_ops::NODE_REMOVAL_CAPABILITY,
 ];
 
 pub const fn node_capabilities(role: crate::edge::EdgeRole) -> &'static [&'static str] {

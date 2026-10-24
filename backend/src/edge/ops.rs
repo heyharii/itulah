@@ -23,7 +23,8 @@ use crate::edge::console::StopReason;
 use crate::edge::status::StatusSource;
 use crate::sync::node_ops::{
     ActionPayload, ActionReport, NodeOpPayload, UpdatePayload, ACTION_DONE, ACTION_FAILED,
-    ACTION_RUNNING, NODE_BACKUP, NODE_DIAGNOSE, NODE_RESNAPSHOT, NODE_RESTART, NODE_SYNC_NOW,
+    ACTION_RUNNING, NODE_BACKUP, NODE_DIAGNOSE, NODE_PREPARE_REMOVAL, NODE_RESNAPSHOT,
+    NODE_RESTART, NODE_SYNC_NOW,
 };
 use chrono::{DateTime, Local, SecondsFormat, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -62,6 +63,18 @@ pub fn enqueue(kind: &str, payload: NodeOpPayload) {
 pub fn enqueue_sync_now(action: ActionPayload) {
     enqueue(
         NODE_SYNC_NOW,
+        NodeOpPayload {
+            reason: action.reason,
+            force: false,
+            action_id: Some(action.action_id),
+        },
+    );
+}
+
+/// Queue `node.prepare_removal` (`edge/removal.rs`).
+pub fn enqueue_prepare_removal(action: ActionPayload) {
+    enqueue(
+        NODE_PREPARE_REMOVAL,
         NodeOpPayload {
             reason: action.reason,
             force: false,
@@ -352,7 +365,10 @@ fn resume(
         match Uuid::parse_str(&id) {
             Ok(action_id)
                 if fresh
-                    && matches!(kind.as_str(), NODE_BACKUP | NODE_DIAGNOSE | NODE_SYNC_NOW) =>
+                    && matches!(
+                        kind.as_str(),
+                        NODE_BACKUP | NODE_DIAGNOSE | NODE_SYNC_NOW | NODE_PREPARE_REMOVAL
+                    ) =>
             {
                 let _ = guard.execute(
                     "UPDATE edge_node_action SET state = 'QUEUED' WHERE action_id = ?1",
@@ -426,6 +442,9 @@ pub fn spawn_runner(
                 NODE_BACKUP => backup(&source, data_dir.clone(), action).await,
                 NODE_DIAGNOSE => diagnose(&source, data_dir.clone(), action).await,
                 NODE_SYNC_NOW => sync_now(&source, action).await,
+                NODE_PREPARE_REMOVAL => {
+                    prepare_removal(&source, data_dir.clone(), action, payload.reason).await
+                }
                 other => {
                     tracing::warn!(kind = other, "unknown operation");
                     mark(
@@ -767,6 +786,161 @@ async fn sync_now(source: &Arc<StatusSource>, action: Option<Uuid>) {
     let _ =
         tokio::task::spawn_blocking(move || mark(&connection, action, state, &sentence, &detail))
             .await;
+}
+
+/// `mark`, off the runtime's threads.
+async fn mark_soon(
+    connection: &Arc<Mutex<Connection>>,
+    action: Option<Uuid>,
+    state: &'static str,
+    sentence: String,
+    detail: Value,
+) {
+    let connection = connection.clone();
+    let _ =
+        tokio::task::spawn_blocking(move || mark(&connection, action, state, &sentence, &detail))
+            .await;
+}
+
+/// Get this server ready to leave its PC (`edge/removal.rs`): send what is
+/// waiting — round after round, two minutes at most, until a round fails —
+/// then read what stands in the way. Clear, it writes head office's release
+/// and says until when; not, it takes back any older release and says why.
+async fn prepare_removal(
+    source: &Arc<StatusSource>,
+    data_dir: Option<PathBuf>,
+    action: Option<Uuid>,
+    reason: String,
+) {
+    use crate::edge::removal;
+    let connection = source.connection.clone();
+    let Some(dir) = data_dir else {
+        mark_soon(
+            &connection,
+            action,
+            ACTION_FAILED,
+            "This server is not an installed one: there is nothing to release.".into(),
+            json!({}),
+        )
+        .await;
+        return;
+    };
+    mark_soon(
+        &connection,
+        action,
+        ACTION_RUNNING,
+        "Sending what is waiting, then checking nothing would be lost.".into(),
+        json!({}),
+    )
+    .await;
+    let reading = {
+        let connection = connection.clone();
+        move || {
+            connection
+                .lock()
+                .map_err(|_| "database lock poisoned".to_owned())
+                .and_then(|guard| {
+                    removal::Readiness::read(&guard).map_err(|error| error.to_string())
+                })
+        }
+    };
+    if let Some(sync) = source.sync.clone() {
+        let began = Instant::now();
+        let mut asked_at: Option<DateTime<Utc>> = None;
+        while began.elapsed() < SYNC_NOW_PATIENCE {
+            let unsent = tokio::task::spawn_blocking(reading.clone())
+                .await
+                .ok()
+                .and_then(Result::ok)
+                .map(|readiness| readiness.unsent);
+            if unsent == Some(0) {
+                break;
+            }
+            if let Some(at) = asked_at {
+                let status = {
+                    let sync = sync.clone();
+                    tokio::task::spawn_blocking(move || sync.status().ok())
+                        .await
+                        .ok()
+                        .flatten()
+                };
+                let failed = status
+                    .as_ref()
+                    .is_some_and(|status| status.last_error_at.is_some_and(|when| when >= at));
+                if failed {
+                    break;
+                }
+                let sent = status
+                    .as_ref()
+                    .is_some_and(|status| status.last_success_at.is_some_and(|when| when >= at));
+                if !sent {
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+                    continue;
+                }
+            }
+            asked_at = Some(Utc::now());
+            sync.trigger();
+            tokio::time::sleep(Duration::from_secs(2)).await;
+        }
+    }
+    let readiness = match tokio::task::spawn_blocking(reading).await {
+        Ok(Ok(readiness)) => readiness,
+        Ok(Err(error)) => {
+            removal::withdraw_release(&dir);
+            mark_soon(
+                &connection,
+                action,
+                ACTION_FAILED,
+                format!("Not ready to remove: the database could not be read ({error})."),
+                json!({ "error": error }),
+            )
+            .await;
+            return;
+        }
+        Err(error) => {
+            tracing::warn!(%error, "the removal check did not run");
+            return;
+        }
+    };
+    let mut detail = json!({
+        "unsent": readiness.unsent,
+        "oldest_unsent": readiness.oldest_unsent,
+        "open_drawers": readiness.open_drawers,
+        "held_baskets": readiness.held_baskets,
+        "refused": readiness.refused,
+    });
+    let obstacles = readiness.obstacles();
+    if !obstacles.is_empty() {
+        removal::withdraw_release(&dir);
+        mark_soon(
+            &connection,
+            action,
+            ACTION_FAILED,
+            format!("Not ready to remove. {}", obstacles.join(" ")),
+            detail,
+        )
+        .await;
+        return;
+    }
+    let (state, sentence) = match removal::write_release(&dir, action, &reason) {
+        Ok(release) => {
+            detail["released_until"] = json!(release.until);
+            tracing::warn!(until = %release.until, "head office released this server for removal");
+            (
+                ACTION_DONE,
+                format!(
+                    "Ready to remove: everything has reached head office and no drawer is open. \
+                     Uninstall it before {}.",
+                    removal::until_words(&release)
+                ),
+            )
+        }
+        Err(error) => (
+            ACTION_FAILED,
+            format!("Nothing would be lost, but the release was not written: {error}"),
+        ),
+    };
+    mark_soon(&connection, action, state, sentence, detail).await;
 }
 
 async fn upload_diagnosis(

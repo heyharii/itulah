@@ -617,6 +617,7 @@ svg.lucide.inl { width: 15px; height: 15px; vertical-align: -2px; }
   .srow.fresh, .sdot.live, .codebox.shake { animation: none !important; }
 }
 
+.inp{display:block;width:100%;margin-top:4px;height:40px;border:1px solid var(--hairline);border-radius:var(--r-inner);padding:0 10px;font:inherit;font-size:15px;color:var(--ink);background:#fff}
 </style>
 </head>
 <body>
@@ -934,7 +935,7 @@ function pcWin() {
   let main = ""
   if (p.page === "code") {
     const ok = (p.a + p.b).length === 8
-    main = `<h2>Connect this PC to Central</h2><p class="lede">Type the install code from Central: Stores › your store › Server.</p>
+    main = `<h2>Connect this PC to Central</h2><p class="lede">Type the install code from Central: Stores › your store › Server. Central's address is built into this installer, so the code is all it asks.</p>
       <div class="codebox ${p.err ? "bad" : ""}" id="codebox"><input id="ca" maxlength="9" value="${esc(p.a)}" autocomplete="off" spellcheck="false" aria-label="Install code, first part"><span class="dash">–</span><input id="cb" maxlength="4" value="${esc(p.b)}" autocomplete="off" spellcheck="false" aria-label="Install code, second part"></div>
       ${p.err ? `<div class="err">${p.err}</div>` : ""}
       <div class="foot"><button class="btn primary" data-install ${ok ? "" : "disabled"}>Install</button></div>`
@@ -1039,8 +1040,8 @@ function tillScreen() {
     } else if (t.state === "waiting") {
       const first = !S.tills.some((x, j) => j !== i && x.state === "ready")
       l = first
-        ? `<h2>A supervisor approves ${name}</h2><p class="lede">No till has joined yet, so approve it here.</p>${pinBlock("first", "Dewi Lestari")}`
-        : `<h2>Waiting for a supervisor</h2><p class="lede">At Kasir 1, a supervisor approves ${name} with their PIN.</p><div class="found2"><span class="spin2"></span><span class="hint">Asked 10 Oct 2026, 09:58 · POS-DESKTOP-${i + 1}</span></div>`
+        ? `<h2>A supervisor approves ${name}</h2><p class="lede">No till has joined yet, so a supervisor signs in here.</p>${joinCode(i)}${firstApprove(i)}`
+        : `<h2>Waiting for a supervisor</h2><p class="lede">At Kasir 1, a supervisor approves ${name} with their PIN.</p>${joinCode(i)}<div class="found2"><span class="spin2"></span><span class="hint">Asked 10 Oct 2026, 09:58 · POS-DESKTOP-${i + 1}</span></div>`
     } else if (t.state === "test") {
       const T = t.tests
       l = `<h2>Printer and drawer</h2><p class="lede">${name} has joined Purwokerto.</p>
@@ -1064,6 +1065,30 @@ function lockScreen(i) {
         ${st.opened ? `<span class="badge-s ok">Open</span><button class="btn primary posbtn" style="width:100%">${ic("fingerprint")}Sign in to open a shift</button>`
           : `<span class="hint">This store is not open yet — head office opens it from Central.</span>`}</div>`}
   </div>`
+}
+/* The till's code and number, the way the real join screen shows them
+   (pos-desktop join.tsx): the supervisor must see the same number. */
+function joinCode(i) {
+  const code = ["6NG-7K1", "N1M-1N0"][i], num = ["255 192", "789 381"][i]
+  return `<div class="card" style="display:flex;justify-content:space-around;padding:14px 10px;margin-bottom:12px;text-align:center">
+    <span class="two"><span class="b">Till code</span><span class="a" style="font-size:22px;letter-spacing:.08em">${code}</span></span>
+    <span class="two"><span class="b">Verification number</span><span class="a" style="font-size:22px;color:var(--accent)">${num}</span></span></div>`
+}
+/* The first till of a store: a supervisor signs in at it with their own
+   Central login (built and tried on Windows, 24 Oct 2026). Later tills are
+   approved with a supervisor's PIN at a till that has joined. */
+function firstApprove(i) {
+  const f = S.pos.first || (S.pos.first = { signed: false, kind: "new" })
+  if (!f.signed) return `<div class="card" style="padding:14px;display:flex;flex-direction:column;gap:10px">
+      <b>Approve at this till</b><span class="hint">Works for the first till in this store. Later tills are approved with a supervisor's PIN at a till that has joined.</span>
+      <label class="hint">Supervisor username<input class="inp" value="dewi" readonly></label>
+      <label class="hint">Password<input class="inp" type="password" value="Password01" readonly></label>
+      <div><button class="btn primary posbtn" data-first-sign>Sign in</button></div></div>`
+  return `<div class="card" style="padding:14px;display:flex;flex-direction:column;gap:10px">
+      <b>Approve at this till</b><span class="hint">Signed in as Dewi Lestari. Check first: the code and number above.</span>
+      <div class="seg">${[["new", "New till"], ["replace", "Replaces an old till"]].map(([k, l]) => `<button data-first-kind="${k}" aria-pressed="${f.kind === k}">${l}</button>`).join("")}</div>
+      <label class="hint">Till name<input class="inp" placeholder="Leave empty for the next number (Kasir ${i + 1})"></label>
+      <div><button class="btn primary posbtn" data-first-approve>Approve this till</button></div></div>`
 }
 function pinBlock(kind, who) {
   const p = S.pos.pinFor === kind ? S.pos.pin : ""
@@ -1203,6 +1228,9 @@ document.addEventListener("click", (e) => {
   if (t("[data-recv-x]")) { S.phone.recv = false; render(); return }
   if (t("[data-recv-go]")) { const v = Number(($("#cnt") || {}).value || 0); if (!v) return; S.store.firstStock = true; S.store.received = v; S.phone.recv = false; ping("hub"); toast(v < 240 ? "Received. Completed · issue" : "Received. Completed"); return }
   /* tills */
+  if (t("[data-first-sign]")) { S.pos.first.signed = true; render(); return }
+  if ((el = t("[data-first-kind]"))) { S.pos.first.kind = el.dataset.firstKind; render(); return }
+  if (t("[data-first-approve]")) { S.tills[S.tv].state = "test"; S.pos.first = null; render(); return }
   if (t("[data-ask]")) { const i = S.tv; S.tills[i].state = "waiting"; if (i === 1 && S.tills[0].state === "ready") ping("till"); render(); return }
   if ((el = t("[data-pin]"))) {
     const kind = el.dataset.pinfor, d = el.dataset.pin

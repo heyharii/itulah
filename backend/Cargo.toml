@@ -147,7 +147,7 @@ uuid = { version = "=1.16.0", features = ["serde", "v4"] }
 [target.'cfg(windows)'.dependencies]
 windows-service = "=0.8.0"
 # A USB UPS presents itself as a battery (`edge/power.rs`).
-windows-sys = { version = "=0.61.2", features = ["Win32_System_Power", "Win32_Security_Cryptography", "Win32_Foundation"] }
+windows-sys = { version = "=0.61.2", features = ["Win32_System_Power", "Win32_Security_Cryptography", "Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
 
 [[test]]
 name = "contract_types"

@@ -16,7 +16,10 @@
 #   sudo ./install-store.sh --lock --force ...           lock even though it has not connected
 #   sudo ./install-store.sh --unlock                     undo --lock (console, ssh, firewall)
 #   sudo ./install-store.sh --ups ...                    also watch a USB UPS (NUT)
-#   sudo ./install-store.sh --uninstall                  remove the service; keep the data
+#   sudo ./install-store.sh --uninstall                  remove the service and its data, once head
+#                                                        office chose Prepare for removal and nothing
+#                                                        is unsent (--force: a PC that cannot reach
+#                                                        Central; anything unsent is copied first)
 #
 # Run from the unpacked release directory: it expects `store`, `web/` and
 # `store-edge.service` beside it (with --lock also `central-status.sh` and
@@ -288,13 +291,26 @@ if [[ $UNLOCK -eq 1 ]]; then
 fi
 
 if [[ $UNINSTALL -eq 1 ]]; then
+    # Head office decides (edge/removal.rs): a connected server goes once
+    # head office chose Prepare for removal and nothing is unsent, no drawer
+    # open, no basket held. --force, for a machine that can no longer reach
+    # Central, skips the check; whatever is unsent is copied to
+    # /var/lib/itulah/backups before the data goes.
+    as_node() { runuser -u itulah -- env ITULAH_DATA_DIR="$DATA" "$PREFIX/store" "$@"; }
+    if [[ -x "$PREFIX/store" && $FORCE -ne 1 ]] && ! as_node can-uninstall; then
+        echo "NOT UNINSTALLED (see above). Run again with --force only for a machine that can no longer reach Central." >&2
+        exit 75
+    fi
     systemctl disable --now "$UNIT" 2>/dev/null || true
+    if [[ -x "$PREFIX/store" ]]; then
+        as_node wipe-data || { echo "the data was not removed" >&2; exit 1; }
+    fi
     rm -f "/etc/systemd/system/$UNIT.service"
     rm -rf "/etc/systemd/system/$UNIT.service.d"
     rm -f /usr/local/bin/store
     rm -rf "$PREFIX"
     systemctl daemon-reload
-    echo "Removed. The shop's data is still in $DATA — it may hold sales not yet sent."
+    echo "Removed, with the shop's data (everything had reached Central, or a copy is in /var/lib/itulah/backups)."
     exit 0
 fi
 

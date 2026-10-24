@@ -8,6 +8,11 @@
 //! <binary> service          (Windows) what the Service Control Manager starts
 //! <binary> install-service  (Windows) register, configure and start the service
 //! <binary> uninstall-service (Windows) stop and remove it; the data stays
+//! <binary> can-uninstall    exit 3 unless head office released it and nothing
+//!                           would be lost (`edge/removal.rs`); --ui says why
+//!                           in a window
+//! <binary> wipe-data        remove the data directory, copying the database
+//!                           aside first when anything is still unsent
 //! <binary> --version
 //! ```
 //!
@@ -29,7 +34,7 @@
 //! directory and runs unattended (`edge/node.rs`). Without it nothing changes
 //! for a developer: `.env` and the old defaults decide.
 
-use crate::edge::{diagnose, enrolment, node, EdgeRole};
+use crate::edge::{diagnose, enrolment, node, removal, EdgeRole};
 use std::{env, path::PathBuf};
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
@@ -89,6 +94,39 @@ pub fn main(default_role: EdgeRole) -> Result<(), BoxError> {
     // lets the MSI stage a code or run a diagnosis from a plain elevated
     // prompt.
     let data_dir = node::installed_data_dir(default_role, cfg!(windows) && command != "run");
+
+    // The uninstaller's two questions (deploy/windows/store.wxs,
+    // install-store.sh --uninstall), asked before `node.env` is loaded: they
+    // read only the database and the release, and a key that will not unseal
+    // must not keep a PC from being removed.
+    match command {
+        "can-uninstall" => {
+            return match removal::may_uninstall(default_role, data_dir.as_deref()) {
+                Ok(()) => {
+                    println!("Nothing on this PC is waiting for Central: it may be uninstalled.");
+                    Ok(())
+                }
+                Err(refusal) => {
+                    eprintln!("{refusal}");
+                    if args.iter().any(|arg| arg == "--ui") {
+                        crate::edge::notice::alert("Central Store Server", &refusal);
+                    }
+                    std::process::exit(3);
+                }
+            };
+        }
+        "wipe-data" => {
+            match removal::wipe(default_role, data_dir.as_deref())? {
+                Some(kept) => println!(
+                    "Data removed; what had not reached Central is kept at {}",
+                    kept.display()
+                ),
+                None => println!("Data removed."),
+            }
+            return Ok(());
+        }
+        _ => {}
+    }
     node::prepare_environment(data_dir.as_deref())?;
 
     match command {

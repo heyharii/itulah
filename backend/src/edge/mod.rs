@@ -31,6 +31,7 @@ pub mod http;
 /// Deliveries head office announced to this shop, counted blind on arrival.
 pub mod inbound;
 pub mod node;
+pub mod notice;
 pub mod ops;
 pub mod outbound;
 pub mod pace;
@@ -45,6 +46,8 @@ pub mod pos_stop;
 pub mod power;
 pub mod pricing;
 pub mod printing;
+/// A server leaving its PC: head office's release, and nothing lost (24 Oct 2026).
+pub mod removal;
 pub mod reports;
 pub mod rfid;
 pub mod secret;
